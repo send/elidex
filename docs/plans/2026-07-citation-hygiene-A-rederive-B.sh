@@ -28,15 +28,28 @@ print("  by catalog key : same=%d diff=%d" % (
     sum(1 for a,_,b in bad if (cat.get(a) or {}).get("shortname")==(cat.get(b) or {}).get("shortname")),
     sum(1 for a,_,b in bad if (cat.get(a) or {}).get("shortname")!=(cat.get(b) or {}).get("shortname"))))
 def dig(sn):
+    """None means NOT MEASURED. `webref heading <bogus> ''` exits 1 with empty
+    stdout, so digesting stdout alone made two lookups that both FAILED hash
+    identically and land in `same` -- "these two shortnames agree" asserted of a
+    comparison that never happened. A shortname of None (no round-trip result at
+    all) is the same non-answer, one step earlier."""
+    if not sn:
+        return None
     r = subprocess.run([sys.executable, ".claude/tools/webref", "heading", sn, ""],
                        capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
     return hashlib.md5(r.stdout.encode()).hexdigest()
-same = diff = 0; examples = []
+same = diff = unresolved = 0; examples = []
 for a, lab, b in bad:
-    if dig(a) == dig(b): same += 1
-    else: diff += 1; examples.append((a, lab, b))
-print(f"  by `webref heading` output : same={same} diff={diff}   <- the memo's criterion")
-for e in examples: print("     DIFFERENT:", e)
+    da, db = dig(a), dig(b)
+    if da is None or db is None:
+        unresolved += 1; examples.append(("NOT-MEASURED", a, lab, b)); continue
+    if da == db: same += 1
+    else: diff += 1; examples.append(("DIFFERENT", a, lab, b))
+print(f"  by `webref heading` output : same={same} diff={diff} not-measured={unresolved}"
+      "   <- the memo's criterion")
+for e in examples: print("    ", e[0] + ":", e[1:])
 PY
 }
 
@@ -78,6 +91,7 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
 
 staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept not string
   local M=/Users/kazuaki/.claude/projects/-Users-kazuaki-repos-send-sh-elidex/memory
+  local rc=0
   # CONCEPT, not string. Draft 8 grepped `10 in-flight\|10 memos`, which does not
   # match MEMORY.md's Japanese `10 memo` -- so it missed one of the two live sites,
   # in a memo whose §3.1 mandates concept-greps. The concept is "a count of
@@ -86,7 +100,13 @@ staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept
   grep -rnE '[0-9]+ *(in-flight|memos?|memo)[^.]{0,40}(c3-plan|in-flight)|c3-plan[^.]{0,40}[0-9]+ *memo' \
     docs/plans/ "$M" 2>/dev/null
   echo "-- actual in-flight memo count in elidex-wt-c3-plan --"
-  git -C /Users/kazuaki/repos/send.sh/elidex-wt-c3-plan diff --name-only "$MAIN"...HEAD -- docs/plans/ | wc -l
+  # The count the greps above are checked AGAINST. `| wc -l` printed 0 when that
+  # worktree is gone, which would "confirm" every stale claim of a nonzero count
+  # as merely too high rather than unverified.
+  local n
+  _measure n git -C /Users/kazuaki/repos/send.sh/elidex-wt-c3-plan \
+                 diff --name-only "$MAIN"...HEAD -- docs/plans/ || rc=1
+  echo "$n"
   echo "-- 'wrong document' consequence --"
   grep -rn 'wrong document' docs/plans/ "$M" 2>/dev/null
   echo "-- dangling shas in memory --"
@@ -100,4 +120,5 @@ staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept
     else echo "UNKNOWN"; fi
     grep -rn "$s" "$M" docs/plans/ 2>/dev/null | sed 's/^/      /'
   done
+  return "$rc"
 }

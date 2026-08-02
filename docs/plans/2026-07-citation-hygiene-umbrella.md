@@ -118,12 +118,14 @@ contract for the fall-through it introduces**, which is a constraint below.
 - **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` was shared and owed a split. ✅ DISCHARGED by A-i**
   (`06e50b41`, with `3987bfbc` and `4121b667`), before A-i's implementation. It is now a **68-line dispatcher**
   — still the only entry point, so every memo's `<block>` citation resolves through the same path — sourcing
-  five parts on the slice seam: `-common` **550**, `-Ai` **156**, `-Aii` **272**, `-B` **103**, `-Aiii` **37**;
-  **1186** lines, **30** blocks, no part past the 700-800 authoring band (`wc -l …-A-rederive*.sh`; blocks by
+  five parts on the slice seam: `-common` **681**, `-Ai` **171**, `-Aii` **298**, `-B` **124**, `-Aiii` **63**;
+  **1405** lines, **32** blocks, no part past the 700-800 authoring band (`wc -l …-A-rederive*.sh`; blocks by
   `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`). ⚠ An earlier revision of this bullet said
   `-common` **468** / **1091** / **29**, re-derived at `4a3c4616` and then falsified by the two commits after
   it — the `:91` *counts are commands* constraint failing where a count was derived once and not re-derived
-  after the next edit to what it counts. A-i's §8 carries the same correction. Whichever
+  after the next edit to what it counts. ⚠ It then happened a **third** time: `-common` **550** / **1186** /
+  **30** was falsified by the `_measure` commit answering Codex round 1, which rewrote every counting site in
+  the harness. A-i's §8 carries the same correction. Whichever
   slice next touches it re-checks the band rather than re-splitting. ⚠ This bullet is a **status register**,
   not a scope grant, which is why A-i corrected it in its own commit set rather than deferring it to landing
   (§9's self-ratification rule covers the four scope-grant clauses in the A-i row, not this).

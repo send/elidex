@@ -336,10 +336,14 @@ So the three quantities this memo carried — `-common` **468**, **1091** total,
 by later commits *inside the commit set whose stated thesis is that every quantity was re-derived*. That is
 the umbrella's own `:91` constraint (*"Counts are commands. No slice memo carries a quantity it did not
 derive"*) failing on the memo that inherits it, and the failure mode is specifically **a count re-derived once
-and then not re-derived after the next edit to the thing it counts**. Layout now, derived (`wc -l
-…-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`): dispatcher
-**68**, `-common` **550**, `-Ai` **156**, `-Aii` **272**, `-B` **103**, `-Aiii` **37**; **1186** total,
-**30** blocks, largest part **550**, no part past the band.
+and then not re-derived after the next edit to the thing it counts**. ⚠ **And it happened a third time**: the
+`_measure` commit answering Codex round 1 rewrote every counting site in the harness, falsifying the
+`-common` **550** / **1186** / **30** this memo carried at `07b8e7d8`. Same failure, same cause — which is why
+the figures below are taken from the tree as it now stands rather than carried forward. Layout now, derived
+(`wc -l …-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`):
+dispatcher **68**, `-common` **681**, `-Ai` **171**, `-Aii` **298**, `-B` **124**, `-Aiii` **63**; **1405**
+total, **32** blocks, largest part **681** — still under the 700-800 authoring band, though `-common` is now
+within 19 lines of entering it, so the next slice to touch it re-checks before adding.
 
 ---
 
@@ -572,7 +576,7 @@ owed re-derivation.
    §9's rule rather than an exception to it: §9 bars a slice from widening or narrowing *what it is approved
    to do*, which is what (b)-(e) state. (a) `:112-113` is a **status register** — "901 lines … Whichever slice
    next touches it splits it first" — that this PR **discharged** (`06e50b41`; measured, `wc -l
-   …-A-rederive*.sh` is a 68-line dispatcher plus five parts, 1186 total, largest 550 — §8 re-derives these).
+   …-A-rederive*.sh` is a 68-line dispatcher plus five parts, 1405 total, largest 681 — §8 re-derives these).
    Landing it as an open
    obligation would set A-ii's author up to redo a split already in the tree. (f) the *review cost tracks
    blast radius* bullet reasoned from "A-i has one invariant", which **the same commit-set falsifies**

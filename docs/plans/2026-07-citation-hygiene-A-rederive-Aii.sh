@@ -12,8 +12,12 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
   # The "map" axis does not exist on origin/main (a module-local dict with no
   # import to fail), which is why §5's rows 6-9/14 read n/a there. The CLI axis
   # does exist, and rows 3/4/5 need it — draft 6's `column` never varied it.
-  local T; T=$(mktemp -d); git worktree add -q "$T" "$MAIN"
-  local F; F=$(mktemp -d); fixtures "$F" >/dev/null
+  # A worktree that was not created is not a measurement of `origin/main`: every
+  # row below would print an `EXIT=` for a `preflight.py` that is not there, and
+  # the block would still exit 0 on the status of its own cleanup.
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" "$MAIN" || { echo "!! cannot create the $MAIN worktree"; return 1; }
+  local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
   for st in both nocli; do
     [ "$st" = nocli ] && mv "$T/.claude/tools/webref" "$T/.shim"
     for f in labelled dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker; do
@@ -32,7 +36,7 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
   # against the carve's exit code, and draft 7 asserted "yes" for a fixture the
   # carve already exits 0 on (the fenced marker is inert prose there, so the
   # behavioural half of that pin passes at the carve BY ACCIDENT).
-  local F; F=$(mktemp -d); fixtures "$F" >/dev/null
+  local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
   for f in labelled dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker; do
     local out rc
     out=$(python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1); rc=$?
@@ -98,8 +102,9 @@ PY
 }
 
 instruments() {  # the three candidate instruments, measured on all three signals
-  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD
-  local R; R=$(mktemp -d); _runner "$R"
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
+  local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
   cat > "$R/probe.py" <<'PY'
 import subprocess, sys
 from pathlib import Path
@@ -127,8 +132,9 @@ PY
 }
 
 reloadstale() {  # §4.2.4 — an except-arm global survives a SUCCEEDING reload
-  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD
-  local R; R=$(mktemp -d); _runner "$R"
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
+  local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
   cat > "$T/_reload_probe.py" <<'PY'
 import importlib, sys
 from pathlib import Path
@@ -153,9 +159,10 @@ PY
 }
 
 remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is absent
-  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD
-  local R; R=$(mktemp -d); _runner "$R"
-  local F; F=$(mktemp -d); fixtures "$F" >/dev/null
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
+  local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
+  local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
   echo "-- the carve, map absent (in-process block; tree and CLI intact) --"
   ( cd "$T" && BLOCK_MAP=1 python3 "$R/runpf.py" "$PF" --no-grep-pass "$F/labelled.md" 2>&1 |
       grep -E 'unrecognized|extend|SPECS|unmapped|citation verify' )
@@ -165,11 +172,15 @@ remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is a
 }
 
 armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 predicates
-  local _n=0 _tab=0
-  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD
-  local R; R=$(mktemp -d); _runner "$R"
-  local F; F=$(mktemp -d); fixtures "$F" >/dev/null
-  _proto "$T"
+  local _n=0 _tab=0 rc=0
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
+  local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
+  local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
+  # Without the graft there is no §4.2.3 control flow to run the matrix against,
+  # and every row below would be an `EXIT=` from a file that does not exist.
+  _proto "$T" || { echo "!! _proto failed — there is no grafted control flow to measure"; \
+                   git worktree remove --force "$T"; rm -rf "$F" "$R"; return 1; }
   local PROTO="${PF%/*}/preflight_proto.py"
   _row() {  # $1=label $2=state $3=fixture $4...=flags
     local lbl=$1 st=$2 fx=$3; shift 3
@@ -215,8 +226,10 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
   # 20 other states"; measured they were 25 / 18 / 21.
   echo
   echo "STATES total=$_n  §5-tabulated=$_tab  untabulated=$((_n - _tab))"
-  echo "  (hand-picked cells, NOT a cross-product: 4 capability states x $(ls "$F" | wc -l | tr -d ' ') fixtures x 2 modes would be far more)"
+  local n_fx; _measure n_fx ls "$F" || rc=1
+  echo "  (hand-picked cells, NOT a cross-product: 4 capability states x $n_fx fixtures x 2 modes would be far more)"
   git worktree remove --force "$T"; rm -rf "$F" "$R"
+  return "$rc"
 }
 
 anchors() {  # §3.1 / §4.2 — origin/main by symbol, never by stored line number
@@ -232,8 +245,14 @@ import re, subprocess, sys
 sys.path.insert(0, ".claude/skills/elidex-plan-review")
 from preflight import _fence_state_array, find_coverage_map_section
 MARKER = re.compile(r"^\s*\*\*No spec surface\*\*")
-files = subprocess.run(["git", "ls-files", "docs/plans/"], capture_output=True,
-                       text=True).stdout.split()
+# A census over a file list that was never produced reports 0 markers, which is
+# also what "no markers" reports -- `_measure`'s inference bug, in python.
+_ls = subprocess.run(["git", "ls-files", "docs/plans/"], capture_output=True, text=True)
+if _ls.returncode != 0:
+    sys.stderr.write(_ls.stderr)
+    raise SystemExit("!! `git ls-files docs/plans/` failed (rc=%d); the counts below "
+                     "would read 0 for a reason that is not 'no markers'." % _ls.returncode)
+files = _ls.stdout.split()
 hits = loose = 0
 for f in files:
     try: lines = open(f, encoding="utf-8").read().splitlines()
@@ -265,7 +284,14 @@ for _ in range(100): lookup_section("html", "4.10.21")
 inp = (time.perf_counter() - t) / 100
 t = time.perf_counter()
 for _ in range(10):
-    subprocess.run([sys.executable, W, "heading", "--exact", "html", "4.10.21"], capture_output=True)
+    # An invocation that dies on startup is fast, and its speed is not the
+    # subprocess cost §11's ratio is about.
+    r = subprocess.run([sys.executable, W, "heading", "--exact", "html", "4.10.21"],
+                       capture_output=True)
+    if r.returncode != 0:
+        sys.stderr.write(r.stderr.decode(errors="replace"))
+        raise SystemExit("!! the webref CLI exited %d; a failed invocation is not a "
+                         "timing of a successful one." % r.returncode)
 sub = (time.perf_counter() - t) / 10
 print(f"subprocess={sub:.4f}s  in-process={inp:.6f}s  ratio={sub/inp:.0f}x")
 PY
