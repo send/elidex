@@ -3,6 +3,34 @@
 Slot: `#11-stale-claim-detector-extension` (memory `project_stale-claim-detector-extension`).
 Lesson of origin: `feedback_verified-claims-go-stale-under-own-later-edits` (PR #504, three recurrences).
 
+> ## ⛔ NOT APPROVED — v1, failed `/elidex-plan-review` (3 CRIT / 31 IMP / 25 MIN, 2026-08-02)
+>
+> Committed as the reviewed artifact, not as a converged plan. **Do not implement from this file.**
+> Six root causes; the three CRIT are:
+>
+> 1. **`at=<sha>` is unimplementable.** No `fetch-depth` in any workflow — every `actions/checkout@v6`
+>    is depth 1, so a pinned sha cannot resolve in CI. Both verdicts are bad (hard-fail on legitimate
+>    annotations, or skip ⇒ the vacuous gate §1 exists to prevent). §4.1.2 / §4.1.5.
+> 2. **The inertness rules are Markdown-only while §4.1.5 scopes `.sh`/`.rs`/`.toml`.** PR-1's own
+>    wire must carry literal example and fixture annotations in its header, so as specified it
+>    hard-fails its own gate on landing, deterministically.
+> 3. **All three fenced example annotations are false** — `count=299`→80 (the pathspec is wrong; 299
+>    is the whole crate, not `src/`), `files=7`→1, `lines=1219`→1251 (1219 is a line *number*). And
+>    §4.1.4 makes fenced content inert, so the mechanism structurally cannot ever flag them.
+>
+> The wider pattern is worse than any single item: this memo's **self-descriptive** claims are
+> systematically unexecuted — the preflight verdict (§3 says K=0/single-PR; the tool prints K=4 /
+> SPLIT-RECOMMENDED), "`mise run ci` is cargo-only" (`mise.toml:116` includes `trip-wires`), "'7
+> entries' twice" (three), and a `§3` in §3 row 5 that does not exist in the cited file — a section
+> number synthesised to satisfy the row parser, which is the fabricated-citation shape the project
+> forbids. Its **empirical survey (§4.3) reproduces exactly** at `3045f256`; only the claims *about
+> itself* rot. That the document proposing the cure commits the disease ~10 times is the strongest
+> evidence in it, and belongs in the rewrite as such rather than being quietly corrected.
+>
+> Rewrite direction: this becomes an **umbrella** with per-slice plan-memos (M1 / M2 / M3), since §0
+> already calls the mechanisms disjoint and §2's axes partition along that seam. Full re-review from
+> Step 1 required (structural change). Review detail → memory `project_stale-claim-gate-v1-review`.
+
 > **Reading note.** This memo dogfoods the mechanism it proposes: every count below carries an inline
 > `<!-- claim … -->` annotation in the form §4.1 specifies. Once PR-1 lands, those annotations are
 > re-executed on every push — so if this memo's numbers rot, CI says so. That is the whole thesis in
