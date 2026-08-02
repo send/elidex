@@ -81,9 +81,13 @@ non-replaced inline elements") rather than in tension with it — revision 3 rec
 > wrap opportunity** in the flow.
 
 An inline box's edges take inline-axis space, but the boundary is **not** a break opportunity.
-An inline box that does not fit **overflows** — `body css-inline-3 model`: "When an inline box
-exceeds the logical width of a line box … it is split (see CSS Text 3 §5 …)", i.e. splitting
-happens at opportunities inside the box, never at its edges.
+What happens to a box that does not fit is **split**, not overflow — `body css-inline-3
+line-boxes` (§2.1): "When an inline box exceeds the logical width of a line box, **or contains a
+forced line break, it is split** (see CSS Text 3 §5 …) into several fragments, which are
+partitioned across multiple line boxes." Splitting happens at opportunities *inside* the box,
+never at its edges. Overflow is the **exception**, for a box with no internal opportunity —
+CSS 2 §9.4.2: "If an inline box **cannot be split** … then the inline box overflows the line
+box." ⚠ Revision 4 first asserted the unconditional overflow form; corrected here.
 
 ### §1.4 Shaping — `css-text-3` §7.3 *Shaping Across Element Boundaries*
 
@@ -184,12 +188,17 @@ Every row is reachable from author CSS/HTML. Adjacent pre-existing laxity:
   fabricated (`heading css-text-3 5.6` → no headings; css-text-3's only shaping section is
   §7.3). PR-1b rewrites that comment anyway (M3 changes the coalescing rule it documents), so
   the citation is corrected there.
-* **"CSS Box Model L3 5.3" is cited at four sites** and no such section exists (css-box-3 §5 is
-  *Borders*, no subsections): `helpers.rs:59`, `helpers.rs:114`, `positioned/layout.rs:90`,
-  `block/mod.rs:162` (verified 2026-08-02 via `grep -rn "Box Model L3" crates/` → 4 hits).
-  PR-1a corrects **all four** to css-box-3 §3.1/§4.1 — a one-commit class fix per
-  [[feedback_semantic-sibling-selfseed-and-regate-breadth]], not the single site revision 3
-  scheduled.
+* **A nonexistent "CSS Box Model L3/Level 3 §5.3" is cited at seven sites** (css-box-3 §5 is
+  *Borders*, no subsections). Verified 2026-08-02 via the **concept** grep
+  `grep -rEn "Box Model (L3|Level 3)[^a-z]*(§)?5\.3" crates/` → 7 hits, all in
+  `elidex-layout-block`: `lib.rs:178`, `helpers.rs:59`, `helpers.rs:114`,
+  `positioned/layout.rs:90`, `block/mod.rs:162`, `block/mod.rs:182`,
+  `block/children/helpers.rs:213`. PR-1a corrects **all seven** to css-box-3 §3.1/§4.1 in one
+  commit per [[feedback_semantic-sibling-selfseed-and-regate-breadth]].
+  ⚠ This class has been undercounted three rounds running — R2 said 2, R3 said 4, revision 4
+  said 4 "verified" — each time because a **string** grep (`"Box Model L3"`) was run where the
+  lesson being cited in the same sentence prescribes a **concept** grep. The three missed sites
+  spell `Level 3`.
 
 ## §4. Verified current state
 
@@ -395,7 +404,7 @@ lands with the new module too, not in the 915-line file.
 **PR-1a**: marker variants reach `pack/items.rs`; every exhaustive match handles both; edges
 resolved via `resolve_box_model` against `containing_inline_size`; the physical→logical
 selection is implemented and tested for one vertical and one RTL case; the two pre-pack gates
-hold current behaviour; all four "CSS Box Model L3 5.3" cites fixed; **new variants and their
+hold current behaviour; all seven "CSS Box Model L3/Level 3 §5.3" cites fixed; **new variants and their
 fields carry docstring citations to their §3 rows**; cells 1–12 land as characterization tests;
 **zero behaviour change**. ⚠ The marker fields whose first reader is PR-1b/1c must not need
 `#[allow(dead_code)]` — PR-1a's payload is exactly `entity` + inline-axis `EdgeSizes` +
@@ -463,3 +472,94 @@ MEMORY.md, which currently carries `#11-inline-align-clientrects-nonpersist-path
 the Why / trigger / re-eval date from §5.3; amend
 `#11-inline-fragmented-fn-decomposition`'s trigger per §9; and register the #497 carves, which
 are also absent from the SoT.
+
+## §11. Round-4 outcome — revision 5 required
+
+Round 4 = **11 CRIT / 29 IMP / 22 MIN**. Two things changed in character from round 3.
+
+**The no-inter-round-patching rule held, and it worked.** Axis 3 verified it mechanically
+(revision 4 is a single rewrite commit, no patch commits after it). **None of round 4's CRITs
+is an author patch** — the class that produced the top-severity finding in both R1→R2 and
+R2→R3 is absent. The mandated Step 1.5 dry-run's five findings were handed to the round
+unpatched, and three of them were independently confirmed (M6's missing entry point, M4's
+missing flush-time emit, M1's wrong style for the physical→logical selection), one confirmed
+as a non-finding (M2 collapse transparency), one confirmed with a sharper reading (§7 asserts
+the opposite of what Shape A/B actually do).
+
+**The findings moved from framing to mechanism.** Round 4 closed, with verification rather
+than assertion: all three round-3 spec CRITs (§7.3 reversal, §5.5 soft-wrap, §2.3 inline-axis
+re-anchor); the border-box double-count; the `last_placed_entity` direction; the
+`current_line_has_glyphs` redundancy; the `:702`/`:706` cite; the caller count; the
+`#11-inline-root-inline-box` pre-existing classification; `inline/mod.rs` growth; cell 19's
+destination; the "approved umbrella" phrasing; the relayout-staleness non-widening claim; and
+the 4→2→3 PR reslice (§2's eight pairs each resolve to exactly one M-row, and M1–M7 partition
+1a{M1,M2} / 1b{M3,M4} / 1c{M5,M6,M7}).
+
+### §11.1 Open CRITs
+
+1. **PR-1c has no write site for the existence flip** (Axes 1, 2; dry-run). Revision 3 had
+   `note_inline_box`; revision 4 dropped the name when the concern moved to PR-1c and never
+   replaced it. M6 cites `:696` and §3 cites `:698`, both `place_item`-internal lines the
+   marker path provably cannot reach — and `finish()` (`:787`) flushes only `if on_line`,
+   `flush_line` emits only `if any_rendered_content` (`:210`). As written, cells 8 and 12
+   cannot pass and the slot cannot close.
+2. **§1.3's "an inline box that does not fit overflows" is overbroad** (Axis 4). css-inline-3
+   §2.1 says it is **split**; overflow is the unsplittable exception. **Corrected in §1.3
+   above.** Consequence still open: splitting is now owned by nobody — §3 row 3 defers it to
+   "PR-2", a unit §5.3 does not define.
+3. **PR-1b is not `line_count`-neutral** (Axis 3). M3 inflates `current_inline` without arming
+   `:690`, but the *next* text segment evaluates `:690` against the inflated cursor, so
+   following text wraps earlier: `line_count`, IFC height and the block cursor move in PR-1b.
+   §5.3's neutrality claim and §7's "PR-1c only" bullet are both false as written.
+4. **M3's shaping-break gate is `inline_advance > 0`; §7.3's rule is "non-zero"** (Axis 2). A
+   negative margin, or a compensating pair summing to 0, emits markers but does not break
+   shaping.
+5. **M3 leaves `current_line_last_hang` stale, and that is affirmatively wrong** (Axis 2).
+   css-text-3 §4.1.2 keys on "at the end of **a line**", not on the last text segment; the
+   engine already encodes the distinction at `pack/mod.rs:264-279` and already zeroes the hang
+   for an atomic (`:701`). §6 cell 16 pins the wrong behaviour.
+6. **M4's edges have no carrier** (Axes 1, 2). `current_line_entity_rects` is
+   `Vec<(Entity, InlineLineRect)>` and `InlineLineRect` (`pack/boxes.rs:18-27`) is four
+   geometry `f32`s; `EntityBounds` is built only from those rects at `:413`/`:505`. The
+   inline-axis-only payload M1 specifies also cannot fill a physical four-sided
+   `LayoutBox` edge set.
+7. **M4's straddling box loses line N's fragment** (Axis 2; dry-run). A rebase is necessary but
+   not sufficient — the stack needs a flush-time *emit*, since `InlineBoxEnd` has not run.
+8. **The bogus-citation class is seven sites, not four** (Axis 5). **Corrected in §3.1 above**,
+   including why the undercount recurred three rounds running.
+
+### §11.2 What revision 5 must do
+
+1. Name the PR-1c entry point that writes `on_line` / `current_line_height` /
+   `any_rendered_content`, and discharge §4's `flush_line` obligation for it.
+2. Restate PR-1b's neutrality honestly: phantom-predicate-neutral, **not** `line_count`-neutral.
+   Add the displacement cells Axis 3 names (following text wraps earlier; `b` shifts by the
+   edge sum) — the user-visible half of §1.1 that cell 13 does not assert.
+3. Gate the shaping break on **non-zero components**, not on the signed advance.
+4. Zero `current_line_last_hang` at a marker with non-zero inline-axis edges, matching the
+   atomic treatment; re-pin cell 16.
+5. Give the edges a real carrier (Axis 1 suggests `LogicalEdges`, `crates/core/elidex-plugin/src/logical.rs:167`,
+   which also preserves the block-axis pair `LayoutBox` needs and is already used by
+   `block/mod.rs:158`); add the flush-time emit for open boxes.
+6. Own splitting: point §3 row 3 at `#11-inline-box-decoration-splits`, and re-anchor that
+   slot's "no visual effect where the split occurs" on **css-break-3 §5.4**, not css-inline-3
+   §2 (Axis 4: the string is CSS 2 §9.4.2 verbatim and appears nowhere in css-inline-3 §2.x).
+7. Give intrinsic sizing an M-row, a §3 row, a `measure.rs` layer row and a DoD line, or a slot
+   — §9's relabelling is not scope (Axis 3).
+8. Resolve §8's dead-field rule against M1's payload; `group_key` has no reader in 1a/1b/1c.
+9. Re-anchor M2 on **css-text-3 §4.1.1** (the current statement of cross-boundary collapsing),
+   fix §3 row 12's malformed "CSS Text 3 §16.6.1", and add rows for css-inline-3 §2.1 and §2.2.
+10. Re-derive `#11-inline-fragmented-fn-decomposition`'s disposition: Axis 5 is right that
+    amending another slot's trigger from this memo is a design change owed its own review, and
+    that CLAUDE.md's third option — a standalone prereq split PR at seam 3 — was never
+    considered.
+11. Update the slot memo itself (Axis 5): it still records the rev-3 program shape and the
+    CSS 2 §10.8 anchor as current fact.
+
+### §11.3 One rule refinement, accepted
+
+Axis 3 is right that this revision's "no inter-round patching" was too broad. The lesson it
+came from targets **reactive** patches to reviewer findings; it should not have frozen the
+author's own mandated dry-run findings, which cost this round three re-discoveries. The rule
+for revision 5: **fix what the dry-run finds, do not add what a reviewer's framing suggests** —
+and re-derive, never sentence-patch, either way.
