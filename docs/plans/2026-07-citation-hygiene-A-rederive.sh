@@ -615,8 +615,11 @@ anchors() {  # §3.1 / §4.2 — origin/main by symbol, never by stored line num
     'SECTION_REF_RE\|^def parse_spec_cell\|^def shortname_from_label\|^def verify_citation\|dest="grep_pass"\|unique_specs\|seen_pairs\|elif seen_pairs\|HARD FAIL'
 }
 
-regions() {  # §4.0 — spec_labels.py A/B region boundaries, including the intra-fn splits
-  grep -n '^"""\|^SPECS\|^def \|^#: \|_catalog\|fallback\|pinned = \|catalog = \|entry.get' \
+regions() {  # §4.2 — spec_labels.py A/B region boundaries, by named artifact
+  # Round 1: this printed the docstring's braces and none of the two regions
+  # §4.2's alias rows depend on. Widened to the alias rationale, the
+  # comprehension comment, the tuple shape line and its variadic annotation.
+  grep -nE '^"""|^SPECS|^def |^#: |_catalog|fallback|pinned = |catalog = |entry\.get|parse alias|Aliases exist|shifted the alias|entry\[3:\]|tuple\[tuple' \
     .claude/tools/_webref/spec_labels.py
 }
 
