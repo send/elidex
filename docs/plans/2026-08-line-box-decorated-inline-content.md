@@ -411,6 +411,15 @@ per-child loop, a normal idiom here.
     (`inline/mod.rs:161`) and the `any_font` probe (`:190-200`), held in PR-1a, flipped in
     PR-1c.
 
+12b. **`direction: rtl`** (M1): `<p dir="rtl"><span style="padding-left:10px">x</span></p>` —
+    `padding-left` is the inline-**end** edge here, so it advances the cursor *after* the content.
+    Pins that `LogicalEdges::from_physical` is applied with the decorated inline's **own**
+    `direction`, not the IFC parent's.
+12c. **`writing-mode: vertical-rl`** (M1): the inline axis is vertical, so `padding-top`/`bottom`
+    become the inline-axis pair and `padding-left`/`right` the block-axis pair — cell 6's
+    block-axis-only case inverts here, and cell 4's percentage basis is the containing block's
+    inline size (its physical height).
+
 **PR-1b geometry:**
 
 13. `<p>a<span style="padding:10px">text</span>b</p>` — the common case §4.3 is about. Three
