@@ -15,6 +15,12 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
   # A worktree that was not created is not a measurement of `origin/main`: every
   # row below would print an `EXIT=` for a `preflight.py` that is not there, and
   # the block would still exit 0 on the status of its own cleanup.
+  # `preflight.py`'s `main()` returns 0 or 1 and nothing else, so an EXIT of 2 or
+  # more is not a row of §5's column -- it is python failing to run the gate at
+  # all (no such file, argparse abort, missing interpreter), printed in the same
+  # shape as a real reading -- and the block could not report it even once
+  # noticed, because it ended on `rm -rf`.
+  local failed=0
   local T; T=$(mktemp -d)
   git worktree add -q "$T" "$MAIN" || { echo "!! cannot create the $MAIN worktree"; return 1; }
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
@@ -25,10 +31,13 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
       out=$( cd "$T" && python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1 ); rc=$?
       printf '%-8s %-18s EXIT=%d  %s\n' "$st" "$f" "$rc" \
         "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*' | head -1)"
+      [ "$rc" -le 1 ] || { echo "       !! EXIT=$rc is not a verdict — the gate did not RUN on this row."
+                           failed=1; }
     done
     [ "$st" = nocli ] && mv "$T/.shim" "$T/.claude/tools/webref"
   done
   git worktree remove --force "$T"; rm -rf "$F"
+  return "$failed"
 }
 
 carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check can detect
@@ -36,14 +45,20 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
   # against the carve's exit code, and draft 7 asserted "yes" for a fixture the
   # carve already exits 0 on (the fenced marker is inert prose there, so the
   # behavioural half of that pin passes at the carve BY ACCIDENT).
+  # Same `EXIT >= 2` reading as `column`, and the same reason this block could not
+  # act on it: it ended on `rm -rf`.
+  local failed=0
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
   for f in labelled dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker; do
     local out rc
     out=$(python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1); rc=$?
     printf '%-18s EXIT=%d  %s\n' "$f" "$rc" \
       "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*|⚠ unrecognized.*' | head -1)"
+    [ "$rc" -le 1 ] || { echo "   !! EXIT=$rc is not a verdict — the carve's gate did not RUN here."
+                         failed=1; }
   done
   rm -rf "$F"
+  return "$failed"
 }
 
 # --- capability instruments ---------------------------------------------------
@@ -120,15 +135,25 @@ r = subprocess.run([sys.executable, str(W), "heading", "--exact", "html", "4.10.
                    capture_output=True, text=True)
 print("    CLI subprocess   = rc", r.returncode)
 PY
-  ( cd "$T"
-    echo "  [0] intact";                     python3 "$R/probe.py"
+  # `probe.py` CATCHES the import failure it is measuring and prints it, so a
+  # nonzero status from it means python did not run the probe at all -- the whole
+  # instrument reading is then missing, not negative. Both the subshell (which
+  # ended on a restoring `mv`) and this function (which ended on `rm -rf`) threw
+  # that away: four probes could each fail to start and the block still exited 0.
+  local rc=0
+  ( cd "$T" || exit 1
+    r=0
+    echo "  [0] intact";                     python3 "$R/probe.py" || r=1
     echo "  [a] mv _webref  (draft 7 used this)"
-    mv .claude/tools/_webref _hidden; python3 "$R/probe.py"; mv _hidden .claude/tools/_webref
+    mv .claude/tools/_webref _hidden; python3 "$R/probe.py" || r=1; mv _hidden .claude/tools/_webref
     echo "  [b] sys.meta_path block  -> the map axis"
-    BLOCK_MAP=1 python3 "$R/runpf.py" "$R/probe.py"
+    BLOCK_MAP=1 python3 "$R/runpf.py" "$R/probe.py" || r=1
     echo "  [c] mv the webref shim   -> the CLI axis"
-    mv .claude/tools/webref _shim; python3 "$R/probe.py"; mv _shim .claude/tools/webref )
+    mv .claude/tools/webref _shim; python3 "$R/probe.py" || r=1; mv _shim .claude/tools/webref
+    [ "$r" = 0 ] || echo "  !! a probe did not RUN; the axis it names is unmeasured, not negative."
+    exit "$r" ) || rc=1
   git worktree remove --force "$T"; rm -rf "$R"
+  return "$rc"
 }
 
 reloadstale() {  # §4.2.4 — an except-arm global survives a SUCCEEDING reload
@@ -154,8 +179,12 @@ for label, prefix in (("except-arm only", ""), ("initialised first", "_err = Non
     exec(prefix + "try:\n _v=1\nexcept Exception as e:\n _v=None; _err=e\n", g)
     print(f"  {label:18s} after fail={first}  after reload={g.get('_err')!r}")
 PY
-  ( cd "$T" && python3 _reload_probe.py )
+  # The probe is the whole block; its status was discarded and the function
+  # returned `rm -rf`'s.
+  local rc=0
+  ( cd "$T" && python3 _reload_probe.py ) || rc=1
   git worktree remove --force "$T"; rm -rf "$R"
+  return "$rc"
 }
 
 remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is absent
@@ -163,12 +192,22 @@ remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is a
   git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
   local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
+  # ONE run, printed AND graded. This was two invocations of the same command --
+  # one for the remedy strings, one thrown away for its exit code -- the shape
+  # `couplings` had to be cured of, in which the listing and the status can come
+  # from different runs and neither is the block's. The carve's gate returns 0 or
+  # 1; anything else is python not running it, and the remedy strings above would
+  # then be absent for a reason that is not "the remedy did not print".
+  local rc=0 out pfrc
   echo "-- the carve, map absent (in-process block; tree and CLI intact) --"
-  ( cd "$T" && BLOCK_MAP=1 python3 "$R/runpf.py" "$PF" --no-grep-pass "$F/labelled.md" 2>&1 |
-      grep -E 'unrecognized|extend|SPECS|unmapped|citation verify' )
-  ( cd "$T" && BLOCK_MAP=1 python3 "$R/runpf.py" "$PF" --no-grep-pass "$F/labelled.md" \
-      >/dev/null 2>&1; echo "EXIT=$?" )
+  out=$( cd "$T" && BLOCK_MAP=1 python3 "$R/runpf.py" "$PF" --no-grep-pass "$F/labelled.md" 2>&1 )
+  pfrc=$?
+  printf '%s\n' "$out" | grep -E 'unrecognized|extend|SPECS|unmapped|citation verify'
+  echo "EXIT=$pfrc"
+  [ "$pfrc" -le 1 ] || { echo "!! EXIT=$pfrc — the gate did not RUN; no remedy string above was measured."
+                         rc=1; }
   git worktree remove --force "$T"; rm -rf "$F" "$R"
+  return "$rc"
 }
 
 armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 predicates
@@ -233,8 +272,14 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
 }
 
 anchors() {  # §3.1 / §4.2 — origin/main by symbol, never by stored line number
+  # The pipeline IS the measurement, so its status is this block's: `pipefail`
+  # carries an unresolvable ref out of `git show`, and grep's 1 -- no anchor found
+  # -- is a real failure here rather than a benign empty result, because §3.1
+  # cites these symbols as present. Stated with an explicit `return` so the
+  # block's status is a claim rather than a leftover.
   git show "$MAIN:$PF" | grep -n \
     'SECTION_REF_RE\|^def parse_spec_cell\|^def shortname_from_label\|^def verify_citation\|dest="grep_pass"\|unique_specs\|seen_pairs\|elif seen_pairs\|HARD FAIL'
+  return $?
 }
 
 marker() {  # §4.2.5 residual — the census must implement the SAME three properties
@@ -270,6 +315,7 @@ for f in files:
 print(f"  recognised (line-anchored + fence-aware + §3-scoped): {hits}")
 print(f"  a bare line-anchored grep would report               : {loose}")
 MARKERPY
+  return $?    # the heredoc'd command IS the measurement; say so
 }
 
 timing() {  # §11 — subprocess vs in-process resolution, 100 reps, warm cache
@@ -295,4 +341,5 @@ for _ in range(10):
 sub = (time.perf_counter() - t) / 10
 print(f"subprocess={sub:.4f}s  in-process={inp:.6f}s  ratio={sub/inp:.0f}x")
 PY
+  return $?    # the heredoc'd command IS the measurement; say so
 }

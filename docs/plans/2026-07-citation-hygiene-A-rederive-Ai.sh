@@ -33,14 +33,20 @@ print("parse aliases:", [x for e in s.SPECS for x in e[3:]])
 print("deleting every alias changes the map?", alias_free != a,
       f"(alias-free size={len(alias_free)})")
 PY
+  return $?    # the heredoc'd command IS the measurement; say so
 }
 
 regions() {  # §4.2 — spec_labels.py A/B region boundaries, by named artifact
   # Round 1: this printed the docstring's braces and none of the two regions
   # §4.2's alias rows depend on. Widened to the alias rationale, the
   # comprehension comment, the tuple shape line and its variadic annotation.
+  #
+  # grep's status IS this block's: §4.2 cites these artifacts as PRESENT, so both
+  # 1 (ran, matched nothing) and 2 (no such file) are failures here, and neither
+  # may arrive as an empty listing under a zero exit.
   grep -nE '^"""|^SPECS|^def |^#: |_catalog|fallback|pinned = |catalog = |entry\.get|parse alias|Aliases exist|shifted the alias|entry\[3:\]|tuple\[tuple' \
     .claude/tools/_webref/spec_labels.py
+  return $?
 }
 
 readers() {  # THE recurring root, made checkable: every reader of a piece of state

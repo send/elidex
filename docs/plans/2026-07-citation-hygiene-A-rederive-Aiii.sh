@@ -49,15 +49,72 @@ SUITESPY
 }
 
 suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range over
-  git ls-files '.claude/**/test_*.py'
+  # `git ls-files` exits 0 for a pathspec that matches NOTHING, and this block IS
+  # that census, so an empty set was indistinguishable from the real one -- and
+  # the block's status was the trailing `echo`'s, i.e. always 0. J4 is a claim
+  # about which suites EXIST; an empty answer is a broken glob, not a repo with
+  # no tests.
+  local n
+  _measure n git ls-files '.claude/**/test_*.py' || return 1
+  _measured
+  [ "$n" -gt 0 ] || { echo "!! EMPTY SUITE SET — the pathspec matched no file; J4 has"
+                      echo "!! nothing to range over, which is not the same as 'no uncollected suite'."
+                      return 1; }
   echo "-- discover roots --"; echo ".claude/tools/_webref"; echo ".claude/skills/elidex-plan-review"
+  return 0
 }
 
-filters() { git show "$MAIN:.github/workflows/ci.yml" | sed -n '/filters:/,/^  check:/p'; }
+filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
+  # `git show | sed -n` under `pipefail` catches an unresolvable ref, but not the
+  # other half: a sed range that matches nothing prints nothing and exits 0, so a
+  # renamed `filters:` key reads as "this workflow has no filters" -- the claim
+  # A-iii's §4.3.2 argues AGAINST, handed to it for free.
+  local n body
+  _measure n git show "$MAIN:.github/workflows/ci.yml" || return 1
+  body=$(printf '%s' "$_MEASURE_OUT" | sed -n '/filters:/,/^  check:/p')
+  [ -n "$body" ] || { echo "!! no \`filters:\` .. \`check:\` range in ci.yml at $MAIN ($n lines read);"
+                      echo "!! an empty range is a renamed key, not an absent filter."
+                      return 1; }
+  printf '%s\n' "$body"
+  return 0
+}
 
-ruleset() {
-  gh api repos/send/elidex/rulesets --jq '.[] | {id, name, enforcement, target}'
-  local id; id=$(gh api repos/send/elidex/rulesets --jq '.[] | select(.name=="main-protection") | .id')
-  gh api "repos/send/elidex/rulesets/$id" --jq \
-    '{rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode]}'
+ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
+  # THREE `gh api` calls, and this block used to return the LAST one's status. So
+  # when the first call -- the ONLY measurement of `enforcement` and `target`,
+  # which is exactly what A-iii's memo cites this block for -- failed transiently,
+  # the two detail calls could still succeed and the block certified a reading it
+  # never took. `5abe729e` introduced `_measure` to make that unrepresentable and
+  # swept the `git`-shaped and `subprocess.run`-shaped sites; `gh api` is the same
+  # SHAPE and was missed because the sweep was scoped by TOOL.
+  #
+  # An empty `$id` is the same defect one step on: the detail URL is built by
+  # CONCATENATION, so a name lookup that matched nothing sends `…/rulesets/`.
+  # MEASURED rather than assumed -- an earlier revision of this very comment
+  # asserted that degrades to the LISTING endpoint and certifies a ruleset list as
+  # the detail read. It does not: `gh api repos/send/elidex/rulesets/` returns HTTP
+  # 404, rc 1. The guard stays, and not because the block would otherwise pass --
+  # whether an empty path segment 404s is the REMOTE's shape rather than this
+  # harness's invariant, and `Not Found` reads as "no such ruleset" when the fact
+  # is "the name lookup matched nothing". Name the cause here, before an empty
+  # variable is interpolated into a URL.
+  local failed=0 n_list n_id n_detail id
+  echo "-- every ruleset on the repo (enforcement / target — what A-iii cites) --"
+  _measure n_list gh api repos/send/elidex/rulesets \
+    --jq '.[] | {id, name, enforcement, target}' || failed=1
+  _measured
+  _measure n_id gh api repos/send/elidex/rulesets \
+    --jq '.[] | select(.name=="main-protection") | .id' || failed=1
+  id=$(_measured | tr -d '[:space:]')
+  if [ "$n_id" != 1 ] || [ -z "$id" ]; then
+    echo "!! no single \`main-protection\` ruleset id (matching lines: $n_id) — the name"
+    echo "!! lookup matched nothing. Not reading \`…/rulesets/\` with an empty segment:"
+    echo "!! whatever the remote answers there is not a reading of main's ruleset."
+    return 1
+  fi
+  echo "-- main-protection ($id), in detail --"
+  _measure n_detail gh api "repos/send/elidex/rulesets/$id" --jq \
+    '{rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode]}' || failed=1
+  _measured
+  return "$failed"
 }
