@@ -1003,7 +1003,9 @@ pub(super) fn ensure_empty_transfer_list(
     match transfer {
         JsValue::Undefined | JsValue::Null => Ok(()),
         JsValue::Object(obj_id) => {
-            // Fast path: Array with empty elements (the common case).
+            // ⚠ Dense-Array read, so an Array whose `Symbol.iterator` is
+            // overridden does not go through §3.2.21 step 2's `GetMethod`.
+            // Slot: `#11-webidl-sequence-dense-array-fast-path`.
             if let ObjectKind::Array { elements } = &ctx.vm.get_object(obj_id).kind {
                 if elements.is_empty() {
                     return Ok(());

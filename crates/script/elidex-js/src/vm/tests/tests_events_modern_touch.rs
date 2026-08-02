@@ -265,7 +265,7 @@ fn touch_list_item_out_of_range_null() {
 #[test]
 fn touch_event_sequence_accepts_iterable_non_array() {
     // Regression: `sequence<Touch>` conversion goes through
-    // `@@iterator` for every input, Array or not (WebIDL §3.2.21.1).
+    // `@@iterator` for every input, Array or not (WebIDL §3.2.21 step 2).
     // Build a custom iterable that yields one Touch via `Symbol.iterator`.
     let out = run(
         "var t = new Touch({ identifier: 1, target: document.body }); \
