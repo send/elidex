@@ -697,6 +697,28 @@ change-job in the first place. Resolution D's `traversal_applied` is elidex's co
 former. Whether the coarseness bites across iterations is the question; the turn-granularity residue of
 exactly this shape is the §0 fence.
 
+**⚠ ANSWERED at v3 by `/code-review high` — yes, such an interleaving exists, and it is on the §7.4.2 leg
+rather than the §7.4.4 one this section was looking at.** `traversal_applied` cancels a deferred
+`SyncUpdate`, and `apply_traversal` cancels a *held* navigation — both per-drain/per-iteration. But
+Phase 1c's `suppress` is `has_pending_traversal() || is_applying()`, read against a queue that **every
+iteration empties**. So a `location.*` staged by a `popstate` handler firing inside iteration N's Phase 2
+arrives at iteration N+1's Phase 1c with an empty queue: never suppressed, never held, and therefore
+never reachable by either cancel. It applies against the cursor the turn's later traversals moved to.
+Concretely: `[base, /a, /b]` at `/b`, handler runs `history.back(); history.back();`, the first
+`popstate` sets `location.href = '/checkout'` — the navigation fires, resolved against `base`, and its
+push truncates the forward entries. §7.4.2.2 *Beginning navigation* step 19 would drop it (the assign ran
+inside *apply the history step*, where *ongoing navigation* is "traversal").
+
+**Disposition: fenced, not fixed here.** It is the mirror image of the divergence
+`#11-nav-supersede-window-vs-ongoing-navigation` already owns — elidex's window is a strict SUPERSET of
+the spec's for a navigation issued *before* the apply (which is why the reinstatement tail exists) and a
+strict SUBSET for one issued *during* it. Closing the subset side needs a turn-scoped "a traversal
+applied this turn" fact, i.e. exactly the drive-schedule state §4.3/R4 deliberately does not mint, so it
+is that slot's, not this slice's. **What this slice does change is the timing**: `origin/main`'s later
+drive applies the same request against the same moved cursor, so the outcome is pre-existing — but the
+loop makes it land promptly and predictably rather than whenever a drive is next reached. Recorded on
+`reinstate_deferred_navigation`'s contract in-tree, and added to the slot's body at landing.
+
 ### 4.7 Premise 5, restated for a site-driven loop
 
 The entry `debug_assert!(!drain_in_progress)` (`drain_host.rs:221`) guards **body-driven re-entry**: a
@@ -767,27 +789,29 @@ passed plan-review is a terminal unit).
 **⚠ The pre-implementation touch set was both wrong and incomplete, and is replaced here by the measured
 one.** v2 wrote "`app/drain_host.rs` 651 lines, `app/events.rs` 230, `elidex-script-session/src/engine.rs`
 gains one trait method + one impl in `elidex-js`" — it undercounted the drive site and omitted three files
-the PR substantively grows. Measured at HEAD (`git diff --name-only 44cd165d..HEAD`, `wc -l`):
+the PR substantively grows. Measured at the FINAL head (`git diff --name-only 44cd165d..HEAD`, `wc -l`)
+— re-taken after the `/code-review high` fixes, since the first version of this table was measured one
+commit early and three of its counts had already drifted:
 
 | File | Lines at HEAD | Note |
 |---|---|---|
 | `app/drain_host.rs` | *(deleted, 951 at split)* | the drive site's loop, cap, predicate, marker and contracts took the 651-line base to **951** |
-| `app/drain_host/mod.rs` | 555 | split half 1 — drive site |
+| `app/drain_host/mod.rs` | 632 | split half 1 — drive site |
 | `app/drain_host/host.rs` | 358 | split half 2 — `impl DrainHost for App` |
 | `app/events.rs` | 230 | unchanged in size |
 | `app/mod.rs` | 897 | +37, doc + test-module wiring only |
-| `app_test_support.rs` | 315 | **+134** — nine new helpers (§8's probes + the popstate page builders) |
-| `app_turn_completion_tests.rs` | 501 | new file (§5.1) |
+| `app_test_support.rs` | 317 | **+136** — nine new helpers (§8's probes + the popstate page builders) |
+| `app_turn_completion_tests.rs` | 648 | new file (§5.1) |
 | `app_history_phase_sep_tests.rs` | 503 | 756 → 503 (§5.1) |
 | `elidex-script-session/src/engine.rs` | 709 | +1 trait method + contract |
 | `elidex-js/src/engine.rs` | 830 | +13, the peek impl |
-| `elidex-js/src/tests_engine_s1c.rs` | 380 | **+117** — the four engine-layer predicate-invariant pins (§4.4, §8) |
+| `elidex-js/src/tests_engine_s1c.rs` | 430 | **+167** — the four engine-layer predicate-invariant pins (§4.4, §8) |
 | `elidex-navigation/**` | — | doc-only + one visibility widening (§4.8) |
 
 **Touch-time split audit over that whole set** (CLAUDE.md's discipline is touch-time and any-size, so it
 runs on every touched file, not just the one that grew): the split at `drain_host.rs` was the one real
-seam and it **stands after the withdrawal** — 555 + 358, neither near the guideline, and re-merging would
-put the file back at ~910 with the same two-audience seam. No other touched file warrants one: `app/mod.rs`
+seam and it **stands after the withdrawal** — 632 + 358, neither near the guideline, and re-merging would
+put the file back at ~990, i.e. straight back at the line the split was taken to clear. No other touched file warrants one: `app/mod.rs`
 (897) and `elidex-js/src/engine.rs` (830) sit in the ~800 band `feedback_touch-time-split-means-while-writing`
 watches, but this PR's deltas into them are +37 doc/wiring and +13 respectively — no substantive growth and
 no new seam, so splitting them here would be a line-count reflex, not a cohesion judgment. Recorded rather
@@ -819,9 +843,10 @@ touch-time-split-means-while-writing — not a prereq split PR, since nothing is
   survives in the new file; the content-side third-pin cross-check note (`:25-32`) moves with them.
 
 Net, as shipped: phase-sep shrank 756 → **503** lines, and `app_turn_completion_tests.rs` starts at
-**501** (**7** tests) — both bounded, seams honest. The estimate above said ≈530 / ≈400; the new file
-came in larger because the §8 set changed after the withdrawal (three entry-drive tests removed, the
-marker-definition pin added — §8's REMOVED bullet).
+**648** (**9** tests) — both bounded, seams honest. The estimate above said ≈530 / ≈400; the new file came
+in larger because the §8 set kept changing after the withdrawal (three entry-drive tests removed; the
+marker-definition pin, the reinstatement-placement pin and the residual pin added — §8). At 648 it is the
+file to watch: the next family added here takes a seam, not an append.
 
 ### §5.2 Sibling sweep — every passage this PR must update (command-derived)
 
@@ -1122,6 +1147,24 @@ predicate-invariant pins, which must NOT** (next bullet).
   → loop exit → the new document's staging drained by a later drive as a NEW turn — stays unverified in
   this harness, the same limitation the `hit_entity` invariant records (`events.rs:125-126`), and is
   this plan's own-deferral, §9.
+- **New (the reinstatement tail's PLACEMENT, added at v3 after `/code-review high`)**: the tail running
+  INSIDE each iteration is asserted by two doc contracts and was pinned by nothing — mutation-verified,
+  hoisting it out of the `for` body left every app-mode test green. The discriminator is a turn whose
+  later work exists only because the tail ran in-iteration: a cross-document `back()` (load fails, cursor
+  unmoved, so Phase 1c's held navigation is refuted rather than cancelled) plus a `location.href` to a
+  fragment; the in-iteration tail reinstates it, `same_document_step` fires `hashchange` inline, and that
+  handler stages a `pushState` only a LATER iteration can apply. Hoisted, the tail runs after the loop
+  has already exited and the `pushState` strands.
+  `app_reinstated_navigation_runs_in_iteration_so_its_own_staging_settles`.
+- **New (the ACCEPTED residual, pinned at its mechanism — added at v3)**: v2's residual pin ran through
+  the withdrawn entry drive and went with it (below), leaving NO test in which a non-drain mover runs
+  while session-history work is staged — the fenced residual's whole shape. The replacement pins the
+  mechanism rather than a cap-length chain: stage a `pushState` without driving, call
+  `handle_chrome_action(Back)`, assert the work is **still staged** (the mover drained nothing) and the
+  cursor moved, then drive and assert the push landed after the entry the mover moved TO, destroying the
+  live forward entry. Fenced as an ACCEPTED residual, not a regression pin; the middle assertion is the
+  one that flips first when the withdrawn-work slice puts a drain in front of the movers.
+  `app_mover_does_not_drain_staged_work_and_the_next_drive_applies_it_at_the_moved_cursor`.
 - **REMOVED from the v2 set, with the mechanism (§0)** — recorded so a reviewer diffing v2's §8 against
   the shipped suite does not read the absences as omissions: (a) the **mover-fired staging pinned
   CLOSED** test (chrome Back fires `popstate` in place → an entry-peek drive drains it before the next
@@ -1151,11 +1194,15 @@ plan-stage form of the anti-gaming clause's target ("判定は分類であって
 the issue (2 ≤ 3); what the exclusion actually bought was letting the item skip the 3-element audit — so
 it is reinstated with one.
 
-- **End-to-end verification of the swap-exit behavior — the whole branch, not just one pin** (§8). The
-  harness reaches no part of the firing path (marker move → loop exit → the new document's staging
-  drained by a later drive as a new turn), so the swap exit ships verified only at the unit level
-  (`document_sequence` restamp, `elidex-navigation/src/navigation_tests.rs`) plus the two not-firing
-  pins. *Why deferred*: the disconnected harness cannot reach a successful mid-loop rebuild
+- **End-to-end verification of the swap-exit behavior — the whole branch, not just one pin** (§8).
+  **Widened at v3 after `/code-review high` mutation-verified the branch is DEAD IN CI**: deleting
+  `if self.current_document_marker() != doc_marker { break; }` outright leaves all 297 `elidex-shell`
+  tests green. So what is unverified is not merely the end-to-end behavior but the branch's **presence** —
+  every harness-reachable scenario is one where it would not have fired anyway. The two not-firing pins
+  (failed load; successful same-document navigate) constrain the marker's inputs and definition, not the
+  comparison's existence. The swap exit therefore ships verified only at the unit level
+  (`document_sequence` restamp, `elidex-navigation/src/navigation_tests.rs`) plus those two.
+  *Why deferred*: the disconnected harness cannot reach a successful mid-loop rebuild
   (`events.rs:125-126`, the known limitation the `hit_entity` invariant records), and the restamp sits
   past the load-success gate (`app/navigation.rs`), so no in-harness pin of the firing path exists (§8).
   *Re-evaluation trigger*: a threaded harness landing, or any observed regression in the marker

@@ -41,8 +41,8 @@ use elidex_navigation::DrainHost;
 use super::drain_host::MAX_TURN_COMPLETION_ROUNDS;
 use super::test_support::{
     app_at, base, current_url, cursor_over_content, document_marker, entry_url, eval, history_len,
-    pipeline_url, popstate_every, popstate_fires, popstate_once, seed_same_document_pair,
-    seed_same_document_triple, staged_session_history_work, stamped,
+    pipeline_url, popstate_every, popstate_fires, popstate_once, seed_cross_document_pair,
+    seed_same_document_pair, seed_same_document_triple, staged_session_history_work, stamped,
 };
 
 /// The adversarial re-stager body: ping-pong `forward()`/`back()` between two
@@ -358,6 +358,147 @@ fn app_turn_completion_terminates_at_the_cap_and_leaves_the_residue_staged() {
 }
 
 // ---------------------------------------------------------------------------
+// The reinstatement tail's PLACEMENT (§4.2) — inside the iteration, not after
+// the loop
+// ---------------------------------------------------------------------------
+
+/// **The reinstatement tail must run INSIDE each iteration**, not once after the
+/// loop — the placement two doc contracts rest on
+/// (`App::process_pending_navigation`'s "else a `location.*` issued in N would
+/// apply after intents issued in N+1", and `InteractiveState::deferred_navigation`'s
+/// "provably `None` at every iteration boundary, so there is no cross-iteration
+/// overwrite case to define").
+///
+/// The tail reads exactly like a per-DRIVE tail — it was one before the loop
+/// landed — so the regression is a later cleanup hoisting it out of the `for` body.
+/// Without this pin that hoist is invisible: every other app-mode test stays green.
+///
+/// The discriminator is a turn whose LATER work exists only because the tail ran
+/// in-iteration:
+/// 1. `back()` (cross-document, so its load fails in this harness) + a
+///    `location.href` to a fragment. Phase 1b queues the traversal, so Phase 1c
+///    SUPPRESSES the navigation and holds it; Phase 2's failed load moves no
+///    cursor, so the hold is refuted rather than cancelled.
+/// 2. The in-iteration tail reinstates it. It resolves SameDocument, so
+///    `same_document_step` runs and fires `hashchange` inline.
+/// 3. That handler stages a `pushState` — which only a LATER iteration can apply.
+///
+/// Hoist the tail and step 2 happens after the loop has already exited (Phase 1c
+/// drained the nav slot, so the peek reads false and iteration 1 is the last one):
+/// the `hashchange`-staged `pushState` is then stranded, and both assertions below
+/// fail.
+#[test]
+fn app_reinstated_navigation_runs_in_iteration_so_its_own_staging_settles() {
+    let mut app = app_at(
+        "<p>doc</p>\
+         <script>\
+           window.addEventListener('hashchange', function () {\
+             history.pushState(null, '', '/from-hash');\
+           });\
+         </script>",
+        base(),
+    );
+    // [base, /a] as DISTINCT documents, cursor on /a — so `back()` classifies
+    // Rebuild and its cross-document load fails, leaving the cursor unmoved.
+    seed_cross_document_pair(&mut app);
+
+    eval(&mut app, "history.back(); location.href = '#one';");
+    let _ = app.process_pending_navigation();
+
+    assert!(
+        !staged_session_history_work(&app),
+        "the drive reached quiescence: the tail's same-document navigate ran INSIDE \
+         iteration 1, so the `pushState` its `hashchange` staged was still this \
+         drive's business and iteration 2 applied it. A tail hoisted out of the loop \
+         runs after the last iteration and strands it here"
+    );
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/from-hash"),
+        "and it applied: /a -> /a#one (the reinstated navigation) -> /from-hash (what \
+         its own hashchange handler staged)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The ACCEPTED residual (§7 Q3) — a mover runs while work is staged
+// ---------------------------------------------------------------------------
+
+/// **The accepted residual, pinned at its mechanism** — a non-drain cursor mover
+/// runs while session-history work is staged, and the next drive then applies that
+/// work against the cursor the mover moved. This is `#11-…-turn-completion-drain`'s
+/// §1 harm, still live after this slice, fenced to the withdrawn-work slice
+/// alongside Slice 4's mover routing (`#11-session-history-task-queue-model`).
+///
+/// **It is NOT a regression pin — it pins behavior this slice deliberately leaves
+/// unchanged**, which is why it asserts the divergent outcome rather than the
+/// correct one. Read it with the drive site's residue note.
+///
+/// The earlier form of this pin drove the whole chain through the loop's cap exit.
+/// This one pins the *mechanism* instead — that the mover drains nothing — because
+/// the mechanism is what the fenced slice will change: the day a drive lands on the
+/// mover's own dispatch, the middle assertion below flips first and says so
+/// directly, instead of a cap-length chain failing for an unrelated-looking reason.
+///
+/// `handle_chrome_action` is invoked directly; in production its sole app-mode
+/// caller is `handle_redraw_inline`'s tail.
+#[test]
+fn app_mover_does_not_drain_staged_work_and_the_next_drive_applies_it_at_the_moved_cursor() {
+    let mut app = app_at("<p>doc</p>", base());
+    // [base, /a, /b] sharing one document, cursor on /b.
+    seed_same_document_triple(&mut app);
+
+    // Stage a pushState WITHOUT driving — the state a turn is left in by either
+    // non-quiescent exit (cap-hit, swap), and by mover-fired popstate staging.
+    eval(&mut app, "history.pushState(null, '', '/staged');");
+    assert!(
+        staged_session_history_work(&app),
+        "precondition: the pushState is staged on the VM FIFO, undrained"
+    );
+
+    // A non-drain cursor mover, with that work still staged.
+    app.handle_chrome_action(crate::chrome::ChromeAction::Back);
+
+    assert!(
+        staged_session_history_work(&app),
+        "THE RESIDUAL, at its mechanism: chrome Back reaches `traverse_to` directly \
+         and never routes through `process_pending_navigation`, so it moved the \
+         cursor WITHOUT draining the staged intent. When the fenced slice puts a \
+         drain in front of the movers, this assertion is the first one to flip"
+    );
+    assert_eq!(
+        current_url(&app).as_deref(),
+        Some("https://example.com/a"),
+        "and the cursor really did move, /b -> /a"
+    );
+
+    // The next drive that is reached now applies the staged intent — against the
+    // moved cursor, not the entry it was issued from.
+    let _ = app.process_pending_navigation();
+
+    assert_eq!(
+        entry_url(&app, 2).as_deref(),
+        Some("https://example.com/staged"),
+        "DIVERGENCE (pinned, not fixed): the push was issued while /b was current, \
+         so it belongs AFTER /b; it landed after /a instead — and took /b with it \
+         via `push_entry`'s truncate. WHATWG HTML §7.4.6.1 step 14.1.1's note is \
+         explicit that a synchronous navigation settles before a traversal can \
+         unload its document"
+    );
+    assert_eq!(
+        history_len(&app),
+        3,
+        "[base, /a, /staged] — the live forward entry /b the user could still have \
+         returned to is destroyed. This is §1's harm, unchanged by this slice"
+    );
+    assert!(
+        !staged_session_history_work(&app),
+        "the drive itself reached quiescence — the residual is about WHEN the drive \
+         happens relative to the mover, never about the drive being incomplete"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // The swap exit's negative side (§4.5 (c)) — the marker is an OBSERVED change,
 // never a navigate attempt
 // ---------------------------------------------------------------------------
@@ -377,12 +518,19 @@ fn app_turn_completion_terminates_at_the_cap_and_leaves_the_residue_staged() {
 /// `popstate` of a cursor-MOVING Phase-2 apply, which CANCELS the held navigation
 /// (`DrainHost::apply_traversal`) rather than letting it run. So nothing can be
 /// staged after the failed navigate for a continuation assertion to observe. The
-/// comparison itself — "the loop ends on an OBSERVED marker change, never on a
-/// navigate attempt" — is pinned by the sibling
+/// comparison's *sensitivity* — "a successful same-document navigate must not end
+/// the turn" — is pinned by the sibling
 /// [`app_same_document_navigate_mid_loop_does_not_end_the_turn`], whose mid-loop
-/// navigate SUCCEEDS and stages more work behind itself. Neither pins the swap
-/// exit's *firing* side, which needs a successful cross-document rebuild the
-/// disconnected harness cannot produce (the plan's own-deferral).
+/// navigate SUCCEEDS and stages more work behind itself.
+///
+/// **Neither pins that the branch EXISTS.** Deleting `if
+/// self.current_document_marker() != doc_marker { break; }` outright leaves the
+/// whole `elidex-shell` suite green (mutation-verified), because every scenario the
+/// disconnected harness can build is one where the branch would not have fired
+/// anyway. Pinning its presence needs the firing side, i.e. a successful
+/// cross-document rebuild mid-loop, which the harness cannot produce — so the
+/// branch's presence, not merely its end-to-end behavior, is part of the plan's
+/// own-deferral (§9 #1). Do not read the two pins as covering it.
 #[test]
 fn app_failed_mid_loop_load_does_not_move_the_document_marker() {
     let mut app = app_at(

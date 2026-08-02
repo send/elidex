@@ -51,15 +51,31 @@
 //! need a *real* later task is B1-gated
 //! (`#11-session-history-task-queue-model`).
 //!
+//! ## DRIVE REACHABILITY — the canonical statement (every other passage cites this)
+//!
+//! Two facts, stated once here because five passages in this module and one runtime
+//! `eprintln!` reason from them, and a copy that drifts would positively assert
+//! something false:
+//!
+//! - **(R1) Not every input reaches a drive.**
+//!   [`App::process_pending_navigation`] has exactly two callers,
+//!   `events::handle_click` and `events::handle_keyboard`, and BOTH return early on
+//!   ordinary inputs before reaching it — a hit-test miss, a chrome-band click, an
+//!   unset `cursor_pos`, an unfocused document.
+//! - **(R2) Nothing schedules a drive.** App-mode has no pump, and the
+//!   `WindowEvent::RedrawRequested` arm does not drive; no code path requests one.
+//!
+//! Together: anything left un-drained waits for an unbounded time — not "until the
+//! next input event", since the next input event need not reach a drive at all.
+//! **Anyone adding a drive on another input path, or relaxing either early return,
+//! must update THIS block and only this block.**
+//!
 //! ## Reentrancy: the vector is DEAD BY CONSTRUCTION in app-mode (plan §4.4)
 //!
 //! Content-mode's Phase 2 drains a **bounded snapshot** and leans on its every-turn
 //! async pump for liveness — a step serialized mid-apply drains next turn. App-mode
-//! has no pump, so a mid-apply-serialized step would strand for an UNBOUNDED time:
-//! not merely "until the next input event" — the next input event need not drain at
-//! all, since `events::handle_click` returns early on a hit-test miss / a chrome-band
-//! click / an unset `cursor_pos`, and `events::handle_keyboard` on an unfocused
-//! document, all of them BEFORE the drive site is reached. It cannot
+//! has no pump, so a mid-apply-serialized step would strand for an UNBOUNDED time
+//! (R1 + R2 above). It cannot
 //! happen here, because the inline path has **no reentrancy
 //! vector at all**:
 //!
@@ -156,12 +172,10 @@ pub(super) use host::apply_traversal_delta;
 /// lives in `crate::re_render`, which `handle_redraw_inline` never calls — but its
 /// residue is reached by a *broad* input set: every path that re-renders, a mouse
 /// release included. This cap's residue is reached only by
-/// [`App::process_pending_navigation`], whose two callers
-/// (`events::handle_click` / `events::handle_keyboard`) BOTH return early on
-/// ordinary inputs — a hit-test miss, a chrome-band click, an unfocused document.
-/// So this cap borrows the bound and the `eprintln!` and NOT the reachability:
-/// nothing schedules a drive, and the inputs that would reach one are a strict
-/// subset of the inputs that reach either sibling's consumer.
+/// [`App::process_pending_navigation`] — module doc, DRIVE REACHABILITY (R1) — so
+/// the inputs that reach it are a strict subset of the inputs that reach either
+/// sibling's consumer, and (R2) nothing schedules one. This cap therefore borrows
+/// the bound and the `eprintln!` and NOT the reachability.
 ///
 /// The drain-start-snapshot bound the coordinator's Phase 2 uses
 /// (`pending_len()`) is deliberately NOT the idiom here: it terminates a drain of
@@ -310,9 +324,8 @@ impl App {
     ///
     /// **⚠ What this slice does NOT do — the residue is not bounded here.** On a
     /// non-quiescent exit the staged work waits for the next drive that is actually
-    /// REACHED, and that is not every input: `events::handle_click` returns early on
-    /// a hit-test miss / a chrome-band click / an unset `cursor_pos`, and
-    /// `events::handle_keyboard` on an unfocused document, all before this drive. So
+    /// REACHED, and by the module doc's DRIVE REACHABILITY (R1 + R2) that is neither
+    /// every input nor anything scheduled. So
     /// the residual lifetime is **unbounded**, exactly as on `origin/main` — this
     /// slice fixes the *in-turn* settle for turns that reach quiescence (the §1
     /// harm on that path) and changes nothing about the rest. Two staging sources
@@ -401,7 +414,7 @@ impl App {
                 // The staged work stays on the current runtime's channels for
                 // the next drive that is reached — bounded work per turn and no
                 // hang, but NOT a bounded residue, and the message must not imply
-                // one: nothing schedules that drive (method doc + the cap's own).
+                // one (module doc, DRIVE REACHABILITY R1 + R2).
                 eprintln!(
                     "[history] app-mode turn-completion loop hit max rounds \
                      ({MAX_TURN_COMPLETION_ROUNDS}) — a page script is re-staging \
@@ -433,8 +446,7 @@ impl App {
              or a Phase-1 pass with no Phase 2 behind it). It does not strand \
              permanently — the NEXT `drain_same_turn` seeds `seen_traversal` from it and \
              its Phase-2 bounded snapshot drains it — but nothing bounds WHEN that turn \
-             arrives (app-mode pumps only on input, and its early returns mean the \
-             next input event need not reach this drive at all). Until then the residual acts as a full \
+             arrives (see this module's DRIVE REACHABILITY block). Until then the residual acts as a full \
              partition barrier: it defers every fresh `pushState` behind it and latches \
              `suppress_default`, killing an unrelated default for a traversal that may \
              have gone out of range meanwhile"
@@ -450,6 +462,31 @@ impl App {
     /// it is provably `None` at every iteration boundary, so there is no
     /// cross-iteration overwrite case to define
     /// ([`InteractiveState::deferred_navigation`](super::InteractiveState)).
+    /// Pinned by
+    /// `app_turn_completion_tests::app_reinstated_navigation_runs_in_iteration_so_its_own_staging_settles`
+    /// — hoisting this call out of the loop must not stay green.
+    ///
+    /// **⚠ What per-iteration suppression does NOT cover, and it is not this tail's
+    /// to fix.** Phase 1c's `suppress` reads the traversal queue, which every
+    /// iteration empties — so a `location.*` staged by a `popstate` handler that
+    /// fired *inside* iteration N's Phase 2 reaches iteration N+1's Phase 1c with an
+    /// EMPTY queue: it is neither suppressed nor held, and applies against the
+    /// cursor the turn's later traversals moved to. Concretely, on `[base, /a, /b]`
+    /// at `/b`, `history.back(); history.back();` whose first `popstate` sets
+    /// `location.href` leaves for that URL resolved against `base`, and the
+    /// resulting push truncates the forward entries. WHATWG HTML §7.4.2.2
+    /// *Beginning navigation* step 19 would drop it — the assign ran inside *apply
+    /// the history step*, where *ongoing navigation* is "traversal".
+    ///
+    /// This is the OTHER side of the same divergence the paragraph below states —
+    /// elidex's enqueue-time window is a strict superset of the spec's *for a
+    /// navigation issued before the apply*, and a strict SUBSET for one issued
+    /// during it — and it is `#11-nav-supersede-window-vs-ongoing-navigation`'s,
+    /// not this slice's: closing it needs a turn-scoped "a traversal applied this
+    /// turn" fact, which is drive-schedule state this design deliberately does not
+    /// mint. The loop does not create the hole (a later drive on `origin/main`
+    /// applies the same request against the same moved cursor) but it does make it
+    /// land promptly and predictably instead of whenever a drive is next reached.
     fn reinstate_deferred_navigation(&mut self, outcome: &mut DrainOutcome) {
         // **Reinstate a suppression this turn REFUTED** — the §7.4.2 leg of the
         // coordinator's Resolution-D rule, and the app-mode half of what keeps elidex's
@@ -547,6 +584,17 @@ impl App {
     /// this turn's work; and a mid-loop navigate whose load FAILS does not restamp
     /// either (`navigate` early-returns before any stamp site), so the loop
     /// continues against the still-intact old pipeline and FIFO — also correct.
+    ///
+    /// **The one exception to "same-document applies do not restamp" is the EMPTY
+    /// entry list** — `push_same_document` has nothing to inherit there and
+    /// allocates, moving the marker `None -> Some(n)` (the controller's contract
+    /// states this). App-mode never reaches it: `App::new_interactive_with_url`
+    /// pushes the initial entry whenever `pipeline.url` is `Some`, and the drive
+    /// site is unreachable otherwise — with no entry there is no document, hence no
+    /// script to stage anything and no turn to complete. Recorded rather than
+    /// guarded, because a guard here would be dead code; if a future constructor
+    /// admits a URL-less inline pipeline that still runs script, this comparison is
+    /// the thing to revisit.
     ///
     /// `pub(super)` for the same reason as [`Self::staged_work_pending`]: the
     /// negative pin on the swap exit is a regression guard, so it must read the

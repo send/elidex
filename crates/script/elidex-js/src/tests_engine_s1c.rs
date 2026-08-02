@@ -358,14 +358,28 @@ fn peek_includes_window_opens() {
 #[test]
 fn peek_excludes_channels_phase_one_does_not_consume() {
     // The other direction of the invariant: a channel with its own drain point
-    // elsewhere must NOT widen the predicate, or the loop spins to its round cap
-    // on work no iteration can drain. `window.scrollTo` (CSSOM View §4, drained
-    // by the render pass via `take_pending_scroll`) is the representative.
+    // elsewhere must NOT widen the predicate, or the app-mode turn-completion loop
+    // spins to its round cap on work no iteration can drain — every click and
+    // keypress paying eight Phase-1/Phase-2 passes and printing the cap warning,
+    // for work that was never session-history work.
+    //
+    // `window.scrollTo` (CSSOM View §4, drained by the render pass via
+    // `take_pending_scroll`) is one representative; `localStorage.setItem`
+    // (drained by the shell's storage broker via `take_pending_storage_changes`)
+    // is the second, and the more valuable of the two — a page that writes
+    // `localStorage` on input is ordinary, so widening the predicate to that
+    // channel would degrade every such page rather than an exotic one.
     let (mut engine, mut session, mut dom, doc) = fresh_unbound();
+    engine.set_current_url(Some(url("https://example.com/")));
     let mut ctx = ScriptContext::new(&mut session, &mut dom, doc);
     bind_engine(&mut engine, &mut ctx);
     let r = ScriptEngine::eval(&mut engine, "window.scrollTo(0, 100);", &mut ctx);
     assert!(r.success);
+    #[cfg(feature = "compat-webapi")]
+    {
+        let r = ScriptEngine::eval(&mut engine, "localStorage.setItem('k', 'v');", &mut ctx);
+        assert!(r.success);
+    }
     engine.unbind();
 
     assert!(
@@ -374,7 +388,43 @@ fn peek_excludes_channels_phase_one_does_not_consume() {
     );
     assert!(
         !engine.has_pending_session_history_work(),
-        "but it is NOT session-history work — no Phase 1 of the drain loop consumes \
-         it, so counting it would be an un-drainable cap-loop"
+        "a staged scroll is NOT session-history work — no Phase 1 of the drain loop \
+         consumes it, so counting it would be an un-drainable cap-loop"
     );
+
+    // Coverage statement, so the 2-of-5 is not read as a 3-channel gap.
+    //
+    // The forbidden five split on WHERE they live, and that split is what actually
+    // bounds the risk. `pending_scroll` lives on `vm.inner` (`vm_api_viewport.rs`),
+    // which `has_pending_session_history_work(&self)` can reach — so it is the one
+    // channel a careless `||` really could add, and it is pinned above. The other
+    // four (`take_pending_storage_changes`, `take_pending_focus`,
+    // `take_pending_parent_messages`, `take_pending_idb_versionchange_requests`)
+    // all live on the per-VM `HostData`, whose ONLY accessor is
+    // `Vm::host_data(&mut self)` — so widening the peek to any of them does not
+    // compile without also changing the trait method's `&self`, which is a visible
+    // signature change rather than a quiet `||`. That is a structural exclusion,
+    // stronger than any assertion here.
+    //
+    // The storage leg below is kept anyway because it is the one of the four with a
+    // script trigger this harness can reach, and it exercises the composed predicate
+    // end-to-end against a channel that a real page fills on ordinary input.
+    // `focus` / `parent.postMessage` / IDB-versionchange have no such trigger here
+    // (`element.focus()` fails without an installed host context, `parent` needs a
+    // parent navigable, a versionchange needs a real upgrade transaction).
+    #[cfg(feature = "compat-webapi")]
+    {
+        let staged = engine.take_pending_storage_changes();
+        assert_eq!(
+            staged.len(),
+            1,
+            "precondition: the localStorage write really is staged"
+        );
+        assert!(
+            !engine.has_pending_session_history_work(),
+            "and a staged storage change is NOT session-history work either — this \
+             is the channel whose accidental inclusion would cap-loop every input on \
+             any page that writes localStorage"
+        );
+    }
 }
