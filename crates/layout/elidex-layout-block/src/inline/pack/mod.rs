@@ -104,8 +104,14 @@ pub(super) struct LinePacker {
     /// no-break space), an atomic inline box, or a forced break. The test is
     /// content presence, not advance width. A line whose content is only collapsible
     /// white space (which collapses away) generates no box and contributes zero
-    /// block size (CSS 2 §9.2.2.1 anonymous inline boxes / §9.4.2 zero-height line
+    /// block size (CSS 2 §9.2.2.1 anonymous inline boxes; §9.4.2 zero-height line
     /// boxes).
+    ///
+    /// ⚠ Narrower than §9.4.2 as written: that rule also requires the line to carry no
+    /// inline element with non-zero margins, padding, or borders. `StyledRun` has no
+    /// box-decoration data, so a decorated empty inline (`<span style="padding:10px">
+    /// </span>`) leaves this false and the line is dropped along with the span's
+    /// rectangle. Slot `#11-line-box-decorated-inline-content`.
     any_rendered_content: bool,
     /// Per-entity rectangles tentatively collected for the current line. Committed
     /// into `entity_bounds` only when the line is flushed with rendered content;
@@ -191,7 +197,8 @@ impl LinePacker {
 
     /// Emit the current line as a line box, then reset line state. A line with no
     /// rendered content — only collapsible white space that collapses away —
-    /// generates no box at all (CSS 2 §9.2.2.1 / §9.4.2): it is not pushed and
+    /// generates no box at all (CSS 2 §9.2.2.1 / §9.4.2, with the decorated-inline
+    /// caveat on `any_rendered_content`): it is not pushed and
     /// does not advance the block cursor, so it does not skew `line_count` or
     /// fragmentation.
     // A cohesive per-line commit: line box, entity-rect bounds, and the per-group

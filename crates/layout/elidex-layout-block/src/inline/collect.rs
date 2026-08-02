@@ -305,9 +305,11 @@ fn collect_inline_items_inner(
                 root_horizontal,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
-            // Text node: produce a run with the parent element's style. This is the arm
-            // CSS 2 §9.2.2.1 governs — text directly contained in a block container is
-            // treated as an anonymous inline element. Neither bidi
+            // Text node: produce a run with the parent element's style. CSS 2 §9.2.2.1
+            // (anonymous inline boxes) governs this arm ONLY on the top-level call, where
+            // `parent_entity` is the block container; the recursive call above re-enters
+            // with an inline element as the parent, and text inside an inline box is that
+            // box's own content, not an anonymous inline. Neither bidi
             // nor text-transform gates persistence any more: the run persists in
             // logical order (render reorders RTL runs visually — slice 4) and
             // text-transform is applied in-place after collapse

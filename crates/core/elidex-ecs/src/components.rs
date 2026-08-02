@@ -163,8 +163,10 @@ pub struct TreeRelation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextContent(pub String);
 
-/// Persisted collapsed + positioned inline runs for one inline formatting
-/// context (CSS 2 §9.4.2), keyed on the run-start entity.
+/// Persisted collapsed + positioned inline runs for one render-run GROUP within an
+/// inline formatting context (CSS 2 §9.4.2) — not one per IFC. `LinePacker` buckets
+/// `flow_lines` per group, and a relatively-positioned or sticky subtree gets its own
+/// group via `positioned_subflow_key`, so a single IFC persists several of these.
 ///
 /// Produced once by layout (`elidex-layout-block`'s `LinePacker`), consumed by
 /// render's display-list builder — the single source of inline-text geometry
