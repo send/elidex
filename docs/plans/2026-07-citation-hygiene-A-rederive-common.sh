@@ -1,11 +1,29 @@
 # Shared part of the re-derivation harness — sourced by
 # `2026-07-citation-hygiene-A-rederive.sh`, which is the only entry point.
 # Not executable on its own: it defines no dispatch and sets no shell options.
+# It does resolve `$REPO_ROOT` at source time (below), because every other part
+# and the dispatcher itself depend on that being settled before anything runs.
 #
-# What lives here: the plumbing (`$MAIN`, `$PF`, `say`, `$AUTHOR_LOCAL`, the §6
-# fixture bodies, the §4.2.3 prototype) and every block MORE THAN ONE memo cites
-# -- `citations` (A-i, A-ii), `couplings` and `budget` (A-i, A-ii, A-iii),
-# `lanes` (A-ii, A-iii, umbrella; author-local).
+# What lives here: the plumbing (`$REPO_ROOT`, `$MAIN`, `$PF`, `say`,
+# `$AUTHOR_LOCAL`, the §6 fixture bodies, the §4.2.3 prototype) and every block
+# MORE THAN ONE memo cites -- `citations` (A-i, A-ii), `couplings` and `budget`
+# (A-i, A-ii, A-iii), `lanes` (A-ii, A-iii, umbrella; author-local).
+
+# THE REPO THIS HARNESS LIVES IN, derived from THIS FILE's own path -- never from
+# cwd. `_wtscan`'s roots are relative (`.claude/tools/`), so before this they
+# resolved against whatever directory the caller happened to be standing in: the
+# dispatcher used to `cd "$(git rev-parse --show-toplevel)"`, and that `cd`
+# NO-OPS when the substitution fails. Measured, with a violation planted on the
+# branch: invoked with cwd `/` the `cd` printed `fatal: not a git repository`,
+# did nothing, both counts came back 0 and `couplings` printed VERDICT: GREEN;
+# invoked from a SIBLING worktree it audited that worktree instead of this one.
+# Both are the drift `memory/feedback_worktree-cwd-drift.md` records. Failing to
+# resolve the root is now fatal rather than silent.
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel) || {
+  printf 'FATAL: cannot resolve the repo root from %s\n' "${BASH_SOURCE[0]}" >&2
+  printf '       -- run the harness from a checkout of the repo it lives in.\n' >&2
+  exit 2
+}
 
 MAIN=origin/main
 PF=.claude/skills/elidex-plan-review/preflight.py
@@ -87,7 +105,7 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   rm -rf "$F"
 }
 
-_wtscan() {  # $1 = ERE, $2.. = roots. WORKING-TREE scan, printing `path:line:match`.
+_wtscan() {  # $1 = ERE, $2.. = roots RELATIVE TO $REPO_ROOT. Prints `path:line:match`.
   # Why not `git grep`: it sees TRACKED content only, so a violation in a file
   # that exists but is not yet added reads GREEN. Not hypothetical -- measured:
   # with `cite-audit` planted in an UNTRACKED file under `.claude/skills/`, the
@@ -96,11 +114,22 @@ _wtscan() {  # $1 = ERE, $2.. = roots. WORKING-TREE scan, printing `path:line:ma
   # cross-tree limbs came from walked the filesystem for exactly that reason;
   # moving them here must not trade the property away. The origin/main
   # baselines below stay `git grep` -- only git can read a ref.
+  #
+  # Roots resolve against $REPO_ROOT, not cwd; python chdir's there so the printed
+  # paths stay repo-relative and read the same as before.
+  #
+  # ⚠ THE EXIT STATUS IS PART OF THE ANSWER. Callers must not swallow it: `wc -l`
+  # of nothing is `0`, and `0` is the PASS condition, so a scanner that NEVER RAN
+  # is indistinguishable from one that found nothing -- the same inference bug
+  # this function's `git grep` note is about, one level up. Measured: with
+  # `python3` shadowed by `#!/bin/sh\nexit 127` and a violation planted, the old
+  # callers printed `: 0` and `VERDICT: GREEN`.
   local ere=$1; shift
-  python3 - "$ere" "$@" <<'WTSCANPY'
+  python3 - "$REPO_ROOT" "$ere" "$@" <<'WTSCANPY'
 import os, re, sys
-ere = re.compile(sys.argv[1])
-for root in sys.argv[2:]:
+os.chdir(sys.argv[1])
+ere = re.compile(sys.argv[2])
+for root in sys.argv[3:]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__")]
         for fn in sorted(filenames):
@@ -172,9 +201,15 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # mandate. So the gate is a plain grep over the whole generic tree, and the
   # pre-existing instance counts against it like any other.
   echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check (working tree) --"
-  _wtscan "$PATHRE" "$GENERIC"
-  local n_head n_base n_ahalf
-  n_head=$(_wtscan "$PATHRE" "$GENERIC" | wc -l | tr -d ' ')
+  # ONE scan, captured; the previous form ran `_wtscan` twice and threw the status
+  # away both times (once to print, once into `wc -l`). See `_wtscan`'s ⚠ note.
+  local head_hits rc_head=0 n_head n_base n_ahalf
+  head_hits=$(_wtscan "$PATHRE" "$GENERIC") || rc_head=$?
+  n_head=0
+  if [ -n "$head_hits" ]; then
+    printf '%s\n' "$head_hits"
+    n_head=$(printf '%s\n' "$head_hits" | wc -l | tr -d ' ')
+  fi
   n_base=$(git grep -oE "$PATHRE" "$MAIN" -- "$GENERIC" | wc -l | tr -d ' ')
   n_ahalf=$(git grep -oE "$PATHRE" -- "${AHALF[@]}" | wc -l | tr -d ' ')
   echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
@@ -187,18 +222,37 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # itself the way an in-tree test file would.
   echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree, working tree) --"
   local B_ART='cite.?audit' B_FT='_catalog'
-  _wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS"
-  local n_art n_base_art
-  n_art=$(_wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
+  local art_hits rc_art=0 n_art n_base_art
+  art_hits=$(_wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS") || rc_art=$?
+  n_art=0
+  if [ -n "$art_hits" ]; then
+    printf '%s\n' "$art_hits"
+    n_art=$(printf '%s\n' "$art_hits" | wc -l | tr -d ' ')
+  fi
   n_base_art=$(git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
   echo "   Slice-B artifact names at HEAD (K3 / S7 — MUST BE 0) : $n_art"
   echo "   pre-existing on origin/main (must also be 0)         : $n_base_art"
+  # THE VERDICT IS A RETURN STATUS, not only a printed line. §12(3) names this
+  # block as an exit criterion, and an exit criterion that cannot fail a process
+  # is a report: measured, with a violation planted this block printed
+  # `VERDICT: RED` and still exited 0, and inside `… all` -- 300+ lines -- that
+  # RED line is unanchored text nothing is obliged to read.
+  #
+  # A SCANNER FAILURE IS RED, never green. `n_head`/`n_art` are 0 when the scan
+  # produced no output, and that is also 0 when the scan did not run at all, so
+  # the counts alone cannot tell the two apart; `rc_*` can, and is checked first.
+  if [ "$rc_head" -ne 0 ] || [ "$rc_art" -ne 0 ]; then
+    echo "   VERDICT: RED — the working-tree SCANNER FAILED (paths rc=$rc_head, artifacts rc=$rc_art);"
+    echo "                  a scan that did not run is not a scan that found nothing."
+    return 1
+  fi
   if [ "$n_head" = 0 ] && [ "$n_art" = 0 ]; then
     echo "   VERDICT: GREEN — no elidex file path, no Slice-B artifact name"
-  else
-    [ "$n_head" = 0 ] || echo "   VERDICT: RED — K2 is an absolute; every path listed above must go"
-    [ "$n_art" = 0 ] || echo "   VERDICT: RED — K3: a Slice-B artifact is named outside its slice"
+    return 0
   fi
+  [ "$n_head" = 0 ] || echo "   VERDICT: RED — K2 is an absolute; every path listed above must go"
+  [ "$n_art" = 0 ] || echo "   VERDICT: RED — K3: a Slice-B artifact is named outside its slice"
+  return 1
 }
 
 # --- §4.2.3's control flow, executable ----------------------------------------
