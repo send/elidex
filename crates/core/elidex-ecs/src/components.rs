@@ -5,7 +5,7 @@ use std::sync::Arc;
 use hecs::Entity;
 use indexmap::IndexMap;
 
-use elidex_plugin::{Point, Size, Vector};
+use elidex_plugin::{Size, Vector};
 
 /// Generate string-keyed map accessor methods for a struct wrapping an `IndexMap<String, String>`.
 macro_rules! impl_string_map {

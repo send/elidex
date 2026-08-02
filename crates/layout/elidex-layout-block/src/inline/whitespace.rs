@@ -20,7 +20,8 @@ use super::InlineItem;
 /// intact (segment breaks stay as forced breaks).
 ///
 /// Line-edge trimming (§4.1.2 Phase II) and the "white space that collapses away
-/// generates no box" rule (CSS 2 §9.2.2.1) are applied at line-packing
+/// generates no box" rule (CSS 2 §9.2.2.1 / §9.4.2 — the same composite
+/// `LinePacker` cites) are applied at line-packing
 /// time (see [`super::pack::LinePacker`]), not here.
 pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // Cross-run collapse state: true when the previously emitted character (in any
@@ -87,7 +88,7 @@ fn collapse_run_text(
     white_space: WhiteSpace,
     prev_collapsible_space: &mut bool,
 ) -> (String, bool) {
-    // CSS Text 3 §4.1.3: normalize line endings before segment-break handling so a
+    // HTML §13.2.3.5 preprocessing: normalize line endings before segment-break handling so a
     // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
     // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
     // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.

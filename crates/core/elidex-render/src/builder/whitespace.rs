@@ -4,7 +4,13 @@ use elidex_plugin::WhiteSpace;
 
 use super::StyledTextSegment;
 
-/// Normalize line endings per CSS Text 3 §4.1 Phase I.
+/// Normalize line endings the way HTML parsing already would (HTML §13.2.3.5
+/// "Preprocessing the input stream" — after it, "there are never any U+000D CR
+/// characters").
+///
+/// NOT a CSS Text rule: css-text-3 §4's note states the DOM gives U+000D no meaning
+/// and it is *not* treated as a segment break. This runs as a safety net for text that
+/// reached the DOM without HTML parsing — the case that note explicitly carves out.
 ///
 /// Converts `\r\n` sequences to `\n` first, then any remaining bare `\r` to `\n`.
 pub(crate) fn normalize_line_endings(s: &str) -> String {
@@ -30,7 +36,7 @@ pub(crate) fn collapse_segments(
     );
     let collapse_newlines = matches!(white_space, WhiteSpace::Normal | WhiteSpace::NoWrap);
 
-    // Pre / PreWrap: preserve text, but still normalize \r\n → \n (CSS Text 3 §4.1).
+    // Pre / PreWrap: preserve text, but still normalize \r\n → \n (HTML §13.2.3.5 preprocessing).
     if !collapse_spaces && !collapse_newlines {
         return segments
             .iter()
@@ -46,7 +52,7 @@ pub(crate) fn collapse_segments(
     let mut result: Vec<(String, usize)> = Vec::new();
     let mut prev_was_space = true; // Leading whitespace is trimmed.
     for (idx, seg) in segments.iter().enumerate() {
-        // CSS Text 3 §4.1 Phase I: normalize \r\n → \n, bare \r → \n.
+        // Newline normalization (HTML §13.2.3.5 preprocessing), not a CSS Text phase: \r\n → \n, bare \r → \n.
         let normalized = normalize_line_endings(&seg.text);
         let mut seg_text = String::new();
         for ch in normalized.chars() {
@@ -62,7 +68,7 @@ pub(crate) fn collapse_segments(
                     }
                 } else {
                     // PreLine: preserve newlines; strip spaces/tabs immediately
-                    // before the forced break (CSS Text 3 §4).
+                    // before the forced break (CSS Text 3 §4.1.1 step 1).
                     let trimmed = seg_text.trim_end_matches([' ', '\t']);
                     seg_text.truncate(trimmed.len());
                     seg_text.push('\n');

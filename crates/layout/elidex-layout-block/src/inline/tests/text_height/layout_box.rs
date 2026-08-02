@@ -71,7 +71,9 @@ fn inline_span_gets_layout_box() {
 #[test]
 fn whitespace_only_inline_span_gets_no_layout_box() {
     // A span whose only content is collapsible whitespace generates no box — its
-    // line is suppressed (CSS 2 §9.2.2.1) — so it must NOT get a phantom LayoutBox /
+    // line is suppressed (CSS 2 §9.4.2 zero-height line boxes; NOT §9.2.2.1, whose
+    // suppression sentence is scoped to ANONYMOUS inline boxes and this text is
+    // inside a real `<span>`) — so it must NOT get a phantom LayoutBox /
     // getClientRects geometry. The per-line rects are discarded on suppression.
     let Some((mut dom, parent, style, font_db)) = setup_inline_test("") else {
         return;

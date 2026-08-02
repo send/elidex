@@ -55,8 +55,9 @@ pub struct InlineLayoutResult {
     /// Total block-axis dimension consumed by all line boxes.
     pub height: f32,
     /// Static positions for absolutely positioned placeholders
-    /// (CSS 2.1 §10.3.7 left/right / §10.6.4 top, mapped to logical axes).
-    /// Positions are in content-area-relative coordinates.
+    /// (CSS 2.1 §10.3.7 left/right / §10.6.4 top). Already projected to PHYSICAL x/y
+    /// here (see the `is_vertical` mapping below) — unlike `LinePacker::static_positions`,
+    /// which is logical. Content-area-relative.
     pub static_positions: HashMap<Entity, Point>,
     /// First baseline offset from content box top edge.
     ///
