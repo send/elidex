@@ -106,8 +106,6 @@ impl VmInner {
                     // Capture the last ExpressionStatement value into
                     // `completion_value` only for script/`eval` bodies
                     // (ECMA-262 §16.1.6 step 13.a / §19.2.1.1 step 29.a).
-                    // See `FrameKind` for why the kind check is the one that
-                    // excludes non-`Eval` bodies.
                     if frame_idx == entry_frame_depth
                         && self.frames[frame_idx].kind == FrameKind::Eval
                     {

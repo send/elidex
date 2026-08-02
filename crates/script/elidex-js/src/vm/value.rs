@@ -977,8 +977,8 @@ pub enum UpvalueState {
 /// `CallFrame::saved_completion` save/restore plumbing.
 ///
 /// Generators and async function bodies remain `Function` — their
-/// completion machinery (§27.5.3.3 GeneratorResume /
-/// §27.7.5.1 AsyncFunctionStart) is a separate concern and does not
+/// completion machinery (§27.8.3.3 GeneratorResume /
+/// §27.10.5.1 AsyncFunctionStart) is a separate concern and does not
 /// observe `completion_value`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameKind {

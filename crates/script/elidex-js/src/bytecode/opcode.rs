@@ -43,8 +43,7 @@ pub enum Op {
     /// `eval`'s last such value (13.b.i / 30.a normalise an empty completion to
     /// `undefined`).
     /// The dispatch arm writes `completion_value` only from the entry frame and
-    /// only when its kind is `FrameKind::Eval`; see [`FrameKind`](crate::vm::value::FrameKind)
-    /// for which bodies that admits and why.
+    /// only when its kind is `FrameKind::Eval`.
     ///
     /// Splitting this out of [`Op::Pop`] is what keeps internal stack
     /// housekeeping — reference cleanup, hoisting stores, destructuring
