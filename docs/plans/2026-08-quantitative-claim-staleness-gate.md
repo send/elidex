@@ -89,12 +89,16 @@ pathspec matching nothing, so a typo'd `in=` makes its claim unfalsifiable. `git
 the annotation fails** with its own diagnostic.
 
 **D5 — the pattern body is linted, on the right reasoning.**
-git's default ERE supports no PCRE escapes, and they fail in *both* directions. `\b` fails empty:
-`git grep -cE '\bfn\b' -- crates/core/elidex-ecs/src/lib.rs` → no output, against `fn` → 1. `\d`
-over-matches: the same file gives **23** for `\d` and **23** for plain `d`, because ERE reads it as an
-escaped literal. So the lint's framing is **not** "these match nothing" — it is "their ERE meaning is
-not the author's meaning". Reject `\b \d \w \s \< \>` in a pattern body with that diagnostic. This is
-not hypothetical: v1's first survey pass used `\b` and reported four confident zeros.
+git's default ERE supports no PCRE escapes: **`\X` is the literal `X`**. Measured against
+`crates/core/elidex-ecs/src/lib.rs`, `\d` and plain `d` both give **23**; `\b` and plain `b` both give
+**15**; `\bfn\b` and `bfnb` both give nothing. So the lint's framing is **not** "these match nothing" —
+it is "their ERE meaning is not the author's meaning", and whether a given one appears to under- or
+over-match is just whether that literal happens to occur. Reject `\` followed by any of `bBdDsSwW<>`
+with that diagnostic. Not hypothetical: v1's first survey pass used `\b` and reported four confident
+zeros — a `\b` that silently became the literal `b`.
+*(This wording is S1's correction of v2's first draft, which presented the two cases as opposite
+failure directions rather than one rule. The reject set is a strict superset of the six escapes v2
+first named, reached by applying this decision's own reasoning — not by widening its scope.)*
 
 **D6 — the pathspec is always quoted.**
 v1's §4.1.3 stated the A4 invariant ("every value reaches `git grep` as an argv element … never as a
@@ -129,6 +133,36 @@ to the other two, so retiring one of three leaves an author choosing among three
 which one has a mechanism. Per `feedback_one-issue-one-way` that relocates the decision tax rather
 than removing it. **All three are retired; the S1 annotation becomes the sole accepted artifact.**
 Backlog cost is zero: `run_grep_pass(plan_memo, …)` only ever sees the one memo it is handed.
+
+**D10 — a document may not assert a tree-wide count that its own landing changes.**
+This is the program's central authoring defect, and it took six instances to see as structural rather
+than careless. v1 shipped three false specimen annotations. v2 restated two inherited figures without
+re-measuring (§6). S1 then measured *every* tree-wide number correctly — and six of them were false in
+the commit that landed them, because the measurement's subject includes the document doing the
+measuring. Confirmed at S1's own head: `layering trip-wire` 14 in 9 files → **16 in 11**; tracked
+`.md`/`.rs`/`.sh`/`.toml` 1636/1641 → **1637/1642**; `set -- docs/**/*.md` 79 → **80** words;
+stage-1 scan names "exactly one" file → **two**; the umbrella's annotations at lines 156,157 →
+**160,161**.
+
+The rule "measure, then write" cannot fix this, because the write is what invalidates the
+measurement. Three permitted forms, and no fourth:
+
+1. **An annotation the wire re-executes.** Self-healing, and the preferred form — but only for counts
+   the grammar can express. `set --` word counts and `--untracked` deltas are `git`-invocation shapes
+   no verb covers, so this is not always available.
+2. **A property instead of a count** — "more than one file", "no tracked file lacks a trailing
+   newline". Immune by construction, and usually the number was never load-bearing anyway.
+3. **A count whose measurement base is stated as an index *including* this document**, taken after
+   `git add` and re-taken before push.
+
+⚠ The tempting fourth — exclude the program's own memos from the measured set — is **rejected**: it
+would make the gate lie about its own surface, which is the failure mode D2's self-exclusion is
+already carefully bounded to avoid.
+
+Note what did **not** rot in S1: its acceptance criterion "3 strict / 3 mention / 0 malformed"
+reproduces exactly, because that one figure was computed against the landed tree. The author
+anticipated self-inclusion for annotations and for nothing else — which is precisely why this needs to
+be a decision rather than a habit.
 
 ---
 
