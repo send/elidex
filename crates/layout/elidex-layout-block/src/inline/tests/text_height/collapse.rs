@@ -82,8 +82,9 @@ fn collapse_across_adjacent_text_runs_yields_single_space() {
 
 #[test]
 fn collapse_pre_line_normalizes_cr_to_preserved_break() {
-    // HTML §13.2.3.5 preprocessing: CRLF and bare CR normalize to `\n`, which CSS Text 3 §4.1.3 then
-    // treats as a segment break.
+    // CRLF and bare CR are normalized to `\n` by elidex's defensive normalization (not a
+    // CSS Text rule — see `inline::whitespace`); CSS Text 3 §4.1.3 then treats that `\n`
+    // as a segment break.
     // Under pre-line that break is preserved — CR must NOT be treated as a
     // collapsible space.
     let Some((dom, parent, mut style, _font_db)) = setup_inline_test("a\r\nb\rc") else {

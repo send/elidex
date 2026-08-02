@@ -1,13 +1,5 @@
 //! Styled run collection — walks the inline subtree gathering text runs and
 //! atomic boxes into the ordered [`InlineItem`] list an IFC is packed from.
-//!
-//! CSS 2 §9.2 "Controlling box generation" is the family that governs this walk:
-//! its subsections cover the anonymous block boxes an inline run gets wrapped in
-//! (§9.2.1.1), the anonymous inline boxes bare text becomes (§9.2.2.1), text that
-//! is an existing inline box's own content (§9.2.2), and the `display` values that
-//! suppress or change a box (§9.2.4). The parent section is cited here rather than
-//! any one child precisely because which child applies is decided per arm — and,
-//! for the text arm, per CALLER.
 
 use elidex_ecs::{EcsDom, Entity, PseudoElementMarker, TextContent};
 use elidex_plugin::{ComputedStyle, Display, Position, TextTransform};
@@ -308,16 +300,7 @@ fn collect_inline_items_inner(
                 root_horizontal,
             );
         } else if let Ok(tc) = dom.world().get::<&TextContent>(child) {
-            // Text node: produce a run with the parent element's style. Which CSS 2 §9.2
-            // rule applies is a property of the CALLER, not of this site: text directly
-            // inside a block container becomes an anonymous inline box (§9.2.2.1), while
-            // text inside an inline box is that box's own content (§9.2.2). This arm
-            // handles both and cannot tell them apart — `parent_entity` is whatever the
-            // recursion passed down, and the recursion above descends through block-level
-            // children too (only `display:none`, out-of-flow, atomic inlines and
-            // pseudo-elements are diverted), so a block container reaches here at any
-            // depth. Two earlier revisions asserted a fixed subsection at this line and
-            // were both wrong; the condition is not statically knowable here. Neither bidi
+            // Text node: produce a run with the parent element's style. Neither bidi
             // nor text-transform gates persistence any more: the run persists in
             // logical order (render reorders RTL runs visually — slice 4) and
             // text-transform is applied in-place after collapse

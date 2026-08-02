@@ -88,7 +88,11 @@ fn collapse_run_text(
     white_space: WhiteSpace,
     prev_collapsible_space: &mut bool,
 ) -> (String, bool) {
-    // HTML §13.2.3.5 preprocessing: normalize line endings before segment-break handling so a
+    // Defensive normalization, not a spec-mandated step: HTML parsing already removes CR
+    // (HTML §13.2.3.5), and css-text-3 §4's note says the DOM gives U+000D no meaning and
+    // does not treat it as a segment break — so text that reached the DOM another way (a
+    // direct `create_text`, say) is the only case this catches. Line endings are
+    // normalized before segment-break handling so a
     // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
     // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
     // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.

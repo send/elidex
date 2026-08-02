@@ -1,10 +1,5 @@
 //! `StyledRun` — a segment of text with its originating element's style, and the
 //! [`InlineItem`] enum that carries it through an inline formatting context.
-//!
-//! CSS 2 §9.2.2 "Inline-level elements and inline boxes" is what governs these types.
-//! Not §9.4.2: that governs line-box formation, and `StyledRun` / `InlineItem` are its
-//! INPUT — collected before packing — so citing it here would claim a scope the module
-//! does not have.
 
 use elidex_ecs::Entity;
 use elidex_plugin::{ComputedStyle, TextTransform, WhiteSpace};

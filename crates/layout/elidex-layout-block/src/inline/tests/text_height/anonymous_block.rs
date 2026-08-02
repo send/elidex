@@ -1,8 +1,8 @@
 //! Anonymous block boxes (CSS 2 §9.2.1.1) — inline runs among block siblings.
 //!
-//! The two "generates no box" cases here are governed elsewhere and say so at the
-//! test: `display:none` suppression is CSS 2 §9.2.4, and atomic inlines are CSS
-//! Display 3 §A.
+//! Two tests here are about neighbouring questions rather than §9.2.1.1 and carry
+//! their own reasoning: whether a `display:none` child is skipped, and whether an
+//! atomic inline's descendant text is kept out of the `StyledRun` list.
 
 use super::*;
 

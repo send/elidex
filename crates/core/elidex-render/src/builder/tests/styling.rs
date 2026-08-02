@@ -718,9 +718,9 @@ fn collapse_segments_cases() {
         ("hello   ", WhiteSpace::PreLine, "hello"),
         // PreLine: spaces before newline stripped (CSS Text 3 §4.1.1 step 1)
         ("hello   \nworld", WhiteSpace::PreLine, "hello\nworld"),
-        // CRLF normalized to LF (HTML §13.2.3.5 preprocessing)
+        // CRLF normalized to LF (defensive normalization, not a CSS Text rule)
         ("hello\r\nworld", WhiteSpace::PreLine, "hello\nworld"),
-        // Bare CR normalized to LF (HTML §13.2.3.5 preprocessing)
+        // Bare CR normalized to LF (defensive normalization, not a CSS Text rule)
         ("hello\rworld", WhiteSpace::Pre, "hello\nworld"),
     ];
     for (input, ws, expected) in cases {
