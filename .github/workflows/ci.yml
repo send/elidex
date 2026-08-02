@@ -124,3 +124,31 @@ jobs:
 
       - name: Check licenses and vulnerabilities
         run: cargo deny check
+
+  # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
+  # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
+  # the whole set, no toolchain, no cache), so a filter would buy nothing and cost the
+  # one property the wires exist for. Gating them would mean listing BOTH
+  # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
+  # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
+  # allowlist gate would itself be an allowlist entry someone must remember to keep
+  # current, and a PR editing only `layout-box-reader-allowlist.tsv` would skip the
+  # job that reads it. Running unconditionally removes that failure mode by
+  # construction, for these wires and for any wire added later whose path coverage
+  # nobody re-derives.
+  #
+  # What this does and does not buy: it makes a drifted allowlist RED on the PR. It
+  # does not block the merge — the `main-protection` ruleset carries no
+  # required-status-check rule, so merging still rests on the CLAUDE.md convention of
+  # eyeballing CI before squashing.
+  trip-wires:
+    name: Layering trip-wires
+    timeout-minutes: 2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # The same script `mise run trip-wires` runs, so the local gate and CI
+      # cannot diverge. No toolchain step: the wires are grep-only.
+      - name: Run layering trip-wires
+        run: bash scripts/trip-wires.sh
