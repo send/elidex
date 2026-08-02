@@ -56,11 +56,30 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # `couplings` is §12(3)'s exit criterion: a reader scrolling `all` has no reason
 # to find a RED buried mid-stream, and a caller had no status to check at all. So
 # the run ends with an anchored roster and exits non-zero if any block failed.
-all() { local f failed=""
-        for f in citations partition keysets column carvecolumn instruments remedies reloadstale \
-                 armmatrix suites anchors regions offline couplings suiteset marker budget \
-                 filters ruleset timing bmemo; do
-          say "$f"; "$f" || failed="$failed $f(exit $?)"; done
+#
+# THE ROSTER NAMES BLOCKS BY POSITIONAL PARAMETER, and that is load-bearing. The
+# roll-up shipped as `for f in …; do "$f" || failed="$failed $f(exit $?)"; done`,
+# which reads `$f` AFTER the block has run -- and the shell has no lexical
+# scoping, so a block that assigns a plain `f` renames its own roster entry.
+# MEASURED, in a checkout where `origin/main` does not resolve (which is what
+# makes enough blocks fail to see it): `budget`'s
+# `for f in docs/plans/…-A-rederive*.sh` left the glob's LAST match, so it
+# reported itself as `docs/plans/2026-07-citation-hygiene-A-rederive.sh(exit 1)`
+# -- the dispatcher's own path, not a block -- and `couplings`'s
+# `while IFS= read -r f` left `f` empty at EOF, so it reported as `(exit 1)`.
+# Two of eight entries named nothing a reader could run, in the roster whose
+# whole job is to name what to run. A function's positional parameters are its
+# own: a callee cannot reach `$1`, so the name in the roster is the name that was
+# dispatched, by construction rather than by every block's good behaviour. Same
+# rule as `_measure`: make the wrong report unrepresentable.
+all() { set -- citations partition keysets column carvecolumn instruments remedies reloadstale \
+                armmatrix suites anchors regions offline couplings suiteset marker budget \
+                filters ruleset timing bmemo
+        local failed="" rc
+        while [ "$#" -gt 0 ]; do
+          say "$1"; "$1"; rc=$?
+          [ "$rc" -eq 0 ] || failed="$failed $1(exit $rc)"
+          shift; done
         printf '\n(author-local, excluded from `all`: %s)\n' "$AUTHOR_LOCAL"
         if [ -n "$failed" ]; then printf 'FAILED BLOCKS:%s\n' "$failed"; return 1; fi
         printf 'ALL BLOCKS EXITED 0\n'; }

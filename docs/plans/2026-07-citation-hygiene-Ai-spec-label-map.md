@@ -339,9 +339,11 @@ derive"*) failing on the memo that inherits it, and the failure mode is specific
 and then not re-derived after the next edit to the thing it counts**. ⚠ **And it happened a third time**: the
 `_measure` commit answering Codex round 1 rewrote every counting site in the harness, falsifying the
 `-common` **550** / **1186** / **30** this memo carried at `07b8e7d8`. Same failure, same cause — which is why
-the figures below are taken from the tree as it now stands rather than carried forward. Layout now, derived
+the figures below are taken from the tree as it now stands rather than carried forward. ⚠ **A fourth time**,
+for completeness rather than as a new lesson: the roster fix below grew the dispatcher, falsifying the
+**68** / **1405** this memo carried one commit ago. Layout now, derived
 (`wc -l …-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`):
-dispatcher **68**, `-common` **681**, `-Ai` **171**, `-Aii` **298**, `-B` **124**, `-Aiii` **63**; **1405**
+dispatcher **87**, `-common` **681**, `-Ai` **171**, `-Aii` **298**, `-B` **124**, `-Aiii` **63**; **1424**
 total, **32** blocks, largest part **681** — still under the 700-800 authoring band, though `-common` is now
 within 19 lines of entering it, so the next slice to touch it re-checks before adding.
 
@@ -497,10 +499,42 @@ either way; A-i does not assume which.
 removes from the generic tree because K3 forbids it. So the block has raised `AttributeError` since
 `6be73a82`, and `all` **swallowed it** — the same discarded-exit-status bug the Step 4.5 pass found in
 `couplings`, one level up. `all` now carries an anchored `FAILED BLOCKS:` roster and propagates, so
-`bash …-A-rederive.sh all` exits **1** on this branch, reporting `partition(exit 1)`. That is correct
-reporting, not a regression: **`all`'s exit status cannot be a green gate on this branch until B lands**, and
-B is the slice that restores `_catalog`. ⚠ Do not "fix" it by reverting the roster — silence is what let it
-run broken for four commits.
+`bash …-A-rederive.sh all` exits **1** on this branch, reporting `partition(exit 1)` — derived, and
+reproduced across two runs, by
+
+    bash docs/plans/2026-07-citation-hygiene-A-rederive.sh all 2>/dev/null | grep '^FAILED BLOCKS:'
+    #   FAILED BLOCKS: partition(exit 1)
+
+That is correct reporting, not a regression: **`all`'s exit status cannot be a green gate on this branch
+until B lands**, and B is the slice that restores `_catalog`. ⚠ Do not "fix" it by reverting the roster —
+silence is what let it run broken for four commits.
+
+⚠ **That roster is `partition` alone ONLY where `origin/main` resolves — and the claim has now been read as
+wrong three times for exactly that reason, so it is stated with its precondition here.** Every part of the
+harness passes `$MAIN` (`=origin/main`) to `git show` / `git grep` / `git worktree add`; in a checkout with no
+`origin` remote the roster is **eight** entries, seven of which are that one unresolvable ref rather than a
+defect in the block. Measured at this head, twice, in a throwaway clone stripped of its remote:
+
+    FAILED BLOCKS: partition(exit 1) keysets(exit 1) column(exit 1) suites(exit 1) anchors(exit 1)
+                   couplings(exit 1) budget(exit 1) filters(exit 128)
+
+and at `07b8e7d8`, **five** of those same eight (`partition keysets suites anchors filters`). **The three
+that join in between — `column`, `couplings`, `budget` — were not broken by `_measure`; they are what it
+CAUGHT**: each exited **0 while measuring nothing** against an unresolvable ref, which is the failure mode
+`_measure` exists to make unrepresentable. No memo quantity is affected, checked block by block: every §15
+block re-derives its stated value in a resolvable checkout (`keysets` → 12 specs, 9 added spellings, 0
+changed, 0 lost; `couplings` → GREEN and the same **2** pre-existing sites §13.1 argues from below; `budget`
+→ §8's figures). `filters(exit 128)` is the last residual of the pre-`_measure` shape — a bare
+`git show "$MAIN:…" | sed`, whose 128 reaches the roster only because `set -o pipefail` is on, and which
+prints none of the `!!` diagnostic every other block gives.
+
+⚠ **Reproduce a remote-less checkout in a throwaway CLONE, never in a worktree.** `git remote remove origin`
+writes to the **shared** `$GIT_COMMON_DIR/config`, and `git update-ref -d refs/remotes/origin/main` deletes a
+**shared** ref — a worktree isolates neither. Run inside a `git worktree add --detach` of the real repo, that
+recipe strips `origin` from **every worktree of that repo at once** and leaves every `$MAIN` block above
+failing everywhere until someone re-adds the remote. Use
+`git clone --local <repo> <tmp> && cd <tmp> && git remote remove origin`, which is isolated and, on this
+repo's 36 MB object store, effectively free.
 
 ⚠ **ROUTED TO PLAN-REVIEW, umbrella altitude — K2/K3's scope is mis-drawn, and no check can be right until it
 is redrawn.** A Trigger-B root-cause pass on the Step 4.5 fix found that §2 binds *generic core* to
@@ -576,7 +610,7 @@ owed re-derivation.
    §9's rule rather than an exception to it: §9 bars a slice from widening or narrowing *what it is approved
    to do*, which is what (b)-(e) state. (a) `:112-113` is a **status register** — "901 lines … Whichever slice
    next touches it splits it first" — that this PR **discharged** (`06e50b41`; measured, `wc -l
-   …-A-rederive*.sh` is a 68-line dispatcher plus five parts, 1405 total, largest 681 — §8 re-derives these).
+   …-A-rederive*.sh` is an 87-line dispatcher plus five parts, 1424 total, largest 681 — §8 re-derives these).
    Landing it as an open
    obligation would set A-ii's author up to redo a split already in the tree. (f) the *review cost tracks
    blast radius* bullet reasoned from "A-i has one invariant", which **the same commit-set falsifies**
@@ -588,7 +622,17 @@ owed re-derivation.
    (`git branch -a --contains ee2d0dc0` → empty), not non-existence.
 3. **Harness edits.** ✅ **Discharged in part**: `couplings`'s path filter is **widened** from
    `.claude/tools/_webref/` to `.claude/tools/`, so S8 witnesses K2's second site, and the block also gained
-   K3's cross-tree limb (§2, §7, §12(2)/(3)). ⚠ **Still owed**: move `suites` from `-Aiii.sh` to
+   K3's cross-tree limb (§2, §7, §12(2)/(3)). ✅ **Also discharged — the roster named two things that were
+   not blocks.** `all` rolled up as `for f in …; do "$f" || failed="$failed $f(exit $?)"; done`, which reads
+   `$f` **after** the block has run; the shell has no lexical scoping, so a block assigning a plain `f`
+   renamed its own roster entry. Measured in the eight-entry degraded roster above, before the fix:
+   `budget`'s `for f in docs/plans/…-A-rederive*.sh` left the glob's last match, so it reported as
+   `docs/plans/2026-07-citation-hygiene-A-rederive.sh(exit 1)` — the dispatcher's own path — and
+   `couplings`'s `while IFS= read -r f` left `f` empty at EOF, so it reported as `(exit 1)`. Two of eight
+   entries named nothing a reader could run, in the roster whose only job is to name what to run. `all` now
+   iterates its block list as **positional parameters**, which a callee cannot reach, so the name in the
+   roster is the name that was dispatched by construction rather than by every block's good behaviour — the
+   same move as `_measure`, one level up. ⚠ **Still owed**: move `suites` from `-Aiii.sh` to
    `-common.sh` — the harness's own seam rule is *cited by more than one memo → `-common.sh`*, and `suites`
    is cited by A-iii **and** the umbrella, which `-Aiii.sh:4` records as a known exception rather than fixing.
 4. Register nothing — A-i has no slots. `#11-webref-preflight-inprocess-resolution` is **A-ii's**, and A-ii's
@@ -617,7 +661,7 @@ umbrella revision named was destroyed by a rebase).
 
 ## §15 Re-derivation
 
-Entry point unchanged: `docs/plans/2026-07-citation-hygiene-A-rederive.sh <block>` — now a **68-line
+Entry point unchanged: `docs/plans/2026-07-citation-hygiene-A-rederive.sh <block>` — now an **87-line
 dispatcher** sourcing five parts (`-common` `-Ai` `-Aii` `-Aiii` `-B`), so every block name still resolves
 through that one path whichever part defines it (§8), verified by running each block A-i cites: **`citations
 keysets readers regions couplings budget`**, plus `lanes` in §13. `regions` is cited in §4.2; `lanes`
