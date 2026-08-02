@@ -260,8 +260,8 @@ which **T-net** pins.
 | **S4** | `LABEL_TO_SHORTNAME` is byte-identical with the 8 aliases omitted | **yes** |
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct precisely because the point is to freeze the *old* table (K4) | no |
 | **S6** | `_spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the last-resort | no |
-| **S7** | K3 by grep: `cite.?audit` and `_catalog` absent, and `webref_data` absent from `spec_labels.py`. **Split by tree**: the unit suite scans **the package** (two tests); the cross-tree half — the wider `.claude/tools/` plus `.claude/skills/` — is `rederive couplings`' | no — `origin/main` satisfies it at both scopes (measured 0), which is the point |
-| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in **`.claude/tools/`**. **Split the same way**: the unit suite covers the package, `rederive couplings` the rest | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
+| **S7** | K3 by scan: `cite.?audit` and `_catalog` absent, and `webref_data` absent from `spec_labels.py`. ⚠ **The two ranges are NESTED, not split by tree** — an earlier draft of this row said "split", and there is no partition. Measured, walking each tree under the rule both scanners use: the unit suite ranges over `.claude/tools/_webref/`, **33** files; `rederive couplings` ranges over `.claude/tools/`, **39** files — the same 33 **plus** 6 (`webref` and five elidex trip-wire artifacts) — and `.claude/skills/`, **10** files. The package is a **strict subset**, and the two scanners use the same regexes, so the suite's two tree-scanning tests have **zero discriminating power** over `couplings`: every plant the suite catches, `couplings` catches. What only `couplings` witnesses is the 6 + 10 files outside the package. The exception is S7's **third** clause — `webref_data` in `spec_labels.py` — which the suite checks and `couplings` does not | no — `origin/main` satisfies it at both ranges (measured 0), which is the point |
+| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in **`.claude/tools/`**. **Nested the same way**, not "the suite covers the package, `couplings` the rest": `couplings` covers the package **and** the 6 + 10 files outside it. ⚠ Whether that containment should be removed is a **scope** question over §2's K2/K3 definitions, routed to plan-review; this row only stops describing a partition that does not exist | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
 | **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 15 test methods (`grep -n 'def test_' …/test_spec_labels.py | wc -l` → 15), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
 
 **UNCHECKED, marked not omitted**: that `shortname_for` and `origin/main`'s `shortname_from_label` are
@@ -292,11 +292,22 @@ closing rule in code, in the slice whose subject is removing elidex paths from t
 five elidex trip-wire artifacts owned by other lanes inside a webref unit test's blast radius. Measured, those
 five clear S8's predicate only by **path depth** (`.claude/tools/layout-box-reader-allowlist.tsv` is one
 further segment, not two), so the Layout lane's next task — `#11-layoutbox-trip-wire-not-in-ci` — could turn
-this package's suite red for a reason with no webref content. K2's and K3's cross-tree halves therefore live
-in `couplings`, which is where cross-tree assertions belong and where the widening was owed anyway. Verified
-by planting a violation in each of the three trees, before and after: package plants are caught by both;
-`.claude/tools/`-outside-the-package and `.claude/skills/` plants are caught by `couplings` alone, and before
-the widening by neither.
+this package's suite red for a reason with no webref content. K2's and K3's cross-tree assertions therefore
+live in `couplings`, which is where cross-tree assertions belong and where the widening was owed anyway.
+
+⚠ **The two ranges are nested, not a partition** — an earlier draft of this section said the trees were
+*split* between the instruments, and §6's S7/S8 said "split by tree" and "`rederive couplings` the rest".
+Measured, walking each tree under the rule both scanners use (`__pycache__` skipped, undecodable files
+skipped), and with the same two regexes on both sides: the suite ranges over `.claude/tools/_webref/` — **33**
+files; `couplings` ranges over `.claude/tools/` — **39**, the same 33 plus `webref` and the five trip-wire
+artifacts — plus `.claude/skills/` — **10**. The package range is a **strict subset** of the harness's.
+Verified by planting a violation in each of the three trees, before and after: a package plant turns the
+suite red **and** `couplings` RED, so the suite's two tree-scanning tests discriminate **nothing** that
+`couplings` would miss; `.claude/tools/`-outside-the-package and `.claude/skills/` plants are caught by
+`couplings` alone, and before the widening by neither. What the suite adds over `couplings` is S7's third
+clause (`webref_data` in `spec_labels.py`, which `couplings` does not check) and the schedule it runs on —
+not range. Whether the containment should be removed is a **scope** question over §2's K2/K3 definitions and
+is routed to plan-review, not decided here.
 
 **One-issue-one-way**: the label enumeration goes three sites → one, two of the three in this slice.
 
@@ -317,9 +328,18 @@ already past** and added 61 lines across two post-carve commits, both serving §
 A-i's own touch. **The discharge is real and the disposition right; only the dating was wrong.** Discharged as
 A-i's prereq, before implementation: `06e50b41` split it on the slice seam, `3987bfbc` gated `couplings` on
 K2's absolute and wrote down its predicate, `4121b667` made `readers`' code/prose split a real partition with
-a loud-empty trip-wire; §13 item 3's widening then landed in this commit set. Layout now (`wc -l
-…-A-rederive*.sh`): dispatcher **55**, `-common` **468**, `-Ai` **156**, `-Aii` **272**, `-B` **103**, `-Aiii`
-**37**; **1091** total, **29** blocks, no part past the band.
+a loud-empty trip-wire; §13 item 3's widening then landed in this commit set.
+
+⚠ **The layout figures were stale and are re-derived here.** `37c7eb02` added `_wtscan` to `-common.sh`
+*after* `89cc4051` and `4a3c4616` had recorded the layout, and the gate-status commit in this set added more.
+So the three quantities this memo carried — `-common` **468**, **1091** total, **29** blocks — were falsified
+by later commits *inside the commit set whose stated thesis is that every quantity was re-derived*. That is
+the umbrella's own `:91` constraint (*"Counts are commands. No slice memo carries a quantity it did not
+derive"*) failing on the memo that inherits it, and the failure mode is specifically **a count re-derived once
+and then not re-derived after the next edit to the thing it counts**. Layout now, derived (`wc -l
+…-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`): dispatcher
+**68**, `-common` **550**, `-Ai` **156**, `-Aii` **272**, `-B` **103**, `-Aiii` **37**; **1186** total,
+**30** blocks, largest part **550**, no part past the band.
 
 ---
 
@@ -374,27 +394,55 @@ Every diff check names an explicit ref.
    diff lines, one file, one hunk, +3 / −3. ⚠ An earlier draft recorded **89** lines here (+20 / −30) and
    called the check "currently red, A-i unimplemented" — that was `b3a7d469`'s `preflight.py` change, which
    §4 drops; both statements are now stale and the check is **green**.
-2. **K3**: at A-i's head, `git grep -nE 'cite.?audit' -- .claude/tools/ .claude/skills/` → empty;
-   `git grep -n '_catalog' -- .claude/tools/ .claude/skills/` → empty;
-   `git grep -n 'webref_data' -- .claude/tools/_webref/spec_labels.py` → empty. All three measure **0**, and
-   **0** on `origin/main` too, so under §4's base it passes by construction and its job is to catch a
-   re-import from `b3a7d469`. ⚠ The scope is `.claude/tools/`, not `.claude/tools/_webref/` — the package
-   half is `test_spec_labels.py`'s two S7 tests, the wider half `rederive couplings`', because the suite must
-   not walk trees outside its own package (§7). (`webref_data` legitimately has file hits elsewhere under
+2. **K3**: at A-i's head, `bash …-A-rederive.sh couplings` → `Slice-B artifact names at HEAD (K3 / S7 — MUST
+   BE 0)` = **0** and **exit 0**; and `webref_data` is absent from `spec_labels.py`, which
+   `test_spec_labels.py`'s `test_the_shared_map_does_not_reach_upstream` reads **off disk** (measured, `grep
+   -c webref_data …/spec_labels.py` → **0**). Both measure **0** on `origin/main` too (`git grep -oE -e
+   'cite.?audit' -e '_catalog' origin/main -- .claude/tools/ .claude/skills/` → **0**), so under §4's base
+   this passes by construction and its job is to catch a re-import from `b3a7d469`.
+
+   ⚠ **The head instrument is the working-tree scan, not `git grep`.** An earlier revision of this criterion
+   specified `git grep -nE 'cite.?audit' -- .claude/tools/ .claude/skills/`. Measured, with `cite-audit`
+   planted in an **untracked** file under `.claude/skills/`, that command exits **1** with empty output —
+   which reads as a **pass** — while `couplings` reports **RED** and exits **1** on the same tree. `git grep`
+   searches *tracked* files, so it cannot see a violation in a file that exists but has not been added, and
+   this criterion's whole job is to catch a re-import — an act that starts as a new, unadded file. That is
+   exactly the defect `37c7eb02` fixed **inside** the harness, left live one file over in the criterion the
+   harness exists to serve. `git grep` is kept **only where an `origin/main` baseline is read**, above: a ref
+   has no working tree to walk, and only git can read one.
+
+   The scope stays `.claude/tools/` + `.claude/skills/`, not `.claude/tools/_webref/`; §7 records which
+   instrument ranges over which tree. (`webref_data` legitimately has file hits elsewhere under
    `.claude/tools/_webref/` — measured **8 at `origin/main` and 8 at head**, an earlier draft's "10 at head"
    being `b3a7d469`'s two extra files; K3 forbids it only in `spec_labels.py`.)
 3. **K2**: `bash …-A-rederive.sh couplings` → `elidex file paths at HEAD (K2 / S8 — MUST BE 0)` = **0**, under
    §2's two-further-segments predicate, and the block now **ranges over `.claude/tools/`**, so it witnesses
-   both of K2's sites rather than one. Measured at head: **VERDICT GREEN**, with the baseline line reporting
-   `pre-existing on origin/main` = **2** (`_webref/cli.py:78` and `.claude/tools/webref:5`) — the count that
-   was **1** while the filter was narrower, which is how the under-coverage was visible. The same block now
-   also carries K3's cross-tree limb, so one verdict covers both invariants outside the package.
+   both of K2's sites rather than one. Measured at head: **VERDICT GREEN**, **exit 0**, with the baseline line
+   reporting `pre-existing on origin/main` = **2** (`_webref/cli.py:78` and `.claude/tools/webref:5`) — the
+   count that was **1** while the filter was narrower, which is how the under-coverage was visible. The same
+   block now also carries K3's cross-tree limb, so one verdict covers both invariants outside the package.
+
+   ⚠ **The verdict is a return status, not only a printed line — three ways it used not to be.** Measured
+   before this commit set, all three with a violation planted: (a) the block printed `VERDICT: RED` and
+   **exited 0**, and inside `… all` (300+ lines of output) that RED line is unanchored text — `couplings` now
+   `return 1`s on either RED, and `all` ends with a `FAILED BLOCKS:` roster and propagates; (b) the verdict
+   was a `wc -l` over a producer whose exit status was discarded, and `wc -l` of nothing is **0**, which is
+   the **pass** condition — with `python3` shadowed by `#!/bin/sh\nexit 127` the block printed `: 0` and
+   `VERDICT: GREEN`, so *the scanner never ran* was indistinguishable from *no violations*; a scanner failure
+   is now **RED** (`rc=127`, exit **1**), never green; (c) the scan roots were relative and resolved against
+   **cwd** — run from `/` the dispatcher's `cd "$(git rev-parse --show-toplevel)"` errored, **no-opped**, and
+   the block printed GREEN with the violation present, and run from a *sibling worktree* it audited that
+   worktree instead of this branch's; the root now derives from `${BASH_SOURCE[0]}` and failing to resolve it
+   exits **2** loudly. Re-measured after: RED/exit 1 from `/`, from a sibling worktree, and from a
+   subdirectory alike.
 4. **K1/K4**: S3, S3b and S5 green — and S3 is green *as a perturbation*, not as an agreement (§6), so K1's
    `coverage_map` half is now actually pinned.
 
-Checks 2 and 3 are greps over prose occurrences, not over file assignments. **Every check named here has been
-run against a deliberately planted violation** and observed red; a pin that cannot witness its own negation
-is not a check, and this program has shipped two such already.
+Checks 2 and 3 are scans for prose occurrences, not for file assignments. **Every check named here has been
+run against a deliberately planted violation** and observed red **and non-zero** — the plant matrix is
+package-internal / `.claude/tools/`-outside-the-package / untracked-under-`.claude/skills/` / unplanted, plus
+the shadowed-`python3` and three-cwd cases of item 3. A pin that cannot witness its own negation is not a
+check; neither is one that witnesses it and then exits 0, which is what this commit set found.
 
 ---
 
@@ -498,7 +546,8 @@ owed re-derivation.
    §9's rule rather than an exception to it: §9 bars a slice from widening or narrowing *what it is approved
    to do*, which is what (b)-(e) state. (a) `:112-113` is a **status register** — "901 lines … Whichever slice
    next touches it splits it first" — that this PR **discharged** (`06e50b41`; measured, `wc -l
-   …-A-rederive*.sh` is a 55-line dispatcher plus five parts, 1091 total, largest 468). Landing it as an open
+   …-A-rederive*.sh` is a 68-line dispatcher plus five parts, 1186 total, largest 550 — §8 re-derives these).
+   Landing it as an open
    obligation would set A-ii's author up to redo a split already in the tree. (f) the *review cost tracks
    blast radius* bullet reasoned from "A-i has one invariant", which **the same commit-set falsifies**
    (`grep -cE '^- \*\*K[0-9]'` → 4, `grep -cE '^\| K[0-9] × K[0-9]'` → 5) and which A-i's own §9 no longer
@@ -538,7 +587,7 @@ umbrella revision named was destroyed by a rebase).
 
 ## §15 Re-derivation
 
-Entry point unchanged: `docs/plans/2026-07-citation-hygiene-A-rederive.sh <block>` — now a **55-line
+Entry point unchanged: `docs/plans/2026-07-citation-hygiene-A-rederive.sh <block>` — now a **68-line
 dispatcher** sourcing five parts (`-common` `-Ai` `-Aii` `-Aiii` `-B`), so every block name still resolves
 through that one path whichever part defines it (§8), verified by running each block A-i cites: **`citations
 keysets readers regions couplings budget`**, plus `lanes` in §13. `regions` is cited in §4.2; `lanes`
