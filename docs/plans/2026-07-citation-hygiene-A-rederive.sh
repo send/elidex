@@ -147,11 +147,16 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
 }
 
 carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check can detect
+  # ALL nine, not three: §6's "fails at the carve?" column is only checkable
+  # against the carve's exit code, and draft 7 asserted "yes" for a fixture the
+  # carve already exits 0 on (the fenced marker is inert prose there, so the
+  # behavioural half of that pin passes at the carve BY ACCIDENT).
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null
-  for f in labelled alias allunmapped; do
-    printf '\n--- %s (carve) ---\n' "$f"
-    python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1 |
-      grep -E 'citation verify|unmapped-label|unique specs|unrecognized'
+  for f in labelled dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker; do
+    local out rc
+    out=$(python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1); rc=$?
+    printf '%-18s EXIT=%d  %s\n' "$f" "$rc" \
+      "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*|⚠ unrecognized.*' | head -1)"
   done
   rm -rf "$F"
 }
@@ -237,6 +242,32 @@ PY
     BLOCK_MAP=1 python3 "$R/runpf.py" "$R/probe.py"
     echo "  [c] mv the webref shim   -> the CLI axis"
     mv .claude/tools/webref _shim; python3 "$R/probe.py"; mv _shim .claude/tools/webref )
+  git worktree remove --force "$T"; rm -rf "$R"
+}
+
+reloadstale() {  # §4.2.4 — an except-arm global survives a SUCCEEDING reload
+  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD
+  local R; R=$(mktemp -d); _runner "$R"
+  cat > "$T/_reload_probe.py" <<'PY'
+import importlib, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(".claude/skills/elidex-plan-review").resolve()))
+
+class _Block:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.startswith("_webref"):
+            raise ModuleNotFoundError(fullname)
+        return None
+
+# Shape only: `_err` assigned solely in the except arm vs initialised first.
+for label, prefix in (("except-arm only", ""), ("initialised first", "_err = None\n")):
+    g = {}
+    exec(prefix + "try:\n raise ImportError('boom')\nexcept Exception as e:\n _v=None; _err=e\n", g)
+    first = repr(g.get("_err"))
+    exec(prefix + "try:\n _v=1\nexcept Exception as e:\n _v=None; _err=e\n", g)
+    print(f"  {label:18s} after fail={first}  after reload={g.get('_err')!r}")
+PY
+  ( cd "$T" && python3 _reload_probe.py )
   git worktree remove --force "$T"; rm -rf "$R"
 }
 
@@ -556,10 +587,31 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
 marker() { git grep -nE '^[[:space:]]*\*\*No spec surface\*\*' -- docs/plans/ || echo "(none)"; }
 
 budget() {
+  echo "-- origin/main base, the touch set --"
   for f in "$PF" .claude/tools/_webref/commands/coverage_map.py .claude/tools/_webref/cli.py \
            .claude/tools/_webref/DESIGN.md mise.toml .github/workflows/ci.yml; do
     echo "$(git show "$MAIN:$f" | wc -l) $f"; done
-  echo "$(wc -l < docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md) (this memo)"
+  echo "-- on this branch --"
+  echo "$(wc -l < docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md) A's memo"
+  echo "$(wc -l < docs/plans/2026-07-citation-hygiene-A-rederive.sh) the re-derivation harness"
+  echo "-- preflight.py's LOGIC growth under A --"
+  # `wc -l` on the armmatrix proto is not a usable estimate: the proto trims
+  # argparse help and abbreviates diagnostics, so it comes out SHORTER than the
+  # file it grows. Statement count is the honest measure of what A adds.
+  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD; _proto "$T"
+  python3 - "$T/${PF%/*}/preflight_proto.py" <<'PY'
+import ast, subprocess, sys
+def stmts(src): return sum(isinstance(n, ast.stmt) for n in ast.walk(ast.parse(src)))
+base = subprocess.run(["git", "show",
+                       "origin/main:.claude/skills/elidex-plan-review/preflight.py"],
+                      capture_output=True, text=True).stdout
+proto = open(sys.argv[1]).read()
+b, p = stmts(base), stmts(proto)
+print(f"  origin/main={b} statements   +A={p}   delta={p - b:+d} ({100 * (p - b) / b:+.0f}%)")
+print("  caveat: the proto collapses several multi-line diagnostics into one print,")
+print("  and each print is a statement, so the shipped delta is somewhat larger.")
+PY
+  git worktree remove --force "$T"
 }
 
 filters() { git show "$MAIN:.github/workflows/ci.yml" | sed -n '/filters:/,/^  check:/p'; }
@@ -626,7 +678,7 @@ staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept
   done | sort -u | head -20
 }
 
-all() { for f in citations partition keysets column carvecolumn instruments remedies armmatrix suites \
+all() { for f in citations partition keysets column carvecolumn instruments remedies reloadstale armmatrix suites \
                  anchors regions offline couplings suiteset marker budget filters ruleset timing \
                  lanes bmemo staleclaims; do
           say "$f"; "$f"; done; }
