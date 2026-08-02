@@ -488,6 +488,32 @@ under B's reverse index it plausibly still returns `None` — it does not become
 **vestigial**, because the output it was pinning as unreadable is no longer the output. B disposes of it
 either way; A-i does not assume which.
 
+**Owed to Slice B — the `partition` block is broken by A-i's own K3, and was failing silently.** Measured,
+`rederive partition` (a Slice-B block, in `…-A-rederive-B.sh`) calls `spec_labels._catalog()`, which A-i
+removes from the generic tree because K3 forbids it. So the block has raised `AttributeError` since
+`6be73a82`, and `all` **swallowed it** — the same discarded-exit-status bug the Step 4.5 pass found in
+`couplings`, one level up. `all` now carries an anchored `FAILED BLOCKS:` roster and propagates, so
+`bash …-A-rederive.sh all` exits **1** on this branch, reporting `partition(exit 1)`. That is correct
+reporting, not a regression: **`all`'s exit status cannot be a green gate on this branch until B lands**, and
+B is the slice that restores `_catalog`. ⚠ Do not "fix" it by reverting the roster — silence is what let it
+run broken for four commits.
+
+⚠ **ROUTED TO PLAN-REVIEW, umbrella altitude — K2/K3's scope is mis-drawn, and no check can be right until it
+is redrawn.** A Trigger-B root-cause pass on the Step 4.5 fix found that §2 binds *generic core* to
+`.claude/tools/`, while `DESIGN.md` defines the generic core by responsibility and lists modules all under
+`_webref/`; its only occurrences of `.claude/tools/` are invocation examples. **Measured, the widening buys
+zero evidence** — `git grep -oE '<PATHRE>' origin/main -- .claude/tools/` and the same restricted to
+`.claude/tools/_webref/ .claude/tools/webref` both return **2**, the identical two sites — while importing
+five other-lane artifacts (`layout-box-reader-allowlist.tsv`, `layout-box-reader-trip-wire.sh`, and three
+`*-trip-wire.sh`) into A-i's §12(3) exit criterion, so a Layout-lane edit with no webref content can fail it.
+K3 is mis-drawn a second way: its headline says *the generic core* names no Slice-B artifact, but its body
+ranges over `.claude/skills/`, which by `DESIGN.md`'s own split is the **adapter**. The likely correction —
+bind K2/K3 to `_webref/` plus the `.claude/tools/webref` entry script, and collapse to one enforcement point
+— costs no evidence and removes all cross-lane coupling. **It is not A-i's to take**: re-stating a
+plan-ratified invariant's scope routes to plan-review ([[feedback_plan-ratified-surface-is-a-design-change]]),
+the canonical-site choice is shared with A-ii and A-iii (both cite `couplings`), and wiring a CI trip-wire
+collides with the Layout lane's approved `#11-layoutbox-trip-wire-not-in-ci`.
+
 **Frozen literals.** S5's 15 `SPEC_LABEL_REVERSE` pairs **and** S3b's vendored `COMMON_SHORTNAMES` blurb text
 are both `origin/main` snapshots taken at vendoring time and refreshed never — which is what makes them pins
 rather than mirrors (K4). ⚠ **A-ii must not refresh either — and this is OWED, not routed**: measured,
