@@ -990,8 +990,8 @@ fn validate_transfer(ctx: &mut NativeContext<'_>, options: JsValue) -> Result<()
 /// Phase 2 restriction: real transferable objects are not yet
 /// supported, so a non-empty list throws `DataCloneError`.  A
 /// non-iterable Object (e.g. a plain `{}`, or an Object whose
-/// `@@iterator` is undefined) throws `TypeError` per WebIDL §3.2.21 step 3
-/// step 2-3, mirroring the TypeError thrown for non-Object
+/// `@@iterator` is undefined) throws `TypeError` per WebIDL §3.2.21
+/// step 3, mirroring the TypeError thrown for non-Object
 /// primitives.  Shared by `structuredClone`'s
 /// `StructuredSerializeOptions.transfer` and
 /// `window.postMessage`'s transfer argument (legacy and dict form).
@@ -1013,7 +1013,7 @@ pub(super) fn ensure_empty_transfer_list(
                     format!("{err_prefix}: Transferable objects are not yet supported."),
                 ));
             }
-            // Non-Array object → probe `@@iterator` (WebIDL §3.2.21 step 2
+            // Non-Array object → probe `@@iterator` (WebIDL §3.2.21
             // step 2-3).  Missing `@@iterator` → TypeError, not
             // DataCloneError.
             let iter_key = PropertyKey::Symbol(ctx.vm.well_known_symbols.iterator);

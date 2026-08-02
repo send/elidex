@@ -545,7 +545,7 @@ fn native_touch_event_constructor(
 
 /// Parse a `sequence<Touch>` member from a TouchEventInit.  Each
 /// sequence entry must be Touch-brand; anything else throws
-/// TypeError per WebIDL §3.10.21.  Missing key → empty Vec
+/// TypeError per WebIDL §3.2.15.  Missing key → empty Vec
 /// (matches WebIDL default).
 ///
 /// Fast-path on `ObjectKind::Array` reads the dense `elements` Vec
@@ -573,7 +573,7 @@ fn parse_touch_sequence(
              sequence<Touch> member is null.",
         ));
     }
-    // sequence<Touch> via the shared WebIDL §3.10.16 helper. Overridden
+    // sequence<Touch> via the shared WebIDL §3.2.21 helper. Overridden
     // `arr[Symbol.iterator]` must be honoured — see
     // `touch_event_sequence_honours_array_iterator_override`.
     let msgs = SeqMessages {

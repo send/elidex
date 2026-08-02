@@ -978,8 +978,8 @@ pub enum UpvalueState {
 ///
 /// Generators and async function bodies remain `Function` — their
 /// machinery consumes the body's completion elsewhere (§27.8.3.1
-/// GeneratorStart step 4.9-4.12 / §27.10.5.2 AsyncBlockStart step
-/// 1.6-1.8) and does not observe `completion_value`.
+/// GeneratorStart step 4.i-4.l / §27.10.5.2 AsyncBlockStart step
+/// 1.f-1.h) and does not observe `completion_value`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameKind {
     /// Top-level script body or `eval` body — the entry-gated `Op::PopCompletion`
