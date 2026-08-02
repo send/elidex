@@ -14,9 +14,9 @@
 # live, so the fixtures a reviewer measures are byte-identical to the ones A ships.
 #
 # THIS FILE IS THE DISPATCHER AND THE ONLY ENTRY POINT. The blocks live in the
-# sourced parts below, one per slice plus a common part; six memos cite block
-# names by THIS path, so the invocation surface above is fixed and every block
-# name resolves here regardless of which part defines it.
+# sourced parts below, one per slice plus a common part and an integrity part;
+# six memos cite block names by THIS path, so the invocation surface above is
+# fixed and every block name resolves here regardless of which part defines it.
 #
 # The slice seam, MEASURED (`grep -nE 'rederive [a-z ]*<block>' …-citation-hygiene-*.md`,
 # plus each memo's §15 block list, which is the authoritative enumeration):
@@ -35,24 +35,31 @@
 #   anchors            -> A-ii (its 7 preflight symbols: A-ii 26 hits, A-i 1)
 #   timing             -> A-ii (the CLI-subprocess axis §4.2.1/§4.5 instrument)
 #   bmemo, staleclaims -> B  (they derive the edit classes B's memo needs)
-#   selfcheck          -> common (it derives a property of the harness AS A WHOLE
-#                                 -- that every block below states its own exit
-#                                 status -- so it belongs to no slice)
+#   selfcheck          -> integrity (it derives a property of the harness AS A
+#                                 WHOLE -- that every block below states its own
+#                                 exit status -- so it belongs to no slice)
 # Helpers are placed with their callers: `_runner` (4 A-ii blocks) -> A-ii;
 # `fixtures` and `_proto` have callers in two files -> common.
+#
+# `-integrity.sh` is the ONE PART THAT IS NOT ON THE SLICE SEAM, and it is
+# sourced FIRST because everything else reads it: `$REPO_ROOT`, settled at SOURCE
+# time and required by the `cd` below, plus `_measure`/`_measured` and
+# `selfcheck`. Call sites, MEASURED (`grep -cE '(^|[^_A-Za-z])_measure(d)? '`):
+# `-common` 15, `-Aiii` 7, `-Aii` 1, `-B` 1 -- every part but `-Ai`, which has
+# none. A-i §8 names this seam and is the only site carrying the layout figures.
 set -uo pipefail
 _HARNESS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-for _part in common Ai Aii Aiii B; do
+for _part in integrity common Ai Aii Aiii B; do
   # shellcheck source=/dev/null
   . "$_HARNESS_DIR/2026-07-citation-hygiene-A-rederive-$_part.sh"
 done
 unset _part
-# `-common.sh` resolves $REPO_ROOT from ITS OWN path and exits 2 if it cannot, so
+# `-integrity.sh` resolves $REPO_ROOT from ITS OWN path and exits 2 if it cannot, so
 # by here it is settled. Blocks still run with cwd at the root -- the `git grep`
 # baselines and the `git ls-files` census read it -- but the root is now the repo
 # THIS SCRIPT lives in rather than wherever the caller stood, and a failure is
 # loud. The old line was `cd "$(git rev-parse --show-toplevel)"`, which NO-OPS
-# when the substitution fails; see `-common.sh`'s measurements.
+# when the substitution fails; see `-integrity.sh`'s measurements.
 cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2; }
 
 # `all` ROLLS UP AND PROPAGATES. A block's verdict line is one line in 300+, and

@@ -353,19 +353,39 @@ twins (`memory/feedback_duplicated-decision-surface-blocks-converge.md` — 同�
 site that states the harness's layout.** `umbrella:118` and §13.1 below now point here and restate nothing,
 and the `rederive budget` block prints the same figures from the tree. Layout now, derived
 (`wc -l …-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`):
-dispatcher **95**, `-common` **815**, `-Ai` **177**, `-Aii` **345**, `-B` **137**, `-Aiii` **120**; **1689**
-total, **33** blocks, largest part **815**.
+dispatcher **102**, `-common` **592**, `-integrity` **238**, `-Ai` **177**, `-Aii` **345**, `-B` **137**,
+`-Aiii` **120**; **1711** total, **33** blocks, largest part **592**.
 
-⚠ **`-common` is now PAST the 700-800 authoring band**, by 15 lines. The commit answering Codex round 2 added
-the `selfcheck` block and routed a measurement in seven others; the previous revision of this paragraph said
-`-common` was *"within 19 lines of entering it, so the next slice to touch it re-checks before adding"* — the
-re-check was done and this is its result, recorded rather than quietly restated as satisfied. **The seam is
-real and named, not a line-count trim**: the harness's own integrity machinery (`_measure`, `_measured`,
-`selfcheck` — the primitive that makes a failed measurement unrepresentable, plus the check that every roster
-block states its own status) is one cohesive unit, and *"every block more than one memo cites"* is another.
-**Owed as a standalone split commit** before the next slice adds to this part — CLAUDE.md puts a split in its
-own commit rather than bundled into a feature or review-fix one, which is why the round-2 commit recorded it
-here instead of taking it.
+✅ **`-common`'s band overrun is DISCHARGED — this commit is the split, and it is the whole of it.** The
+commit answering Codex round 2 left `-common` at **815**, past the 700-800 authoring band by 15 lines: it
+added the `selfcheck` block and routed a measurement in seven others, and the revision of this paragraph
+before that one said `-common` was *"within 19 lines of entering it, so the next slice to touch it re-checks
+before adding"* — the re-check was done, it came back over, and it was recorded here rather than quietly
+restated as satisfied. **The seam is real and named, not a line-count trim**, which is why the split takes it
+verbatim: the harness's own integrity machinery (`_measure`, `_measured`, `selfcheck`, and the `$REPO_ROOT`
+resolution they depend on — the primitive that makes a failed measurement unrepresentable, the root every
+scan resolves against, and the check that every roster block states its own status, which is that same
+property one level up) is one cohesive unit, and *"every block more than one memo cites"* is another. That
+unit is now `-integrity.sh`, sourced **first** because the dispatcher's `cd` needs `$REPO_ROOT` settled at
+source time and because every part but `-Ai` calls `_measure` (call sites, measured
+`grep -cE '(^|[^_A-Za-z])_measure(d)? '`: `-common` **15**, `-Aiii` **7**, `-Aii` **1**, `-B` **1**, `-Ai`
+**0**). `-common` falls to **592**, and **no part is in the band, let alone past it**.
+
+**The invocation surface is unchanged** — `bash …-A-rederive.sh <block>` and `… all` still resolve every
+block name through the one path six memos cite, because the dispatcher sources the new part exactly as it
+sources the other five. Verified behaviourally, not by inspection: every block's stdout+stderr and exit code
+captured before and after, with the capture run **twice on the unsplit file first** so the non-deterministic
+lines were known before any difference could be attributed to the split (`suites`' `Ran N tests in Xs` and
+`timing`'s `subprocess=`/`in-process=`/`ratio=` — wall-clock, and nothing else). The only non-noise
+differences after the split are the two the split *is*: `selfcheck` reports **7** harness parts rather than
+6 (its block count unmoved), and `budget`'s per-file roster gains `-integrity` and prints the new counts.
+`all` still exits **1** reporting exactly `partition(exit 1)` (§12), and `selfcheck` is GREEN — and was made
+to fail on purpose, by dropping a **moved** block's trailing `return`, which it named at its new file and
+line before it was restored.
+
+⚠ Per CLAUDE.md a split is **its own commit**, never bundled into a feature or a review-fix one; the round-2
+commit recorded the debt here instead of taking it for exactly that reason, and this commit carries the split
+and nothing else.
 
 ---
 
@@ -629,9 +649,10 @@ owed re-derivation.
    ✅ **(a) and (f) were separated out and fixed in A-i's own commit set**, and the separation is the point of
    §9's rule rather than an exception to it: §9 bars a slice from widening or narrowing *what it is approved
    to do*, which is what (b)-(e) state. (a) `:112-113` is a **status register** — "901 lines … Whichever slice
-   next touches it splits it first" — that this PR **discharged** (`06e50b41`: a dispatcher plus five parts
-   on the slice seam. **The figures are in §8 and this row does not restate them** — it used to, and that
-   third home is half of what Codex round 2 found). Landing it as an open
+   next touches it splits it first" — that this PR **discharged** (`06e50b41`: a dispatcher sourcing parts
+   carved on the slice seam. **The layout is §8's and this row does not restate it — not the part names, not
+   the count, not the line figures** — it used to, and that third home is half of what Codex round 2 found;
+   the integrity split has since moved all three again). Landing it as an open
    obligation would set A-ii's author up to redo a split already in the tree. (f) the *review cost tracks
    blast radius* bullet reasoned from "A-i has one invariant", which **the same commit-set falsifies**
    (`grep -cE '^- \*\*K[0-9]'` → 4, `grep -cE '^\| K[0-9] × K[0-9]'` → 5) and which A-i's own §9 no longer
@@ -681,10 +702,12 @@ umbrella revision named was destroyed by a rebase).
 
 ## §15 Re-derivation
 
-Entry point unchanged: `docs/plans/2026-07-citation-hygiene-A-rederive.sh <block>` — now an **87-line
-dispatcher** sourcing five parts (`-common` `-Ai` `-Aii` `-Aiii` `-B`), so every block name still resolves
-through that one path whichever part defines it (§8), verified by running each block A-i cites: **`citations
-keysets readers regions couplings budget`**, plus `lanes` in §13. `regions` is cited in §4.2; `lanes`
+Entry point unchanged: `docs/plans/2026-07-citation-hygiene-A-rederive.sh <block>` — now a dispatcher that
+sources the parts, so every block name still resolves through that one path whichever part defines it.
+⚠ **The part list and its line counts are NOT restated here** — §8 is their only site, and this sentence
+carried a stale `87-line dispatcher` / `five parts` pair until the integrity split re-derived it. Verified by
+running each block A-i cites: **`citations keysets readers regions couplings budget`**, plus `lanes` in §13.
+`regions` is cited in §4.2; `lanes`
 is author-local in the harness's sense (`AUTHOR_LOCAL="lanes staleclaims"`, excluded from `all` because it
 reads the machine's worktree list), which does not bar a memo from citing it.
 
