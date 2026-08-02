@@ -29,6 +29,80 @@ MAIN=origin/main
 PF=.claude/skills/elidex-plan-review/preflight.py
 say() { printf '\n=== %s ===\n' "$1"; }
 
+# --- THE MEASUREMENT PRIMITIVE ------------------------------------------------
+# EVERY quantity this harness reports goes through here. The umbrella's `:91`
+# constraint is *"Counts are commands. No slice memo carries a quantity it did not
+# derive"*, so the one thing this harness must not be able to print is a count
+# whose command NEVER RAN. The idiom it replaces -- `n=$(cmd | wc -l)` -- could
+# not tell that apart from a real zero on EITHER axis:
+#
+#   STATUS  `$(...)` discards the pipeline's status and `wc -l` of nothing is
+#           `0`, which is the PASS condition at every call site here. Measured,
+#           in a checkout with no remote-tracking ref: `git grep … origin/main`
+#           died `fatal: unable to resolve revision: origin/main`, the count read
+#           `0`, and `couplings` printed `VERDICT: GREEN` and exited 0 -- it
+#           certified a derivation that did not occur, which is the negation of
+#           this harness's charter. `37c7eb02` fixed exactly this for `_wtscan`
+#           and left the two `git grep` baselines on the adjacent lines.
+#   EMPTY   `printf '%s\n' "$var" | wc -l` is **1** for an empty `$var`, because
+#           printf emits the newline unconditionally. A match count that reads 1
+#           when there are no matches is the same class from the other side. The
+#           `if [ -n … ]` guards that used to hold this off are not needed here:
+#           the count is taken from the command's own output, not from a re-print.
+#
+#   _measure [--nomatch <status>] <var> <cmd> [arg...]
+#
+# runs <cmd> ONCE, and:
+#   * captures its stdout in `$_MEASURE_OUT`, so a caller that must also PRINT
+#     the hits reads that instead of running the command a second time (running
+#     it twice is how the pre-`37c7eb02` sites threw the status away twice, and
+#     it lets the listing and the count disagree),
+#   * on success sets <var> to `wc -l` of that output -- 0 for no output,
+#   * on failure sets <var> to `!FAILED(rc=N)`, prints a loud diagnostic, and
+#     returns 1.
+#
+# The sentinel is what makes "the command did not run" UNREPRESENTABLE AS A PASS
+# rather than merely detected at the sites someone remembered: every gate in this
+# harness is `= 0`, `!FAILED(rc=N)` is not `0` and is not a number, so no failed
+# measurement can satisfy any of them -- including at a call site written later by
+# someone who has not read this comment. Callers should still propagate the
+# return status so the block's exit code carries it too; a caller that forgets
+# still cannot print GREEN.
+#
+# `--nomatch <status>` is the status a SEARCH returns when it ran and matched
+# nothing (`git grep` -> 1). It is REQUIRED on the baselines and forbidden
+# elsewhere: without it "no matches" -- the expected, correct result -- would be
+# indistinguishable from a broken ref, which is the confusion this function
+# exists to end. Every OTHER status stays a failure, so git's 128 for an
+# unresolvable revision and 127 for a missing interpreter are still fatal.
+_MEASURE_OUT=""
+_measure() {
+  local __nomatch=""
+  [ "${1:-}" = "--nomatch" ] && { __nomatch=$2; shift 2; }
+  local __var=$1; shift
+  local __raw __rc=0
+  # The `\034` sentinel is not decoration: `$(...)` strips ALL trailing newlines,
+  # so output ending in a blank line would count one line short. Appending a
+  # non-newline byte and stripping it back makes the count byte-identical to
+  # `cmd | wc -l`.
+  __raw=$( { "$@"; __r=$?; printf '\034'; exit "$__r"; } ) || __rc=$?
+  __raw=${__raw%$'\034'}
+  if [ "$__rc" -ne 0 ] && [ "$__rc" != "$__nomatch" ]; then
+    _MEASURE_OUT=""
+    printf '!! MEASUREMENT FAILED (rc=%s): %s\n' "$__rc" "$*" >&2
+    printf '!!   no count is reported -- a command that did not run measured nothing.\n' >&2
+    printf -v "$__var" '!FAILED(rc=%s)' "$__rc"
+    return 1
+  fi
+  _MEASURE_OUT=$__raw
+  printf -v "$__var" '%s' "$(printf '%s' "$__raw" | wc -l | tr -d ' ')"
+  return 0
+}
+
+# Print what the last `_measure` captured, without the extra blank line a
+# `printf '%s\n'` on an already-newline-terminated capture would add.
+_measured() { [ -n "$_MEASURE_OUT" ] && printf '%s' "$_MEASURE_OUT"; return 0; }
+
 # --- fixtures -----------------------------------------------------------------
 # The §6 fixture set, emitted into $1. §5's origin/main column and every pin read
 # these exact bodies.
@@ -94,15 +168,19 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   # Draft 9 tabled four and derived two, and the two it did not derive were the
   # two it had just changed -- including the title corrected FROM a fabrication.
   # Nothing on the branch would have caught a second one at that same site.
-  .claude/tools/webref heading --exact html 4.10.21
-  .claude/tools/webref heading --exact html 4.10.21.2
-  .claude/tools/webref heading --exact fetch 2.2.5
-  .claude/tools/webref heading --exact cssom-view-1 4.2
+  # A lookup that FAILED prints nothing and used to leave this block exiting 0 on
+  # the status of `rm -rf` -- an unverified §-title reported as a verified one.
+  local rc=0
+  .claude/tools/webref heading --exact html 4.10.21       || rc=1
+  .claude/tools/webref heading --exact html 4.10.21.2     || rc=1
+  .claude/tools/webref heading --exact fetch 2.2.5        || rc=1
+  .claude/tools/webref heading --exact cssom-view-1 4.2   || rc=1
   echo "-- and the pairs actually present in the fixture bodies --"
-  local F; F=$(mktemp -d); fixtures "$F" >/dev/null
+  local F; F=$(mktemp -d); fixtures "$F" >/dev/null || rc=1
   awk -F'|' '/^\| [A-Za-z§]/ && $2 !~ /Spec section/ {gsub(/^ +| +$/,"",$2); print "  "$2}' \
-    "$F"/*.md | sort -u
+    "$F"/*.md | sort -u || rc=1
   rm -rf "$F"
+  return "$rc"
 }
 
 _wtscan() {  # $1 = ERE, $2.. = roots RELATIVE TO $REPO_ROOT. Prints `path:line:match`.
@@ -118,12 +196,13 @@ _wtscan() {  # $1 = ERE, $2.. = roots RELATIVE TO $REPO_ROOT. Prints `path:line:
   # Roots resolve against $REPO_ROOT, not cwd; python chdir's there so the printed
   # paths stay repo-relative and read the same as before.
   #
-  # ⚠ THE EXIT STATUS IS PART OF THE ANSWER. Callers must not swallow it: `wc -l`
-  # of nothing is `0`, and `0` is the PASS condition, so a scanner that NEVER RAN
-  # is indistinguishable from one that found nothing -- the same inference bug
-  # this function's `git grep` note is about, one level up. Measured: with
-  # `python3` shadowed by `#!/bin/sh\nexit 127` and a violation planted, the old
-  # callers printed `: 0` and `VERDICT: GREEN`.
+  # ⚠ THE EXIT STATUS IS PART OF THE ANSWER, which is why this is called through
+  # `_measure` and never through `$(… | wc -l)`: `wc -l` of nothing is `0`, and
+  # `0` is the PASS condition, so a scanner that NEVER RAN is indistinguishable
+  # from one that found nothing -- the same inference bug this function's
+  # `git grep` note is about, one level up. Measured: with `python3` shadowed by
+  # `#!/bin/sh\nexit 127` and a violation planted, the pre-`_measure` callers
+  # printed `: 0` and `VERDICT: GREEN`.
   local ere=$1; shift
   python3 - "$REPO_ROOT" "$ere" "$@" <<'WTSCANPY'
 import os, re, sys
@@ -180,19 +259,36 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # inclusion list cannot see a file the slice CREATES -- which is exactly what
   # it missed (test_spec_labels.py), twice, in the block written to catch it.
   local BFILES='cite_audit|test_cite_audit|webref_data'
+  # `failed` is the block's memory that SOME quantity below was not derived. It
+  # is checked before any count is, because a count that was never taken is not a
+  # count of zero -- see `_measure`.
+  local failed=0 _n
+  _measure _n git ls-files '.claude/tools/_webref/*.py' '.claude/tools/_webref/**/*.py' \
+                           '.claude/tools/_webref/*.md' '.claude/tools/webref' || failed=1
   local AHALF=()
   while IFS= read -r f; do
+    [ -n "$f" ] || continue
     printf '%s' "$f" | grep -qE "$BFILES" || AHALF+=("$f")
-  done < <(git ls-files '.claude/tools/_webref/*.py' '.claude/tools/_webref/**/*.py' \
-                        '.claude/tools/_webref/*.md' '.claude/tools/webref')
+  done <<< "$_MEASURE_OUT"
   echo "   A-half files: ${#AHALF[@]}"
+  # The `| cat` these listings used to carry masked git's status the same way
+  # `| wc -l` masked it for the counts: with the ref unresolvable the listing came
+  # back EMPTY and the block read that as "no couplings". Routed through
+  # `_measure`, the listing and its status arrive together.
   echo "-- concept, origin/main baseline (PKG — the by-role prose A-i rewrites) --"
-  git grep -nE "$CONCEPT" "$MAIN" -- "$PKG" | cat
+  _measure --nomatch 1 _n git grep -nE "$CONCEPT" "$MAIN" -- "$PKG" || failed=1
+  _measured
   echo "-- concept, HEAD (PKG; A's files and B's together) --"
-  git grep -nE "$CONCEPT" -- "$PKG" | cat
+  _measure --nomatch 1 _n git grep -nE "$CONCEPT" -- "$PKG" || failed=1
+  _measured
   echo "-- FILE PATHS only, origin/main, GENERIC (the baseline §7 argues from) --"
-  git grep -noE "$PATHRE" "$MAIN" -- "$GENERIC" | cat
-  echo "   count: $(git grep -oE "$PATHRE" "$MAIN" -- "$GENERIC" | wc -l | tr -d ' ')"
+  # ONE run, printed AND counted. This used to be two `git grep` invocations of
+  # the same needle over the same ref -- a shape in which the listing and the
+  # count can disagree and neither one's status is read.
+  local n_base
+  _measure --nomatch 1 n_base git grep -noE "$PATHRE" "$MAIN" -- "$GENERIC" || failed=1
+  _measured
+  echo "   count: $n_base"
   # SUPERSEDED, A-i round 1: this block used to gate on the DELTA -- `comm -13`
   # base against head, "ADDED BY A must be empty" -- reasoning that discharging
   # `cli.py`'s pre-existing path was not A's scope. K2 is an ABSOLUTE now (§2,
@@ -201,17 +297,17 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # mandate. So the gate is a plain grep over the whole generic tree, and the
   # pre-existing instance counts against it like any other.
   echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check (working tree) --"
-  # ONE scan, captured; the previous form ran `_wtscan` twice and threw the status
-  # away both times (once to print, once into `wc -l`). See `_wtscan`'s ⚠ note.
-  local head_hits rc_head=0 n_head n_base n_ahalf
-  head_hits=$(_wtscan "$PATHRE" "$GENERIC") || rc_head=$?
-  n_head=0
-  if [ -n "$head_hits" ]; then
-    printf '%s\n' "$head_hits"
-    n_head=$(printf '%s\n' "$head_hits" | wc -l | tr -d ' ')
+  local n_head n_ahalf
+  _measure n_head _wtscan "$PATHRE" "$GENERIC" || failed=1
+  _measured
+  # An EMPTY `AHALF` is not "A's half has no paths": `git grep -- ` with no
+  # pathspec ranges over the WHOLE repo, so the census failing above turned this
+  # line into a repo-wide count reported as a per-slice one (measured: 59).
+  if [ "${#AHALF[@]}" -eq 0 ]; then
+    n_ahalf='!FAILED(A-half census empty)'; failed=1
+  else
+    _measure --nomatch 1 n_ahalf git grep -oE "$PATHRE" -- "${AHALF[@]}" || failed=1
   fi
-  n_base=$(git grep -oE "$PATHRE" "$MAIN" -- "$GENERIC" | wc -l | tr -d ' ')
-  n_ahalf=$(git grep -oE "$PATHRE" -- "${AHALF[@]}" | wc -l | tr -d ' ')
   echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
   echo "   of which in A's half                            : $n_ahalf"
   echo "   pre-existing on origin/main (A-i discharges it)  : $n_base"
@@ -222,14 +318,11 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # itself the way an in-tree test file would.
   echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree, working tree) --"
   local B_ART='cite.?audit' B_FT='_catalog'
-  local art_hits rc_art=0 n_art n_base_art
-  art_hits=$(_wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS") || rc_art=$?
-  n_art=0
-  if [ -n "$art_hits" ]; then
-    printf '%s\n' "$art_hits"
-    n_art=$(printf '%s\n' "$art_hits" | wc -l | tr -d ' ')
-  fi
-  n_base_art=$(git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "$GENERIC" "$SKILLS" | wc -l | tr -d ' ')
+  local n_art n_base_art
+  _measure n_art _wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS" || failed=1
+  _measured
+  _measure --nomatch 1 n_base_art \
+    git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "$GENERIC" "$SKILLS" || failed=1
   echo "   Slice-B artifact names at HEAD (K3 / S7 — MUST BE 0) : $n_art"
   echo "   pre-existing on origin/main (must also be 0)         : $n_base_art"
   # THE VERDICT IS A RETURN STATUS, not only a printed line. §12(3) names this
@@ -238,12 +331,17 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # `VERDICT: RED` and still exited 0, and inside `… all` -- 300+ lines -- that
   # RED line is unanchored text nothing is obliged to read.
   #
-  # A SCANNER FAILURE IS RED, never green. `n_head`/`n_art` are 0 when the scan
-  # produced no output, and that is also 0 when the scan did not run at all, so
-  # the counts alone cannot tell the two apart; `rc_*` can, and is checked first.
-  if [ "$rc_head" -ne 0 ] || [ "$rc_art" -ne 0 ]; then
-    echo "   VERDICT: RED — the working-tree SCANNER FAILED (paths rc=$rc_head, artifacts rc=$rc_art);"
-    echo "                  a scan that did not run is not a scan that found nothing."
+  # A FAILED MEASUREMENT IS RED, never green -- for EVERY quantity above, not
+  # just the two working-tree scans. Codex reproduced the other half: in a
+  # checkout with no remote-tracking ref the `origin/main` baselines died
+  # `fatal: unable to resolve revision`, their counts read 0, and this block
+  # printed GREEN and exited 0. `_measure` now binds each count to the status of
+  # the command that produced it, so a count that was never taken is a
+  # `!FAILED(rc=N)` string that no `= 0` gate below can accept even if this arm
+  # were removed.
+  if [ "$failed" -ne 0 ]; then
+    echo "   VERDICT: RED — a MEASUREMENT FAILED (see the !! lines above);"
+    echo "                  a count that was never taken is not a count of zero."
     return 1
   fi
   if [ "$n_head" = 0 ] && [ "$n_art" = 0 ]; then
@@ -484,51 +582,81 @@ PY
 }
 
 budget() {
+  # §8's whole content is counts, so every one of them goes through `_measure`.
+  # `git show "$MAIN:$f" | wc -l` printed `0 <path>` for a file that does not
+  # exist on the ref -- a size claim for a file nobody measured, in the block §8
+  # cites for its size claims.
+  local failed=0 n
   echo "-- origin/main base, the touch set --"
   for f in "$PF" .claude/tools/_webref/commands/coverage_map.py .claude/tools/_webref/cli.py \
            .claude/tools/_webref/DESIGN.md mise.toml .github/workflows/ci.yml; do
-    echo "$(git show "$MAIN:$f" | wc -l) $f"; done
+    _measure n git show "$MAIN:$f" || failed=1
+    echo "$n $f"; done
   echo "-- on this branch --"
   for m in Ai-spec-label-map Aii-gate-failure-semantics Aiii-suite-scheduler \
            umbrella B-detector-correctness C-policy-retirement; do
     f="docs/plans/2026-07-citation-hygiene-$m.md"
-    [ -f "$f" ] && echo "$(wc -l < "$f") $m"
+    [ -f "$f" ] || continue
+    _measure n cat "$f" || failed=1
+    echo "$n $m"
   done
   # The harness is SIX files since the slice-seam split; one line-count is no
   # longer a statement about it, and the §8 band applies per file.
   for f in docs/plans/2026-07-citation-hygiene-A-rederive*.sh; do
-    echo "$(wc -l < "$f") the re-derivation harness — ${f##*/2026-07-citation-hygiene-A-rederive}"
+    _measure n cat "$f" || failed=1
+    echo "$n the re-derivation harness — ${f##*/2026-07-citation-hygiene-A-rederive}"
   done
-  echo "$(cat docs/plans/2026-07-citation-hygiene-A-rederive*.sh | wc -l | tr -d ' ') the re-derivation harness, all parts"
+  _measure n cat docs/plans/2026-07-citation-hygiene-A-rederive*.sh || failed=1
+  echo "$n the re-derivation harness, all parts"
   echo "-- preflight.py's LOGIC growth under A --"
   # `wc -l` on the armmatrix proto is not a usable estimate: the proto trims
   # argparse help and abbreviates diagnostics, so it comes out SHORTER than the
   # file it grows. Statement count is the honest measure of what A adds.
-  local T; T=$(mktemp -d); git worktree add -q "$T" HEAD; _proto "$T"
-  python3 - "$T/${PF%/*}/preflight_proto.py" <<'PY'
+  # A worktree that was not created, or a graft that did not happen, would leave
+  # the statement delta below measured against nothing at all.
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
+  _proto "$T" || failed=1
+  python3 - "$T/${PF%/*}/preflight_proto.py" <<'PY' || failed=1
 import ast, subprocess, sys
 def stmts(src): return sum(isinstance(n, ast.stmt) for n in ast.walk(ast.parse(src)))
-base = subprocess.run(["git", "show",
-                       "origin/main:.claude/skills/elidex-plan-review/preflight.py"],
-                      capture_output=True, text=True).stdout
+_b = subprocess.run(["git", "show",
+                     "origin/main:.claude/skills/elidex-plan-review/preflight.py"],
+                    capture_output=True, text=True)
+if _b.returncode != 0:
+    sys.stderr.write(_b.stderr)
+    raise SystemExit("!! `git show origin/main:…preflight.py` failed (rc=%d); there is no "
+                     "baseline to compute a delta against." % _b.returncode)
+base = _b.stdout
 proto = open(sys.argv[1]).read()
 b, p = stmts(base), stmts(proto)
 print(f"  origin/main={b} statements   +A={p}   delta={p - b:+d} ({100 * (p - b) / b:+.0f}%)")
 print("  caveat: the proto collapses several multi-line diagnostics into one print,")
 print("  and each print is a statement, so the shipped delta is somewhat larger.")
 PY
+  # The cleanup runs LAST but must not BE the answer: `git worktree remove`
+  # succeeding says nothing about whether anything above was measured.
   git worktree remove --force "$T"
+  return "$failed"
 }
 
 lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two carve commits
-  git rev-list --left-right --count "$MAIN"...HEAD
-  gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"'
-  git log --format='%h %s' --grep='carve the cite-audit detector'
-  git log --format='%h %s' --grep='re-carve the shared spec-label map'
+  local failed=0 n
+  git rev-list --left-right --count "$MAIN"...HEAD || failed=1
+  gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' || failed=1
+  git log --format='%h %s' --grep='carve the cite-audit detector' || failed=1
+  git log --format='%h %s' --grep='re-carve the shared spec-label map' || failed=1
   echo "-- worktrees carrying plan-memo diffs --"
+  # The `2>/dev/null | wc -l` this used to be reported `0` -- i.e. "this worktree
+  # authors no plan-memo" -- for a worktree whose diff could not be taken at all,
+  # and §13's lane roster is exactly a claim about which worktrees those are.
   for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
-    n=$(git -C "$w" diff --name-only "$MAIN"...HEAD -- docs/plans/ 2>/dev/null | wc -l)
-    [ "$n" -gt 0 ] && echo "  $n $w"
+    if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- docs/plans/; then
+      [ "$n" -gt 0 ] && echo "  $n $w"
+    else
+      echo "  !! $w — NOT MEASURED ($n); absent from this roster for a reason that"
+      echo "     is not 'it authors no plan-memo'"; failed=1
+    fi
   done
   # A's REAL contention is CI topology, and draft 8's version of this block could
   # not see it: `gh pr list` misses an unpushed branch, and a docs/plans/ filter
@@ -537,12 +665,15 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   # OPPOSITE answer on all three files A edits.
   echo "-- worktrees touching the files A contends on (ci.yml / mise.toml / .claude/tools) --"
   for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
-    local f
-    f=$(git -C "$w" diff --name-only "$MAIN"...HEAD -- \
-          .github/workflows/ mise.toml .claude/tools/ 2>/dev/null)
-    [ -n "$f" ] && { echo "  $w  [$(git -C "$w" rev-parse --short HEAD)]"
-                     echo "$f" | sed 's/^/      /'; }
+    if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- \
+                     .github/workflows/ mise.toml .claude/tools/; then
+      [ "$n" -gt 0 ] && { echo "  $w  [$(git -C "$w" rev-parse --short HEAD)]"
+                          _measured | sed 's/^/      /'; }
+    else
+      echo "  !! $w — NOT MEASURED ($n); silence here is not 'no contention'"; failed=1
+    fi
   done
+  return "$failed"
 }
 
 # AUTHOR-LOCAL: these reach a per-user memory directory and sibling worktrees, so

@@ -9,8 +9,13 @@ keysets() {  # §0.1 item 1 / §3.1 — 15 -> 24, the 9 added spellings, equal v
 import sys, re, subprocess
 sys.path.insert(0, ".claude/tools")
 from _webref import spec_labels as s
-src = subprocess.run(["git","show","origin/main:.claude/skills/elidex-plan-review/preflight.py"],
-                     capture_output=True, text=True).stdout
+_r = subprocess.run(["git","show","origin/main:.claude/skills/elidex-plan-review/preflight.py"],
+                    capture_output=True, text=True)
+if _r.returncode != 0:
+    sys.stderr.write(_r.stderr)
+    raise SystemExit("!! `git show origin/main:…preflight.py` failed (rc=%d); there is no "
+                     "baseline key set to compare against." % _r.returncode)
+src = _r.stdout
 body = src[src.index("SPEC_LABEL_REVERSE = {"):]
 body = body[:body.index("}")+1]
 main = dict(re.findall(r'"([^"]+)":\s*"([^"]+)"', body))
@@ -72,13 +77,23 @@ import ast, re, subprocess, sys
 sym, ref = sys.argv[1], sys.argv[2]
 
 
-def git(*args):
-    return subprocess.run(["git", *args], capture_output=True, text=True).stdout
+def git(*args, ok=(0,)):
+    """`ok` is the statuses that MEAN something. `git grep` returns 1 for "ran,
+    matched nothing", which is a real answer; everything else -- 128 for an
+    unresolvable ref above all -- would hand this census an empty string it would
+    then report as "no readers". The loud-empty guard below cannot tell those
+    apart, so the distinction has to be made here."""
+    r = subprocess.run(["git", *args], capture_output=True, text=True)
+    if r.returncode not in ok:
+        sys.stderr.write(r.stderr)
+        raise SystemExit("!! `git %s` failed (rc=%d); an empty census from a command that "
+                         "did not run is not a census." % (" ".join(args), r.returncode))
+    return r.stdout
 
 
 prefix = ref + ":"
 hits = []
-for raw in git("grep", "-nwE", sym, ref, "--", ".claude", "docs").splitlines():
+for raw in git("grep", "-nwE", sym, ref, "--", ".claude", "docs", ok=(0, 1)).splitlines():
     if not raw.startswith(prefix):
         continue
     path, lineno, text = raw[len(prefix):].split(":", 2)
