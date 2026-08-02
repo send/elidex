@@ -526,7 +526,7 @@ impl VmInner {
     /// `kind` discriminates script/`eval` body entries (only reached
     /// via `run_function` from `Vm::eval` / `Vm::run_script`) from
     /// every other entry; async + generator bodies are always
-    /// `Function`-kind regardless of caller (§27.5/§27.7 completion
+    /// `Function`-kind regardless of caller (§27.8/§27.10 completion
     /// machinery is not script-completion-value-shaped).
     #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn call_internal(

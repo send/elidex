@@ -977,9 +977,9 @@ pub enum UpvalueState {
 /// `CallFrame::saved_completion` save/restore plumbing.
 ///
 /// Generators and async function bodies remain `Function` — their
-/// completion machinery (§27.8.3.3 GeneratorResume /
-/// §27.10.5.1 AsyncFunctionStart) is a separate concern and does not
-/// observe `completion_value`.
+/// machinery consumes the body's completion elsewhere (§27.8.3.1
+/// GeneratorStart step 4.9-4.12 / §27.10.5.2 AsyncBlockStart step
+/// 1.6-1.8) and does not observe `completion_value`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrameKind {
     /// Top-level script body or `eval` body — the entry-gated `Op::PopCompletion`

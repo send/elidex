@@ -1,4 +1,4 @@
-//! Generator iterator (ECMA-262 §27.5).
+//! Generator iterator (ECMA-262 §27.8).
 //!
 //! The generator machinery itself lives inside the dispatcher — this module
 //! just exposes it through the `Generator.prototype.next` native, builds

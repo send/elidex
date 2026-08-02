@@ -441,7 +441,7 @@ fn options_primitive_string_throws_type_error() {
 #[test]
 fn structured_clone_transfer_non_iterable_object_throws_type_error() {
     let mut vm = Vm::new();
-    // `{}` has no `@@iterator` → WebIDL §3.2.27 step 3 TypeError.
+    // `{}` has no `@@iterator` → WebIDL §3.2.21 step 3 TypeError.
     eval_throws(&mut vm, "structuredClone(1, {transfer: {}});");
     // Confirm the error kind is TypeError, not DataCloneError.
     let name = eval_string(

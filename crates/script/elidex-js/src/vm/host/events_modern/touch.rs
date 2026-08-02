@@ -552,7 +552,7 @@ fn native_touch_event_constructor(
 /// directly (`get_property_value` with a stringified index does
 /// NOT hit Array dense storage in this VM — only the bytecode
 /// `LoadElement` opcode does).  Anything else falls back to the
-/// iterator protocol per WebIDL §3.2.27 so
+/// iterator protocol per WebIDL §3.2.21.1 so
 /// `new TouchEvent('t', { touches: customIterable })` behaves per
 /// spec — mirrors `url_search_params.rs` /
 /// `headers::resolve_headers_init`.
