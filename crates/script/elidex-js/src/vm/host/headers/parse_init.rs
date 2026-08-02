@@ -163,10 +163,12 @@ fn collect_header_pair_values(
             "{error_prefix}: Sequence header init must contain iterables of length 2"
         )));
     };
-    // Fast path: VM `Array` with exactly two elements.  Same kind
-    // of optimisation as the outer Array fast path in
-    // `parse_headers_init_entries`; an array's `@@iterator` would
-    // yield these same two values.
+    // ⚠ Reads the inner pair's dense `elements` directly, so an Array
+    // pair with an overridden `Symbol.iterator` does not honour the
+    // override — WebIDL §3.2.21 step 2 requires `GetMethod`. The outer
+    // level has no such fast path (see this function's sibling above and
+    // `webidl_sequence.rs`'s module docs, which record why the class was
+    // removed there). Slot: `#11-webidl-inner-pair-dense-array-fast-path`.
     if let ObjectKind::Array { elements } = &ctx.vm.get_object(pair_id).kind {
         if elements.len() != 2 {
             return Err(VmError::type_error(format!(
