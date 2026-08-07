@@ -202,18 +202,20 @@ retains only non-empty ones (`crates/layout/elidex-layout-block/src/inline/pack/
 | CSS Inline 3 §2.2 Layout Within Line Boxes | Note on empty inline boxes | they still have a line-height and influence the calculation | M6 — **PR-1c** | ✓ | yes |
 | CSS Inline 3 §2.3 Phantom Line Boxes | consequence (a) | zero-height for positioning descendant content (abspos) | `static_positions` (`inline/pack/mod.rs:97`) — **PR-1c** | ✓ | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | layout-bounds inflation by edges | applies only when `line-fit-edge` ≠ `leading`; initial is `leading` | no code touch; grounds §1.2's block-axis exclusion | ✓ | yes |
-| CSS Inline 3 §2.3 Phantom Line Boxes | clause 3 | non-zero **inline-axis** margin/padding/border | clause-3 predicate → `any_rendered_content` (`inline/pack/mod.rs:698`) — **PR-1c** | ✓ | yes |
+| CSS Inline 3 §2.3 Phantom Line Boxes | clause 3 | non-zero **inline-axis** margin/padding/border | clause-3 predicate → `has_inline_axis_edge` in `pack/inline_box.rs` (M5), handed to `note_line_occupancy` (M3) — **PR-1c** | ✓ | yes |
 | CSS Inline 3 §2.3 Phantom Line Boxes | clause 5 | forced line break | `force_break` (`inline/pack/mod.rs:781`) — untouched | ✓ (pre-existing) | yes |
 | CSS Inline 3 §2.3 Phantom Line Boxes | consequence | line box *and its in-flow content* do not exist | commit/discard seam (`inline/pack/mod.rs:210` vs `:423`) — **PR-1c** | ✓ | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | glyphless / fallback-only box | strut with first-available-font metrics | tentative baseline — **PR-1c** | ✓ | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | half-leading | `A′ = A + L/2` | existing formula (`inline/pack/mod.rs:581`) — unchanged | ✓ (pre-existing) | yes |
 | CSS Text 3 §5.5 Line Breaking Details | break opportunities | inline box boundary is **not** one | M3 — the marker path calls the shared core without a wrap check — **PR-1b** | ✓ | yes |
+| CSS Text 3 §5.5 Line Breaking Details | intra-word shaping | "the characters must still be shaped … as if the word were still whole" | the coalescing `pack/mod.rs:744` documents; its comment's citation is corrected in **PR-1b** (§3.1) | ✓ (pre-existing) | yes |
 | CSS Text 3 §5.5 Line Breaking Details | adjacent soft wrap opportunity | break lands at the box's **margin edge** | **`#11-inline-box-decoration-splits`** | ✗ (deliberate, §5.3) | yes |
-| CSS Sizing 3 §5.2 Intrinsic Contributions | max-content | inline-axis edges occupy space | M8 (`inline/measure.rs:44`) — **PR-1b** | ✓ | yes |
+| CSS Sizing 3 §5.2 Intrinsic Contributions (which states it "does not define precisely how to determine these sizes") | max-content | inline-axis edges occupy space | M8 (`inline/measure.rs:44`) — **PR-1b** | ✓ | yes |
 | CSS Sizing 3 §5.2 Intrinsic Contributions | min-content | no accumulator to attach edges to | **`#11-inline-min-content-box-edges`** | ✗ (deliberate, M8) | yes |
 | CSS Text 3 §7.3 Shaping Across Element Boundaries | shaping break | trigger 1 of 3: non-zero inline-axis edge | `last_placed_entity` coalescing (`inline/pack/mod.rs:744`) — **PR-1b** | ✗ (triggers 2 `vertical-align` ≠ baseline and 3 bidi isolation boundary unimplemented; neither is this umbrella's subject) | yes |
 | CSS Text 3 §4.1.2 Phase II: Trimming and Positioning | steps 3–4 | a collapsible space is line-final only if nothing follows it on the line | `current_line_last_hang` (`inline/pack/mod.rs:701`) — **PR-1b** | ✓ | yes |
 | CSS Text 3 §4.1.1 Phase I: Collapsing and Transformation | step 4 | collapsing crosses inline box boundaries | `collapse_inline_whitespace` (`inline/whitespace.rs:41`) — **PR-1a** | ✓ | yes |
+| CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | Quirks Mode | an inline box fragment with **zero borders and padding** and no direct text is ignored when sizing the line box | not implemented — no quirks-mode layout switch exists; **§9** | ✗ (deliberate, §9) | yes |
 | CSS 2 §10.8.1 Leading and half-leading | glyphless inline box | strut with first-available-font metrics (superseded by css-inline-3 §5.3, kept as the historical anchor) | M7 — **PR-1c** | ✓ | yes |
 | CSS 2 §8.3 Margin properties: margin-top, margin-right, margin-bottom, margin-left, and margin | non-replaced inline elements | vertical margins have no effect | consistent with §2.3 clause 3; no code touch | ✓ | yes |
 | CSS 2 §9.4.3 Relative positioning | relpos inline in flow | decorated relpos inline; sub-flow keying | `collect.rs:286` — **`#11-inline-box-decoration-splits`** (the `group_key` field arrives with its only reader, §2 pair 2×6) | ✗ (deliberate, §5.3) | yes |
@@ -222,8 +224,12 @@ retains only non-empty ones (`crates/layout/elidex-layout-block/src/inline/pack/
 | CSS Backgrounds 3 §3.2 Line Patterns: the border-style properties | `none` / `hidden` | width ignored ⇒ 0 | already zeroed at computed-value time (`elidex-style resolve/box_model/mod.rs:260`) | ✓ | yes |
 
 **Breadth**: K=8 specs (CSS Inline 3, CSS Text 3, CSS 2, CSS Break 3, CSS Box Model 3,
-CSS Sizing 3, CSS Writing Modes 4, CSS Backgrounds 3), M=26 entries (verified 2026-08-02 — data rows counted
+CSS Sizing 3, CSS Writing Modes 4, CSS Backgrounds 3), M=28 entries (verified 2026-08-02 — data rows counted
 directly above).
+⚠ **Reading note**: a bare "§5.3" in this memo means **this memo's** §5.3 (Program slicing). The
+spec sections are always written with their module — `css-inline-3 §5.3`, and the nonexistent
+"CSS Box Model L3 §5.3" only inside §3.1's record of that bogus-cite class.
+
 **Split decision**: K=8 ⇒ SPLIT-DEFAULT. The plan **is** split into three shipping PRs on
 disjoint invariant sets (§2's rightmost column, §5.3); the breadth verdict and the
 invariant-axis verdict agree.
@@ -247,7 +253,9 @@ Every row is reachable from author CSS/HTML. Adjacent pre-existing laxity:
   boundary). Revisions 5 and 6 both aimed the correction at §7.3. PR-1b rewrites the comment, so
   both land: §5.5 for the surviving intra-word coalescing, §7.3 for the new boundary break.
 * **A nonexistent "CSS Box Model L3/Level 3 §5.3" is cited at seven sites** (css-box-3 §5 is
-  *Borders*, no subsections). Verified 2026-08-02 via the **concept** grep
+  *Borders*, no subsections). Verified 2026-08-02 by four probes, not one — the original **string** grep `"Box Model L3"` → 4
+  (the historical undercount); `grep -rn "css-box-3 §5.3" crates/` → 0; a prefix-free sweep of every
+  `Box Model §N` form → the same 7 plus valid `§4` / `§4/§5` cites; and the **concept** grep
   `grep -rEn "Box Model (L3|Level 3)[^a-z]*(§)?5\.3" crates/` → 7 hits, all in
   `elidex-layout-block`: `lib.rs:178`, `helpers.rs:59`, `helpers.rs:114`,
   `positioned/layout.rs:90`, `block/mod.rs:162`, `block/mod.rs:182`,
@@ -662,6 +670,11 @@ making it at the slot's own definition).
 * **`#11-css2-spec-label-normalisation`** — this memo now cites css-inline-3 for the model, so
   its remaining CSS 2 cites are **§8.3, §9.4.2, §9.4.3, §10.8.1 and §16.6.1** (grep the memo for `CSS 2 §`; the §16.6.1 hit is §1.6's note on what css-text-3 §4.1.1 superseded, not a live grounding — but the grep returns five, so the inventory says five). Adjacent `CSS 2.1 §` lines in
   touched files are left alone; the slot requires a single cross-crate commit.
+* **css-inline-3 §5.3's Quirks-Mode rule** — "any inline box fragment that has zero borders and
+  padding and that does not directly contain text or preserved white space is ignored when sizing
+  the line box" — is the quirks analogue of clause 3 and is unimplemented. elidex has no quirks-mode
+  layout switch at all, so this is not a gap this umbrella can carve; recorded because three §3 rows
+  cite §5.3 and none covered it.
 * Ruby annotations (§2.3 clause 4) — unimplemented engine-wide.
 * **`flush_line`'s non-persisting arm (`inline/pack/mod.rs:393-421`) is dead, and this program
   deletes it.** `persist_candidate` (`inline/mod.rs:239`) is identically true — `FragmentationType`

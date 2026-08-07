@@ -40,7 +40,7 @@ def main(path):
         if len(c)<6: continue
         touch, enum = c[3], c[4]
         if "#11-" in touch and enum.startswith("✓"): bad("ENUM", f"row routed to a slot but marked ✓: {c[0][:52]}")
-        if "#11-" not in touch and enum.startswith("✗") and "PR-" not in touch and "M" not in touch:
+        if "#11-" not in touch and enum.startswith("✗") and "PR-" not in touch and not re.search(r"\bM\d\b", touch) and "§9" not in touch:
             bad("ENUM", f"row marked ✗ with no owner: {c[0][:52]}")
 
     # 5. cells: every §6 cell in exactly one §8 DoD
