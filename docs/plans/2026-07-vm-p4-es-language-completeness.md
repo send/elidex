@@ -264,7 +264,8 @@ earlier 0a commits had grown the file. Do not carry that figure back to this bas
 
 **Verified NOT defects** (checked during the sweep, no action): `delete x` **is** correctly gated by
 the parser ("Cannot delete an unqualified identifier in strict mode") — so `expr_ops.rs:156-159` is
-unreachable for identifiers, contrary to a round-2 review claim; `with` → `CompileError` (`stmt.rs:192` when enumerated, `:88` at `658cc302` — the file was split)
+unreachable for identifiers, contrary to a round-2 review claim; `with` → `CompileError` (arm head `stmt.rs:190` at `f7d9b5ce`, `:88` at `658cc302` — the file was
+split; the `:192` this line used to carry was the message-string line, `:90` at `658cc302`)
 is correct per I-6/ADR #2; `{[1n]:…}` and `{[/a/]:…}` computed keys are correct.
 
 ### §2.3 Stub inventory — Layer B (dispatch; dead code behind Layer A)
@@ -327,7 +328,7 @@ Six axes; each **pair's intersection** named:
 | B×D | **Corrected R2r2**: under `lay_out_call_args` the array is popped *before* `do_new` allocates the instance (`vm/ops.rs:766`), so the two are never simultaneously live-and-needed. The real B×D case is the generator/async callee window (§6.3 GC). |
 | B×E | `New` has no IC dimension; only `Call`/`CallMethod` do. |
 | C×D | **The drain is rooted by construction** (`op_array_spread` `peek`s, so the array stays on `vm.stack`, itself a GC root). The **unrooted window is pop → re-push**: no JS allocation may occur inside it. |
-| C×F | [C20] step 3 runs ArgumentListEvaluation **before** the step 4/5 callability checks ⇒ a non-callable callee must still drain the iterator to completion before throwing. **[C19] does NOT call `IteratorClose`** — verified 2026-07-26, `body ecma262 sec-runtime-semantics-argumentlistevaluation \| grep -ci iteratorclose` → **0**; `?` propagates the abrupt completion directly, and the drain's own AO already sets `[[Done]]` on throw: it calls **§7.4.10 IteratorStepValue** [C35], whose **step 4.a** sets it on an `IteratorValue` throw, and whose step 1 delegates to §7.4.9 IteratorStep for the `next()` / `IteratorComplete` throws. *(An earlier draft credited §7.4.9 alone, which is not the AO invoked here.)* Calling `return()` here would be an *observable divergence*. (Contrast [C39] DestructuringAssignmentEvaluation → 6 `IteratorClose` call sites, which is why [C36] is **Slice 0b's**, not Slice 1's.) |
+| C×F | [C20] step 3 runs ArgumentListEvaluation **before** the step 4/5 callability checks ⇒ a non-callable callee must still drain the iterator to completion before throwing. **[C19] does NOT call `IteratorClose`** — verified 2026-07-26, `body ecma262 sec-runtime-semantics-argumentlistevaluation \| grep -ci iteratorclose` → **0**; `?` propagates the abrupt completion directly, and the drain's own AO already sets `[[Done]]` on throw: it calls **§7.4.10 IteratorStepValue** [C35], whose **step 4.a** sets it on an `IteratorValue` throw, and whose step 1 delegates to §7.4.9 IteratorStep — which sets it at **step 3.a** for an `IteratorComplete` throw, its own step 1 delegating further to §7.4.6 IteratorNext for the `next()` throw. *(An earlier draft credited §7.4.9 alone, which is not the AO invoked here.)* Calling `return()` here would be an *observable divergence*. (Contrast [C39] DestructuringAssignmentEvaluation → 6 `IteratorClose` call sites, which is why [C36] is **Slice 0b's**, not Slice 1's.) |
 | D×E | (none — IC slots are compile-time indices, not heap refs.) |
 | D×F | The unwind path must not leave the args Array reachable only from a dropped Rust local. |
 
@@ -517,6 +518,11 @@ outside `vm/host/` yet are engine-bound):
   outbound rule got a Converse precisely because a literal reading stops at the wrong place, and
   the same is available in this direction. **Slice 10's mandatory plan-review must settle it, and
   audit these four sites under whatever test it adopts.**
+- ⚠ **The Converse below cites `vm/host/typed_array_*.rs` as ECMA-262 §23.2.2**, which is
+  "Properties of the %TypedArray% Intrinsic Object" — the static-method subsection only, while the
+  glob also matches `_ctor` / `_methods` / `_parts`, whose own in-code cites are §23.2.3 / §23.2.5.
+  The family is **§23.2 TypedArray Objects**; §23.2.2.1 `%TypedArray%.from` is the one site the
+  clause actually reasons about (`typed_array_static.rs:798`, an `iter_close` caller).
 - ⚠ **The Converse below is contradicted by `vm/host/mod.rs:11-13`'s own layering mandate**, which restricts everything under that directory to engine-bound responsibilities. Carved as `#11-vm-typed-array-family-layering-and-gate` (§8) rather than resolved here — it is a relocation/gating decision, not a wording fix.
 - **Converse (added R2 round 5)**: engine-**gated** is not the same as engine-**bound**. Files under
   `vm/host/` that implement pure ECMA-262 language surface (`vm/host/typed_array_*.rs` = ECMA-262 §23.2.2, and the
@@ -536,7 +542,7 @@ outside `vm/host/` yet are engine-bound):
   **Two-layer cases needing explicit disposition in Slice P's memo**: `vm/webidl_sequence.rs`
   (governed by WebIDL §3.2.21) and **`vm/host/structured_clone.rs`** (WHATWG HTML **§2.7.4** StructuredSerialize
   (§2.7.7 StructuredSerializeWithTransfer for the transfer-list path where the `iter_close` at
-  `:1062` actually sits; the in-code docstring's "§2.9" is itself drifted and must be retagged) — its abrupt is a `DataCloneError` thrown by HTML's own loop body, so a
+  `:1062` actually sits — `:1064` at `658cc302`; the in-code docstring's "§2.9" is itself drifted and must be retagged) — its abrupt is a `DataCloneError` thrown by HTML's own loop body, so a
   step-5 flip changes an HTML-defined error surface, not an ECMA-262 one; round 6 corrected an
   earlier mis-classification of this file as pure ECMA-262).
 
@@ -681,8 +687,13 @@ the file cannot be reduced.** The forward rule for every slice that touches this
 *arm body* into the existing `dispatch_*.rs` family, never grow an arm in place — **choosing the
 destination by I-5's predicate (the `engine` feature gate + host-binding dependency), not by the
 file-family name.** Measured at `658cc302`: `dispatch_{class,helpers,ic}.rs` have zero
-`feature = "engine"` occurrences, while `dispatch_iter.rs` (3) and `dispatch_objects.rs` (2) carry
-engine-gated host-bridge regions, so a core-only arm body must not land inside one of those. That rule is the
+`feature = "engine"` occurrences; `dispatch_iter.rs` has 3 (`:114`, `:127`, `:153`) and
+`dispatch_objects.rs` 2. ⚠ **The predicate is the *region*, not the file** — those gates are narrow
+bands, and the rest of `dispatch_iter.rs` (370 lines, including `iter_close` at `:354`, which
+§6.2a-2 calls the canonical §7.4.11 implementation) is core-only. A file-level reading would forbid
+Slices **1a** and **P** from the file both their module columns name, and P's whole deliverable is
+re-signaturing that function. Read it as: do not place a core-only body *inside* an engine-gated
+region. That rule is the
 discharge mechanism, so a slice that adds an arm and leaves the file larger has not complied.
 (The withdrawn text also argued the reversal "takes a PR off the critical path and unblocks the T0 fix
 immediately" — schedule is judgment-supporting information, not a design constraint (CLAUDE.md
@@ -769,8 +780,8 @@ forward.**
 | the `yield*` **throw** route | `compiler/expr_yield_star.rs:146` | `:146` |
 | the finally route | `:157` | `:157` |
 
-⚠ **`compiler/stmt_loop.rs` is therefore in Slice P's touch set and §5's Slice-P module column did not
-name it** — the file did not exist when that column was written.
+⚠ **`compiler/stmt_loop.rs` is therefore in Slice P's touch set** — the file did not exist when §5's
+Slice-P module column was written, and that column has been updated to name it.
 
 **SoT**: `iter_close` (`vm/dispatch_iter.rs:354`, docstring `:340-353`) — the canonical §7.4.11 implementation, whose
 *docstring states the inverted rule as its contract*: "if `.return()` itself throws, having that new
@@ -1109,11 +1120,14 @@ the module column of Slices 6/7/10** ⇒ cross-lane coordination required there,
 0b, 0c, 1a or 1b.
 
 **Slots this umbrella owns** — the table below, each with the required triple. Registration state measured at
-`658cc302` — **7 are already in the ledger** (two of them under the phrase "Registered here at #489's landing", the
-rest under "#489's own deferral" / "carved by #489's converge"):
+`658cc302` — the table has **12** rows and they partition as **8 already in the ledger** + **3 still to register** +
+**1 to retire**. Already in the ledger (two under the phrase "Registered here at #489's landing", the
+rest under "#489's own deferral" / "carved by #489's converge", and
+`#11-vm-typed-array-family-layering-and-gate` registered at PR-B):
 `iteratorclose-precedence-convention`, `assignment-target-completeness`,
 `topropertykey-symbol-from-toprimitive`, `operand-rooting-by-construction`, `internal-error-hard-exit`,
-`delete-elem-raw-key-array-fast-path`, `statement-completion-updateempty`. **Still to register**:
+`delete-elem-raw-key-array-fast-path`, `statement-completion-updateempty`,
+`typed-array-family-layering-and-gate`. **Still to register**:
 `async-generators`, `es2021-2024-prototype-sweep`, `dynamic-import`. **Registered by 0a but absent
 from this list**: `#11-webidl-sequence-dense-array-fast-path`, carved while 0a was in `vm/host/`,
 cited at three in-code sites and already in the ledger — it belongs to Slice P's WebIDL half
@@ -1133,10 +1147,10 @@ as `658cc302` while never reaching the ledger, so the row below is the only plac
 | `#11-vm-operand-rooting-by-construction` | **(carved by #489's converge; SUPERSEDES `#11-vm-element-access-base-rooting`, which must not be recorded as closed)** ~20 dispatch arms pop an operand into a Rust local and then run user JS before reading or storing through it; `gc/roots.rs` walks the VM stack but not Rust locals. Beyond the 5 element opcodes: `GetProp`/`SetProp`, `IncProp`/`DecProp`, `In`, `Add`, `Instanceof`, `TemplateConcat`, `ops.rs`'s three operator helpers, the three computed-key definition bodies, `SpreadObject`, `ArraySpread`, `IteratorRest`, the unary arms and `op_get_iterator` — two of them *panic*, two *store* the collected id. **Deliverable is an invariant making an unrooted hold unrepresentable, NOT a sixth sweep**: five successive audits each drew the boundary differently and each was falsified by the next round. `Op::GetElemRef`, the one arm #489 introduces, is rooted by construction and pinned. Implementation + a 14-arm test module preserved on branch `vm-p4-rooting-carved` | **now** — the next VM dispatch-loop PR, or Slice P. Edge-dense ⇒ plan-review MANDATORY | 2026-09-30 |
 | `#11-vm-internal-error-hard-exit` | **(carved by #489's converge)** every extracted `op_*` helper's dispatch arm routes `VmErrorKind::InternalError` through `throw_error`, so a broken VM invariant becomes a catchable JS `Error` and user `try`/`catch` can swallow it; inline arms (`Op::Swap` / `Op::Pop` / `Op::PopUnder`) propagate with `?` instead. The disposition must key on the error's *kind*, not on whether the body was extracted. `Op::ThrowUnsupported` must stay catchable — it reports an unimplemented construct, not a broken invariant | with `#11-vm-operand-rooting-by-construction`, or the next dispatch-loop PR | 2026-09-30 |
 | `#11-vm-delete-elem-raw-key-array-fast-path` | **(carved by #489's converge)** `Op::DeleteElem` derives its array-index fast path from the **raw** operand, so an object key that stringifies to an index skips it while the generic `try_delete_property` path never consults dense array storage: `var a=[1,2,3]; delete a[{toString(){return '0'}}]` reports `true` and leaves `a[0]` as `1`. Same root as `#11-vm-topropertykey-symbol-from-toprimitive` — a fast path keyed on the raw value rather than the `ToPropertyKey` result | with that slot | 2026-09-30 |
-| `#11-vm-typed-array-family-layering-and-gate` | **(carved at PR-B by this document's own plan-review)** two normative sources disagree about the same files. `vm/host/mod.rs:11-13` states that everything under `vm/host/` is restricted to **engine-bound** responsibilities (prototype install / brand check / marshalling); §4 I-5's Converse declares `vm/host/typed_array_*.rs` — ECMA-262 §23.2, a pure language built-in — to be a **language-semantics site the core convention owns**. Both are normative and they cannot both hold, and there is no relocation slot. The measurable consequence the umbrella never inventoried: the whole family is `#[cfg(feature = "engine")]` (`vm/host/mod.rs:339-346` and the `array_buffer` / `data_view` modules), so a **non-`engine` core build has no `ArrayBuffer` / `TypedArray` / `DataView` at all** — an ES-completeness hole absent from §2.2, §2.3, §3 and the §5 slice table, in an umbrella named for ES language completeness. Deliverable is a decision (relocate out of `vm/host/`, or ungate, or write the exemption into `vm/host/mod.rs` itself), not a doc edit | with Slice 7 (`Map`/`Set`, the other builtin-family slice), or the next `vm/host/` layering pass | 2026-10-31 |
+| `#11-vm-typed-array-family-layering-and-gate` | **(carved at PR-B by this document's own plan-review)** two normative sources disagree about the same files. `vm/host/mod.rs:11-13` states that everything under `vm/host/` is restricted to **engine-bound** responsibilities (prototype install / brand check / marshalling); §4 I-5's Converse declares `vm/host/typed_array_*.rs` — ECMA-262 §23.2, a pure language built-in — to be a **language-semantics site the core convention owns**. Both are normative and they cannot both hold, and there is no relocation slot. The measurable consequence the umbrella never inventoried: the whole family is `#[cfg(feature = "engine")]` (`vm/host/mod.rs:339-352` for the seven `typed_array*` modules, plus `array_buffer` `:75` and `data_view` `:102`), so a **non-`engine` core build has no `ArrayBuffer` / `TypedArray` / `DataView` constructors** — and the gating is not uniform: `ObjectKind::ArrayBuffer` is gated while `ObjectKind::TypedArray` and `ObjectKind::DataView` are **not**, so such a build carries a `TypedArray { buffer_id, … }` variant pointing at one that does not exist in that configuration. An ES-completeness hole absent from §2.2, §2.3, §3 and the §5 slice table, in an umbrella named for ES language completeness. Deliverable is a decision (relocate out of `vm/host/`, or ungate, or write the exemption into `vm/host/mod.rs` itself), not a doc edit | with Slice 7 (`Map`/`Set`, the other builtin-family slice), or the next `vm/host/` layering pass | 2026-10-31 |
 | `#11-vm-statement-completion-updateempty` | **(carved by #489's converge)** the half of the completion-ownership bug 0a did not fix: no `UpdateEmpty` (AO §6.2.4.4) equivalent, so `42; if (false) {}` yields `42` where §14.6.2 says `undefined` — for *that* example at **step 3** (`IfStatement : if ( Expression ) Statement`, which returns before ever reaching step 5's `UpdateEmpty`); step 5 is the right cite for a truthy test or the else-bearing production. Preserving the already-correct forms while adding the resets is ≥3 axes ⇒ edge-dense, plan-review MANDATORY | the next VM statement-lowering PR | 2026-09-30 |
 
-Registering 11 exceeds
+Registering that many exceeds
 per-PR ≤3, so they register as **discovery carves of this umbrella** (the treatment the 2026-07-18
 P4 registration used, `project_open-defer-slots.md` §"VM P4 ES-language + builtin gaps",
 "**Origin**: not a carve — a **discovery**"), not slice-introduced defers. Five of them
@@ -1608,7 +1622,8 @@ before landing — re-run the two commands rather than reading either number for
 is **36 files**, and four are under `vm/host/`: `events_modern/touch.rs`, `headers/parse_init.rs`,
 `structured_clone.rs`, `url_search_params.rs`. Those edits are not marshalling — they re-attribute
 the governing algorithm (WebIDL §3.2.27 → **§3.2.21** / **§3.2.21.1** "Creating a sequence from an
-iterable"; §3.10.21 → **§3.2.15**) and register a new divergence slot,
+iterable"; §3.10.21 → **§3.2.15**; §3.10.16 → **§3.2.21** in `events_modern/touch.rs` — §3.10.16 and
+§3.10.21 do not exist in Web IDL at all) and register a new divergence slot,
 **`#11-webidl-sequence-dense-array-fast-path`**, at three in-code sites: an Array fast path that skips
 §3.2.21 step 2's `GetMethod`, so an overridden `@@iterator` is ignored. Three of the four files are
 named in §4 I-5 and §5's Slice-P module column as WebIDL two-layer cases *reserved for P's memo*, so
@@ -1857,8 +1872,8 @@ ClassDefinitionEvaluation does **not** pass `enumerable: false` — it calls `Cl
 with one argument; **§15.7.13 ClassElementEvaluation** is what passes `false` to §15.4.5
 MethodDefinitionEvaluation. The carve introduced this at two sites *while correcting two others*. Known members of the class in this PR — `§6.2.4.5` (RequireObjectCoercible → §7.2.1), `§12.5.3.2`
 (delete → §13.5.1.2), `§12.10.4` (instanceof → §13.10.1/§13.10.2), `§12.2.6.8` (→ §7.3.25),
-`§14.3.8` (→ §15.4.5 + §15.7.13), `§14.3.8`'s own replacement, plus the three the paragraph above
-records (`§6.2.4.8` ×2 → §6.2.5.6 step 3.a; `§6.2.4.1` → §6.2.5.5 step 3.d; `§9.4.3` → §10.1.8.1
+`§14.3.8` (→ §15.4.5 + §15.7.13), `§14.3.8`'s own replacement, plus the three recorded in §18's
+"Spec citations" subsection (`§6.2.4.8` ×2 → §6.2.5.6 step 3.a; `§6.2.4.1` → §6.2.5.5 step 3.d; `§9.4.3` → §10.1.8.1
 step 7). **The ordinal has been dropped rather than recomputed**: it was written by recall three
 times running, and a tally of this document's own recall failures is the last place to keep one.
 PR-B's Axis-4 pass re-derived every §-number here via webref and found the numbering clean. **The rule §13 states for counts
