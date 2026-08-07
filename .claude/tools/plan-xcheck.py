@@ -22,7 +22,9 @@ def main(path):
     for l in pairs:
         c=[x.strip() for x in l.strip("|").split("|")]
         if len(c)<4: bad("PAIR", f"row has {len(c)} cols: {c[0]}"); continue
-        if c[2] not in m_rows: bad("PAIR", f"{c[0]} -> unknown {c[2]!r}")
+        # a coupling may be resolved by an M-row or by deferring it to a named slot
+        if c[2] not in m_rows and not c[2].strip("`").startswith("#11-"):
+            bad("PAIR", f"{c[0]} -> unknown {c[2]!r}")
     # 2. every M-row appears in some pair
     for r in sorted(m_rows - {c.strip() for l in pairs for c in l.strip('|').split('|')}):
         bad("PAIR", f"{r} is in no coupling pair")
