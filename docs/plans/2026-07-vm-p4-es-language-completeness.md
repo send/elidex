@@ -12,7 +12,14 @@ established that the defect class sits in the **compiler emit layer**, not the d
 
 ## §0.5 Spec citation table
 
-All verified via `.claude/tools/webref` against `ecma262` on 2026-07-26.
+All rows verified via `.claude/tools/webref` against `ecma262` — the original 25 on 2026-07-26,
+[C43] on 2026-08-03.
+
+⚠ **This table is not the document's citation chokepoint, and reading it as one is how two
+fabricated anchors survived under a blanket header before (§10).** It covers the ECMA-262 sections
+carrying an ID; the document also cites ECMA-262 sections inline without IDs, and cites **WebIDL**
+(§3.2.15, §3.2.21, §3.2.21.1) and **WHATWG HTML** (§2.7.4, §2.7.7) — specs this header has never
+covered. Verify those at their use sites with `webref heading webidl <n>` / `webref dfn html <t>`.
 
 | ID | Citation | Anchor | Used by |
 |---|---|---|---|
@@ -40,6 +47,7 @@ All verified via `.claude/tools/webref` against `ecma262` on 2026-07-26.
 | [C31] | ECMA-262 §7.3.30 PrivateGet | `#sec-privateget` | Slice 5 |
 | [C41] | ECMA-262 §7.3.31 PrivateSet | `#sec-privateset` | Slice 5 |
 | [C42] | ECMA-262 §7.3.27 PrivateFieldAdd | `#sec-privatefieldadd` | Slice 5 |
+| [C43] | ECMA-262 §13.15.2 Runtime Semantics: Evaluation (assignment operators) | `#sec-assignment-operators-runtime-semantics-evaluation` | Slice 0a (§16) |
 | [C32] | ECMA-262 §27.9.3.2 AsyncGeneratorStart | `#sec-asyncgeneratorstart` | Slice 6 |
 
 Existing in-code citations `[C13] §13.3.7.1`, `[C19] §13.3.8.1`, `[C11] §10.2.2`
@@ -504,7 +512,13 @@ outside `vm/host/` yet are engine-bound):
   convention owns** — a core-wide convention sweep (e.g. Slice P) *must* reach them, and doing so is
   not an outbound violation. Without this clause an implementer reading the outbound rule literally
   would stop at the core sites and ship the split-contract One-issue-one-way failure the sweep
-  exists to remove. **Two-layer cases needing explicit disposition in Slice P's memo**: `vm/webidl_sequence.rs`
+  exists to remove. ⚠ **Slice 0a already spent part of this disposition** — it touched
+  `vm/host/{headers/parse_init,structured_clone,url_search_params}.rs`, re-attributed their governing
+  sections (WebIDL §3.2.27 → §3.2.21 / §3.2.21.1, §3.10.21 → §3.2.15) and registered
+  `#11-webidl-sequence-dense-array-fast-path` at three in-code sites. P inherits a partly-made
+  decision, not a blank one — see §16. **Still owed from this clause**: `structured_clone.rs`'s
+  in-code "§2.9" retag, which 0a did not touch.
+  **Two-layer cases needing explicit disposition in Slice P's memo**: `vm/webidl_sequence.rs`
   (governed by WebIDL §3.2.21) and **`vm/host/structured_clone.rs`** (WHATWG HTML **§2.7.4** StructuredSerialize
   (§2.7.7 StructuredSerializeWithTransfer for the transfer-list path where the `iter_close` at
   `:1062` actually sits; the in-code docstring's "§2.9" is itself drifted and must be retagged) — its abrupt is a `DataCloneError` thrown by HTML's own loop body, so a
@@ -538,9 +552,9 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 
 | # | Slice | Primary module(s) | Slot | Tier | Deps |
 |---|---|---|---|---|---|
-| **0a — implemented, in review** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
+| **0a — MERGED `658cc302`** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | ⚠ **charter, not outcome — the landing was 36 files** (`git show --stat 658cc302`), incl. `compiler/stmt.rs` + new `stmt_loop.rs`, `vm/object_kind.rs`, `vm/interpreter.rs`, `vm/value.rs` and four `vm/host/` files; §16 has the record and §8's cold gate reasons over this column, so read §16 first. Charter was: `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
 | **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15) | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, **`compiler/expr_member.rs`** (the `(o.m)()` callee match), **`compiler/expr.rs`**, `parser/expr.rs` (Paren normalisation + the ungated `Ellipsis` arm) | **new** `#11-vm-assignment-target-completeness` | T1 | — |
-| **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature + **15** sites (10 `iter_close(` + 4 `fc.emit(Op::IteratorClose)` + 1 inline re-implementation in `op_array_spread`), **split by governing algorithm first** (**10** ECMA-262 §7.4.11 / **5** WebIDL §3.2.21.1) (§6.2a-2). Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,expr_yield_star}.rs` | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | — |
+| **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature + **15** sites (10 `iter_close(` + 4 `fc.emit(Op::IteratorClose)` + 1 inline re-implementation in `op_array_spread`), **split by governing algorithm first** (**10** ECMA-262 §7.4.11 / **5** WebIDL §3.2.21.1) (§6.2a-2). Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,stmt_loop,expr_yield_star}.rs` (⚠ `stmt_loop.rs` is new since this column was written — §6.2a-2) | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | — |
 | **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table**. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are already discharged. `compiler/expr_assign.rs` has no residue at all: of its six §2.2 rows, four are among the nine and the other two carry plain *0a ✅* because 0a **implemented** them. 0c's first act is to **re-run the §2.1 three-pass sweep at `658cc302`** and derive its file list from the residue. The list opposite is the pre-0a one and must not be used as the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
 | **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, **`vm/dispatch.rs`** (the *only* callers of `ic_call`/`ic_call_method`, which dec. 11 re-signatures — without it 1a does not compile; ⚠ these were `:719`/`:730` at `f7d9b5ce` and are `:705`/`:716` at `658cc302`, so 1a must re-derive them by grep at implementation time rather than reading either pair forward), `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
 | **1b** | **Call-argument spread — compiler + opcodes**: `compile_call_arguments`/`ArgsForm` + `emit_call` aggregation (dec. 2) + `CallMethodSpread` (dec. 2b) + the 3 handlers + arity-based form selection | `compiler/expr_member.rs`, `expr.rs`, `bytecode/opcode.rs`, `bytecode/disasm.rs`, `vm/dispatch.rs`, **`vm/ops.rs`** (`do_new` §3 rows 17/18, the bound-prefix splice `:696-700` for edge 26, and dec. 12's stack bound — which has no implementation today) | `#11-vm-call-spread-arguments` | T1 | **1a** |
@@ -721,9 +735,20 @@ grep -rn "takes precedence\|step 6-7" crates/script/elidex-js/src/              
 `vm/host/url_search_params.rs:315` · `vm/host/structured_clone.rs:1062` ·
 `vm/host/typed_array_static.rs:798` · `vm/host/headers/parse_init.rs:207`.
 
-**4 compiler `Op::IteratorClose` emit sites**: `compiler/stmt.rs:175` (**the `for-of` catch handler —
-the most reachable IteratorClose path in the language**), `stmt.rs:913`,
-`compiler/expr_yield_star.rs:146` (the `yield*` **throw** route), `:157` (the finally route).
+**4 compiler `Op::IteratorClose` emit sites.** The count has held, the anchors have not — Slice 0a
+split `compiler/stmt.rs` (964→712) into it plus the new `compiler/stmt_loop.rs`, which took the
+`for-of` handler with it. **Re-run the grep above at implementation time; do not read either column
+forward.**
+
+| | `f7d9b5ce` (as first enumerated) | `658cc302` |
+|---|---|---|
+| the `for-of` catch handler — **the most reachable IteratorClose path in the language** | `compiler/stmt.rs:175` | **`compiler/stmt_loop.rs:147`** (comment at `:134`) |
+| the other statement-level emit | `stmt.rs:913` (out of range at HEAD) | `compiler/stmt.rs:661` |
+| the `yield*` **throw** route | `compiler/expr_yield_star.rs:146` | `:146` |
+| the finally route | `:157` | `:157` |
+
+⚠ **`compiler/stmt_loop.rs` is therefore in Slice P's touch set and §5's Slice-P module column did not
+name it** — the file did not exist when that column was written.
 
 **SoT**: `iter_close` (`vm/dispatch_iter.rs:354`, docstring `:340-353`) — the canonical §7.4.11 implementation, whose
 *docstring states the inverted rule as its contract*: "if `.return()` itself throws, having that new
@@ -771,7 +796,7 @@ an "abrupt-only" reading would mishandle.
 1a/1b do not". Slice 0b will call `iter_close` and thereby **inherit the inverted contract**,
 making its [C39]→[C36] conformance claim false. And because the sites span `compiler/`, core `vm/`
 and `vm/host/`, fixing only `op_array_spread` fixes **1 of 15** — the `for-of` catch handler
-(`stmt.rs:175`) would stay inverted, which is the path most user code actually hits.
+(the `for-of` catch handler, `stmt_loop.rs:147` at `658cc302`) would stay inverted, which is the path most user code actually hits.
 
 **This is the same failure mode twice**: round 3 caught me propagating the IteratorClose *mandate* to
 four sites but not the fifth; round 4 caught the *precedence* concept having its own un-swept
@@ -1067,7 +1092,10 @@ rest under "#489's own deferral" / "carved by #489's converge"):
 `iteratorclose-precedence-convention`, `assignment-target-completeness`,
 `topropertykey-symbol-from-toprimitive`, `operand-rooting-by-construction`, `internal-error-hard-exit`,
 `delete-elem-raw-key-array-fast-path`, `statement-completion-updateempty`. **Still to register**:
-`async-generators`, `es2021-2024-prototype-sweep`, `dynamic-import`. **To retire, not register**:
+`async-generators`, `es2021-2024-prototype-sweep`, `dynamic-import`. **Registered by 0a but absent
+from this list**: `#11-webidl-sequence-dense-array-fast-path`, carved while 0a was in `vm/host/`,
+cited at three in-code sites and already in the ledger — it belongs to Slice P's WebIDL half
+(§16, §4 I-5). **To retire, not register**:
 `computed-compound-assignment` — its stated purpose was "a ledger home until it lands", and it landed
 as `658cc302` while never reaching the ledger, so the row below is the only place it has ever existed.
 
@@ -1378,7 +1406,7 @@ Round 5 (Axes 1/3/4, full breadth for the first time since round 2) returned **2
   explicit I-3 carve-out; 1a keeps only the docstring correction; edge 32 guards it.
 - **CRIT (Axis 4) — the precedence enumeration was wrong for the third time** (14 lines → 5 sites → ~15 →
   **14 verified in round 6**). Re-derived **mechanically** (grep patterns + counts cached inline), spanning `compiler/`,
-  core `vm/` and `vm/host/`, and including `compiler/stmt.rs:175` — the `for-of` catch handler, the
+  core `vm/` and `vm/host/`, and including the `for-of` catch handler (`compiler/stmt.rs:175` when enumerated, `compiler/stmt_loop.rs:147` at `658cc302`) — the
   most reachable IteratorClose path in the language. Also corrected the completion-kind claim: step 5
   fires on **throw only**, so *normal* completions reach steps 6-7 — which matters because [C39]
   passes normal completions at 5 of its 6 call sites.
@@ -1551,6 +1579,18 @@ the guards and pinned divergences §18 lists. Full crate **6473 passed / 0 faile
 (`cargo nextest run -p elidex-js --all-features`), workspace **12785** (`mise run ci`); clippy + fmt
 clean. Both totals are for the merge commit, so they include the `origin/main` commits taken in
 before landing — re-run the two commands rather than reading either number forward.
+
+**Scope beyond the compiler, which §5's module column does not carry.** `git show --stat 658cc302`
+is **36 files**, and four are under `vm/host/`: `events_modern/touch.rs`, `headers/parse_init.rs`,
+`structured_clone.rs`, `url_search_params.rs`. Those edits are not marshalling — they re-attribute
+the governing algorithm (WebIDL §3.2.27 → **§3.2.21** / **§3.2.21.1** "Creating a sequence from an
+iterable"; §3.10.21 → **§3.2.15**) and register a new divergence slot,
+**`#11-webidl-sequence-dense-array-fast-path`**, at three in-code sites: an Array fast path that skips
+§3.2.21 step 2's `GetMethod`, so an overridden `@@iterator` is ignored. Three of the four files are
+named in §4 I-5 and §5's Slice-P module column as WebIDL two-layer cases *reserved for P's memo*, so
+**Slice P inherits a partly-made decision** and must not re-derive it from scratch. Not done, and
+still owed by P: `structured_clone.rs`'s in-code `§2.9` tag is drifted (HTML §2.7.4 / §2.7.7) and
+survives at 8 occurrences — 0a's diff touches none of them.
 
 The two files are a touch-time split, taken proactively at 730 lines rather than after a reviewer
 named the number (which is how `compiler/stmt.rs` went — see §18.2). The seam is the GC-window
