@@ -264,7 +264,7 @@ earlier 0a commits had grown the file. Do not carry that figure back to this bas
 
 **Verified NOT defects** (checked during the sweep, no action): `delete x` **is** correctly gated by
 the parser ("Cannot delete an unqualified identifier in strict mode") — so `expr_ops.rs:156-159` is
-unreachable for identifiers, contrary to a round-2 review claim; `stmt.rs:192` `with` → `CompileError`
+unreachable for identifiers, contrary to a round-2 review claim; `with` → `CompileError` (`stmt.rs:192` when enumerated, `:88` at `658cc302` — the file was split)
 is correct per I-6/ADR #2; `{[1n]:…}` and `{[/a/]:…}` computed keys are correct.
 
 ### §2.3 Stub inventory — Layer B (dispatch; dead code behind Layer A)
@@ -508,6 +508,15 @@ outside `vm/host/` yet are engine-bound):
   `#[cfg(feature = "engine")]` surface above).
 - **Inbound**: no slice may pull *engine-bound responsibility* (network / HTML fetch / DOM binding)
   into core.
+- ⚠ **The inbound rule has no membership test, and core dispatch already carries host knowledge.**
+  Measured at `658cc302`: `vm/dispatch_objects.rs:404`/`:415` (the `in` operator special-casing
+  `DOMStringMap` / `Storage`) and `vm/dispatch_iter.rs:121`/`:132` (for-in named-property exotic
+  keys) call `host::dataset::*` / `host::storage::*` from core. I-5's consequence #2 then directs
+  Slice 10 to resolve `Proxy`/`Reflect` × `ObjectKind::HostObject` *inside* core dispatch, i.e. to
+  add more. Whether those are admissible marshalling or inbound violations is undecided here; the
+  outbound rule got a Converse precisely because a literal reading stops at the wrong place, and
+  the same is available in this direction. **Slice 10's mandatory plan-review must settle it, and
+  audit these four sites under whatever test it adopts.**
 - ⚠ **The Converse below is contradicted by `vm/host/mod.rs:11-13`'s own layering mandate**, which restricts everything under that directory to engine-bound responsibilities. Carved as `#11-vm-typed-array-family-layering-and-gate` (§8) rather than resolved here — it is a relocation/gating decision, not a wording fix.
 - **Converse (added R2 round 5)**: engine-**gated** is not the same as engine-**bound**. Files under
   `vm/host/` that implement pure ECMA-262 language surface (`vm/host/typed_array_*.rs` = ECMA-262 §23.2.2, and the
@@ -559,7 +568,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | # | Slice | Primary module(s) | Slot | Tier | Deps |
 |---|---|---|---|---|---|
 | **0a — MERGED `658cc302`** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | ⚠ **charter, not outcome — the landing was 36 files** (`git show --stat 658cc302`), incl. `compiler/stmt.rs` + new `stmt_loop.rs`, `vm/object_kind.rs`, `vm/interpreter.rs`, `vm/value.rs` and four `vm/host/` files; §16 has the record and §8's cold gate reasons over this column, so read §16 first. Charter was: `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
-| **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15) | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, **`compiler/expr_member.rs`** (the `(o.m)()` callee match), **`compiler/expr.rs`**, `parser/expr.rs` (Paren normalisation + the ungated `Ellipsis` arm) | **new** `#11-vm-assignment-target-completeness` | T1 | — |
+| **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15) | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, **`compiler/expr_member.rs`** (the `(o.m)()` callee match), **`compiler/expr.rs`**, `parser/expr.rs` (Paren normalisation + the ungated `Ellipsis` arm) | **new** `#11-vm-assignment-target-completeness` | T1 | **P** |
 | **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature + **15** sites (10 `iter_close(` + 4 `fc.emit(Op::IteratorClose)` + 1 inline re-implementation in `op_array_spread`), **split by governing algorithm first** (**10** ECMA-262 §7.4.11 / **5** WebIDL §3.2.21.1) (§6.2a-2). Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,stmt_loop,expr_yield_star}.rs` (⚠ `stmt_loop.rs` is new since this column was written — §6.2a-2) | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | — |
 | **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table**. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are already discharged. `compiler/expr_assign.rs` has no residue at all: of its six §2.2 rows, four are among the nine and the other two carry plain *0a ✅* because 0a **implemented** them. 0c's first act is to **re-run the §2.1 three-pass sweep at `658cc302`** and derive its file list from the residue. The list opposite is the pre-0a one and must not be used as the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
 | **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, **`vm/dispatch.rs`** (the *only* callers of `ic_call`/`ic_call_method`, which dec. 11 re-signatures — without it 1a does not compile; ⚠ these were `:719`/`:730` at `f7d9b5ce` and are `:705`/`:716` at `658cc302`, so 1a must re-derive them by grep at implementation time rather than reading either pair forward), `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
@@ -669,7 +678,11 @@ Two conclusions, and they are **not** the same conclusion:
 
 **Decision: no standalone prereq-split PR — because the debt is discharged continuously, not because
 the file cannot be reduced.** The forward rule for every slice that touches this file: extract the
-*arm body* into the existing `dispatch_*.rs` family, never grow an arm in place. That rule is the
+*arm body* into the existing `dispatch_*.rs` family, never grow an arm in place — **choosing the
+destination by I-5's predicate (the `engine` feature gate + host-binding dependency), not by the
+file-family name.** Measured at `658cc302`: `dispatch_{class,helpers,ic}.rs` have zero
+`feature = "engine"` occurrences, while `dispatch_iter.rs` (3) and `dispatch_objects.rs` (2) carry
+engine-gated host-bridge regions, so a core-only arm body must not land inside one of those. That rule is the
 discharge mechanism, so a slice that adds an arm and leaves the file larger has not complied.
 (The withdrawn text also argued the reversal "takes a PR off the critical path and unblocks the T0 fix
 immediately" — schedule is judgment-supporting information, not a design constraint (CLAUDE.md
@@ -740,6 +753,9 @@ grep -rn "takes precedence\|step 6-7" crates/script/elidex-js/src/              
 `vm/natives_array_hof.rs:485` · `vm/webidl_sequence.rs:141`, `:149` · `vm/ops.rs:60` ·
 `vm/host/url_search_params.rs:315` · `vm/host/structured_clone.rs:1062` ·
 `vm/host/typed_array_static.rs:798` · `vm/host/headers/parse_init.rs:207`.
+⚠ Three of the `vm/host/` offsets drifted under 0a: at `658cc302` they are `url_search_params.rs:318`,
+`structured_clone.rs:1064`, `headers/parse_init.rs:208` (`typed_array_static.rs:798` unmoved). The
+**count of 10 still holds at HEAD** — re-run the grep above rather than reading either set of offsets.
 
 **4 compiler `Op::IteratorClose` emit sites.** The count has held, the anchors have not — Slice 0a
 split `compiler/stmt.rs` (964→712) into it plus the new `compiler/stmt_loop.rs`, which took the
@@ -1836,13 +1852,16 @@ loop with the target never written. Now routed through the same `unsupported_mem
 at the assignment site because ECMA-262 §14.7.5.7 step 8.g runs **per iteration** — an empty iterable
 performs no assignment and must not throw.
 
-**And a seventh mis-attributed §-number, shipped by the carve commit itself.** §15.7.14
+**And another mis-attributed §-number, shipped by the carve commit itself.** §15.7.14
 ClassDefinitionEvaluation does **not** pass `enumerable: false` — it calls `ClassElementEvaluation`
 with one argument; **§15.7.13 ClassElementEvaluation** is what passes `false` to §15.4.5
-MethodDefinitionEvaluation. The carve introduced this at two sites *while correcting two others*. The
-running total for this one PR is now: `§6.2.4.5` (RequireObjectCoercible → §7.2.1), `§12.5.3.2`
+MethodDefinitionEvaluation. The carve introduced this at two sites *while correcting two others*. Known members of the class in this PR — `§6.2.4.5` (RequireObjectCoercible → §7.2.1), `§12.5.3.2`
 (delete → §13.5.1.2), `§12.10.4` (instanceof → §13.10.1/§13.10.2), `§12.2.6.8` (→ §7.3.25),
-`§14.3.8` (→ §15.4.5 + §15.7.13), and `§14.3.8`'s own replacement. **The rule §13 states for counts
+`§14.3.8` (→ §15.4.5 + §15.7.13), `§14.3.8`'s own replacement, plus the three the paragraph above
+records (`§6.2.4.8` ×2 → §6.2.5.6 step 3.a; `§6.2.4.1` → §6.2.5.5 step 3.d; `§9.4.3` → §10.1.8.1
+step 7). **The ordinal has been dropped rather than recomputed**: it was written by recall three
+times running, and a tally of this document's own recall failures is the last place to keep one.
+PR-B's Axis-4 pass re-derived every §-number here via webref and found the numbering clean. **The rule §13 states for counts
 applies unchanged to §-numbers: look it up, every time, including when the commit's whole purpose is
 correcting lookups.**
 
