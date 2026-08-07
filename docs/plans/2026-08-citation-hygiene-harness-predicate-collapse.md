@@ -49,6 +49,8 @@ grep -noE 'rederive (suites|budget|lanes)|A-rederive\.sh (suites|budget|lanes)' 
 # M3 — which blocks are RED on the branch that ships them  (2>&1 required: the
 #      failure diagnostics go to stderr, so a stdout-only capture reads clean)
 bash docs/plans/2026-07-citation-hygiene-A-rederive.sh all 2>&1 | tee /tmp/m3.txt
+#      `| tee` returns TEE's status, so the run's own exit code is PIPESTATUS[0].
+echo "run exit=${PIPESTATUS[0]}"
 # M4 — are those REDs verdicts, or measurement failures?
 grep -c 'MEASUREMENT FAILED' /tmp/m3.txt; grep -c '!FAILED(rc=' /tmp/m3.txt
 # M5 — what runs the harness outside docs/plans/
