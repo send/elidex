@@ -327,7 +327,7 @@ Six axes; each **pair's intersection** named:
 | B×D | **Corrected R2r2**: under `lay_out_call_args` the array is popped *before* `do_new` allocates the instance (`vm/ops.rs:766`), so the two are never simultaneously live-and-needed. The real B×D case is the generator/async callee window (§6.3 GC). |
 | B×E | `New` has no IC dimension; only `Call`/`CallMethod` do. |
 | C×D | **The drain is rooted by construction** (`op_array_spread` `peek`s, so the array stays on `vm.stack`, itself a GC root). The **unrooted window is pop → re-push**: no JS allocation may occur inside it. |
-| C×F | [C20] step 3 runs ArgumentListEvaluation **before** the step 4/5 callability checks ⇒ a non-callable callee must still drain the iterator to completion before throwing. **[C19] does NOT call `IteratorClose`** — verified 2026-07-26, `body ecma262 sec-runtime-semantics-argumentlistevaluation \| grep -ci iteratorclose` → **0**; `?` propagates the abrupt completion directly, and §7.4.9 IteratorStep already sets `[[Done]]` on throw. Calling `return()` here would be an *observable divergence*. (Contrast [C39] DestructuringAssignmentEvaluation → 6 `IteratorClose` call sites, which is why [C36] is **Slice 0b's**, not Slice 1's.) |
+| C×F | [C20] step 3 runs ArgumentListEvaluation **before** the step 4/5 callability checks ⇒ a non-callable callee must still drain the iterator to completion before throwing. **[C19] does NOT call `IteratorClose`** — verified 2026-07-26, `body ecma262 sec-runtime-semantics-argumentlistevaluation \| grep -ci iteratorclose` → **0**; `?` propagates the abrupt completion directly, and the drain's own AO already sets `[[Done]]` on throw: it calls **§7.4.10 IteratorStepValue** [C35], whose **step 4.a** sets it on an `IteratorValue` throw, and whose step 1 delegates to §7.4.9 IteratorStep for the `next()` / `IteratorComplete` throws. *(An earlier draft credited §7.4.9 alone, which is not the AO invoked here.)* Calling `return()` here would be an *observable divergence*. (Contrast [C39] DestructuringAssignmentEvaluation → 6 `IteratorClose` call sites, which is why [C36] is **Slice 0b's**, not Slice 1's.) |
 | D×E | (none — IC slots are compile-time indices, not heap refs.) |
 | D×F | The unwind path must not leave the args Array reachable only from a dropped Rust local. |
 
@@ -337,7 +337,12 @@ enumerations in their own memos; §5 names this explicitly for slices 7-10 too. 
 deliberate user-visible behaviour change per dec. 5 — the program's widest blast radius) and **P**
 (a crate-wide convention sweep with a signature change and completion-kind semantics spanning
 `compiler/`, core `vm/` and `vm/host/` — edge-dense under trigger (b)). 0a and D are narrow enough
-to skip.
+to skip. ⚠ **Withdrawn for both (§18).** 0a's is moot — it shipped, and the measured axis count was
+**6**. **D is re-adjudicated here rather than left between two contradicting sites: it needs its own
+plan-review.** Its charter is to *delete* opcodes on the strength of a re-derived §2.3 set, and §2.3
+records that the previous enumeration was wrong in both directions — it would have deleted a live
+opcode (`Op::GetModuleVar`). A deletion slice whose input is an enumeration with a known failure
+history is not narrow.
 
 ---
 
@@ -1111,7 +1116,7 @@ as `658cc302` while never reaching the ledger, so the row below is the only plac
 | `#11-vm-operand-rooting-by-construction` | **(carved by #489's converge; SUPERSEDES `#11-vm-element-access-base-rooting`, which must not be recorded as closed)** ~20 dispatch arms pop an operand into a Rust local and then run user JS before reading or storing through it; `gc/roots.rs` walks the VM stack but not Rust locals. Beyond the 5 element opcodes: `GetProp`/`SetProp`, `IncProp`/`DecProp`, `In`, `Add`, `Instanceof`, `TemplateConcat`, `ops.rs`'s three operator helpers, the three computed-key definition bodies, `SpreadObject`, `ArraySpread`, `IteratorRest`, the unary arms and `op_get_iterator` — two of them *panic*, two *store* the collected id. **Deliverable is an invariant making an unrooted hold unrepresentable, NOT a sixth sweep**: five successive audits each drew the boundary differently and each was falsified by the next round. `Op::GetElemRef`, the one arm #489 introduces, is rooted by construction and pinned. Implementation + a 14-arm test module preserved on branch `vm-p4-rooting-carved` | **now** — the next VM dispatch-loop PR, or Slice P. Edge-dense ⇒ plan-review MANDATORY | 2026-09-30 |
 | `#11-vm-internal-error-hard-exit` | **(carved by #489's converge)** every extracted `op_*` helper's dispatch arm routes `VmErrorKind::InternalError` through `throw_error`, so a broken VM invariant becomes a catchable JS `Error` and user `try`/`catch` can swallow it; inline arms (`Op::Swap` / `Op::Pop` / `Op::PopUnder`) propagate with `?` instead. The disposition must key on the error's *kind*, not on whether the body was extracted. `Op::ThrowUnsupported` must stay catchable — it reports an unimplemented construct, not a broken invariant | with `#11-vm-operand-rooting-by-construction`, or the next dispatch-loop PR | 2026-09-30 |
 | `#11-vm-delete-elem-raw-key-array-fast-path` | **(carved by #489's converge)** `Op::DeleteElem` derives its array-index fast path from the **raw** operand, so an object key that stringifies to an index skips it while the generic `try_delete_property` path never consults dense array storage: `var a=[1,2,3]; delete a[{toString(){return '0'}}]` reports `true` and leaves `a[0]` as `1`. Same root as `#11-vm-topropertykey-symbol-from-toprimitive` — a fast path keyed on the raw value rather than the `ToPropertyKey` result | with that slot | 2026-09-30 |
-| `#11-vm-statement-completion-updateempty` | **(carved by #489's converge)** the half of the completion-ownership bug 0a did not fix: no `UpdateEmpty` (AO §6.2.4.4) equivalent, so `42; if (false) {}` yields `42` where §14.6.2 step 5 says `undefined`. Preserving the already-correct forms while adding the resets is ≥3 axes ⇒ edge-dense, plan-review MANDATORY | the next VM statement-lowering PR | 2026-09-30 |
+| `#11-vm-statement-completion-updateempty` | **(carved by #489's converge)** the half of the completion-ownership bug 0a did not fix: no `UpdateEmpty` (AO §6.2.4.4) equivalent, so `42; if (false) {}` yields `42` where §14.6.2 says `undefined` — for *that* example at **step 3** (`IfStatement : if ( Expression ) Statement`, which returns before ever reaching step 5's `UpdateEmpty`); step 5 is the right cite for a truthy test or the else-bearing production. Preserving the already-correct forms while adding the resets is ≥3 axes ⇒ edge-dense, plan-review MANDATORY | the next VM statement-lowering PR | 2026-09-30 |
 
 Registering 11 exceeds
 per-PR ≤3, so they register as **discovery carves of this umbrella** (the treatment the 2026-07-18
@@ -1456,7 +1461,7 @@ consequences of round-3's own fixes (the precedence sweep, the layer mismatch on
 **Not converged; a round 5 is warranted**, now against a materially different plan (Slice 1 split in
 two, four decisions closed). *(Round-4 record; superseded by §14.)*
 
-**Implementation-ready now**: **Slice 0a** (single verified root site `expr_assign.rs:170`, no open
+**Implementation-ready now** *(round-4 record; 0a has since MERGED as `658cc302` — §16)*: **Slice 0a** (single verified root site `expr_assign.rs:170`, no open
 finding touches it) — modulo dec. 1's formal admission. *(Earlier rounds also gated 0a on a
 `vm/dispatch.rs` prereq split; that split was removed — §5.)* **Slice 0b** is gated on **Slice P** (its [C39]→[C36] conformance claim
 inherits the inverted contract otherwise) plus three couplings its own plan-review must close (the `peel_paren` chokepoint it shares with dec. 14; its dependence on the sub-arm sweep that
@@ -1496,7 +1501,7 @@ hits were dismissed as "incl. unrelated" without classification).
 **R7 0C/9I**. Two consecutive CRIT-free rounds, and round 7 reported that *every mechanically derived
 enumeration verified clean*. What has not converged is the *editing* discipline, not the content.
 
-**Readiness**: **Slice 0a** is ready (modulo dec. 1's formal admission). *(The `vm/dispatch.rs`
+**Readiness**: **Slice 0a** is ready (modulo dec. 1's formal admission) *— superseded: 0a MERGED as `658cc302`, and dec. 1's admission was overtaken by the measured 6-axis count (§18)*. *(The `vm/dispatch.rs`
 prereq split is removed — §5.)* **P** needed its own SoT count fixed (done) and must now split its 15 sites by
 governing algorithm. 0b is gated on P; 0c on the I-1 carve-out (applied); 1a on dec. 6's contract
 wording (applied); 1b is well-specified behind 1a with dec. 12's stack bound as its named blocker.
@@ -1516,9 +1521,10 @@ impl-detail the tests catch."* That criterion is met. Every remaining finding is
 2. **A per-slice implementation detail** — and **per-slice `/elidex-plan-review` is mandatory**
    (§5), so every one of these is re-derived at slice time against real code rather than prose.
 
-**The cost of continuing is now concrete**: the T0 process abort (`obj[k] += v`,
-`compiler/expr_assign.rs:170`) has been declared implementation-ready since round 4 and has stayed
-live on `main` for five further rounds while the umbrella was polished. That inverts §2.4's own
+**The cost of continuing was concrete** *(written at the convergence call; the abort has since been
+fixed on `main` by `658cc302` — `grep -c 'assert!' compiler/expr_assign.rs` → 0)*: the T0 process
+abort (`obj[k] += v`, `compiler/expr_assign.rs:170`) had been declared implementation-ready since
+round 4 and stayed live on `main` for five further rounds while the umbrella was polished. That inverts §2.4's own
 severity ordering — [[feedback_ship-first-over-close]] and [[feedback_cap-vs-completeness]] both cut
 against it.
 
@@ -1870,7 +1876,7 @@ miscounting a tally *of this document's own recall miscounts* is §13's rule fai
 enumeration is `gh api --paginate` over `pulls/489/reviews` ∪ `issues/489/comments`, keyed on the
 `Reviewed commit:` marker; re-run it rather than reading these rows forward.
 
-Two facts the rows do not show, both measured. **Every formal review body on this PR is 621 bytes —
+Two facts the rows do not show, both measured. **Every formal review body *by the reviewer* on this PR is 621 bytes —
 Codex's finding-free boilerplate.** No P-badge body ever appeared, so all 18 findings arrived as
 inline threads and the review-body channel contributed nothing here; that is a fact about this PR,
 not a reason to stop scanning the channel. And **the merged head was never reviewed**: `origin/main`
