@@ -183,12 +183,29 @@ git grep -nE  "^[[:space:]]*//[/!]?.*${NUM}${UNIT}([^A-Za-z]|\$)" -- 'crates/**/
 
 | Candidate set | `crates/**/*.rs` comments | `docs/**/*.md` | `.claude/**` |
 |---|---|---|---|
-| bare superlative | 294 | 204 | — |
-| **superlative + countable noun** | **62** | **32** (30 in `docs/plans/`) | **1** |
-| numeric claim + countable noun | 260 | 293 | — |
+| bare superlative | 301 | 215 | — |
+| **superlative + countable noun** | **64** | **33** (31 in `docs/plans/`) | **1** |
+| numeric claim + countable noun | 262 | 312 | — |
 
-<!-- claim count=62 icase pattern="^[[:space:]]*//[/!]?.*(^|[^A-Za-z])(the only|the sole|no other|only remaining|sole)[[:space:]]+([A-Za-z._-]+[[:space:]]+){0,2}(callers?|sites?|modules?|methods?|entries|entry|consumers?|paths?|files?|tests?|lines?|cases?|variants?|fields?|readers?|writers?|impls?|users?|places?)([^A-Za-z]|$)" in="crates/**/*.rs" -->
-<!-- claim count=294 icase pattern="^[[:space:]]*//[/!]?.*(^|[^A-Za-z])(the only|the sole|no other|only remaining|sole)([^A-Za-z]|$)" in="crates/**/*.rs" -->
+<!-- claim count=64 icase pattern="^[[:space:]]*//[/!]?.*(^|[^A-Za-z])(the only|the sole|no other|only remaining|sole)[[:space:]]+([A-Za-z._-]+[[:space:]]+){0,2}(callers?|sites?|modules?|methods?|entries|entry|consumers?|paths?|files?|tests?|lines?|cases?|variants?|fields?|readers?|writers?|impls?|users?|places?)([^A-Za-z]|$)" in="crates/**/*.rs" -->
+<!-- claim count=301 icase pattern="^[[:space:]]*//[/!]?.*(^|[^A-Za-z])(the only|the sole|no other|only remaining|sole)([^A-Za-z]|$)" in="crates/**/*.rs" -->
+
+**These two annotations just did their job, against a third party.** They were written at
+`3045f256` and were correct. `658cc302` — a VM compound-assignment PR touching only `crates/`, by
+another lane, with no relationship to this program — moved them to 64 and 301. Merging `origin/main`
+into this branch made both **FAIL**, naming the asserted and actual values:
+
+```
+FAIL    count asserted=62  actual=64   in=crates/**/*.rs
+FAIL    count asserted=294 actual=301  in=crates/**/*.rs
+```
+
+This is the #504 failure mode — a verified claim going silently false because someone changed the
+measured set — caught on real data by the mechanism this program proposes, before any of it is
+implemented. It is also the D10 complement: D10 covers *your own* landing invalidating your
+measurement; this is *someone else's*, which is the case the origin lesson was actually about and the
+one no authoring discipline can reach. Recorded here rather than silently corrected, because a
+worked instance is worth more than the argument for one.
 
 (The two annotations above are **live** per D1 — once S1 lands they are re-executed on every push, and
 this table reds the build if the tree moves under it. That is the intended behaviour for an umbrella
