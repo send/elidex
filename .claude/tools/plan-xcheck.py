@@ -61,8 +61,13 @@ def main(path):
     s53, s10 = sect(s,"5"), sect(s,"10")
     for sl in sorted(slots):
         if sl in ("#11-line-box-decorated-inline-content",): continue
-        if re.search(rf"\*\*`{re.escape(sl)}`\*\*", s53) and sl not in s10:
-            bad("SLOT", f"{sl} defined in §5.3 but has no §10 ledger row")
+        # a slot is "defined here" if the memo gives it Why/trigger/re-eval anywhere
+        ctx = ""
+        for m in re.finditer(rf"`{re.escape(sl)}`", s):
+            ctx += s[m.start(): m.start()+900]
+        defined_here = ("Re-eval:" in ctx or "re-eval" in ctx.lower()) and "rigger" in ctx
+        if defined_here and sl not in s10:
+            bad("SLOT", f"{sl} is defined with Why/trigger/re-eval but has no §10 ledger row")
 
     # 7. own-deferral count
     stated=re.search(r"Own-deferral count: \*\*(\d+)\*\*", s)
