@@ -87,7 +87,7 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # named below hands back an accidental exit status, and `all` is the only place
 # the block set is written down, so deriving its scope from `$@` here is what
 # keeps the check from needing a second list to drift against.
-all() { set -- selfcheck citations partition keysets column carvecolumn instruments remedies \
+all() { set -- selfcheck inventory citations partition keysets column carvecolumn instruments remedies \
                 reloadstale armmatrix suites anchors regions offline couplings suiteset marker \
                 budget filters ruleset timing bmemo
         local failed="" rc

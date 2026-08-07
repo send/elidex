@@ -7,11 +7,15 @@
 # What lives here is ONE COHESIVE UNIT AND BELONGS TO NO SLICE, which is the seam
 # A-i §8 names: the primitive that makes a failed measurement UNREPRESENTABLE AS
 # A PASS (`_measure` / `_measured`), the repo root every scan and every `git show`
-# resolves against (`$REPO_ROOT`), and the check that every block on `all`'s
-# roster STATES its own exit status (`selfcheck`) -- which is the same property
-# one level up, and reads `_measure`'s limits as its own premise. Every part but
-# `-Ai` calls `_measure` (per-part counts in the dispatcher's header, measured);
-# `-common.sh` holds the blocks more than one memo cites.
+# resolves against (`$REPO_ROOT`), and the two checks that range over the harness
+# AS A WHOLE -- `selfcheck` (every block on `all`'s roster STATES its own exit
+# status) and `inventory` (every block is routed to the slice that consumes it).
+# Every part but `-Ai` calls `_measure` (per-part counts in the dispatcher's
+# header, measured); `-common.sh` holds the blocks more than one memo cites.
+#
+# ⚠ `inventory` MEASURES this file's claim to be kernel and does not confirm it:
+# `-integrity.sh`'s own `_measure` / `_measured` route to A-i, because A-i's
+# `couplings` is their earliest caller. See the design note's §3.
 
 # THE REPO THIS HARNESS LIVES IN, derived from THIS FILE's own path -- never from
 # cwd. `_wtscan`'s roots are relative (`.claude/tools/`), so before this they
@@ -102,6 +106,223 @@ _measure() {
 # Print what the last `_measure` captured, without the extra blank line a
 # `printf '%s\n'` on an already-newline-terminated capture would add.
 _measured() { [ -n "$_MEASURE_OUT" ] && printf '%s' "$_MEASURE_OUT"; return 0; }
+
+inventory() {  # THE BLOCK TABLE, DERIVED — who defines it, who declares it, where it ships
+  # WHY THIS IS A BLOCK AND NOT A TABLE IN A MEMO. The design note's §2 and §3
+  # are this block's output. Hand-written, the same two tables came out with 22
+  # rows against a roster of 22 that were DIFFERENT SETS of 22 -- equal
+  # cardinality is exactly what no count-based check catches -- and a routing
+  # table read off prose sent two of A-ii's own blocks into Slice B's column.
+  #
+  # WHY `declare -f` AND NOT A REGEX. Bash parses bash. `declare -f` also STRIPS
+  # COMMENTS, so every code signal below is a property of the code rather than of
+  # the prose beside it, which is the distinction the note's Q1 turns on: a regex
+  # over the raw text made `marker` a caller of `_measure` because its python
+  # payload quotes the name in a comment. It is also why this block sees `all()`,
+  # which closes with `; }` and which `selfcheck`'s line-oriented parser drops.
+  #
+  # THE MEMOS ARE AN ARGUMENT, and their absence is a FAILURE rather than an
+  # empty column: "declared by no memo" must not be producible by a checkout that
+  # has no memos in it. Default `$REPO_ROOT/docs/plans`; pass a sibling worktree's
+  # when the harness and the memos are on different branches.
+  python3 - "$REPO_ROOT/docs/plans" "${2:-$REPO_ROOT/docs/plans}" <<'INVENTORYPY'
+import re, subprocess, sys
+from pathlib import Path
+
+HD, MD = Path(sys.argv[1]), Path(sys.argv[2])
+DISPATCH = HD / "2026-07-citation-hygiene-A-rederive.sh"
+PARTS = ["integrity", "common", "Ai", "Aii", "Aiii", "B"]
+ORDER = ["umbrella", "A-i", "A-ii", "A-iii", "B", "C"]
+# The umbrella ranks FIRST and is not a slice: it has LANDED, so a block it
+# cites must exist from the first harness PR onward. Ranking it after A-i put
+# `suites` in a column A-iii has no branch for while `:82` cites it today.
+PART_SLICE = {"Ai": "A-i", "Aii": "A-ii", "Aiii": "A-iii", "B": "B"}
+MEMOS = [("A-i", "Ai-spec-label-map"), ("A-ii", "Aii-gate-failure-semantics"),
+         ("A-iii", "Aiii-suite-scheduler"), ("B", "B-detector-correctness"),
+         ("C", "C-policy-retirement")]
+
+src = "; ".join('. "$1/2026-07-citation-hygiene-A-rederive-%s.sh"' % p for p in PARTS)
+r = subprocess.run(["bash", "--norc", "--noprofile", "-c", "set -e; %s; declare -f" % src,
+                    "_", str(HD)], capture_output=True, text=True)
+if r.returncode != 0:
+    sys.stderr.write(r.stderr)
+    raise SystemExit("!! sourcing the parts failed (rc=%d); an empty table is not a table."
+                     % r.returncode)
+bodies, cur = {}, None
+for line in r.stdout.splitlines():
+    m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*) \(\) $", line)
+    if m:
+        cur = m.group(1); bodies[cur] = []
+    elif cur:
+        bodies[cur].append(line)
+bodies = {k: "\n".join(v) for k, v in bodies.items()}
+if len(bodies) < 2:
+    raise SystemExit("!! `declare -f` yielded %d function(s); a table over nothing "
+                     "reports no problem for a reason that is not 'there are none'."
+                     % len(bodies))
+
+dtext = DISPATCH.read_text(encoding="utf-8")
+m = re.search(r"^all\(\) \{ set -- (.*?)\n\s*local failed", dtext, re.S | re.M)
+if m is None:
+    raise SystemExit("!! cannot read `all`'s roster from %s; the roster column would "
+                     "then be empty for a reason that is not 'no block is on it'."
+                     % DISPATCH.name)
+roster = m.group(1).replace("\\\n", " ").split()
+m2 = re.search(r"^(all\(\) \{.*?ALL BLOCKS EXITED 0[^\n]*)$", dtext, re.S | re.M)
+bodies["all"] = m2.group(1) if m2 else " ".join(roster)
+al = re.search(r'AUTHOR_LOCAL="([^"]+)"',
+               (HD / "2026-07-citation-hygiene-A-rederive-common.sh").read_text()).group(1).split()
+
+# The prose slice of a block runs from the END OF THE PREVIOUS BLOCK to its own
+# last non-comment line, so the comment block that INTRODUCES a definition
+# belongs to that definition rather than to the one above it -- `instruments`'
+# rationale, the only site where the word "candidate" is written down, sits in
+# such a header and a def-line-to-def-line slice loses it entirely.
+DEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
+part, prose = {}, {}
+for p in PARTS:
+    lines = (HD / ("2026-07-citation-hygiene-A-rederive-%s.sh" % p)
+             ).read_text(encoding="utf-8").splitlines()
+    starts = [(i, DEF.match(l).group(1)) for i, l in enumerate(lines) if DEF.match(l)]
+    prev = starts[0][0] if starts else 0
+    for k, (i, n) in enumerate(starts):
+        end = len(lines) if k + 1 == len(starts) else starts[k + 1][0]
+        while end > i + 1 and (not lines[end - 1].strip()
+                               or lines[end - 1].lstrip().startswith("#")):
+            end -= 1
+        part[n], prose[n], prev = p, lines[prev:end], end
+part["all"], prose["all"] = "(disp)", bodies["all"].splitlines()
+known = set(bodies)
+
+# DECLARED BY. Heuristic over prose, so its rule is written down and what it
+# drops is printed: a §15 code span naming TWO OR MORE known blocks is a
+# declaration list; a span naming one is not, because §15 also spells single
+# names in exclusion notices ("`lanes` and `staleclaims` are author-local") and
+# in argument-bearing invocations (`readers SPEC_LABEL_REVERSE`).
+declared, dropped = {}, []
+for tag, fn in MEMOS:
+    path = MD / ("2026-07-citation-hygiene-%s.md" % fn)
+    if not path.is_file():
+        raise SystemExit("!! %s is absent. 'Declared by no memo' would then be a fact "
+                         "about this CHECKOUT, not about the memo -- pass the worktree "
+                         "that holds them: `rederive inventory <dir>`." % path)
+    sec = re.search(r"^## §15.*?(?=^## |\Z)", path.read_text(encoding="utf-8"), re.S | re.M)
+    if sec is None:
+        continue
+    for run in re.findall(r"`([^`]+)`", sec.group(0).replace("\n", " ")):
+        toks = [t for t in run.replace("*", "").split() if t in known]
+        if len(toks) >= 2:
+            for t in toks:
+                declared.setdefault(t, set()).add(tag)
+        elif len(toks) == 1:
+            dropped.append((tag, run.strip()[:44], toks[0]))
+    for x in re.findall(r"plus `([a-z_]+)`", sec.group(0)):
+        if x in known:
+            declared.setdefault(x, set()).add(tag)
+utext = (MD / "2026-07-citation-hygiene-umbrella.md").read_text(encoding="utf-8")
+for a, b in re.findall(r"rederive ([a-z_]+)|A-rederive\.sh ([a-z_]+)", utext):
+    if (a or b) in known:
+        declared.setdefault(a or b, set()).add("umbrella")
+
+
+def at_command(n, body):
+    """COMMAND POSITION, not "appears anywhere". `readers` prints the word
+    "partition" in a diagnostic string, and `partition`'s own docstring ends a
+    sentence with "all)"; bare occurrences made the first a caller of a Slice-B
+    block and the second a caller of the dispatcher. A heredoc PAYLOAD is still
+    shell-opaque, which is why the caller list is PRINTED in the `why` column
+    rather than only consumed -- a residual false positive stays visible."""
+    lead = r"(?m)(?:^\s*|[;&|(]\s*|\b(?:then|do|else|if|while|until)\s+)"
+    return (re.findall(lead + re.escape(n) + r"(?![\w-])(?!\))", body)
+            # `_measure [--nomatch <st>] <var> <cmd> [arg...]` takes a COMMAND as
+            # its third word, so `_measure n_head _wtscan …` is a call site that
+            # is not in command position. Missing it made `_wtscan` uncalled.
+            + re.findall(lead + r"_measure(?:\s+--nomatch\s+\S+)?\s+\S+\s+"
+                         + re.escape(n) + r"(?![\w-])", body))
+
+
+CMP = re.compile(r"\[\[? [^]]*? (?:-eq|-ne|-gt|-lt|-ge|-le|=|!=) ")
+CALL = {b: sorted(n for n in known if n != b and at_command(n, body))
+        for b, body in bodies.items()}
+rows = {}
+for b in known:
+    body, text = bodies[b], "\n".join(prose.get(b, []))
+    rows[b] = dict(part=part.get(b, "?"),
+                   roster="yes" if b in roster else "author-local" if b in al else "no",
+                   decl=",".join(sorted(declared.get(b, []))) or "-",
+                   meas=len(at_command("_measure", body)),
+                   # The needle is SPLIT so this block does not match itself: it
+                   # prints the name of the signal it is looking for.
+                   vrd="Y" if re.search("VERDICT" + r":\s*(GREEN|RED)", body) else "-",
+                   cmp=len(CMP.findall(body)),
+                   cand=len(re.findall(r"candidate", text, re.I)),
+                   ln=len(prose.get(b, [])))
+
+# SHIPS WITH -- four tiers, in order, each total and mechanical:
+#   T0  defined in the DISPATCHER -> kernel. It is the invocation surface every
+#       memo cites blocks through, it belongs to no slice, nothing calls it.
+#   T1  a memo declares it -> the EARLIEST declarer in the forced order, the
+#       umbrella first. A block must exist by the time its first citer lands,
+#       and the order being forced is what makes that sound.
+#   T2  else, defined in a slice part -> that slice.
+#   T3  else (`-common.sh` / `-integrity.sh`, declared by nobody) -> the earliest
+#       ship-with among its command-position CALLERS. No non-kernel caller means
+#       nothing but the dispatcher needs it: kernel.
+callers = {b: [c for c in known if b in CALL[c]] for b in known}
+ship, why = {}, {}
+for b in known:
+    d = [s for s in ORDER if s in declared.get(b, ())]
+    if rows[b]["part"] == "(disp)":
+        ship[b], why[b] = "kernel", "T0 dispatcher"
+    elif d:
+        ship[b], why[b] = d[0], "T1 declared"
+    elif rows[b]["part"] in PART_SLICE:
+        ship[b], why[b] = PART_SLICE[rows[b]["part"]], "T2 part"
+for _ in range(len(known)):
+    for b in known:
+        if b in ship:
+            continue
+        cs = [ship[c] for c in callers[b] if ship.get(c) in ORDER]
+        if cs or all(c in ship for c in callers[b]):
+            ship[b] = min(cs, key=ORDER.index) if cs else "kernel"
+            why[b] = "T3 " + (",".join(sorted(callers[b])) or "no caller")
+for b in known:
+    ship.setdefault(b, "kernel"); why.setdefault(b, "T3 caller cycle")
+
+print("  %-13s%-10s%-13s%-22s%5s%4s%4s%6s%5s  %-6s %s"
+      % ("block", "part", "roster", "declared by", "meas", "vrd", "cmp", "cand*",
+         "ln", "ships", "why"))
+for b in sorted(known, key=lambda x: (ORDER.index(ship[x]) if ship[x] in ORDER else -1, x)):
+    q = rows[b]
+    print("  %-13s%-10s%-13s%-22s%5d%4s%4d%6d%5d  %-6s %s"
+          % (b, q["part"], q["roster"], q["decl"], q["meas"], q["vrd"], q["cmp"],
+             q["cand"], q["ln"], ship[b], why[b]))
+print("  (* `cand` is the ONE PROSE signal in this table -- occurrences of the word")
+print("   \"candidate\" in the block's comments. Nothing in the CODE distinguishes a")
+print("   block that runs rival mechanisms from one that measures a quantity.)")
+
+tally = {}
+for b in known:
+    t = tally.setdefault(ship[b], [0, 0]); t[0] += 1; t[1] += rows[b]["ln"]
+print("\n  defined=%d roster=%d declared=%d author-local=%d prose-lines=%d"
+      % (len(known), len(roster), len(declared), len(al),
+         sum(rows[b]["ln"] for b in known)))
+print("  ships-with (blocks, prose lines): "
+      + "  ".join("%s=%d/%d" % (k, v[0], v[1]) for k, v in sorted(tally.items())))
+print("  on the roster, declared by no memo: "
+      + (" ".join(sorted(set(roster) - set(declared))) or "(none)"))
+print("  declared but NOT on the roster    : "
+      + (" ".join(sorted(set(declared) - set(roster))) or "(none)"))
+print("  blocks printing a VERDICT         : "
+      + (" ".join(sorted(b for b in known if rows[b]["vrd"] == "Y")) or "(none)"))
+print("\n  -- §15 code spans naming exactly ONE known block, NOT read as declarations --")
+seen = set()
+for tag, run, tok in dropped:
+    if (tag, run) not in seen:
+        seen.add((tag, run)); print("   %-6s %-12s in `%s`" % (tag, tok, run))
+INVENTORYPY
+  return $?
+}
 
 selfcheck() {  # THE HARNESS AUDITED BY THE HARNESS — every `all` block STATES its status
   # `_measure` makes a failed measurement unrepresentable as a pass AT THE CALL
