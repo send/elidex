@@ -47,12 +47,12 @@ def main(path):
     cells=set(re.findall(r"^(\d+[a-z]?)\.\s", sect(s,"6"), re.M))
     dod=sect(s,"8")
     listed=set()
-    for rng in re.findall(r"cells? ([\d abc,–\-and]+)", dod):
-        for tok in re.split(r",|and", rng):
-            tok=tok.strip()
-            if re.fullmatch(r"\d+[a-z]?", tok): listed.add(tok)
-            elif re.fullmatch(r"\d+[–-]\d+", tok):
+    for m in re.finditer(r"cells? ((?:\d+[a-z]?(?:\s*[–-]\s*\d+)?(?:\s*(?:,|and)\s*)?)+)", dod):
+        for tok in re.findall(r"\d+[a-z]?(?:\s*[–-]\s*\d+)?", m.group(1)):
+            tok=tok.replace(" ","")
+            if re.fullmatch(r"\d+[–-]\d+", tok):
                 a,b=re.split(r"[–-]", tok); listed |= {str(i) for i in range(int(a), int(b)+1)}
+            else: listed.add(tok)
     for c in sorted(cells-listed, key=lambda x:(int(re.sub(r"\D","",x)), x)):
         bad("CELL", f"cell {c} is in no PR's DoD")
 
@@ -94,12 +94,12 @@ def main(path):
         bad("CELL", f"DoD cites cell {c}, which §6 does not define")
     # 11. §5.3's own cell ranges must agree with §8's
     s53_cells=set()
-    for rng in re.findall(r"cells? ([\d abc,–\-and]+)", sect(s,"5")):
-        for tok in re.split(r",|and", rng):
-            tok=tok.strip()
-            if re.fullmatch(r"\d+[a-z]?", tok): s53_cells.add(tok)
-            elif re.fullmatch(r"\d+[–-]\d+", tok):
+    for m in re.finditer(r"cells? ((?:\d+[a-z]?(?:\s*[–-]\s*\d+)?(?:\s*(?:,|and)\s*)?)+)", sect(s,"5")):
+        for tok in re.findall(r"\d+[a-z]?(?:\s*[–-]\s*\d+)?", m.group(1)):
+            tok=tok.replace(" ","")
+            if re.fullmatch(r"\d+[–-]\d+", tok):
                 a,b=re.split(r"[–-]", tok); s53_cells |= {str(i) for i in range(int(a),int(b)+1)}
+            else: s53_cells.add(tok)
     if s53_cells and s53_cells != listed:
         for c in sorted(s53_cells ^ listed, key=str):
             bad("CELL", f"cell {c} is in §5.3's ranges xor §8's, not both")
