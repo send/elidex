@@ -318,6 +318,22 @@ print("  declared but NOT on the roster    : "
       + (" ".join(sorted(set(declared) - set(roster))) or "(none)"))
 print("  blocks printing a VERDICT         : "
       + (" ".join(sorted(b for b in known if rows[b]["vrd"] == "Y")) or "(none)"))
+
+# ROUTING UNIT vs SHIPPING UNIT. Every column above routes a BLOCK; a PR adds and
+# removes FILES. Where the two disagree, no file-granular action can carry out the
+# routing -- `-Aiii.sh` holds a block that ships with the umbrella, and `-common.sh`
+# and `-integrity.sh` hold blocks owned by a slice. This is the work list for
+# reconciling them, and until it is empty "ships with X" is an assertion about a
+# world in which the parts are cut differently than they are.
+print("\n  -- ROUTING UNIT (block) vs SHIPPING UNIT (file): where they disagree --")
+mis = [(b, rows[b]["part"], ship[b], rows[b]["ln"]) for b in sorted(known)
+       if PART_SLICE.get(rows[b]["part"], "shared") != ship[b]
+       and not (rows[b]["part"] not in PART_SLICE and ship[b] == "kernel")]
+for b, pt, sh, ln in mis:
+    home = PART_SLICE.get(pt, "no slice")
+    print("   %-13s lives in %-9s (%-8s)  ships with %-8s  %4d lines" % (b, pt, home, sh, ln))
+print("   %d of %d blocks / %d lines cannot be moved or removed at FILE granularity."
+      % (len(mis), len(known), sum(x[3] for x in mis)))
 print("\n  -- §15 code spans naming exactly ONE known block, NOT read as declarations --")
 seen = set()
 for tag, run, tok in dropped:
