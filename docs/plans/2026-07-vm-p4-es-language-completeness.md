@@ -542,7 +542,13 @@ outside `vm/host/` yet are engine-bound):
   **Two-layer cases needing explicit disposition in Slice P's memo**: `vm/webidl_sequence.rs`
   (governed by WebIDL §3.2.21) and **`vm/host/structured_clone.rs`** (WHATWG HTML **§2.7.4** StructuredSerialize
   (§2.7.7 StructuredSerializeWithTransfer for the transfer-list path where the `iter_close` at
-  `:1062` actually sits — `:1064` at `658cc302`; the in-code docstring's "§2.9" is itself drifted and must be retagged) — its abrupt is a `DataCloneError` thrown by HTML's own loop body, so a
+  `:1062` sat — `:1064` at `658cc302`. ⚠ **Codex R1 corrected the attribution of that site**: it is
+  inside `ensure_empty_transfer_list`, whose own docstring calls it a WebIDL `sequence<object>`
+  conversion throwing per **WebIDL §3.2.21 step 3**, and its `iter_close` runs while consuming the
+  iterable — *before* HTML StructuredSerializeWithTransfer ever receives the list. So the **site
+  stays in the WebIDL half of §5's 10/5 partition**, and it is the *outer native* that is separately
+  HTML §2.7.4 / §2.7.7. Calling the site HTML's own loop would select the wrong `.return()` and
+  error-precedence remedy in Slice P. The in-code docstring's "§2.9" is drifted and must still be retagged) — its abrupt is a `DataCloneError` thrown by HTML's own loop body, so a
   step-5 flip changes an HTML-defined error surface, not an ECMA-262 one; round 6 corrected an
   earlier mis-classification of this file as pure ECMA-262).
 
@@ -576,7 +582,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | **0a — MERGED `658cc302`** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | ⚠ **charter, not outcome — the landing was 36 files** (`git show --stat 658cc302`), incl. `compiler/stmt.rs` + new `stmt_loop.rs`, `vm/object_kind.rs`, `vm/interpreter.rs`, `vm/value.rs` and four `vm/host/` files; §16 has the record and §8's cold gate reasons over this column, so read §16 first. Charter was: `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
 | **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15) | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, **`compiler/expr_member.rs`** (the `(o.m)()` callee match), **`compiler/expr.rs`**, `parser/expr.rs` (Paren normalisation + the ungated `Ellipsis` arm) | **new** `#11-vm-assignment-target-completeness` | T1 | **P** |
 | **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature + **15** sites (10 `iter_close(` + 4 `fc.emit(Op::IteratorClose)` + 1 inline re-implementation in `op_array_spread`), **split by governing algorithm first** (**10** ECMA-262 §7.4.11 / **5** WebIDL §3.2.21.1) (§6.2a-2). Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,stmt_loop,expr_yield_star}.rs` (⚠ `stmt_loop.rs` is new since this column was written — §6.2a-2) | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | — |
-| **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table**. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are already discharged. `compiler/expr_assign.rs` has no residue at all: of its six §2.2 rows, four are among the nine and the other two carry plain *0a ✅* because 0a **implemented** them. 0c's first act is to **re-run the §2.1 three-pass sweep at `658cc302`** and derive its file list from the residue. The list opposite is the pre-0a one and must not be used as the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
+| **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table**. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are already discharged. `compiler/expr_assign.rs` has no residue at all: of its six §2.2 rows, four are among the nine and the other two carry plain *0a ✅* because 0a **implemented** them. 0c's first act is to **re-run the §2.1 three-pass sweep against 0c's own parent HEAD at implementation time** and derive its file list from that residue. ⚠ **Not at `658cc302`**: the ship order puts **P and 0b** ahead of 0c, so a sweep pinned to `658cc302` reconstructs a pre-0b inventory and makes 0c double-own the destructuring, parenthesized-target and parser cases 0b will already have fixed — producing a stale conformance table or overwriting new behaviour (Codex R1). The list opposite is the pre-0a one and must not be used as the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
 | **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, **`vm/dispatch.rs`** (the *only* callers of `ic_call`/`ic_call_method`, which dec. 11 re-signatures — without it 1a does not compile; ⚠ these were `:719`/`:730` at `f7d9b5ce` and are `:705`/`:716` at `658cc302`, so 1a must re-derive them by grep at implementation time rather than reading either pair forward), `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
 | **1b** | **Call-argument spread — compiler + opcodes**: `compile_call_arguments`/`ArgsForm` + `emit_call` aggregation (dec. 2) + `CallMethodSpread` (dec. 2b) + the 3 handlers + arity-based form selection | `compiler/expr_member.rs`, `expr.rs`, `bytecode/opcode.rs`, `bytecode/disasm.rs`, `vm/dispatch.rs`, **`vm/ops.rs`** (`do_new` §3 rows 17/18, the bound-prefix splice `:696-700` for edge 26, and dec. 12's stack bound — which has no implementation today) | `#11-vm-call-spread-arguments` | T1 | **1a** |
 | **2** | Class **instance** field initializers (public) | `compiler/expr_class.rs`, `vm/dispatch.rs`, **`vm/dispatch_class.rs:232-250`** (`construct_synchronous` — the receiver substitution the contract below turns on); **+ `vm/host/custom_elements/`** (no-regression only — see below) | **adopt** `#11-step9-class-extras` | T1 | — |
@@ -588,7 +594,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | **8** | RegExp completion | `vm/natives_regexp.rs`, `vm/globals_primitives.rs` | `#11-vm-regexp-constructor-and-flags` | T3 | — |
 | **9** | Prototype micro-sweep (T3) **+ the T1 `{1n:…}` key fix** — tier-mixed; the T1 row may be pulled forward if the severity ordering is enforced strictly | `vm/natives_array.rs`, `natives_string.rs`, `natives_object/`, `compiler/expr_object.rs` | **new** `#11-vm-es2021-2024-prototype-sweep` | T3 | — |
 | **10** | `Proxy`/`Reflect` | `vm/object_kind.rs`, `vm/ops_property.rs` | `#11-vm-proxy-reflect` | T3 | 7 |
-| **D** | **Dead-opcode sweep** — mechanically re-derive the §2.3 set and delete what no slice connected | `bytecode/opcode.rs`, `vm/dispatch.rs` | **adopt** `#11-dead-opcode-removal` | — | after 1b-5 |
+| **D** | **Dead-opcode sweep** — mechanically re-derive the §2.3 set and delete what no slice connected. ⚠ **Slice M is outside this sequence** (promoted to its own umbrella), and §2.3 assigns `Op::ImportMeta` / `Op::DynamicImport` to M's connect work — so at the documented "after 1b-5" point D would have to either delete two opcodes M owns or leave them dead and fail its own connect-or-delete criterion (Codex R1). **M's connects are a prerequisite for D**; until they land, those two are carved out of D's set by name rather than swept | `bytecode/opcode.rs`, `vm/dispatch.rs` | **adopt** `#11-dead-opcode-removal` | — | after 1b-5 **and** M's connects |
 | **M** | **ES modules — PROMOTED TO ITS OWN UMBRELLA, outside this plan's slice sequence** (R2 round 5). It carries the `stmt.rs:31-39` precondition, 3 §2.2 rows (⚠ two of them — the module-binding update and for-in head — are **0a ✅ loud**, so M inherits their *implementation*, not their conversion; I-2's `expr_assign.rs:102` `unreachable!` is likewise already converted), I-5's host-fetch-seam boundary, and the `ImportMeta`/`DynamicImport` connects = ≥3 intersecting invariant axes, so the CLAUDE.md edge-dense rule forbids one PR. Only the **`#11-vm-dynamic-import`** T1 carve stays homed here (0c makes `import()` loud; the Promise-returning impl belongs to the module umbrella) | — | `#11-vm-dynamic-import` | T1 | — |
 | **—** | `Function`/`eval` | — | `#11-vm-function-constructor-global` | policy | §9 dec. 7 |
 
@@ -862,7 +868,11 @@ removed `dispatch.rs` file split). Everything below is tagged:
 - **[1b]** = the compiler helper, `emit_call` aggregation, `CallMethodSpread`, the three handlers,
   and arity-based form selection — i.e. everything that changes observable behaviour.
 
-1a's acceptance test is therefore *"the full existing suite passes unchanged"*; 1b's is §6.4.
+1a's acceptance test is *"the full existing suite passes unchanged"* **plus edges 21/27/28/32 as
+required tests** — §15 restated it and this sentence had not been propagated. The bare form is
+vacuous for 1a's two *semantic* fixes (`op_array_spread`'s `return()` removal, dec. 13a; the arg-window
+rooting, dec. 10): the existing suite covers neither, so an implementation could omit both and still
+pass. 1b's is §6.4.
 
 **Compiler** — one helper (I-3), replacing `compile_arguments`:
 
@@ -1318,6 +1328,12 @@ favour of `#11-step9-class-extras`.
     dead branch in 1a, which is the same I-4 "third state" argument dec. 6 used to reject VM-first,
     one layer down. Either move dec. 11 to **1b** (where `CallSpread` is its producer), or give 1a a
     direct unit test on `ic_call(.., None)` so the branch is exercised where it lands.
+    **RESOLVED (Codex R1 re-raised it): the second option.** Moving dec. 11 to 1b is not free —
+    §5's 1a row records `dispatch.rs`'s two callers as the *only* callers of `ic_call`/`ic_call_method`,
+    and re-signaturing them is what lets 1a compile at all. So 1a keeps the refactor and **a direct
+    unit test on `ic_call(.., None)` is a required 1a acceptance item**, not an optional one; without
+    it 1a ships exactly the dead third state I-4 rejects. Ratified rather than left open, because an
+    unratified either/or in §9 is invisible to the slice author reading §5.
 12. **Stack-depth guard — RESOLVED (a limit is required, and it is 1b's).** Verified 2026-07-26:
     `grep -rn "MAX_STACK\|stack_limit\|call_depth\|MAX_FRAMES" crates/script/elidex-js/src/vm/` →
     **0 hits** — the crate has *no* stack or frame bound at all. `spread_iter_loop` caps the
@@ -1348,7 +1364,11 @@ favour of `#11-step9-class-extras`.
     globally this is fixed as an **unrecorded side effect** of a slice scoped to assign/update
     targets; if 0b scopes narrowly, 1b ships the bug intact. Recommendation: one `peel_paren`
     chokepoint owned by **0b**, with `(o.m)(...)` added as an explicit 0b deliverable + §2.2 row, and
-    edge 31 as 1b's regression guard.
+    edge 31 as 1b's regression guard. ⚠ **Made operative (Codex R1)**: as written, edge 31 was
+    allocated to 1b alone, so 0b could land the receiver-binding fix it owns with **no test asserting
+    `this === o`**, and the regression would surface only in a later slice that rewrites the same call
+    compiler. `(o.m)()` asserting `this === o` is therefore **part of 0b's own acceptance suite**; 1b
+    keeps edge 31 as its regression guard.
 15. **`expr.rs:186-189` prefix `Spread` — layer mismatch.** §2.2 assigns it to 0c, whose rule (§9
     dec. 5) is *runtime throw*; but `var y = ...x` is an **early SyntaxError** per spec, so a runtime
     throw lets preceding side effects run and lets `if (false) { var y = ...x }` execute the whole
