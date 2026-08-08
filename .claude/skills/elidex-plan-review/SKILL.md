@@ -89,6 +89,20 @@ Per `feedback_plan-memo-pre-verify-grep.md` (F3 + D-16 plan-review R3-R6 由来)
 Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container 由来), an **edge-dense** plan-memo (the MANDATORY trigger above: ≥3 intersecting invariant axes, or a subsystem with no canonical algorithm) MUST **enumerate its coupled invariants in §2** — a bullet list (or small matrix) naming each invariant the design simultaneously satisfies, plus **each pair's intersection** in one line (e.g. identity × GC = "interned wrapper の GC root read path" / promise × op-type = "op ごとに別 pending list か tag"). Prose 一筆書き ("既存 seam を再利用") は **NG**: 個々の seam が正しくても cross-cutting な機構詳細が必ず抜け、review が毎 round その交点 gap を発掘する (D-19 は 4 周 = R1→Step-4.5→panel→R2→Step-4.5 を要した)。
 
 - **Enforcement path** — the `axes.md` **Axis 3 `[plan]` detect entry** "edge-dense plan §2 missing coupled-invariant enumeration → **IMP**" gives it a detection path (the Step 2 agents read `axes.md`). IMP (not MIN) so it isn't silently deferable — but be honest about the altitude: this is a **reviewer-surfaced authoring finding (fix-or-justify), NOT a hard block**. True blocking would require a `preflight.py` §2-parser (preflight currently parses only §3). **Deferred — standing maintenance note** (durable *here in the skill*, read every plan-review — so it can't be silently lost; deliberately NOT a `#11-*` platform slot per `feedback_defer-slot-eligibility-audit-at-create`: it fails the slot-fit audit — skill-infra not a platform gap, no repeat-signal yet): *§2 coupled-invariant preflight hard-gate* — not built (edge-dense-ness isn't reliably parseable from plan text, which is exactly why this stays reviewer-judgment, not a mechanical gate). **Re-evaluation trigger** = an edge-dense plan ships with a prose-only §2 that an R-loop then has to surface (the reviewer-IMP path proving insufficient) → build the parser then. This SKILL.md is the **authoring home** (single home for the requirement detail); Axis 3 carries the thin **detect pointer**, living in Axis 3 (which already owns the edge-dense *split* decision) as the orthogonal *enumeration* facet — same axis, no MECE split, NOT a second edge-dense detector.
+- **Deferred — standing maintenance note** (second of this kind; same durability reasoning as the
+  entry above, and **deliberately NOT a `#11-*` platform slot** per
+  `feedback_defer-slot-eligibility-audit-at-create` — checker infra is not a platform gap):
+  *the plan-memo consistency checkers are not on any loop*. `.claude/tools/plan-sweep.py`
+  (word-level concept sweep) and `.claude/tools/plan-xcheck.py` (cross-validates a memo's routing
+  tables against each other) exist and are invoked **by hand**; nothing in `scripts/trip-wires.sh`,
+  `mise.toml`, `.github/workflows/ci.yml` or `.claude/skills/**` references them. Per
+  `feedback_every-triggered-pr-must-be-on-the-loop`, a checker reachable only by remembering it is
+  the habit it was built to end. Two parts, one PR: (a) invoke both from Step 1.5 (or the ungated
+  `trip-wires` job) — `plan-xcheck.py` currently hard-codes one memo's PR labels and slot names, so
+  generalising is part of the work; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to **CSS-module
+  labels** — today a CSS plan reports `parsed citations: 0` / `unmapped-label rows: N`, i.e. the
+  §3 citation hard-gate is **vacuous** for every CSS-module plan-memo, which is silent, not loud.
+  **Re-evaluation trigger** = the next plan-review round that has to run them by hand.
 - Expect **2+ review passes** for this class — convergence = findings moving from "open design tension" to "fixed concrete mechanism (どの list / key / loop)"; further passes are impl-detail the tests catch.
 
 ## Workflow

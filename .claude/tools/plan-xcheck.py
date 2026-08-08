@@ -185,7 +185,7 @@ def main(path):
             s2_own.setdefault("PR-"+c[3].strip("`* "), set()).add(c[0])
     if s2_own:
         for pr, body in chunk_by(s5, r"^\* \*\*(PR-1[abc]) —", r"^\* (?!\*\*PR-1[abc] —)").items():
-            m=re.search(r"Owns couplings? ([^:.]+)[:.]", body)
+            m=re.search(r"Owns couplings? (.+?)(?:\n\n|$)", body, re.S)
             if not m: bad("OWN", f"§5.3 {pr} states no coupling ownership"); continue
             claimed={re.sub(r"\s*×\s*", " × ", t)
                      for t in re.findall(r"\d+\s*×\s*(?:\d+|\(\w+\))", m.group(1))}
@@ -214,6 +214,11 @@ def main(path):
     else:
         if int(km.group(1))!=k_actual: bad("COUNT", f"§3 says K={km.group(1)}, table has {k_actual} distinct specs")
         if int(km.group(2))!=m_actual: bad("COUNT", f"§3 says M={km.group(2)}, table has {m_actual} data rows")
+    # every OTHER K=/M= statement in §3 must agree too -- the split verdict restates K
+    for lbl, actual in (("K", k_actual), ("M", m_actual)):
+        for m in re.finditer(rf"{lbl}=(\d+)", s3):
+            if int(m.group(1))!=actual:
+                bad("COUNT", f"§3 restates {lbl}={m.group(1)} where the table has {actual}")
 
     # 12. a superseded line-range must not survive beside its corrected form
     SUPERSEDED = {":264-301": ":266-303", ":386-409": ":388-411", ":411-637": ":413-639"}
