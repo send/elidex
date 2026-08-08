@@ -548,7 +548,7 @@ outside `vm/host/` yet are engine-bound):
   iterable — *before* HTML StructuredSerializeWithTransfer ever receives the list. So the **site
   stays in the WebIDL half of §5's 10/5 partition**, and it is the *outer native* that is separately
   HTML §2.7.4 / §2.7.7. Calling the site HTML's own loop would select the wrong `.return()` and
-  error-precedence remedy in Slice P. The in-code docstring's "§2.9" is drifted and must still be retagged) — its abrupt is a `DataCloneError` thrown by HTML's own loop body, so a
+  error-precedence remedy in Slice P. The in-code docstring's "§2.9" is drifted and must still be retagged) — ⚠ **the sentence that used to follow here is withdrawn (Codex R3)**: it called the `DataCloneError` an abrupt completion of *HTML's own loop*, contradicting the correction directly above and leaving §6.2a-2 enumerating only four non-ECMA sites. `ensure_empty_transfer_list` is the **WebIDL** conversion; only the outer native is HTML §§2.7.4/2.7.7, and the WebIDL count must follow from that. Superseded text: its abrupt was described as a `DataCloneError` thrown by HTML's own loop body, so a
   step-5 flip changes an HTML-defined error surface, not an ECMA-262 one; round 6 corrected an
   earlier mis-classification of this file as pure ECMA-262).
 
@@ -589,7 +589,7 @@ narrowly-scoped slice a **terminal unit** (edge-dense base case).
 | **3** | Super property references | `compiler/expr.rs`, `expr_member.rs`, `vm/dispatch.rs`, **+ the frame-state axis: `vm/interpreter.rs:795-806`, `vm/value.rs:1038-1046`, `bytecode/compiled.rs:74`** | **adopt** `#11-step9-class-extras` | T2 | — |
 | **4** | Tagged templates + `String.raw` | `compiler/expr.rs`, `vm/dispatch.rs` | `#11-vm-tagged-template-literals` | T1 | 1b (I-3 helper) |
 | **5** | Private names complete | `compiler/expr_class.rs`, `expr_member.rs`, `expr_ops.rs`, `expr_assign.rs:202-206`, **`vm/dispatch.rs:1020-1026`** (the `GetPrivate`/`SetPrivate`/`PrivateIn` stub — 0c only makes the reachable arms loud; the implementation is this slice's, and `SetPrivate` is additionally an I-4 connect) | `#11-vm-class-private-fields` + `#11-step9-class-extras` | T1 | 2 |
-| **6** | Async generators + async `for await…of` | **`compiler/stmt.rs:103`** (the `is_await: _` discard — the Layer-A emit defect), **`bytecode/opcode.rs`** (no async-iterator opcode exists), `vm/natives_generator.rs`, `vm/object_kind.rs` | **new** `#11-vm-async-generators` | T2 | — |
+| **6** | Async generators + async `for await…of` | **`compiler/stmt.rs`** (the `is_await: _` discard — at `658cc302` it is `:83`) **+ `compiler/stmt_loop.rs`** (⚠ Codex R3 — flipping the match arm is not enough: `compile_for_of` (`:62`) takes no `is_await` and owns every `GetIterator` / `IteratorNext` / body / close path, so async mode must be threaded into *it* and both the async-iterator and sync-fallback paths covered), **`bytecode/opcode.rs`** (no async-iterator opcode exists), `vm/natives_generator.rs`, `vm/object_kind.rs` | **new** `#11-vm-async-generators` | T2 | — |
 | **7** | `Map`/`Set`/`WeakMap`/`WeakSet` | `vm/natives_*`, `vm/object_kind.rs`, `vm/gc/` | `#11-vm-map-set-collections` | T3 | — |
 | **8** | RegExp completion | `vm/natives_regexp.rs`, `vm/globals_primitives.rs` | `#11-vm-regexp-constructor-and-flags` | T3 | — |
 | **9** | Prototype micro-sweep (T3) **+ the T1 `{1n:…}` key fix** — tier-mixed; the T1 row may be pulled forward if the severity ordering is enforced strictly | `vm/natives_array.rs`, `natives_string.rs`, `natives_object/`, `compiler/expr_object.rs` | **new** `#11-vm-es2021-2024-prototype-sweep` | T3 | — |
@@ -790,11 +790,13 @@ both are needed, and this one comes first because it decides what the deliverabl
 | Transport class | Sites | Can a Rust signature change reach it? | P's deliverable there |
 |---|---|---|---|
 | **Rust callers** of `iter_close` | 10 | **Yes** — the completion kind is a value in scope at the call | completion-kind parameter + per-caller audit |
-| **Bytecode emits** of `Op::IteratorClose` | 4 | **No** — the opcode is operandless (`bytecode/opcode.rs:284`) and is emitted from a throw handler *and* the non-throw Return path, so the handler cannot tell them apart | define the transport: an operand, or separate opcodes. **This is design work, not a sweep** |
+| **Bytecode emits** of `Op::IteratorClose` — *statement lowering* | 2 (`stmt_loop.rs:147`, `stmt.rs:661`) | **No** — the opcode is operandless (`bytecode/opcode.rs:284`) and is emitted from a throw handler *and* the non-throw Return path, so the handler cannot tell them apart | define the transport: an operand, or separate opcodes. **This is design work, not a sweep** |
+| **Bytecode emits** in `expr_yield_star.rs` (`:146`, `:157`) | 2 | **Not P's problem at all** | ⚠ **Reclassified out of P (Codex R3).** These are not completion-kind variants of §7.4.11: on an outer `.throw(e)` / `.return(v)` during delegation, **ECMA-262 §15.5.5 steps 8.b/8.c** invoke the *inner* iterator's corresponding method **with the injected value**, validate the result, and **continue delegating when `done` is false**. The compiler's own docstring says it reduces both protocols to a plain `IteratorClose`. No operand or split-opcode transport can carry an injected value or resume delegation, so this needs a **yield-delegation lowering**, tracked separately from P |
 | **Inline re-implementation** in `op_array_spread` | 1 | n/a | **not P's** — dec. 13a assigns its removal to Slice 1a |
 
-So P sweeps **14**, of which only 10 are reachable by the signature change that the charter used to
-describe as the whole remedy. **P's plan-memo must settle the bytecode transport before it counts as
+So P sweeps **12** — 10 Rust callers plus the 2 statement-lowering emits — of which only the 10 are
+reachable by the signature change the charter used to describe as the whole remedy. The 2 `yield*`
+sites leave P's scope entirely and the 1 inline site is 1a's. **P's plan-memo must settle the bytecode transport before it counts as
 planned**, and must test the throw and Return paths separately — a single fixed argument in the
 handler gets ECMA-262 §7.4.11 step 5 right and steps 6-7 wrong, or the reverse.
 
@@ -937,7 +939,7 @@ fn compile_call_arguments(…) -> Result<ArgsForm, CompileError>  // (NEW)
 `compile_expr(ExprKind::Super)` → `PushUndefined` (`expr.rs:200-207`, Slice 3's stub). Slice 1
 therefore **does** change this shape's argument emission while its receiver stays broken. Slice 1
 must not claim to fix it and must not make it *differently* broken; §6.4 edge 23 is the
-no-regression guard, and Slice 3 lands `GetSuperProp` on top of the `CallMethodSpread` emit Slice 1
+no-regression guard, and ⚠ **Slice 3 must NOT simply land `GetSuperProp` on the generic `CallMethodSpread` path (Codex R3)** — ECMA-262 **§13.3.7.3** MakeSuperPropertyReference makes the *superclass* the Reference's base but keeps the current **`this`** as its `[[ThisValue]]`, which §13.3.6.2 EvaluateCall then passes as the receiver. The generic member path emits `compile_expr(object); Dup; property-load`, while `Op::GetSuperProp` is declared `[-- value]`, so following the generic contract leaves a stray operand or passes the superclass as `this`. Slice 3 needs a **super-specific `PushThis; GetSuperProp` / `GetSuperElem` lowering**, covering named *and* computed spread calls; its own mandatory plan-review settles the stack shape. Superseded framing: Slice 3 lands `GetSuperProp` on top of the `CallMethodSpread` emit Slice 1
 introduces.
 
 **Second `SuperCallSpread` producer — ⚠ SPEC-REQUIRED, do NOT fold (corrected R2 round 5).**
@@ -1043,6 +1045,13 @@ passes **one** value through it; after this slice it passes **N** user-controlle
 **roots** that region (§9 dec. 10) — ⚠ *not* by `gc_enabled` bracketing: `:893` is
 `make_async_coroutine_and_drive`, which ends by driving the async body, so bracketing there would
 disable GC across user JS. Root `stack_slice` **and** `actual_args`; edges 27/28 must assert both.
+⚠ **As spelled, those edges cannot fail (Codex R3).** `async function a(){}` declares no parameters
+and never touches `arguments`, so `push_js_call_frame` builds no `actual_args` and truncates the
+passed values before the `stack_slice` is taken — the test passes with all four rooting fixes
+omitted, even under forced collection. The generator case likewise never resumes, so it never
+observes its saved arguments. **Both edges must retain object-valued arguments in both vectors and
+verify them after `.next()` or after the Promise settles**; a rooting edge that cannot fail is not a
+guard, and 1a's acceptance leans on exactly these.
 The same shape exists at `call_internal` (`:629-659`, `:664-700`) — **4 windows, one unit**.
 
 **Unwind** (A×F): `Op::Call`/`CallMethod`/`New` hand-roll `vm_error_to_thrown` +
