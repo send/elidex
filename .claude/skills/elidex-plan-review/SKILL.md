@@ -102,7 +102,7 @@ Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container
   generalising is part of the work; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to **CSS-module
   labels** — today a CSS plan reports `parsed citations: 0` / `unmapped-label rows: N`, i.e. the
   §3 citation hard-gate is **vacuous** for every CSS-module plan-memo, which is silent, not loud.
-  **Re-evaluation trigger** = the next plan-review round that has to run them by hand.
+  **Re-evaluation trigger** = the next plan-review round that has to run them by hand. **Re-eval date**: 2026-11-01.
 - Expect **2+ review passes** for this class — convergence = findings moving from "open design tension" to "fixed concrete mechanism (どの list / key / loop)"; further passes are impl-detail the tests catch.
 
 ## Workflow
