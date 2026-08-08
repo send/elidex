@@ -1,5 +1,36 @@
 # S1 — the `claim` annotation grammar + the re-execution wire
 
+> ## ⛔ NOT APPROVED — plan-review round 2: 3 CRIT (verified), 30 IMP
+>
+> R2 closed most of R1, and then produced the program's **seventh** instance of the same defect —
+> this time inside the preamble's own provenance contract. Do not implement from this revision.
+>
+> 1. **§6 bullet 3 / §7 Q3 — the claimed fence-tracker divergence does not exist.** The memo says
+>    `preflight.py` marks a mismatched fence marker fenced while `grep_pass.py` treats it as
+>    content. Run against the same corpus, the two agree on every line: `grep_pass.py:254`'s
+>    `— content` means content *of the still-open block*. The claim was read off a comment, and it
+>    is the sole premise for accepting a third implementation (§6 bound) and the entire content of
+>    §7 Q3.
+> 2. **§8 preamble — "No two `$3` values below share a substring" is false in the table beneath it.**
+>    `grep -oE '`asserted=[0-9]*`|`MALFORMED`' … | sort | uniq -c` → bare `asserted=` ×10,
+>    `MALFORMED` ×2, `asserted=1` ×2. R1's shared-substring finding was fixed for C8/C9 and then
+>    generalised into a property the table contradicts.
+> 3. **§2 — the pairwise enumeration covers 20 of 21 pairs.** Two rows are duplicates
+>    (`I2×I6`, `I5×I7`) and **`I6×I7` appears nowhere** — which is exactly the self-test-cost ×
+>    cost-bound intersection two axes independently flagged as biting.
+>
+> **The decisive fact is not any of the three: it is that each was detectable in one command**, and
+> that two review rounds and ten independent agent passes were needed to surface them because the
+> author never ran those commands. Adding a rule ("execute before writing") has now failed seven
+> times, because the author believes the rule was followed.
+>
+> **Revision 3 must therefore ship a checker for this memo before it ships more prose** — table
+> exhaustiveness, `$3` uniqueness, cross-reference agreement, and any "A differs from B" claim,
+> in the shape of `.claude/tools/plan-xcheck.py`. The line-box lane reached the same conclusion
+> independently, which is the evidence that this is a defect of the medium, not of one author.
+> → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`, `project_stale-claim-gate-v1-review`.
+
+
 Slice **S1** of the umbrella `docs/plans/2026-08-quantitative-claim-staleness-gate.md`. That file owns
 the problem statement, the ten binding decisions (§1 D1–D10) and the measurements (§2). This memo does
 not reopen them and does not re-derive their numbers.
