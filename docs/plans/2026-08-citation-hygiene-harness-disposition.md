@@ -69,6 +69,22 @@ grep -rnE '(^|[^_A-Za-z])(say|fixtures)([^_A-Za-z]|$)' --include='*.sh' docs/pla
   `B Aiii Aii Ai common integrity`: `selfcheck` → `7 harness parts, 33 blocks, 23 on 'all's roster` /
   `VERDICT: GREEN`, **rc=0**; `inventory` runs and produces the same table. **Order is not load-bearing, so a
   sorted glob is a sound replacement.**
+- **D3** — the derived roster is **byte-identical** to today's 23-name literal, so PR-1 step 4 is a pure
+  refactor and can be proved so *before* implementation:
+
+  ```bash
+  bash --norc --noprofile -c '
+  for p in integrity common Ai Aii Aiii B; do . "docs/plans/2026-07-citation-hygiene-A-rederive-$p.sh"; done
+  derived=$(declare -F | sed "s/^declare -f //" | grep -v "^_" \
+            | grep -vxE "say|fixtures|lanes|staleclaims|readers" | sort)
+  today=$(sed -n "/^all() { set -- /,/local failed/p" docs/plans/2026-07-citation-hygiene-A-rederive.sh \
+          | sed "s/all() { set -- //;s/\\\\$//;s/local failed.*//" | tr " " "\n" | grep -v "^$" | sort)
+  comm -23 <(printf "%s\n" $derived) <(printf "%s\n" $today)   # in derived, not on the roster
+  comm -13 <(printf "%s\n" $derived) <(printf "%s\n" $today)'  # on the roster, not in derived
+  ```
+  Both empty; 23 = 23. The exclusion list in that command **is** step 4's rule (`_`-prefix) plus step 5's
+  registrations, written out — so if PR-1's implementation needs a different list, the rule changed and the
+  proof has to be re-run.
 - **D2** — **no hits in any memo**, confirming M7's `declared by` = `-` for both: the `_`-prefix rename
   changes no citation surface. ⚠ The first form of this command was scoped to `docs/plans/` and returned
   two hits — `A-rederive.sh:42` and `-common.sh:7`, both the **harness's own** comments. A grep whose scope
@@ -219,7 +235,7 @@ git grep -n -i 'harness' webref-cite-audit-tool -- docs/plans/2026-07-citation-h
 | the four `citations` pairs, 3 of 4 resolvable | `.claude/tools/webref heading --exact …` ×4 | CHECKED |
 | the register list is complete | §7's three greps | CHECKED — **re-run at execution**, not at authoring |
 | PR-1 leaves `inventory`'s misrouted list empty | — | **UNCHECKED** — it is PR-1's own exit criterion, and cannot be measured before PR-1 |
-| the derived roster equals today's 23-name list | — | **UNCHECKED** — the intended answer is *no*: `readers` joins it via step 5 and `say`/`fixtures` leave via step 4. PR-1 must print both sets and justify every difference, not assert equality |
+| the derived roster equals today's 23-name list | D3 (below) — `comm -23` and `comm -13` both empty, sets identical | **CHECKED** — and ⚠ this row said UNCHECKED with *"the intended answer is no: `readers` joins it"* until it was run. That prediction contradicted §3 step 5, which registers `readers` as unattendable, so it does **not** join. Reasoning about a set is not measuring it — in this memo of all places |
 | A-i §8 after PR-1 | — | **UNCHECKED** — amended in PR-1 (§3), re-derived from `rederive inventory` rather than edited |
 
 ## §9 What this memo authorises
