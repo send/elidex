@@ -118,6 +118,12 @@ Also newly confirmed silent-wrong, previously mis-tiered or unlisted:
 
 Newly confirmed absent: `Array.prototype.at` / `String.prototype.at` / `findLast` /
 `findLastIndex` / `toSorted` / `Object.hasOwn` / `Object.groupBy` / `String.matchAll`.
+⚠ **This is a probe sample, not the sweep boundary (Codex R5).** `Array.prototype.toReversed`,
+`toSpliced` and `with` — ECMA-262 §23.1.3, alongside the `toSorted` listed here — appear nowhere in
+the repo or this plan (`grep -rl` → 0 for each, and 0 for `toSorted` too). Since §7.2 derives its
+permanent rows from the *enumerated* absences plus one row per later slot, **Slice 9 could satisfy
+this plan with those still missing**. Slice 9 must derive a complete ES2021-2024 builtin inventory
+from the spec at its own start, and treat this list as the seed that found the class.
 Confirmed **correct**, no action: destructuring **declarations** (incl. nested/default/rest, and
 parameter destructuring), `IncElem`/`DecElem` (`a[0]++`), `await` microtask ordering, static
 fields/methods, plain computed method keys, accessors, `flatMap`, `Promise.prototype.finally`.
@@ -289,7 +295,10 @@ compiler emit sites.
   three share the same no-op dispatch arms as the listed `DestructureElem` (`dispatch.rs:925-928`) —
   plus `Debugger` and `SwitchJump`.
 - `GetPrivate`/`PrivateIn` **do** have emit sites (1 each) so are *not* dead; `SetPrivate` is.
-- `Wide` (`:1083`) raises a loud `VmError` — acceptable, not swept.
+- `Wide` (`:1083`) raises a loud `VmError` — acceptable, not swept. ⚠ **So the actionable set is 17,
+  not 18 (Codex R5)**: `Wide` is a **reserved** opcode kept deliberately, and counting it makes I-4's
+  "all 18 connected or deleted" unsatisfiable and puts Slice D's connect-or-delete criterion in direct
+  conflict with retaining it. 17 actionable + 1 reserved, stated wherever the count appears.
 
 Slice D's scope is this corrected enumeration, and it must be **re-derived mechanically at
 implementation time** rather than inherited from this list (opcodes gain emit sites as slices land).
@@ -627,7 +636,7 @@ than file lists: the Deps column, and the prerequisites called out per row.
 | **10** | `Proxy`/`Reflect` | `vm/object_kind.rs`, `vm/ops_property.rs` | `#11-vm-proxy-reflect` | T3 | 7 |
 | **D** | **Dead-opcode sweep** — mechanically re-derive the §2.3 set and delete what no slice connected. ⚠ **Slice M is outside this sequence** (promoted to its own umbrella), and §2.3 assigns `Op::ImportMeta` / `Op::DynamicImport` to M's connect work — so at the documented "after 1b-5" point D would have to either delete two opcodes M owns or leave them dead and fail its own connect-or-delete criterion (Codex R1). **M's connects are a prerequisite for D**; until they land, those two are carved out of D's set by name rather than swept | `bytecode/opcode.rs`, `vm/dispatch.rs` | **adopt** `#11-dead-opcode-removal` | — | after 1b-5 **and** M's connects |
 | **M** | **ES modules — PROMOTED TO ITS OWN UMBRELLA, outside this plan's slice sequence** (R2 round 5). It carries the `stmt.rs:31-39` precondition, 3 §2.2 rows (⚠ two of them — the module-binding update and for-in head — are **0a ✅ loud**, so M inherits their *implementation*, not their conversion; I-2's `expr_assign.rs:102` `unreachable!` is likewise already converted), I-5's host-fetch-seam boundary, and the `ImportMeta`/`DynamicImport` connects = ≥3 intersecting invariant axes, so the CLAUDE.md edge-dense rule forbids one PR. Only the **`#11-vm-dynamic-import`** T1 carve stays homed here (0c makes `import()` loud; the Promise-returning impl belongs to the module umbrella) | — | `#11-vm-dynamic-import` | T1 | — |
-| **—** | `Function`/`eval` | — | `#11-vm-function-constructor-global` | policy | §9 dec. 7 |
+| **—** | `Function`/`eval` — ⚠ **had no slice, no deps and no owner (Codex R5)**; §9 dec. 7 recorded the policy decision as unowned, so I-6's core strict-mode `eval` surface could stay unimplemented forever inside a *completeness* program. **Trigger**: the CSP / sandbox-policy decision, or the first WPT/site needing strict-mode `eval`; whichever fires, that work opens its own umbrella (it is a policy call, not a language slice). **Re-eval**: 2026-10-31 | — | `#11-vm-function-constructor-global` | policy | §9 dec. 7 |
 
 **Ordering rationale.** 0a first on severity (process abort). *(Rounds 2-9 put a `vm/dispatch.rs`
 prereq split ahead of it; removed — see the 1000-line check below.)* 0b next — at the baseline a silent no-op (0a has since made it a scoped throw; the *implementation* is still 0b's) on the
@@ -657,6 +666,13 @@ Slice 7 / Slice 10 boundary obligations).
 does not exist. `vm/interpreter.rs:795-806` sets `home_class` **only on class-ctor frames**, and
 `vm/value.rs:1041-1046` documents this as "fail-closed-by-construction: a non-ctor method frame has
 `home_class = None`, so any future super-property reader trips a SyntaxError fallback". So Slice 3 is
+⚠ **and the frame-state audit named only one of the two call entry points (Codex R5).**
+`call_internal` **independently hardcodes** `home_class = None` (`vm/interpreter.rs:589`, whose own
+comment says "always `None` on the `call_internal` entry") and is the `NativeContext` path — so
+`Function.prototype.call` / `.apply` lose `[[HomeObject]]` even after direct method dispatch is
+fixed, and a method containing `super` breaks when invoked as an extracted function. The home object
+belongs on the **closure**, threaded through *both* entries (§§13.3.7.3, 9.1.1.3.5), with a
+regression like `const m = new B().m; m.call(receiver)`. Original finding: Slice 3 is
 **not** emit+dispatch only — it must add `[[HomeObject]]`-equivalent frame state ([C24]/[C25] both key
 off it). The §2.2/§2.3 Layer-A/Layer-B decomposition has no row for this third (frame-state)
 dimension; Slice 3's memo must add one.
@@ -899,6 +915,14 @@ a design change, not an edit.
 possibly-normal completion at four more — only **one** of its six call sites is abrupt-gated. So the
 algorithm this unit is sequenced *before* passes normal completions at 5 of 6 sites, exactly the kind
 an "abrupt-only" reading would mishandle.
+
+⚠ **But the converse over-reads it (Codex R5): "always close" is equally wrong.** ECMA-262
+**§13.15.5.2** closes only while the iterator's `[[Done]]` is still **false**, and a rest element
+drains through `IteratorStepValue` *until* `[[Done]]` becomes true — so mandating a dedicated
+`iter_close` for `[...rest] = it` makes a custom iterator observe `.return()` after **normal
+exhaustion**, a user-visible divergence. The obligation is a **conditional** close around early
+termination and abrupt pattern evaluation. Slice 0b must pin both directions: `[a] = it` closes an
+unfinished iterator, `[...r] = it` does **not** close an exhausted one.
 
 **Why this lands on the critical path**: §8 declares Slice 0b "owns the `IteratorClose` obligation
 1a/1b do not". Slice 0b will call `iter_close` and thereby **inherit the inverted contract**,
@@ -1355,6 +1379,15 @@ favour of `#11-step9-class-extras`.
    The lens therefore stopped converging, and per
    `.claude/skills/elidex-plan-review/SKILL.md` the SPLIT-DEFAULT verdict was escalated to the user,
    who **adopted the 1a/1b split** (recorded at the head of this decision).
+
+   ⚠ **And the generic path must not be collapsed onto the dense one (Codex R5).** Routing
+   `Reflect.apply` through `collect_array_like`'s dense fast path is observably wrong for a sparse
+   Array: that path reads `elements` directly and maps `Empty` to `undefined`, so it skips own indexed
+   accessors and inherited numeric getters. ECMA-262 **§28.1.1** delegates the argument list to
+   **§7.3.19 `CreateListFromArrayLike`**, which performs a real `Get` per index — a getter on
+   `Array.prototype[0]` must run for `Reflect.apply(f, null, new Array(1))`. Keep compiler-owned dense
+   unpacking separate from the generic path, or make the generic path do property lookup before
+   Slice 10 reuses it.
 
    What holds regardless: splitting **by call shape** is forbidden (I-3), and each of 1a/1b remains a
    terminal unit under an approved umbrella (per-PR slices touching one subsystem do not re-trigger
