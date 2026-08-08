@@ -180,10 +180,11 @@ al = re.search(r'AUTHOR_LOCAL="([^"]+)"',
 # rationale, the only site where the word "candidate" is written down, sits in
 # such a header and a def-line-to-def-line slice loses it entirely.
 DEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
-part, prose = {}, {}
+part, prose, defline, srcs = {}, {}, {}, {}
 for p in PARTS:
     lines = (HD / ("2026-07-citation-hygiene-A-rederive-%s.sh" % p)
              ).read_text(encoding="utf-8").splitlines()
+    srcs[p] = lines
     starts = [(i, DEF.match(l).group(1)) for i, l in enumerate(lines) if DEF.match(l)]
     prev = starts[0][0] if starts else 0
     for k, (i, n) in enumerate(starts):
@@ -191,9 +192,48 @@ for p in PARTS:
         while end > i + 1 and (not lines[end - 1].strip()
                                or lines[end - 1].lstrip().startswith("#")):
             end -= 1
-        part[n], prose[n], prev = p, lines[prev:end], end
+        part[n], prose[n], defline[n], prev = p, lines[prev:end], (p, i, end), end
 part["all"], prose["all"] = "(disp)", bodies["all"].splitlines()
 known = set(bodies)
+
+# SHIP-WITH, DECLARED AT THE DEFINITION. `# ships-with: <group>` anywhere in a
+# block's own prose slice. This is the authority; the four tiers below compute a
+# SECOND answer and the two are cross-checked.
+#
+# WHY A DECLARATION AND NOT THE COMPUTATION. R4 measured two ways the computed
+# answer cannot be an authority. (a) T1 routes by DECLARING MEMO, and the memos
+# are prose on another branch: adding two block names to A-i's §15, with no `.sh`
+# touched, moves two blocks; blanking the umbrella's three citations dissolves a
+# whole group. (b) T2 is `ship = PART_SLICE[part]`, which is also the misroute
+# predicate -- so a block moved into the wrong slice file is silently
+# re-attributed and the check stays green.
+#
+# WHY THIS IS NOT THE SHAPE REJECTED FOR `kind`. The design note's §2 refuses a
+# `# kind:` declaration because NO computed signal reproduces a kind assignment,
+# so the declaration would be unfalsifiable -- a second thing to get wrong.
+# Ship-with is the opposite case: T0-T3 compute a real answer, so a declaration
+# is CHECKABLE and a disagreement is a finding rather than a preference.
+# ⚠ NO `$` ANCHOR, and a SECOND pattern that counts what the first did not read.
+# The anchored form silently ignored `# ships-with: A-ii  # …` -- a declaration
+# that was written and not read reads as "undeclared", which is this harness's
+# charter inverted. Found by planting one, not by inspection.
+DECL = re.compile(r"^\s*#\s*ships-with:\s*([^\s#]+)", re.M)
+LOOSE = re.compile(r"#\s*ships-with:", re.M)
+decl, claimed = {}, {}
+for b_ in known:
+    # SEARCH REGION = the block itself, definition line to close. NOT the prose
+    # slice: for the FIRST definition in a part that slice excludes the file
+    # preamble (measured -- a declaration above `_measure()` was invisible), and
+    # for every other block it INCLUDES the preceding comment block, so a
+    # declaration written above a definition would be read as its neighbour's.
+    if b_ not in defline:
+        continue
+    pt_, i_, end_ = defline[b_]
+    region = "\n".join(srcs[pt_][i_:end_])
+    m_ = DECL.search(region)
+    if m_:
+        decl[b_] = m_.group(1)
+    claimed[b_] = len(LOOSE.findall(region))
 
 # DECLARED BY. Heuristic over prose, so its rule is written down and what it
 # drops is printed: a §15 code span naming TWO OR MORE known blocks is a
@@ -319,6 +359,28 @@ print("  declared but NOT on the roster    : "
 print("  blocks printing a VERDICT         : "
       + (" ".join(sorted(b for b in known if rows[b]["vrd"] == "Y")) or "(none)"))
 
+# DECLARED vs COMPUTED. The declaration is the authority and the computation is
+# the check on it; neither alone is trusted. An UNDECLARED block is reported, not
+# silently defaulted to its computed answer -- "nobody said" and "the tiers say"
+# are different states, and collapsing them is this harness's charter inverted.
+print("\n  -- SHIP-WITH: declared (`# ships-with:`) vs computed (T0-T3) --")
+bad = [(b_, decl[b_], ship[b_]) for b_ in sorted(decl) if decl[b_] != ship[b_]]
+for b_, d_, c_ in bad:
+    print("   !! %-13s declares %-9s but the tiers compute %-9s (%s)"
+          % (b_, d_, c_, why[b_]))
+# Every `ships-with:` string in the parts must be attributed to exactly one
+# block. A stray one is a declaration nobody's row carries.
+stray = sum(len(LOOSE.findall("\n".join(v))) for v in srcs.values()) - sum(claimed.values())
+if stray:
+    print("   !! %d `ships-with:` line(s) outside any block body -- written, unread." % stray)
+und = sorted(known - set(decl))
+print("   declared=%d  agree=%d  DISAGREE=%d  undeclared=%d"
+      % (len(decl), len(decl) - len(bad), len(bad), len(und)))
+if und:
+    print("   undeclared: " + " ".join(und))
+    print("   (a block with no `# ships-with:` has no owner anyone wrote down; the")
+    print("    tiers' answer for it is a guess this table does not launder.)")
+
 # ROUTING UNIT vs SHIPPING UNIT. Every column above routes a BLOCK; a PR adds and
 # removes FILES. Where the two disagree, no file-granular action can carry out the
 # routing -- `-Aiii.sh` holds a block that ships with the umbrella, and `-common.sh`
@@ -339,6 +401,11 @@ seen = set()
 for tag, run, tok in dropped:
     if (tag, run) not in seen:
         seen.add((tag, run)); print("   %-6s %-12s in `%s`" % (tag, tok, run))
+
+# THE VERDICT IS A RETURN STATUS. A declared/computed disagreement that only
+# prints is the defect `citations` is being fixed for, one level up.
+if bad:
+    raise SystemExit("!! %d block(s) declare a ship-with the tiers contradict." % len(bad))
 INVENTORYPY
   return $?
 }
