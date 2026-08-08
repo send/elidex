@@ -202,14 +202,20 @@ M7's tally at `945dd03a` — **blocks / block-body lines**:
 | A-iii | 3 | 71 | `suiteset` `filters` `ruleset` |
 | B | 4 | 128 | `partition` `offline` `bmemo` `staleclaims` |
 
-⚠ **These are block-body lines, and the harness is 1935.** M7 reconciles them against the filesystem —
-`LINES: 1935 in 7 files = 1716 attributed to a block + 219 unattributed` (verified 2026-08-08,
-cross-checked by `wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh | tail -1` → `1935 total`;
-the figure moves with any harness edit — re-run both) — the remainder being each part's preamble and the dispatcher outside
-`all` — including `-integrity.sh`'s 82-line `_measure` rationale, which is the text §2's whole answer rests
-on. Draft 3 wrote "762 of 1714 … 44% of the harness"; a removal deletes **files**, so any share-of-the-harness
-figure is over 1935. This note states no such share; the disposition memo must derive one and say which
-denominator it used.
+⚠ **These are block-body lines; the harness is larger, and neither figure is transcribed here.**
+`inventory` prints the reconciliation itself — `LINES: <total> in <n> files = <attributed> + <unattributed>`,
+cross-checkable against `wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh | tail -1`. The remainder is
+each part's preamble and the dispatcher outside `all`, including `-integrity.sh`'s 82-line `_measure`
+rationale — the text §2's whole answer rests on. A removal deletes **files**, so any share-of-the-harness
+figure is over the file total, not over the attributed total.
+
+⚠ **Draft 4 transcribed those digits and they were stale on arrival.** They were read at `ff44f30c`; the very
+next commit added 16 lines to `inventory`, and the note stamped itself with *that* commit while carrying the
+earlier reading — including in a `§5` row marked CHECKED and a parenthetical reading "verified 2026-08-08".
+Four reviewers found it independently. The class is `feedback_verified-claims-go-stale-under-own-later-edits`
+and the only fix that holds is the one applied here: **do not carry the digit.** The `ships-with` table above
+is kept because its rows are block ownership, which the disposition memo acts on; the `kernel` row's line
+count moves with any kernel edit, so read it from the command, not from this page.
 
 ### The finding: the routing unit is not the shipping unit
 
@@ -239,8 +245,10 @@ the umbrella cites it at `:82`, and A-i §13 already carries its relocation to `
 A second, independent form of the same gap: **the block set is written down four to six times** — the
 dispatcher's `for _part in …` source loop, `all`'s 23-name roster, `inventory`'s `PARTS`, `AUTHOR_LOCAL`, and
 the dispatcher's header prose. Measured in a `git clone --local` sandbox, deleting `-Aii.sh` and `-B.sh` and
-narrowing only the source loop: `selfcheck` reports **15 blocks that no longer exist** as failing its
-return-discipline check, and `inventory` cannot source at all. Neither is a wrong answer to a right question;
+narrowing only the source loop: `selfcheck` reports **12 blocks that no longer exist** as failing its
+return-discipline check (9 from `-Aii.sh`, 3 from `-B.sh`), and `inventory` cannot source at all. ⚠ Draft 4
+said 15, which is the count when A-iii's three blocks go too — a digit taken from a review report and
+attached to a different deletion set than the one that produced it. The deletion set is now in the sentence. Neither is a wrong answer to a right question;
 both are what happens when one fact has five homes.
 
 ⇒ **Nothing is authorised to move until that is collapsed.** The collapse is the disposition memo's first

@@ -20,7 +20,8 @@ PR that wants it argue for it.
 ## §0.5 / §3. Spec coverage map
 
 PR-2 authorises the `citations` comparison, which is a comparison of spec §-titles, so this memo carries the
-pairs. Three of four verified against webref; the fourth is deliberately unresolvable.
+pairs. **All four resolve in webref** (`heading --exact`, rc=0 each); three of four are additionally mapped by
+`preflight.py`'s pinned label table. Those are different resolvers and the distinction is load-bearing.
 
 | Spec section | Step | Branch | Touch (call site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
@@ -33,11 +34,19 @@ pairs. Three of four verified against webref; the fourth is deliberately unresol
 (`grep -n 'webref heading --exact' docs/plans/2026-07-citation-hygiene-A-rederive-common.sh | wc -l` → 4) →
 single PR for the citation surface.
 
-⚠ **`CSSOM View 1` does not resolve, by design.** The pre-A-i pinned map has no key for it, which is why
+⚠ **`CSSOM View 1` resolves in webref and is absent from `preflight.py`'s pinned map** — two different
+things, and draft 1 of this memo conflated them. `webref heading --exact cssom-view-1 4.2` returns
+`§4.2 The MediaQueryList Interface`, rc=0. What has no key is `preflight.SPEC_LABEL_REVERSE`, which is why
 `-common.sh:37-45` picks `CSSOM VIEW` for the `allunmapped` fixture — *"absent from the 24-key pinned map, so
-this is all-unmapped AFTER A"*. The comparison PR-2 adds must therefore compare **only the pairs whose
-lookup succeeded**, and treat a failed lookup as a failed measurement (`_measure`'s rule), never as a matching
-title. That is the one spec-shaped design constraint in this memo.
+this is all-unmapped AFTER A"* (⚠ that map measures **15** keys today, not 24; the quote is the harness's,
+the count is not re-derived by it).
+
+⇒ **PR-2's comparison covers all four pairs.** The conflated version said it *"must compare only the pairs
+whose lookup succeeded"* — which would have excluded exactly the row the comparison exists for: `-common.sh`
+records that this fixture's §-title was corrected **from a fabrication**, and that `verify_citation` checks
+only that the number exists, *"so nothing would catch it"*. The real design constraint is the one that was
+underneath: **a lookup that fails is a failed measurement** (`_measure`'s rule) and must never be reported as
+a matching title — which is a statement about failure handling, not about which rows participate.
 
 ## §1 Measurements
 
@@ -113,6 +122,51 @@ simultaneously; the intersections are where every earlier draft failed.
 | I2 × I4 | Ship-with is computed from declarations. While declarations are **prose**, a purely typographic rewrite of A-i's §15 moves A-i from 7/415 to 3/171 — a file's worth of blocks. I2 is meaningless until I4 holds. |
 | I3 × I4 | The machine-readable declaration lives in the **memo**, and the memos live on `webref-cite-audit-tool`. **This is what forces the harness onto that branch** — see §4. |
 | I1 × I4 | `AUTHOR_LOCAL` and "cannot run unattended" are the same category (`lanes`, `staleclaims` are machine-local; `readers` takes a required `<symbol>` and A-i §15 already flags it as being in neither list). One marker, registered adjacent to the definition, not a remote list. |
+
+## §3.0 ⚠ SUPERSEDING — ship-with is DECLARED at the definition, not computed from prose
+
+**Three of R4's CRITs converge on one answer, and it is not in the step list below.** Recorded here in full,
+because it changes PR-1's core and the steps in §3 are **not yet re-derived against it** — that is draft 5's
+subject and it needs its own review round.
+
+What R4 measured:
+
+1. **"file = ship-with group" cannot hold, because ship-with is computed from memo prose.** T1 is *earliest
+   declaring memo*, and the memos are `.md` on another branch. Measured: adding two A-ii block names to A-i's
+   §15 — **no `.sh` touched** — moves `anchors` and `timing` to A-i and takes the misroute list from 10/640 to
+   12/677. Worse: blanking the umbrella's three `rederive` citations **dissolves the entire `-umbrella.sh`
+   group**, redistributing six blocks / 396 lines and taking `_measure` with it. Machine-readability (§4)
+   changes the *parser*; it does not change the *authority location*.
+2. **The check is tautological for everything T2 routes.** `T2` is `ship = PART_SLICE[part]` and the misroute
+   predicate is `PART_SLICE[part] != ship` — the same expression. Measured: moving `anchors` verbatim from
+   `-Aii.sh` into `-B.sh` is silently re-attributed to B and the list stays at 10/640. After PR-1 makes every
+   file a group, **15 of 34 blocks would route by reading their own filename**, and the caller-derived answer
+   is discarded for exactly the blocks `inventory` was built to place.
+3. **§4's forcing constraint is overstated, and §2 already contains the alternative.** `inventory`'s own
+   docstring provides for cross-branch memos (*"pass a sibling worktree's when the harness and the memos are
+   on different branches"*), which is how file A's M7 invokes it. And §2's `I1 × I4` row already adopts the
+   right pattern for the sibling fact: `AUTHOR_LOCAL` becomes *"One marker, registered adjacent to the
+   definition, not a remote list."*
+
+⇒ **Apply `I1 × I4`'s pattern to ship-with itself.** Each block declares its group at its definition site;
+`inventory`'s four tiers stop being the authority and become a **cross-check** — declared ≠ computed is RED.
+That is the "declaration ↔ machine signal cross-check" shape rejected for `kind` in file A §2, and it is right
+here for the opposite reason: for `kind` no computed signal existed, so a declaration would have been
+unfalsifiable. For ship-with a computed answer *does* exist (T0–T3), so the declaration is checkable and the
+disagreement is a finding.
+
+What it dissolves, at once: a memo edit can no longer relocate a file (1); the filename stops being its own
+authority (2); the memo edits stop being PR-1's prerequisite, so **§4's inference and therefore #505's fate
+must be re-derived** (3); and `_measure` can stay in the kernel with an explicit declaration instead of being
+exiled into a shipping cohort — R4's third Axis-1 CRIT, that PR-1 relocates the harness's entire validity
+primitive into a file named for PR ordering.
+
+⚠ **Everything from §3 to §9 below is written against the superseded design.** R4's remaining findings against
+that step list — `PART_SLICE`, the two roster parsers and the `AUTHOR_LOCAL` filename read as unnamed readers;
+`selfcheck`'s undashed glob; §9's clause forbidding §3 step 6; PR-1 carrying 7 of 7 coupled intersections;
+the two memos having no destination; §7's line anchors being 60–100 lines off — are **not patched into it**.
+They are re-derived against the declaration design in draft 5, because patching a superseded step list is the
+edifice-building this program exists to stop.
 
 ## §3 PR-1 — the collapse
 
