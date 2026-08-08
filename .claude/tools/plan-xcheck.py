@@ -140,7 +140,7 @@ def main(path):
 
     # 7. the flip set partitions the characterization PR's cells
     flip=nonflip=None
-    m=re.search(r"cells? ([\d, a-z–-]+?) flip; ([\d, a-z–-]+?) do not", s8)
+    m=re.search(r"cells? ([\d,\s a-z–-]+?)\s*flip;\s*([\d,\s a-z–-]+?)\s*do not", s8)
     if m:
         flip, nonflip = tokens(m.group(1)), tokens(m.group(2))
         base=s6_by_pr.get("PR-1a", set())
@@ -176,6 +176,21 @@ def main(path):
             if n>3: bad("COUNT", f"{pr} opens {n} own deferrals, over the per-PR cap of 3")
         for pr in sorted(set(actual)-set(stated)):
             bad("COUNT", f"§10 tags {actual[pr]} own deferral(s) to {pr}, which §5.3 does not account for")
+
+    # 9b. §5.3's per-PR "Owns couplings …" must reproduce §2's PR column exactly
+    s2_own={}
+    for l in pairs:
+        c=[x.strip() for x in l.strip("|").split("|")]
+        if len(c)>=4 and not c[3].strip("`* ").startswith("#11-"):
+            s2_own.setdefault("PR-"+c[3].strip("`* "), set()).add(c[0])
+    if s2_own:
+        for pr, body in chunk_by(s5, r"^\* \*\*(PR-1[abc]) —", r"^\* (?!\*\*PR-1[abc] —)").items():
+            m=re.search(r"Owns couplings? ([^:.]+)[:.]", body)
+            if not m: bad("OWN", f"§5.3 {pr} states no coupling ownership"); continue
+            claimed={re.sub(r"\s*×\s*", " × ", t)
+                     for t in re.findall(r"\d+\s*×\s*(?:\d+|\(\w+\))", m.group(1))}
+            for p in sorted(claimed - s2_own.get(pr,set())): bad("OWN", f"§5.3 {pr} claims coupling {p}, §2 routes it elsewhere")
+            for p in sorted(s2_own.get(pr,set()) - claimed): bad("OWN", f"§2 routes coupling {p} to {pr}, whose §5.3 bullet omits it")
 
     # 10. §3's PR column and §2's PR column must name a PR §5.3 defines (or a slot)
     prs = defined | {"prereq"}
