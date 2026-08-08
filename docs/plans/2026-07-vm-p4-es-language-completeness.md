@@ -778,6 +778,30 @@ grep -rn "Op::IteratorClose"  crates/script/elidex-js/src/compiler/             
 grep -rn "takes precedence\|step 6-7" crates/script/elidex-js/src/                    # 17 (incl. unrelated)
 ```
 
+### §6.2a-3 Slice P is partitioned by TRANSPORT first, then by governing algorithm
+
+⚠ **Added after Codex R1+R2 both raised findings against P's charter (the loop's ≥2-round
+root-check).** The root was not either finding: it was that **"15 sites" flattened three different
+transport mechanisms into one count**, so a remedy stated at one of them ("change `iter_close`'s
+signature") silently failed to reach the others, and one site turned out to have two owners. The
+existing ECMA-262-vs-WebIDL split is a *governing-algorithm* axis and is **orthogonal** to this one;
+both are needed, and this one comes first because it decides what the deliverable even is.
+
+| Transport class | Sites | Can a Rust signature change reach it? | P's deliverable there |
+|---|---|---|---|
+| **Rust callers** of `iter_close` | 10 | **Yes** — the completion kind is a value in scope at the call | completion-kind parameter + per-caller audit |
+| **Bytecode emits** of `Op::IteratorClose` | 4 | **No** — the opcode is operandless (`bytecode/opcode.rs:284`) and is emitted from a throw handler *and* the non-throw Return path, so the handler cannot tell them apart | define the transport: an operand, or separate opcodes. **This is design work, not a sweep** |
+| **Inline re-implementation** in `op_array_spread` | 1 | n/a | **not P's** — dec. 13a assigns its removal to Slice 1a |
+
+So P sweeps **14**, of which only 10 are reachable by the signature change that the charter used to
+describe as the whole remedy. **P's plan-memo must settle the bytecode transport before it counts as
+planned**, and must test the throw and Return paths separately — a single fixed argument in the
+handler gets ECMA-262 §7.4.11 step 5 right and steps 6-7 wrong, or the reverse.
+
+*Method note, recorded because this program keeps paying for it: the flat count read as rigour —
+it was mechanically derived and it was correct — while hiding that its members did not share a
+remedy. **A count is only a plan when every member admits the same fix.***
+
 **10 `iter_close(` call sites** (verified 2026-07-26): `vm/dispatch_iter.rs:309`, `:337` ·
 `vm/natives_array_hof.rs:485` · `vm/webidl_sequence.rs:141`, `:149` · `vm/ops.rs:60` ·
 `vm/host/url_search_params.rs:315` · `vm/host/structured_clone.rs:1062` ·
