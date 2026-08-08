@@ -13,9 +13,10 @@
 # Every part but `-Ai` calls `_measure` (per-part counts in the dispatcher's
 # header, measured); `-common.sh` holds the blocks more than one memo cites.
 #
-# ⚠ `inventory` MEASURES this file's claim to be kernel and does not confirm it:
-# `-integrity.sh`'s own `_measure` / `_measured` route to A-i, because A-i's
-# `couplings` is their earliest caller. See the design note's §3.
+# ⚠ `inventory` MEASURES this file's claim to be kernel and does not confirm it.
+# Do not restate the answer here -- an earlier revision of this comment named A-i,
+# which the umbrella-first ranking landed in the SAME commit had already made wrong.
+# Run `rederive inventory` and read the rows whose `part` is `integrity`.
 
 # THE REPO THIS HARNESS LIVES IN, derived from THIS FILE's own path -- never from
 # cwd. `_wtscan`'s roots are relative (`.claude/tools/`), so before this they
@@ -246,7 +247,7 @@ CALL = {b: sorted(n for n in known if n != b and at_command(n, body))
         for b, body in bodies.items()}
 rows = {}
 for b in known:
-    body, text = bodies[b], "\n".join(prose.get(b, []))
+    body = bodies[b]
     rows[b] = dict(part=part.get(b, "?"),
                    roster="yes" if b in roster else "author-local" if b in al else "no",
                    decl=",".join(sorted(declared.get(b, []))) or "-",
@@ -255,7 +256,6 @@ for b in known:
                    # prints the name of the signal it is looking for.
                    vrd="Y" if re.search("VERDICT" + r":\s*(GREEN|RED)", body) else "-",
                    cmp=len(CMP.findall(body)),
-                   cand=len(re.findall(r"candidate", text, re.I)),
                    ln=len(prose.get(b, [])))
 
 # SHIPS WITH -- four tiers, in order, each total and mechanical:
@@ -279,34 +279,37 @@ for b in known:
     elif rows[b]["part"] in PART_SLICE:
         ship[b], why[b] = PART_SLICE[rows[b]["part"]], "T2 part"
 for _ in range(len(known)):
-    for b in known:
-        if b in ship:
+    for b in sorted(known):
+        if b in ship or not all(c in ship for c in callers[b]):
             continue
-        cs = [ship[c] for c in callers[b] if ship.get(c) in ORDER]
-        if cs or all(c in ship for c in callers[b]):
-            ship[b] = min(cs, key=ORDER.index) if cs else "kernel"
-            why[b] = "T3 " + (",".join(sorted(callers[b])) or "no caller")
+        cs = [ship[c] for c in callers[b] if ship[c] in ORDER]
+        ship[b] = min(cs, key=ORDER.index) if cs else "kernel"
+        why[b] = "T3 " + (",".join(sorted(callers[b])) or "no caller")
 for b in known:
     ship.setdefault(b, "kernel"); why.setdefault(b, "T3 caller cycle")
 
-print("  %-13s%-10s%-13s%-22s%5s%4s%4s%6s%5s  %-6s %s"
-      % ("block", "part", "roster", "declared by", "meas", "vrd", "cmp", "cand*",
+print("  %-13s%-10s%-13s%-22s%5s%4s%4s%5s  %-6s %s"
+      % ("block", "part", "roster", "declared by", "meas", "vrd", "cmp",
          "ln", "ships", "why"))
 for b in sorted(known, key=lambda x: (ORDER.index(ship[x]) if ship[x] in ORDER else -1, x)):
     q = rows[b]
-    print("  %-13s%-10s%-13s%-22s%5d%4s%4d%6d%5d  %-6s %s"
+    print("  %-13s%-10s%-13s%-22s%5d%4s%4d%5d  %-6s %s"
           % (b, q["part"], q["roster"], q["decl"], q["meas"], q["vrd"], q["cmp"],
-             q["cand"], q["ln"], ship[b], why[b]))
-print("  (* `cand` is the ONE PROSE signal in this table -- occurrences of the word")
-print("   \"candidate\" in the block's comments. Nothing in the CODE distinguishes a")
-print("   block that runs rival mechanisms from one that measures a quantity.)")
+             q["ln"], ship[b], why[b]))
 
 tally = {}
 for b in known:
     t = tally.setdefault(ship[b], [0, 0]); t[0] += 1; t[1] += rows[b]["ln"]
-print("\n  defined=%d roster=%d declared=%d author-local=%d prose-lines=%d"
-      % (len(known), len(roster), len(declared), len(al),
-         sum(rows[b]["ln"] for b in known)))
+attributed = sum(rows[b]["ln"] for b in known)
+files = sorted(HD.glob("2026-07-citation-hygiene-A-rederive*.sh"))
+filelines = sum(len(f.read_text(encoding="utf-8").splitlines()) for f in files)
+print("\n  defined=%d roster=%d declared=%d author-local=%d"
+      % (len(known), len(roster), len(declared), len(al)))
+print("  LINES: %d in %d files = %d attributed to a block + %d unattributed"
+      % (filelines, len(files), attributed, filelines - attributed))
+print("         (unattributed = each part's preamble + the dispatcher outside `all`.")
+print("          A removal deletes FILES, so a share-of-the-harness figure is over %d.)"
+      % filelines)
 print("  ships-with (blocks, prose lines): "
       + "  ".join("%s=%d/%d" % (k, v[0], v[1]) for k, v in sorted(tally.items())))
 print("  on the roster, declared by no memo: "
