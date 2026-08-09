@@ -28,27 +28,27 @@ covered. Verify those at their use sites with `webref heading webidl <n>` / `web
 | [C33] | ECMA-262 §13.3.5.1.1 EvaluateNew | `#sec-evaluatenew` | Slice 1b |
 | [C34] | ECMA-262 §7.3.14 Construct | `#sec-construct` | Slice 1b |
 | [C35] | ECMA-262 §7.4.10 IteratorStepValue | `#sec-iteratorstepvalue` | Slice 1a |
-| [C36] | ECMA-262 §7.4.11 IteratorClose | `#sec-iteratorclose` | Slice 0b ([C39] conformance) / Slice 1a (dec. 13a) / `#11-vm-iteratorclose-precedence-convention` (dec. 13b) — **not** Slice 1b (§2.5 C×F) |
+| [C36] | ECMA-262 §7.4.11 IteratorClose | `#sec-iteratorclose` | Slice 0bc ([C39] conformance) / Slice 1a (dec. 13a) / `#11-vm-iteratorclose-precedence-convention` (dec. 13b) — **not** Slice 1b (§2.5 C×F) |
 | [C37] | ECMA-262 §13.3.9.1 Runtime Semantics: Evaluation (optional chain) | `#sec-optional-chaining-evaluation` | Slice 1b |
 | [C38] | ECMA-262 §13.3.9.2 Runtime Semantics: ChainEvaluation | `#sec-optional-chaining-chain-evaluation` | Slice 1b |
 | [C13] | ECMA-262 §13.3.7.1 Runtime Semantics: Evaluation (`super`) | `#sec-super-keyword-runtime-semantics-evaluation` | Slice 1a handler + 1b emit, 3 |
 | [C21] | ECMA-262 §7.4.4 GetIterator ( obj, kind ) | `#sec-getiterator` | Slice 1a, 6 |
 | [C22] | ECMA-262 §13.2.4.1 Runtime Semantics: ArrayAccumulation | `#sec-runtime-semantics-arrayaccumulation` | Slice 1a (`SpreadElement` drain) + contrast for dec. 3 |
-| [C39] | ECMA-262 §13.15.5.2 Runtime Semantics: DestructuringAssignmentEvaluation | `#sec-runtime-semantics-destructuringassignmentevaluation` | **Slice 0b** |
+| [C39] | ECMA-262 §13.15.5.2 Runtime Semantics: DestructuringAssignmentEvaluation | `#sec-runtime-semantics-destructuringassignmentevaluation` | **Slice 0bc** |
 | [C23] | ECMA-262 §13.2.8.4 GetTemplateObject | `#sec-gettemplateobject` | Slice 4 |
 | [C40] | ECMA-262 §13.3.11.1 Runtime Semantics: Evaluation (tagged template) | `#sec-tagged-templates-runtime-semantics-evaluation` | Slice 4 |
 | [C24] | ECMA-262 §13.3.7.3 MakeSuperPropertyReference | `#sec-makesuperpropertyreference` | Slice 3 |
 | [C25] | ECMA-262 §9.1.1.3.5 GetSuperBase | `#sec-getsuperbase` | Slice 3 |
-| [C26] | ECMA-262 §7.3.32 DefineField | `#sec-definefield` | Slice 2 |
-| [C27] | ECMA-262 §7.3.33 InitializeInstanceElements | `#sec-initializeinstanceelements` | Slice 2 |
-| [C28] | ECMA-262 §15.7.10 ClassFieldDefinitionEvaluation | `#sec-runtime-semantics-classfielddefinitionevaluation` | Slice 2 |
+| [C26] | ECMA-262 §7.3.32 DefineField | `#sec-definefield` | Slice 2a |
+| [C27] | ECMA-262 §7.3.33 InitializeInstanceElements | `#sec-initializeinstanceelements` | Slice 2a |
+| [C28] | ECMA-262 §15.7.10 ClassFieldDefinitionEvaluation | `#sec-runtime-semantics-classfielddefinitionevaluation` | Slice 2a |
 | [C29] | ECMA-262 §7.3.26 PrivateElementFind | `#sec-privateelementfind` | Slice 5 |
 | [C30] | ECMA-262 §7.3.28 PrivateMethodOrAccessorAdd | `#sec-privatemethodoraccessoradd` | Slice 5 |
 | [C31] | ECMA-262 §7.3.30 PrivateGet | `#sec-privateget` | Slice 5 |
 | [C41] | ECMA-262 §7.3.31 PrivateSet | `#sec-privateset` | Slice 5 |
 | [C42] | ECMA-262 §7.3.27 PrivateFieldAdd | `#sec-privatefieldadd` | Slice 5 |
 | [C43] | ECMA-262 §13.15.2 Runtime Semantics: Evaluation (assignment operators) | `#sec-assignment-operators-runtime-semantics-evaluation` | Slice 0a (§16) |
-| [C32] | ECMA-262 §27.9.3.2 AsyncGeneratorStart | `#sec-asyncgeneratorstart` | Slice 6 |
+| [C32] | ECMA-262 §27.9.3.2 AsyncGeneratorStart | `#sec-asyncgeneratorstart` | Slice 6a |
 
 Existing in-code citations `[C13] §13.3.7.1`, `[C19] §13.3.8.1`, `[C11] §10.2.2`
 (`crates/script/elidex-js/src/vm/dispatch_class.rs:6`) re-verified correct — no drift.
@@ -80,7 +80,7 @@ found five gaps it never listed.
 | (not listed) | **async generators non-functional** — `ag().next` is `undefined`; `for await…of ag()` raises an unhandled `TypeError: value is not iterable` |
 | `super(...)` grouped with broken | **`super(...args)` WORKS** — the one correct spread path, and 1b's reference implementation |
 | "flag accessors missing" | Precise: `.flags` / `.lastIndex` / `.exec` **work**; `.global`/`.ignoreCase`/`.multiline`/`.sticky` and `@@match`/`@@replace` absent |
-| `new.target` "probe mis-designed" | Confirmed **working** |
+| `new.target` "probe mis-designed" | Working **in the direct-constructor spelling the probe ran**. ⚠ **Narrowed at PR-B** — lost through an arrow call; see §2.2's `vm/dispatch_class.rs:29-37` row |
 
 ### §1.2 ⚠ Retraction — this plan's own round-1 over-claim
 
@@ -103,7 +103,7 @@ Root: `compiler/expr_assign.rs:210-212` — the `AssignTarget::Simple` arm handl
 `ExprKind::Identifier` and `ExprKind::Member`; **every other LHS falls to
 `_ => { compile_expr(right)?; }`**, compiling the RHS and assigning nothing. (`AssignTarget::Pattern`
 at `:215-219` claims to "fail explicitly" but emits `Op::Pop` and never fails — and the parser never
-constructs that variant: all producers use `Simple`.) This is registered as **Slice 0b** (§5).
+constructs that variant: all producers use `Simple`.) This is registered as **Slice 0bc** (§5).
 
 Also newly confirmed silent-wrong, previously mis-tiered or unlisted:
 - **`import('x')` → `undefined`** (not a Promise). `compiler/expr.rs:200` compiles
@@ -142,11 +142,19 @@ Confirmed **correct**, no action: destructuring **declarations** (incl. nested/d
 parameter destructuring) — ⚠ **narrowed at PR-B to Identifier, string-literal and computed keys**;
 other key kinds are a silent no-op (see the retraction bullets above and §2.2) —
 `IncElem`/`DecElem` (`a[0]++`), `await` microtask ordering, static
-fields/methods, computed **class** keys (methods *and* accessors — the retraction above),
+fields/methods — ⚠ **narrowed at PR-B to the *definition*, which is all the probe `static x = 1`
+exercises**; the initializer runs with the enclosing function's `this`, so
+`class C { static x = this }` gives `C.x === C` → `false` (§2.2's `expr_class.rs:402-427` row) —
+computed **class** keys (methods *and* accessors — the retraction above),
 object-literal accessors with **Identifier or string-literal** keys only (⚠ likewise narrowed at
 PR-B), `flatMap`, `Promise.prototype.finally`. The class and object-literal accessor paths differ in
 **failure mode**, not only in coverage: a key kind neither lowers is a `CompileError` in a class
 (measured: `class C { get 1n() { return 7 } }`) and a silent `Op::Pop` in an object literal.
+
+The static-field narrowing and §1.1's `new.target` narrowing share the shape this section's absence
+list already carries: **a probe that exercises one spelling cannot close a surface.** `static x = 1`
+cannot distinguish a correct field receiver from an incorrect one, and `new F()` read from `F`'s own
+body cannot distinguish a frame-local `new.target` from a lexical one.
 
 ---
 
@@ -225,7 +233,7 @@ silently, with the front end reporting success. Slice M must fix this arm *befor
 findings live one level deeper — inside an arm, in a sub-`match`/`if` with no else:
 `expr_class.rs:430-447` (`ClassMemberKind::PrivateField` compiled only under `if *is_static` ⇒
 `class A{#x=1}` emits nothing) and `expr.rs:186-189` (`ExprKind::Spread` in prefix position compiles
-its operand; every such node is an early-SyntaxError position per spec). 0c must run pass 3 at
+its operand; every such node is an early-SyntaxError position per spec). 0ca must run pass 3 at
 **both** granularities — variant-level, then sub-arm-level over the enum-shaped inner matches, which
 is where every class-2 defect found so far actually lives. **That inner-enum set is derived, not
 listed.** AST-side candidate set:
@@ -243,7 +251,7 @@ still *per file*, and `PropertyKey` lowering is open-coded across **3** of them
 `expr_class.rs`, `expr_object.rs`, `stmt_destructure.rs`) with catch-alls of four different shapes —
 `Op::Pop`, `Op::PushUndefined`, `CompileError` and a bare `_ => {}` — and the `CompileError` one is
 invisible to any substitution-class grep. Slot
-`#11-vm-property-key-lowering-unification` (§8) owns the collapse; 0c's sub-arm pass
+`#11-vm-property-key-lowering-unification` (§8) owns the collapse; 0ca's sub-arm pass
 should be run **per inner enum across all files**, not per file.
 
 Pass 1 returns 31 hits, pass 2's `PushUndefined` arm returns 24; **the large majority are
@@ -262,12 +270,42 @@ a stipulated inventory would have shipped incomplete.
 
 Emit-site counts grep-verified 2026-07-26 (command in §2.1).
 
+⚠ **This is what the documented derivation found at `f7d9b5ce`, not the defect surface** — the §1.2
+treatment, applied to §2.2 itself. The passes grep and walk
+`crates/script/elidex-js/src/compiler/`, so what they see is compiler *arms*. Kinds of defect that
+sit outside that, each named because a live defect demonstrated it rather than because the kind was
+predicted:
+
+- **A live defect inside a *connected* dispatch handler.** §2.3 is the dispatch layer but is scoped
+  to opcodes with **zero** emit sites (connect-or-delete), so a handler that is emitted-to and wrong
+  has no home in either section. Demonstrating case: `op_spread_object`
+  (`vm/dispatch_objects.rs:135-186` at `658cc302`) — the `{...'ab'}` row below.
+- **A raw-AST shape check inside an arm that is present.** The arm exists, so no missing-arm walk
+  flags it; what it matches on is a shape a wrapper defeats. Demonstrating cases: `delete (o.x)` and
+  `typeof (missingName)` (`compiler/expr_ops.rs:114-163` at `658cc302`) — rows below, the same
+  mechanism as the already-tabled `(o.m)()` row.
+- **An arm that is present and semantically wrong.** No grep for a missing arm can see these.
+  Demonstrating cases: the static-field receiver (`compiler/expr_class.rs:402-427`) and arrow
+  `new.target` (`vm/dispatch_class.rs:29-37`) rows below.
+
+**Consequence for §7.2.** §9 dec. 9(b) derives the permanent conformance table as one row per §2.2
+defect row, plus the §1.1/§1.2 absences — so whatever this derivation cannot see is also absent from
+the safety net. Round 8 found that hole on the T3-absence axis and patched it with a second source
+(§7.2); the kinds above are the same hole on the layer axis.
+§5 already mandates that 0ca re-run all three passes against **0ca's own parent HEAD**; that re-run
+reaches the second and third kinds above (both are compiler arms) only if pass 3's sub-arm
+granularity is read for arm *content* and not only for arm *presence* — state that in 0ca's memo.
+The first kind it cannot reach at all, because the sweep's scope is `compiler/`: **a slice whose
+plan-review derives a touch set containing a `vm/dispatch*.rs` file reads the handlers it touches
+against its own parent HEAD and tables what it finds**, rather than inheriting §2.3's dead-opcode
+partition as the dispatch-layer inventory.
+
 ⚠ **This table is the probe at baseline `f7d9b5ce`; its Site / Emits / Observable columns are frozen
 there.** Read them as "what the sweep found", never as current state. Slice 0a then landed
 (`658cc302`) and, beyond its three T0 rows, converted **nine** further rows from a silent no-op into a
 *scoped* `Op::ThrowUnsupported` — marked **0a ✅ loud** in the Slice column. The construct is still
 unimplemented and the named slice still owns it; what changed is the **failure mode**, which is the
-very axis 0c is scoped by, so 0c's charter is narrowed accordingly below. **Nine is a count of marked
+very axis 0ca is scoped by, so 0ca's charter is narrowed accordingly below. **Nine is a count of marked
 rows in this table, not of call sites** — `grep -rn 'emit_unsupported(fc' compiler/ | grep -v 'fn '`
 gives **10** at `658cc302`, and the two do not correspond: two call sites guard constructs with no row
 here, while one row's rejection is reached from two of them. One of the nine (`AssignTarget::Pattern`)
@@ -306,7 +344,7 @@ carries the hit count and no defect count.
 | `compiler/expr_assign.rs:170` | `obj[k] += v` | **`assert!` → panic** | process abort | **T0** | 0a ✅ |
 | `compiler/expr_ops.rs:29` | **`obj.p \|\|= v` / `&&=` / `??=`** (named member) | **`unreachable!` → panic** — short-circuit was implemented only for the *identifier* target, so every member logical assignment reached `compound_op_to_opcode` | process abort | **T0** | 0a ✅ |
 | `compiler/expr_assign.rs:170` + `expr_ops.rs:29` | **`obj[k] \|\|= v`** (computed logical) | **panic** (both of the above) | process abort | **T0** | 0a ✅ |
-| `compiler/expr_assign.rs:210-212` | `[a,b]=…`, `({x}=…)` | RHS only, no store | silent no-op | T1 | 0b — **0a ✅ loud** |
+| `compiler/expr_assign.rs:210-212` | `[a,b]=…`, `({x}=…)` | RHS only, no store | silent no-op | T1 | 0bc — **0a ✅ loud** |
 | `compiler/expr_member.rs:70-76` | `f(...a)` | spread operand as one arg | silent wrong arity | T1 | 1b |
 | `compiler/expr_class.rs:428` | `class A{x=1}` | **skipped entirely** | field `undefined` | T1 | 2 |
 | `compiler/expr.rs:200-207` | `super.x`, `super[k]` | `PushUndefined` | TypeError at use | T2 | 3 |
@@ -316,25 +354,30 @@ carries the hit count and no defect count.
 | `compiler/expr.rs:200-207` | `import('x')` | `PushUndefined` | not a Promise | **T1** | *(see §5)* |
 | `compiler/expr_object.rs:117-121` | `{1n: 'x'}` (**literal** key only — `{[1n]:…}` computed is correct, probe-verified). The cited arm is `PropertyKey::Literal(Literal::BigInt(_) \| Literal::RegExp { .. })` **inside** the `PropertyKind::Init` match whose head is `expr_object.rs:83` (arm head `:65`) — the same match the slot below names as the exhaustive copy the canonical lowering collapses the others into; a BigInt key is a key kind that lowering must answer | empty-string key → `{"":"x"}` | wrong key | T1 | `#11-vm-property-key-lowering-unification` |
 | `compiler/expr_ops.rs:249` | `obj.#x++` | emits nothing, old value retained | silent no-op | T1 | 5 — **0a ✅ loud** |
-| **`compiler/expr_ops.rs:261`** | **`(x)++`, `(a[0])++`** — parenthesized update target | operand evaluated only | **silent no-op** | T1 | 0b — **0a ✅ loud** |
-| **`compiler/expr_assign.rs:210-212`** | **`(x)+=1`** — parenthesized assign target (same catch-all as destructuring) | RHS only | **silent no-op** | T1 | 0b — **0a ✅ loud** |
-| `compiler/expr_ops.rs:147-149` + **`parser/`** | `delete this.#x` | `Pop; PushTrue` → `true` | wrong constant; ECMA-262 §13.5.1.1 makes it an **early SyntaxError** ⇒ **parse-time** rejection, so 0c's runtime-throw regime is wrong for it (same layer argument as §9 dec. 15). The sibling half of the *same* spec bullet (`delete <identifier>`) is **already** parser-gated, so the two halves must not land in two layers | T1 | **0b** (parser) |
+| **`compiler/expr_ops.rs:261`** | **`(x)++`, `(a[0])++`** — parenthesized update target | operand evaluated only | **silent no-op** | T1 | 0bb — **0a ✅ loud** |
+| **`compiler/expr_assign.rs:210-212`** | **`(x)+=1`** — parenthesized assign target (same catch-all as destructuring) | RHS only | **silent no-op** | T1 | 0bb — **0a ✅ loud** |
+| `compiler/expr_ops.rs:147-149` + **`parser/`** | `delete this.#x` | `Pop; PushTrue` → `true` | wrong constant; ECMA-262 §13.5.1.1 makes it an **early SyntaxError** ⇒ **parse-time** rejection, so 0c's runtime-throw regime is wrong for it (same layer argument as §9 dec. 15). The sibling half of the *same* spec bullet (`delete <identifier>`) is **already** parser-gated, so the two halves must not land in two layers | T1 | **0ba** |
+| `compiler/expr_ops.rs:133-163` (at `658cc302`) | **`delete (o.x)`**, **`delete o?.x`** — the arm tests the **raw** AST for `ExprKind::Member` (`:135`), so an `ExprKind::Paren` wrapper (`ast.rs:299`) or an `ExprKind::OptionalChain` takes the `else` at `:156-161` | `compile_expr`; `Op::Pop`; `Op::PushTrue` — the property **value** is evaluated, discarded, and `true` pushed | **silent success**: `{ let o={x:1}; delete (o.x); return 'x' in o }` → `true`. ECMA-262 **§13.5.1.2** step 4 deletes whenever Evaluation of the UnaryExpression yields a property Reference, and **§13.2.9.2** returns the ParenthesizedExpression's Reference unchanged | T1 | **0bb** |
+| `compiler/expr_ops.rs:114-132` (at `658cc302`) | **`typeof (missingName)`** — the unresolvable-reference case runs only when the *immediate* argument is `ExprKind::Identifier` (`:117`), so a `Paren` wrapper defeats it | falls past `:132` to the generic `compile_expr` + `unary_op_to_opcode` (`:164-165`), whose `Op::GetGlobal` miss path raises `ReferenceError` (`vm/dispatch.rs:187-192`) | **throws** instead of returning `"undefined"`. ECMA-262 **§13.5.3.1** step 2.a | T1 | **0bb** |
 | `compiler/expr_ops.rs:226` | module-binding **update** (`importedBinding++`) — *not* `delete`; falls to the `:261` catch-all, leaving the current value (the in-code "fall through to push undefined" comment is itself stale) | operand only | silent no-op | T1 | M — **0a ✅ loud** |
 | `compiler/stmt.rs:877-878` | module-binding `for-in` target | `Pop` | silent no-op | T1 | M — **0a ✅ loud** |
 | `compiler/stmt.rs:31-39` | `import`/`export` **declarations**, grouped into the `Empty`/`Debugger` no-op arm (found by the pass-3 structural sweep) | nothing | silent no-op — **latent**: unreachable until `parse_module` gains a production caller | T1 | M (precondition) |
 | `compiler/expr_class.rs:430-447` | `class A{#x=1}` — `PrivateField` compiled only under `if *is_static`, no else | nothing | silent no-op | T1 | 5 |
-| `compiler/expr.rs:186-189` + **`parser/expr.rs:256-263`** | `ExprKind::Spread` in prefix position (`var y = ...x`) — an early-SyntaxError position per spec; the parser's `Ellipsis` arm is **ungated** | operand only | silent no-op | T1 | **0b** (parser — §9 dec. 15) |
+| `compiler/expr.rs:186-189` + **`parser/expr.rs:256-263`** | `ExprKind::Spread` in prefix position (`var y = ...x`) — an early-SyntaxError position per spec; the parser's `Ellipsis` arm is **ungated** | operand only | silent no-op | T1 | **0ba** (§9 dec. 15) |
 | `compiler/expr_object.rs:26-39` (identical at head) | **object-literal accessor keys** — `compile_accessor` matches only `PropertyKey::Identifier` (`:27`) and `PropertyKey::Literal(Literal::String)` (`:32`); every other key kind falls to `_ => { fc.emit(Op::Pop); }` (`:37-39`). The key expression of a computed accessor is **never compiled at all** | `Op::Pop` — no property defined, and for a computed key **the key expression never runs** | silent no-op (class 2). Probe-measured at `39bbdb1b`: `let n=0; ({ get [++n]() { return 7 } }); n` → **`0`** · `let k='p'; let o={ get [k]() { return 7 } }; o.p` → **`undefined`** · `let n=0; ({ set [++n](v) {} }); n` → **`0`** (setter half) · `let o={ get 1() { return 7 } }; o[1]` → **`undefined`**, so this is **not limited to computed keys** — every non-Identifier / non-String-literal key is swallowed. (`{get true(){}}` **works**: `true` in key position parses as `PropertyKey::Identifier`, not `Literal::Boolean` — do not claim boolean keys are broken.) Contrast, same file: the sibling `PropertyKind::Init` arm (match at `:83`) **is** exhaustive over `PropertyKey` — `let o={1:'x'}; o[1]` → `'x'` (exhaustive is not the same as correct: its BigInt/RegExp arm is the `:117-121` row above). ECMA-262 §13.2.5.6 PropertyDefinitionEvaluation | T1 | `#11-vm-property-key-lowering-unification` |
-| `compiler/stmt_destructure.rs:91` match, `:117-119` catch-all (`:92` / `:118-120` at head) | **object-pattern destructuring keys** — matches `PropertyKey::Identifier` (`:92` base / `:93` head), `Literal::String` (`:98`/`:99`) and `Computed` (`:104`/`:105`); every other key kind falls to `_ => { fc.emit(Op::PushUndefined); }` | `Op::PushUndefined` instead of a `GetProp`/`GetElem` | silent no-op (class 1 — **missed by pass 2**). Probe-measured at `39bbdb1b`: `const {1: a} = {1: 'x'}; a` → **`undefined`** (spec `'x'`). Identifier, string-literal and computed keys all work (`{p: a}` / `{'s': a}` / `{[k]: a}` → `'x'`), so this narrows — not deletes — §1.2's "destructuring **declarations** confirmed correct". Governing: ECMA-262 **§14.3.3.1** Runtime Semantics: PropertyBindingInitialization, whose step 1 is `Let propertyKey be ? Evaluation of PropertyName` = **§13.2.5.5**, where `LiteralPropertyName : NumericLiteral` is `Let number be the NumericValue…; Return ! ToString(number)` (the assignment-form counterpart on 0b's path is **§13.15.5.3** PropertyDestructuringAssignmentEvaluation) | T1 | `#11-vm-property-key-lowering-unification` |
-| `compiler/stmt_destructure.rs:134` match, `:149-150` catch-all (`:135` / `:150-151` at head) | **object-pattern REST exclusion** — the second `PropertyKey` match in the same function, deleting already-destructured keys from the rest object. Matches `Identifier` (`:135` base / `:136` head) and `Literal::String` (`:142`/`:143`); `_ => {}` under a comment reading "Computed/other keys: handled below via temp locals" — which is true of `Computed` (the `computed_key_slots` loop below) and false of every other kind | nothing emitted, so the key is never deleted from the rest object | silent wrong **value**, not a no-op: the destructured key survives into the rest binding. Probe-measured at `39bbdb1b`: `const {1: a, ...r} = {1:'x', z:'y'}` leaves `r` as **`{"1":"x","z":"y"}`**; the Identifier and computed spellings both give `{"z":"y"}`. Governing: ECMA-262 **§14.3.3.2** Runtime Semantics: RestBindingInitialization, which *receives* `excludedNames (a List of property keys)` as an argument — the set is built by **§14.3.3.1**, which returns « propertyKey » (the assignment-form counterpart on 0b's path is **§13.15.5.4** RestDestructuringAssignmentEvaluation) | T1 | `#11-vm-property-key-lowering-unification` |
+| `compiler/stmt_destructure.rs:91` match, `:117-119` catch-all (`:92` / `:118-120` at head) | **object-pattern destructuring keys** — matches `PropertyKey::Identifier` (`:92` base / `:93` head), `Literal::String` (`:98`/`:99`) and `Computed` (`:104`/`:105`); every other key kind falls to `_ => { fc.emit(Op::PushUndefined); }` | `Op::PushUndefined` instead of a `GetProp`/`GetElem` | silent no-op (class 1 — **missed by pass 2**). Probe-measured at `39bbdb1b`: `const {1: a} = {1: 'x'}; a` → **`undefined`** (spec `'x'`). Identifier, string-literal and computed keys all work (`{p: a}` / `{'s': a}` / `{[k]: a}` → `'x'`), so this narrows — not deletes — §1.2's "destructuring **declarations** confirmed correct". Governing: ECMA-262 **§14.3.3.1** Runtime Semantics: PropertyBindingInitialization, whose step 1 is `Let propertyKey be ? Evaluation of PropertyName` = **§13.2.5.5**, where `LiteralPropertyName : NumericLiteral` is `Let number be the NumericValue…; Return ! ToString(number)` (the assignment-form counterpart on 0bc's path is **§13.15.5.3** PropertyDestructuringAssignmentEvaluation) | T1 | `#11-vm-property-key-lowering-unification` |
+| `compiler/stmt_destructure.rs:134` match, `:149-150` catch-all (`:135` / `:150-151` at head) | **object-pattern REST exclusion** — the second `PropertyKey` match in the same function, deleting already-destructured keys from the rest object. Matches `Identifier` (`:135` base / `:136` head) and `Literal::String` (`:142`/`:143`); `_ => {}` under a comment reading "Computed/other keys: handled below via temp locals" — which is true of `Computed` (the `computed_key_slots` loop below) and false of every other kind | nothing emitted, so the key is never deleted from the rest object | silent wrong **value**, not a no-op: the destructured key survives into the rest binding. Probe-measured at `39bbdb1b`: `const {1: a, ...r} = {1:'x', z:'y'}` leaves `r` as **`{"1":"x","z":"y"}`**; the Identifier and computed spellings both give `{"z":"y"}`. Governing: ECMA-262 **§14.3.3.2** Runtime Semantics: RestBindingInitialization, which *receives* `excludedNames (a List of property keys)` as an argument — the set is built by **§14.3.3.1**, which returns « propertyKey » (the assignment-form counterpart on 0bc's path is **§13.15.5.4** RestDestructuringAssignmentEvaluation) | T1 | `#11-vm-property-key-lowering-unification` |
 | `compiler/expr_class.rs:588-590` (`:590-592` head) + `:568`, `:621` (`:570`, `:623` head) | ⚠ **the previous row here was FALSE at head *and* at baseline** and is corrected. It claimed `class{get [k](){}}` is a `CompileError` — a "loud reject — not a defect". Measured at `39bbdb1b`: `let k='p'; class C { get [k]() { return 7 } }; (new C).p` → **`7`** · `let n=0; class C { get [++n]() { return 7 } }; n` → **`1`** (the key side effect runs) · `class C { get 1() { return 7 } }; (new C)[1]` → **`7`**. Computed class members never reach the cited guard: they are handled by a different, earlier path — `expr_class.rs:523` `if computed { … MethodKind::Get => Op::DefineComputedGetter, Set => Op::DefineComputedSetter, Method \| Constructor => Op::DefineComputedMethod … }` — which exists identically at `f7d9b5ce:523` | the `if computed { return Err(…) }` guard at `:588-590` is **unreachable dead code**: `grep -rn 'emit_class_member_name_op' crates/script/elidex-js/src/compiler/` gives both call sites passing `computed: false` (`:423` and `:575` at baseline, `:423` and `:577` at head). The two `_ =>` arms at `:568` / `:621` **are** reachable, but only for key kinds neither preceding arm covers — measured, `class C { get 1n() { return 7 } }` → `CompileError "unsupported class member key type"` while `class C { get 1() {…} }` succeeds | the guard is an **I-4 connect-or-delete**; the two `_ =>` arms are a loud **BigInt-literal-key** reject (a RegExp key in class position does not reach them — it is a *parse* error, measured) | I-4 / T2 | `#11-vm-property-key-lowering-unification` (guard) · 2 |
-| `compiler/stmt.rs:882` | `for (obj.prop in …)` | `Pop` | silent no-op | T1 | 0b — **0a ✅ loud** |
-| `compiler/expr_member.rs:92` | **`(o.m)()`** — `compile_call_expr` matches `ExprKind::Member` on the **raw** callee, so a parenthesized callee takes the plain-call branch | `Op::Call` (no receiver pushed) | **`this` is `undefined`** instead of `o` ([C20] step 1.a.i) | T1 | **0b** (the shared `peel_paren` chokepoint — §9 dec. 14) |
-| `compiler/expr_member.rs:180-187` (at `658cc302`) | **`o.m?.(…)`** — `prev_is_member` is `i > 0 && matches!(chain[i - 1], OptionalChainPart::Member { .. })`, so an optional call that is the chain's *first* part takes the `else` branch | `Op::Call` at `:186` (no receiver pushed); `o?.m(…)` takes `Op::CallMethod` at `:184` | **`this` is `undefined`** instead of `o` ([C20] step 1.a.i) | T1 | **0b** — sibling of the `expr_member.rs:92` row above: same observable (a callee that is a member Reference loses its receiver), **two mechanisms, not one chokepoint**. `(o.m)()` is `compile_call_expr`'s `if let ExprKind::Member` test on the raw callee, defeated by the `ExprKind::Paren` wrapper (`ast.rs:299` at `658cc302` and at `6edda6f2`); this row is `compile_optional_chain_expr`'s `prev_is_member`, which reads `chain[i-1]` and never consults the chain's *base*. `peel_paren` does not reach this one — 0b owns both because the receiver contract is one, and fixing either alone leaves the other |
+| `compiler/stmt.rs:882` | `for (obj.prop in …)` | `Pop` | silent no-op | T1 | 0bc — **0a ✅ loud** |
+| `compiler/expr_member.rs:92` | **`(o.m)()`** — `compile_call_expr` matches `ExprKind::Member` on the **raw** callee, so a parenthesized callee takes the plain-call branch | `Op::Call` (no receiver pushed) | **`this` is `undefined`** instead of `o` ([C20] step 1.a.i) | T1 | **0bb** (the shared `peel_paren` chokepoint — §9 dec. 14) |
+| `compiler/expr_member.rs:180-187` (at `658cc302`) | **`o.m?.(…)`** — `prev_is_member` is `i > 0 && matches!(chain[i - 1], OptionalChainPart::Member { .. })`, so an optional call that is the chain's *first* part takes the `else` branch | `Op::Call` at `:186` (no receiver pushed); `o?.m(…)` takes `Op::CallMethod` at `:184` | **`this` is `undefined`** instead of `o` ([C20] step 1.a.i) | T1 | **0bb** — sibling of the `expr_member.rs:92` row above: same observable (a callee that is a member Reference loses its receiver), **two mechanisms, not one chokepoint**. `(o.m)()` is `compile_call_expr`'s `if let ExprKind::Member` test on the raw callee, defeated by the `ExprKind::Paren` wrapper (`ast.rs:299` at `658cc302` and at `6edda6f2`); this row is `compile_optional_chain_expr`'s `prev_is_member`, which reads `chain[i-1]` and never consults the chain's *base*. `peel_paren` does not reach this one — 0bb owns both because the receiver contract is one, and fixing either alone leaves the other |
 | `compiler/stmt.rs:99-103` | **`for await (x of it)`** — the `is_await: _` discard | compiles identically to sync `for-of` | silent **wrong protocol** (sync iterator used for an async iterable) | T1 | 6 |
 | `compiler/expr_member.rs:60-64` | `f(a×256)` | **`assert!` → panic** | process abort | T0 | 1b |
-| `compiler/stmt.rs:424-439` — **not** an `f7d9b5ce` row: derived at `658cc302` and re-derived at HEAD `d49465d0`, where `git show <rev>:crates/script/elidex-js/src/compiler/stmt.rs \| grep -n 'if let Some(param_id) = catch.param'` gives **424** at both, and `'Op::Pop); // pop exception'` gives **439** at both | **destructured catch parameter** — `catch ({x})`, `catch ([a])` | the parameter is stored only under `if let PatternKind::Identifier(atom) = &pattern.kind` (`:426`); no other `PatternKind` has an arm, so nothing is emitted for the pattern's bound names, and the arm then runs `fc.emit(Op::Pop)` (`:439`) **unconditionally**, discarding the exception either way | silent no-op: `try { throw {x: 1} } catch ({x}) { … }` never initializes `x`. ECMA-262 **§14.15.2** Runtime Semantics: CatchClauseEvaluation **step 5** — `Let status be Completion(BindingInitialization of CatchParameter with arguments thrownValue and catchEnv)` (§-number from `webref aoid ecma262 CatchClauseEvaluation`; step text from `webref body ecma262 sec-runtime-semantics-catchclauseevaluation`) | T1 | **0b** (gained here — see §5) |
-| `compiler/expr_assign.rs:215-220` | `AssignTarget::Pattern` | `Op::Pop`, claims to "fail explicitly" but does not | **dead** — parser never constructs this variant | I-4 | 0b — **0a ✅ loud** |
+| `compiler/stmt.rs:424-439` — **not** an `f7d9b5ce` row: derived at `658cc302` and re-derived at HEAD `d49465d0`, where `git show <rev>:crates/script/elidex-js/src/compiler/stmt.rs \| grep -n 'if let Some(param_id) = catch.param'` gives **424** at both, and `'Op::Pop); // pop exception'` gives **439** at both | **destructured catch parameter** — `catch ({x})`, `catch ([a])` | the parameter is stored only under `if let PatternKind::Identifier(atom) = &pattern.kind` (`:426`); no other `PatternKind` has an arm, so nothing is emitted for the pattern's bound names, and the arm then runs `fc.emit(Op::Pop)` (`:439`) **unconditionally**, discarding the exception either way | silent no-op: `try { throw {x: 1} } catch ({x}) { … }` never initializes `x`. ECMA-262 **§14.15.2** Runtime Semantics: CatchClauseEvaluation **step 5** — `Let status be Completion(BindingInitialization of CatchParameter with arguments thrownValue and catchEnv)` (§-number from `webref aoid ecma262 CatchClauseEvaluation`; step text from `webref body ecma262 sec-runtime-semantics-catchclauseevaluation`) | T1 | **0bc** (gained here — see §5) |
+| `compiler/expr_assign.rs:215-220` | `AssignTarget::Pattern` | `Op::Pop`, claims to "fail explicitly" but does not | **dead** — parser never constructs this variant | I-4 | 0bc — **0a ✅ loud** |
+| `compiler/expr_class.rs:402-427` (at `658cc302`) | **`class C { static x = this }`** — the static initializer is compiled with the **enclosing** `FunctionCompiler` (`compile_expr(fc, …)` at `:411` computed-key branch, `:418` otherwise), so `ExprKind::This` inside it reads the surrounding function's receiver. Contrast the static **block** arm at `:448-471`, which builds a child compiler and invokes it with the ctor as `this` (`:454` `Op::Dup`, `:470` `Op::CallMethod`) | the initializer's value evaluated against the wrong receiver | `C.x === C` → **`false`**. ECMA-262 **§15.7.10** ClassFieldDefinitionEvaluation and **§7.3.32** DefineField call the initializer with the field receiver. ⚠ Narrows §1.2's "static fields/methods, no action" and §8's treatment of that facet of `#11-step9-class-extras` as discharged — the probe `static x = 1` cannot distinguish the receivers | T1 | **2a** |
+| `vm/dispatch_objects.rs:135-186` (at `658cc302`) | **`{...'ab'}`**, **`const {...r} = 'ab'`** — `op_spread_object` copies only when source **and** destination are both `JsValue::Object` (`:137`); any other source falls out of the `if let` and the handler returns `Ok(())` | nothing copied | **empty object** instead of the enumerable index properties. ECMA-262 **§7.3.25** CopyDataProperties returns early only for `undefined`/`null` (step 1) and otherwise applies `ToObject` (step 2). ⚠ **Layer-B live defect in a connected opcode** — the blind-spot case above; §2.3's zero-emit partition does not reach it | T1 | **O** |
+| `vm/dispatch_class.rs:29-37` + `vm/value.rs:588-599` (at `658cc302`) | **`new.target` read inside an arrow** — `op_new_target` reads only the current frame's `CallMode` (`:32-33`), and `FunctionObject` carries `captured_this` (`value.rs:598`) with no lexical `new.target` counterpart; invoking an arrow pushes a `CallMode::Call` frame (`vm/interpreter.rs:648`, `:683`, `:732`) | `JsValue::Undefined` | `function F(){ this.ok = (() => new.target)() === F } new F().ok` → **`false`**. ECMA-262 **§9.4.5** GetNewTarget resolves the surrounding function environment, which for an arrow is the enclosing function's. ⚠ Narrows §1.1's `new.target` row | T1 | **N** |
 
 **Verified NOT defects** (checked during the sweep, no action): `delete x` **is** correctly gated by
 the parser ("Cannot delete an unqualified identifier in strict mode") — so `expr_ops.rs:156-159` is
@@ -347,6 +390,11 @@ is correct per I-6/ADR #2; `{[1n]:…}` and `{[/a/]:…}` computed keys are corr
 These are I-4 connect-or-delete items, **not** live defects. Each is discharged by the slice that
 lands its Layer-A emit (connect), or deleted by the dead-opcode sweep (Slice D, adopting
 `#11-dead-opcode-removal`).
+
+⚠ **The membership test here is "zero compiler emit sites", so this section is not the dispatch-layer
+defect inventory.** A handler that *is* emitted to and is wrong belongs in §2.2 — `op_spread_object`
+is tabled there — and is found by reading handlers, not by the `compiler/` sweep. See §2.2's
+blind-spot block for the obligation that puts.
 
 **⚠ Corrected R2 round 3 — the earlier hand-curated "nine" was wrong in both directions.** Enumerated
 mechanically over all 125 `Op` variants in `bytecode/opcode.rs` (2026-07-26): 18 have zero
@@ -407,16 +455,18 @@ Six axes; each **pair's intersection** named:
 | B×D | **Corrected R2r2**: under `lay_out_call_args` the array is popped *before* `do_new` allocates the instance (`vm/ops.rs:766`), so the two are never simultaneously live-and-needed. The real B×D case is the generator/async callee window (§6.3 GC). |
 | B×E | `New` has no IC dimension; only `Call`/`CallMethod` do. |
 | C×D | **The drain is rooted by construction** (`op_array_spread` `peek`s, so the array stays on `vm.stack`, itself a GC root). The **unrooted window is pop → re-push**: no JS allocation may occur inside it. |
-| C×F | [C20] step 3 runs ArgumentListEvaluation **before** the step 4/5 callability checks ⇒ a non-callable callee must still drain the iterator to completion before throwing. **[C19] does NOT call `IteratorClose`** — verified 2026-07-26, `body ecma262 sec-runtime-semantics-argumentlistevaluation \| grep -ci iteratorclose` → **0**; `?` propagates the abrupt completion directly, and the drain's own AO already sets `[[Done]]` on throw: it calls **§7.4.10 IteratorStepValue** [C35], whose **step 4.a** sets it on an `IteratorValue` throw, and whose step 1 delegates to §7.4.9 IteratorStep — which sets it at **step 3.a** for an `IteratorComplete` throw, its own step 1 delegating further to §7.4.6 IteratorNext for the `next()` throw. *(An earlier draft credited §7.4.9 alone, which is not the AO invoked here.)* Calling `return()` here would be an *observable divergence*. (Contrast [C39] DestructuringAssignmentEvaluation → 6 `IteratorClose` call sites, which is why [C36] is **Slice 0b's**, not Slice 1's.) |
+| C×F | [C20] step 3 runs ArgumentListEvaluation **before** the step 4/5 callability checks ⇒ a non-callable callee must still drain the iterator to completion before throwing. **[C19] does NOT call `IteratorClose`** — verified 2026-07-26, `body ecma262 sec-runtime-semantics-argumentlistevaluation \| grep -ci iteratorclose` → **0**; `?` propagates the abrupt completion directly, and the drain's own AO already sets `[[Done]]` on throw: it calls **§7.4.10 IteratorStepValue** [C35], whose **step 4.a** sets it on an `IteratorValue` throw, and whose step 1 delegates to §7.4.9 IteratorStep — which sets it at **step 3.a** for an `IteratorComplete` throw, its own step 1 delegating further to §7.4.6 IteratorNext for the `next()` throw. *(An earlier draft credited §7.4.9 alone, which is not the AO invoked here.)* Calling `return()` here would be an *observable divergence*. (Contrast [C39] DestructuringAssignmentEvaluation → 6 `IteratorClose` call sites, which is why [C36] is **Slice 0bc's**, not Slice 1's.) |
 | D×E | (none — IC slots are compile-time indices, not heap refs.) |
 | D×F | The unwind path must not leave the args Array reachable only from a dropped Rust local. |
 
-≥3 intersecting axes ⇒ **edge-dense ⇒ per-slice plan-review mandatory**. Slices 0b/2/3/5/6 carry their own
-enumerations in their own memos; §5 names this explicitly for slices 7-10 too. **Also required
-(added R2 round 6)**: 0c (three substitution classes × 6 compiler files + `vm/dispatch.rs`, plus a
-deliberate user-visible behaviour change per dec. 5 — the program's widest blast radius) and **P**
-(a crate-wide convention sweep with a signature change and completion-kind semantics spanning
-`compiler/`, core `vm/` and `vm/host/` — edge-dense under trigger (b)). 0a and D are narrow enough
+≥3 intersecting axes ⇒ **edge-dense ⇒ per-slice plan-review mandatory** — *and* ⇒ the row is an
+umbrella under §5's terminality criterion, since the rule quoted there says the plan-review does not
+discharge the split. Applied to the rows this section had already flagged (0b/2/3/5/6, plus 0c for
+the three substitution classes × 6 compiler files × a deliberate user-visible behaviour change per
+dec. 5, plus **P** for a convention sweep spanning `compiler/`, core `vm/` and `vm/host/`): §5 now
+mints sub-slices for 0b, 0c, P, 2, 6, 7, 8 and 10, and each sub-slice carries its own
+coupled-invariant enumeration in its own memo. 3 and 5 stay terminal and carry theirs.
+0a and D are narrow enough
 to skip. ⚠ **Withdrawn for both (§18).** 0a's is moot — it shipped, and the measured axis count was
 **6**. **D is re-adjudicated here rather than left between two contradicting sites: it needs its own
 plan-review.** Its charter is to *delete* opcodes on the strength of a re-derived §2.3 set, and §2.3
@@ -459,7 +509,7 @@ constraint is recorded now rather than discovered in Slice 4).
 | ECMA-262 §7.4.4 GetIterator | steps 1-2 | `kind = sync` selects `GetMethod(obj, %Symbol.iterator%)` | `Op::ArraySpread` (existing) | ✓ | yes |
 | ECMA-262 §7.4.4 GetIterator | step 3 | `method` undefined → TypeError (non-iterable) | `Op::ArraySpread` (existing) | ✓ | yes |
 | ECMA-262 §7.4.10 IteratorStepValue | steps 1-5 | per-element drain | `spread_iter_loop` (existing) | ✓ | yes |
-| ECMA-262 §7.4.11 IteratorClose | steps 1-8 | abrupt completion mid-drain | — | n/a (**not reached from [C19]** → Slice 0b) | yes |
+| ECMA-262 §7.4.11 IteratorClose | steps 1-8 | abrupt completion mid-drain | — | n/a (**not reached from [C19]** → Slice 0bc) | yes |
 | ECMA-262 §13.3.9.1 Evaluation (optional chain) | step 3 | nullish → return `undefined` **before** ChainEvaluation | optional-call short-circuit (edge 12) | ✓ | yes |
 | ECMA-262 §13.3.9.2 ChainEvaluation | step 3 | `OptionalChain : ?. Arguments` — optional **call** `f?.(...a)` → EvaluateCall. ⚠ **Not universal (Codex R2)**: for `o.m?.(...a)` the callee is still a *property Reference*, so §13.3.6.2 EvaluateCall step 1.a.i must pass `o` as `this`. `compile_optional_chain_expr` (`expr_member.rs:146`) compiles the `Member` base **as a value** and selects `CallMethod` only when a preceding member sits inside `chain`, so this spelling has **already lost its receiver at `658cc302`** — lowering it to `CallSpread` preserves the silent-wrong result. Needs a member-reference-base call shape plus edges for `o.m?.(...a)` and `o?.m?.(...a)` | `Op::CallSpread` (**+ a receiver-preserving form**) | ✓ | yes |
 | ECMA-262 §13.3.9.2 ChainEvaluation | step 6 | `OptionalChain : OptionalChain Arguments` — optional **method** call `o?.m(...a)` → EvaluateCall | `Op::CallMethodSpread` (`expr_member.rs:184`) | ✓ | yes |
@@ -492,7 +542,7 @@ and why a **call-shape** split stays forbidden (I-3) — but the gate itself is 
 2. **M here measures coverage *depth on one algorithm*, not scope breadth.** K=1: every row is
    ECMA-262, and 25 of 32 rows are the single call-argument evaluation path viewed through the five
    call shapes. **7 rows are explicit `n/a` out-of-scope hand-offs** (3 TemplateLiteral → Slice 4,
-   [C20] steps 1.b.iii and 6, [C36] → Slice 0b, [C22] contrast) — i.e. rows that document what this
+   [C20] steps 1.b.iii and 6, [C36] → Slice 0bc, [C22] contrast) — i.e. rows that document what this
    slice does *not* do.
 3. **The metric moved for the right reason and should not be gamed.** M rose 23 → 27 → 31 purely
    because rounds 2-4 *added* honest step-level and `n/a` rows; the implementation scope never grew.
@@ -539,16 +589,16 @@ exactly the class that produced the §1.2 retraction:
 3. **wrong constant** — a plausible-looking substitute value (`expr_object.rs:117-121` empty-string
    key; `expr_ops.rs:147` `Pop; PushTrue` for `delete this.#x`);
 4. **wrong arity** — the right *kind* of value in the wrong *count* (`expr_member.rs:70-75`, the
-   call-spread defect itself). Named for completeness; owned by Slice 1b, not 0c, since making it
+   call-spread defect itself). Named for completeness; owned by Slice 1b, not 0ca, since making it
    loud would break every `f(...a)` site that a working implementation is about to fix.
 
 The class-1 and class-2 lists above are the §2.2 table's class-1 / class-2 rows, kept in sync
 deliberately — R2 round 3 caught them as a strict subset, and PR-B's four new rows reproduced
-exactly that, which is how an arm silently drops out of 0c's remit.
+exactly that, which is how an arm silently drops out of 0ca's remit.
 
-**Slice 0c discharges all three program-wide up front** (§5) — with **three** carve-outs, not one:
+**Slice 0ca discharges all three program-wide up front** (§5) — with **three** carve-outs, not one:
 
-- **the two early-SyntaxError sites**, which §2.2 assigns to **0b (parser)** because a runtime throw
+- **the two early-SyntaxError sites**, which §2.2 assigns to **0ba** because a runtime throw
   is the wrong remedy for a parse-time rejection (§9 dec. 15): `expr.rs:186-189` prefix `Spread`
   (class 2) and `expr_ops.rs:147` `delete this.#x` (class 3);
 - **the four `PropertyKey` rows PR-B added or corrected** (`expr_object.rs:26-39`,
@@ -556,10 +606,10 @@ exactly that, which is how an arm silently drops out of 0c's remit.
   `if computed` guard), which §2.2 routes to **`#11-vm-property-key-lowering-unification`** — and the
   `expr_class.rs` `_ =>` arms to **Slice 2** — because making four divergent catch-alls individually
   loud entrenches the duplication the collapse exists to remove (CLAUDE.md *One issue, one way*);
-- **class 4 (wrong arity)**, carved in item 4 above (Slice 1b's, not 0c's).
+- **class 4 (wrong arity)**, carved in item 4 above (Slice 1b's, not 0ca's).
 
 Its scope is derived by a documented
-sweep, not by inspection — see §5 Slice 0c and §9 decision 9. §9 decision 5 records the
+sweep, not by inspection — see §5 Slice 0ca and §9 decision 9. §9 decision 5 records the
 throw-vs-`CompileError` choice.
 
 **I-2 · `assert!` is not rejection** — *for the refusal-of-user-constructs class only*. A compiler
@@ -612,10 +662,10 @@ outside `vm/host/` yet are engine-bound):
   Measured at `658cc302`: `vm/dispatch_objects.rs:404`/`:415` (the `in` operator special-casing
   `DOMStringMap` / `Storage`) and `vm/dispatch_iter.rs:121`/`:132` (for-in named-property exotic
   keys) call `host::dataset::*` / `host::storage::*` from core. I-5's consequence #2 then directs
-  Slice 10 to resolve `Proxy`/`Reflect` × `ObjectKind::HostObject` *inside* core dispatch, i.e. to
+  Slice 10b to resolve `Proxy`/`Reflect` × `ObjectKind::HostObject` *inside* core dispatch, i.e. to
   add more. Whether those are admissible marshalling or inbound violations is undecided here; the
   outbound rule got a Converse precisely because a literal reading stops at the wrong place, and
-  the same is available in this direction. **Slice 10's mandatory plan-review must settle it, and
+  the same is available in this direction. **Slice 10b's mandatory plan-review must settle it, and
   audit these four sites under whatever test it adopts.**
 - ⚠ **The Converse below is contradicted by `vm/host/mod.rs:11-13`'s own layering mandate**, which restricts everything under that directory to engine-bound responsibilities. Carved as `#11-vm-typed-array-family-layering-and-gate` (§8) rather than resolved here — it is a relocation/gating decision, not a wording fix.
 - **Converse (added R2 round 5)**: engine-**gated** is not the same as engine-**bound**. Files under
@@ -643,17 +693,17 @@ outside `vm/host/` yet are engine-bound):
   §23 citation is `:84` and is **§23.2.4.4 ValidateTypedArray**, not the §23.2.3 it was paired with.
   An annotation layered over a normative sentence is the pattern this document is removing; the
   sentence itself now says §23.2.*
-  **Two-layer cases needing explicit disposition in Slice P's memo**: `vm/webidl_sequence.rs`
+  **Two-layer cases needing explicit disposition in Pa's and Pc's memos**: `vm/webidl_sequence.rs`
   (governed by WebIDL §3.2.21) and **`vm/host/structured_clone.rs`** (WHATWG HTML **§2.7.4** StructuredSerialize
   (§2.7.7 StructuredSerializeWithTransfer for the transfer-list path where the `iter_close` at
   `:1062` sat — `:1064` at `658cc302`. ⚠ **Codex R1 corrected the attribution of that site**: it is
   inside `ensure_empty_transfer_list`, whose own docstring calls it a WebIDL `sequence<object>`
   conversion throwing per **WebIDL §3.2.21 step 3**, and its `iter_close` runs while consuming the
   iterable — *before* HTML StructuredSerializeWithTransfer ever receives the list. So the **site
-  stays in the WebIDL half of §5's 7/5 partition**, and it is the *outer native* that is separately
+  stays in the WebIDL half of §6.2a-3's 7/5 partition**, and it is the *outer native* that is separately
   HTML §2.7.4 / §2.7.7. Calling the site HTML's own loop would select the wrong `.return()` and
-  error-precedence remedy in Slice P. The in-code docstring's "§2.9" is drifted; **§5's Slice-P
-  charter owns the retag as a named deliverable** — this clause does not) — ⚠ **the sentence that used to follow here is withdrawn (Codex R3)**: it called the `DataCloneError` an abrupt completion of *HTML's own loop*, contradicting the correction directly above and leaving §6.2a-2 enumerating only four non-ECMA sites. `ensure_empty_transfer_list` is the **WebIDL** conversion; only the outer native is HTML §§2.7.4/2.7.7, and the WebIDL count must follow from that. Superseded text: its abrupt was described as a `DataCloneError` thrown by HTML's own loop body, so a
+  error-precedence remedy in the P family. The in-code docstring's "§2.9" is drifted; **§5's Slice-Pc
+  row owns the retag as a named deliverable** — this clause does not) — ⚠ **the sentence that used to follow here is withdrawn (Codex R3)**: it called the `DataCloneError` an abrupt completion of *HTML's own loop*, contradicting the correction directly above and leaving §6.2a-2 enumerating only four non-ECMA sites. `ensure_empty_transfer_list` is the **WebIDL** conversion; only the outer native is HTML §§2.7.4/2.7.7, and the WebIDL count must follow from that. Superseded text: its abrupt was described as a `DataCloneError` thrown by HTML's own loop body, so a
   step-5 flip changes an HTML-defined error surface, not an ECMA-262 one; round 6 corrected an
   earlier mis-classification of this file as pure ECMA-262).
 
@@ -663,10 +713,10 @@ outside `vm/host/` yet are engine-bound):
   through a host seam, not the core VM; the renderer holds no direct network access (CLAUDE.md
   "Security by structure"). Slice M's memo must draw that line before implementation.
 
-Two named consequences: **Slice 7**'s WeakMap/WeakSet ephemeron work lands in `vm/gc/trace.rs`
+Two named consequences: **Slice 7b**'s WeakMap/WeakSet ephemeron work lands in `vm/gc/trace.rs`
 alongside engine-gated wrapper-store rooting and the keepalive predicate
 (`vm/gc/collect.rs:1149→1235→1341`), and must define identical semantics for non-`engine` builds;
-**Slice 10** must resolve `Proxy`/`Reflect` × `ObjectKind::HostObject` (`vm/object_kind.rs:272`)
+**Slice 10b** must resolve `Proxy`/`Reflect` × `ObjectKind::HostObject` (`vm/object_kind.rs:272`)
 inside core dispatch — a host-side special case would violate the outbound rule.
 
 **I-6 · No sloppy/Annex B surface.** No slice introduces sloppy-mode or Annex B behaviour
@@ -679,15 +729,32 @@ decision (§9 decision 7).
 
 ## §5. Slice plan
 
-Each slice = own PR + own `/elidex-plan-review`. This umbrella is the approved parent making each
-narrowly-scoped slice a **terminal unit** (edge-dense base case).
+Each slice = own PR + own `/elidex-plan-review`.
+
+**Terminality criterion — the rule, quoted from CLAUDE.md § *Design discipline*, "Edge-dense work":**
+
+> ≥3 intersecting invariant axes を束ねる、または正準アルゴリズムが無い subsystem を触る work は
+> (a) **単一 PR に束ねない** — umbrella plan + PR ごとの plan に分割し各 PR を個別に full review、
+> (b) **各 PR は実装前に `/elidex-plan-review` 必須** (judgment でなく rule)、(c) **base case
+> (再帰の終端)** = 承認済 umbrella 配下で plan-review を通った narrowly-scoped per-PR slice は
+> terminal 単位 = 許容される単一 PR
+
+Read (c) in the direction it is written: approval makes a **narrowly-scoped** slice terminal. It does
+not make a row narrowly scoped, and clause (b) says the mandatory plan-review does not discharge (a).
+So the test a row must pass, and the test to apply to any row added later **before** a reviewer
+applies it: *does this row bundle ≥3 intersecting invariant axes, or span more than one governing
+algorithm across layers?* If it does, the row is an umbrella; it states its charter, mints terminal
+sub-slices, and each sub-slice is its own PR under its own plan-review. Sub-slices take the parent's
+id plus a trailing letter, as `9a`-`9d` already do.
+
+This umbrella is the approved parent for every row below that passes that test.
 
 ⚠ **The `Primary module(s)` column is a non-authoritative HINT, not a touch set.** It was written
 against one tree; the slices land months apart against moving code, so a column that reads as a
 specification is wrong by construction — and it duplicates a decision each slice's own **mandatory
 `/elidex-plan-review` already owns**: deriving the touch set against that slice's parent HEAD. Four
 consecutive Codex rounds each checked one more column against current code and found it incomplete
-(0b and P missing `stmt_loop.rs`; Slice 6 missing `stmt_loop.rs` *and* `vm/interpreter.rs`; Slice 8
+(the 0b and P rows missing `stmt_loop.rs`; Slice 6 missing `stmt_loop.rs` *and* `vm/interpreter.rs`; Slice 8
 missing the well-known-symbol table and string-method dispatch) — hopping corner to corner, which is
 the signature of a whole layer generating findings rather than a list needing one more entry.
 **So: derive the touch set at slice time; treat the column as a starting point.** The gaps already
@@ -706,24 +773,24 @@ than file lists: the Deps column, and the prerequisites called out per row.
 **Evidence found by those rounds, kept because it was expensive** (each verified against
 `658cc302`; re-verify at slice time rather than reading forward):
 
-- **Slice 6** cannot work from `stmt.rs` alone. `compile_for_of` (`stmt_loop.rs:62`) takes no
+- **Slices 6a/6b** cannot work from `stmt.rs` alone. `compile_for_of` (`stmt_loop.rs:62`) takes no
   `is_await` and owns every `GetIterator` / `IteratorNext` / body / close path. Worse, `call_internal`
   (`interpreter.rs:629-664`) and `push_js_call_frame` (`:862-912`) both test `is_async` **before**
   `is_generator`, so an async-generator function — whose compiled flags are *both* true — takes the
   ordinary async path and returns a Promise before generator construction is considered. Adding an
   `ObjectKind` and generator natives changes neither entry point, so `ag().next` stays non-functional:
-  Slice 6 needs a distinct async-generator construction path in **both** callers.
-- **Slice 8** cannot complete the `@@match` / `@@replace` surface §1.1 assigns it from
+  6a needs a distinct async-generator construction path in **both** callers.
+- **Slice 8b** cannot complete the `@@match` / `@@replace` surface §1.1 assigns it from
   `natives_regexp.rs` + `globals_primitives.rs`: `well_known.rs:1552-1585` has no `match` / `replace`
   symbol ids, and `natives_string.rs:468` / `:549` special-case `ObjectKind::RegExp` **directly**
   instead of looking up the argument's symbol method — so methods can be installed but never
   dispatched to, and user overrides never honoured.
-- **Slice 0b** cannot work from `stmt.rs` alone either. `compile_forin_left_binding` is at
+- **Slice 0bc** cannot work from `stmt.rs` alone either. `compile_forin_left_binding` is at
   `stmt_loop.rs:308` at `658cc302` (`git grep -n 'fn compile_forin_left_binding' 658cc302`) and is
   where `[a,b]` for-of heads and `for (obj.p in …)` currently reach `emit_unsupported`; `stmt.rs`
-  only delegates `ForIn`/`ForOf` there. A touch set naming only `stmt.rs` leaves 0b's headline cases
+  only delegates `ForIn`/`ForOf` there. A touch set naming only `stmt.rs` leaves 0bc's headline cases
   unimplemented.
-- **Slice P** likewise: `compiler/stmt_loop.rs` did not exist when the columns were first written —
+- **Slice Pb** likewise: `compiler/stmt_loop.rs` did not exist when the columns were first written —
   0a created it by splitting `compiler/stmt.rs`, and it took the `for-of` catch handler's
   `Op::IteratorClose` emit with it (§6.2a-2).
 - **Slice 1a**: `ic_call` / `ic_call_method`'s only callers are in `vm/dispatch.rs`, and their line
@@ -734,40 +801,62 @@ than file lists: the Deps column, and the prerequisites called out per row.
 | # | Slice | Primary module(s) | Slot | Tier | Deps |
 |---|---|---|---|---|---|
 | **0a — MERGED `658cc302`** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | ⚠ **charter, not outcome — the landing was 36 files** (`git show --stat 658cc302`), incl. `compiler/stmt.rs` + new `stmt_loop.rs`, `vm/object_kind.rs`, `vm/interpreter.rs`, `vm/value.rs` and four `vm/host/` files; §16 has the record and §8's cold gate reasons over this column, so read §16 first. Charter was: `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
-| **0b** | *(Deps: **P**)* **Assignment/update target completeness** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of patterns), **parenthesized targets** (`(x)++`, `(x)+=1`, `(a[0])++`, **and the parenthesized _callee_ `(o.m)()`** — one shared `peel_paren` chokepoint, §9 dec. 14), **the flat optional member call `o.m?.()`** (the receiver contract's other half — `compile_optional_chain_expr`'s `prev_is_member` misses a `Member` sitting in the chain's base; `peel_paren` does not reach it, so it is a second edit under the same contract, §2.2 and §6.4 edge 35), `for(obj.p in …)`, **the two early-SyntaxError rejections** (prefix `Spread`, `delete this.#x` — §9 dec. 15), **and the destructured catch parameter `catch ({x})` / `catch ([a])`** — §2.2's `stmt.rs:424-439` row. 0b **gains** that case rather than finding it already in charter: 0b is the only slice that lowers binding patterns in *statement-head* position (`compile_forin_left_binding`, evidence block above), and the catch parameter is the same class of site — a `PatternKind` reached from a statement, matched only for `Identifier` | `compiler/expr_assign.rs`, `compiler/expr_ops.rs`, `compiler/stmt.rs`, `compiler/stmt_loop.rs`, `compiler/expr_member.rs`, `compiler/expr.rs`, `parser/expr.rs` | **new** `#11-vm-assignment-target-completeness` | T1 | **P** |
-| **P** | **`IteratorClose` precedence convention** — completion-kind-dependent `iter_close` signature over **12 sites, partitioned 7 ECMA-262 §7.4.11 / 5 WebIDL §3.2.21.1**. ⚠ **This cell is the authoritative home for that figure**; it is derived, not recalled, by these two commands: `git grep -n "iter_close(" 658cc302 -- crates/script/elidex-js/src \| grep -v "fn iter_close"` → **10** callers, of which 5 are ECMA-262-governed (`dispatch_iter.rs:309`, `:337`, `natives_array_hof.rs:485`, `ops.rs:60`, `host/typed_array_static.rs:798`) and 5 WebIDL-governed (`webidl_sequence.rs:141`, `:149`, `host/url_search_params.rs:318`, `host/headers/parse_init.rs:208`, `host/structured_clone.rs:1064`); plus `git grep -n "emit(Op::IteratorClose)" 658cc302 -- crates/script/elidex-js/src/compiler` → **4** emits, of which the **2** statement-lowering ones (`stmt.rs:661`, `stmt_loop.rs:147`) are ECMA-262-governed and P's, giving **7 / 5**. Re-run both rather than reading the figure forward. *(The earlier "10 ECMA / 5 WebIDL" was residue of the withdrawn flat 15 and was a **subset written as a partition** — the 5 WebIDL sites are 5 of the 10 callers, not a disjoint second group.)* **Excluded, with owners**: the 2 `expr_yield_star.rs` emits (delegation, not §7.4.11 — `#11-vm-yield-delegation-lowering`, §6.2a-3) and the 1 inline re-implementation in `op_array_spread` (dec. 13a assigns its *removal* to Slice 1a; 1a's edge 21 verifies it). **Also a named deliverable**: retag `vm/host/structured_clone.rs`'s drifted in-code `§2.9` to WHATWG HTML §2.7.4 / §2.7.7 (`grep -c '§2\.9'` → **8** occurrences at `658cc302` and at HEAD; 0a touched none). **Also P's, and the same algorithm, not an adjacent one — §7.4.11 step 7**: "If innerResult.[[Value]] is not an Object, throw a TypeError exception" (`webref body ecma262 sec-iteratorclose`). `iter_close` does not implement it: at `658cc302` and at HEAD `d49465d0`, `dispatch_iter.rs:362` ends the `.return()` call with `.map(\|_\| ())` and discards the result, so `{ return() { return 1 } }` is accepted. Without this, P's signature/transport change and its throw-vs-Return tests all pass while normal / `break` / `continue` closure stays non-conformant — the precedence half fixed and the validation half still missing. Deliverables: result-object validation, plus a **primitive-return regression** (an iterator whose `return()` yields a non-Object must make an otherwise-normal close throw a TypeError). **Ordering constraint**: step 7 sits after step 5 (a throw completion returns the *original* completion) and step 6 (an `innerResult` throw returns that), so validation must not fire on either of those paths — check the numbered steps in the `body` output above before wiring it. Gates 0b | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/webidl_sequence.rs`, `vm/host/{typed_array_static,url_search_params,structured_clone,headers/parse_init}.rs`, `compiler/{stmt,stmt_loop}.rs`, `bytecode/opcode.rs` | **new** `#11-vm-iteratorclose-precedence-convention` | T1 | **`#11-vm-typed-array-family-layering-and-gate`** (§8 — P must edit `vm/host/typed_array_static.rs:798`, so the layering/gating decision must settle first) |
-| **0c** | I-1 discharge: **all three** substitution classes → loud throw; **+ §7.2 conformance table**. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are already discharged. `compiler/expr_assign.rs` has no residue at all: of its six §2.2 rows, four are among the nine and the other two carry plain *0a ✅* because 0a **implemented** them. 0c's first act is to **re-run the §2.1 three-pass sweep against 0c's own parent HEAD at implementation time** and derive its file list from that residue. ⚠ **Not at `658cc302`**: the ship order puts **P and 0b** ahead of 0c, so a sweep pinned to `658cc302` reconstructs a pre-0b inventory and makes 0c double-own the destructuring, parenthesized-target and parser cases 0b will already have fixed — producing a stale conformance table or overwriting new behaviour (Codex R1). The list opposite is the pre-0a one and must not be used as the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
-| **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, `vm/dispatch.rs`, `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0c |
+| **0b** | **Assignment/update target completeness — UMBRELLA, not a terminal unit.** The charter as written spanned binding-pattern storage, `IteratorClose` conformance ([C39]→[C36]), optional-call receiver preservation, parser-level early errors and catch-parameter binding initialization — and the row itself recorded that `peel_paren` does **not** reach the optional-call case, so there was no shared lowering chokepoint holding them together. Split below along the mechanism boundaries the charter already named; the sub-slices are ordered and dependent | — | **new** `#11-vm-assignment-target-completeness` (umbrella) | T1 | — |
+| **0ba** | **Parser-level early-error rejections** — prefix `ExprKind::Spread` (`var y = ...x`; the `Ellipsis` arm at `parser/expr.rs:256-263` is ungated) and `delete this.#x` (ECMA-262 §13.5.1.1). Both are parse-time per §9 dec. 15, and `delete <identifier>` — the sibling half of the same spec bullet — is already parser-gated, so the two halves land in one layer. First, because it removes `delete this.#x` from the `delete` arm 0bb reworks | `parser/expr.rs` | `#11-vm-assignment-target-completeness` (0ba) | T1 | — |
+| **0bb** | **References through a wrapper** — the arms that test the **raw** AST and are defeated by an `ExprKind::Paren` (`ast.rs:299`) or by an optional chain, losing the operand's Reference: the parenthesized callee `(o.m)()` (`expr_member.rs:92`) and the parenthesized assign/update targets `(x)++` / `(x)+=1` / `(a[0])++` — the `peel_paren` chokepoint of §9 dec. 14 — plus `delete (o.x)` / `delete o?.x` and `typeof (missingName)` (`expr_ops.rs:114-163`), plus the flat optional member call `o.m?.()` (`expr_member.rs:180-187`), which `peel_paren` does **not** reach: `compile_optional_chain_expr`'s `prev_is_member` reads `chain[i-1]` and never consults the chain's base. One contract — an operand that evaluates to a Reference must arrive at the arm that consumes it — over two mechanisms; §6.4 edge 35 | `compiler/expr_member.rs`, `compiler/expr_ops.rs`, `compiler/expr_assign.rs`, `compiler/expr.rs` | `#11-vm-assignment-target-completeness` (0bb) | T1 | **0ba** |
+| **0bc** | **Binding-pattern storage** — destructuring assignment (`[a,b]=…`, `({x}=…)`, for-of pattern heads), `for (obj.p in …)`, the dead `AssignTarget::Pattern` arm, and the destructured catch parameter `catch ({x})` / `catch ([a])` (§2.2's `stmt.rs:424-439` row; ECMA-262 §14.15.2 step 5). 0bc **gains** the catch parameter rather than finding it already in charter: it is the only slice lowering a `PatternKind` reached from a statement head (`compile_forin_left_binding`, evidence block above), matched only for `Identifier`. Carries the [C39]→[C36] `IteratorClose` conformance, which is why it waits on **Pb**. Ordered after 0bb because both edit `expr_assign.rs`'s `AssignTarget::Simple` catch-all — §2.2 cites `:210-212` for the parenthesized *and* the destructuring rows | `compiler/expr_assign.rs`, `compiler/stmt.rs`, `compiler/stmt_loop.rs`, `compiler/stmt_destructure.rs` | `#11-vm-assignment-target-completeness` (0bc) | T1 | **Pb**, **0bb** |
+| **P** | **`IteratorClose` precedence convention — UMBRELLA, not a terminal unit.** The charter carried three independently actionable units across three layers with different governing algorithms: the Rust `iter_close` completion/result semantics (core `vm/`), the compiler→bytecode completion transport (`compiler/` + `bytecode/`, which §6.2a-3 records as **design work, not a sweep**, governed by the still-open §9 dec. 2b), and the WebIDL-governed conversions plus the WHATWG HTML citation retag (`vm/host/`). §6.2a-3 already names both axes — transport first, then governing algorithm; this is that partition applied to the slice table. ⚠ **§6.2a-3 and its Slice-P prose stay the authoritative home for the site partition and the two commands that re-derive it** — the sub-slice rows name owners, not counts | — | **new** `#11-vm-iteratorclose-precedence-convention` (umbrella) | T1 | — |
+| **Pa** | **ECMA-262 §7.4.11 `iter_close` semantics** — the completion-kind parameter on the Rust signature, the per-caller audit of the ECMA-262-governed callers, **and §7.4.11 step 7** ("If innerResult.[[Value]] is not an Object, throw a TypeError exception", `webref body ecma262 sec-iteratorclose`), which `iter_close` does not implement: at `658cc302`, `dispatch_iter.rs:362` ends the `.return()` call with `.map(\|_\| ())` and discards the result, so `{ return() { return 1 } }` is accepted. Deliverables: signature + result-object validation + a **primitive-return regression** (an iterator whose `return()` yields a non-Object must make an otherwise-normal close throw a TypeError). **Ordering inside §7.4.11**: step 7 sits after step 5 (a throw completion returns the *original* completion) and step 6 (an `innerResult` throw returns that), so validation must not fire on either path — read the numbered steps in the `body` output before wiring it | `vm/dispatch_iter.rs`, `vm/ops.rs`, `vm/natives_array_hof.rs`, `vm/host/typed_array_static.rs` | `#11-vm-iteratorclose-precedence-convention` (Pa) | T1 | **`#11-vm-typed-array-family-layering-and-gate`** (§8 — Pa edits `vm/host/typed_array_static.rs:798`, so the layering/gating decision must settle first) |
+| **Pb** | **Compiler→bytecode completion transport** — `Op::IteratorClose` is operandless (`bytecode/opcode.rs:284` at `658cc302`, stack effect `[iterator -- ]`) and is emitted from a throw handler *and* the non-throw Return path, so the handler cannot tell them apart. Deliverable is the transport itself (an operand, or separate opcodes) plus the statement-lowering emit sites, with the throw and Return paths tested **separately** — a single fixed argument in the handler gets §7.4.11 step 5 right and steps 6-7 wrong, or the reverse. Governed by **§9 dec. 2b**, which is open, so Pb's plan-review settles it. ⚠ Excluded, with owners: the `expr_yield_star.rs` emits (delegation, not §7.4.11 — `#11-vm-yield-delegation-lowering`, §6.2a-3) and the inline re-implementation in `op_array_spread` (dec. 13a assigns its *removal* to Slice 1a; 1a's edge 21 verifies it). Gates 0bc | `compiler/stmt.rs`, `compiler/stmt_loop.rs`, `bytecode/opcode.rs`, `vm/dispatch_iter.rs` | `#11-vm-iteratorclose-precedence-convention` (Pb) | T1 | **Pa** |
+| **Pc** | **WebIDL-governed conversions** — the `iter_close` callers whose governing algorithm is WebIDL §3.2.21.1, not ECMA-262 §7.4.11; a different algorithm, so their disposition is Pc's own plan-review rather than a parameter on Pa's signature. **Also a named deliverable**: retag `vm/host/structured_clone.rs`'s drifted in-code `§2.9` to WHATWG HTML §2.7.4 / §2.7.7 — `git show 658cc302:crates/script/elidex-js/src/vm/host/structured_clone.rs \| grep -c '§2\.9'` → **8**, and 0a touched none | `vm/webidl_sequence.rs`, `vm/host/url_search_params.rs`, `vm/host/headers/parse_init.rs`, `vm/host/structured_clone.rs` | `#11-vm-iteratorclose-precedence-convention` (Pc) | T1 | **Pa** |
+| **0c** | **I-1 discharge + the permanent conformance table — UMBRELLA, not a terminal unit.** §2.5 already classifies this work as edge-dense (substitution classes × compiler files × a deliberate user-visible behaviour change per dec. 5 — the program's widest blast radius; the figures are §2.5's), and the quoted rule says the mandatory plan-review does not discharge the split. The behaviour change and the permanent test artifact are separate deliverables with separate design questions | — | (invariant, no slot) | — | — |
+| **0ca** | **I-1 discharge** — re-run the §2.2 three-pass sweep against **0ca's own parent HEAD** (not `658cc302`: the ship order puts Pa-Pc and the 0b family ahead of it, so a sweep pinned to `658cc302` reconstructs a pre-0b inventory and makes 0ca double-own cases 0bb/0bc have already fixed), then convert the residue of all three substitution classes to a loud throw per dec. 5. ⚠ **Narrowed by 0a's landing** — the 9 rows marked *0a ✅ loud* in §2.2 are discharged; `compiler/expr_assign.rs` has no residue at all. ⚠ **Pass 3 must be read for arm *content*, not only arm presence** — see §2.2's blind-spot block. The module list opposite is the pre-0a one and is **not** the charter | sweep-derived (§9 dec. 9) — pre-0a list, **stale**: `compiler/{expr,expr_object,expr_ops,expr_class,expr_assign,stmt}.rs` **+ `vm/dispatch.rs`** (the reachable Layer-B arms: `GetPrivate`/`PrivateIn`) | (invariant, no slot) | — | — |
+| **0cb** | **The permanent ES-language conformance table** (§7.2) — `vm/tests/tests_es_language_surface.rs`, row-derivation per §9 dec. 9(b) **plus** the second source §7.2 adds (§1.1/§1.2 absences, one row per Slice 7-10 slot) **plus** §2.2's blind-spot block, and the crash-aware outcome type of §9 dec. 16. Lands after 0ca so its `KNOWN-DIVERGENCE` rows record post-discharge behaviour | `vm/tests/` | (invariant, no slot) | — | **0ca** |
+| **1a** | **Call-spread VM infrastructure** (user-adopted split, §9 dec. 6 — **no call-shape change, plus two named semantic fixes**: decs. 13a + 10; NOT unqualified "behaviour-preserving", see §6.4): `lay_out_call_args` stack-layout helper + `Empty` normalisation + convert `op_super_call_spread` to consume it + correct `op_super_call_spread`'s falsified docstring (the `expr_class.rs:145-152` producer is **spec-required** and is NOT folded — §6.3 / I-3 carve-out) + `ic_call`/`ic_call_method` → `call_ic_idx: Option<usize>` (dec. 11) + remove `op_array_spread`'s `return()` (dec. 13a) + **rooting** the 4 unrooted arg windows (dec. 10 — ⚠ *not* `gc_enabled` bracketing; that was overturned in round 8 because `:893`/`:658` hand off to `make_async_coroutine_and_drive`, which drives the async body) | **`vm/dispatch_helpers.rs`** (home of `lay_out_call_args` — the proven cohesion seam, §5 1000-line note), `vm/dispatch_class.rs`, `vm/dispatch_iter.rs`, `vm/dispatch_ic.rs`, `vm/dispatch.rs`, `vm/interpreter.rs` — **no `compiler/` file** (the fold is withdrawn; edge 32 is a test) | `#11-vm-call-spread-arguments` (shared with 1b) | T1 | 0cb |
 | **1b** | **Call-argument spread — compiler + opcodes**: `compile_call_arguments`/`ArgsForm` + `emit_call` aggregation (dec. 2) + `CallMethodSpread` (dec. 2b) + the 3 handlers + arity-based form selection **+ the I-3 tagged-template input contract, as a deliverable rather than a carry-over note**. §3's TemplateLiteral rows record that `ArgsForm` as specified cannot express GetTemplateObject's `« siteObj »` prefix followed by the substitutions, and §11 assigned the question to 1b — but §6.3 still specifies only `compile_call_arguments(…) -> ArgsForm`, so 1b could satisfy its charter and its tests without producing the path I-3 requires, leaving Slice 4 to change the helper or add a second argument-emission mechanism (the strangler shape I-3 exists to prevent). 1b **defines and tests** the fixed-prefix / item-iterator input contract; its *shape* is 1b's own plan-review to settle. Acceptance condition Slice 4 consumes: §6.3 | `compiler/expr_member.rs`, `expr.rs`, `bytecode/opcode.rs`, `bytecode/disasm.rs`, `vm/dispatch.rs`, **`vm/ops.rs`** (`do_new` §3 rows 17/18, the bound-prefix splice `:696-700` for edge 26, and dec. 12's stack bound — which has no implementation today) | `#11-vm-call-spread-arguments` | T1 | **1a** |
-| **2** | Class **instance** field initializers (public) **+ generic class static-block lowering** — assigned here in §8 because `#11-step9-class-extras` names static blocks in its scope and no slice covered them: `expr_class.rs:457` gives the block's child `FunctionCompiler` the *enclosing* `func_scope_idx`/`current_scope_idx` although `scope/visitor.rs:555` allocated the block its own function boundary, so block-local `let`/`var` resolve against the wrong scope (ECMA-262 **§15.7.11** step 5). Binding isolation and capture are the tests that retire the slot's static-block facet | `compiler/expr_class.rs`, `vm/dispatch.rs`, **`vm/dispatch_class.rs:232-250`** (`construct_synchronous` — the receiver substitution the contract below turns on); **+ `vm/host/custom_elements/`** (no-regression only — see below) | **adopt** `#11-step9-class-extras` | T1 | — |
+| **2** | **Class field initializers + static-block lowering — UMBRELLA, not a terminal unit.** Assigning generic static-block lowering here (§8) put two mechanisms in one row: field initialization turns on base/derived construction timing and custom-element receiver identity, while a static block is a separate lexical function-scope boundary with its own binding isolation and capture. Different governing algorithms — ECMA-262 §15.7.10 / §7.3.32 against §15.7.11 — so they are minted separately | — | **adopt** `#11-step9-class-extras` (umbrella) | T1 | — |
+| **2a** | **Class field initializer receiver, instance and static.** Instance fields (public) are skipped entirely today (`expr_class.rs:428`); the static-field initializer runs with the enclosing function's `this` (§2.2's `expr_class.rs:402-427` row, so `class C { static x = this }` gives `C.x === C` → `false`). Both are ECMA-262 **§15.7.10** ClassFieldDefinitionEvaluation → **§7.3.32** DefineField, which calls the initializer with the field receiver — one contract, two spellings. The two ⚠ contracts stated below this table (initialisation timing; the custom-element post-substitution receiver) are 2a's | `compiler/expr_class.rs`, `vm/dispatch.rs`, **`vm/dispatch_class.rs:232-250`** (`construct_synchronous` — the receiver substitution those contracts turn on); **+ `vm/host/custom_elements/`** (no-regression only) | `#11-step9-class-extras` (2a) | T1 | — |
+| **2b** | **Generic class static-block lowering** — `expr_class.rs:457` gives the block's child `FunctionCompiler` the *enclosing* `func_scope_idx`/`current_scope_idx` although `scope/visitor.rs:555` allocated the block its own function boundary, so block-local `let`/`var` resolve against the wrong scope (ECMA-262 **§15.7.11** step 5). Binding isolation and capture are the tests that retire the slot's static-block facet | `compiler/expr_class.rs` | `#11-step9-class-extras` (2b) | T1 | — |
 | **3** | Super property references | `compiler/expr.rs`, `expr_member.rs`, `vm/dispatch.rs`, **+ the frame-state axis: `vm/interpreter.rs:795-806`, `vm/value.rs:1038-1046`, `bytecode/compiled.rs:74`** | **adopt** `#11-step9-class-extras` | T2 | — |
 | **4** | Tagged templates + `String.raw` | `compiler/expr.rs`, `vm/dispatch.rs` | `#11-vm-tagged-template-literals` | T1 | 1b (I-3 helper) |
-| **5** | Private names complete | `compiler/expr_class.rs`, `expr_member.rs`, `expr_ops.rs`, `expr_assign.rs:202-206`, **`vm/dispatch.rs:1020-1026`** (the `GetPrivate`/`SetPrivate`/`PrivateIn` stub — 0c only makes the reachable arms loud; the implementation is this slice's, and `SetPrivate` is additionally an I-4 connect) | `#11-vm-class-private-fields` + `#11-step9-class-extras` | T1 | 2 |
-| **6** | Async generators + async `for await…of` | `compiler/stmt.rs` (the `is_await: _` discard — `:83` at `658cc302` and at HEAD), `compiler/stmt_loop.rs`, `bytecode/opcode.rs`, `vm/natives_generator.rs`, `vm/object_kind.rs` | **new** `#11-vm-async-generators` | T2 | — |
-| **7** | `Map`/`Set`/`WeakMap`/`WeakSet` | `vm/natives_*`, `vm/object_kind.rs`, `vm/gc/` | `#11-vm-map-set-collections` | T3 | — |
-| **8** | RegExp completion | `vm/natives_regexp.rs`, `vm/globals_primitives.rs` | `#11-vm-regexp-constructor-and-flags` | T3 | — |
+| **5** | Private names complete | `compiler/expr_class.rs`, `expr_member.rs`, `expr_ops.rs`, `expr_assign.rs:202-206`, **`vm/dispatch.rs:1020-1026`** (the `GetPrivate`/`SetPrivate`/`PrivateIn` stub — 0c only makes the reachable arms loud; the implementation is this slice's, and `SetPrivate` is additionally an I-4 connect) | `#11-vm-class-private-fields` + `#11-step9-class-extras` | T1 | 2a |
+| **6** | **Async generators + async iteration — UMBRELLA, not a terminal unit.** Three algorithm families intersect here: async-generator objects (ECMA-262 §27.6), the sync→async iterator adapter (§27.1.4 CreateAsyncFromSyncIterator) and the async form of ForIn/OfBodyEvaluation — and the evidence block above adds a further axis inside the first, two call entry points rather than one | — | **new** `#11-vm-async-generators` (umbrella) | T2 | — |
+| **6a** | **Async-generator objects** — the distinct construction path in **both** call entry points (evidence block above), the `ObjectKind`, and the generator natives, so `ag().next` becomes callable | `vm/natives_generator.rs`, `vm/object_kind.rs`, `vm/interpreter.rs`, `bytecode/opcode.rs` | `#11-vm-async-generators` (6a) | T2 | — |
+| **6b** | **`for await (x of …)` lowering** — the `is_await: _` discard and the `for-of` lowering that takes no `is_await` (evidence block above). Separable from 6a and testable without it: `for await` over a **sync** iterable is §27.1.4, not §27.6 | `compiler/stmt.rs`, `compiler/stmt_loop.rs`, `vm/dispatch_iter.rs` | `#11-vm-async-generators` (6b) | T2 | **6a** |
+| **O** | **Object-spread source coercion** — `op_spread_object` copies only when source **and** destination are both `JsValue::Object` (`vm/dispatch_objects.rs:137` at `658cc302`), so `{...'ab'}` and `const {...r} = 'ab'` produce empty objects. ECMA-262 **§7.3.25** CopyDataProperties returns early for `undefined`/`null` (step 1) and otherwise applies `ToObject` (step 2). Minted because §2.2 is derived from `compiler/` and §2.3's membership test is zero emit sites, so a live defect in a connected handler had no owner — the first blind-spot case in §2.2 | `vm/dispatch_objects.rs` | **new** `#11-vm-object-spread-source-coercion` | T1 | — |
+| **N** | **Arrow-function lexical `new.target`** — `op_new_target` (`vm/dispatch_class.rs:29-37`) reads only the current frame's `CallMode`, and `FunctionObject` carries `captured_this` (`vm/value.rs:598`) with no lexical `new.target` counterpart, so a read inside an arrow yields `undefined`. ECMA-262 **§9.4.5** GetNewTarget resolves the surrounding function environment. ⚠ Shares the closure-capture seam (`FunctionObject`, `vm/value.rs`) and both call entry points with **Slice 3**, which threads `[[HomeObject]]` through the same two — different AO, same seam, so the two coordinate rather than depend | `vm/value.rs`, `vm/dispatch_class.rs`, `vm/interpreter.rs` | **new** `#11-vm-arrow-lexical-new-target` | T1 | — |
+| **7** | **`Map`/`Set`/`WeakMap`/`WeakSet` — UMBRELLA, not a terminal unit.** The weak half intersects a different subsystem: entry liveness is a GC-tracing invariant, and §5's 1000-line note puts `vm/gc/collect.rs` (2074) and `vm/gc/trace.rs` (1255) in this row's reach. Keyed-collection semantics and GC liveness are separate invariant axes | — | **new** `#11-vm-map-set-collections` (umbrella) | T3 | — |
+| **7a** | **`Map` / `Set`** — SameValueZero keying, insertion-order iteration, and the entries/keys/values iterator surface. No GC-tracing change | `vm/natives_*`, `vm/object_kind.rs` | `#11-vm-map-set-collections` (7a) | T3 | — |
+| **7b** | **`WeakMap` / `WeakSet`** — weakly-held keys, so the deliverable is the GC-tracing side: entries must not keep their keys alive, and collection must remove them | `vm/natives_*`, `vm/object_kind.rs`, `vm/gc/` | `#11-vm-map-set-collections` (7b) | T3 | **7a** |
+| **8** | **RegExp completion — UMBRELLA, not a terminal unit.** The evidence block above shows the charter spanning two mechanisms in different files: the RegExp instance/constructor surface, and the well-known-symbol **dispatch** path inside the String methods. The second is not a RegExp deliverable at all — it is how `String.prototype.match`/`replace` find a method — so one PR would either skip it or rewrite string dispatch under a RegExp charter | — | `#11-vm-regexp-constructor-and-flags` (umbrella) | T3 | — |
+| **8a** | **RegExp constructor + flag accessors** — the `.global` / `.ignoreCase` / `.multiline` / `.sticky` accessors §1.1 found absent, and the constructor surface | `vm/natives_regexp.rs`, `vm/globals_primitives.rs` | `#11-vm-regexp-constructor-and-flags` (8a) | T3 | — |
+| **8b** | **`@@match` / `@@replace` symbol dispatch** — the missing symbol ids and the direct `ObjectKind::RegExp` special-casing inside the String methods (evidence block above). Deliverable is `GetMethod`-based dispatch, with the RegExp-side methods it then reaches | `vm/well_known.rs`, `vm/natives_string.rs`, `vm/natives_regexp.rs` | `#11-vm-regexp-constructor-and-flags` (8b) | T3 | **8a** |
 | **9** | **Builtin prototype/static surface — UMBRELLA, not a terminal unit.** The charter as written spanned the Array / String / Object prototype-and-static surface, plus iterator-protocol semantics (`Object.fromEntries`), plus RegExp-argument dispatch inside string methods (`matchAll` / `replaceAll`) — intersecting invariant axes that the CLAUDE.md *Edge-dense work* rule forbids in one PR, and that rule states requiring another plan-review does not discharge the split. **Its scope is a derivation rule, and running that derivation is its first step** — not the sub-slice rows below. The rule: *every main-body ECMA-262 builtin constructor / prototype surface reachable from the global object*, **minus Annex B (I-6)**, **minus any surface another slot already owns**. The umbrella runs it, then mints **one terminal sub-slice per family** from its output, each its own PR under its own mandatory `/elidex-plan-review`; this umbrella is the approved parent that makes each of them a base case. The sub-slice rows below are **what the derivation has produced so far**, so a family absent from them is *in scope and un-minted*, never out of scope — the `Promise` row was minted exactly that way after the enumeration read as the boundary. ⚠ **Edition-agnostic charter.** The unit is *builtin prototype/static surface*, not an ECMAScript edition: the ES2021-2024 probe list is the **seed that found the class, not the boundary**. ⚠ **Minus Annex B (I-6)**, program-wide across every sub-slice: "derive a complete builtin inventory from the spec" executed literally pulls in §B.2.1 Additional Properties of the Global Object and §B.2.2 Additional Properties of the String.prototype Object (`webref heading ecma262 B.2.1` / `B.2.2`), plus `Date.prototype.getYear`/`setYear` and `RegExp.prototype.compile` — LegacySemantics compat territory, which §4 I-6 forbids program-wide. The inventory is the **main-body** surface. ⚠ **The `{1n:…}` key fix is NOT here.** It is not builtin work: the arm sits inside `expr_object.rs`'s `PropertyKind::Init` key match, so it belongs to `#11-vm-property-key-lowering-unification` (§2.2, §8) | — | **new** `#11-vm-builtin-prototype-static-sweep` (umbrella) | T3 | — |
 | **9a** | **`Array` prototype/static surface.** Seeded by the §1.2 absence probe (`at` / `findLast` / `findLastIndex` / `toSorted` / `toReversed` / `toSpliced` / `with`); derives its own inventory at its start from ECMA-262 **§23.1.2** (Properties of the Array Constructor = the statics) and **§23.1.3** (Properties of the Array Prototype Object), rather than from that probe | `vm/natives_array.rs` | `#11-vm-builtin-prototype-static-sweep` (9a) | T3 | — |
 | **9b** | **`String` prototype surface.** Derives its inventory from ECMA-262 **§22.1.3** at its start. Named deliverables: `String.prototype.matchAll` (absent) and `String.prototype.replaceAll`'s RegExp behaviour — measurements in the §8 slot row, which is their permanent home — **plus the `natives_string.rs` §21.1.3 → §22.1.3 citation retag** (§21.1.3 is *Properties of the Number Prototype Object*; the String prototype is §22.1.3 — both verified with `webref heading ecma262`), which lands here because Slice P does not touch this file | `vm/natives_string.rs`, `vm/natives_string_ext.rs` | `#11-vm-builtin-prototype-static-sweep` (9b) | T3 | — |
 | **9c** | **`Object` statics.** Named deliverables: `Object.fromEntries`'s iterator protocol (ECMA-262 §20.1.2.7 step 6 → `AddEntriesFromIterable` §24.1.1.2), `Object.hasOwn`, `Object.groupBy` — measurements in the §8 slot row | `vm/natives_object/` | `#11-vm-builtin-prototype-static-sweep` (9c) | T3 | — |
 | **9d** | **`Promise` constructor statics.** Minted by the derivation above rather than by a probe list — an output the rows 9a-9c did not carry. Measured: `crates/script/elidex-js/src/vm/globals_async.rs:58-66` registers exactly `resolve` / `reject` / `all` / `allSettled` / `race` / `any` (identical at `658cc302` and HEAD `d49465d0` — `git diff 658cc302 HEAD -- crates/script/elidex-js/src/vm/globals_async.rs` is empty), while ECMA-262 **§27.5.4** Properties of the Promise Constructor also carries **§27.5.4.8** `Promise.try` and **§27.5.4.9** `Promise.withResolvers` — main body, not Annex B (`webref heading ecma262 27.5.4`). Both absent in-tree: `grep -rl 'withResolvers' crates/script/elidex-js/src` → **0** files; `grep -c '"try"' crates/script/elidex-js/src/vm/globals_async.rs` → **0**. Promise Objects is **§27.5**, not §27.2 — `webref heading ecma262 27.2` returns *Resource Management*, so re-derive the number rather than recalling it. Derives its own inventory from §27.5.4 and **§27.5.5** (Properties of the Promise Prototype Object) at its start | `vm/globals_async.rs` | `#11-vm-builtin-prototype-static-sweep` (9d) | T3 | — |
-| **10** | `Proxy`/`Reflect` | `vm/object_kind.rs`, `vm/ops_property.rs` | `#11-vm-proxy-reflect` | T3 | 7 |
+| **10** | **`Proxy`/`Reflect` — UMBRELLA, not a terminal unit.** `Reflect` is a static-method surface (ECMA-262 §28.1) that ships and tests on its own; `Proxy` is an exotic-object algorithm (§10.5) whose traps intersect every essential internal method plus their invariant checks. Different governing algorithms, and the second reaches every property operation | — | **new** `#11-vm-proxy-reflect` (umbrella) | T3 | — |
+| **10a** | **`Reflect` statics** (ECMA-262 §28.1) — each mirrors an essential internal method and needs no exotic object | `vm/ops_property.rs` | `#11-vm-proxy-reflect` (10a) | T3 | — |
+| **10b** | **`Proxy` exotic object** (ECMA-262 §10.5) — the trap table and the invariant checks each internal method must enforce | `vm/object_kind.rs`, `vm/ops_property.rs` | `#11-vm-proxy-reflect` (10b) | T3 | **10a**, **7b** |
 | **D** | **Dead-opcode sweep** — mechanically re-derive the §2.3 set and delete what no slice connected. ⚠ **Slice M is outside this sequence** (promoted to its own umbrella), and §2.3 assigns `Op::ImportMeta` / `Op::DynamicImport` to M's connect work — so at the documented "after 1b-5" point D would have to either delete two opcodes M owns or leave them dead and fail its own connect-or-delete criterion (Codex R1). **M's connects are a prerequisite for D.** That prerequisite now has a **§8 row with a slot id** (`#11-vm-module-opcode-connects`) instead of a by-name prose carve-out: an unschedulable dependency whose escape hatch is a permanent third state is precisely what I-4 forbids, and a carve-out stated only in prose is unretirable (§8 Forward rule) | `bytecode/opcode.rs`, `vm/dispatch.rs` | **adopt** `#11-dead-opcode-removal` | — | after 1b-5 **and** `#11-vm-module-opcode-connects` |
 | **M** | **ES modules — PROMOTED TO ITS OWN UMBRELLA, outside this plan's slice sequence** (R2 round 5). It carries the `stmt.rs:31-39` precondition, 3 §2.2 rows (⚠ two of them — the module-binding update and for-in head — are **0a ✅ loud**, so M inherits their *implementation*, not their conversion; I-2's `expr_assign.rs:102` `unreachable!` is likewise already converted), I-5's host-fetch-seam boundary, and the `ImportMeta`/`DynamicImport` connects = ≥3 intersecting invariant axes, so the CLAUDE.md edge-dense rule forbids one PR. Only the **`#11-vm-dynamic-import`** T1 carve stays homed here (0c makes `import()` loud; the Promise-returning impl belongs to the module umbrella) | — | `#11-vm-dynamic-import` | T1 | — |
 | **—** | `Function`/`eval` — ⚠ **had no slice, no deps and no owner (Codex R5)**; §9 dec. 7 recorded the policy decision as unowned, so I-6's core strict-mode `eval` surface could stay unimplemented forever inside a *completeness* program. Whichever trigger fires, that work opens its own umbrella (it is a policy call, not a language slice). ⚠ **The Why/Trigger/Re-eval triple now lives in §8's table**, which is this document's registry — a full deferral triple carried in a slice-table row is invisible to §8's derive recipe (Forward rule). This row is a pointer | — | `#11-vm-function-constructor-global` (§8) | policy | §9 dec. 7 |
 
 **Ordering rationale.** 0a first on severity (process abort). *(Rounds 2-9 put a `vm/dispatch.rs`
-prereq split ahead of it; removed — see the 1000-line check below.)* 0b next — at the baseline a silent no-op (0a has since made it a scoped throw; the *implementation* is still 0b's) on the
-ubiquitous swap/destructure idiom, and it shares `expr_assign.rs` with 0a. 0c discharges I-1
-program-wide and lands the conformance table (§7.2) so every later slice inherits a baseline.
-**P** must land **before 0b** (0b's [C39]→[C36] conformance claim inherits the inverted contract
-otherwise), and **`#11-vm-typed-array-family-layering-and-gate`** (§8) must be settled before **P**. **1a then 1b** proceed per the registered slot ordering and standing directive. 2/3 follow
-(new machinery). 5 depends on 2 (`#x = 1` reuses the field-initializer mechanism). 4 depends on **1b** (I-3
+prereq split ahead of it; removed — see the 1000-line check below.)* The 0b family next — at the baseline a silent no-op (0a has since made it a scoped throw; the *implementation* is still the family's) on the
+ubiquitous swap/destructure idiom, and it shares `expr_assign.rs` with 0a; within it, `0ba → 0bb → 0bc`
+per the Deps column. 0ca discharges I-1
+program-wide and 0cb lands the conformance table (§7.2) so every later slice inherits a baseline.
+**Pb** must land **before 0bc** (0bc's [C39]→[C36] conformance claim inherits the inverted contract
+otherwise), Pb depends on **Pa**, and **`#11-vm-typed-array-family-layering-and-gate`** (§8) must be settled before **Pa**. **1a then 1b** proceed per the registered slot ordering and standing directive. 2a/2b/3 follow
+(new machinery). 5 depends on 2a (`#x = 1` reuses the field-initializer mechanism). 4 depends on **1b** (I-3
 requires reusing the arg helper). D runs after the connecting slices so it deletes only what
-remains.
+remains. **O** and **N** sit outside that chain — no row's deliverable is an input to either. N's own
+row records the seam it shares with Slice 3, which is a coordination note, not an ordering.
 
 **`import()` note**: tiered **T1** (silent `undefined` in ordinary script context), so it is *not*
-deferred with the rest of ES modules as R1 implied. Interim: 0c makes it throw loudly; the real
+deferred with the rest of ES modules as R1 implied. Interim: 0ca makes it throw loudly; the real
 implementation lands with Slice M.
 
 **Slice M precondition (found by the §2.2 pass-3 structural sweep)**: `StmtKind::ImportDeclaration`
@@ -795,7 +884,7 @@ regression like `const m = new B().m; m.call(receiver)`. Original finding: Slice
 off it). The §2.2/§2.3 Layer-A/Layer-B decomposition has no row for this third (frame-state)
 dimension; Slice 3's memo must add one.
 
-⚠ **Slice 2 field-initialisation ordering — the contract below is wrong as stated (Codex R2, P1).**
+⚠ **Slice 2a field-initialisation ordering — the contract below is wrong as stated (Codex R2, P1).**
 Applying fields to `construct_synchronous`'s **final, post-substitution** value is not what the spec
 does. ECMA-262 **§10.2.2** `[[Construct]]` initialises a *base* class's instance elements **before**
 the constructor body and performs the explicit-Object-return substitution **afterwards**; a *derived*
@@ -807,7 +896,7 @@ constructor that returns an object without calling `super()` acquires fields it 
 established there** — not the value `construct_synchronous` finally returns. The custom-element
 concern below is real and unchanged; it constrains *which* receiver, not *when*.
 
-**Slice 2 custom-element receiver contract** (R2 round 2): `construct_synchronous`
+**Slice 2a custom-element receiver contract** (R2 round 2): `construct_synchronous`
 (`vm/dispatch_class.rs:232-250`) substitutes the receiver ("object-return-wins, else pre-alloc"), and
 `vm/host/custom_elements/html_element.rs:201` returns a *cached wrapper* on the upgrade path
 (`upgrade.rs:315` is the only host caller). If [C27] `InitializeInstanceElements` runs against the
@@ -878,7 +967,7 @@ narrow bands **inside a 370-line file**, and everything outside them, including 
 **whole** `dispatch_iter.rs`, not a remainder: `git show <rev>:…/vm/dispatch_iter.rs | wc -l` gives
 370 at `f7d9b5ce`, `658cc302` and HEAD alike. An earlier reading of this sentence as "the rest of
 the file, 370 lines" double-counted.)* A file-level reading would forbid
-Slices **1a** and **P** from the file both their module columns name, and P's whole deliverable is
+Slices **1a** and **Pa** from the file both their module columns name, and Pa's whole deliverable is
 re-signaturing that function. Read the predicate in **both directions**: do not place a core-only
 body *inside* an engine-gated region, **and** do not extract an engine-bound arm body into a
 currently core-only file by wrapping it in a fresh `#[cfg(feature = "engine")]`. That rule is the
@@ -890,7 +979,7 @@ immediately" — schedule is judgment-supporting information, not a design const
 **Files the watch list still owns** (`#11-d17b-dispatch-expr-file-growth`): `vm/interpreter.rs` 1366
 (1a + Slice 3), `vm/value.rs` 1187 (Slice 3). **Not on any watch list and >1000**:
 `vm/object_kind.rs` 1700 (Slices 6/7/10 — and see the cross-lane note in §8),
-`vm/gc/collect.rs` 2074, `vm/gc/trace.rs` 1255 (Slice 7). Each needs a cohesion verdict in its own
+`vm/gc/collect.rs` 2074, `vm/gc/trace.rs` 1255 (Slice 7b). Each needs a cohesion verdict in its own
 slice's memo — and this reversal is the precedent: **measure the file's shape before assuming a
 split**.
 
@@ -941,7 +1030,7 @@ This matters because §3.1 records that **1b** **deliberately increases
 R2 round 3 scoped this to "the same 14 lines"; round 4 corrected it to "5 sites"; round 5 to "~15";
 round 6 to "14". ⚠ **All four of those figures are withdrawn, and so is the flat "15" that followed
 them** — §6.2a-3 shows why: they flattened three different transport mechanisms into one count, so a
-remedy stated at one of them silently failed to reach the others. **§5's Slice-P cell is the
+remedy stated at one of them silently failed to reach the others. **§6.2a-3 is the
 authoritative home** for what P sweeps (12 sites, partitioned 7 ECMA-262 / 5 WebIDL) and carries the
 two commands that re-derive it. Five successive enumerations, each wrong; what this section is for
 is the *method*, not the number. The raw greps:
@@ -953,7 +1042,7 @@ grep -rn "Op::IteratorClose"  crates/script/elidex-js/src/compiler/             
 grep -rn "takes precedence\|step 6-7" crates/script/elidex-js/src/                    # 17 (classify every hit)
 ```
 
-### §6.2a-3 Slice P is partitioned by TRANSPORT first, then by governing algorithm
+### §6.2a-3 Slice P is partitioned by TRANSPORT first, then by governing algorithm — §5 mints Pa/Pb/Pc from it
 
 ⚠ **Added after Codex R1+R2 both raised findings against P's charter (the loop's ≥2-round
 root-check).** The root was not either finding: it was that **"15 sites" flattened three different
@@ -969,11 +1058,28 @@ both are needed, and this one comes first because it decides what the deliverabl
 | **Bytecode emits** in `expr_yield_star.rs` (`:146`, `:157`) | 2 | **Not P's problem at all** | ⚠ **Reclassified out of P (Codex R3).** These are not completion-kind variants of §7.4.11: on an outer `.throw(e)` / `.return(v)` during delegation, **ECMA-262 §15.5.5 steps 8.b/8.c** invoke the *inner* iterator's corresponding method **with the injected value**, validate the result, and **continue delegating when `done` is false**. The compiler's own docstring says it reduces both protocols to a plain `IteratorClose`. No operand or split-opcode transport can carry an injected value or resume delegation, so this needs a **yield-delegation lowering**, tracked separately from P |
 | **Inline re-implementation** in `op_array_spread` | 1 | n/a | **not P's** — dec. 13a assigns its removal to Slice 1a |
 
-So P sweeps **12** — 10 Rust callers plus the 2 statement-lowering emits — of which only the 10 are
+So the P family sweeps **12** — 10 Rust callers plus the 2 statement-lowering emits — of which only the 10 are
 reachable by the signature change the charter used to describe as the whole remedy. The 2 `yield*`
-sites leave P's scope entirely and the 1 inline site is 1a's. **P's plan-memo must settle the bytecode transport before it counts as
+sites leave P's scope entirely and the 1 inline site is 1a's. **Pb's plan-memo must settle the bytecode transport before it counts as
 planned**, and must test the throw and Return paths separately — a single fixed argument in the
 handler gets ECMA-262 §7.4.11 step 5 right and steps 6-7 wrong, or the reverse.
+
+⚠ **This section is the authoritative home for the site partition** (it moved here when §5 split the
+Slice-P row into Pa/Pb/Pc; the sub-slice cells name owners, not counts). Derived, not recalled, by
+these two commands — re-run them rather than reading the figures forward:
+
+```
+git grep -n "iter_close(" 658cc302 -- crates/script/elidex-js/src | grep -v "fn iter_close"   # 10 callers
+git grep -n "emit(Op::IteratorClose)" 658cc302 -- crates/script/elidex-js/src/compiler        #  4 emits
+```
+
+Of the 10 callers, 5 are ECMA-262-governed (`dispatch_iter.rs:309`, `:337`, `natives_array_hof.rs:485`,
+`ops.rs:60`, `host/typed_array_static.rs:798`) and 5 WebIDL-governed (`webidl_sequence.rs:141`, `:149`,
+`host/url_search_params.rs:318`, `host/headers/parse_init.rs:208`, `host/structured_clone.rs:1064`); of
+the 4 emits, the 2 statement-lowering ones (`stmt.rs:661`, `stmt_loop.rs:147`) are ECMA-262-governed —
+giving **7 / 5**. *(The earlier "10 ECMA / 5 WebIDL" was residue of the withdrawn flat 15 and was a
+**subset written as a partition** — the 5 WebIDL sites are 5 of the 10 callers, not a disjoint second
+group.)* The 7 are Pa's and Pb's, the 5 are Pc's.
 
 *Method note, recorded because this program keeps paying for it: the flat count read as rigour —
 it was mechanically derived and it was correct — while hiding that its members did not share a
@@ -999,7 +1105,7 @@ forward.**
 | the `yield*` **throw** route | `compiler/expr_yield_star.rs:146` | `:146` |
 | the finally route | `:157` | `:157` |
 
-⚠ **`compiler/stmt_loop.rs` is therefore in Slice P's touch set** — the file did not exist when §5's
+⚠ **`compiler/stmt_loop.rs` is therefore in Slice Pb's touch set** — the file did not exist when §5's
 Slice-P module column was written. That gap is recorded once, in §5's **evidence block**; the module
 column is a non-authoritative hint and this sentence must not re-assert the authority §5's demotion
 removed by claiming the column "has been updated".
@@ -1015,8 +1121,8 @@ throw take precedence over the triggering abrupt completion". Exactly four sites
 `grep -rn "return_str" crates/script/elidex-js/src/vm/` returns exactly **2** implementation sites
 (`:57` inline, `:359` inside `iter_close`), so there is exactly one such duplicate. Consequences:
 (a) fixing only `op_array_spread` does not advance P's sweep at all — the site is not in either
-grep, and §5's Slice-P cell excludes it by name; (b) Slice P
-is sequenced before 0b and hence before 1a, so this site keeps the
+grep, and §6.2a-3 excludes it by name; (b) the P family
+is sequenced before 0bc and hence before 1a, so this site keeps the
 inverted convention until dec. 13a lands — and if 13a were rescoped the site stays inverted
 invisibly. **The concept grep *was* run** (`takes precedence\|step 6-7` → 17 hits) **but its hits
 were dismissed as "incl. unrelated" and never classified — which is exactly how this one dropped
@@ -1033,7 +1139,7 @@ steps (verified `body webidl create-sequence-from-iterable | grep -ci iteratorcl
 control `body ecma262 sec-array.from` → 1, so the grep discriminates). For those sites the question
 is **not** precedence but whether `return()` should be called *at all* — the same prior question
 §2.5 C×F and §6.2a already answered ("remove it") for [C19]/[C22], never propagated to this list.
-**§5's Slice-P cell carries that split (7 ECMA-262 / 5 WebIDL) with its derivation**, and I-5's
+**§6.2a-3 carries that split (7 ECMA-262 / 5 WebIDL) with its derivation**, and I-5's
 "pure ECMA-262 language surface" label is wrong for all four of these files (their shared helper
 `webidl_sequence.rs` is already flagged as a WebIDL two-layer case — same governance, inconsistent
 labels).
@@ -1056,11 +1162,11 @@ an "abrupt-only" reading would mishandle.
 drains through `IteratorStepValue` *until* `[[Done]]` becomes true — so mandating a dedicated
 `iter_close` for `[...rest] = it` makes a custom iterator observe `.return()` after **normal
 exhaustion**, a user-visible divergence. The obligation is a **conditional** close around early
-termination and abrupt pattern evaluation. Slice 0b must pin both directions: `[a] = it` closes an
+termination and abrupt pattern evaluation. Slice 0bc must pin both directions: `[a] = it` closes an
 unfinished iterator, `[...r] = it` does **not** close an exhausted one.
 
-**Why this lands on the critical path**: §8 declares Slice 0b "owns the `IteratorClose` obligation
-1a/1b do not". Slice 0b will call `iter_close` and thereby **inherit the inverted contract**,
+**Why this lands on the critical path**: §8 declares the 0b family "owns the `IteratorClose` obligation
+1a/1b do not". Slice 0bc will call `iter_close` and thereby **inherit the inverted contract**,
 making its [C39]→[C36] conformance claim false. And because the sites span `compiler/`, core `vm/`
 and `vm/host/`, fixing only `op_array_spread` leaves every one of P's sites inverted — including the
 `for-of` catch handler (`stmt_loop.rs:147` at `658cc302`), which is the path most user code actually
@@ -1071,18 +1177,18 @@ four sites but not the fifth; round 4 caught the *precedence* concept having its
 siblings. Both are [[feedback_semantic-sibling-selfseed-and-regate-breadth]] — the lesson is to grep
 the **concept**, and a concept discovered mid-paragraph needs its own sweep, not an inherited scope.
 
-⚠ **After 1a, `op_array_spread` is [C19]/[C22]-only.** §5 sequences **0b before 1a**, and 0b owns
+⚠ **After 1a, `op_array_spread` is [C19]/[C22]-only.** §5 sequences **the 0b family before 1a**, and 0bc owns
 [C39], whose rest form (`[a, ...rest] = it`) needs a drain-into-array and whose spec *requires*
 `IteratorClose` — while `op_array_spread`/`spread_iter_loop` is the only in-tree drain-into-array.
-**0b must therefore give its rest path an explicit `iter_close` site of its own**, not reuse this
+**0bc must therefore give its rest path an explicit `iter_close` site of its own**, not reuse this
 drain, and §7.2 must pin it. (Executing dec. 13a's propagation instruction here, in §6.2a, where a
-0b implementer reads it.)
+0bc implementer reads it.)
 
 **Decision** (§9 decision 13, restated): the drain fix is **1a's** (it is the reuse precondition),
-but the **precedence sweep is its own unit** — a cross-cutting site set (§5's Slice-P cell has the
+but the **precedence sweep is its own unit** — a cross-cutting site set (§6.2a-3 has the
 figure and its derivation), a signature change on the shared helper, and
 a completion-kind distinction. Carve `#11-vm-iteratorclose-precedence-convention` and sequence it
-**before Slice 0b** (whose conformance claim depends on it), not inside 1a.
+**before Slice 0bc** (whose conformance claim depends on it), not inside 1a.
 
 ### §6.3 Design — split across Slices 1a and 1b
 
@@ -1322,8 +1428,8 @@ at `expr_member.rs:186` (`658cc302`) and still passes `undefined` as the receive
 
 **Slice allocation of this matrix** (added R2 round 5): edges **21** (`return()` not called), **27/28**
 (GC window) and **32** belong to **1a** — they are the assertions for its two semantic fixes (decs.
-13a and 10) and its docstring carve-out. Edge **35** belongs to **0b**, not to 1a or 1b: it has no
-spread and no call-shape change, and 0b owns the optional-member receiver contract (§2.2, §5).
+13a and 10) and its docstring carve-out. Edge **35** belongs to **0bb**, not to 1a or 1b: it has no
+spread and no call-shape change, and 0bb owns the optional-member receiver contract (§2.2, §5).
 Everything else is **1b**'s. Round 5 flagged that calling 1a
 "behaviour-preserving" while its only acceptance test was "the existing suite passes unchanged" left
 both fixes unverified: no in-tree test asserts `.return()` behaviour on array-literal spread
@@ -1347,27 +1453,32 @@ covering that slice's full edge matrix.
 truth across the language/builtin surface. This is the artifact that would have caught every gap in
 §1.1 **and** this plan's own §1.2 over-claim. Rows for not-yet-implemented slices assert their
 **known divergent** value with a `KNOWN-DIVERGENCE (#11-slug)` marker, flipping to the spec value in
-the fixing slice — the `vm/tests/tests_dataset.rs:283` pattern. **Deliverable of Slice 0c**, so
+the fixing slice — the `vm/tests/tests_dataset.rs:283` pattern. **Deliverable of Slice 0cb**, so
 every later slice inherits the baseline.
 
 ⚠ **The row shape needs a crash-aware outcome (Codex R2) — ratified as §9 decision 16.**
 "One row per §2.2 row" includes
 `f(a×256)`, whose defect is a **process abort** — `assert!(arguments.len() <= 255, …)` in
-`compiler/expr_member.rs` — and is owned by Slice **1b**, which lands after 0c. No `(source,
-expected)` *value* comparison can be written for an input that panics the compiler, so 0c's
+`compiler/expr_member.rs` — and is owned by Slice **1b**, which lands after 0cb. No `(source,
+expected)` *value* comparison can be written for an input that panics the compiler, so 0cb's
 permanent suite cannot pass as specified. **Resolution: the outcome type expresses
 `Panics`/`Throws` alongside a value** (§9 dec. 16). The alternative — sequencing the arity fix ahead
 of the table — is excluded by this document's own ordering, not by preference: the fix is 1b's, 1b
-depends on 1a (§5 Deps), and 1a depends on 0c, so moving it ahead of the table inverts two declared
+depends on 1a (§5 Deps), and 1a depends on 0cb, so moving it ahead of the table inverts two declared
 dependencies and §15's ship order.
 
 ⚠ **The row-derivation rule needs a second source** (round 8). §9 dec. 9(b) sets "one row per §2.2
 defect row", but §2.2 is **Layer-A compiler-emit only** — so the rule structurally produces *no* row
 for the T3 absence surface (`Map`/`Set`/`WeakMap`/`WeakSet`, `Proxy`/`Reflect`, the `RegExp` ctor,
 `Array.prototype.at`/`findLast`/`Object.hasOwn`/`String.matchAll`), which is roughly half of what
-§1.1/§1.2 found. As written, 0c ships the program's safety net with a hole exactly where the probe
-found most gaps. Second source: one row per **§1.1/§1.2 absence** finding + per Slice 7-10 slot. Note 0c reduces the number of divergence rows up front by
-converting silent stubs to loud throws.
+§1.1/§1.2 found. As written, 0cb ships the program's safety net with a hole exactly where the probe
+found most gaps. Second source: one row per **§1.1/§1.2 absence** finding + per Slice 7-10 slot. Note the I-1
+discharge reduces the number of divergence rows up front by converting silent stubs to loud throws.
+
+⚠ **A third source, for the same reason on a different axis**: §2.2's blind-spot block records kinds
+of defect its `compiler/`-scoped derivation cannot see, so "one row per §2.2 defect row" inherits
+those gaps too. Rows for them arrive the way §2.2's own do — from the slice that owns the handler,
+derived against its own parent HEAD.
 
 **§7.3 Standard gate** per slice: `cargo fmt --all` → `mise run ci` → `/pre-push` (6-stage) → push →
 `/external-converge` (edge-dense ⇒ converge, per
@@ -1391,8 +1502,10 @@ duplicates (`grep -c '#11-<slot>' <ledger>`; the ledger is the memory-dir
   bodies / computed-name methods / static blocks / `Op::GetSuperProp` + `Op::SetSuperProp`".
   **Already in the SoT ledger** (adopted at #489's landing; the earlier claim
   that it lived only in `m4-12-pr-d17b-html-element-constructor-base-vm-landing.md` is superseded).
-  Partially discharged already (static fields/methods and computed method keys verified working,
-  §1.2). **The claim that this scope is "exactly Slices 2/3/5" is deleted, not amended.** Those three
+  Partially discharged already (computed method keys verified working, §1.2). ⚠ **Static
+  fields are NOT among the discharged** — narrowed at PR-B to their *definition*; the initializer's
+  receiver is wrong (§2.2's `expr_class.rs:402-427` row), owned by Slice **2a**, and the probe that
+  established the discharge (`static x = 1`) could not see a receiver. **The claim that this scope is "exactly Slices 2/3/5" is deleted, not amended.** Those three
   rows own class instance fields, super property references and private names; the scope string also
   names **class static blocks**, which none of them covers, and reading the scope as exhausted by the
   slice list is what hid the following. Measured at `658cc302` and re-derived at HEAD `d49465d0`
@@ -1409,11 +1522,11 @@ duplicates (`grep -c '#11-<slot>' <ledger>`; the ledger is the memory-dir
   `non-lexical-this, lexicalEnv, privateEnv)` — its own function environment (§-number from
   `webref aoid ecma262 ClassStaticBlockDefinitionEvaluation`, step text from
   `webref body ecma262 ClassStaticBlockDefinitionEvaluation`). **Generic static-block lowering is
-  Slice 2's**: Slice 2 already owns class-body emit in `compiler/expr_class.rs` and the construction
+  Slice 2b's**: the Slice 2 family already owns class-body emit in `compiler/expr_class.rs` and the construction
   path in `vm/dispatch_class.rs`, and no other slice touches the static-block arm. This slot cannot
-  retire until Slice 2 tests **block-local binding isolation** (a `let` in a static block does not
+  retire until Slice 2b tests **block-local binding isolation** (a `let` in a static block does not
   resolve to an enclosing binding of the same name) **and capture** (a closure created inside the
-  block still reads the block's own bindings after it returns). **Slices 2/3/5 retag every in-code citation `grep -rn 'step9-class-extras' crates/` reports
+  block still reads the block's own bindings after it returns). **Slices 2a/2b/3/5 retag every in-code citation `grep -rn 'step9-class-extras' crates/` reports
   at retag time** — 6 at `658cc302` (`compiler/expr.rs`, `compiler/expr_assign.rs`,
   `compiler/stmt_loop.rs`, `vm/interpreter.rs`, `vm/value.rs`, `bytecode/compiled.rs`), where this
   section originally froze a 4-site list measured 2026-07-26; 0a added two. Retagging a frozen list
@@ -1437,7 +1550,7 @@ PR #487 shell, PR #486 dependabot manifest-only, `vm-input-value-as-date` plan-d
 (`elidex-wt-submittable`, `domform-submittable-category`) has committed changes to
 `vm/object_kind.rs`, `vm/globals.rs`, `vm/mod.rs` and 6 `vm/host/` files. **`vm/object_kind.rs` is in
 the module column of Slices 6/7/10** ⇒ cross-lane coordination required there, though not for 0a,
-0b, 0c, 1a or 1b.
+the 0b family, the 0c family, 1a or 1b.
 
 **Forward rule.** Every surface this program identifies and does not implement gets a **row in the
 table below with a slot id** — a deferral stated only in prose elsewhere in this document is
@@ -1494,12 +1607,14 @@ as `658cc302` while never reaching the ledger, so the row below is the only plac
 
 | Slot | Why deferred | Trigger | Re-eval |
 |---|---|---|---|
-| `#11-vm-iteratorclose-precedence-convention` | **(carved R2 round 4)** the §7.4.11 error-precedence inversion spans `compiler/`, core `vm/` and `vm/host/`, and the correct behaviour is completion-kind-dependent ⇒ `iter_close`'s signature must change. A cross-cutting convention sweep, not a slice deliverable. ⚠ **The site count and its ECMA-262/WebIDL partition are NOT restated here** — §5's Slice-P cell is their single home and carries the two commands that re-derive them; five successive figures in this row's lineage (14 lines → 5 → ~15 → 14 → 15) were each withdrawn, and the last of them survived in this row after §5 had been corrected | **now** — gates Slice 0b, whose [C39]→[C36] conformance claim inherits the inverted contract. **Blocked by `#11-vm-typed-array-family-layering-and-gate`** (§5 Deps) | 2026-09-30 |
+| `#11-vm-iteratorclose-precedence-convention` | **(carved R2 round 4)** the §7.4.11 error-precedence inversion spans `compiler/`, core `vm/` and `vm/host/`, and the correct behaviour is completion-kind-dependent ⇒ `iter_close`'s signature must change. A cross-cutting convention sweep, not a slice deliverable. ⚠ **The site count and its ECMA-262/WebIDL partition are NOT restated here** — §6.2a-3 is their single home and carries the two commands that re-derive them; five successive figures in this row's lineage (14 lines → 5 → ~15 → 14 → 15) were each withdrawn, and the last of them survived in this row after §6.2a-3 had been corrected | **now** — Pb gates Slice 0bc, whose [C39]→[C36] conformance claim inherits the inverted contract. **Pa blocked by `#11-vm-typed-array-family-layering-and-gate`** (§5 Deps) | 2026-09-30 |
 | `#11-vm-computed-compound-assignment` | Slice 0a work item, not a defer — registered so the T0 crash has a ledger home until it lands | now (Slice 0a) | 2026-09-30 |
-| `#11-vm-assignment-target-completeness` | Slice 0b work item; distinct SDO ([C39]) + owns the `IteratorClose` obligation Slice 1 does not, and the Paren-normalisation fix shares the same catch-all arms | now (Slice 0b) | 2026-09-30 |
+| `#11-vm-assignment-target-completeness` | The 0b family's work item; distinct SDO ([C39]) + owns the `IteratorClose` obligation Slice 1 does not, and the Paren-normalisation fix shares the same catch-all arms | now (Slices 0ba/0bb/0bc) | 2026-09-30 |
+| `#11-vm-object-spread-source-coercion` | **(carved at PR-B)** Slice **O**. `op_spread_object` copies only between two `JsValue::Object`s, so `{...'ab'}` and `const {...r} = 'ab'` give empty objects where ECMA-262 §7.3.25 applies `ToObject` to every non-nullish source. Carved rather than folded into an existing slice because §2.2 derives from `compiler/` and §2.3's membership test is zero emit sites, so a live defect in a **connected** dispatch handler had no owner at all | now (Slice O) | 2026-09-30 |
+| `#11-vm-arrow-lexical-new-target` | **(carved at PR-B)** Slice **N**. `Op::NewTarget` reads the current frame's `CallMode` and `FunctionObject` has no lexical `new.target` beside `captured_this`, so `new.target` is `undefined` inside an arrow where ECMA-262 §9.4.5 resolves the surrounding function environment. Separate from Slice 3 because the AO differs, though both add lexical state to the same closure/frame seam | now (Slice N) | 2026-09-30 |
 | `#11-vm-async-generators` | needs a new async-iterator opcode + `compiler/stmt.rs` await-flag plumbing (the `is_await: _` discard — `:83` at `658cc302` and at HEAD, `git grep -n 'is_await: _'`; the `:103` this row used to carry predates 0a's `stmt.rs` split and was never re-derived) = own slice | now (Slice 6) | 2026-10-31 |
 | `#11-vm-builtin-prototype-static-sweep` | **Umbrella slot whose scope is a derivation rule, not a list of sub-slices** (§5): every main-body ECMA-262 builtin constructor / prototype surface reachable from the global object, minus Annex B (I-6), minus any surface another slot already owns. Running that derivation is the umbrella's first step; it mints one terminal sub-slice per family from the output, each its own PR under its own mandatory `/elidex-plan-review`. The sub-slice rows in §5 are the derivation's output so far — a family absent from them is un-minted, not out of scope. *(The earlier rationale "batched to avoid N micro-PRs" is withdrawn: batching those families into one PR is what the CLAUDE.md* Edge-dense work *rule forbids, and that rule says a plan-review does not substitute for the split.)* It retires only once the derivation has been run and every sub-slice it mints has landed; a partial landing is recorded against the sub-slice, not against this id. Pure builtin surface, no language-layer dependency. Charter is **edition-agnostic** — the unit is *builtin prototype/static surface* — **minus Annex B** (§B.2.1 / §B.2.2, `Date.prototype.getYear`/`setYear`, `RegExp.prototype.compile`), which §4 I-6 forbids program-wide. *(Renamed from `#11-vm-es2021-2024-prototype-sweep`. The old id occurred **only in this document** — repo-wide `grep -rl 'es2021-2024'` returns this file alone, live ledger returns 0 — so the rename cost nothing, and it removes two ⚠ annotations that existed solely to tell readers the name lied about its own scope.)* **This row is the permanent home for the three measurements** §10's round record found (a round record owns nothing), each tagged with the sub-slice that discharges it: **(1) → 9b** `String.prototype.replaceAll` exists — `vm/natives_string_ext.rs:205` doc comment "ES2021 String.prototype.replaceAll(searchValue, replaceValue)", registered at `vm/globals_primitives.rs:62` `("replaceAll", native_string_replace_all)` — so this is a behavioural fix, not an absence: `'aabb'.replaceAll(/b/,'x')` → `'aabb'` where ECMA-262 **§22.1.3.20** step 3.b.iii throws a **TypeError**, and `'aabb'.replaceAll(/b/g,'x')` → `'aabb'` too, so the `g` path is silently wrong as well. **(2) → 9c** `Object.fromEntries` — `native_object_from_entries` at `vm/natives_object/iteration.rs:157` requires `ObjectKind::Array` and otherwise raises `"Object.fromEntries requires an iterable"` (`:165` / `:181`), then index-walks the dense array; **§20.1.2.7** step 6 instead runs `AddEntriesFromIterable` (**§24.1.1.2**), the iterator protocol. Measured: `function* g(){ yield ['a',1] }; Object.fromEntries(g())` → `TypeError`. **(3) → 9b** `String.prototype.matchAll` genuinely absent — `typeof 'ab'.matchAll` → `undefined`, and `grep -rn 'matchAll' crates/script/elidex-js/src` → **23** hits, every one ServiceWorker `clients.matchAll` / Cache `matchAll`. A parallel ES2019/ES2020 slot is **not** to be minted — that is the duplicated mechanism CLAUDE.md *One issue, one way* forbids. **Also owned here, by 9b**: the `vm/natives_string.rs` §21.1.3 → §22.1.3 citation retag, moved off `#11-vm-webidl-section-3-10-retag` because that slot's WebIDL class and this ECMA one fire independently and one retirable id cannot record half a discharge. `git show 658cc302:crates/script/elidex-js/src/vm/natives_string.rs \| grep -c '§21\.1\.3'` → **8**, and **8** at HEAD `6edda6f2`; `webref heading ecma262 21.1.3` is "Properties of the Number Prototype Object" and `22.1.3` is "Properties of the String Prototype Object". Re-derive by grep at slice time rather than reading the figure forward | any sub-slice the derivation mints (§5 carries them), or a WPT/site needing `at`/`findLast`/`hasOwn`/`fromEntries` on a non-Array iterable/`matchAll`/`withResolvers` | 2026-10-31 |
-| `#11-vm-dynamic-import` | the T1 carve out of the ES-modules program: 0c makes `import()` loud immediately, the Promise-returning implementation needs the module loader | Slice M, or the ES-modules umbrella | 2026-10-31 |
+| `#11-vm-dynamic-import` | the T1 carve out of the ES-modules program: 0ca makes `import()` loud immediately, the Promise-returning implementation needs the module loader | Slice M, or the ES-modules umbrella | 2026-10-31 |
 | `#11-vm-topropertykey-symbol-from-toprimitive` | **(carved by #489's converge)** §7.1.20 tests the *argument* for Symbol-ness, not the ToPrimitive *result*, so an `@@toPrimitive`-returns-Symbol key throws. Open-coded **8 times** (2 named helpers + 6 inline) and `get_element`/`set_element` are **not** `make_property_key` callers ⇒ the unit is "collapse the 8, then fix", not a helper patch | the next property-key coercion PR, or with `#11-vm-proxy-reflect` | 2026-09-30 |
 | `#11-vm-operand-rooting-by-construction` | **(carved by #489's converge; SUPERSEDES `#11-vm-element-access-base-rooting`, which must not be recorded as closed)** ~20 dispatch arms pop an operand into a Rust local and then run user JS before reading or storing through it; `gc/roots.rs` walks the VM stack but not Rust locals. Beyond the 5 element opcodes: `GetProp`/`SetProp`, `IncProp`/`DecProp`, `In`, `Add`, `Instanceof`, `TemplateConcat`, `ops.rs`'s three operator helpers, the three computed-key definition bodies, `SpreadObject`, `ArraySpread`, `IteratorRest`, the unary arms and `op_get_iterator` — two of them *panic*, two *store* the collected id. **Deliverable is an invariant making an unrooted hold unrepresentable, NOT a sixth sweep**: five successive audits each drew the boundary differently and each was falsified by the next round. `Op::GetElemRef`, the one arm #489 introduces, is rooted by construction and pinned. Implementation + a 14-arm test module preserved on branch `vm-p4-rooting-carved` | **now** — the next VM dispatch-loop PR, or Slice P. Edge-dense ⇒ plan-review MANDATORY | 2026-09-30 |
 | `#11-vm-internal-error-hard-exit` | **(carved by #489's converge)** every extracted `op_*` helper's dispatch arm routes `VmErrorKind::InternalError` through `throw_error`, so a broken VM invariant becomes a catchable JS `Error` and user `try`/`catch` can swallow it; inline arms (`Op::Swap` / `Op::Pop` / `Op::PopUnder`) propagate with `?` instead. The disposition must key on the error's *kind*, not on whether the body was extracted. `Op::ThrowUnsupported` must stay catchable — it reports an unimplemented construct, not a broken invariant | with `#11-vm-operand-rooting-by-construction`, or the next dispatch-loop PR | 2026-09-30 |
@@ -1517,7 +1632,7 @@ as `658cc302` while never reaching the ledger, so the row below is the only plac
 | `#11-dead-opcode-removal` | **ADOPTED, not minted** — terms stated above this table; **absent from the live ledger** (0 hits), so the adoption is genuinely outstanding. Becomes Slice D, broadened to the §2.3 set | Slice D (after 1b-5 **and** `#11-vm-module-opcode-connects`) | 2026-10-31 |
 | `#11-d17b-dispatch-expr-file-growth` | **ADOPTED, not minted** — terms stated above this table; **absent from the live ledger** (0 hits). Homes the `vm/dispatch.rs` + `compiler/expr_class.rs` + `vm/interpreter.rs` + `vm/value.rs` 1000-line debt | each slice that touches one of the four files | ⚠ **the carried re-eval `2026-08-08` has expired.** Re-set to **2026-09-30**, aligning it with the P / 0b / 0c cluster that touches these files first |
 | `#11-compiler-class-emit-readability` | **(trigger this program fires)** Slices 2 and 5 both touch `compiler/expr_class.rs`. Registered here because a trigger stated only in §5 prose fires into a paragraph nothing re-reads at re-eval time; ledger count **0** | whichever of Slices 2 / 5 lands first | ⚠ **the carried re-eval `2026-08-08` has expired.** Re-set to **2026-09-30** |
-| `#11-reflect-apply-ce-test` | **(trigger this program fires)** paired with Slice 10, whose `Reflect.apply` deliverable §9 dec. 17 now scopes. Registered here for the same reason as the row above; ledger count **0** | Slice 10 | 2026-10-31 |
+| `#11-reflect-apply-ce-test` | **(trigger this program fires)** paired with Slice 10a, whose `Reflect.apply` deliverable §9 dec. 17 now scopes. Registered here for the same reason as the row above; ledger count **0** | Slice 10 | 2026-10-31 |
 | `#11-webidl-sequence-dense-array-fast-path` | **ADOPTED, not minted** — registered by Slice 0a while it was in `vm/host/`, cited at three in-code sites and **already in the live ledger**. An Array fast path that skips WebIDL §3.2.21 step 2's `GetMethod`, so an overridden `@@iterator` is ignored. Belongs to Slice P's WebIDL half (§16, §4 I-5); it was adopted in prose above this table before PR-B, which made it invisible to the derive recipe | Slice P | per the ledger entry |
 | `Intl` → owned externally by [[intl-icu-deferral]] (**no slot minted here**) | governed by **ECMA-402**, not ECMA-262 — which is why it is out of this umbrella's spec scope as well as its implementation scope. Standing project decision: no ICU dependency. `typeof Intl` → `undefined` (probe at `39bbdb1b`). The row exists so the deferral is *visible in the registry* rather than only in prose | per that standing decision | per that standing decision |
 
@@ -1566,7 +1681,8 @@ favour of `#11-step9-class-extras`.
 - §2 table: add super-property total loss, public instance fields → `undefined`, `obj[k] += v`
   panic, destructuring assignment no-op, `import()` → `undefined`.
 - §2 scope note: retract the `new X(...args)` "works" claim.
-- §4: async generators resolved **broken**; `new.target` resolved **working**.
+- §4: async generators resolved **broken**; `new.target` resolved **working in the
+  direct-constructor spelling only** — the arrow case is Slice N (§1.1, §2.2).
 - §line 113 + MEMORY.md: the 2026-07-18 probe is attributed to `f7d9b5ce`, whose commit date is
   **2026-07-26** — the baseline attribution is wrong and should name the then-current tip.
 - SoT ledger `#11-vm-call-spread-arguments` reads "**First slice**", and MEMORY.md reads
@@ -1609,7 +1725,7 @@ favour of `#11-step9-class-extras`.
 3. **Array-literal path sharing.** `expr.rs:105-119` emits the same sequence but handles elisions
    ([C22] ≠ [C19]). Recommendation: keep separate.
 4. ~~Call-IC on spread calls~~ — **resolved** in §6.3 (monotonic counter; skip allocation).
-5. **0c: throw vs `CompileError` — RESOLVED (runtime throw), ratified by evidence in Slice 0a.**
+5. **0ca: throw vs `CompileError` — RESOLVED (runtime throw), ratified by evidence in Slice 0a.**
    A `CompileError` fails the whole script; a thrown `TypeError` scopes the failure to the
    expression, matching how the feature would fail if half-implemented. Slice 0a shipped the
    `CompileError` form first and the post-push gate showed the cost concretely: one
@@ -1702,11 +1818,11 @@ favour of `#11-step9-class-extras`.
    `call_internal` — one of dec. 10's four unrooted windows — is already reached at N≫1 through it,
    so sharing puts all of that on one audited path. The array-like/dense distinction stays a
    *caller-side* precondition, not a second helper.
-9. **Slice 0c sweep method — RESOLVED (executed, not stipulated).** The three-pass sweep is now
+9. **Slice 0ca sweep method — RESOLVED (executed, not stipulated).** The three-pass sweep is now
    documented and **run** at the head of §2.2, and §2.2 is its output. It earned its keep
    immediately: it found 3 defects (`(x)++`, `(x)+=1`, `(a[0])++`) that the probe, R1, R2 and
    round-2 review had all missed, and it corrected a round-2 claim (`delete x` *is* parser-gated).
-   **0c's acceptance criteria**: (a) re-run **all three passes** — pass 3 at **both** variant and sub-arm-body granularity — and classify every hit, so the arm list is reproducible rather than inherited; (b) §7.2 carries **one row per §2.2 defect row** as its
+   **0ca's acceptance criteria**: (a) re-run **all three passes** — pass 3 at **both** variant and sub-arm-body granularity — and classify every hit, so the arm list is reproducible rather than inherited; (b) §7.2 carries **one row per §2.2 defect row** as its
    row-derivation rule — the table's completeness claim is then anchored to the sweep rather than to
    authoring instinct.
 10. **Generator/async callee GC window — root it in Slice 1a; carve withdrawn. ⚠ REMEDY CORRECTED
@@ -1756,54 +1872,54 @@ favour of `#11-step9-class-extras`.
     bound (and edge 29 must assert it, with an expected value). This is a **1b blocker**, not a
     carry-over.
 13. **§6.2a — the reused drain's `IteratorClose` divergence — RESOLVED as two units.** ⚠ **Round-8
-    sequencing hazard**: §5 lands **0b before 1a**, and 0b owns [C39], whose rest form
+    sequencing hazard**: §5 lands **0bc before 1a**, and 0bc owns [C39], whose rest form
     (`[a, ...rest] = it`) needs a drain-into-array and whose spec *requires* `IteratorClose` —
     while `op_array_spread`/`spread_iter_loop` is the only in-tree drain-into-array and 1a **deletes**
-    its `return()`. So either 0b routes through it (and 1a silently falsifies 0b's [C39] claim) or 0b
+    its `return()`. So either 0bc routes through it (and 1a silently falsifies 0bc's [C39] claim) or 0bc
     hand-rolls a second drain (the I-3 failure). State in §5/§6.2a that after 1a `op_array_spread` is
-    **[C19]/[C22]-only**, give 0b's rest path its own explicit `iter_close` site, and pin it with a
+    **[C19]/[C22]-only**, give 0bc's rest path its own explicit `iter_close` site, and pin it with a
     §7.2 row. (a) Removing
     `op_array_spread`'s `return()` call is **1a's** — it is the reuse precondition and edge 21
     fails without it. (b) The **error-precedence inversion is a separate, crate-wide unit** (§6.2a-2:
-    a cross-cutting site set — §5's Slice-P cell is the authoritative figure and carries its
+    a cross-cutting site set — §6.2a-3 is the authoritative figure and carries its
     derivation — incl. the canonical `iter_close` helper, whose docstring states the wrong rule as its
     contract; the correct behaviour is completion-kind-dependent so the signature must change) →
-    carve **`#11-vm-iteratorclose-precedence-convention`**, sequenced **before Slice 0b**, whose
+    carve **`#11-vm-iteratorclose-precedence-convention`**, sequenced **before Slice 0bc**, whose
     [C39]→[C36] conformance claim otherwise inherits the inverted contract.
 14. **`(o.m)(...)` `this`-loss — owner needed.** `compile_call_expr` (`expr_member.rs:92`) matches
     `ExprKind::Member` on the **raw** callee, and `ExprKind::Paren` is a real AST node
     (`ast.rs:299`), so `(o.m)()` takes the plain-call branch and loses `this` — a live T1
-    silent-wrong sharing 0b's non-normalised-Paren root, inside the very function 1b rewrites.
-    Coupling: §5 puts `parser/expr.rs` Paren normalisation in **0b's** scope, so if 0b normalises
+    silent-wrong sharing the non-normalised-Paren root, inside the very function 1b rewrites.
+    Coupling: §5 puts Paren normalisation in **0bb's** scope, so if 0bb normalises
     globally this is fixed as an **unrecorded side effect** of a slice scoped to assign/update
-    targets; if 0b scopes narrowly, 1b ships the bug intact. Recommendation: one `peel_paren`
-    chokepoint owned by **0b**, with `(o.m)(...)` added as an explicit 0b deliverable + §2.2 row, and
+    targets; if 0bb scopes narrowly, 1b ships the bug intact. Recommendation: one `peel_paren`
+    chokepoint owned by **0bb**, with `(o.m)(...)` an explicit 0bb deliverable + §2.2 row, and
     edge 31 as 1b's regression guard. ⚠ **Made operative (Codex R1)**: as written, edge 31 was
-    allocated to 1b alone, so 0b could land the receiver-binding fix it owns with **no test asserting
+    allocated to 1b alone, so 0bb could land the receiver-binding fix it owns with **no test asserting
     `this === o`**, and the regression would surface only in a later slice that rewrites the same call
-    compiler. `(o.m)()` asserting `this === o` is therefore **part of 0b's own acceptance suite**; 1b
+    compiler. `(o.m)()` asserting `this === o` is therefore **part of 0bb's own acceptance suite**; 1b
     keeps edge 31 as its regression guard.
-15. **`expr.rs:186-189` prefix `Spread` — layer mismatch.** §2.2 assigns it to 0c, whose rule (§9
+15. **`expr.rs:186-189` prefix `Spread` — layer mismatch.** §2.2 originally assigned it to the I-1 discharge, whose rule (§9
     dec. 5) is *runtime throw*; but `var y = ...x` is an **early SyntaxError** per spec, so a runtime
     throw lets preceding side effects run and lets `if (false) { var y = ...x }` execute the whole
     script. Root is parser-layer: `parser/expr.rs:256-263`'s `Ellipsis` arm is **ungated** (its own
     comment says "in arguments/array context" but no context check exists). Recommendation: reassign
-    to **0b** (which already owns `parser/expr.rs`) as a parse-time rejection, not 0c.
-16. **§7.2's conformance-row outcome type — RESOLVED (crash-aware outcome), owner Slice 0c.** The
+    to **0ba** (which owns `parser/expr.rs`) as a parse-time rejection, not 0ca.
+16. **§7.2's conformance-row outcome type — RESOLVED (crash-aware outcome), owner Slice 0cb.** The
     table's outcome type expresses `Panics` / `Throws` alongside a value, so `f(a×256)` — a process
     abort owned by 1b — has a writable row before 1b lands. The alternative (sequence the arity fix
     ahead of the table) is excluded by this document's own ordering rather than by taste: the fix is
-    **1b**'s, §5 gives 1b `Deps: 1a` and 1a `Deps: 0c`, so hoisting it inverts two declared
-    dependencies and §15's ship order. Was an unowned either/or in §7.2; ratified here so 0c's author
+    **1b**'s, §5 gives 1b `Deps: 1a` and 1a `Deps: 0cb`, so hoisting it inverts two declared
+    dependencies and §15's ship order. Was an unowned either/or in §7.2; ratified here so 0cb's author
     reads a decision, not a fork.
-17. **Dense vs generic argument unpacking — RESOLVED (keep them separate), owners 1a and Slice 10.**
+17. **Dense vs generic argument unpacking — RESOLVED (keep them separate), owners 1a and Slice 10a.**
     **1a** shares `collect_array_like`'s **dense** fast path (dec. 8), and may, because the arrays it
-    unpacks are compiler-emitted and dense by construction. **Slice 10 must NOT reuse that fast path
+    unpacks are compiler-emitted and dense by construction. **Slice 10a must NOT reuse that fast path
     for `Reflect.apply`**: ECMA-262 **§28.1.1** `Reflect.apply` delegates the argument list to
     **§7.3.19** `CreateListFromArrayLike`, which performs a real `Get` per index, so a getter on
     `Array.prototype[0]` must run for `Reflect.apply(f, null, new Array(1))` while the dense path
     reads `elements` directly and maps `Empty` to `undefined`. Making the generic path do property
-    lookup is therefore **Slice 10's deliverable**, settled at its mandatory plan-review; the
+    lookup is therefore **Slice 10a's deliverable**, settled at its mandatory plan-review; the
     array-like-vs-dense distinction stays a **caller-side precondition** (dec. 8), not a second
     helper. §-numbers verified via `webref heading ecma262 28.1.1` /
     `webref aoid ecma262 CreateListFromArrayLike`. Was an unowned either/or inside dec. 6.
