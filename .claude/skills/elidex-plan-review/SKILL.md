@@ -95,14 +95,19 @@ Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container
   *the plan-memo consistency checkers are not on any loop*. `.claude/tools/plan-sweep.py`
   (word-level concept sweep) and `.claude/tools/plan-xcheck.py` (cross-validates a memo's routing
   tables against each other) exist and are invoked **by hand**; nothing in `scripts/trip-wires.sh`,
-  `mise.toml`, `.github/workflows/ci.yml` or `.claude/skills/**` references them. Per
+  `mise.toml` or `.github/workflows/ci.yml` **runs** them. ⚠ Say *runs*, not *references* — this
+  very note lives under `.claude/skills/**` and names both files, so the earlier wording was
+  falsified by the file that carried it. Per
   `feedback_every-triggered-pr-must-be-on-the-loop`, a checker reachable only by remembering it is
   the habit it was built to end. Two parts, one PR: (a) invoke both from Step 1.5 (or the ungated
   `trip-wires` job) — `plan-xcheck.py` currently hard-codes one memo's PR labels and slot names, so
   generalising is part of the work; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to **CSS-module
   labels** — today a CSS plan reports `parsed citations: 0` / `unmapped-label rows: N`, i.e. the
   §3 citation hard-gate is **vacuous** for every CSS-module plan-memo, which is silent, not loud.
-  **Re-evaluation trigger** = the next plan-review round that has to run them by hand. **Re-eval date**: 2026-11-01.
+  ⚠ **Trigger** = the first PR that ships these two files (for the umbrella that authored them,
+  the seam-3 prereq PR). An earlier wording made it "the next plan-review round that has to run
+  them by hand", which fires *every* round and can discharge nothing — it expired unheard six
+  times. A trigger that recurs is not a trigger. **Re-eval date**: 2026-11-01.
 - Expect **2+ review passes** for this class — convergence = findings moving from "open design tension" to "fixed concrete mechanism (どの list / key / loop)"; further passes are impl-detail the tests catch.
 
 ## Workflow
