@@ -30,22 +30,35 @@ from the fixture:
 
 | Spec section | Step | Branch | Touch | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §4.10.21 Constraints | title compare | fixture `labelled`/`dedup`/`malformed` | `citations` (`-common.sh:85`) | ✓ | no |
-| WHATWG HTML §4.10.21.2 Constraint validation | title compare | fixture `labelled` | `citations` (`-common.sh:86`) | ✓ | no |
-| WHATWG Fetch §2.2.5 Requests | title compare | fixture `alias` | `citations` (`-common.sh:87`) | ✓ | no |
-| CSSOM View 1 §4.2 The MediaQueryList Interface | title compare | fixture `allunmapped`/`malformed` | `citations` (`-common.sh:88`) | ✓ | no |
+| WHATWG HTML §4.10.21 Constraints | title compare | fixture `labelled`/`dedup`/`malformed` | `citations` | ✓ | no |
+| WHATWG HTML §4.10.21.2 Constraint validation | title compare | fixture `labelled` | `citations` | ✓ | no |
+| WHATWG Fetch §2.2.5 Requests | title compare | fixture `alias` | `citations` | ✓ | no |
+| CSSOM View 1 §4.2 The MediaQueryList Interface | title compare | fixture `allunmapped`/`malformed` | `citations` | ✓ | no |
 
-**Breadth**: K=3 specs, M=4 entries (verified — the table above is the complete set;
-`grep -n 'webref heading --exact' docs/plans/2026-07-citation-hygiene-A-rederive-common.sh | wc -l` → 4,
-at `-common.sh:85-88`) → single PR.
+**Breadth**: K=3 specs, M=4 entries — the complete set. The command finds the call site, rather than this
+table naming a line number the collapse is about to move:
+`grep -n 'webref heading --exact' docs/plans/2026-07-citation-hygiene-A-rederive-*.sh` → 4.
 
-⚠ **`CSSOM View 1` is unrecognized by the gate, and that is the point rather than a defect.** The
-pre-A-i pinned map has no key for it (`python3 -c "import preflight; print([k for k in
-preflight.SPEC_LABEL_REVERSE if 'cssom' in k.lower()])"` → `[]`), which is exactly why `-common.sh:37-45`
-picks `CSSOM VIEW` for the `allunmapped` fixture — *"absent from the 24-key pinned map, so this is
-all-unmapped AFTER A"*. A row that resolves would not exercise the state the fixture exists for.
-Re-derive the titles rather than trusting the cells: `.claude/tools/webref heading --exact html 4.10.21`,
-`… html 4.10.21.2`, `… fetch 2.2.5`, `… cssom-view-1 4.2`.
+⚠ **Two resolvers, and the column that matters is not the one this table shows.** All four §-numbers
+resolve in **webref** (`.claude/tools/webref heading --exact html 4.10.21`, `… html 4.10.21.2`,
+`… fetch 2.2.5`, `… cssom-view-1 4.2` — rc=0 each; re-derive the titles rather than trusting the cells).
+What some of them do not resolve in is `preflight.SPEC_LABEL_REVERSE`, the **gate's pinned map**, which is a
+different resolver — and the Spec column above carries each spec's *authoritative* label while the Branch
+column names a fixture that deliberately carries a **different** spelling, because aliasing is what the
+fixture set exists to exercise. Measured on the labels the fixtures actually write:
+
+```bash
+(cd .claude/skills/elidex-plan-review && python3 -c "
+import preflight as p
+for lab in ['WHATWG HTML','HTML','Fetch','CSSOM VIEW']: print(lab, '->', p.shortname_from_label(lab))")
+```
+
+`WHATWG HTML` and `HTML` resolve; **`Fetch` and `CSSOM VIEW` do not**. That is the point rather than a
+defect — a row that resolved would not exercise the state its fixture exists for — but it is **two** of the
+four, not three, and the count is not this page's to carry. ⚠ The harness's own comment beside the
+`allunmapped` fixture calls it a *"24-key pinned map"*; measured, that map has **15** keys
+(`python3 -c "import preflight; print(len(preflight.SPEC_LABEL_REVERSE))"` from the skill directory).
+Correcting the comment is the disposition memo's §5, not this note's.
 
 ## §1 The measurements this note reasons from
 
@@ -191,50 +204,46 @@ M7 computes ownership in four tiers, each printed beside its row so a routing de
 set, and gave two different answers across `PYTHONHASHSEED`. Fixed and verified deterministic across seeds
 0–9. The rule above is now the rule implemented.
 
-M7's tally at `945dd03a` — **blocks / block-body lines**:
+**M7's tally is a command, not a table here.** An earlier revision of this note printed six rows of
+`blocks / block-body lines` immediately under a paragraph explaining that *"the only fix that holds is: do not
+carry the digit"* — twelve digits under its own rule. The groups are `kernel`, `umbrella`, `A-i`, `A-ii`,
+`A-iii`, `B`; who is in each, and how large each is, comes from:
 
-| ships with | blocks | lines | what it is |
-|---|---|---|---|
-| kernel | 4 | 371 | `all` `say` `selfcheck` `inventory` |
-| umbrella | 6 | 396 | `_measure` `_measured` `_proto` `budget` `lanes` `suites` |
-| **A-i** | 7 | 415 | `citations` `couplings` `keysets` `readers` `regions` `fixtures` `_wtscan` |
-| A-ii | 10 | 335 | `column` `carvecolumn` `instruments` `remedies` `reloadstale` `armmatrix` `marker` `anchors` `timing` `_runner` |
-| A-iii | 3 | 71 | `suiteset` `filters` `ruleset` |
-| B | 4 | 128 | `partition` `offline` `bmemo` `staleclaims` |
+```bash
+bash docs/plans/2026-07-citation-hygiene-A-rederive.sh inventory ../elidex-wt-citeaudit/docs/plans
+#   the `ships-with (blocks, prose lines)` line, and the `ships` column per row
+```
 
-⚠ **These are block-body lines; the harness is larger, and neither figure is transcribed here.**
-`inventory` prints the reconciliation itself — `LINES: <total> in <n> files = <attributed> + <unattributed>`,
-cross-checkable against `wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh | tail -1`. The remainder is
-each part's preamble and the dispatcher outside `all`, including `-integrity.sh`'s 82-line `_measure`
-rationale — the text §2's whole answer rests on. A removal deletes **files**, so any share-of-the-harness
-figure is over the file total, not over the attributed total.
+⚠ **Those are block-body lines; the harness is larger.** `inventory` prints the reconciliation itself —
+`LINES: <total> in <n> files = <attributed> + <unattributed>` — cross-checkable against
+`wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh | tail -1`. The remainder is each part's preamble
+and the dispatcher outside `all`, including the `_measure` rationale that §2's whole answer rests on. A
+removal deletes **files**, so any share-of-the-harness figure is over the file total, not the attributed one.
 
-⚠ **Draft 4 transcribed those digits and they were stale on arrival.** They were read at `ff44f30c`; the very
-next commit added 16 lines to `inventory`, and the note stamped itself with *that* commit while carrying the
-earlier reading — including in a `§5` row marked CHECKED and a parenthetical reading "verified 2026-08-08".
-Four reviewers found it independently. The class is `feedback_verified-claims-go-stale-under-own-later-edits`
-and the only fix that holds is the one applied here: **do not carry the digit.** The `ships-with` table above
-is kept because its rows are block ownership, which the disposition memo acts on; the `kernel` row's line
-count moves with any kernel edit, so read it from the command, not from this page.
+⚠ **This section is where the recurring class was finally priced.** Draft 4 transcribed the tally; it was read
+at one commit and stamped with the next, which had already moved it, and **four reviewers found it
+independently**. Round 5 then found the same class in three more places on this page and four in the
+disposition memo — including a figure that moved *during the review*, because its subject is a memory
+directory another session writes to. The class is
+`memory/feedback_verified-claims-go-stale-under-own-later-edits.md`, and the only remedy that has ever held
+is the one now applied throughout both memos: **the command is the claim.**
 
 ### The finding: the routing unit is not the shipping unit
 
 Every column above routes a **block**. A PR adds and removes **files**. Those are different partitions, and
-M7 now measures the disagreement:
+M7 now measures the disagreement, and **the transcription that used to sit here is gone** — it was a
+paste of `inventory`'s output, it was falsified by the next three commits to the harness, and this note's own
+§1 says every quantity is a command:
 
+```bash
+bash docs/plans/2026-07-citation-hygiene-A-rederive.sh inventory ../elidex-wt-citeaudit/docs/plans
+#   read the two lists under `ROUTING UNIT (block) vs SHIPPING UNIT (file)`
 ```
-   _measure      lives in integrity (no slice)  ships with umbrella    22 lines
-   _measured     lives in integrity (no slice)  ships with umbrella     4 lines
-   _proto        lives in common    (no slice)  ships with umbrella   228 lines
-   _wtscan       lives in common    (no slice)  ships with A-i         40 lines
-   budget        lives in common    (no slice)  ships with umbrella    59 lines
-   citations     lives in common    (no slice)  ships with A-i         21 lines
-   couplings     lives in common    (no slice)  ships with A-i        130 lines
-   fixtures      lives in common    (no slice)  ships with A-i         53 lines
-   lanes         lives in common    (no slice)  ships with umbrella    40 lines
-   suites        lives in Aiii      (A-iii   )  ships with umbrella    43 lines
-   10 of 34 blocks / 640 lines cannot be moved or removed at FILE granularity.
-```
+
+`MOVE LIST` is the declared blocks whose file contradicts their declaration — what a PR can carry out.
+`NO VERDICT` is the undeclared ones, where the tiers are guessing. They are printed apart because they
+authorise different things; an earlier revision of this note merged them, and a list of guesses read as a
+work list in two drafts of the disposition memo.
 
 **This is Q2's real answer, and it is why draft 3's §6 was wrong rather than merely under-specified.** It
 authorised a file-granular removal against a block-granular table. Three of R3's nine CRITs are this one gap,
@@ -242,9 +251,11 @@ and the program memo had named it as draft 3's third precondition — *reconcile
 shipping unit* — which draft 3 did not attempt. `suites` is the sharpest instance: `-Aiii.sh` holds it,
 the umbrella cites it at `:82`, and A-i §13 already carries its relocation to `-common.sh` as **owed**.
 
-A second, independent form of the same gap: **the block set is written down four to six times** — the
-dispatcher's `for _part in …` source loop, `all`'s 23-name roster, `inventory`'s `PARTS`, `AUTHOR_LOCAL`, and
-the dispatcher's header prose. Measured in a `git clone --local` sandbox, deleting `-Aii.sh` and `-B.sh` and
+A second, independent form of the same gap: **the block set is written down in many places, and the count is
+not this page's to carry either.** Draft 4 said "four to six" and named five; round 4 found a seventh
+(`PART_SLICE`) and round 5 found six more, including a parser that names nothing and reads a variable. The
+enumeration is now `rederive homes`, which derives the sites rather than listing them and prints what it
+cannot see. Measured in a `git clone --local` sandbox, deleting `-Aii.sh` and `-B.sh` and
 narrowing only the source loop: `selfcheck` reports **12 blocks that no longer exist** as failing its
 return-discipline check (9 from `-Aii.sh`, 3 from `-B.sh`), and `inventory` cannot source at all. ⚠ Draft 4
 said 15, which is the count when A-iii's three blocks go too — a digit taken from a review report and
@@ -324,8 +335,8 @@ Rows are marked UNCHECKED rather than omitted (umbrella `:92`).
 | no **code** signal reproduces a kind assignment | M7's `meas` / `vrd` / `cmp` columns | CHECKED |
 | the "instrument" idea exists only in prose | `-Aii.sh:64-76`, quoted in §2 | CHECKED |
 | exactly two blocks carry an invariant | M7's `vrd` column → `couplings` `selfcheck` | CHECKED |
-| 10 blocks / 640 lines cannot move at file granularity | M7's routing-vs-shipping report | CHECKED |
-| the harness is 1935 lines = 1716 attributed + 219 unattributed | M7's LINES line, vs `wc -l …A-rederive*.sh` | CHECKED |
+| the routing unit and the shipping unit disagree, and `inventory` prints where | M7's routing-vs-shipping report | CHECKED — ⚠ **the size is not carried.** It read `10 blocks / 640 lines`; the report now splits a `MOVE LIST` (declared) from `NO VERDICT` (undeclared, the tiers guessing), and until blocks are declared the first is empty. Merging the two is how a list of guesses read as a work list |
+| the harness's line total reconciles: `LINES: <total> in <n> files = <attributed> + <unattributed>` | M7's LINES line, vs `wc -l …A-rederive*.sh \| tail -1` | CHECKED — ⚠ **as a reconciliation, not as three digits.** This row carried `1935 = 1716 + 219`; all three were falsified by later commits on this branch, twice over. §3 guards its own tally with *"read it from the command, not from this page"* and this row did not inherit it. `memory/feedback_verified-claims-go-stale-under-own-later-edits.md` |
 | T3 is order-independent | 10 `PYTHONHASHSEED` values, identical output (`ff44f30c`) | CHECKED |
 | `declare -f` preserves the trailing `return` | `declare -f couplings\|filters\|_measured \| tail -2` | CHECKED |
 | `lanes` bypasses `_measure` at 7 of 9 commands, 3 unguarded | source read + M7 `meas=2` | CHECKED |
@@ -341,8 +352,9 @@ Rows are marked UNCHECKED rather than omitted (umbrella `:92`).
 1. The validity predicate is `_measure`'s, singular; the two invariant-carrying blocks are `couplings` and
    `selfcheck` and are already uniform. The J1/J2/J3 taxonomy is withdrawn.
 2. Block ownership is what `rederive inventory` prints, by four stated tiers.
-3. The routing unit and the shipping unit disagree at 10 blocks / 640 lines, and the block set has four to six
-   homes. **No file-granular action on the harness is sound until that is collapsed.**
+3. The routing unit and the shipping unit disagree, and the block set has many homes — both sizes are
+   commands (`rederive inventory`, `rederive homes`), not digits this note carries.
+   **No file-granular action on the harness is sound until that is collapsed.**
 4. `selfcheck` and `inventory` answer two different questions and keep two readers; the collapse available is
    `selfcheck`'s body analysis moving to `declare -f`.
 5. No CI wiring, no `# kind:` annotation, no provenance grammar.
