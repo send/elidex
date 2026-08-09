@@ -627,10 +627,19 @@ FILELINE = re.compile(r"^([\w./-]+):(\d+):")
 ARROW = re.compile(r"^(.*?)[ \t]+(?:→|->)[ \t]+(.*)$")
 
 
+QUOTE = re.compile(r"^[ \t]*>[ \t]?")
+
+
 def fenced_blocks(memo: Memo) -> list[tuple[int, list[str]]]:
-    """(1-based line of the opener, body lines) for every ```-fenced block."""
+    """(1-based line of the opener, body lines) for every ```-fenced block.
+
+    A leading `> ` is stripped first: the memo's own status header is a
+    blockquote, and its two artifact commands -- the ones the header offers as
+    the proof that the memo is machine-checked -- sat outside every block
+    because `^[ \\t]*``` ` does not match `> ``` `."""
     out, cur, start = [], None, 0
     for i, line in enumerate(memo.lines, 1):
+        line = QUOTE.sub("", line)
         if FENCE_MARK.match(line):
             if cur is None:
                 cur, start = [], i
@@ -647,34 +656,57 @@ def run_line(cmd: str) -> str:
     return (p.stdout or p.stderr).strip()
 
 
+def compare_arrow(memo: Memo, ln: int, cmd: str, want: str) -> None:
+    """One `<cmd> → <answer>` line.
+
+    An empty re-run is a MISMATCH unless the paste is empty too. The first cut
+    tested `first not in head`, which is vacuously true when the command prints
+    nothing -- so any pasted answer survived the moment its command stopped
+    producing output, which is the drift direction the whole program exists to
+    catch. `awk '{s+=$NF} END{print s}'` over no input prints an empty line, not
+    `0`, and a pasted `→ 0` sailed through on exactly that."""
+    got = run_line(cmd)
+    head = re.split(r"\s{2,}|\s+[#(]", want)[0].strip()
+    if not head:
+        return
+    first = got.split("\n")[0].strip()
+    if not first:
+        bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes `{cmd[:56]}` → {head!r}; "
+                          f"re-running prints nothing at all")
+        return
+    if head not in (first, got) and first not in head:
+        bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes `{cmd[:56]}` "
+                          f"→ {head!r}; re-running gives {first!r}")
+
+
 def check_transcripts(memo: Memo) -> None:
-    unchecked = 0
+    unchecked: list[str] = []
     for start, body in fenced_blocks(memo):
         i = 0
         while i < len(body):
-            raw = body[i]
             ln = start + 1 + i
-            line = raw.strip()
+            # A `$ ` prompt and an ` → ` answer can appear on the SAME line, and
+            # the first cut let the `$ `-form branch swallow the arrow into the
+            # command string -- silently dropping §4.4's five execution-rule
+            # transcripts, the evidence for I3/I5 and D4/D6. Strip the prompt
+            # first, then decide the form.
+            line = body[i].strip()
+            prompt = line.startswith("$ ")
+            if prompt:
+                line = line[2:].strip()
 
-            # form A:  <command>  →  <answer>
             m = ARROW.match(line)
             if m and RUNNABLE.match(m.group(1).strip()):
                 cmd, want = m.group(1).strip(), m.group(2).strip()
                 if needs_state(cmd):
-                    unchecked += 1
+                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]}")
                 else:
-                    got = run_line(cmd)
-                    head = re.split(r"\s{2,}|\s+[#(]", want)[0].strip()
-                    first = got.split("\n")[0].strip()
-                    if head and head not in (first, got) and first not in head:
-                        bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes `{cmd[:56]}` "
-                                          f"→ {head!r}; re-running gives {first!r}")
+                    compare_arrow(memo, ln, cmd, want)
                 i += 1
                 continue
 
-            # form B:  $ <command>  then its pasted output, to the next $ or EOB
-            if line.startswith("$ "):
-                cmd = line[2:].strip()
+            if prompt:
+                cmd = line
                 j = i + 1
                 while cmd.endswith("\\") and j < len(body):
                     cmd = cmd[:-1] + " " + body[j].strip()
@@ -685,7 +717,7 @@ def check_transcripts(memo: Memo) -> None:
                     j += 1
                 pasted = {m2.group(0) for l2 in out_lines if (m2 := FILELINE.match(l2.strip()))}
                 if not RUNNABLE.match(cmd) or needs_state(cmd):
-                    unchecked += 1
+                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]}")
                 elif pasted:
                     actual = {m2.group(0) for l2 in run_line(cmd).split("\n")
                               if (m2 := FILELINE.match(l2.strip()))}
@@ -695,12 +727,25 @@ def check_transcripts(memo: Memo) -> None:
                     for extra in sorted(pasted - actual):
                         bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes a hit at {extra} "
                                           f"that `{cmd[:56]}` no longer produces")
+                else:
+                    # output that is not a `path:NN:` listing was compared against
+                    # an empty set, i.e. passed unconditionally. Say so.
+                    body_txt = "\n".join(x for x in out_lines if x.strip())
+                    if body_txt.strip():
+                        got = run_line(cmd).strip()
+                        if got != body_txt.strip():
+                            bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes output for "
+                                              f"`{cmd[:56]}` that re-running does not "
+                                              f"reproduce ({got.splitlines()[:1]} vs "
+                                              f"{body_txt.splitlines()[:1]})")
                 i = j
                 continue
             i += 1
     if unchecked:
-        print(f"  transcripts: {unchecked} pasted command(s) not re-run "
-              f"(they need shell state the memo does not also paste)")
+        print(f"  transcripts: {len(unchecked)} pasted command(s) not re-run "
+              f"(they need shell state the memo does not also paste):")
+        for u in unchecked:
+            print(f"    {u}")
 
 
 # --------------------------------------------------------------------------
@@ -712,10 +757,17 @@ def check_transcripts(memo: Memo) -> None:
 # enumeration of four disjoint surfaces are both invalidated by a fifth wire,
 # and neither contains the string the memo grepped for.
 #
-# So this reports rather than fails: the governing files are a closed set of
-# five, and every line in them that speaks about the wires *collectively* has
-# to be consciously disposed of by §4.6 -- edited, or cited as deliberately
-# left alone. Per-wire headers are out of scope by §4.6's own rule.
+# The governing files are a closed set of five, and every line in them that
+# speaks about the wires *collectively* has to be consciously disposed of --
+# edited, or cited as deliberately left alone. Per-wire headers are out of
+# scope: a new wire only adds to those, it does not falsify them.
+#
+# This FAILS rather than reports. It shipped as a report, and a report was the
+# wrong shape twice over: `check_sites` never called `bad()`, so the one
+# mechanism credited with catching what a grep cannot contributed nothing to
+# the exit code -- `layout-box-reader-trip-wire.sh:276-299`'s `ban_control`
+# ("a ban that cannot fire is indistinguishable from a clean tree") reproduced
+# in the checker written to enforce that lesson.
 # --------------------------------------------------------------------------
 
 GOVERNING = [".github/workflows/ci.yml", "CLAUDE.md", "CONTRIBUTING.md",
@@ -750,13 +802,12 @@ def check_sites(memo: Memo) -> None:
             if WIRE_TOPIC.search(line) and COLLECTIVE.search(line):
                 if f"{rel}:{i}" not in cited:
                     pending.append((rel, i, line.strip()))
-    if not pending:
-        return
-    print(f"  wire-set sites not cited by the memo ({len(pending)}) -- §4.6 must "
-          f"dispose of each, by editing it or saying why not:")
     for rel, i, line in pending:
-        star = "  <- named file, unnamed line" if rel.split("/")[-1] in loose else ""
-        print(f"    {rel}:{i}  {line[:76]}{star}")
+        star = (" (the memo names the file but not this line)"
+                if rel.split("/")[-1] in loose else "")
+        bad("SITES", f"{rel}:{i} speaks about the wire set and the memo does not "
+                     f"cite it{star} -- edit it or cite it as deliberately left "
+                     f"alone: {line[:60]}")
 
 
 # --------------------------------------------------------------------------
@@ -828,6 +879,62 @@ def capture(fn, *a) -> list[str]:
         return FAILS
     finally:
         FAILS = saved
+
+
+def capture_live() -> dict:
+    """The ANNO payload PASTE consumes, without emitting ANNO findings."""
+    saved, out = FAILS[:], check_annotations()
+    del FAILS[:]
+    FAILS.extend(saved)
+    return out
+
+
+def write_probe(text: str) -> Memo:
+    """A probe memo on disk -- `check_preflight` shells out to preflight.py with
+    the memo's path, so a purely in-memory Memo cannot exercise it."""
+    p = REPO / "docs" / "plans" / "zz-probe-preflight.md"
+    p.write_text(text)
+    return Memo(p)
+
+
+# The smallest document preflight will parse: a §3 heading, a schema-shaped
+# table, one data row. Enough to make it print a verdict a paste can disagree
+# with, and nothing else.
+PREFLIGHT_FIXTURE = """# probe
+
+## §3 Spec coverage map
+
+| Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
+|---|---|---|---|---|---|
+| `scripts/trip-wires.sh` §1 (the driver) | discover | (i) glob | `WIRE_GLOB` | ✓ | no |
+
+## §8.3 Preflight
+"""
+
+
+def run_preflight_block(fixture: str) -> str:
+    """Preflight's own verdict lines for `fixture`, as a fenced block a memo
+    could paste. Derived by running the tool, so the positive probe cannot go
+    stale for the same reason these checks exist."""
+    m = write_probe(fixture)
+    rc, out = sh([sys.executable, str(SKILL / "preflight.py"),
+                  str(m.path.relative_to(REPO))])
+    keep = [ln for ln in out.split("\n")
+            if re.search(r"total entries|malformed rows|unmapped-label|"
+                         r"unique specs|grep-pass:", ln)]
+    return "\n```\n" + "\n".join(keep) + f"\nEXIT={rc}\n```\n"
+
+
+def pending_sites() -> list[str]:
+    """`rel:line` for every governing-file line that speaks about the wire set."""
+    out = []
+    for rel in GOVERNING:
+        if not (REPO / rel).exists():
+            continue
+        for i, line in enumerate((REPO / rel).read_text().split("\n"), 1):
+            if WIRE_TOPIC.search(line) and COLLECTIVE.search(line):
+                out.append(f"{rel}:{i}")
+    return out
 
 
 def synth(text: str, name: str = "synthetic.md") -> Memo:
@@ -992,6 +1099,44 @@ def selftest() -> int:
     probes.append(("TRANSCRIPT `$NF` in an awk program is not shell state",
                    not needs_state("git grep -cE 'x' -- '*.rs' | awk -F: "
                                    "'{s+=$NF} END{print s}'"), ""))
+
+    # PASTE / PREFLIGHT / SITES -- these three shipped with NO probe at all,
+    # while the docstring above and the memo's header both claimed a positive
+    # and a negative for every check. Three `bad()`-emitting checks were
+    # therefore in the state §4.3 names: indistinguishable from a clean tree.
+    # Each is built from what the tree says right now, so the probes hold in
+    # any worktree and never require the memo this tool audits to be present --
+    # that memo is a different slice, and a probe that reads it would re-create
+    # the bundling the carve-out removed.
+    live = capture_live()
+    t = live["tiers"]
+    paste = ("## §8.2 Live-tree acceptance\n\n```\n"
+             f"--- {{'strict': {t['strict']}, 'mention': {t['mention']}}}\n```\n")
+    probe("PASTE positive (tier counts matching the tree)", False,
+          capture(check_pasted_transcripts, synth(paste), live))
+    probe("PASTE negative (a tier count mutated)", True,
+          capture(check_pasted_transcripts,
+                  synth(paste.replace(f"'strict': {t['strict']}", "'strict': 99")), live),
+          "pastes strict=99")
+
+    sites = sorted(pending_sites())
+    def disposal(rows):
+        return "## §4.6 Disposal\n\n```\n" + "\n".join(f"{r}: x" for r in rows) + "\n```\n"
+    probe("SITES positive (every wire-set line cited)", False,
+          capture(check_sites, synth(disposal(sites))))
+    probe("SITES negative (one disposal dropped)", True,
+          capture(check_sites, synth(disposal(sites[1:]))),
+          "speaks about the wire set")
+
+    real_pf = run_preflight_block(PREFLIGHT_FIXTURE)
+    probe("PREFLIGHT positive (a pasted verdict matching the tool)", False,
+          capture(check_preflight, write_probe(PREFLIGHT_FIXTURE + real_pf)))
+    probe("PREFLIGHT negative (a soft-finding count mutated)", True,
+          capture(check_preflight, write_probe(
+              PREFLIGHT_FIXTURE
+              + re.sub(r"(\d+) hard, (\d+) soft", r"\1 hard, 99 soft", real_pf))),
+          "preflight now prints")
+    (REPO / "docs" / "plans" / "zz-probe-preflight.md").unlink(missing_ok=True)
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
