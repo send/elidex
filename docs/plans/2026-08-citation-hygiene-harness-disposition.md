@@ -206,24 +206,47 @@ one predicate, **where the block set is written down**.
 
 **Goal**: after PR-1a, the block set has exactly one home per class, and file-granular action is sound.
 
-**The work list is `rederive homes`, not this section.** What follows is a rule per **class of home**, so the
-plan is complete by construction: every row the census prints falls into one of these, and a row that falls
-into none is a finding at execution rather than a reviewer's discovery. Draft 5 enumerated by hand and came
-up short by six.
+**The work list is `rederive homes`, and so is the list of classes.** ⚠ Draft 6 carried the class table here
+and claimed it was *"complete by construction: every row the census prints falls into one of these"*. **Five
+reviewers measured that false on 31 of 70 rows** — exactly what rounds 3–5 measured against the hand-written
+list of *sites* the class table replaced. An enumeration written by hand is incomplete at whatever altitude
+it is written. So the mapping moved into the census (`979e5426`), it is **total**, and an unclassified home
+is **RED** — falsified by planting an unruled literal. Below is the *rule* per class; the *coverage* is the
+command's exit status, and the class names are the census's:
 
-| class (as the census labels it) | rule |
+```bash
+bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes   # `BY CLASS:` names every class
+```
+
+⚠ **Every class the census emits must have a row here, and the count is not this page's to carry.** Two
+classes reached draft 6 with no rule at all (`memoset`, `callsite`) though its own un-learn paragraph named
+`MEMOS` as one of round 5's discoveries.
+
+| class (the census assigns it) | rule |
 |---|---|
-| **the part set** — `enumerates N of V` on the dispatcher's source loop, and `literal PARTS` | one derivation from the glob; every reader calls it. ⚠ The two globs must become **one**: `…A-rederive*.sh` matches the dispatcher and `…A-rederive-*.sh` does not, and `selfcheck`'s *"N harness parts"* silently changes meaning with the choice. |
-| **the roster** — `enumerates N of V` on `all`'s definition and its continuation lines | `_roster`, a **function**, returning every non-`_`-prefixed, non-author-local, non-`all` definition; `all`, `inventory` and `selfcheck` **call it** (D5: an inline expression makes both readers parse its own shell tokens as block names). `say` → `_say`, `fixtures` → `_fixtures` (D2). |
-| **author-local** — `literal AUTHOR_LOCAL`, and its hardcoded-filename read | a registration **adjacent to each definition**, carrying its reason. ⚠ It must be a **shell statement**, not a `#` declaration like ship-with: `_roster` is a bash function and needs this as runtime data, and bash cannot read comments. That is the layering boundary — ⚠ draft 5 gave `declare -f` as the reason, which is wrong: the ship-with needle is a Python regex over raw source and never passes through `declare -f` either. `readers` joins the registration, closing the defect A-i §15 records. |
-| **the group vocabulary** — `literal ORDER`, `literal PART_SLICE` | one `GROUPS` set, validated (landed at `9a0ff039`: a group that is not a group was indistinguishable from a real misroute). ⚠ `PART_SLICE` is a home draft 4 did not count and draft 5 called "a seventh"; once every file is a group the map is the identity and the dictionary is dead weight. |
-| **reads the artifact** — 17 code rows today, most with `guard = NO` | every read of the harness's or a memo's text must have a **named failure**. This is the class every recurring instance has come from: a hardcoded filename with no `if` (D6), a regex with a silent fallback (the indirect reader `m2`, whose sentinel when broken moves `all`'s attributed lines and re-routes a block, rc=0). |
-| **prose** — the dispatcher's header routing table | becomes a **pointer** to `rederive homes` / `rederive inventory`. It is a home, it is already wrong at its `:18` (I5), and it carries the *"cited by more than one memo → `-common.sh`"* rule that PR-1b retires (§7). |
+| **partset** | one derivation from the glob; every reader calls it. ⚠ **One spelling, not two**: every glob site in the harness already writes `…A-rederive*.sh`, which matches the dispatcher too, so `selfcheck`'s *"N harness parts"* counts it. Draft 6 said "the two globs must become one"; no second spelling exists in code — the hazard is real, the state it described was not. |
+| **roster** | `_roster`, a **function**, returning every non-`_`-prefixed, non-author-local, non-`all` definition; `all`, `inventory` and `selfcheck` **call it** (D5: an inline expression makes its readers parse its own shell tokens as block names). ⚠ Two of those three are python inside a heredoc and cannot call a bash function directly; the harness already crosses that boundary with `subprocess.run([… "declare -F"])` and PR-1a uses it rather than keeping a regex. `say` → `_say`, `fixtures` → `_fixtures` (D2). |
+| **authorlocal** | a registration **adjacent to each definition**, carrying its reason, as a **shell statement** — `_roster` is a bash function and needs it as runtime data, and bash cannot read comments. ⚠ Draft 5 gave `declare -f` as the reason, which is wrong: the ship-with needle is a Python regex over raw source and never passes through `declare -f` either. `readers` joins it, closing the defect A-i §15 records. |
+| **groupvocab** | one `GROUPS` set, validated (landed at `9a0ff039`). ⚠ It is currently *derived from* `ORDER`, so the validation landed and the collapse has not; `PART_SLICE` retires with it, **in PR-1b** — its stated ground is *"once every file is a group"*, which is PR-1b's output, not PR-1a's. |
+| **memoset** | ⚠ **A class draft 6 had no rule for.** There are **two disagreeing homes** — `inventory`'s `MEMOS` and `budget`'s `for m in …` loop, which do not carry the same memo set — and the analysis note flagged the second a draft ago. One derivation; both readers call it. |
+| **reads** | every read of the harness's or a memo's text must have a **named failure**. ⚠ Draft 6 sized this class from a `guard` column that did not know `_measure … \|\| failed=1` — *the* validity primitive — and so reported `budget`'s four reads as unguarded; fixed at `979e5426`. ⚠ It also hand-counted the rows and the split, and both were wrong. Read them from `homes`; do not restate them here. |
+| **prose** | ⚠ **Draft 6's rule named one site** (the dispatcher's header) and the census reports prose homes in every part: each states which blocks it holds and where the shared ones live, and PR-1b's renames falsify many of them. The rule is: a prose home becomes a pointer to `rederive homes` / `rederive inventory`, or is deleted. |
+| **callsite** | ⚠ **Also unruled in draft 6, and the rule is: nothing to do.** A line naming two blocks because one *calls* the other is not a place the set is written down. The class exists so that saying so is a rule rather than an omission — the harness's own comment said it and §3 did not. |
 
-**And the rename, which draft 5 dropped.** Parts are renamed to their groups — `-kernel.sh`, `-umbrella.sh`,
-`-Ai.sh`, `-Aii.sh`, `-Aiii.sh`, `-B.sh`; `-common.sh`, `-integrity.sh` and `-audit.sh` cease to exist as
-concepts. ⚠ Draft 4 had this as a step; draft 5's re-derivation folded it into another step's premise clause
-and left three steps and two sections depending on an operation nothing authorised. It is a step again.
+⚠ **The rename is NOT in PR-1a, and "one file per group" is withdrawn.** Draft 6 put a rename here and it was
+wrong twice over. **(a) It is a repartition, not a rename**: `-common.sh` alone holds three groups, and the
+kernel group spans four files, so renaming files to groups requires deciding per block where each lands —
+which *is* PR-1b's move list, so the seam PR-1a defends would collapse. Measured, ≥14 of 35 blocks change
+file. **(b) `-integrity.sh` and `-audit.sh` both hold only kernel blocks**, so one-file-per-group merges them
+back into a single file inside the 700–800 authoring band, undoing the split `259e12cb` took on the
+primitive/consumer seam — **by construction**, because the group vocabulary has no token for a layer.
+
+**The invariant file-granular action actually needs is weaker**: *no file holds blocks from more than one
+group*. A group may span files, and the kernel must, since its three whole-harness checks alone exceed the
+band. ⚠ That is a weaker rule and it needs its own check or it is an escape hatch: `inventory` prints
+`part` beside `ships`, so **"no file mixes groups" is a query, and PR-1b's exit criterion is that query plus
+an empty `MOVE LIST`** — not a seam an author may declare. Renaming to `<group>[-<seam>].sh` is a consequence
+of the moves and belongs with them, in PR-1b.
 
 **Also in PR-1a: every block declares its group.** `# ships-with: <group>` in each block's body, one per
 block, each reviewable on its own line — except the two **one-liner** definitions (`_measured`, `say`), which
