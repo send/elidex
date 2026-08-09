@@ -679,9 +679,22 @@ def compare_arrow(memo: Memo, ln: int, cmd: str, want: str) -> None:
                           f"→ {head!r}; re-running gives {first!r}")
 
 
+# A block that builds its own repository is a FIXTURE transcript: its commands
+# describe a tree this one is not, so re-running them here compares against the
+# wrong world. Recognised by the construction the memo itself specifies for a
+# hermetic fixture, and reported as unchecked rather than silently compared --
+# a `git grep` inside such a block ran against the real repo and "reproduced"
+# nothing, which read as a stale paste.
+FIXTURE_BLOCK = re.compile(r"^\s*(?:\S+=\$\()?(?:mktemp|git init)\b", re.M)
+
+
 def check_transcripts(memo: Memo) -> None:
     unchecked: list[str] = []
     for start, body in fenced_blocks(memo):
+        if FIXTURE_BLOCK.search("\n".join(body)):
+            unchecked.append(f"{memo.path.name}:{start} (fixture block — builds "
+                             f"its own repo, so this tree is not its subject)")
+            continue
         i = 0
         while i < len(body):
             ln = start + 1 + i
@@ -1096,6 +1109,13 @@ def selftest() -> int:
           "no longer produces")
     probe("TRANSCRIPT skips a command needing unpasted shell state", False,
           capture(check_transcripts, block('git grep -lE -e alpha -- "$p" → 2')))
+    probe("TRANSCRIPT skips a fixture block instead of comparing it here", False,
+          capture(check_transcripts, block(
+              "git init -q .; printf 'alpha\\n' > a.txt; git add -A",
+              "git grep -c alpha -- a.txt   → a.txt:2")))
+    probe("TRANSCRIPT still compares a non-fixture block in the same shape", True,
+          capture(check_transcripts, block(f"{real}   → {int(n) + 7}")),
+          "re-running gives")
     probes.append(("TRANSCRIPT `$NF` in an awk program is not shell state",
                    not needs_state("git grep -cE 'x' -- '*.rs' | awk -F: "
                                    "'{s+=$NF} END{print s}'"), ""))
