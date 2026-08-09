@@ -108,6 +108,140 @@ _measure() {
 # `printf '%s\n'` on an already-newline-terminated capture would add.
 _measured() { [ -n "$_MEASURE_OUT" ] && printf '%s' "$_MEASURE_OUT"; return 0; }
 
+homes() {  # WHERE THE BLOCK-SET FACT IS WRITTEN DOWN — every site, derived
+  # WHY THIS BLOCK EXISTS. `inventory` answers "whose is each block". This one
+  # answers the question five plan-review rounds kept re-opening: "where is that
+  # fact written down, and did the plan name every site?" Each round, a hand-
+  # written step list omitted a site, and each round the omission was found by a
+  # reviewer rather than by the harness -- four to six homes at round 3, a
+  # seventh at round 4, and at round 5 a parser reading the dispatcher's own text
+  # whose failure moved the routing answer silently. A step list that has to be
+  # complete, and is written by hand, is the same defect the memo tables had
+  # before they became this harness's output. So it stops being written.
+  #
+  # THE DERIVATION, and its limit, stated rather than assumed:
+  #   V   the vocabulary -- block names (bash parsing bash) and part stems (the
+  #       same glob this census ranges over). Neither is a list kept here.
+  #   R1  a CODE line naming the artifact (a harness or memo path/glob). You
+  #       cannot read the harness or a memo without spelling it. Code only:
+  #       a comment that merely names a file does not read it, and admitting
+  #       prose here buried the real homes under every file's header.
+  #   R2  a line naming TWO OR MORE members of V and not defining a block. One
+  #       name is a mention; two is an enumeration of the set.
+  #   R3  a literal ASSIGNMENT of list/dict/tuple/string shape. Shape, not
+  #       content -- this is what catches a set written in a vocabulary the
+  #       census does not share (group names, memo filenames).
+  #   R4  an INDIRECT reader: a variable bound from an R1 line, and every later
+  #       use of it. Without this the census sees the `read_text()` and not the
+  #       three regexes over its result, which is exactly how round 5's parser
+  #       hid -- it names nothing, it reads a variable.
+  # ⚠ WHAT IT CANNOT SEE: a home reached through two levels of indirection, and
+  # a home in a file this glob does not match. Both are reported as limits below
+  # rather than left for a reviewer to discover as an absence.
+  #
+  # GUARDED is the column that matters. Every recurring instance has been an
+  # UNGUARDED read: a hardcoded filename with no `if`, a regex with a silent
+  # fallback. A home with no named failure cannot report that it stopped working.
+  python3 - "$REPO_ROOT/docs/plans" <<'HOMESPY'
+import re, subprocess, sys
+from pathlib import Path
+
+HD = Path(sys.argv[1])
+FILES = sorted(HD.glob("2026-07-citation-hygiene-A-rederive*.sh"))
+PARTFILES = [f for f in FILES if "A-rederive-" in f.name]
+if len(PARTFILES) < 2:
+    raise SystemExit("!! found %d harness part(s) under %s; a census over nothing "
+                     "reports no homes for a reason that is not 'there are none'."
+                     % (len(PARTFILES), HD))
+
+PARTS = [f.name.split("A-rederive-")[1][:-3] for f in PARTFILES]
+src = "; ".join('. "%s"' % f for f in PARTFILES)
+r = subprocess.run(["bash", "--norc", "--noprofile", "-c", "set -e; %s; declare -F" % src],
+                   capture_output=True, text=True)
+if r.returncode != 0:
+    sys.stderr.write(r.stderr)
+    raise SystemExit("!! sourcing the parts failed (rc=%d); an empty vocabulary finds "
+                     "no homes for the wrong reason." % r.returncode)
+VOCAB = {l.split()[-1] for l in r.stdout.splitlines()} | set(PARTS)
+if len(VOCAB) < 10:
+    raise SystemExit("!! the vocabulary is %d token(s); too small to be the block set, "
+                     "so 'no homes' would be a fact about this census." % len(VOCAB))
+
+SELF = "2026-07-citation-hygiene"
+DEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
+LIT = re.compile(r"""^\s*([A-Z][A-Z0-9_]*)\s*=\s*[\[{("']""")
+BIND = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*?(?:read_text\(|\.glob\()")
+WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+GUARD = re.compile(r"SystemExit|FATAL|raise |\|\|\s*(?:exit|\{)|exit [12]")
+
+rows, bound = [], {}
+for f in FILES:
+    lines = f.read_text(encoding="utf-8").splitlines()
+    for i, ln in enumerate(lines):
+        code = not ln.lstrip().startswith("#")
+        kinds = []
+        if SELF in ln and code:
+            kinds.append("reads the artifact")
+        hits = {w for w in WORD.findall(ln) if w in VOCAB}
+        d = DEF.match(ln)
+        if d:
+            # A definition line is not an enumeration OF ITS OWN NAME -- but
+            # `all`'s definition line IS the roster, and excluding definitions
+            # wholesale dropped the single most important home. Measured: the
+            # first run of this census reported 83 homes and not that one.
+            hits -= {d.group(1)}
+        if len(hits) >= 2:
+            kinds.append("enumerates %d of V" % len(hits))
+        if LIT.match(ln):
+            kinds.append("literal `%s`" % LIT.match(ln).group(1))
+        b = BIND.match(ln)
+        if b:
+            bound.setdefault(f.name, {})[b.group(1)] = i + 1
+        if kinds:
+            guarded = any(GUARD.search(x) for x in lines[i:i + 7])
+            rows.append((f.name, i + 1, "code" if code else "prose",
+                         guarded, "; ".join(kinds), ln.strip()[:58]))
+
+# R4 -- the indirect readers. A variable holding the artifact's TEXT is a home
+# wherever it is used, not only where it was filled.
+indirect = []
+for f in FILES:
+    lines = f.read_text(encoding="utf-8").splitlines()
+    for name, at in sorted(bound.get(f.name, {}).items()):
+        uses = [j + 1 for j, ln in enumerate(lines)
+                if j + 1 > at and re.search(r"\b%s\b" % re.escape(name), ln)
+                and not ln.lstrip().startswith("#")]
+        if uses:
+            guarded = [any(GUARD.search(x) for x in lines[u - 1:u + 6]) for u in uses]
+            indirect.append((f.name, name, at, uses, guarded))
+
+W = max(len(x[0]) for x in rows)
+print("  -- HOMES OF THE BLOCK-SET FACT, derived (V = %d tokens over %d parts) --"
+      % (len(VOCAB), len(PARTS)))
+print("  %-*s %5s %5s %-6s %-24s %s" % (W, "file", "line", "kind", "guard", "why", "text"))
+for fn, no, kind, g, why, txt in rows:
+    print("  %-*s %5d %5s %-6s %-24s %s" % (W, fn, no, kind, "yes" if g else "NO", why, txt))
+
+print("\n  -- INDIRECT (R4): a variable bound from the artifact's own text --")
+for fn, name, at, uses, guarded in indirect:
+    print("  %s:%d  `%s` read at %s%s" % (fn, at, name,
+          ",".join(str(u) for u in uses),
+          "   ⚠ %d unguarded use(s)" % guarded.count(False) if not all(guarded) else ""))
+
+nprose = sum(1 for x in rows if x[2] == "prose")
+nbad = sum(1 for x in rows if not x[3])
+print("\n  HOMES: %d (%d code, %d prose) in %d files; %d with NO named failure."
+      % (len(rows), len(rows) - nprose, nprose, len({x[0] for x in rows}), nbad))
+print("  LIMITS (not findings -- what this census cannot see, so an absence here")
+print("          is not evidence): a home reached through two levels of variable")
+print("          indirection, and any home outside `%s*.sh`." % SELF)
+if not rows:
+    raise SystemExit("!! zero homes found. The block set is written down somewhere; "
+                     "a census that found none measured nothing.")
+HOMESPY
+  return $?
+}
+
 inventory() {  # THE BLOCK TABLE, DERIVED — who defines it, who declares it, where it ships
   # WHY THIS IS A BLOCK AND NOT A TABLE IN A MEMO. The design note's §2 and §3
   # are this block's output. Hand-written, the same two tables came out with 22
