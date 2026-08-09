@@ -12,10 +12,17 @@ double-booking both passed it.
 
 The numeral scanner is deliberately greedy and has no prose terminator: a numeral
 absorbed out of prose surfaces as a `[CELL] … §6 does not define` error rather
-than silently joining the set. Per-PR harvesting bounds the remaining masking
-case to a cell the same PR already owns, which is idempotent.
+than silently joining the set. A `cells …` list in a non-landing sentence is
+excluded (`NON_LANDING`) — folding those in silenced the `omits` check for
+exactly the harness-dependent cells, which round 14 proved by mutation.
 
-Still tabular-surface only: nothing here reads the memo's prose claims.
+Checks 11b/11c DO read prose: every cited path and every `cell N` anywhere in the
+file. What is still unchecked is *claim* integrity — a sentence whose truth
+depends on a fact stated elsewhere in the file, in another crate, or in code the
+memo never traced. Mutation-confirmed still-open (round 15): §3 row spec
+§-numbers, M-row prose PR claims, cell M-attribution, §6 test-placement routing,
+deleted slot triggers, claimed crate deps, and a cell reference misattributed to
+another cell that also exists.
 """
 import re, sys, pathlib
 
@@ -228,21 +235,40 @@ def main(path):
 
     # 11b. every `crates/...` path the memo cites must exist on disk
     root=pathlib.Path(__file__).resolve().parents[2]
+    # Most of the memo's paths are crate-relative (`inline/pack/boxes.rs`), not
+    # `crates/…`-prefixed -- including round 13's fabricated `builder/block/mod.rs`,
+    # which the prefixed-only form could not see. Resolve a bare path by suffix
+    # against the tracked file list, which is also what a reader does.
+    tracked=[str(q.relative_to(root)) for q in root.glob("crates/**/*.rs")]
+    # Files this program CREATES are exempt, but the `(NEW)` annotation need only
+    # appear ONCE -- later mentions use the short form. Harvest the annotated set
+    # first, then exempt by suffix, so a NEW file can be referenced normally while
+    # a fabricated path still fails.
+    new_files=set()
+    for m in re.finditer(r"`([A-Za-z0-9_./{},-]+\.rs)`?[^`\n]{0,12}\(NEW", s):
+        raw=m.group(1)
+        b=re.search(r"\{([^}]*)\}", raw)   # `…/{stream,geometry,existence}.rs` expands
+        new_files |= ({raw.replace(b.group(0), part.strip()) for part in b.group(1).split(",")}
+                      if b else {raw})
+    def is_new(f):
+        return any(f.endswith(n) or n.endswith(f) or n.endswith("/"+f) for n in new_files)
     seen=set()
-    for m in re.finditer(r"`(crates/[A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
+    for m in re.finditer(r"`([A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
         f=m.group(1)
         if f in seen: continue
         seen.add(f)
-        # a file this program CREATES must be annotated; that annotation is what
-        # distinguishes it from a fabricated coordinate (round 13's `builder/block/mod.rs`)
-        if re.search(r"\(NEW[,)]", s[m.end(): m.end()+40]): continue
-        if not (root/f).is_file(): bad("PATH", f"cited file does not exist: {f}")
+        if is_new(f): continue
+        if f.startswith("crates/"):
+            if not (root/f).is_file(): bad("PATH", f"cited file does not exist: {f}")
+        elif not any(t.endswith("/"+f) for t in tracked):
+            bad("PATH", f"cited path matches no file under crates/: {f}")
 
     # 11c. a `cell N` named ANYWHERE must be one §6 defines -- §5.3 and §8 are
     #      cross-checked per PR above, but §2/§5.1/§5.2/§7/§9/§10 were not read at all
-    for m in re.finditer(r"\bcells? (\d+[a-z]?)\b", s):
-        if m.group(1) not in cells:
-            bad("CELL", f"cell {m.group(1)} referenced but §6 does not define it")
+    for m in re.finditer(r"\bcells?\s+((?:\d+[a-z]?)(?:\s*/\s*\d+[a-z]?)*)\b", s, re.I):
+        for tok in re.findall(r"\d+[a-z]?", m.group(1)):
+            if tok not in cells:
+                bad("CELL", f"cell {tok} referenced but §6 does not define it")
 
     # 12. a superseded line-range must not survive beside its corrected form
     SUPERSEDED = {":264-301": ":266-303", ":386-409": ":388-411", ":411-637": ":413-639"}
