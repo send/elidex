@@ -109,6 +109,12 @@ CLASSES = {"PARTS": "partset", "ORDER": "groupvocab", "PART_SLICE": "groupvocab"
            "MEMOS": "memoset", "AUTHOR_LOCAL": "authorlocal"}
 
 
+def hits_outside_quotes(ln):
+    """Vocabulary tokens that are NOT inside a quoted span."""
+    bare = re.sub(r"'[^']*'|\"[^\"]*\"", " ", ln)
+    return len([w for w in WORD.findall(bare) if w in VOCAB])
+
+
 def classify(fname, ln, code, kinds, span):
     if not code:
         return "prose"
@@ -125,12 +131,26 @@ def classify(fname, ln, code, kinds, span):
         return "reads"
     if LITSPAN[0]:
         return LITSPAN[0]
-    # ⚠ R2 NEEDS A SUBJECT TEST, exactly as R3 and R4 did. A line naming two
-    # blocks because one CALLS the other -- `_measure n_head _wtscan …` -- is not
-    # a place the block set is written down; neither is a diagnostic string that
-    # happens to contain a block's name. Both were RED as "no class covers this"
-    # until they got their own, whose rule is that there is nothing to do.
-    return "callsite"
+    # ⚠ `callsite` NEEDS A SUBJECT TEST, like every other rule here. As a
+    # FALLTHROUGH it swallowed a genuine home: `blocks="citations budget lanes"`
+    # is a hand-written enumeration of the block set, missed by R3 (lowercase),
+    # and filed under the one class whose rule is that there is nothing to do --
+    # the defect this census exists to prevent, reproduced inside it. A line is a
+    # call site because a vocabulary token stands in COMMAND POSITION, and
+    # anything else is unclassified, which is RED.
+    if re.search(r"(?:^|[;&|(]|\bthen |\bdo |\belse )\s*[A-Za-z_][A-Za-z0-9_]*\s", ln):
+        first = WORD.search(ln.lstrip())
+        if first and first.group(0) in VOCAB:
+            return "callsite"
+        if re.search(r"(?:^|[;&|(])\s*_measure\b", ln):
+            return "callsite"
+    # A MENTION: every vocabulary hit sits inside a quoted string, so the line
+    # talks ABOUT a block rather than enumerating the set. Also nothing to do --
+    # and also a subject test, not a fallthrough: strip the quoted spans and if
+    # any hit survives, the line is unclassified and RED.
+    if hits_outside_quotes(ln) == 0:
+        return "mention"
+    return "?"
 
 
 LINENO = [0]
@@ -191,7 +211,11 @@ for f in FILES:
                                     for v in handles.get(f.name, ()))):
             bound.setdefault(f.name, {})[b.group(1)] = i + 1
         if kinds:
-            guarded = any(GUARD.search(x) for x in lines[i:i + 7])
+            # ⚠ THE WINDOW MUST BE CODE. Unfiltered, 16 of 34 "guarded" verdicts came
+            # from a token inside a COMMENT -- including the comment written to
+            # explain this very needle. A prose mention of `_measure` is not a guard.
+            guarded = any(GUARD.search(x) for x in lines[i:i + 7]
+                          if not x.lstrip().startswith("#"))
             rows.append((f.name, i + 1, "code" if code else "prose",
                          guarded, "; ".join(kinds), ln.strip()[:58],
                          classify(f.name, ln, code, kinds, rosterspan.get(f.name))))
@@ -230,6 +254,25 @@ byclass = {}
 for x in rows:
     byclass[x[6]] = byclass.get(x[6], 0) + 1
 print("\n  BY CLASS: " + "  ".join("%s=%d" % kv for kv in sorted(byclass.items())))
+
+# ⚠ A CLASS WITH NO RULE IS THE SAME DEFECT AS A HOME WITH NO CLASS, and the gate
+# below could not see it: it reds an UNCLASSIFIABLE row, not a class the plan
+# forgot to rule. Measured -- two classes reached a plan-review round with no
+# rule while this block exited 0. The plan is prose, so the only thing that has
+# ever held is a CHECKER OVER THE PROSE
+# (`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md`): the memo's §3
+# table keys ARE the census's class names, so the two sets can be compared.
+PLAN = HD / "2026-08-citation-hygiene-harness-disposition.md"
+unruled = []
+if PLAN.is_file():
+    ruled = set(re.findall(r"^\| \*\*([a-z]+)\*\* \|", PLAN.read_text(encoding="utf-8"), re.M))
+    if not ruled:
+        raise SystemExit("!! %s has no §3 rule rows this parser can read; 'every class is "
+                         "ruled' would then be a fact about the parser." % PLAN.name)
+    unruled = sorted(set(byclass) - ruled)
+    print("  RULED BY THE PLAN: %d of %d class(es)%s"
+          % (len(set(byclass)) - len(unruled), len(byclass),
+             "" if not unruled else "  -- MISSING: " + " ".join(unruled)))
 print("\n  HOMES: %d (%d code, %d prose) in %d files; %d with NO named failure."
       % (len(rows), len(rows) - nprose, nprose, len({x[0] for x in rows}), nbad))
 print("  LIMITS (not findings -- what this census cannot see, so an absence here")
@@ -248,6 +291,9 @@ if unc:
         print("   !! %s:%d  [%s]  %s" % (fn, no, why, txt))
     raise SystemExit("!! %d home(s) fall into no class. A rule per class is complete "
                      "only while this is empty." % len(unc))
+if unruled:
+    raise SystemExit("!! %d class(es) the census emits have no rule in %s: %s"
+                     % (len(unruled), PLAN.name, " ".join(unruled)))
 HOMESPY
   return $?
 }
