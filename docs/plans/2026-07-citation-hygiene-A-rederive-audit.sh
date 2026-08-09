@@ -78,16 +78,83 @@ if len(VOCAB) < 10:
 SELF = "2026-07-citation-hygiene"
 DEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
 LIT = re.compile(r"""^\s*([A-Z][A-Z0-9_]*)\s*=\s*[\[{("']""")
+# ⚠ R4 NEEDS A SUBJECT TEST TOO, for the same reason R3 did: bound to shape
+# alone it reported `_proto`'s CALLER-SUPPLIED plan file as "the artifact's own
+# text". The line must also name the artifact, which is what makes the variable
+# a reader OF THIS HARNESS rather than of whatever the caller passed in.
 BIND = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*.*?(?:read_text\(|\.glob\()")
+HANDLE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^=]")
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-GUARD = re.compile(r"SystemExit|FATAL|raise |\|\|\s*(?:exit|\{)|exit [12]")
+# ⚠ THE GUARD NEEDLE MUST KNOW THIS HARNESS'S OWN IDIOM. It did not: `_measure
+# <var> <cmd> || failed=1` is THE validity primitive -- the analysis note's §2
+# says every shape here is a spelling of it -- and reporting those call sites as
+# "no named failure" overstated the work list at exactly the idiom the program
+# exists for. `budget`'s four reads all route through `_measure` and all read NO.
+GUARD = re.compile(r"SystemExit|FATAL|raise |\|\|\s*(?:exit|\{|failed=|continue|rc=)"
+                   r"|exit [12]|_measure\b")
 
-rows, bound = [], {}
+# --- THE CLASS OF EACH HOME -------------------------------------------------
+# WHY THE CENSUS ASSIGNS THE CLASS AND NOT THE MEMO. The disposition memo's §3
+# is a rule PER CLASS, and it claimed to be "complete by construction: every row
+# the census prints falls into one of these". Round 6 measured that claim false
+# on 31 of 70 rows -- FIVE reviewers, independently, exactly as rounds 3-5 had
+# measured the hand-written list of SITES it replaced. An enumeration written by
+# hand is incomplete at whatever altitude it is written; the fix that has worked
+# three times in this program is to derive it and let the machine say so.
+#
+# So the mapping lives here, it is TOTAL, and an unclassified row is RED. That
+# does not make the mapping right -- it makes its INCOMPLETENESS a red build
+# instead of a claim a reviewer has to falsify by hand.
+CLASSES = {"PARTS": "partset", "ORDER": "groupvocab", "PART_SLICE": "groupvocab",
+           "MEMOS": "memoset", "AUTHOR_LOCAL": "authorlocal"}
+
+
+def classify(fname, ln, code, kinds, span):
+    if not code:
+        return "prose"
+    for k in kinds:
+        if k.startswith("literal `"):
+            return CLASSES.get(k.split("`")[1], "?")
+    if span and span[0] <= LINENO[0] <= span[1]:
+        return "roster"
+    if re.search(r"\bfor\s+_part\s+in\b", ln):
+        return "partset"
+    if re.search(r"\bfor\s+m\s+in\b", ln) or "citation-hygiene-%s" in ln:
+        return "memoset"
+    if "reads the artifact" in " ".join(kinds):
+        return "reads"
+    if LITSPAN[0]:
+        return LITSPAN[0]
+    # ⚠ R2 NEEDS A SUBJECT TEST, exactly as R3 and R4 did. A line naming two
+    # blocks because one CALLS the other -- `_measure n_head _wtscan …` -- is not
+    # a place the block set is written down; neither is a diagnostic string that
+    # happens to contain a block's name. Both were RED as "no class covers this"
+    # until they got their own, whose rule is that there is nothing to do.
+    return "callsite"
+
+
+LINENO = [0]
+LITSPAN = [None, 0]
+rows, bound, handles = [], {}, {}
+# `all`'s roster spans several CONTINUATION lines, and they are the same home.
+rosterspan = {}
+for f in FILES:
+    t = f.read_text(encoding="utf-8").splitlines()
+    for j, l in enumerate(t):
+        if l.startswith("all() { set --"):
+            e = next((k for k in range(j, len(t)) if "local failed" in t[k]), j)
+            rosterspan[f.name] = (j + 1, e)
+            break
 for f in FILES:
     lines = f.read_text(encoding="utf-8").splitlines()
     for i, ln in enumerate(lines):
         code = not ln.lstrip().startswith("#")
+        LINENO[0] = i + 1
         kinds = []
+        if LITSPAN[0] and LITSPAN[1] <= 0:
+            LITSPAN[0] = None
+        elif LITSPAN[0]:
+            LITSPAN[1] += ln.count("[") + ln.count("(") - ln.count("]") - ln.count(")")
         if SELF in ln and code:
             kinds.append("reads the artifact")
         hits = {w for w in WORD.findall(ln) if w in VOCAB}
@@ -106,14 +173,28 @@ for f in FILES:
         # vocabulary token keeps `ORDER` (`B` is a stem), `MEMOS` (`Ai`), `PARTS`,
         # `PART_SLICE` and `AUTHOR_LOCAL`, which is the set R3 exists for.
         if LIT.match(ln) and hits:
-            kinds.append("literal `%s`" % LIT.match(ln).group(1))
+            nm = LIT.match(ln).group(1)
+            kinds.append("literal `%s`" % nm)
+            # A literal may span lines; its CONTINUATIONS are the same home.
+            depth = ln.count("[") + ln.count("(") - ln.count("]") - ln.count(")")
+            LITSPAN[0], LITSPAN[1] = (CLASSES.get(nm, "?"), depth) if depth > 0 else (None, 0)
+        # An ARTIFACT HANDLE is a variable assigned on a line that names the
+        # artifact; a read THROUGH one is still a read of the artifact. ⚠ The
+        # first subject test required the artifact's name on the READ line and
+        # dropped `dtext = DISPATCH.read_text(…)` -- the indirect reader R4 was
+        # built for. Caught by the acceptance list, not by inspection.
+        h = HANDLE.match(ln)
+        if h and SELF in ln:
+            handles.setdefault(f.name, set()).add(h.group(1))
         b = BIND.match(ln)
-        if b:
+        if b and (SELF in ln or any(re.search(r"\b%s\b" % re.escape(v), ln)
+                                    for v in handles.get(f.name, ()))):
             bound.setdefault(f.name, {})[b.group(1)] = i + 1
         if kinds:
             guarded = any(GUARD.search(x) for x in lines[i:i + 7])
             rows.append((f.name, i + 1, "code" if code else "prose",
-                         guarded, "; ".join(kinds), ln.strip()[:58]))
+                         guarded, "; ".join(kinds), ln.strip()[:58],
+                         classify(f.name, ln, code, kinds, rosterspan.get(f.name))))
 
 # R4 -- the indirect readers. A variable holding the artifact's TEXT is a home
 # wherever it is used, not only where it was filled.
@@ -131,9 +212,11 @@ for f in FILES:
 W = max(len(x[0]) for x in rows)
 print("  -- HOMES OF THE BLOCK-SET FACT, derived (V = %d tokens over %d parts) --"
       % (len(VOCAB), len(PARTS)))
-print("  %-*s %5s %5s %-6s %-24s %s" % (W, "file", "line", "kind", "guard", "why", "text"))
-for fn, no, kind, g, why, txt in rows:
-    print("  %-*s %5d %5s %-6s %-24s %s" % (W, fn, no, kind, "yes" if g else "NO", why, txt))
+print("  %-*s %5s %5s %-6s %-11s %-24s %s"
+      % (W, "file", "line", "kind", "guard", "class", "why", "text"))
+for fn, no, kind, g, why, txt, cl in rows:
+    print("  %-*s %5d %5s %-6s %-11s %-24s %s"
+          % (W, fn, no, kind, "yes" if g else "NO", cl, why, txt))
 
 print("\n  -- INDIRECT (R4): a variable bound from the artifact's own text --")
 for fn, name, at, uses, guarded in indirect:
@@ -143,6 +226,10 @@ for fn, name, at, uses, guarded in indirect:
 
 nprose = sum(1 for x in rows if x[2] == "prose")
 nbad = sum(1 for x in rows if not x[3])
+byclass = {}
+for x in rows:
+    byclass[x[6]] = byclass.get(x[6], 0) + 1
+print("\n  BY CLASS: " + "  ".join("%s=%d" % kv for kv in sorted(byclass.items())))
 print("\n  HOMES: %d (%d code, %d prose) in %d files; %d with NO named failure."
       % (len(rows), len(rows) - nprose, nprose, len({x[0] for x in rows}), nbad))
 print("  LIMITS (not findings -- what this census cannot see, so an absence here")
@@ -151,6 +238,16 @@ print("          indirection, and any home outside `%s*.sh`." % SELF)
 if not rows:
     raise SystemExit("!! zero homes found. The block set is written down somewhere; "
                      "a census that found none measured nothing.")
+# AN UNCLASSIFIED HOME IS RED. A plan written per class is complete only if every
+# home HAS a class, and for three rounds that property was a sentence in a memo
+# rather than a check. It is now the check.
+unc = [x for x in rows if x[6] == "?"]
+if unc:
+    print("\n  -- HOMES NO CLASS COVERS -- the per-class plan does not reach these --")
+    for fn, no, kind, g, why, txt, cl in unc:
+        print("   !! %s:%d  [%s]  %s" % (fn, no, why, txt))
+    raise SystemExit("!! %d home(s) fall into no class. A rule per class is complete "
+                     "only while this is empty." % len(unc))
 HOMESPY
   return $?
 }
