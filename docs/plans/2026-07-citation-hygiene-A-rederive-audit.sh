@@ -359,6 +359,21 @@ known = set(bodies)
 # Ship-with is the opposite case: T0-T3 compute a real answer, so a declaration
 # is CHECKABLE and a disagreement is a finding rather than a preference.
 #
+def _noheredoc(lines):
+    """Drop `<<'TAG'` … TAG bodies. A declaration inside one is not shell."""
+    out, term = [], None
+    for l in lines:
+        if term is not None:
+            if l.strip() == term:
+                term = None
+            continue
+        out.append(l)
+        m_ = re.search(r"<<-?'([A-Za-z_][A-Za-z0-9_]*)'", l)
+        if m_:
+            term = m_.group(1)
+    return out
+
+
 # ⚠ THE ONE RULE THIS PATTERN PAIR EXISTS TO ENFORCE: a declaration that was
 # WRITTEN and NOT READ must never come out as "undeclared". Four ways to break it
 # have now been found BY PLANTING OR BY RUNNING, none by inspection:
@@ -395,7 +410,14 @@ for b_ in known:
     if b_ not in defline:
         continue
     pt_, i_, end_ = defline[b_]
-    region = "\n".join(srcs[pt_][i_:end_])
+    # ⚠ HEREDOC PAYLOADS ARE NOT SHELL. A declaration line inside a python
+    # payload is a PYTHON comment, and reading it made the payload the block's
+    # authority: measured, a planted one entered the MOVE LIST as an actionable
+    # move and, disagreeing only via T2, left rc=0. `selfcheck`'s parser already
+    # drops payload bodies for exactly this reason; this one did not.
+    # (The needle is not spelled here -- see `_SW`. Spelling it in this block's
+    # own prose is how the clean tree went red twice already.)
+    region = "\n".join(_noheredoc(srcs[pt_][i_:end_]))
     hits = DECL.findall(region)
     claimed[b_] = len(hits)
     if len(hits) > 1:
@@ -501,7 +523,15 @@ for _ in range(len(known)):
         if b in comp or not all(c in route for c in callers[b]):
             continue
         cs = [route[c] for c in callers[b] if route[c] in ORDER]
-        comp[b] = min(cs, key=ORDER.index) if cs else "kernel"
+        # ⚠ A BLOCK CALLED ACROSS GROUP BOUNDARIES BELONGS TO NONE OF THEM.
+        # "Earliest caller wins" made the measurement primitive unrepresentable:
+        # `_measure` is called from every group, so declaring it `kernel` -- the
+        # layering-correct answer, and the whole reason `-integrity.sh` exists --
+        # went binding-RED against T3. The umbrella's own `:89` says a slice may
+        # not carry another slice's concern; a block two slices call is shared
+        # infrastructure, which is what `kernel` names.
+        comp[b] = ("kernel" if len(set(cs)) > 1
+                   else min(cs, key=ORDER.index) if cs else "kernel")
         why[b] = "T3 " + (",".join(sorted(callers[b])) or "no caller")
         route.setdefault(b, comp[b])
 for b in known:
