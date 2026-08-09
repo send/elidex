@@ -29,7 +29,9 @@ The answer is the one this program has already reached three times: **the enumer
 `rederive homes` derives it — and §3 below is a rule per *class of home*, applied to that command's output,
 rather than a list of sites that has to be right.
 
-**Four mechanism changes landed before this draft was written, each falsified by planting or by running:**
+**Seven mechanism changes landed before this draft was written, each falsified by planting or by running.**
+⚠ **The count is itself a finding**: 1 → 2 → 0 → 1 → 4 → 3 across draft windows, each under the same
+disclaimer. §9 records the rate, not just the exception.
 
 | commit | what it fixes | how it was falsified |
 |---|---|---|
@@ -37,6 +39,9 @@ rather than a list of sites that has to be right.
 | `9a0ff039` | three parse holes fell through to "undeclared", and `claimed` counted the wrong pattern's hits | planted a one-liner declaration, a duplicate, and a valueless one — all three now named, rc=1 |
 | `fc47cde1` | `homes` — the census | run against an acceptance list of every site round 5's axes named (`git show fc47cde1`, which carries the list): all found |
 | `259e12cb` | the split `homes` forced, on the primitive/consumer seam | every block's stdout+stderr and exit code, before and after: exit codes identical, output identical but for the four differences the split *is* |
+| `7ad42edd` | `homes`'s R3 was a shape rule with no subject test | five noise literals dropped, acceptance list re-run intact. ⚠ It **moved the census output**, which §3 says *is* the work list — so it is not, as §9 claimed of its siblings, a commit that decides nothing PR-1a decides |
+| `979e5426` | the census assigns the CLASS; an unclassified home is RED. Three more shape rules got the subject test R3 got, and `guard` learned `_measure … \|\| failed=1` | planted an unruled literal → named, rc=1. ⚠ **My first subject test for R4 was wrong** and dropped the indirect reader R4 exists for; the acceptance list caught it, inspection did not |
+| `49b4f645` | a declaration in a heredoc **payload** was authoritative; and T3 made the measurement primitive's own layer unrepresentable | planted payload declaration: entered the MOVE LIST at rc=0 before, reported written-unread at rc=1 after. `# ships-with: kernel` on `_measure`: binding-RED before, `agree=2` after |
 
 ⚠ **Two of those four fixes had a defect of their own that inspection did not show.** The declaration needle,
 once it admitted a post-brace form, matched the *examples in its own comment* and turned a clean tree red;
@@ -225,10 +230,13 @@ block, each reviewable on its own line — except the two **one-liner** definiti
 must be un-one-lined or the declaration is read only by the post-brace form. The mechanism is landed and
 green with zero declarations, so this is content, not plumbing.
 
-**What PR-1a does not change: any block's subject.** ⚠ Draft 4's §9 said *"no behaviour change to any block"*,
+**What PR-1a does not change: any block's subject on the success path.** ⚠ Draft 4's §9 said *"no behaviour change to any block"*,
 which forbade its own steps. The boundary that holds: **`all`, `homes`, `inventory` and `selfcheck` are
-exempt by definition, because their subject *is* the block set.** Every other block's inputs, output and
-verdict are byte-identical across PR-1a.
+exempt by definition, because their subject *is* the block set.** Every other block's inputs and output are
+byte-identical across PR-1a. ⚠ **Its verdict on the FAILURE path is not, and cannot be**: the `reads` class
+adds a named failure to `budget`'s four reads, and changing what happens when a read fails is the entire
+point of that rule. Draft 6 narrowed the exemption *list* and left the *predicate* unscoped, which is draft
+4's self-forbidding-step defect at a new site.
 
 ## §3b PR-1b — the moves
 
@@ -326,8 +334,8 @@ short table; the narrow query is.
 | `active-lane-detail.md`, the 2026-08-02 carve note | invalidated | pre-split figures and the carve's standing |
 | `project_citation-hygiene-program.md` — **four** `#505` regions | invalidated | the next-session pointer, the superseded-draft-3 section, the carve section, **and the superseded 2026-08-03 section**, which is the *previous register audit* and carries two obligations no other row here does (both memos still saying "two owed harness edits" when only `suites` remains; the umbrella slice table having no row for #505). ⚠ Draft 5 named three and its own query returns four |
 | any other file the query returns | invalidated or provenance | ⚠ the set **grows during a session** — it gained a file while round 5 was running. Classify at execution; do not carry the list |
-| **PR #501's 2026-08-02 comment** | invalidated, and **two commitments, not one** | *"They are being fixed in #505, not here"* → discharged by PR-2 (§5). *"This PR will rebase once #505 lands…"* → retracted by §4's "no merge and no rebase", which also contradicts `MEMORY.md`'s standing note. ⚠ Draft 5 covered only the first |
-| **PR #505's own body** | invalidated, and **the most public register there is** | ⚠ No draft's query read it. It states the harness's file/line/block counts (all now false, in the same way §3 says A-i §8 is), that the PR is *"stacked before #501"*, and the carve rationale *"29 of 45 harness citations come from memos other than A-i's"* — whose premise M1 falsifies. Closing freezes all of it as the public record, so the close needs a comment, not just a state change |
+| **PR #501's 2026-08-02 comment** | invalidated — **three statements, and the row has grown once per round** | *"They are being fixed in #505, not here"* → discharged by PR-2 (§5). *"This PR will rebase once #505 lands…"* → retracted by §4's "no merge and no rebase". ⚠ *"the harness is now its own PR, **stacked before this one**"* → **reversed** by §4, which lands #501 first. The comment also repeats the *"29 of 45"* premise M1 falsifies. ⚠ Draft 5 named one, draft 6 two; that the count keeps rising is the finding, not the count |
+| **PR #505's own body** | invalidated, and **the most public register there is** | ⚠ No draft's query read it. It states the harness's file/line/block counts (all now false, in the same way §3 says A-i §8 is); that the PR is *"stacked before #501"*; the carve rationale *"29 of 45 harness citations come from memos other than A-i's"*, whose premise M1 falsifies; and — ⚠ **the statement §4 most turns on** — that the harness here is *"byte-identical to the harness at #501's head … so rebasing #501 onto this branch leaves zero harness delta"*, which `git diff --stat webref-cite-audit-tool -- 'docs/plans/*A-rederive*'` now contradicts by hundreds of lines. Closing freezes all of it as the public record, so **the close needs a comment**, not a state change |
 | **umbrella, the `DISCHARGED by A-i` bullet** | **restored** | it records the harness split as discharged by A-i naming three SHAs; those SHAs are on `webref-cite-audit-tool`, so the harness returning there makes the bullet true again and retires the owed "add a #505 row" amendment |
 | **A-i §8** and its layout figures | **restored / re-derived** | the first is true again once the harness is on A-i's branch; the second is already false at HEAD (§3) and is A-i's to re-derive at landing, from `rederive inventory` |
 | **A-i §13's owed `suites` relocation** | **discharged, and its rule retired** | §13 owes the move *"to `-common.sh`"* **and states the rule it follows** — *"cited by more than one memo → `-common.sh`"*. PR-1a abolishes `-common.sh`, so this is not a change of destination but a **retirement of the rule**, whose other home is the dispatcher header (§3, prose class) |
@@ -338,8 +346,12 @@ retired rather than a pointer repaired.
 
 ## §8 Claims vs checks
 
-⚠ **No row in this table carries a digit.** Every one of draft 5's numeric rows that round 5 re-derived
-failed to reproduce — including two marked CHECKED against a command that does not return the claim.
+⚠ **No row in this table carries an EXPECTED VALUE.** ⚠ Draft 6 said *"no digit"* and two of its own rows
+carry one — the planted-edit falsification records. The values are right and the blanket claim was not, in
+the section whose subject is claims-versus-checks. What a row may carry is a **recorded falsification**
+stamped to the commit that produced it; what it may not carry is a figure a reader would re-derive today.
+Every one of draft 5's numeric rows that round 5 re-derived failed to reproduce, including two marked CHECKED
+against a command that does not return the claim.
 
 | claim | check | status |
 |---|---|---|
@@ -379,19 +391,24 @@ and `selfcheck`, whose subject is the block set (behaviour fixes are PR-2, §5);
 deleting the `citation-hygiene-harness` branch; editing a status register before §7's query is re-run; or
 creating a defer slot.
 
-⚠ **Four mechanism commits landed on this branch ahead of any review, and the justification draft 5 gave for
-that was wrong.** It said the defects "appeared only when declarations were planted" and could not be found by
-inspection — true — and concluded that landing was therefore necessary. It is not: §1's own preamble explains
-how to exercise an **uncommitted** mechanism in a `git clone --local` sandbox, and D4–D7 are all done that
-way. The reasons that do hold, stated so the next PR inherits a decision rather than a habit:
+⚠ **Mechanism has landed on this branch ahead of review in every draft window but one, and the rate is
+rising**: 1 → 2 → 0 → 1 → 4 → 3, each time under a disclaimer saying it is not a licence. Draft 5's stated
+justification is **withdrawn**: it said the defects "appeared only when declarations were planted" and could
+not be found by inspection — true — and concluded that landing was therefore necessary. It is not; §1's own
+preamble explains how to exercise an **uncommitted** mechanism in a `git clone --local` sandbox, and D4–D7
+are all done that way. The reasons that do hold:
 
 1. **The order is user-ratified.** *"設計を書く前に機構を landing して反証する"* was given as the method for
-   this draft, and repeated for any new mechanism in it.
-2. **A working-tree edit is invisible to review.** Round 5's five agents each cloned HEAD; one of them planted
-   declarations into the mechanism and found a hole in it. Uncommitted, none of that would have been
-   reachable — which is the failure mode §1's preamble warns about, one level up.
-3. **It decides nothing PR-1a must decide.** The declaration mechanism landed with **zero declarations**; the
-   census landed with no site acted on. Every step in §3 is measurably un-started.
+   these drafts, and repeated for any new mechanism in them.
+2. **A working-tree edit is invisible to review.** Round 5's and round 6's agents each cloned HEAD; several
+   planted declarations into the mechanism and found holes in it — including two the author had missed.
+   Uncommitted, none of that would have been reachable, which is the failure mode §1's preamble warns about
+   one level up.
+3. **It decides nothing PR-1a must decide** — ⚠ **true of six of the seven, and false of `7ad42edd` and
+   `979e5426`**, which changed the census output §3 calls the work list. A commit that moves the work list
+   decides part of PR-1a's scope, and saying otherwise of all of them was the same over-claim this memo keeps
+   finding elsewhere.
 
-That is a knowingly-taken exception with its counter-argument answered, not a licence. ⚠ It does mean PR-1a's
-plan-review inherits a landed design as ground rather than as a proposal, and should be told so.
+**The rate is the datum a reader should weigh, not the disclaimer.** Each PR under this umbrella takes its own
+`/elidex-plan-review` before implementation — PR-1a, PR-1b, PR-2, PR-3 — and PR-1a's inherits a landed design
+as ground rather than as a proposal, which it should be told.

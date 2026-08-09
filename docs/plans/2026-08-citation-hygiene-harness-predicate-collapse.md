@@ -290,7 +290,13 @@ one of the two blocks carrying an invariant at all — ships RED and stays RED u
 
 ## §4 Q3 — what verifies the harness
 
-Nothing **runs** it outside `docs/plans/` (M5). Three things verify it, and there is no fourth:
+Nothing **runs** it outside `docs/plans/` (M5). What verifies it is a set the harness itself reports, and ⚠ **this section asserted a closed set of three that the same day's commits opened to four** — `homes` joined `all`'s roster and `-integrity.sh` split, and this note was revised after both and left the sentence alone. Re-derive rather than reading the table below:
+
+```bash
+sed -n "/^all() { set --/,/local failed/p" docs/plans/2026-07-citation-hygiene-A-rederive.sh
+grep -c 'DEF = re.compile' docs/plans/2026-07-citation-hygiene-A-rederive-*.sh
+```
+
 
 | what | property | scope |
 |---|---|---|
@@ -303,8 +309,10 @@ count-based check could have caught it: the block count, the roster and the file
 consistent the whole time. What was never derived was *whose* each block is.
 
 **`selfcheck` and `inventory` do not have one parser, and the note must stop claiming they will.** Draft 3
-said re-expressing `selfcheck` over `declare -f` "deletes the second parser". Measured: there are two
-`DEF = re.compile(…)` sites in `-integrity.sh`, and the one that would be deleted is `selfcheck`'s. The
+said re-expressing `selfcheck` over `declare -f` "deletes the second parser". Measured: the
+`DEF = re.compile(…)` sites are all in `-audit.sh` (⚠ this sentence said two, in `-integrity.sh`, and
+both halves were falsified — by `homes`, and by the split that moved every check out of that file), and
+the one that would be deleted is `selfcheck`'s. The
 survivor is `inventory`'s **line-oriented** parser over the raw files, and it is the source of every `ln` in
 §3 — `declare -f` strips comments, so it cannot count prose lines at all. The honest collapse is narrower and
 still worth taking: `selfcheck`'s **body** analysis moves to `declare -f` (bash parsing bash; verified that
