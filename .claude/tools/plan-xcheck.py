@@ -16,8 +16,15 @@ than silently joining the set. A `cells …` list in a non-landing sentence is
 excluded (`NON_LANDING`) — folding those in silenced the `omits` check for
 exactly the harness-dependent cells, which round 14 proved by mutation.
 
-Checks 11b/11c DO read prose: every cited path and every `cell N` anywhere in the
-file. What is still unchecked is *claim* integrity — a sentence whose truth
+Checks 11b/11c DO read prose. 11b reads every backticked `<path>.rs` span, with or
+without a `:line` suffix and with or without a leading word (`elidex-style a/b.rs`).
+11c reads every `cell(s) <list>`, where a list is one or more `<digits><letter?>`
+tokens — each optionally carrying an attached `(x)` sub-reference, which is dropped
+— joined by `,`, `and`, `, and`, `/`, or a dash range that is expanded. A list ends
+at the first thing that is not one of those, so a numeral reachable only through
+some other joiner is still unread.
+
+What is still unchecked is *claim* integrity — a sentence whose truth
 depends on a fact stated elsewhere in the file, in another crate, or in code the
 memo never traced. Mutation-confirmed still-open (round 15): §3 row spec
 §-numbers, M-row prose PR claims, cell M-attribution, §6 test-placement routing,
@@ -51,6 +58,16 @@ def tokens(listing):
     return got
 
 CELL_LIST = re.compile(r"cells? ((?:\d+[a-z]?(?:\s*[–-]\s*\d+)?(?:\s*(?:,|and)\s*)?)+)")
+
+# A `cell(s) <list>` ANYWHERE in the file (check 11c). A token is digits + an
+# optional letter + an optional ATTACHED `(x)` sub-reference; `tokens()` drops the
+# sub-reference for free (it harvests digit-led runs), so `17d(b)` yields `17d`.
+# The range dash is the one separator that may not cross a line: `\s*` there would
+# let a wrapped list swallow the `- ` opening the next markdown bullet. The other
+# separators do cross, because real listings wrap mid-list.
+_CELL_TOK = r"\d+[a-z]?(?:\([a-z]\))?"
+_CELL_SEP = r"(?:\s*(?:,\s*and|,|and|/)\s*|[^\S\n]*[–-][^\S\n]*)"
+CELL_REF = re.compile(rf"\b(?i:cells?)\s+({_CELL_TOK}(?:{_CELL_SEP}{_CELL_TOK})*)")
 
 # A `cell(s) <list>` that is NOT a landing claim. `flip`/`do not` mark the flip
 # partition; the rest mark cells named for some other reason (unconstructible
@@ -108,7 +125,7 @@ def main(path):
         bad("PAIR", f"{r} is in no coupling pair")
 
     # 3. PR labels used anywhere vs PRs §5.3 defines
-    defined=set(re.findall(r"\*\*(PR-1[abc]) —", s5))
+    defined=set(re.findall(r"\*\*(PR-1[a-z]) —", s5))
     used=set(re.findall(r"\*\*(PR-\w+)\*\*", s))
     for u in sorted(used-defined):
         bad("PR", f"{u} referenced but not defined in §5.3")
@@ -129,7 +146,7 @@ def main(path):
     #      §8's DoD and §5.3's bullets are prose restatements of it.
     cells=set(re.findall(r"^(\d+[a-z]?)\.\s", s6, re.M))
     s6_by_pr={k: set(re.findall(r"^(\d+[a-z]?)\.\s", v, re.M))
-              for k,v in chunk_by(s6, r"^\*\*(PR-1[abc])\b").items()}
+              for k,v in chunk_by(s6, r"^\*\*(PR-1[a-z])\b").items()}
     routed=set().union(*s6_by_pr.values()) if s6_by_pr else set()
     for c in sorted(cells-routed, key=str):
         bad("CELL", f"cell {c} is under no §6 PR heading")
@@ -139,8 +156,8 @@ def main(path):
                 for c in sorted(own & theirs, key=str):
                     bad("CELL", f"cell {c} is under both {pr}'s and {other}'s §6 heading")
 
-    for label, text, hdr, stop in (("§8 DoD", s8, r"^\*\*(PR-1[abc])\*\*", r"^\*\*(?!PR-1[abc]\*\*)"),
-                                   ("§5.3", s5, r"^\* \*\*(PR-1[abc]) —", r"^\* (?!\*\*PR-1[abc] —)")):
+    for label, text, hdr, stop in (("§8 DoD", s8, r"^\*\*(PR-1[a-z])\*\*", r"^\*\*(?!PR-1[a-z]\*\*)"),
+                                   ("§5.3", s5, r"^\* \*\*(PR-1[a-z]) —", r"^\* (?!\*\*PR-1[a-z] —)")):
         for pr, body in chunk_by(text, hdr, stop).items():
             land, _ = cell_lists(body)
             for c in sorted(land - cells, key=str):
@@ -173,7 +190,7 @@ def main(path):
 
     # 9. own-deferral bookkeeping: §5.3's per-PR statement vs §10's own-tagged rows
     stated={}
-    for m in re.finditer(r"(PR-1[abc]|seam-3 prereq|dead-arm prereq) opens? (\d+|none)", s5):
+    for m in re.finditer(r"(PR-1[a-z]|seam-3 prereq|dead-arm prereq) opens? (\d+|none)", s5):
         stated[m.group(1)] = 0 if m.group(2)=="none" else int(m.group(2))
     if not stated:
         bad("COUNT", "§5.3 states no per-PR own-deferral count")
@@ -197,7 +214,7 @@ def main(path):
         if len(c)>=4 and not c[3].strip("`* ").startswith("#11-"):
             s2_own.setdefault("PR-"+c[3].strip("`* "), set()).add(c[0])
     if s2_own:
-        for pr, body in chunk_by(s5, r"^\* \*\*(PR-1[abc]) —", r"^\* (?!\*\*PR-1[abc] —)").items():
+        for pr, body in chunk_by(s5, r"^\* \*\*(PR-1[a-z]) —", r"^\* (?!\*\*PR-1[a-z] —)").items():
             m=re.search(r"Owns couplings? (.+?)(?:\n\n|$)", body, re.S)
             if not m: bad("OWN", f"§5.3 {pr} states no coupling ownership"); continue
             claimed={re.sub(r"\s*×\s*", " × ", t)
@@ -253,7 +270,9 @@ def main(path):
     def is_new(f):
         return any(f.endswith(n) or n.endswith(f) or n.endswith("/"+f) for n in new_files)
     seen=set()
-    for m in re.finditer(r"`([A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
+    # A span may name the crate before the path (`elidex-style resolve/…/mod.rs:260`);
+    # anchoring the path to the opening backtick left those never existence-checked.
+    for m in re.finditer(r"`(?:[A-Za-z0-9_-]+ )?([A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
         f=m.group(1)
         if f in seen: continue
         seen.add(f)
@@ -265,8 +284,8 @@ def main(path):
 
     # 11c. a `cell N` named ANYWHERE must be one §6 defines -- §5.3 and §8 are
     #      cross-checked per PR above, but §2/§5.1/§5.2/§7/§9/§10 were not read at all
-    for m in re.finditer(r"\bcells?\s+((?:\d+[a-z]?)(?:\s*/\s*\d+[a-z]?)*)\b", s, re.I):
-        for tok in re.findall(r"\d+[a-z]?", m.group(1)):
+    for m in CELL_REF.finditer(s):
+        for tok in sorted(tokens(m.group(1))):
             if tok not in cells:
                 bad("CELL", f"cell {tok} referenced but §6 does not define it")
 
