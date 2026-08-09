@@ -303,7 +303,8 @@ slot-fit audit against a precedent in the very file S3 edits — `SKILL.md`'s Pr
 comparable deferral and states it is "**deliberately NOT a `#11-*` platform slot** … skill-infra not a
 platform gap". They become maintenance notes in their existing homes instead:
 
-- **`--strict-enum` default-on** — already owned by `SKILL.md:85` ("Phase 3 で `--strict-enum` default
+- **`--strict-enum` default-on** — already owned by
+  `.claude/skills/elidex-plan-review/SKILL.md:85` ("Phase 3 で `--strict-enum` default
   on 検討"). Minting a `#11-*` slot would create a second tracking home for a decision that has one.
   S3 updates that line; it does not open a slot. ⚠ S3 must also confront the substantive point: #504
   failure 4 *fired* and was waved through **because** it was soft-warn, so leaving the plumbing
