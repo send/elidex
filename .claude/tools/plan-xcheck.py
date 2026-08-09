@@ -45,13 +45,19 @@ def tokens(listing):
 
 CELL_LIST = re.compile(r"cells? ((?:\d+[a-z]?(?:\s*[–-]\s*\d+)?(?:\s*(?:,|and)\s*)?)+)")
 
+# A `cell(s) <list>` that is NOT a landing claim. `flip`/`do not` mark the flip
+# partition; the rest mark cells named for some other reason (unconstructible
+# without X, pinned by Y). Folding those into `land` silences the `omits` check
+# for them, which is how a dropped harness cell passed round 14.
+NON_LANDING = re.compile(r"\s*(flip\b|do\s+not\b|(are|is)\s+unconstructible\b)", re.S)
+
 def cell_lists(text):
-    """Every 'cell(s) <list>' in `text`, split into (landing, flipping)."""
-    land, flip = set(), set()
+    """Every 'cell(s) <list>' in `text`, split into (landing, other)."""
+    land, other = set(), set()
     for m in CELL_LIST.finditer(text):
         tail = text[m.end(): m.end()+40]
-        (flip if re.match(r"\s*(flip|do not)", tail) else land).update(tokens(m.group(1)))
-    return land, flip
+        (other if NON_LANDING.match(tail) else land).update(tokens(m.group(1)))
+    return land, other
 
 def chunk_by(text, header_rx, stop_rx=None):
     """Split `text` into {header-key: body} at every line matching header_rx.
@@ -219,6 +225,24 @@ def main(path):
         for m in re.finditer(rf"{lbl}=(\d+)", s3):
             if int(m.group(1))!=actual:
                 bad("COUNT", f"§3 restates {lbl}={m.group(1)} where the table has {actual}")
+
+    # 11b. every `crates/...` path the memo cites must exist on disk
+    root=pathlib.Path(__file__).resolve().parents[2]
+    seen=set()
+    for m in re.finditer(r"`(crates/[A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
+        f=m.group(1)
+        if f in seen: continue
+        seen.add(f)
+        # a file this program CREATES must be annotated; that annotation is what
+        # distinguishes it from a fabricated coordinate (round 13's `builder/block/mod.rs`)
+        if re.search(r"\(NEW[,)]", s[m.end(): m.end()+40]): continue
+        if not (root/f).is_file(): bad("PATH", f"cited file does not exist: {f}")
+
+    # 11c. a `cell N` named ANYWHERE must be one §6 defines -- §5.3 and §8 are
+    #      cross-checked per PR above, but §2/§5.1/§5.2/§7/§9/§10 were not read at all
+    for m in re.finditer(r"\bcells? (\d+[a-z]?)\b", s):
+        if m.group(1) not in cells:
+            bad("CELL", f"cell {m.group(1)} referenced but §6 does not define it")
 
     # 12. a superseded line-range must not survive beside its corrected form
     SUPERSEDED = {":264-301": ":266-303", ":386-409": ":388-411", ":411-637": ":413-639"}
