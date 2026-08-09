@@ -356,7 +356,7 @@ whether any line is phantom.
 | `crates/core/elidex-plugin/src/logical.rs` | `LogicalEdges::from_physical` (`:186`) + `WritingModeContext::new` (`:27`) — used at the *point of derivation* (M1), never as a round trip. |
 | `crates/layout/elidex-layout-block/src/inline/pack/inline_box.rs` (NEW) | **The marker's own derived facts and the stack that holds them**: push on `InlineBoxStart`, pop-and-emit on `InlineBoxEnd`, the flush-time hook `flush_line` calls (emit + rebase, M4), and M5's `has_inline_axis_edge` plus the inline-start/inline-end sums M3 and M4 consume — one derivation site for everything read off a marker. ⚠ **Two shapes in one module, deliberately**: the stack and its `flush_line` hook are an `impl LinePacker` in a sibling module (the idiom `pack/fragment.rs:10` already uses), while `has_inline_axis_edge` and the sums are **free functions over the marker payload**, because the pre-pack gate at `inline/mod.rs:200` calls them before any `LinePacker` exists (M5). The line-state core (M3) and the baseline promotion (M7) stay with their existing owner in `pack/mod.rs`: cohesion, not `pack/mod.rs`'s line count, decides the split. |
 | `crates/layout/elidex-layout-block/src/inline/pack/boxes.rs` | `assign_inline_layout_boxes` (`:48`) — writes `LayoutBox.content` from bounds and, per M4, the three edge fields from `resolve_box_model` on the `ComputedStyle` it already fetches (`:57`), given one new `containing_inline_size` parameter. `EntityBounds` (`:30-41`) and the `InlineClientRects` write (`:102-126`) are **unchanged**: both keep content spans, and the multi-fragment border-area inflation is `#11-inline-box-decoration-splits`'s (M4). |
-| `crates/layout/elidex-layout-block/src/inline/tests/mod.rs` | The test helper: a `collect_inline_items` caller (`:17`), an exhaustive `match item` (`:20-23`) that gains marker arms in PR-1a, the `mod decorated_inline;` declaration, and **PR-1a's `setup_inline_test` (`:54`) change** giving the harness a deterministic way to force `any_font == false` (cell 12d). |
+| `crates/layout/elidex-layout-block/src/inline/tests/mod.rs` | The test harness. `collect_styled_runs` (`:17-25`) is a `collect_inline_items` caller whose `match item` gains marker arms in PR-1a — but it `filter_map`s to `Vec<StyledRun>`, so those arms are `None` and it **cannot observe a marker**; PR-1a adds a sibling returning the `InlineItem`s (cell 6b). Also the `mod decorated_inline;` declaration and **PR-1a's `setup_inline_test` (`:54`) change** giving the harness a deterministic way to force `any_font == false` (cell 12d). |
 | `inline/tests/decorated_inline/{stream,geometry,existence}.rs` (NEW) | The three per-PR test modules §6 routes cells to. |
 | `elidex-render` tests | PR-1b's paint assertions for cell 13(c) — the background-colour and border rects that `paint/mod.rs:68`/`:382` derive from `border_box()`. The crate depends on `elidex-layout-block` (`crates/core/elidex-render/Cargo.toml`), so a cell there can run layout. §7 lists the family; §8 makes dispositioning it a PR-1b DoD item. |
 | `elidex-layout-block/src/inline/tests/` — **not `elidex-dom-api`** | Cells 17b/17c/17d. ⚠ `elidex-dom-api` has **no** dependency on any layout crate and no `[dev-dependencies]` at all, so a cell there cannot run inline layout — its existing `layout_query.rs` tests hand-insert `LayoutBox` literals, which would assert the marshalling and nothing about M4's producer. Every existing `InlineClientRects` assertion already lives under `elidex-layout-block/src/inline/tests/inline_flow/`, and that is where M4's two channels are jointly observable. §8's PR-1b `getBoundingClientRect` obligation is discharged the same way — against the `LayoutBox` border box the DOM API reads — not by a cell in `elidex-dom-api`. |
@@ -464,10 +464,15 @@ per-child loop, a normal idiom here.
    CSS 2 §8.3 independently agrees; it says nothing about padding or border, whose authority is
    css-inline-3 §5.3 + `line-fit-edge: leading` (§1.2). A non-regression cell in every PR.
 6b. **The emit predicate's two arms** (M1) — all edges zero ⇒ **no marker in the item stream**;
-    block-axis-only (`padding-top`) ⇒ a marker **is** emitted. Asserted on the `Vec<InlineItem>`
-    through the test helper's exhaustive `match item` (`inline/tests/mod.rs:20-23`, which PR-1a
-    extends), because in PR-1a that is the only channel where a marker is observable at all — the
-    packer's `match pi` arm is a no-op. M1's own deliverable, pinned in the PR that ships it.
+    block-axis-only (`padding-top`) ⇒ a marker **is** emitted. In PR-1a the item stream is the
+    *only* channel where a marker is observable at all (the packer's `match pi` arm is a no-op and
+    the variants carry `entity` only), and ⚠ **the existing helper cannot reach it**:
+    `collect_styled_runs` (`inline/tests/mod.rs:17-25`) `filter_map`s the items to
+    `Vec<StyledRun>`, so its `match item` arms are exhaustive for *compilation* but every non-`Text`
+    variant — `Atomic`, `Placeholder`, and the two new markers — is mapped to `None` and
+    discarded. **PR-1a's DoD therefore carries a second helper** returning the items themselves
+    (or the marker count), exactly as it already carries `setup_inline_test`'s no-font change for
+    cell 12d. Without it this cell is unconstructible, which is the defect class the memo refuses.
 7. Shape A (decorated inline containing only collapsible white space).
 8. Shape B (completely empty decorated inline).
 9. `a<span style="padding:10px"> </span>b` — the M2 cell: the space must collapse against its
@@ -681,8 +686,11 @@ exhaustive match handles both (`inline/whitespace.rs:41`, `inline/mod.rs:192-199
 restated here**; `containing_inline_size` threaded through every `collect_inline_items` caller
 (§5.2 enumerates them from the grep that defines the set); the two pre-pack gates hold current
 behaviour; **every hit of §3.1's concept grep** (the bogus `CSS Box Model L3 §5.3` class) corrected; new variants carry docstring citations
-to their §3 rows; **`setup_inline_test` (`inline/tests/mod.rs:54`) gains a deterministic way to
-force `any_font == false`**, without which cell 12d is unconstructible; cells 1, 2, 5, 6b, 7–12 and 12d land as
+to their §3 rows; **two test-harness additions, without which cells 12d and 6b are
+unconstructible**: `setup_inline_test` (`inline/tests/mod.rs:54`) gains a deterministic way to
+force `any_font == false`, and a helper beside `collect_styled_runs` (`:17-25`) returns the
+`InlineItem`s rather than `filter_map`ping them to `Vec<StyledRun>` — the existing one discards
+every non-`Text` variant, so it cannot observe a marker; cells 1, 2, 5, 6b, 7–12 and 12d land as
 characterization tests; zero behaviour change. **Dead-field rule**: fields
 whose first reader is a later PR are added by that PR — M6/M7's `line_height` and font identity by
 **PR-1c**, `group_key` by `#11-inline-box-decoration-splits` — so nothing ships unread and no
