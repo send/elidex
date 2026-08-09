@@ -152,7 +152,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 | # | Invariant | What it forces |
 |---|---|---|
 | **I1** | **Total tier assignment** (D3) — every candidate line lands in exactly one of *strict* / *malformed* / *mention*; none may vanish | The lax recogniser is the outer net and strict is a subset of it. A typo cannot fall out of the world. |
-| **I2** | **Per-surface inertness** (D2) — the mention rules must never swallow a strict annotation, the fence arm is defined per surface, and the gate excludes its own files | Fence tracking is a per-file state machine, not a line predicate; `.rs` needs a leading `//[/!]?` strip first; `.sh`/`.toml` have no fence arm at all (§4.2); `.claude/tools/**` is dropped by pathspec. |
+| **I2** | **Inertness** (D2) — the mention rule must never swallow a strict annotation, and the gate excludes its own files | One rule on all four surfaces: backtick it (§4.2). It is a **line predicate** — *k* backticks before the `<!--` — so no per-file state exists and no surface needs its own arm. `.claude/tools/**` is dropped by pathspec. |
 | **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file; `lines=` to exactly 1 | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string. |
 | **I4** | **Dialect fidelity** (D5) — the pattern body's ERE meaning is the author's meaning | A parse-time reject-list on the pattern body, with a diagnostic naming the offending escape verbatim. |
 | **I5** | **Argv fidelity** (D6) — every parsed value reaches `git grep` as one argv element | No `eval`, no unquoted expansion, no reconstructing a command string. Probeable: §4.4. |
@@ -165,7 +165,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 |---|---|
 | I1 × I2 | The inertness rules run *inside* tier assignment, so an over-eager one silently converts strict → mention. This is where "the gate exists but executes nothing" lives; every mention-arm control in §8 therefore pairs a wrong-count inert annotation (must stay green) with an identical non-inert sibling (must red). |
 | I1 × I4 | The reject-list runs on a body already parsed as strict. A pattern containing `\d` must be **malformed with a dialect diagnostic**, not "strict, then a count mismatch" — otherwise the author reads a mismatch and edits the count. |
-| I2 × I7 | Fence state needs a per-file pass, which is why the scan is two-stage: one tree-wide `git grep` for candidate lines, then a tier pass over *only the files that had a candidate*. A whole-tree tier pass would break I7. |
+| I2 × I7 | Because inertness is a line predicate, the scan is **one** command: `git grep -n` prints `path:line:content`, and the tier pass is a transform of that output rather than a second pass over anything. Revisions 1–3 were two-stage *because* the fence arm needed per-file state; removing it (§4.2) removed the stage, and I7's tree term is now exactly one invocation. |
 | I3 × I4 | Both are "the annotation is unfalsifiable" failures in different halves of one command, and both look like an honest zero. Measured: `git grep -cE 'fn ' -- 'crates/**/*.rss'` exits 1 with no output, exactly like a correct pathspec matching nothing. They must produce *different* diagnostics or the author fixes the wrong half. |
 | I3 × I5 | The liveness probe and the measurement must receive the **same** pathspec as one argv element, or the probe validates something the measurement never runs. |
 | I5 × I7 | The no-`eval` rule forbids the one shape that would batch several annotations into a single `git grep`. Serial execution is forced; §4.5 states what actually bounds it. |
@@ -205,8 +205,8 @@ confirmed present by `grep -nE '^#{1,4} ' <file>`.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2 — inertness per surface) | classify a candidate line | (i) `.rs` rustdoc fence, after the `//[/!]?` strip → mention | §4.2 tier pass, `.rs` mode | ✓ | no |
-| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2) | classify a candidate line | (ii) `.sh`/`.toml`: no fence arm, backtick arm only | §4.2 tier pass, surface table | ✓ | no |
+| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2 — inertness) | classify a candidate line | (i) odd *k* backticks before the `<!--` → mention, on every surface | §4.2 tier pass, backtick arm | ✓ | no |
+| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2) | classify a candidate line | (ii) inside a fenced block with even *k* → **strict, and executed** (there is no fence arm) | §4.2 tier pass | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2) | scan | (iii) annotation under `.claude/tools/**` → not scanned; identical annotation outside → scanned | §4.1 scan pathspec | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D3 — three tiers) | classify a candidate line | (iv) lax-but-not-strict → MALFORMED, fail | §4.2 fall-through arm | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D4 — liveness) | resolve `in=` | (v) no tracked file → fail; `lines=` resolving to ≠1 → fail | §4.4 `git ls-files` probe | ✓ | no |
@@ -241,8 +241,14 @@ git grep -nE '<!--[[:space:]]*claim[^A-Za-z]' \
 ```
 
 The `:(exclude)` magic was verified to actually exclude: `git grep -lE 'strip_comments' -- '*.sh'` → 4
-files; with `':(exclude).claude/tools/**'` appended → 0. Stage 2 runs the tier pass over **only the files
-stage 1 named**, which is what keeps I2's per-file fence state from costing I7 a whole-tree pass.
+files; with `':(exclude).claude/tools/**'` appended → 0.
+
+**That is the whole scan — one command, not two.** Revisions 1–3 specified a second stage, a tier pass
+over the files stage 1 named, and justified it by the fence arm's per-file state. With the fence arm
+gone (§4.2) inertness is a line predicate, and `git grep -n` already prints `path:line:content`, so the
+tier pass reads the content it was given. The second stage was a consequence of the rule (c) deleted,
+and it goes with it — which is the *downstream* face of a withdrawal, the one a sweep of the statements
+alone leaves behind (memory `feedback_sweep-obligations-not-only-statements`).
 
 ⚠ D2's exclusion governs where annotations are *looked for*, not what one may *measure*: one of §5's live
 annotations targets a file under `.claude/tools/` and is executed normally.
@@ -773,8 +779,13 @@ criterion is stated as a **property**, because the tier populations are exactly 
 asserting:
 
 > Every strict annotation in the tracked tree passes; no candidate line classifies MALFORMED; every
-> illustrative annotation in either memo — fenced or backticked — classifies as *mention*; and at least
+> illustrative annotation in either memo is **backticked** and classifies as *mention*; and at least
 > one strict annotation exists for each of the three verbs.
+
+Revisions 1–3 wrote that middle clause as "fenced or backticked", which (c) makes false in the direction
+that matters: a fenced annotation is now **strict and executed** (§4.2). The property is also why (c)
+costs nothing today rather than merely little — it is satisfied by the tree as it stands, with no
+annotation to rewrite.
 
 The last clause stops the criterion being satisfiable by a wire that classifies everything as a mention.
 The property was **executed**, not asserted: a throwaway classifier transcribed from §4.2/§4.4's literal
