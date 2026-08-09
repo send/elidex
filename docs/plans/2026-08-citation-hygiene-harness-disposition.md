@@ -23,15 +23,18 @@ PR that wants it argue for it.
 name** — the dispatcher's source loop, `PARTS`, `ORDER`, `MEMOS`, a parser that names nothing and reads a
 variable, `budget`'s two globs — **plus a rename step that had vanished from the list while three other steps
 still depended on it.** That is the fourth consecutive round in which a hand-written enumeration was completed
-by a reviewer. R3 said the block set has "four to six" homes; R4 found a seventh; R5 found six more.
+by a reviewer. The phrase "four to six homes" is draft 4's own, not a reviewer's — ⚠ this memo attributed
+it to R3 for two drafts while the analysis note attributed it correctly; R4 found a seventh, R5 six more.
 
 The answer is the one this program has already reached three times: **the enumeration stops being written.**
 `rederive homes` derives it — and §3 below is a rule per *class of home*, applied to that command's output,
 rather than a list of sites that has to be right.
 
 **Seven mechanism changes landed before this draft was written, each falsified by planting or by running.**
-⚠ **The count is itself a finding**: 1 → 2 → 0 → 1 → 4 → 3 across draft windows, each under the same
-disclaimer. §9 records the rate, not just the exception.
+⚠ **That mechanism keeps landing ahead of review is itself a finding**, and §9 records it. ⚠ An earlier
+revision printed a rate as a digit sequence with no command and no stated unit — the table counts *changes*
+and the log counts *commits*, and they differ — so it was not falsifiable as printed, in the memo that
+forbids exactly that. Count them: `git log --oneline <draft-N>..<draft-N+1>`.
 
 | commit | what it fixes | how it was falsified |
 |---|---|---|
@@ -43,7 +46,7 @@ disclaimer. §9 records the rate, not just the exception.
 | `979e5426` | the census assigns the CLASS; an unclassified home is RED. Three more shape rules got the subject test R3 got, and `guard` learned `_measure … \|\| failed=1` | planted an unruled literal → named, rc=1. ⚠ **My first subject test for R4 was wrong** and dropped the indirect reader R4 exists for; the acceptance list caught it, inspection did not |
 | `49b4f645` | a declaration in a heredoc **payload** was authoritative; and T3 made the measurement primitive's own layer unrepresentable | planted payload declaration: entered the MOVE LIST at rc=0 before, reported written-unread at rc=1 after. `# ships-with: kernel` on `_measure`: binding-RED before, `agree=2` after |
 
-⚠ **Two of those four fixes had a defect of their own that inspection did not show.** The declaration needle,
+⚠ **Two of the fixes above had a defect of their own that inspection did not show.** The declaration needle,
 once it admitted a post-brace form, matched the *examples in its own comment* and turned a clean tree red;
 and the census, excluding definition lines, dropped `all()`'s own definition line — which **is** the roster,
 the single most important home. Both were found by running the fix against an acceptance list, not by reading
@@ -57,7 +60,7 @@ label resolves in the gate's pinned map, and the distinction is load-bearing.
 
 | Spec section | Step | Branch | Touch (call site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §4.10.21 Constraints | §-title compare | fixture `labelled` / `dedup` / `malformed` | `citations` | ✓ | no |
+| WHATWG HTML §4.10.21 Constraints | §-title compare | **read the fixtures, not this cell** (below) | `citations` | ✓ | no |
 | WHATWG HTML §4.10.21.2 Constraint validation | §-title compare | fixture `labelled` | `citations` | ✓ | no |
 | WHATWG Fetch §2.2.5 Requests | §-title compare | fixture `alias` | `citations` | ✓ | no |
 | CSSOM View 1 §4.2 The MediaQueryList Interface | §-title compare | fixture `allunmapped` / `malformed` | `citations` | ✓ | no |
@@ -68,7 +71,17 @@ table naming a line number PR-1 is about to move:
 ```bash
 grep -n 'webref heading --exact' docs/plans/2026-07-citation-hygiene-A-rederive-*.sh
 .claude/tools/webref heading --exact html 4.10.21     # and 4.10.21.2 / fetch 2.2.5 / cssom-view-1 4.2
+# WHICH FIXTURES CARRY EACH PAIR -- materialise them; do not read it off the table:
+bash -c '. …-A-rederive-integrity.sh; . …-A-rederive-common.sh; fixtures /tmp/fx'
+grep -lF '§4.10.21 Constraints' /tmp/fx/*.md
 ```
+
+⚠ **The Branch column was hand-written and wrong on the first row, in both memos.** It named
+`labelled`/`dedup`/`malformed`; measured, **`malformed` does not carry that pair** — its HTML row is
+deliberately section-mark-less, which is the state that fixture exists for — and **three fixtures that do
+carry it were omitted** (`unlabelled`, `nospec-and-table`, `fenced-marker`), under a `Full enum? ✓`. Three
+rounds of this axis found no §-number↔title drift and then found this: the pairs were verified and the
+*column saying where they are exercised* never was.
 
 ⚠ **The Spec column is each spec's authoritative label; the Branch column names a fixture that carries a
 different one on purpose.** Aliasing is what the fixture set exists to exercise, so the two columns must not
@@ -356,7 +369,7 @@ short table; the narrow query is.
 |---|---|---|
 | `MEMORY.md`, L3 bullet | invalidated | #505 open / #501 blocked on it / the `git merge origin/main` re-join |
 | `active-lane-detail.md`, the 2026-08-02 carve note | invalidated | pre-split figures and the carve's standing |
-| `project_citation-hygiene-program.md` — **four** `#505` regions | invalidated | the next-session pointer, the superseded-draft-3 section, the carve section, **and the superseded 2026-08-03 section**, which is the *previous register audit* and carries two obligations no other row here does (both memos still saying "two owed harness edits" when only `suites` remains; the umbrella slice table having no row for #505). ⚠ Draft 5 named three and its own query returns four |
+| `project_citation-hygiene-program.md` — several `#505` regions, ⚠ **count and boundary both un-carried**: "region" is undefined, the file gains sections between sessions, and §1 forbids stamping a digit whose subject is outside this repository | invalidated | the next-session pointer, the superseded-draft-3 section, the carve section, **and the superseded 2026-08-03 section**, which is the *previous register audit* and carries two obligations no other row here does (both memos still saying "two owed harness edits" when only `suites` remains; the umbrella slice table having no row for #505). ⚠ Draft 5 named three and its own query returns four |
 | any other file the query returns | invalidated or provenance | ⚠ the set **grows during a session** — it gained a file while round 5 was running. Classify at execution; do not carry the list |
 | **PR #501's 2026-08-02 comment** | invalidated — **three statements, and the row has grown once per round** | *"They are being fixed in #505, not here"* → discharged by PR-2 (§5). *"This PR will rebase once #505 lands…"* → retracted by §4's "no merge and no rebase". ⚠ *"the harness is now its own PR, **stacked before this one**"* → **reversed** by §4, which lands #501 first. The comment also repeats the *"29 of 45"* premise M1 falsifies. ⚠ Draft 5 named one, draft 6 two; that the count keeps rising is the finding, not the count |
 | **PR #505's own body** | invalidated, and **the most public register there is** | ⚠ No draft's query read it. It states the harness's file/line/block counts (all now false, in the same way §3 says A-i §8 is); that the PR is *"stacked before #501"*; the carve rationale *"29 of 45 harness citations come from memos other than A-i's"*, whose premise M1 falsifies; and — ⚠ **the statement §4 most turns on** — that the harness here is *"byte-identical to the harness at #501's head … so rebasing #501 onto this branch leaves zero harness delta"*, which `git diff --stat webref-cite-audit-tool -- 'docs/plans/*A-rederive*'` now contradicts by hundreds of lines. Closing freezes all of it as the public record, so **the close needs a comment**, not a state change |
@@ -391,9 +404,9 @@ against a command that does not return the claim.
 | the three declaration parse holes are closed and named | `9a0ff039` — one-liner, duplicate, valueless: each named, rc=1 | CHECKED |
 | the split changed no behaviour | `259e12cb` — every block's stdout+stderr and exit code before/after; and made to fail on purpose | CHECKED |
 | the transfer set, discriminated | D10 — `--cherry-pick --right-only` | CHECKED |
-| the four `citations` §-numbers resolve in webref; two of the four fixture labels resolve in the pinned map | §0.5's two commands | CHECKED |
+| the §-numbers resolve in webref, and not every fixture label resolves in the gate's pinned map — two different resolvers | §0.5's commands | CHECKED — ⚠ the split was an expected value here until round 7; §0.5 carries the command |
 | A-i §8's figures are false at HEAD | §8's own figures vs `wc -l` and `rederive inventory` | CHECKED |
-| four memos cite the harness, not six | M1 | CHECKED |
+| fewer memos cite the harness than the dispatcher's header claims | M1 | CHECKED — ⚠ the pair of digits was an expected value here until round 7 |
 | the `cleanup-branch` hook cannot fire on a PR close | its two gates, read | CHECKED |
 | PR-1b leaves the `MOVE LIST` empty | — | **UNCHECKED** — PR-1b's own exit criterion, and it cannot be evaluated before PR-1a writes the declarations |
 | the set of filename-only-confirmed blocks after the moves | — | **UNCHECKED** — the declarations do not change what computes them, but PR-1b's moves change T2's input. Read it from the block afterwards; do not predict it |
@@ -428,8 +441,7 @@ are all done that way. The reasons that do hold:
    planted declarations into the mechanism and found holes in it — including two the author had missed.
    Uncommitted, none of that would have been reachable, which is the failure mode §1's preamble warns about
    one level up.
-3. **It decides nothing PR-1a must decide** — ⚠ **true of six of the seven, and false of `7ad42edd` and
-   `979e5426`**, which changed the census output §3 calls the work list. A commit that moves the work list
+3. **It decides nothing PR-1a must decide** — ⚠ **false of `7ad42edd` and `979e5426`, true of the rest**, which changed the census output §3 calls the work list. A commit that moves the work list
    decides part of PR-1a's scope, and saying otherwise of all of them was the same over-claim this memo keeps
    finding elsewhere.
 

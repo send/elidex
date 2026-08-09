@@ -30,7 +30,7 @@ from the fixture:
 
 | Spec section | Step | Branch | Touch | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| WHATWG HTML §4.10.21 Constraints | title compare | fixture `labelled`/`dedup`/`malformed` | `citations` | ✓ | no |
+| WHATWG HTML §4.10.21 Constraints | title compare | **read the fixtures, not this cell** (see the disposition's §0.5) | `citations` | ✓ | no |
 | WHATWG HTML §4.10.21.2 Constraint validation | title compare | fixture `labelled` | `citations` | ✓ | no |
 | WHATWG Fetch §2.2.5 Requests | title compare | fixture `alias` | `citations` | ✓ | no |
 | CSSOM View 1 §4.2 The MediaQueryList Interface | title compare | fixture `allunmapped`/`malformed` | `citations` | ✓ | no |
@@ -339,7 +339,7 @@ Rows are marked UNCHECKED rather than omitted (umbrella `:92`).
 | 7 of 23 roster blocks RED at `945dd03a`; 0 measurement failures | M3, M4 | CHECKED |
 | each RED reads an artifact another slice creates / discharges | §3's `ls` + `git grep` + M1 | CHECKED |
 | nothing outside `docs/plans/` **invokes** the harness | M5 | CHECKED — and this is all M5 shows |
-| two derivations of the block count disagree (33 / 34) | M6 vs M7 | CHECKED |
+| two derivations of the block count disagree | M6 vs M7 | CHECKED — ⚠ **the pair is not carried.** It read `33 / 34`; the gap survives and both digits moved with later commits, and M6's stated cause (`selfcheck` dropping `all()`) is no longer the whole of it |
 | no **code** signal reproduces a kind assignment | M7's `meas` / `vrd` / `cmp` columns | CHECKED |
 | the "instrument" idea exists only in prose | `-Aii.sh:64-76`, quoted in §2 | CHECKED |
 | exactly two blocks carry an invariant | M7's `vrd` column → `couplings` `selfcheck` | CHECKED |
