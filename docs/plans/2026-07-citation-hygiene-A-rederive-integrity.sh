@@ -196,9 +196,10 @@ for p in PARTS:
 part["all"], prose["all"] = "(disp)", bodies["all"].splitlines()
 known = set(bodies)
 
-# SHIP-WITH, DECLARED AT THE DEFINITION. `# ships-with: <group>` anywhere in a
-# block's own prose slice. This is the authority; the four tiers below compute a
-# SECOND answer and the two are cross-checked.
+# SHIP-WITH, DECLARED AT THE DEFINITION. A `#` comment naming the group, inside
+# the block's own body (the needle is spelled once, at `_SW` below, and nowhere
+# else in this block -- see (4) there). This is the authority; the four tiers
+# below compute a SECOND answer and the two are cross-checked.
 #
 # WHY A DECLARATION AND NOT THE COMPUTATION. R4 measured two ways the computed
 # answer cannot be an authority. (a) T1 routes by DECLARING MEMO, and the memos
@@ -213,13 +214,34 @@ known = set(bodies)
 # so the declaration would be unfalsifiable -- a second thing to get wrong.
 # Ship-with is the opposite case: T0-T3 compute a real answer, so a declaration
 # is CHECKABLE and a disagreement is a finding rather than a preference.
-# ⚠ NO `$` ANCHOR, and a SECOND pattern that counts what the first did not read.
-# The anchored form silently ignored `# ships-with: A-ii  # …` -- a declaration
-# that was written and not read reads as "undeclared", which is this harness's
-# charter inverted. Found by planting one, not by inspection.
-DECL = re.compile(r"^\s*#\s*ships-with:\s*([^\s#]+)", re.M)
-LOOSE = re.compile(r"#\s*ships-with:", re.M)
-decl, claimed = {}, {}
+#
+# ⚠ THE ONE RULE THIS PATTERN PAIR EXISTS TO ENFORCE: a declaration that was
+# WRITTEN and NOT READ must never come out as "undeclared". Four ways to break it
+# have now been found BY PLANTING OR BY RUNNING, none by inspection:
+#   (1) a `$` anchor dropped a declaration carrying a trailing comment (90e1429b);
+#   (2) a ONE-LINER definition has no line whose first character is `#`, so an
+#       anchored form cannot see a declaration written after its closing brace.
+#       There are exactly two such definitions (`_measured`, `say`), so this is
+#       not hypothetical; the alternation below admits the post-brace form;
+#   (3) `\s*` after the colon CROSSES A NEWLINE, so a valueless declaration
+#       captured the NEXT line's first token and reported `declares local`.
+#       `[ \t]` is used everywhere a same-line gap is meant;
+#   (4) THE NEEDLE MATCHED THIS BLOCK'S OWN PROSE. Admitting the post-brace form
+#       made the examples in this very comment parse as `inventory`'s
+#       declaration -- the `cand` column's self-ranking defect, one level down,
+#       and caught by RUNNING the fix rather than reading it. So the needle is
+#       BUILT FROM PIECES (as `vrd`'s is) and this comment does not spell it.
+# And `claimed` counts what DECL ATTRIBUTED, not what LOOSE saw: the old form
+# credited an unparseable declaration to the block, defeating the stray guard at
+# exactly the sites that needed it.
+_SW = "ships" "-with" ":"
+DECL = re.compile(r"(?:^|\})[ \t]*#[ \t]*" + _SW + r"[ \t]*([^\s#]+)", re.M)
+LOOSE = re.compile(r"#[ \t]*" + _SW, re.M)
+# ONE VOCABULARY. A declared group that is not a group is a typo, and without
+# this it surfaces as `declares X but the tiers compute Y` -- indistinguishable
+# from a real misroute. `ORDER` is the slice sequence; kernel is not a slice.
+GROUPS = set(ORDER) | {"kernel"}
+decl, claimed, badname, dupe = {}, {}, [], []
 for b_ in known:
     # SEARCH REGION = the block itself, definition line to close. NOT the prose
     # slice: for the FIRST definition in a part that slice excludes the file
@@ -230,10 +252,14 @@ for b_ in known:
         continue
     pt_, i_, end_ = defline[b_]
     region = "\n".join(srcs[pt_][i_:end_])
-    m_ = DECL.search(region)
-    if m_:
-        decl[b_] = m_.group(1)
-    claimed[b_] = len(LOOSE.findall(region))
+    hits = DECL.findall(region)
+    claimed[b_] = len(hits)
+    if len(hits) > 1:
+        dupe.append((b_, hits))
+    if hits:
+        decl[b_] = hits[0]
+        if hits[0] not in GROUPS:
+            badname.append((b_, hits[0]))
 
 # DECLARED BY. Heuristic over prose, so its rule is written down and what it
 # drops is printed: a §15 code span naming TWO OR MORE known blocks is a
@@ -309,24 +335,41 @@ for b in known:
 #       ship-with among its command-position CALLERS. No non-kernel caller means
 #       nothing but the dispatcher needs it: kernel.
 callers = {b: [c for c in known if b in CALL[c]] for b in known}
-ship, why = {}, {}
+comp, why = {}, {}
 for b in known:
     d = [s for s in ORDER if s in declared.get(b, ())]
     if rows[b]["part"] == "(disp)":
-        ship[b], why[b] = "kernel", "T0 dispatcher"
+        comp[b], why[b] = "kernel", "T0 dispatcher"
     elif d:
-        ship[b], why[b] = d[0], "T1 declared"
+        comp[b], why[b] = d[0], "T1 declared"
     elif rows[b]["part"] in PART_SLICE:
-        ship[b], why[b] = PART_SLICE[rows[b]["part"]], "T2 part"
+        comp[b], why[b] = PART_SLICE[rows[b]["part"]], "T2 part"
+# WHAT T3 READS is `route`: the DECLARATION where a caller has one, the tier
+# answer otherwise. Reading the tier answer unconditionally made T3 a relay for
+# T1, so PROSE moved code-signal routing: measured, splitting one A-i §15 code
+# span into six -- typographically null, no `.sh` touched -- turned four correct
+# declarations into four DISAGREEs, and TWO of the four came through T3.
+route = dict(decl)
+for b, v in comp.items():
+    route.setdefault(b, v)
 for _ in range(len(known)):
     for b in sorted(known):
-        if b in ship or not all(c in ship for c in callers[b]):
+        if b in comp or not all(c in route for c in callers[b]):
             continue
-        cs = [ship[c] for c in callers[b] if ship[c] in ORDER]
-        ship[b] = min(cs, key=ORDER.index) if cs else "kernel"
+        cs = [route[c] for c in callers[b] if route[c] in ORDER]
+        comp[b] = min(cs, key=ORDER.index) if cs else "kernel"
         why[b] = "T3 " + (",".join(sorted(callers[b])) or "no caller")
+        route.setdefault(b, comp[b])
 for b in known:
-    ship.setdefault(b, "kernel"); why.setdefault(b, "T3 caller cycle")
+    comp.setdefault(b, "kernel"); why.setdefault(b, "T3 caller cycle")
+
+# THE DECLARATION IS THE AUTHORITY -- everywhere, not only on the disagreement
+# line. `ship` is what the column, the tally and the routing-vs-shipping move
+# list all use, so that list prints `DECLARED != file`, which is what a PR can
+# act on. Before this, every one of those printed the COMPUTED value while the
+# declaration appeared nowhere but the mismatch report: the declaration was the
+# authority in the prose and the tiers were still the authority in the output.
+ship = {b: decl.get(b, comp[b]) for b in known}
 
 print("  %-13s%-10s%-13s%-22s%5s%4s%4s%5s  %-6s %s"
       % ("block", "part", "roster", "declared by", "meas", "vrd", "cmp",
@@ -363,22 +406,45 @@ print("  blocks printing a VERDICT         : "
 # the check on it; neither alone is trusted. An UNDECLARED block is reported, not
 # silently defaulted to its computed answer -- "nobody said" and "the tiers say"
 # are different states, and collapsing them is this harness's charter inverted.
-print("\n  -- SHIP-WITH: declared (`# ships-with:`) vs computed (T0-T3) --")
-bad = [(b_, decl[b_], ship[b_]) for b_ in sorted(decl) if decl[b_] != ship[b_]]
-for b_, d_, c_ in bad:
-    print("   !! %-13s declares %-9s but the tiers compute %-9s (%s)"
-          % (b_, d_, c_, why[b_]))
-# Every `ships-with:` string in the parts must be attributed to exactly one
-# block. A stray one is a declaration nobody's row carries.
+print("\n  -- SHIP-WITH: declared (`# %s <group>`) vs computed (T0-T3) --" % _SW)
+# A DISAGREEMENT IS ONLY AS GOOD AS THE TIER THAT PRODUCED IT, so the two are
+# separated rather than pooled:
+#   T0 / T3 are CODE signals (the dispatcher; the call graph) -> BINDING.
+#   T1 is a heuristic parse of PROSE on a branch under active revision. By
+#      `_measure`'s own rule that is a failed measurement, not a verdict, so it
+#      REPORTS. Measured: a typographically null §15 edit made it fire falsely.
+#   T2 is `ship = PART_SLICE[part]`, i.e. the FILENAME -- which is exactly what
+#      the routing-vs-shipping list below already checks. Binding on it would be
+#      the same check twice, and it is the tautology R4 named.
+bad = [(b_, decl[b_], comp[b_], why[b_]) for b_ in sorted(decl) if decl[b_] != comp[b_]]
+binding = [x for x in bad if not x[3].startswith(("T1", "T2"))]
+for b_, d_, c_, w_ in bad:
+    print("   %s %-13s declares %-9s but the tiers compute %-9s (%s)"
+          % ("!!" if (b_, d_, c_, w_) in binding else "..", b_, d_, c_, w_))
+if bad and len(binding) != len(bad):
+    print("   (`..` = reported, not binding: the tier that disagrees is prose (T1)")
+    print("    or the filename (T2). `!!` = a code signal disagrees.)")
+for b_, hits in dupe:
+    print("   !! %-13s carries %d `%s` declarations; only the first is read."
+          % (b_, len(hits), _SW))
+for b_, g_ in badname:
+    print("   !! %-13s declares `%s`, which is not a group (%s)."
+          % (b_, g_, " ".join(sorted(GROUPS))))
+# Every declaration string in the parts must be attributed to exactly one
+# block, BY THE PARSER THAT READS IT -- `claimed` counts DECL's successes, so a
+# declaration LOOSE can see and DECL cannot parse is reported here rather than
+# credited to the block and lost. That is the charter: written-and-unread must
+# never come out as "undeclared".
 stray = sum(len(LOOSE.findall("\n".join(v))) for v in srcs.values()) - sum(claimed.values())
 if stray:
-    print("   !! %d `ships-with:` line(s) outside any block body -- written, unread." % stray)
+    print("   !! %d `%s` string(s) no block's row carries -- written, unread."
+          % (stray, _SW))
 und = sorted(known - set(decl))
-print("   declared=%d  agree=%d  DISAGREE=%d  undeclared=%d"
-      % (len(decl), len(decl) - len(bad), len(bad), len(und)))
+print("   declared=%d  agree=%d  DISAGREE=%d (binding %d)  undeclared=%d"
+      % (len(decl), len(decl) - len(bad), len(bad), len(binding), len(und)))
 if und:
     print("   undeclared: " + " ".join(und))
-    print("   (a block with no `# ships-with:` has no owner anyone wrote down; the")
+    print("   (a block with no `%s` has no owner anyone wrote down; the" % _SW)
     print("    tiers' answer for it is a guess this table does not launder.)")
 
 # ROUTING UNIT vs SHIPPING UNIT. Every column above routes a BLOCK; a PR adds and
@@ -388,24 +454,47 @@ if und:
 # reconciling them, and until it is empty "ships with X" is an assertion about a
 # world in which the parts are cut differently than they are.
 print("\n  -- ROUTING UNIT (block) vs SHIPPING UNIT (file): where they disagree --")
-mis = [(b, rows[b]["part"], ship[b], rows[b]["ln"]) for b in sorted(known)
-       if PART_SLICE.get(rows[b]["part"], "shared") != ship[b]
-       and not (rows[b]["part"] not in PART_SLICE and ship[b] == "kernel")]
+
+
+def _misplaced(b):
+    return (PART_SLICE.get(rows[b]["part"], "shared") != ship[b]
+            and not (rows[b]["part"] not in PART_SLICE and ship[b] == "kernel"))
+
+
+# TWO LISTS, because they authorise different things. A DECLARED block whose file
+# disagrees is a MOVE a PR can carry out. An UNDECLARED one is the tiers guessing,
+# and `declared != file` is not what is being printed for it -- merging the two
+# was how a move list of tier guesses read as a work list.
+mis = [(b, rows[b]["part"], ship[b], rows[b]["ln"])
+       for b in sorted(decl) if _misplaced(b)]
+guess = [b for b in sorted(known) if b not in decl and _misplaced(b)]
 for b, pt, sh, ln in mis:
     home = PART_SLICE.get(pt, "no slice")
-    print("   %-13s lives in %-9s (%-8s)  ships with %-8s  %4d lines" % (b, pt, home, sh, ln))
-print("   %d of %d blocks / %d lines cannot be moved or removed at FILE granularity."
-      % (len(mis), len(known), sum(x[3] for x in mis)))
+    print("   %-13s lives in %-9s (%-8s)  DECLARES %-8s  %4d lines" % (b, pt, home, sh, ln))
+print("   MOVE LIST: %d of %d declared block(s) / %d lines -- `declared != file`."
+      % (len(mis), len(decl), sum(x[3] for x in mis)))
+if guess:
+    print("   NO VERDICT: %d undeclared block(s) whose file differs from the TIERS' guess"
+          % len(guess))
+    print("               (%s)" % " ".join(guess))
+    print("               -- a guess is not a move list; declare them first.")
 print("\n  -- §15 code spans naming exactly ONE known block, NOT read as declarations --")
 seen = set()
 for tag, run, tok in dropped:
     if (tag, run) not in seen:
         seen.add((tag, run)); print("   %-6s %-12s in `%s`" % (tag, tok, run))
 
-# THE VERDICT IS A RETURN STATUS. A declared/computed disagreement that only
-# prints is the defect `citations` is being fixed for, one level up.
-if bad:
-    raise SystemExit("!! %d block(s) declare a ship-with the tiers contradict." % len(bad))
+# THE VERDICT IS A RETURN STATUS. A disagreement that only prints is the defect
+# `citations` is being fixed for, one level up. What binds: a CODE signal
+# contradicting a declaration, a declaration this parser could not read, a second
+# declaration in one block, and a group that is not a group. What does not: a
+# prose (T1) or filename (T2) disagreement -- reported above, and deliberately
+# not a gate, because a memo edit on another branch must not turn this red.
+_fatal = len(binding) + bool(stray) + len(dupe) + len(badname)
+if _fatal:
+    raise SystemExit("!! %d binding ship-with problem(s): %d code-signal contradiction(s), "
+                     "%d unread declaration(s), %d duplicate(s), %d bad group name(s)."
+                     % (_fatal, len(binding), stray, len(dupe), len(badname)))
 INVENTORYPY
   return $?
 }
