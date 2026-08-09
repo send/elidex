@@ -100,7 +100,12 @@ for f in FILES:
             hits -= {d.group(1)}
         if len(hits) >= 2:
             kinds.append("enumerates %d of V" % len(hits))
-        if LIT.match(ln):
+        # R3 is a SHAPE rule, so it needs a subject test or it reports every
+        # ALL-CAPS constant in the harness (`W`, `KEEP`, `HDR` -- literals about
+        # webref paths and table headers, not about the block set). Requiring one
+        # vocabulary token keeps `ORDER` (`B` is a stem), `MEMOS` (`Ai`), `PARTS`,
+        # `PART_SLICE` and `AUTHOR_LOCAL`, which is the set R3 exists for.
+        if LIT.match(ln) and hits:
             kinds.append("literal `%s`" % LIT.match(ln).group(1))
         b = BIND.match(ln)
         if b:
