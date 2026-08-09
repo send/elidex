@@ -1285,6 +1285,49 @@ def selftest() -> int:
           "preflight now prints")
     (REPO / "docs" / "plans" / "zz-probe-preflight.md").unlink(missing_ok=True)
 
+    # TOOLING / UMBRELLA / FIXTURE -- the three classes round 4 found recurring.
+    # Probed here at the same time they were written, because shipping a check
+    # without a firing proof is the defect the same round found in ANNO.
+    n_commits = sh(["git", "rev-list", "--count", "origin/main..claim-gate-plan-check"])[1].strip()
+    probe("TOOLING positive (a count git agrees with)", False,
+          capture(check_tooling_quantities,
+                  synth(f"The prerequisite PR has {n_commits} commits.")))
+    probe("TOOLING negative (a count git contradicts)", True,
+          capture(check_tooling_quantities,
+                  synth(f"The prerequisite PR has {int(n_commits) + 3} commits.")),
+          "git says")
+    probe("TOOLING negative (a quantity nothing can re-derive)", True,
+          capture(check_tooling_quantities,
+                  synth("`claim-gate-plan-check` closed six CRITs.")),
+          "nothing re-derives it")
+    probe("TOOLING ignores a numeral in a sentence not about the tooling", False,
+          capture(check_tooling_quantities, synth("The umbrella has ten decisions.")))
+
+    umb_mandates = synth("**mention** (backticked or fenced → ignore).", "umb.md")
+    umb_silent = synth("mention is whatever the slice says.", "umb.md")
+    slice_withdraws = synth("There is one inertness rule: backtick it, on all four surfaces.")
+    probe("UMBRELLA positive (umbrella silent on the withdrawn rule)", False,
+          capture(check_umbrella, slice_withdraws, umb_silent))
+    probe("UMBRELLA positive (umbrella mandates, slice does not withdraw)", False,
+          capture(check_umbrella, synth("The tier pass follows D3."), umb_mandates))
+    probe("UMBRELLA negative (slice withdraws what the umbrella mandates)", True,
+          capture(check_umbrella, slice_withdraws, umb_mandates),
+          "binding decision cannot be changed by a slice edit")
+
+    FIX = ("## §8.1 Controls\n\n| # | clause | Fixture | Positive | Negative |\n"
+           "|---|---|---|---|---|\n")
+    probe("FIXTURE positive (a hermetic row with a fixture-local pathspec)", False,
+          capture(check_fixture_column,
+                  synth(FIX + '| C1 | a | own | `in="a.md"` | wrong count (`asserted=`) |\n')))
+    probe("FIXTURE negative (`own` row measuring the real tree)", True,
+          capture(check_fixture_column,
+                  synth(FIX + '| C1 | a | own | `in="crates/**/*.rs"` | x (`asserted=`) |\n')),
+          "exists only in this repository")
+    probe("FIXTURE negative (`live` row naming no real-tree pathspec)", True,
+          capture(check_fixture_column,
+                  synth(FIX + '| C1 | a | live | `in="a.md"` | x (`asserted=`) |\n')),
+          "names no real-tree pathspec")
+
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
               "## §6 x\nThe fence arm is defined per surface; only a matching "
