@@ -827,6 +827,133 @@ def check_sites(memo: Memo) -> None:
 # 10. PREFLIGHT -- §8.3's pasted verdict is what preflight prints today
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# 11. TOOLING -- a numeral in a sentence about this program's own tooling
+#
+# Four revisions, four false counts, each in the paragraph crediting the tool:
+# "29 probes" (34), "a positive and a negative control for every check" (four of
+# ten had none), "It finds 13" (7, then 0), "three commits" (five, and five when
+# it was written). Revision 4's remedy was a PROSE RULE -- "this memo states no
+# quantity about its own tooling" -- and it was falsified eighteen lines above
+# itself. The rule cannot work for the same reason the others could not: the
+# author believes it was followed.
+#
+# So the rule becomes a check. Any numeral in a sentence naming the checker, a
+# branch of this program, or the wire is re-derived from git where it can be,
+# and flagged as unanchored where it cannot.
+# --------------------------------------------------------------------------
+
+TOOLING_SUBJECT = re.compile(
+    r"claim-gate-plan-check|claim-provenance-trip-wire|claim-provenance-selftest"
+    r"|`claim-gate-plan-check`|prerequisite PR|--self-test", re.I)
+NUMERAL = re.compile(r"(?<![\w.:/-])(\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
+                     r"\s+(commits?|files?|lines?|checks?|probes?|findings?|"
+                     r"controls?|stages?|CRITs?|IMPs?)\b", re.I)
+WORDNUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+           "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+
+def _num(tok: str) -> int | None:
+    return WORDNUM.get(tok.lower()) if not tok.isdigit() else int(tok)
+
+
+def check_tooling_quantities(memo: Memo) -> None:
+    branch = "claim-gate-plan-check"
+    derivable: dict[str, int | None] = {}
+    rc, out = sh(["git", "rev-list", "--count", f"origin/main..{branch}"])
+    derivable["commits"] = int(out.strip()) if rc == 0 and out.strip() else None
+    rc, out = sh(["git", "diff", "--name-only", f"origin/main..{branch}"])
+    derivable["files"] = len([x for x in out.split("\n") if x]) if rc == 0 else None
+    p = REPO / ".claude" / "tools" / "claim-gate-plan-check.py"
+    derivable["lines"] = nr(p) if p.exists() else None
+    src = p.read_text() if p.exists() else ""
+    derivable["checks"] = len(re.findall(r"^def check_\w+", src, re.M)) or None
+    derivable["probes"] = None  # only knowable by running --self-test; see below
+
+    for i, line in enumerate(memo.lines, 1):
+        if not TOOLING_SUBJECT.search(line):
+            continue
+        for m in NUMERAL.finditer(line):
+            n, unit = _num(m.group(1)), m.group(2).lower().rstrip("s")
+            if n is None:
+                continue
+            want = derivable.get(unit + "s")
+            if want is None:
+                bad("TOOLING", f"{memo.path.name}:{i} states {m.group(0)!r} about this "
+                               f"program's own tooling, and nothing re-derives it — "
+                               f"state it as a re-runnable command instead")
+            elif n != want:
+                bad("TOOLING", f"{memo.path.name}:{i} states {m.group(0)!r}; git says "
+                               f"{want} {unit}(s)")
+
+
+# --------------------------------------------------------------------------
+# 12. UMBRELLA -- a slice may not silently contradict a binding decision
+#
+# Round 4's sharpest finding: adopting §7 Q3 option (c) deleted the fence arm
+# from the slice while umbrella D2 still mandates `.rs` fence matching, D3 still
+# defines the mention tier as "backticked or fenced", and umbrella §6 still lists
+# a rustdoc-fenced control among S1's. The slice's own preamble says it does not
+# reopen D1-D10. A withdrawal was swept through the sites that STATE it and not
+# through the document that OBLIGES it.
+#
+# Generalising is not possible from text alone, so this is a registry: each entry
+# names a decision, the phrase that shows the umbrella still mandates it, and the
+# phrase that shows the slice has withdrawn it. Both present = contradiction.
+# --------------------------------------------------------------------------
+
+BINDING = [
+    ("D2 (.rs fence strip)",
+     r"before fence matching in `?\.rs`?|strip a\s*\n?\s*leading `//\[/!\]\?` before fence",
+     r"there is no fence arm|The `\.rs` rustdoc strip disappears"),
+    ("D3 (mention = backticked or fenced)",
+     r"\*\*mention\*\* \(backticked or fenced",
+     r"one inertness rule|backtick it\b.*all four surfaces|single inertness rule"),
+    ("umbrella §6 (S1 must control a rustdoc-fenced annotation)",
+     r"a rustdoc-fenced annotation",
+     r"C2 and C3 \(the `?\.md`? and `?\.rs`? fence arms"),
+]
+
+
+def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
+    if umbrella is None:
+        return
+    for name, mandates, withdraws in BINDING:
+        if re.search(mandates, umbrella.text, re.S) and re.search(withdraws, memo.text, re.S):
+            bad("UMBRELLA", f"the slice withdraws {name} while the umbrella still "
+                            f"mandates it — a binding decision cannot be changed by a "
+                            f"slice edit; amend the umbrella in the same commit or "
+                            f"withdraw the slice's change")
+
+
+# --------------------------------------------------------------------------
+# 13. FIXTURE -- §8.1's Fixture value must be derivable from the row itself
+#
+# Round 3 found C10/C11 claiming a hermetic fixture while measuring the real
+# tree. Revision 4 closed it by DEFINING the column and did not re-derive the
+# assignments, so round 4 found the same rows as a provable contradiction. A
+# label a reader must trust is not a specification; a label the row implies is.
+# --------------------------------------------------------------------------
+
+LIVE_PREFIX = re.compile(r'in="(crates/|scripts/|\.claude/|\.github/|docs/plans/)')
+
+
+def check_fixture_column(memo: Memo) -> None:
+    for c in data_rows(memo.sect("8.1")):
+        if not re.match(r"^C\d+$", c[0]) or len(c) < 5:
+            continue
+        fixture, row = c[2].strip("* `"), " | ".join(c)
+        m = LIVE_PREFIX.search(row)
+        if m and fixture == "own":
+            bad("FIXTURE", f"§8.1 {c[0]} is Fixture `own` (its own `mktemp -d`) but "
+                           f"measures `{m.group(1)}…`, which exists only in this "
+                           f"repository — in a fresh fixture the liveness probe fires "
+                           f"first and the arm asserts a diagnostic it cannot see")
+        if not m and fixture == "live":
+            bad("FIXTURE", f"§8.1 {c[0]} is Fixture `live` but names no real-tree "
+                           f"pathspec, so nothing distinguishes it from a hermetic row")
+
+
 def check_preflight(memo: Memo) -> None:
     s = memo.sect("8.3")
     if not s:
@@ -1192,6 +1319,9 @@ def main(argv: list[str]) -> int:
     if umbrella:
         check_transcripts(umbrella)
     check_sites(memo)
+    check_tooling_quantities(memo)
+    check_umbrella(memo, umbrella)
+    check_fixture_column(memo)
     check_preflight(memo)
 
     mode = "wire" if WIRE.exists() else "bootstrap"
