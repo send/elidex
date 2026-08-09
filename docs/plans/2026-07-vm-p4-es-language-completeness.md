@@ -860,6 +860,117 @@ than file lists: the Deps column, and the prerequisites called out per row.
   (`git grep -n 'ic_call\b\|ic_call_method' <rev> -- vm/dispatch.rs`). Re-derive by grep; do not read
   either pair forward. Without re-signaturing both, 1a does not compile (dec. 11).
 
+**Acceptance conditions are demoted the same way, and the reason is the one stated just above.** Every
+acceptance condition this document writes was derived against one tree at one time; the slices land
+months apart against moving code, and a finite sentence cannot bound the spec surface it is written
+over — so a condition that reads as *the specification of when a slice may retire* is wrong by
+construction, and it duplicates a decision each slice's own **mandatory `/elidex-plan-review` already
+owns**: deriving the slice's obligation from the spec clauses governing the surface it touches,
+against that slice's own parent HEAD. The plan-review round that produced the evidence below hit one
+row after another with a sibling requirement in the same spec surface that the row's stated condition
+does not detect — hopping from row to row, which is the signature of a whole layer generating findings
+rather than a list needing one more entry.
+**So: derive the obligation at slice time; treat what is written here as a starting point.** The
+requirements already found are kept below as *evidence about the code*, because they were expensive to
+find — not as a claim that the conditions are now complete. The load-bearing exception is the one the
+passage above already states once, and it holds here unchanged: the Deps column and the prerequisites
+called out per row are *ordering* facts and survive as specification. This is the same rule as the
+members-vs-semantics rule at the head of this section, applied to the other half of a charter — and,
+like the terminality criterion, it is stated once for the whole table.
+
+**Evidence found by that round, kept because it was expensive** (each verified against `658cc302`;
+`git diff --stat 658cc302 ddd2b931 -- crates/` is empty, so these are current — re-verify at slice
+time rather than reading forward):
+
+- **Slice 0bc** — a destructuring **assignment** must evaluate to its RHS, and the storage helper it
+  will reuse is specified to consume it. `compile_destructure_pattern`
+  (`compiler/stmt_destructure.rs:23`) documents "Assumes the value to destructure is on top of the
+  stack. After compilation, the value is consumed (popped)." (`:20-21`), and every store path in
+  `compile_pattern_store` (`:189`) emits `Op::Pop` (`:211`, `:215`, `:221`, `:227`). Correct for the
+  declaration form; wrong for the expression form. ECMA-262 **§13.15.2** Runtime Semantics: Evaluation,
+  production `AssignmentExpression : LeftHandSideExpression = AssignmentExpression`, reaches step 5
+  "Perform ? DestructuringAssignmentEvaluation of assignmentPattern with argument rightValue"
+  (**§13.15.5.2**, which itself returns *unused*) and then step 6 "Return rightValue"
+  (`webref body ecma262 sec-assignment-operators-runtime-semantics-evaluation`). So 0bc can satisfy
+  every named-storage and `IteratorClose` regression it carries while leaving nothing on the stack.
+  Identity probe: `const rhs=[1]; let out=([a]=rhs); out===rhs`.
+- **Slice L** — a label is recorded as iterative only when a loop keyword follows it *immediately*, so
+  chained labels lose the outer one. `parser/stmt.rs:113-117` computes
+  `is_iteration = matches!(self.at(), TokenKind::Keyword(Keyword::For | Keyword::While | Keyword::Do))`
+  from the token after the colon and pushes it with the label; `parser/control_flow.rs:444-454` then
+  raises "'continue' label '…' does not refer to an iteration statement" whenever
+  `!is_break && !is_iteration`. So `outer: inner: while (cond) { continue outer; }` is rejected though
+  it is valid. The SDO that decides a labelled `continue`'s target is ECMA-262 **§8.3.3**
+  ContainsUndefinedContinueTarget: its `LabelledStatement : LabelIdentifier : LabelledItem` production
+  is "Let newLabelSet be the list-concatenation of labelSet and « label »" and recurses with it, its
+  `BreakableStatement : IterationStatement` production is "Let newIterationSet be the
+  list-concatenation of iterationSet and labelSet", and its `ContinueStatement : continue
+  LabelIdentifier ;` production returns false when iterationSet contains the label — so a chain
+  accumulates and every label in it names the loop. It is invoked as an early error from **§16.1.1**
+  Static Semantics: Early Errors ("It is a Syntax Error if ContainsUndefinedContinueTarget of
+  StatementList with arguments « » and « » is true"). **§14.8.1** is the separate rule — "It is a
+  Syntax Error if this ContinueStatement is not nested … within an IterationStatement" — and decides
+  nesting, not label targets.
+- **Slice 2a** — a computed field name is evaluated **once, when the class is defined**, and the key is
+  retained for later instances. The baseline emits nothing at all for a non-static field:
+  `ClassMemberKind::Property` (`compiler/expr_class.rs:393`) is wholly inside `if *is_static`
+  (`:402`), and `:428` reads "Non-static properties: skip (would need field initializer injection)" —
+  so the computed key is skipped with the rest. ECMA-262 **§15.7.14** ClassDefinitionEvaluation step 26
+  runs ClassElementEvaluation over every class element at definition time; **§15.7.10**
+  ClassFieldDefinitionEvaluation step 1 is "Let name be ? Evaluation of ClassElementName" and step 4
+  returns a ClassFieldDefinition Record carrying it as `[[Name]]`; §15.7.14 step 30 then sets
+  `ctorFunc.[[Fields]]` to that list, so construction reuses the key rather than recomputing it. An
+  implementation that injects initializers into the constructor passes the `x = 1` and receiver tests
+  while evaluating the key per construction. Probe:
+  `let n=0; class C { [++n]=1 } new C; new C; n===1`.
+- **Shared prerequisite of Slices 2a and 2b** (an ordering fact, so it is stated once here rather than
+  on either row) — the class-name binding is initialized **before** static elements run.
+  `compile_class` (`compiler/expr_class.rs:99`) emits every member in its body loop, the
+  `ClassMemberKind::StaticBlock` arm (`:448`) included, and only afterwards initializes the inner
+  class-name binding (`:479-500`; `Op::InitLocal` at `:498`, `Op::SetLocal` at `:499`). ECMA-262
+  **§15.7.14** orders it the other way: step 28 is "Perform ! classEnv.InitializeBinding(classBinding,
+  ctorFunc)", and step 32 is the loop over staticElements that performs `DefineField` for a static
+  field and "Call(elementRecord.[[BodyFunction]], ctorFunc)" for a static block. So
+  `class C { static self = C; static { if (C !== this) throw 0 } }` reads an uninitialized binding
+  today, and whichever of 2a/2b lands first is the one that moves the initialization.
+- **Slice 3** — an object-literal method gets `[[HomeObject]]` too, and the frame state the slice
+  threads is class-only. The parser already enables `super` there: `parse_method_function`
+  (`parser/object.rs:334`) sets `this.context.in_method = true` (`:345`) under the comment "S4: methods
+  have [[HomeObject]] — super.prop is valid" (`:344`), and an object-literal method is mapped
+  `MethodKind::Method | MethodKind::Constructor => PropertyKind::Init` (`:60`). The compiler then
+  installs it through the ordinary paths with no home-object state: `compile_object_expr`
+  (`compiler/expr_object.rs:46`) compiles the `PropertyKind::Init` value with `compile_expr` and
+  defines it with `Op::DefineProperty` / `Op::DefineComputedProperty`, and the accessor kinds go
+  through `compile_accessor`. `git grep -n 'home_class' 658cc302 -- crates/script/elidex-js/src`
+  reaches `compiler/expr_class.rs:60`, `compiler/function.rs:40`, `compiler/expr_member.rs:111`,
+  `bytecode/` and `vm/` but no line in `compiler/expr_object.rs`, and the frame field is derived from
+  `compiled.is_class_ctor` (`vm/interpreter.rs:802`). ECMA-262 routes both spellings to the same
+  operation: **§13.2.5.6** PropertyDefinitionEvaluation, production
+  `PropertyDefinition : MethodDefinition`, step 1 "Let result be ? MethodDefinitionEvaluation of
+  MethodDefinition with arguments obj and true"; **§15.4.5** MethodDefinitionEvaluation step 1 "Let
+  methodDef be ? DefineMethod of MethodDefinition with argument obj"; **§15.4.4** DefineMethod step 7
+  "Perform MakeMethod(closure, obj)"; **§10.2.7** MakeMethod step 2 "Set func.[[HomeObject]] to
+  homeObj" — and §15.4.5's `get` / `set` productions perform MakeMethod at their own step 7. Slice 3's
+  audit is stated over `home_class` and a `new B().m` regression, so every class probe can pass while
+  `const o={m(){return super.x}}; Object.setPrototypeOf(o,{x:1}); o.m()` stays broken.
+- **Slice M** — the parser already accepts top-level `await`, and the VM asserts it cannot happen.
+  `parse_module` (`lib.rs:94`) builds the parser with `ProgramKind::Module`, which sets `is_module`
+  (`parser/mod.rs:104`); `await_is_keyword` on `ParseContext` (`parser/mod.rs:61-63`) is
+  `self.in_async || self.in_async_params || (self.is_module && !self.in_function)`; and
+  `parser/expr.rs:208-226` allocates `ExprKind::Await` under it, its comment reading "Await — B21: also
+  valid at top level in modules (not inside sync functions)". On the VM side `call_internal`
+  debug-asserts `matches!(kind, FrameKind::Function) || !(is_async || is_generator)`
+  (`vm/interpreter.rs:575-579`) and the comment above it (`:566-574`) says top-level bodies are never
+  async or generator, "top-level await deferred". M's row derives over the **grammar** — ECMA-262
+  §16.2.2 Imports and §16.2.3 Exports — and that derivation cannot reach this: module *execution* is
+  **§16.2.1** Module Semantics. **§16.2.1.7.3.2** ExecuteModule takes the synchronous branch at step 3
+  only "If module.[[HasTLA]] is false" and otherwise asserts a PromiseCapability Record and performs
+  `AsyncBlockStart` at step 4; **§16.2.1.6.1.3.1** InnerModuleEvaluation step 12 routes a module whose
+  `[[HasTLA]]` is true to **§16.2.1.6.1.3.2** ExecuteAsyncModule (whose step 2 asserts `[[HasTLA]]` is
+  true), against step 13's plain "Perform ? module.ExecuteModule()". So M's derivation must reach
+  §16.2.1 and not only the §16.2.2/§16.2.3 productions — the members-vs-semantics distinction at the
+  head of this section, in its module spelling.
+
 | # | Slice | Primary module(s) | Slot | Tier | Deps |
 |---|---|---|---|---|---|
 | **0a — MERGED `658cc302`** | Compound **and logical** assignment to member targets — killed **3** panic classes (the plan had recorded 1; the other two were found while implementing and land together, same concept + same files). NB only `Dup`/`Swap` exist, so preserving `[obj key]` across the load needs a **new stack-shuffle opcode** ⇒ handler only (**`bytecode/disasm.rs` needs no arm** — it dispatches generically on `op.operand_size()`; this corrects a cost model that also mis-stated Slices 1b/6/D) | ⚠ **charter, not outcome — the landing was 36 files** (`git show --stat 658cc302`), incl. `compiler/stmt.rs` + new `stmt_loop.rs`, `vm/object_kind.rs`, `vm/interpreter.rs`, `vm/value.rs` and four `vm/host/` files; §16 has the record and §8's cold gate reasons over this column, so read §16 first. Charter was: `compiler/expr_assign.rs`, `bytecode/opcode.rs`, `vm/dispatch.rs`, `vm/tests/{mod,tests_member_compound_assign}.rs` | **new** `#11-vm-computed-compound-assignment` | T0 | — |
