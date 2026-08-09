@@ -153,8 +153,23 @@ def check_pairs(memo: Memo) -> None:
         return
     want = {tuple(sorted(p)) for p in itertools.combinations(invariants, 2)}
 
+    # Only ACCOUNTING sites count: the pairwise table's rows, and the paragraph
+    # that discharges the rest as independent. Prose *about* the table -- "two
+    # revisions asserted this was complete while it stood at 20" -- names pairs
+    # without accounting for them, and counting those turns an honest note about
+    # a past miscount into a fresh double-booking finding.
+    acct: list[str] = []
+    in_indep = False
+    for line in s2.split("\n"):
+        if re.search(r"remaining \w+ pairs? (?:are|is|were|was) independent", line):
+            in_indep = True
+        elif in_indep and not line.strip():
+            in_indep = False
+        if line.lstrip().startswith("|") or in_indep:
+            acct.append(line)
+
     seen: dict[tuple[str, ...], int] = {}
-    for m in re.finditer(r"(I\d)[ \t]*[x×][ \t]*(I\d)", s2):
+    for m in re.finditer(r"(I\d)[ \t]*[x×][ \t]*(I\d)", "\n".join(acct)):
         key = tuple(sorted((m.group(1), m.group(2))))
         seen[key] = seen.get(key, 0) + 1
 
@@ -175,42 +190,54 @@ def check_pairs(memo: Memo) -> None:
 # --------------------------------------------------------------------------
 
 def check_probe_substrings(memo: Memo) -> None:
-    s8 = memo.sect("8")
-    if not s8:
-        bad("UNIQ", "no §8 section found")
+    """`$3` discrimination, scoped to the fixture.
+
+    Two controls in separate fixtures cannot mask each other -- each wire
+    invocation can only emit its own diagnostics -- so the global uniqueness
+    property revision 2 asserted was both false and the wrong requirement.
+    What matters is the fixture group, which §8.1 now carries as a column."""
+    s81 = memo.sect("8.1")
+    if not s81:
+        bad("UNIQ", "no §8.1 section found")
         return
-    claims_unique = re.search(r"No two `\$3` values below share a substring", s8)
-    vals: dict[str, list[str]] = {}
-    for c in data_rows(memo.sect("8.1")):
-        if not re.match(r"^C\d+$", c[0]):
+    rows = [c for c in data_rows(s81) if re.match(r"^C\d+$", c[0])]
+    if not rows:
+        bad("UNIQ", "§8.1 has no parseable control rows")
+        return
+    if not all(len(c) >= 5 for c in rows):
+        bad("UNIQ", "§8.1 rows lack the Fixture column the scoped `$3` property "
+                    "is decided by")
+        return
+
+    groups: dict[str, dict[str, list[str]]] = {}
+    for c in rows:
+        fixture = c[2].strip("* `")
+        m = re.findall(r"\(`([^`]+)`", c[-1])
+        if not m:
             continue
-        neg = c[-1]
-        m = re.findall(r"\(`([^`]+)`\)", neg)
-        if m:
-            vals.setdefault(m[-1], []).append(c[0])
-    if not vals:
-        bad("UNIQ", "§8.1 has no parseable `$3` values")
-        return
-    keys = sorted(vals)
-    offenders = []
-    for a in keys:
-        for b in keys:
-            if a != b and a in b:
-                offenders.append((a, b))
-    dupes = {k: v for k, v in vals.items() if len(v) > 1}
-    if claims_unique:
-        for a, b in offenders:
-            bad("UNIQ", f"§8 asserts no `$3` shares a substring, but {a!r} "
-                        f"({','.join(vals[a])}) is inside {b!r} ({','.join(vals[b])})")
-        for k, v in sorted(dupes.items()):
-            bad("UNIQ", f"§8 asserts no `$3` shares a substring, but {k!r} is "
-                        f"the whole `$3` of {len(v)} controls: {','.join(v)}")
-    else:
-        # the property was dropped; the weaker one still has to hold, because a
-        # `$3` inside another cannot tell its own arm from the other's firing.
-        for k, v in sorted(dupes.items()):
-            bad("UNIQ", f"`$3` {k!r} is shared by {len(v)} controls ({','.join(v)}); "
-                        f"neither can discriminate its own arm")
+        # a fixture named `own` is a DIFFERENT fixture per control, so each such
+        # row is its own group; anything else is a shared fixture id.
+        key = f"own:{c[0]}" if fixture == "own" else fixture
+        groups.setdefault(key, {}).setdefault(m[-1], []).append(c[0])
+
+    for key, vals in sorted(groups.items()):
+        for a in sorted(vals):
+            for b in sorted(vals):
+                if a != b and a in b:
+                    bad("UNIQ", f"in fixture {key!r}, `$3` {a!r} ({','.join(vals[a])}) "
+                                f"is inside {b!r} ({','.join(vals[b])}); the first "
+                                f"cannot tell its own arm from the second's firing")
+        for v, who in sorted(vals.items()):
+            if len(who) > 1:
+                bad("UNIQ", f"in fixture {key!r}, `$3` {v!r} is shared by "
+                            f"{','.join(who)}; neither discriminates its own arm")
+
+    stale = re.search(r"No two `\$3` values below share a substring",
+                      memo.sect("8"))
+    if stale:
+        bad("UNIQ", "§8 still asserts the global `$3` uniqueness property, which "
+                    "is the wrong requirement (separate fixtures cannot mask each "
+                    "other) and was false where it stood")
 
 
 # --------------------------------------------------------------------------
@@ -700,12 +727,19 @@ WIRE_TOPIC = re.compile(r"trip.?wire|the wires", re.I)
 
 
 def check_sites(memo: Memo) -> None:
+    # Both spellings count as citing a line: the backticked `path:12-14` form,
+    # and the bare `path:12:` form a pasted `git grep -n` listing produces --
+    # §4.6's edit set is entirely of the second kind, and reading only the first
+    # reported eleven sites as undisposed when §4.6 pastes six of them verbatim.
     cited = set()
     for m in CITE_RE.finditer(memo.text):
         rel, a, b = m.group(1), int(m.group(2)), m.group(3)
         for h in resolve(rel):
             for k in range(a, (int(b) if b else a) + 1):
                 cited.add(f"{h}:{k}")
+    for m in re.finditer(r"^([\w./-]+):(\d+):", memo.text, re.M):
+        for h in resolve(m.group(1)):
+            cited.add(f"{h}:{m.group(2)}")
     loose = set(re.findall(r"`?([\w./-]+\.(?:yml|toml|md|sh))`?[: ]", memo.text))
 
     pending = []
@@ -775,14 +809,14 @@ SYNTH_PAIRS = "\n".join(
 )
 
 SYNTH_UNIQ = """## §8 Test strategy
-**`$3` a substring the diagnostic must contain** -- No two `$3` values below share a substring.
+**`$3` a substring the diagnostic must contain.**
 
 ### §8.1 Controls
 
-| # | clause | Positive | Negative |
-|---|---|---|---|
-| C1 | a | p | n (`alpha`) |
-| C2 | b | p | n (`bravo`) |
+| # | clause | Fixture | Positive | Negative |
+|---|---|---|---|---|
+| C1 | a | live | p | n (`alpha`) |
+| C2 | b | live | p | n (`bravo`) |
 """
 
 
@@ -824,16 +858,39 @@ def selftest() -> int:
     probe("PAIR negative (a pair restated in the other orientation)", True,
           capture(check_pairs, synth(SYNTH_PAIRS + "\n| I3 × I1 | again |")),
           "2 times")
+    probe("PAIR positive (prose about the table is not an accounting site)", False,
+          capture(check_pairs, synth(
+              SYNTH_PAIRS + "\n\nAn earlier draft carried I1×I3 twice and omitted "
+              "I2×I4 altogether, which is why this is checked.")))
+    probe("PAIR positive (the independent-list paragraph does count)", False,
+          capture(check_pairs, synth(
+              SYNTH_PAIRS.replace("| I2 × I4 | intersection |", "")
+              + "\n\nThe remaining one pair is independent, for a stated reason:\n"
+                "**I2×I4** (they act on disjoint stages).\n")))
 
     # UNIQ
-    probe("UNIQ positive (disjoint `$3`)", False,
+    probe("UNIQ positive (disjoint `$3` in one fixture)", False,
           capture(check_probe_substrings, synth(SYNTH_UNIQ)))
-    probe("UNIQ negative (one `$3` inside another)", True,
+    probe("UNIQ negative (one `$3` inside another, same fixture)", True,
           capture(check_probe_substrings, synth(SYNTH_UNIQ.replace("`bravo`", "`alphabet`"))),
           "is inside")
-    probe("UNIQ negative (two controls share a `$3`)", True,
+    probe("UNIQ negative (two controls share a `$3`, same fixture)", True,
           capture(check_probe_substrings, synth(SYNTH_UNIQ.replace("`bravo`", "`alpha`"))),
-          "whole `$3`")
+          "shared by")
+    # the whole point of scoping: the identical collision across fixtures is fine
+    probe("UNIQ positive (same `$3`, separate `own` fixtures)", False,
+          capture(check_probe_substrings, synth(
+              SYNTH_UNIQ.replace("`bravo`", "`alpha`").replace("| live |", "| own |"))))
+    probe("UNIQ negative (the withdrawn global property restated)", True,
+          capture(check_probe_substrings, synth(
+              SYNTH_UNIQ.replace("must contain.**",
+                                 "must contain.** No two `$3` values below share a substring."))),
+          "wrong requirement")
+    probe("UNIQ negative (no Fixture column)", True,
+          capture(check_probe_substrings, synth(
+              SYNTH_UNIQ.replace("| Fixture ", "").replace("| live ", "")
+              .replace("|---|---|---|---|---|", "|---|---|---|---|"))),
+          "lack the Fixture column")
 
     # SECT
     probe("SECT positive (a defined section)", False,
