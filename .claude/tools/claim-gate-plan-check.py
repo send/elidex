@@ -22,10 +22,22 @@ harness is worth extracting (CLAUDE.md *One issue, one way*, and memory
 
 What this adds over that sibling is the class it explicitly disclaims: it
 declares itself "tabular-surface only: nothing here reads the memo's prose
-claims", which is exactly where round 2's CRIT 1 lived. Checks ANNO / PASTE /
-FENCE / PREFLIGHT below all *execute* something and compare.
+claims", which is exactly where round 2's CRIT 1 lived. ANNO / PASTE /
+TRANSCRIPT / FENCE / PREFLIGHT all *execute* something and compare.
+
+  PAIR        §2's pairwise enumeration is exhaustive and non-redundant
+  UNIQ        §8.1's `$3` column keeps the property §8's preamble asserts
+  SECT        every §-reference resolves, in the memo it is attributed to
+  CITE        every `path:LINE` is tracked, unambiguous and in range
+  ANNO        every `claim` annotation in the tree is classified and re-run
+  PASTE       §8.2's pasted tier counts and verdicts are re-derived
+  FENCE       the "A differs from B" claim, decided by running A and B
+  TRANSCRIPT  every pasted command is re-run and its pasted answer checked
+  SITES       (report) lines describing the wire SET, for conscious disposal
+  PREFLIGHT   §8.3's pasted verdict is what preflight prints today
 
 Usage:  claim-gate-plan-check.py <s1-memo> [<umbrella-memo>]
+        claim-gate-plan-check.py --self-test
 Exit 1 if any check fails.
 """
 from __future__ import annotations
@@ -559,7 +571,162 @@ def check_fence(memo: Memo) -> None:
 
 
 # --------------------------------------------------------------------------
-# 8. PREFLIGHT -- §8.3's pasted verdict is what preflight prints today
+# 8. TRANSCRIPT -- every pasted command is re-run and its pasted answer checked
+#
+# The memo's provenance contract says every figure "came from a command run in
+# this worktree and pasted next to it". That makes the paste a claim, and D10
+# says a claim the memo's own landing can invalidate has to be re-executable
+# rather than asserted. Round 2 shipped two prose sites missing from a pasted
+# `git grep` edit-set listing; re-running the listing is what finds that, and
+# no amount of re-reading it was going to.
+#
+# Only these program names run, and only when the line carries no shell state
+# the memo does not also paste. Lines that cannot be re-run are REPORTED as
+# unchecked rather than skipped -- a silent cap reads as coverage.
+# --------------------------------------------------------------------------
+
+RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk)\b")
+# `$NF` inside an awk program is not shell state, and a first cut that tested
+# the raw line skipped three re-runnable commands as unrunnable -- a cap that
+# reads as coverage. Single-quoted spans are removed before the test. `$?` is
+# self-contained within one `bash -c`, so it is not state either.
+SQUOTED = re.compile(r"'[^']*'")
+NEEDS_STATE = re.compile(r"\$[A-Za-z_{#*@]|set --|<prototype|<this memo|<the umbrella")
+
+
+def needs_state(cmd: str) -> bool:
+    return bool(NEEDS_STATE.search(SQUOTED.sub("''", cmd)))
+FILELINE = re.compile(r"^([\w./-]+):(\d+):")
+ARROW = re.compile(r"^(.*?)[ \t]+(?:→|->)[ \t]+(.*)$")
+
+
+def fenced_blocks(memo: Memo) -> list[tuple[int, list[str]]]:
+    """(1-based line of the opener, body lines) for every ```-fenced block."""
+    out, cur, start = [], None, 0
+    for i, line in enumerate(memo.lines, 1):
+        if FENCE_MARK.match(line):
+            if cur is None:
+                cur, start = [], i
+            else:
+                out.append((start, cur))
+                cur = None
+        elif cur is not None:
+            cur.append(line)
+    return out
+
+
+def run_line(cmd: str) -> str:
+    p = subprocess.run(["bash", "-c", cmd], cwd=REPO, capture_output=True, text=True)
+    return (p.stdout or p.stderr).strip()
+
+
+def check_transcripts(memo: Memo) -> None:
+    unchecked = 0
+    for start, body in fenced_blocks(memo):
+        i = 0
+        while i < len(body):
+            raw = body[i]
+            ln = start + 1 + i
+            line = raw.strip()
+
+            # form A:  <command>  →  <answer>
+            m = ARROW.match(line)
+            if m and RUNNABLE.match(m.group(1).strip()):
+                cmd, want = m.group(1).strip(), m.group(2).strip()
+                if needs_state(cmd):
+                    unchecked += 1
+                else:
+                    got = run_line(cmd)
+                    head = re.split(r"\s{2,}|\s+[#(]", want)[0].strip()
+                    first = got.split("\n")[0].strip()
+                    if head and head not in (first, got) and first not in head:
+                        bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes `{cmd[:56]}` "
+                                          f"→ {head!r}; re-running gives {first!r}")
+                i += 1
+                continue
+
+            # form B:  $ <command>  then its pasted output, to the next $ or EOB
+            if line.startswith("$ "):
+                cmd = line[2:].strip()
+                j = i + 1
+                while cmd.endswith("\\") and j < len(body):
+                    cmd = cmd[:-1] + " " + body[j].strip()
+                    j += 1
+                out_lines = []
+                while j < len(body) and not body[j].strip().startswith("$ "):
+                    out_lines.append(body[j])
+                    j += 1
+                pasted = {m2.group(0) for l2 in out_lines if (m2 := FILELINE.match(l2.strip()))}
+                if not RUNNABLE.match(cmd) or needs_state(cmd):
+                    unchecked += 1
+                elif pasted:
+                    actual = {m2.group(0) for l2 in run_line(cmd).split("\n")
+                              if (m2 := FILELINE.match(l2.strip()))}
+                    for miss in sorted(actual - pasted):
+                        bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes the output of "
+                                          f"`{cmd[:56]}` but omits the hit at {miss}")
+                    for extra in sorted(pasted - actual):
+                        bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes a hit at {extra} "
+                                          f"that `{cmd[:56]}` no longer produces")
+                i = j
+                continue
+            i += 1
+    if unchecked:
+        print(f"  transcripts: {unchecked} pasted command(s) not re-run "
+              f"(they need shell state the memo does not also paste)")
+
+
+# --------------------------------------------------------------------------
+# 9. SITES -- every line that describes the wire SET, listed for disposal
+#
+# The TRANSCRIPT check proves a paste matches its command; it cannot prove the
+# command was the right one. Round 2's two missed sibling sites are exactly
+# that failure -- `ci.yml`'s "the wires are grep-only" and `mise.toml`'s
+# enumeration of four disjoint surfaces are both invalidated by a fifth wire,
+# and neither contains the string the memo grepped for.
+#
+# So this reports rather than fails: the governing files are a closed set of
+# five, and every line in them that speaks about the wires *collectively* has
+# to be consciously disposed of by §4.6 -- edited, or cited as deliberately
+# left alone. Per-wire headers are out of scope by §4.6's own rule.
+# --------------------------------------------------------------------------
+
+GOVERNING = [".github/workflows/ci.yml", "CLAUDE.md", "CONTRIBUTING.md",
+             "mise.toml", "scripts/trip-wires.sh"]
+COLLECTIVE = re.compile(
+    r"(every|all|each of|the wires|both directions|disjoint|grep-only|"
+    r"cover|layering trip-wires|trip-wires job|no list)", re.I)
+WIRE_TOPIC = re.compile(r"trip.?wire|the wires", re.I)
+
+
+def check_sites(memo: Memo) -> None:
+    cited = set()
+    for m in CITE_RE.finditer(memo.text):
+        rel, a, b = m.group(1), int(m.group(2)), m.group(3)
+        for h in resolve(rel):
+            for k in range(a, (int(b) if b else a) + 1):
+                cited.add(f"{h}:{k}")
+    loose = set(re.findall(r"`?([\w./-]+\.(?:yml|toml|md|sh))`?[: ]", memo.text))
+
+    pending = []
+    for rel in GOVERNING:
+        if not (REPO / rel).exists():
+            continue
+        for i, line in enumerate((REPO / rel).read_text().split("\n"), 1):
+            if WIRE_TOPIC.search(line) and COLLECTIVE.search(line):
+                if f"{rel}:{i}" not in cited:
+                    pending.append((rel, i, line.strip()))
+    if not pending:
+        return
+    print(f"  wire-set sites not cited by the memo ({len(pending)}) -- §4.6 must "
+          f"dispose of each, by editing it or saying why not:")
+    for rel, i, line in pending:
+        star = "  <- named file, unnamed line" if rel.split("/")[-1] in loose else ""
+        print(f"    {rel}:{i}  {line[:76]}{star}")
+
+
+# --------------------------------------------------------------------------
+# 10. PREFLIGHT -- §8.3's pasted verdict is what preflight prints today
 # --------------------------------------------------------------------------
 
 def check_preflight(memo: Memo) -> None:
@@ -741,6 +908,34 @@ def selftest() -> int:
           "must be cited")
     probe("FENCE ban ignores a line naming only one tracker", False,
           capture(check_fence, synth("## §6 x\n`preflight.py` tracks fences.")))
+    # TRANSCRIPT -- both arms, both directions
+    def block(*body: str) -> Memo:
+        return synth("\n".join(["```", *body, "```"]))
+
+    real = "git ls-files -- '.claude/tools/*.sh' | wc -l"
+    n = run_line(real)
+    probe("TRANSCRIPT arrow form, correct answer", False,
+          capture(check_transcripts, block(f"{real}   → {n}")))
+    probe("TRANSCRIPT arrow form, stale answer", True,
+          capture(check_transcripts, block(f"{real}   → {int(n) + 7}")),
+          "re-running gives")
+    listing = "git grep -n 'REQUIRED_WIRES' -- 'scripts/*.sh'"
+    hits = [x for x in run_line(listing).split("\n") if x]
+    probe("TRANSCRIPT $-form, complete listing", False,
+          capture(check_transcripts, block(f"$ {listing}", *hits)))
+    probe("TRANSCRIPT $-form, a site dropped from the listing", True,
+          capture(check_transcripts, block(f"$ {listing}", *hits[1:])),
+          "omits the hit at")
+    probe("TRANSCRIPT $-form, a site that no longer exists", True,
+          capture(check_transcripts, block(f"$ {listing}", *hits,
+                                           "scripts/gone.sh:42:REQUIRED_WIRES")),
+          "no longer produces")
+    probe("TRANSCRIPT skips a command needing unpasted shell state", False,
+          capture(check_transcripts, block('git grep -lE -e alpha -- "$p" → 2')))
+    probes.append(("TRANSCRIPT `$NF` in an awk program is not shell state",
+                   not needs_state("git grep -cE 'x' -- '*.rs' | awk -F: "
+                                   "'{s+=$NF} END{print s}'"), ""))
+
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
               "## §6 x\nThe fence arm is defined per surface; only a matching "
@@ -771,6 +966,10 @@ def main(argv: list[str]) -> int:
     live = check_annotations()
     check_pasted_transcripts(memo, live)
     check_fence(memo)
+    check_transcripts(memo)
+    if umbrella:
+        check_transcripts(umbrella)
+    check_sites(memo)
     check_preflight(memo)
 
     mode = "wire" if WIRE.exists() else "bootstrap"
