@@ -1113,6 +1113,22 @@ explicitly so the fold can surface.
   #497's unsquashed history, already in `main`.
   **Its own gate**: `/elidex-plan-review`, like every PR here — CLAUDE.md makes that a rule, not a
   judgment, and §10 routes non-mechanical ledger actions to this PR.
+* ⚠ **This memo's own length, and why the split is booked rather than done.** It is past 1000
+  lines and grew again in rev 20 and rev 21; CLAUDE.md's touch-time discipline does not name
+  `docs/**`, but its rationale ("cohesion 判断", and the cost paid by every reader) reaches a
+  document five review agents re-read in full each round, and the sibling L3 lane already has the
+  precedent (an analysis note plus an executing umbrella). The seam exists — §1 (the rules from the
+  module) and §4 (verified current state) are grounds, not decisions, and the review history was
+  already exported to the slot memo. **What blocks doing it here is this program's own gates**, and
+  that is measured, not assumed: `preflight.py`'s hard gate aborts on a missing **§3**, so the
+  coverage map cannot leave the umbrella; `plan-xcheck.py` harvests §6's cell routing structurally
+  and cross-checks §10's ledger against slot definitions that live in **§9**, so neither can leave
+  either; and checks 11b/11c scan **the whole file** for cited paths and cell references, so moving
+  §1/§4 out would silently shrink the checked surface — a split that weakens the checker is the
+  wrong trade for a program whose last six rounds were saved by it. Making the checkers two-file
+  aware **is** the plan-checker tooling task below, so this is booked **with** it and takes its
+  trigger; splitting first would be the unverified half. Until then the umbrella carries its length
+  knowingly.
 * **File growth**: measure with `wc -l` at each PR rather than against a number written here, which
   this program's own prereq PRs invalidate. Per §5.2 the **open-box stack** goes to a new
   `pack/inline_box.rs`; M3's line-state core and M7's promotion stay in `pack/mod.rs`; new tests to
