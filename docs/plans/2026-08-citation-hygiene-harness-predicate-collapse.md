@@ -198,11 +198,15 @@ M7 computes ownership in four tiers, each printed beside its row so a routing de
 | **T0** | defined in the dispatcher → **kernel**. It is the invocation surface every memo cites blocks through; nothing calls it. |
 | **T1** | a memo declares it → the **earliest declarer** in the forced order, **umbrella first** (it has landed, so a block it cites must exist from the first harness PR onward). |
 | **T2** | else, defined in a slice part → that slice. |
-| **T3** | else → the earliest ship-with among its **command-position callers**, assigned only once **every** caller is resolved; none → kernel. |
+| **T3** | else → read its **command-position callers**, assigned only once **every** caller is resolved. Callers in **more than one** group → kernel, because a block two groups call is shared infrastructure; exactly one → that group; none → kernel. |
 
 ⚠ T3 was **order-dependent** until `ff44f30c`: it assigned from the callers resolved so far, over an unordered
 set, and gave two different answers across `PYTHONHASHSEED`. Fixed and verified deterministic across seeds
-0–9. The rule above is now the rule implemented.
+0–9. ⚠ And it was **"earliest caller wins"** until `49b4f645`, which made the measurement primitive's own
+layer unrepresentable — declaring `_measure` the `kernel` it is went binding-RED. The row above is the rule
+implemented at HEAD. ⚠ It is **not** the rule after PR-1a: the boundary test currently ranges over `ORDER`,
+which excludes `kernel`, so a `kernel` caller is dropped from the count of groups crossed. The disposition
+memo's D13 measures the widening and carries it; this note only records that the row will move.
 
 **M7's tally is a command, not a table here.** An earlier revision of this note printed six rows of
 `blocks / block-body lines` immediately under a paragraph explaining that *"the only fix that holds is: do not
@@ -250,6 +254,8 @@ authorised a file-granular removal against a block-granular table. Three of R3's
 and the program memo had named it as draft 3's third precondition — *reconcile the routing unit with the
 shipping unit* — which draft 3 did not attempt. `suites` is the sharpest instance: `-Aiii.sh` holds it,
 the umbrella cites it at `:82`, and A-i §13 already carries its relocation to `-common.sh` as **owed**.
+⚠ That relocation is quoted here as what §13 *says*, not as where the block goes: the disposition memo's D11
+measures `suites` declaring `umbrella`, so the owed move is discharged at a destination §13 does not name.
 
 A second, independent form of the same gap: **the block set is written down in many places, and the count is
 not this page's to carry either.** Draft 4 said "four to six" and named five; round 4 found a seventh
