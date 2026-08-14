@@ -75,12 +75,32 @@ files) from the scan by pathspec. The exclusion is the same shape that makes
 `layout-box-reader-trip-wire.sh` immune — every one of its greps is scoped to `crates/**/*.rs` while
 it lives elsewhere — but here it is explicit rather than incidental, and §4 records it as a bound.
 
+⚠ **AMENDED by S1 round 4 (option (c)): the fence half of this decision is withdrawn.** The `.rs`
+rustdoc strip, and fence matching generally, are deleted; inertness is **one rule on all four
+surfaces — backtick it**. The ground is measured, not preferred: of the 8 claim candidates in the
+tracked tree, 5 are strict and 3 are mentions, and **all 3 mentions are backticked; fenced mentions
+are 0**. So the withdrawal costs nothing against the tree that exists, while the fence arm cost a
+third implementation of fence tracking, a per-surface table with two rows reading "none", and two
+controls. Backticking is the canonical form because it is the rule `.sh` and `.toml` already *had* to
+use, having no fence concept — generalising it retires a rule rather than adding one (*One issue, one
+way*). The `.claude/tools/**` exclusion is untouched and still binding. Consequence, stated because
+it is the cost: **an annotation inside a fenced block is live and executed.**
+
+*Amended here rather than in the slice.* S1 revision 4 deleted the arm in its own §4.2 while this
+decision still mandated it, which the slice's own preamble forbids ("does not reopen them"). A slice
+cannot change a binding decision; the amendment belongs in this file, and is reviewable as a decision
+change.
+
 **D3 — every recogniser tier is specified, including the lax one.**
 v1 required a MALFORMED verdict while defining only the strict production, so MALFORMED could never
 fire and its test exercised a rule that did not exist. Three tiers: **strict** (the full production →
 execute), **lax** (`<!--[[:space:]]*claim[^A-Za-z]` matched but not strict, not backticked, not fenced
-→ **MALFORMED, fail**), **mention** (backticked or fenced → ignore). A typo'd annotation must fail,
+→ **MALFORMED, fail**), **mention** (backticked → ignore). A typo'd annotation must fail,
 never vanish.
+
+⚠ **AMENDED by S1 round 4 (option (c)):** the mention tier was "backticked **or fenced**"; the
+fenced arm is withdrawn with D2's, on the measurement recorded there. The three tiers are
+otherwise unchanged.
 
 **D4 — every measurement carries a liveness precondition.**
 `git grep -cE 'fn ' -- 'crates/**/*.rss'` exits 1 with no output — indistinguishable from a correct
@@ -345,8 +365,11 @@ This umbrella's plan-memo ships with **S1**.
   D2–D6 as production rules; the wire, its registration in `REQUIRED_WIRES` in the same commit, and a
   fixture self-test with a positive and a negative control per assertion. Controls must include the
   `console`-contains-`sole` substring shape, `\b`-fails-empty **and** `\d`-over-matches, a typo'd
-  pathspec, a MALFORMED annotation, a table-cell annotation, and a rustdoc-fenced annotation. Name the
+  pathspec, a MALFORMED annotation, and a table-cell annotation. Name the
   file's seams before writing, not after: the nearest comparable wire is 493 lines.
+  (The rustdoc-fenced control was struck by round 4's amendment to D2/D3 — with no fence arm
+  there is no rustdoc-fenced *mention* to control, and the surface is covered by the backtick
+  arm on `.rs` instead.)
 
   ⚠ **Two figures in this bullet were wrong in v2's first draft, and S1's own measurement pass caught
   them — one commit after §0.1 was written.** Both were carried over from v1 without re-measuring,

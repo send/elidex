@@ -1,24 +1,28 @@
 # S1 — the `claim` annotation grammar + the re-execution wire
 
-> ## Revision 4 — the checker left this slice, and took most of round 3 with it
+> ## Revision 5 — the rule about counts became a check, and (c) went to the umbrella
 >
-> Round 3 returned 6 CRIT / 20 IMP across five axes. **Four of the six CRITs, and thirteen of the
-> twenty IMPs, were about `claim-gate-plan-check.py`** — the memo-checker revision 3 introduced and
-> bundled into this PR. It had become a control of the deliverable (§8.1 C26), a second
-> implementation of the deliverable's grammar, the holder of a coupling §7 rejects elsewhere, the
-> source of three false claims about itself, and 1040 lines that crossed the touch-time split band
-> unremarked. That is not six defects; it is one mis-drawn boundary emitting six symptoms
-> (memory `feedback_defer-accumulation-signals-mis-drawn-slice`).
+> Round 4's three largest roots were one shape: **a change was made, the sites that *state* it were
+> swept, and the sites that *depend* on it were not.**
 >
-> **The checker is now a standalone prerequisite PR** (`claim-gate-plan-check`, three commits, one
-> file), per CLAUDE.md's rule that a touch-time split lands as its own PR and is never bundled with
-> the feature. S1 is stacked on it and this memo is again what S1 ships: a grammar, a wire, a
-> self-test, a registration line, and the prose edits the wire's arrival makes false.
+> - Adopting §7 Q3 option (c) deleted the fence arm from this slice while umbrella **D2** still
+>   mandated `.rs` fence matching, **D3** still defined the mention tier as "backticked or fenced",
+>   and umbrella **§6** still listed a rustdoc-fenced control among S1's — with this memo's own
+>   preamble stating it does not reopen D1–D10. (c) is right on the measurement, and it is not a
+>   slice's to make: **the umbrella is amended, in its own file, marked as a decision change.**
+> - §8 defined what a Fixture value *means* and never re-derived the assignments against it, so
+>   round 3's C10/C11 finding was relabelled rather than closed.
+> - Four revisions shipped four false counts about this program's own tooling, each in the paragraph
+>   crediting it. Revision 4's remedy was a **prose rule** — "this memo states no quantity about its
+>   own tooling" — and it was falsified eighteen lines above itself by "three commits" (five, and
+>   five when written).
 >
-> The checker still gates this memo — it is §5's first stage — and its own round-3 findings are
-> fixed in that PR: `SITES` never called `bad()`, three checks had no controls at all, `TRANSCRIPT`
-> silently skipped 8 of 21 pasted commands, an empty re-run passed any pasted answer, and a
-> blockquoted fence was invisible.
+> That last one settles the method for all three. A rule cannot stop it, for the reason this program
+> has now recorded five times: the author believes the rule was followed. So each root became a
+> check, written before this prose and probed in both directions — `TOOLING` re-derives any numeral
+> in a sentence about the tooling from git, `UMBRELLA` fails a slice that withdraws what a binding
+> decision still mandates (and recognises an amendment, so the decision's history is kept rather than
+> rewritten), `FIXTURE` derives §8.1's Fixture column from each row's own `in=` pathspec.
 >
 > ```
 > $ python3 .claude/tools/claim-gate-plan-check.py --self-test | tail -1
@@ -27,12 +31,10 @@
 >     docs/plans/2026-08-quantitative-claim-staleness-gate.md
 > ```
 >
-> No count is written here — not of probes, not of checks, not of findings. Revision 3's header said
-> "29 probes" (it was 34 by the time that revision shipped) and "a positive and a negative control
-> for every check it makes" (four of ten had none). Both are the same class: **a claim about the
-> checker, which the checker does not check.** Two instances in one paragraph is the evidence that
-> the class needs a rule rather than another correction — so the rule is that this memo states no
-> quantity about its own tooling, and the commands above are the artifact (D10 form 2).
+> **This memo states no quantity about its own tooling**, and `TOOLING` is what holds it to that now.
+> The commands above are the artifact (D10 form 2). Also withdrawn this revision: `--one`, revision
+> 4's injected-annotation entry point, replaced by a `git clone --local` fixture that lets the
+> acceptance corpus run through **stage 1** instead of around it (§4.1.1).
 >
 > → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
 > `feedback_findings-cluster-in-self-added-scope`, `project_stale-claim-gate-v1-review`.
@@ -79,8 +81,8 @@ fifth wire falsifies.
 
 **Not in scope, and not in this PR: `.claude/tools/claim-gate-plan-check.py`.** It checks *this memo*;
 the wire checks *the tree*. Different subject, different lifecycle, different gate — and revision 3
-bundled them, which produced four of round 3's six CRITs. It is a **prerequisite PR** that lands first
-(`claim-gate-plan-check`); S1 is stacked on it.
+bundled them, and round 3 charged most of its CRITs to that bundling. It is a **prerequisite PR** that
+lands first (`claim-gate-plan-check`); S1 is stacked on it.
 
 Revision 3 claimed the checker's annotation executor was a self-retiring bootstrap: *"a code path, not
 a promise, so the two implementations cannot coexist."* **That was false and is withdrawn.** The
@@ -253,31 +255,51 @@ alone leaves behind (memory `feedback_sweep-obligations-not-only-statements`).
 ⚠ D2's exclusion governs where annotations are *looked for*, not what one may *measure*: one of §5's live
 annotations targets a file under `.claude/tools/` and is executed normally.
 
-### §4.1.1 The injected-annotation entry point (self-test only)
+### §4.1.1 The acceptance corpus runs against a clone, not a second entry point
 
-Stage 1 is the wire's only way to acquire an annotation, and round 3 found that this leaves the
-acceptance corpus with **no execution path at all**. C19–C22 supply a known-false annotation and assert
-the wire fails on it against the real tree; every placement that stage 1 can see is closed:
+Stage 1 is the wire's only way to acquire an annotation, and round 3 found that this left the acceptance
+corpus with **no execution path at all**. C19–C22 supply a known-false annotation and assert the wire
+fails on it against a real tree; every placement stage 1 can see in *this* worktree is closed:
 
 | Placement | Why it cannot work |
 |---|---|
-| a tracked file | the annotations are false by construction, so the real gate reds on every push |
-| `claim-provenance-selftest.sh` | D2's `.claude/tools/**` exclusion makes it inert — and §2 I6×I2 depends on exactly that |
-| a `mktemp -d` fixture | the corpus's tree-scale pathspecs resolve to 0 there, so the D4 liveness probe fires first with `matches no tracked file` — not the diagnostic the control asserts |
-| an untracked file in this worktree | `git grep` without `--untracked` does not see it (§6) |
+| a tracked file here | the annotations are false by construction, so the real gate reds on every push |
+| `claim-provenance-selftest.sh` | D2's `.claude/tools/**` exclusion makes it inert — and §2 I2×I6 depends on exactly that |
+| a `mktemp -d` fixture | the corpus's tree-scale pathspecs resolve to 0 there, so the D4 liveness probe fires first with a diagnostic the control does not assert |
+| an untracked file here | `git grep` without `--untracked` does not see it (§6) |
 
-So the wire takes one more entry point, used by the self-test and by nothing else:
+Every row of that table objects to *this* worktree, not to a real tree. **So the fixture is a real
+tree: `git clone --local` of this repository.** The annotation is planted in a tracked file of the
+clone, the wire runs there unmodified, and the real gate never sees it.
 
 ```
-claim-provenance-trip-wire.sh --one '<annotation text>'
+git clone --local -q . "$fixture"        → 0.37s, 70M, 1704 tracked files
+git -C "$fixture" ls-files -- 'crates/shell/elidex-shell/src/**/*.rs' | wc -l   → 34
+git -C "$fixture" grep -nE '#\[test\]' -- 'crates/shell/elidex-shell/src/**/*.rs' | wc -l → 80
+git -C "$fixture" grep -nE '<!--[[:space:]]*claim[^A-Za-z]' -- '*.md' ':(exclude).claude/tools/**' | wc -l → 8
 ```
 
-It runs **stages 2 onward** — tier, dialect, liveness, measure — on the supplied text with this
-repository as the measurement root, and prints the same verdict line stage 1 would have. It does not
-scan. Three properties make it safe to add rather than a second gate: it bypasses no rule (the tier
-pass and the D4 probe are the same code); it is one annotation and one measurement, so I7 is unaffected
-(§2 I6×I7); and it cannot make the push-time gate quieter, because stage 1 is still what feeds the
-normal run. `--one` is the `live` Fixture value in §8.1's table.
+The last line is the reason this and not an entry point: **stage 1 runs in the clone.** C19's historical
+constant re-measures to the same 80 it does here, so the corpus keeps "known input, known verdict"
+(§7 Q2), and it keeps it *through the acquisition path the corpus is supposed to exercise*.
+
+**Revision 4 specified `--one '<annotation text>'` instead, and it is withdrawn.** Four things were
+wrong with it and only the last is fatal on its own:
+
+- It asserted "it bypasses no rule". It bypasses two — D2's `:(exclude).claude/tools/**` and the
+  four-suffix restriction both live in stage 1's pathspec and cannot apply to a bare string.
+- Its four consumers are all negative-only, so **no arm asserted it can PASS**: a `--one` that always
+  failed after echoing the parsed expected value satisfied C19–C22 completely.
+- §8's `live` row said the four run in one invocation while §4.1.1 said one annotation per call, and
+  §4.1.1's I7 argument depended on the latter.
+- It is a code path **in the shipped wire whose only caller is a test** — CLAUDE.md's *dead code は
+  接続するか削除*, and a second acquisition path beside stage 1, which is *One issue, one way* at the
+  wire's own front door.
+
+Cost, stated rather than assumed: one clone per self-test invocation, not per annotation or per
+control. Against the wire's own tree-wide grep at 0.07s the clone is ~5×, and §2 I6×I7 exempts the
+self-test from I7 for exactly this class of expense — but the exemption is now a *bounded* one: **one
+clone**, reused by every `clone` control in the run.
 
 ### §4.2 The three tiers (D3), per surface
 
@@ -696,7 +718,7 @@ that shape all ten bare `asserted=` rows share an invocation and collide. So the
 | `own` | **its own `mktemp -d` and its own wire invocation**, torn down after. Two `own` rows cannot mask each other by construction, whatever their `$3`. |
 | `escapes` | one fixture carrying both C8's and C9's annotations, so their diagnostics must discriminate — this is the pair R1's finding was actually about. |
 | `I7` | C27's counting-shim fixture; one invocation, instrumented. |
-| `live` | no fixture: the annotation is supplied to the wire and measured against **this** repository (§4.1's injected-annotation entry point). C19–C22 run in one such invocation, so their four `$3` values must be mutually non-substring — and are. |
+| `clone` | a `git clone --local` of this repository, built once per self-test run and shared by every `clone` row. The annotation is planted in a tracked file of the clone, so **stage 1 acquires it** (§4.1.1). Shared ⇒ the `$3` values of all `clone` rows must be mutually non-substring — and are. |
 
 So the property is scoped to the invocation, and the table below carries the **Fixture** column that
 makes it decidable:
@@ -707,9 +729,10 @@ makes it decidable:
 > rejected escape names the escape. Those are already disjoint kinds, which is why bare `asserted=` is
 > adequate in a one-annotation fixture and inadequate the moment two live in one.
 
-`claim-gate-plan-check.py`'s `UNIQ` check enforces the scoped form, grouped by the Fixture column. The
-`live` group is the one where this bites: C19–C22 run four annotations against the real tree in a single
-invocation, so their `$3` values must be — and are — mutually non-substring.
+`claim-gate-plan-check.py`'s `UNIQ` check enforces the scoped form, grouped by the Fixture column, and its
+`FIXTURE` check verifies the column against each row's own `in=` pathspec — a label a reader must trust is
+not a specification. The `clone` group is where the `$3` requirement bites: one clone is shared by C10,
+C11 and C19–C22, so their diagnostics must discriminate within it — and do.
 
 ### §8.1 Controls
 
@@ -723,8 +746,8 @@ invocation, so their `$3` values must be — and are — mutually non-substring.
 | C7 | §4.4 `lines-verb` takes no `pattern` | own | `lines=` alone, true length | `lines=5 pattern="fn" in="a.md"` (`MALFORMED`) |
 | C8 | §4.3 reject `\d` | escapes | `[0-9]` accepted, true count | pattern containing `\d` (`contains \d`) |
 | C9 | §4.3 reject `\b` | escapes | `([^A-Za-z]\|$)` accepted, true count | pattern containing `\b` (`contains \b`) |
-| C10 | §4.4 liveness, `in=` ≥ 1 | own | `in="crates/**/*.rs"` | `in="crates/**/*.rss"` (`matches no tracked file`) |
-| C11 | §4.4 liveness, `lines=` exactly 1 | own | one-file pathspec | `in=".claude/tools/wasm-*-trip-wire.sh"`, which resolves to 2 (`resolves to more than one`) |
+| C10 | §4.4 liveness, `in=` ≥ 1 | clone | `in="crates/**/*.rs"` | `in="crates/**/*.rss"` (`matches no tracked file`) |
+| C11 | §4.4 liveness, `lines=` exactly 1 | clone | one-file pathspec | `in=".claude/tools/wasm-*-trip-wire.sh"`, which resolves to 2 (`resolves to more than one`) |
 | C12 | §4.4 argv fidelity (I5) | own | §4.4's three-file fixture, `files=2 … in="docs/**/*.md"` → passes only if the pathspec reached git as one argv element | `files=1` with the same pathspec (`asserted=1`) — the value a shell-globbing executor would compute |
 | C13 | §4.4 `-e` is not optional | own | `pattern="-> u32"`, true count | same pattern, wrong count (`asserted=`) — without `-e` the run dies on `unknown switch` and neither direction is reachable |
 | C14 | §4.4 `count` = matching lines | own | fixture line reading `sole sole`, `count=1` | `count=2` on the same fixture (`asserted=2`) |
@@ -732,10 +755,10 @@ invocation, so their `$3` values must be — and are — mutually non-substring.
 | C16 | §4.1 D2 self-exclusion, **both** directions | own | wrong-count annotation under `.claude/tools/` → not scanned, stays green | the byte-identical annotation one directory up (`asserted=`) |
 | C17 | §6 self-matching is permitted | own | annotation whose pattern matches its own line, count **including** that line | same annotation, count excluding it (`asserted=`) |
 | C18 | §1 the wire invokes its self-test | own | wire + helper copied into a fixture dir → runs | wire copied **without** the helper (`self-test helper`) |
-| C19 | acceptance corpus — v1 `count` (umbrella §0.1) | live | — | `count=299 pattern="#\[test\]" in="crates/shell/elidex-shell/src/**/*.rs"` (`asserted=299`) — the pathspec says `src/` where 299 was the whole crate |
-| C20 | acceptance corpus — v1 `files` | live | — | `files=7 pattern="REQUIRED_WIRES" in="scripts/*.sh"` (`asserted=7`) |
-| C21 | acceptance corpus — v1 `lines` | live | — | `lines=1219 in="docs/plans/2026-07-app-mode-turn-completion-drain.md"` (`asserted=1219`) — 1219 was a line *number* |
-| C22 | acceptance corpus — #504 §5, the row umbrella §3 row 4 routes here | live | — | `lines=632 in="crates/shell/elidex-shell/src/app/drain_host/mod.rs"` (`asserted=632`) |
+| C19 | acceptance corpus — v1 `count` (umbrella §0.1) | clone | — | `count=299 pattern="#\[test\]" in="crates/shell/elidex-shell/src/**/*.rs"` (`asserted=299`) — the pathspec says `src/` where 299 was the whole crate |
+| C20 | acceptance corpus — v1 `files` | clone | — | `files=7 pattern="REQUIRED_WIRES" in="scripts/*.sh"` (`asserted=7`) |
+| C21 | acceptance corpus — v1 `lines` | clone | — | `lines=1219 in="docs/plans/2026-07-app-mode-turn-completion-drain.md"` (`asserted=1219`) — 1219 was a line *number* |
+| C22 | acceptance corpus — #504 §5, the row umbrella §3 row 4 routes here | clone | — | `lines=632 in="crates/shell/elidex-shell/src/app/drain_host/mod.rs"` (`asserted=632`) |
 | C23 | §4.4 the optional `icase` keyword | own | fixture carrying `SOLE` and `sole`; `count=2 icase pattern="sole"` | the same annotation **without** `icase`, still asserting 2 (`asserted=2 `) — proves the keyword is read, not ignored |
 | C24 | §4.2 the backtick arm on `.toml` | own | backticked annotation in a `#` comment in a `.toml` → ignored | same `#` comment unbackticked, wrong count (`asserted=`) |
 | C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>` | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
@@ -936,11 +959,28 @@ while booking zero deferrals has hidden one in prose:
   edit — `docs/plans/2026-07-app-mode-turn-completion-drain.md` belongs to the **L4 lane**. Routed
   there with the measurement attached, and with the trigger that makes it non-optional: S1 is opt-in
   (§6), so the wire will never red on them. They have to be corrected by hand, once.
-- **The checker is registered in no gate** (`git grep -n 'claim-gate-plan-check' -- mise.toml scripts/
-  .github/ CLAUDE.md CONTRIBUTING.md` → no hits). It is §5's first stage for this PR and an authoring
-  tool afterwards, so its `CITE` / `TRANSCRIPT` / `SITES` checks stop watching this memo the moment it
-  lands — which is this program's own failure class, one level up. **Owned by the prerequisite PR**,
-  which is where a registration decision about that tool belongs.
+- **Where the plan-memo checkers run is not S1's decision to make, and S1 was about to make it a third
+  time.** Revision 4 routed the question ("`claim-gate-plan-check.py` is registered in no gate") to the
+  prerequisite PR. Round 4 measured what that owner is: a branch with no PR, no plan-memo and no ledger
+  row, whose diff registers nothing — so the obligation was routed nowhere, which is the shape this very
+  section names one paragraph earlier.
+
+  It is worse than an empty owner. Two decision surfaces for *the same question* already exist:
+  the prerequisite PR's docstring ("collapse them when a **third** memo wants one"), and
+  `.claude/skills/elidex-plan-review/SKILL.md`'s deferred maintenance note, which books "put the
+  plan-memo consistency checkers on a loop" as **one PR** touching `scripts/trip-wires.sh`,
+  `mise.toml` and `.github/workflows/ci.yml` — three of S1's five edit files — and commits to
+  generalising `plan-xcheck.py` as part of it. The two answers are opposite.
+
+  `SKILL.md` is the canonical site: it is the skill's own authoring home, it already carries the note,
+  and it already carries a re-eval date. **S1 books nothing and decides nothing here.** The one fact S1
+  contributes is that a third checker now exists and belongs in that note. The complication, stated
+  because it is load-bearing: that note is **not on `main`** — it lives only in `layout-decorated-inline`
+  (`git grep -c 'plan-xcheck' origin/main -- .claude/skills/elidex-plan-review/SKILL.md` → no hits;
+  the note is at `0d4d474c`). So the collapse cannot be executed from here. The rule that can be:
+  **whichever of the two branches lands first adds `claim-gate-plan-check.py` to that note**, and the
+  prerequisite PR's docstring withdraws its competing sentence rather than restating it.
+  (memory `feedback_duplicated-decision-surface-blocks-converge`.)
 
 **Own deferrals: 0 of the per-PR ≤3 budget** — unchanged. Revision 2 reached zero partly by routing the
 fence question to S3; with that withdrawn and Q3 closed, the count stands on its own.
