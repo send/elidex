@@ -902,23 +902,37 @@ def check_tooling_quantities(memo: Memo) -> None:
 # phrase that shows the slice has withdrawn it. Both present = contradiction.
 # --------------------------------------------------------------------------
 
+# (decision, phrase showing the umbrella still MANDATES it,
+#  phrase showing the slice has WITHDRAWN it,
+#  phrase showing the umbrella has been AMENDED to match)
+#
+# The amendment marker matters: a binding decision's original text stays as the
+# record of what was decided, and the amendment is appended beneath it -- the
+# form this umbrella already uses. Without the third column the check would push
+# authors to rewrite history instead of amending it, which is the opposite of
+# what it is for.
 BINDING = [
     ("D2 (.rs fence strip)",
      r"before fence matching in `?\.rs`?|strip a\s*\n?\s*leading `//\[/!\]\?` before fence",
-     r"there is no fence arm|The `\.rs` rustdoc strip disappears"),
+     r"there is no fence arm|The `\.rs` rustdoc strip disappears",
+     r"AMENDED by S1 round 4 \(option \(c\)\): the fence half"),
     ("D3 (mention = backticked or fenced)",
      r"\*\*mention\*\* \(backticked or fenced",
-     r"one inertness rule|backtick it\b.*all four surfaces|single inertness rule"),
+     r"one inertness rule|backtick it\b.*all four surfaces|single inertness rule",
+     r"the mention tier was \"backticked \*\*or fenced\*\*\""),
     ("umbrella §6 (S1 must control a rustdoc-fenced annotation)",
      r"a rustdoc-fenced annotation",
-     r"C2 and C3 \(the `?\.md`? and `?\.rs`? fence arms"),
+     r"C2 and C3 \(the `?\.md`? and `?\.rs`? fence arms",
+     r"The rustdoc-fenced control was struck"),
 ]
 
 
 def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
     if umbrella is None:
         return
-    for name, mandates, withdraws in BINDING:
+    for name, mandates, withdraws, amended in BINDING:
+        if re.search(amended, umbrella.text, re.S):
+            continue
         if re.search(mandates, umbrella.text, re.S) and re.search(withdraws, memo.text, re.S):
             bad("UMBRELLA", f"the slice withdraws {name} while the umbrella still "
                             f"mandates it — a binding decision cannot be changed by a "
@@ -947,10 +961,11 @@ def check_fixture_column(memo: Memo) -> None:
         if m and fixture == "own":
             bad("FIXTURE", f"§8.1 {c[0]} is Fixture `own` (its own `mktemp -d`) but "
                            f"measures `{m.group(1)}…`, which exists only in this "
-                           f"repository — in a fresh fixture the liveness probe fires "
-                           f"first and the arm asserts a diagnostic it cannot see")
-        if not m and fixture == "live":
-            bad("FIXTURE", f"§8.1 {c[0]} is Fixture `live` but names no real-tree "
+                           f"repository — in a fresh `mktemp -d` the liveness probe "
+                           f"fires first and the arm asserts a diagnostic it cannot "
+                           f"see; the real-tree fixture is `clone` (§4.1.1)")
+        if not m and fixture == "clone":
+            bad("FIXTURE", f"§8.1 {c[0]} is Fixture `clone` but names no real-tree "
                            f"pathspec, so nothing distinguishes it from a hermetic row")
 
 
@@ -1313,6 +1328,10 @@ def selftest() -> int:
     probe("UMBRELLA negative (slice withdraws what the umbrella mandates)", True,
           capture(check_umbrella, slice_withdraws, umb_mandates),
           "binding decision cannot be changed by a slice edit")
+    umb_amended = synth('**mention** (backticked or fenced → ignore).\n\n'
+                        'the mention tier was "backticked **or fenced**"', "umb.md")
+    probe("UMBRELLA positive (the umbrella carries the amendment)", False,
+          capture(check_umbrella, slice_withdraws, umb_amended))
 
     FIX = ("## §8.1 Controls\n\n| # | clause | Fixture | Positive | Negative |\n"
            "|---|---|---|---|---|\n")
@@ -1323,9 +1342,12 @@ def selftest() -> int:
           capture(check_fixture_column,
                   synth(FIX + '| C1 | a | own | `in="crates/**/*.rs"` | x (`asserted=`) |\n')),
           "exists only in this repository")
-    probe("FIXTURE negative (`live` row naming no real-tree pathspec)", True,
+    probe("FIXTURE positive (a `clone` row measuring the real tree)", False,
           capture(check_fixture_column,
-                  synth(FIX + '| C1 | a | live | `in="a.md"` | x (`asserted=`) |\n')),
+                  synth(FIX + '| C1 | a | clone | `in="crates/**/*.rs"` | x (`asserted=`) |\n')))
+    probe("FIXTURE negative (`clone` row naming no real-tree pathspec)", True,
+          capture(check_fixture_column,
+                  synth(FIX + '| C1 | a | clone | `in="a.md"` | x (`asserted=`) |\n')),
           "names no real-tree pathspec")
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,
