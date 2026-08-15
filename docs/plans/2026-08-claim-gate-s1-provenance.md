@@ -1,5 +1,50 @@
 # S1 — the `claim` annotation grammar + the re-execution wire
 
+> ## Revision 6 — a figure that outlived three changes to its own subject, and a rule the checker never stopped enforcing
+>
+> This revision started from a question about the review rather than the memo: rounds 2, 3 and 4 returned
+> more CRITs than the round before, and each round's roots were traceable to what the *previous* revision
+> had added. Two measurements, taken before round 5 rather than after:
+>
+> - **§5's `~350`/`~200` stood unchanged in every commit this memo has ever had**, while the design of the
+>   wire and of the self-test changed underneath it three times — the fence arm and the second scan stage
+>   removed, `--one` added, `--one` withdrawn for a clone fixture to build and tear down. It was never a
+>   projection; it was inherited. §1's "nowhere near the ~700–800 band" rested on it. Both are gone (§5),
+>   for the reason §4.5's runtime table and §5's "five uses" went before them.
+> - **Option (c) was swept into this memo and into the umbrella, and never into the checker.**
+>   `classify()` went on putting a fenced annotation in `mention`; the per-surface table and the `.rs`
+>   rustdoc strip were still there; and a `--self-test` probe *asserted* the withdrawn tiering, so the gate
+>   certified the rule the memo had deleted. In the same file, `UMBRELLA`'s D2 entry already keyed on
+>   "there is no fence arm" as proof the slice had withdrawn it. Nothing was red, because the tree carries
+>   no fenced annotation for either half to be wrong about.
+>
+> That second one is round 4's shape — *the sites that state a change were swept, the sites that depend on
+> it were not* — occurring inside the mechanism built to make that shape impossible, at the one site §0 and
+> §6 had already written down as a duplicate. So the duplicate gets a keeper rather than a fifth sweep:
+> `TIERS` derives each classifier branch's tier from §3's own prose and decides it by running `classify()`
+> on a specimen, so a branch added without one fails and a tier changed on either side alone fails.
+>
+> Round 4's remaining findings are closed here too: §4.2 now says a malformed annotation fails the run
+> **without ending it** (without which `escapes` and C25 could never go green); `CONTRIBUTING.md:19-20` is
+> one sentence carrying two changes and §0/§4.6/§5 now say so identically; §4.1's heading no longer
+> promises a second stage its body deletes; and §4.6's `trip-wires.sh:59` label — wrong since revision 3,
+> which is the revision that was *answering* round 3's finding about it — is re-derived from the report
+> rather than relabelled again.
+>
+> The artifact for this revision is the same pair of commands revision 5's header lists below, run again;
+> it is cited rather than pasted a second time, because two copies of one fact is the thing this revision
+> spent most of its length undoing.
+>
+> **What this revision does not claim.** The prerequisite PR's checker also carried a *quotation* of
+> `plan-xcheck.py` that is not in that file and whose sense is the opposite of what it says — the
+> load-bearing evidence for keeping two checkers apart. It is corrected there. No check is proposed for
+> that class: measured across both memos, an attribution of a quoted span to a named file occurs **zero**
+> times, so a checker for it could not fire, and a check that cannot fire is §4.3's `ban_control`.
+>
+> → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
+> `feedback_findings-cluster-in-self-added-scope`,
+> `feedback_convention-dependent-figures-are-argument`, `project_stale-claim-gate-v1-review`.
+
 > ## Revision 5 — the rule about counts became a check, and (c) went to the umbrella
 >
 > Round 4's three largest roots were one shape: **a change was made, the sites that *state* it were
