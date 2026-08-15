@@ -25,8 +25,7 @@
 > on a specimen, so a branch added without one fails and a tier changed on either side alone fails.
 >
 > Round 4's remaining findings are closed here too: §4.2 now says a malformed annotation fails the run
-> **without ending it** (without which `escapes` and C25 could never go green); `CONTRIBUTING.md:19-20` is
-> one sentence carrying two changes and §0/§4.6/§5 now say so identically; §4.1's heading no longer
+> **without ending it** (without which `escapes` and C25 could never go green); §4.1's heading no longer
 > promises a second stage its body deletes; and §4.6's `trip-wires.sh:59` label — wrong since revision 3,
 > which is the revision that was *answering* round 3's finding about it — is re-derived from the report
 > rather than relabelled again.
@@ -35,11 +34,16 @@
 > it is cited rather than pasted a second time, because two copies of one fact is the thing this revision
 > spent most of its length undoing.
 >
-> **What this revision does not claim.** The prerequisite PR's checker also carried a *quotation* of
-> `plan-xcheck.py` that is not in that file and whose sense is the opposite of what it says — the
-> load-bearing evidence for keeping two checkers apart. It is corrected there. No check is proposed for
-> that class: measured across both memos, an attribution of a quoted span to a named file occurs **zero**
-> times, so a checker for it could not fire, and a check that cannot fire is §4.3's `ban_control`.
+> **Two things this revision got wrong and round 5 returned**, recorded because the shape is the
+> program's own subject. It split `CONTRIBUTING.md:19`/`:20` and gave S1 the label half, on the reading
+> that umbrella §6 had misrouted the sentence. The umbrella had not: it lists `:19` among the label sites
+> and then carves it out in the same breath. The premise came from §5's account of the umbrella instead
+> of the umbrella. **Withdrawn** (§0, §4.6, §5, §6, §9). And it asserted that a quoted span attributed to
+> a named file "occurs zero times" across both memos, offered as the ground for shipping no check for the
+> class. The probe behind that zero matched within a single line, and every such quotation here wraps —
+> §1's `scripts/trip-wires.sh:104-111`, §4.3's `scripts/trip-wires.sh:130-136` and more. **Withdrawn**, with the
+> line-scope defect noted: the same defect had been fixed in the `FENCE` ban hours earlier in this same
+> revision, and the replacement probe reintroduced it.
 >
 > → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
 > `feedback_findings-cluster-in-self-added-scope`,
@@ -105,9 +109,14 @@ compared, tables are checked for exhaustiveness and for the properties their own
 a fact about how two programs behave is measured by running them rather than by reading either one.
 Where a claim below cannot be put under that checker, it is **removed**, not restated more carefully.
 
-Measurement base: the index at head `ef18b828` **with this memo `git add`ed**. `git version 2.55.0`,
-`GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)` — the wire runs under `bash`, and §4.4's
-argv rule is a `bash` fact, not a `zsh` one.
+Measurement base, stated as a **property** rather than a hash: *the working tree at this branch's head,
+with this memo `git add`ed*. It was a hash — `ef18b828` — from revision 3 until round 5 measured it:
+`git merge-base --is-ancestor ef18b828 HEAD` is false and `git branch -a --contains ef18b828` is empty.
+The prerequisite branch was rewritten underneath it, so the base every D10 form-3 count anchors to had
+become a commit no reader could check out. A hash pinning a branch that is still being rewritten is not
+a base; it is a claim with the same lifetime as the branch, which is the failure this memo is about.
+`git version 2.55.0`, `GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)` — the wire runs under
+`bash`, and §4.4's argv rule is a `bash` fact, not a `zsh` one.
 
 ---
 
@@ -144,12 +153,18 @@ S1's landing is the trigger; the prerequisite PR owns the work; a probe that pla
 the checker's own grammar is unreachable is what closes it.
 
 **Out of scope, by the umbrella's own slicing**: the tamper ledger (D8 → S2), the superlative vocabulary
-and `grep_pass.py` Check 3 (D7/D9 → S3), and the "a drifted trip-wire *allowlist* reds the PR" clause at
-`CONTRIBUTING.md:20`, which umbrella §6 routes explicitly to S2 as a mechanism S2 ships and S1 does not.
-That clause is the second half of one sentence spanning `CONTRIBUTING.md:19-20`, and the sentence carries
-**two different changes**: the set-level label "layering trip-wires" at `:19`, which is S1's by §4.6's own
-criterion, and the allowlist mechanism at `:20`, which is S2's by umbrella §6's. S1 edits `:19` (§5
-commit 3) and leaves `:20`; revision 3 routed the whole sentence to S2 and that was the error.
+and `grep_pass.py` Check 3 (D7/D9 → S3), and **the whole `CONTRIBUTING.md:19` sentence**, which umbrella
+§6 routes to S2: it counts `:19` among the six set-level label sites and then carves it out — *"`:19`
+**also** asserts that a drifted trip-wire **allowlist** reds the PR — a mechanism S1 does not ship and S2
+does, so that sentence is S2's to touch, not S1's."* Revision 6 read that as a misrouting and split the
+sentence at `:19`/`:20`, giving S1 the label half. **That is withdrawn.** The umbrella considered the
+split — the word "also" is it weighing both claims in one line — and decided one sentence has one owner.
+A slice cannot reverse that (D2's amendment note states the rule), and amending the umbrella to permit it
+has no merit: S2 must rewrite the sentence anyway when it ships the allowlist mechanism, so S1 editing
+half of it buys a two-touch sequence on one sentence and nothing else. The residue is real and is a bound
+in §6: between S1 and S2, `CONTRIBUTING.md` is the one governing file still calling the set "layering
+trip-wires". The forced order makes that window exactly one PR.
+
 S1 therefore lands a gate that is opt-in and whose annotations can be deleted without a record — a bound
 in §6, not a half-ledger, since "new seam plus a partial legacy" is the strangler shape CLAUDE.md *One
 issue, one way* forbids.
@@ -372,7 +387,11 @@ per-candidate: every candidate line is classified, every strict annotation is me
 accumulates, and the wire exits non-zero **once, at the end**, after the last candidate — never at the
 first bad one. Under `set -euo pipefail` that is a constraint on the code shape rather than a preference:
 no arm of the per-annotation stage may call `exit`, and a failing parse or measurement has to be recorded
-and returned instead. Two of §8's fixtures are unbuildable without it — `escapes` carries C8's `\d` and
+and returned instead. **`exit` is not the only way out, and it is not the one that nearly shipped**: under
+`errexit` + `pipefail` an unguarded pipeline whose left side exits non-zero ends the wire just as
+completely, and §4.4 rule 1 spelled every `count` and `files` measurement that way for six revisions. So
+the rule is on the *status* rather than on the keyword — every command whose non-zero status is a datum
+rather than a failure is captured and branched on (§4.4 rule 1), never left bare. Two of §8's fixtures are unbuildable without it — `escapes` carries C8's `\d` and
 C9's `\b` as two negative arms of **one** wire invocation, and C25 drives all ten rejected escapes through
 one fixture — so a fail-fast wire would emit the first arm's `$3` and leave every later arm unobservable,
 green because it never ran. That is §4.3's `ban_control` shape (a control that cannot fire is
@@ -448,8 +467,8 @@ one line, because `git grep` is line-based; `pattern=` may not contain a `"`.
 
 | Verb | Executed as | Semantics |
 |---|---|---|
-| `count` | `git grep -nE[i] -e "$pattern" -- "$spec" \| wc -l` | **matching lines**, not matches: a line with two matches counts once. `grep -cE 'sole'` on a line reading `sole sole` gives 1 where `grep -oE … \| wc -l` gives 2 — the wire commits to the former, because that is how the umbrella's landed annotations were produced (§2's block pipes `git grep -n` into `wc -l`), so the other choice would falsify them. |
-| `files` | `git grep -lE[i] -e "$pattern" -- "$spec" \| wc -l` | files containing ≥1 match. |
+| `count` | `git grep -nE[i] -e "$pattern" -- "$spec"`, captured; count non-empty lines (rule 1) | **matching lines**, not matches: a line with two matches counts once. `grep -cE 'sole'` on a line reading `sole sole` gives 1 where `grep -oE … \| wc -l` gives 2 — the wire commits to the former, because that is how the umbrella's landed annotations were produced (§2's block pipes `git grep -n` into `wc -l`), so the other choice would falsify them. |
+| `files` | `git grep -lE[i] -e "$pattern" -- "$spec"`, captured; count non-empty lines | files containing ≥1 match. |
 | `lines` | `awk 'END{print NR}' "$file"` | takes **no** `pattern`; `in=` must resolve to exactly one tracked file. |
 
 `lines` uses `awk 'END{print NR}'` rather than `wc -l` for a structural reason, not a measured one:
@@ -466,9 +485,47 @@ $ git grep -lE -e '-> u32' -- 'crates/**/*.rs' | wc -l       → 24
 $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -cE: exit 1, no output)
 ```
 
-1. **`count=0` is legal and must not abort.** `git grep` exits 1 on no match, which `set -euo pipefail`
-   turns into a dead wire. Piping into `wc -l` absorbs it (the pipeline's status is `wc`'s) — which is
-   why `count` and `files` are spelled as pipelines above.
+1. **`count=0` is legal and must not abort — and the pipeline does NOT absorb it.** Revisions 1–6 said
+   *"piping into `wc -l` absorbs it (the pipeline's status is `wc`'s)"*. That is true in a plain shell
+   and **false under `pipefail`**, where the status is the rightmost *non-zero* one — git's. The wire
+   declares `set -euo pipefail`, so the spelling above kills it on the first `count=0` annotation, and
+   §5 ships one (`count=0 pattern="fetch-depth"`). Measured, both directions:
+
+   ```
+   $ bash -c 'git grep -nE "fetch-depth" -- ".github/workflows/ci.yml" | wc -l; echo rc=$?'
+   0 / rc=0                                    # plain shell — what revisions 1–6 pasted
+   $ bash -c 'set -euo pipefail; git grep -nE "fetch-depth" -- ".github/workflows/ci.yml" | wc -l; echo SURVIVED'
+   0                                           # SURVIVED never prints; script exits 1
+   ```
+
+   This is why five review rounds passed over it: **the pasted evidence was honest.** It records a plain
+   shell, in which it is true, and the checker re-runs pasted commands in a plain shell — so the
+   provenance mechanism confirmed the paste, and the paste was never the claim. Nothing that reads this
+   memo can find this class; running `bash -c 'set -euo pipefail; …'` finds it in one line.
+
+   The measurement is therefore **captured, not piped**:
+
+   ```
+   if out=$(git grep -nE[i] -e "$pattern" -- "$spec"); then
+     n=$(printf '%s' "$out" | grep -c .)
+   else
+     n=0                       # exit 1 = no match; any other status is rule 4's business
+   fi
+   ```
+
+   Measured in both directions: `n=0` for the no-match case and `n=15` for `REQUIRED_WIRES` in
+   `scripts/*.sh`. Two spellings that look equivalent and are not — `git grep -cE … || true` yields the
+   **empty string**, not `0`, because `-c` prints nothing when it exits 1 (rule 3's own observation, one
+   step further); and `n=$(… | wc -l) || rc=$?` survives but carries `wc`'s leading whitespace into a
+   numeric comparison.
+4. **A measurement command that fails for any reason other than "no match" is its own outcome.** `git`
+   exits 1 on no match, but 128 on a malformed ERE that §4.3's reject-list does not cover (`foo(` —
+   parentheses not balanced) and 129 on an unknown switch. Under the `else` branch above all three
+   collapse to `n=0`, so a `count=0` annotation goes green on a pattern git refused to run, and any other
+   value reports `asserted=N actual=0` — I1×I4's stated hazard verbatim, where "the author reads a
+   mismatch and edits the count". The status is therefore split: 0 → the count, 1 → zero, **anything else
+   → a fourth outcome kind with its own diagnostic naming git's stderr**, alongside malformed and
+   dead-pathspec. §8 needs a control for it; it has none.
 2. **`-e` is not optional**, and belongs to D6's family: a pattern beginning with `-` is otherwise read
    as an option and the run dies before measuring anything.
 3. **Liveness (D4) runs before every measurement.** `git ls-files -- "$spec" | wc -l` must be ≥1
@@ -551,13 +608,19 @@ mise.toml:100:description = "Run every layering trip-wire (.claude/tools/*-trip-
 scripts/trip-wires.sh:4:# run every layering trip-wire. The glob below DISCOVERS what is present;
 ```
 
-`CONTRIBUTING.md:19-20` is one sentence carrying **two different changes**, and they split between
-slices: the set-level label "layering trip-wires" at `:19` is **S1's**, by this section's own criterion,
-and the sentence's continuation at `:20` — "a drifted trip-wire *allowlist* reds the PR" — is a mechanism
-umbrella §6 routes to **S2**. Revision 3 read the routing as covering the whole sentence and put both
-halves in S2; the criterion it was applying is not umbrella §6's. So S1 edits all five files (§5 commit
-3), touching `:19` and not `:20`; each wire's own header keeps saying what that wire is, and only the
-set-level label moves. §7 Q1 asks for the wording.
+`CONTRIBUTING.md:19` is **S2's, whole**, and so is its continuation at `CONTRIBUTING.md:20` ("a drifted
+trip-wire *allowlist* reds the PR") — one sentence, one owner. Umbrella §6 lists `:19` among the six
+label sites and then carves it out, because the same sentence also asserts the allowlist mechanism S2
+ships. This section's criterion (the set-level label) would claim `:19`; the umbrella's disposition
+overrides, and a slice does not reverse a hand-off in its own file (§0). So S1 edits the other four
+files; each wire's own header keeps saying what that wire is, and only the set-level label moves.
+§7 Q1 asks for the wording.
+
+⚠ This is a **reversal within this memo's own history**, recorded rather than smoothed over: revision 6
+split the sentence and gave S1 the `:19` half, on the reading that revision 3 had misrouted it. It had
+not. The premise was taken from §5's account of the umbrella instead of from the umbrella, which is the
+`feedback_ao-name-not-section-number-in-briefs` 追補 4 shape — a claim about another document, sourced
+from a third document that describes it. §6 records the one-PR window this leaves.
 (The two exclusions are what keep this listing stable under its own landing — the memo lives in
 `docs/plans/`, the wire and self-test in `.claude/tools/`.)
 
@@ -677,13 +740,11 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
    one commit. The registration cannot trail: the unregistered-wire check (`scripts/trip-wires.sh:231-237`)
    fails the moment the file appears, so any split here is a red intermediate commit.
 2. §4.6's `~1s` deletion at `.github/workflows/ci.yml` and `CLAUDE.md`, both sites, one commit.
-3. §4.6's set-label widening, one commit — at the four files **and at `CONTRIBUTING.md:19`**.
-   Revision 3 routed that line to S2 wholesale, but §4.6's criterion (the set-level label) and
-   umbrella §6's routing criterion (the *allowlist* mechanism, at `:20`) are two different changes
-   inside one sentence. Left alone, the contributor-facing document would be the only file in the repo
-   still calling the set "layering trip-wires" after every other one had moved — the
-   fix-the-cited-site-leave-the-mirror-sites shape §8.2 names, applied to this memo's own edit set.
-   The `:20` allowlist clause stays S2's.
+3. §4.6's set-label widening, one commit — at the **four** files. `CONTRIBUTING.md:19` is not among
+   them: umbrella §6 routes that whole sentence to S2 (§0, §4.6). Revision 6 put it here and that is
+   withdrawn. The cost is real and is booked as a bound in §6 rather than paid by reversing the
+   umbrella — for one PR, the contributor-facing document is the last governing file still calling the
+   set "layering trip-wires".
 4. §4.6's two set-level *claim* edits — `ci.yml:152`'s "grep-only" and `mise.toml:102-103`'s four-wire
    enumeration — one commit. Revision 3 put both in §0's scope and gave neither a commit, so an
    implementer following §5 literally would have shipped S1 with `ci.yml:152` still false.
@@ -699,6 +760,11 @@ push → draft PR → `/review <n>`.
 
 ## §6 What S1 does not close
 
+- **`CONTRIBUTING.md` keeps the old set label for one PR.** Umbrella §6 gives that whole sentence to
+  S2 because it also asserts the allowlist mechanism S2 ships (§0, §4.6), so after S1's commit 3 the
+  contributor-facing document is the last governing file still calling the set "layering trip-wires".
+  The forced S1 → S2 order bounds the window at one PR. Stated as the cost of not reversing a binding
+  hand-off from inside the slice — which is what revision 6 did before this was withdrawn.
 - **Annotation deletion is unrecorded.** D8's ledger is S2's. Until it lands, deleting an annotation
   turns the wire green with no trace — the theory `scripts/trip-wires.sh:76-84` explicitly rejects for
   `REQUIRED_WIRES`. S1 ships no partial ledger; the fix is S2, in the forced order.
@@ -769,7 +835,7 @@ push → draft PR → `/review <n>`.
 
 ## §7 Open questions for plan-review
 
-**Q1 — set-label wording.** §4.6 widens the label at five files; is "repository trip-wires" the right
+**Q1 — set-label wording.** §4.6 widens the label at four files; is "repository trip-wires" the right
 replacement for "layering trip-wires", or should S1's wire get its own driver? Recommendation: same
 driver, label widened, one commit. A second driver costs a second ungated CI job and a second place a
 wire can go missing — and §1 shows the *first* driver's glob is already the thing that decides what runs.
@@ -1051,9 +1117,8 @@ home?* Yes. → **Not a slot**: a header note with a re-runnable escalation trig
 `#11-*` platform slot … skill-infra not a platform gap").
 
 **Not S1's deferrals** (owned elsewhere, listed so no one re-books them): D8's ledger → S2;
-`CONTRIBUTING.md:20`'s allowlist clause → S2 (umbrella §6), the `:19` half of that same sentence being
-S1's (§0, §4.6, §5 commit 3); D7/D9 and Check 3, including §6's four-form window → S3;
-`#11-claim-annotation-diff-scoped-lint` → booked by umbrella §5, its
+the whole `CONTRIBUTING.md:19` sentence → S2 (umbrella §6, §0, §4.6); D7/D9 and Check 3, including §6's
+four-form window → S3; `#11-claim-annotation-diff-scoped-lint` → booked by umbrella §5, its
 `fetch-depth: 0` trigger now watched by §5's `count=0` annotation.
 
 Revision 2's list ended that S3 item with "and the fence-tracker reconciliation", which was a defer to
