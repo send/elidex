@@ -339,47 +339,29 @@ STRICT = re.compile(
     r")"
     r"[ \t]+-->"
 )
+# FENCE_MARK is for the MEMO's own fenced blocks (check_transcripts), which is a
+# different subject from an annotation's tier. §4.2 has one inertness rule -- `k`
+# backticks before the `<!--`, identical on all four surfaces. The fence arm this
+# file used to carry, with its per-surface table and its `.rs` rustdoc strip, is
+# the rule §7 Q3 option (c) deleted; check_tier_transcription is what now keeps
+# this copy of §4.2 and the memo's copy from drifting apart again.
 FENCE_MARK = re.compile(r"^[ \t]*(```|~~~)")
-RS_FENCE_MARK = re.compile(r"^[ \t]*//[/!]?[ \t]*(```|~~~)")
 BAD_ESCAPE = re.compile(r"\\[bBdDsSwW<>]")
 
-# §4.2's surface table: which surfaces have a fence arm at all.
-FENCE_ARM = {".md": FENCE_MARK, ".rs": RS_FENCE_MARK, ".sh": None, ".toml": None}
 
+def classify(lines: list[str]) -> list[tuple[int, str, dict | None]]:
+    """(line-number, tier, fields) for every candidate line in one file.
 
-def fence_state(lines: list[str], marker_re) -> list[bool]:
-    """Per-line 'is fenced'. Only a matching marker closes; marker lines are
-    themselves fenced -- the shape both in-repo trackers use (see check_fence)."""
-    state = [False] * len(lines)
-    if marker_re is None:
-        return state
-    inside = False
-    marker = None
-    for i, line in enumerate(lines):
-        m = marker_re.match(line)
-        if m:
-            cur = m.group(1)
-            if not inside:
-                inside, marker = True, cur
-            elif marker == cur:
-                inside, marker = False, None
-            state[i] = True
-        else:
-            state[i] = inside
-    return state
-
-
-def classify(rel: str, lines: list[str]) -> list[tuple[int, str, dict | None]]:
-    """(line-number, tier, fields) for every candidate line in one file."""
-    suffix = "." + rel.rsplit(".", 1)[-1]
-    fenced = fence_state(lines, FENCE_ARM.get(suffix, FENCE_MARK))
+    Takes no filename: §4.2's inertness rule is a line predicate identical on
+    every surface, so nothing here is per-file. That is structural rather than
+    incidental -- a surface argument is precisely what a second arm would need."""
     out = []
     for i, line in enumerate(lines):
         m = LAX.search(line)
         if not m:
             continue
         k = line[: m.start()].count("`")
-        if fenced[i] or k % 2 == 1:
+        if k % 2 == 1:
             out.append((i + 1, "mention", None))
             continue
         sm = STRICT.search(line)
@@ -422,7 +404,7 @@ def scan_tree() -> dict[str, list[tuple[int, str, dict | None]]]:
                   "*.md", "*.rs", "*.sh", "*.toml", ":(exclude).claude/tools/**"])
     res = {}
     for rel in [x for x in out.split("\n") if x]:
-        res[rel] = classify(rel, (REPO / rel).read_text().split("\n"))
+        res[rel] = classify((REPO / rel).read_text().split("\n"))
     return res
 
 
@@ -969,6 +951,98 @@ def check_fixture_column(memo: Memo) -> None:
                            f"pathspec, so nothing distinguishes it from a hermetic row")
 
 
+# --------------------------------------------------------------------------
+# 14. TIERS -- this file's copy of §4.2 must agree with §4.2
+#
+# §0 and §6 record a bound: this checker "carries a second transcription of
+# §4.2's tiers and §4.4's verbs" until the wire lands. Nothing held the two
+# copies together, and they came apart. Revision 4 adopted §7 Q3 option (c) and
+# deleted the fence arm from §4.2; revision 5 amended the umbrella to match;
+# `classify()` went on classifying a fenced annotation as `mention`, and a
+# --self-test probe ASSERTED that it should -- so the gate certified the rule
+# the memo had deleted. Meanwhile BINDING's D2 entry, in this same file, already
+# keyed on "there is no fence arm" as proof the slice had withdrawn it. Two
+# parts of one checker holding opposite beliefs, green, because the tree carries
+# no fenced annotation for either to be wrong about.
+#
+# A sweep would have caught it, and four revisions of sweeping is what produced
+# it. So the bound gets a check rather than a fifth sweep. §3's coverage table
+# enumerates the classifier's branches and names each one's tier in its own
+# prose; every such branch must have a specimen here, and the specimen's tier --
+# decided by running classify() -- must be the tier §3 names. A branch added
+# without a specimen fails; a tier changed on one side alone fails.
+# --------------------------------------------------------------------------
+
+BRANCH_ID = re.compile(r"^\s*\((?P<id>[ivx]+)\)")
+# A branch's tier is what it says a line lands IN, so only the text from the
+# first `→` onward is read -- not the condition before it. The first draft of
+# this check matched the whole cell and read row (iv), "lax-but-not-strict →
+# MALFORMED", as naming both tiers. Everything after the first arrow is kept
+# rather than only the last clause, so a row that really does name two tiers
+# still trips the ambiguity arm below instead of being silently halved.
+TIER_WORD = re.compile(r"\b(mention|strict|MALFORMED)\b")
+
+# One specimen per classifier branch of §3, spelled as the lines a file would
+# contain. Exactly one line of each is a candidate; that line's tier is what §3
+# has to name. The fenced specimen is the one that drifted, so it stays even
+# though §4.2 no longer has an arm for it -- "a fence does nothing" is the rule
+# now, and a rule with no probe is what §4.3 calls a `ban_control`.
+TIER_SPECIMEN: dict[str, list[str]] = {
+    "i": ['`<!-- claim count=1 pattern="x" in="a.md" -->`'],
+    "ii": ["```", '<!-- claim count=1 pattern="x" in="a.md" -->', "```"],
+    "iv": ['<!-- claim cont=3 pattern="x" in="a.md" -->'],
+    "vi": [r'<!-- claim count=1 pattern="\d" in="a.md" -->'],
+}
+
+
+def check_tier_transcription(memo: Memo) -> None:
+    s3 = memo.sect("3")
+    if not s3:
+        bad("TIERS", "no §3 section, so the classifier branches this checker "
+                     "transcribes have no authority to be checked against")
+        return
+    named: dict[str, str] = {}
+    for c in data_rows(s3):
+        if len(c) < 3:
+            continue
+        m = BRANCH_ID.match(c[2])
+        if not m or "→" not in c[2]:
+            continue  # no stated outcome, so no tier is claimed
+        outcome = c[2].split("→", 1)[1]
+        tiers = {t.lower() for t in TIER_WORD.findall(outcome)}
+        if not tiers:
+            continue  # not a classifier branch -- scan, liveness, argv, registration
+        if len(tiers) > 1:
+            bad("TIERS", f"§3 branch ({m.group('id')}) names {sorted(tiers)}; a "
+                         f"branch landing in more than one tier cannot be decided "
+                         f"by one specimen — split the row")
+            continue
+        named[m.group("id")] = tiers.pop()
+
+    for bid, tier in sorted(named.items()):
+        spec = TIER_SPECIMEN.get(bid)
+        if spec is None:
+            bad("TIERS", f"§3 branch ({bid}) names tier `{tier}` and TIER_SPECIMEN "
+                         f"has no specimen for it, so this checker's own copy of "
+                         f"§4.2 goes unchecked against the memo's — add one")
+            continue
+        hits = classify(spec)
+        if len(hits) != 1:
+            bad("TIERS", f"TIER_SPECIMEN[{bid!r}] yields {len(hits)} candidate "
+                         f"lines; a specimen must yield exactly one")
+            continue
+        got = hits[0][1]
+        if got != tier:
+            bad("TIERS", f"§3 branch ({bid}) says such a line lands in `{tier}`; "
+                         f"this checker's classify() puts the specimen in `{got}` "
+                         f"— the memo and its second transcription of §4.2 "
+                         f"disagree, and the tree is only green because no "
+                         f"annotation exercises the difference")
+    for bid in sorted(set(TIER_SPECIMEN) - set(named)):
+        bad("TIERS", f"TIER_SPECIMEN carries a specimen for §3 branch ({bid}), "
+                     f"which §3 no longer names as a tier branch")
+
+
 def check_preflight(memo: Memo) -> None:
     s = memo.sect("8.3")
     if not s:
@@ -1172,17 +1246,17 @@ def selftest() -> int:
           "not a tracked file")
 
     # ANNO -- classifier tiers, then a deliberately wrong live measurement
-    tiers = [t for _, t, _ in classify("f.md", [
+    tiers = [t for _, t, _ in classify([
         '<!-- claim count=1 pattern="x" in="a.md" -->',            # strict
         '`<!-- claim count=1 pattern="x" in="a.md" -->`',          # mention, odd k
         '<!-- claim cont=3 pattern="x" in="a.md" -->',             # malformed verb
         r'<!-- claim count=1 pattern="\d" in="a.md" -->',          # malformed dialect
         "```",
-        '<!-- claim count=1 pattern="x" in="a.md" -->',            # mention, fenced
-        "```",
+        '<!-- claim count=1 pattern="x" in="a.md" -->',            # STRICT: §4.2
+        "```",                                                     # has no fence arm
     ])]
     probes.append(("ANNO classifier tiers",
-                   tiers == ["strict", "mention", "malformed", "malformed", "mention"],
+                   tiers == ["strict", "mention", "malformed", "malformed", "strict"],
                    str(tiers)))
     ok, got = execute({"verb": "count", "n": 999999, "icase": False,
                        "pattern": "fn ", "spec": "crates/**/*.rs"})
@@ -1355,6 +1429,47 @@ def selftest() -> int:
               "## §6 x\nThe fence arm is defined per surface; only a matching "
               "marker closes the block, in both implementations.")))
 
+    # TIERS -- the class that produced this check: the memo deleted the fence
+    # arm and this file kept it, with a probe asserting the deleted behaviour.
+    # The negative below is that exact state, replayed.
+    def s3(*branches: str) -> Memo:
+        head = ("## §3 Spec coverage map\n\n"
+                "| Spec section | Step | Branch | Touch | Full enum? | User-input flow |\n"
+                "|---|---|---|---|---|---|\n")
+        return synth(head + "".join(
+            f"| `u.md` §1 | classify | {b} | §4.2 | ✓ | no |\n" for b in branches))
+
+    TRUE_3 = ("(i) odd *k* backticks before the `<!--` → mention",
+              "(ii) inside a fenced block with even *k* → **strict, and executed**",
+              "(iv) lax-but-not-strict → MALFORMED, fail",
+              r"(vi) `\` + `[bBdDsSwW<>]` → MALFORMED, names the escape")
+    probe("TIERS positive (every branch's tier is what classify() decides)", False,
+          capture(check_tier_transcription, s3(*TRUE_3)))
+    probe("TIERS negative (§3 keeps the withdrawn fence arm)", True,
+          capture(check_tier_transcription,
+                  s3(TRUE_3[0], "(ii) inside a fenced block with even *k* → mention",
+                     *TRUE_3[2:])),
+          "second transcription of §4.2")
+    probe("TIERS negative (a tier branch with no specimen)", True,
+          capture(check_tier_transcription,
+                  s3(*TRUE_3, "(ix) a new arm → mention")),
+          "TIER_SPECIMEN has no specimen")
+    probe("TIERS negative (a specimen for a branch §3 dropped)", True,
+          capture(check_tier_transcription, s3(*TRUE_3[:3])),
+          "§3 no longer names as a tier branch")
+    probe("TIERS negative (a branch naming two tiers)", True,
+          capture(check_tier_transcription,
+                  s3(*TRUE_3, "(ix) `.md` → mention, everything else → strict")),
+          "landing in more than one tier")
+    probe("TIERS ignores a non-classifier branch", False,
+          capture(check_tier_transcription,
+                  s3(*TRUE_3, "(vii) every value as one argv element, no `eval`")))
+    probe("TIERS reads the outcome, not the condition (`not-strict`)", False,
+          capture(check_tier_transcription,
+                  s3(TRUE_3[0], TRUE_3[1],
+                     "(iv) a strict-looking line that is lax-but-not-strict → "
+                     "MALFORMED, fail", TRUE_3[3])))
+
     width = max(len(p[0]) for p in probes)
     failed = 0
     for label, ok, detail in probes:
@@ -1387,6 +1502,7 @@ def main(argv: list[str]) -> int:
     check_tooling_quantities(memo)
     check_umbrella(memo, umbrella)
     check_fixture_column(memo)
+    check_tier_transcription(memo)
     check_preflight(memo)
 
     mode = "wire" if WIRE.exists() else "bootstrap"
