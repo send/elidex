@@ -915,9 +915,19 @@ defined in an unlisted clause is minted by nobody, and every child retires havin
 walk. Four such lists were written in the two revisions before this one, and all four omitted a clause
 that a reader can reach from the entry point in one step — the home object at **§15.4.5** from a class
 element, **§27.5.2** Promise Jobs from CreateResolvingFunctions, **§22.2.3**/**§22.2.4** from the
-RegExp constructor surface, **§20.4.2**/**§6.1.5.1** from `Symbol.dispose`. **So the admissible form
-is: name the clause that *defines* the surface, then close transitively over every AO, production and
-well-known-symbol installation it reaches, and route each output.** Where a derivation below still
+RegExp constructor surface, **§20.4.2**/**§6.1.5.1** from `Symbol.dispose`. **So the admissible form is a *seed plus a computable closure*, and "reaches" is defined by the
+edges below rather than left to the reader** — an undefined "reaches" lets two plan-reviews follow the
+same sentence to different sets, which rebuilds the unowned output this rule exists to remove.
+**Seed**: the clause that *defines* the surface. **Step**: for each clause in the frontier, take its
+prose with `.claude/tools/webref body <spec> <anchor>` and collect three edge kinds from that text —
+(a) **AO names**, resolved with `webref aoid <spec> <name>`; (b) **explicit §-references**, resolved
+with `webref heading <spec> <num>`; (c) **`%Symbol.*%` well-known-symbol tokens**, whose installation
+clause is the §20.4.2 / §6.1.5.1 pair. **Iterate to a fixed point.** ⚠ **Grammar nonterminals are NOT
+an edge**: a production reference is syntactic rather than behavioural, and following it transitively
+expands a field initializer into the whole expression grammar — the closure would stop being finite.
+A production enters only when a clause's prose invokes an SDO *over* it. The three edge kinds are what
+make the disposal symbols reachable from Resource Management without a hyperlink walk: `%Symbol.dispose%`
+appears in the entry clause's own body text, so edge (c) catches it. Where a derivation below still
 reads as a clause list, the list is its **entry set** and this rule is the walk; a child minted without
 following the closure is not a valid output of it.
 
@@ -1292,7 +1302,7 @@ time rather than reading forward):
   derivation standing in for ids that exist, which let both field rows retire owning nothing:
   **public instance field → whichever of 2aa and 3 lands second**, **static field → whichever of 2ac and
   3 — covering *both* static arms, `Property` and `PrivateField`**, **static block → whichever of 2b and 3**, and — ⚠ **the arm the first mapping still missed** —
-  **private instance field → whichever of 5 and 3**, and — since `PrivateMethod` is now Slice 5's (that row) — **private methods and accessors, static and instance → whichever of 3 and *the child of umbrella 5 that mints the method/accessor closure* lands second** — ⚠ **naming "5" stopped identifying an owner the moment 5 became an umbrella**, since an umbrella ships no PR and never lands; 5's derivation assigns this handoff to that child, and the child carries the coordination with 3, with `class B extends A { #m(){ return super.x } read(){ return this.#m() } }` as its regression. `ClassMemberKind::Method` (`:293`) and `ClassMemberKind::PrivateMethod` (`:347`) are separate arms, so 3 can repair the public one and 5 replace the private one with neither carrying the home object. `ClassMemberKind::PrivateField`
+  **private instance field → whichever of 3 and *the child of umbrella 5 that mints the field record* lands second** (the same correction as the method/accessor clause below — only that half was retargeted when 5 became an umbrella, and an umbrella cannot be a "lands second" party), and — since `PrivateMethod` is now Slice 5's (that row) — **private methods and accessors, static and instance → whichever of 3 and *the child of umbrella 5 that mints the method/accessor closure* lands second** — ⚠ **naming "5" stopped identifying an owner the moment 5 became an umbrella**, since an umbrella ships no PR and never lands; 5's derivation assigns this handoff to that child, and the child carries the coordination with 3, with `class B extends A { #m(){ return super.x } read(){ return this.#m() } }` as its regression. `ClassMemberKind::Method` (`:293`) and `ClassMemberKind::PrivateMethod` (`:347`) are separate arms, so 3 can repair the public one and 5 replace the private one with neither carrying the home object. `ClassMemberKind::PrivateField`
   (`compiler/expr_class.rs:430`) is a **separate compiler arm** from `Property` (`:393`), and §2.2's
   `expr_class.rs:430-447` row gives its missing non-static branch to Slice **5**, so a mapping naming only
   2aa lets every listed owner retire with `class B extends A { #x = (seen = super.x, 1) }` still broken
