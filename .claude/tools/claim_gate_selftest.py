@@ -258,25 +258,33 @@ def selftest() -> int:
         f["n"] = got
         return f
 
+    def anno(tree) -> list[str]:
+        """`verdict_over` RETURNS its findings, so these probes read the return
+        value and never go through `capture()`. That is the point of the arm
+        being pure: a finding raised through a binding made before `capture()`
+        swapped the FAILS list would land in the swapped-out one, and every
+        negative below would read clean — the exact inversion these five probes
+        exist to make impossible."""
+        return [f"[{c}] {m}" for c, m in verdict_over(tree)[1]]
+
     true_hits = [(1, "strict", live_anno("count", "REQUIRED_WIRES", "scripts/*.sh")),
                  (2, "strict", live_anno("files", "REQUIRED_WIRES", "scripts/*.sh")),
                  (3, "strict", live_anno("lines", None, "scripts/trip-wires.sh"))]
     probe("ANNO positive (every annotation re-runs to its asserted value)", False,
-          capture(verdict_over, {"probe.md": true_hits}))
+          anno({"probe.md": true_hits}))
     moved = dict(true_hits[2][2])
     moved["n"] += 7
     probe("ANNO negative (a strict annotation the tree has since moved past)", True,
-          capture(verdict_over, {"probe.md": true_hits[:2] + [(3, "strict", moved)]}),
+          anno({"probe.md": true_hits[:2] + [(3, "strict", moved)]}),
           f"asserts lines={moved['n']}, actual={true_hits[2][2]['n']}")
     probe("ANNO negative (a candidate line classifying MALFORMED, with a reason)", True,
-          capture(verdict_over,
-                  {"probe.md": true_hits + [(9, "malformed", {"why": "pattern contains \\d"})]}),
+          anno({"probe.md": true_hits + [(9, "malformed", {"why": "pattern contains \\d"})]}),
           "probe.md:9 classifies MALFORMED (pattern contains \\d)")
     probe("ANNO negative (a MALFORMED line with no reason recorded)", True,
-          capture(verdict_over, {"probe.md": true_hits + [(9, "malformed", None)]}),
+          anno({"probe.md": true_hits + [(9, "malformed", None)]}),
           "does not match the §4.4 production")
     probe("ANNO negative (§8.2's property: a verb with no strict annotation)", True,
-          capture(verdict_over, {"probe.md": true_hits[:2]}),
+          anno({"probe.md": true_hits[:2]}),
           "requires ≥1 strict `lines` annotation")
 
     # FENCE -- the measurement, its ability to report a divergence, and the ban

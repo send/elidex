@@ -407,7 +407,10 @@ def check_annotations() -> dict:
         if rc != 0:
             bad("ANNO", f"the wire reds: {out.strip()[:400]}")
         return {}
-    return grammar.verdict_over(grammar.scan_tree())
+    live, found = grammar.verdict_over(grammar.scan_tree())
+    for code, msg in found:
+        bad(code, msg)
+    return live
 
 
 def check_pasted_transcripts(memo: Memo, live: dict) -> None:

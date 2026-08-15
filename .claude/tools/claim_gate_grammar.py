@@ -113,31 +113,42 @@ def scan_tree() -> dict[str, list[tuple[int, str, dict | None]]]:
 # unprobeable: firing any of them meant planting a bad annotation in a tracked
 # file. All three shipped with no firing proof at all, which is the `ban_control`
 # state §4.3 names, in the check that exists to execute the memo's own claims.
-def verdict_over(tree: dict[str, list[tuple[int, str, dict | None]]]) -> dict:
+#
+# Pure means it RETURNS its findings; the caller reports them. Reaching back for
+# the host's `bad` would not be pure, and would be the one coupling that is not
+# safe to have here: `capture()` swaps the entry point's FAILS list for the
+# duration of one check, so a finding raised through a stale binding lands in the
+# swapped-out list and the probe sees a clean run. Every ANNO negative would
+# invert silently -- the failure this module's own three new probes exist to
+# catch, reproduced in the wiring beneath them.
+def verdict_over(
+    tree: dict[str, list[tuple[int, str, dict | None]]],
+) -> tuple[dict, list[tuple[str, str]]]:
     tiers = {"strict": 0, "mention": 0, "malformed": 0}
     verbs: set[str] = set()
     results = []
+    found: list[tuple[str, str]] = []
     for rel, hits in sorted(tree.items()):
         for ln, tier, f in hits:
             tiers[tier] += 1
             if tier == "malformed":
                 why = (f or {}).get("why", "does not match the §4.4 production")
-                host.bad("ANNO", f"{rel}:{ln} classifies MALFORMED ({why})")
+                found.append(("ANNO", f"{rel}:{ln} classifies MALFORMED ({why})"))
             if tier != "strict" or f is None:
                 continue
             verbs.add(f["verb"])
             ok, got = execute(f)
             if not ok:
-                host.bad("ANNO", f"{rel}:{ln} {f['verb']}={f['n']}: {got}")
+                found.append(("ANNO", f"{rel}:{ln} {f['verb']}={f['n']}: {got}"))
                 continue
             results.append((rel, ln, f, got))
             if got != f["n"]:
-                host.bad("ANNO", f"{rel}:{ln} asserts {f['verb']}={f['n']}, "
-                                 f"actual={got}  in={f['spec']}")
+                found.append(("ANNO", f"{rel}:{ln} asserts {f['verb']}={f['n']}, "
+                                      f"actual={got}  in={f['spec']}"))
 
     # §8.2's acceptance property, executed rather than asserted.
     for v in ("count", "files", "lines"):
         if v not in verbs:
-            host.bad("ANNO", f"§8.2's property requires ≥1 strict `{v}` annotation "
-                             f"in the tracked tree; there are none")
-    return {"tiers": tiers, "results": results}
+            found.append(("ANNO", f"§8.2's property requires ≥1 strict `{v}` "
+                                  f"annotation in the tracked tree; there are none"))
+    return {"tiers": tiers, "results": results}, found
