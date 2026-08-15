@@ -9,21 +9,60 @@ the rule was followed -- so the memo gets a checker instead.
 (memory `feedback_prose-rules-cannot-fix-unexecuted-claims`.)
 
 Relationship to `.claude/tools/plan-xcheck.py` (the line-box lane's sibling,
-which reached this same conclusion independently): the two share no predicates.
-That one's checks are bound to its memo's schema -- PR labels, cell numbers,
-M-rows, flip partitions -- and none of them name anything in this memo. What is
-genuinely common is about 25 lines of markdown-table parsing, and even the
-section splitter differs (`## §N.` there, `## §N <title>` here). They are also
-in different unlanded branches, so sharing today would couple this slice's
-landing to a 13-round-deep plan review. Collapse them when a *third* memo wants
-one, and only then -- at that point the reason N existed is writable and the
-harness is worth extracting (CLAUDE.md *One issue, one way*, and memory
-`feedback_one-issue-one-way`'s precondition).
+which reached this same conclusion independently). This passage used to say that
+"the two share no predicates", that what is genuinely common is "about 25 lines
+of markdown-table parsing", and that the sibling "declares itself tabular-surface
+only: nothing here reads the memo's prose claims". All three were false. The
+third was a quotation of a sentence that is not in that file, which says the
+opposite -- "Checks 11b/11c DO read prose." Nobody had opened the two side by
+side; the passage justifying a duplication was itself the unexecuted-claim shape
+the rest of this program exists to catch. So it is stated as commands, with
+`$X` the sibling's path (it is not on this branch):
 
-What this adds over that sibling is the class it explicitly disclaims: it
-declares itself "tabular-surface only: nothing here reads the memo's prose
-claims", which is exactly where round 2's CRIT 1 lived. ANNO / PASTE /
-TRANSCRIPT / FENCE / PREFLIGHT all *execute* something and compare.
+  # the only finding code the two share -- and both spend it on §2's pair table
+  comm -12 <(grep -o 'bad("[A-Z]*"' "$X" | sort -u) \
+            <(grep -o 'bad("[A-Z]*"' .claude/tools/claim-gate-plan-check.py | sort -u)
+
+Checked one at a time, what they share is: a `bad(code, msg)` collector emitting
+`[CODE] msg`; a GFM data-row splitter that drops the separator row (this one
+also honours `\\|`, that one splits naively); a `§`-numbered section splitter
+(the splitters themselves do differ -- `## §N.` there, level-aware
+`## §N <title>` here); an audit of §2's pairwise table; resolution of a
+backticked path citation by SUFFIX against the tracked file set, which both
+adopted after the same discovery that a memo cites by basename as often as by
+path; a restated quantity re-derived and failed on disagreement (its `K=`/`M=`
+against §3's own table, TOOLING's numerals against git); a contradiction spelled
+as two co-present markers, with a third "this was deliberate" marker exempting
+it (its `MARK`, UMBRELLA's amendment column); and a prose harvest scoped to
+exclude non-accounting sentences, which both grew after the unscoped form
+returned a wrong verdict (its `NON_LANDING`, `check_pairs`'s "only ACCOUNTING
+sites count").
+
+What does NOT overlap is the class this file exists for, and it is the larger
+difference. `plan-xcheck.py` imports `re, sys, pathlib` and runs nothing: its
+only measurement from outside the document is a `crates/**/*.rs` glob for path
+existence. Everything here that matters EXECUTES something -- git, bash,
+preflight.py, grep_pass.py -- and compares the answer to what the memo pastes,
+which is exactly where round 2's CRIT 1 lived. ANNO / PASTE / TRANSCRIPT /
+FENCE / PREFLIGHT are all of that kind. The sibling is also bound to its memo's
+schema -- PR labels, cell numbers, M-rows, flip partitions -- and none of those
+name anything in this memo.
+
+The old disposition, "collapse them when a *third* memo wants one", does not
+survive its own premise: it was priced off the undercount. One parsing helper is
+worth duplicating; the list above is not, and duplicating it is the decision
+surface CLAUDE.md *One issue, one way* is about. The precondition
+`feedback_one-issue-one-way` asks for -- being able to write down why N existed
+-- is already met, and this is it: N=2 because the two were written in parallel
+in two lanes, neither author aware the other was solving the same problem. What
+still argues for waiting is only landing order, since neither file is on `main`:
+
+  git ls-tree origin/main -- .claude/tools/plan-xcheck.py \
+                             .claude/tools/claim-gate-plan-check.py   # prints nothing
+
+Collapsing today would couple this slice's landing to the other branch's review.
+So: collapse them once both have landed -- not on a third memo, which is a
+trigger that no longer has a measurement behind it.
 
   PAIR        §2's pairwise enumeration is exhaustive and non-redundant
   UNIQ        §8.1's `$3` column keeps the property §8's preamble asserts
@@ -408,13 +447,14 @@ def scan_tree() -> dict[str, list[tuple[int, str, dict | None]]]:
     return res
 
 
-def check_annotations() -> dict:
-    if WIRE.exists():
-        rc, out = sh(["bash", str(WIRE)])  # noqa
-        if rc != 0:
-            bad("ANNO", f"the wire reds: {out.strip()[:400]}")
-        return {}
-    tree = scan_tree()
+# Split from `check_annotations` so the verdict is a PURE function of an
+# already-scanned tree. It was inlined behind `scan_tree()`, which reads the real
+# repository, and three of its arms -- the MALFORMED report, the asserted-vs-
+# actual mismatch, and §8.2's per-verb acceptance property -- were therefore
+# unprobeable: firing any of them meant planting a bad annotation in a tracked
+# file. All three shipped with no firing proof at all, which is the `ban_control`
+# state §4.3 names, in the check that exists to execute the memo's own claims.
+def verdict_over(tree: dict[str, list[tuple[int, str, dict | None]]]) -> dict:
     tiers = {"strict": 0, "mention": 0, "malformed": 0}
     verbs: set[str] = set()
     results = []
@@ -442,6 +482,15 @@ def check_annotations() -> dict:
             bad("ANNO", f"§8.2's property requires ≥1 strict `{v}` annotation "
                         f"in the tracked tree; there are none")
     return {"tiers": tiers, "results": results}
+
+
+def check_annotations() -> dict:
+    if WIRE.exists():
+        rc, out = sh(["bash", str(WIRE)])  # noqa
+        if rc != 0:
+            bad("ANNO", f"the wire reds: {out.strip()[:400]}")
+        return {}
+    return verdict_over(scan_tree())
 
 
 def check_pasted_transcripts(memo: Memo, live: dict) -> None:
@@ -561,6 +610,78 @@ PAIR_REF = re.compile(r"\b(the two|both|each other|the existing two|"
                       r"the other (?:one|implementation|tracker))\b", re.I)
 
 
+# The ban is SENTENCE-scoped, not line-scoped. It shipped keyed on one physical
+# line, and the memo it guards wraps at ~100 columns: the load-bearing sentence,
+# "the tier pass is a third fence-tracking implementation, and the existing two
+# already differ", escapes a line-scoped ban whenever the wrap falls between "the
+# existing two" and "differ" -- exactly the restatement the ban exists to forbid,
+# read clean by the checker written to catch it.
+#
+# The first fix widened the window to the whole paragraph, and running it over
+# the memo produced three findings, all false: markdown puts no blank line
+# between adjacent table rows or between adjacent bullets, so a paragraph window
+# fused §2's I1×I2 row with its I1×I4 row, and fused one bullet's "inside a
+# fenced block" with a LATER bullet's sameness word. Widening past the unit the
+# claim is actually made in buys the false-positive rate the FENCE_TOPIC +
+# PAIR_REF proximity heuristic was designed to avoid. So the window is the
+# sentence: wide enough to span a wrap, which is the whole defect, and no wider.
+# A blank line still ends it, and so does a structural line -- a table cell and a
+# heading cannot wrap, so joining them to a neighbour can only ever fuse.
+STRUCTURAL = re.compile(r"^[ \t]*(\||#{1,6}[ \t]|```|~~~)")
+# Closing punctuation may follow the stop: the memo's "…is gone** (§7 Q3, §4.2)."
+# ends a sentence at `).`, and a bare `(?<=[.!?])\s` boundary does not see it --
+# which left the retracted-premise narration on the next line fused to the
+# "fence tracker" heading phrase of the sentence before it.
+SENT_END = re.compile(r"[.!?][)\]\"'`*_]*\s+")
+
+
+def windows(lines: list[str]) -> list[tuple[str, list[tuple[int, int]], int]]:
+    """(sentence text, [(offset, 1-based line no)], sentence offset).
+
+    Lines are stripped and joined with one space, so a `.*` in NAMES_BOTH spans
+    a wrap; the offset table is what turns a match position back into the line
+    the offending span STARTS on, which is the line a reader has to edit."""
+    out: list[tuple[str, list[tuple[int, int]], int]] = []
+    para: list[tuple[int, str]] = []
+
+    def flush() -> None:
+        if not para:
+            return
+        text = " ".join(t for _, t in para)
+        idx, pos = [], 0
+        for n, t in para:
+            idx.append((pos, n))
+            pos += len(t) + 1
+        start = 0
+        for end in [m.end() for m in SENT_END.finditer(text)] + [len(text)]:
+            if end > start:
+                out.append((text[start:end], idx, start))
+            start = end
+        para.clear()
+
+    for i, line in enumerate(lines, 1):
+        s = line.strip()
+        if not s:
+            flush()
+        elif STRUCTURAL.match(line):
+            flush()
+            para.append((i, s))
+            flush()
+        else:
+            para.append((i, s))
+    flush()
+    return out
+
+
+def line_at(idx: list[tuple[int, int]], off: int) -> int:
+    ln = idx[0][1]
+    for start, n in idx:
+        if start > off:
+            break
+        ln = n
+    return ln
+
+
 def check_fence(memo: Memo) -> None:
     try:
         diverge, n = fence_verdict()
@@ -569,14 +690,35 @@ def check_fence(memo: Memo) -> None:
         return
     verdict = (f"disagree on line(s) {diverge} of {n}" if diverge
                else f"agree on all {n}")
-    for i, line in enumerate(memo.lines, 1):
-        if not RESTATES_FENCE.search(line):
+    for text, idx, base in windows(memo.lines):
+        r = RESTATES_FENCE.search(text)
+        if not r:
             continue
-        if NAMES_BOTH.search(line) or (FENCE_TOPIC.search(line) and PAIR_REF.search(line)):
-            bad("FENCE", f"{memo.path.name}:{i} restates how the two fence "
-                         f"trackers relate; that fact is measured by this "
-                         f"check (they {verdict} lines) and must be cited, "
-                         f"not written out: {line.strip()[:64]}")
+        nb = NAMES_BOTH.search(text)
+        ft, pr = FENCE_TOPIC.search(text), PAIR_REF.search(text)
+        if nb:
+            spans = [r.span(), nb.span()]
+        elif ft and pr:
+            spans = [r.span(), ft.span(), pr.span()]
+        else:
+            continue
+        lo, hi = min(s for s, _ in spans), max(e for _, e in spans)
+        first, last = line_at(idx, base + lo), line_at(idx, base + hi - 1)
+        # ...and the matches must sit within a WRAP of each other. The defect is
+        # exactly one line's worth of widening: a restatement is a local
+        # co-occurrence, and stretching the co-occurrence over a whole long
+        # sentence is what produced the last false positive on the memo -- §7's
+        # compliant citation ("the `FENCE` check now measures that relation by
+        # running both …") picked up `the same` four lines later, out of "the
+        # same unexecuted-claim medium one level down", a clause about something
+        # else. Two physical lines is the span a ~100-column wrap can hide a
+        # claim in, and it is the span this ban reads.
+        if last - first > 1:
+            continue
+        bad("FENCE", f"{memo.path.name}:{first} restates how "
+                     f"the two fence trackers relate; that fact is measured by "
+                     f"this check (they {verdict} lines) and must be cited, "
+                     f"not written out: {text[lo:lo + 64]}")
 
 
 # --------------------------------------------------------------------------
@@ -1255,15 +1397,54 @@ def selftest() -> int:
         '<!-- claim count=1 pattern="x" in="a.md" -->',            # STRICT: §4.2
         "```",                                                     # has no fence arm
     ])]
-    probes.append(("ANNO classifier tiers",
-                   tiers == ["strict", "mention", "malformed", "malformed", "strict"],
-                   str(tiers)))
+    # These three went in as bare `probes.append`, which bypasses `probe()` and so
+    # asserts no diagnostic substring -- and the tier list was the only ANNO arm
+    # any of them reached. The tier detail moves into the label so it stays
+    # visible; the two that assert a REJECTION carry needles.
+    want = ["strict", "mention", "malformed", "malformed", "strict"]
+    probe(f"ANNO classifier tiers {tiers}", False,
+          [] if tiers == want else [f"classify() gives {tiers}, not {want}"])
     ok, got = execute({"verb": "count", "n": 999999, "icase": False,
                        "pattern": "fn ", "spec": "crates/**/*.rs"})
-    probes.append(("ANNO executor returns a live count", ok and got != 999999, str(got)))
+    probe("ANNO executor measures rather than echoing the assertion", True,
+          [f"execute() returns {got}, not the asserted 999999"]
+          if ok and got != 999999 else [], "not the asserted 999999")
     ok, got = execute({"verb": "lines", "n": 0, "icase": False,
                        "pattern": None, "spec": "crates/**/*.rs"})
-    probes.append(("ANNO `lines=` rejects a multi-file pathspec", not ok, str(got)))
+    probe("ANNO `lines=` rejects a multi-file pathspec", True,
+          [str(got)] if not ok else [], "not exactly 1")
+
+    # The three arms `verdict_over` was extracted for. Each fixture's asserted
+    # value is DERIVED by executing it, so the positive cannot go stale for the
+    # reason this whole program exists; the negatives mutate that derived value
+    # rather than hard-coding a second one.
+    def live_anno(verb: str, pattern: str | None, spec: str) -> dict:
+        f = {"verb": verb, "n": 0, "icase": False, "pattern": pattern, "spec": spec}
+        ok, got = execute(f)
+        assert ok, f"ANNO fixture `{verb} in={spec}` does not execute: {got}"
+        f["n"] = got
+        return f
+
+    true_hits = [(1, "strict", live_anno("count", "REQUIRED_WIRES", "scripts/*.sh")),
+                 (2, "strict", live_anno("files", "REQUIRED_WIRES", "scripts/*.sh")),
+                 (3, "strict", live_anno("lines", None, "scripts/trip-wires.sh"))]
+    probe("ANNO positive (every annotation re-runs to its asserted value)", False,
+          capture(verdict_over, {"probe.md": true_hits}))
+    moved = dict(true_hits[2][2])
+    moved["n"] += 7
+    probe("ANNO negative (a strict annotation the tree has since moved past)", True,
+          capture(verdict_over, {"probe.md": true_hits[:2] + [(3, "strict", moved)]}),
+          f"asserts lines={moved['n']}, actual={true_hits[2][2]['n']}")
+    probe("ANNO negative (a candidate line classifying MALFORMED, with a reason)", True,
+          capture(verdict_over,
+                  {"probe.md": true_hits + [(9, "malformed", {"why": "pattern contains \\d"})]}),
+          "probe.md:9 classifies MALFORMED (pattern contains \\d)")
+    probe("ANNO negative (a MALFORMED line with no reason recorded)", True,
+          capture(verdict_over, {"probe.md": true_hits + [(9, "malformed", None)]}),
+          "does not match the §4.4 production")
+    probe("ANNO negative (§8.2's property: a verb with no strict annotation)", True,
+          capture(verdict_over, {"probe.md": true_hits[:2]}),
+          "requires ≥1 strict `lines` annotation")
 
     # FENCE -- the measurement, its ability to report a divergence, and the ban
     diverge, n = fence_verdict()
@@ -1301,6 +1482,54 @@ def selftest() -> int:
           "must be cited")
     probe("FENCE ban ignores a line naming only one tracker", False,
           capture(check_fence, synth("## §6 x\n`preflight.py` tracks fences.")))
+    # The hole Fix A closed: the SAME sentence, wrapped where the memo wraps it.
+    # Before the ban was widened to a paragraph this returned no findings at all,
+    # and the needle pins the reported line to where the span STARTS (line 3),
+    # not to the line the sameness word happens to land on (line 4).
+    probe("FENCE ban fires on a restatement wrapped across two lines", True,
+          capture(check_fence, synth(
+              "## §6 x\n\nThe tier pass would be a third fence-tracking "
+              "implementation, and the existing two\nalready differ on the "
+              "mismatched marker.")),
+          "synthetic.md:3 restates")
+    # ...and the boundary that keeps the widening honest. These two halves are one
+    # sentence when the break between them is a wrap and two windows when it is a
+    # blank line; the first carries the topic and the pair reference with no
+    # sameness word, the second the sameness word alone. The break is the whole
+    # difference, so BOTH directions are probed -- a window rule whose fixture
+    # could not fuse in the first place proves nothing about the boundary.
+    halves = ("## §6 x\n\nThe fence arm was struck, so the existing two "
+              "implementations are%sno longer in step.")
+    probe("FENCE ban does not fuse two halves across a paragraph break", False,
+          capture(check_fence, synth(halves % "\n\n")))
+    probe("FENCE ban does fuse the same two halves across a wrap", True,
+          capture(check_fence, synth(halves % "\n")),
+          "must be cited")
+    # Found by running the widened ban over the memo: markdown puts no blank line
+    # between adjacent table rows, so a paragraph-wide window fused §2's I1×I2
+    # row ("silently converts strict → mention") with its I1×I4 row and reported
+    # a restatement neither row makes. A table cell cannot wrap, so a row is
+    # always its own window.
+    probe("FENCE ban does not fuse two adjacent table rows", False,
+          capture(check_fence, synth(
+              "## §2 x\n\n| I1 × I2 | An over-eager rule converts strict → "
+              "mention, so the fenced case is where it shows.\n"
+              "| I1 × I4 | The reject-list runs on a body already parsed, and "
+              "the two arms must not agree here.\n")))
+    # Also found by running it over the memo: §7's COMPLIANT sentence -- the one
+    # that cites this check instead of restating it -- is four lines long, and a
+    # sentence-wide window read its "the same unexecuted-claim medium" clause as
+    # the sameness word for the "`FENCE` check … by running both" clause. The
+    # markers must sit within a wrap of each other, so this is clean while the
+    # two-line fixture above fires.
+    probe("FENCE ban does not reach a sameness word three lines away", False,
+          capture(check_fence, synth(
+              "## §7 x\n\nThe `FENCE` check now measures that relation by "
+              "running both, and forbids this memo from restating the verdict "
+              "in\neither polarity — a boolean the memo's own edits can "
+              "invalidate is what D10 form 2 says to cite rather than write\n"
+              "out, and a checker that read English polarity would be the same "
+              "unexecuted-claim medium one level down.")))
     # TRANSCRIPT -- both arms, both directions
     def block(*body: str) -> Memo:
         return synth("\n".join(["```", *body, "```"]))
