@@ -49,7 +49,7 @@
 # none. A-i §8 names this seam and is the only site carrying the layout figures.
 set -uo pipefail
 _HARNESS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-for _part in integrity audit common Ai Aii Aiii B; do
+for _part in integrity audit inventory common Ai Aii Aiii B; do
   # shellcheck source=/dev/null
   . "$_HARNESS_DIR/2026-07-citation-hygiene-A-rederive-$_part.sh"
 done
