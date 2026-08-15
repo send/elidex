@@ -344,16 +344,21 @@ Every row of that table objects to *this* worktree, not to a real tree. **So the
 tree: `git clone --local` of this repository.** The annotation is planted in a tracked file of the
 clone, the wire runs there unmodified, and the real gate never sees it.
 
-```
-git clone --local -q . "$fixture"        → 0.37s, 70M, 1704 tracked files
-git -C "$fixture" ls-files -- 'crates/shell/elidex-shell/src/**/*.rs' | wc -l   → 34
-git -C "$fixture" grep -nE '#\[test\]' -- 'crates/shell/elidex-shell/src/**/*.rs' | wc -l → 80
-git -C "$fixture" grep -nE '<!--[[:space:]]*claim[^A-Za-z]' -- '*.md' ':(exclude).claude/tools/**' | wc -l → 8
-```
+Three properties are what this rests on, and **each is asserted by a control rather than pasted here**:
+the corpus's tree-scale pathspecs resolve in the clone (C10's positive); C19's historical constant
+re-measures in the clone to the value it has in this worktree, so the corpus keeps "known input, known
+verdict" (§7 Q2); and — the reason this and not a second entry point — **the scan runs in the clone**,
+acquiring the planted annotation the same way it acquires every other (C19–C22).
 
-The last line is the reason this and not an entry point: **the scan runs in the clone.** C19's historical
-constant re-measures to the same 80 it does here, so the corpus keeps "known input, known verdict"
-(§7 Q2), and it keeps it *through the acquisition path the corpus is supposed to exercise*.
+Revision 5 pasted those three as measured figures, plus the clone's wall-clock, its size and a tracked-file
+count. All six are gone. The tracked-file count was already false when round 5 measured it (the
+prerequisite's own modules had moved it), which is D10's literal prohibition — a tree-wide count this
+program's landing changes; the wall-clock and size figures are §4.5's withdrawn class, restored two
+sections after being withdrawn. And the whole block was **invisible to the checker**: `git clone` and
+`git -C` are not among the programs it re-runs, and until round 5 a non-runnable arrow line was dropped
+rather than reported, so four unverifiable figures sat inside a green run. That hole is closed in the
+prerequisite; what it now reports is that these lines cannot be re-run — and the preamble's rule for a
+claim the checker cannot hold is *remove it*, which is what this is.
 
 **Revision 4 specified `--one '<annotation text>'` instead, and it is withdrawn.** Four things were
 wrong with it and only the last is fatal on its own:
@@ -368,10 +373,36 @@ wrong with it and only the last is fatal on its own:
   接続するか削除*, and a second acquisition path beside the scan, which is *One issue, one way* at the
   wire's own front door.
 
-Cost, stated rather than assumed: one clone per self-test invocation, not per annotation or per
-control. Against the wire's own tree-wide grep at 0.07s the clone is ~5×, and §2 I6×I7 exempts the
-self-test from I7 for exactly this class of expense — but the exemption is now a *bounded* one: **one
-clone**, reused by every `clone` control in the run.
+Cost, stated as a bound rather than a figure: **one clone per self-test invocation**, not per annotation
+and not per control, reused by every `clone` control in the run. §2 I6×I7 exempts the self-test from I7
+for exactly this class of expense, and the exemption is bounded by that count. No ratio against the
+wire's own grep is given: §4.5 withdrew the runtime class for this memo and a ratio is two withdrawn
+figures in a trench coat.
+
+**Two rules round 5 found missing, decided here rather than deferred.**
+
+**(a) The wire resolves its scan root from `git rev-parse --show-toplevel`, run in the invoking cwd.**
+Nothing said which repository the scan reads, and the default a reader would assume is the driver's:
+`scripts/trip-wires.sh:24-56` derives root from `$0` and says *"don't inherit the caller's cwd"*. That is
+right **for the driver**, whose job is to find the wire *set* — it must anchor to where the wires are.
+It is wrong for this wire, whose subject is *the repository it is pointed at*. Under the driver's rule
+the `clone` rows would scan the wire's own tree wherever they ran, and — this is why it had to be found
+by asking rather than by testing — they would **still go green**, because C19–C22 assert FAIL with a
+historical constant and the real tree produces exactly that diagnostic. The corpus would never touch the
+clone and nothing would say so. Two roots, two rules, each stated where its reason lives; that is not a
+second entry point (the withdrawn `--one` was one, because it was a second way to *acquire an
+annotation* — this is one way, pointed at a different tree).
+
+**(b) The clone is shared for cost, not for isolation: one clone directory, one wire invocation per
+control**, with the control's annotation planted and removed between invocations. §8's own masking model
+decides this — *"two controls in separate invocations cannot mask each other at all, because each
+invocation can only emit its own diagnostics"* — and the alternative reading breaks a stated property:
+one invocation over all six `clone` rows exits non-zero by construction (C19–C22 are false by design), so
+C10's and C11's **positive** arms could not be read from exit status, which is the only assertion form §8
+gives a positive. Consequence, stated because it retires a requirement rather than adding one: §8's
+*"Shared ⇒ the `$3` values of all `clone` rows must be mutually non-substring"* is **withdrawn** — it was
+inherited verbatim from revision 4's `live` row, which was negatives-only and therefore never had a
+positive to strand.
 
 ### §4.2 The three tiers (D3), per surface
 
@@ -897,7 +928,7 @@ that shape all ten bare `asserted=` rows share an invocation and collide. So the
 | `own` | **its own `mktemp -d` and its own wire invocation**, torn down after. Two `own` rows cannot mask each other by construction, whatever their `$3`. |
 | `escapes` | one fixture carrying both C8's and C9's annotations, so their diagnostics must discriminate — this is the pair R1's finding was actually about. Both arms are malformed, so the row exists at all only under §4.2's fail-without-ending rule: a wire that stopped at the first malformed annotation would never reach C9's. |
 | `I7` | C27's counting-shim fixture; one invocation, instrumented. |
-| `clone` | a `git clone --local` of this repository, built once per self-test run and shared by every `clone` row. The annotation is planted in a tracked file of the clone, so **the scan acquires it** (§4.1.1). Shared ⇒ the `$3` values of all `clone` rows must be mutually non-substring — and are. |
+| `clone` | a `git clone --local` of this repository, built **once per self-test run** and reused by every `clone` row, but with **one wire invocation per row** — the annotation is planted in a tracked file of the clone and removed after, so the scan acquires it (§4.1.1(b)). The sharing is cost, not scope: by the model above, separate invocations cannot mask each other, so `clone` rows carry no `$3` requirement beyond every other row's. |
 
 So the property is scoped to the invocation, and the table below carries the **Fixture** column that
 makes it decidable:
@@ -910,8 +941,10 @@ makes it decidable:
 
 `claim-gate-plan-check.py`'s `UNIQ` check enforces the scoped form, grouped by the Fixture column, and its
 `FIXTURE` check verifies the column against each row's own `in=` pathspec — a label a reader must trust is
-not a specification. The `clone` group is where the `$3` requirement bites: one clone is shared by C10,
-C11 and C19–C22, so their diagnostics must discriminate within it — and do.
+not a specification. `escapes` is now the only group the `$3` requirement bites in: revision 5 read the
+`clone` group as a second such group and round 5 found that reading strands C10's and C11's positive arms,
+so §4.1.1(b) fixes the clone as one invocation per row and the requirement falls away with it. `UNIQ`'s
+grouping is unaffected — a group of one-row invocations has nothing to collide.
 
 ### §8.1 Controls
 
