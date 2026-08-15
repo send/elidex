@@ -174,8 +174,10 @@ Three further sites are unclosable by any status widening — `-Aii.sh:34` (`col
 `:207` (`remedies`, spelled `[ "$pfrc" -le 1 ]`). `preflight.py` returns 1 for a real HARD FAIL, a missing
 fixture, an uncaught exception **and** a failed `cd`; the discriminator is in the child's *stdout*, which
 those blocks print and never read. `armmatrix` is the same class from the other side: 27 rows print `EXIT=`
-and the block binds none of them. All four are A-ii's by §3, and two of them are Codex findings **publicly
-promised a fix in #505** — the disposition memo owns re-homing that promise.
+and the block binds none of them. All four are A-ii's by §3, and **one of them is** a Codex finding
+**publicly promised a fix in #505** — the disposition memo owns re-homing that promise. ⚠ Two drafts said
+"two of them": R3-F2 is `column`, which is here, but R3-F3 is `ruleset`, which ships **A-iii** and is not in
+this set. The disposition memo's §5 routes both correctly, so nothing downstream turned on it.
 
 `citations` is the one that is neither: it ships with A-i, it prints the authoritative §-title beside the
 fixture's and never compares them, and its own comment records that nothing else would catch a fabricated
@@ -376,7 +378,7 @@ Rows are marked UNCHECKED rather than omitted (umbrella `:92`).
 **Hands to `2026-08-citation-hygiene-harness-disposition.md`**, which is gated by its own
 `/elidex-plan-review`: what happens to #505; the routing/shipping collapse and the single home for the block
 set; making the `declared by` column machine-readable; `citations`' comparison against §0.5's table; `lanes`'
-seven bypasses; the four A-ii sites including the two Codex findings promised a fix in #505; the complete
+seven bypasses; the four A-ii sites, plus the two blocks (`column`, `ruleset`) promised a fix in #505; the complete
 register sweep; and whatever defer slots survive that work, with own/pre-existing classification, trigger and
 calendar date, registered in `project_open-defer-slots.md`.
 
