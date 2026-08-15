@@ -265,7 +265,16 @@ print("\n  BY CLASS: " + "  ".join("%s=%d" % kv for kv in sorted(byclass.items()
 PLAN = HD / "2026-08-citation-hygiene-harness-disposition.md"
 unruled = []
 if PLAN.is_file():
-    ruled = set(re.findall(r"^\| \*\*([a-z]+)\*\* \|", PLAN.read_text(encoding="utf-8"), re.M))
+    # ⚠ SCOPED TO §3. Unscoped this was "every class has a row SOMEWHERE IN THIS
+    # FILE": a rule row moved into any other table -- the fix table, the register
+    # table -- still satisfied the gate, so it did not hold what it was written
+    # for. `^## §3 ` with the trailing space excludes `## §3b` (the moves) and
+    # `## §0.5 / §3.` (the spec map); both carry tables, neither carries a rule.
+    _s3 = re.search(r"^## §3 .*?(?=^## §|\Z)", PLAN.read_text(encoding="utf-8"), re.S | re.M)
+    if _s3 is None:
+        raise SystemExit("!! %s has no `## §3 ` section this parser can find; 'every class "
+                         "is ruled' would then be a fact about the parser." % PLAN.name)
+    ruled = set(re.findall(r"^\| \*\*([a-z]+)\*\* \|", _s3.group(0), re.M))
     if not ruled:
         raise SystemExit("!! %s has no §3 rule rows this parser can read; 'every class is "
                          "ruled' would then be a fact about the parser." % PLAN.name)
@@ -273,6 +282,195 @@ if PLAN.is_file():
     print("  RULED BY THE PLAN: %d of %d class(es)%s"
           % (len(set(byclass)) - len(unruled), len(byclass),
              "" if not unruled else "  -- MISSING: " + " ".join(unruled)))
+# ⚠ THE MEMO'S QUANTITIES, NOT ONLY ITS RULE-ROW KEYS. The gate above proves every
+# class has a rule row and nothing about the DIGITS, PATH REFERENCES and REVISIONS
+# the two 2026-08 memos assert. Eleven plan-review rounds reported one class over
+# and over -- a stated file length, a band membership, a revision not on this
+# branch, a `path:N` that no longer resolves, a `D<N>` with no target -- and TWO of
+# round 11's sat in prose unchanged for up to nine drafts that ten earlier rounds
+# never reported, because a reviewer reads the DIFF. Only a check over the WHOLE
+# FILE reaches text nobody touched; a rule written in prose reaches none of it
+# (`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md`). Same lever as
+# the rule-row gate, one altitude down, at the site that already opens the memo.
+# NOTHING HERE EDITS A MEMO: each check prints the file, the line, the claim and
+# the MEASURED value, then appends to `_CBAD`, whose exit is taken at the very end
+# beside the census's own so neither report can hide the other. The PARSER guards
+# DO raise, on the rule the gate above states -- a check that could not read its
+# subject must not report "no problem" -- and each prints its POPULATION, because
+# a needle matching nothing reports clean for the wrong reason.
+_CBAD, _CLIM, _POP, _rv = [], [], {}, {}
+_M8 = sorted(HD.glob("2026-08-citation-hygiene-harness-*.md"))
+ROOT = HD.parent.parent
+# The harness's own file NAMES, from the set derived above rather than a second
+# glob -- which would spell the artifact again and become a home of the fact this
+# census counts.
+HN = {f.name for f in PARTFILES} | {PARTFILES[0].name.split("A-rederive-")[0] + "A-rederive.sh"}
+# (1) A REVISION is a backtick span whose ENTIRE content is 8 hex digits. Hex that
+# is not a claim about this repository must not be reported, and the live case is
+# `da39a3ee…` -- SHA-1 of the empty string, quoted inside a `shasum` EXAMPLE. The
+# whole-span rule rejects it (its ellipsis is inside the backticks) without a
+# needle that has to know what a transcript looks like. BOTH "no such object" and
+# "resolves on some other ref" FAIL; the second is discriminated in the diagnostic
+# because the repairs differ, not because it is allowed.
+REV = re.compile(r"`([0-9a-f]{8})`")
+# (2) A PATH REFERENCE resolves by UNIQUE SUFFIX over `git ls-files`, by path
+# component OR by file-NAME suffix -- which is what makes the memos' abbreviated
+# spellings resolvable (`-audit.sh:325` is a name suffix, not a path one). An
+# AMBIGUOUS suffix is a finding, never a silent first match. Two states print as
+# LIMITS, both NAMED rather than inferred: a bare `:N` with no path (the memos
+# write several; the subject is a sentence away), and a path outside this
+# repository by construction -- `memory/` is the user's memory directory, which §7
+# already says a line reference cannot serve. EVERY OTHER unresolvable path is a
+# FINDING; soften that and a mistyped path degrades into a limit line.
+REF = re.compile(r"(?:^|[\s`(\[])(-?[A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:sh|md|py|toml|rs|yml))"
+                 r":(\d+)(?:-(\d+))?")
+# (3) A STATED LENGTH is checked only for the HARNESS'S OWN files -- the glob this
+# census ranges over. A general "**N** lines" needle misfires on every other bolded
+# digit these memos carry, and a check that misfires gets switched off: a narrow
+# one that runs beats a broad one that does not. Both shapes are keyed to the
+# revision the prose names, so a HISTORICAL figure is measured THERE and not
+# against the working tree -- reading `(**778**)` as "778 lines today" would make
+# this check itself a false claim. LEN2 carries no file, so its subject is the last
+# harness file named in the same PARAGRAPH.
+LEN1 = re.compile(r"`([^`\s]+\.sh)` is \*\*(\d+)\*\*(?: at `([0-9a-f]{8})`)?")
+LEN2 = re.compile(r"\b(?:entered|left) at `([0-9a-f]{8})` \(\*\*(\d+)\*\*\)")
+SHF = re.compile(r"`([^`\s]+\.sh)`")
+# (4) A BAND CLAIM is LINE-SCOPED, as a rule and not by accident: under paragraph
+# scope §3's HYPOTHETICAL merged file "inside the authoring band" reads as a false
+# claim about the real file its paragraph names. Band membership is the defect
+# draft 11 shipped and draft 12 repaired by hand, so it stops being a habit.
+BAND = re.compile(r"\b(past|in|inside|within|below|under) (?:the )?"
+                  r"(?:700\s*[-–]\s*800 )?(?:authoring )?band\b", re.I)
+# (5) A `D<N>` needs a `- **D<N>` bullet in the disposition's §1. Fences are
+# excluded on BOTH sides: inside one a `D<N>` labels the command it introduces,
+# which is where §1 writes ones no bullet repeats, so counting those would report
+# a dangling reference at the very site that defines it.
+DDEF, DUSE = re.compile(r"^- \*\*D(\d+)\b", re.M), re.compile(r"\bD(\d+)\b")
+OUTSIDE = ("memory/", "~", "/")
+
+def _git(*a):
+    return subprocess.run(("git", "-C", str(ROOT)) + a, capture_output=True, text=True)
+
+def _scan(md):
+    """(lineno, text, fenced) over the WHOLE file; a ``` fence line is CODE."""
+    fen = False
+    for i, s in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+        f0 = s.lstrip().startswith("```")
+        fen = fen ^ f0
+        yield i, s, fen or f0
+
+def _bad(md, i, s):
+    _CBAD.append(s)
+    print("   !! %s:%d  %s" % (md.name, i, s))
+
+def _pop(k):
+    _POP[k] = _POP.get(k, 0) + 1
+
+def _rel(p):
+    """Tracked paths ending in `p`, by path component or by file-name suffix."""
+    return sorted({f for f in TRK if f == p or f.endswith("/" + p) or f.endswith(p)})
+
+def _harness(p):
+    h = _rel(p)
+    return h[0] if len(h) == 1 and h[0].rsplit("/", 1)[-1] in HN else None
+
+def _wcl(rel, rev=None):
+    """`wc -l` of a tracked file, at a revision or in the working tree."""
+    if rev is None:
+        return (ROOT / rel).read_bytes().count(b"\n")
+    r = _git("show", "%s:%s" % (rev, rel))
+    return r.stdout.count("\n") if r.returncode == 0 else None
+
+print("\n  -- THE MEMOS' OWN QUANTITIES, RUN (whole file, both 2026-08 memos) --")
+if len(_M8) != 2:
+    _CLIM.append("%d of the 2 memos are present; the checks ranged over those" % len(_M8))
+_ls = _git("ls-files")
+if _ls.returncode != 0:
+    raise SystemExit("!! `git ls-files` failed under %s; every path would then resolve to "
+                     "nothing for a reason that is not 'the file is absent'." % ROOT)
+TRK = _ls.stdout.split()
+_s1 = re.search(r"^## §1 .*?(?=^## §|\Z)", PLAN.read_text(encoding="utf-8"),
+                re.S | re.M) if PLAN.is_file() else None
+_dd = set(DDEF.findall(_s1.group(0))) if _s1 else set()
+if PLAN.is_file() and not _dd:
+    raise SystemExit("!! %s has no `## §1 ` section, or no `- **D<N>` bullet in it, that this "
+                     "parser can read; every citation would then dangle for a reason that is "
+                     "not 'it has no definition'." % PLAN.name)
+if not _dd:  # no memo, so no definitions -- and then a citation cannot DANGLE either
+    _CLIM.append("the disposition memo is absent; no `D<N>` was resolved")
+for md in _M8:
+    subj = None
+    for i, s, fen in _scan(md):
+        for h in REV.findall(s):
+            _rv.setdefault(h, []).append((md, i)); _pop("revision")
+        for p, a, b in REF.findall(s):
+            _pop("path ref")
+            h = _rel(p)
+            if len(h) != 1:
+                if p.startswith(OUTSIDE):
+                    _CLIM.append("%s:%d `%s:%s` is outside this repository" % (md.name, i, p, a))
+                else:
+                    _bad(md, i, "`%s:%s` names %s" % (p, a, "no tracked file" if not h
+                         else "%d tracked files -- %s" % (len(h), " ".join(h))))
+                continue
+            n = _wcl(h[0])
+            for k in (a, b):
+                if k and not 1 <= int(k) <= n:
+                    _bad(md, i, "`%s:%s` is out of range -- %s is %d line(s)" % (p, k, h[0], n))
+        here = [x for x in (_harness(p) for p in SHF.findall(s)) if x]
+        subj = here[-1] if here else (subj if s.strip() else None)
+        for p, n, rev in LEN1.findall(s):
+            rel = _harness(p)
+            if rel is None:
+                continue
+            _pop("stated length")
+            if _wcl(rel, rev or None) != int(n):
+                _bad(md, i, "`%s` is stated **%s** line(s) at %s -- measured %s"
+                     % (p, n, rev or "HEAD", _wcl(rel, rev or None)))
+        for rev, n in LEN2.findall(s):
+            _pop("stated length")
+            if subj is None:
+                _bad(md, i, "a **%s**-line figure at `%s` names no harness file in its "
+                            "paragraph, so its subject cannot be measured" % (n, rev))
+            elif _wcl(subj, rev) != int(n):
+                _bad(md, i, "%s is stated **%s** line(s) at `%s` -- measured %s"
+                     % (subj, n, rev, _wcl(subj, rev)))
+        w = BAND.search(s.replace("*", ""))
+        if w and here:
+            _pop("band claim")
+            v, n = w.group(1).lower(), _wcl(here[0])
+            if not (n > 800 if v == "past" else n < 700 if v in ("below", "under")
+                    else 700 <= n <= 800):
+                _bad(md, i, "%s is called `%s` the 700-800 band -- it is %d line(s)"
+                     % (here[0], v, n))
+        for x in ([] if fen or not _dd else sorted(set(DUSE.findall(s)))):
+            _pop("D<N> citation")
+            if x not in _dd:
+                _bad(md, i, "cites `D%s`, which §1 of %s does not define" % (x, PLAN.name))
+for h, at in sorted(_rv.items()):
+    if _git("rev-parse", "-q", "--verify", h + "^{commit}").returncode != 0:
+        v = "resolves to no commit in this repository"
+    elif _git("merge-base", "--is-ancestor", h, "HEAD").returncode == 0:
+        continue
+    else:
+        # OFF-HEAD IS NOT A DEFECT. A memo on this branch legitimately pins a
+        # sibling branch's head -- the slice memos live on `webref-cite-audit-tool`
+        # and the note stamps its readings against them. What is a defect is a
+        # revision that resolves NOWHERE, which the branch above catches. The
+        # distinction stays visible as a LIMIT rather than being dropped, because
+        # a pin that has been rewritten out of every ref would then read as clean.
+        _CLIM.append("`%s` resolves but is off HEAD (on %s) -- a cross-branch pin, not checked further"
+                     % (h, " ".join(x for x
+                                    in _git("branch", "-a", "--contains", h).stdout.split()
+                                    if x not in "*+")))
+        continue
+    for md, i in at:
+        _bad(md, i, "revision `%s` %s" % (h, v))
+print("   §1 defines: %s\n   POPULATION: %s   findings=%d"
+      % (" ".join("D" + x for x in sorted(_dd, key=int)),
+         "  ".join("%s=%d" % kv for kv in sorted(_POP.items())), len(_CBAD)))
+for x in _CLIM + ["a bare `:N` with no path beside it is not reachable from here"]:
+    print("   .. LIMIT: %s" % x)
 print("\n  HOMES: %d (%d code, %d prose) in %d files; %d with NO named failure."
       % (len(rows), len(rows) - nprose, nprose, len({x[0] for x in rows}), nbad))
 print("  LIMITS (not findings -- what this census cannot see, so an absence here")
@@ -294,6 +492,13 @@ if unc:
 if unruled:
     raise SystemExit("!! %d class(es) the census emits have no rule in %s: %s"
                      % (len(unruled), PLAN.name, " ".join(unruled)))
+# A CLAIM NOBODY RAN IS RED, on the same argument as an unclassified home above.
+# It exits LAST so neither report hides the other; the findings are already
+# printed, so an earlier raise loses none of them.
+if _CBAD:
+    raise SystemExit("!! %d unexecuted claim(s) in the 2026-08 memos, listed above -- a "
+                     "quantity a memo asserts and no command produces. Do not edit the "
+                     "check to agree with the memo." % len(_CBAD))
 HOMESPY
   return $?
 }
