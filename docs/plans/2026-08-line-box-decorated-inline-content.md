@@ -9,7 +9,10 @@ All premises verified against `154bac3f`; every spec quote below was resolved di
 `.claude/tools/webref`, not carried from a reviewer or from a code comment.
 
 ⚠ **Every `file:line` in this memo is a `154bac3f` coordinate and is evidence, not an
-instruction.** Two prereq PRs move code before PR-1a: the seam-3 split relocates a block of
+instruction.** Two of the program's **three** prereq PRs move code before PR-1a (the third — the
+predicate PR, §9 — establishes a predicate rather than relocating code; its touch set is its own
+plan-review's to determine, so this note makes no claim about it): the seam-3 split relocates a
+block of
 `inline/mod.rs`, and the dead-arm deletion removes a surface spanning **both** `pack/mod.rs` and
 `inline/mod.rs` (§8 names it; it is not one contiguous range). The memo does **not** re-anchor
 after each: its coordinates exist to prove claims about the code as it stands today. **Each PR's
@@ -206,7 +209,7 @@ the answer.
 | CSSOM View 1 §6 Extensions to the `Element` Interface | `getClientRects()` step 3, the **one-line** case | one `DOMRect` "describing its **border area**" — padding + border, never margin | the `border_box()` fallback (`element/layout_query.rs:236`), correct once M4's edges are real — **PR-1c** | ✓ for a box with **one fragment on one line**; the residue is the row below | yes |
 | CSSOM View 1 §6 Extensions to the `Element` Interface | `getClientRects()` step 3, one `DOMRect` **per box fragment** in content order | ⚠ **the engine has no fragment unit at all.** `commit_aligned_entity_rects` folds to one entry per entity per **line** (`pack/mod.rs:479-487`) and `boxes.rs:102` gates on `line_rects.len() > 1`, so *line* is the only partition it can express; and runs persist in **logical** order, the UAX #9 L2 reorder being render's, not layout's (`inline/mod.rs:215-217`, `collect.rs:303-305`). So a **multi-line** box answers one content span per line (edges missing), and a box the spec fragments **within one line** — css-inline-3 §2.1's Note, "Inline boxes can also be split into several fragments within the same line box due to bidirectional text processing" — answers with *one* rect where the step requires one per fragment | **`#11-inline-box-decoration-splits`**, which owns css-break-3 §5.4 whole, and §5.4 names this case itself ("bidi-imposed breaks — i.e. when bidi reordering causes an inline to split into non-contiguous fragments"). Both halves are **pre-existing**: the count is already wrong on `154bac3f` and no PR here changes it. §6 cell 17d pins the multi-line half; `pack/mod.rs:445`'s "one border-box fragment per line" docstring — which recurs at `boxes.rs:91` and four further sites — is `#11-inline-spec-cite-misattribution`'s (§9) | ✗ (deliberate, §5.3) | yes |
 | CSSOM View 1 §6 Extensions to the `Element` Interface | *get the bounding box* (`#element-get-the-bounding-box`), which `getBoundingClientRect()` returns the result of | step 1 invokes `getClientRects()`; step 4 returns "the smallest rectangle that includes all of the rectangles in list **of which the height or width is not zero**" (step 2 = zeros for an empty list, step 3 = **the first** rect when all are zero-area) | ⚠ elidex derives it from `LayoutBox.border_box()` and **never invokes `getClientRects()`** (`element/layout_query.rs:29-32` → `get_border_box`), so the two derivations are independent — pre-existing. PR-1c makes them *disagree*, at the broken edges only; §6 cell 17f pins it — **`#11-inline-box-decoration-splits`** | ✗ (deliberate, §5.3) | yes |
-| CSSOM View 1 §6 Extensions to the `Element` Interface | `clientTop` / `clientLeft`, step 1 | "If the element has no associated box **or if the box is inline, return zero**" | ⚠ **no inline guard exists**: `element/layout_query.rs:133-151` reads `lb.border.top` / `lb.border.left` as **direct field reads**. They return zero today only because `inline/pack/boxes.rs:82` hard-codes `EdgeSizes::default()` — the lines M4 replaces — so PR-1c turns an accidental correctness into a violation. **PR-1c** adds the guard; §6 cell 26 | ✓ | yes |
+| CSSOM View 1 §6 Extensions to the `Element` Interface | `clientTop` / `clientLeft` / `clientWidth` / `clientHeight`, step 1 | "If the element has no associated box **or if the box is inline, return zero**" — verbatim, and **identical across all four members** (`body cssom-view-1 dom-element-clienttop`) | ⚠ **step 1 is unimplemented for all four.** `clientTop` / `clientLeft` (`element/layout_query.rs:133-151`) read `lb.border.top` / `lb.border.left` as **direct field reads** and return zero today only because `inline/pack/boxes.rs:82-84` hard-codes `EdgeSizes::default()` — the lines M4 replaces — so PR-1c would turn an accidental correctness into a violation. `clientWidth` / `clientHeight` (`:120-132`) read `get_padding_box` (`:346`) and therefore **already violate step 1 today**, before this program. **Carved out of this umbrella into the predicate prereq PR** (§9), which must land **before PR-1a** — its predicate has two consumers, these four members and M1's emit test (§6 cell 6c). Why it is not a cell here: the predicate is css-display-3 §A Glossary's *inline box* — "A non-replaced inline-level box whose inner display type is flow" — i.e. **two** inputs, and elidex answers only one (`is_atomic_inline`, `inline/collect.rs:14`, matches `InlineBlock`/`InlineFlex`/`InlineGrid`/`InlineTable` and **not** the replaced half of css-display-3's *atomic inline*). A guard keyed on `Display::Inline` alone would be a second, wrong answer to a question `collect.rs` already answers | ✗ (deliberate, §9) | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | glyphless / fallback-only box | strut with first-available-font metrics | tentative baseline — **PR-1d** | ✓ | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | half-leading | `A′ = A + L/2` | existing formula (`inline/pack/mod.rs:581`) — unchanged | ✓ (pre-existing) | yes |
 | CSS Text 3 §5.5 Line Breaking Details | break opportunities | inline box boundary is **not** one | M3 — the marker path calls the shared core without a wrap check — **PR-1b** | ✓ | yes |
@@ -225,10 +228,11 @@ the answer.
 | CSS Writing Modes 4 §6.1 Abstract Dimensions | inline size ≡ logical width | basis identity in vertical modes | same | ✓ | yes |
 | CSS Writing Modes 4 §3.2 Block Flow Direction: the writing-mode property | box whose `writing-mode` differs from its **parent box** | an otherwise-`inline` box's display computes to `inline-block` | M1's emit test — such a box is an atomic and gets no marker; §6 cell 12c — **PR-1b** | ✓ | yes |
 | CSS Writing Modes 4 §6.4 Abstract-to-Physical Mappings | side mapping | "based on the **used** `direction` and `writing-mode`" of the box being mapped | M1's `WritingModeContext` source; §6 cells 12b/12e — **PR-1b** | ✓ | yes |
+| CSS Display 3 §A Glossary | *inline box* vs *atomic inline* | "A non-replaced inline-level box whose inner display type is flow" vs "An inline-level box that is **replaced** (such as an image) **or** that establishes a new formatting context" (`webref dfn css-display-3 "inline box"` → `§A Glossary #inline-box`; `body css-display-3 inline-box`) | the **canonical predicate** the prereq PR establishes (§9), consumed by M1's emit test — **PR-1a**, §6 cell 6c — and by the four `client*` members. ⚠ elidex today answers only the formatting-context half (`is_atomic_inline`, `inline/collect.rs:14`; and the `pub` `is_block_level`, `block/mod.rs:46`, is a second partition of the same enum), so the replaced half is unimplemented on the inline path and this program **consumes** the predicate rather than re-deriving one | ✓ | yes |
 | CSS Backgrounds 3 §3.2 Line Patterns: the `border-style` properties | `none` / `hidden` | width ignored ⇒ 0 | already zeroed at computed-value time — the loop at `crates/css/elidex-style/src/resolve/box_model/mod.rs:261-275` sets the width to `0.0` for `BorderStyle::None \| Hidden`, and that crate's own `border_width_zero_when_style_none` (`resolve/box_model/tests.rs:22`) asserts it, so this program adds no cell. ⚠ The row vouches for the **behaviour**, not for the site's comments: `:262` says only "CSS spec:" with no module or section, and `:271` cites "CSS Backgrounds §4.3" for the non-negative rule, which is *Corner Clipping* — the rule is css-backgrounds-3 **§3.3** *Line Thickness: the `border-width` properties*. Both are pre-existing and outside all three of §3.1's concept greps, so `#11-inline-spec-cite-misattribution` owns them by an explicit hand-off rather than by a grep. The §3.2 anchor here is this memo's, established by lookup | ✓ | yes |
 
-**Breadth**: K=9 specs (CSS Inline 3, CSS Text 3, CSS 2, CSS Break 3, CSS Box Model 3,
-CSS Sizing 3, CSS Writing Modes 4, CSS Backgrounds 3, CSSOM View 1), M=34 entries (`Split decision` below restates K; both are recomputed). Both figures are recomputed
+**Breadth**: K=10 specs (CSS Inline 3, CSS Text 3, CSS 2, CSS Break 3, CSS Box Model 3,
+CSS Sizing 3, CSS Writing Modes 4, CSS Display 3, CSS Backgrounds 3, CSSOM View 1), M=35 entries (`Split decision` below restates K; both are recomputed). Both figures are recomputed
 from the table above by `python3 .claude/tools/plan-xcheck.py <memo>`, which prints them and fails
 on drift — that command is the verification artifact, and it is re-runnable rather than dated.
 ⚠ `preflight.py` reports `parsed citations: 0` here: its `SPEC_LABEL_REVERSE` has no CSS-module
@@ -236,7 +240,7 @@ labels, so its citation hard-gate is **vacuous for this memo** and every §-numb
 verified by hand with `.claude/tools/webref` instead. Closing that gap is
 the plan-checker tooling task's (§9), not this umbrella's.
 
-**Split decision**: K=9 ⇒ SPLIT-DEFAULT. The plan **is** split into four shipping PRs, each
+**Split decision**: K=10 ⇒ SPLIT-DEFAULT. The plan **is** split into four shipping PRs, each
 behaviour-scoped, with one owning PR per coupling (§2, §5.3); the breadth verdict and the
 invariant-axis verdict agree.
 
@@ -244,7 +248,7 @@ invariant-axis verdict agree.
 
 Adjacent pre-existing laxity:
 
-* `crates/layout/elidex-layout-block/src/inline/pack/boxes.rs:82` hard-codes
+* `crates/layout/elidex-layout-block/src/inline/pack/boxes.rs:82-84` hard-codes
   `EdgeSizes::default()` on every inline `LayoutBox`. **PR-1c fills it** (§5.1 M4) — for
   *every* decorated inline, not only the empty ones this slot names, because that is the gap
   §4.3 identifies and it is what makes the PR-1d flip honest rather than half-true.
@@ -343,7 +347,7 @@ Reading decoration off a run cannot fix either. The box itself must enter the st
 
 ### §4.3 ⚠ Inline box decoration is not laid out at all
 
-`assign_inline_layout_boxes` hard-codes zero edges (`inline/pack/boxes.rs:82`) and the packer
+`assign_inline_layout_boxes` hard-codes zero edges (`inline/pack/boxes.rs:82-84`) and the packer
 never advances for an inline box's edges. CSS Inline 3 §2's "Inline-axis margins, borders, and
 padding are respected between inline-level boxes" is unimplemented engine-wide. **This is why
 the slot is an umbrella, and why §5.3 puts geometry before the existence flip**: the geometry
@@ -356,10 +360,10 @@ whether any line is phantom.
 
 | # | Question | Decision | Grounds |
 |---|---|---|---|
-| **M1** | What enters the item stream, carrying what? | Two `InlineItem` variants, `InlineBoxStart` / `InlineBoxEnd`, emitted around the recursion at `inline/collect.rs:291` for every inline with **at least one non-zero edge on any side**. Payload: `entity` + the **three physical `EdgeSizes`** `resolve_box_model(&style, containing_inline_size)` returns (`helpers.rs:116`) + the `WritingModeContext` they were resolved under (`logical.rs:27`), built from **the decorated inline's own `style`** (`inline/collect.rs:217`) — `WritingModeContext::new(style.writing_mode, style.direction)`. Grounds: <br>• **The axis is the IFC's by construction, so its source cannot matter.** css-writing-modes-4 §3.2 *Block Flow Direction*: "If a box has a different `writing-mode` value than **its parent box** … If the box would otherwise become an in-flow box with a computed display of `inline`, **its display computes instead to `inline-block`**." (The trigger is the *parent box*, not the containing block, and the "establishes an independent … formatting context" clause of the same rule applies only to a box that is a block container — an inline reaches `inline-block` by the display change, not by that clause.) A decorated *inline box* therefore always shares the IFC's writing mode; a `<span style="writing-mode:vertical-rl">` computes to `inline-block`, i.e. an atomic, which M1 emits no marker for. <br>• **The direction is the box's own.** css-writing-modes-4 §6.4 gives the abstract-to-physical mappings "based on the **used** `direction` and `writing-mode`" — of the box whose sides are being mapped. `direction` *can* differ on an inline box without forcing an independent context, so it is the one component that varies, and css-writing-modes-4 §6.2/§6.4 say it is the box's own. <br>• **Why the two competing readings fail**: css-writing-modes-4 §2.1 (*Specifying Directionality: the `direction` property*), verbatim: "The direction property has no effect on bidi reordering when specified on inline boxes whose unicode-bidi value is normal, **because the box does not open an additional level of embedding with respect to the bidirectional algorithm**." Its subject is the *embedding level* of reordered content, not the mapping of a box's own sides, so it does not license taking the direction from elsewhere. ⚠ Earlier revisions paraphrased this as "when `unicode-bidi` is `normal`", dropping both "when specified on inline boxes" and the `because` clause that names the mechanism — the clause is what makes the refutation hold rather than merely assert it. (Cell 12b's only `[dir]` element is the `<p>`, so its `<span>` really is `unicode-bidi: normal`; the citation is sound and still does not reach). css-break-3 §5.4's broken-edge rule — quoted in full in §3's css-break-3 row, and **referred to, not re-quoted, everywhere else including here**, so one edit keeps every site true — is scoped to *which side of a fragment is the broken edge*, and its own example is an element that "breaks across two lines" — an unfragmented box has no broken edge. §3 routes that whole section — both `slice` and `clone` — to `#11-inline-box-decoration-splits`, which is also where the parent-direction source lives, so the two direction sources never meet inside one PR. <br>Only the physical edge *values* come from the element's own `ComputedStyle`. Logical facts are *derived* at the point of use via `LogicalEdges::from_physical` (`logical.rs:186`), applied to each set separately: their inline-start/inline-end components summed across the three sets give M3's advance and M4's content offset; the same components tested *per set* give M5's predicate. **Both are derived in `pack/inline_box.rs` beside `has_inline_axis_edge`, not cached on the marker** — the sums' inputs already sit on the payload, and §5.2 designates that module the one derivation site for everything read off a marker, so a stored total would be a second representation of a fact the same struct already determines. `helpers.rs`'s `inline_pb` (`:148`) is **not** reusable here — it covers padding + border only, and the advance must include margin. The `PackItem` forms are `InlineBoxStart { item_index }` / `InlineBoxEnd { item_index }` — **an index, not a copy of the payload**, per §4's `PackItem` idiom; markers never become `FlowMember`s. ⚠ **Split across PR-1a and PR-1b by §8's dead-field rule.** PR-1a emits `InlineBoxStart { entity }` / `InlineBoxEnd { entity }`: the emit *test* resolves the edges at collect time and then discards them, because the variants' only PR-1a readers are the exhaustive matches. The three `EdgeSizes` + `WritingModeContext` join the payload in **PR-1b**, with their first readers M3/M4/M5. The rule the DoD states therefore reaches this payload too, not only `line_height` / font identity / `group_key`. | **Three sets, not one**: `LayoutBox` has independent `padding`/`border`/`margin` (`crates/core/elidex-plugin/src/layout_types/boxes.rs:88-91`) consumed separately by `padding_box`/`border_box`/`margin_box` (`:134-150`), and `resolve_box_model` already returns the triple — one `LogicalEdges` cannot fill three. **Physical, not logical, across the boundary**: `assign_inline_layout_boxes` (`inline/pack/boxes.rs:48`) writes *physical* fields and receives `is_vertical: bool` with **no `direction`**, so a logical payload would need a return trip whose context is not present there. Carrying physical + the ctx keeps one conversion direction and no reconstruction. **Index, not copy**: a copied payload would duplicate the item stream's data against the file's own `item_index` idiom, and would give M5 two derivation sites — the pre-pack gate holds `&InlineItem` and the packer holds a `PackItem`, so only an index lets both read the *same* payload through one function. Emit on **any** side because M4 must fill all four for a block-axis-only inline to paint; the *existence* test is inline-axis-only (M5) — see §6 cell 6 for the pair. `resolve_box_model` is mandatory: `sanitize_padding` (`:96`) resolves percentages against 0, `sanitize_border`/`sanitize_edge_values` (`:102`/`:48`) clamp non-negative. Basis = logical width = inline size (css-box-3 §3.1/§4.1; css-writing-modes-4 §6.1), `resolve_padding`'s documented contract (`:57-62`). |
+| **M1** | What enters the item stream, carrying what? | Two `InlineItem` variants, `InlineBoxStart` / `InlineBoxEnd`, emitted around the recursion at `inline/collect.rs:291` for every **inline box** — css-display-3 §A's defined term, i.e. **non-replaced** ∧ outer `inline` ∧ inner flow — with **at least one non-zero edge on any side**. ⚠ **The non-replaced conjunct is load-bearing and is not free today.** A replaced element with `display: inline` is an *atomic inline*, not an inline box, so css-inline-3 §2.3 clause 3 (which M5 implements) does not reach it — clause 4 does. But elidex's only box-category test on this path, `is_atomic_inline` (`inline/collect.rs:14`), matches four display keywords and says nothing about replacedness, so an `<img style="padding:10px">` falls through every arm of `collect_inline_items_inner` (`:214-251`) into the inline-element recursion. M1 therefore **consumes the canonical predicate the prereq PR establishes** (§9) rather than re-deriving one here — the same predicate the four `client*` members consume, which is why that PR lands before **PR-1a**. §6 cell 6c pins the exclusion. Payload: `entity` + the **three physical `EdgeSizes`** `resolve_box_model(&style, containing_inline_size)` returns (`helpers.rs:116`) + the `WritingModeContext` they were resolved under (`logical.rs:27`), built from **the decorated inline's own `style`** (`inline/collect.rs:217`) — `WritingModeContext::new(style.writing_mode, style.direction)`. Grounds: <br>• **The axis is the IFC's by construction, so its source cannot matter.** css-writing-modes-4 §3.2 *Block Flow Direction*: "If a box has a different `writing-mode` value than **its parent box** … If the box would otherwise become an in-flow box with a computed display of `inline`, **its display computes instead to `inline-block`**." (The trigger is the *parent box*, not the containing block, and the "establishes an independent … formatting context" clause of the same rule applies only to a box that is a block container — an inline reaches `inline-block` by the display change, not by that clause.) A decorated *inline box* therefore always shares the IFC's writing mode; a `<span style="writing-mode:vertical-rl">` computes to `inline-block`, i.e. an atomic, which M1 emits no marker for. <br>• **The direction is the box's own.** css-writing-modes-4 §6.4 gives the abstract-to-physical mappings "based on the **used** `direction` and `writing-mode`" — of the box whose sides are being mapped. `direction` *can* differ on an inline box without forcing an independent context, so it is the one component that varies, and css-writing-modes-4 §6.2/§6.4 say it is the box's own. <br>• **Why the two competing readings fail**: css-writing-modes-4 §2.1 (*Specifying Directionality: the `direction` property*), verbatim: "The direction property has no effect on bidi reordering when specified on inline boxes whose unicode-bidi value is normal, **because the box does not open an additional level of embedding with respect to the bidirectional algorithm**." Its subject is the *embedding level* of reordered content, not the mapping of a box's own sides, so it does not license taking the direction from elsewhere. ⚠ Earlier revisions paraphrased this as "when `unicode-bidi` is `normal`", dropping both "when specified on inline boxes" and the `because` clause that names the mechanism — the clause is what makes the refutation hold rather than merely assert it. (Cell 12b's only `[dir]` element is the `<p>`, so its `<span>` really is `unicode-bidi: normal`; the citation is sound and still does not reach). css-break-3 §5.4's broken-edge rule — quoted in full in §3's css-break-3 row, and **referred to, not re-quoted, everywhere else including here**, so one edit keeps every site true — is scoped to *which side of a fragment is the broken edge*, and its own example is an element that "breaks across two lines" — an unfragmented box has no broken edge. §3 routes that whole section — both `slice` and `clone` — to `#11-inline-box-decoration-splits`, which is also where the parent-direction source lives, so the two direction sources never meet inside one PR. <br>Only the physical edge *values* come from the element's own `ComputedStyle`. Logical facts are *derived* at the point of use via `LogicalEdges::from_physical` (`logical.rs:186`), applied to each set separately: their inline-start/inline-end components summed across the three sets give M3's advance and M4's content offset; the same components tested *per set* give M5's predicate. **Both are derived in `pack/inline_box.rs` beside `has_inline_axis_edge`, not cached on the marker** — the sums' inputs already sit on the payload, and §5.2 designates that module the one derivation site for everything read off a marker, so a stored total would be a second representation of a fact the same struct already determines. `helpers.rs`'s `inline_pb` (`:148`) is **not** reusable here — it covers padding + border only, and the advance must include margin. The `PackItem` forms are `InlineBoxStart { item_index }` / `InlineBoxEnd { item_index }` — **an index, not a copy of the payload**, per §4's `PackItem` idiom; markers never become `FlowMember`s. ⚠ **Split across PR-1a and PR-1b by §8's dead-field rule.** PR-1a emits `InlineBoxStart { entity }` / `InlineBoxEnd { entity }`: the emit *test* resolves the edges at collect time and then discards them, because the variants' only PR-1a readers are the exhaustive matches. The three `EdgeSizes` + `WritingModeContext` join the payload in **PR-1b**, with their first readers M3/M4/M5. The rule the DoD states therefore reaches this payload too, not only `line_height` / font identity / `group_key`. | **Three sets, not one**: `LayoutBox` has independent `padding`/`border`/`margin` (`crates/core/elidex-plugin/src/layout_types/boxes.rs:88`, `:90`, `:92` — ⚠ **not** a contiguous `:88-91` range, as an earlier revision wrote: the fields are doc-comment-separated and `margin` is `:92`) consumed separately by `padding_box`/`border_box`/`margin_box` (`:134-150`), and `resolve_box_model` already returns the triple — one `LogicalEdges` cannot fill three. **Physical, not logical, across the boundary**: `assign_inline_layout_boxes` (`inline/pack/boxes.rs:48`) writes *physical* fields and receives `is_vertical: bool` with **no `direction`**, so a logical payload would need a return trip whose context is not present there. Carrying physical + the ctx keeps one conversion direction and no reconstruction. **Index, not copy**: a copied payload would duplicate the item stream's data against the file's own `item_index` idiom, and would give M5 two derivation sites — the pre-pack gate holds `&InlineItem` and the packer holds a `PackItem`, so only an index lets both read the *same* payload through one function. Emit on **any** side because M4 must fill all four for a block-axis-only inline to paint; the *existence* test is inline-axis-only (M5) — see §6 cell 6 for the pair. `resolve_box_model` is mandatory: `sanitize_padding` (`:96`) resolves percentages against 0, `sanitize_border`/`sanitize_edge_values` (`:102`/`:48`) clamp non-negative. Basis = logical width = inline size (css-box-3 §3.1/§4.1; css-writing-modes-4 §6.1), `resolve_padding`'s documented contract (`:57-62`). |
 | **M2** | Collapse-pass arm | **Transparent** — same shape as `InlineItem::Placeholder` (`inline/whitespace.rs:53`), not the `Atomic` barrier (`:45`). Verified: the `Placeholder` arm touches neither `prev_collapsible_space` nor `prev_text_idx`, and the `:59` lookback indexes a recorded *text* index, so interleaved markers are skipped by construction — including an adjacent `Start`/`End` pair. | §1.6 (css-text-3 §4.1.1 step 4): collapsing crosses "the boundary of the inline containing that space". A barrier would change `a<span style="padding:10px"> </span>b`, currently-correct markup. |
 | **M3** | How does anything occupy a line? | **One owner, two callers.** Extract `LinePacker::note_line_occupancy(inline_advance, block_advance, hang: Option<f32>, contributes_content, occupant: LineOccupancy)` (NEW, private) writing exactly the five line-state fields `place_item` writes today: `current_inline +=` (`:695`), `current_line_height = max(..)` (`:696`), the line-occupancy raise that replaces `on_line = true` (`:697`, see the ⚠ below), `any_rendered_content \|=` (`:698`), and — **only when `hang` is `Some`** — `current_line_last_hang =` (`:701`). `place_item` calls it **after** its soft-wrap check (`:690`) and **after** snapshotting `seg_inline_start = self.current_inline` (`:694`, which five downstream sites consume), passing `Some((full-trimmed).max(0.0))` and `occupant = Content` — behaviour unchanged. The marker path calls it with **no** soft-wrap check, `occupant = BoxEdgeOnly`, `contributes_content` from M5, `block_advance = 0.0` in PR-1b (M6 supplies the real value in PR-1d, when `line_height` joins the payload under the dead-field rule — so all five parameters are named at both stages), and `hang = Some(0.0)` when M5's `has_inline_axis_edge` holds, **`None` otherwise** — a zero-advance marker (a `padding-top`-only box, cell 6) leaves the hang alone, because the space before it *is* still line-final. A marker for which `has_inline_axis_edge` holds also clears `last_placed_entity` (`:772`). | Without a shared core, *entering the line* is unowned: the marker path would either duplicate `place_item`'s five-write sequence or silently skip part of it. `Option<f32>` rather than an `f32`: the field is a *conditional* write for the marker and an unconditional one for `place_item`, and an `f32` parameter cannot express "leave it alone" — `place_item` assigns unconditionally today (`:701`). No wrap check: §1.3, a box boundary is not a break opportunity. `hang = Some(0.0)`: css-text-3 §4.1.2 keys on "at the end of **a line**", the engine encodes that at `:264-279`, and `place_item` already zeroes it for an atomic. Shaping break on non-zero **components** (§1.4's wording), so a negative or compensating pair still breaks. **One 3-valued field, not two bools**: the two readers want different questions of the same fact ("has anything entered this line?" for `finish()`, "has *content* entered it?" for the wrap guard), which is one ordered state, and CLAUDE.md's "one issue, one way" prefers encoding it once over an invariant maintained across three sites. ⚠ **`on_line` has a second reader** — the soft-wrap guard's `&& self.on_line` (`:690`) — and a marker at the head of a line would arm it, so the first content segment could soft-wrap where `on_line == false` protects it today. The guard has always meant *do not flush a line with nothing on it*, and "nothing" turns out to be the absence of **content**, not of a box boundary — so the line now has **three** states, not two. **Mechanism**: `on_line: bool` becomes `line_occupancy: LineOccupancy` (`Empty` / `BoxEdgeOnly` / `Content`), written in exactly two places — `note_line_occupancy` **raises** it monotonically from an occupant argument (`place_item` passes `Content`, the marker path `BoxEdgeOnly`), and `flush_line`'s per-line reset block (`:432-439`) sets `Empty`. The soft-wrap guard (`:690`) tests `== Content`; `finish()` (`:787`) tests `!= Empty`. ⚠ Adding it to the reset block is **behaviour-neutral today** and removes the asymmetry §4 records: `flush_line`'s three callers are `place_item`'s soft-wrap (which raises to `Content` at `:697` immediately after), `force_break` (whose `on_line = false` at `:783` becomes the same reset), and `finish()` (after which the value is never read). A second bool would instead need three write sites, an implicit `content_on_line ⇒ on_line` invariant, and a reset asymmetry no single field pays. §6 cell 15b pins it. |
-| **M4** | Where does the box's rect come from, and how do the edges reach `LayoutBox`? | **Rect**: an open-box **stack** records each `InlineBoxStart`'s cursor; `InlineBoxEnd` pops it and pushes one `current_line_entity_rects` entry (`:706`) for `entity` spanning **content-start → end-cursor** (read **before** the end marker's own advance) — the box's **content** span, never inflated by edges. Pushed by an explicit branch, not the `entity != parent_entity` guard (`:703`), which does not suppress a nested inline. ⚠ **Two channels, one buffer — and PR-1c fixes only the one it can.** `getClientRects` returns `InlineClientRects` **early**, never touching `border_box()` (`crates/dom/elidex-dom-api/src/element/layout_query.rs:219-232`), and cssom-view-1 §6 step 3 requires "one for each box fragment, describing its **border area**". `LayoutBox.content` must stay the *content* union or `border_box() = content + padding + border` double-counts. Those are contradictory demands on one value: `commit_aligned_entity_rects` builds a single `painted` rect and feeds it to **both** `EntityBounds`'s min/max bounds (→ `LayoutBox.content`, `boxes.rs:80-81`) and `EntityBounds.line_rects` (→ `InlineClientRects`, `boxes.rs:102-126`) — verified at `pack/mod.rs:488-509`. **All three buffers keep *content* spans, exactly what they hold today.** PR-1c therefore makes the **one-fragment-on-one-line** channel correct and nothing else: no `InlineClientRects` is stored below `len() > 1`, so `getClientRects` falls back to `LayoutBox.border_box()`, which M4's real edges make right. ⚠ **The more-than-one-line channel stays content-span and is a disclosed divergence, not a fix PR-1c withholds** — inflating stored fragments is `#11-inline-box-decoration-splits`'s work, on two grounds PR-1c cannot discharge: (a) **content-order identity** — `slice_and_rebase_fragment` does `b.line_rects.retain(…)` (`pack/fragment.rs:69`) immediately before the consumer (`inline/mod.rs:377` then `:380`), so under paging/multicol `line_rects[0]` is the first *kept* rect in this fragmentainer, not the box's first fragment in content order; (b) **which edge survives a break is the *parent's* inline progression direction** per css-break-3 §5.4 (§3 carries the sentence in full) — a different source from M1's own-direction side mapping and belongs with the rule that owns it. ⚠ Reachability is deliberately **not** a third reason: the edge **write** happens in `assign_inline_layout_boxes`, which `continue`s on an existing `LayoutBox` (`boxes.rs:60-62`), but §8 records that limit for *every* geometry PR-1c writes — M4's own edge write included — so it cannot discriminate between what stays and what leaves. §6 cell 17d pins the divergence as accepted, in the shape cells 23 and 24 already use. The stack entry stores the box's **content-start cursor** (already past the marker's inline-start advance), so the rect is `content-start → end-cursor` with no edge re-added — the same content-span meaning `place_item`'s rects already carry. Its `block_start` is snapshotted from `current_block_offset` at the same moments `place_item` snapshots it, so all of a line's rects share one value — the invariant `commit_aligned_entity_rects` relies on. ⚠ **The two emission rules differ on emptiness, deliberately.** `InlineBoxEnd`'s pop pushes **unconditionally**, zero-width span included — an ended box *is* a fragment, and cell 14c's empty decorated inline has no other producer, so a non-empty test there would silently delete the whole presence change. The flush-time hook is the opposite: `flush_line`, at the top before any arm runs, walks the **whole** open-box stack and **emits** a partial rect only for an entry whose span is non-empty — an *open* box with zero span has not become a fragment on this line, and emitting one would duplicate the rect its eventual `InlineBoxEnd` will push (cell 17c is that case). Cells 14c and 17c each exercise one of the two rules; an implementer unifying them breaks exactly one cell. So: and **rebases every entry's content-start to 0 unconditionally** — the two scopes differ, and binding the rebase to the emitted set would leave a box opened at the end of line N (span 0, no rect) holding a line-N cursor into line N+1 and yielding an inverted rect. §6 cell 17c pins it — the start edge was consumed on the earlier line and must not be applied again. The end edge is symmetric and needs no handling: an open box has not reached its end marker, so line N's partial rect reserves nothing for it, so a box straddling a break yields one rect per line and a box opened exactly at a break yields none. ⚠ **The marker's rect is a second producer for the same entity**: a decorated inline with text already has a `place_item` rect on that line (`:706`, its runs carry `entity == span`). The **persisting** arm folds per entity before committing (`commit_aligned_entity_rects`, `:479-487`), so one fragment per line survives — correct, and the only arm that runs. The non-persisting arm — the whole `else` clause at `pack/mod.rs:393-421`, whose unmerged rect loop is `:401-420` — does **not** fold, but it is **dead code**: `FragmentationType` has exactly `Page` and `Column` (`crates/layout/elidex-layout-block/src/lib.rs:37-42`) and `InlineFragConstraint.fragmentation_type` is non-optional (`inline/mod.rs:94`), so `persist_candidate = frag_constraint.is_none() \|\| frag_is_paged \|\| frag_is_column` (`:239`) is **identically true** and `flow_align` is always `Some`. No cell is written against that arm: a cell no markup can construct is exactly what M8's grounds refuse. The dead arm is deleted by a prereq PR (§9). **Edges**: **one derivation site, and the box-assigner stays a marshaller.** `resolve_box_model` runs **once per decorated inline**, at collect time, and its triple rides M1's marker payload (PR-1b). The packer — which holds both the payload and `entity_bounds` — carries it the last step: `EntityBounds` (`inline/pack/boxes.rs:30-41`) gains `edges: Option<(EdgeSizes, EdgeSizes, EdgeSizes)>`, written on the `InlineBoxEnd` path in `commit_aligned_entity_rects`, and `assign_inline_layout_boxes` copies it into `LayoutBox` with **no `ComputedStyle` fetch and no new parameter** — its `boxes.rs:57` touch stays the `is_err()` guard it is today. ⚠ **`Option`, and written through both arms**: `place_item`'s rect for a decorated inline **with** text lands before the end marker's, so `or_insert` fires on the edge-less producer first; the marker's commit must therefore set the field via `and_modify` as well as `or_insert`. That write-order fact is the real obstacle to putting edges on `EntityBounds` — ⚠ **not** the ground earlier revisions gave, which is measurably wrong and is withdrawn: `entity_bounds` is keyed **per entity and accumulated across lines** (`pack/mod.rs:496-509`), so an element-constant is exactly what `or_insert` is for. What this buys: `resolve_box_model` has **one** caller per pass rather than two, so the two sites cannot disagree — the invariant an earlier revision proposed to carry as a docstring contract over a shared `containing_inline_size` **and** a shared `&ComputedStyle` (the second of which was never pinned: M1 snapshots a clone at collect time, `inline/collect.rs:217`, while a box-assign-time fetch would be a live read after the whole packing pass) is now structural. | `assign_inline_layout_boxes` writes bounds into `LayoutBox.content` (`:81`) and `border_box() = content + padding + border`, so an edge-inflated rect double-counts — which is why the border area is derived at the write rather than stored in the accumulator both consumers read. Reading the end-cursor before the end advance is what keeps the end side from double-counting too. The flush-time **emit** is what a rebase-only version misses: `InlineBoxEnd` has not run at line N's flush, so line N's fragment would simply be lost. **One producer, one carrier, no map**: a `&HashMap<Entity, (EdgeSizes, EdgeSizes, EdgeSizes)>` parameter would add a *second* structure beside `entity_bounds`, which the box-assigner already takes and which is already keyed by exactly the entity the edges belong to — so the carrier exists and threading a map is the option that buys nothing. `resolve_box_model` (`helpers.rs:116`) is pure and `pub`-exported (`lib.rs:25`, with an existing cross-crate caller at `crates/layout/elidex-layout-grid/src/lib.rs:177`), so calling it once and carrying the result is free of any re-entrancy concern. ⚠ CLAUDE.md's side-store→component rule is **not** the ground here and is not invoked: its subject is a persistent entity-keyed registry and its prescribed remedy is a component, not point-of-use derivation — and `assign_inline_layout_boxes` already takes `entity_bounds: &HashMap<Entity, EntityBounds>` (`boxes.rs:50`), which the rule would condemn equally if it reached.  ⚠ **There is no second derivation site to keep in step**, which is the point: percentage edges (cell 4) are resolved once against `layout_inline_context_fragmented`'s own `containing_inline_size` (`inline/mod.rs:144`, reaching `collect_inline_items` at `:154`), and every consumer reads that one result. `assign_inline_layout_boxes` gains **no** new parameter, so a future second caller of it cannot desynchronise anything. |
+| **M4** | Where does the box's rect come from, and how do the edges reach `LayoutBox`? | **Rect**: an open-box **stack** records each `InlineBoxStart`'s cursor; `InlineBoxEnd` pops it and pushes one `current_line_entity_rects` entry (`:706`) for `entity` spanning **content-start → end-cursor** (read **before** the end marker's own advance) — the box's **content** span, never inflated by edges. Pushed by an explicit branch, not the `entity != parent_entity` guard (`:703`), which does not suppress a nested inline. ⚠ **Two channels, one buffer — and PR-1c fixes only the one it can.** `getClientRects` returns `InlineClientRects` **early**, never touching `border_box()` (`crates/dom/elidex-dom-api/src/element/layout_query.rs:219-232`), and cssom-view-1 §6 step 3 requires "one for each box fragment, describing its **border area**". `LayoutBox.content` must stay the *content* union or `border_box() = content + padding + border` double-counts. Those are contradictory demands on one value: `commit_aligned_entity_rects` builds a single `painted` rect and feeds it to **both** `EntityBounds`'s min/max bounds (→ `LayoutBox.content`, `boxes.rs:80-81`) and `EntityBounds.line_rects` (→ `InlineClientRects`, `boxes.rs:102-126`) — verified at `pack/mod.rs:488-509`. **All three buffers keep *content* spans, exactly what they hold today.** PR-1c therefore makes the **one-fragment-on-one-line** channel correct and nothing else: no `InlineClientRects` is stored below `len() > 1`, so `getClientRects` falls back to `LayoutBox.border_box()`, which M4's real edges make right. ⚠ **The more-than-one-line channel stays content-span and is a disclosed divergence, not a fix PR-1c withholds** — inflating stored fragments is `#11-inline-box-decoration-splits`'s work, on two grounds PR-1c cannot discharge: (a) **content-order identity** — `slice_and_rebase_fragment` does `b.line_rects.retain(…)` (`pack/fragment.rs:69`) immediately before the consumer (`inline/mod.rs:377` then `:380`), so under paging/multicol `line_rects[0]` is the first *kept* rect in this fragmentainer, not the box's first fragment in content order; (b) **which edge survives a break is the *parent's* inline progression direction** per css-break-3 §5.4 (§3 carries the sentence in full) — a different source from M1's own-direction side mapping and belongs with the rule that owns it. ⚠ Reachability is deliberately **not** a third reason: the edge **write** happens in `assign_inline_layout_boxes`, which `continue`s on an existing `LayoutBox` (`boxes.rs:60-62`), but §8 records that limit for *every* geometry PR-1c writes — M4's own edge write included — so it cannot discriminate between what stays and what leaves. §6 cell 17d pins the divergence as accepted, in the shape cells 23 and 24 already use. The stack entry stores the box's **content-start cursor** (already past the marker's inline-start advance), so the rect is `content-start → end-cursor` with no edge re-added — the same content-span meaning `place_item`'s rects already carry. Its `block_start` is snapshotted from `current_block_offset` at the same moments `place_item` snapshots it, so all of a line's rects share one value — the invariant `commit_aligned_entity_rects` relies on. ⚠ **The two emission rules differ on emptiness, deliberately.** `InlineBoxEnd`'s pop pushes **unconditionally**, zero-width span included — an ended box *is* a fragment, and cell 14c's empty decorated inline has no other producer, so a non-empty test there would silently delete the whole presence change. The flush-time hook is the opposite: `flush_line`, at the top before any arm runs, walks the **whole** open-box stack and **emits** a partial rect only for an entry whose span is non-empty — an *open* box with zero span has not become a fragment on this line, and emitting one would duplicate the rect its eventual `InlineBoxEnd` will push (cell 17c is that case). Cells 14c and 17c each exercise one of the two rules; an implementer unifying them breaks exactly one cell. So: and **rebases every entry's content-start to 0 unconditionally** — the two scopes differ, and binding the rebase to the emitted set would leave a box opened at the end of line N (span 0, no rect) holding a line-N cursor into line N+1 and yielding an inverted rect. §6 cell 17c pins it — the start edge was consumed on the earlier line and must not be applied again. The end edge is symmetric and needs no handling: an open box has not reached its end marker, so line N's partial rect reserves nothing for it, so a box straddling a break yields one rect per line and a box opened exactly at a break yields none. ⚠ **The marker's rect is a second producer for the same entity**: a decorated inline with text already has a `place_item` rect on that line (`:706`, its runs carry `entity == span`). The **persisting** arm folds per entity before committing (`commit_aligned_entity_rects`, `:479-487`), so one fragment per line survives — correct, and the only arm that runs. The non-persisting arm — the whole `else` clause at `pack/mod.rs:393-421`, whose unmerged rect loop is `:401-420` — does **not** fold, but it is **dead code**: `FragmentationType` has exactly `Page` and `Column` (`crates/layout/elidex-layout-block/src/lib.rs:37-42`) and `InlineFragConstraint.fragmentation_type` is non-optional (`inline/mod.rs:94`), so `persist_candidate = frag_constraint.is_none() \|\| frag_is_paged \|\| frag_is_column` (`:239`) is **identically true** and `flow_align` is always `Some`. No cell is written against that arm: a cell no markup can construct is exactly what M8's grounds refuse. The dead arm is deleted by a prereq PR (§9). **Edges**: **one derivation site; the box-assigner stays a marshaller; the carrier between them is PR-1c's own memo's choice, not this one's.** ⚠ **Why this half is delegable and the *rect* half above is not**: the rect answers §2's coupling **3×7** and is per *line*; the edges answer **no §2 pair at all** and are a per-*element* constant. Read §2's pair table — every pair names a rect, a predicate or an advance; none names edge *delivery*. So M4's two halves differ on lifetime, producer, write site and consumer, and only the rect half carries an umbrella-owned coupling. (§2's "Each **pair** is answered by exactly one M-row" therefore does **not** converse: an M-row may carry a mechanism that answers no pair, and this is the one.) That asymmetry, not "altitude" in the abstract, is why two prescribed carriers were falsified in the same direction — each was an error about the *element-constant* half reasoned through the *per-line* pipeline the paragraph above had just established. <br>`resolve_box_model` runs **once per decorated inline**, at collect time, and its triple rides M1's marker payload (PR-1b). How it gets from the payload onto `LayoutBox` is PR-1c's interior mechanism, and this memo stops at the **invariants** that mechanism must satisfy: <br>(i) exactly **one** `resolve_box_model` call per decorated inline per pass — the marker payload is the single derivation site, so no second site can disagree with it; <br>(ii) `assign_inline_layout_boxes` performs **no `ComputedStyle` fetch** — its `boxes.rs:57` touch stays the `is_err()` guard it is today. A box-assign-time fetch would be a live read *after* the whole packing pass, against M1's collect-time clone (`inline/collect.rs:217`), and nothing pins the two to agree; <br>(iii) the three sets stay **separate** all the way to `LayoutBox`'s three **independent** fields — `padding` (`crates/core/elidex-plugin/src/layout_types/boxes.rs:88`), `border` (`:90`), `margin` (`:92`) — consumed separately by `padding_box`/`border_box`/`margin_box`. ⚠ The ground is those three fields, **not** M5's disjunction: M5 is evaluated on the marker payload in `pack/inline_box.rs` (PR-1b), *upstream* of the carrier, so it would be satisfied even by a carrier that merged the sets. §5.1 M1's grounds column carries the binding ground; an earlier drafting of this clause cited M5, which does not reach here; <br>(iv) the value is an **element constant** and must arrive regardless of which line carries `InlineBoxEnd`; <br>(v) ⚠ **the edge delivery must not create an `entity_bounds` entry — and hence a `LayoutBox` — for an entity all of whose lines were discarded.** This is §2 invariant 3 (commit-on-content), which M4 **owns** through pair 3×7, so it is not delegable. Measured: every `entity_bounds` write today is inside `flush_line`'s commit arm (`pack/mod.rs:496`; `:404` is the dead non-persist arm), the discard arm (`:428`) touches `entity_bounds` not at all, and `assign_inline_layout_boxes` iterates `entity_bounds` (`boxes.rs:56`) skipping only entities with no `ComputedStyle` (`:57`) or an existing `LayoutBox` (`:60-62`) — **not** entities with degenerate bounds. A carrier that writes `entity_bounds` from the marker path in `pack()` runs per *item*, outside the commit/discard decision entirely, and would grant a box on a phantom line: that breaks §6 cell 6's "phantom ⇒ no box" and ships PR-1d's presence change inside PR-1c. §5.3's PR-1c bullet ("only on a line that already exists") is the statement (v) protects. <br>⚠ **"and no new parameter" is NOT on that list, and carrying it as though it were is what pre-decided the carrier.** It is a tie-breaker at most; stated as an invariant it silently excluded two of the three options below. <br>⚠ **Two measured facts constrain the choice, and the first of them falsifies the carrier earlier revisions prescribed.** (a) `commit_aligned_entity_rects` (`inline/pack/mod.rs:468`) is handed **no marker/text discriminator**: it drains `current_line_entity_rects`, a `Vec<(Entity, InlineLineRect)>` (`:121`, `:480`), and folds it into `merged: Vec<(Entity, f32, f32, f32)>` (`:479-487`) with no edges slot — so "written on the `InlineBoxEnd` path in `commit_aligned_entity_rects`" names a path that function cannot tell from any other. (b) The fold collapses one entity's per-line entries **before** any `entity_bounds.entry()` (`:488`, `:496`), so two producers on one line cannot order against each other at all; the surviving ordering obstacle is **cross-line** — `or_insert` fires on the first line (`:505`) while `InlineBoxEnd` may be on the last. ⚠ State (a) as a **timing** fact, not a missing-field one: that function runs at **flush, per line**, while markers are consumed in `pack()`, per *item*. "No discriminator" invites adding one, which would push an element constant through `InlineLineRect` and the `merged` tuple and re-bundle the two halves this row just separated. <br>⚠ **Three options, not two, and the reopening is not a re-prescription.** (**A**) widen `EntityBounds` (`inline/pack/boxes.rs:30-41`); (**B**) a second `Entity → (EdgeSizes, EdgeSizes, EdgeSizes)` map threaded to the box-assigner; (**C**) hand `assign_inline_layout_boxes` the `&[InlineItem]` slice and read the marker payload there — `items` is a local `Vec<InlineItem>` (`inline/mod.rs:153`) that every later use only *borrows* (`:179`, `:190`, `:192`, `:200`, `:248`, `:255`), and `PackItem` has no lifetime parameter (`pack/items.rs:18-35`, `item_index: usize`), so it is live and immutably borrowable at the assign call (`:380`). Costs, stated symmetrically: **A** must reach its write site *through* the fold, so by (a) it is not one widening but three — `InlineLineRect`, the `merged` tuple (`pack/mod.rs:479`) and `EntityBounds` — plus a rule for what an edges slot means when the fold merges two entries for one entity; **and its other implementation, writing `entity_bounds` from the marker path in `pack()`, is barred outright by (v)**. **B** adds one parameter and one structure, satisfies (v) because the assign loop's domain stays `entity_bounds`, and survives `fragment.rs:68`'s `retain` untouched. **C** adds one parameter and **no** structure, and satisfies (iv) and (v) *structurally* rather than by discipline — the item stream has no line concept at all, and the assign loop still iterates `entity_bounds`. ⚠ What is withdrawn is the *prescription*, not replaced by a new one: an earlier revision rejected **B** on the ground that "the carrier exists", meaning `EntityBounds`, and (a) falsifies that premise. PR-1c's memo weighs all three. <br>⚠ Separately withdrawn: the rejection ground earlier revisions gave against `EntityBounds` itself ("`or_insert`/`and_modify` would not re-set an element-constant on a multi-line inline") — `entity_bounds` is keyed **per entity, accumulated across lines** (`:496-511`), which is exactly what an element constant wants. | `assign_inline_layout_boxes` writes bounds into `LayoutBox.content` (`:81`) and `border_box() = content + padding + border`, so an edge-inflated rect double-counts — which is why the border area is derived at the write rather than stored in the accumulator both consumers read. Reading the end-cursor before the end advance is what keeps the end side from double-counting too. The flush-time **emit** is what a rebase-only version misses: `InlineBoxEnd` has not run at line N's flush, so line N's fragment would simply be lost. ⚠ **The carrier ground this column used to carry is withdrawn, not weakened**: "a `&HashMap<Entity, (EdgeSizes, EdgeSizes, EdgeSizes)>` parameter would add a *second* structure beside `entity_bounds` … so the carrier exists and threading a map is the option that buys nothing" rests on `EntityBounds` being writable from the marker, and its write site cannot see the marker (Decision, fact (a)). Nothing replaces it **here** — the choice moves to PR-1c's memo with the measured constraints, which is the altitude a per-PR interior belongs at. `resolve_box_model` (`helpers.rs:116`) is pure and `pub`-exported (`lib.rs:25`, with an existing cross-crate caller at `crates/layout/elidex-layout-grid/src/lib.rs:177`), so calling it once and carrying the result is free of any re-entrancy concern. ⚠ CLAUDE.md's side-store→component rule does **not** reach any of the three options, and the ground is *recorded*, not argued: [[ecs-native-side-store-audit-2026-05-21]] already adjudicated `elidex-layout` **clean** on this axis — "layout 計算の局所 scratch (children / rows / pool / run) のみ". `entity_bounds` is exactly that: a field of a stack-allocated `LinePacker` (`inline/mod.rs:251`), initialised empty (`pack/mod.rs:178`) and dropped when the IFC pass returns, whose *destination* is the `LayoutBox` **component** (`boxes.rs:88`, `dom.set_layout_box`). The rule's subject is a persistent entity-keyed registry and all three payoffs it names — SameObject via component get, GC as one query, despawn cleanup — are persistence properties with no meaning for a value that does not outlive one call. ⚠ Option **B** is *literally* the `HashMap<entity, _>` shape the rule names, so the exemption is stated at that shape and not only at the rule's subject; and `assign_inline_layout_boxes` already takes `entity_bounds: &HashMap<Entity, EntityBounds>` (`boxes.rs:50`), which the rule would condemn on `origin/main` if it reached.  ⚠ **There is no second derivation site to keep in step**, which is the point: percentage edges (cell 4) are resolved once against `layout_inline_context_fragmented`'s own `containing_inline_size` (`inline/mod.rs:144`, reaching `collect_inline_items` at `:154`), and every consumer reads that one result. That holds because the derivation happens **once, at collect time**, whatever carries the result afterwards — it is invariant (i), and it does not depend on `assign_inline_layout_boxes`'s parameter list. |
 | **M5** | What makes a line non-phantom, and what else commits? | **The clause-3 predicate is a function of the marker's edges, not a per-PR constant**, and it is a **disjunction, not a sum**: `contributes_content = has_inline_axis_edge(marker)`, true iff **any one** of the three `LogicalEdges` (padding, border, margin — each converted separately by `LogicalEdges::from_physical`) has a non-zero `inline_start` or `inline_end`. **M5 owns this predicate, and it lands in PR-1b** — M3's shaping break and hang gate are PR-1b deliverables and both call it, so the predicate cannot wait for PR-1d. What PR-1d adds is the one-argument *substitution* below, not the predicate. M1's emit test (any side) is a different test on the same payload and stays in PR-1a. Evaluated per marker as a **free function over the marker's `InlineItem` payload**, in `pack/inline_box.rs` beside the stack — deliberately *not* an `impl LinePacker` method, because the pre-pack gate at `inline/mod.rs:200` must call it too and runs before `LinePacker::new` (`:251`). One derivation site, two callers: the gate holds `&InlineItem` directly, the packer resolves its `PackItem`'s `item_index` into the same slice (M1). ⚠ The gate's escape is **qualified**, not a bare "marker escapes beside `Atomic`": `contributes_content` is a pure text predicate with no font dependence (`pack/mod.rs:556`), so a block-axis-only marker escaping `:200` would let font-less text commit a line that §1.2 says stays phantom. In PR-1b the marker path passes a constant `false` (geometry only); **PR-1d replaces that constant with this expression** — that one-argument substitution *is* the existence flip. Once a line is non-phantom, css-inline-3 §2.3's "the line box **and its in-flow content**" applies: every entity on it commits through the existing seam (`:210`), none withheld. | A literal `true` for PR-1d would keep a `padding-top`-only inline's line alive — contradicting §1.2, M1 and cells 5/6. Emit and existence are different predicates over the same payload, so the existence one needs its own site. **Disjunction, not sum**: css-inline-3 §2.3 lists "non-zero **inline-axis** margins, padding, or borders" — three separately-named quantities, so `margin-left:-10px; padding-left:10px` — which sums to zero — still keeps the line. This is the one place the three sets must stay separate; M3's *advance* and M4's *content offset* both take the sum, because geometry adds up and a negative margin really does pull content back. §6 cell 3b pins the cancelling pair. |
 | **M6** | Height of a line kept only by decoration | `InlineBoxStart` carries the element's resolved `line_height` and font identity; M3's shared core takes `current_line_height = max(block_advance)` with `block_advance` following the packer's existing vertical convention (`if is_vertical { font_size } else { line_height }`, `:539-543`). **The memo does not claim css-inline-3 §5.3/§2.2 conformance**: the block container's **root inline box** (§1.1) is unimplemented, so the line's height floor is missing. The text path already diverges identically — `<p style="line-height:40px"><span style="line-height:5px">x</span></p>` yields 5px today, with no marker involved. New slot **`#11-inline-root-inline-box`**, pre-existing class; §6 cell 23 pins the divergence so it stays distinguishable from a bug. | The direct authority is `body css-inline-3 line-layout` (§2.2) Note: "Empty inline boxes still have margins, padding, borders, and a **line-height**, and thus influence these calculations just like boxes with content." css-inline-3 §5.3 defines the strut per *box* and does not address the line-level question. Disclosing a pre-existing divergence the new code depends on is the §4.3 pattern. |
 | **M7** | Which line gets a strut baseline | `InlineBoxStart` records a tentative `current_line_box_baseline: Option<f32>` from the box's first-available-font metrics via `FontDatabase::query` + `font_metrics` (`crates/text/elidex-shaping/src/database.rs:60`, `:101`), keeping the `!is_vertical` guard (`:575`). `flush_line` promotes it into `first_baseline` **inside** the `if self.any_rendered_content` arm (`:210`) — never on a suppressed line — and only if `first_baseline.is_none()`. The field joins `flush_line`'s per-line reset block (`:432-439`). §4 enumerates that block's current contents; **no site states a running total** — a count restated away from the enumeration it summarises drifts from it. | §1.5: a strut exists only for a glyphless box; css-inline-3 §2.2 owns the line-level composition. No second flag: the text arm sets `first_baseline` at pack time (`:575`), so `is_none()` at flush already answers "did any glyph-bearing segment land here or earlier". Traced against all three orderings. `query`+`font_metrics` rather than `measure_text`, because a glyphless box has no string to shape and the metrics are string-independent anyway (`elidex-shaping/src/measurement.rs:55`). ⚠ **Known residual**: if a line's text has no usable font, `measure_text` returns `None`, `first_baseline` stays `None`, and a co-resident box's tentative promotes on a line that does have glyphs. §6 cell 24 pins it as accepted. |
@@ -376,7 +380,7 @@ whether any line is phantom.
 | `crates/layout/elidex-layout-block/src/inline/collect.rs` | Emits `InlineItem`, incl. the marker pair, with the payload M1 specifies, using the `parent_style` already in scope. Gains **one** new parameter: `containing_inline_size` on `collect_inline_items` (`:136`) / `collect_inline_items_inner` (`:194`). `root_horizontal` (`:211`) is unchanged. Every `collect_inline_items` caller — enumerated by `grep -rn 'collect_inline_items(' crates/` minus the definition — takes the new argument: `inline/mod.rs:154` (has the value), `inline/measure.rs:22` and `:51` (the intrinsic passes, where a containing inline size is definitionally unavailable — see §9), and the test helper `inline/tests/mod.rs:17`. |
 | `crates/layout/elidex-layout-block/src/inline/pack/items.rs` | `PackItem` (`:18`) and `FlowMember` (`:49`). Markers get `PackItem` forms carrying `item_index` only (M1); they never become `FlowMember`s. |
 | `crates/layout/elidex-layout-block/src/inline/pack/mod.rs` | `LinePacker` line state. **M3's `note_line_occupancy` lives here**, beside `place_item` (`:679`), its first caller. `flush_line` (`:209`) **calls** the open-box hook that `pack/inline_box.rs` owns (M4, **PR-1c**), promotes M7's tentative baseline inside its `:210` arm (**PR-1d**), and grows its per-line reset block (M3's `line_occupancy` in **PR-1b**, M7's tentative in **PR-1d**). The fabricated shaping citation at `:726` is rewritten by **PR-1b** — the one cite this program corrects, because PR-1b changes what that comment documents (§9). |
-| `crates/layout/elidex-layout-block/src/inline/mod.rs` | The IFC entry point. Sites this program writes, by PR: `collect_inline_items`'s call (`:154`, PR-1a, one argument); `items.is_empty()` (`:161`, held in PR-1a, flipped in PR-1d); the `any_font` closure's exhaustiveness arm (`:192-199`, PR-1a, behaviour-neutral); the **outer early-return condition** (`:200`, PR-1d, gains an escape for markers **that satisfy `has_inline_axis_edge`** (M5), beside the existing `Atomic` one); `assign_inline_layout_boxes`'s call (`:380`, **unchanged** — M4 adds it no parameter); and §7's `clear_inline_flows` gating (`:637` — ⚠ inside the seam-3 range, so this site moves to the extracted module before PR-1a). The dead-arm prereq PR writes three further sites here; they have their own row below. |
+| `crates/layout/elidex-layout-block/src/inline/mod.rs` | The IFC entry point. Sites this program writes, by PR: `collect_inline_items`'s call (`:154`, PR-1a, one argument); `items.is_empty()` (`:161`, held in PR-1a, flipped in PR-1d); the `any_font` closure's exhaustiveness arm (`:192-199`, PR-1a, behaviour-neutral); the **outer early-return condition** (`:200`, PR-1d, gains an escape for markers **that satisfy `has_inline_axis_edge`** (M5), beside the existing `Atomic` one); `assign_inline_layout_boxes`'s call (`:380` — ⚠ **whether this call site changes at all depends on the carrier PR-1c's memo picks** (M4): unchanged if the edges ride a widened `EntityBounds`, one added argument if they ride a second entity-keyed map. This memo does not decide it, so it does not promise the call is untouched either); and §7's `clear_inline_flows` gating (`:637` — ⚠ inside the seam-3 range, so this site moves to the extracted module before PR-1a). The dead-arm prereq PR writes three further sites here; they have their own row below. |
 | the dead-arm prereq PR's surface | `flush_line`'s `else` arm and its unmerged rect loop (`pack/mod.rs:393-421`) **and** the `inline/mod.rs` half the reachability argument kills: `persist_candidate` (`:239`), `flow_align`'s `Option` construction (`:240-251`), `persist_flow`'s now-redundant conjunct (`:322`) and the comments that explain the two-path model (`:227-230`, `:309-320`, `:329-330`). Listed as a layer of its own because the PR spans two files, which no other row does, and because every one of its six `inline/mod.rs` items lies **above** seam 3 — the fact §8 uses to conclude the two prereqs are independent rather than ordered. |
 | `crates/layout/elidex-layout-block/src/inline/whitespace.rs` | `collapse_inline_whitespace` (`:41`) — M2's transparent arm. |
 | `crates/layout/elidex-layout-block/src/inline/measure.rs` | `max_content_inline_size` (`:44`) — M8's contribution. `min_content_inline_size`'s **accumulator** — `max_word` at `:23`/`:31` — is not touched (see `#11-inline-min-content-box-edges`); the function itself (`:15-37`) is, because its `collect_inline_items` call (`:22`) takes the new argument like every other caller. |
@@ -384,7 +388,7 @@ whether any line is phantom.
 | `crates/core/elidex-render/src/builder/slice.rs` + `walk.rs:296` (render) and `crates/layout/elidex-layout-block/src/block/mod.rs:369-372` (layout) | **Existing `box-decoration-break` implementations, and why this program does not extend them.** `walk.rs:296` reads `style.box_decoration_break`; `slice.rs`'s `break_edges` (`:22`) computes per-fragment slice geometry for **column** fragments and takes `(i, n, wm)` with **no `direction`**, its own docstring saying "the inline-axis edges are never 'at a break'"; `block/mod.rs:369-372` handles `Slice`/`Cloned` for **block** fragments off `block_start_pb`/`block_end_pb`. All three are block-axis, while a line break is an **inline-axis** break whose surviving edge is set by the *parent's* inline progression direction (css-break-3 §5.4) — a different axis and a different direction source, so none generalises as written. ⚠ Two crates, and the dependency runs **render → layout** (`elidex-render/Cargo.toml` depends on `elidex-layout-block`, not the reverse), so a layout-side producer cannot call `break_edges`, which is `pub(super)` in `elidex-render::builder`. `#11-inline-box-decoration-splits` owns the inline case and must first decide **which layer produces** the attribution, since it has both a paint consumer and a CSSOM consumer. |
 | `crates/core/elidex-plugin/src/logical.rs` | `LogicalEdges::from_physical` (`:186`) + `WritingModeContext::new` (`:27`) — used at the *point of derivation* (M1), never as a round trip. |
 | `crates/layout/elidex-layout-block/src/inline/pack/inline_box.rs` (NEW) | **The marker's own derived facts and the stack that holds them**: push on `InlineBoxStart`, pop-and-emit on `InlineBoxEnd`, the flush-time hook `flush_line` calls (emit + rebase, M4), and M5's `has_inline_axis_edge` plus the inline-start/inline-end sums M3 and M4 consume — one derivation site for everything read off a marker. ⚠ **Two shapes in one module, deliberately**: the stack and its `flush_line` hook are an `impl LinePacker` in a sibling module (the idiom `pack/fragment.rs:10` already uses), while `has_inline_axis_edge` and the sums are **free functions over the marker payload**, because the pre-pack gate at `inline/mod.rs:200` calls them before any `LinePacker` exists (M5). ⚠ **The file is created by PR-1b and grown by PR-1c**: PR-1b authors the free functions (M5's predicate and M3's sums), PR-1c adds the stack and the hook. §9's 700–800 band therefore applies to it across both PRs, not at one of them. The line-state core (M3) and the baseline promotion (M7) stay with their existing owner in `pack/mod.rs`: cohesion, not `pack/mod.rs`'s line count, decides the split. |
-| `crates/layout/elidex-layout-block/src/inline/pack/boxes.rs` | `assign_inline_layout_boxes` (`:48`) — writes `LayoutBox.content` from bounds and, per M4, the three edge fields **copied out of `EntityBounds`**, with no `ComputedStyle` fetch and no new parameter (`:57` stays the `is_err()` guard it is today). `EntityBounds` (`:30-41`) gains M4's `edges: Option<(EdgeSizes, EdgeSizes, EdgeSizes)>` and is otherwise unchanged; the `InlineClientRects` write (`:102-126`) is untouched: both keep content spans, and the per-fragment border-area inflation is `#11-inline-box-decoration-splits`'s (M4). |
+| `crates/layout/elidex-layout-block/src/inline/pack/boxes.rs` | `assign_inline_layout_boxes` (`:48`) — writes `LayoutBox.content` from bounds and, per M4, the three edge fields, **with no `ComputedStyle` fetch** (`:57` stays the `is_err()` guard it is today). ⚠ **Which structure carries the edges to this function — a widened `EntityBounds` (`:30-41`) or a second entity-keyed map — is PR-1c's plan-memo's decision, not this memo's** (M4 states the four invariants it must satisfy and the two measured facts that constrain it); this row therefore names the *write target* and not the carrier, and does not promise the signature is unchanged. The `InlineClientRects` write (`:102-126`) is untouched either way: both keep content spans, and the per-fragment border-area inflation is `#11-inline-box-decoration-splits`'s (M4). |
 | `crates/layout/elidex-layout-block/src/inline/tests/mod.rs` | The test harness. `collect_styled_runs` (`:17-25`) is a `collect_inline_items` caller whose `match item` gains marker arms in PR-1a — but it `filter_map`s to `Vec<StyledRun>`, so those arms are `None` and it **cannot observe a marker**; PR-1a adds a sibling returning the `InlineItem`s (cell 6b). Also the `mod decorated_inline;` declaration and **PR-1a's `setup_inline_test` (`:54`) change** giving the harness a deterministic way to force `any_font == false` (cell 12d). |
 | `inline/tests/decorated_inline/{stream,advance,geometry,existence}.rs` (NEW) | The four per-PR test modules §6 routes cells to. |
 | `elidex-render` tests | PR-1c's paint assertions for cell 13(c) — the background-colour and border rects that `paint/mod.rs:68`/`:382` derive from `border_box()`. The crate depends on `elidex-layout-block` (`crates/core/elidex-render/Cargo.toml`), so a cell there can run layout. §7 lists the family; §8 makes dispositioning it a PR-1c DoD item. |
@@ -403,7 +407,7 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   current behaviour: `items.is_empty()` (`inline/mod.rs:161`) excludes markers, and the `any_font`
   closure gains its **exhaustiveness arm** at `:192-199` returning `false` — behaviour-neutral,
   since a marker is neither `Text` nor `Atomic`. The **outer condition** at `:200` is untouched
-  until PR-1d. **Characterization tests for §6 cells 1, 2, 5, 6b, 7–12 and 12d land here
+  until PR-1d. **Characterization tests for §6 cells 1, 2, 5, 6b, 6c, 7–12 and 12d land here
   asserting today's behaviour** — the cells that pin *line suppression*, which is observable with
   `entity`-only markers. ⚠ **Cell 6b is the exception and is not a characterization cell**: the
   marker variants do not exist on `154bac3f`, so it pins *new* item-stream behaviour. PR-1a stays
@@ -422,7 +426,7 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   basis, the physical→logical side mapping) that M1's PR-1a variants, carrying `entity` only, give
   no channel to observe, and that the advance makes observable as a cursor position.
   ⚠ **What this PR does not touch is the box's own geometry.** `assign_inline_layout_boxes` still
-  hard-codes `EdgeSizes::default()` (`inline/pack/boxes.rs:82`), so `border_box()` is still equal
+  hard-codes `EdgeSizes::default()` (`inline/pack/boxes.rs:82-84`), so `border_box()` is still equal
   to `content`, and paint (`paint/mod.rs:68`, `emit_borders` at `:382`) draws exactly the area it
   draws today — the decoration stays as under-painted as it is on `154bac3f`, now correctly
   *positioned*. That is the property that makes this PR shippable ahead of PR-1c rather than after
@@ -446,9 +450,14 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   PR-1b opens 1 (`#11-inline-min-content-box-edges`).
 * **PR-1c — box geometry.** Owns coupling 3×7: M4. The open-box stack and its flush-time
   emit-and-rebase hook, the marker's content-span rect, and the three real `EdgeSizes` on the
-  inline's `LayoutBox`, derived at the box-assign site. **This is where painted output changes**,
+  inline's `LayoutBox`. **This is where painted output changes**,
   for every decorated inline with content — the largest user-visible delta in the program. §6
-  cells 6, 10b, 13, 14c, 17, 17b, 17c, 17d, 17f and 26 land here.
+  cells 6, 10b, 13, 14c, 17, 17b, 17c, 17d and 17f land here.
+  ⚠ **The predicate prereq PR (§9) is already in `main` by this point** — it lands before PR-1a —
+  which is what keeps PR-1c honest: PR-1c makes an inline's `LayoutBox.border` real, and
+  cssom-view-1 §6 step 1 requires `clientTop`/`clientLeft` to stay **zero** for an inline box, so
+  landing PR-1c into a tree without the guard would ship a new violation. §3's CSSOM row and §9's
+  bullet carry the measurement.
   ⚠ **Why it follows PR-1b, and why the reverse order is not merely less tidy but wrong.** Paint
   reads `border_box() = content + padding + border` (`paint/mod.rs:68` for the background colour,
   `emit_borders` at `:382`). Land M4 *first* and an inline's real edges are applied to a content
@@ -506,9 +515,15 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   **or any work needing font-fallback provenance** (css-inline-3 §5.3's "only glyphs from fallback
   fonts" strut condition folds here, §8). Re-eval: 2026-11-01.
 
-Own deferrals **per PR** (the policy's unit), for all six PRs of the program: PR-1a opens none,
+Own deferrals **per PR** (the policy's unit), for all **seven** PRs of the program: PR-1a opens none,
 PR-1b opens 1, PR-1c opens 1, PR-1d opens none, the seam-3 prereq opens none, the dead-arm prereq
-opens none. `#11-inline-root-inline-box` and the dead arm's own disposition are pre-existing class. All
+opens none, and the predicate prereq opens none **here** — what it opens is its own memo's call,
+since it is carved precisely because its questions are not this memo's to settle (§9).
+⚠ `plan-xcheck.py`'s check 9 keys its per-PR statement harvest on a **closed alternation**
+(`PR-1[a-z]|seam-3 prereq|dead-arm prereq`), so the predicate prereq's stated count is not
+machine-read; the reverse direction still holds, since an `(own)`-tagged §10 row naming it would
+fail as `§10 tags … which §5.3 does not account for`. Widening the alternation is the plan-checker
+tooling task's (§9), not a fix to make here. `#11-inline-root-inline-box` and the dead arm's own disposition are pre-existing class. All
 within ≤3; `.claude/tools/plan-xcheck.py` cross-checks these against §10's own-tagged rows.
 
 **Rejected**: widening `StyledRun` with edge fields (box-level data on a per-segment
@@ -542,6 +557,23 @@ per-child loop, a normal idiom here.
     discarded. **PR-1a's DoD therefore carries a second helper** returning the items themselves,
     exactly as it already carries `setup_inline_test`'s no-font change for
     cell 12d. Without it this cell is unconstructible, which is the defect class the memo refuses.
+6c. **A decorated *replaced* inline gets no marker** (M1's third arm) —
+    `<p>a<img style="padding:10px">b</p>`: the `<img>` computes `display: inline` (no UA rule
+    selects it, §9) and is therefore an **atomic inline**, not an inline box
+    (css-display-3 §A: *inline box* = "A non-replaced inline-level box whose inner display type is
+    flow"; *atomic inline* = "replaced (such as an image) **or** … establishes a new formatting
+    context"). css-inline-3 §2.3 clause **3** is scoped to inline boxes, so it does not reach it;
+    clause **4** (other in-flow content) does. The item stream must therefore contain **no**
+    `InlineBoxStart`/`InlineBoxEnd` for it. ⚠ Without this cell M1's predicate emits one — the
+    `<img>` passes `Display::None`, abspos and `is_atomic_inline` and falls into the inline-element
+    recursion (`inline/collect.rs:214-251`, the arm at `:291`) — and PR-1b would advance the line by
+    its **edges only**, PR-1c would give it a zero-width-content `LayoutBox`, and PR-1d would keep a
+    line alive on the wrong clause. That is a defect this program would create; today an inline
+    `<img>` gets nothing from the IFC at all. Asserted here, in PR-1a, because the item stream is
+    where the predicate is observable and where the exclusion lands.
+    ⚠ It does **not** assert correct replaced-inline layout — elidex has no replaced arm in the IFC
+    at all, which is pre-existing and out of scope (§9); the cell pins only that this program does
+    not build on top of the gap.
 7. Shape A (decorated inline containing only collapsible white space).
 8. Shape B (completely empty decorated inline).
 9. `a<span style="padding:10px"> </span>b` — the M2 cell: the space must collapse against its
@@ -651,6 +683,13 @@ edge unconditionally, so that rule is unmet; it is folded into `#11-inline-box-d
    for another reason — `<p>text <span style="padding-top:10px">x</span></p>`, where M4 must fill
    all four `LayoutBox` sides. Two sub-cells: phantom ⇒ no box; co-resident ⇒ full four-sided box.
    The *cursor* half of the same markup — advance 0 — is cell 14b's, in PR-1b.
+   ⚠ **This is the cell PR-1c's carrier choice can break, and the reason M4 states invariant (v)
+   rather than leaving the choice unconstrained.** `entity_bounds` is written today only inside
+   `flush_line`'s commit arm (`pack/mod.rs:496`), never in the discard arm (`:428`), and
+   `assign_inline_layout_boxes` iterates `entity_bounds` (`boxes.rs:56`) without asking whether the
+   bounds are degenerate. A carrier writing the edges from the marker path in `pack()` would run per
+   *item*, outside that decision, and grant this cell's **phantom** sub-cell a `LayoutBox` — which is
+   also PR-1d's presence change arriving a PR early. That sub-cell is what turns it red.
 13. `<p>a<span style="padding:10px">text</span>b</p>` — the common case §4.3 is about. Three
     assertions: (a) the span's `LayoutBox` carries real edges and its border box is
     `content + padding` **once**, not twice; (b) **`b` is displaced by 20px** — the
@@ -692,19 +731,6 @@ edge unconditionally, so that rule is unmet; it is folded into `#11-inline-box-d
     cells 23 and 24 use, and routed to `#11-inline-box-decoration-splits` (§5.3 gives the two
     reasons PR-1c cannot discharge it). The two markups therefore disagree after PR-1c, and the
     cell records that rather than hiding it.
-26. **`clientTop` / `clientLeft` stay zero for an inline box** (cssom-view-1 §6 step 1) —
-    `<p>a<span style="border:5px solid">text</span>b</p>`: the span's `clientTop` and `clientLeft`
-    must be **0**, not 5, even though its `LayoutBox.border` is now 5 on every side. ⚠ Today they
-    are 0 by accident (`inline/pack/boxes.rs:82` zeroes the edges); after M4 they are 0 only if
-    PR-1c adds the guard, so this is the one cell asserting a value that does **not** change.
-    ⚠ **Home**: `elidex-dom-api`, unlike every other cell here. That crate has no layout dependency
-    (§5.2), but this assertion needs none — the guard is a function of the element's `display` and
-    its `LayoutBox`, both of which its existing `layout_query.rs` tests already hand-insert, and
-    hand-inserting is *correct* here because the producer is not what is under test.
-    Contrast arm: a `display: block` element with the same border still reports 5.
-    ⚠ `clientWidth` / `clientHeight` carry the same spec rule and are **already** violated today
-    (they return the content size for an inline, not zero); PR-1c changes their magnitude, not
-    their correctness, so they are recorded in §9 as pre-existing and are not this cell's subject.
 17f. **The multi-line `getBoundingClientRect`, pinned as accepted** (§7; cssom-view-1 §6
     *get the bounding box*) — a wrapping `<span style="padding:10px">` must return the min/max
     **union of its per-line content spans expanded by the padding on all four sides**, which is
@@ -778,6 +804,10 @@ in `…/advance.rs`, PR-1c's in `…/geometry.rs`, PR-1d's in `…/existence.rs`
 from the start, per [[feedback_touch-time-split-means-while-writing]], rather than one file grown
 to hold every cell. None of them go in `tests/text_height/basic.rs` or `relpos_subflow.rs`. The
 relpos facet of cells 10/11 lands with the new module too.
+⚠ **One cell is not wholly in that module, and the blanket sentence above does not reach it**:
+cell **13(c)** asserts painted rects, which only `elidex-render` can observe (§5.2 routes it there,
+and that crate depends on `elidex-layout-block` so it can run layout). Its (a) and (b) arms stay in
+`…/geometry.rs`. Every other cell is where the sentence says.
 
 ## §7. Downstream
 
@@ -887,12 +917,16 @@ relpos facet of cells 10/11 lands with the new module too.
   `crates/dom/elidex-dom-api/src/element/layout_query.rs:133-151` is exactly that shape, and
   cssom-view-1 §6 requires `clientTop`/`clientLeft` to be **zero for an inline box** — which elidex
   satisfies today only because the edges are hard-zeroed. **Neither instrument could have found
-  it.** So this family list is **evidence, not an inventory**: the DoD is a reconciliation against
+  it.** (What the instruments' blindness surfaced is a *defect*; the defect turned out to be
+  four-membered, cross-crate and keyed on a defined term elidex only half-implements, so it is
+  carved to its own PR — §9 — rather than fixed as a cell here. The audit lesson stands whatever
+  owns the fix.) So this family list is **evidence, not an inventory**: the DoD is a reconciliation against
   the allowlist *plus* a hand audit of field reads, and the absence of a mechanical backstop for the
   latter is `#11-layoutbox-field-typed-reader-coverage`'s (already open, from #488) — this program
   does not close it, and says so rather than implying completeness. The field-level readers it must
-  therefore carry by hand: `clientTop`/`clientLeft` (`lb.border.*` — the violation above, PR-1c
-  fixes it) and `ResizeObserverEntry.contentRect` via `LayoutBox::content_rect_local`
+  therefore carry by hand: `clientTop`/`clientLeft` (`lb.border.*` — the violation above, **carved
+  out**: the predicate prereq PR fixes it, landing before PR-1a, §9)
+  and `ResizeObserverEntry.contentRect` via `LayoutBox::content_rect_local`
   (`crates/core/elidex-plugin/src/layout_types/boxes.rs:204-211`), whose **origin** moves from
   `(0,0)` to `(padding.left, padding.top)` at PR-1c — a moved value, not a new callback, since
   change detection compares `.size` only. And because
@@ -939,7 +973,7 @@ to their §3 rows; **two test-harness additions, without which cells 12d and 6b 
 unconstructible**: `setup_inline_test` (`inline/tests/mod.rs:54`) gains a deterministic way to
 force `any_font == false`, and a helper beside `collect_styled_runs` (`:17-25`) returns the
 `InlineItem`s rather than `filter_map`ping them to `Vec<StyledRun>` — the existing one discards
-every non-`Text` variant, so it cannot observe a marker; cells 1, 2, 5, 6b, 7–12 and 12d land as
+every non-`Text` variant, so it cannot observe a marker; cells 1, 2, 5, 6b, 6c, 7–12 and 12d land as
 characterization tests; zero behaviour change. **Dead-field rule**: fields
 whose first reader is a later PR are added by that PR — M6/M7's `line_height` and font identity by
 **PR-1d**, `group_key` by `#11-inline-box-decoration-splits` — so nothing ships unread and no
@@ -947,9 +981,9 @@ whose first reader is a later PR are added by that PR — M6/M7's `line_height` 
 **`entity` only**, since the three `EdgeSizes` and the `WritingModeContext` have no PR-1a reader —
 the emit test resolves them at collect time and discards them, and the packer's `match pi` arm is a
 no-op. They arrive in **PR-1b** with their first readers M3 and M5. ⚠ M4 (PR-1c) is a **third**
-reader of the same triple, not a second producer of it: it carries the payload's values into
-`EntityBounds` and out to `LayoutBox`, which is why §5.1 M4 has one `resolve_box_model` call per
-pass rather than two.
+reader of the same triple, not a second producer of it: it carries the payload's values through to
+`LayoutBox`, which is why §5.1 M4's invariant (i) is one `resolve_box_model` call per pass rather
+than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says nothing about it.
 
 **PR-1b** (inline-axis advance): cells 3, 3b, 4, 12b, 12c, 12e, 14, 14b, 15, 15b, 16, 16b and 25.
 `note_line_occupancy` is the **only** writer of the five line-state fields, called by both
@@ -958,7 +992,7 @@ pass rather than two.
 sums live in `pack/inline_box.rs` as free functions, callable from `inline/mod.rs:200` before any
 `LinePacker` exists; the shaping break and the hang gate both read the predicate; M8 adds the
 max-content contribution and **not** the min-content one. ⚠ **The box's own geometry is
-untouched**: `inline/pack/boxes.rs:82` still writes `EdgeSizes::default()`, so `border_box()` is
+untouched**: `inline/pack/boxes.rs:82-84` still writes `EdgeSizes::default()`, so `border_box()` is
 still `content` and no painted rect changes extent — the property §5.3 gives as the reason this PR
 can precede PR-1c. `pack/mod.rs:726`'s fabricated citation is rewritten here (§3.1) — the one cite
 this program corrects, because this is the PR that changes what that comment documents; no other
@@ -968,7 +1002,7 @@ re-checks §7's reader family, and `elidex-render`'s existing `border_box()`-rea
 named and dispositioned here. `note_line_occupancy`, `pack/inline_box.rs` and M8's contribution
 carry docstring citations to their §3 rows.
 
-**PR-1c** (box geometry): cells 6, 10b, 13, 14c, 17, 17b, 17c, 17d, 17f and 26 — ⚠ **all of them
+**PR-1c** (box geometry): cells 6, 10b, 13, 14c, 17, 17b, 17c, 17d and 17f — ⚠ **all of them
 assert a first-layout property**, because `assign_inline_layout_boxes` skips any entity that
 already carries a `LayoutBox` (`boxes.rs:60-62`) and **no production site removes one**: wire #5 of
 `.claude/tools/layout-box-reader-trip-wire.sh` bans the `remove_one::<LayoutBox>` shape outside
@@ -983,15 +1017,37 @@ JS-observable-after-mutation guarantee it cannot give. **§7's full `LayoutBox`-
 dispositioned, not just paint** (a `getBoundingClientRect` assertion included, made through the
 layout-level channel §5.2 names, not in `elidex-dom-api`), and §7's allowlist reconciliation re-run
 with its delta recorded — ⚠ **plus the hand audit of *field* reads that neither wire nor the grep
-can perform** (§7), of which two are known: the `clientTop`/`clientLeft` guard this PR must add per
-cssom-view-1 §6 step 1 (cell 26 — the guard lands in `crates/dom/elidex-dom-api`, the only
-non-layout production edit in the program) and `content_rect_local`'s moved origin; no double-counted edges on either side; the `InlineClientRects` write path
+can perform** (§7), of which two are known and **neither is a cell of this PR**: the
+`clientTop`/`clientLeft` guard, carved to the predicate prereq PR, which lands before **PR-1a** and
+so is already in `main` here (§9) — PR-1c's obligation is the **integration** assertion below, not
+the guard itself; and `content_rect_local`'s origin moving from `(0,0)` to
+`(padding.left, padding.top)`, which needs no cell because
+`LayoutBox::content_rect_local` (`crates/core/elidex-plugin/src/layout_types/boxes.rs:204-211`) is a
+**total function of `padding` and `content.size`**, both of which cell 13(a) pins — a cell here
+would assert a pure function of an already-asserted input. §7 records the observer consequence
+(a moved `contentRect`, no new callback, since change detection compares `.size` only).
+⚠ **The integration assertion the withdrawn `clientTop`/`clientLeft` cell carried needs an owner, and no crate can host it whole.**
+Its content was "real `LayoutBox.border` **and** the guard ⇒ `clientTop` is 0" — one claim spanning a
+layout producer and a DOM-API reader. Measured: **no crate in the workspace depends on both
+`elidex-layout-block` and `elidex-dom-api`** (loop `grep -q` for both over every
+`crates/**/Cargo.toml` → no match), so an end-to-end cell has nowhere to live. **The canonical
+predicate is what makes the decomposition sound**, and it is a second reason this program takes the
+predicate PR rather than two local guards: the claim splits into two in-crate halves meeting on one
+shared function, with no untested gap between them. **(a) Producer half — this PR's DoD**: for
+`<p>a<span style="border:5px solid">text</span>b</p>` the `LayoutBox` PR-1c produces carries
+`border == 5` **and** its entity satisfies the canonical predicate — both in `elidex-layout-block`,
+and the second is what a future replaced-inline arm would break loudly rather than silently.
+**(b) Reader half — the predicate prereq PR's**: given a `LayoutBox` with `border == 5` on an entity
+satisfying the predicate, `clientTop` returns 0 — hand-inserted in `elidex-dom-api`, which is
+*correct* there because the producer is not under test (the ground §5.2 already uses). Neither half
+is a §6 cell of this umbrella: (a) is this DoD clause and (b) travels with the carved PR.
+No double-counted edges on either side; the `InlineClientRects` write path
 is **untouched** — PR-1c's whole CSSOM effect is that the `border_box()` fallback becomes correct
 once `LayoutBox` carries real edges (cell 17d(a)), so the cssom-view-1 §6 and css-break-3 §5.4
 citation obligations travel with the derivation to `#11-inline-box-decoration-splits`; the open-box
 stack and its `flush_line` hook carry docstring citations to their §3 rows.
 
-**PR-1d** (existence): cells 18, 19, 20, 21, 22, 23, 24 and 24b, plus the flip set — **cells 1, 2, 7, 8, 10, 11, 12 and 12d flip; 5, 6b and 9 do not**; this is the one normative statement of it — every §7
+**PR-1d** (existence): cells 18, 19, 20, 21, 22, 23, 24 and 24b, plus the flip set — **cells 1, 2, 7, 8, 10, 11, 12 and 12d flip; 5, 6b, 6c and 9 do not**; this is the one normative statement of it — every §7
 consumer checked, **including the second and wider stage of the presence change §7 states**: every
 entity on a line the flip moves from discard to commit gains its first `LayoutBox`, so the same
 reader list PR-1c dispositioned is re-checked against a *newly box-bearing* entity rather than a
@@ -1002,8 +1058,7 @@ citations to their §3 rows; slot closes.
 **This memo and the branch's tooling files** — enumerate them with
 `git diff --name-only origin/main...HEAD` (three-dot, i.e. against the merge base) rather than
 from a list here, which this branch's own next
-commit invalidates — ship with the **seam-3 prereq PR**, the first of the program's six to open *and* to
-land, per
+commit invalidates — ship with the **seam-3 prereq PR**, per
 [[feedback_plan-memo-author-in-worktree]]. No later PR re-ships them.
 
 **Seam-3 prereq PR**: `layout_inline_context_fragmented`'s reconcile block (§9's measured range)
@@ -1025,6 +1080,14 @@ Removing only the arm would leave the same dead code half-alive, which is what C
 forbids; `#11-inline-align-clientrects-nonpersist-path` closes. Stacked beside the seam-3 split,
 not folded into it, so that PR's byte-identical criterion stays provable.
 
+**Client-guard prereq PR**: cssom-view-1 §6 step 1 holds for all four `client*` members against
+the css-display-3 §A *inline box* predicate. This memo states only what it **requires** of that PR
+— the four members, the two-input predicate, and one canonical answer to "is this an inline box"
+rather than a second one beside `inline/collect.rs:14` — and hands the mechanism, the predicate's
+home and the disposition of `client_top_returns_border_width` (`element/layout_query.rs:497`) to
+that PR's own plan-memo (§9). It is carved *because* those are not this memo's questions; restating
+them as a DoD here would re-take the decision the carve removes.
+
 **Ordering: land the seam-3 PR first, because the cost is asymmetric — not because the PRs are
 coupled.** They are not: the dead arm is in `pack/mod.rs`, and its `inline/mod.rs` half (`:239`,
 `:240-251`, `:322` and their comments, all ≤ `:330`) lies entirely **above** seam 3's `:413-639`
@@ -1035,10 +1098,20 @@ survive is that the two directions cost differently: **seam-3-first costs the de
 (deleting `:413-639` renumbers nothing *above* it, and every dead-arm `inline/mod.rs` site is
 ≤ `:330`; its `pack/mod.rs` half is in a file seam 3 never touches), while **dead-arm-first forces the seam-3 PR to re-measure the one criterion in this
 program that *is* a byte range** — "byte-identical modulo the extracted signature", already
-approved at a measured range. Free in one direction, not the other. Both branch from `main`;
+approved at a measured range. Free in one direction, not the other.
+⚠ **The predicate prereq is ordered against neither of them, but is ordered against PR-1a.** Its
+constraint is **in `main` before PR-1a**, because M1's emit test consumes the predicate (§5.1 M1,
+§6 cell 6c). ⚠ This memo does **not** claim it is disjoint from the other two: its touch set follows
+from its own plan-review's choice of home (§9), so disjointness is a question it answers, not a
+premise this memo may use. What the umbrella owns is the ordering.
+All three branch from `main`;
 whichever lands second takes `git merge origin/main` (⚠ **not** `rebase` — an opened PR branch
 cannot be rebased without a force-push, which `~/.claude/hooks/` denies). **Branch topology**: the
-two prereqs are siblings off `main`; PR-1a branches off `main` after both have *landed*; PR-1b,
+**three** prereqs branch off `main`; PR-1a branches off `main` after **all three** have *landed*
+— the two `elidex-layout-block` ones because they move code PR-1a edits, and the predicate PR
+because PR-1a's M1 consumes what it establishes. ⚠ Whether the three prereqs are siblings or
+partly ordered among themselves depends on the predicate PR's touch set, which §9 hands over;
+seam-3-before-dead-arm is the only order this memo fixes. PR-1b,
 PR-1c and PR-1d each depend on their predecessor's mechanism, and because CLAUDE.md mandates **squash** merge
 a stacked branch's base commits are rewritten when its parent lands — which cannot be repaired on
 an *opened* PR without the force-push the hooks deny. So they are **not opened as a stack**: each
@@ -1079,14 +1152,16 @@ explicitly so the fold can surface.
   both re-measured on `154bac3f`, remain, so §10 records a **partial** close. PR-1a's own touch
   sites lie in the residue, not in seam 3.
   **Cold gate** ([[feedback_split-on-touch-prereq-workflow]]): re-run `gh pr list --state open` and
-  check each **against that PR's own touch set**, not a fixed crate — the seam-3 and dead-arm
-  prereqs are `elidex-layout-block` only and PR-1a–1d are
-  layout plus `elidex-render`/`elidex-dom-api` tests. Local worktree branches count too, since
+  check each **against that PR's own touch set**, not a fixed crate — **three** sets, not two: the
+  seam-3 and dead-arm prereqs are `elidex-layout-block` only; PR-1a–1d are layout plus
+  `elidex-render`/`elidex-dom-api` **tests**; and the predicate prereq's set is **not determined
+  here** — it follows from its plan-review's choice of predicate home (§9), so this memo runs the
+  gate at its *known lower bound* (`elidex-dom-api` production, which it certainly edits) and books
+  the re-run to that PR. Local worktree branches count too, since
   `gh pr list` cannot see them. ⚠ **Run it at the width the touch set actually has**, which an
   earlier revision did not: it widened the feature PRs' set to `elidex-render`/`elidex-dom-api` and
   then still checked branches against `crates/layout/elidex-layout-block/` alone. Re-run on
-  `658cc302` at the full width, and separately for the prereqs (`elidex-layout-block` only) and the
-  feature PRs (plus `elidex-render` / `elidex-dom-api`):
+  `658cc302` at all three widths:
   * **Open PRs**: none touches `crates/layout/elidex-layout-block/`. This branch's own tooling
     files ship with the seam-3 PR (§8) and PR #501 is live in `.claude/`, but the two touch
     **disjoint files** (`comm -12` on the two `--name-only` sets → empty), so there is no
@@ -1106,6 +1181,22 @@ explicitly so the fold can surface.
     `origin/layout-css2-cite-sweep`; and `git show origin/main:…/text_height/basic.rs | sed -n
     '204p;233p'` returns the two named tests, so §6's coordinates are already anchored post-split
     and PR-1a owes no re-anchoring.
+  * **The third set's known lower bound — `elidex-dom-api` production**, which the carve added and
+    which no earlier run covered. ⚠ This is a measurement at *one* width the predicate PR certainly
+    has, **not** at its set: if its plan-review puts the predicate in a shared crate the set is
+    wider, and the PR re-runs the gate then. At this width the edit site is
+    `crates/dom/elidex-dom-api/src/element/layout_query.rs`, and **nothing reaches it**. Measured on
+    `658cc302`: `gh pr diff <n> --name-only | grep -c crates/dom/elidex-dom-api/` is **0** for every
+    open PR (506, 505, 503, 502, 501, 381); and looping
+    `git diff --name-only origin/main...<ref>` over every local and `origin/` branch returns **no**
+    hit on `element/layout_query.rs`. ⚠ Two stale branches (`feat/m4-1.5-2-plugin-arch-anim`,
+    `feat/tags-t2d-interactive`) do touch `elidex-dom-api/src/registry.rs`, which registers
+    `clientTop.get` / `clientLeft.get` (`registry.rs:168-169`) — recorded because it is the nearest
+    miss, and not a collision: the guard lands in the handler bodies, and whether the PR needs
+    `registry.rs` at all is its own memo's question. The general claim in the bullet above ("None
+    reaches an edit site this program holds") therefore still holds at every width this memo can
+    measure — which is the thing a widened set most often falsifies, and the reason the residual
+    width is booked rather than assumed clean.
   ⚠ A round-16 finding held that the widening would surface `domform-submittable-category`.
   **Measured and refuted**: `git diff --name-only origin/main...domform-submittable-category |
   grep -E "crates/layout/|elidex-render|elidex-dom-api"` returns nothing, so it collides with
@@ -1195,7 +1286,13 @@ explicitly so the fold can surface.
   builds a `client_rects(entity)` two-source dispatch and **C-4 retires `LayoutBox` +
   `InlineClientRects`** outright. **Disposition**: this umbrella writes only to surfaces that exist today
   and adds **no new carrier** — M4 fills `LayoutBox`'s existing edge fields and leaves
-  `InlineClientRects` untouched. The ground that this costs C-4 nothing is **in this repo, not in
+  `InlineClientRects` untouched. ⚠ **"Carrier" is used in two senses in this memo and they must not
+  be conflated.** Here and in the two bullets below it means a **persisted geometry surface**
+  (`LayoutBox` / `InlineClientRects` / `BoxFragment`) — the thing C-4 would have to unwind. In §5.1
+  M4 it means the **in-pass transport** from the marker payload to the box-assigner, whose choice is
+  explicitly undecided. The claim here holds under all three of M4's options, because every one of
+  them is `LinePacker`-local and dropped when the IFC pass returns (§5.1 M4's grounds measure it),
+  so none of them persists anything for C-4 to unwind. The ground that this costs C-4 nothing is **in this repo, not in
   C-4's scope**: `impl From<&elidex_plugin::LayoutBox> for BoxFragment` (`fragment_tree.rs:183`)
   projects `content`/`padding`/`border`/`margin` 1:1 and its docstring calls itself "the single
   source of the `LayoutBox`↔`BoxFragment` field correspondence", so M4's three fields carry across
@@ -1213,7 +1310,7 @@ explicitly so the fold can surface.
   `origin/terminal-z-c3-plan` and self-declares "pre-`/elidex-plan-review` design anchor", so it is
   read as intent, not as ratified fact.
   ⚠ **Lane sequencing**: C-3 states it is "not layout-only and not parallel-safe … coordinated
-  sub-slices, not a single PR". Both programs are in the Layout lane. This umbrella's six PRs do
+  sub-slices, not a single PR". Both programs are in the Layout lane. This umbrella's seven PRs do
   not block on C-3 (they add no carrier and no consumer), but the splits slot does — its trigger is
   amended to name C-3b alongside PR-1d landing.
 * **`#11-inline-spec-cite-misattribution`** (new slot, **pre-existing** class): the wrong-section
@@ -1237,6 +1334,135 @@ explicitly so the fold can surface.
   Trigger: any lane already sweeping citations in `elidex-layout-block`, `elidex-plugin`,
   `elidex-shell` or `elidex-dom-api`, or the citation-hygiene program reaching its `crates/**`
   re-derivation slice. Re-eval: 2026-11-01.
+* **The canonical *inline box* predicate, with the `client*` guard as its first consumer — carved
+  to a third standalone prereq PR, ordered before PR-1a.** ⚠ **Deliberately larger than "add a guard
+  to two getters", on a measured ground.** css-display-3 §A's *inline box* is needed by **two**
+  consumers inside this program — the four `client*` members (`elidex-dom-api`) and **M1's emit
+  test** (`elidex-layout-block`, PR-1a, §6 cell 6c) — and elidex has no site that answers it. Giving
+  each consumer its own answer is the state CLAUDE.md's *one issue, one way* forbids ("新 seam +
+  N 個の legacy 実装 が共存する strangler 中間状態を残さない"); the pragmatic alternative — excluding
+  replaced elements in `collect.rs` with the in-crate `get_intrinsic_size` proxy (`helpers.rs:405`)
+  while the guard picks its own — is the "現実解" *ideal over pragmatic* declines by default, and it
+  is **load-state-dependent** besides — measured, not supposed: `get_intrinsic_size` reads the
+  `ImageData` **component** (`helpers.rs:407`), whose only producer is `decode_image`
+  (`crates/shell/elidex-navigation/src/loader.rs:392-396`), so an `<img>` that has not loaded or
+  whose decode failed carries none and reads as **non-replaced**. A predicate whose answer depends
+  on network timing is not one two consumers can share, and it is not one css-display-3 §A
+  describes. So the PR establishes **one** predicate in a home both crates reach, and both
+  consumers consume it. It is ordered before **PR-1a** because that is where the first consumer
+  lands — not before PR-1c, which an earlier revision wrote when only the guard was in view.
+  ⚠ **Its touch set is therefore NOT knowable from here, and this memo asserts none.** The home,
+  whether `FormControlState` needs a crate edge or a move, and whether `is_atomic_inline`
+  (`inline/collect.rs:14`) is subsumed or left standing are that PR's plan-review questions; it
+  re-runs the cold gate at whatever width it lands on
+  ([[feedback_split-on-touch-prereq-workflow]]). An earlier revision claimed "`elidex-dom-api` only,
+  disjoint from both other prereqs, lands any time" and then derived the branch topology, the
+  tooling-ship paragraph and a third cold-gate width from it — a premise asserted at four sites
+  while being listed among what this bullet hands over.
+  Step 1 is *identical* across `clientTop`, `clientLeft`, `clientWidth` and `clientHeight`
+  (`body cssom-view-1 dom-element-clienttop` prints all four; §3's CSSOM row quotes it), and elidex
+  implements it for **none** of them: `clientWidth`/`clientHeight`
+  (`crates/dom/elidex-dom-api/src/element/layout_query.rs:120-132` → `get_padding_box`, `:346`)
+  already return a non-zero padding box for an inline **today**, and `clientTop`/`clientLeft`
+  (`:133-151`) read `lb.border.top`/`.left` directly and are zero only because
+  `inline/pack/boxes.rs:82-84` hard-codes `EdgeSizes::default()`. ⚠ The two halves rest on
+  **different** fields, which one coordinate cannot name: `padding` is `:82`, `border` is `:83`,
+  `margin` is `:84`. This memo cites the `:82-84` block wherever the claim is "all three edges are
+  zeroed"; the `clientTop`/`clientLeft` half rests on `:83` alone and the
+  `clientWidth`/`clientHeight` half on `:82` alone. An earlier drafting cited `:82` for both.
+  ⚠ **A shared helper makes the obvious "one place" fix wrong**: `clientWidth`/`clientHeight` and
+  `scrollWidth`/`scrollHeight` (`:155-170`) go through the **same** `get_padding_box` (`:346`), and
+  `scrollWidth`/`scrollHeight` carry **no** inline clause — `body cssom-view-1
+  dom-element-scrollwidth`'s only zero-return is "does not have any associated box". Guarding inside
+  `get_padding_box` would silently zero both scroll members for every inline. Handed over with the
+  mechanism, because it is the trap the mechanism decision walks into.
+  ⚠ `offsetTop`/`offsetLeft` also carry no inline clause and are **not** in scope: `body cssom-view-1
+  dom-htmlelement-offsettop` step 1 zero-returns only for the body element or no associated box, and
+  the rule is a **first-box** one ("An inline element that consists of multiple line boxes will only
+  have its first box considered"), whereas elidex derives them from the union `border_box()`. That is
+  a different divergence from cell 17f's union-vs-`getClientRects` one and belongs to
+  `#11-inline-box-decoration-splits` with the rest of the per-fragment attribution; §7's reader
+  family names the members without separating the two rules.
+  **Why it is a PR and not a slot**: PR-1c fills those edges, so deferring the guard would ship a
+  *new* violation on `<span style="border:5px solid">` — CLAUDE.md is unconditional on that
+  ("TODO 先送り禁止"), and the correct direction is monotone: landing the guard first changes
+  `clientTop`/`clientLeft` for a non-replaced inline from 0 to 0 (now by construction) and
+  `clientWidth`/`clientHeight` from the padding-box size to 0 (a pre-existing violation closed),
+  and PR-1c then cannot regress it.
+  **Why it is not a cell of PR-1c**, which is what an earlier revision made it: (a) the predicate is
+  css-display-3's *inline box*, "A non-replaced inline-level box whose inner display
+  type is flow" — **two** inputs, not one, so a guard keyed on `Display::Inline` alone is wrong by
+  construction. Both the quote and the §-number come from lookup, not recall:
+  `.claude/tools/webref dfn css-display-3 "inline box"` → `§A Glossary #inline-box`, and
+  `body css-display-3 inline-box` prints the sentence and, beside it, *atomic inline*;
+  (b) elidex answers only the formatting-context half — `is_atomic_inline`
+  (`inline/collect.rs:14`) matches `InlineBlock`/`InlineFlex`/`InlineGrid`/`InlineTable` and nothing
+  about replacedness, while css-display-3 §A's *atomic inline* is "replaced (such as an image)
+  **or** … establishes a new formatting context", so **where** the one canonical answer to "is this
+  an inline box" should live is an open question this umbrella must not settle by adding a second
+  one. ⚠ **Two** existing sites partition `Display` into box categories, not one: `is_atomic_inline`
+  and the `pub` `is_block_level` (`crates/layout/elidex-layout-block/src/block/mod.rs:46`) — any
+  canonical answer is the complement of both, modulo replacedness, so the survey is
+  `grep -rEn 'fn is_(atomic_inline|block_level)' crates/`, not a single coordinate
+  ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]);
+  (c) `elidex-dom-api` has no layout dependency (§5.2), so the predicate cannot simply call
+  `collect.rs` — and the **replacedness half is not reachable there either**: `get_intrinsic_size`
+  (`helpers.rs:405`) tests `ImageData`, `FormControlState` and `IframeData`; the first and third
+  live in `elidex-ecs` (`crates/core/elidex-ecs/src/components.rs:405`, `:698`), which
+  `elidex-dom-api` depends on, but `FormControlState` lives in `elidex-form-core`
+  (`crates/dom/elidex-form-core/src/lib.rs:348`), which it does **not** — measured with
+  `sed -n '/^\[dependencies\]/,/^\[/p' crates/dom/elidex-dom-api/Cargo.toml` (plugin, ecs,
+  script-session, css, custom-elements, style, hecs, url; and no `[dev-dependencies]` section at
+  all). The gap is author-reachable, not theoretical: `input { display: inline }` makes a **replaced
+  form control** `Display::Inline`, exactly the case where the guard must not fire.
+  So "a four-member fix in `elidex-dom-api`" buys either an **incomplete predicate** or a **new
+  crate edge**, and which one is the carved PR's question — ⚠ **not** a settled premise this memo
+  may derive an ordering from (see the ⚠ under **Ordering** below);
+  (d) it flips a currently-green test — `client_top_returns_border_width`
+  (`element/layout_query.rs:497`) inserts a `LayoutBox` with `border 3/2/1/4` and **no**
+  `ComputedStyle`, and `Display::default()` is `Inline` (`keyword_enum!` gives the first variant
+  `#[default]`, `crates/core/elidex-plugin/src/computed_style/mod.rs:27-42`;
+  `computed_style/display.rs:8` lists `Inline` first), so the guard makes it return 0.
+  ⚠ **What this memo does *not* assert**, and an earlier revision did: that
+  `<img style="border:5px">` "reports 5 today". **Measured false**, in three steps, each with the
+  command that establishes it. (1) `<img>` matches **no** UA rule at all:
+  `grep -n '\bimg\b' crates/css/elidex-style/src/ua.rs` → **no hits**, so its `display` stays the
+  initial `inline` (`Display::default()`). ⚠ Not "`ua.rs` has one `display` rule" — an earlier
+  drafting of *this* sentence said that and it is false: `grep -n 'display\s*:' …/ua.rs` returns
+  many, and **no number is stated here** because the count depends on whether test comments and
+  grouped selectors are counted — a convention-dependent figure is an argument, not a measurement
+  ([[feedback_convention-dependent-figures-are-argument]]). The claim that holds is the *absence of
+  an `img` selector*, which is the one the argument needs and which is convention-free. (2) `is_atomic_inline` is **false** for `Inline` (`inline/collect.rs:14-19` matches four
+  keywords, none of them `Inline`), so the IFC treats it as a plain inline box and recurses into its
+  children, of which `<img>` has none — no `InlineItem` is emitted. (3) `assign_inline_layout_boxes`
+  iterates `entity_bounds` (`inline/pack/boxes.rs:56`), which only `place_item` populates
+  (`pack/mod.rs:706`), so the element gets **no** `LayoutBox` from the inline path and `clientTop`
+  returns 0 via `map_or` (`element/layout_query.rs:137-140`). Corroborating grep:
+  `grep -rn 'replaced\|ImageData\|get_intrinsic_size' crates/layout/elidex-layout-block/src/inline/`
+  returns **exactly one** hit, `inline/styled_run.rs:12` — a doc comment on `InlineItem::Atomic`
+  reading "An atomic inline-level box (e.g. `inline-block`, replaced element)". ⚠ It is the *only*
+  place the inline module names the concept, and it is prose: no code in that module reaches a
+  replaced element. (An earlier drafting of this sentence claimed the grep returned nothing, which
+  is the error the sentence exists to prevent.) The spec half stands; the
+  "and does today" half does not, and the replaced-inline gap it exposes is that PR's question to
+  dispose of, not this one's.
+  **Scope handed over**: the predicate's **home** and whether it needs a crate edge or a component
+  move; whether `is_atomic_inline` (`inline/collect.rs:14`) is subsumed or left standing; all four
+  `client*` members; the reader half of the integration assertion (§8's PR-1c DoD gives the split);
+  the shared-`get_padding_box` trap above; and the disposition of
+  `client_top_returns_border_width`. Its own plan-memo and `/elidex-plan-review`, like every PR here.
+  **Ordering**: in `main` before **PR-1a**, because M1's emit test is one of its two consumers
+  (§5.1 M1, §6 cell 6c). ⚠ **This memo claims nothing about its touch set** — not disjointness from
+  the other two prereqs, not a sibling topology, not a cold-gate width. All three follow from the
+  home decision, which is handed over; §8's ordering paragraph and §9's cold gate now say so, and an
+  earlier revision asserted all three from a premise it had already delegated.
+  **Deferrals**: whatever it opens is its own memo's call, not counted against this program's
+  per-PR budget (§5.3) — it is carved precisely because its questions are not this memo's.
+  ⚠ **What it does not fix, and must say so**: elidex has no replaced arm on the inline path at all
+  (`is_atomic_inline` tests display keywords only, and `collect.rs`/`atomic.rs` reach no replaced
+  element), so a replaced inline still gets no correct atomic layout after this PR. The predicate
+  makes the *classification* available and cell 6c keeps this program off the gap; closing the gap
+  is separate, pre-existing work neither this PR nor this umbrella takes on.
 * Ruby annotations (css-inline-3 §2.3 clause 4) — unimplemented engine-wide.
 * **`flush_line`'s non-persisting arm (`inline/pack/mod.rs:393-421`) is dead, and this program
   deletes it.** `persist_candidate` (`inline/mod.rs:239`) is identically true — `FragmentationType`
@@ -1284,7 +1510,7 @@ explicitly so the fold can surface.
 | Action | PR |
 |---|---|
 | Register this umbrella's slot in `project_open-defer-slots.md` (the SoT per MEMORY.md), together with the two other unregistered Layout-lane slots — `#11-css2-spec-label-normalisation` (a #497 carve, **pre-existing** class; its Why/trigger are in `project_css2-spec-label-normalisation.md`, not restated here) and `#11-inline-fragmented-fn-decomposition` (carved from #495, **pre-existing** class). This umbrella's own slot is **pre-existing** class too: Codex opened it on #497, not this program. Each of the three gets a re-eval date — 2026-11-01, except `#11-css2-spec-label-normalisation`, whose own memo says **2026-10-31** — a slot registered against a PR that may slip needs a date, not only a trigger. | seam-3 prereq PR |
-| Register **and** close `#11-inline-fragmented-fn-decomposition` in one row — it is registered as closed-on-landing, not registered then closed — **as a partial close**, naming the seams §9 measures as still open, in the successor slot `#11-inline-fragmented-fn-seams-1-2` (**pre-existing** class — the seams predate this umbrella; Why: the prereq PR discharges seam 3 only; trigger: **either** the first change after **any** of this umbrella's six PRs that touches the residue — self-exempted for all six PRs, on **two different grounds**: the two prereq PRs *are* the decomposition work, so counting them would make the successor fire on its own predecessor; and PR-1a/1b/1c/1d are the feature work whose touch sites (§5.2's `inline/mod.rs` row) are enumerated and reviewed *here*, which is what the source slot's disjunct exists to force — a slot cannot demand a review it is already receiving — **or** `inline/mod.rs` growing back toward 1000 lines, the source slot's second disjunct, which has not fired and which this program's own growth could trip; re-eval 2026-11-01). | seam-3 prereq PR |
+| Register **and** close `#11-inline-fragmented-fn-decomposition` in one row — it is registered as closed-on-landing, not registered then closed — **as a partial close**, naming the seams §9 measures as still open, in the successor slot `#11-inline-fragmented-fn-seams-1-2` (**pre-existing** class — the seams predate this umbrella; Why: the prereq PR discharges seam 3 only; trigger: **either** the first change after **any** of this umbrella's seven PRs that touches the residue — self-exempted for the **six** that can touch it, on **two different grounds**: the two `elidex-layout-block` prereq PRs *are* the decomposition work, so counting them would make the successor fire on its own predecessor; and PR-1a/1b/1c/1d are the feature work whose touch sites (§5.2's `inline/mod.rs` row) are enumerated and reviewed *here*, which is what the source slot's disjunct exists to force — a slot cannot demand a review it is already receiving. ⚠ The seventh, the client-guard prereq, needs **no** exemption and is not given one: it edits `crates/dom/elidex-dom-api` only and never touches `inline/mod.rs`, so the trigger's *touch* condition is simply not met by it — **or** `inline/mod.rs` growing back toward 1000 lines, the source slot's second disjunct, which has not fired and which this program's own growth could trip; re-eval 2026-11-01). | seam-3 prereq PR |
 | Open `#11-inline-spec-cite-misattribution` (**pre-existing** class) with the three concept greps, Why, trigger and date in §9 | PR-1a |
 | Open `#11-inline-box-decoration-splits` (own) with the Why / trigger / date in §5.3, **and the §9 note that its carrier choice (`FragmentTree` vs a widened `InlineClientRects`) belongs to terminal-Z C-3/C-4, not to the slot alone** | PR-1c |
 | Open `#11-inline-min-content-box-edges` (own) with the Why / trigger / date in M8 | PR-1b |
