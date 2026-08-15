@@ -305,39 +305,25 @@ the passed-review condition, so the two are not ordered; both must hold.)
 writes them. The rules are stated together because they are one design; the split is where they land.
 Elsewhere in this memo **"PR-1a" names the pair**.
 
-Most of that mechanism lands in `-audit.sh`, which is **past** the 700–800 authoring band, not in it:
+Most of that mechanism lands in the audit part, and **the seam PR-1a-i was assigned has already been cut** —
+the memo-quantity gate took that file past 1000, which is CLAUDE.md's standalone-prereq trigger, so the split
+landed as its own commit rather than waiting. Sizes are a command, not a figure here:
 
 ```bash
 wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh
-git log --format=%h --reverse -- docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh | while read c
-  do printf '%s ' "$c"; git show "$c:docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh" | wc -l; done
 ```
 
-`-audit.sh` is **854** at `f59d98c0`. The second command is the one that decides the obligation, because the
-band memo keys its prescription to **reaching** the band
-(`memory/feedback_touch-time-split-means-while-writing.md:39` — *新規ファイルが ~700-800 行に達したら、その場で
-seam を切る*), and the window was passed on this branch with no seam cut: entered at `979e5426` (**778**),
-left at `49b4f645` (**808**). `:41` asks that a passed window be **recorded**, not merely dispositioned, so it
-is recorded here rather than answered away. A-i §8 states the bar this file class is held to — *"no part is in
-the band, let alone past it"* — and `-audit.sh` fails it today. **PR-1a-i cuts the seam in place, in its own
-commit** rather than stopping for a prereq PR; that is `:41`'s disposition, CLAUDE.md's standalone-prereq form
-being scoped to >1000 lines, and `259e12cb` is the precedent on this file class and took exactly that shape.
+The record `memory/feedback_touch-time-split-means-while-writing.md:41` asks for, rather than a disposition
+that answers it away: the file entered the 700–800 band at `979e5426` and left it at `49b4f645`, both on this
+branch, and no seam was cut at either. `:39` keys its prescription to **reaching** the band, so the cut was
+already late when it happened.
 
-**The cut has a position, a criterion and an owner for what it creates**, stated here for the same reason
-§3b states all three for `-umbrella.sh`:
-
-- **Position — after the `partset` derivation, not before it.** The new file must join the part set by
-  derivation. Measured on HEAD, where `PARTS` is still hardcoded (`-audit.sh:325`), cutting `selfcheck` into
-  a new part leaves `homes` rc=0, `selfcheck` GREEN and `inventory` rc=0 while `defined=` drops **35 → 34**:
-  a block silently leaves the audited set with every gate green.
-- **Criterion — `defined=` and `all`'s roster unchanged across the cut**, read from `rederive inventory`
-  either side. §3's byte-identity exemption cannot serve here: it exempts `all`, `homes`, `inventory` and
-  `selfcheck` **by name**, and their output is the only witness a split has. Three green gates are not the
-  criterion either, per the measurement above.
-- **Owner — PR-1a-i writes the new file's `# group: kernel` preamble in the commit that creates it**, and its
-  **stem is a decision, not a by-product**: a part's stem joins `VOCAB` (`-audit.sh:73`), so it can turn
-  previously-invisible lines into homes. Re-run `rederive homes` after the cut and extend `CLASSES`
-  (`-audit.sh:108`) if it goes RED.
+Two things survive the cut and are still PR-1a-i's. **The criterion**, because any further part-file move
+faces it: `defined=` and `all`'s roster unchanged, read from `rederive inventory` either side. §3's
+byte-identity exemption cannot serve — it exempts `all`, `homes`, `inventory` and `selfcheck` **by name**, and
+their output is the only witness a split has. Green gates are not the criterion either: omitting the
+hardcoded-`PARTS` update drops `defined=` by one while every gate stays green at rc=0. **And the new part's
+`# group:` preamble**, which `groupvocab` assigns to PR-1a-i along with every other part file's.
 
 **The work list is `rederive homes`, and so is the list of classes.** The mapping from home to class lives in
 the census, it is **total**, and an unclassified home is **RED** — falsified by planting an unruled literal.
