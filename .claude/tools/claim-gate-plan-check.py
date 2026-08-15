@@ -75,6 +75,12 @@ trigger that no longer has a measurement behind it.
   SITES       (report) lines describing the wire SET, for conscious disposal
   PREFLIGHT   §8.3's pasted verdict is what preflight prints today
 
+A check that reaches no verdict -- the wire owning classification, a section
+absent from the memo, an argv path not passed -- says so through `skip()`, and
+the closing line carries that count beside the finding count. The precedent is
+`report_transcripts`: a count, the entries, and a reason on each. It exists
+because `0 finding(s)` got printed by a run in which PASTE never executed.
+
 ANNO's grammar -- §4.2's tiers and §4.4's verbs, transcribed a second time
 because the wire does not own them yet -- is `claim_gate_grammar.py`, in a file
 of its own because the memo bounds that transcription and a file is a bound that
@@ -127,9 +133,30 @@ grammar.host = claim_gate_selftest.host = sys.modules[__name__]
 
 FAILS: list[str] = []
 
+# Non-coverage is REPORTED, never taken silently. `check_annotations` returned
+# `{}` the moment the wire file merely existed and `check_pasted_transcripts`
+# opened with `if not live: return`, so S1's own first commit -- the one that
+# creates the wire -- would have retired the PASTE check with no finding, no
+# notice, and a run that still printed `0 finding(s)`. A check that did not run
+# is indistinguishable from a check that found nothing, which is §4.3's
+# `ban_control` one level up: it reports a clean tree in exactly the way an
+# unexecuted claim reports a true one. So every early return that produces no
+# verdict says so through `skip()`, and the summary line carries the count.
+SKIPPED: list[str] = []
+
 
 def bad(code: str, msg: str) -> None:
     FAILS.append(f"[{code}] {msg}")
+
+
+def skip(code: str, why: str) -> None:
+    """One check that produced no verdict, and the condition that stopped it.
+
+    Resolved through this module's globals on every call, like `bad`: the
+    self-test's `capture_skipped()` swaps the list out for the duration of one
+    check, and a name bound once to the list itself would append where nobody
+    reads it -- the inversion `capture`'s own comment describes."""
+    SKIPPED.append(f"{code} — {why}")
 
 
 def sh(cmd: list[str]) -> tuple[int, str]:
@@ -401,26 +428,39 @@ def check_citations(memo: Memo) -> None:
 WIRE = REPO / ".claude" / "tools" / "claim-provenance-trip-wire.sh"
 
 
-def check_annotations() -> dict:
+def check_annotations() -> dict | None:
+    """The classified tree, or None once the wire owns classification.
+
+    `{}` was the wire-mode return, and PASTE's `if not live: return` read that
+    as "nothing to check" -- so the first commit that creates the wire file
+    (presence is the whole test; untracked is enough) silently retired PASTE.
+    None is not a falsy payload but the ABSENCE of one, which PASTE now has to
+    dispose of out loud."""
     if WIRE.exists():
         rc, out = sh(["bash", str(WIRE)])  # noqa
         if rc != 0:
             bad("ANNO", f"the wire reds: {out.strip()[:400]}")
-        return {}
+        return None
     live, found = grammar.verdict_over(grammar.scan_tree())
     for code, msg in found:
         bad(code, msg)
     return live
 
 
-def check_pasted_transcripts(memo: Memo, live: dict) -> None:
+def check_pasted_transcripts(memo: Memo, live: dict | None) -> None:
     """Every figure §8.2 pastes as a transcript must be what re-running produces.
     D10's own mechanism reaching the transcript instead of the claim is exactly
     how the three false annotations of v1 survived."""
-    if not live:
+    if live is None:
+        skip("PASTE", "wire mode: the wire owns classification and prints no tier "
+                      "counts, so §8.2's pasted figures have nothing to be "
+                      "re-derived from — have the wire emit them, or delete §8.2's "
+                      "paste along with this check")
         return
     s = memo.sect("8.2")
     if not s:
+        skip("PASTE", f"{memo.path.name} has no §8.2 section, so no pasted tier "
+                      f"count, lax-candidate count or acceptance row was re-derived")
         return
     m = re.search(r"\{'strict':\s*(\d+),\s*'mention':\s*(\d+)\}", s)
     if m:
@@ -743,7 +783,12 @@ def compare_arrow(memo: Memo, ln: int, cmd: str, want: str) -> None:
 FIXTURE_BLOCK = re.compile(r"^\s*(?:\S+=\$\()?(?:mktemp|git init)\b", re.M)
 
 
-def check_transcripts(memo: Memo) -> None:
+def check_transcripts(memo: Memo) -> list[str]:
+    """Findings go through `bad`; the lines this could not re-run are RETURNED.
+
+    Returned rather than printed from here, for `verdict_over`'s reason: a probe
+    can read a return value, and the arrow form's hole below shipped precisely
+    because nothing could assert what this list does and does not contain."""
     unchecked: list[str] = []
     for start, body in fenced_blocks(memo):
         if FIXTURE_BLOCK.search("\n".join(body)):
@@ -763,11 +808,31 @@ def check_transcripts(memo: Memo) -> None:
             if prompt:
                 line = line[2:].strip()
 
+            # An arrow line whose command is not RUNNABLE used to match neither
+            # this branch nor the `$`-form's, so it fell through to `i += 1` and
+            # vanished: no comparison, no `unchecked` entry, and the run read as
+            # coverage -- the exact opposite of what this check's own header
+            # states ("a silent cap reads as coverage"), with the two forms
+            # holding opposite policies for one shape. §4.1.1's whole
+            # transcript is of that shape (`git clone --local`, and three
+            # `git -C "$fixture" …` lines that put an option before the
+            # subcommand), and all four were invisible. The remedy is the report,
+            # NOT a wider RUNNABLE: cloning a repository to audit a memo is a
+            # side effect this tool must not have.
+            #
+            # A `$ ` prompt still goes to the branch below even when it carries
+            # an arrow. That branch owns the output lines beneath the prompt and
+            # already reports its own non-runnable commands; taking them here
+            # would leave those output lines to be re-read as commands.
             m = ARROW.match(line)
-            if m and RUNNABLE.match(m.group(1).strip()):
+            if m and (not prompt or RUNNABLE.match(m.group(1).strip())):
                 cmd, want = m.group(1).strip(), m.group(2).strip()
-                if needs_state(cmd):
-                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]}")
+                if not RUNNABLE.match(cmd):
+                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} "
+                                     f"(not one of the programs this checker runs)")
+                elif needs_state(cmd):
+                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} "
+                                     f"(needs shell state the memo does not also paste)")
                 else:
                     compare_arrow(memo, ln, cmd, want)
                 i += 1
@@ -785,7 +850,10 @@ def check_transcripts(memo: Memo) -> None:
                     j += 1
                 pasted = {m2.group(0) for l2 in out_lines if (m2 := FILELINE.match(l2.strip()))}
                 if not RUNNABLE.match(cmd) or needs_state(cmd):
-                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]}")
+                    why = ("needs shell state the memo does not also paste"
+                           if RUNNABLE.match(cmd)
+                           else "not one of the programs this checker runs")
+                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} ({why})")
                 elif pasted:
                     actual = {m2.group(0) for l2 in run_line(cmd).split("\n")
                               if (m2 := FILELINE.match(l2.strip()))}
@@ -809,9 +877,19 @@ def check_transcripts(memo: Memo) -> None:
                 i = j
                 continue
             i += 1
+    return unchecked
+
+
+def report_transcripts(unchecked: list[str]) -> None:
+    """The precedent this file's non-coverage accounting follows.
+
+    The header used to name ONE reason for the whole list -- "they need shell
+    state the memo does not also paste" -- which was already false of the
+    fixture-block entries beneath it, and would have been false of every entry
+    the arrow-form fix adds. The reason moved onto each line, where it is true
+    of that line."""
     if unchecked:
-        print(f"  transcripts: {len(unchecked)} pasted command(s) not re-run "
-              f"(they need shell state the memo does not also paste):")
+        print(f"  transcripts: {len(unchecked)} pasted command(s) not re-run:")
         for u in unchecked:
             print(f"    {u}")
 
@@ -983,7 +1061,16 @@ BINDING = [
 
 
 def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
+    # Invoked with one argv path, this check has nothing to compare against and
+    # returned quietly -- and so did the umbrella's own citations, its
+    # transcripts, and every `umbrella §N` reference in `check_section_refs`.
+    # The whole registry below, whose subject is a withdrawal swept through the
+    # sites that STATE it and not the document that OBLIGES it, was disabled by
+    # dropping an argument.
     if umbrella is None:
+        skip("UMBRELLA", "no umbrella memo on argv: no binding decision was "
+                         "compared, and the umbrella's own citations, transcripts "
+                         "and `umbrella §N` targets went unchecked with it")
         return
     for name, mandates, withdraws, amended in BINDING:
         if re.search(amended, umbrella.text, re.S):
@@ -1119,6 +1206,8 @@ def check_tier_transcription(memo: Memo) -> None:
 def check_preflight(memo: Memo) -> None:
     s = memo.sect("8.3")
     if not s:
+        skip("PREFLIGHT", f"{memo.path.name} has no §8.3 section, so preflight's "
+                          f"verdict was not compared against any paste")
         return
     rc, out = sh([sys.executable, str(SKILL / "preflight.py"),
                   str(memo.path.relative_to(REPO))])
@@ -1146,6 +1235,20 @@ def check_preflight(memo: Memo) -> None:
 # --------------------------------------------------------------------------
 
 
+def summary(mode: str) -> list[str]:
+    """The run's closing lines: what was found, and what was not looked at.
+
+    Split out of `main` so the self-test can prove a skipped check reaches the
+    output. It printed the finding count alone, which is how wire mode could
+    retire PASTE and still close with `0 finding(s)` -- a number a reader takes
+    as "everything ran and everything was clean"."""
+    out = [f"claim-gate plan check ({mode}): {len(FAILS)} finding(s), "
+           f"{len(SKIPPED)} check(s) not run"]
+    out += [f"  {f}" for f in FAILS]
+    out += [f"  not run: {s}" for s in SKIPPED]
+    return out
+
+
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "--self-test":
         return claim_gate_selftest.selftest()
@@ -1161,9 +1264,9 @@ def main(argv: list[str]) -> int:
     live = check_annotations()
     check_pasted_transcripts(memo, live)
     check_fence(memo)
-    check_transcripts(memo)
+    report_transcripts(check_transcripts(memo))
     if umbrella:
-        check_transcripts(umbrella)
+        report_transcripts(check_transcripts(umbrella))
     check_sites(memo)
     check_tooling_quantities(memo)
     check_umbrella(memo, umbrella)
@@ -1171,10 +1274,8 @@ def main(argv: list[str]) -> int:
     check_tier_transcription(memo)
     check_preflight(memo)
 
-    mode = "wire" if WIRE.exists() else "bootstrap"
-    print(f"claim-gate plan check ({mode}): {len(FAILS)} finding(s)")
-    for f in FAILS:
-        print("  " + f)
+    for line in summary("wire" if WIRE.exists() else "bootstrap"):
+        print(line)
     return 1 if FAILS else 0
 
 

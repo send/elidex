@@ -30,6 +30,7 @@ from __future__ import annotations
 import itertools
 import re
 import sys
+import tempfile
 from pathlib import Path
 from types import ModuleType
 
@@ -63,6 +64,22 @@ def capture(fn, *a) -> list[str]:
         return host.FAILS
     finally:
         host.FAILS = saved
+
+
+def capture_skipped(fn, *a) -> list[str]:
+    """The `SKIPPED` entries one check appends, isolated as `capture` isolates
+    findings. Both lists are swapped: a check that reaches no verdict can still
+    emit one on the way out, and a stray finding from a probe must not land in
+    the run's own list. Same call-time requirement as `capture` -- `skip()`
+    resolves `SKIPPED` through the entry point's globals, so replacing the
+    attribute is what it sees."""
+    saved_f, saved_s = host.FAILS, host.SKIPPED
+    host.FAILS, host.SKIPPED = [], []
+    try:
+        fn(*a)
+        return host.SKIPPED
+    finally:
+        host.FAILS, host.SKIPPED = saved_f, saved_s
 
 
 def capture_live() -> dict:
@@ -402,6 +419,40 @@ def selftest() -> int:
     probe("TRANSCRIPT still compares a non-fixture block in the same shape", True,
           capture(check_transcripts, block(f"{real}   → {int(n) + 7}")),
           "re-running gives")
+
+    def not_rerun(memo) -> list[str]:
+        """The lines `check_transcripts` RETURNS as not re-run. Findings still
+        go through `bad`, so they are isolated here the way `capture` does it --
+        a probe reading the return value must not leave one in the run's list."""
+        saved, host.FAILS = host.FAILS, []
+        try:
+            return check_transcripts(memo)
+        finally:
+            host.FAILS = saved
+
+    # The hole Defect A closed. An arrow line whose command is not RUNNABLE
+    # matched neither branch, so it left no comparison AND no entry here; the
+    # `$`-form's identical case had always been reported. §4.1.1's transcript is
+    # the specimen: a `git clone --local`, and `git -C <dir>` lines that put an
+    # option before the subcommand. The report is the whole fix -- widening
+    # RUNNABLE to run them would make auditing a memo clone a repository.
+    probe("TRANSCRIPT arrow form reports a non-runnable command", True,
+          not_rerun(block('git clone --local -q . "$fixture"   → 0.37s, 70M, 1704 files')),
+          "not one of the programs this checker runs")
+    probe("TRANSCRIPT arrow form reports an option before the git subcommand", True,
+          not_rerun(block('git -C "$fixture" ls-files -- "crates/**/*.rs" | wc -l   → 34')),
+          "not one of the programs this checker runs")
+    probe("TRANSCRIPT arrow form reports a runnable command needing shell state", True,
+          not_rerun(block('git grep -lE -e alpha -- "$p" | wc -l   → 2')),
+          "needs shell state the memo does not also paste")
+    probe("TRANSCRIPT arrow form reports nothing when it re-ran the line", False,
+          not_rerun(block(f"{real}   → {n}")))
+    # ...and the `$ ` form keeps its own branch, which owns the output lines
+    # beneath the prompt. Taking a prompted arrow line here would leave those
+    # to be re-read as commands of their own.
+    probe("TRANSCRIPT $-form keeps reporting its non-runnable command", True,
+          not_rerun(block('$ python3 <prototype-classifier> <this memo>   → 3 rows')),
+          "not one of the programs this checker runs")
     probes.append(("TRANSCRIPT `$NF` in an awk program is not shell state",
                    not needs_state("git grep -cE 'x' -- '*.rs' | awk -F: "
                                    "'{s+=$NF} END{print s}'"), ""))
@@ -415,6 +466,11 @@ def selftest() -> int:
     # that memo is a different slice, and a probe that reads it would re-create
     # the bundling the carve-out removed.
     live = capture_live()
+    assert live is not None, (
+        "the wire exists, so `check_annotations` classifies nothing and PASTE's "
+        "probes have no payload to build a fixture from — have the wire print the "
+        "tier counts, or delete PASTE together with these probes; what must not "
+        "happen is this file quietly stopping at the two probes below")
     t = live["tiers"]
     paste = ("## §8.2 Live-tree acceptance\n\n```\n"
              f"--- {{'strict': {t['strict']}, 'mention': {t['mention']}}}\n```\n")
@@ -424,6 +480,41 @@ def selftest() -> int:
           capture(check_pasted_transcripts,
                   synth(paste.replace(f"'strict': {t['strict']}", "'strict': 99")), live),
           "pastes strict=99")
+
+    # Defect B, replayed. `check_annotations` returned `{}` as soon as the wire
+    # FILE existed -- presence is the whole test, untracked is enough -- and
+    # PASTE's `if not live: return` read that as "nothing to check". S1's first
+    # commit creates that file, so §8.2's verification would have stopped on the
+    # commit that starts the slice, with no finding and no notice. The stub is
+    # how the transition gets a firing proof at all: the wire is the subject of
+    # the memo this checker audits and does not exist yet.
+    def with_wire(rc: int) -> tuple[list[str], object]:
+        box: list[object] = []
+        with tempfile.TemporaryDirectory() as td:
+            stub = Path(td) / "claim-provenance-trip-wire.sh"
+            stub.write_text(f"#!/usr/bin/env bash\necho 'stub wire'\nexit {rc}\n")
+            saved, host.WIRE = host.WIRE, stub
+            try:
+                found = capture(lambda: box.append(host.check_annotations()))
+            finally:
+                host.WIRE = saved
+        return found, box[0]
+
+    green_wire, wire_live = with_wire(0)
+    probe("ANNO delegates to the wire and stays clean when it exits 0", False, green_wire)
+    probe("ANNO negative (the wire reds)", True, with_wire(1)[0], "the wire reds")
+    probe("ANNO in wire mode hands PASTE no payload rather than an empty one", True,
+          ["check_annotations() returned None"] if wire_live is None else
+          [f"check_annotations() returned {wire_live!r}, which PASTE reads as clean"],
+          "returned None")
+    probe("PASTE reports itself not run when the wire owns classification", True,
+          capture_skipped(check_pasted_transcripts, synth(paste), None),
+          "wire mode")
+    probe("PASTE reports itself not run when the memo has no §8.2", True,
+          capture_skipped(check_pasted_transcripts, synth("## §9 elsewhere\n"), live),
+          "no §8.2 section")
+    probe("PASTE reports no skip when it had a payload and a §8.2", False,
+          capture_skipped(check_pasted_transcripts, synth(paste), live))
 
     sites = sorted(pending_sites())
     def disposal(rows):
@@ -442,6 +533,11 @@ def selftest() -> int:
               PREFLIGHT_FIXTURE
               + re.sub(r"(\d+) hard, (\d+) soft", r"\1 hard, 99 soft", real_pf))),
           "preflight now prints")
+    probe("PREFLIGHT reports itself not run when the memo has no §8.3", True,
+          capture_skipped(check_preflight, synth("## §9 elsewhere\n")),
+          "no §8.3 section")
+    probe("PREFLIGHT reports no skip when §8.3 is there to compare", False,
+          capture_skipped(check_preflight, write_probe(PREFLIGHT_FIXTURE + real_pf)))
     (REPO / "docs" / "plans" / "zz-probe-preflight.md").unlink(missing_ok=True)
 
     # TOOLING / UMBRELLA / FIXTURE -- the three classes round 4 found recurring.
@@ -476,6 +572,14 @@ def selftest() -> int:
                         'the mention tier was "backticked **or fenced**"', "umb.md")
     probe("UMBRELLA positive (the umbrella carries the amendment)", False,
           capture(check_umbrella, slice_withdraws, umb_amended))
+    # Called with one argv path this check compared nothing and said nothing --
+    # the same shape as wire-mode PASTE, reached by omitting an argument rather
+    # than by creating a file.
+    probe("UMBRELLA reports itself not run when no umbrella was passed", True,
+          capture_skipped(check_umbrella, slice_withdraws, None),
+          "no umbrella memo on argv")
+    probe("UMBRELLA reports no skip when it had an umbrella to compare", False,
+          capture_skipped(check_umbrella, slice_withdraws, umb_mandates))
 
     FIX = ("## §8.1 Controls\n\n| # | clause | Fixture | Positive | Negative |\n"
            "|---|---|---|---|---|\n")
@@ -539,6 +643,25 @@ def selftest() -> int:
                   s3(TRUE_3[0], TRUE_3[1],
                      "(iv) a strict-looking line that is lax-but-not-strict → "
                      "MALFORMED, fail", TRUE_3[3])))
+
+    # The closing line is where a skipped check becomes visible, so it gets its
+    # own proof: every `skip()` above is worth nothing if the run still ends on a
+    # finding count alone, which is how wire mode retired PASTE in silence.
+    def with_skips(entries: list[str]) -> list[str]:
+        saved, host.SKIPPED = host.SKIPPED, list(entries)
+        try:
+            return host.summary("wire")
+        finally:
+            host.SKIPPED = saved
+
+    probe("SUMMARY counts and names a check that did not run", True,
+          [ln for ln in with_skips(["PASTE — wire mode"]) if "not run" in ln],
+          "1 check(s) not run")
+    probe("SUMMARY names no skipped check when every check ran", False,
+          [ln for ln in with_skips([]) if "not run:" in ln])
+    probe("SUMMARY states the zero rather than omitting the count", True,
+          [ln for ln in with_skips([]) if "check(s) not run" in ln],
+          "0 check(s) not run")
 
     width = max(len(p[0]) for p in probes)
     failed = 0
