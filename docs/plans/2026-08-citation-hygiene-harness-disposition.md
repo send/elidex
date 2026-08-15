@@ -23,11 +23,16 @@ rather than a list of sites that has to be right. Mechanism landed on this branc
 is likewise derived, never transcribed:
 
 ```bash
-git log --oneline origin/main..HEAD -- 'docs/plans/*A-rederive*'
+git log --oneline --cherry-pick --right-only \
+    webref-cite-audit-tool...HEAD -- 'docs/plans/*A-rederive*'
 ```
 
-Each of those changes was falsified by planting into it or by running it against an acceptance list, not by
-inspection — two had defects inspection did not show and the acceptance list did. Where a falsification still
+It is D10's command, and D10 says why a plain path-restricted log is not. Those changes were falsified by
+**running** them, in three forms: planting into the mechanism; re-running an **acceptance list** (which does
+not exist before `fc47cde1`); and once by **behavioural identity** (`259e12cb` — every block's stdout, stderr
+and exit code captured either side). Two defects a run showed and inspection did not: the declaration needle
+matching the examples in its own comment, and the census dropping `all()`'s own definition line — the roster,
+the single most important home. Where a falsification still
 constrains a future action it is stated beside the rule it supports (§3), not kept in a ledger, because a
 ledger of past changes is a hand-written set with the failure mode of the site lists it replaced. Some of
 those commits moved the census output §3 calls the work list, and a commit that moves the work list decides
@@ -109,7 +114,7 @@ grep -rnE "$N" docs/plans/2026-08-citation-hygiene-harness-*.md
 bash -c 'for p in integrity audit common Ai Aii Aiii B; do
            . docs/plans/2026-07-citation-hygiene-A-rederive-$p.sh; done
          declare -F | awk "{print \$3}" | grep -v "^_" | grep -vx all \
-           | grep -vE "^(lanes|staleclaims)$" | sort' > /tmp/derived
+           | grep -vxF "$(printf "%s\n" $AUTHOR_LOCAL)" | sort' > /tmp/derived
 sed -n '/^all() { set --/,/local failed/p' docs/plans/2026-07-citation-hygiene-A-rederive.sh \
   | sed '$d' | tr ' \\' '\n\n' | grep -xE '[a-z]+' | grep -vx set | sort -u > /tmp/literal
 comm -23 /tmp/derived /tmp/literal; comm -13 /tmp/derived /tmp/literal
@@ -144,12 +149,13 @@ grep -rn '#505' "$MEMORY"/*.md
 - **D1** — no part makes a source-time statement another part reads; measured in a sandbox with the loop
   reversed, `selfcheck` is GREEN and `inventory` produces the same table. **Order is not load-bearing, so a
   sorted glob is a sound replacement.**
-- **D2 — the rename does change citation surface, and the surface it changes is this memo pair.** No slice
-  memo on `webref-cite-audit-tool` cites either helper as a block (the hits there are English prose), but
-  §0.5's command block invokes `fixtures /tmp/fx` **bare** and both 2026-08 memos name `say` and `fixtures`
-  throughout. A needle matching only backticked names and `rederive <name>` misses a runnable invocation,
-  which is the one kind of citation a rename actually breaks. **PR-1a-i renames and updates these two memos
-  in the same PR**; I5 survives because the whole surface is inside that PR, not because there is none.
+- **D2 — the rename does change citation surface, and the surface it changes is this memo, not the pair.** No
+  slice memo on `webref-cite-audit-tool` cites either helper as a block (the hits there are English prose),
+  and the analysis note's only `fixtures` occurrences are the English plural noun, which the needle's own
+  discriminator drops. **Every hit is in this memo** — §0.5's command block invokes `fixtures /tmp/fx`
+  **bare**, which is the one kind of citation a rename actually breaks and the one a needle matching only
+  backticked names and `rederive <name>` misses. **PR-1a-i renames and updates this memo in the same PR**;
+  I5 survives because the whole surface is inside that PR, not because there is none.
 - **D3 — the derived roster is a superset of the literal, and §3's `roster` exclusion list is short by one
   term.** `declare -F` minus `_`-prefixed, minus `all`, minus `$AUTHOR_LOCAL` derives 27 names against the
   literal's 24; the extras are `fixtures`, `readers` and `say`, and the `_`-prefix rename covers two.
@@ -211,8 +217,9 @@ grep -rn '#505' "$MEMORY"/*.md
   therefore carries a **second, non-obvious edit — a tie-break total over `GROUPS`** — which encodes where
   `kernel` sits in the ordering.
 - **D14 — retiring `PART_SLICE` for real means dropping T2, and that is behaviour-neutral only if a tier
-  with no evidence stops answering.** `_misplaced` is one of four readers of `PART_SLICE`; the load-bearing
-  one is **T2** (`comp[b] = PART_SLICE[part]`). Re-sourcing T2 off the file declaration flips `_wtscan` from
+  with no evidence stops answering.** `_misplaced` is one of **three** readers of `PART_SLICE` across five
+  sites; the load-bearing one is **T2** (`comp[b] = PART_SLICE[part]`). Re-sourcing T2 off the file
+  declaration flips `_wtscan` from
   `A-i` to `kernel` — one of D11's own six movers — because a file declaration is total where `PART_SLICE`
   was partial. **Dropping T2 instead** does not: once `_misplaced` compares block-declaration against
   file-declaration, T2 is literally that same comparison. Measured with T2 removed, D12's file declarations
@@ -221,7 +228,7 @@ grep -rn '#505' "$MEMORY"/*.md
   ```
   MOVE LIST: 6 of 33 declared block(s) / 339 lines     # unchanged; `_wtscan` stays A-i
   declared=33  agree=24  DISAGREE=0 (binding 0)  unverifiable=9  undeclared=2
-  undeclared: _measured all        rc=1
+  undeclared: _measured all        NO VERDICT: 1 (all)        rc=1
   ```
 
   **`unverifiable` is a rule, not a count.** It is *"no code signal reaches this block"*: D7's six, plus
@@ -232,8 +239,10 @@ grep -rn '#505' "$MEMORY"/*.md
   dispatch edge is not a call edge** — which is what makes the unverifiable set honest rather than a number
   to argue down. Today T3 manufactures `kernel` for exactly those blocks, so a declaration nothing can
   confirm reports as **agreeing**; `unverifiable=` replaces that with no answer, and the two blocks §3 must
-  still solve stop being silent — they come out at `rc=1`. The run above assumes the dispatcher's own file
-  declaration (§3, `groupvocab`); without it `all`'s file side rests on an assignment no rule has made.
+  still solve stop being silent — they come out at `rc=1`. The transcript is what the sandbox **printed**,
+  which is a tree with no dispatcher file declaration; adding one (§3, `groupvocab`) is what stops `all`'s
+  file side resting on an assignment no rule has made, and is what removes the `NO VERDICT` limb. No run here
+  attests that edit, so the printed line stands.
 
 ## §2 Coupled invariants
 
@@ -258,7 +267,7 @@ Required because the work is edge-dense (`/elidex-plan-review` Pre-condition #3)
 | I2 × I4 | A disagreement is only as good as the tier behind it. T0/T3 are code signals and **bind**; T1 is a heuristic parse of prose on a branch under active revision — a failed measurement by `_measure`'s own rule — and **reports**; T2 is the filename, which the move list already checks. This is what stops a memo edit from turning the harness red. | done |
 | I1 × I4 | The list of homes must be derived, or a plan against it is complete only by luck. `rederive homes` (D9). | done |
 | I1 × I3 | The roster must be **derived from the definitions**, not listed; deleting parts with the roster untouched makes `selfcheck` accuse blocks that no longer exist. | **PR-1a-i** |
-| I1 × I5 | Excluding helpers by `_`-prefix requires renaming `say`/`fixtures`; D2 shows the citation surface that breaks is this memo pair's, so the rename and the memo edits are one PR. | **PR-1a-i** |
+| I1 × I5 | Excluding helpers by `_`-prefix requires renaming `say`/`fixtures`; D2 shows the citation surface that breaks is this memo's, so the rename and the memo edit are one PR. | **PR-1a-i** |
 | I2 × I5 | A part **rename** must not change a block name. The dispatcher resolves by name across all sourced parts (D1), and once I2 holds a rename can no longer change the routing answer either. | **PR-1a-i** |
 | I2 × I3 (files) | A file's group must be **declared, not read off its name**, or the move list compares a declaration against an inference and the two roles the group vocabulary plays — *whose concern a block is* and *which file holds it* — stay fused in `PART_SLICE`. That fusion is what left `umbrella` with no destination and dropped `kernel` from T3's boundary test. D12/D13. | **PR-1a-i** |
 | — | PR-1a-ii writes declarations into checks PR-1a-i has already made correct. It opens no intersection of its own. | **PR-1a-ii** |
@@ -279,30 +288,17 @@ split PR-1a-i further; §9 authorises the scope, not its terminality. (`axes.md`
 *scope が単一 invariant-axis 交点に絞られている場合* — is narrower on **scope** than CLAUDE.md's and omits
 the passed-review condition, so the two are not ordered; both must hold.)
 
-## §0 PR-0 — the `-audit.sh` touch-time split
-
-`-audit.sh` is above the 700–800 authoring band (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`)
-and PR-1a-i is the PR that grows it. CLAUDE.md is explicit that a touch-time split is a **standalone prereq
-PR, not part of the feature PR** (*real cohesion seam があれば feature 着手前に standalone な prereq split
-として分割する — split は単独 PR / 単独 commit*). **PR-0 is therefore its own PR and lands before PR-1a-i.**
-
-It is a split, not a redistribution of §3's work: §3's rules are not all in this file. `roster` edits the
-dispatcher's `all()` literal and `-common.sh:592`; `authorlocal` is `-common.sh:592`; `partset` has sites at
-`-common.sh:516,520` and the dispatcher's `:52` as well as `-audit.sh`. `groupvocab`, the tiers, the
-classifier and `reads` are `-audit.sh`'s.
-
-The precedent is on this file class: `fc47cde1` added `homes` and pushed `-integrity.sh` to 768 lines;
-`259e12cb` split it on the primitive/consumer seam and took it back to 114. That seam is settled and PR-0
-does not disturb it — PR-0 finds a seam **inside `-audit.sh`**, whose blocks are `homes`, `inventory` and
-`selfcheck` plus their parsers. Its exit criterion is behavioural identity: every block's stdout, stderr and
-exit code byte-identical either side, which is how `259e12cb` was falsified.
-
 ## §3 PR-1a-i — the mechanism, and PR-1a-ii — the declarations
 
 **Goal**: after PR-1a, the block set has exactly one home per class, and file-granular action is sound.
-**PR-1a-i** makes every derived fact below correct with zero declarations written; **PR-1a-ii** writes them.
-The rules are stated together because they are one design; the split is where they land. Elsewhere in this
-memo **"PR-1a" names the pair**.
+**PR-1a-i** makes every derived fact below correct with zero **block** declarations written; **PR-1a-ii**
+writes them. The rules are stated together because they are one design; the split is where they land.
+Elsewhere in this memo **"PR-1a" names the pair**.
+
+Most of that mechanism lands in `-audit.sh`, which is in the 700–800 authoring band, so **PR-1a-i cuts its
+seam in place, in its own commit** rather than stopping for a prereq PR — the band memo's rule
+(`memory/feedback_touch-time-split-means-while-writing.md:39`), not CLAUDE.md's, whose standalone-prereq form
+is scoped to >1000 lines. `259e12cb` is the precedent on this file class and took exactly that shape.
 
 **The work list is `rederive homes`, and so is the list of classes.** The mapping from home to class lives in
 the census, it is **total**, and an unclassified home is **RED** — falsified by planting an unruled literal.
@@ -320,16 +316,19 @@ not be applied. **(b) It is not scoped to §3**: `-audit.sh:268` runs
 `re.findall(r"^\| \*\*([a-z]+)\*\* \|", PLAN.read_text())` over the **whole memo**, so a rule row moved out of
 §3 into any other table still satisfies it. What the gate proves today is that every class the census emits
 has a row **somewhere in this file**. PR-1a-i gives it a content test and a section scope. (A machine check
-over a plan-memo's own claims is a decision surface this program does not own: the canonical site is
-`.claude/tools/claim-gate-plan-check.py` on branch `claim-gate-plan-check`, and a second instance here would
-violate CLAUDE.md's *one issue, one way*.)
+over a plan-memo's own claims is a decision surface this program does not own, and a second instance here
+would violate CLAUDE.md's *one issue, one way*. ⚠ **The canonical site is unowned today**:
+`.claude/tools/claim-gate-plan-check.py`'s branch and its stacked sibling are both unpushed —
+`git ls-remote --heads origin claim-gate-plan-check stale-claim-detector` returns nothing — and it is that
+lane's checker for its **own** memos. So the content test has no machine backstop and PR-1a-i's review stands
+in, which is why the analysis note's §4 likewise declines to depend on that program.)
 
 | class (the census assigns it) | rule |
 |---|---|
-| **partset** | one derivation from the glob; every reader calls it — **and it lands FIRST in PR-1a-i, before either declaration rule**, because both of them read it. **This is the rule that makes `all` declarable, and the site is `inventory`'s hardcoded `PARTS = ["integrity","audit","common","Ai","Aii","Aiii","B"]` (`-audit.sh:325`)**, from which `srcs`, `defline` and the stray counter are built inside the `INVENTORYPY` heredoc: the dispatcher is not in that list, so `all` is in neither `srcs` nor `defline` and a declaration on it is read by nobody and reported by nobody. (`homes`'s `PARTFILES` needle at `-audit.sh:59` is a *different block in a different process*; it governs the census, not declarability.) ⚠ **The part-set fact has two incompatible consumer kinds and the rule must state both.** `homes` and `inventory` *source* each part file (`bash -c "set -e; . <file>; declare -F"`, `-audit.sh:66-68`), and the dispatcher's last line is `"${1:-all}" "$@"`, unguarded — sourcing it runs the whole suite recursively (measured: hundreds of processes before the run was killed). So the derivation is a **text set that includes the dispatcher** and a **source set that excludes it**; the alternative, and the cheaper one, is a `[ "${BASH_SOURCE[0]}" = "$0" ]` guard on the dispatcher as a **prerequisite**, after which one set serves both. Two further consequences: the stem derivation `f.name.split("A-rederive-")[1][:-3]` (`-audit.sh:65`) raises `IndexError` on the dispatcher, so admitting it to the text set means changing the stem derivation too; and **T0's predicate is a part-set sentinel** — `part["all"]` is force-set to the literal `"(disp)"` at `-audit.sh:386` and read at `:553` — so giving the dispatcher a real stem silently turns `all`'s routing from a T0 code signal into a T3 call-graph inference, which must be handled in the same edit. ⚠ **One spelling, not two**: every glob site already writes `…A-rederive*.sh`, which matches the dispatcher, so `selfcheck`'s *"N harness parts"* counts it; the exclusions are in the **derivations**, not the glob. |
-| **roster** | `_roster`, a **function**, returning every non-`_`-prefixed, non-author-local, non-`all`, **non-argument-taking** definition; `all`, `inventory` and `selfcheck` **call it** (D5: an inline expression makes its readers parse its own shell tokens as block names). The argument-taking exclusion is not optional — D3 measures the derived set at three names above the literal, and `readers` is excluded by no other term; `all` would invoke it argument-less and it returns 2. Two of the three readers are python inside a heredoc and cannot call a bash function directly; the harness already crosses that boundary with `subprocess.run([… "declare -F"])` and PR-1a-i uses it rather than keeping a regex. `say` → `_say`, `fixtures` → `_fixtures`, **and the two 2026-08 memos are updated in the same PR** (D2). |
+| **partset** | one derivation from the glob; every reader calls it — **and it lands FIRST in PR-1a-i, before either declaration rule**, because both of them read it. **This is the rule that makes `all` declarable, and the site is `inventory`'s hardcoded `PARTS = ["integrity","audit","common","Ai","Aii","Aiii","B"]` (`-audit.sh:325`)**, from which `srcs`, `defline` and the stray counter are built inside the `INVENTORYPY` heredoc: the dispatcher is not in that list, so `all` is in neither `srcs` nor `defline` and a declaration on it is read by nobody and reported by nobody. (`homes`'s `PARTFILES` needle at `-audit.sh:59` is a *different block in a different process*; it governs the census, not declarability.) ⚠ **The part-set fact has two incompatible consumer kinds and the rule must state both.** `homes` and `inventory` *source* each part file (`bash -c "set -e; . <file>; declare -F"`, `-audit.sh:66-68`), and the dispatcher's last line is `"${1:-all}" "$@"`, unguarded — sourcing it runs the whole suite recursively (measured: hundreds of processes before the run was killed). So the derivation is a **text set that includes the dispatcher** and a **source set that excludes it**. ⚠ **And a third consumer can call neither**: the census's other `partset` home is the dispatcher's own bootstrap loop (`A-rederive.sh:52`), which runs *before anything is sourced*, so it cannot invoke a derivation defined in a part file. It resolves by sourcing `-integrity.sh` **by name** ahead of the loop and taking the derivation from there — which the dispatcher's own header already treats as invariant (*"sourced FIRST because everything else reads it"*, `:44-49`). Saying so is the rule's job: the available wrong reading — inline a second glob at `:52` — re-creates exactly the two-homes defect this row exists to close. Two further consequences: the stem derivation `f.name.split("A-rederive-")[1][:-3]` (`-audit.sh:65`) raises `IndexError` on the dispatcher, so admitting it to the text set means changing the stem derivation too — **and the stem it is given is a decision, not a by-product**, because `PARTS` feeds `VOCAB` (`-audit.sh:73`), which feeds the classifier, so a stem with no `CLASSES` row prints as an unclassified home and the census goes RED (measured in a sandbox: `MISSING: ?` at rc=1); and **T0's predicate is a part-set sentinel** — `part["all"]` is force-set to the literal `"(disp)"` at `-audit.sh:386` and read at `:553` — so giving the dispatcher a real stem silently turns `all`'s routing from a T0 code signal into a T3 call-graph inference, which must be handled in the same edit. ⚠ **One spelling, not two**: every glob site already writes `…A-rederive*.sh`, which matches the dispatcher, so `selfcheck`'s *"N harness parts"* counts it; the exclusions are in the **derivations**, not the glob. |
+| **roster** | `_roster`, a **function**, returning every non-`_`-prefixed, non-author-local, non-`all`, **non-argument-taking** definition; `all`, `inventory` and `selfcheck` **call it** (D5: an inline expression makes its readers parse its own shell tokens as block names). The argument-taking exclusion is not optional — D3 measures the derived set at three names above the literal, and `readers` is excluded by no other term; `all` would invoke it argument-less and it returns 2. Two of the three readers are python inside a heredoc and cannot call a bash function directly; the harness already crosses that boundary with `subprocess.run([… "declare -F"])` and PR-1a-i uses it rather than keeping a regex. `say` → `_say`, `fixtures` → `_fixtures`, **and this memo is updated in the same PR** (D2 — the note carries no citation of either). |
 | **authorlocal** | a registration **adjacent to each definition**, carrying its reason, as a **shell statement** — `_roster` is a bash function and needs it as runtime data, and bash cannot read comments. (`declare -f` is not the reason: the ship-with needle is a Python regex over raw source and never passes through it.) `readers` is registered here too, with *takes a required argument* as its reason, closing the defect A-i §15 records. |
-| **groupvocab** | one `GROUPS` set, validated — **and the part files join the blocks in declaring against it**: each part's preamble carries `# group: <g>`, **and so does the dispatcher** (`kernel`; without it `all`'s file side is an assignment no rule has made). `_misplaced` reads that instead of `PART_SLICE`, and `PART_SLICE` retires **here, in PR-1a-i**. ⚠ **The retirement is not scoped to `_misplaced`**, which is one of four readers and not the load-bearing one. The load-bearing reader is **T2**. Re-sourcing T2 off the file declaration is *not* behaviour-neutral (it flips `_wtscan` A-i → kernel, one of D11's own movers); **T2 is dropped**, because once `_misplaced` compares block-declaration against file-declaration, T2 is literally that same comparison. Four further consequences, all PR-1a-i's: **a tier with no evidence must stop answering** (D14 — `unverifiable=`, without which dropping T2 turns nine unconfirmable declarations into silent agreements), on the rule that **a dispatch edge is not a call edge**; T3's boundary test ranges over `GROUPS`, **with the `min()` tie-break widened in the same edit** or it raises (D13); a T3 disagreement must **name the caller declaration it rests on**, because `route` is seeded from the declarations and one wrong entry otherwise reports as a binding disagreement against its correct neighbour; and **a part file with no `# group:` line is RED**. Today such a file is *reported* but its blocks simply stop being compared — `MOVE LIST` and rc are unchanged — which would make PR-1b's exit criterion satisfiable by an undeclared file (§3b). |
+| **groupvocab** | one `GROUPS` set, validated — **and the part files join the blocks in declaring against it**: each part's preamble carries `# group: <g>`, **and so does the dispatcher** (`kernel`; without it `all`'s file side is an assignment no rule has made). `_misplaced` reads that instead of `PART_SLICE`, and `PART_SLICE` retires **here, in PR-1a-i**. ⚠ **The retirement is not scoped to `_misplaced`**, which is one of **three** readers across five sites and not the load-bearing one. The load-bearing reader is **T2** (`-audit.sh:557-558`); the third is the `home` column of the MOVE LIST report (`:692`), unnamed until here and needing a replacement source in the same edit or PR-1a-i lands a `NameError`. Re-sourcing T2 off the file declaration is *not* behaviour-neutral (it flips `_wtscan` A-i → kernel, one of D11's own movers); **T2 is dropped**, because once `_misplaced` compares block-declaration against file-declaration, T2 is literally that same comparison. Four further consequences, all PR-1a-i's: **a tier with no evidence must stop answering** (D14 — `unverifiable=`, without which dropping T2 turns nine unconfirmable declarations into silent agreements), on the rule that **a dispatch edge is not a call edge** — ⚠ **and `all` joins them, moving the count to ten**, because once the dispatcher has a real stem `all` leaves T0 for T3 and its only command-position caller edge is a Python regex string inside `inventory`'s heredoc, which `at_command`'s own docstring calls shell-opaque; the dispatch-edge rule does not reach a heredoc payload, so left alone `all` reports as *agreeing* on the strength of a regex; T3's boundary test ranges over `GROUPS`, **with the `min()` tie-break widened in the same edit** or it raises (D13); a T3 disagreement must **name the caller declaration it rests on**, because `route` is seeded from the declarations and one wrong entry otherwise reports as a binding disagreement against its correct neighbour; and **a part file with no `# group:` line is RED**. Today such a file is *reported* but its blocks simply stop being compared — `MOVE LIST` and rc are unchanged — which would make PR-1b's exit criterion satisfiable by an undeclared file (§3b). |
 | **memoset** | there are **two disagreeing homes** — `inventory`'s `MEMOS` and `budget`'s `for m in …` loop, which do not carry the same memo set. One derivation; both readers call it. |
 | **reads** | every read of the harness's or a memo's text must have a **named failure**. The class's size and its guarded/unguarded split are read from `homes`, not restated here; note that `_measure … \|\| failed=1` **is** a named failure, so a `guard` column that does not know the validity primitive under-reports it. |
 | **prose** | a prose home becomes a pointer to `rederive homes` / `rederive inventory`, or is deleted — ⚠ **but this class has not got the subject test its siblings got, so that rule may not be applied to its rows as they stand.** It is the largest class, and read line by line it holds two kinds: lines that assert *where* blocks live (a file, a part or a group token beside them — the dispatcher header's placement table, each part's preamble) and lines that name blocks as the *subject of an event* (`marker` became a caller of `_measure`; `suiteset` returned an `echo`'s status). The second kind is mechanism rationale, and deleting it is what the rule does if applied to the class as printed. **PR-1a-i's first task is therefore to split this class on that test**, exactly as the other shape rules were split; until it is split the class is not a work list. |
@@ -404,8 +403,7 @@ a declaration is the opposite of that.
 **And the layer question does not arise.** `_proto`, `fixtures` and `say` declare `kernel` and already sit in
 kernel files, so after the six moves `-common.sh` holds them and nothing else and the kernel is four
 kernel-pure files. **No block's destination requires choosing between `-integrity.sh` and `-audit.sh`**, so
-the primitive/consumer seam `259e12cb` took stays where it is and needs no vocabulary of its own. PR-1b adds
-nothing to `-audit.sh`; the band overrun is PR-0's.
+the primitive/consumer seam `259e12cb` took stays where it is and needs no vocabulary of its own.
 
 ## §4 Where the harness lives, and what that decides for #505
 
@@ -442,8 +440,8 @@ to the authorised action.
 **Ordering.** Closing #505 unblocks #501 immediately — `webref-cite-audit-tool` already carries the harness,
 so there is no merge and no rebase. ⚠ That retracts a **public commitment**: #501's 2026-08-02 comment ends
 *"This PR will rebase once #505 lands, at which point its diff is A-i's deliverable and memos only."* §7
-carries it. #501 then lands on its merits; PR-0 and PR-1a stack after it, where the memos T1 reads are
-present and `couplings` is green.
+carries it. #501 then lands on its merits; PR-1a stacks after it, where the memos T1 reads are present and
+`couplings` is green.
 
 ## §5 PR-2 — the behaviour fixes, and the promises they discharge
 
@@ -466,10 +464,11 @@ decision PR-3's own review can take on the evidence then, including M1's standin
 harness zero times**, and D7's set of blocks whose group nobody has written down and nothing calls, four of
 which are Slice B's.
 
-This memo therefore creates **no defer slot and defers nothing of its own**: nothing is discarded, and the
-question PR-3 answers is blocked on nothing but PR-1. (Checked against
-`memory/feedback_defer-slot-eligibility-audit-at-create.md`'s four questions: zero yes. The question has an
-owner, a trigger and a place in the forced order, which is what distinguishes it from a slot.)
+This memo therefore creates **no defer slot**: nothing is discarded, and the question PR-3 answers is blocked
+on nothing but PR-1. (Checked against `memory/feedback_defer-slot-eligibility-audit-at-create.md`'s four
+questions: zero yes. The question has an owner, a trigger and a place in the forced order, which is what
+distinguishes it from a slot.) It stops short of *"defers nothing of its own"*: §3's coverage gate has no
+machine backstop, its canonical site belonging to an unpushed lane — an unowned check, not a discarded one.
 
 ## §7 Registers, swept by command rather than by anchor
 
@@ -498,7 +497,7 @@ is a hand-written set.
 | **PR #501's 2026-08-02 comment** | invalidated | **read the statements from the query above.** The *class* is what this row states: every sentence that asserts #505's standing, its stacking order, or where a Codex finding gets fixed is invalidated by §4 and §5 — including the comment's own heading (*"the harness is carved out to #505"*, reversed by §4) and *"Your R1–R3 harness findings are its opening review record"* (PR-2 discharges R3-F2/F3 under this umbrella, not #505) |
 | **PR #505's own body** | invalidated, and **the most public register there is** | it states the harness's file/line/block counts (all now false); that the PR is stacked before A-i; the carve rationale *"29 of 45 harness citations come from memos other than A-i's"*, whose premise M1 falsifies; and — **the statement §4 most turns on** — that the harness here is *"byte-identical to the harness at #501's head … so rebasing #501 onto this branch leaves zero harness delta"*, which `git diff --stat webref-cite-audit-tool -- 'docs/plans/*A-rederive*'` now contradicts by hundreds of lines. The body also carries a `FAILED BLOCKS` line and a block-by-block classification table that `bash …A-rederive.sh all` no longer reproduces. Closing freezes all of it as the public record, so **the close needs a comment**, not a state change |
 | **umbrella, the `DISCHARGED by A-i` bullet** | **restored** | it records the harness split as discharged by A-i naming three SHAs; those SHAs are on `webref-cite-audit-tool`, so the harness returning there makes the bullet true again and retires the owed "add a #505 row" amendment |
-| **A-i §8** and its layout figures | **restored / re-derived** | §8 is true again once the harness is on A-i's branch. Its figures — part count, per-part sizes, the line total, the block count, the `_measure` call-site census — are already false at HEAD; the check is `bash …A-rederive.sh selfcheck` against `wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh`, and re-deriving them is A-i's at landing |
+| **A-i §8** and its layout figures | **restored / re-derived** | §8 is true again once the harness is on A-i's branch. Its figures — part count, per-part sizes, the line total, the block count, the `_measure` call-site census — are already false at HEAD; the check is `bash …A-rederive.sh selfcheck` (which prints three quantities: parts, blocks, roster) against `wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh` for the sizes, **plus `bash …A-rederive.sh inventory <memo-dir>`** — its `meas` column is where the `_measure` call-site census comes from, and `selfcheck` does not carry it. Re-deriving them is A-i's at landing |
 | **A-i §13's owed `suites` relocation** | **discharged at a different destination, and its rule retired** | §13 owes the move *"to `-common.sh`"* **and states the rule it follows** — *"cited by more than one memo → `-common.sh`"*. D11 measures `-common.sh` surviving as a kernel file and `suites` declaring `umbrella`, so the owed move is discharged **to a destination §13 does not name**, and what retires is the citation-count rule, whose other home is the dispatcher header (§3, prose class) |
 | **A-i §15's `AUTHOR_LOCAL` quotation and its `readers` note** | invalidated | §3's `authorlocal` class replaces the remote list with adjacent registration and puts `readers` on it, with its own reason (D3) |
 
@@ -523,10 +522,10 @@ first — it is a second thing to keep true. What that leaves without a home is 
 
 **Authorises**, after `/elidex-plan-review` passes: closing #505 **with a closing comment** (§7) and its
 branch **retained**; carrying the transfer set (D10) and this memo pair onto `webref-cite-audit-tool`; and
-**PR-0's, PR-1a-i's and PR-1a-ii's scopes as stated in §0 and §3**. It does **not** certify PR-1a-i as a
-terminal slice under CLAUDE.md's base case (§2).
+**PR-1a-i's and PR-1a-ii's scopes as stated in §3**. It does **not** certify PR-1a-i as a terminal slice
+under CLAUDE.md's base case (§2).
 
-**Every PR under this umbrella takes its own `/elidex-plan-review` before implementation** — PR-0, PR-1a-i,
+**Every PR under this umbrella takes its own `/elidex-plan-review` before implementation** — PR-1a-i,
 PR-1a-ii, PR-1b, PR-2 and PR-3, per CLAUDE.md's edge-dense rule *(b) 各 PR は実装前に `/elidex-plan-review`
 必須*. PR-1a-i's inherits a landed mechanism as ground rather than as a proposal, and should be told so.
 
@@ -553,5 +552,5 @@ and a working-tree edit is invisible to review agents, who clone HEAD and whose 
 had missed. Neither survives the stopping rule, because an **uncommitted** mechanism can be exercised in a
 `git clone --local` sandbox (§1's preamble), which is how D4–D7 and D11–D14 were measured and the form every
 further measurement takes. And landing was never scope-free: a commit that moves the census output §3 calls
-the work list decides part of PR-1a's scope, and several did. **From here the design is fixed and PR-0 and
-PR-1a implement it.**
+the work list decides part of PR-1a's scope, and several did. **From here the design is fixed and PR-1a
+implements it.**

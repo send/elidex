@@ -61,7 +61,7 @@ note's.
 
 **Every quantity below is a command. Re-run before citing; do not carry a digit forward.** `M1`/`M2b` run in
 `elidex-wt-citeaudit` (branch `webref-cite-audit-tool` — where the memos are); the rest in
-`elidex-wt-harness`.
+`elidex-wt-harness`. Readings taken at **`a7c510fa`**, memos at **`2497eb09`**.
 
 ⚠ **Why a count may appear here at all.** `inventory` resolves its part set by hardcoded stem and its memo
 set by hardcoded filename, and `selfcheck` globs `…A-rederive*.sh` only — **no reader of either check can
@@ -192,12 +192,21 @@ M7 computes ownership in four tiers, each printed beside its row so a routing de
 
 ⚠ **T3 is order-independent and layer-representable only because both were fixed and verified.** It once
 assigned from the callers resolved so far, over an unordered set, and gave two different answers across
-`PYTHONHASHSEED` (now verified deterministic across seeds 0–9); and it was "earliest caller wins", which made
-the measurement primitive's own layer unrepresentable — declaring `_measure` the `kernel` it is went
-binding-RED. The row above is the rule implemented at HEAD. ⚠ It is **not** the rule after PR-1a: the
-boundary test currently ranges over `ORDER`, which excludes `kernel`, so a `kernel` caller is dropped from the
-count of groups crossed. The disposition memo's D13 measures the widening and carries it; this note only
-records that the row will move.
+`PYTHONHASHSEED`; and it was "earliest caller wins", which made the measurement primitive's own layer
+unrepresentable — declaring `_measure` the `kernel` it is went binding-RED. The row above is the rule
+implemented at HEAD, and the seed-independence is a command:
+
+```bash
+for s in 0 1 2 3 4 5 6 7 8 9; do
+  PYTHONHASHSEED=$s bash docs/plans/2026-07-citation-hygiene-A-rederive.sh \
+    inventory ../elidex-wt-citeaudit/docs/plans | shasum
+done | sort -u          # one line, or the tiers are order-dependent again
+```
+
+⚠ It is **not** the rule after PR-1a-i, in three places: the boundary test currently ranges over `ORDER`,
+which excludes `kernel`, so a `kernel` caller is dropped from the count of groups crossed; **T2 is dropped
+entirely**; and **T3's none-branch stops answering `kernel`** and returns no answer instead. The disposition
+memo's D13/D14 measure all three and carry them; this note only records that the table moves.
 
 **M7's tally is a command, not a table here.** The groups are `kernel`, `umbrella`, `A-i`, `A-ii`, `A-iii`,
 `B`; who is in each, and how large each is, comes from:
@@ -297,9 +306,16 @@ consistent the whole time. What was never derived was *whose* each block is.
 are all in `-audit.sh`, and the one that would be deleted is `selfcheck`'s. The survivor is `inventory`'s
 **line-oriented** parser over the raw files, and it is the source of every `ln` in §3 — `declare -f` strips
 comments, so it cannot count prose lines at all. The honest collapse is narrower and still worth taking:
-`selfcheck`'s **body** analysis moves to `declare -f` (bash parsing bash; verified that normalisation
-preserves the trailing `return` in the multi-line, short and one-liner forms), and the raw-file parser stays
-as the single **prose** reader. Two readers, two questions, one home each — not one parser.
+`selfcheck`'s **body** analysis moves to `declare -f` (bash parsing bash), and the raw-file parser stays as
+the single **prose** reader. Two readers, two questions, one home each — not one parser. That the
+normalisation preserves the trailing `return` — in the multi-line, short and one-liner forms — is a command,
+not a verdict:
+
+```bash
+bash -c 'for p in integrity audit common Ai Aii Aiii B; do
+           . docs/plans/2026-07-citation-hygiene-A-rederive-$p.sh; done
+         for b in couplings filters _measured; do declare -f "$b" | tail -2; done'
+```
 
 ⚠ **No `# kind:` declaration and no provenance annotation.** §2 withdraws the taxonomy a `# kind:` comment
 would declare. A `# planted:` comment is a second spelling of *"a claim carries the command that falsifies
