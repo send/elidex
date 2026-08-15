@@ -876,6 +876,31 @@ This is stated once for the whole table and governs every derivation this docume
 builtin one, Slice 7's, Slice 8's, Slice M's, and any later one; no row restates it, and a row that
 reads as one slice per group is repointed here.
 
+### What in this table is specification, and what is evidence
+
+**Three things a row records are specification. Everything else in it is evidence.** The three:
+**(1) the split** — that the slice exists and where its boundary falls; **(2) the ordering** — the
+`Deps` column and the prerequisites called out per row (though not any claim that that column is
+*complete*, which is the boundary the edge-derivation passage below states); and **(3) the owner** of
+each obligation the row names. Everything else — the `Primary module(s)` column, the acceptance
+condition, the terminality verdict, the spec readings, the measured touch sets, and **the *solution*
+to any obligation the row names** (which mechanism, which representation, which key, which lifetime,
+which crate) — is **evidence about the code at the revision it cites**. Evidence is a starting point
+for the slice's own mandatory `/elidex-plan-review`, which derives the design against **that slice's**
+parent HEAD; where the two differ the plan-review wins, and this table is not amended to match it.
+
+⚠ **The rule is a complement, and stating it that way is the point.** It stood as four separate
+demotions — the `Primary module(s)` column, the edge-completeness boundary, the acceptance conditions,
+the terminality verdicts — each added in the round its own class started generating findings, and each
+leaving every class it did not name authoritative by default. A row's **solution design** was the class
+no statement covered: obligations named with their answers attached (a release point, a key carrier, a
+crate to extend), written in specifying voice, measured against a baseline the slice will not start
+from. It went on producing exactly the findings the other four had stopped producing, which is the
+signature of a layer rather than a list needing one more entry. A list of demoted classes has to be
+extended per class and cannot be checked; a complement cannot leave one out. **A row that reads as
+though it settles a design question is therefore not a row to correct — it is a row whose obligation
+is to be named and whose answer is to be deleted.**
+
 ⚠ **The `Primary module(s)` column is a non-authoritative HINT, not a touch set.** It was written
 against one tree; the slices land months apart against moving code, so a column that reads as a
 specification is wrong by construction — and it duplicates a decision each slice's own **mandatory
@@ -1012,12 +1037,13 @@ rather than a list needing one more entry.
 requirements already found are kept below as *evidence about the code*, because they were expensive to
 find — not as a claim that the conditions are now complete. The load-bearing exception is the one the
 passage above already states once, and it holds here unchanged: the Deps column and the prerequisites
-called out per row are *ordering* facts and survive as specification. This is the same rule as the
-members-vs-semantics rule at the head of this section, applied to the other half of a charter — and,
-like the terminality criterion, it is stated once for the whole table.
+called out per row are *ordering* facts and survive as specification. ⚠ **This passage is an instance
+of the specification-vs-evidence complement at the head of this section, not a rule of its own** — it
+is kept for the reasoning it records, and the complement is what a reader applies to a class this
+passage does not name.
 
-**A terminality verdict recorded in this table is the same class of claim, and falls under this same
-demotion.** It too was reached against one tree at one time, by reading a row's own charter sentence
+**A terminality verdict is evidence under the same complement**, and this passage likewise records
+reasoning rather than adding a rule. It too was reached against one tree at one time, by reading a row's own charter sentence
 rather than the algorithms the surface needs — so a row that reads **terminal** is a starting point,
 and the criterion at the head of this section is re-applied at slice time by the slice's own
 mandatory plan-review, against its own parent HEAD. Slice 4 is the instance **twice over, in both
