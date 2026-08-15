@@ -34,7 +34,7 @@
 > **This memo states no quantity about its own tooling**, and `TOOLING` is what holds it to that now.
 > The commands above are the artifact (D10 form 2). Also withdrawn this revision: `--one`, revision
 > 4's injected-annotation entry point, replaced by a `git clone --local` fixture that lets the
-> acceptance corpus run through **stage 1** instead of around it (§4.1.1).
+> acceptance corpus run through **the scan** instead of around it (§4.1.1).
 >
 > → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
 > `feedback_findings-cluster-in-self-added-scope`, `project_stale-claim-gate-v1-review`.
@@ -99,8 +99,12 @@ S1's landing is the trigger; the prerequisite PR owns the work; a probe that pla
 the checker's own grammar is unreachable is what closes it.
 
 **Out of scope, by the umbrella's own slicing**: the tamper ledger (D8 → S2), the superlative vocabulary
-and `grep_pass.py` Check 3 (D7/D9 → S3), and `CONTRIBUTING.md:19-20`'s "a drifted trip-wire *allowlist*
-reds the PR" sentence, which umbrella §6 routes explicitly to S2 as a mechanism S2 ships and S1 does not.
+and `grep_pass.py` Check 3 (D7/D9 → S3), and the "a drifted trip-wire *allowlist* reds the PR" clause at
+`CONTRIBUTING.md:20`, which umbrella §6 routes explicitly to S2 as a mechanism S2 ships and S1 does not.
+That clause is the second half of one sentence spanning `CONTRIBUTING.md:19-20`, and the sentence carries
+**two different changes**: the set-level label "layering trip-wires" at `:19`, which is S1's by §4.6's own
+criterion, and the allowlist mechanism at `:20`, which is S2's by umbrella §6's. S1 edits `:19` (§5
+commit 3) and leaves `:20`; revision 3 routed the whole sentence to S2 and that was the error.
 S1 therefore lands a gate that is opt-in and whose annotations can be deleted without a record — a bound
 in §6, not a half-ledger, since "new seam plus a partial legacy" is the strangler shape CLAUDE.md *One
 issue, one way* forbids.
@@ -141,9 +145,12 @@ Both are closed by one choice, taken here rather than left to plan-review: **two
 wire carries the grammar inline; only the self-test is split, and the wire invokes it by name, so its
 absence is an execution failure rather than a silently smaller gate. The cohesion argument supports that
 one seam — the self-test must call the grammar's stages directly, not only through the wire's exit code —
-and nothing more. So does line count: all four existing wires are single files (`wc -l`: 493 / 121 / 84 /
-73), the 493-line one inlines its own probes, and S1's projected total is nowhere near the ~700–800 band
-`feedback_touch-time-split-means-while-writing` watches.
+and nothing more. So does every wire that exists: all four are single files (`wc -l`: 493 / 121 / 84 /
+73) and the 493-line one inlines its own probes. What that does **not** buy is a prediction of S1's own
+size, and none is offered — `feedback_touch-time-split-means-while-writing` applies the split discipline
+*while writing*, not before, so what belongs here is a re-runnable trigger rather than a projection:
+**run `wc -l` on both files at every commit of this PR, and if either reaches the ~700–800 band, split it
+at the seam then.** §5 records why the projection it used to carry was withdrawn.
 
 ---
 
@@ -233,9 +240,9 @@ than an interpreter. The residual is regex cost on attacker-chosen input, where
 
 ## §4 The design
 
-### §4.1 The scan (two stages)
+### §4.1 The scan
 
-Stage 1 is one tree-wide `git grep` for the lax recogniser over the D2 surface:
+The scan is one tree-wide `git grep` for the lax recogniser over the D2 surface:
 
 ```
 git grep -nE '<!--[[:space:]]*claim[^A-Za-z]' \
@@ -246,20 +253,25 @@ The `:(exclude)` magic was verified to actually exclude: `git grep -lE 'strip_co
 files; with `':(exclude).claude/tools/**'` appended → 0.
 
 **That is the whole scan — one command, not two.** Revisions 1–3 specified a second stage, a tier pass
-over the files stage 1 named, and justified it by the fence arm's per-file state. With the fence arm
+over the files the first named, and justified it by the fence arm's per-file state. With the fence arm
 gone (§4.2) inertness is a line predicate, and `git grep -n` already prints `path:line:content`, so the
 tier pass reads the content it was given. The second stage was a consequence of the rule (c) deleted,
 and it goes with it — which is the *downstream* face of a withdrawal, the one a sweep of the statements
 alone leaves behind (memory `feedback_sweep-obligations-not-only-statements`).
+
+**The name goes with the stage.** Revisions 1–4 called this command "stage 1", and a numbered stage in a
+one-command scan names a sibling that no longer exists — the same leftover, one level down in the prose.
+Everywhere below and in §5 it is **the scan**; no argument changes, because every use of the old name was
+already about this one command.
 
 ⚠ D2's exclusion governs where annotations are *looked for*, not what one may *measure*: one of §5's live
 annotations targets a file under `.claude/tools/` and is executed normally.
 
 ### §4.1.1 The acceptance corpus runs against a clone, not a second entry point
 
-Stage 1 is the wire's only way to acquire an annotation, and round 3 found that this left the acceptance
+The scan is the wire's only way to acquire an annotation, and round 3 found that this left the acceptance
 corpus with **no execution path at all**. C19–C22 supply a known-false annotation and assert the wire
-fails on it against a real tree; every placement stage 1 can see in *this* worktree is closed:
+fails on it against a real tree; every placement the scan can see in *this* worktree is closed:
 
 | Placement | Why it cannot work |
 |---|---|
@@ -279,7 +291,7 @@ git -C "$fixture" grep -nE '#\[test\]' -- 'crates/shell/elidex-shell/src/**/*.rs
 git -C "$fixture" grep -nE '<!--[[:space:]]*claim[^A-Za-z]' -- '*.md' ':(exclude).claude/tools/**' | wc -l → 8
 ```
 
-The last line is the reason this and not an entry point: **stage 1 runs in the clone.** C19's historical
+The last line is the reason this and not an entry point: **the scan runs in the clone.** C19's historical
 constant re-measures to the same 80 it does here, so the corpus keeps "known input, known verdict"
 (§7 Q2), and it keeps it *through the acquisition path the corpus is supposed to exercise*.
 
@@ -287,13 +299,13 @@ constant re-measures to the same 80 it does here, so the corpus keeps "known inp
 wrong with it and only the last is fatal on its own:
 
 - It asserted "it bypasses no rule". It bypasses two — D2's `:(exclude).claude/tools/**` and the
-  four-suffix restriction both live in stage 1's pathspec and cannot apply to a bare string.
+  four-suffix restriction both live in the scan's pathspec and cannot apply to a bare string.
 - Its four consumers are all negative-only, so **no arm asserted it can PASS**: a `--one` that always
   failed after echoing the parsed expected value satisfied C19–C22 completely.
 - §8's `live` row said the four run in one invocation while §4.1.1 said one annotation per call, and
   §4.1.1's I7 argument depended on the latter.
 - It is a code path **in the shipped wire whose only caller is a test** — CLAUDE.md's *dead code は
-  接続するか削除*, and a second acquisition path beside stage 1, which is *One issue, one way* at the
+  接続するか削除*, and a second acquisition path beside the scan, which is *One issue, one way* at the
   wire's own front door.
 
 Cost, stated rather than assumed: one clone per self-test invocation, not per annotation or per
@@ -309,6 +321,17 @@ of `` ` `` characters appearing on that line before the `<!--`.
 - **mention** — *k* is odd (the backtick arm). Ignored.
 - **strict** — not a mention, and the text from `<!--` onward matches §4.4's production. Executed.
 - **malformed** — anything else. **Fails**, naming file, line and the first field that did not parse.
+
+**A malformed annotation fails the run without ending it.** Classification and processing are
+per-candidate: every candidate line is classified, every strict annotation is measured, every diagnostic
+accumulates, and the wire exits non-zero **once, at the end**, after the last candidate — never at the
+first bad one. Under `set -euo pipefail` that is a constraint on the code shape rather than a preference:
+no arm of the per-annotation stage may call `exit`, and a failing parse or measurement has to be recorded
+and returned instead. Two of §8's fixtures are unbuildable without it — `escapes` carries C8's `\d` and
+C9's `\b` as two negative arms of **one** wire invocation, and C25 drives all ten rejected escapes through
+one fixture — so a fail-fast wire would emit the first arm's `$3` and leave every later arm unobservable,
+green because it never ran. That is §4.3's `ban_control` shape (a control that cannot fire is
+indistinguishable from a clean tree) arriving through the driver rather than through the diagnostic.
 
 **There is one inertness rule, on all four surfaces: backtick it.** Revisions 1–3 carried a second
 rule — a fenced block also makes an annotation inert — defined for `.md` and `.rs` and absent for
@@ -442,12 +465,12 @@ than the number it replaced while bounding strictly less. Stated plainly: **I7 i
 a useful granularity, and S1 does not make it so.**
 
 What *is* asserted is structural, not measured: **the wire's work is one tree-wide `git grep` plus a term
-per annotation — never a term per tracked file.** That is visible in the code shape (§4.1's two stages,
-§4.4's per-annotation probe and measurement) and it is what keeps the ungated job's real justification —
-no toolchain, no cache (`.github/workflows/ci.yml:128-130`) — true as annotations accumulate. The wire
-header records a re-runnable escalation trigger rather than a prediction: *if the per-annotation stage
-ever dominates a local `mise run trip-wires`, batch by `in=` before adding annotations.* §9 audits that
-and declines to mint a slot.
+per annotation — never a term per tracked file.** That is visible in the code shape (§4.1's single
+tree-wide command, §4.4's per-annotation probe and measurement) and it is what keeps the ungated job's
+real justification — no toolchain, no cache (`.github/workflows/ci.yml:128-130`) — true as annotations
+accumulate. The wire header records a re-runnable escalation trigger rather than a prediction: *if the
+per-annotation stage ever dominates a local `mise run trip-wires`, batch by `in=` before adding
+annotations.* §9 audits that and declines to mint a slot.
 
 **The bound is on the wire, and the self-test is exempt** (I6×I7). C10's positive and C19's corpus row
 both run tree-scale pathspecs, deliberately: the acceptance corpus is only worth having because it runs
@@ -483,9 +506,13 @@ mise.toml:100:description = "Run every layering trip-wire (.claude/tools/*-trip-
 scripts/trip-wires.sh:4:# run every layering trip-wire. The glob below DISCOVERS what is present;
 ```
 
-`CONTRIBUTING.md:19` is **S2's**, per umbrella §6 — its sentence continues into `:20` with "a drifted
-trip-wire *allowlist* reds the PR", a mechanism S2 ships. S1 edits the other four files; each wire's own
-header keeps saying what that wire is, and only the set-level label moves. §7 Q1 asks for the wording.
+`CONTRIBUTING.md:19-20` is one sentence carrying **two different changes**, and they split between
+slices: the set-level label "layering trip-wires" at `:19` is **S1's**, by this section's own criterion,
+and the sentence's continuation at `:20` — "a drifted trip-wire *allowlist* reds the PR" — is a mechanism
+umbrella §6 routes to **S2**. Revision 3 read the routing as covering the whole sentence and put both
+halves in S2; the criterion it was applying is not umbrella §6's. So S1 edits all five files (§5 commit
+3), touching `:19` and not `:20`; each wire's own header keeps saying what that wire is, and only the
+set-level label moves. §7 Q1 asks for the wording.
 (The two exclusions are what keep this listing stable under its own landing — the memo lives in
 `docs/plans/`, the wire and self-test in `.claude/tools/`.)
 
@@ -500,16 +527,39 @@ not cite. Every row it lists is disposed of below — two by an edit, the rest b
 | `mise.toml:102-103` | "The wires cover disjoint layering / discipline surfaces (wasm-runtime tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit)" | same | the parenthetical **enumerates the wire set**, so it goes stale on every addition; replace it with the property it was reaching for — each script's own header documents its surface, which `:104-105` already says |
 
 **The other five `SITES` reports, left alone deliberately.** A report is only useful if every row is
-disposed of, so: `.github/workflows/ci.yml:131-132` states why the job is ungated (gating it would mean
-listing `.claude/tools/**` in the path filter) — a fifth wire does not touch that argument;
-`CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies, which stays true;
-`scripts/trip-wires.sh:25` and `scripts/trip-wires.sh:59` are the driver's own internals (`bash` 3.2, and the both-directions
-retention message), which describe the mechanism rather than the membership. None is falsified by an
-addition to the set.
+disposed of, and a row is disposed of only if the line it names was read at that line. Re-derived from
+the report, in the order it emits: `.github/workflows/ci.yml:131-132` carries the ungated job's own
+argument — "Gating them would mean listing BOTH `.claude/tools/**` … and `scripts/**` … in a filter" —
+which a fifth wire does not touch; `CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies,
+which stays true; and the two driver internals are
+
+```
+$ sed -n '25p;59p' scripts/trip-wires.sh
+# `shopt` here: /bin/bash on stock macOS is 3.2, and the wires already record that
+# be reported as "the wires are gone".
+```
+
+— `scripts/trip-wires.sh:25`, the `bash` 3.2 constraint (no arrays, no `shopt`, because stock macOS ships
+3.2), and `scripts/trip-wires.sh:59`, the **resolved-root verification** message: "the root is wrong" must
+never surface as "the wires are gone". All five describe the mechanism rather than the membership, so none
+is falsified by an addition to the set.
+
+**`:59` was labelled "the both-directions retention message", and it is not that line.** The retention
+rationale is at `scripts/trip-wires.sh:76-84`, the passage §1 and §6 both already cite. The label entered
+in the revision that was answering round 3's finding about it:
+
+```
+$ git log --oneline -S'trip-wires.sh:59' 2656d83d -- docs/plans/2026-08-claim-gate-s1-provenance.md
+dd5f22d7 docs(plan): S1 revision 3 — every change is a finding the checker produced
+```
+
+— that is, the fix rewrote the words and never re-read the line, so the same report named it again. Which
+is why the listing above is re-derived from `SITES` and spot-checked with a pasted `sed` rather than
+hand-corrected a second time: relabelling is not re-measuring, and only one of the two survives being run.
 
 This is the general shape and it is worth naming, because it is why the edit set was wrong twice: a
 grep proves a *paste* matches its command, never that the command was the right one. `TRANSCRIPT`
-re-runs §4.6's two listings and confirms both are complete for what they ask; `SITES` exists because
+re-runs every listing pasted above and confirms each is complete for what it asks; `SITES` exists because
 that is not the same as being complete. Both edited sites were reachable only by asking "what else
 describes the *set*", which is a concept, not a string
 (memory `feedback_semantic-sibling-selfseed-and-regate-breadth`).
@@ -520,10 +570,28 @@ describes the *set*", which is a concept, not a string
 
 Two files, per §1:
 
-| File | Owns | Projected |
-|---|---|---|
-| `.claude/tools/claim-provenance-trip-wire.sh` | header rationale, the self-test invocation + guard, the stage-1 scan, the tier pass, the field parser, the D5 reject-list, the D4 probe, the three verb executors, verdict and exit | ~350 |
-| `.claude/tools/claim-provenance-selftest.sh` | the fixture repos and every control in §8 | ~200 |
+| File | Owns |
+|---|---|
+| `.claude/tools/claim-provenance-trip-wire.sh` | header rationale, the self-test invocation + guard, the scan, the tier pass, the field parser, the D5 reject-list, the D4 probe, the three verb executors, verdict and exit |
+| `.claude/tools/claim-provenance-selftest.sh` | the fixture repos and every control in §8, including the `clone` fixture's construction, reuse and teardown on the lifecycle §4.1.1 fixes |
+
+**The `Projected` column is gone, and it is the same class this memo has already removed twice.** It
+carried `~350` and `~200`, and neither figure was ever a projection: it was written once and inherited
+by every revision since —
+
+```
+$ git log --oneline -S'~350' 2656d83d -- docs/plans/2026-08-claim-gate-s1-provenance.md
+494e83a9 docs(plan): S1 rewrite — close plan-review round 1 (3 CRIT / 39 IMP)
+```
+
+— while the design of the two files it projected changed underneath it three times: revision 4 deleted
+the fence arm *and* the second scan stage from the wire, revision 4 added a `--one` entry point, and
+revision 5 withdrew `--one` and gave the self-test a `git clone --local` fixture to construct, share and
+tear down. A number that survives three changes to its own subject is not tracking that subject. Per
+§4.5's runtime table and §5's "five uses" — the two the memo already withdrew for it — a figure whose
+value depends on the author's convention rather than on what a command reports is **removed, not
+re-measured** (memory `feedback_convention-dependent-figures-are-argument`). What replaces it is §1's
+authoring trigger, which is re-runnable and applies while the files are being written rather than before.
 
 **Three live annotations, one per verb**, each chosen so that S1's own landing cannot invalidate it (D10
 form 1). Once S1 lands the wire re-executes all three on every push, so each reds the build if its
@@ -656,7 +724,7 @@ push → draft PR → `/review <n>`.
 
 ## §7 Open questions for plan-review
 
-**Q1 — set-label wording.** §4.6 widens the label at four files; is "repository trip-wires" the right
+**Q1 — set-label wording.** §4.6 widens the label at five files; is "repository trip-wires" the right
 replacement for "layering trip-wires", or should S1's wire get its own driver? Recommendation: same
 driver, label widened, one commit. A second driver costs a second ungated CI job and a second place a
 wire can go missing — and §1 shows the *first* driver's glob is already the thing that decides what runs.
@@ -716,9 +784,9 @@ that shape all ten bare `asserted=` rows share an invocation and collide. So the
 | Fixture | Means |
 |---|---|
 | `own` | **its own `mktemp -d` and its own wire invocation**, torn down after. Two `own` rows cannot mask each other by construction, whatever their `$3`. |
-| `escapes` | one fixture carrying both C8's and C9's annotations, so their diagnostics must discriminate — this is the pair R1's finding was actually about. |
+| `escapes` | one fixture carrying both C8's and C9's annotations, so their diagnostics must discriminate — this is the pair R1's finding was actually about. Both arms are malformed, so the row exists at all only under §4.2's fail-without-ending rule: a wire that stopped at the first malformed annotation would never reach C9's. |
 | `I7` | C27's counting-shim fixture; one invocation, instrumented. |
-| `clone` | a `git clone --local` of this repository, built once per self-test run and shared by every `clone` row. The annotation is planted in a tracked file of the clone, so **stage 1 acquires it** (§4.1.1). Shared ⇒ the `$3` values of all `clone` rows must be mutually non-substring — and are. |
+| `clone` | a `git clone --local` of this repository, built once per self-test run and shared by every `clone` row. The annotation is planted in a tracked file of the clone, so **the scan acquires it** (§4.1.1). Shared ⇒ the `$3` values of all `clone` rows must be mutually non-substring — and are. |
 
 So the property is scoped to the invocation, and the table below carries the **Fixture** column that
 makes it decidable:
@@ -761,7 +829,7 @@ C11 and C19–C22, so their diagnostics must discriminate within it — and do.
 | C22 | acceptance corpus — #504 §5, the row umbrella §3 row 4 routes here | clone | — | `lines=632 in="crates/shell/elidex-shell/src/app/drain_host/mod.rs"` (`asserted=632`) |
 | C23 | §4.4 the optional `icase` keyword | own | fixture carrying `SOLE` and `sole`; `count=2 icase pattern="sole"` | the same annotation **without** `icase`, still asserting 2 (`asserted=2 `) — proves the keyword is read, not ignored |
 | C24 | §4.2 the backtick arm on `.toml` | own | backticked annotation in a `#` comment in a `.toml` → ignored | same `#` comment unbackticked, wrong count (`asserted=`) |
-| C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>` | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
+| C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
 | C27 | §4.5 I7's structural half | I7 | a fixture with 3 annotations and a counting `git` shim first on `PATH`: exactly one tree-wide `git grep`, and a per-annotation term that scales with 3, never with the file count | the same fixture at 6 annotations, asserting the 3-annotation invocation count (`git invocations`) |
 
 C23–C25 close three clause-shaped holes round 2 named: the `icase` keyword, the `.toml` surface (C5's
@@ -938,8 +1006,9 @@ home?* Yes. → **Not a slot**: a header note with a re-runnable escalation trig
 `#11-*` platform slot … skill-infra not a platform gap").
 
 **Not S1's deferrals** (owned elsewhere, listed so no one re-books them): D8's ledger → S2;
-`CONTRIBUTING.md:19-20`'s allowlist sentence → S2 (umbrella §6); D7/D9 and Check 3, including §6's
-four-form window → S3; `#11-claim-annotation-diff-scoped-lint` → booked by umbrella §5, its
+`CONTRIBUTING.md:20`'s allowlist clause → S2 (umbrella §6), the `:19` half of that same sentence being
+S1's (§0, §4.6, §5 commit 3); D7/D9 and Check 3, including §6's four-form window → S3;
+`#11-claim-annotation-diff-scoped-lint` → booked by umbrella §5, its
 `fetch-depth: 0` trigger now watched by §5's `count=0` annotation.
 
 Revision 2's list ended that S3 item with "and the fence-tracker reconciliation", which was a defer to
