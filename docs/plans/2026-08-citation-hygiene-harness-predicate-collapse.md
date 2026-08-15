@@ -111,9 +111,11 @@ Readings:
 - **M5** — no match, both. ⚠ This establishes exactly one thing: **nothing outside `docs/plans/` invokes the
   harness** — no CI job, no `mise` task, no test. It does **not** establish "nothing verifies the harness";
   §4 names the verifiers and they all run today.
-- **M6 vs M7** — **two derivations of the block count disagree.** `selfcheck`'s line-oriented parser
-  recognises a definition only when it closes with a bare `}`, so it drops `all()`, which closes `; }` — but
-  that is no longer the whole of the gap. Read both; do not carry the pair.
+- **M6 vs M7** — **two derivations of the block count disagree, and `all` is the whole of the gap.**
+  `selfcheck`'s line-oriented parser has an explicit one-liner branch, so a definition that opens and closes
+  on one line is recognised; what it cannot close is a **line-continuation** definition, whose `; }` never
+  appears as a line that is a bare `}`. `all()` is the only one, and the difference runs one way only. Read
+  both; do not carry the pair.
 
 ## §2 Q1 — what the canonical validity predicate is
 
@@ -196,10 +198,19 @@ assigned from the callers resolved so far, over an unordered set, and gave two d
 unrepresentable — declaring `_measure` the `kernel` it is went binding-RED. The row above is the rule
 implemented at HEAD, and the seed-independence is a command:
 
+⚠ **Bind the child's status before hashing, and resolve the memo directory before looping.** `… | shasum`
+reports SHASUM's status and hashes whatever the child happened to print. Measured: pointed at a directory with
+no memos, the block returns 1 and prints nothing, and the pipeline reports `da39a3ee…` — SHA-1 of the empty
+string — identically for every seed, at rc=0. *"Deterministic"*, for a block that failed. That is §1's M3
+`PIPESTATUS[0]` hazard in a second spelling. And `..` does not resolve inside a `git clone --local` sandbox,
+which is the form these measurements take.
+
 ```bash
+MD=$(cd ../elidex-wt-citeaudit/docs/plans && pwd) || exit 2   # absolute, or fail loudly
 for s in 0 1 2 3 4 5 6 7 8 9; do
-  PYTHONHASHSEED=$s bash docs/plans/2026-07-citation-hygiene-A-rederive.sh \
-    inventory ../elidex-wt-citeaudit/docs/plans | shasum
+  out=$(PYTHONHASHSEED=$s bash docs/plans/2026-07-citation-hygiene-A-rederive.sh inventory "$MD") \
+    || { echo "!! seed $s: inventory failed -- there is nothing to hash"; exit 1; }
+  printf '%s' "$out" | shasum
 done | sort -u          # one line, or the tiers are order-dependent again
 ```
 
