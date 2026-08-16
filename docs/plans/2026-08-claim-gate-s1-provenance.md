@@ -75,10 +75,19 @@ control for every clause of that grammar. Three verbs — `count`, `files`, `lin
 production; D2–D6 become production rules, not prose; registration in `REQUIRED_WIRES`
 (`scripts/trip-wires.sh:85-90`) lands in the same commit as the wire.
 
-**In scope**: the grammar; the three recogniser tiers, defined for every scanned surface; the three
-verbs; the wire; its invocation of its own self-test; registration; the two prose sites carrying a stale
-runtime number; the set-level label the new wire joins; and the two set-level sites §4.6 found that a
-fifth wire falsifies.
+**In scope** — the list is §5's six commits, read off them rather than recalled, because the previous
+form stopped at commit 4 and stayed there through the revisions that added 5 and 6: the grammar; the
+three recogniser tiers, defined for every scanned surface; the three verbs; the wire; its invocation of
+its own self-test; registration; the two prose sites carrying a stale runtime number; the set-level
+label the new wire joins; the two set-level sites §4.6 found that a fifth wire falsifies; the
+retirement of the checker's second transcription (below, §5 commit 5); **and the five false numerals in
+another lane's landed plan-memo** (§5 commit 6).
+
+That last one is cross-lane scope and is stated here rather than left to §5, because §0 is where a
+reader learns the blast radius. It is in this PR for the reason §9 gives — this memo *proves* those
+rows false, so shipping the proof while leaving the rows is the hidden deferral §9's own standard
+forbids — and it is bounded to replacing five numerals against the base that table declares, touching
+no prose and no decision of the lane that owns it.
 
 **Not in scope, and not in this PR: authoring `.claude/tools/claim-gate-plan-check.py`.** It checks
 *this memo*; the wire checks *the tree*. Different subject, different lifecycle, different gate — and
@@ -289,14 +298,29 @@ landed it, which is this memo's own subject arriving in the section that lists i
 
 ### §3.1 User-input touch audit
 
-**No user-input surface.** The deliverable is two bash files under `.claude/tools/` and one line in
-`scripts/trip-wires.sh`; nothing compiles into the engine, so the exposure delta on any input path is
-zero. The adjacent trust question is *repository* input: the wire evaluates annotation text drawn from
-the working tree, in CI, on fork-PR content (`.github/workflows/ci.yml` triggers on `pull_request`).
-Three structural bounds — **I4** rejects PCRE escapes at parse time, **I5** forbids `eval` so an
-annotation body cannot become a shell word, and the pattern reaches `git grep -E`, a regex engine rather
-than an interpreter. The residual is regex cost on attacker-chosen input, where
-`timeout-minutes: 2` (`.github/workflows/ci.yml:146`) caps a hang and nothing finer (§4.5).
+**No user-input surface**, and the touch surface below is **derived from §5's commit list rather than
+described** — this section read "two bash files and one line in `scripts/trip-wires.sh`" from the
+revision where that was true through four revisions in which §5 grew to six commits, and what the
+description omitted was the PR's only edit crossing a tier boundary.
+
+| File | Tier | On the ungated per-push path? |
+|---|---|---|
+| `.claude/tools/claim-provenance-trip-wire.sh` (new) | repo gate | **yes** |
+| `.claude/tools/claim-provenance-selftest.sh` (new) | repo gate | **yes**, via the wire's preamble (§4.1.2) |
+| `scripts/trip-wires.sh` — the `REQUIRED_WIRES` line | repo gate | yes |
+| `.github/workflows/ci.yml`, `CLAUDE.md`, `mise.toml` | prose / config | label and comment edits only (§4.6) |
+| `.claude/tools/claim-gate-plan-check.py`, and the deletion of `claim_gate_grammar.py` | **plan-review stage** | **no** — which is why §7's layer rule lets it keep its Python and its skill coupling, and why it may not move |
+| `docs/plans/2026-07-app-mode-turn-completion-drain.md` | another lane's landed memo | no — five numerals, value-only (§5 commit 6, §9) |
+
+Nothing compiles into the engine, so the exposure delta on any input path is zero. The adjacent trust
+question is *repository* input: the wire evaluates annotation text drawn from the working tree, in CI,
+on fork-PR content (`.github/workflows/ci.yml` triggers on `pull_request`). What executes against that
+content is `git grep -E`, `git ls-files` and `awk` per annotation, plus — inside the self-test only, for
+the acceptance corpus — one `git clone --local` (§4.1.1). Three structural bounds: **I4** rejects PCRE
+escapes at parse time, **I5** forbids `eval` so an annotation body cannot become a shell word, and the
+pattern reaches `git grep -E`, a regex engine rather than an interpreter. The residual is regex cost on
+attacker-chosen input, where `timeout-minutes: 2` (`.github/workflows/ci.yml:146`) caps a hang and
+nothing finer (§4.5).
 
 ---
 
@@ -1114,19 +1138,27 @@ push → draft PR → `/review <n>`.
 
 ## §7 Open questions for plan-review
 
-**Q1 — set-label wording.** §4.6 widens the label at four files; is "repository trip-wires" the right
-replacement for "layering trip-wires", or should S1's wire get its own driver? Recommendation: same
-driver, label widened, one commit. A second driver costs a second ungated CI job and a second place a
-wire can go missing — and §1 shows the *first* driver's glob is already the thing that decides what runs.
+**Q1 — set-label wording**, and only the wording. §4.6 widens the label at four files: is "repository
+trip-wires" the right replacement for "layering trip-wires"? The second half this question used to
+carry — *or should S1's wire get its own driver?* — is **not open**: §0 books registration in the
+existing driver's `REQUIRED_WIRES` as commit 1 and §4.6/§5 book the widening at four files, so the
+memo decides it three sections before asking it. Recorded rather than silently dropped, because a
+question whose answer is already shipped is a second decision surface for a settled decision. The
+ground for that decision, unchanged: a second driver costs a second ungated CI job and a second place a
+wire can go missing, and §1 shows the *first* driver's glob is already what decides what runs.
 
-**Q2 — should the acceptance corpus run against the live tree?** §8 C19–C22 re-execute v1's three false
-annotations and one of #504's `lines=` claims verbatim against the real repo, so the self-test asserts
-FAIL and a diagnostic naming the historical asserted value. They are self-defending (if the tree ever
-agrees with a wrong historical figure the control reds and says the row went vacuous), but they do couple
-the wire's self-test to files other lanes own. The alternative is hermetic re-enactments of the same
-three *shapes*, which is deterministic but no longer "known input, known verdict". Recommendation: keep
-them live — umbrella §3 rows 4–5 route these exact inputs here, and umbrella §2's worked instance is the
-argument that a real firing beats a synthetic one.
+**Q2 — the acceptance corpus runs against a clone of the live tree, and the open half is narrower than
+this question used to state.** §8 C19–C22 re-execute v1's three false annotations and one of #504's
+`lines=` claims verbatim, asserting FAIL and a diagnostic naming the historical asserted value. The
+question was posed as *live repo vs hermetic re-enactment*, and §4.1.1 chose **neither**: a
+`git clone --local` built once per self-test run, which keeps "known input, known verdict" while
+letting the corpus reach the wire through the scan rather than around it. What remains genuinely open
+is the residue that choice does not remove: the clone is a clone *of this repository*, so the corpus
+still reads files other lanes own, and C10's and C11's positives read one exit status covering every
+live annotation in it — umbrella §2 records an unrelated lane's commit (`658cc302`) moving two of them
+already. Recommendation: keep the clone — umbrella §3 rows 4–5 route these exact inputs here, and
+umbrella §2's worked instance is the argument that a real firing beats a synthetic one — and read the
+residue as the reason C10's and C11's positives assert liveness rather than a value (§8.1).
 
 **Q3 — CLOSED by round 3: the wire has no fence tracker.** The question was whether the wire should
 carry a third implementation of fence tracking (a), shell out to the Python one (b), or drop the fence
