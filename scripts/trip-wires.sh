@@ -83,6 +83,7 @@ fi
 #     retention as two sources of truth is what allowed the gap; one line per new wire,
 #     in the commit that adds it, is what closes it.
 REQUIRED_WIRES="
+claim-provenance-trip-wire.sh
 layout-box-reader-trip-wire.sh
 native-ctor-guard-trip-wire.sh
 wasm-runtime-trip-wire.sh
