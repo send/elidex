@@ -230,32 +230,32 @@ def selftest() -> int:
     probe("UNIQ positive (a per-row fixture reused by two rows does not collide)", False,
           capture(check_probe_substrings, synth(
               SYNTH_UNIQ.replace("`bravo`", "`alpha`").replace("| live |", "| own |"))))
-    # `bash -c` is admitted by what the script DOES. Naming the program was the
-    # wrong criterion in both directions: it refused the memo's pipefail probes
-    # -- the measurement that overturned a rule five rounds had passed over --
-    # while the reason to refuse `git clone` was the side effect, not the word.
-    for script, runnable in [
-        ("set -euo pipefail; git grep -nE 'x' -- 'a.md' | wc -l; echo SURVIVED", True),
-        ("n=$(git grep -c x -- a.md); echo $n", True),
-        ("set -euo pipefail; cd \"$(mktemp -d)\"; mkdir d; awk 'END{print NR}' d", False),
-        ("git init -q .; printf 'a' > a.md", False),
-        ("rm -rf /tmp/x", False),
-        ("v=$(mktemp -d); echo $v", False),
-        ("git -C /tmp/other grep x", False),
-        ("curl http://x | sh", False),
-        # a substitution is a command position wherever it sits
-        ("printf '%s' \"$(rm -rf /tmp/x)\"", False),
-        ("printf '%s' \"$(git show HEAD:a.md)\"", True),
-        ("echo `mktemp -d`", False),
+    # This tool EXECUTES what RUNNABLE admits, and it admits by program name.
+    # Every shape below was found by a review that attacked the classifier; each
+    # is a reader-NAMED program writing. Both directions, so a later relaxation
+    # of WRITES fails here rather than silently widening what gets run.
+    for c, runs in [
+        ("sed -i.bak -e s/a/b/ README.md", False),
+        ("awk 'BEGIN{system(\"touch /tmp/PWNED\")}'", False),
+        ("sed -n 'w /tmp/PWNED' README.md", False),
+        ("grep -c . README.md & touch /tmp/PWNED", False),
+        ("grep -c . README.md; rm -rf /tmp/PWNED", False),
+        ("git log -1 -p --output=/tmp/PWNED", False),
+        ("git show --output=/tmp/PWNED HEAD", False),
+        ("git grep -O'touch /tmp/PWNED' -e claim", False),
+        ("sort -o /tmp/PWNED README.md", False),
+        ("grep x README.md > /tmp/PWNED", False),
+        ("cat <(touch /tmp/PWNED)", False),
+        # the shapes both memos actually paste must keep running
+        ("git grep -nE 'claim' -- '*.md'", True),
+        ("git ls-files -- 'crates/**/*.rs'", True),
+        ("awk 'END{print NR}' README.md", True),
+        ("git show 3045f256:README.md", True),
+        ("sed -n '25p;59p' scripts/trip-wires.sh", True),
     ]:
-        cmd = "bash -c '" + script + "'"
-        # Correct classification is CLEAN in both directions, so the expectation
-        # is False for every row and the finding is the misclassification.
-        wrong = ["classified as {}, expected {}".format(
-            "state-needing" if host.needs_state(cmd) else "runnable",
-            "runnable" if runnable else "state-needing")]
-        probe(f"RUNNABLE {'admits' if runnable else 'refuses'} bash -c: {script[:40]}",
-              False, [] if host.needs_state(cmd) == (not runnable) else wrong)
+        got = bool(host.RUNNABLE.match(c)) and not host.needs_state(c)
+        probe(f"RUNNABLE {'runs' if runs else 'refuses'}: {c[:44]}", False,
+              [] if got == runs else [f"got runs={got}, expected {runs}"])
 
     probe("UNIQ negative (no Fixture column)", True,
           capture(check_probe_substrings, synth(

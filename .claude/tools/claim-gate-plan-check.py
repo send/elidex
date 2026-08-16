@@ -736,8 +736,7 @@ def check_fence(memo: Memo) -> None:
 # unchecked rather than skipped -- a silent cap reads as coverage.
 # --------------------------------------------------------------------------
 
-_RUNNABLE_HEAD = r"git (?:grep|ls-files|show|log)|grep|sed|awk"
-RUNNABLE = re.compile(rf"^({_RUNNABLE_HEAD}|bash -c)\b")
+RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk)\b")
 # `$NF` inside an awk program is not shell state, and a first cut that tested
 # the raw line skipped three re-runnable commands as unrunnable -- a cap that
 # reads as coverage. Single-quoted spans are removed before the test. `$?` is
@@ -745,62 +744,44 @@ RUNNABLE = re.compile(rf"^({_RUNNABLE_HEAD}|bash -c)\b")
 SQUOTED = re.compile(r"'[^']*'")
 NEEDS_STATE = re.compile(r"\$[A-Za-z_{#*@]|set --|<prototype|<this memo|<the umbrella")
 
-# A `bash -c` is admitted by WHAT IT DOES, not by the name it starts with.
-# Naming the program was the wrong criterion in both directions: it refused the
-# memo's `set -euo pipefail` probes -- its highest-value measurements, and the
-# ones that overturned a rule five rounds had passed over -- while the reason
-# for refusing `git clone` was never the word "clone" but the side effect.
-# So every command position inside the script must be a reader. Anything that
-# creates, moves or deletes (`mktemp`, `mkdir`, `git init`, `rm`, `cd`, `>`)
-# leaves the script unrunnable and REPORTED, which is what keeps the fixture
-# blocks out.
-_READERS = {
-    "git", "grep", "sed", "awk", "wc", "printf", "echo", "true", "false",
-    "test", "[", ":", "sort", "uniq", "head", "tail", "cat", "cut", "tr",
-    "set", "if", "then", "else", "elif", "fi", "for", "do", "done", "while",
-}
-_GIT_READERS = {"grep", "ls-files", "show", "log", "rev-parse", "rev-list", "cat-file"}
-_SPLIT = re.compile(r"(?:;|\|\||&&|\||\n)")
+
+# This tool EXECUTES what it admits, and RUNNABLE admits by the program's name.
+# Round 6 tried replacing that with an analysis of what the script does; the
+# analysis leaked (nested `$(...)`, `<(...)`, `&`, `--output`) and delivered no
+# coverage, so it was reverted -- and the review that found the leaks also found
+# that the SAME hole had always been open on this arm: `sed -i`, an `awk` program
+# calling `system()`, `git log --output=`, `git grep -O<cmd>` and anything after
+# `&` or `;` were being run, unquoted, from a document.
+#
+# A deny-list, not an allow-list, and deliberately so: the allow-list attempt is
+# what leaked. These are the shapes a READER-named program uses to write. A
+# command matching one is reported unrunnable, with its reason, like every other
+# entry in the un-run list -- not silently skipped.
+WRITES = re.compile(
+    r"(^|\s)sed\b[^|;&]*\s-[a-zA-Z]*i|"          # sed -i, in any flag cluster
+    r"system\s*\(|"                               # awk's system()
+    r"\bprint(f)?\b[^|;&]*>|"                     # awk print > "file"
+    r"(^|\s)-O|--output\b|"                       # git grep -O<cmd>, git log --output
+    r"(^|\s)-o\s|"                                # sort -o
+    r"<\(|>\(|"                                   # process substitution
+    r"[^&|]&(\s|$)|"                              # backgrounding (not && )
+    r">>?|"                                       # any redirection
+    r"(^|\s)(rm|mv|cp|touch|mkdir|curl|wget|chmod|eval|find)\b"
+)
 
 
-_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
-
-
-def bash_is_read_only(script: str) -> bool:
-    # Redirection creates; nothing this tool re-runs may.
-    if ">" in script:
-        return False
-    # EVERY command substitution is checked, wherever it sits -- the first cut
-    # recursed only into `x=$(...)` heads, so `printf "$(rm -rf /)"` was admitted
-    # because `printf` is a reader. A substitution is a command position no
-    # matter what surrounds it.
-    stripped = script
-    for m in _SUBST.finditer(script):
-        inner = m.group(1) if m.group(1) is not None else m.group(2)
-        if not bash_is_read_only(inner):
-            return False
-        stripped = stripped.replace(m.group(0), "''")
-    for part in _SPLIT.split(stripped):
-        toks = part.split()
-        # An assignment inside the script is not omitted state -- the whole
-        # script runs as one unit -- so skip leading assignments to reach the
-        # program.
-        while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
-            toks = toks[1:]
-        if not toks:
-            continue
-        head = toks[0].lstrip("(")
-        if head not in _READERS:
-            return False
-        if head == "git" and (len(toks) < 2 or toks[1] not in _GIT_READERS):
-            return False
-    return True
+# `sed` is the one reader-named program whose SCRIPT is a language with write
+# commands (`w`, `W`, `r`, `R`, `e`, and `s///w`), and they sit inside the quoted
+# span WRITES cannot safely read. Both memos use exactly one shape -- a line
+# printer -- so that shape is whitelisted and every other `sed` is reported.
+SED_PRINTER = re.compile(r"^sed -n '[0-9;p, ]+' \S+$")
 
 
 def needs_state(cmd: str) -> bool:
-    if cmd.startswith("bash -c"):
-        m = re.match(r"^bash -c\s+'(.*)'\s*$", cmd, re.S)
-        return not (m and bash_is_read_only(m.group(1)))
+    if WRITES.search(cmd):
+        return True
+    if cmd.startswith("sed") and not SED_PRINTER.match(cmd):
+        return True
     return bool(NEEDS_STATE.search(SQUOTED.sub("''", cmd)))
 FILELINE = re.compile(r"^([\w./-]+):(\d+):")
 ARROW = re.compile(r"^(.*?)[ \t]+(?:→|->)[ \t]+(.*)$")
@@ -962,18 +943,12 @@ def check_transcripts(memo: Memo) -> list[str]:
                     # an empty set, i.e. passed unconditionally. Say so.
                     body_txt = "\n".join(x for x in out_lines if x.strip())
                     if body_txt.strip():
-                        # Per LINE, not per block. A fenced block inside a
-                        # numbered list carries the list's indent on every line,
-                        # and `wc -l` pads its own output -- neither is part of
-                        # the claim, and comparing the blocks whole reported both
-                        # as mismatches the author could only "fix" by pasting
-                        # something the command does not print.
-                        norm = lambda t: [x.strip() for x in t.splitlines() if x.strip()]
-                        got, want = norm(run_line(cmd)), norm(body_txt)
-                        if got != want:
+                        got = run_line(cmd).strip()
+                        if got != body_txt.strip():
                             bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes output for "
                                               f"`{cmd[:56]}` that re-running does not "
-                                              f"reproduce ({got[:2]} vs {want[:2]})")
+                                              f"reproduce ({got.splitlines()[:1]} vs "
+                                              f"{body_txt.splitlines()[:1]})")
                 i = j
                 continue
             i += 1
