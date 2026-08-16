@@ -340,17 +340,31 @@ next toucher re-runs it rather than re-litigating it.
 
 ### §5.5 Resulting sizes
 
-`inline/mod.rs` **785 → 573**; `reconcile.rs` **254**. Both sit below
+`inline/mod.rs` **785 → 573**; `reconcile.rs` **264**. ⚠ The plan predicted 254 from the
+exploratory extraction; the shipped module is **10 lines longer**, carrying a real module doc and
+a docstring on `reconcile_flows` that the throwaway did not. Recorded as a correction rather than
+silently overwritten — §5.6 exists so that a predicted figure and a measured one stay
+distinguishable. Both files sit below
 [[feedback_touch-time-split-means-while-writing]]'s 700–800 band, and the residue is 212 lines
 further from the 1000-line gate than it was — which is the source slot's *second* trigger
 disjunct, and this PR moves it away from firing rather than toward it.
 
-### §5.6 Provenance of §5.3–§5.5's figures — and why they are pending, not settled
+### §5.6 Provenance of §5.3–§5.5's figures
 
-⚠ **`too_many_arguments` firing, `178/100`, `573` and `254` (and §6's six hunks / `226 == 226`,
-and §8's 325-test baseline) were all measured on an extraction that is not in this branch**
-(`git diff --name-only origin/main...HEAD` names no `crates/` file). They are reproducible, but
-only by re-performing the extraction, so the recipe is stated rather than the numbers trusted:
+**Status: re-measured on the committed implementation.** Every figure below was first taken on a
+throwaway extraction that was not in the branch, and §8 required each to be re-run against the
+shipped tree before landing. Result of that re-run:
+
+| figure | predicted | measured on the implementation |
+|---|---|---|
+| `too_many_arguments` load-bearing | yes | yes — `this function has too many arguments (11/7)` |
+| `too_many_lines` still load-bearing on the residue | yes, `178/100` | yes, `178/100` |
+| `inline/mod.rs` | 573 | **573** |
+| `reconcile.rs` | 254 | **264** (§5.5 — the docstrings) |
+| §6 harness | 6 hunks, `226 == 226` | **6 hunks, `226 == 226`, PASS** |
+| test baseline | 325 | **325 passed, 0 failed** |
+
+The recipe the numbers come from, so a reader can re-derive rather than trust:
 
 ```
 # 1. reconcile.rs = module doc + the `use` block + `#[allow(clippy::too_many_arguments)]`
@@ -368,9 +382,10 @@ cargo test   -p elidex-layout-block --all-features      # → 325 passed, 0 fail
 wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 ```
 
-§8 therefore requires every one of these figures **re-measured on the committed implementation**
-and the results put in the commit message, rather than inherited from here
-([[feedback_verified-claims-go-stale-under-own-later-edits]]).
+⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` came out at 264
+rather than 254. A memo that had simply asserted 254 would now be carrying a false figure into
+§10's successor-slot baseline; instead the discrepancy is visible and the baseline takes the
+measured number ([[feedback_verified-claims-go-stale-under-own-later-edits]]).
 
 ## §6. Proof obligation
 
