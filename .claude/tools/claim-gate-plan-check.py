@@ -1356,7 +1356,15 @@ def main(argv: list[str]) -> int:
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 
     check_pairs(memo)
-    check_probe_substrings(memo)
+    # UNIQ and FIXTURE policed §8.1's control table. That table is now
+    # `claim-provenance-selftest.sh`, and the property they enforced -- a
+    # negative arm's diagnostic substring must discriminate its own failure
+    # within its invocation -- is enforced there by construction: st_probe
+    # rejects a run that failed for the wrong reason. Two homes for one rule was
+    # the shape this program exists to collapse, so the prose-side pair retires
+    # with the prose. They stay callable for a memo that still carries a table.
+    if memo.sect("8.1"):
+        check_probe_substrings(memo)
     check_section_refs(memo, umbrella)
     check_citations(memo)
     if umbrella:
@@ -1370,7 +1378,8 @@ def main(argv: list[str]) -> int:
     check_sites(memo)
     check_tooling_quantities(memo)
     check_umbrella(memo, umbrella)
-    check_fixture_column(memo)
+    if memo.sect("8.1"):
+        check_fixture_column(memo)
     check_tier_transcription(memo)
     check_preflight(memo)
 
