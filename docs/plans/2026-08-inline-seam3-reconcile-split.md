@@ -338,9 +338,12 @@ measured artifact and the specified artifact are the same one again, and §5.5 /
 that already exists". Both halves were false, and measured so: the successor slot **is created by
 this PR** (`grep -rl '#11-inline-fragmented-fn-seams-1-2' <memory-dir>` returns only files this PR
 writes), and `#11-inline-spec-cite-misattribution` is not open either (§9 now claims no routing to
-it at all). Of the four items on the new slot, **two are pre-existing** (seams 1 and 2, named by
-the source slot on 2026-07-28) and **two are created here** (`reconcile_flows`' eleven-parameter
-signature and its adjacent-`bool` window, which §9 itself calls new). One own slot is within the
+it at all). The slot's contents split by **origin, not by count** — an earlier drafting said "the
+four items" while §9 routes a fifth, which is the restate-a-derived-number mechanism again, one
+level up from the line counts §5.5 stopped carrying. **Pre-existing**: seams 1 and 2, named by the
+source slot on 2026-07-28. **Created by this PR**: `reconcile_flows`' eleven-parameter signature
+and its adjacent-`bool` window, which §9 itself calls new. **Routed by §9 without being created or
+pre-existing**: where the four helpers should live once their principal caller is a sibling module. One own slot is within the
 ≤3 per-PR cap, and §10 carries its `(own)` row.
 
 Eleven parameters exceeds clippy's threshold of seven. **Measured, not assumed**: removing the
@@ -360,6 +363,18 @@ which is the shape CLAUDE.md's *side-store→component 判定ルール* is writt
 should become components — they are intra-pass scratch, consumed before the pass ends, which is a
 defensible reading of that rule's scope — but the ECS question must be *on* the slot, not absent
 from it.
+
+### §5.3.1 ECS-native check / OO → ECS mapping
+
+`axes.md`'s Axis 2 `[plan]` detect entry asks a plan-memo to carry this subsection explicitly. The
+check was run; only its *result* was missing, which is the thing a reader cannot reconstruct.
+
+| question | answer |
+|---|---|
+| Does the extraction introduce an OO pattern (registry, observer, subscriber list, class-owned state)? | **No.** It adds one `pub(super) fn` and a `mod` declaration. No trait, no `Vec<Box<dyn …>>`, no `ObjectKind` variant, no new state container. |
+| Does it move per-entity state into a side-store? | **No.** The three entity-keyed parameters (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) are **pre-existing**, produced by `layout_atomic_items` and the packer; the split only makes them cross a function boundary. |
+| Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, and the reason is their lifetime: all three are intra-pass scratch consumed before the pass ends, not persisted per-entity state. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because "intra-pass scratch" is a judgment a future reshaping should re-make rather than inherit. |
+| What ECS state does the moved code own? | Two components — `InlineFlow` (insert; the only in-crate removal stays in `clear_inline_flows`) and `ColumnFlowSlice` (insert-or-remove). Both writes are pre-existing text; §7 records that the residue keeps two further `ColumnFlowSlice` removals, so that component's write set now spans the module boundary. |
 
 ### §5.4 `#[allow(clippy::too_many_lines)]` on the residue
 
@@ -496,8 +511,13 @@ own rev-22 gate caught in this lane.
   `carrier_groups` → `ColumnFlowSlice.flow_groups` (`:609-611`), read back by
   `elidex-layout-multicol/src/fill.rs:235`. The ground that does hold: the **same map instance is
   moved** into the callee, not rebuilt from another source, so any given pass drains in exactly
-  the order it would have. Whether that consumer is order-sensitive at all is pre-existing and
-  untouched; §9 routes it.
+  the order it would have. ⚠ **And the consumer is order-independent anyway — measured, not
+  assumed**, because an earlier drafting said "§9 routes it" and §9 carried no such disposition:
+  no `query::<…InlineFlow…>` exists anywhere in the workspace (every read is
+  `get::<&InlineFlow>(entity)`, 84 sites), so insertion order is never iterated; and
+  `flow_groups` is consumed as `flows.entry(*run_start).or_default()`
+  (`elidex-layout-multicol/src/lib.rs:553`), keyed by a distinct entity per group. The concern is
+  therefore **closed here**, not routed.
 * **The `LayoutBox`/`BoxModel` reader allowlist** — no row owed (§4), because the moved range's
   five `LayoutBox` tokens are all in comments (and its `BoxModel` count is 0), and the wire strips
   comment lines *before* matching (`layout-box-reader-trip-wire.sh:125`). Asserted by running
