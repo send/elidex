@@ -625,9 +625,11 @@ def selftest() -> int:
     probe("TOOLING ignores a numeral in a sentence not about the tooling", False,
           capture(check_tooling_quantities, synth("The umbrella has ten decisions.")))
 
-    umb_mandates = synth("**mention** (backticked or fenced → ignore).", "umb.md")
-    umb_silent = synth("mention is whatever the slice says.", "umb.md")
-    slice_withdraws = synth("There is one inertness rule: backtick it, on all four surfaces.")
+    # Keyed on D2, which survives; the earlier form keyed on D3, retired in round
+    # 6 for being inert, so these probes went clean and stopped proving anything.
+    umb_mandates = synth("strip a\nleading `//[/!]?` before fence matching in `.rs`.", "umb.md")
+    umb_silent = synth("inertness is whatever the slice says.", "umb.md")
+    slice_withdraws = synth("There is one inertness rule and there is no fence arm.")
     probe("UMBRELLA positive (umbrella silent on the withdrawn rule)", False,
           capture(check_umbrella, slice_withdraws, umb_silent))
     probe("UMBRELLA positive (umbrella mandates, slice does not withdraw)", False,
@@ -635,8 +637,8 @@ def selftest() -> int:
     probe("UMBRELLA negative (slice withdraws what the umbrella mandates)", True,
           capture(check_umbrella, slice_withdraws, umb_mandates),
           "binding decision cannot be changed by a slice edit")
-    umb_amended = synth('**mention** (backticked or fenced → ignore).\n\n'
-                        'the mention tier was "backticked **or fenced**"', "umb.md")
+    umb_amended = synth("strip a\nleading `//[/!]?` before fence matching in `.rs`.\n\n"
+                        "AMENDED by S1 round 4 (option (c)): the fence half", "umb.md")
     probe("UMBRELLA positive (the umbrella carries the amendment)", False,
           capture(check_umbrella, slice_withdraws, umb_amended))
     # Called with one argv path this check compared nothing and said nothing --
