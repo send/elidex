@@ -230,16 +230,38 @@ Consequences, both of which shape S1:
    diff runs in *both* directions. A `test -f` guard reproduces exactly the asymmetry that amendment
    closed — it catches a helper *leaving*, not one *arriving* unreferenced.
 
-Both are closed by one choice, taken here rather than left to plan-review: **two files, not three.** The
-wire carries the grammar inline; only the self-test is split, and the wire invokes it by name, so its
-absence is an execution failure rather than a silently smaller gate. The cohesion argument supports that
-one seam — the self-test must call the grammar's stages directly, not only through the wire's exit code —
-and nothing more. So does every wire that exists: all four are single files (`wc -l`: 493 / 121 / 84 /
-73) and the 493-line one inlines its own probes. What that does **not** buy is a prediction of S1's own
-size, and none is offered — `feedback_touch-time-split-means-while-writing` applies the split discipline
-*while writing*, not before, so what belongs here is a re-runnable trigger rather than a projection:
-**run `wc -l` on both files at every commit of this PR, and if either reaches the ~700–800 band, split it
-at the seam then.** §5 records why the projection it used to carry was withdrawn.
+**Those two consequences derive a rule, not a number**, and revisions 1–6 read them as deriving the
+number ("Both are closed by one choice: two files, not three"). What they establish is: *every non-wire
+file must be invoked by name from the wire, and no mechanism will catch one that is not.* Consequence 1
+forces the invocation — absence becomes an execution failure rather than a silently smaller gate.
+Consequence 2 says the retention diff cannot help, but a file arriving unreferenced is equally invisible
+at two files as at three, so it does not discriminate the count at all; read alone it argues for **one**.
+Neither closes "two, not three".
+
+**The count comes from cohesion, and only cohesion**: there is exactly one seam where splitting buys
+something — the self-test must call the grammar's stages directly, not only through the wire's exit code.
+Hence **two files**, the wire carrying the grammar inline and the self-test split and invoked by name.
+
+The precedent is worth stating accurately, because S1 **departs** from it rather than following it. No
+registered wire splits at all — none sources a helper:
+
+```
+$ git grep -nE '^[[:space:]]*(source|\.)[[:space:]]' -- '.claude/tools/*-trip-wire.sh'
+```
+
+Nothing today; S1's wire after it lands. That is the honest shape of the claim — S1 is the first wire
+with a helper, and the paragraph above is the justification for being first. (The per-wire `wc -l`
+figures revisions 1–6 cited here are gone for the same reason as the listing above: "all four" is
+falsified by S1's own landing, and the four lengths by any other lane's edit to those files.)
+
+**What none of it buys is a prediction of S1's own size**, and the trigger that replaced the withdrawn
+projection was wrong twice over. It said *"split it at the seam then"* — naming a seam three lines after
+this section argues there is exactly one and it is already taken — and it was a **prose rule**, the
+remedy shape this program has now recorded five times as ineffective, because nothing runs it and the
+author believes it was followed. Replaced by a bound the self-test asserts: **it fails if either shipped
+file exceeds 800 lines.** A bound is not a figure — it survives every legitimate edit and fires exactly
+when the discipline is breached — and if it fires, the answer is not "split at the seam" but *re-derive
+the decomposition*, because a file over the band is evidence of a seam this analysis did not find.
 
 ---
 
@@ -296,10 +318,19 @@ missing entirely.
 ## §3 Spec coverage map
 
 **No external spec surface.** S1 touches no WHATWG / W3C / TC39 / CSS-WG algorithm; it ships repository
-gate tooling. **This table exists to satisfy the preflight structural gate**, whose row parser hard-fails
-without a `§<number>` in the first cell. The rows are the in-repo governing contracts S1 must satisfy —
-the same substitution umbrella §3 makes and, as it records, a novel one. Every §-number below was
-confirmed present by `grep -nE '^#{1,4} ' <file>`.
+gate tooling. The rows are the in-repo governing contracts S1 must satisfy — the same substitution
+umbrella §3 makes and, as it records, a novel one. Every §-number below was confirmed present by
+`grep -nE '^#{1,4} ' <file>`.
+
+⚠ **The Branch column is normative, and revision 6 made it so without saying.** Revisions 1–6 opened this
+section with *"This table exists to satisfy the preflight structural gate"* — true of why the table has
+this shape, and false of what it now carries. §4.2 defines the three **tiers**; this column is the only
+place the classifier's **branches** are enumerated, and revision 6's `TIERS` check reads each branch's
+tier from this prose and decides it by running `classify()` on a specimen. That is what caught the fence
+arm surviving in the checker after §4.2 deleted it — §4.2 no longer mentions fences at all, so nothing
+derived from §4.2 could have caught it. A branch added here without a specimen fails; a tier changed on
+one side alone fails. The self-description went stale the moment that check landed, in the revision that
+landed it, which is this memo's own subject arriving in the section that lists its contracts.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
@@ -1054,6 +1085,8 @@ grouping is unaffected — a group of one-row invocations has nothing to collide
 | C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
 | C27 | §4.5 I7's structural half | I7 | a fixture with 3 annotations and a counting `git` shim first on `PATH`: exactly one tree-wide `git grep`, and a per-annotation term that scales with 3, never with the file count | the same fixture at 6 annotations, asserting the 3-annotation invocation count (`git invocations`) |
 | C28 | §4.4 rule 3, liveness resolves against the working tree | own | `lines=2 in="a.md"` on a `git add`ed file that is present in the worktree | the same annotation after the file is removed, its path still in the index (`present in the working tree`) |
+| C29 | §4.4 rule 4, a measurement git refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`git could not run this pattern`) |
+| C30 | §1's size bound on the shipped files | own | both files under the band → self-test passes | a fixture copy padded past 800 lines (`exceeds 800 lines`) |
 
 C23–C25 close three clause-shaped holes round 2 named: the `icase` keyword, the `.toml` surface (C5's
 row claimed both `.sh` and `.toml` and its fixture is a `.sh`), and the reject set, of which two of ten
