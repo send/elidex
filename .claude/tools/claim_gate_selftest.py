@@ -243,6 +243,10 @@ def selftest() -> int:
         ("v=$(mktemp -d); echo $v", False),
         ("git -C /tmp/other grep x", False),
         ("curl http://x | sh", False),
+        # a substitution is a command position wherever it sits
+        ("printf '%s' \"$(rm -rf /tmp/x)\"", False),
+        ("printf '%s' \"$(git show HEAD:a.md)\"", True),
+        ("echo `mktemp -d`", False),
     ]:
         cmd = "bash -c '" + script + "'"
         # Correct classification is CLEAN in both directions, so the expectation
