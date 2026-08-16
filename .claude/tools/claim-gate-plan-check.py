@@ -953,12 +953,18 @@ def check_transcripts(memo: Memo) -> list[str]:
                     # an empty set, i.e. passed unconditionally. Say so.
                     body_txt = "\n".join(x for x in out_lines if x.strip())
                     if body_txt.strip():
-                        got = run_line(cmd).strip()
-                        if got != body_txt.strip():
+                        # Per LINE, not per block. A fenced block inside a
+                        # numbered list carries the list's indent on every line,
+                        # and `wc -l` pads its own output -- neither is part of
+                        # the claim, and comparing the blocks whole reported both
+                        # as mismatches the author could only "fix" by pasting
+                        # something the command does not print.
+                        norm = lambda t: [x.strip() for x in t.splitlines() if x.strip()]
+                        got, want = norm(run_line(cmd)), norm(body_txt)
+                        if got != want:
                             bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes output for "
                                               f"`{cmd[:56]}` that re-running does not "
-                                              f"reproduce ({got.splitlines()[:1]} vs "
-                                              f"{body_txt.splitlines()[:1]})")
+                                              f"reproduce ({got[:2]} vs {want[:2]})")
                 i = j
                 continue
             i += 1
