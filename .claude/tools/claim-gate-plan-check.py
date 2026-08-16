@@ -126,10 +126,9 @@ sys.path.insert(0, str(SKILL))  # preflight.py imports grep_pass as a sibling
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import claim_gate_grammar as grammar  # noqa: E402
 import claim_gate_selftest  # noqa: E402
 
-grammar.host = claim_gate_selftest.host = sys.modules[__name__]
+claim_gate_selftest.host = sys.modules[__name__]
 
 FAILS: list[str] = []
 
@@ -475,60 +474,23 @@ def check_annotations() -> dict | None:
     (presence is the whole test; untracked is enough) silently retired PASTE.
     None is not a falsy payload but the ABSENCE of one, which PASTE now has to
     dispose of out loud."""
-    if WIRE.exists():
-        rc, out = sh(["bash", str(WIRE)])  # noqa
-        if rc != 0:
-            bad("ANNO", f"the wire reds: {out.strip()[:400]}")
+    if not WIRE.exists():
+        bad("ANNO", f"the wire is gone: {WIRE} does not exist, and this checker no "
+                    f"longer carries a second implementation to fall back on")
         return None
-    live, found = grammar.verdict_over(grammar.scan_tree())
-    for code, msg in found:
-        bad(code, msg)
-    return live
+    rc, out = sh(["bash", str(WIRE)])  # noqa
+    if rc != 0:
+        bad("ANNO", f"the wire reds: {out.strip()[:400]}")
+    return None
 
 
-def check_pasted_transcripts(memo: Memo, live: dict | None) -> None:
-    """Every figure §8.2 pastes as a transcript must be what re-running produces.
-    D10's own mechanism reaching the transcript instead of the claim is exactly
-    how the three false annotations of v1 survived."""
-    if live is None:
-        skip("PASTE", "wire mode: the wire owns classification and prints no tier "
-                      "counts, so §8.2's pasted figures have nothing to be "
-                      "re-derived from — have the wire emit them, or delete §8.2's "
-                      "paste along with this check")
-        return
-    s = memo.sect("8.2")
-    if not s:
-        skip("PASTE", f"{memo.path.name} has no §8.2 section, so no pasted tier "
-                      f"count, lax-candidate count or acceptance row was re-derived")
-        return
-    m = re.search(r"\{'strict':\s*(\d+),\s*'mention':\s*(\d+)\}", s)
-    if m:
-        for label, stated in (("strict", int(m.group(1))), ("mention", int(m.group(2)))):
-            got = live["tiers"][label]
-            if got != stated:
-                bad("PASTE", f"§8.2 pastes {label}={stated}; classifying the tracked "
-                             f"tree now gives {got}")
-    m = re.search(r"claim\[\^A-Za-z\]'\s*\\\n?.*?\|\s*wc -l\n\s*(\d+)", s, re.S)
-    if m:
-        stated = int(m.group(1))
-        got = sum(live["tiers"].values())
-        if got != stated:
-            bad("PASTE", f"§8.2 pastes a lax-candidate count of {stated}; "
-                         f"the scan now finds {got}")
-    for m in re.finditer(r"^(OK|FAIL)\s+(count|files|lines)\s+asserted=(\d+)\s+"
-                         r"actual=(\d+)\s+in=(\S+)", s, re.M):
-        verdict, verb, asserted, actual, spec = m.groups()
-        hit = [r for r in live["results"] if r[2]["spec"] == spec and r[2]["verb"] == verb]
-        if verdict == "OK" and hit and hit[0][3] != int(actual):
-            bad("PASTE", f"§8.2 pastes `{verb} … actual={actual} in={spec}`; "
-                         f"re-running gives {hit[0][3]}")
-        if verdict == "FAIL" and verb == "lines":
-            ok, got = grammar.execute({"verb": verb, "n": int(asserted),
-                                       "icase": False, "pattern": None,
-                                       "spec": spec})
-            if ok and got != int(actual):
-                bad("PASTE", f"§8.2's corpus row pastes `{verb} asserted={asserted} "
-                             f"actual={actual} in={spec}`; re-running gives {got}")
+# PASTE is retired. It re-derived §8.2's pasted tier counts from the payload
+# `check_annotations` returned, and the wire returns none: classification is the
+# wire's, and it prints its inventory rather than handing back a dict. The guard
+# that made this loud rather than silent did its job -- the self-test asserted,
+# so the retirement is a decision taken here instead of a check that stopped
+# mattering unnoticed.
+
 
 
 # --------------------------------------------------------------------------
@@ -1255,52 +1217,14 @@ TIER_SPECIMEN: dict[str, list[str]] = {
 }
 
 
-def check_tier_transcription(memo: Memo) -> None:
-    s3 = memo.sect("3")
-    if not s3:
-        bad("TIERS", "no §3 section, so the classifier branches this checker "
-                     "transcribes have no authority to be checked against")
-        return
-    named: dict[str, str] = {}
-    for c in data_rows(s3):
-        if len(c) < 3:
-            continue
-        m = BRANCH_ID.match(c[2])
-        if not m or "→" not in c[2]:
-            continue  # no stated outcome, so no tier is claimed
-        outcome = c[2].split("→", 1)[1]
-        tiers = {t.lower() for t in TIER_WORD.findall(outcome)}
-        if not tiers:
-            continue  # not a classifier branch -- scan, liveness, argv, registration
-        if len(tiers) > 1:
-            bad("TIERS", f"§3 branch ({m.group('id')}) names {sorted(tiers)}; a "
-                         f"branch landing in more than one tier cannot be decided "
-                         f"by one specimen — split the row")
-            continue
-        named[m.group("id")] = tiers.pop()
+# TIERS is retired with `claim_gate_grammar.py`. It read §3's Branch column and
+# decided each branch by classifying a specimen through this file's second copy
+# of the tier rules -- the copy §5's commit 5 exists to delete. It cannot be
+# re-pointed at the wire: the wire acquires annotations by scanning a tree and
+# has no per-string entry point (§4.1.1 withdrew `--one` for that reason), so a
+# specimen has nowhere to go. What it enforced now lives where it executes: the
+# self-test carries a both-directions control per surface and per tier.
 
-    for bid, tier in sorted(named.items()):
-        spec = TIER_SPECIMEN.get(bid)
-        if spec is None:
-            bad("TIERS", f"§3 branch ({bid}) names tier `{tier}` and TIER_SPECIMEN "
-                         f"has no specimen for it, so this checker's own copy of "
-                         f"§4.2 goes unchecked against the memo's — add one")
-            continue
-        hits = grammar.classify(spec)
-        if len(hits) != 1:
-            bad("TIERS", f"TIER_SPECIMEN[{bid!r}] yields {len(hits)} candidate "
-                         f"lines; a specimen must yield exactly one")
-            continue
-        got = hits[0][1]
-        if got != tier:
-            bad("TIERS", f"§3 branch ({bid}) says such a line lands in `{tier}`; "
-                         f"this checker's classify() puts the specimen in `{got}` "
-                         f"— the memo and its second transcription of §4.2 "
-                         f"disagree, and the tree is only green because no "
-                         f"annotation exercises the difference")
-    for bid in sorted(set(TIER_SPECIMEN) - set(named)):
-        bad("TIERS", f"TIER_SPECIMEN carries a specimen for §3 branch ({bid}), "
-                     f"which §3 no longer names as a tier branch")
 
 
 def check_preflight(memo: Memo) -> None:
@@ -1370,7 +1294,6 @@ def main(argv: list[str]) -> int:
     if umbrella:
         check_citations(umbrella)
     live = check_annotations()
-    check_pasted_transcripts(memo, live)
     check_fence(memo)
     report_transcripts(check_transcripts(memo))
     if umbrella:
@@ -1380,7 +1303,6 @@ def main(argv: list[str]) -> int:
     check_umbrella(memo, umbrella)
     if memo.sect("8.1"):
         check_fixture_column(memo)
-    check_tier_transcription(memo)
     check_preflight(memo)
 
     for line in summary("wire" if WIRE.exists() else "bootstrap"):

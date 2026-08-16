@@ -34,7 +34,6 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 
-from claim_gate_grammar import classify, execute, verdict_over
 
 host: ModuleType  # bound by the entry point at import time
 
@@ -160,14 +159,12 @@ def selftest() -> int:
     check_probe_substrings = host.check_probe_substrings
     check_section_refs = host.check_section_refs
     check_citations = host.check_citations
-    check_pasted_transcripts = host.check_pasted_transcripts
     check_fence = host.check_fence
     check_transcripts = host.check_transcripts
     check_sites = host.check_sites
     check_tooling_quantities = host.check_tooling_quantities
     check_umbrella = host.check_umbrella
     check_fixture_column = host.check_fixture_column
-    check_tier_transcription = host.check_tier_transcription
     check_preflight = host.check_preflight
     fence_verdict = host.fence_verdict
     needs_state = host.needs_state
@@ -304,72 +301,11 @@ def selftest() -> int:
           capture(check_citations, synth("see `scripts/no-such-file.sh:1` there")),
           "not a tracked file")
 
-    # ANNO -- classifier tiers, then a deliberately wrong live measurement
-    tiers = [t for _, t, _ in classify([
-        '<!-- claim count=1 pattern="x" in="a.md" -->',            # strict
-        '`<!-- claim count=1 pattern="x" in="a.md" -->`',          # mention, odd k
-        '<!-- claim cont=3 pattern="x" in="a.md" -->',             # malformed verb
-        r'<!-- claim count=1 pattern="\d" in="a.md" -->',          # malformed dialect
-        "```",
-        '<!-- claim count=1 pattern="x" in="a.md" -->',            # STRICT: §4.2
-        "```",                                                     # has no fence arm
-    ])]
-    # These three went in as bare `probes.append`, which bypasses `probe()` and so
-    # asserts no diagnostic substring -- and the tier list was the only ANNO arm
-    # any of them reached. The tier detail moves into the label so it stays
-    # visible; the two that assert a REJECTION carry needles.
-    want = ["strict", "mention", "malformed", "malformed", "strict"]
-    probe(f"ANNO classifier tiers {tiers}", False,
-          [] if tiers == want else [f"classify() gives {tiers}, not {want}"])
-    ok, got = execute({"verb": "count", "n": 999999, "icase": False,
-                       "pattern": "fn ", "spec": "crates/**/*.rs"})
-    probe("ANNO executor measures rather than echoing the assertion", True,
-          [f"execute() returns {got}, not the asserted 999999"]
-          if ok and got != 999999 else [], "not the asserted 999999")
-    ok, got = execute({"verb": "lines", "n": 0, "icase": False,
-                       "pattern": None, "spec": "crates/**/*.rs"})
-    probe("ANNO `lines=` rejects a multi-file pathspec", True,
-          [str(got)] if not ok else [], "not exactly 1")
-
-    # The three arms `verdict_over` was extracted for. Each fixture's asserted
-    # value is DERIVED by executing it, so the positive cannot go stale for the
-    # reason this whole program exists; the negatives mutate that derived value
-    # rather than hard-coding a second one.
-    def live_anno(verb: str, pattern: str | None, spec: str) -> dict:
-        f = {"verb": verb, "n": 0, "icase": False, "pattern": pattern, "spec": spec}
-        ok, got = execute(f)
-        assert ok, f"ANNO fixture `{verb} in={spec}` does not execute: {got}"
-        f["n"] = got
-        return f
-
-    def anno(tree) -> list[str]:
-        """`verdict_over` RETURNS its findings, so these probes read the return
-        value and never go through `capture()`. That is the point of the arm
-        being pure: a finding raised through a binding made before `capture()`
-        swapped the FAILS list would land in the swapped-out one, and every
-        negative below would read clean — the exact inversion these five probes
-        exist to make impossible."""
-        return [f"[{c}] {m}" for c, m in verdict_over(tree)[1]]
-
-    true_hits = [(1, "strict", live_anno("count", "REQUIRED_WIRES", "scripts/*.sh")),
-                 (2, "strict", live_anno("files", "REQUIRED_WIRES", "scripts/*.sh")),
-                 (3, "strict", live_anno("lines", None, "scripts/trip-wires.sh"))]
-    probe("ANNO positive (every annotation re-runs to its asserted value)", False,
-          anno({"probe.md": true_hits}))
-    moved = dict(true_hits[2][2])
-    moved["n"] += 7
-    probe("ANNO negative (a strict annotation the tree has since moved past)", True,
-          anno({"probe.md": true_hits[:2] + [(3, "strict", moved)]}),
-          f"asserts lines={moved['n']}, actual={true_hits[2][2]['n']}")
-    probe("ANNO negative (a candidate line classifying MALFORMED, with a reason)", True,
-          anno({"probe.md": true_hits + [(9, "malformed", {"why": "pattern contains \\d"})]}),
-          "probe.md:9 classifies MALFORMED (pattern contains \\d)")
-    probe("ANNO negative (a MALFORMED line with no reason recorded)", True,
-          anno({"probe.md": true_hits + [(9, "malformed", None)]}),
-          "does not match the §4.4 production")
-    probe("ANNO negative (§8.2's property: a verb with no strict annotation)", True,
-          anno({"probe.md": true_hits[:2]}),
-          "requires ≥1 strict `lines` annotation")
+    # The classifier/executor probes retire with `claim_gate_grammar.py`. They
+    # exercised this file's second copy of the tier rules and the verbs, which is
+    # the copy the wire replaces; their subjects are now controlled by
+    # `claim-provenance-selftest.sh`, whose fixtures run the wire itself. What
+    # stays here is ANNO's delegation to the wire, below.
 
     # FENCE -- the measurement, its ability to report a divergence, and the ban
     diverge, n = fence_verdict()
@@ -532,21 +468,6 @@ def selftest() -> int:
     # any worktree and never require the memo this tool audits to be present --
     # that memo is a different slice, and a probe that reads it would re-create
     # the bundling the carve-out removed.
-    live = capture_live()
-    assert live is not None, (
-        "the wire exists, so `check_annotations` classifies nothing and PASTE's "
-        "probes have no payload to build a fixture from — have the wire print the "
-        "tier counts, or delete PASTE together with these probes; what must not "
-        "happen is this file quietly stopping at the two probes below")
-    t = live["tiers"]
-    paste = ("## §8.2 Live-tree acceptance\n\n```\n"
-             f"--- {{'strict': {t['strict']}, 'mention': {t['mention']}}}\n```\n")
-    probe("PASTE positive (tier counts matching the tree)", False,
-          capture(check_pasted_transcripts, synth(paste), live))
-    probe("PASTE negative (a tier count mutated)", True,
-          capture(check_pasted_transcripts,
-                  synth(paste.replace(f"'strict': {t['strict']}", "'strict': 99")), live),
-          "pastes strict=99")
 
     # Defect B, replayed. `check_annotations` returned `{}` as soon as the wire
     # FILE existed -- presence is the whole test, untracked is enough -- and
@@ -574,14 +495,6 @@ def selftest() -> int:
           ["check_annotations() returned None"] if wire_live is None else
           [f"check_annotations() returned {wire_live!r}, which PASTE reads as clean"],
           "returned None")
-    probe("PASTE reports itself not run when the wire owns classification", True,
-          capture_skipped(check_pasted_transcripts, synth(paste), None),
-          "wire mode")
-    probe("PASTE reports itself not run when the memo has no §8.2", True,
-          capture_skipped(check_pasted_transcripts, synth("## §9 elsewhere\n"), live),
-          "no §8.2 section")
-    probe("PASTE reports no skip when it had a payload and a §8.2", False,
-          capture_skipped(check_pasted_transcripts, synth(paste), live))
 
     sites = sorted(pending_sites())
     def disposal(rows):
@@ -687,46 +600,6 @@ def selftest() -> int:
               "## §6 x\nThe fence arm is defined per surface; only a matching "
               "marker closes the block, in both implementations.")))
 
-    # TIERS -- the class that produced this check: the memo deleted the fence
-    # arm and this file kept it, with a probe asserting the deleted behaviour.
-    # The negative below is that exact state, replayed.
-    def s3(*branches: str) -> host.Memo:
-        head = ("## §3 Spec coverage map\n\n"
-                "| Spec section | Step | Branch | Touch | Full enum? | User-input flow |\n"
-                "|---|---|---|---|---|---|\n")
-        return synth(head + "".join(
-            f"| `u.md` §1 | classify | {b} | §4.2 | ✓ | no |\n" for b in branches))
-
-    TRUE_3 = ("(i) odd *k* backticks before the `<!--` → mention",
-              "(ii) inside a fenced block with even *k* → **strict, and executed**",
-              "(iv) lax-but-not-strict → MALFORMED, fail",
-              r"(vi) `\` + `[bBdDsSwW<>]` → MALFORMED, names the escape")
-    probe("TIERS positive (every branch's tier is what classify() decides)", False,
-          capture(check_tier_transcription, s3(*TRUE_3)))
-    probe("TIERS negative (§3 keeps the withdrawn fence arm)", True,
-          capture(check_tier_transcription,
-                  s3(TRUE_3[0], "(ii) inside a fenced block with even *k* → mention",
-                     *TRUE_3[2:])),
-          "second transcription of §4.2")
-    probe("TIERS negative (a tier branch with no specimen)", True,
-          capture(check_tier_transcription,
-                  s3(*TRUE_3, "(ix) a new arm → mention")),
-          "TIER_SPECIMEN has no specimen")
-    probe("TIERS negative (a specimen for a branch §3 dropped)", True,
-          capture(check_tier_transcription, s3(*TRUE_3[:3])),
-          "§3 no longer names as a tier branch")
-    probe("TIERS negative (a branch naming two tiers)", True,
-          capture(check_tier_transcription,
-                  s3(*TRUE_3, "(ix) `.md` → mention, everything else → strict")),
-          "landing in more than one tier")
-    probe("TIERS ignores a non-classifier branch", False,
-          capture(check_tier_transcription,
-                  s3(*TRUE_3, "(vii) every value as one argv element, no `eval`")))
-    probe("TIERS reads the outcome, not the condition (`not-strict`)", False,
-          capture(check_tier_transcription,
-                  s3(TRUE_3[0], TRUE_3[1],
-                     "(iv) a strict-looking line that is lax-but-not-strict → "
-                     "MALFORMED, fail", TRUE_3[3])))
 
     # The closing line is where a skipped check becomes visible, so it gets its
     # own proof: every `skip()` above is worth nothing if the run still ends on a
