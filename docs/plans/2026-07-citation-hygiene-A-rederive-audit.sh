@@ -298,7 +298,7 @@ if PLAN.is_file():
 # DO raise, on the rule the gate above states -- a check that could not read its
 # subject must not report "no problem" -- and each prints its POPULATION, because
 # a needle matching nothing reports clean for the wrong reason.
-_CBAD, _CLIM, _POP, _rv = [], [], {}, {}
+_CBAD, _CLIM, _rv = [], [], {}; _POP = dict.fromkeys(("revision", "path ref", "stated length", "band claim", "D<N> citation"), 0)
 _M8 = sorted(HD.glob("2026-08-citation-hygiene-harness-*.md"))
 ROOT = HD.parent.parent
 # The harness's own file NAMES, from the set derived above rather than a second
