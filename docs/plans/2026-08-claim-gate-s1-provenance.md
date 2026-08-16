@@ -1205,8 +1205,12 @@ being worth it, and no figure is offered here for the reason §4.5 gives.
 
 ## §8 Test strategy
 
-Every control below derives from a **specific clause of §4's text**, named in column 2, and was built by
-reading that clause rather than by describing what the wire is meant to do. Where a clause could not be
+Every control below derives from a **specific clause of a section named in column 2**, and was built by
+reading that clause rather than by describing what the wire is meant to do. Most name §4; seven do not,
+and the column is not headed "§4 clause" for that reason: C0 and C17 name §6 (the wire does not judge;
+self-matching is permitted), C19–C22 name the acceptance corpus umbrella §3 routes here, and C30 names
+§1's size bound. The header and the opening sentence both said §4 until round 6 measured the column —
+a universal asserted over a table without reading the table, in the section whose job is to be exact. Where a clause could not be
 turned into a control without inventing a rule, the gap is recorded as a finding — §4.4 (anchoring), §4.3
 (the diagnostic must name the escape), §6 (`in=` is one pathspec), and now §4.5 (I7's structural half is
 not a thing the wire says, below) — instead of being quietly completed.
@@ -1245,6 +1249,7 @@ that shape all ten bare `asserted=` rows share an invocation and collide. So the
 |---|---|
 | `own` | **its own `mktemp -d` and its own wire invocation**, torn down after. Two `own` rows cannot mask each other by construction, whatever their `$3`. |
 | `escapes` | one fixture carrying both C8's and C9's annotations, so their diagnostics must discriminate — this is the pair R1's finding was actually about. Both arms are malformed, so the row exists at all only under §4.2's fail-without-ending rule: a wire that stopped at the first malformed annotation would never reach C9's. |
+| `escapes10` | C25's fixture: **ten arms in one wire invocation**, one per rejected escape. Named separately from `own` because `own` means one arm per invocation, so `UNIQ` — which groups by this column — never examined C25's ten `$3` values while the row claimed a fixture whose definition says collisions are impossible by construction. Within this invocation the `$3` values must discriminate, and do: each names the escape it was given. |
 | `I7` | C27's counting-shim fixture, built at two annotation counts; one wire invocation each, instrumented, and what is asserted is the shim's tally rather than a diagnostic (below). |
 | `clone` | a `git clone --local` of this repository, built **once per self-test run** and reused by every `clone` row, but with **one wire invocation per row** — the annotation is planted in a tracked file of the clone and removed after, so the scan acquires it (§4.1.1(b)). The sharing is cost, not scope: by the model above, separate invocations cannot mask each other, so `clone` rows carry no `$3` requirement beyond every other row's. |
 
@@ -1295,7 +1300,7 @@ fixture at six annotations, `$3` of `git invocations` — could not fire in eith
 well-formed annotations makes the wire exit 0, which `st_probe fail` rejects before ever looking at `$3`,
 and `git invocations` is not a string anything emits.
 
-So C27 uses `st_tally`, stated here as the second and only other probe shape: it puts a counting `git`
+So C27 uses `st_tally`, the second of **three** probe shapes this section states: it puts a counting `git`
 shim first on `PATH`, runs the wire once over the fixture, and asserts the **tally the shim wrote**
 rather than a substring of the wire's output. Its arms are two runs of one fixture — at three annotations
 and at six — and what discriminates is how the tally moves: the tree-wide scan stays at one invocation in
@@ -1304,16 +1309,35 @@ annotation moves the scan count with it; a wire whose per-annotation term walked
 neither. §8's `$3` model does not reach this shape, and per this section's own rule that is recorded as a
 finding rather than papered over with a `$3` the wire would have to be taught to print.
 
+**The third shape is `st_selftest`, and C30 is its only row.** §1's size bound is asserted *by the
+self-test about the shipped files*, not by the wire about a tree, so neither of the other two reaches
+it: there is no wire invocation whose exit status answers, and no diagnostic to key a `$3` on. It
+measures the two files it is shipped beside and fails with `exceeds 800 lines`. Revision 7 gave C30 a
+`$3` and left it inside a sentence declaring `st_tally` the only other shape — a row whose mechanism the
+section denied having.
+
+**Which rows may be negative-only, and why that is a rule rather than an omission.** Six rows carry no
+positive: C6, C19–C22, C25. Two grounds, and every negative-only row must name one. **(a) The clause has
+no passing direction.** A malformed annotation is the whole subject of C6 and C25, and §2's I1×I6 licenses
+exactly this — *"malformed-that-fails"* has no counterpart. C37 now supplies the accepting direction for
+§4.3 as a separate row, which is where it belongs: it is a different clause, not C25's other arm.
+**(b) The row's input is a historical constant whose correct verdict is FAIL.** C19–C22 assert that a
+known-false annotation is still known-false; a "positive" would assert the tree agrees with a figure the
+corpus exists to record as wrong. §8.1's paragraph on those rows states what happens if it ever does.
+Any future row with a dash in the Positive column and neither ground stated is an unfinished row.
+
 `claim-gate-plan-check.py`'s `UNIQ` check enforces the scoped form, grouped by the Fixture column, and its
 `FIXTURE` check verifies the column against each row's own `in=` pathspec — a label a reader must trust is
-not a specification. `escapes` is now the only group the `$3` requirement bites in: revision 5 read the
-`clone` group as a second such group and round 5 found that reading strands C10's and C11's positive arms,
-so §4.1.1(b) fixes the clone as one invocation per row and the requirement falls away with it. `UNIQ`'s
-grouping is unaffected — a group of one-row invocations has nothing to collide.
+not a specification. Two groups put more than one arm in one invocation and so are the two the `$3`
+requirement bites in: `escapes` (C8, C9) and `escapes10` (C25's ten). Revision 5 read the `clone` group as
+a third and round 5 found that reading strands C10's and C11's positive arms, so §4.1.1(b) fixes the clone
+as one invocation per row and the requirement falls away with it. C25 sat in `own` until round 6, which
+is why `UNIQ` — grouping by this column, and told by `own`'s definition that collisions are impossible by
+construction — never examined its ten values.
 
 ### §8.1 Controls
 
-| # | §4 clause under test | Fixture | Positive (must pass) | Negative (must fail; `$3`) |
+| # | Clause under test | Fixture | Positive (must pass) | Negative (must fail; `$3`) |
 |---|---|---|---|---|
 | C0 | §6 "the wire does not judge" | own | fixture with `console.log` and `the sole caller`; boundaried pattern, true count | bare `sole` pattern carrying the boundaried count (`asserted=`) |
 | C1 | §4.4 "not anchored to either end" | own | annotation inside a GFM table cell, true count → executes | same cell, wrong count (`asserted=`) |
@@ -1338,14 +1362,19 @@ grouping is unaffected — a group of one-row invocations has nothing to collide
 | C22 | acceptance corpus — #504 §5, the row umbrella §3 row 4 routes here | clone | — | `lines=632 in="crates/shell/elidex-shell/src/app/drain_host/mod.rs"` (`asserted=632`) |
 | C23 | §4.4 the optional `icase` keyword | own | fixture carrying `SOLE` and `sole`; `count=2 icase pattern="sole"` | the same annotation **without** `icase`, still asserting 2 (`asserted=2 `) — proves the keyword is read, not ignored |
 | C24 | §4.2 the backtick arm on `.toml` | own | backticked annotation in a `#` comment in a `.toml` → ignored | same `#` comment unbackticked, wrong count (`asserted=`) |
-| C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
-| C27 | §4.5 I7's structural half | I7 | three annotations under a counting `git` shim first on `PATH`: the tally records exactly one tree-wide `git grep`, and a per-annotation term of three | the same fixture at six annotations: the scan term must still be one and the per-annotation term must double — read from the shim's tally, not from any wire diagnostic (`st_tally`) |
+| C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | `escapes10` | — (the accepting direction is C37's) | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
+| C27 | §4.5 I7's structural half | `I7` | **three `count=` annotations** under a counting `git` shim first on `PATH`: the tally records exactly **one** tree-wide `git grep`, and a per-annotation term of **six** — two `git` invocations per `count=`/`files=` annotation, the liveness `git ls-files` and the verb's `git grep`, derived from §4.4 rather than asserted (the presence test is `test -e`, not `git`, and `lines=` measures with `awk`, so the mix has to be fixed for the number to mean anything) | the same fixture at six `count=` annotations: the scan term must still be one and the per-annotation term must be twelve — read from the shim's tally, not from any wire diagnostic (`st_tally`) |
 | C28 | §4.4 rule 3, liveness resolves against the working tree | own | `lines=2 in="a.md"` on a `git add`ed file that is present in the worktree | the same annotation after the file is removed, its path still in the index (`present in the working tree`) |
 | C29 | §4.4 rule 4, a measurement `git` refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`the measurement command failed`) |
 | C31 | §4.4 `lines` counts lines, not newlines | own | `lines=2` on a two-line file **with no trailing newline** — `awk` gives 2, which the annotation asserts | the same fixture asserting `lines=1`, the value `wc -l` computes (`asserted=1`) — so a wire respelled to `wc -l` reds the positive |
 | C32 | §4.4 rule 4 reached from `lines`, and rule 1's `rc=$?` ordering | own | `lines=2` on a readable two-line file | the same annotation with the file's mode set to `000`, so `awk` exits 2; must NOT report `actual=0` (`the measurement command failed`). A wire whose failing branch writes before it reads `$?` reports `asserted=2 actual=0` instead, which this arm rejects |
 | C33 | §4.4 rule 3, a `lines=` path that is present but not a regular file | own | `lines=2 in="a.md"`, a regular file | `in="d"` where `d` is a tracked-as-present directory; `awk` exits **0** answering 0, so the wire must refuse on the file-type test rather than on status (`resolves to a path that is not a regular file`) |
 | C34 | §4.4 rule 3, liveness short-circuits (I7) | own | a pathspec resolving to many tracked paths with only the **last** present → judged live, one pass | the same pathspec with **none** present (`present in the working tree`) — the arm that must exhaust, and the only one that may |
+| C35 | §4.2, §3 row (ii): a **fenced** annotation is strict, not inert | own | a fenced annotation with a true count → executes and passes | the byte-identical fenced annotation with a wrong count (`asserted=`) — reds on a wire that reinstated fence-inertness, which is what three revisions specified and what nothing has controlled since C2/C3 were deleted with the rule |
+| C36 | §4.2 the backtick arm on `.rs` | own | backticked annotation in a `//` comment in a `.rs` → ignored | the same comment unbackticked, wrong count (`asserted=`) — the fourth surface §4.2 is normative over and the only one with no row |
+| C38 | §8.2 clause 4, one strict annotation per verb | `clone` | the inventory names a `count=`, a `files=` and a `lines=` among the strict annotations — the `lines=` one being §5's, `in=".claude/tools/layout-box-reader-trip-wire.sh"` | the clone with that annotation deleted (`no strict annotation for lines`) |
+| C39 | §8.2 clauses 1–3, read from the inventory rather than from exit status | `clone` | the wire's inventory satisfies all four clauses over `in="docs/plans/*.md"`, the real annotation population both memos live in | one illustrative annotation there with its backticks removed — now strict with a false count, so clause 3 fails (`asserted=`) |
+| C37 | §4.3 the reject set is **exactly** those ten, in the accepting direction | own | `count=1 pattern="fn \("` on a fixture line reading `fn (x)` — a backslash outside the reject set, accepted, and measured (verified: `git grep -cE 'fn \('` → 1) | the same annotation asserting `count=2` (`asserted=2`) — so a wire that rejects every `\` reds the **positive** instead of passing C8, C9 and all ten of C25 vacuously. `own` rather than `escapes`: the `escapes` fixture's arms are all malformed, so its invocation exits non-zero and a positive there could not be read from exit status (§4.1.1(b)'s reasoning, applied to the group that raised it) |
 | C30 | §1's size bound on the shipped files | own | both files under the band → self-test passes | a fixture copy padded past 800 lines (`exceeds 800 lines`) |
 
 **C10's and C11's positives assert a computed value, and that is the point of them.** Revisions 1–6 gave
@@ -1441,6 +1470,18 @@ adds anything else), and whose transcript the checker reports among the commands
 §4.2's inventory the whole criterion is read off one run of the wire, which is the artifact that survives
 the prototypes. Printing an inventory is not D8's ledger — S2 stores and diffs one — so §6's bound stands
 unchanged.
+
+**A producer is not a consumer, and until round 6 this criterion had only the first.** The inventory
+makes clauses 3 and 4 *readable*; nothing was specified to read them, so the wire would print on every
+push a listing no arm compared against anything, and *"every illustrative annotation classifies as
+mention"* would hold or fail with no one the wiser — §1's own standard (*a check nobody re-runs is a
+transcript, not a gate*) applied to the four-clause property itself. **C39** closes it: run against the
+`clone`, so its subject is this repository's real annotation population rather than a fixture's, it
+asserts the inventory the wire prints satisfies all four clauses; its negative removes the backticks
+from one illustrative annotation, which turns a *mention* into a strict annotation carrying a false
+count, so clause 3 fails and the run reds. That is the clause whose violation the tree can actually
+produce — clauses 1 and 2 are already the exit status, and clause 4 is a property of the memos' own
+annotation set, which §5 fixes.
 
 The property was **executed**, not asserted, at the base declared at the top of this file (a working tree
 containing it — D10 form 3):
