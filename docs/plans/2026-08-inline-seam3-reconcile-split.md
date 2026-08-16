@@ -257,7 +257,8 @@ resolved with `.claude/tools/webref heading`:
   → **css-writing-modes-4 §6.4** *Abstract-to-Physical Mappings*. ⚠ **This one leaves the list**:
   uncited *in the source*, but this PR cites it in the `reconcile_flows` docstring, so it is the
   table's authored row, not part of the out-of-scope complement below.
-* `:470` — `text-align` already baked into `inline_start` → **css-text-3** `text-align`
+* `:470` — `text-align` already baked into `inline_start` → **css-text-3 §6.1** *Text Alignment:
+  the `text-align` shorthand* (`webref dfn css-text-3 text-align` → `type=property`, `#propdef-text-align`)
 * `:557-569`, `:588-594` — relative/sticky offset preserved through reposition
   → **css-position-3 §3.3** *Relative Positioning* / **§3.4** *Sticky positioning*
 * `:514` — the term "fragmentainer" → **css-break-4 §2** *Fragmentation Model and Terminology*
@@ -265,7 +266,10 @@ resolved with `.claude/tools/webref heading`:
   → **css-multicol-1 §2** *The Multi-Column Model* (`webref dfn css-multicol-1 'column box'` → §2).
 * `:419`, `:550-554`, `:506-510` — the abspos toggle; `overflow:hidden` clipping; the paged path
   and its page generation → **css-position-3 §2** *Choosing A Positioning Scheme: position
-  property*; **css-overflow-3** `overflow`; **css-break-4 §2**.
+  property*; **css-overflow-3 §3.1** *Managing Overflow: the `overflow-x`, `overflow-y`, and
+  `overflow` properties* (`webref dfn css-overflow-3 overflow` returns **two** hits — the
+  `type=dfn` term at §2 and the `type=property` at §3.1; the clipping behaviour cited here is the
+  property, so §3.1, not §2); **css-break-4 §2**.
 
 **The rest are out of scope, by change class rather than by grep** (the first bullet excepted, per
 its own ⚠): this PR authors no algorithm, so it neither creates nor deepens a *missing*-citation
@@ -492,14 +496,24 @@ shipped tree before landing. Result of that re-run:
 The recipe the numbers come from, so a reader can re-derive rather than trust:
 
 ```
-# 1. reconcile.rs = module doc + the `use` block + `#[allow(clippy::too_many_arguments)]`
-#    + the §2 signature, then the range's lines 413-419 and 421-639 with §2.3's four
-#    substitutions applied. ⚠ The `use` block is what makes `wc -l` determinate, so it
+# 1. reconcile.rs = module doc + the `use` block + the AUTHORED `reconcile_flows`
+#    docstring + `#[allow(clippy::too_many_arguments)]` + the §2 signature, then the
+#    range's lines 413-419 and 421-639 with §2.3's four substitutions applied.
+#    ⚠ The `use` block is what makes `wc -l` determinate, so it
 #    is part of the recipe: std `HashMap`; `elidex_ecs::{ColumnFlowSlice, EcsDom, Entity,
 #    InlineFlow}`; `elidex_plugin::Point`; and `super::{clear_inline_flows,
 #    relpos_atomic_reposition_records, reposition_atomic_box,
 #    static_atomic_reposition_records}`. `InlineFlowLine` needs none — the range already
 #    writes it fully qualified (`:426`, `:458`).
+#    ⚠ THE DOCSTRING IS THE LARGEST AUTHORED PART AND IS NOT DERIVABLE FROM THE BASE.
+#    It is the file's longest element, and it carries the probe-scope contract (§7.2)
+#    and both spec citations (§3) -- none of which exists at 658cc302. So this recipe
+#    reconstructs the committed file only WITH it, and a reader who wants the file's
+#    `wc -l` accounted for needs its span, not just the moved range's 226 lines.
+#    Its extent is a measurement, not a stored figure -- it moves whenever a review
+#    finding edits the docstring, which has happened repeatedly:
+#      awk '/^\/\/\//{if(!s)s=NR;e=NR} END{print s"-"e}' \
+#        crates/layout/elidex-layout-block/src/inline/reconcile.rs
 # 2. mod.rs = the same file with 413-639 replaced by the call alone, and
 #    `mod reconcile;` added beside the sibling `mod` declarations. ⚠ `:420`
 #    (`let first_baseline = packer.first_baseline;`) does NOT survive as a
