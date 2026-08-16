@@ -1,6 +1,6 @@
 # S1 — the `claim` annotation grammar + the re-execution wire
 
-> ## Revision 6 — a figure that outlived three changes to its own subject, and a rule the checker never stopped enforcing
+> ## Revision 6 — a figure that outlived three changes to its own subject, a rule the checker never stopped enforcing, and six citations naming lines nobody re-read
 >
 > This revision started from a question about the review rather than the memo: rounds 2, 3 and 4 returned
 > more CRITs than the round before, and each round's roots were traceable to what the *previous* revision
@@ -30,12 +30,35 @@
 > which is the revision that was *answering* round 3's finding about it — is re-derived from the report
 > rather than relabelled again.
 >
-> The artifact for this revision is the same pair of commands revision 5's header lists below, run again;
-> it is cited rather than pasted a second time, because two copies of one fact is the thing this revision
-> spent most of its length undoing.
+> **`TIERS` is the fourth check of this kind, and revision 5 built the first three.** Its three roots were
+> round 4's shape as well: the umbrella still mandated `.rs` fence matching and still defined the mention
+> tier as "backticked or fenced" after this slice had deleted the fence arm — which is not a slice's
+> change to make, so the umbrella was amended in its own file, marked as a decision change; §8 defined
+> what a Fixture value *means* and never re-derived the assignments against it, so round 3's C10/C11
+> finding was relabelled rather than closed; and four revisions shipped four false counts about this
+> program's own tooling, each in the paragraph crediting it. Revision 4's remedy for that last one was a
+> **prose rule** — "this memo states no quantity about its own tooling" — falsified eighteen lines above
+> itself by "three commits" (five, and five when written). That settles the method for all of them: a rule
+> cannot stop this class, because the author believes the rule was followed. So each root became a check,
+> written before its prose and probed in both directions — `TOOLING` re-derives any numeral in a sentence
+> about the tooling from git, `UMBRELLA` fails a slice that withdraws what a binding decision still
+> mandates (and recognises an amendment, so the decision's history is kept rather than rewritten),
+> `FIXTURE` derives §8.1's Fixture column from each row's own `in=` pathspec. Revision 5 also withdrew
+> `--one`, revision 4's injected-annotation entry point, replaced by a `git clone --local` fixture that
+> lets the acceptance corpus run through **the scan** instead of around it (§4.1.1).
 >
-> **Two things this revision got wrong and round 5 returned**, recorded because the shape is the
-> program's own subject. It split `CONTRIBUTING.md:19`/`:20` and gave S1 the label half, on the reading
+> **This memo states no quantity about its own tooling**, and `TOOLING` is what holds it to that now. The
+> artifact is these two commands (D10 form 2), re-run against this file at every revision since:
+>
+> ```
+> $ python3 .claude/tools/claim-gate-plan-check.py --self-test | tail -1
+> $ python3 .claude/tools/claim-gate-plan-check.py \
+>     docs/plans/2026-08-claim-gate-s1-provenance.md \
+>     docs/plans/2026-08-quantitative-claim-staleness-gate.md
+> ```
+>
+> **What round 5 returned, recorded because the shape is the program's own subject.** Two were claims of
+> this revision's own making. It split `CONTRIBUTING.md:19`/`:20` and gave S1 the label half, on the reading
 > that umbrella §6 had misrouted the sentence. The umbrella had not: it lists `:19` among the label sites
 > and then carves it out in the same breath. The premise came from §5's account of the umbrella instead
 > of the umbrella. **Withdrawn** (§0, §4.6, §5, §6, §9). And it asserted that a quoted span attributed to
@@ -45,48 +68,37 @@
 > line-scope defect noted: the same defect had been fixed in the `FENCE` ban hours earlier in this same
 > revision, and the replacement probe reintroduced it.
 >
+> **The other six findings were about *where* something is: five citations that named the wrong line, and
+> one header stacked where its predecessor should have been swapped out.** Two sites attributed
+> `ban_control` to §4.3, which is the pattern-body lint and never mentions it; the precedent is introduced
+> in §2's I4×I6 row, against `layout-box-reader-trip-wire.sh:276-299`. §4.6's edit-set row credited
+> `mise.toml:104-105` with "each script's own header documents its surface", which is `:103-104` — `:105`
+> is the separate sentence about the driver owning the registry. §4.6's quotation of the ungated job's
+> argument was attributed to `.github/workflows/ci.yml:131-132` and runs on into `:133`. §8.3 gave one of
+> the two added `crates/…**/…` pathspecs to §4.5's exemption, which names C10 and C19 in prose and carries
+> no pathspec literal at all; both are in §2's I6×I7 row, and both have been there since revision 3 rather
+> than "this revision". §1 pasted the names its own `git ls-files` listing returns and said every tracked
+> script in that directory matches `WIRE_GLOB` — a listing and a sentence S1's own commit 1 falsifies, by
+> adding a tracked `.sh` there that does not match; §1 now runs the membership test instead of enumerating
+> today's answer to it.
+>
+> The five share a method, and that is why they are a population rather than five accidents: each was
+> written by re-reading the prose around the citation instead of the line the citation names — §4.6's
+> "relabelling is not re-measuring", arriving at five more sites. `CITE` proves a `path:LINE` is tracked,
+> unambiguous and in range; nothing proves it is the line meant, and that gap is stated here rather than
+> left to read as covered.
+>
+> The sixth has a different root and is this block. Revision 6's header was appended above revision 5's
+> instead of replacing it: `git show --stat 676ab9df` reports 45 insertions and no deletions, while
+> `git show <commit>:<this file> | grep -c '^> ## '` returns 1 at every commit from round 2 up to that one
+> and 2 at it and after. Two status blocks at the front door is the duplicated-decision-surface shape,
+> with the stale block indistinguishable from the current one and no rule saying which is read. This is
+> the single block; what revision 5's still owned is folded into it above, and the record of what earlier
+> revisions got wrong is kept, because that record is this memo's thesis rather than its clutter.
+>
 > → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
 > `feedback_findings-cluster-in-self-added-scope`,
 > `feedback_convention-dependent-figures-are-argument`, `project_stale-claim-gate-v1-review`.
-
-> ## Revision 5 — the rule about counts became a check, and (c) went to the umbrella
->
-> Round 4's three largest roots were one shape: **a change was made, the sites that *state* it were
-> swept, and the sites that *depend* on it were not.**
->
-> - Adopting §7 Q3 option (c) deleted the fence arm from this slice while umbrella **D2** still
->   mandated `.rs` fence matching, **D3** still defined the mention tier as "backticked or fenced",
->   and umbrella **§6** still listed a rustdoc-fenced control among S1's — with this memo's own
->   preamble stating it does not reopen D1–D10. (c) is right on the measurement, and it is not a
->   slice's to make: **the umbrella is amended, in its own file, marked as a decision change.**
-> - §8 defined what a Fixture value *means* and never re-derived the assignments against it, so
->   round 3's C10/C11 finding was relabelled rather than closed.
-> - Four revisions shipped four false counts about this program's own tooling, each in the paragraph
->   crediting it. Revision 4's remedy was a **prose rule** — "this memo states no quantity about its
->   own tooling" — and it was falsified eighteen lines above itself by "three commits" (five, and
->   five when written).
->
-> That last one settles the method for all three. A rule cannot stop it, for the reason this program
-> has now recorded five times: the author believes the rule was followed. So each root became a
-> check, written before this prose and probed in both directions — `TOOLING` re-derives any numeral
-> in a sentence about the tooling from git, `UMBRELLA` fails a slice that withdraws what a binding
-> decision still mandates (and recognises an amendment, so the decision's history is kept rather than
-> rewritten), `FIXTURE` derives §8.1's Fixture column from each row's own `in=` pathspec.
->
-> ```
-> $ python3 .claude/tools/claim-gate-plan-check.py --self-test | tail -1
-> $ python3 .claude/tools/claim-gate-plan-check.py \
->     docs/plans/2026-08-claim-gate-s1-provenance.md \
->     docs/plans/2026-08-quantitative-claim-staleness-gate.md
-> ```
->
-> **This memo states no quantity about its own tooling**, and `TOOLING` is what holds it to that now.
-> The commands above are the artifact (D10 form 2). Also withdrawn this revision: `--one`, revision
-> 4's injected-annotation entry point, replaced by a `git clone --local` fixture that lets the
-> acceptance corpus run through **the scan** instead of around it (§4.1.1).
->
-> → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
-> `feedback_findings-cluster-in-self-added-scope`, `project_stale-claim-gate-v1-review`.
 
 
 Slice **S1** of the umbrella `docs/plans/2026-08-quantitative-claim-staleness-gate.md`. That file owns
@@ -181,16 +193,23 @@ The driver discovers what to run by glob, not by reference:
 ```
 $ sed -n '102p' scripts/trip-wires.sh
 WIRE_GLOB='.claude/tools/*-trip-wire.sh'
-$ git ls-files -- '.claude/tools/*.sh'
-.claude/tools/layout-box-reader-trip-wire.sh
-.claude/tools/native-ctor-guard-trip-wire.sh
-.claude/tools/wasm-runtime-trip-wire.sh
-.claude/tools/wasm-vm-trip-wire.sh
+$ git ls-files -- '.claude/tools/*.sh' ':(exclude).claude/tools/*-trip-wire.sh'
 ```
 
-Every tracked `*.sh` directly under `.claude/tools/` matches `WIRE_GLOB` today, so the driver's loop
-(`scripts/trip-wires.sh:188-205`) and its both-directions retention diff (`:207-237`) cover all of them.
-A file named `claim-provenance-selftest.sh` matches neither. Consequences, both of which shape S1:
+The second command *is* the membership test: it lists every tracked script in that directory which the
+driver's loop (`scripts/trip-wires.sh:188-205`) and its both-directions retention diff (`:207-237`) will
+never see, because `WIRE_GLOB` decides membership **by name, not by directory**. It prints nothing before
+S1 and prints `claim-provenance-selftest.sh` after — and that transition, not the set of names it returns
+on any one day, is what §1 is about: a helper can sit beside the wires and still not be one.
+
+The command replaces a pasted listing of the four names, and the reason is D10 rather than taste.
+Revision 1 pasted them and wrote *"every tracked `*.sh` directly under `.claude/tools/` matches
+`WIRE_GLOB` today"*; S1's own commit 1 adds a tracked script there that does not match, so the listing
+and the sentence are both falsified by this memo's landing — the preamble's literal prohibition, in the
+section whose subject is the file that breaks it. §4.6 keeps its listing stable under the same landing by
+excluding what S1 adds (`':(exclude).claude/tools/**'`, stated there); that device is unavailable here,
+because the excluded file *is* the argument. So the figure goes and the property stays (D10 form 2).
+Consequences, both of which shape S1:
 
 1. **A split-out self-test is not executed by anything.** The first draft specified eleven controls in
    such a file and no invocation for it. `scripts/trip-wires.sh:104-111` already names the outcome:
@@ -425,7 +444,7 @@ the rule is on the *status* rather than on the keyword — every command whose n
 rather than a failure is captured and branched on (§4.4 rule 1), never left bare. Two of §8's fixtures are unbuildable without it — `escapes` carries C8's `\d` and
 C9's `\b` as two negative arms of **one** wire invocation, and C25 drives all ten rejected escapes through
 one fixture — so a fail-fast wire would emit the first arm's `$3` and leave every later arm unobservable,
-green because it never ran. That is §4.3's `ban_control` shape (a control that cannot fire is
+green because it never ran. That is §2 I4×I6's `ban_control` shape (a control that cannot fire is
 indistinguishable from a clean tree) arriving through the driver rather than through the diagnostic.
 
 **There is one inertness rule, on all four surfaces: backtick it.** Revisions 1–3 carried a second
@@ -663,13 +682,16 @@ not cite. Every row it lists is disposed of below — two by an edit, the rest b
 | Site | Today | Why the greps above miss it | S1's edit |
 |---|---|---|---|
 | `.github/workflows/ci.yml:152` | "No toolchain step: the wires are grep-only." | contains neither `~1s` nor `layering trip-wire` | keep "no toolchain step" (that is the load-bearing half and stays true); drop "grep-only", which the new wire's `git ls-files` probe, `awk` and self-test invocation falsify |
-| `mise.toml:102-103` | "The wires cover disjoint layering / discipline surfaces (wasm-runtime tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit)" | same | the parenthetical **enumerates the wire set**, so it goes stale on every addition; replace it with the property it was reaching for — each script's own header documents its surface, which `:104-105` already says |
+| `mise.toml:102-103` | "The wires cover disjoint layering / discipline surfaces (wasm-runtime tiers, VM-side wasm, native-ctor guards, the LayoutBox reader audit)" | same | the parenthetical **enumerates the wire set**, so it goes stale on every addition; replace it with the property it was reaching for — each script's own header documents its surface, which `mise.toml:103-104` already says (the range was cited as `:104-105` until round 5 read it: `:105` is the next sentence, about the driver owning the one registry) |
 
 **The other five `SITES` reports, left alone deliberately.** A report is only useful if every row is
 disposed of, and a row is disposed of only if the line it names was read at that line. Re-derived from
-the report, in the order it emits: `.github/workflows/ci.yml:131-132` carries the ungated job's own
+the report, in the order it emits: `.github/workflows/ci.yml:131-133` carries the ungated job's own
 argument — "Gating them would mean listing BOTH `.claude/tools/**` … and `scripts/**` … in a filter" —
-which a fifth wire does not touch; `CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies,
+which a fifth wire does not touch. (The report emits `:131` and `:132` as two of its rows; the citation
+is the quoted *sentence's* span, which runs on into `:133`, and it read `:131-132` until round 5 checked
+the quotation against the lines. `:133` is not itself a report row — it speaks about a filter, not about
+the wires.) `CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies,
 which stays true; and the two driver internals are
 
 ```
@@ -994,7 +1016,7 @@ which ran `claim-gate-plan-check.py --self-test` inside the wire's self-test. C2
 once: it put a Python interpreter and a dependency on `.claude/skills/elidex-plan-review/` internals
 into the wire's path, which is the ground §7 Q3 rejects option (b) on and which §4.6 keeps
 `ci.yml:152`'s "No toolchain step" true against; and its negative arm named no input, asserting a `$3`
-of `probes ok` that the checker prints on success. A control that cannot red is §4.3's `ban_control`.
+of `probes ok` that the checker prints on success. A control that cannot red is §2 I4×I6's `ban_control`.
 
 C4, C5, C16 and C24 all use the **wrong-count-inert / right-shape-live** pairing rather than a merely-ignored
 annotation, so a regression in an inertness rule reds the *positive* control instead of leaving it
@@ -1129,8 +1151,14 @@ substitutes for spec rows is printed *outside* that tally and is not one of the 
 first draft got wrong in both directions. Zero Check 3 findings: every enumeration claim in this memo has
 a `git grep -n…` literal within its vicinity, which is the only artifact form Check 3 accepts today (§6).
 
-The soft count is 7 rather than revision 2's 5 because this revision added two `crates/…**/…`
-pathspecs — §2's I6×I7 row and §4.5's exemption, both naming the tree-scale controls. **This block is a
+The soft count is 7 rather than revision 2's 5 because revision 3 added two `crates/…**/…` pathspecs,
+**both of them in §2's I6×I7 row** — the two tree-scale controls that row exempts from I7, named there in
+one sentence. The attribution stood as "§2's I6×I7 row and §4.5's exemption" until round 5 read §4.5:
+that paragraph names C10 and C19 in prose and carries no pathspec literal at all, so it contributes
+nothing to this tally. (Neither literal is repeated here. Pasting one would add a soft finding to the
+count this block reports — the self-invalidation §8.2's per-line listing declines for the same reason.)
+The sentence also said "this revision", inherited unchanged from the revision where it was true.
+**This block is a
 pasted transcript and therefore a claim**, so it is one `claim-gate-plan-check.py` re-derives: its
 `PREFLIGHT` check re-runs preflight against this memo and compares M, K, the malformed and
 unmapped-label counts, the hard/soft split and the exit code with what is pasted here. It caught this
