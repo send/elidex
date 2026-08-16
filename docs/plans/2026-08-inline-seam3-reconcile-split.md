@@ -422,9 +422,35 @@ same line count (226). Run against the exploratory extraction on `658cc302`, the
 pending status. The same harness is re-run on the committed implementation and its output goes in
 the PR body.
 
-⚠ The harness covers exactly the moved range, which since §5.2's withdrawal is exactly what the
-PR moves — no `fn` sits outside both extracts. That correspondence is a DoD clause (§8), not an
-assumption: if any later revision widens the move, the harness stops proving the whole of it.
+⚠ **The harness above covers the body, and the body is not the whole move** — a move is the
+extracted text *plus the call that replaces it*, and the call is outside the compared region by
+construction (the extract begins after the signature's `) {`). An earlier revision called this "a
+proof of the whole move". **It is not, and the gap is not theoretical**: a transposition of the
+call's two adjacent `bool` arguments was introduced into the working tree during review, and the
+body harness reported `6 hunks, 226 == 226, PASS` while 52 tests failed and clippy and
+`cargo fmt --check` stayed clean.
+
+### §6.1 The call-site half
+
+Argument order must equal parameter order. Mechanically: parse `reconcile_flows`' parameter names
+from its signature, parse the argument identifiers at `mod.rs`'s call, strip the `&` and `packer.`
+the signature introduces, and compare pairwise.
+
+**Pass condition**: the two name lists are equal. This is stronger than it looks, because the
+extraction deliberately names every parameter after the binding it replaced — so the check reaches
+all 11 positions, including the three `bool`s no type can distinguish.
+
+⚠ **Mutation-verified, because a check that has never failed proves nothing.** Against the
+preserved transposed tree it reports `MISMATCH at position 5: parameter persist_flow receives
+do_carrier` and exits 1 — the exact defect the body harness passes.
+
+Together the two halves cover the move: §6 proves the extracted text is unchanged, §6.1 proves it
+is invoked with the bindings it was extracted from. ⚠ Neither reaches a *semantic* change to the
+residue around the call; that is what the test suite is for, and §8 requires it green.
+
+⚠ The body harness covers exactly the moved range, which since §5.2's withdrawal is exactly what
+the PR moves — no `fn` sits outside both extracts. That correspondence is a DoD clause (§8), not
+an assumption: if any later revision widens the move, the harness stops proving the whole of it.
 
 ⚠ The harness compares against **`origin/main`, not against a diff file written earlier in the
 session** — a pre-generated diff goes stale under the author's own later edits, which is the
@@ -522,7 +548,9 @@ the claim, and a stronger one.
   than of part of it. (The constraint is on `fn`s, not on "nothing else": the imports are
   mandatory, since the moved lines name `InlineFlow`, `ColumnFlowSlice`, `EcsDom`, `Entity`,
   `Point` and `HashMap` unqualified.)
-* §6's harness passes and its output is in the PR body.
+* **Both halves of §6 pass** and their output is in the PR body — the body harness
+  (`6 hunks, 226 == 226`) **and** the §6.1 call-site check. ⚠ The second is not optional:
+  the first cannot see the call, and that gap was exercised for real during review.
 * `cargo test -p elidex-layout-block --all-features` green with **no test touched** —
   `git diff --name-only origin/main...HEAD` names no file under `.../tests/` or `tests.rs`.
   ⚠ **The ground, not just the outcome**: the `#[cfg(test)] pub(crate) use` re-exports the test
