@@ -308,15 +308,46 @@ def check_probe_substrings(memo: Memo) -> None:
                     "is decided by")
         return
 
+    # Which fixtures put ONE wire invocation behind each row, and which share one
+    # across rows, is decided by §8's Fixture-model table -- so it is READ from
+    # that table's own prose rather than transcribed here. `own` was hard-coded
+    # and `clone` was not, so when §4.1.1(b) fixed the clone as one invocation
+    # per row this check went on enforcing a requirement the memo had withdrawn,
+    # for a round, until a new `clone` row collided with C19's `asserted=299`.
+    # Transcribing the answer is what made that possible; deriving it cannot
+    # drift, and a fixture whose prose says neither is reported rather than
+    # guessed at.
+    per_row, shared = set(), set()
+    for c in data_rows(memo.sect("8")):
+        if len(c) < 2:
+            continue
+        name = c[0].strip("* `")
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+            continue
+        prose = c[1].lower()
+        if "one wire invocation per row" in prose or "its own wire invocation" in prose:
+            per_row.add(name)
+        elif "one fixture carrying" in prose or "in one wire invocation" in prose \
+                or "one wire invocation each" in prose:
+            shared.add(name)
+
+    # Anything §8's model does not place in one of those two is UNDECIDABLE, and
+    # that includes a fixture the table never mentions -- the first draft of this
+    # only reported names it found in the table and could classify neither way,
+    # so an unlisted fixture fell through to "shared" exactly as `clone` had.
+    # Reporting the complement rather than an enumerated exemption is the fix.
     groups: dict[str, dict[str, list[str]]] = {}
     for c in rows:
         fixture = c[2].strip("* `")
         m = re.findall(r"\(`([^`]+)`", c[-1])
         if not m:
             continue
-        # a fixture named `own` is a DIFFERENT fixture per control, so each such
-        # row is its own group; anything else is a shared fixture id.
-        key = f"own:{c[0]}" if fixture == "own" else fixture
+        if fixture not in per_row and fixture not in shared:
+            bad("UNIQ", f"§8's Fixture model does not say whether {fixture!r} puts one "
+                        f"wire invocation behind each row or shares one across them, so "
+                        f"the `$3` scope for {c[0]} is undecidable")
+            continue
+        key = f"{fixture}:{c[0]}" if fixture in per_row else fixture
         groups.setdefault(key, {}).setdefault(m[-1], []).append(c[0])
 
     for key, vals in sorted(groups.items()):
