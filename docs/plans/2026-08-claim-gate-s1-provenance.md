@@ -197,9 +197,9 @@ on S1's behalf, in S1's PR, at the first commit where doing so is possible.
 
 **Out of scope, by the umbrella's own slicing**: the tamper ledger (D8 → S2), the superlative vocabulary
 and `grep_pass.py` Check 3 (D7/D9 → S3), and **the whole `CONTRIBUTING.md:19` sentence**, which umbrella
-§6 routes to S2: it counts `:19` among the six set-level label sites and then carves it out — *"`:19`
-**also** asserts that a drifted trip-wire **allowlist** reds the PR — a mechanism S1 does not ship and S2
-does, so that sentence is S2's to touch, not S1's."* Revision 6 read that as a misrouting and split the
+§6 routes to S2: it counts `:19` among the six set-level label sites and then carves it out — *"`CONTRIBUTING.md:19` also asserts that a drifted
+trip-wire **allowlist** reds the PR — a mechanism S1 does not ship and S2 does, so that sentence
+is S2's to touch, not S1's."* Revision 6 read that as a misrouting and split the
 sentence at `:19`/`:20`, giving S1 the label half. **That is withdrawn.** The umbrella considered the
 split — the word "also" is it weighing both claims in one line — and decided one sentence has one owner.
 A slice cannot reverse that (D2's amendment note states the rule), and amending the umbrella to permit it
@@ -501,9 +501,17 @@ second entry point (the withdrawn `--one` was one, because it was a second way t
 annotation* — this is one way, pointed at a different tree).
 
 **(b) The clone is shared for cost, not for isolation: one clone directory, one wire invocation per
-control**, with the control's annotation planted and removed between invocations. §8's own masking model
-decides this — *"two controls in separate invocations cannot mask each other at all, because each
-invocation can only emit its own diagnostics"* — and the alternative reading breaks a stated property:
+control**, with the control's annotation planted and removed between invocations. §8's masking model
+decides this, but not by quotation: what §8 says is *"Two controls in **separate fixtures** cannot mask
+each other at all, because each invocation can only emit its own diagnostics"*. The reason clause is
+about **invocations** while the subject is **fixtures**, so what §8 actually establishes is the
+invocation-scoped property, and `own`'s definition spends it that way ("its own `mktemp -d` **and** its
+own wire invocation"). Revisions 5–7 quoted the sentence here with *invocations* substituted for
+*fixtures* — the third altered quotation this program has produced, and the one where the substitution
+was the argument: a shared clone is safe **only** under the invocation-scoped reading, so the quotation
+supplied the premise this paragraph exists to establish. §8 now states the invocation scoping in its own
+voice, and this paragraph cites it instead of restating it. The alternative reading breaks a stated
+property:
 one invocation over all six `clone` rows exits non-zero by construction (C19–C22 are false by design), so
 C10's and C11's **positive** arms could not be read from exit status, which is the only assertion form §8
 gives a positive. Consequence, stated because it retires a requirement rather than adding one: §8's
@@ -863,20 +871,33 @@ real justification — no toolchain, no cache (`.github/workflows/ci.yml:128-130
 accumulate. The wire header records a re-runnable escalation trigger rather than a prediction — but
 **its action was one the design forbids**, and had been since the first draft: *"batch by `in=` before
 adding annotations"*, while §2's I5×I7 row says the no-`eval` rule *"forbids the one shape that would
-batch several annotations into a single `git grep`"* and that *"serial execution is forced"*, and §9's
-audit calls the same candidate one *"which I5×I7 forbids structurally"*. Three sections, two of them
-naming the impossibility and the third prescribing it. A trigger whose remedy cannot be executed is
-§2 I4×I6's `ban_control`, one level up: it looks like a disposition and can never be acted on.
+batch several annotations into a single `git grep`"* and that *"serial execution is forced"*, and §9
+records revisions 1–6 having phrased its own audited candidate as the batching this forbids. Three
+sections, two of them naming the impossibility and the third prescribing it. A trigger whose remedy
+cannot be executed is §2 I4×I6's `ban_control`, one level up: it looks like a disposition and can never
+be acted on. (Revision 7 wrote that §9's audit *"calls the same candidate"* by that phrase in its own
+voice; §9 attributes the phrase to the revisions it is correcting. The proposition is unchanged and
+both sections still assert it — what was wrong was the present tense and the speaker.)
 
 It is not fixable by loosening I5, and the reason is worth stating because it is not the obvious one:
 multiple `-e` patterns **are** expressible without `eval`, each being its own argv element — but
 `git grep` does not report which `-e` matched, so per-annotation counts are unrecoverable from a batched
 run. Batching is unavailable to `count` and `files` structurally, not by convention.
 
-So the trigger keeps its condition and takes an action that exists: *if the per-annotation stage ever
-dominates a local `mise run trip-wires`, **re-plan** — reduce the annotation set, or change the execution
-model. Do not batch: I5×I7 forbids the shape and `git grep` could not attribute the result anyway.*
-§9 audits that and still declines to mint a slot, on the ground it states there.
+**The condition had the same defect as the action, and revision 7 fixed only the action.** *"Dominates a
+local `mise run trip-wires`"* is not a thing anything evaluates: nothing measures it, and this section's
+own argument — that the runtime figures were removed as convention-dependent and I7 is not machine-bounded
+at a useful granularity — forbids supplying the constant that would make it evaluable. A condition no
+one can decide is the same `ban_control` shape as an action no one can perform.
+
+The fix takes no constant, because I7 already states the ratio the trigger is really about: the wire's
+work is **one tree-wide `git grep` plus a term per annotation**, so if the per-annotation term has come
+to dominate, it has come to dominate *that one scan*. The wire times both — it is running them anyway —
+and the trigger is: *when the wire's per-annotation stage takes longer than its own tree-wide scan,
+**re-plan** — reduce the annotation set, or change the execution model. Do not batch: I5×I7 forbids the
+shape and `git grep` could not attribute the result anyway.* Both operands are the wire's own, measured
+in the same run, so the condition is decidable on every push and no figure in this memo can go stale
+under it. §9 audits that and still declines to mint a slot, on the ground it states there.
 
 **The bound is on the wire, and the self-test is exempt** (I6×I7). C10's positive and C19's corpus row
 both run tree-scale pathspecs, deliberately: the acceptance corpus is only worth having because it runs
@@ -1025,8 +1046,17 @@ of v1's three false annotations (`files=7`, which measured 1 — umbrella §0.1)
 
 <!-- claim count=0 pattern="fetch-depth" in=".github/workflows/*.yml" -->
 No CI job requires a deep checkout — the blocker D1 rests on, and the firing trigger umbrella §5 gives
-`#11-claim-annotation-diff-scoped-lint` ("the first job that requires `fetch-depth: 0`"). As an
-annotation that trigger stops being a prose promise: the day a job adds one, the wire reds.
+`#11-claim-annotation-diff-scoped-lint`, whose text is *"the first job **in `.github/workflows/ci.yml`**
+that requires `fetch-depth: 0` for any reason"*. As an annotation that trigger stops being a prose
+promise: the day a job adds one, the wire reds.
+
+**The annotation is deliberately wider than the slot's trigger, and revisions 2–7 hid that by eliding
+the qualifier from the quotation.** The trigger names one file; the annotation watches all three
+workflows (below), so it reds on a job in `audit.yml` or `codeql.yml` that the slot's trigger would not
+fire on. Widening is right — the sentence above says *no CI job*, not *no job in `ci.yml`* — but it
+makes the annotation a **superset** of the trigger rather than the same object, and the previous
+phrasing asserted they were the same by quoting the trigger without the words that bound it. The slot
+keeps the umbrella's trigger; what §5 ships is a wider watch that will fire no later.
 
 Two corrections to the form this took in revision 2, both of the same kind — **the annotation must
 cover what the sentence claims**, and a figure beside it must not be the thing that goes stale first.
@@ -1249,8 +1279,16 @@ a substring. That was false where it stood — bare `asserted=` was the whole `$
 sat inside five others — and, more usefully, it was the **wrong requirement**, generalised from R1's
 real finding about C8 and C9 without asking what made those two a problem. What made them a problem was
 that they shared a *fixture*: two arms in one wire invocation, each keyed on `POSIX ERE`, so either
-would satisfy the other's assertion. Two controls in **separate** fixtures cannot mask each other at
-all, because each invocation can only emit its own diagnostics.
+would satisfy the other's assertion.
+
+**The scope is the invocation, and "fixture" is shorthand for it only where the two coincide.** Two
+controls whose arms run in **separate wire invocations** cannot mask each other at all, because each
+invocation can only emit its own diagnostics; a shared *fixture directory* is irrelevant to masking
+except insofar as it forces a shared invocation. Revisions 2–7 stated this as "separate fixtures", and
+§4.1.1(b) — deciding whether six `clone` rows may share one clone — quoted it back with *invocations*
+substituted, which is the reading it needed and not the one written. Stated in its own voice here, the
+`clone` sharing follows without a quotation, and one row can carry several arms in one invocation
+(C18, C25) without the model losing vocabulary for it.
 
 **What a Fixture value means, because `UNIQ`'s whole verdict rests on it.** Round 3 found the column
 being read as load-bearing while nothing wrote its meaning, and the shape §8 cites for the self-test —
@@ -1613,12 +1651,15 @@ things — an **owner** (a commit, or a file that exists), a **trigger** (an eve
 to have happened) and a **home** (something a reader can open). Where no such triple exists, the row is
 an own deferral and is counted as one.
 
-**Three of revision 6's routings became commits, because the work was executable here all along.**
+**Three of revision 6's routings were dischargeable here, and two of them became commits.** The third
+became a design fix inside commit 1 rather than a commit of its own — stated because this section's own
+rule is that an owner is *a commit, or a file that exists*, and "fixed in §4.4 rule 3" is neither until
+the row says which commit carries it.
 
 | Routed to, revision 6 | Why that owner could not hold it | Disposition |
 |---|---|---|
 | the branch S1 is stacked on, triggered by S1's landing (§0, §6) — retire the checker's second transcription of §4.2/§4.4 | it merges **before** its own trigger fires; on the day the wire exists there is no such PR left to delete `claim_gate_grammar.py` or write the closing control | **§5's commit 5.** The PR that creates the wire is the only one that can delegate to it |
-| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in §4.4 rule 3**, controlled by §8.1 C28. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
+| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in §4.4 rule 3** (inside §5's commit 1, which specifies the grammar), controlled by §8.1 C28 and C34. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
 | "the **L4 lane**" — the five false rows of #504's `Lines at HEAD` table (§8.2) | a lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive it | **§5's commit 6**, value-only, so C21 and §8.2 stay true |
 
 **One candidate was audited and is not a slot** — the wire's cost as the annotation count grows.
@@ -1626,17 +1667,26 @@ Revisions 1–6 phrased the candidate as *"batch annotation execution by `in=`"*
 sentence that *"I5 × I7 forbids [it] structurally"*, so the audited item was an action the design does not
 permit and the escalation trigger §4.5 rests this verdict on prescribed it. §4.5 now carries the
 re-plan action instead, and the candidate is restated as what it actually is: *the per-annotation stage
-coming to dominate a `mise run trip-wires` run*. *(1) platform gap?* No, a performance property of one
+coming to dominate the wire's own tree-wide scan*. **Round 6 found the condition had the same defect as
+the action** — *"dominates a `mise run trip-wires` run"* named no measurement and §4.5's own argument
+forbade supplying the constant that would make it one — so §4.5 now states it as a ratio between two
+things the wire times in the same run. *(1) platform gap?* No, a performance property of one
 script. *(2) repeat signal?* No. *(3) existing home?* Yes, the wire's own header, where the sibling wires
 keep comparable notes. *(4) second tracking home?* Yes. → **Not a slot**: a header note with a
 re-runnable trigger, the disposition `.claude/skills/elidex-plan-review/SKILL.md:91` records for its own
-deferred parser ("deliberately NOT a `#11-*` platform slot … skill-infra not a platform gap"). The
-verdict is unchanged; what changed is that the thing it disposes of can now be acted on.
+deferred parser ("deliberately NOT a `#11-*` platform slot … skill-infra not a platform gap") — including
+its **re-eval date**, which that precedent supplies with a reason this trigger shares: a conditional
+trigger that may never fire needs a date more than one that fires every round. **Re-eval: 2026-11-01.**
+The verdict is unchanged; what changed is that both halves of the thing it disposes of can now be acted on.
 
 **One own deferral survives the audit.**
 
 - **A third checker belongs in `SKILL.md`'s checkers-loop note, and cannot be put there from here.**
-  Owner: S1's author, at S1's landing. Trigger: the first push at which both that checker and the note
+  Owner: S1's author, at S1's landing. **Re-eval: 2026-11-01** — the calendar fallback the defer policy
+  requires alongside a trigger, and which this row omitted while the precedent it cites two paragraphs
+  down carries one, for the reason that applies here more sharply: the trigger names a push that may
+  never happen, since §9 measures below that neither branch is on a remote.
+  Trigger: the first push at which both that checker and the note
   are on `main`. Home: memory `project_stale-claim-gate-v1-review`, the lane's SoT, which exists today
   — discharged into the note itself once the note reaches `main`. Audit: *(1) platform gap?* No —
   plan-review skill infra, the class the note's own neighbour entry already records as "deliberately
