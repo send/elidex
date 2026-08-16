@@ -704,16 +704,44 @@ collected credit for honesty while overstating what the contract forbade.
     it is falsified by the next such commit. The obligation is to **run** §5.5's command, not to
     store its output ([[feedback_document-landing-invalidates-its-own-measurements]]).
   * ⚠ **The landing record is TWO artifacts, and this DoD governs both.** The memo is one; the
-    **squash commit message** is the other, and nothing governed it until now — which is how it
-    came to carry a stale `reconcile.rs` count, a proof recipe still rooted at `origin/main`
-    instead of the pinned `658cc302`, and a design claim about `ColumnFlowSlice` that §5.3.1 has
-    since retracted. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
-    hook-denied — so they are historical, not authoritative. The squash message is **authored
-    fresh at merge**, and that authoring is the DoD clause: it carries the stable figures only
-    (§5.5), the pinned base for §6's recipe, and no claim the memo has since retracted. ⚠ An
-    earlier form of this bullet asserted the value was "recorded nowhere, not in a commit
-    message" — a statement about an artifact it never opened. `git log origin/main..HEAD --format=%b`
-    is the check, and it disagreed.
+    **squash commit message** is the other. ⚠ **Per-commit bodies on this branch cannot be
+    repaired** — amend is hook-denied — so they are historical, not authoritative, and GitHub's
+    **default** squash message is their concatenation, which therefore carries a stale
+    `reconcile.rs` count, a proof recipe rooted at `origin/main`, and a `ColumnFlowSlice` claim
+    §5.3.1 has retracted. **Accepting that default violates this DoD.**
+
+    ⚠ An earlier form of this clause said the message is "authored fresh at merge" and stopped
+    there. That is a promise about a future check, which is precisely what §0's rule forbids — *a
+    claim is carried by the command that produces it, never by prose asserting it was checked.*
+    So the artifact is written here instead of promised, and merging is a paste, not a
+    re-derivation:
+
+    ```text
+    refactor(layout): split the IFC flow reconcile out of inline/mod.rs (seam 3)
+
+    Moves layout_inline_context_fragmented's 226-line flow-reconcile block from
+    inline/mod.rs into a new inline/reconcile.rs as pub(super) fn reconcile_flows,
+    byte-identical modulo the extracted signature.
+
+    Proof (both halves required; see the memo's 6 / 6.1):
+      * body: extract mod.rs 413-419 + 421-639 from the PINNED BASE 658cc302 --
+        NOT origin/main, whose line numbers move -- and diff at n=0 against
+        reconcile.rs's body. Pass = 6 single-line hunks, one per binding
+        substitution, and 226 == 226.
+      * call site: parse reconcile_flows' parameter names and the call's argument
+        identifiers and compare pairwise. Pass = equal. Mutation-verified against a
+        real transposition of the three adjacent bools, which the body harness passes.
+
+    Stable figures: inline/mod.rs 785 -> 573; too_many_lines 177/100 and
+    too_many_arguments 11/7 both still load-bearing; 325 tests pass.
+    reconcile.rs's line count is deliberately NOT recorded -- it moves with every
+    commit that documents the file. Measure it: wc -l.
+
+    mise run ci cannot pass on any branch: it depends on deny, which fails to load
+    the advisory DB (RUSTSEC-2026-0244, upstream, red on main too). check / lint /
+    test-all / doc / trip-wires each run green individually. On CI the deny job is
+    skipped by the path filter for this PR.
+    ```
   * The other five figures are stable — `mod.rs` 573, `too_many_lines` 177/100,
     `too_many_arguments` 11/7, §6's `6 hunks / 226 == 226`, 325 tests — and have held at every
     commit on this branch, so recording them is safe and they go in the squash message at merge.
