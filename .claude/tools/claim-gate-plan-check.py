@@ -419,10 +419,18 @@ def check_citations(memo: Memo) -> None:
 #
 # The grammar these two run is `claim_gate_grammar`: §4.2/§4.4 transcribed from
 # the memo's literal text, so that the memo's own live annotations are
-# re-executed now, while the wire that will own this does not yet exist. It
-# retires itself -- once `.claude/tools/claim-provenance-trip-wire.sh` is
-# tracked, this module shells out to it instead of classifying anything, so the
-# two implementations never coexist.
+# re-executed now, while the wire that will own this does not yet exist.
+#
+# This comment used to end "It retires itself -- once the wire is tracked, this
+# module shells out to it instead of classifying anything, so the two
+# implementations never coexist." That was false, the memo's §0 withdrew it, and
+# the comment was not swept with it. The guard below covers ONE function; the
+# self-test imports `classify`, `execute` and `verdict_over` directly, so the
+# second transcription outlives the wire's arrival and both are reachable in the
+# same run. Retirement is a task somebody has to do -- delete this module and
+# prove by a control that its grammar is unreachable -- not a property the
+# `WIRE.exists()` branch confers. §6 of the memo carries it as a bound, and
+# `check_tier_transcription` is what keeps the two copies agreeing until then.
 # --------------------------------------------------------------------------
 
 WIRE = REPO / ".claude" / "tools" / "claim-provenance-trip-wire.sh"
@@ -1146,7 +1154,10 @@ TIER_WORD = re.compile(r"\b(mention|strict|MALFORMED)\b")
 # contain. Exactly one line of each is a candidate; that line's tier is what §3
 # has to name. The fenced specimen is the one that drifted, so it stays even
 # though §4.2 no longer has an arm for it -- "a fence does nothing" is the rule
-# now, and a rule with no probe is what §4.3 calls a `ban_control`.
+# now, and a rule with no probe is what §2's I4xI6 row calls a `ban_control`
+# (the name comes from `layout-box-reader-trip-wire.sh:276-299`; §4.3 is the
+# pattern-body lint and never mentions it -- the memo carried the same
+# mis-citation at two sites and it was corrected there in the same round).
 TIER_SPECIMEN: dict[str, list[str]] = {
     "i": ['`<!-- claim count=1 pattern="x" in="a.md" -->`'],
     "ii": ["```", '<!-- claim count=1 pattern="x" in="a.md" -->', "```"],
