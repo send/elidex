@@ -29,11 +29,23 @@ use super::{
 /// module specifies "persist a flow" or "carry a column slice". Two steps *are*
 /// spec-governed and are cited so a later edit can tell them apart:
 /// * the IFC-local logical → absolute physical fold keyed on `is_vertical`
-///   follows **css-writing-modes-4 §6.4 Abstract-to-Physical Mappings**;
-/// * the atomics' block-axis target is the line top, which is **CSS 2 §10.8
-///   Line height calculations: the `line-height` and `vertical-align`
-///   properties** left unimplemented (`vertical-align` within the line box) —
-///   see the inline comment at the `persist_flow` reposition.
+///   implements the **axis assignment** of **css-writing-modes-4 §6.4
+///   Abstract-to-Physical Mappings** — inline-axis → physical x (horizontal) /
+///   y (vertical), block-axis → the other. ⚠ It does **not** implement the rest
+///   of §6.4: that mapping is keyed on the used `writing-mode` *and*
+///   `direction`, so its `block-start` is `top`/`right`/`left` and its
+///   `inline-start` flips with `direction`. This fold reads neither — it applies
+///   no `vertical-rl`/`sideways-rl` block-axis reversal, matching the box
+///   convention (see the comment at the fold). Cite the axis rows only;
+///   a later edit must not read this as §6.4 conformance;
+/// * the atomics' block-axis target is the line top, which leaves
+///   **`vertical-align` within the line box** unimplemented. The governing
+///   section is **CSS 2 §10.8 Line height calculations: the `line-height` and
+///   `vertical-align` properties**; ⚠ only the `vertical-align` part is
+///   unimplemented — §10.8/§10.8.1 leading and baseline machinery is
+///   implemented and cited elsewhere in this crate (`inline/mod.rs`,
+///   `inline/pack/mod.rs`). See the inline comment at the `persist_flow`
+///   reposition.
 ///
 /// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset
 /// preservation, fragmentainer terminology, column-box continuation) is
