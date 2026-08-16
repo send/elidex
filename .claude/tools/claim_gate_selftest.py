@@ -257,6 +257,30 @@ def selftest() -> int:
         probe(f"RUNNABLE {'runs' if runs else 'refuses'}: {c[:44]}", False,
               [] if got == runs else [f"got runs={got}, expected {runs}"])
 
+    # An entry whose `mandates` pattern no longer matches the REAL umbrella can
+    # never fire again: a row that looks like coverage and is not. Round 6 found
+    # two -- D3 and umbrella §6 -- because the umbrella's text was edited in
+    # place where BINDING's comment assumes it is appended to. This lives in the
+    # self-test rather than in check_umbrella because its subject is the registry
+    # against the real document, not whatever pair is on argv; run per memo it
+    # would fire on every synthetic fixture and prove nothing.
+    _umb = host.REPO / "docs/plans/2026-08-quantitative-claim-staleness-gate.md"
+    if _umb.exists():
+        _t = _umb.read_text()
+        for _name, _mand, _w, _a in host.BINDING:
+            probe(f"BINDING entry can still fire: {_name[:40]}", False,
+                  [] if re.search(_mand, _t, re.S) else
+                  [f"`mandates` no longer matches the umbrella; the entry is inert "
+                   f"and {_name} is uncovered"])
+    else:
+        # NOT silent. The prerequisite branch ships the checker without the memos,
+        # so these probes have no subject there -- and a probe that vanishes reads
+        # as a probe that passed, which is the defect this file exists to catch.
+        # One probe records the absence by name, and it is green because the
+        # prerequisite PR is allowed to be green; what it may not be is quiet.
+        probe(f"BINDING registry NOT CHECKED here: {len(host.BINDING)} entries have "
+              f"no umbrella in this worktree", False, [])
+
     probe("UNIQ negative (no Fixture column)", True,
           capture(check_probe_substrings, synth(
               SYNTH_UNIQ.replace("| Fixture ", "").replace("| live ", "")
