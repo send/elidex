@@ -108,6 +108,23 @@ pathspec matching nothing, so a typo'd `in=` makes its claim unfalsifiable. `git
 'crates/**/*.rss'` returns 0 lines, so the discriminator exists: **`in=` must match ≥1 tracked file or
 the annotation fails** with its own diagnostic.
 
+⚠ **AMENDED by S1 round 6: the precondition is about the working tree, not the index.** `git ls-files`
+reports the **index**, while all three verbs read the **working tree**, and S1 §6 measures the gap on a
+fixture: with a file `git add`ed and then removed, `git ls-files` still lists it while `git grep` exits
+1 with no output and `awk` exits 2. A pathspec can therefore satisfy this decision as originally written
+and still leave the measurement with nothing to read — the same unfalsifiable claim D4 exists to forbid,
+reached by a second route. The precondition is: `in=` must match ≥1 tracked path **at least one of which
+is present in the working tree**; `lines=` exactly one tracked path, present, and a **regular file** (a
+gitlink satisfies "present" and makes `awk` answer 0 with status 0). The failure modes carry distinct
+diagnostics, because one nesting inside another is one diagnostic wearing two labels. S1 §4.4 rule 3 is
+the production rule; S1 §8.1 C28, C33 and C34 control it.
+
+This is a decision change rather than an elaboration, which is why it is recorded here: D4's stated
+mechanism admits a failure class the amended text rejects, and S2 and S3 read this file, not S1's. The
+cost bound belongs with it — the presence question is **existential**, the wire stopping at the first
+present path, because spelling it as a filter over every resolved path costs a term proportional to the
+tree and violates I7. S1's round 6 found that after its revision 7 had shipped exactly that spelling.
+
 **D5 — the pattern body is linted, on the right reasoning.**
 git's default ERE supports no PCRE escapes: **`\X` is the literal `X`**. Measured against
 `crates/core/elidex-ecs/src/lib.rs`, `\d` and plain `d` both give **23**; `\b` and plain `b` both give

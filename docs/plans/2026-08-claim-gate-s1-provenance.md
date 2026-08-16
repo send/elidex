@@ -1,54 +1,21 @@
 # S1 — the `claim` annotation grammar + the re-execution wire
 
-> ## Revision 6 — a figure that outlived three changes to its own subject, a rule the checker never stopped enforcing, and six citations naming lines nobody re-read
+> ## State: answering plan-review round 6
 >
-> This revision started from a question about the review rather than the memo: rounds 2, 3 and 4 returned
-> more CRITs than the round before, and each round's roots were traceable to what the *previous* revision
-> had added. Two measurements, taken before round 5 rather than after:
+> **Numbered by round, not by revision.** "Revision N" had no definition anywhere and the front block
+> carried one number while the body's back-references carried another; rounds are counted by something
+> outside this file. Body references to earlier revisions stay as they are — they name historical
+> states, which is what they are for.
 >
-> - **§5's `~350`/`~200` stood unchanged in every commit this memo has ever had**, while the design of the
->   wire and of the self-test changed underneath it three times — the fence arm and the second scan stage
->   removed, `--one` added, `--one` withdrawn for a clone fixture to build and tear down. It was never a
->   projection; it was inherited. §1's "nowhere near the ~700–800 band" rested on it. Both are gone (§5),
->   for the reason §4.5's runtime table and §5's "five uses" went before them.
-> - **Option (c) was swept into this memo and into the umbrella, and never into the checker.**
->   `classify()` went on putting a fenced annotation in `mention`; the per-surface table and the `.rs`
->   rustdoc strip were still there; and a `--self-test` probe *asserted* the withdrawn tiering, so the gate
->   certified the rule the memo had deleted. In the same file, `UMBRELLA`'s D2 entry already keyed on
->   "there is no fence arm" as proof the slice had withdrawn it. Nothing was red, because the tree carries
->   no fenced annotation for either half to be wrong about.
+> **This block is a pointer, not a second record.** Every withdrawal, correction and bound below is
+> stated at the site that owns it, and a front-door summary of them was a duplicated decision surface:
+> two places a reader could learn what this memo currently holds, with no rule saying which wins. What
+> a round found lives in the section it changed; what it *taught* lives in memory. This block carries
+> only what has no other site: the memo's own status and the commands that establish it.
 >
-> That second one is round 4's shape — *the sites that state a change were swept, the sites that depend on
-> it were not* — occurring inside the mechanism built to make that shape impossible, at the one site §0 and
-> §6 had already written down as a duplicate. So the duplicate gets a keeper rather than a fifth sweep:
-> `TIERS` derives each classifier branch's tier from §3's own prose and decides it by running `classify()`
-> on a specimen, so a branch added without one fails and a tier changed on either side alone fails.
->
-> Round 4's remaining findings are closed here too: §4.2 now says a malformed annotation fails the run
-> **without ending it** (without which `escapes` and C25 could never go green); §4.1's heading no longer
-> promises a second stage its body deletes; and §4.6's `trip-wires.sh:59` label — wrong since revision 3,
-> which is the revision that was *answering* round 3's finding about it — is re-derived from the report
-> rather than relabelled again.
->
-> **`TIERS` is the fourth check of this kind, and revision 5 built the first three.** Its three roots were
-> round 4's shape as well: the umbrella still mandated `.rs` fence matching and still defined the mention
-> tier as "backticked or fenced" after this slice had deleted the fence arm — which is not a slice's
-> change to make, so the umbrella was amended in its own file, marked as a decision change; §8 defined
-> what a Fixture value *means* and never re-derived the assignments against it, so round 3's C10/C11
-> finding was relabelled rather than closed; and four revisions shipped four false counts about this
-> program's own tooling, each in the paragraph crediting it. Revision 4's remedy for that last one was a
-> **prose rule** — "this memo states no quantity about its own tooling" — falsified eighteen lines above
-> itself by "three commits" (five, and five when written). That settles the method for all of them: a rule
-> cannot stop this class, because the author believes the rule was followed. So each root became a check,
-> written before its prose and probed in both directions — `TOOLING` re-derives any numeral in a sentence
-> about the tooling from git, `UMBRELLA` fails a slice that withdraws what a binding decision still
-> mandates (and recognises an amendment, so the decision's history is kept rather than rewritten),
-> `FIXTURE` derives §8.1's Fixture column from each row's own `in=` pathspec. Revision 5 also withdrew
-> `--one`, revision 4's injected-annotation entry point, replaced by a `git clone --local` fixture that
-> lets the acceptance corpus run through **the scan** instead of around it (§4.1.1).
->
-> **This memo states no quantity about its own tooling**, and `TOOLING` is what holds it to that now. The
-> artifact is these two commands (D10 form 2), re-run against this file at every revision since:
+> **This memo states no quantity about its own tooling**, and `claim-gate-plan-check.py`'s `TOOLING`
+> check is what holds it to that. The artifact is these two commands (D10 form 2), re-run against this
+> file at every round:
 >
 > ```
 > $ python3 .claude/tools/claim-gate-plan-check.py --self-test | tail -1
@@ -57,65 +24,12 @@
 >     docs/plans/2026-08-quantitative-claim-staleness-gate.md
 > ```
 >
-> **What round 5 returned, recorded because the shape is the program's own subject.** Two were claims of
-> this revision's own making. It split `CONTRIBUTING.md:19`/`:20` and gave S1 the label half, on the reading
-> that umbrella §6 had misrouted the sentence. The umbrella had not: it lists `:19` among the label sites
-> and then carves it out in the same breath. The premise came from §5's account of the umbrella instead
-> of the umbrella. **Withdrawn** (§0, §4.6, §5, §6, §9). And it asserted that a quoted span attributed to
-> a named file "occurs zero times" across both memos, offered as the ground for shipping no check for the
-> class. The probe behind that zero matched within a single line, and every such quotation here wraps —
-> §1's `scripts/trip-wires.sh:104-111`, §4.3's `scripts/trip-wires.sh:130-136` and more. **Withdrawn**, with the
-> line-scope defect noted: the same defect had been fixed in the `FENCE` ban hours earlier in this same
-> revision, and the replacement probe reintroduced it.
->
-> **The other six findings were about *where* something is: five citations that named the wrong line, and
-> one header stacked where its predecessor should have been swapped out.** Two sites attributed
-> `ban_control` to §4.3, which is the pattern-body lint and never mentions it; the precedent is introduced
-> in §2's I4×I6 row, against `layout-box-reader-trip-wire.sh:276-299`. §4.6's edit-set row credited
-> `mise.toml:104-105` with "each script's own header documents its surface", which is `:103-104` — `:105`
-> is the separate sentence about the driver owning the registry. §4.6's quotation of the ungated job's
-> argument was attributed to `.github/workflows/ci.yml:131-132` and runs on into `:133`. §8.3 gave one of
-> the two added `crates/…**/…` pathspecs to §4.5's exemption, which names C10 and C19 in prose and carries
-> no pathspec literal at all; both are in §2's I6×I7 row, and both have been there since revision 3 rather
-> than "this revision". §1 pasted the names its own `git ls-files` listing returns and said every tracked
-> script in that directory matches `WIRE_GLOB` — a listing and a sentence S1's own commit 1 falsifies, by
-> adding a tracked `.sh` there that does not match; §1 now runs the membership test instead of enumerating
-> today's answer to it.
->
-> The five share a method, and that is why they are a population rather than five accidents: each was
-> written by re-reading the prose around the citation instead of the line the citation names — §4.6's
-> "relabelling is not re-measuring", arriving at five more sites. `CITE` proves a `path:LINE` is tracked,
-> unambiguous and in range; nothing proves it is the line meant, and that gap is stated here rather than
-> left to read as covered.
->
-> The sixth has a different root and is this block. Revision 6's header was appended above revision 5's
-> instead of replacing it: `git show --stat 676ab9df` reports 45 insertions and no deletions, while
-> `git show <commit>:<this file> | grep -c '^> ## '` returns 1 at every commit from round 2 up to that one
-> and 2 at it and after. Two status blocks at the front door is the duplicated-decision-surface shape,
-> with the stale block indistinguishable from the current one and no rule saying which is read. This is
-> the single block; what revision 5's still owned is folded into it above, and the record of what earlier
-> revisions got wrong is kept, because that record is this memo's thesis rather than its clutter.
->
-> **The six that remained were one defect wearing six faces: a control asserting a state no specified
-> stage produces.** C18 keyed on `self-test helper` while nothing was specified to print it — handing a
-> missing path to `bash` yields `No such file or directory` — and the guard it runs under is an inherited
-> environment variable, which leaves one arm unreachable with the guard set and the whole self-test
-> re-entrant with it cleared (§4.1.2, §8.1). C27 asserted `git invocations`, a string nothing emits,
-> against a fixture of well-formed annotations that makes the wire exit 0, so neither half of the probe
-> helper's contract was met (§8). C13's note described a whole-run death that §4.2's fail-without-ending
-> rule and §4.4 rule 4 had just forbidden (§4.4, §8.1). `MALFORMED` and `resolves to more than one` were
-> `$3` strings with no stage behind them, and the working-tree diagnostic contained the dead-pathspec one
-> verbatim, so one control could be satisfied by the other's failure (§4.4 rule 3, §8). §8.2's property
-> had four clauses and two producers, the other two living in programs S1 throws away (§4.2, §8.2). And
-> `git clone --local` was presented as the mechanism when CI's default-depth checkout makes git ignore
-> it, warn twice and clone anyway — measured, and now stated in §4.1.1 with the decision not to swallow
-> the clone's stderr to hide it.
->
-> The remedy is again a structure rather than a rule, for the reason recorded two paragraphs up: §8 now
-> lists **every** diagnostic kind beside the stage that emits it, so a control keying on a string no
-> stage produces is visible in the table rather than in a fixture nobody has built yet; and where a
-> control's subject genuinely is not a diagnostic, §8 states a second probe shape rather than inventing
-> a `$3` for it.
+> | Round | What it changed, and where that change is recorded |
+> |---|---|
+> | 3 | The checker leaves the slice into a prerequisite branch (§0, §5, §9). Q3 closes by measurement: no fence arm (§4.2, §7). |
+> | 4 | The fence withdrawal reaches the umbrella as an amendment (umbrella D2/D3/§6). `TOOLING`, `UMBRELLA`, `FIXTURE` replace three prose rules. |
+> | 5 | Rule 1 was refuted by running it under the declared regime (§4.4). Six controls asserted states no stage produced (§8, §8.1). Six citations named the wrong line (§4.6). |
+> | 6 | Rules 1 and 4 could not both be implemented, and rule 3's liveness spelling broke I7 (§4.4, §2). §2 was a stale second copy of §8's `$3` model (§2 I6). A third altered quotation, load-bearing (§4.1.1(b), §8). D4 amended in the umbrella. This block collapsed to a pointer. |
 >
 > → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
 > `feedback_findings-cluster-in-self-added-scope`,
