@@ -145,10 +145,12 @@ verbs; the wire; its invocation of its own self-test; registration; the two pros
 runtime number; the set-level label the new wire joins; and the two set-level sites §4.6 found that a
 fifth wire falsifies.
 
-**Not in scope, and not in this PR: `.claude/tools/claim-gate-plan-check.py`.** It checks *this memo*;
-the wire checks *the tree*. Different subject, different lifecycle, different gate — and revision 3
-bundled them, and round 3 charged most of its CRITs to that bundling. It is a **prerequisite PR** that
-lands first (`claim-gate-plan-check`); S1 is stacked on it.
+**Not in scope, and not in this PR: authoring `.claude/tools/claim-gate-plan-check.py`.** It checks
+*this memo*; the wire checks *the tree*. Different subject, different lifecycle, different gate — and
+revision 3 bundled them, and round 3 charged most of its CRITs to that bundling. It is a **prerequisite
+PR** that lands first (`claim-gate-plan-check`); S1 is stacked on it. S1 makes a single edit to that
+file, and it is the retirement below: S1's own grammar leaving a file that was only ever holding it on
+S1's behalf.
 
 Revision 3 claimed the checker's annotation executor was a self-retiring bootstrap: *"a code path, not
 a promise, so the two implementations cannot coexist."* **That was false and is withdrawn.** The
@@ -161,8 +163,16 @@ The honest replacement is a **bound, recorded in §6**, not a better-timed retir
 carries a second transcription of §4.2's tiers and §4.4's verbs, and will keep carrying it until the
 wire exists and delegation to it is implemented *and proven by a control*.** Writing the retirement
 before the wire is what produced the false claim — the code path existed, and nothing exercised it.
-S1's landing is the trigger; the prerequisite PR owns the work; a probe that plants a wire and asserts
-the checker's own grammar is unreachable is what closes it.
+A probe that plants a wire and asserts the checker's own grammar is unreachable is what closes it.
+
+**Who executes that retirement was routed nowhere, and round 5 returned it.** Revision 6 wrote *"S1's
+landing is the trigger; the prerequisite PR owns the work"* — an owner that merges **before** its own
+trigger fires. On the day the wire exists there is no such PR left to delete `claim_gate_grammar.py`,
+whose own docstring says it *"exists to be deleted"*, or to write the closing control. The only PR that
+can hold it is the one that creates the wire, because the delegation is unwritable until the wire is
+tracked. So it is **§5's commit 5**, not a deferral. That does not reopen the bundling round 3 charged:
+S1 still does not author the checker; it removes the copy of S1's own grammar the checker was carrying
+on S1's behalf, in S1's PR, at the first commit where doing so is possible.
 
 **Out of scope, by the umbrella's own slicing**: the tamper ledger (D8 → S2), the superlative vocabulary
 and `grep_pass.py` Check 3 (D7/D9 → S3), and **the whole `CONTRIBUTING.md:19` sentence**, which umbrella
@@ -241,7 +251,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 |---|---|---|
 | **I1** | **Total tier assignment** (D3) — every candidate line lands in exactly one of *strict* / *malformed* / *mention*; none may vanish | The lax recogniser is the outer net and strict is a subset of it. A typo cannot fall out of the world. |
 | **I2** | **Inertness** (D2) — the mention rule must never swallow a strict annotation, and the gate excludes its own files | One rule on all four surfaces: backtick it (§4.2). It is a **line predicate** — *k* backticks before the `<!--` — so no per-file state exists and no surface needs its own arm. `.claude/tools/**` is dropped by pathspec. |
-| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file; `lines=` to exactly 1 | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string. |
+| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file; `lines=` to exactly 1 | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string — and resolved against the **working tree**, which is the tree all three verbs read (§4.4 rule 3). |
 | **I4** | **Dialect fidelity** (D5) — the pattern body's ERE meaning is the author's meaning | A parse-time reject-list on the pattern body, with a diagnostic naming the offending escape verbatim. |
 | **I5** | **Argv fidelity** (D6) — every parsed value reaches `git grep` as one argv element | No `eval`, no unquoted expansion, no reconstructing a command string. Probeable: §4.4. |
 | **I6** | **Provable firing** — every grammar clause has a positive *and* a negative control; the negative asserts a diagnostic substring unique to it | The self-test, the wire's invocation of it, and the `REQUIRED_WIRES` line, all in one commit. |
@@ -578,10 +588,28 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
    dead-pathspec. §8 needs a control for it; it has none.
 2. **`-e` is not optional**, and belongs to D6's family: a pattern beginning with `-` is otherwise read
    as an option and the run dies before measuring anything.
-3. **Liveness (D4) runs before every measurement.** `git ls-files -- "$spec" | wc -l` must be ≥1
-   (`lines=`: exactly 1). That is the discriminator D4 names: a typo'd pathspec makes `git grep -cE` exit
-   1 with no output — indistinguishable from a correct pathspec matching nothing — while `git ls-files`
-   separates the two.
+3. **Liveness (D4) runs before every measurement, against the tree the verbs read.** `git ls-files --
+   "$spec"`, **filtered to the paths that exist in the working tree**, must yield ≥1 (`lines=`: exactly
+   1). That is the discriminator D4 names: a typo'd pathspec makes `git grep -cE` exit 1 with no output —
+   indistinguishable from a correct pathspec matching nothing — while `git ls-files` separates the two.
+
+   The filter is what makes the probe answer about the same tree the measurement will read. `git
+   ls-files` reports the **index**; all three verbs read the **working tree**. §6 measures the gap on a
+   fixture: with a file `git add`ed and then removed, `git ls-files` still lists it, while `git grep`
+   exits 1 with no output and `awk` exits 2. An unfiltered probe therefore passes and then measures
+   nothing — a `count=0` annotation goes green against a file that is not there, and any other value
+   reports `asserted=N actual=0`, which is I1×I4's stated hazard reached by a second route. `lines=`
+   does not even reach an outcome kind: it dies in `awk`, outside the `git`-status split rule 4 defines.
+
+   Diagnostic when the filter empties the set: *`in=` matches no tracked file present in the working
+   tree*, deliberately not the dead-pathspec text — the two have opposite fixes (write a real pathspec /
+   restore the deleted file), and §4.3's rule that a diagnostic must name what it found applies to any
+   pair a reader has to tell apart. §8.1 C28 controls both directions. Cost: an existence test per path
+   the pathspec already resolves to, so I7's per-annotation term keeps its order and gains no tree term.
+
+   §6 recorded this asymmetry and left it unfixed. That was the wrong disposition and §6 now says so: a
+   bound records what S1 does not reach, and this is S1's own discriminator — the clause D4 exists to
+   make unfalsifiable — answering about the wrong tree.
 
 **Argv (D6), and how I5 becomes probeable.** The parser emits `$verb`, `$expected`, `$icase`,
 `$pattern`, `$spec` as separate shell variables; the executor spells the call literally with every
@@ -801,6 +829,17 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
 4. §4.6's two set-level *claim* edits — `ci.yml:152`'s "grep-only" and `mise.toml:102-103`'s four-wire
    enumeration — one commit. Revision 3 put both in §0's scope and gave neither a commit, so an
    implementer following §5 literally would have shipped S1 with `ci.yml:152` still false.
+5. The second transcription retires (§0, §6): `check_annotations` delegates to the now-tracked
+   `.claude/tools/claim-provenance-trip-wire.sh`, `claim_gate_grammar.py` is deleted whole, and the
+   closing control plants a wire and asserts the checker's own grammar path is unreachable. It follows
+   commit 1 because the delegation is unwritable until the wire is tracked, and it is in this PR
+   because no later PR exists to hold it — revision 6 gave it an owner that merges before its own
+   trigger fires (§9).
+6. The five false rows of `docs/plans/2026-07-app-mode-turn-completion-drain.md` §5's `Lines at HEAD`
+   table (§8.2), corrected against that table's own declared base. A **value-only** edit — five
+   numerals replaced in place, no line added or removed — which is what keeps C21's corpus row and
+   §8.2's `actual` figure for that file true; `git show --stat` on the commit is the check. Revision 6
+   routed this to "the L4 lane", and a lane is not a PR, a slot or a ledger row (§9).
 
 Gate: `claim-gate-plan-check.py` (both memos, and `--self-test`) → `cargo fmt --all` → `mise run ci` →
 `/simplify` → `/code-review` → `/review` → `/elidex-review`. The checker runs **first** because every
@@ -836,11 +875,16 @@ push → draft PR → `/review <n>`.
   polarity would be the same unexecuted-claim medium one level down. What remains is not a bound but a
   deletion: with (c) adopted there is no fence tracking in the wire at all.
 
-- **The checker carries a second transcription of §4.2 and §4.4 until the wire lands** (§0). Not a
-  bootstrap that retires itself — revision 3 asserted that and it was false — but a stated debt whose
-  trigger is S1's own landing and whose owner is the prerequisite PR. The closing condition is a control
-  that plants a wire and asserts the checker's grammar path is unreachable, because the untested
-  retirement path is precisely what let the false claim stand.
+- **The checker's second transcription of §4.2 and §4.4 retires inside this PR** (§0, §5's commit 5).
+  Not a bootstrap that retires itself — revision 3 asserted that and it was false. Revision 6's
+  replacement was a debt whose trigger was S1's own landing and whose owner was the branch S1 is
+  stacked on; round 5 read the two halves together and they do not compose, because that owner merges
+  **before** its own trigger fires. The owner is now §5's commit 5, the earliest commit at which
+  delegation is writable at all. The closing condition is unchanged — a control that plants a wire and
+  asserts the checker's grammar path is unreachable — because the untested retirement path is precisely
+  what let the false claim stand. What stays a bound is the window: between the stacked branch landing
+  and S1 landing, `main` carries the second copy. The forced order makes that window one PR, the same
+  shape as `CONTRIBUTING.md`'s above.
 - **`in=` is exactly one pathspec element.** One `QSTR` → one argv element (that is I5). Git does accept
   an *exclude-only* pathspec (verified: `git grep -lniE 'layering trip-wire' -- ':(exclude)docs/plans/**'`
   returns hits), so one exclusion is expressible; two are not — which is why §4.6's edit-set listing is a
@@ -862,6 +906,10 @@ push → draft PR → `/review <n>`.
   printf 'alpha\nalpha\n' > a.txt          # worktree 2, index 1
   git grep -c alpha -- a.txt          → a.txt:2      # working tree
   git grep --cached -c alpha -- a.txt → a.txt:1      # index
+  rm a.txt                                 # worktree absent, index present
+  git ls-files -- a.txt               → a.txt        # liveness says yes
+  git grep -c alpha -- a.txt          → (exit 1, no output)
+  awk 'END{print NR}' a.txt           → awk: can't open file a.txt  (exit 2)
   ```
 
   So the scope is **tracked files, at their working-tree content**. `--untracked` adds untracked files;
@@ -869,9 +917,17 @@ push → draft PR → `/review <n>`.
   an edited annotation is live without staging; the gate does not govern "the committed tree"; and the
   preamble's base is a working tree with this file in it, not an index (D10 form 3 unaffected in
   substance — the base is still declared and still includes this file — but stated correctly).
-  A fourth is new and is a real asymmetry, recorded here rather than fixed: the D4 liveness probe reads
-  the **index** (`git ls-files`) while all three verbs read the **working tree**, so a file deleted in
-  the worktree but still in the index passes liveness and then measures nothing.
+
+  The block's last four lines are a fourth consequence, and it is **not a bound — it was a defect, and
+  §4.4 rule 3 fixes it.** The D4 liveness probe read the **index** while all three verbs read the
+  **working tree**, so a file deleted in the worktree but still in the index passed liveness and then
+  measured nothing. Revision 6 wrote it down here as "recorded rather than fixed", with no owner, no
+  trigger, no re-eval date and no control; round 5 read that against what a §6 bullet is for. A bound
+  records what S1 does not reach. This was S1's own discriminator — the clause D4 exists to make a
+  claim falsifiable — answering about a different tree from the one it is guarding. The probe now
+  filters to paths present in the working tree, with a diagnostic distinct from the dead-pathspec one,
+  and §8.1 C28 controls both directions. What remains a bound is the half no filter reaches: the wire
+  measures uncommitted local edits, so a green local run is not a statement about what will be pushed.
 - **Single-line annotations only** (§4.4), and **`count` counts matching lines, not matches** — an author
   who meant "occurrences" measures something else, correctly and forever.
 - **The wire re-executes; it does not judge.** A pattern that measures the wrong thing stays green. The
@@ -997,6 +1053,7 @@ grouping is unaffected — a group of one-row invocations has nothing to collide
 | C24 | §4.2 the backtick arm on `.toml` | own | backticked annotation in a `#` comment in a `.toml` → ignored | same `#` comment unbackticked, wrong count (`asserted=`) |
 | C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
 | C27 | §4.5 I7's structural half | I7 | a fixture with 3 annotations and a counting `git` shim first on `PATH`: exactly one tree-wide `git grep`, and a per-annotation term that scales with 3, never with the file count | the same fixture at 6 annotations, asserting the 3-annotation invocation count (`git invocations`) |
+| C28 | §4.4 rule 3, liveness resolves against the working tree | own | `lines=2 in="a.md"` on a `git add`ed file that is present in the worktree | the same annotation after the file is removed, its path still in the index (`present in the working tree`) |
 
 C23–C25 close three clause-shaped holes round 2 named: the `icase` keyword, the `.toml` surface (C5's
 row claimed both `.sh` and `.toml` and its fixture is a `.sh`), and the reject set, of which two of ten
@@ -1017,6 +1074,14 @@ once: it put a Python interpreter and a dependency on `.claude/skills/elidex-pla
 into the wire's path, which is the ground §7 Q3 rejects option (b) on and which §4.6 keeps
 `ci.yml:152`'s "No toolchain step" true against; and its negative arm named no input, asserting a `$3`
 of `probes ok` that the checker prints on success. A control that cannot red is §2 I4×I6's `ban_control`.
+
+**C28 is round 5's, and it is the only row here that exists because a §6 bound turned out to be a
+defect.** §6 recorded the D4 probe reading the index while the verbs read the working tree, and recorded
+it as something S1 does not reach. It is S1's own discriminator, so §4.4 rule 3 fixes it instead and
+this row proves both directions: a present file measured, a removed-but-still-indexed file refused with
+a diagnostic that says *which* of the two liveness failures it is. Its `$3` is deliberately not
+`asserted=` — the failure being controlled is the probe firing at all, and a wrong-count substring
+would pass on a wire that skipped the probe and merely mismeasured.
 
 C4, C5, C16 and C24 all use the **wrong-count-inert / right-shape-live** pairing rather than a merely-ignored
 annotation, so a regression in an inertness rule reds the *positive* control instead of leaving it
@@ -1169,18 +1234,112 @@ figure with a checker.
 
 ## §9 Defer ledger
 
-**S1 books zero new slots.** The create-time slot-fit audit was applied to the one candidate — *"batch
-annotation execution by `in=` when the annotation count grows"*, which I5 × I7 forbids structurally.
+**The standard this section states, applied to this section.** A paragraph below disqualifies a
+destination with "no PR, no plan-memo and no ledger row" as *routed nowhere*. Round 5 applied that test
+to §9's own routings and four failed it: two named owners that cannot hold what they were given, one
+named a *lane*, and one was written into §6 with no row here at all. So every row below carries three
+things — an **owner** (a commit, or a file that exists), a **trigger** (an event that can be observed
+to have happened) and a **home** (something a reader can open). Where no such triple exists, the row is
+an own deferral and is counted as one.
+
+**Three of revision 6's routings became commits, because the work was executable here all along.**
+
+| Routed to, revision 6 | Why that owner could not hold it | Disposition |
+|---|---|---|
+| the branch S1 is stacked on, triggered by S1's landing (§0, §6) — retire the checker's second transcription of §4.2/§4.4 | it merges **before** its own trigger fires; on the day the wire exists there is no such PR left to delete `claim_gate_grammar.py` or write the closing control | **§5's commit 5.** The PR that creates the wire is the only one that can delegate to it |
+| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in §4.4 rule 3**, controlled by §8.1 C28. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
+| "the **L4 lane**" — the five false rows of #504's `Lines at HEAD` table (§8.2) | a lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive it | **§5's commit 6**, value-only, so C21 and §8.2 stay true |
+
+**One candidate was audited and is not a slot**, unchanged from revision 6: *"batch annotation
+execution by `in=` when the annotation count grows"*, which I5 × I7 forbids structurally.
 *(1) platform gap?* No, a performance property of one script. *(2) repeat signal?* No. *(3) existing
 home?* Yes, the wire's own header, where the sibling wires keep comparable notes. *(4) second tracking
 home?* Yes. → **Not a slot**: a header note with a re-runnable escalation trigger, the disposition
 `.claude/skills/elidex-plan-review/SKILL.md:91` records for its own deferred parser ("deliberately NOT a
 `#11-*` platform slot … skill-infra not a platform gap").
 
-**Not S1's deferrals** (owned elsewhere, listed so no one re-books them): D8's ledger → S2;
-the whole `CONTRIBUTING.md:19` sentence → S2 (umbrella §6, §0, §4.6); D7/D9 and Check 3, including §6's
-four-form window → S3; `#11-claim-annotation-diff-scoped-lint` → booked by umbrella §5, its
-`fetch-depth: 0` trigger now watched by §5's `count=0` annotation.
+**One own deferral survives the audit.**
+
+- **A third checker belongs in `SKILL.md`'s checkers-loop note, and cannot be put there from here.**
+  Owner: S1's author, at S1's landing. Trigger: the first push at which both that checker and the note
+  are on `main`. Home: memory `project_stale-claim-gate-v1-review`, the lane's SoT, which exists today
+  — discharged into the note itself once the note reaches `main`. Audit: *(1) platform gap?* No —
+  plan-review skill infra, the class the note's own neighbour entry already records as "deliberately
+  NOT a `#11-*` platform slot … skill-infra not a platform gap". *(2) repeat signal?* Yes; the note
+  calls itself the "second of this kind". *(3) existing home?* Yes, the note. *(4) second tracking
+  home?* Minting a `#11-*` slot would create one. → **Not a slot; a memory row, and this PR's own
+  deferral.**
+
+**Four things revision 6 said in routing that row were wrong, and the corrections are why the row is
+this small.**
+
+*There are not two answers to one question.* Revision 6 wrote that "two decision surfaces for *the same
+question* already exist" and that "the two answers are opposite". They answer different questions. The
+docstring answers **when the two checkers collapse into one**; the note answers **where the plan-memo
+consistency checkers run**, and says nothing about collapsing anything. What is shared is a *fact*, not
+a question: the note enumerates the checkers by name and does not know a third exists. That makes S1's
+contribution an enumeration edit rather than a decision — which is why nothing here needs deciding, and
+why the row above is a registration rather than a hand-off. **Withdrawn**, in both halves.
+
+*The competing sentence was already withdrawn, on this branch, before §9 prescribed withdrawing it.*
+Revision 6 quoted the docstring as holding "collapse them when a **third** memo wants one" and
+prescribed that it "withdraws its competing sentence rather than restating it". Read at this branch's
+head, the docstring labels that disposition the old one, records that it was priced off an undercount,
+and replaces it with *collapse once both have landed*. The prescription had nothing left to prescribe.
+
+*The note was mis-described, and one description was a quotation of a sentence that is not in the
+file.* In the order the errors matter:
+
+- The phrase §9 presented in quotation marks — *"put the plan-memo consistency checkers on a loop"* —
+  **does not occur in that file**; `grep -c` for it returns 0. What the note says is *"the plan-memo
+  consistency checkers are not on any loop"*. This is the **second** fabricated quotation this program
+  has produced. The first is recorded in the stacked branch's own docstring: a sentence attributed to
+  `plan-xcheck.py` that is not in it and that says the opposite of what that file says. Two instances
+  is a class, not a slip, and the class has a shape — both quoted a *nearby* document from a
+  recollection of it rather than from it, which is §4.6's `CONTRIBUTING.md:19` misrouting and the
+  `feedback_ao-name-not-section-number-in-briefs` 追補 4 pattern in a third dress. The remedy is not a
+  rule: a quotation is the one claim form that is trivially checkable, and `grep -c` on the quoted span
+  is the check.
+- The three files it names — `scripts/trip-wires.sh`, `mise.toml`, `.github/workflows/ci.yml` — are
+  where the note says nothing **runs** the checkers. They are its evidence for the gap, not its edit
+  set. What it specifies is two parts in one PR: (a) invoke `plan-sweep.py` and `plan-xcheck.py` from
+  **Step 1.5**, or from the ungated `trip-wires` job, generalising `plan-xcheck.py`, which hard-codes
+  one memo's labels; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to CSS-module labels. Of those,
+  `preflight.py` is not an S1 file at all, and the only possible overlap with S1 is
+  `scripts/trip-wires.sh` — under the note's parenthetical alternative, not its primary form.
+- "three of S1's five edit files" is wrong in both halves. §5 gives S1 six.
+
+*And the note's own trigger cannot be fired from here.* It reads *the first PR that ships* `plan-sweep.py`
+*and* `plan-xcheck.py` — "for the umbrella that authored them, the seam-3 prereq PR". S1 ships neither,
+and neither does the branch it is stacked on. So revision 6's rule — *whichever of the two branches
+lands first adds the third checker to that note* — did not merely lack an owner: the file it edits does
+not carry the note on either branch that would do the editing.
+
+*Where the note is, stated as a property rather than a hash.* The note is on the local branch
+`layout-decorated-inline`, and on no remote. Revision 6 pinned it to `0d4d474c`; that commit is no
+longer that branch's head, which is the fate `ef18b828` already met in this memo's own preamble — a
+hash pinning a branch still being rewritten has the same lifetime as the branch. The re-runnable forms:
+`git grep -c 'not on any loop' -- .claude/skills/elidex-plan-review/SKILL.md` finds nothing in this
+worktree and nothing at `origin/main`; and `git ls-remote --heads origin` for either branch prints
+nothing, which is why neither can carry a PR, a plan-memo or a ledger row.
+
+**One booking is registered at ship time rather than deferred.**
+`#11-claim-annotation-diff-scoped-lint` is the umbrella's slot, audited in umbrella §5 with its trigger
+(the first `.github/workflows/ci.yml` job requiring `fetch-depth: 0`, now watched by §5's `count=0`
+annotation) and its re-eval date. But `grep -rl 'claim-annotation-diff-scoped-lint'` over the project
+memory directory returns no file, and `git ls-tree origin/main --` for the umbrella's path prints
+nothing: the slot's only home is a document that is not on `main` and is not the project's slot
+registry. The registry is memory `project_open-defer-slots`, and the precedent for SoT-homing a
+plan-local booking there is explicit. **At S1's landing the slot is registered there**, carrying
+umbrella §5's trigger and date. Not a new deferral — the slot is already audited and already owned;
+what S1 adds is the registration, which is an action in its landing rather than a promise to someone
+else.
+
+**Not S1's deferrals** (owned elsewhere, listed so no one re-books them). Each carries the same triple:
+the owner is a slice with a plan-memo named in the umbrella's slice table, the trigger is the forced
+S1 → S2 → S3 order, and the home is umbrella §6's per-slice hand-off, which lands with this PR. D8's
+ledger → S2; the whole `CONTRIBUTING.md:19` sentence → S2 (umbrella §6, §0, §4.6); D7/D9 and Check 3,
+including §6's four-form window → S3.
 
 Revision 2's list ended that S3 item with "and the fence-tracker reconciliation", which was a defer to
 a slice that does not accept it: umbrella §6's S3 line reads *"D7's shared word lists and the
@@ -1190,37 +1349,19 @@ the one section whose job is to be exact about who owns what. It is withdrawn ra
 because there is nothing left to route: the premise that there was a reconciliation to do was §6's
 false one, and §7 Q3 is now closed by adopting (c) — there is no third tracker to reconcile.
 
-**Two findings this memo made about other documents, routed rather than left.** Round 3's point is that
-§9's job is to be exact about who owns what, and that a memo which *proves* a landed document false
-while booking zero deferrals has hidden one in prose:
+**The finding this memo makes about a landed document is now a commit, not a routing.** Round 3's point
+was that §9's job is to be exact about who owns what, and that a memo which *proves* a landed document
+false while booking zero deferrals has hidden one in prose. #504's `Lines at HEAD` table is false in
+five of ten rows (§8.2), all undercounts, all still false on `main`. C22 takes one as corpus; revision 6
+sent the rest to "the **L4 lane**" with the measurement attached, and observed correctly that S1 is
+opt-in (§6) so the wire will never red on them — which is the reason the routing needed an owner and
+not a note. A lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive
+this. Since the measurement is already taken and pasted, the correction is **§5's commit 6**: five
+numerals, replaced in place, against the base that table itself declares.
+(memory `feedback_duplicated-decision-surface-blocks-converge`.)
 
-- **#504's `Lines at HEAD` table is false in five of ten rows** (§8.2), all undercounts, all still
-  false on `main`. C22 takes one as corpus; the other four are not corpus material and are not S1's to
-  edit — `docs/plans/2026-07-app-mode-turn-completion-drain.md` belongs to the **L4 lane**. Routed
-  there with the measurement attached, and with the trigger that makes it non-optional: S1 is opt-in
-  (§6), so the wire will never red on them. They have to be corrected by hand, once.
-- **Where the plan-memo checkers run is not S1's decision to make, and S1 was about to make it a third
-  time.** Revision 4 routed the question ("`claim-gate-plan-check.py` is registered in no gate") to the
-  prerequisite PR. Round 4 measured what that owner is: a branch with no PR, no plan-memo and no ledger
-  row, whose diff registers nothing — so the obligation was routed nowhere, which is the shape this very
-  section names one paragraph earlier.
-
-  It is worse than an empty owner. Two decision surfaces for *the same question* already exist:
-  the prerequisite PR's docstring ("collapse them when a **third** memo wants one"), and
-  `.claude/skills/elidex-plan-review/SKILL.md`'s deferred maintenance note, which books "put the
-  plan-memo consistency checkers on a loop" as **one PR** touching `scripts/trip-wires.sh`,
-  `mise.toml` and `.github/workflows/ci.yml` — three of S1's five edit files — and commits to
-  generalising `plan-xcheck.py` as part of it. The two answers are opposite.
-
-  `SKILL.md` is the canonical site: it is the skill's own authoring home, it already carries the note,
-  and it already carries a re-eval date. **S1 books nothing and decides nothing here.** The one fact S1
-  contributes is that a third checker now exists and belongs in that note. The complication, stated
-  because it is load-bearing: that note is **not on `main`** — it lives only in `layout-decorated-inline`
-  (`git grep -c 'plan-xcheck' origin/main -- .claude/skills/elidex-plan-review/SKILL.md` → no hits;
-  the note is at `0d4d474c`). So the collapse cannot be executed from here. The rule that can be:
-  **whichever of the two branches lands first adds `claim-gate-plan-check.py` to that note**, and the
-  prerequisite PR's docstring withdraws its competing sentence rather than restating it.
-  (memory `feedback_duplicated-decision-surface-blocks-converge`.)
-
-**Own deferrals: 0 of the per-PR ≤3 budget** — unchanged. Revision 2 reached zero partly by routing the
-fence question to S3; with that withdrawn and Q3 closed, the count stands on its own.
+**Own deferrals: 1 of the per-PR ≤3 budget.** Revision 6 reported 0, and that 0 was **zero by
+construction**: three obligations had been handed to owners that could not execute them, and a fourth
+was written into §6 with no row here at all. The audit yields 1 rather than 4 because the other three
+turned out to be executable in this PR and became commits — which is the disposition the defer policy
+prefers anyway, and the reason 1 is an honest count rather than merely a small one.
