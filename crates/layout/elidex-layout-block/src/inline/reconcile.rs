@@ -23,6 +23,18 @@ use super::{
 ///
 /// Every effect is a `dom` mutation; nothing is returned to the caller.
 ///
+/// ⚠ **The probe universal in the body below is scoped to THIS function.** The
+/// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
+/// persisted render state", and gates its own `clear_inline_flows` call on
+/// `!env.is_probe`. The residue does **not**: `layout_inline_context_fragmented`'s
+/// two early returns (no items / no usable font) call `clear_inline_flows`
+/// **ungated**. That is safe — both exits are reached on `items.is_empty()` /
+/// no-usable-font, inputs that do not depend on `is_probe`, so a probe and the
+/// definitive pass reach them identically — but the universal reads as
+/// engine-wide and is not, and its two counterexamples now live in a different
+/// file. Stated here rather than in the body because the body is proved
+/// byte-identical to its pre-split form; the text below must not be edited.
+///
 /// **Spec vs bookkeeping.** Most of what this function does is elidex render
 /// bookkeeping with no governing section: [`InlineFlow`] and
 /// [`elidex_ecs::ColumnFlowSlice`] are engine-internal components, and no CSS
@@ -32,19 +44,29 @@ use super::{
 ///   implements the **axis assignment** of **css-writing-modes-4 §6.4
 ///   Abstract-to-Physical Mappings** — inline-axis → physical x (horizontal) /
 ///   y (vertical), block-axis → the other. ⚠ It does **not** implement the rest
-///   of §6.4: that mapping is keyed on the used `writing-mode` *and*
-///   `direction`, so its `block-start` is `top`/`right`/`left` and its
-///   `inline-start` flips with `direction`. This fold reads neither — it applies
-///   no `vertical-rl`/`sideways-rl` block-axis reversal, matching the box
-///   convention (see the comment at the fold). Cite the axis rows only;
-///   a later edit must not read this as §6.4 conformance;
+///   of §6.4, whose mapping is keyed on the used `writing-mode` *and*
+///   `direction` (its `block-start` row is `top`/`right`/`left`; its
+///   `inline-start` row varies with both). **This fold reads `writing-mode`
+///   only as the boolean `is_vertical`** — four modes collapsed to one bit,
+///   derived at `inline/mod.rs` from `writing_mode.is_horizontal()` — **and
+///   never reads `direction` at all.** So it applies no
+///   `vertical-rl`/`sideways-rl` block-axis reversal, matching the box
+///   convention (see the comment at the fold), and the `sideways-lr` inline
+///   axis is likewise not distinguished. Cite the axis rows only; a later edit
+///   must widen the existing `is_vertical` read rather than assume
+///   `writing-mode` is not an input here, and must not read this as §6.4
+///   conformance;
 /// * the atomics' block-axis target is the line top, which leaves
 ///   **`vertical-align` within the line box** unimplemented. The governing
 ///   section is **CSS 2 §10.8 Line height calculations: the `line-height` and
-///   `vertical-align` properties**; ⚠ only the `vertical-align` part is
-///   unimplemented — §10.8/§10.8.1 leading and baseline machinery is
-///   implemented and cited elsewhere in this crate (`inline/mod.rs`,
-///   `inline/pack/mod.rs`). See the inline comment at the `persist_flow`
+///   `vertical-align` properties**. ⚠ Stated positively, because "only
+///   `vertical-align` is missing" would be a claim over §10.8's whole
+///   complement: what **is** implemented and cited elsewhere in this crate is
+///   §10.8.1 leading/half-leading and the baseline derivation (`inline/mod.rs`,
+///   `inline/pack/mod.rs`). What is **not** implemented includes `vertical-align`
+///   alignment *and* §10.8's strut and its uppermost-top-to-lowermost-bottom
+///   line-box height — this crate takes `max(line-height)` instead and has no
+///   strut. See the inline comment at the `persist_flow`
 ///   reposition.
 ///
 /// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset

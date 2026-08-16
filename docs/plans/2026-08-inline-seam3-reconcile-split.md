@@ -69,12 +69,18 @@ ledger restates the normative decisions and then drifts from them"* — arrived 
   ```
 
   ⚠ **No counts are recorded in this bullet, for the same reason §5.5 records no `wc -l`**: the
-  checker's output is a function of the memo, so *every edit to the memo can change it* — and one
-  did. An earlier form of this bullet stored `0 hard, 1 soft` and `unrecognized labels: ['CSS 2']`;
-  adding §3's `css-writing-modes-4` row later made both wrong (a second `entries` warning, a second
-  unmapped label), and the stale copy shipped until a reviewer re-ran the command
-  ([[feedback_verified-claims-go-stale-under-own-later-edits]]). What is stable is the **shape** of
-  the result, which is the only thing this bullet needs to assert:
+  checker's output is a function of the memo, so *every edit to the memo can change it* — and edits
+  did. An earlier form of this bullet stored `0 hard, 1 soft` and `unrecognized labels: ['CSS 2']`,
+  and both went stale ([[feedback_verified-claims-go-stale-under-own-later-edits]]). ⚠ **The causal
+  story that replaced it was also wrong** and is corrected here: it said adding §3's
+  `css-writing-modes-4` row produced "a second `entries` warning". It did not — the two counters key
+  on different things, which is the whole reason neither is stored:
+  * **soft warnings** count `N entries` **claims in this memo's prose**, one apiece. Two existed
+    while the preamble made its own; collapsing that sentence left one.
+  * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks. Adding
+    a §3 row moved *this* counter, not the soft one.
+
+  What is stable is the **shape** of the result, which is the only thing this bullet needs to assert:
   * **soft warnings only, no hard failures.** The soft ones are `N entries` enumerations without a
     cached grep artifact — one per such claim, so the count tracks how many the memo makes.
   * **the label warning is not noise, and the scope of that is exactly two labels.**
@@ -369,14 +375,23 @@ never disagreed about the seam's extent.
 `reconcile.rs` imports four helpers defined in its parent, which is the shape a reader is most
 likely to challenge. The crate already runs it:
 
-| shape | existing non-test sites on `658cc302` |
+⚠ **The rows below are instances, not a census, and no instance count is stated.** The population
+is whatever this returns, and a reader who wants it should run it rather than trust a list:
+
+```
+git grep -n 'use super::' 658cc302 -- 'crates/layout/elidex-layout-block/src/**/*.rs' | grep -v tests
+```
+
+| shape | instances on `658cc302` |
 |---|---|
-| child imports a fn defined in the parent | `positioned/layout.rs:20` (`use super::resolve_offset`, defined `positioned/mod.rs:46`); `block/children/{stack.rs:13, helpers.rs:15, shift.rs:8}` (`use super::super::is_block_level`, defined `block/mod.rs:46`) |
-| **bidirectional** parent↔child — the exact shape here | `positioned/mod.rs:28` re-exports `layout::{…}` while `layout.rs` imports `super::resolve_offset`; `block/mod.rs:36` calls `children::shift_block_children` while `children/*` import `super::super::is_block_level` |
+| child imports a fn defined in the parent | `positioned/layout.rs:20` (`use super::resolve_offset`, defined `positioned/mod.rs:46`); `block/children/{stack.rs:13, helpers.rs:14, shift.rs:8}` (`use super::super::is_block_level`, defined `block/mod.rs:46`); `block/children/stack.rs:16` (`use super::{make_block_break_token, …}`, defined `block/children/mod.rs:49`) |
+| **bidirectional** parent↔child | `positioned/mod.rs:28` re-exports `layout::{…}` while `layout.rs` imports `super::resolve_offset`; `block/mod.rs:36` imports `children::shift_block_children` (the call is `:463`) while `children/*` import `super::super::is_block_level`; **`block/children/mod.rs:18`** (`pub use stack::stack_block_children`) against **`stack.rs:16`** — ⚠ the **closest analogue to this PR**, because its child→parent leg is a *direct* parent-defined-`fn` import, exactly like `reconcile.rs`'s `use super::{clear_inline_flows, …}`, whereas the other two route through a grandparent (`super::super::`) or a re-export |
 
 So keeping all four beside each other is one uniform rule where any split would be a 2/2 — the
-*opposite* of *one issue, one way* — and the arrangement is the seventh instance of an idiom the
-crate already carries, not a novelty this PR introduces.
+*opposite* of *one issue, one way* — and the arrangement instantiates an idiom the crate already
+carries, not a novelty this PR introduces. ⚠ **No ordinal is claimed** ("the seventh instance" was
+asserted from a list that was neither complete nor correct — `helpers.rs` was off by one and the
+closest analogue was missing entirely); the conclusion needs *existence*, not a rank.
 
 ⚠ **The correspondence §6 depends on**: since all four stay, the moved range is *exactly* what §6's
 harness extracts — no `fn` sits outside both extracts. That is what makes the harness a proof of
@@ -437,7 +452,8 @@ check was run; only its *result* was missing, which is the thing a reader cannot
 | Does the extraction introduce an OO pattern (registry, observer, subscriber list, class-owned state)? | **No.** It adds one `pub(super) fn` and a `mod` declaration. No trait, no `Vec<Box<dyn …>>`, no `ObjectKind` variant, no new state container. |
 | Does it move per-entity state into a side-store? | **No.** The three parameters (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) are **pre-existing**, produced by `layout_atomic_items` and the packer; the split only makes them cross a function boundary. ⚠ Only two are entity-*keyed* (`HashMap<Entity, _>`); `relpos_atomic_placements: &[(Entity, f32, f32)]` is a flat slice, iterated in order and never looked up. The distinction is load-bearing because the rule's trigger text is written about `HashMap<entity, _>`. |
 | Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, on two independent grounds. **Shape**: they are arguments threaded through one call chain, not an entity-keyed registry held beside the World, so the rule's subject is not what they are. **Lifetime**: all three are intra-pass scratch consumed before the pass ends. ⚠ The lifetime ground survives the `do_carrier` path, which is the one that looks like a counterexample — values from all three *are* copied into `ColumnFlowSlice`, but that carrier is itself drained inside the same pass, per its own authoritative docstring (`elidex-ecs/src/components/inline_flow.rs`): *"it lives only between the IFC layout (write) and the multicol fill (drain) **within one layout pass** (transport, not state)"*. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
-| What ECS state does the moved code own? | Two components. **`InlineFlow`** — insert in `reconcile.rs`; its sole removal is `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), which is now invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, with two further removals staying in the residue's early-return exits. ⚠ **Both** write sets span the new module boundary, symmetrically; enumerated here rather than referred to §7, which does not contain the enumeration. |
+| What ECS state does the moved code own? | Two components, and **this row is scoped to the split's two modules — it is NOT the workspace write-set.** Within them: **`InlineFlow`** — insert in `reconcile.rs`; removal via `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, plus two removals in the residue's early-return exits. Both write sets span the new module boundary, symmetrically. ⚠ **The workspace complement is non-empty and is not listed here** — run `git grep -n -e 'insert_one(.*InlineFlow' -e 'remove_one::<InlineFlow>' -e 'get::<&mut InlineFlow>' -e 'insert_one(.*ColumnFlowSlice' -e 'remove_one::<ColumnFlowSlice>' -- 'crates/**/*.rs'`. It reaches `elidex-layout-multicol` and `block/children/shift.rs`; an earlier form of this row said "enumerated here", a completeness claim over a population it had not measured ([[feedback_universal-claims-need-the-complement-measured]]). |
+| Does anything outside the crate depend on this function's clear having run? | **Yes, and it is worth knowing before touching the persist/clear cycle.** `elidex-layout-multicol/src/lib.rs` re-inserts `InlineFlow` on the run-start after the IFC pass (`position_column_fragments`), and guards it with a `debug_assert!` that the run-start carries **no** `InlineFlow` at build time — *"cleared each column by `clear_inline_flows`"*. So the moved block's clear is a precondition of another crate's write. Nothing in this PR changes it (the code is byte-identical), but a future reshaping of the cycle that reads only the two modules above would not see the constraint. |
 | Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused** — recorded because a revision of this memo asserted otherwise and routed it to the successor slot. `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"* — and the carrier is drained within the pass, so "it outlives the pass" was false too. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. Not routed, because this PR has no ownership invariant to offer for it. |
 
 ### §5.4 `#[allow(clippy::too_many_lines)]` on the residue
@@ -581,8 +597,8 @@ own rev-22 gate caught in this lane.
   producing them are the same statements in the same textual order. ⚠ **The write order needs a
   second, different ground**, because the principal write loop drains a `HashMap` — `flow_lines`
   is `HashMap<Entity, Vec<InlineFlowLine>>` (`inline/pack/mod.rs:154`), whose iteration order is
-  unspecified, and inside it the block both writes `InlineFlow` (`:528`) and pushes
-  `carrier_groups` → `ColumnFlowSlice.flow_groups` (`:609-611`), read back by
+  unspecified, and inside it the block both writes `InlineFlow` and pushes
+  `carrier_groups` → `ColumnFlowSlice.flow_groups`, read back by
   `elidex-layout-multicol/src/fill.rs:235`. The ground that does hold: the **same map instance is
   moved** into the callee, not rebuilt from another source, so any given pass drains in exactly
   the order it would have. The concern is
@@ -614,7 +630,7 @@ a nameable symbol at all — repointing the component's SSoT at something unreac
 than the mild imprecision, and `layout_inline_context_fragmented` remains the only entry point
 through which the write happens.
 
-**Six sites outside the range**, splitting on whether they name a *location* or the block as a
+**The sites outside the range**, splitting on whether they name a *location* or the block as a
 *concept*:
 
 | site | names | disposition |
@@ -660,13 +676,27 @@ exits are gated on `items.is_empty()` / no-usable-font, inputs that do not depen
 a probe and the definitive pass reach them identically. What the split changes is **discoverability**
 — the universal now sits in a file containing neither counterexample.
 
-**It cannot be repaired in this PR, and that is a contract consequence, not an oversight.** The
-comment is inside the moved body, so editing it breaks byte-identity — the one thing §6's harness
-exists to prove. The choice is therefore between a correct comment and a proven move, and this PR
-is the move. ⚠ **Routed to `#11-inline-fragmented-fn-seams-1-2`**, whose subject is the residue's
-decomposition and which is the first slot permitted to edit this text. Recorded here because a
-byte-identity contract that costs *nothing* is a claim worth distrusting; this one cost exactly one
-comment, and naming the price is stronger than asserting there was none.
+**The defect is repaired in this PR; only the comment's own text is not.** ⚠ An earlier revision
+claimed the whole thing "cannot be repaired in this PR, and that is a contract consequence, not an
+oversight" — **false, and the distinction it missed matters**: byte-identity constrains the text
+*below* the signature's `) {`, which is exactly what §6's harness extracts. Everything above it —
+the module doc and the `reconcile_flows` docstring, both **authored by this PR** — is free, and the
+docstring already runs this exact device twice for the two spec citations. So the discoverability
+defect is fixed where it can be: the docstring now scopes the universal to this function and names
+the residue's two ungated clears. What genuinely cannot happen here is editing the **body comment**,
+which would break the proof.
+
+⚠ **What is routed, therefore, is narrower than "the repair"**: aligning the two residue clears with
+the moved one (or rewording the body text) is the residual, and it goes to
+`#11-inline-fragmented-fn-seams-1-2` — ⚠ with a **`reconcile.rs`-scoped trigger disjunct added to
+that slot**, because both of its existing disjuncts are residue/`mod.rs`-scoped and neither reaches
+a false universal sitting in the new file (and disjunct 1 is self-exempted for six of the umbrella's
+seven PRs). A concern routed to a slot no trigger reaches is not booked, it is dropped
+([[feedback_enumerated-exemptions-leave-the-next-class-authoritative]]).
+
+Recorded because a byte-identity contract that costs *nothing* is a claim worth distrusting — but
+the price turned out to be one comment's wording, not its discoverability, and the earlier framing
+collected credit for honesty while overstating what the contract forbade.
 
 ## §8. Definition of done
 
@@ -691,7 +721,9 @@ comment, and naming the price is stronger than asserting there was none.
   `check` / `lint` / `test-all` / `doc` / `trip-wires` each individually green (`rc=0`, zero
   failure lines), which is every `ci` dependency except `deny` and the no-op `ci-sweep`. ⚠ On CI
   the `Licenses & Vulnerabilities` job is **skipped** by the path filter (this PR touches no
-  `Cargo.toml`/`Cargo.lock`), so the GitHub gate is unaffected — the breakage is local-only.
+  `Cargo.toml`/`Cargo.lock`), so the **PR** gate is unaffected. ⚠ Not "local-only": a `push` to
+  `main` bypasses the path filter unconditionally, so `deny` runs post-merge and is red there for
+  the same upstream reason — pre-existing, not caused by this PR.
   Earlier rounds of this PR's review record reported "`mise run ci` green"; that was false and is
   corrected here — including `cargo doc` with `RUSTDOCFLAGS=-D warnings`
   (`relpos_atomic_reposition_records`'s intra-doc link to `[static_atomic_reposition_records]`
@@ -732,9 +764,23 @@ comment, and naming the price is stronger than asserting there was none.
 * **Seams 1 and 2** of `#11-inline-fragmented-fn-decomposition` — `mod.rs:266-303` (orphans/widows
   break computation) and `:388-411` (the packer-relative → layout coordinate fold), both
   re-measured on `658cc302`. The umbrella books them into the successor slot
-  `#11-inline-fragmented-fn-seams-1-2` (§10). They are not folded in here because the umbrella's
-  scope sentence is explicit and because neither is touched by PR-1a, so neither has a fired
-  trigger.
+  `#11-inline-fragmented-fn-seams-1-2` (§10).
+
+  ⚠ **The ground an earlier revision gave was false and is withdrawn**: it said "neither is touched
+  by PR-1a, so neither has a fired trigger", testing a *future, unlanded* PR. The source slot's
+  trigger reads *"the next change that touches `layout_inline_context_fragmented`'s **body** (per
+  CLAUDE.md touch-time discipline, **at which point the seam work is owed anyway**)"* — and **this
+  PR is that change**: it replaces 226 lines of that body with a call. The trigger has **fired**,
+  today, for all three seams.
+
+  **The correct ground is that a fired trigger owes the work, not one PR carrying it.** CLAUDE.md's
+  touch-time discipline says a split ships as a **standalone prereq** — *"feature PR に bundle しない
+  — split は単独 PR / 単独 commit"* — so three cohesion seams are three PRs, and the successor slot
+  is the booking that keeps the owed work from evaporating. There is also a proof reason specific to
+  this PR: §6's harness proves **one** contiguous range byte-identical; folding three ranges into one
+  PR forfeits the per-range proof, which is this PR's entire warrant. ⚠ The slot is therefore a
+  *discharge route*, not an exemption — seams 1 and 2 are owed **now** and only the vehicle is
+  deferred.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
   decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
@@ -766,8 +812,18 @@ comment, and naming the price is stronger than asserting there was none.
   `is_vertical` and `is_probe`. A slot told only "eleven is too many" may answer with a grouping
   that keeps the triple adjacent, so the adjacency is named on the slot, not just the count. The real ground is altitude — the fix for a three-`bool` positional window is a **type** (an enum
   or a flags struct, so a transposition fails to compile); shuffling an unrelated parameter between
-  them to defeat ordering is a bandaid that leaves the hazard's shape intact. That is design work,
-  which is what this PR excludes.
+  them to defeat ordering is a bandaid that leaves the hazard's shape intact.
+
+  ⚠ **Why the type cannot be introduced here — and the reason is NOT "byte-identical modulo the
+  extracted signature".** That contract governs the body *after* `) {`; the signature is **authored**
+  by this PR, so the contract cannot be the reason not to shape it, and an earlier revision's appeal
+  to "design work, which is what this PR excludes" was the wrong ground. The real obstruction is one
+  level in: the flags are **consumed by the arms** `if persist_flow { … } else if do_carrier { … }`,
+  which *are* inside the compared body. A `FlowSink { Persist, Carrier, None }` enum rewrites those
+  arms, so it breaks the proof — the edit lands in the one region this PR may not touch, which is a
+  contract consequence rather than a scope preference. ⚠ Half the hazard **is** closed here, so do
+  not re-derive it at the slot: §6.1's call-site check compares argument names to parameter names
+  pairwise and is mutation-verified against a real transposition of this very triple.
 * **Where the four helpers should live once their principal caller is a sibling module.** §5.2
   keeps all four in `mod.rs`, and two of its four reasons are *design* reasons (`pub` API;
   residue callers) while two are *scope* reasons (outside the ratified range). ⚠ A third
@@ -884,7 +940,7 @@ correct reading; this paragraph had contradicted it one section away.
 
 | target (outside the repo) | what was applied, and what makes it this PR's |
 |---|---|
-| `project_inline-fragmented-fn-decomposition.md` | status → **PARTIALLY CLOSED**, seam 3 ✅ discharged — this PR discharges seam 3 and only seam 3. Plus **every** fact this PR falsifies, measured on that file: `:3` (front-matter, "508 lines … three concrete seams"), `:17` (its own frame: `mod.rs:139-646` = 508 lines, `#[allow]` at `:138`, "After the split `mod.rs` is **783 lines**" — ⚠ those are *its* pre-#497 coordinates, which on `658cc302` read `:141-648` / `:140` / 785), `:29` (seam 3 listed open), `:37` ("On landing, drop the `#[allow(clippy::too_many_lines)]` if the residue no longer needs it" — **re-evaluated and kept**; ⚠ take the figure from §5.4, not from that row) and `:42` (the 783 band argument). ⚠ Sweeping only `:37` would leave the memo asserting a size, a line range and an open seam this PR closes — the *statements* surface left standing while the *obligation* surface was fixed ([[feedback_sweep-obligations-not-only-statements]]) |
+| `project_inline-fragmented-fn-decomposition.md` | status → **PARTIALLY CLOSED**, seam 3 ✅ discharged — this PR discharges seam 3 and only seam 3. Plus the facts this PR falsifies — ⚠ **not claimed exhaustive**, since the sweep of an untracked file cannot be re-run from here; the ones found and fixed are: `:3` (front-matter, "508 lines … three concrete seams"), `:17` (its own frame: `mod.rs:139-646` = 508 lines, `#[allow]` at `:138`, "After the split `mod.rs` is **783 lines**" — ⚠ those are *its* pre-#497 coordinates, which on `658cc302` read `:141-648` / `:140` / 785), `:29` (seam 3 listed open), `:37` ("On landing, drop the `#[allow(clippy::too_many_lines)]` if the residue no longer needs it" — **re-evaluated and kept**; ⚠ take the figure from §5.4, not from that row) and `:42` (the 783 band argument). ⚠ Sweeping only `:37` would leave the memo asserting a size, a line range and an open seam this PR closes — the *statements* surface left standing while the *obligation* surface was fixed ([[feedback_sweep-obligations-not-only-statements]]) |
 | `project_inline-fragmented-fn-seams-1-2.md` | **created** — seams 1 and 2 (pre-existing, §9), the eleven-parameter signature and the adjacent-`bool` window (both created by this PR), the helper-home question (§9), and **§7.2's probe-comment repair** (the moved body asserts a probe universal whose two counterexamples now live in the residue; unrepairable here because the comment is inside the byte-identical body, so this slot is the first permitted to edit it). Trigger and self-exemptions verbatim from the umbrella's §10 row, predicate-prereq un-exemption restored; re-eval **2026-11-01**. Its subject line names §5.3's candidate shapes **including the side-store→component one**, so the question is not pre-answered as a grouping — and §9 records that the slot's *existing* disjunct 1 already reaches the signature, because the call site is in the residue. Its size-disjunct baseline is the residue's `wc -l`, **re-measured at landing** rather than copied from §5.5 |
 | `project_open-defer-slots.md` (the slot SoT) | the source slot registered as partially closed and the successor slot registered `(own)`. ⚠ The ground, anchored to the base rather than to now: `git grep -c 'inline-fragmented-fn' 658cc302` over the memory dir is not runnable (the dir is untracked), so the check is `grep -c` on the file **before this PR's own UPDATE block** — which returned 0. Running it after the block lands returns non-zero *because of this row*, so the post-landing value is not evidence ([[feedback_document-landing-invalidates-its-own-measurements]]). Dates are each slot's own — **2026-10-28** for the source, **2026-11-01** for the successor |
 | `project_inline-mod-split-owed.md` | `:82`'s "leaving `mod.rs` at **783**" corrected — a sibling site of the same class in a different file, reached by no row above. A class swept per-file is a class swept partially ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]) |
