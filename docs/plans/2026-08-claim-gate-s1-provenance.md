@@ -55,26 +55,35 @@ The mechanism is `claim-gate-plan-check.py`: pasted commands are re-executed and
 compared, tables are checked for exhaustiveness and for the properties their own preambles assert, and
 a fact about how two programs behave is measured by running them rather than by reading either one.
 
-**Where a claim below cannot be put under that checker, one of two things happens, and until round 6
-this paragraph named only the first.** It said *removed, not restated more carefully*, and that rule was
-false of this file at every revision that stated it: the checker reported eleven pasted commands it
-declined to re-run, and one of them was the `set -euo pipefail` pair that overturned §4.4 rule 1 after
-five rounds — the single most valuable measurement here, which the rule as written prescribed deleting.
-The second disposition is the one that was actually taken and never written down: **extend the
-mechanism**. Round 6 did, and the criterion it changed is the point — the checker admitted a command by
-the *name it starts with*, so every `bash -c` was refused, including read-only ones, while the reason to
-refuse `git clone` was never the word but the side effect. A `bash -c` whose script only reads is now
-re-executed and compared like any other paste, and the pipefail pair is under the checker rather than
-exempt from it.
+**Where a claim below cannot be put under that checker, the rule this paragraph stated was false of this
+file at every revision that stated it.** It said *removed, not restated more carefully*, while the
+checker's own report listed pasted commands it declined to re-run — among them the `set -euo pipefail`
+pair that overturned §4.4 rule 1 after five rounds. The rule as written prescribed deleting this memo's
+most valuable measurement.
 
-So: a claim the checker cannot hold is **removed unless the mechanism can be extended to hold it**, and
-the residue is a **bound, not a silence** — the checker names every command it declined and why, so the
-residue is read off the run rather than asserted here. No count is given for it: a count of the un-run
-set is a quantity about this memo's own tooling that any later paste falsifies, which is the class D10
-form 2 exists for. The kinds are stable and the numbers are not: programs the checker does not run
-(`python3` against this repo's own skills, and the two throwaway prototypes §8.2 names), commands
-needing shell state the paste omits (§4.4's argv fixture builds its own repo), and fixture blocks whose
-subject is not this tree. Every one is a command a reader can run; none is a figure asserted without one.
+Round 6 first tried the disposition the rule omits — **extend the mechanism** — by admitting a `bash -c`
+whose script "only reads", on the ground that the checker was refusing commands by the *name they start
+with* while the reason to refuse `git clone` was the side effect. **That was reverted, and the reversal
+is the more useful record.** Measured: the pipefail pastes span two physical lines, and the form that
+joins continuations joins only on a trailing backslash, so the change admitted neither of them — zero
+coverage for its entire stated motivation — while a review that attacked the classifier found
+`printf %s $(rm -rf $(echo X))`, `cat <(touch X)`, `grep x & touch X` and `git log --output=X` all
+admitted and executed. An allow-list describing *what a shell script does* is the wrong instrument, and
+its leaking is the argument. What the attempt did buy is the discovery that the hole was never confined
+to it: `sed -i`, an `awk` program calling `system()`, `git grep -O<cmd>` and anything after `&` or `;`
+had always been executed, unquoted, from a document. Those are refused now by a deny-list of the shapes
+a reader-*named* program uses to write.
+
+So the honest rule is narrower than either version: a claim the checker cannot hold is **removed unless
+the mechanism can be extended to hold it *safely***, and extending a gate that executes what it admits
+is a change whose failure mode is not a missed finding. The residue is a **bound, not a silence** — the
+checker names every command it declined and why, so it is read off the run. **No count is given here.**
+The first draft of this paragraph gave one, and it was wrong within the same round and wrong again after
+the revert: a count of the un-run set is a quantity about this memo's own tooling that any later paste
+falsifies, which is the class D10 form 2 exists for, and `TOOLING` does not catch it because the
+sentence names "the checker" rather than the file. The kinds are stable where the numbers are not:
+programs the checker does not run, commands needing shell state the paste omits, shapes refused as
+side-effecting, and fixture blocks whose subject is not this tree.
 
 Measurement base, stated as a **property** rather than a hash: *the working tree at this branch's head,
 with this memo `git add`ed*. It was a hash — `ef18b828` — from revision 3 until round 5 measured it:
