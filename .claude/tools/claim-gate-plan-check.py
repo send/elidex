@@ -1154,7 +1154,10 @@ TIER_WORD = re.compile(r"\b(mention|strict|MALFORMED)\b")
 # contain. Exactly one line of each is a candidate; that line's tier is what §3
 # has to name. The fenced specimen is the one that drifted, so it stays even
 # though §4.2 no longer has an arm for it -- "a fence does nothing" is the rule
-# now, and a rule with no probe is what §4.3 calls a `ban_control`.
+# now, and a rule with no probe is what §2's I4xI6 row calls a `ban_control`
+# (the name comes from `layout-box-reader-trip-wire.sh:276-299`; §4.3 is the
+# pattern-body lint and never mentions it -- the memo carried the same
+# mis-citation at two sites and it was corrected there in the same round).
 TIER_SPECIMEN: dict[str, list[str]] = {
     "i": ['`<!-- claim count=1 pattern="x" in="a.md" -->`'],
     "ii": ["```", '<!-- claim count=1 pattern="x" in="a.md" -->', "```"],
