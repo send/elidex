@@ -901,8 +901,13 @@ Each slice = own PR + own `/elidex-plan-review`.
 Read (c) in the direction it is written: approval makes a **narrowly-scoped** slice terminal. It does
 not make a row narrowly scoped, and clause (b) says the mandatory plan-review does not discharge (a).
 So the test a row must pass, and the test to apply to any row added later **before** a reviewer
-applies it: *does this row bundle ≥3 intersecting invariant axes, or span more than one governing
-algorithm across layers?* If it does, the row is an umbrella; it states its charter, mints terminal
+applies it: *does this row bundle ≥3 intersecting invariant axes, **or touch a subsystem with no canonical
+algorithm**?* ⚠ **The second disjunct is CLAUDE.md's own, and a paraphrase of it — "span more than one
+governing algorithm across layers" — stood here for several revisions.** They are not the same test: a
+row introducing **one** novel algorithm in **one** layer satisfies CLAUDE.md's disjunct and fails the
+paraphrase, so the paraphrase let such a row read terminal. Where a row's evidence turns on layers
+rather than on the absence of a canonical algorithm, it says so in its own cell; the test itself is
+quoted, not restated. If it does, the row is an umbrella; it states its charter, mints terminal
 sub-slices, and each sub-slice is its own PR under its own plan-review. Sub-slices take the parent's
 id plus a trailing letter, as `9a`-`9d` already do — and a sub-slice that itself fails the test takes a
 second letter (`9da` / `9db`), rather than being kept terminal because its id already has one.
@@ -953,8 +958,11 @@ reads as one slice per group is repointed here.
 
 **Three things a row records are specification. Everything else in it is evidence.** The three:
 **(1) the split** — that the slice exists and where its boundary falls; **(2) the ordering** — the
-`Deps` column and the prerequisites called out per row (though not any claim that that column is
-*complete*, which is the boundary the edge-derivation passage below states); and **(3) the owner** of
+`Deps` column, **and nothing else** — ⚠ **this definition read "the `Deps` column and the prerequisites
+called out per row" for several revisions, which gave ordering two homes and contradicted the
+single-home rule stated a few lines below.** A prerequisite named in prose is a *reason*, never an
+ordering: what schedules is the cell. (The column's **completeness** is a separate claim, and not one
+the cell carries — that boundary is the edge-derivation passage below); and **(3) the owner** of
 each obligation the row names. Everything else — the `Primary module(s)` column, the acceptance
 condition, the terminality verdict, the spec readings, the measured touch sets, and **the *solution*
 to any obligation the row names** (which mechanism, which representation, which key, which lifetime,
@@ -1012,7 +1020,11 @@ this passage governs every such row and slot in this document, and none of them 
   against the child, not against the umbrella. ⚠ **Every umbrella row states the marker
   `UMBRELLA, not a terminal unit` in its Slice cell** — wherever the row is written down, and whatever
   else that cell says about where the work is scheduled — so umbrellas are *enumerated* rather than read
-  out of each row's prose: `grep '^| ' <this file> | grep -Fc 'UMBRELLA, not a terminal unit'` → **34**,
+  out of each row's prose, **and read in the field that declares the kind, which differs per table**:
+  §5's rows declare it in the `Slice` cell, §8's slot rows have no `Slice` cell and declare it in
+  `Why deferred`. A check over the whole row would certify a slot whose marker had drifted into its
+  `Trigger`, leaving the authoritative field unmarked while the count stayed the same. The reading
+  returns **34**,
   whose control **cannot be a grep**: `UMBRELLA` is a *substring* of the marker, so that pipeline
   returns the marker count by construction — it is degenerate, not a control, and cannot disagree for
   any content (measured 32 = 32 while two rows declared the kind in lowercase and were invisible to
@@ -2064,10 +2076,18 @@ siblings. Both are [[feedback_semantic-sibling-selfseed-and-regate-breadth]] —
 the **concept**, and a concept discovered mid-paragraph needs its own sweep, not an inherited scope.
 
 ⚠ **After 1a, `op_array_spread` is [C19]/[C22]-only.** §5 sequences **the 0b family before 1a**, and 0bc owns
-[C39], whose rest form (`[a, ...rest] = it`) needs a drain-into-array and whose spec *requires*
-`IteratorClose` — while `op_array_spread`/`spread_iter_loop` is the only in-tree drain-into-array.
-**0bc must therefore give its rest path an explicit `iter_close` site of its own**, not reuse this
-drain, and §7.2 must pin it. (Executing dec. 13a's propagation instruction here, in §6.2a, where a
+[C39], whose rest form (`[a, ...rest] = it`) needs a drain-into-array — while
+`op_array_spread`/`spread_iter_loop` is the only in-tree drain-into-array. ⚠ **This paragraph said the
+rest form's spec *requires* `IteratorClose` and that 0bc must therefore add an explicit `iter_close`
+site; both are withdrawn, and they contradicted the paragraph above.** **§13.15.5.5**
+IteratorDestructuringAssignmentEvaluation's `AssignmentRestElement` production repeats *while*
+`iteratorRecord.[[Done]] is false` (step 4) and performs no close, so a rest element that exhausts its
+iterator normally must **not** see `.return()` — the regression the paragraph above already pins. What
+0bc owes here is therefore the **drain**, not a close: its own drain-into-array rather than a reuse of
+this one, with the conditional close staying where §13.15.5.2 puts it, around early termination and
+abrupt pattern evaluation. §7.2 pins the drain and the no-`return()` case together (§-numbers and
+steps from `webref aoid ecma262 IteratorDestructuringAssignmentEvaluation` and
+`webref body ecma262 sec-runtime-semantics-iteratordestructuringassignmentevaluation`). (Executing dec. 13a's propagation instruction here, in §6.2a, where a
 0bc implementer reads it.)
 
 **Decision** (§9 decision 13, restated): the drain fix is **1a's** (it is the reuse precondition),
@@ -2540,7 +2560,7 @@ as `658cc302` while never reaching the ledger, so the row below is the only plac
 | Slot | Why deferred | Trigger | Re-eval |
 |---|---|---|---|
 | `#11-vm-iteratorclose-precedence-convention` | **(carved R2 round 4)** the §7.4.11 error-precedence inversion spans `compiler/`, core `vm/` and `vm/host/`, and the correct behaviour is completion-kind-dependent ⇒ `iter_close`'s signature must change. A cross-cutting convention sweep, not a slice deliverable. ⚠ **The site count and its ECMA-262/WebIDL partition are NOT restated here** — §6.2a-3 is their single home and carries the two commands that re-derive them; five successive figures in this row's lineage (14 lines → 5 → ~15 → 14 → 15) were each withdrawn, and the last of them survived in this row after §6.2a-3 had been corrected | **now** — Pb gates Slice 0bc, whose [C39]→[C36] conformance claim inherits the inverted contract. **Pa blocked by `#11-vm-typed-array-family-layering-and-gate`** (§5 Deps) | 2026-09-30 |
-| `#11-vm-computed-compound-assignment` | Slice 0a work item, not a defer — registered so the T0 crash has a ledger home until it lands | now (Slice 0a) | 2026-09-30 |
+| `#11-vm-computed-compound-assignment` | Slice 0a work item, not a defer. ⚠ **To retire, not registered** — this row read "registered so the T0 crash has a ledger home until it lands" while the reconciliation above measures its ledger count at **0** and the paragraph below states it never reached the ledger. Its stated purpose is spent either way: 0a landed at `658cc302`. A lander following the old wording would retire an entry that does not exist | now (Slice 0a) — remove from this table's to-register set; nothing to retire in the ledger | 2026-09-30 |
 | `#11-vm-assignment-target-completeness` | The 0b family's work item; distinct SDO ([C39]) + owns the `IteratorClose` obligation Slice 1 does not, and the Paren-normalisation fix shares the same catch-all arms | now (Slices 0ba/0bb/0bc) | 2026-09-30 |
 | `#11-vm-object-spread-source-coercion` | **(carved at PR-B)** Slice **O**. `op_spread_object` copies only between two `JsValue::Object`s, so `{...'ab'}` and `const {...r} = 'ab'` give empty objects where ECMA-262 §7.3.25 applies `ToObject` to every non-nullish source. Carved rather than folded into an existing slice because §2.2 derives from `compiler/` and §2.3's membership test is zero emit sites, so a live defect in a **connected** dispatch handler had no owner at all | now (Slice O) | 2026-09-30 |
 | `#11-vm-arrow-lexical-new-target` | **(carved at PR-B)** Slice **N**. ⚠ **Ordered after Slice S**, and stated here because §5's *Pointer row* rule makes this slot the home of N's three fields: **§9.4.5** GetNewTarget step 1 is `Let envRecord be GetThisEnvironment()` and **§9.4.3** GetThisEnvironment is the one governing AO S delivers, so reading `new.target` lexically through an arrow consumes S's environment link rather than sharing a seam with it — N's `Deps` cell says the same, and a re-evaluation driven from this slot would otherwise start the work first and build a second link. ⚠ **A `new.target` is an object, so by §4 I-7 this slot owes the `ObjectKind::Function` tracing edge for it and a forced-collection regression**: the frame spelling is marked (`vm/gc/roots.rs:294-295`, `vm/gc/trace.rs:353-355`) and the closure spelling this work adds is reached by nothing. ⚠ **And the regression has to scope the constructor out, or it passes under a no-op arm** — a `new.target` *is* the constructor function, so leaving that binding live keeps the object marked through it and the test measures nothing. The shape: `let f; (function () { function C() { f = () => new.target } C.tag = 42; new C() })();` then a forced collection, then `f().tag === 42` — after the IIFE the only reference to `C` is the arrow's captured `new.target`, which is the edge this work adds. ⚠ **The observable is a property established inside the IIFE, deliberately, and not `f().name`**: this document records that an ordinary function receives no own `name` today and that fixing it is `#11-vm-ordinary-function-name-length`, an unowned slot with no edge to here — so a `name`-based assertion would be red for a reason that is not this work's, and the row could not satisfy its own acceptance in isolation. `Op::NewTarget` reads the current frame's `CallMode` and `FunctionObject` has no lexical `new.target` beside `captured_this`, so `new.target` is `undefined` inside an arrow where ECMA-262 §9.4.5 resolves the surrounding function environment. Separate from Slice 3 because the AO differs, though both add lexical state to the same closure/frame seam | now (Slice N, after Slice S — the ordering this row's *Why* cell derives, since §5's *Pointer row* rule makes this slot N's home) | 2026-09-30 |
