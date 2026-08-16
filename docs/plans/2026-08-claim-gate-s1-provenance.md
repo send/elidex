@@ -24,10 +24,15 @@
 >     docs/plans/2026-08-quantitative-claim-staleness-gate.md
 > ```
 >
+> **Rounds 1 and 2 have no row**: their findings were closed by rewrites that left no site of their own.
+> The body cites *revisions*, which are drafts and not rounds, and the two do not run in step — round 4
+> produced revisions 5 **and** 6 — so a revision number in the body is a pointer into `git log`, not into
+> this table.
+>
 > | Round | What it changed, and where that change is recorded |
 > |---|---|
 > | 3 | The checker leaves the slice into a prerequisite branch (§0, §5, §9). Q3 closes by measurement: no fence arm (§4.2, §7). |
-> | 4 | The fence withdrawal reaches the umbrella as an amendment (umbrella D2/D3/§6). `TOOLING`, `UMBRELLA`, `FIXTURE` replace three prose rules. |
+> | 4 | The fence withdrawal reaches the umbrella as an amendment (umbrella D2/D3/§6). `--one` is withdrawn for a clone fixture (§4.1.1). `TOOLING`, `UMBRELLA`, `FIXTURE` replace three prose rules. |
 > | 5 | Rule 1 was refuted by running it under the declared regime (§4.4). Six controls asserted states no stage produced (§8, §8.1). Six citations named the wrong line (§4.6). |
 > | 6 | Rules 1 and 4 could not both be implemented, and rule 3's liveness spelling broke I7 (§4.4, §2). §2 was a stale second copy of §8's `$3` model (§2 I6). A third altered quotation, load-bearing (§4.1.1(b), §8). D4 amended in the umbrella. This block collapsed to a pointer. |
 >
@@ -286,7 +291,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 | I1 × I7 | Tier assignment is the one stage touching every candidate line, and it touches **no files at all**: it is a transform of the single `git grep -n` output, so I7's tree term is that one invocation and tier assignment adds nothing to it. Revisions 1–7 read "a single pass over the candidate *files*", which described the two-stage scan revision 4 deleted — the row above records that withdrawal, one line away, and this row was not swept with it. |
 | I4 × I5 | Both bound what reaches git, at different sites: I4 rejects at parse time with a visible diagnostic, I5 is invisible-by-construction in the executor. Kept separate for that reason. |
 | I4 × I6 | A ban that cannot fire is indistinguishable from a clean tree — the precedent is `layout-box-reader-trip-wire.sh:276-299`'s `ban_control`. One control per rejected escape class, each with its own diagnostic substring. |
-| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (§4.4 rule 3). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. C34 controls the short-circuit directly. |
+| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (§4.4 rule 3). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. **Nothing controls the stopping**, and §8 records that as an open gap rather than claiming a row for it; what the `ls-files` itself costs is priced here and was never removed. |
 | I2 × I6 | D2's self-exclusion is both a *correctness precondition* and a *two-directional* claim. The self-test's own fixture annotations must be inert in the real repo — they are, by the `.claude/tools/**` exclusion, which is therefore load-bearing for S1 landing rather than a convenience. And the control must assert both directions: an annotation under `.claude/tools/` ignored, and the identical annotation outside it red. Asserting only the first would pass on a wire that scanned nothing at all. |
 
 The remaining four pairs are independent, each for a stated reason: **I2×I3** (inertness decides
@@ -318,8 +323,7 @@ place the classifier's **branches** are enumerated, and revision 6's `TIERS` che
 tier from this prose and decides it by running `classify()` on a specimen. That is what caught the fence
 arm surviving in the checker after §4.2 deleted it — §4.2 no longer mentions fences at all, so nothing
 derived from §4.2 could have caught it. A branch added here without a specimen fails; a tier changed on
-one side alone fails. The self-description went stale the moment that check landed, in the revision that
-landed it, which is this memo's own subject arriving in the section that lists its contracts.
+one side alone fails.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
@@ -703,23 +707,49 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
    line makes the paste differ from what the command prints. It reported both of these the
    moment it could run them.
 
-   This is why five review rounds passed over it: **the pasted evidence was honest.** It records a plain
-   shell, in which it is true, and the checker re-runs pasted commands in a plain shell — so the
-   provenance mechanism confirmed the paste, and the paste was never the claim. Nothing that reads this
-   memo can find this class; running `bash -c 'set -euo pipefail; …'` finds it in one line.
+   **The checker re-runs pasted commands in a plain shell**, so a paste that is honest there is confirmed
+   there, and the claim — which is about the declared regime — was never what got checked. That is why
+   nothing which *reads* this memo can find this class, and why the two probes above are pasted rather
+   than the conclusion asserted. (The account of how many rounds it survived is the preamble's.)
 
    The measurement is therefore **captured, not piped**, and the failing branch reads the status
    **before it writes anything**:
 
    ```
-   if out=$(git grep -nE[i] -e "$pattern" -- "$spec"); then
+   : > "$err"                                  # one file per run, truncated per measurement
+   if out=$(git grep -nE[i] -e "$pattern" -- "$spec" 2>"$err"); then
      n=$(printf '%s' "$out" | grep -c .)
    else
-     rc=$?                     # FIRST statement in the branch — see below
-     [ "$rc" -eq 1 ] || measurement_failed "$rc"        # rule 4's outcome, not a count
-     n=0                       # reached only for exit 1 = no match
+     rc=$?                                     # FIRST statement in the branch — see below
+     if [ "$rc" -ne 1 ]; then
+       measurement_failed "$rc" "$err"         # rule 4's outcome; sets the run's exit flag
+       continue                                # next annotation — §4.2 forbids ending the run
+     fi
+     n=0                                       # reached only for exit 1 = no match
    fi
    ```
+
+   Run end to end under the declared regime, two annotations, the first with an unparseable ERE:
+
+   ```
+   FAIL  the measurement command failed: git exited 128: fatal: -e option, 'foo(': parentheses not balanced
+   OK  pat=a n=1
+   LOOP FINISHED FAILED=1
+   ```
+
+   **`continue` is load-bearing and the shape round 6 first wrote had no working alternative.** It was
+   `[ "$rc" -eq 1 ] || measurement_failed "$rc"`, and no return value of that function satisfies both
+   §4.2 and rule 4: returning non-zero makes the `||` list the last command of the iteration, so
+   `errexit` ends the wire at the *first* measurement failure — the death §4.2 and rule 2 both forbid,
+   and the one that would leave `escapes`/`escapes10` unbuildable — while returning zero falls through
+   to `n=0` and reports `asserted=N actual=0`, which is precisely what rule 4 exists to prevent and what
+   C29's and C32's negative arms reject. The failing branch therefore *ends the iteration*, not the run.
+
+   **`2>"$err"` is what makes the diagnostic's stderr clause true.** §8's kind table promises the
+   program's own stderr, and `out=$(…)` captures stdout only — git's `fatal:` line went to the terminal,
+   so the table named a state no stage produced. Redirecting into a per-run file keeps the success
+   path's `$out` clean (folding stderr in with `2>&1` would make `grep -c .` count warning lines as
+   matches) and costs one file per run rather than one per annotation, so I7 is untouched.
 
    **`rc=$?` first is the whole content of this spelling, and revision 7 got it wrong.** Its `else`
    branch opened with `n=0`, whose own success overwrites `$?` — so rule 4, which is defined by the
@@ -792,13 +822,21 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
    $ git ls-files | wc -l                       → 1706
    ```
 
-   82% of the tracked tree, per annotation — a term proportional to the tree, which is exactly what I7
-   forbids. The failure was invisible because C27, I7's only control, counts `git` **invocations**, and
-   an existence test is not one; the invariant could be violated with its control green. So: `count=`
-   and `files=` short-circuit on the first present path, and `lines=`, whose pathspec must resolve to
-   exactly one path anyway, tests that one. §8.1 C34 controls the short-circuit by construction — a
-   fixture whose pathspec resolves to many paths, with only the last one present, must still cost one
-   pass and must still be judged live.
+   82% of the tracked tree — a **second** tree-proportional term per annotation, on top of the one
+   already there. Stating that precisely matters, because the first draft of this correction implied
+   the term was gone: `git ls-files -- "$spec"` itself returns those 1407 lines, and I3×I7 has accepted
+   that since the first draft as work *inside* I7's per-annotation term. Materialising the list is
+   unavoidable — the streaming spelling is worse, not better, since `git ls-files | while … break`
+   makes SIGPIPE the pipeline status under `pipefail` and kills the wire silently, which is the `wc -l`
+   defect of rule 1 in a second dress. What the short-circuit removes is the *added* `test -e` per
+   resolved path; what remains is the `ls-files` I3×I7 already prices. So: `count=` and `files=` stop
+   at the first present path, and `lines=`, whose pathspec must resolve to exactly one path anyway,
+   tests that one — and §8 records that nothing controls the stopping, because a `test -e` count is
+   neither a diagnostic nor a `git` invocation.
+
+   The failure was invisible because C27, I7's only control, counts `git` **invocations**, and an
+   existence test is not one; the invariant could be violated with its control green, and it still can
+   be — that is the recorded gap, not a closed one.
 
    §6 recorded this asymmetry and left it unfixed. That was the wrong disposition and §6 now says so: a
    bound records what S1 does not reach, and this is S1's own discriminator — the clause D4 exists to
@@ -969,17 +1007,9 @@ never surface as "the wires are gone". All five describe the mechanism rather th
 is falsified by an addition to the set.
 
 **`:59` was labelled "the both-directions retention message", and it is not that line.** The retention
-rationale is at `scripts/trip-wires.sh:76-84`, the passage §1 and §6 both already cite. The label entered
-in the revision that was answering round 3's finding about it:
-
-```
-$ git log --oneline -S'trip-wires.sh:59' 2656d83d -- docs/plans/2026-08-claim-gate-s1-provenance.md
-dd5f22d7 docs(plan): S1 revision 3 — every change is a finding the checker produced
-```
-
-— that is, the fix rewrote the words and never re-read the line, so the same report named it again. Which
-is why the listing above is re-derived from `SITES` and spot-checked with a pasted `sed` rather than
-hand-corrected a second time: relabelling is not re-measuring, and only one of the two survives being run.
+rationale is at `scripts/trip-wires.sh:76-84`, the passage §1 and §6 both already cite. The listing above
+is therefore re-derived from `SITES` and spot-checked with a pasted `sed` rather than hand-corrected a
+second time: **relabelling is not re-measuring**, and only one of the two survives being run.
 
 This is the general shape and it is worth naming, because it is why the edit set was wrong twice: a
 grep proves a *paste* matches its command, never that the command was the right one. `TRANSCRIPT`
@@ -1274,11 +1304,13 @@ being worth it, and no figure is offered here for the reason §4.5 gives.
 ## §8 Test strategy
 
 Every control below derives from a **specific clause of a section named in column 2**, and was built by
-reading that clause rather than by describing what the wire is meant to do. Most name §4; seven do not,
-and the column is not headed "§4 clause" for that reason: C0 and C17 name §6 (the wire does not judge;
-self-matching is permitted), C19–C22 name the acceptance corpus umbrella §3 routes here, and C30 names
-§1's size bound. The header and the opening sentence both said §4 until round 6 measured the column —
-a universal asserted over a table without reading the table, in the section whose job is to be exact. Where a clause could not be
+reading that clause rather than by describing what the wire is meant to do. Most name §4; the rest name
+§6 (C0, C17 — the wire does not judge; self-matching is permitted), the acceptance corpus umbrella §3
+routes here (C19–C22), §1's size bound (C30) and §8.2's own acceptance clauses (C38, C39). **No count is
+given, and the reason is that this sentence has now been wrong twice with one.** The header and the
+opening sentence both said "§4" until round 6 measured the column and wrote "seven"; two rows added in
+the same revision made it nine before the round ended. A tally of a table in the prose beside it is a
+figure the next row falsifies — §4.6's class, in the section whose job is to be exact. Where a clause could not be
 turned into a control without inventing a rule, the gap is recorded as a finding — §4.4 (anchoring), §4.3
 (the diagnostic must name the escape), §6 (`in=` is one pathspec), and now §4.5 (I7's structural half is
 not a thing the wire says, below) — instead of being quietly completed.
@@ -1377,12 +1409,22 @@ annotation moves the scan count with it; a wire whose per-annotation term walked
 neither. §8's `$3` model does not reach this shape, and per this section's own rule that is recorded as a
 finding rather than papered over with a `$3` the wire would have to be taught to print.
 
-**The third shape is `st_selftest`, and C30 is its only row.** §1's size bound is asserted *by the
-self-test about the shipped files*, not by the wire about a tree, so neither of the other two reaches
-it: there is no wire invocation whose exit status answers, and no diagnostic to key a `$3` on. It
-measures the two files it is shipped beside and fails with `exceeds 800 lines`. Revision 7 gave C30 a
-`$3` and left it inside a sentence declaring `st_tally` the only other shape — a row whose mechanism the
-section denied having.
+**The third shape is `st_selftest`: the self-test asserts about something the wire *printed* or about
+the shipped files, rather than about a wire invocation's status or diagnostics.** C30 is §1's size
+bound, measured over the two files the self-test ships beside, failing with `exceeds 800 lines`.
+C38 and C39 are §8.2's clauses 3 and 4, read off the wire's printed inventory — necessarily, because a
+missing `lines=` annotation and a mis-tiered mention are states the wire does not *fail* on, so no exit
+status and no `$3` can carry them. Revision 7 gave C30 a `$3` and left it inside a sentence declaring
+`st_tally` the only other shape — a row whose mechanism the section denied having.
+
+**The short-circuit in §4.4's liveness rule has no control, and that is recorded rather than papered
+over.** C34 asserted it and is **withdrawn**: its fixture put only the last resolved path in the
+worktree, which is exactly the arrangement in which a short-circuiting wire and an exhausting wire do
+the same work and return the same verdict, so neither arm could discriminate. The property is a count
+of `test -e` calls — not a `git` invocation, so `st_tally` cannot see it either (§4.4 rule 3 says as
+much about C27 two paragraphs before it named C34 as the control), and not a diagnostic, so `st_probe`
+cannot. This is the same gap §4.5 records for I7's wall-clock half, in its structural half, and §8's
+rule is to state it here rather than invent a `$3` for it.
 
 **Which rows may be negative-only, and why that is a rule rather than an omission.** Six rows carry no
 positive: C6, C19–C22, C25. Two grounds, and every negative-only row must name one. **(a) The clause has
@@ -1436,12 +1478,12 @@ construction — never examined its ten values.
 | C29 | §4.4 rule 4, a measurement `git` refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`the measurement command failed`) |
 | C31 | §4.4 `lines` counts lines, not newlines | own | `lines=2` on a two-line file **with no trailing newline** — `awk` gives 2, which the annotation asserts | the same fixture asserting `lines=1`, the value `wc -l` computes (`asserted=1`) — so a wire respelled to `wc -l` reds the positive |
 | C32 | §4.4 rule 4 reached from `lines`, and rule 1's `rc=$?` ordering | own | `lines=2` on a readable two-line file | the same annotation with the file's mode set to `000`, so `awk` exits 2; must NOT report `actual=0` (`the measurement command failed`). A wire whose failing branch writes before it reads `$?` reports `asserted=2 actual=0` instead, which this arm rejects |
-| C33 | §4.4 rule 3, a `lines=` path that is present but not a regular file | own | `lines=2 in="a.md"`, a regular file | `in="d"` where `d` is a tracked-as-present directory; `awk` exits **0** answering 0, so the wire must refuse on the file-type test rather than on status (`resolves to a path that is not a regular file`) |
-| C34 | §4.4 rule 3, liveness short-circuits (I7) | own | a pathspec resolving to many tracked paths with only the **last** present → judged live, one pass | the same pathspec with **none** present (`present in the working tree`) — the arm that must exhaust, and the only one that may |
+| C33 | §4.4's `lines` rule, a path that is present but not a regular file | own | `lines=2 in="a.md"`, a regular file | `in="link"`, a **tracked symlink to a directory** (mode 120000; `git add -A` records it, no commit needed) — `git ls-files -- 'link'` yields exactly `link`, `test -e` passes, `test -f` fails, and `awk` exits **0** answering **0**, so the wire must refuse on the file-type test rather than on status (`resolves to a path that is not a regular file`). A plain directory `d` is **not** the shape: `git ls-files -- 'd'` yields `d/x.md`, so the row would measure a regular file |
+| C34 | *withdrawn* — see §8's gap note on the short-circuit | — | — | — |
 | C35 | §4.2, §3 row (ii): a **fenced** annotation is strict, not inert | own | a fenced annotation with a true count → executes and passes | the byte-identical fenced annotation with a wrong count (`asserted=`) — reds on a wire that reinstated fence-inertness, which is what three revisions specified and what nothing has controlled since C2/C3 were deleted with the rule |
 | C36 | §4.2 the backtick arm on `.rs` | own | backticked annotation in a `//` comment in a `.rs` → ignored | the same comment unbackticked, wrong count (`asserted=`) — the fourth surface §4.2 is normative over and the only one with no row |
-| C38 | §8.2 clause 4, one strict annotation per verb | `clone` | the inventory names a `count=`, a `files=` and a `lines=` among the strict annotations — the `lines=` one being §5's, `in=".claude/tools/layout-box-reader-trip-wire.sh"` | the clone with that annotation deleted (`no strict annotation for lines`) |
-| C39 | §8.2 clauses 1–3, read from the inventory rather than from exit status | `clone` | the wire's inventory satisfies all four clauses over `in="docs/plans/*.md"`, the real annotation population both memos live in | one illustrative annotation there with its backticks removed — now strict with a false count, so clause 3 fails (`asserted=`) |
+| C38 | §8.2 clause 4, one strict annotation per verb | `clone` | **`st_selftest`**: the wire's printed inventory names a `count=`, a `files=` and a `lines=` among the strict annotations — the `lines=` one being §5's, `in=".claude/tools/layout-box-reader-trip-wire.sh"` | the clone with that annotation deleted: the inventory must then lack a `lines=` strict row. Read from the inventory, **not** from `$3` — deleting an annotation leaves the wire exiting 0, so an `st_probe fail` arm could never fire |
+| C39 | §8.2 clause 3, every illustrative annotation classifies as *mention* | `clone` | **`st_selftest`**: over `in="docs/plans/*.md"`, the real population both memos live in, the inventory classifies every backticked annotation as `mention` | one of them with its backticks removed. Measured: all three tree mentions are **malformed** once unbackticked, so the wire reds with `MALFORMED` and clause 2 is what fails — which is the observable, and what this arm asserts. Revision 8's first draft asserted `asserted=`, a verdict this input cannot produce |
 | C37 | §4.3 the reject set is **exactly** those ten, in the accepting direction | own | `count=1 pattern="fn \("` on a fixture line reading `fn (x)` — a backslash outside the reject set, accepted, and measured (verified: `git grep -cE 'fn \('` → 1) | the same annotation asserting `count=2` (`asserted=2`) — so a wire that rejects every `\` reds the **positive** instead of passing C8, C9 and all ten of C25 vacuously. `own` rather than `escapes`: the `escapes` fixture's arms are all malformed, so its invocation exits non-zero and a positive there could not be read from exit status (§4.1.1(b)'s reasoning, applied to the group that raised it) |
 | C30 | §1's size bound on the shipped files | own | both files under the band → self-test passes | a fixture copy padded past 800 lines (`exceeds 800 lines`) |
 
@@ -1682,19 +1724,21 @@ same `1407 of 1706` and contributes nothing here, because it cites §4.4 rather 
 argument — the distinction this paragraph got wrong about §4.5 one paragraph above, established by
 locating every such literal rather than by recalling where they are.
 
-**And this paragraph has now done it three times.** The round-6 draft of the two sentences above spelled
+**And this paragraph keeps doing it.** The round-6 draft of the two sentences above spelled
 the pathspec inline while explaining which site spells it, `PREFLIGHT` reported 9 against a freshly
 written 9 that was already 10, and the sentence naming the hazard was the sentence committing it. The
 rule this yields is narrower than "no literal here": a paragraph whose subject is *where a token
 appears* may not contain the token, in any role, including as evidence for its own claim.
 
-That correction is also the second demonstration in two revisions, and the sharper one. The first draft
-of this very paragraph *named the pathspec inline* while explaining that naming it would add to the count
-— so the paragraph forbidding the act performed it, and `PREFLIGHT` reported 8 against a freshly-written
-8 that had already become 9. No literal appears here now, for the reason the sentence gives, and the
-reason is not hypothetical: **it has fired on this paragraph twice.** The self-invalidation §8.2's
-per-line listing declines is the same shape, and §8.2 declines it by construction where this block has to
-be told.
+Each draft of this very paragraph has *named the pathspec inline* while explaining that naming it would
+add to the count — the paragraph forbidding the act performing it — and each time `PREFLIGHT` reported a
+freshly-written figure that was already one higher. **No count of those firings is given**, because a
+paragraph whose subject is a self-invalidating figure had, until round 6 measured it, three different
+tallies of its own history within thirteen lines (*three times* / *the second demonstration* / *twice*).
+That is the convention-dependent class §0 removes rather than re-measures, and it survived here because
+the sentence's subject is this memo rather than its tooling, so `TOOLING` never looked. No literal
+appears here now, for the reason the sentence gives. The self-invalidation §8.2's per-line listing
+declines is the same shape, and §8.2 declines it by construction where this block has to be told.
 **This block is a
 pasted transcript and therefore a claim**, so it is one `claim-gate-plan-check.py` re-derives: its
 `PREFLIGHT` check re-runs preflight against this memo and compares M, K, the malformed and
