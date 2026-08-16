@@ -256,6 +256,76 @@ grep -rn '#505' "$MEMORY"/*.md
   file side resting on an assignment no rule has made, and is what removes the `NO VERDICT` limb. No run here
   attests that edit, so the printed line stands.
 
+- **D15 — the T0 sentinel is not a check that reproduces a declaration, and neither of the two branches
+  earlier drafts posed is right.** Two reviewers argued independently that with the dispatcher declaring
+  `# group: kernel`, T0 would reproduce that declaration by construction and so could never disagree.
+  Measured, false twice: T0 **can** disagree — a wrong `# ships-with: A-ii` on `all` prints
+  `!! all declares A-ii but the tiers compute kernel (T0 dispatcher)`, `DISAGREE=1 (binding 1)`, `inventory`
+  rc=1 — and T0 **reads no declaration at all**, being `if rows[b]["part"] == "(disp)": comp[b] = "kernel"`
+  (`-inventory.sh:273-274`), so a wrong `# group: A-ii` on the dispatcher leaves `agree=1`, rc=0. Deleting it
+  is worse: `all` falls onto the Python regex inside the quoted `INVENTORYPY` heredoc (`-inventory.sh:82`),
+  which the dispatch-edge rule correctly calls non-evidence, and the same wrong-declaration plant goes
+  **rc=1 → rc=0**. The tier that answers each part's own `# group:` binds on both sides, catches the file
+  declaration keeping T0 misses, moves all ten of `-Aii.sh`'s blocks onto the identical tier with no `ships`
+  value changing, and removes the string `(disp)` from the harness. ⚠ **Its rank is below T1** — the
+  measurement that suggested otherwise was taken with one part declaring; with every part declaring (which
+  γ's own RED rule forces) six of thirty-five blocks change group, because the file tier answers *which file
+  holds it* and T1 answers *whose concern it is*. Reproduce, in a throwaway clone, one edit per run:
+
+  ```bash
+  git clone -q --local --no-hardlinks . /tmp/d15 && git -C /tmp/d15 checkout -q HEAD
+  # (i) admit the dispatcher to the part set as stem `disp`; (ii) plant `# group: kernel` on its
+  # preamble and `# ships-with: kernel` on `all`; (iii) vary one declaration per run.
+  perl -e 'alarm 240; exec @ARGV' bash /tmp/d15/docs/plans/2026-07-citation-hygiene-A-rederive.sh \
+      inventory /Users/kazuaki/repos/send.sh/elidex-wt-citeaudit/docs/plans
+  ```
+
+  ⚠ **The sandbox is not committed and the tier is not in the tree.** γ builds it; this entry records what was
+  measured and how, not an artifact anyone can run today.
+
+- **D16 — the `prose` class has a subject test, its unit is the sentence, and the two kinds this memo named
+  are not exhaustive.** Over the class's 39 census rows: **19 placement / 15 rationale / 5 straddling**, the
+  test refusing one loudly and deferring four to a human. Two structural results. **Five rows carry the tail
+  of one sentence and the head of another** (`-Aii.sh:7`, `-B.sh:7`, `-audit.sh:92`, `-common.sh:10`,
+  `A-rederive.sh:47`), stable under every terminator rule tried, so a per-line needle is wrong on them by
+  construction. And the class holds a **third kind** beyond residence and block-as-subject-of-an-event —
+  measured quantities (`A-rederive.sh:47-48`), a source-order invariant (`:46`, the sentence §3's `partset`
+  row cites as `:44-49`) and a tier-algorithm specification (`-inventory.sh:266`) — none of which the rule
+  may touch. ⚠ **The place vocabulary must be derived from `PARTS`, not spelled**: the first draft of the test
+  wrote the stems out and the census reported *the test itself* at `?`, rc=1 — the needle had become a home
+  of the fact it censuses. Out of sample, over the 911 harness comment lines (39 census rows + 872 others),
+  it returns `rationale` for 849 of the 872 and a placement verdict only for continuations of the same
+  placement sentences. Reproduce:
+
+  ```bash
+  bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | awk '$5=="prose"'   # the 39 rows
+  cat docs/plans/2026-07-citation-hygiene-A-rederive*.sh | grep -cE '^\s*#'          # 911
+  ```
+
+  ⚠ **The test is not in the tree.** β builds it, and §3's `prose` row states what it must carry.
+
+- **D17 — PR-1a-i's exit criterion cannot read the census, because the census shrinks when the work lands.**
+  `RULED BY THE PLAN: N of N` ranges over the **observed** class set, so finishing a class removes it from
+  numerator and denominator alike: measured, replacing the dispatcher's roster literal with a derivation
+  prints `RULED BY THE PLAN: 8 of 8` at **rc=0** with `roster` gone from `BY CLASS` entirely. And `homes`
+  never raises on a failure to collapse — its raises are part-count, sourcing, vocabulary, memo-parse,
+  zero-homes, unclassified-home, unruled-class and unexecuted-claim, every one of them firing on *adding*
+  something. So the criterion asserts over **edit sites**, and uses the census only where the observable is
+  per row and cannot shrink into a false green. Two traps measured while building it: **a literal-gone needle
+  tests a spelling** — `^MEMOS = \[` still matched `MEMOS = [(g, s) for g, s in MEMOSET …]`, reporting the
+  enumeration present when a comprehension over the derivation was what was present — and **a census class
+  count of 1 can be right for the wrong reason**, since after a real `memoset` collapse the surviving row is
+  the *consumer* and the derivation's own body is not classified `memoset` at all. Reproduce the shrink:
+
+  ```bash
+  git clone -q --local --no-hardlinks . /tmp/d17 && git -C /tmp/d17 checkout -q HEAD
+  # replace the dispatcher's `all() { set -- …` literal with a `$(_roster)` call, then:
+  perl -e 'alarm 240; exec @ARGV' bash /tmp/d17/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes
+  ```
+
+  ⚠ **The criterion is not in the tree either**, so §3a's measured-behaviour figures describe a checker that
+  does not exist here. Each slice's own plan-review lands its share.
+
 ## §2 Coupled invariants
 
 Required because the work is edge-dense (`/elidex-plan-review` Pre-condition #3).
