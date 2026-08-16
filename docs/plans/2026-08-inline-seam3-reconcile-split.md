@@ -359,9 +359,12 @@ next toucher re-runs it rather than re-litigating it.
 
 ### §5.5 Resulting sizes
 
-`inline/mod.rs` **785 → 573**; `reconcile.rs` **265**. ⚠ The plan predicted 254 from the
-exploratory extraction; the shipped module is **11 lines longer**, carrying a real module doc and
-a docstring on `reconcile_flows` that the throwaway did not. Recorded as a correction rather than
+`inline/mod.rs` **785 → 573**; `reconcile.rs` **273**. ⚠ The plan predicted 254 from the
+exploratory extraction. The shipped module is longer because it carries a real module doc and two
+docstrings the throwaway did not — and it grew **twice** after that prediction (254 → 265 at the
+first write, 265 → 273 when §6.1's sink-exclusivity paragraph landed). Both drifts are recorded
+rather than overwritten, because the second happened *after* this memo added the rule against
+restating figures, in the one place that restates them. Recorded as a correction rather than
 silently overwritten — §5.6 exists so that a predicted figure and a measured one stay
 distinguishable. Both files sit below
 [[feedback_touch-time-split-means-while-writing]]'s 700–800 band, and the residue is 212 lines
@@ -379,7 +382,7 @@ shipped tree before landing. Result of that re-run:
 | `too_many_arguments` load-bearing | yes | yes — `this function has too many arguments (11/7)` |
 | `too_many_lines` still load-bearing on the residue | yes, `178/100` | yes, **`177/100`** (§2.2's fold) |
 | `inline/mod.rs` | 573 | **573** |
-| `reconcile.rs` | 254 | **265** (§5.5 — the docstrings) |
+| `reconcile.rs` | 254 | **273** (§5.5 — the docstrings, twice) |
 | §6 harness | 6 hunks, `226 == 226` | **6 hunks, `226 == 226`, PASS** |
 | test baseline | 325 | **325 passed, 0 failed** |
 
@@ -401,7 +404,7 @@ cargo test   -p elidex-layout-block --all-features      # → 325 passed, 0 fail
 wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 ```
 
-⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` came out at 265
+⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` came out at 273
 rather than 254. A memo that had simply asserted 254 would now be carrying a false figure into
 §10's successor-slot baseline; instead the discrepancy is visible and the baseline takes the
 measured number ([[feedback_verified-claims-go-stale-under-own-later-edits]]).
