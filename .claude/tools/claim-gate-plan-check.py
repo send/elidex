@@ -1124,14 +1124,24 @@ BINDING = [
      r"before fence matching in `?\.rs`?|strip a\s*\n?\s*leading `//\[/!\]\?` before fence",
      r"there is no fence arm|The `\.rs` rustdoc strip disappears",
      r"AMENDED by S1 round 4 \(option \(c\)\): the fence half"),
-    ("D3 (mention = backticked or fenced)",
-     r"\*\*mention\*\* \(backticked or fenced",
-     r"one inertness rule|backtick it\b.*all four surfaces|single inertness rule",
-     r"the mention tier was \"backticked \*\*or fenced\*\*\""),
-    ("umbrella §6 (S1 must control a rustdoc-fenced annotation)",
-     r"a rustdoc-fenced annotation",
-     r"C2 and C3 \(the `?\.md`? and `?\.rs`? fence arms",
-     r"The rustdoc-fenced control was struck"),
+    # RETIRED, round 6, and recorded rather than deleted silently.
+    #
+    #   ("D3 (mention = backticked or fenced)", r"\*\*mention\*\* \(backticked or fenced", ...)
+    #   ("umbrella §6 (S1 must control a rustdoc-fenced annotation)", r"a rustdoc-fenced annotation", ...)
+    #
+    # Both were inert: their `mandates` patterns stopped matching because the
+    # umbrella amended those two decisions by editing the original text IN PLACE
+    # and adding a note, not by leaving the original and appending -- which is
+    # the form the comment above assumes and which D2 and D4 do follow. An entry
+    # that cannot fire is a row that reads as coverage, so they are removed
+    # rather than left looking like watchers. Nothing is lost: the text they
+    # watched no longer exists, so there is nothing left for a slice to
+    # contradict. The self-test's per-entry probes are what surfaced this, and
+    # they are what will surface the next one.
+    #
+    # Effective coverage is therefore **2 of the umbrella's 10 D-decisions**
+    # (D2 and D4). A green UMBRELLA means those two are not being silently
+    # reversed; it means nothing about the other eight.
     # Round 6. D4's stated mechanism is `git ls-files` alone, which reports the
     # index; the slice additionally requires a working-tree presence test, which
     # rejects annotations D4-as-written accepts. That is a decision change and it
