@@ -581,6 +581,21 @@ def selftest() -> int:
     probe("UMBRELLA reports no skip when it had an umbrella to compare", False,
           capture_skipped(check_umbrella, slice_withdraws, umb_mandates))
 
+    # D4, added round 6. Both directions, because the entry exists to catch a
+    # decision change that four revisions made silently: the slice requires a
+    # working-tree presence test the umbrella's `git ls-files` mechanism does
+    # not, which REJECTS annotations D4-as-written accepts.
+    d4_mandates = synth("**`in=` must match ≥1 tracked file or\nthe annotation fails**", "umb.md")
+    d4_amended = synth("**`in=` must match ≥1 tracked file or\nthe annotation fails**\n\n"
+                       "⚠ **AMENDED by S1 round 6: the precondition is about the working tree**",
+                       "umb.md")
+    d4_withdraws = synth("at least one of which is present in the working tree")
+    probe("UMBRELLA negative (D4: slice adds a working-tree test, umbrella unamended)", True,
+          capture(check_umbrella, d4_withdraws, d4_mandates),
+          "binding decision cannot be changed by a slice edit")
+    probe("UMBRELLA positive (D4: the umbrella carries the round-6 amendment)", False,
+          capture(check_umbrella, d4_withdraws, d4_amended))
+
     FIX = ("## §8.1 Controls\n\n| # | clause | Fixture | Positive | Negative |\n"
            "|---|---|---|---|---|\n")
     probe("FIXTURE positive (a hermetic row with a fixture-local pathspec)", False,
