@@ -26,14 +26,22 @@ use super::{
 /// ⚠ **The probe universal in the body below is scoped to THIS function.** The
 /// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
 /// persisted render state", and gates its own `clear_inline_flows` call on
-/// `!env.is_probe`. The residue does **not**: `layout_inline_context_fragmented`'s
-/// two early returns (no items / no usable font) call `clear_inline_flows`
-/// **ungated**. That is safe — both exits are reached on `items.is_empty()` /
-/// no-usable-font, inputs that do not depend on `is_probe`, so a probe and the
-/// definitive pass reach them identically — but the universal reads as
-/// engine-wide and is not, and its two counterexamples now live in a different
-/// file. Stated here rather than in the body because the body is proved
-/// byte-identical to its pre-split form; the text below must not be edited.
+/// `!env.is_probe`. Three removals are **ungated**, and one is in this function:
+/// `layout_inline_context_fragmented`'s two early returns (no items / no usable
+/// font) call `clear_inline_flows` ungated, and the carrier reconcile's `else`
+/// arm below removes `ColumnFlowSlice` ungated. ⚠ That third one **fires during a
+/// probe**: both `do_carrier` write arms are `!env.is_probe`-gated, so under a
+/// probe the carrier payloads stay empty and the `else` arm runs — this
+/// component's *write* is probe-gated while its *remove* is not.
+///
+/// ⚠ **Behaviour is not at risk.** The two early returns are reached on
+/// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
+/// so a probe and the definitive pass reach them identically; and the carrier is
+/// drained within the same pass and never read by render (see
+/// [`elidex_ecs::ColumnFlowSlice`]'s docstring). What the universal gets wrong is
+/// its *scope*: it reads as engine-wide and is not. Stated here rather than in the
+/// body because the body is proved byte-identical to its pre-split form; the text
+/// below must not be edited.
 ///
 /// **Spec vs bookkeeping.** Most of what this function does is elidex render
 /// bookkeeping with no governing section: [`InlineFlow`] and
@@ -47,8 +55,10 @@ use super::{
 ///   of §6.4, whose mapping is keyed on the used `writing-mode` *and*
 ///   `direction` (its `block-start` row is `top`/`right`/`left`; its
 ///   `inline-start` row varies with both). **This fold reads `writing-mode`
-///   only as the boolean `is_vertical`** — four modes collapsed to one bit,
-///   derived at `inline/mod.rs` from `writing_mode.is_horizontal()` — **and
+///   only as the boolean `is_vertical`** — the property has five values and
+///   all four *vertical* ones (`vertical-rl`, `vertical-lr`, `sideways-rl`,
+///   `sideways-lr`) collapse to `is_vertical == true`, derived at
+///   `inline/mod.rs` from `writing_mode.is_horizontal()` — **and
 ///   never reads `direction` at all.** So it applies no
 ///   `vertical-rl`/`sideways-rl` block-axis reversal, matching the box
 ///   convention (see the comment at the fold), and the `sideways-lr` inline
@@ -65,8 +75,10 @@ use super::{
 ///   §10.8.1 leading/half-leading and the baseline derivation (`inline/mod.rs`,
 ///   `inline/pack/mod.rs`). What is **not** implemented includes `vertical-align`
 ///   alignment *and* §10.8's strut and its uppermost-top-to-lowermost-bottom
-///   line-box height — this crate takes `max(line-height)` instead and has no
-///   strut. See the inline comment at the `persist_flow`
+///   line-box height. What this crate takes instead is a max over per-item
+///   **block contributions** — `line-height` for horizontal text, `font-size`
+///   for vertical (`inline/pack/mod.rs`'s `seg_line_advance`), and the
+///   margin-box block size for atomics — and it has no strut. See the inline comment at the `persist_flow`
 ///   reposition.
 ///
 /// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset

@@ -130,7 +130,8 @@ fn positioned_subflow_key(
 /// not persist — always via `clear_inline_flows`, but by **three** paths that do not
 /// share a probe gate: the two early returns (no items / no usable font) call it
 /// directly and **ungated**, before `super::reconcile` is reached at all; the main
-/// path delegates to `super::reconcile`, whose call is `!env.is_probe`-gated.
+/// path delegates to `super::reconcile`, which gates its own `clear_inline_flows`
+/// call on `!env.is_probe` — the call *to* `super::reconcile` is unconditional.
 ///
 /// The top-level members are tagged with the **realigned** top-level run-start key
 /// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT

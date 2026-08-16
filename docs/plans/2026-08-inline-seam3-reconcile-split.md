@@ -68,7 +68,10 @@ does not belong here.
   ⚠ **No counts are recorded in this bullet, for the same reason §5.5 records no `wc -l`**: the
   checker's output is a function of the memo, so *every edit to the memo can change it* — and edits
   did. The two counters key on different things, which is itself the reason neither is stored:
-  * **soft warnings** count `N entries` **claims in this memo's prose**, one apiece.
+  * **soft warnings are heterogeneous** — run the command and read them; do not infer a cause from
+    the count. They currently include an `N entries` claim without a cached artifact *and* a
+    `path … contains shell glob/brace syntax` warning emitted by a command §5.3.1 embeds, so the
+    total tracks neither §3's rows nor the memo's `N entries` claims alone.
   * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks.
 
   What is stable is the **shape** of the result, which is the only thing this bullet needs to assert:
@@ -85,15 +88,20 @@ does not belong here.
   * What the vacuous gate costs *here* is stated rather than hidden: **both** of §3's citations were
     verified by hand, because the gate could not — `webref heading CSS2 10.8` and
     `webref heading css-writing-modes-4 6.4`. ⚠ "Both", not a count: §3's own K/M line is the count.
-* **`plan-xcheck.py` — 5 findings, all artefacts of shape mismatch**, and the count is 5 only
-  after this revision fixed the three that were *not*. It was written for a multi-PR umbrella: it
-  harvests §6 as a per-PR cell matrix, cross-checks M-rows and a flip partition, and expects the
-  umbrella's PR labels. What survives is `[PR] PR-1a referenced but not defined in §5.3` (this
-  memo cites the umbrella's PR-1a without defining it), three `[CELL]`s reading §6's numbered
-  harness steps as cells, and `[FLIP]`. ⚠ **Three others were genuine and are now fixed**: its
-  `K=`/`M=` breadth check and its per-PR own-deferral check are generic (§3 and §5.3 now answer
-  both), and its check 12 correctly caught a superseded line range (`:411-637`) restated beside
-  its corrected form in §5.2's quotation.
+* **`plan-xcheck.py` — NOT RUNNABLE on this branch, and no verdict is recorded here.**
+  `ls .claude/tools/plan-xcheck.py` → no such file: the checker lives on the umbrella's branch and
+  travelled with the umbrella's tooling under the narrowing above (preamble), so a reader of *this*
+  PR cannot re-derive any count from it. ⚠ A stored verdict was therefore removed — it was the
+  same defect as a stored `wc -l`, one bullet away from the rule forbidding it, and it additionally
+  predated three later commits to this memo.
+
+  What survives is the *shape*, which the umbrella's branch can re-derive: the checker is written
+  for a **multi-PR umbrella** (it harvests §6 as a per-PR cell matrix, cross-checks M-rows and a
+  flip partition, and expects the umbrella's PR labels), so its `[PR]` / `[CELL]` / `[FLIP]`
+  families are inapplicable to a single-PR memo by construction. Its **generic** checks are not,
+  and were acted on while it was still reachable: the `K=`/`M=` breadth check and the per-PR
+  own-deferral check (§3 and §5.3 answer both), and check 12, which correctly caught a superseded
+  line range (`:411-637`) restated beside its corrected form in §5.2's quotation.
 * The point of recording this is that a reader can tell an inapplicable checker from a skipped
   one — which requires the applicable subset to be named, not the whole run waved off.
 
@@ -279,8 +287,9 @@ numbers and conflating them misclassified a row:
   git grep -c "Line height calculations" 658cc302 -- crates    # → no output, rc=1 (zero hits)
   ```
   So "travels unchanged / not authored" describes only half of this row, and the authored half is
-  where an over-claim can live — which is why the docstring scopes "unimplemented" to
-  `vertical-align` rather than to the section.
+  where an over-claim can live — which is why the docstring states the gap
+  **positively** — what §10.8/§10.8.1 machinery *is* implemented, and what is not — rather than
+  scoping "unimplemented" to any one property.
 * **css-writing-modes-4 §6.4** is *newly authored by this PR* — the fold it governs is likewise
   inside the untouched body, but the **citation** is text this PR writes, which is exactly why it
   has to appear here. ⚠ It is scoped in the docstring to §6.4's **axis assignment only**: the
@@ -294,7 +303,7 @@ numbers and conflating them misclassified a row:
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
-| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (`git grep -c "Line height calculations" 658cc302 -- crates` → zero hits). The authored instance scopes "unimplemented" to `vertical-align` alone, since §10.8/§10.8.1 leading and baseline machinery *is* implemented and cited elsewhere in the crate. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
+| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (`git grep -c "Line height calculations" 658cc302 -- crates` → zero hits). The authored instance states the gap **positively**: §10.8.1 leading/half-leading and the baseline derivation are implemented and cited elsewhere in the crate; `vertical-align` alignment, §10.8's strut, and its uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
 
 ## §4. Verified current state
 
@@ -543,6 +552,14 @@ all 11 positions, including the three `bool`s no type can distinguish.
 preserved transposed tree it reports `MISMATCH at position 5: parameter persist_flow receives
 do_carrier` and exits 1 — the exact defect the body harness passes.
 
+⚠ **Neither harness ships in the repository, and that is the disposition, not an oversight.**
+`git diff --name-only origin/main...HEAD` names four files (§8), none under `.claude/` or
+`scripts/` — the preamble's narrowing keeps this PR to what its own change makes true, and a
+one-shot verification procedure is not that. What makes it acceptable is that the recipes above
+are **sufficient to reconstruct**: a reviewer independently rebuilt §6 from this prose and
+reproduced `6 hunks, 226 == 226` exactly, without the original script. Standing them up is the
+successor slot's call, not this PR's.
+
 Together the two halves cover the move: §6 proves the extracted text is unchanged, §6.1 proves it
 is invoked with the bindings it was extracted from. ⚠ Neither reaches a *semantic* change to the
 residue around the call; that is what the test suite is for, and §8 requires it green.
@@ -638,7 +655,8 @@ The moved body carries a universal about probe behaviour —
 > render state
 
 — and the residue holds **two counterexamples to the CLEAR clause**: the early returns at
-`inline/mod.rs:163` and `:203` call `clear_inline_flows` **ungated by `is_probe`**, whereas the
+`inline/mod.rs:163` and `:203` (⚠ **post-split** coordinates — `:162`/`:201` on `658cc302`, the
+frame §4 and §5.2 use) call `clear_inline_flows` **ungated by `is_probe`**, whereas the
 moved call is `!env.is_probe`-gated.
 
 **Behaviour is unchanged and not at risk**, which is why this is recorded rather than fixed: both
@@ -687,7 +705,8 @@ collected credit for honesty while overstating what the contract forbade.
   `check` / `lint` / `test-all` / `doc` / `trip-wires` each individually green (`rc=0`, zero
   failure lines), which is every `ci` dependency except `deny` and the no-op `ci-sweep`. ⚠ On CI
   the `Licenses & Vulnerabilities` job is **skipped** by the path filter (this PR touches no
-  `Cargo.toml`/`Cargo.lock`), so the **PR** gate is unaffected. ⚠ Not "local-only": a `push` to
+  `deny.toml` / `Cargo.toml` / `Cargo.lock` / `.github/workflows/**` — the filter's **whole**
+  `config` predicate, `ci.yml:43-47`), so the **PR** gate is unaffected. ⚠ Not "local-only": a `push` to
   `main` bypasses the path filter unconditionally, so `deny` runs post-merge and is red there for
   the same upstream reason — pre-existing, not caused by this PR.
   Earlier rounds of this PR's review record reported "`mise run ci` green"; that was false and is
@@ -703,11 +722,8 @@ collected credit for honesty while overstating what the contract forbade.
     file moves it, *including the commits that fix review findings*, so any location that stores
     it is falsified by the next such commit. The obligation is to **run** §5.5's command, not to
     store its output ([[feedback_document-landing-invalidates-its-own-measurements]]).
-  * ⚠ **The landing record is THREE artifacts, and this DoD governs all of them.** ⚠ An earlier
-    form of this clause said "TWO" — a population claim over a set it had not enumerated, and the
-    missed member was the one most easily fixed: **the PR description**, which carried a stale
-    `reconcile.rs` count and an `origin/main`-rooted proof recipe until a reviewer flagged the same
-    pair twice. The three: **(1)** this memo; **(2)** the **PR description**, editable at any time
+  * ⚠ **The landing record is THREE artifacts, and this DoD governs all of them.** ⚠ The
+    easiest to forget is the **PR description**, and it is the one most easily fixed. The three: **(1)** this memo; **(2)** the **PR description**, editable at any time
     with `gh pr edit --body-file` — check it with
     `gh pr view <n> --json body -q .body | grep -nE 'origin/main|[0-9]{3}'`; **(3)** the **squash
     commit message**. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
@@ -716,11 +732,9 @@ collected credit for honesty while overstating what the contract forbade.
     `reconcile.rs` count, a proof recipe rooted at `origin/main`, and a `ColumnFlowSlice` claim
     §5.3.1 has retracted. **Accepting that default violates this DoD.**
 
-    ⚠ An earlier form of this clause said the message is "authored fresh at merge" and stopped
-    there. That is a promise about a future check, which is precisely what §0's rule forbids — *a
-    claim is carried by the command that produces it, never by prose asserting it was checked.*
-    So the artifact is written here instead of promised, and merging is a paste, not a
-    re-derivation:
+    ⚠ **The message is written here, not promised.** "Authored fresh at merge" would be a promise
+    about a future check, which §0's rule forbids — *a claim is carried by the command that produces
+    it, never by prose asserting it was checked.* So merging is a paste, not a re-derivation:
 
     ```text
     refactor(layout): split the IFC flow reconcile out of inline/mod.rs (seam 3)
@@ -771,14 +785,20 @@ collected credit for honesty while overstating what the contract forbade.
   touch-time discipline, **at which point the seam work is owed anyway**)"* — and this PR
   replaces 226 lines of that body with a call.
 
-  **The correct ground is that a fired trigger owes the work, not one PR carrying it.** CLAUDE.md's
-  touch-time discipline says a split ships as a **standalone prereq** — *"feature PR に bundle しない
-  — split は単独 PR / 単独 commit"* — so three cohesion seams are three PRs, and the successor slot
-  is the booking that keeps the owed work from evaporating. There is also a proof reason specific to
-  this PR: §6's harness proves **one** contiguous range byte-identical; folding three ranges into one
-  PR forfeits the per-range proof, which is this PR's entire warrant. ⚠ The slot is therefore a
-  *discharge route*, not an exemption — seams 1 and 2 are owed **now** and only the vehicle is
-  deferred.
+  **The ground is the ratified range, and nothing else.** ⚠ Two earlier grounds are withdrawn
+  because neither yields the conclusion: CLAUDE.md's touch-time clause is scoped to **>1000-line
+  files** (`inline/mod.rs` is **785** at `658cc302`, §0) and its *"split は単独 PR"* separates a
+  split PR from a **feature** PR, not one seam from another — the banner split that created the
+  source slot shipped **three** cohesion seams in one split PR
+  ([[project_inline-mod-split-owed]]). And "folding three ranges forfeits the per-range proof" is
+  false: §6's harness takes *(pinned base, line range, extracted fn)*, so three ranges are three
+  runs against the same `658cc302`.
+
+  What actually bounds this PR is that **the umbrella ratified `413-639` and only that**. Widening
+  to seams 1 and 2 is an unratified scope change to a ratified surface
+  ([[feedback_plan-ratified-surface-is-a-design-change]]), and the per-seam cohesion analysis the
+  source slot calls for has not been done for them. ⚠ The slot is a *discharge route*, not an
+  exemption — the trigger has fired and seams 1 and 2 are owed; only the vehicle is deferred.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
   decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
