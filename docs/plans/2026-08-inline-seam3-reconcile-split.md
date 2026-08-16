@@ -571,7 +571,10 @@ the claim, and a stronger one.
   the new `inline/reconcile.rs`, and `inline/collect.rs` (one comment, §7). ⚠ **Nothing under
   `.claude/`, and no second `docs/plans/` file** — that is the mechanical statement of the
   narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
-* §10's ledger actions applied.
+* §10's ledger actions applied. ⚠ **Their targets are NOT in this repository**, so this line is
+  not verifiable from the diff and must not be read as an in-repo obligation left undone — see
+  §10's preamble. A reviewer reasonably concluded the opposite from an earlier drafting, which is
+  why the location is now stated rather than assumed.
 
 ## §9. Out of scope, with disposition
 
@@ -670,6 +673,23 @@ the claim, and a stronger one.
   * ⚠ The gate is re-run at push time, not trusted from here — `main` moves.
 
 ## §10. Slot ledger actions at landing
+
+⚠ **Where these land, and why the diff cannot show them.** Every target below is a file in the
+user-level agent memory directory (`~/.claude/projects/<repo-key>/memory/`), **outside this
+repository** — `git ls-files | grep -c memory/` → **0**. So "applied" here is a claim about state a
+PR reviewer has no way to inspect, and an earlier drafting asserted it without saying so; Codex read
+§8's "§10's ledger actions applied" against a four-file diff and concluded the obligations were
+still open. They are not — but the memo gave no way to tell. What was applied, for the record:
+
+| target (outside the repo) | change |
+|---|---|
+| `project_inline-fragmented-fn-decomposition.md` | status → **PARTIALLY CLOSED**; seam 3 marked ✅ discharged; the pre-#497 figures (508 lines / `:138` / 783) framed as historical and the post-PR values added |
+| `project_inline-fragmented-fn-seams-1-2.md` | **created** — seams 1/2 + the signature + the adjacent-`bool` window, with the trigger's predicate-prereq un-exemption restored |
+| `project_open-defer-slots.md` (the slot SoT) | new UPDATE block registering the partial close and the successor slot, and recording which registrations deliberately did **not** ship here |
+| `project_inline-mod-split-owed.md` | the stale `783` corrected |
+| `project_line-box-decorated-inline-content.md` (umbrella SSoT) | the scope narrowing recorded as input to round 20, incl. the consumed plan-checker trigger needing a state-shaped replacement |
+| `MEMORY.md` | Layout-lane entry no longer directs the next session to produce this PR |
+
 
 ⚠ **The umbrella's §10 books five rows to "the seam-3 prereq PR"; four of them leave** with the
 narrowing in the preamble. The test applied to each is the same: *does this PR's change make it

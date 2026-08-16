@@ -23,6 +23,25 @@ use super::{
 ///
 /// Every effect is a `dom` mutation; nothing is returned to the caller.
 ///
+/// **Spec vs bookkeeping.** Most of what this function does is elidex render
+/// bookkeeping with no governing section: [`InlineFlow`] and
+/// [`elidex_ecs::ColumnFlowSlice`] are engine-internal components, and no CSS
+/// module specifies "persist a flow" or "carry a column slice". Two steps *are*
+/// spec-governed and are cited so a later edit can tell them apart:
+/// * the IFC-local logical → absolute physical fold keyed on `is_vertical`
+///   follows **css-writing-modes-4 §6.4 Abstract-to-Physical Mappings**;
+/// * the atomics' block-axis target is the line top, which is **CSS 2 §10.8
+///   Line height calculations: the `line-height` and `vertical-align`
+///   properties** left unimplemented (`vertical-align` within the line box) —
+///   see the inline comment at the `persist_flow` reposition.
+///
+/// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset
+/// preservation, fragmentainer terminology, column-box continuation) is
+/// pre-existing and untouched by the split — this function was relocated
+/// byte-identically, so it authors no algorithm. Adding blanket module-level
+/// citations for it would over-claim, which is the call #497 already made for
+/// `collect.rs`/`styled_run.rs`.
+///
 /// `persist_flow` and `do_carrier` are **mutually exclusive**, and the caller
 /// establishes it rather than this function checking it: `do_carrier` implies
 /// `frag_is_column && !column_is_whole`, which falsifies `persist_flow`'s second
