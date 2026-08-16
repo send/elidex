@@ -33,8 +33,8 @@
 > |---|---|
 > | 3 | The checker leaves the slice into a prerequisite branch (§0, §5, §9). Q3 closes by measurement: no fence arm (§4.2, §7). |
 > | 4 | The fence withdrawal reaches the umbrella as an amendment (umbrella D2/D3/§6). `--one` is withdrawn for a clone fixture (§4.1.1). `TOOLING`, `UMBRELLA`, `FIXTURE` replace three prose rules. |
-> | 5 | Rule 1 was refuted by running it under the declared regime (§4.4). Six controls asserted states no stage produced (§8, §8.1). Six citations named the wrong line (§4.6). |
-> | 6 | Rules 1 and 4 could not both be implemented, and rule 3's liveness spelling broke I7 (§4.4, §2). §2 was a stale second copy of §8's `$3` model (§2 I6). A third altered quotation, load-bearing (§4.1.1(b), §8). D4 amended in the umbrella. This block collapsed to a pointer. |
+> | 5 | Rule 1 was refuted by running it under the declared regime (§4.2). Six controls asserted states no stage produced (§8, the self-test). Six citations named the wrong line (§4.6). |
+> | 6 | Rules 1 and 4 could not both be implemented, and rule 3's liveness spelling broke I7 (§4.2, §2). §2 was a stale second copy of §8's `$3` model (§2 I6). A third altered quotation, load-bearing (§4.1.1(b), §8). D4 amended in the umbrella. This block collapsed to a pointer. |
 >
 > → memory `feedback_prose-rules-cannot-fix-unexecuted-claims`,
 > `feedback_findings-cluster-in-self-added-scope`,
@@ -63,7 +63,7 @@ a fact about how two programs behave is measured by running them rather than by 
 **Where a claim below cannot be put under that checker, the rule this paragraph stated was false of this
 file at every revision that stated it.** It said *removed, not restated more carefully*, while the
 checker's own report listed pasted commands it declined to re-run — among them the `set -euo pipefail`
-pair that overturned §4.4 rule 1 after five rounds. The rule as written prescribed deleting this memo's
+pair that overturned the wire's rule 1 (§4.2–§4.2) after five rounds. The rule as written prescribed deleting this memo's
 most valuable measurement.
 
 Round 6 first tried the disposition the rule omits — **extend the mechanism** — by admitting a `bash -c`
@@ -97,7 +97,7 @@ The prerequisite branch was rewritten underneath it, so the base every D10 form-
 become a commit no reader could check out. A hash pinning a branch that is still being rewritten is not
 a base; it is a claim with the same lifetime as the branch, which is the failure this memo is about.
 `git version 2.55.0`, `GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)` — the wire runs under
-`bash`, and §4.4's argv rule is a `bash` fact, not a `zsh` one.
+`bash`, and §4.2's argv rule is a `bash` fact, not a `zsh` one.
 
 ---
 
@@ -133,12 +133,12 @@ S1's behalf.
 Revision 3 claimed the checker's annotation executor was a self-retiring bootstrap: *"a code path, not
 a promise, so the two implementations cannot coexist."* **That was false and is withdrawn.** The
 `WIRE.exists()` guard covered one function; the self-test called the classifier and executor directly,
-so the second transcription of §4.2/§4.4 survived the wire's arrival — and the checker's `PASTE`
+so the second transcription of §4.2/§4.2 survived the wire's arrival — and the checker's `PASTE`
 verification silently switched off at the same moment, because it consumes the payload that function
 stops returning.
 
 The honest replacement is a **bound, recorded in §6**, not a better-timed retirement: **the checker
-carries a second transcription of §4.2's tiers and §4.4's verbs, and will keep carrying it until the
+carries a second transcription of §4.2's tiers and §4.2's verbs, and will keep carrying it until the
 wire exists and delegation to it is implemented *and proven by a control*.** Writing the retirement
 before the wire is what produced the false claim — the code path existed, and nothing exercised it.
 A probe that plants a wire and asserts the checker's own grammar is unreachable is what closes it.
@@ -179,7 +179,7 @@ narrowly-scoped per-PR slice the base case: one wire, one grammar, one self-test
 The driver discovers what to run by glob, not by reference:
 
 ```
-$ sed -n '102p' scripts/trip-wires.sh
+$ sed -n '103p' scripts/trip-wires.sh
 WIRE_GLOB='.claude/tools/*-trip-wire.sh'
 $ git ls-files -- '.claude/tools/*.sh' ':(exclude).claude/tools/*-trip-wire.sh'
 ```
@@ -207,7 +207,7 @@ Consequences, both of which shape S1:
    That shape's guard is an **environment variable**, set on the command at `scripts/trip-wires.sh:139`,
    and an environment variable is inherited by everything the run spawns. So the guard can govern the
    invocation and cannot govern the *requirement*: §4.1.2 puts the helper's existence check ahead of the
-   guard and gives it its own diagnostic, which is what makes both of C18's arms reachable (§8.1).
+   guard and gives it its own diagnostic, which is what makes both of C18's arms reachable (the self-test).
 2. **A split-out helper is outside the retention diff.** `scripts/trip-wires.sh:76-84` records why the
    diff runs in *both* directions. A `test -f` guard reproduces exactly the asymmetry that amendment
    closed — it catches a helper *leaving*, not one *arriving* unreferenced. §4.1.2's existence check
@@ -267,9 +267,9 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 |---|---|---|
 | **I1** | **Total tier assignment** (D3) — every candidate line lands in exactly one of *strict* / *malformed* / *mention*; none may vanish | The lax recogniser is the outer net and strict is a subset of it. A typo cannot fall out of the world. |
 | **I2** | **Inertness** (D2) — the mention rule must never swallow a strict annotation, and the gate excludes its own files | One rule on all four surfaces: backtick it (§4.2). It is a **line predicate** — *k* backticks before the `<!--` — so no per-file state exists and no surface needs its own arm. `.claude/tools/**` is dropped by pathspec. |
-| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (§4.4 rule 3). The working tree, not the index, because that is the tree all three verbs read. |
+| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (the wire's rule 3 (§4.2–§4.2)). The working tree, not the index, because that is the tree all three verbs read. |
 | **I4** | **Dialect fidelity** (D5) — the pattern body's ERE meaning is the author's meaning | A parse-time reject-list on the pattern body, with a diagnostic naming the offending escape verbatim. |
-| **I5** | **Argv fidelity** (D6) — every parsed value reaches `git grep` as one argv element | No `eval`, no unquoted expansion, no reconstructing a command string. Probeable: §4.4. |
+| **I5** | **Argv fidelity** (D6) — every parsed value reaches `git grep` as one argv element | No `eval`, no unquoted expansion, no reconstructing a command string. Probeable: §4.2. |
 | **I6** | **Provable firing** — every grammar clause has a control that can red on its regression, and where the clause has a passing direction, one that can red on *that* | The self-test, the wire's invocation of it, and the `REQUIRED_WIRES` line, all in one commit. The `$3` discrimination requirement is **§8's**, scoped to the fixture, and is not restated here — this row said "a substring unique to it" from the first draft through the revision that withdrew that requirement in §8, which is how C23 came to assert a trailing space nothing needs. §8 also states which clauses have no passing direction, and therefore which rows are negative-only by construction rather than by omission. |
 | **I7** | **Cost is bounded by the annotation count, not by the tree** | One tree-wide `git grep`, then per-annotation work. It is a *structural* bound, not a wall-clock one — see §4.5. |
 
@@ -284,20 +284,20 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 | I3 × I5 | The liveness probe and the measurement must receive the **same** pathspec as one argv element, or the probe validates something the measurement never runs. |
 | I5 × I7 | The no-`eval` rule forbids the one shape that would batch several annotations into a single `git grep`. Serial execution is forced; §4.5 states what actually bounds it. |
 | I6 × I7 | **The bound is on the wire, not on its self-test.** I7 says the wire's work is one tree-wide `git grep` plus a term per annotation. The self-test is not the wire: C10's positive runs `in="crates/**/*.rs"` and C19's corpus row runs `in="crates/shell/elidex-shell/src/**/*.rs"`, both tree-scale, and both deliberate — the acceptance corpus is only worth having because it runs against the real tree (§7 Q2). Stating I7 without this exemption makes the corpus a violation of it. |
-| I6 × I3 | The fixture must be a real git repo: `git ls-files` has no `--no-index`. `git init -q . && git add -A` suffices — both `git ls-files` and `git grep` see added-but-uncommitted files, verified in §4.4's argv measurement, which ran against exactly such a fixture. |
+| I6 × I3 | The fixture must be a real git repo: `git ls-files` has no `--no-index`. `git init -q . && git add -A` suffices — both `git ls-files` and `git grep` see added-but-uncommitted files, verified in §4.2's argv measurement, which ran against exactly such a fixture. |
 | I1 × I3 | A malformed annotation must fail *before* the liveness probe, or a typo'd verb plus a typo'd pathspec reports the pathspec. Order: tier → dialect → liveness → measure. |
 | I1 × I5 | Parsing is what produces the argv elements; a parser returning one joined string re-creates D6's hazard one level in. The parser emits each field separately. |
 | I1 × I6 | Every tier needs both directions: strict-that-passes / strict-that-fails, malformed-that-fails, mention-that-is-ignored-*while-wrong*. |
 | I1 × I7 | Tier assignment is the one stage touching every candidate line, and it touches **no files at all**: it is a transform of the single `git grep -n` output, so I7's tree term is that one invocation and tier assignment adds nothing to it. Revisions 1–7 read "a single pass over the candidate *files*", which described the two-stage scan revision 4 deleted — the row above records that withdrawal, one line away, and this row was not swept with it. |
 | I4 × I5 | Both bound what reaches git, at different sites: I4 rejects at parse time with a visible diagnostic, I5 is invisible-by-construction in the executor. Kept separate for that reason. |
 | I4 × I6 | A ban that cannot fire is indistinguishable from a clean tree — the precedent is `layout-box-reader-trip-wire.sh:276-299`'s `ban_control`. One control per rejected escape class, each with its own diagnostic substring. |
-| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (§4.4 rule 3). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. **Nothing controls the stopping**, and §8 records that as an open gap rather than claiming a row for it; what the `ls-files` itself costs is priced here and was never removed. |
+| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (the wire's rule 3 (§4.2–§4.2)). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. **Nothing controls the stopping**, and §8 records that as an open gap rather than claiming a row for it; what the `ls-files` itself costs is priced here and was never removed. |
 | I2 × I6 | D2's self-exclusion is both a *correctness precondition* and a *two-directional* claim. The self-test's own fixture annotations must be inert in the real repo — they are, by the `.claude/tools/**` exclusion, which is therefore load-bearing for S1 landing rather than a convenience. And the control must assert both directions: an annotation under `.claude/tools/` ignored, and the identical annotation outside it red. Asserting only the first would pass on a wire that scanned nothing at all. |
 
 The remaining four pairs are independent, each for a stated reason: **I2×I3** (inertness decides
 *whether* an annotation runs, liveness *whether its target exists*), **I2×I4** and **I2×I5** (the
 reject-list and the executor act only on lines already classified strict), **I4×I7** (a parse-time string
-test). **I5×I6** was on this list and is not independent: §4.4 makes I5 directly probeable and §8 C12
+test). **I5×I6** was on this list and is not independent: §4.2 makes I5 directly probeable and §8 C12
 probes it.
 
 That the table above is exhaustive is not a claim to take on trust — with seven invariants it must
@@ -331,9 +331,9 @@ one side alone fails.
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2) | classify a candidate line | (ii) inside a fenced block with even *k* → **strict, and executed** (there is no fence arm) | §4.2 tier pass | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D2) | scan | (iii) annotation under `.claude/tools/**` → not scanned; identical annotation outside → scanned | §4.1 scan pathspec | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D3 — three tiers) | classify a candidate line | (iv) lax-but-not-strict → MALFORMED, fail | §4.2 fall-through arm | ✓ | no |
-| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D4 — liveness) | resolve `in=` | (v) no tracked file → fail; `lines=` resolving to ≠1 → fail | §4.4 `git ls-files` probe | ✓ | no |
-| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D5 — pattern-body lint) | lint the pattern body | (vi) `\` + `[bBdDsSwW<>]` → MALFORMED, diagnostic names the escape | §4.3 reject-list | ✓ | no |
-| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D6 — the pathspec is always quoted) | execute the measurement | (vii) every value as one argv element, no `eval` | §4.4 executor | ✓ | no |
+| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D4 — liveness) | resolve `in=` | (v) no tracked file → fail; `lines=` resolving to ≠1 → fail | §4.2 `git ls-files` probe | ✓ | no |
+| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D5 — pattern-body lint) | lint the pattern body | (vi) `\` + `[bBdDsSwW<>]` → MALFORMED, diagnostic names the escape | §4.2 reject-list | ✓ | no |
+| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D6 — the pathspec is always quoted) | execute the measurement | (vii) every value as one argv element, no `eval` | §4.2 executor | ✓ | no |
 | `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` §3 (Decision D4 — the standing gate; its "runs once then rots" hole → standing in `mise run trip-wires` ⊂ `mise run ci` and in the ungated CI job) | register the wire, invoke the self-test | (viii) present in the glob but absent from `REQUIRED_WIRES` → fail; self-test helper missing → fail | §4.1.2 + §5 + `scripts/trip-wires.sh:207-237` | ✓ | no |
 
 **Breadth**: preflight's verdict lines for this memo are pasted verbatim in §8.3.
@@ -522,361 +522,44 @@ variable, so inside any control step 3 is silent — a wire copied into a fixtur
 whatever its helper is doing. A `test -f` folded into step 3 would therefore be
 unreachable in exactly the situation C18 exists to test. Step 2 sits outside the guard, so a missing
 helper fails identically whether the guard is set or not; proving step 3 fires needs the guard *cleared*,
-which is a fixture regime rather than a code shape, and §8.1's C18 paragraph states and bounds it.
+which is a fixture regime rather than a code shape, and the self-test's C18 paragraph states and bounds it.
 
-### §4.2 The three tiers (D3), per surface
+### §4.2–§4.2 The grammar, the tiers and the verbs — **now in the wire**
 
-A **candidate** is a line matched by the lax recogniser above. For each candidate, let *k* be the number
-of `` ` `` characters appearing on that line before the `<!--`.
+These three sections transcribed the recogniser tiers (D3), the pattern-body lint (D5) and the three
+verbs with their four execution rules. **The transcription is withdrawn. `.claude/tools/claim-provenance-trip-wire.sh`
+is the canonical site**, and `claim-provenance-selftest.sh` is what holds it to its clauses.
 
-- **mention** — *k* is odd (the backtick arm). Ignored.
-- **strict** — not a mention, and the text from `<!--` onward matches §4.4's production. Executed.
-- **malformed** — anything else. **Fails**, with a diagnostic whose first token is `MALFORMED`, followed
-  by file, line and the first field that did not parse. The **token** is specified and not only the
-  content: C6 and C7 assert it as their `$3`, and every revision from the first draft on specified the
-  content alone, so the string those two controls key on was one no stage was required to emit (§8's
-  kind list).
+**Why, stated once, because it is the decision this slice ended up making.** A specification that a
+program can execute, written in prose, is held true by an author who believes it is — which is the same
+sentence §1 uses to withdraw a prose rule, and the reason §0 gives for building a checker instead of a
+contract. Six review rounds of this memo produced clause defects that one execution exposes in seconds:
+piping a measurement into `wc -l` dies under the declared `pipefail`; a failing branch that writes
+before it reads `$?` leaves the fourth outcome kind unreachable; `git grep` exits 1 on a tree with no
+annotation and takes the wire with it; `awk` answers **0 with status 0** on a directory. Each survived
+multiple rounds of reading and none survived its first run. The prose was not wrong because it was
+careless; it was wrong because prose has no `bash -n`, no exit status and no fixture.
 
-**A malformed annotation fails the run without ending it.** Classification and processing are
-per-candidate: every candidate line is classified, every strict annotation is measured, every diagnostic
-accumulates, and the wire exits non-zero **once, at the end**, after the last candidate — never at the
-first bad one. Under `set -euo pipefail` that is a constraint on the code shape rather than a preference:
-no arm of the per-annotation stage may call `exit`, and a failing parse or measurement has to be recorded
-and returned instead. **`exit` is not the only way out, and it is not the one that nearly shipped**: under
-`errexit` + `pipefail` an unguarded pipeline whose left side exits non-zero ends the wire just as
-completely, and §4.4 rule 1 spelled every `count` and `files` measurement that way for six revisions. So
-the rule is on the *status* rather than on the keyword — every command whose non-zero status is a datum
-rather than a failure is captured and branched on (§4.4 rule 1), never left bare. Two of §8's fixtures are unbuildable without it — `escapes` carries C8's `\d` and
-C9's `\b` as two negative arms of **one** wire invocation, and C25 drives all ten rejected escapes through
-one fixture — so a fail-fast wire would emit the first arm's `$3` and leave every later arm unobservable,
-green because it never ran. That is §2 I4×I6's `ban_control` shape (a control that cannot fire is
-indistinguishable from a clean tree) arriving through the driver rather than through the diagnostic.
+What moved, and where it now lives:
 
-**One line per candidate, on stdout.** Because every candidate is classified and every strict annotation
-measured, the wire can report what it did, and §8.2's acceptance property needs it to. Each candidate
-produces one line carrying its `path:line`, its tier, and — for a strict annotation — the verb, the
-asserted value, the measured value and the `in=` pathspec, in the verdict format §8.2 takes from umbrella
-§2 (`OK` / `FAIL`, `asserted=`, `actual=`). Mentions and malformed candidates are listed too, which is
-what makes tier assignment readable instead of inferred from an exit status; §8.2's clauses about tiers
-and verbs had no producer until this. It is an inventory **printed**, not an inventory *stored*: D8's
-committed row per annotation site, diffed in both directions, is S2's, and §6's bound — deleting an
-annotation leaves no record — is untouched by printing one.
-
-**There is one inertness rule, on all four surfaces: backtick it.** Revisions 1–3 carried a second
-rule — a fenced block also makes an annotation inert — defined for `.md` and `.rs` and absent for
-`.sh`/`.toml`, which have no fence concept. §7 Q3 put the three options to plan-review and round 3
-answered with a measurement rather than a preference:
-
-```
-git grep -nE '<!--[[:space:]]*claim[^A-Za-z]' -- '*.md' '*.rs' '*.sh' '*.toml' ':(exclude).claude/tools/**'
-  → 8 candidates: 5 strict, 3 mention — and all 3 mentions are BACKTICKED. Fenced mentions: 0.
-```
-
-So the fence arm's stated cost of removal — "it changes what authors may write in `.md`" — is **zero
-against the tree that exists**, and every illustrative annotation already conforms to the rule that
-replaces it. Against that, the fence arm bought: a third implementation of fence tracking (§6 records
-what a third copy of an algorithm costs), a per-surface table with two rows saying "none", two controls,
-and this open question. *One issue, one way* decides it — the backtick rule is the canonical form
-because it is the one that already had to exist for `.sh` and `.toml`, and generalising it retires a
-rule rather than adding one.
-
-| Surface | Inert spelling |
+| was | now |
 |---|---|
-| `.md` / `.rs` / `.sh` / `.toml` | backtick the annotation (*k* odd before the `<!--`) |
+| §4.2's three tiers and the fail-without-ending rule | the wire's classify/measure loop; controls C1, C4–C7, C16, C17, C24, C35, C36 |
+| §4.2's ten-escape reject list (D5) | the wire's `case "$pattern"` arm; controls C8, C9, C25, and C37 for the accepting direction |
+| §4.2's production, three verbs and four execution rules | the wire's parser and measurement; controls C10, C11, C13–C15, C23, C28–C33 |
+| §8/the self-test's control table | `claim-provenance-selftest.sh`, each `fail` arm naming a required diagnostic substring |
 
-Two consequences, both stated rather than left implicit:
+**What did NOT move, because code cannot hold it**: D4's amendment (umbrella §1), the two-root rule
+(§4.1.1(a) — the tree under test comes from cwd, the wire's helper from `$0`), the clone-fixture
+decision (§4.1.1), the guard's placement and why one control must clear it (§4.1.2), the cost bound and
+its escalation trigger (§4.5), the edit set (§4.6), and everything in §0, §1, §2, §5, §6, §7 and §9.
 
-- **An annotation inside a fenced block is live.** A pasted transcript that contains annotation text is
-  executed. This forecloses one form — a fenced multi-line paste of example annotations — and it is a
-  form D10 already forecloses for a different reason (§8.2 declines exactly that paste because it would
-  change the count it reports). Backticked-inline and GFM-table-cell forms both remain, and §8 C1 pins
-  the table-cell case.
-- **The `.rs` rustdoc strip disappears with the fence arm**, along with the 138-fence-line measurement
-  that justified it. A rustdoc example annotation is inert by backticking, like every other surface.
+**The residue this leaves, stated rather than left to read as covered.** The controls implemented are
+the hermetic ones. `C12` (argv fidelity), `C19`–`C22` (the acceptance corpus against a clone), `C27`
+(I7's structural half, via a counting `git` shim) and `C38`/`C39` (§8.2's clauses read from the
+inventory) are **not yet written**, and `C34` is withdrawn (§4.2's short-circuit is not observable by
+any probe shape this design has). Until they land, the corpus rows umbrella §3 routes here are unproved.
 
-Narrowing the scan to `.md`/`.rs` was rejected in revision 1 and stays rejected: it would make an
-annotation in `mise.toml` silently unseen rather than checked, the direction D3 forbids.
-
-### §4.3 The pattern-body lint (D5)
-
-D5 is binding and is not reopened, nor is its reject set re-derived here: **`\` followed by any of
-`bBdDsSwW<>`**, on D5's stated reasoning that `\X` is the literal `X` in POSIX ERE and therefore that the
-escape's ERE meaning is not the author's meaning. S1 implements that set as written.
-
-S1 adds one requirement D5 does not state, and it came from building the controls rather than reading the
-decision: **the diagnostic must name the offending escape verbatim** — *pattern contains `\d`; `git grep
--E` is POSIX ERE, where `\d` is the literal `d`, not a digit class. Write `[0-9]`, `[[:space:]]`, or
-`([^A-Za-z]|$)` for a boundary.* The first draft gave every escape one diagnostic and keyed two controls
-on the shared substring `POSIX ERE`, so each would have passed if the *other* arm fired — defeating the
-purpose of `st_probe`'s `$3` (`scripts/trip-wires.sh:130-136`: status alone "cannot tell 'root
-verification works' from 'retention masked its absence'"). Named, `contains \b` and `contains \d`
-discriminate.
-
-### §4.4 The three verbs
-
-```
-annotation := "<!--" WS "claim" WS verb WS "-->"
-verb       := count-verb | files-verb | lines-verb
-count-verb := "count=" INT WS [ "icase" WS ] "pattern=" QSTR WS "in=" QSTR
-files-verb := "files=" INT WS [ "icase" WS ] "pattern=" QSTR WS "in=" QSTR
-lines-verb := "lines=" INT WS                                  "in=" QSTR
-QSTR := '"' <any run of characters, none of which is '"'> '"'
-WS   := one or more spaces or tabs        INT := [0-9]+
-```
-
-**Anchoring: `annotation` is NOT anchored to either end of the line** — it may begin at any column and be
-followed by anything, which is what makes an annotation inside a GFM table cell strict rather than
-malformed, and §8 C1 depends on it. (The first draft's production was silent on this, so its table-cell
-control could not be derived from the text it was meant to test.) Field order is fixed; an annotation is
-one line, because `git grep` is line-based; `pattern=` may not contain a `"`.
-
-| Verb | Executed as | Semantics |
-|---|---|---|
-| `count` | `git grep -nE[i] -e "$pattern" -- "$spec"`, captured; count non-empty lines (rule 1) | **matching lines**, not matches: a line with two matches counts once. `grep -cE 'sole'` on a line reading `sole sole` gives 1 where `grep -oE … \| wc -l` gives 2 — the wire commits to the former, because that is how the umbrella's landed annotations were produced (§2's block pipes `git grep -n` into `wc -l`), so the other choice would falsify them. |
-| `files` | `git grep -lE[i] -e "$pattern" -- "$spec"`, captured; count non-empty lines | files containing ≥1 match. |
-| `lines` | `awk 'END{print NR}' "$file"`, **captured** (rule 1's shape, rule 4's status handling) | takes **no** `pattern`; `in=` must resolve to exactly one tracked file. |
-
-`lines` uses `awk 'END{print NR}'` rather than `wc -l` for a structural reason, not a measured one:
-`wc -l` counts newlines, so the first file shipped without a trailing newline is undercounted by exactly
-1 — silently, in the direction that makes a claim look stale. §8.1 C31 controls that choice, because a
-rationale no control can red is a rationale the next author may spell away.
-
-**`lines` is captured for the same reason the other two are, and revision 7 exempted it by omission.**
-§4.2 requires that *every* command whose non-zero status is a datum rather than a failure is captured
-and branched on, never left bare; the `count` and `files` rows said "captured" and this one did not.
-The liveness filter (rule 3) is not a substitute: it establishes that the path is *present*, and
-present is not the same as *readable regular file*. Measured under the declared regime, one fixture,
-four shapes a liveness probe passes:
-
-```
-$ for t in d f.md dang.md gone.md; do          # d=dir, f.md=chmod 000,
-    bash -c "set -euo pipefail                 # dang.md=dangling symlink, gone.md=removed after add
-             n=\$(awk 'END{print NR}' '$t'); echo n=\$n"; echo "rc=$?"; done
-  d         rc=0   n=0                         ← ⚠ succeeds, and answers 0
-  f.md      rc=2   awk: can't open file f.md
-  dang.md   rc=2   awk: can't open file dang.md
-  gone.md   rc=2   awk: can't open file gone.md
-```
-
-Three of the four are rule 4's, once its outcome kind is stated over *the measurement program* rather
-than over `git` alone — so `lines` takes rule 1's captured shape and hands its status to rule 4.
-
-**The fourth is worse than a failure and rule 4 cannot reach it.** A directory makes `awk` exit **0**
-reporting **0 lines**, so `lines=0` on such a path goes green and any other value reports
-`asserted=N actual=0` — I1×I4's hazard, arrived at with every status nominal. A tracked path can be a
-directory in the worktree: a **gitlink** (submodule) is exactly that, and `git ls-files` lists it. So
-`lines` additionally requires its single resolved path to be a **regular file**, tested before the
-measurement, with its own diagnostic (*`lines=` resolves to a path that is not a regular file*).
-§8.1 C33 controls it; C32 controls the `awk`-failure kind.
-
-Four execution rules, each measured. They are numbered here in the order a rendered list gives them:
-revision 6 added the fourth and left it spelled third in the file, and a Markdown ordered list renumbers
-on render, so every `rule 4` cross-reference pointed at the text above it.
-
-These six run in a **plain shell**, stated because the wire's regime is `set -euo pipefail` and under it
-four of them kill the script before their `echo` is reached — the status is the datum here, which is
-precisely why rule 1 requires capturing rather than letting the shell act on it:
-
-```
-$ git grep -cE 'fetch-depth' -- '.github/workflows/ci.yml'; echo "exit=$?"     → exit=1  (no output)
-$ git grep -cE 'foo(' -- '*.md'; echo "exit=$?"                                → exit=128  (parentheses not balanced)
-$ git grep -nE 'fetch-depth' -- '.github/workflows/ci.yml' | wc -l; echo "$?"  → 0 / exit=0
-$ git grep -nE '-> u32' -- 'crates/**/*.rs'                  → error: unknown switch `>'
-$ git grep -lE -e '-> u32' -- 'crates/**/*.rs' | wc -l       → 24
-$ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -cE: exit 1, no output)
-```
-
-1. **`count=0` is legal and must not abort — and the pipeline does NOT absorb it.** Revisions 1–6 said
-   *"piping into `wc -l` absorbs it (the pipeline's status is `wc`'s)"*. That is true in a plain shell
-   and **false under `pipefail`**, where the status is the rightmost *non-zero* one — git's. The wire
-   declares `set -euo pipefail`, so the spelling above kills it on the first `count=0` annotation, and
-   §5 ships one (`count=0 pattern="fetch-depth"`). Measured, both directions:
-
-   ```
-   $ bash -c 'git grep -nE "fetch-depth" -- ".github/workflows/ci.yml" | wc -l; echo rc=$?'
-          0
-   rc=0
-   $ bash -c 'set -euo pipefail; git grep -nE "fetch-depth" -- ".github/workflows/ci.yml" | wc -l; echo SURVIVED'
-          0
-   ```
-
-   The first is a plain shell, which is what revisions 1–6 pasted. In the second
-   `SURVIVED` never prints and the script exits 1. The commentary is out here rather than
-   trailing the output lines because those lines are now **re-executed and compared** — the
-   checker admits a `bash -c` whose script only reads — and a comment appended to a pasted
-   line makes the paste differ from what the command prints. It reported both of these the
-   moment it could run them.
-
-   **The checker re-runs pasted commands in a plain shell**, so a paste that is honest there is confirmed
-   there, and the claim — which is about the declared regime — was never what got checked. That is why
-   nothing which *reads* this memo can find this class, and why the two probes above are pasted rather
-   than the conclusion asserted. (The account of how many rounds it survived is the preamble's.)
-
-   The measurement is therefore **captured, not piped**, and the failing branch reads the status
-   **before it writes anything**:
-
-   ```
-   : > "$err"                                  # one file per run, truncated per measurement
-   if out=$(git grep -nE[i] -e "$pattern" -- "$spec" 2>"$err"); then
-     n=$(printf '%s' "$out" | grep -c .)
-   else
-     rc=$?                                     # FIRST statement in the branch — see below
-     if [ "$rc" -ne 1 ]; then
-       measurement_failed "$rc" "$err"         # rule 4's outcome; sets the run's exit flag
-       continue                                # next annotation — §4.2 forbids ending the run
-     fi
-     n=0                                       # reached only for exit 1 = no match
-   fi
-   ```
-
-   Run end to end under the declared regime, two annotations, the first with an unparseable ERE:
-
-   ```
-   FAIL  the measurement command failed: git exited 128: fatal: -e option, 'foo(': parentheses not balanced
-   OK  pat=a n=1
-   LOOP FINISHED FAILED=1
-   ```
-
-   **`continue` is load-bearing and the shape round 6 first wrote had no working alternative.** It was
-   `[ "$rc" -eq 1 ] || measurement_failed "$rc"`, and no return value of that function satisfies both
-   §4.2 and rule 4: returning non-zero makes the `||` list the last command of the iteration, so
-   `errexit` ends the wire at the *first* measurement failure — the death §4.2 and rule 2 both forbid,
-   and the one that would leave `escapes`/`escapes10` unbuildable — while returning zero falls through
-   to `n=0` and reports `asserted=N actual=0`, which is precisely what rule 4 exists to prevent and what
-   C29's and C32's negative arms reject. The failing branch therefore *ends the iteration*, not the run.
-
-   **`2>"$err"` is what makes the diagnostic's stderr clause true.** §8's kind table promises the
-   program's own stderr, and `out=$(…)` captures stdout only — git's `fatal:` line went to the terminal,
-   so the table named a state no stage produced. Redirecting into a per-run file keeps the success
-   path's `$out` clean (folding stderr in with `2>&1` would make `grep -c .` count warning lines as
-   matches) and costs one file per run rather than one per annotation, so I7 is untouched.
-
-   **`rc=$?` first is the whole content of this spelling, and revision 7 got it wrong.** Its `else`
-   branch opened with `n=0`, whose own success overwrites `$?` — so rule 4, which is defined by the
-   status, had no input, and C29 asserts a split the specified shape could not reach. Measured:
-
-   ```
-   $ bash -c 'set -euo pipefail
-     if out=$(git grep -nE -e "foo(" -- "docs/**/*.md"); then :; else n=0; echo "rc=$?"; fi'
-   rc=0                                        # git exited 128
-   $ bash -c 'set -euo pipefail
-     if out=$(git grep -nE -e "foo(" -- "docs/**/*.md"); then :; else rc=$?; n=0; echo "rc=$rc"; fi'
-   rc=128
-   ```
-
-   That is this memo's own recurring shape once more — rule 1 was rewritten in `b6799ee6` and rule 4
-   added in `007ed157`, two commits later, and the snippet rule 4 depends on was not swept. It is
-   invisible to the checker because a fenced specimen is not a pasted transcript, which is why the two
-   `bash -c` runs above are pasted beside it rather than the shape being asserted in prose.
-
-   Measured in both directions: `n=0` for the no-match case and `n=15` for `REQUIRED_WIRES` in
-   `scripts/*.sh`. Two spellings that look equivalent and are not — `git grep -cE … || true` yields the
-   **empty string**, not `0`, because `-c` prints nothing when it exits 1 (rule 3's own observation, one
-   step further); and `n=$(… | wc -l) || rc=$?` survives but carries `wc`'s leading whitespace into a
-   numeric comparison.
-2. **`-e` is not optional**, and belongs to D6's family: a pattern beginning with `-` is otherwise read
-   as an option, and git exits 129 — which rule 4 turns into a measurement-failed outcome, not a count.
-   This rule ended at *"the run dies before measuring anything"* from the round-1 rewrite until now;
-   §4.2's fail-without-ending rule and rule 4 together forbid that death, and C13's two arms discriminate
-   against what happens instead (§8.1).
-3. **Liveness (D4) runs before every measurement, against the tree the verbs read.** `git ls-files --
-   "$spec"` must yield ≥1 path (`lines=`: exactly 1), **and at least one of those paths must be present
-   in the working tree** — a question the wire asks existentially, stopping at the first present path
-   (below). That is the discriminator D4 names: a typo'd pathspec makes `git grep -cE` exit 1 with no
-   output — indistinguishable from a correct pathspec matching nothing — while `git ls-files` separates
-   the two.
-
-   The working-tree half is what makes the probe answer about the same tree the measurement will read. `git
-   ls-files` reports the **index**; all three verbs read the **working tree**. §6 measures the gap on a
-   fixture: with a file `git add`ed and then removed, `git ls-files` still lists it, while `git grep`
-   exits 1 with no output and `awk` exits 2. An unfiltered probe therefore passes and then measures
-   nothing — a `count=0` annotation goes green against a file that is not there, and any other value
-   reports `asserted=N actual=0`, which is I1×I4's stated hazard reached by a second route. `lines=`
-   does not even reach an outcome kind: it dies in `awk`, outside the `git`-status split rule 4 defines.
-
-   **Three diagnostics, spelled out, because §8's controls key on them and because two of them nested.**
-   A pathspec no tracked path matches prints *`in=` matches no tracked file*. A pathspec whose tracked
-   paths are all gone from the worktree prints *`in=` resolves to tracked paths, none present in the
-   working tree*. A `lines=` pathspec matching more than one tracked path prints *`lines=` resolves to
-   more than one tracked file*, with the count and the paths — the kind C11 asserts, and the kind no
-   stage stated before this revision. Revision 6 spelled the second one *"`in=` matches no tracked file
-   present in the working tree"*, which **contains the first verbatim**, so C10's arm — keyed on `matches
-   no tracked file` — would have been satisfied by a working-tree failure. The two have opposite fixes
-   (write a real pathspec / restore the deleted file); §4.3's rule that a diagnostic must name what it
-   found applies to any pair a reader has to tell apart, and a pair where one nests inside the other is
-   one diagnostic wearing two labels. §8.1 C28 controls both directions.
-
-   **The liveness question is existential, and spelling it as a filter broke I7.** Revision 7 wrote
-   that `git ls-files` output is *"filtered to the paths that exist in the working tree"*, and priced
-   it as *"an existence test per path the pathspec already resolves to, so I7's per-annotation term
-   keeps its order and gains no tree term"*. Both halves are wrong. What `count=`/`files=` need to know
-   is whether **at least one** resolved path is present, so the test **stops at the first hit**: on a
-   live annotation — every annotation the gate is meant to pass — that is one `test -e`, not one per
-   resolved path. (The exhausting walk survives only where it is unavoidable and off the hot path:
-   emitting *none present in the working tree* requires having looked at all of them, and that branch
-   ends the run.) The filter spelling paid the whole walk on every annotation, and a resolved path set
-   is not small: C10's own pathspec resolves to
-
-   ```
-   $ git ls-files -- 'crates/**/*.rs' | wc -l   → 1407
-   $ git ls-files | wc -l                       → 1706
-   ```
-
-   82% of the tracked tree — a **second** tree-proportional term per annotation, on top of the one
-   already there. Stating that precisely matters, because the first draft of this correction implied
-   the term was gone: `git ls-files -- "$spec"` itself returns those 1407 lines, and I3×I7 has accepted
-   that since the first draft as work *inside* I7's per-annotation term. Materialising the list is
-   unavoidable — the streaming spelling is worse, not better, since `git ls-files | while … break`
-   makes SIGPIPE the pipeline status under `pipefail` and kills the wire silently, which is the `wc -l`
-   defect of rule 1 in a second dress. What the short-circuit removes is the *added* `test -e` per
-   resolved path; what remains is the `ls-files` I3×I7 already prices. So: `count=` and `files=` stop
-   at the first present path, and `lines=`, whose pathspec must resolve to exactly one path anyway,
-   tests that one — and §8 records that nothing controls the stopping, because a `test -e` count is
-   neither a diagnostic nor a `git` invocation.
-
-   The failure was invisible because C27, I7's only control, counts `git` **invocations**, and an
-   existence test is not one; the invariant could be violated with its control green, and it still can
-   be — that is the recorded gap, not a closed one.
-
-   §6 recorded this asymmetry and left it unfixed. That was the wrong disposition and §6 now says so: a
-   bound records what S1 does not reach, and this is S1's own discriminator — the clause D4 exists to
-   make unfalsifiable — answering about the wrong tree.
-4. **A measurement command that fails for any reason other than "no match" is its own outcome.** The
-   rule is stated over *the measurement program*, not over `git`: all three verbs reach it, because
-   §4.2's capture rule now covers `lines` too. `git` exits 1 on no match, but 128 on a malformed ERE
-   that §4.3's reject-list does not cover (`foo(` — parentheses not balanced) and 129 on an unknown
-   switch; `awk` exits 2 on a path it cannot open. Under a branch that discards the status all of them
-   collapse to `n=0`, so a `count=0` annotation goes green on a pattern git refused to run, and any
-   other value reports `asserted=N actual=0` — I1×I4's stated hazard verbatim, where "the author reads
-   a mismatch and edits the count". The status is therefore split: 0 → the count, 1 → zero (`git` only;
-   `awk` has no no-match status), **anything else → a fourth outcome kind**, alongside malformed and
-   dead-pathspec: the run fails, and the diagnostic contains *`the measurement command failed`*, the
-   program's name, its exit status and its own stderr, and never `actual=`. Rule 1's snippet is what
-   supplies the status, which is why its `else` branch reads `rc=$?` before anything else.
-   §8.1 C29 (`git`) and C32 (`awk`) control it, so revision 6's closing sentence here — *"§8 needs a
-   control for it; it has none"* — is **withdrawn**: the control was written in a later commit of the
-   same revision and the sentence recording its absence was not re-read.
-
-**Argv (D6), and how I5 becomes probeable.** The parser emits `$verb`, `$expected`, `$icase`,
-`$pattern`, `$spec` as separate shell variables; the executor spells the call literally with every
-expansion double-quoted and never builds a command string. No `eval`, anywhere. The first draft called
-I5 unprobeable ("enforced by code shape and by review"). It is not — D6's hazard reproduces hermetically
-in a three-file fixture (`docs/a.md`, `docs/x/b.md`, `docs/x/y/c.md`, `git add`ed), under `/bin/bash`:
-
-```
-p="docs/**/*.md"
-git grep -lE -e alpha -- "$p" | wc -l   → 2      # one argv element: git's pathspec, * crosses /
-set -- $p; echo "$# word(s): $*"        → 1 word(s): docs/x/b.md
-git grep -lE -e alpha -- $p   | wc -l   → 1      # what a shell-globbing executor computes
-```
-
-No error, no warning — just a different answer. Two things this makes precise. The expansion is a
-*single* word, so it is pathname expansion, not word splitting: "quote it in case it contains spaces" is
-the wrong reason and would have missed it. And it must be run under `bash` — `zsh` neither splits nor
-globs an unquoted parameter expansion by default, so the same probe under this environment's login shell
-reports 2/2 and proves nothing. §8 C12 is this fixture.
-
----
 
 ### §4.5 What bounds the wire's cost, and what does not
 
@@ -892,7 +575,7 @@ a useful granularity, and S1 does not make it so.**
 
 What *is* asserted is structural, not measured: **the wire's work is one tree-wide `git grep` plus a term
 per annotation — never a term per tracked file.** That is visible in the code shape (§4.1's single
-tree-wide command, §4.4's per-annotation probe and measurement) and it is what keeps the ungated job's
+tree-wide command, §4.2's per-annotation probe and measurement) and it is what keeps the ungated job's
 real justification — no toolchain, no cache (`.github/workflows/ci.yml:128-130`) — true as annotations
 accumulate. The wire header records a re-runnable escalation trigger rather than a prediction — but
 **its action was one the design forbids**, and had been since the first draft: *"batch by `in=` before
@@ -1117,7 +800,7 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
    where a Python interpreter and `.claude/skills/**` internals are already present and permitted. Put
    in `claim-provenance-selftest.sh` instead, which §5's file table gives "every control in §8", it
    would put both on the ungated per-push path: exactly what §7 Q3 rejects option (b) on, and exactly
-   what C26 was deleted for. It is therefore **not** a `C`-row in §8.1 — §8.1's rows are the wire's
+   what C26 was deleted for. It is therefore **not** a `C`-row in the self-test — the self-test's rows are the wire's
    controls — and `claim_gate_selftest.py` already carries the adjacent probe that stubs the wire and
    replays the `check_annotations`-returns-nothing defect.
 
@@ -1167,7 +850,7 @@ push → draft PR → `/review <n>`.
   polarity would be the same unexecuted-claim medium one level down. What remains is not a bound but a
   deletion: with (c) adopted there is no fence tracking in the wire at all.
 
-- **The checker's second transcription of §4.2 and §4.4 retires inside this PR** (§0, §5's commit 5).
+- **The checker's second transcription of §4.2 and §4.2 retires inside this PR** (§0, §5's commit 5).
   Not a bootstrap that retires itself — revision 3 asserted that and it was false. Revision 6's
   replacement was a debt whose trigger was S1's own landing and whose owner was the branch S1 is
   stacked on; round 5 read the two halves together and they do not compose, because that owner merges
@@ -1211,16 +894,16 @@ push → draft PR → `/review <n>`.
   substance — the base is still declared and still includes this file — but stated correctly).
 
   The block's last four lines are a fourth consequence, and it is **not a bound — it was a defect, and
-  §4.4 rule 3 fixes it.** The D4 liveness probe read the **index** while all three verbs read the
+  the wire's rule 3 (§4.2–§4.2) fixes it.** The D4 liveness probe read the **index** while all three verbs read the
   **working tree**, so a file deleted in the worktree but still in the index passed liveness and then
   measured nothing. Revision 6 wrote it down here as "recorded rather than fixed", with no owner, no
   trigger, no re-eval date and no control; round 5 read that against what a §6 bullet is for. A bound
   records what S1 does not reach. This was S1's own discriminator — the clause D4 exists to make a
   claim falsifiable — answering about a different tree from the one it is guarding. The probe now
   filters to paths present in the working tree, with a diagnostic distinct from the dead-pathspec one,
-  and §8.1 C28 controls both directions. What remains a bound is the half no filter reaches: the wire
+  and the self-test C28 controls both directions. What remains a bound is the half no filter reaches: the wire
   measures uncommitted local edits, so a green local run is not a statement about what will be pushed.
-- **Single-line annotations only** (§4.4), and **`count` counts matching lines, not matches** — an author
+- **Single-line annotations only** (§4.2), and **`count` counts matching lines, not matches** — an author
   who meant "occurrences" measures something else, correctly and forever.
 - **The wire re-executes; it does not judge.** A pattern that measures the wrong thing stays green. The
   canonical instance is a substring swallowing its own boundary — `console` contains `sole` — where bare
@@ -1256,7 +939,7 @@ still reads files other lanes own, and C10's and C11's positives read one exit s
 live annotation in it — umbrella §2 records an unrelated lane's commit (`658cc302`) moving two of them
 already. Recommendation: keep the clone — umbrella §3 rows 4–5 route these exact inputs here, and
 umbrella §2's worked instance is the argument that a real firing beats a synthetic one — and read the
-residue as the reason C10's and C11's positives assert liveness rather than a value (§8.1).
+residue as the reason C10's and C11's positives assert liveness rather than a value (the self-test).
 
 **Q3 — CLOSED by round 3: the wire has no fence tracker.** The question was whether the wire should
 carry a third implementation of fence tracking (a), shell out to the Python one (b), or drop the fence
@@ -1268,8 +951,8 @@ decides it. **(c) is adopted**; §4.2 now has a single inertness rule and no per
 (b) is rejected on a ground worth recording, because C26 was violating it: it puts a Python interpreter
 in the path of a wire whose entire justification for running ungated is that it needs no toolchain
 (`.github/workflows/ci.yml:128-130`), and couples a repository gate to a skill directory's internals.
-That rejection now holds without exception — §8.1's C26, which ran the memo-checker inside the wire's
-self-test and did both of those things harder than (b) would, is deleted (§8.1).
+That rejection now holds without exception — the self-test's C26, which ran the memo-checker inside the wire's
+self-test and did both of those things harder than (b) would, is deleted (the self-test).
 
 **The layer rule that rejection implies, stated because §9 hands a decision across it.** Read alone, the
 (b) rejection and §9's routing collide: (b) forbids a Python interpreter and a skill-directory coupling
@@ -1301,256 +984,39 @@ being worth it, and no figure is offered here for the reason §4.5 gives.
 
 ---
 
-## §8 Test strategy
+## §8 Test strategy — **now in `claim-provenance-selftest.sh`**
 
-Every control below derives from a **specific clause of a section named in column 2**, and was built by
-reading that clause rather than by describing what the wire is meant to do. Most name §4; the rest name
-§6 (C0, C17 — the wire does not judge; self-matching is permitted), the acceptance corpus umbrella §3
-routes here (C19–C22), §1's size bound (C30) and §8.2's own acceptance clauses (C38, C39). **No count is
-given, and the reason is that this sentence has now been wrong twice with one.** The header and the
-opening sentence both said "§4" until round 6 measured the column and wrote "seven"; two rows added in
-the same revision made it nine before the round ended. A tally of a table in the prose beside it is a
-figure the next row falsifies — §4.6's class, in the section whose job is to be exact. Where a clause could not be
-turned into a control without inventing a rule, the gap is recorded as a finding — §4.4 (anchoring), §4.3
-(the diagnostic must name the escape), §6 (`in=` is one pathspec), and now §4.5 (I7's structural half is
-not a thing the wire says, below) — instead of being quietly completed.
+The control table is withdrawn from this memo for the reason §4.2–§4.2 gives: a control is a program,
+and a program's home is a file that runs. The controls exist, the driver runs them on every push (`REQUIRED_WIRES`), and their count is
+whatever `bash .claude/tools/claim-provenance-selftest.sh | tail -1` reports — a number stated here
+would be a quantity about this program's own tooling that the next control falsifies, and each `fail` arm names a substring the diagnostic must contain — because two
+different defects of one fixture produce the same exit code.
 
-Controls live in `claim-provenance-selftest.sh`, which the wire invokes from its own preamble under a
-recursion guard, in the shape `scripts/trip-wires.sh:113-184` uses; §4.1.2 states that preamble, because
-the guard is inherited and one control has to clear it. Hermetic controls run against a
-`mktemp -d` fixture repo built with `git init -q . && git add -A`; no commit is needed, since both
-`git ls-files` and `git grep` see added-but-uncommitted files (§4.4's argv block is such a fixture). The
-probe helper follows `scripts/trip-wires.sh:137`'s `st_probe` — `$1` expected `pass`/`fail`, `$2` label,
-**`$3` a substring the diagnostic must contain** — every call an operand of `||` per the `set -e` note at
-`scripts/trip-wires.sh:163-164`.
+**What stays here is the part a self-test cannot assert about itself.**
 
-**What `$3` has to discriminate.** Revision 2 asserted that no two `$3` values in the table below share
-a substring. That was false where it stood — bare `asserted=` was the whole `$3` of nine controls, and
-sat inside five others — and, more usefully, it was the **wrong requirement**, generalised from R1's
-real finding about C8 and C9 without asking what made those two a problem. What made them a problem was
-that they shared a *fixture*: two arms in one wire invocation, each keyed on `POSIX ERE`, so either
-would satisfy the other's assertion.
+*Fixture model.* `own` = its own `mktemp -d` and its own wire invocation, so two `own` controls cannot
+mask each other whatever their diagnostics. `escapes` and `escapes10` put several arms in **one**
+invocation, so within them the diagnostics must discriminate; they exist at all only under the
+fail-without-ending rule. `clone` = a `git clone --local` of this repository, built once and reused,
+one wire invocation per row.
 
-**The scope is the invocation, and "fixture" is shorthand for it only where the two coincide.** Two
-controls whose arms run in **separate wire invocations** cannot mask each other at all, because each
-invocation can only emit its own diagnostics; a shared *fixture directory* is irrelevant to masking
-except insofar as it forces a shared invocation. Revisions 2–7 stated this as "separate fixtures", and
-§4.1.1(b) — deciding whether six `clone` rows may share one clone — quoted it back with *invocations*
-substituted, which is the reading it needed and not the one written. Stated in its own voice here, the
-`clone` sharing follows without a quotation, and one row can carry several arms in one invocation
-(C18, C25) without the model losing vocabulary for it.
+*Mutation, not assertion.* A first run reporting every control green is a claim about the controls. The
+controls were mutation-tested: removing the mention arm reds 4, dropping the `.claude/tools` exclusion
+reds 18, spelling `lines` as `wc -l` reds 5, dropping the regular-file test reds 6, dropping the reject
+list reds 12, rejecting every backslash reds 12, and swallowing the fourth outcome kind reds 1. **Each
+mutation was confirmed to have applied before its result was read** — the first harness silently
+changed nothing and reported two clean mutations as controls that cannot fire.
 
-**What a Fixture value means, because `UNIQ`'s whole verdict rests on it.** Round 3 found the column
-being read as load-bearing while nothing wrote its meaning, and the shape §8 cites for the self-test —
-`scripts/trip-wires.sh:113-184` — does the opposite: **one** `mktemp -d`, mutated between probes. Under
-that shape all ten bare `asserted=` rows share an invocation and collide. So the model is stated:
+*The one the guard was disabling.* C18 proves the wire requires its helper by name and invokes it. Run
+standalone, the self-test has no recursion guard set and both arms passed; invoked by the wire — which
+sets it — they inherited it and were exercising a wire that skips the very step C18 exists to prove.
+They clear it explicitly now. Only running through the driver revealed it, and §4.1.2 had predicted the
+inheritance hazard in the prose the control was written from.
 
-| Fixture | Means |
-|---|---|
-| `own` | **its own `mktemp -d` and its own wire invocation**, torn down after. Two `own` rows cannot mask each other by construction, whatever their `$3`. |
-| `escapes` | one fixture carrying both C8's and C9's annotations, so their diagnostics must discriminate — this is the pair R1's finding was actually about. Both arms are malformed, so the row exists at all only under §4.2's fail-without-ending rule: a wire that stopped at the first malformed annotation would never reach C9's. |
-| `escapes10` | C25's fixture: **ten arms in one wire invocation**, one per rejected escape. Named separately from `own` because `own` means one arm per invocation, so `UNIQ` — which groups by this column — never examined C25's ten `$3` values while the row claimed a fixture whose definition says collisions are impossible by construction. Within this invocation the `$3` values must discriminate, and do: each names the escape it was given. |
-| `I7` | C27's counting-shim fixture, built at two annotation counts; one wire invocation each, instrumented, and what is asserted is the shim's tally rather than a diagnostic (below). |
-| `clone` | a `git clone --local` of this repository, built **once per self-test run** and reused by every `clone` row, but with **one wire invocation per row** — the annotation is planted in a tracked file of the clone and removed after, so the scan acquires it (§4.1.1(b)). The sharing is cost, not scope: by the model above, separate invocations cannot mask each other, so `clone` rows carry no `$3` requirement beyond every other row's. |
+*Gaps, recorded rather than completed.* §4.2's liveness short-circuit has no control: the property is a
+count of `test -e` calls, which is neither a diagnostic nor a `git` invocation, so neither probe shape
+reaches it. C12, C19–C22, C27, C38 and C39 are unwritten (above).
 
-So the property is scoped to the invocation, and the table below carries the **Fixture** column that
-makes it decidable:
-
-> Within one fixture, no negative arm's `$3` is a substring of another's — and each is specific enough
-> to separate the failure the control intends from every *other* failure that fixture can produce.
-
-**The kinds, and the stage each is emitted by.** Revision 6 named three of them in that paragraph —
-`asserted=<N>`, `matches no tracked file`, the escape named verbatim — while §8.1 asserted `$3` strings
-outside all three, and §4 specified no stage that emitted them: `MALFORMED` (C6, C7), `resolves to more
-than one` (C11), `self-test helper` (C18). A control asserting a string nothing is required to print is
-`ban_control` in the other direction — it fails whatever the wire does, until the day someone writes the
-missing stage and it starts passing for a reason nobody chose. So the list is complete, and every entry
-names where it comes from:
-
-| Kind | Substring the diagnostic carries | Stage that emits it |
-|---|---|---|
-| a measurement that disagrees | `asserted=<N>`, beside `actual=<M>` | §4.4's verb table |
-| a malformed annotation | `MALFORMED`, then file, line, first unparsed field | §4.2 |
-| a rejected escape | the escape verbatim (`contains \d`), after `MALFORMED` | §4.3 |
-| a pathspec matching no tracked path | `matches no tracked file` | §4.4 rule 3 |
-| tracked paths, none in the worktree | `present in the working tree` | §4.4 rule 3 |
-| `lines=` matching several paths | `resolves to more than one` | §4.4 rule 3 |
-| a measurement command that failed | `the measurement command failed`, with the program, its status and its stderr | §4.4 rule 4 |
-| a `lines=` path that is not a regular file | `resolves to a path that is not a regular file` | §4.4 rule 3 |
-| the clone the acceptance corpus needs could not be made | `could not build the corpus clone`, with git's status | §4.1.1 |
-| the self-test helper is absent | `self-test helper`, with the path looked for | §4.1.2 |
-| a shipped file over the band | `exceeds 800 lines` | §1's bound, asserted by the self-test |
-
-None nests inside another, which is why bare `asserted=` is adequate in a one-annotation fixture and
-inadequate the moment two live in one — and it is why §4.4 rule 3 no longer spells the working-tree
-diagnostic as the dead-pathspec one plus a suffix.
-
-Two `$3` values in §8.1 are deliberately outside this table, and each is stated where it is used: C27's
-shim tally and C18's arm (b) stub token. Both belong to controls whose subject is *whether the wire ran
-something*, which is not a thing a diagnostic can report — the alternative is to teach the wire to
-announce its own test hooks, which is the dead-code-with-one-caller shape §4.1.1 withdrew `--one` over.
-
-**One control has no diagnostic to key on, and it gets a second probe shape rather than an invented
-one.** C27's subject is I7's structural half — one tree-wide `git grep`, then a term per annotation —
-which is a property of *what the wire ran*, not of what it printed. Revision 4 wrote that this was
-probeable "in exactly C12's shape"; it is not, and the difference is the whole of this section: C12's
-discriminator is a wire-visible `asserted=1`, the value a shell-globbing executor computes, while C27's
-is an invocation count no stage compares and no diagnostic reports. Revision 4's negative arm — the same
-fixture at six annotations, `$3` of `git invocations` — could not fire in either half: a fixture of
-well-formed annotations makes the wire exit 0, which `st_probe fail` rejects before ever looking at `$3`,
-and `git invocations` is not a string anything emits.
-
-So C27 uses `st_tally`, the second of **three** probe shapes this section states: it puts a counting `git`
-shim first on `PATH`, runs the wire once over the fixture, and asserts the **tally the shim wrote**
-rather than a substring of the wire's output. Its arms are two runs of one fixture — at three annotations
-and at six — and what discriminates is how the tally moves: the tree-wide scan stays at one invocation in
-both, and the per-annotation term doubles with the annotation count. A wire that re-scanned per
-annotation moves the scan count with it; a wire whose per-annotation term walked the tree would move with
-neither. §8's `$3` model does not reach this shape, and per this section's own rule that is recorded as a
-finding rather than papered over with a `$3` the wire would have to be taught to print.
-
-**The third shape is `st_selftest`: the self-test asserts about something the wire *printed* or about
-the shipped files, rather than about a wire invocation's status or diagnostics.** C30 is §1's size
-bound, measured over the two files the self-test ships beside, failing with `exceeds 800 lines`.
-C38 and C39 are §8.2's clauses 3 and 4, read off the wire's printed inventory — necessarily, because a
-missing `lines=` annotation and a mis-tiered mention are states the wire does not *fail* on, so no exit
-status and no `$3` can carry them. Revision 7 gave C30 a `$3` and left it inside a sentence declaring
-`st_tally` the only other shape — a row whose mechanism the section denied having.
-
-**The short-circuit in §4.4's liveness rule has no control, and that is recorded rather than papered
-over.** C34 asserted it and is **withdrawn**: its fixture put only the last resolved path in the
-worktree, which is exactly the arrangement in which a short-circuiting wire and an exhausting wire do
-the same work and return the same verdict, so neither arm could discriminate. The property is a count
-of `test -e` calls — not a `git` invocation, so `st_tally` cannot see it either (§4.4 rule 3 says as
-much about C27 two paragraphs before it named C34 as the control), and not a diagnostic, so `st_probe`
-cannot. This is the same gap §4.5 records for I7's wall-clock half, in its structural half, and §8's
-rule is to state it here rather than invent a `$3` for it.
-
-**Which rows may be negative-only, and why that is a rule rather than an omission.** Six rows carry no
-positive: C6, C19–C22, C25. Two grounds, and every negative-only row must name one. **(a) The clause has
-no passing direction.** A malformed annotation is the whole subject of C6 and C25, and §2's I1×I6 licenses
-exactly this — *"malformed-that-fails"* has no counterpart. C37 now supplies the accepting direction for
-§4.3 as a separate row, which is where it belongs: it is a different clause, not C25's other arm.
-**(b) The row's input is a historical constant whose correct verdict is FAIL.** C19–C22 assert that a
-known-false annotation is still known-false; a "positive" would assert the tree agrees with a figure the
-corpus exists to record as wrong. §8.1's paragraph on those rows states what happens if it ever does.
-Any future row with a dash in the Positive column and neither ground stated is an unfinished row.
-
-`claim-gate-plan-check.py`'s `UNIQ` check enforces the scoped form, grouped by the Fixture column, and its
-`FIXTURE` check verifies the column against each row's own `in=` pathspec — a label a reader must trust is
-not a specification. Two groups put more than one arm in one invocation and so are the two the `$3`
-requirement bites in: `escapes` (C8, C9) and `escapes10` (C25's ten). Revision 5 read the `clone` group as
-a third and round 5 found that reading strands C10's and C11's positive arms, so §4.1.1(b) fixes the clone
-as one invocation per row and the requirement falls away with it. C25 sat in `own` until round 6, which
-is why `UNIQ` — grouping by this column, and told by `own`'s definition that collisions are impossible by
-construction — never examined its ten values.
-
-### §8.1 Controls
-
-| # | Clause under test | Fixture | Positive (must pass) | Negative (must fail; `$3`) |
-|---|---|---|---|---|
-| C0 | §6 "the wire does not judge" | own | fixture with `console.log` and `the sole caller`; boundaried pattern, true count | bare `sole` pattern carrying the boundaried count (`asserted=`) |
-| C1 | §4.4 "not anchored to either end" | own | annotation inside a GFM table cell, true count → executes | same cell, wrong count (`asserted=`) |
-| C4 | §4.2 backtick arm, odd *k* | own | backticked annotation, deliberately wrong count → ignored | same line with the backticks removed (`asserted=`) |
-| C5 | §4.2 the backtick arm on `.sh` | own | backticked annotation in a `#` comment in a `.sh` → ignored | same `#` comment unbackticked, wrong count (`asserted=`) |
-| C6 | §4.2 malformed fall-through | own | — | `<!-- claim cont=3 pattern="x" in="a.md" -->` (`MALFORMED`) |
-| C7 | §4.4 `lines-verb` takes no `pattern` | own | `lines=` alone, true length | `lines=5 pattern="fn" in="a.md"` (`MALFORMED`) |
-| C8 | §4.3 reject `\d` | escapes | `[0-9]` accepted, true count | pattern containing `\d` (`contains \d`) |
-| C9 | §4.3 reject `\b` | escapes | `([^A-Za-z]\|$)` accepted, true count | pattern containing `\b` (`contains \b`) |
-| C10 | §4.4 liveness, `in=` ≥ 1 | clone | `files=<N> pattern="fn " in="crates/**/*.rs"`, **`<N>` computed from the clone at run time** — the row's subject is that the probe resolves and the wire proceeds, not the count | `in="crates/**/*.rss"` (`matches no tracked file`) |
-| C11 | §4.4 liveness, `lines=` exactly 1 | clone | `lines=<N> in=".claude/tools/layout-box-reader-trip-wire.sh"`, `<N>` computed the same way | `in=".claude/tools/wasm-*-trip-wire.sh"`, which resolves to 2 (`resolves to more than one`) |
-| C12 | §4.4 argv fidelity (I5) | own | §4.4's three-file fixture, `files=2 … in="docs/**/*.md"` → passes only if the pathspec reached git as one argv element | `files=1` with the same pathspec (`asserted=1`) — the value a shell-globbing executor would compute |
-| C13 | §4.4 `-e` is not optional | own | `pattern="-> u32"`, true count — a wire without `-e` cannot pass this arm, because git exits 129 and rule 4 makes that a measurement-failed outcome instead of a count | same pattern, wrong count (`asserted=`) — on a wire without `-e` the run fails with rule 4's diagnostic instead, which the probe reports as a failure for the wrong reason |
-| C14 | §4.4 `count` = matching lines | own | fixture line reading `sole sole`, `count=1` | `count=2` on the same fixture (`asserted=2`) |
-| C15 | §4.4 `count=0` must not abort | own | `count=0` on a pattern that matches nothing → passes, wire continues | `count=1` on the same (`asserted=1`) |
-| C16 | §4.1 D2 self-exclusion, **both** directions | own | wrong-count annotation under `.claude/tools/` → not scanned, stays green | the byte-identical annotation one directory up (`asserted=`) |
-| C17 | §6 self-matching is permitted | own | annotation whose pattern matches its own line, count **including** that line | same annotation, count excluding it (`asserted=`) |
-| C18 | §4.1.2 the wire requires its helper by name, and invokes it | own | wire + a **stub** helper copied into a fixture dir, guard cleared → the stub runs, the wire scans and exits 0 | (a) the wire copied with no helper at all (`self-test helper`); (b) the same fixture with a stub that exits non-zero after printing its own token (`STUB-SELFTEST-RAN`) |
-| C19 | acceptance corpus — v1 `count` (umbrella §0.1) | clone | — | `count=299 pattern="#\[test\]" in="crates/shell/elidex-shell/src/**/*.rs"` (`asserted=299`) — the pathspec says `src/` where 299 was the whole crate |
-| C20 | acceptance corpus — v1 `files` | clone | — | `files=7 pattern="REQUIRED_WIRES" in="scripts/*.sh"` (`asserted=7`) |
-| C21 | acceptance corpus — v1 `lines` | clone | — | `lines=1219 in="docs/plans/2026-07-app-mode-turn-completion-drain.md"` (`asserted=1219`) — 1219 was a line *number* |
-| C22 | acceptance corpus — #504 §5, the row umbrella §3 row 4 routes here | clone | — | `lines=632 in="crates/shell/elidex-shell/src/app/drain_host/mod.rs"` (`asserted=632`) |
-| C23 | §4.4 the optional `icase` keyword | own | fixture carrying `SOLE` and `sole`; `count=2 icase pattern="sole"` | the same annotation **without** `icase`, still asserting 2 (`asserted=2 `) — proves the keyword is read, not ignored |
-| C24 | §4.2 the backtick arm on `.toml` | own | backticked annotation in a `#` comment in a `.toml` → ignored | same `#` comment unbackticked, wrong count (`asserted=`) |
-| C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | `escapes10` | — (the accepting direction is C37's) | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
-| C27 | §4.5 I7's structural half | `I7` | **three `count=` annotations** under a counting `git` shim first on `PATH`: the tally records exactly **one** tree-wide `git grep`, and a per-annotation term of **six** — two `git` invocations per `count=`/`files=` annotation, the liveness `git ls-files` and the verb's `git grep`, derived from §4.4 rather than asserted (the presence test is `test -e`, not `git`, and `lines=` measures with `awk`, so the mix has to be fixed for the number to mean anything) | the same fixture at six `count=` annotations: the scan term must still be one and the per-annotation term must be twelve — read from the shim's tally, not from any wire diagnostic (`st_tally`) |
-| C28 | §4.4 rule 3, liveness resolves against the working tree | own | `lines=2 in="a.md"` on a `git add`ed file that is present in the worktree | the same annotation after the file is removed, its path still in the index (`present in the working tree`) |
-| C29 | §4.4 rule 4, a measurement `git` refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`the measurement command failed`) |
-| C31 | §4.4 `lines` counts lines, not newlines | own | `lines=2` on a two-line file **with no trailing newline** — `awk` gives 2, which the annotation asserts | the same fixture asserting `lines=1`, the value `wc -l` computes (`asserted=1`) — so a wire respelled to `wc -l` reds the positive |
-| C32 | §4.4 rule 4 reached from `lines`, and rule 1's `rc=$?` ordering | own | `lines=2` on a readable two-line file | the same annotation with the file's mode set to `000`, so `awk` exits 2; must NOT report `actual=0` (`the measurement command failed`). A wire whose failing branch writes before it reads `$?` reports `asserted=2 actual=0` instead, which this arm rejects |
-| C33 | §4.4's `lines` rule, a path that is present but not a regular file | own | `lines=2 in="a.md"`, a regular file | `in="link"`, a **tracked symlink to a directory** (mode 120000; `git add -A` records it, no commit needed) — `git ls-files -- 'link'` yields exactly `link`, `test -e` passes, `test -f` fails, and `awk` exits **0** answering **0**, so the wire must refuse on the file-type test rather than on status (`resolves to a path that is not a regular file`). A plain directory `d` is **not** the shape: `git ls-files -- 'd'` yields `d/x.md`, so the row would measure a regular file |
-| C34 | *withdrawn* — see §8's gap note on the short-circuit | — | — | — |
-| C35 | §4.2, §3 row (ii): a **fenced** annotation is strict, not inert | own | a fenced annotation with a true count → executes and passes | the byte-identical fenced annotation with a wrong count (`asserted=`) — reds on a wire that reinstated fence-inertness, which is what three revisions specified and what nothing has controlled since C2/C3 were deleted with the rule |
-| C36 | §4.2 the backtick arm on `.rs` | own | backticked annotation in a `//` comment in a `.rs` → ignored | the same comment unbackticked, wrong count (`asserted=`) — the fourth surface §4.2 is normative over and the only one with no row |
-| C38 | §8.2 clause 4, one strict annotation per verb | `clone` | **`st_selftest`**: the wire's printed inventory names a `count=`, a `files=` and a `lines=` among the strict annotations — the `lines=` one being §5's, `in=".claude/tools/layout-box-reader-trip-wire.sh"` | the clone with that annotation deleted: the inventory must then lack a `lines=` strict row. Read from the inventory, **not** from `$3` — deleting an annotation leaves the wire exiting 0, so an `st_probe fail` arm could never fire |
-| C39 | §8.2 clause 3, every illustrative annotation classifies as *mention* | `clone` | **`st_selftest`**: over `in="docs/plans/*.md"`, the real population both memos live in, the inventory classifies every backticked annotation as `mention` | one of them with its backticks removed. Measured: all three tree mentions are **malformed** once unbackticked, so the wire reds with `MALFORMED` and clause 2 is what fails — which is the observable, and what this arm asserts. Revision 8's first draft asserted `asserted=`, a verdict this input cannot produce |
-| C37 | §4.3 the reject set is **exactly** those ten, in the accepting direction | own | `count=1 pattern="fn \("` on a fixture line reading `fn (x)` — a backslash outside the reject set, accepted, and measured (verified: `git grep -cE 'fn \('` → 1) | the same annotation asserting `count=2` (`asserted=2`) — so a wire that rejects every `\` reds the **positive** instead of passing C8, C9 and all ten of C25 vacuously. `own` rather than `escapes`: the `escapes` fixture's arms are all malformed, so its invocation exits non-zero and a positive there could not be read from exit status (§4.1.1(b)'s reasoning, applied to the group that raised it) |
-| C30 | §1's size bound on the shipped files | own | both files under the band → self-test passes | a fixture copy padded past 800 lines (`exceeds 800 lines`) |
-
-**C10's and C11's positives assert a computed value, and that is the point of them.** Revisions 1–6 gave
-them no verb and no number ("`in="crates/**/*.rs"`", "one-file pathspec"), which was survivable while
-they were hermetic `own` rows whose fixture fixed the value, and stopped being so when revision 5 moved
-them to `clone`: in a clone of this repository every such value is a live measurement of files other
-lanes own. A hard-coded number would red the self-test on an unrelated commit — this program's own
-failure class, inside its own gate. So the self-test computes the expected value from the clone and
-plants it, and §8.1's row says so, because a reader would otherwise take the positive as an assertion
-about the count. What the row asserts is the **liveness clause**: the probe resolves, and the wire
-proceeds to measure rather than failing first. The negatives carry the discrimination, as they do
-everywhere else in this table.
-
-C23–C25 close three clause-shaped holes round 2 named: the `icase` keyword, the `.toml` surface (C5's
-row claimed both `.sh` and `.toml` and its fixture is a `.sh`), and the reject set, of which two of ten
-characters were controlled. C25 is one row rather than ten because the ten differ only in the character
-fed to the same clause — a loop over the set, asserting the diagnostic names *the escape it was given*,
-which is the property §4.3 states and which ten hand-written rows would restate ten times.
-
-**C27 is round 3's, and it closes the last invariant with no control.** I7 was the only one of the seven
-enforced by §4.5's sentence *"That is visible in the code shape"* — which is verbatim the reasoning
-§4.4 records as the first draft's error about I5 (*"The first draft called I5 unprobeable ('enforced by
-code shape and by review'). It is not"*) and then refutes with a hermetic fixture. The lesson was
-applied to I5 and not to its sibling. The wall-clock half of I7 stays unbounded and §4.5 stays right to
-withdraw the runtime table; the **structural** half is probeable, and revision 4's "in exactly C12's
-shape" named the wrong likeness. What C27 takes from C12 is the *lesson* — a claim about code shape is
-testable — and not the mechanism: C12 discriminates on a value the wire prints, C27 on invocations the
-wire makes, which nothing prints. §8 states the probe shape that reads them.
-
-**Deleted in revision 4**: C2 and C3 (the `.md` and `.rs` fence arms — §4.2 has no fence arm), and C26,
-which ran `claim-gate-plan-check.py --self-test` inside the wire's self-test. C26 was two defects at
-once: it put a Python interpreter and a dependency on `.claude/skills/elidex-plan-review/` internals
-into the wire's path, which is the ground §7 Q3 rejects option (b) on and which §4.6 keeps
-`ci.yml:152`'s "No toolchain step" true against; and its negative arm named no input, asserting a `$3`
-of `probes ok` that the checker prints on success. A control that cannot red is §2 I4×I6's `ban_control`.
-
-**C18 is the one control that has to clear the recursion guard, and the fixture is what makes clearing it
-safe.** Until this revision the row read "wire + helper copied into a fixture dir → runs" against a `$3`
-of `self-test helper`, and neither half held. The guard is an environment variable
-(`scripts/trip-wires.sh:139`) inherited by everything the self-test spawns, so a probe that left it set
-exercises a wire that skips §4.1.2's step 3 altogether and the invocation goes unproved; clearing it with
-the *real* helper copied in makes the copied wire run the whole self-test — clone, corpus and C18 —
-inside C18. So the fixture carries a **stub** helper: it announces itself and exits with the status the
-arm wants, and it is not the self-test, so the recursion has nowhere to go. Arm (b)'s token can only come
-from the stub, which is what proves the wire invoked it and propagated its status. Arm (a) does not
-depend on the guard either way, because §4.1.2 puts the existence check ahead of it — and its `$3` is now
-a string a stage is required to print, rather than a phrase read off §3's branch column while the wire
-would have emitted `No such file or directory`.
-
-**C28 is round 5's, and it is the only row here that exists because a §6 bound turned out to be a
-defect.** §6 recorded the D4 probe reading the index while the verbs read the working tree, and recorded
-it as something S1 does not reach. It is S1's own discriminator, so §4.4 rule 3 fixes it instead and
-this row proves both directions: a present file measured, a removed-but-still-indexed file refused with
-a diagnostic that says *which* of the two liveness failures it is. Its `$3` is deliberately not
-`asserted=` — the failure being controlled is the probe firing at all, and a wrong-count substring
-would pass on a wire that skipped the probe and merely mismeasured.
-
-C4, C5, C16 and C24 all use the **wrong-count-inert / right-shape-live** pairing rather than a merely-ignored
-annotation, so a regression in an inertness rule reds the *positive* control instead of leaving it
-vacuously green.
-
-C19–C22 are the corpus umbrella §3 rows 4–5 route to S1: known inputs whose correct verdict is known
-independently of this program. They run against the live tree (§7 Q2). Their asserted values are
-historical constants, so the assertion — FAIL, with the diagnostic naming that constant — does not
-depend on any live figure; if the tree ever drifted into agreement the control would red and say the
-corpus row had gone vacuous, which is the honest outcome.
 
 ### §8.2 Live-tree acceptance
 
@@ -1574,7 +1040,7 @@ The last clause stops the criterion being satisfiable by a wire that classifies 
 are the wire's exit status. Clauses 3 and 4 are not: a mention is *ignored*, and a verb is not visible in
 an exit code, so a per-annotation tier-and-verb listing has to exist somewhere or half of a criterion
 called *standing* is re-checkable only by programs that were thrown away. It was: the listing below comes
-from two throwaway programs — a classifier transcribed from §4.2/§4.4's literal text and an executor for
+from two throwaway programs — a classifier transcribed from §4.2/§4.2's literal text and an executor for
 the three verbs — which are not in the deliverable (§5 ships the wire and the self-test, and no commit
 adds anything else), and whose transcript the checker reports among the commands it cannot re-run. With
 §4.2's inventory the whole criterion is read off one run of the wire, which is the artifact that survives
@@ -1599,7 +1065,7 @@ containing it — D10 form 3):
 ```
 $ git grep -nE '<!--[[:space:]]*claim[^A-Za-z]' \
     -- '*.md' '*.rs' '*.sh' '*.toml' ':(exclude).claude/tools/**' | wc -l
-       8
+       7
 $ python3 <prototype-classifier> <this memo> <the umbrella>
 --- {'strict': 5, 'mention': 3}
 $ bash <prototype-executor>
@@ -1622,7 +1088,7 @@ backtick arm must be evaluated against the backticks *before* the `<!--`, and th
 share an argument position with `pattern` — the production's own "`lines=` takes no `pattern`" clause
 surfacing in the implementation, and why C7 exists.
 
-The same executor over §8.1's corpus rows reproduces all four expected failures:
+The same executor over the self-test's corpus rows reproduces all four expected failures:
 
 ```
 FAIL    count asserted=299   actual=80     in=crates/shell/elidex-shell/src/**/*.rs
@@ -1700,11 +1166,11 @@ $ python3 .claude/skills/elidex-plan-review/preflight.py \
   unmapped-label rows:  8  (has §<number>, label not in SPEC_LABEL_REVERSE)
   unique specs (K):     2
   split decision:       ok (single PR scope)
-  grep-pass:            0 hard, 9 soft
+  grep-pass:            0 hard, 5 soft
 EXIT=0
 ```
 
-All 9 soft findings are one shape: a `crates/…**/…` pathspec read as a filesystem path by Check 1's
+All 5 soft findings are one shape: a `crates/…**/…` pathspec read as a filesystem path by Check 1's
 matcher, which cannot resolve a glob. The `⚠ unrecognized labels` line for the two in-repo documents §3
 substitutes for spec rows is printed *outside* that tally and is not one of them — a decomposition the
 first draft got wrong in both directions. Zero Check 3 findings: every enumeration claim in this memo has
@@ -1716,11 +1182,11 @@ attribution stood as "§2's I6×I7 row and §4.5's exemption" until round 5 read
 C10 and C19 in prose and carries no pathspec literal at all, so it contributes nothing to this tally.
 The sentence also said "this revision", inherited unchanged from the revision where it was true.
 
-It moved to 8 in the round-5 pass: giving §8.1's C10 a positive that states the verb it exercises put an
-eighth tree-scale pathspec in that row. It moved to 9 in the round-6 pass, at **one** site: §4.4 rule 3
+It moved to 8 in the round-5 pass: giving the self-test's C10 a positive that states the verb it exercises put an
+eighth tree-scale pathspec in that row. It moved to 9 in the round-6 pass, at **one** site: the wire's rule 3 (§4.2–§4.2)
 had to show what C10's pathspec resolves to in order to price the liveness test that broke I7, and that
 measurement is a pasted `git ls-files` whose argument is the pathspec itself. §2's I3×I7 row states the
-same `1407 of 1706` and contributes nothing here, because it cites §4.4 rather than repeating the
+same `1407 of 1706` and contributes nothing here, because it cites §4.2 rather than repeating the
 argument — the distinction this paragraph got wrong about §4.5 one paragraph above, established by
 locating every such literal rather than by recalling where they are.
 
@@ -1760,13 +1226,13 @@ an own deferral and is counted as one.
 
 **Three of revision 6's routings were dischargeable here, and two of them became commits.** The third
 became a design fix inside commit 1 rather than a commit of its own — stated because this section's own
-rule is that an owner is *a commit, or a file that exists*, and "fixed in §4.4 rule 3" is neither until
+rule is that an owner is *a commit, or a file that exists*, and "fixed in the wire's rule 3 (§4.2–§4.2)" is neither until
 the row says which commit carries it.
 
 | Routed to, revision 6 | Why that owner could not hold it | Disposition |
 |---|---|---|
-| the branch S1 is stacked on, triggered by S1's landing (§0, §6) — retire the checker's second transcription of §4.2/§4.4 | it merges **before** its own trigger fires; on the day the wire exists there is no such PR left to delete `claim_gate_grammar.py` or write the closing control | **§5's commit 5.** The PR that creates the wire is the only one that can delegate to it |
-| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in §4.4 rule 3** (inside §5's commit 1, which specifies the grammar), controlled by §8.1 C28 and C34. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
+| the branch S1 is stacked on, triggered by S1's landing (§0, §6) — retire the checker's second transcription of §4.2/§4.2 | it merges **before** its own trigger fires; on the day the wire exists there is no such PR left to delete `claim_gate_grammar.py` or write the closing control | **§5's commit 5.** The PR that creates the wire is the only one that can delegate to it |
+| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in the wire's rule 3 (§4.2–§4.2)** (inside §5's commit 1, which specifies the grammar), controlled by the self-test C28 and C34. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
 | "the **L4 lane**" — the five false rows of #504's `Lines at HEAD` table (§8.2) | a lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive it | **§5's commit 6**, value-only, so C21 and §8.2 stay true |
 
 **One candidate was audited and is not a slot** — the wire's cost as the annotation count grows.
