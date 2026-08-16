@@ -54,7 +54,27 @@ of §7 Q3. A contract stating that commands were run is written by an author who
 The mechanism is `claim-gate-plan-check.py`: pasted commands are re-executed and their pasted answers
 compared, tables are checked for exhaustiveness and for the properties their own preambles assert, and
 a fact about how two programs behave is measured by running them rather than by reading either one.
-Where a claim below cannot be put under that checker, it is **removed**, not restated more carefully.
+
+**Where a claim below cannot be put under that checker, one of two things happens, and until round 6
+this paragraph named only the first.** It said *removed, not restated more carefully*, and that rule was
+false of this file at every revision that stated it: the checker reported eleven pasted commands it
+declined to re-run, and one of them was the `set -euo pipefail` pair that overturned §4.4 rule 1 after
+five rounds — the single most valuable measurement here, which the rule as written prescribed deleting.
+The second disposition is the one that was actually taken and never written down: **extend the
+mechanism**. Round 6 did, and the criterion it changed is the point — the checker admitted a command by
+the *name it starts with*, so every `bash -c` was refused, including read-only ones, while the reason to
+refuse `git clone` was never the word but the side effect. A `bash -c` whose script only reads is now
+re-executed and compared like any other paste, and the pipefail pair is under the checker rather than
+exempt from it.
+
+So: a claim the checker cannot hold is **removed unless the mechanism can be extended to hold it**, and
+the residue is a **bound, not a silence** — the checker names every command it declined and why, so the
+residue is read off the run rather than asserted here. No count is given for it: a count of the un-run
+set is a quantity about this memo's own tooling that any later paste falsifies, which is the class D10
+form 2 exists for. The kinds are stable and the numbers are not: programs the checker does not run
+(`python3` against this repo's own skills, and the two throwaway prototypes §8.2 names), commands
+needing shell state the paste omits (§4.4's argv fixture builds its own repo), and fixture blocks whose
+subject is not this tree. Every one is a command a reader can run; none is a figure asserted without one.
 
 Measurement base, stated as a **property** rather than a hash: *the working tree at this branch's head,
 with this memo `git add`ed*. It was a hash — `ef18b828` — from revision 3 until round 5 measured it:
@@ -648,10 +668,18 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
 
    ```
    $ bash -c 'git grep -nE "fetch-depth" -- ".github/workflows/ci.yml" | wc -l; echo rc=$?'
-   0 / rc=0                                    # plain shell — what revisions 1–6 pasted
+          0
+   rc=0
    $ bash -c 'set -euo pipefail; git grep -nE "fetch-depth" -- ".github/workflows/ci.yml" | wc -l; echo SURVIVED'
-   0                                           # SURVIVED never prints; script exits 1
+          0
    ```
+
+   The first is a plain shell, which is what revisions 1–6 pasted. In the second
+   `SURVIVED` never prints and the script exits 1. The commentary is out here rather than
+   trailing the output lines because those lines are now **re-executed and compared** — the
+   checker admits a `bash -c` whose script only reads — and a comment appended to a pasted
+   line makes the paste differ from what the command prints. It reported both of these the
+   moment it could run them.
 
    This is why five review rounds passed over it: **the pasted evidence was honest.** It records a plain
    shell, in which it is true, and the checker re-runs pasted commands in a plain shell — so the
