@@ -53,18 +53,34 @@ passages 6 → 19, until 30% of the file was past-tense narrative and every find
 was a consequence of an earlier fix. That is the rule the umbrella already states — *"a past-tense
 ledger restates the normative decisions and then drifts from them"* — arrived at the hard way.
 
-* **`preflight.py` — 0 hard, 1 soft**, plus one warning outside the soft count. The soft one is
-  this line's own `1 entries` enumeration; the other is
-  `unrecognized labels: ['CSS 2']`, which is **not noise** — it is why the run also reports
-  `parsed citations: 0`, i.e. the §3 citation gate is *vacuous* for this memo as it is for every
-  CSS-module plan-memo. ⚠ **Not this PR's to fix, and not waved away either**: extending
-  `preflight.py`'s `SPEC_LABEL_REVERSE` to CSS-module labels is the standing plan-checker
-  maintenance note in `.claude/skills/elidex-plan-review/SKILL.md`, whose trigger is "the first PR
-  that ships these two files" — which, after the narrowing above, is **not this PR**. It travels
-  with the umbrella's tooling. What that costs *here* is stated rather than hidden: **both** of
-  §3's citations were verified by hand, because the gate could not — `webref heading CSS2 10.8`
-  and `webref heading css-writing-modes-4 6.4`. ⚠ Stated as "both", not as a count: §3's own K/M
-  line is the count, and a second copy of a derived value here is what drifted (§5.5).
+* **`preflight.py` — run it, do not read a stored verdict from here.**
+
+  ```
+  python3 .claude/skills/elidex-plan-review/preflight.py \
+      docs/plans/2026-08-inline-seam3-reconcile-split.md
+  ```
+
+  ⚠ **No counts are recorded in this bullet, for the same reason §5.5 records no `wc -l`**: the
+  checker's output is a function of the memo, so *every edit to the memo can change it* — and one
+  did. An earlier form of this bullet stored `0 hard, 1 soft` and `unrecognized labels: ['CSS 2']`;
+  adding §3's `css-writing-modes-4` row later made both wrong (a second `entries` warning, a second
+  unmapped label), and the stale copy shipped until a reviewer re-ran the command
+  ([[feedback_verified-claims-go-stale-under-own-later-edits]]). What is stable is the **shape** of
+  the result, which is the only thing this bullet needs to assert:
+  * **soft warnings only, no hard failures.** The soft ones are `N entries` enumerations without a
+    cached grep artifact — one per such claim, so the count tracks how many the memo makes.
+  * **the label warning is not noise.** `preflight.py`'s `SPEC_LABEL_REVERSE` maps no CSS-module
+    label, so every CSS-module citation lands in `unmapped-label rows` and the run reports
+    `parsed citations: 0` — i.e. **the §3 citation gate is vacuous for this memo**, as it is for
+    every CSS-module plan-memo. The warning count therefore rises with §3's row count and says
+    nothing about §3's correctness.
+  * ⚠ **Not this PR's to fix, and not waved away either.** Extending `SPEC_LABEL_REVERSE` is the
+    standing plan-checker maintenance note in `.claude/skills/elidex-plan-review/SKILL.md`, whose
+    trigger is "the first PR that ships these two files" — and this PR ships neither (§8), so it is
+    not that PR. The note travels with the umbrella's tooling.
+  * What the vacuous gate costs *here* is stated rather than hidden: **both** of §3's citations were
+    verified by hand, because the gate could not — `webref heading CSS2 10.8` and
+    `webref heading css-writing-modes-4 6.4`. ⚠ "Both", not a count: §3's own K/M line is the count.
 * **`plan-xcheck.py` — 5 findings, all artefacts of shape mismatch**, and the count is 5 only
   after this revision fixed the three that were *not*. It was written for a multi-PR umbrella: it
   harvests §6 as a per-PR cell matrix, cross-checks M-rows and a flip partition, and expects the
@@ -365,7 +381,9 @@ four into a shared sibling imported by both) is neither weighed nor foreclosed h
 The successor slot is **created by this PR** (`grep -rl '#11-inline-fragmented-fn-seams-1-2'
 <memory-dir>` returns only files this PR writes). Its contents split by **origin, not by count**.
 **Pre-existing**: seams 1 and 2, named by the source slot on 2026-07-28.
-**Created by this PR**: `reconcile_flows`' eleven-parameter signature and its
+**Created by this PR**: the moved body's probe universal losing its counterexamples to the residue
+(§7.2 — the *text* is pre-existing, the *separation* is this PR's, and it cannot be repaired here
+without breaking byte-identity); `reconcile_flows`' eleven-parameter signature and its
 adjacent-`bool` window, which §9 itself calls new — **and the helper-home question**, which an
 earlier classification filed as neither. ⚠ That was wrong: the question is "where should the four
 helpers live once their principal caller is a **sibling module**", and at `658cc302` there is no
@@ -829,20 +847,29 @@ standing note, which travels with the tooling. Each is real and none is dropped 
 the umbrella, and this narrowing is an input to its owed round 20.
 
 ⚠ **Leaving is not the same as delivered, and one row needs a mechanism rather than a sentence.**
-The plan-checker standing note's trigger is an *event* — "the first PR that ships these two files"
-— and this PR **is** that event and ships neither, so the trigger passes unfired rather than
-transferring. The umbrella's next session reads `project_line-box-decorated-inline-content.md`,
-whose "NEXT SESSION STARTS HERE" still instructs it to carry the memo and tooling on the seam-3
-branch. So this memo's "an input to its owed round 20" is inert unless written there. **§10
-therefore carries a row that writes the narrowing into the umbrella's own SSoT**, below.
+The umbrella's next session reads `project_line-box-decorated-inline-content.md`, whose
+"NEXT SESSION STARTS HERE" still instructed it to carry the memo and tooling on the seam-3 branch.
+So this memo's "an input to its owed round 20" is inert unless written there. **§10 therefore
+carries a row that writes the narrowing into the umbrella's own SSoT**, below.
+
+⚠ **The plan-checker trigger is NOT consumed by this PR, and an earlier revision claimed it was.**
+That claim ran: the trigger is an *event*, this PR **is** that event, it ships neither file, so the
+trigger "passes unfired" and must be **re-keyed to a state** or it can never fire again. **Every
+step after the first is wrong.** The trigger reads *"the first PR that **ships** these two files"* —
+a **predicate over PRs**, not a calendar slot. This PR does not satisfy it (§8: it ships neither),
+so this PR is simply **not** the triggering event; the trigger stays armed for whichever PR does
+ship them. Nothing was consumed and no re-keying is owed — and re-keying it to an unspecified
+"state" would have *disarmed* a live obligation (the CSS-label `SPEC_LABEL_REVERSE` extension) by
+replacing a precise predicate with a vaguer one. The preamble's preflight bullet already states the
+correct reading; this paragraph had contradicted it one section away.
 
 **Applied here** — keyed on target file; each row states what *this move* makes true:
 
 | target (outside the repo) | what was applied, and what makes it this PR's |
 |---|---|
 | `project_inline-fragmented-fn-decomposition.md` | status → **PARTIALLY CLOSED**, seam 3 ✅ discharged — this PR discharges seam 3 and only seam 3. Plus **every** fact this PR falsifies, measured on that file: `:3` (front-matter, "508 lines … three concrete seams"), `:17` (its own frame: `mod.rs:139-646` = 508 lines, `#[allow]` at `:138`, "After the split `mod.rs` is **783 lines**" — ⚠ those are *its* pre-#497 coordinates, which on `658cc302` read `:141-648` / `:140` / 785), `:29` (seam 3 listed open), `:37` ("On landing, drop the `#[allow(clippy::too_many_lines)]` if the residue no longer needs it" — **re-evaluated and kept**; ⚠ take the figure from §5.4, not from that row) and `:42` (the 783 band argument). ⚠ Sweeping only `:37` would leave the memo asserting a size, a line range and an open seam this PR closes — the *statements* surface left standing while the *obligation* surface was fixed ([[feedback_sweep-obligations-not-only-statements]]) |
-| `project_inline-fragmented-fn-seams-1-2.md` | **created** — seams 1 and 2 (pre-existing, §9), the eleven-parameter signature and the adjacent-`bool` window (both created by this PR), and the helper-home question (§9). Trigger and self-exemptions verbatim from the umbrella's §10 row, predicate-prereq un-exemption restored; re-eval **2026-11-01**. Its subject line names §5.3's candidate shapes **including the side-store→component one**, so the question is not pre-answered as a grouping — and §9 records that the slot's *existing* disjunct 1 already reaches the signature, because the call site is in the residue. Its size-disjunct baseline is the residue's `wc -l`, **re-measured at landing** rather than copied from §5.5 |
+| `project_inline-fragmented-fn-seams-1-2.md` | **created** — seams 1 and 2 (pre-existing, §9), the eleven-parameter signature and the adjacent-`bool` window (both created by this PR), the helper-home question (§9), and **§7.2's probe-comment repair** (the moved body asserts a probe universal whose two counterexamples now live in the residue; unrepairable here because the comment is inside the byte-identical body, so this slot is the first permitted to edit it). Trigger and self-exemptions verbatim from the umbrella's §10 row, predicate-prereq un-exemption restored; re-eval **2026-11-01**. Its subject line names §5.3's candidate shapes **including the side-store→component one**, so the question is not pre-answered as a grouping — and §9 records that the slot's *existing* disjunct 1 already reaches the signature, because the call site is in the residue. Its size-disjunct baseline is the residue's `wc -l`, **re-measured at landing** rather than copied from §5.5 |
 | `project_open-defer-slots.md` (the slot SoT) | the source slot registered as partially closed and the successor slot registered `(own)`. ⚠ The ground, anchored to the base rather than to now: `git grep -c 'inline-fragmented-fn' 658cc302` over the memory dir is not runnable (the dir is untracked), so the check is `grep -c` on the file **before this PR's own UPDATE block** — which returned 0. Running it after the block lands returns non-zero *because of this row*, so the post-landing value is not evidence ([[feedback_document-landing-invalidates-its-own-measurements]]). Dates are each slot's own — **2026-10-28** for the source, **2026-11-01** for the successor |
 | `project_inline-mod-split-owed.md` | `:82`'s "leaving `mod.rs` at **783**" corrected — a sibling site of the same class in a different file, reached by no row above. A class swept per-file is a class swept partially ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]) |
-| `project_line-box-decorated-inline-content.md` (umbrella SSoT) | the narrowing written in. Its "NEXT SESSION STARTS HERE" told the next session that this branch carries the umbrella memo + tooling and that §10's rows ship here. Recorded: what left, why (the preamble's rule), that umbrella §8 is contradicted and is round 20's input, and that the plan-checker note's trigger must be **re-keyed to a state, not an event**, since its event has passed. ⚠ **Additive is not sufficient** — a new block that records the narrowing while the original instruction stands leaves both live and the narrowing inert; the superseded passage must be struck, not merely followed |
+| `project_line-box-decorated-inline-content.md` (umbrella SSoT) | the narrowing written in. Its "NEXT SESSION STARTS HERE" told the next session that this branch carries the umbrella memo + tooling and that §10's rows ship here. Recorded: what left, why (the preamble's rule), and that umbrella §8 is contradicted and is round 20's input. ⚠ **The plan-checker note's trigger is left ARMED and unmodified** — it reads "the first PR that ships these two files", this PR ships neither, so this PR is not that event and nothing was consumed; an earlier revision recorded it as expired and owing a re-key, which would have disarmed a live obligation. ⚠ **Additive is not sufficient** — a new block that records the narrowing while the original instruction stands leaves both live and the narrowing inert; the superseded passage must be struck, not merely followed |
 | `MEMORY.md` | Layout-lane entry no longer directs the next session to produce this PR — the one bookkeeping fact the *landing itself* makes true |
