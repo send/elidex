@@ -736,7 +736,8 @@ def check_fence(memo: Memo) -> None:
 # unchecked rather than skipped -- a silent cap reads as coverage.
 # --------------------------------------------------------------------------
 
-RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk)\b")
+_RUNNABLE_HEAD = r"git (?:grep|ls-files|show|log)|grep|sed|awk"
+RUNNABLE = re.compile(rf"^({_RUNNABLE_HEAD}|bash -c)\b")
 # `$NF` inside an awk program is not shell state, and a first cut that tested
 # the raw line skipped three re-runnable commands as unrunnable -- a cap that
 # reads as coverage. Single-quoted spans are removed before the test. `$?` is
@@ -744,8 +745,53 @@ RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk)\b")
 SQUOTED = re.compile(r"'[^']*'")
 NEEDS_STATE = re.compile(r"\$[A-Za-z_{#*@]|set --|<prototype|<this memo|<the umbrella")
 
+# A `bash -c` is admitted by WHAT IT DOES, not by the name it starts with.
+# Naming the program was the wrong criterion in both directions: it refused the
+# memo's `set -euo pipefail` probes -- its highest-value measurements, and the
+# ones that overturned a rule five rounds had passed over -- while the reason
+# for refusing `git clone` was never the word "clone" but the side effect.
+# So every command position inside the script must be a reader. Anything that
+# creates, moves or deletes (`mktemp`, `mkdir`, `git init`, `rm`, `cd`, `>`)
+# leaves the script unrunnable and REPORTED, which is what keeps the fixture
+# blocks out.
+_READERS = {
+    "git", "grep", "sed", "awk", "wc", "printf", "echo", "true", "false",
+    "test", "[", ":", "sort", "uniq", "head", "tail", "cat", "cut", "tr",
+    "set", "if", "then", "else", "elif", "fi", "for", "do", "done", "while",
+}
+_GIT_READERS = {"grep", "ls-files", "show", "log", "rev-parse", "rev-list", "cat-file"}
+_SPLIT = re.compile(r"(?:;|\|\||&&|\||\n)")
+
+
+def bash_is_read_only(script: str) -> bool:
+    # Redirection creates; nothing this tool re-runs may.
+    if ">" in script:
+        return False
+    for part in _SPLIT.split(script):
+        toks = part.split()
+        # An assignment inside the script is not omitted state -- the whole
+        # script runs as one unit -- so skip leading assignments to reach the
+        # program, and recurse into a command substitution's own head.
+        while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
+            sub = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\$\((.*)\)?$", toks[0] + " " + " ".join(toks[1:]))
+            if sub:
+                return bash_is_read_only(sub.group(1).rstrip(")"))
+            toks = toks[1:]
+        if not toks:
+            continue
+        head = toks[0].lstrip("(")
+        if head not in _READERS:
+            return False
+        if head == "git" and (len(toks) < 2 or toks[1].lstrip("-") in ("C",)
+                              or toks[1] not in _GIT_READERS):
+            return False
+    return True
+
 
 def needs_state(cmd: str) -> bool:
+    if cmd.startswith("bash -c"):
+        m = re.match(r"^bash -c\s+'(.*)'\s*$", cmd, re.S)
+        return not (m and bash_is_read_only(m.group(1)))
     return bool(NEEDS_STATE.search(SQUOTED.sub("''", cmd)))
 FILELINE = re.compile(r"^([\w./-]+):(\d+):")
 ARROW = re.compile(r"^(.*?)[ \t]+(?:→|->)[ \t]+(.*)$")
