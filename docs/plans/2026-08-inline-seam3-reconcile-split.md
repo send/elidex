@@ -728,9 +728,17 @@ collected credit for honesty while overstating what the contract forbade.
     `gh pr view <n> --json body -q .body | grep -nE 'origin/main|[0-9]{3}'`; **(3)** the **squash
     commit message**. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
     hook-denied — so they are historical, not authoritative, and GitHub's
-    **default** squash message is their concatenation, which therefore carries a stale
-    `reconcile.rs` count, a proof recipe rooted at `origin/main`, and a `ColumnFlowSlice` claim
-    §5.3.1 has retracted. **Accepting that default violates this DoD.**
+    **default** squash message is their concatenation. Every claim this memo has since
+    **retracted** therefore survives verbatim in the body of the commit that made it —
+    `git log --format='%h %B' 658cc302..HEAD` is the population, and `24874f54`'s *"Every
+    finding landed on the memo's bookkeeping"* (narrowed by `c3efc9b7`; §9 now records that
+    findings landed outside the memo) is one instance. ⚠ **This is deliberately not an
+    enumeration.** A retraction is semantic, so no command can list which unamendable bodies
+    now contradict the memo, and a hand-maintained list of them is a second decision surface
+    that drifts — the one that stood here did, naming three items and missing this fourth
+    ([[feedback_duplicated-decision-surface-blocks-converge]]). The rule is therefore
+    categorical and needs no list: **accepting the default violates this DoD**, because the
+    landing message is the composed text below and nothing else.
 
     ⚠ **The message is written here, not promised.** "Authored fresh at merge" would be a promise
     about a future check, which §0's rule forbids — *a claim is carried by the command that produces
@@ -912,6 +920,25 @@ skipped. They were not; the diff simply cannot show them. The single table below
 
 ⚠ **One table, one tense, no count stated** — a count beside a list is a restated derived value.
 
+⚠ **A file may appear on both sides; a *clause* may not.** The targets named in both "Leaving"
+and the applied table are `MEMORY.md`, `project_line-box-decorated-inline-content.md` and
+`project_open-defer-slots.md` — enumerate them, do not count them, with
+
+```sh
+comm -12 <(sed -n '/^\*\*Leaving\*\*/,/owed round 20\./p' docs/plans/2026-08-inline-seam3-reconcile-split.md \
+             | grep -oE '`[A-Za-z0-9_.-]+\.md`' | tr -d '`' | sort -u) \
+         <(grep -oE '^\| `[A-Za-z0-9_.-]+\.md`' docs/plans/2026-08-inline-seam3-reconcile-split.md \
+             | sed 's/^| //' | tr -d '`' | sort -u)
+```
+
+They appear twice because the split is **by clause, not by file**:
+this PR writes only what its own landing makes true, and the umbrella's framing of the same file
+leaves with the umbrella. So "named above" never means "outstanding", and "named below" never
+means "wholly rewritten" — read each side for *which clause* it claims. Booking a whole file on
+both sides ships it as neither, and naming a whole file on one side contradicts the other; an
+earlier revision did the latter for `MEMORY.md` and a successor could not tell whether the
+bookkeeping was still owed.
+
 **Leaving** — all keyed to the umbrella program, none to this move: registering the umbrella's own
 slot in `project_open-defer-slots.md` — ⚠ **and only its own**, which is the distinction that
 keeps this row from swallowing the one below it: the *source* slot's registration stays here
@@ -919,8 +946,8 @@ keeps this row from swallowing the one below it: the *source* slot's registratio
 would have shipped as neither. The umbrella keeps
 `#11-css2-spec-label-normalisation` (2026-10-31) and its own slot (2026-11-01);
 correcting `#11-layoutbox-trip-wire-not-in-ci`, whose premise **#496 (`da958ace`) falsified**, not
-this PR; rewriting `project_line-box-decorated-inline-content.md`, `MEMORY.md`'s Layout-lane entry
-and `active-lane-detail.md`, which carry the *umbrella's* framing; and shipping the plan-checker
+this PR; rewriting the *umbrella's framing* in `project_line-box-decorated-inline-content.md`,
+`MEMORY.md`'s Layout-lane entry and `active-lane-detail.md`; and shipping the plan-checker
 standing note, which travels with the tooling. Each is real and none is dropped — they land with
 the umbrella, and this narrowing is an input to its owed round 20.
 
@@ -945,4 +972,4 @@ Re-keying it to an unspecified "state" would **disarm** a live obligation (the
 | `project_open-defer-slots.md` (the slot SoT) | the source slot registered as partially closed and the successor slot registered `(own)`. ⚠ The ground, anchored to the base rather than to now: `git grep -c 'inline-fragmented-fn' 658cc302` over the memory dir is not runnable (the dir is untracked), so the check is `grep -c` on the file **before this PR's own UPDATE block** — which returned 0. Running it after the block lands returns non-zero *because of this row*, so the post-landing value is not evidence ([[feedback_document-landing-invalidates-its-own-measurements]]). Dates are each slot's own — **2026-10-28** for the source, **2026-11-01** for the successor |
 | `project_inline-mod-split-owed.md` | `:82`'s "leaving `mod.rs` at **783**" corrected — a sibling site of the same class in a different file, reached by no row above. A class swept per-file is a class swept partially ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]) |
 | `project_line-box-decorated-inline-content.md` (umbrella SSoT) | the narrowing written in. Its "NEXT SESSION STARTS HERE" told the next session that this branch carries the umbrella memo + tooling and that §10's rows ship here. Recorded: what left, why (the preamble's rule), and that umbrella §8 is contradicted and is round 20's input. ⚠ **The plan-checker note's trigger is left ARMED and unmodified** — it reads "the first PR that ships these two files", this PR ships neither, so this PR is not that event and nothing was consumed. Re-keying it to a vaguer "state" would disarm a live obligation. ⚠ **Additive is not sufficient** — a new block that records the narrowing while the original instruction stands leaves both live and the narrowing inert; the superseded passage must be struck, not merely followed |
-| `MEMORY.md` | Layout-lane entry no longer directs the next session to produce this PR — the one bookkeeping fact the *landing itself* makes true |
+| `MEMORY.md` | **That one clause only**: the Layout-lane entry no longer directs the next session to produce this PR — the one bookkeeping fact the *landing itself* makes true. ⚠ The entry's remaining content is the **umbrella's framing** of the lane and stays with the umbrella (see the "Leaving" paragraph, which scopes its half the same way). The entry is split by *clause*, so exactly one side owns each half and neither can read the other's as outstanding |
