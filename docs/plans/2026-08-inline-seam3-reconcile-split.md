@@ -703,9 +703,15 @@ collected credit for honesty while overstating what the contract forbade.
     file moves it, *including the commits that fix review findings*, so any location that stores
     it is falsified by the next such commit. The obligation is to **run** §5.5's command, not to
     store its output ([[feedback_document-landing-invalidates-its-own-measurements]]).
-  * ⚠ **The landing record is TWO artifacts, and this DoD governs both.** The memo is one; the
-    **squash commit message** is the other. ⚠ **Per-commit bodies on this branch cannot be
-    repaired** — amend is hook-denied — so they are historical, not authoritative, and GitHub's
+  * ⚠ **The landing record is THREE artifacts, and this DoD governs all of them.** ⚠ An earlier
+    form of this clause said "TWO" — a population claim over a set it had not enumerated, and the
+    missed member was the one most easily fixed: **the PR description**, which carried a stale
+    `reconcile.rs` count and an `origin/main`-rooted proof recipe until a reviewer flagged the same
+    pair twice. The three: **(1)** this memo; **(2)** the **PR description**, editable at any time
+    with `gh pr edit --body-file` — check it with
+    `gh pr view <n> --json body -q .body | grep -nE 'origin/main|[0-9]{3}'`; **(3)** the **squash
+    commit message**. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
+    hook-denied — so they are historical, not authoritative, and GitHub's
     **default** squash message is their concatenation, which therefore carries a stale
     `reconcile.rs` count, a proof recipe rooted at `origin/main`, and a `ColumnFlowSlice` claim
     §5.3.1 has retracted. **Accepting that default violates this DoD.**
