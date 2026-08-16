@@ -763,27 +763,36 @@ _GIT_READERS = {"grep", "ls-files", "show", "log", "rev-parse", "rev-list", "cat
 _SPLIT = re.compile(r"(?:;|\|\||&&|\||\n)")
 
 
+_SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+
+
 def bash_is_read_only(script: str) -> bool:
     # Redirection creates; nothing this tool re-runs may.
     if ">" in script:
         return False
-    for part in _SPLIT.split(script):
+    # EVERY command substitution is checked, wherever it sits -- the first cut
+    # recursed only into `x=$(...)` heads, so `printf "$(rm -rf /)"` was admitted
+    # because `printf` is a reader. A substitution is a command position no
+    # matter what surrounds it.
+    stripped = script
+    for m in _SUBST.finditer(script):
+        inner = m.group(1) if m.group(1) is not None else m.group(2)
+        if not bash_is_read_only(inner):
+            return False
+        stripped = stripped.replace(m.group(0), "''")
+    for part in _SPLIT.split(stripped):
         toks = part.split()
         # An assignment inside the script is not omitted state -- the whole
         # script runs as one unit -- so skip leading assignments to reach the
-        # program, and recurse into a command substitution's own head.
+        # program.
         while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
-            sub = re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\$\((.*)\)?$", toks[0] + " " + " ".join(toks[1:]))
-            if sub:
-                return bash_is_read_only(sub.group(1).rstrip(")"))
             toks = toks[1:]
         if not toks:
             continue
         head = toks[0].lstrip("(")
         if head not in _READERS:
             return False
-        if head == "git" and (len(toks) < 2 or toks[1].lstrip("-") in ("C",)
-                              or toks[1] not in _GIT_READERS):
+        if head == "git" and (len(toks) < 2 or toks[1] not in _GIT_READERS):
             return False
     return True
 
