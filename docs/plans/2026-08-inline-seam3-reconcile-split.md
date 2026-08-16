@@ -353,9 +353,8 @@ four into a shared sibling imported by both) is neither weighed nor foreclosed h
 **Own-deferral count: the seam-3 prereq opens ONE — `#11-inline-fragmented-fn-seams-1-2`.**
 The successor slot is **created by this PR** (`grep -rl '#11-inline-fragmented-fn-seams-1-2'
 <memory-dir>` returns only files this PR writes). Its contents split by **origin, not by count**.
-**Pre-existing**: seams 1 and 2, named by the source slot on 2026-07-28; and `ColumnFlowSlice`'s
-side-store→component question (§5.3.1, §9), which the component has carried since it was
-introduced. **Created by this PR**: `reconcile_flows`' eleven-parameter signature and its
+**Pre-existing**: seams 1 and 2, named by the source slot on 2026-07-28.
+**Created by this PR**: `reconcile_flows`' eleven-parameter signature and its
 adjacent-`bool` window, which §9 itself calls new — **and the helper-home question**, which an
 earlier classification filed as neither. ⚠ That was wrong: the question is "where should the four
 helpers live once their principal caller is a **sibling module**", and at `658cc302` there is no
@@ -391,9 +390,9 @@ check was run; only its *result* was missing, which is the thing a reader cannot
 |---|---|
 | Does the extraction introduce an OO pattern (registry, observer, subscriber list, class-owned state)? | **No.** It adds one `pub(super) fn` and a `mod` declaration. No trait, no `Vec<Box<dyn …>>`, no `ObjectKind` variant, no new state container. |
 | Does it move per-entity state into a side-store? | **No.** The three parameters (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) are **pre-existing**, produced by `layout_atomic_items` and the packer; the split only makes them cross a function boundary. ⚠ Only two are entity-*keyed* (`HashMap<Entity, _>`); `relpos_atomic_placements: &[(Entity, f32, f32)]` is a flat slice, iterated in order and never looked up. The distinction is load-bearing because the rule's trigger text is written about `HashMap<entity, _>`. |
-| Do they meet CLAUDE.md's *side-store→component* rule? | **No — but not for the reason an earlier reading gave, and that reason has to be retracted rather than quietly replaced.** The retracted ground was lifetime: "all three are intra-pass scratch consumed before the pass ends". **The code refutes it on the `do_carrier` path**: values from all three are copied into `ColumnFlowSlice` (`reconcile.rs` — `carrier_groups` from `flow_lines`, `carrier_atomics` from `unoffset_origins` via `static_atomic_reposition_records` and from `relpos_atomic_placements`) and drained in a **later phase** by `elidex-layout-multicol` (`fill.rs:235-236`, `lib.rs:474`). §7 states this escape for `flow_lines` explicitly, 100-odd lines below — the memo contradicted itself. The ground that *does* hold is **shape, not lifetime**: these are arguments threaded through one call chain, not a registry held beside the World keyed on entity, so the rule's subject (entity-keyed state living outside the entity) is not what they are. |
+| Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, on two independent grounds. **Shape**: they are arguments threaded through one call chain, not an entity-keyed registry held beside the World, so the rule's subject is not what they are. **Lifetime**: all three are intra-pass scratch consumed before the pass ends. ⚠ The lifetime ground survives the `do_carrier` path, which is the one that looks like a counterexample — values from all three *are* copied into `ColumnFlowSlice`, but that carrier is itself drained inside the same pass, per its own authoritative docstring (`elidex-ecs/src/components/inline_flow.rs`): *"it lives only between the IFC layout (write) and the multicol fill (drain) **within one layout pass** (transport, not state)"*. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
 | What ECS state does the moved code own? | Two components. **`InlineFlow`** — insert in `reconcile.rs`; its sole removal is `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), which is now invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, with two further removals staying in the residue's early-return exits. ⚠ **Both** write sets span the new module boundary, symmetrically; enumerated here rather than referred to §7, which does not contain the enumeration. |
-| Is there a real side-store→component candidate in view? | **Yes, and it is not any of the three parameters** — it is `ColumnFlowSlice` itself: a component on the **IFC parent** whose `flow_groups: Vec<(Entity, Vec<InlineFlowLine>)>` and `atomic_repositions: Vec<(Entity, f32, f32, Point)>` carry per-entity payloads *about other entities* across a phase boundary. The values are `Send + Sync` and are neither of CLAUDE.md's two exceptions (no per-VM identity handle; not browsing-context-level shared state), and unlike the parameters they demonstrably outlive the pass. That is the shape the rule is written about. **Pre-existing** (`elidex-ecs/src/components/inline_flow.rs`), so out of scope for a byte-identical move — but §9 routes *this* to the successor slot, because a slot told only about the eleven parameters would answer the wrong question. |
+| Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused** — recorded because a revision of this memo asserted otherwise and routed it to the successor slot. `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"* — and the carrier is drained within the pass, so "it outlives the pass" was false too. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. Not routed, because this PR has no ownership invariant to offer for it. |
 
 ### §5.4 `#[allow(clippy::too_many_lines)]` on the residue
 
@@ -631,14 +630,22 @@ the claim, and a stronger one.
   necessity (`too_many_arguments`; `too_many_lines` at the figure §5.4 records), both `wc -l`s,
   and §6's hunk count. ⚠ **Figures are referenced, not restated** — every duplicated measurement
   in this memo drifted at least once.
-  * ⚠ **`reconcile.rs`'s `wc -l` is recorded NOWHERE — not here, not in a commit message.** It is
-    the one unstable figure (§5.5): every commit that documents that file moves it, *including the
-    commits that fix review findings*, so any location that stores it is falsified by the next
-    such commit. Worse for a commit message specifically: amend is hook-denied, so a stale value
-    there is **permanently uncorrectable**, and this DoD previously named it as the authoritative
-    location while two landed messages already disagreed with the tree
-    ([[feedback_document-landing-invalidates-its-own-measurements]]). The obligation is to **run**
-    §5.5's command, not to store its output.
+  * ⚠ **`reconcile.rs`'s `wc -l` is not stored in this memo, and must not be stored in the
+    message that lands.** It is the one unstable figure (§5.5): every commit that documents that
+    file moves it, *including the commits that fix review findings*, so any location that stores
+    it is falsified by the next such commit. The obligation is to **run** §5.5's command, not to
+    store its output ([[feedback_document-landing-invalidates-its-own-measurements]]).
+  * ⚠ **The landing record is TWO artifacts, and this DoD governs both.** The memo is one; the
+    **squash commit message** is the other, and nothing governed it until now — which is how it
+    came to carry a stale `reconcile.rs` count, a proof recipe still rooted at `origin/main`
+    instead of the pinned `658cc302`, and a design claim about `ColumnFlowSlice` that §5.3.1 has
+    since retracted. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
+    hook-denied — so they are historical, not authoritative. The squash message is **authored
+    fresh at merge**, and that authoring is the DoD clause: it carries the stable figures only
+    (§5.5), the pinned base for §6's recipe, and no claim the memo has since retracted. ⚠ An
+    earlier form of this bullet asserted the value was "recorded nowhere, not in a commit
+    message" — a statement about an artifact it never opened. `git log origin/main..HEAD --format=%b`
+    is the check, and it disagreed.
   * The other five figures are stable — `mod.rs` 573, `too_many_lines` 177/100,
     `too_many_arguments` 11/7, §6's `6 hunks / 226 == 226`, 325 tests — and have held at every
     commit on this branch, so recording them is safe and they go in the squash message at merge.
@@ -711,12 +718,6 @@ the claim, and a stronger one.
   move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
   defence against an *incorrect* citation, which is a different class and is why the two citations
   this PR does author are scoped in the `reconcile_flows` docstring rather than asserted flat.
-* **`ColumnFlowSlice` as a side-store→component candidate** (§5.3.1's last row). The component
-  holds per-entity payloads about *other* entities on the IFC parent and carries them across a
-  phase boundary to multicol fill. Pre-existing, and reshaping it is design work this PR excludes,
-  but it is **routed to `#11-inline-fragmented-fn-seams-1-2`** alongside the signature question —
-  because the slot's ECS question is *this*, not the eleven parameters, and a slot told only about
-  the parameters would answer the wrong one.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
   pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
   under `#11-inline-root-inline-box`). Recorded here so the row is dispositioned rather than
