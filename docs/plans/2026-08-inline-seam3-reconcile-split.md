@@ -32,13 +32,21 @@ owed round 20, not a decision this memo may take silently
 ⚠ **That rule offers two routes and this memo takes the first; the second is weighed here rather
 than passed over.** Route (i) is to route the contradiction to plan-review as a plan delta — taken.
 Route (ii) is to **re-slice it out of the PR, when the defect pattern says the slice boundary is
-wrong**. Rejected, on the pattern rather than on convenience: a re-slice is indicated when defects
-cluster *at* the boundary, and across twelve external review rounds **not one finding landed on the
-moved range**. The range `413-639` was ratified by the umbrella, is proven byte-identical by §6's
-two harnesses, and has not moved since the first commit. Every finding landed on the memo's
-bookkeeping — the *description* of the slice, not the slice — which is the thing the narrowing
-above already re-cut. Recorded because "we took route (i)" reads as a settled rule when it is a
-choice between two, and the reader cannot otherwise tell which.
+wrong**. Rejected, on the pattern rather than on convenience: a re-slice would move **the boundary**,
+and **no finding has landed on the moved range** — the byte-identical body, which is what a re-slice
+would re-cut. It was ratified by the umbrella, is proven unchanged by §6's two harnesses, and has
+not moved since the first commit.
+
+⚠ **That is the claim, and it is narrower than "every finding landed on the memo".** Findings *have*
+landed outside the memo — the `reconcile_flows` docstring's two citations (authored by this PR) and
+`collect.rs`'s delegation comment (invalidated by the extraction). Both are **authored text**, not
+the moved range, so they say the defects cluster at what this PR *wrote*, not at where it *cut* —
+which is if anything a stronger ground for keeping the boundary. An earlier form of this paragraph
+said "every finding landed on the memo's bookkeeping", a population claim over a set it had not
+enumerated ([[feedback_universal-claims-need-the-complement-measured]]).
+
+Recorded because "we took route (i)" reads as a settled rule when it is a choice between two, and
+the reader cannot otherwise tell which.
 
 **Coordinate frames.** Every `file:line` naming a *pre-split* location — `inline/mod.rs`,
 `collect.rs`, the base range — is a **`658cc302`** coordinate, produced by a command named beside
@@ -69,11 +77,16 @@ ledger restates the normative decisions and then drifts from them"* — arrived 
   the result, which is the only thing this bullet needs to assert:
   * **soft warnings only, no hard failures.** The soft ones are `N entries` enumerations without a
     cached grep artifact — one per such claim, so the count tracks how many the memo makes.
-  * **the label warning is not noise.** `preflight.py`'s `SPEC_LABEL_REVERSE` maps no CSS-module
-    label, so every CSS-module citation lands in `unmapped-label rows` and the run reports
-    `parsed citations: 0` — i.e. **the §3 citation gate is vacuous for this memo**, as it is for
-    every CSS-module plan-memo. The warning count therefore rises with §3's row count and says
-    nothing about §3's correctness.
+  * **the label warning is not noise, and the scope of that is exactly two labels.**
+    `SPEC_LABEL_REVERSE` does not map **`CSS 2`** or **`css-writing-modes-4`** — this memo's two —
+    so both §3 rows land in `unmapped-label rows` and the run reports `parsed citations: 0`, i.e.
+    **the §3 citation gate is vacuous *for this memo***. Its warning count therefore rises with
+    §3's row count and says nothing about §3's correctness. ⚠ **Not "no CSS-module label is
+    mapped", and not a claim about other plan-memos**: `preflight.py:62` maps
+    `"CSS Selectors L4": "selectors-4"`, so the map's CSS coverage is partial, not empty, and a
+    memo citing only mapped labels would have a working gate. An earlier form of this bullet said
+    "maps no CSS-module label … as it is for every CSS-module plan-memo" — two population claims
+    over sets it had not enumerated ([[feedback_universal-claims-need-the-complement-measured]]).
   * ⚠ **Not this PR's to fix, and not waved away either.** Extending `SPEC_LABEL_REVERSE` is the
     standing plan-checker maintenance note in `.claude/skills/elidex-plan-review/SKILL.md`, whose
     trigger is "the first PR that ships these two files" — and this PR ships neither (§8), so it is
@@ -388,9 +401,13 @@ adjacent-`bool` window, which §9 itself calls new — **and the helper-home que
 earlier classification filed as neither. ⚠ That was wrong: the question is "where should the four
 helpers live once their principal caller is a **sibling module**", and at `658cc302` there is no
 sibling module, so the question could not be asked. Its premise is brought into existence by this
-PR; it is own. Three own concerns, one slot, which is within the ≤3 per-PR cap either way — the
-correction is to the classification, not to the count, and it matters because §5.3's own sentence
-says the split is "by origin, not by count". §10 carries the slot's `(own)` row.
+PR; it is own. ⚠ **No own-concern count is stated here** — the bullet above *is* the enumeration,
+and a count beside a list it does not contain is the restated-derived-value shape that drifted
+elsewhere in this memo (it drifted here too: the count said "three" while the list had grown to
+four). **What the cap measures is slots, and this PR opens exactly one**:
+`#11-inline-fragmented-fn-seams-1-2`, within the ≤3 per-PR own-deferral cap. Concern *count* is
+not a cap input; concern *origin* is what §5.3 splits on, per its own "by origin, not by count".
+§10 carries the slot's `(own)` row.
 
 Eleven parameters exceeds clippy's threshold of seven. **Measured, not assumed**: removing the
 attribute and running `cargo clippy -p elidex-layout-block --all-features` reports
