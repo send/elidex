@@ -181,8 +181,7 @@ fires `needless_pass_by_value` (clippy's pedantic group is warn-level workspace-
 
 ## §3. Spec coverage map
 
-**Breadth**: K=1 specs, M=1 entries (verified 2026-08-16 — `preflight.py` reports the same,
-`unique specs (K): 1`, `total entries (M): 1`). **Split decision**: single PR, both below the
+**Breadth**: K=2 specs, M=2 entries. **Split decision**: single PR, both below the
 K≥4 / M≥20 recommend threshold, and `preflight.py` independently returns
 `split decision: ok (single PR scope)`.
 
@@ -233,6 +232,7 @@ travels unchanged", not "one citation is the surface".
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
+| css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
 | CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | comment only, at `:480-481`; moves verbatim to the new module, no code touched. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
 
 ## §4. Verified current state
@@ -359,12 +359,22 @@ next toucher re-runs it rather than re-litigating it.
 
 ### §5.5 Resulting sizes
 
-`inline/mod.rs` **785 → 573**; `reconcile.rs` **273**. ⚠ The plan predicted 254 from the
-exploratory extraction. The shipped module is longer because it carries a real module doc and two
-docstrings the throwaway did not — and it grew **twice** after that prediction (254 → 265 at the
-first write, 265 → 273 when §6.1's sink-exclusivity paragraph landed). Both drifts are recorded
-rather than overwritten, because the second happened *after* this memo added the rule against
-restating figures, in the one place that restates them. Recorded as a correction rather than
+```
+wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
+```
+
+⚠ **This section deliberately states no live line count for `reconcile.rs`.** It stated one four
+times and it went stale four times — 254 predicted → 265 → 273 → 292 — each time because a later
+commit in this PR added prose to the file the number describes. §8 of this memo says *"Figures are
+referenced, not restated"*; §5.5 was the section still restating them, which is the mechanism, not
+an accident. `mod.rs`'s **573** is stated because it has held across every revision and is the
+figure the 1000-line argument below turns on.
+
+The drift history, anchored to the commits that caused it rather than to a live value: 254
+(predicted from the exploratory extraction) → 265 (`c931dad5`, the real module doc and fn
+docstring) → 273 (`4188c723`, §6.1's sink-exclusivity paragraph) → 292 (`702999e9`, the Codex-R1
+spec-vs-bookkeeping block). Every increment is documentation added to the extracted module; none
+is code. Recorded as a correction rather than
 silently overwritten — §5.6 exists so that a predicted figure and a measured one stay
 distinguishable. Both files sit below
 [[feedback_touch-time-split-means-while-writing]]'s 700–800 band, and the residue is 212 lines
@@ -382,7 +392,7 @@ shipped tree before landing. Result of that re-run:
 | `too_many_arguments` load-bearing | yes | yes — `this function has too many arguments (11/7)` |
 | `too_many_lines` still load-bearing on the residue | yes, `178/100` | yes, **`177/100`** (§2.2's fold) |
 | `inline/mod.rs` | 573 | **573** |
-| `reconcile.rs` | 254 | **273** (§5.5 — the docstrings, twice) |
+| `reconcile.rs` | 254 | grew with each doc addition — see §5.5's drift history; **re-measure, do not copy** |
 | §6 harness | 6 hunks, `226 == 226` | **6 hunks, `226 == 226`, PASS** |
 | test baseline | 325 | **325 passed, 0 failed** |
 
@@ -404,8 +414,8 @@ cargo test   -p elidex-layout-block --all-features      # → 325 passed, 0 fail
 wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 ```
 
-⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` came out at 273
-rather than 254. A memo that had simply asserted 254 would now be carrying a false figure into
+⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` did not come out
+at 254, and then kept moving as later commits added documentation to it. A memo that had simply asserted 254 would now be carrying a false figure into
 §10's successor-slot baseline; instead the discrepancy is visible and the baseline takes the
 measured number ([[feedback_verified-claims-go-stale-under-own-later-edits]]).
 
