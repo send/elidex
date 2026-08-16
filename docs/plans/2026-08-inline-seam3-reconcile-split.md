@@ -627,10 +627,19 @@ the claim, and a stronger one.
   trigger.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
-  decomposition. **Its existing trigger already reaches it**, and no new disjunct is needed: the
+  decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
+  user-level memory directory (§10) and a repository-only reader must still be able to tell when
+  this work reopens. `#11-inline-fragmented-fn-seams-1-2`'s trigger, verbatim in substance:
+
+  > **Either** the first change, after any of the decorated-inline umbrella's PRs, that touches
+  > `layout_inline_context_fragmented`'s residue — self-exempted for **six** of the umbrella's
+  > seven PRs on the grounds its §10 states, but ⚠ **not** for the seventh (the predicate prereq),
+  > which the umbrella deliberately leaves un-exempted — **or** `inline/mod.rs` growing back
+  > toward 1000 lines. **Re-eval 2026-11-01.**
+
+  **The eleven-parameter question is reached by the first disjunct and needs no new one**: the
   eleven-argument *call site* lives in `layout_inline_context_fragmented`'s body (§5.1 — "calls it
-  where the block was"), so every reshaping §5.3 names necessarily edits the residue, which is
-  disjunct 1. ⚠ **An intermediate revision argued the opposite** — that both disjuncts name
+  where the block was"), so every reshaping §5.3 names necessarily edits the residue. ⚠ **An intermediate revision argued the opposite** — that both disjuncts name
   `inline/mod.rs` while `reconcile_flows` is in the new file, so neither could ever fire — and was
   wrong, because it reasoned about the definition and forgot the call. It reached that conclusion
   by adopting a reviewer's finding without re-deriving it, which is the one thing this program's
