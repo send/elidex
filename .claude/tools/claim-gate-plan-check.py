@@ -1065,6 +1065,18 @@ BINDING = [
      r"a rustdoc-fenced annotation",
      r"C2 and C3 \(the `?\.md`? and `?\.rs`? fence arms",
      r"The rustdoc-fenced control was struck"),
+    # Round 6. D4's stated mechanism is `git ls-files` alone, which reports the
+    # index; the slice additionally requires a working-tree presence test, which
+    # rejects annotations D4-as-written accepts. That is a decision change and it
+    # ran four revisions without an amendment -- found by review, not here,
+    # because until this entry the registry held ONE withdrawal spread over three
+    # rows. Three rows is not three decisions covered: 7 of the 10 D-decisions
+    # have no entry, so a green UMBRELLA means "the fence withdrawal is still
+    # amended", not "no decision is being silently reversed".
+    ("D4 (liveness = `git ls-files` matches >=1)",
+     r"`in=` must match ≥1 tracked file or\s*\n?the annotation fails",
+     r"present in the working tree|filtered to the paths that exist",
+     r"AMENDED by S1 round 6: the precondition is about the working tree"),
 ]
 
 
