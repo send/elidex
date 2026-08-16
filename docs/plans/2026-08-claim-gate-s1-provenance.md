@@ -234,6 +234,15 @@ file exceeds 800 lines.** A bound is not a figure — it survives every legitima
 when the discipline is breached — and if it fires, the answer is not "split at the seam" but *re-derive
 the decomposition*, because a file over the band is evidence of a seam this analysis did not find.
 
+**Where 800 comes from, because a bound with no provenance is a figure wearing a bound's clothes.** It
+is not derived from these files and it is not a prediction of their size: revision 7 arrived at it as
+the upper end of the withdrawn `~700–800` band, i.e. by arithmetic on the very projection §1 had just
+deleted, which left the bound outliving its own basis. Its ground now is the repository's, not this
+memo's: CLAUDE.md sets the touch-time split discipline at **1000 lines**, so a wire and a self-test that
+have to stay readable by anyone auditing a gate get the same discipline with headroom. Choosing 800
+rather than 1000 is a policy this memo may set for its own deliverable; choosing it because a deleted
+projection happened to end there is not a reason at all.
+
 ---
 
 ## §2 Coupled invariants
@@ -1085,8 +1094,11 @@ push → draft PR → `/review <n>`.
 - **Check 3 rejects the strongest artifact until S3 lands.** `grep_pass.py:76-80`'s
   `VERIFICATION_ARTIFACT_RE` accepts exactly three spellings — a `grep -[rlnEFhio]+` literal,
   `verified YYYY-MM-DD`, and a `lines N/N/N` list — and **not** a `claim` annotation. So between S1 and
-  S3 there are four accepted provenance forms, of which the only *executed* one is the one the tool
-  rejects; this memo passes Check 3 by pasting `git grep -n…` literals, not by carrying annotations.
+  S3 the strongest form is the one form the tool refuses: three spellings are accepted and none of them
+  is executed, while the executed one is rejected. (The earlier phrasing, "four accepted forms of which
+  the only executed one is the one the tool rejects", counted the rejected form among the accepted ones
+  — the window is exactly that it is not.) This memo passes Check 3 by pasting `git grep -n…` literals,
+  not by carrying annotations.
   D9 retires the other three and admits the annotation; **S3 closes this window.**
 - **No third fence tracker — the whole question is gone** (§7 Q3, §4.2). Revision 2 accepted one on a
   premise that was false: that the two in-repo trackers already behave differently on a mismatched
@@ -1563,7 +1575,15 @@ in that table is literally `Lines at HEAD`.
 
 **Revision 2 said this was the one row the correction left behind. It was not, and the real shape is
 worse.** Re-measuring every numeric row of that table against `3045f256` — which is the table's own
-declared base — gives:
+declared base — gives the figures below. They are twenty live values about files three other lanes own,
+so the derivation is stated rather than the measurement trusted; the `Today` column is the same command
+with the `git show` prefix dropped:
+
+```
+$ bash -c 'for p in crates/shell/elidex-shell/src/app/drain_host/mod.rs crates/shell/elidex-shell/src/app/drain_host/host.rs crates/shell/elidex-shell/src/app/events.rs crates/shell/elidex-shell/src/app/mod.rs; do printf "%s " "$(git show 3045f256:$p | awk "END{print NR}")"; done'
+647 358 230 897
+```
+
 
 | Row | Asserted | At `3045f256` | Today |
 |---|---|---|---|
@@ -1747,7 +1767,11 @@ file.* In the order the errors matter:
   one memo's labels; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to CSS-module labels. Of those,
   `preflight.py` is not an S1 file at all, and the only possible overlap with S1 is
   `scripts/trip-wires.sh` — under the note's parenthetical alternative, not its primary form.
-- "three of S1's five edit files" is wrong in both halves. §5 gives S1 six.
+- "three of S1's five edit files" is wrong in both halves — but the correction is not a different
+  numeral. §5 states no file count; six is its *commit* count, and enumerating the files those
+  commits touch gives a different answer again depending on whether the deletion, this memo and
+  another lane's memo are counted. §3.1 now carries the enumeration by name and tier, so the
+  refutation is that the note's edit set is wrong about *which* files, not about how many.
 
 *And the note's own trigger cannot be fired from here.* It reads *the first PR that ships* `plan-sweep.py`
 *and* `plan-xcheck.py` — "for the umbrella that authored them, the seam-3 prereq PR". S1 ships neither,
