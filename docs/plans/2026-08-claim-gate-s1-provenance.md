@@ -646,11 +646,40 @@ one line, because `git grep` is line-based; `pattern=` may not contain a `"`.
 |---|---|---|
 | `count` | `git grep -nE[i] -e "$pattern" -- "$spec"`, captured; count non-empty lines (rule 1) | **matching lines**, not matches: a line with two matches counts once. `grep -cE 'sole'` on a line reading `sole sole` gives 1 where `grep -oE … \| wc -l` gives 2 — the wire commits to the former, because that is how the umbrella's landed annotations were produced (§2's block pipes `git grep -n` into `wc -l`), so the other choice would falsify them. |
 | `files` | `git grep -lE[i] -e "$pattern" -- "$spec"`, captured; count non-empty lines | files containing ≥1 match. |
-| `lines` | `awk 'END{print NR}' "$file"` | takes **no** `pattern`; `in=` must resolve to exactly one tracked file. |
+| `lines` | `awk 'END{print NR}' "$file"`, **captured** (rule 1's shape, rule 4's status handling) | takes **no** `pattern`; `in=` must resolve to exactly one tracked file. |
 
 `lines` uses `awk 'END{print NR}'` rather than `wc -l` for a structural reason, not a measured one:
 `wc -l` counts newlines, so the first file shipped without a trailing newline is undercounted by exactly
-1 — silently, in the direction that makes a claim look stale.
+1 — silently, in the direction that makes a claim look stale. §8.1 C31 controls that choice, because a
+rationale no control can red is a rationale the next author may spell away.
+
+**`lines` is captured for the same reason the other two are, and revision 7 exempted it by omission.**
+§4.2 requires that *every* command whose non-zero status is a datum rather than a failure is captured
+and branched on, never left bare; the `count` and `files` rows said "captured" and this one did not.
+The liveness filter (rule 3) is not a substitute: it establishes that the path is *present*, and
+present is not the same as *readable regular file*. Measured under the declared regime, one fixture,
+four shapes a liveness probe passes:
+
+```
+$ for t in d f.md dang.md gone.md; do          # d=dir, f.md=chmod 000,
+    bash -c "set -euo pipefail                 # dang.md=dangling symlink, gone.md=removed after add
+             n=\$(awk 'END{print NR}' '$t'); echo n=\$n"; echo "rc=$?"; done
+  d         rc=0   n=0                         ← ⚠ succeeds, and answers 0
+  f.md      rc=2   awk: can't open file f.md
+  dang.md   rc=2   awk: can't open file dang.md
+  gone.md   rc=2   awk: can't open file gone.md
+```
+
+Three of the four are rule 4's, once its outcome kind is stated over *the measurement program* rather
+than over `git` alone — so `lines` takes rule 1's captured shape and hands its status to rule 4.
+
+**The fourth is worse than a failure and rule 4 cannot reach it.** A directory makes `awk` exit **0**
+reporting **0 lines**, so `lines=0` on such a path goes green and any other value reports
+`asserted=N actual=0` — I1×I4's hazard, arrived at with every status nominal. A tracked path can be a
+directory in the worktree: a **gitlink** (submodule) is exactly that, and `git ls-files` lists it. So
+`lines` additionally requires its single resolved path to be a **regular file**, tested before the
+measurement, with its own diagnostic (*`lines=` resolves to a path that is not a regular file*).
+§8.1 C33 controls it; C32 controls the `awk`-failure kind.
 
 Four execution rules, each measured. They are numbered here in the order a rendered list gives them:
 revision 6 added the fourth and left it spelled third in the file, and a Markdown ordered list renumbers
@@ -683,15 +712,36 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
    provenance mechanism confirmed the paste, and the paste was never the claim. Nothing that reads this
    memo can find this class; running `bash -c 'set -euo pipefail; …'` finds it in one line.
 
-   The measurement is therefore **captured, not piped**:
+   The measurement is therefore **captured, not piped**, and the failing branch reads the status
+   **before it writes anything**:
 
    ```
    if out=$(git grep -nE[i] -e "$pattern" -- "$spec"); then
      n=$(printf '%s' "$out" | grep -c .)
    else
-     n=0                       # exit 1 = no match; any other status is rule 4's business
+     rc=$?                     # FIRST statement in the branch — see below
+     [ "$rc" -eq 1 ] || measurement_failed "$rc"        # rule 4's outcome, not a count
+     n=0                       # reached only for exit 1 = no match
    fi
    ```
+
+   **`rc=$?` first is the whole content of this spelling, and revision 7 got it wrong.** Its `else`
+   branch opened with `n=0`, whose own success overwrites `$?` — so rule 4, which is defined by the
+   status, had no input, and C29 asserts a split the specified shape could not reach. Measured:
+
+   ```
+   $ bash -c 'set -euo pipefail
+     if out=$(git grep -nE -e "foo(" -- "docs/**/*.md"); then :; else n=0; echo "rc=$?"; fi'
+   rc=0                                        # git exited 128
+   $ bash -c 'set -euo pipefail
+     if out=$(git grep -nE -e "foo(" -- "docs/**/*.md"); then :; else rc=$?; n=0; echo "rc=$rc"; fi'
+   rc=128
+   ```
+
+   That is this memo's own recurring shape once more — rule 1 was rewritten in `b6799ee6` and rule 4
+   added in `007ed157`, two commits later, and the snippet rule 4 depends on was not swept. It is
+   invisible to the checker because a fenced specimen is not a pasted transcript, which is why the two
+   `bash -c` runs above are pasted beside it rather than the shape being asserted in prose.
 
    Measured in both directions: `n=0` for the no-match case and `n=15` for `REQUIRED_WIRES` in
    `scripts/*.sh`. Two spellings that look equivalent and are not — `git grep -cE … || true` yields the
@@ -704,11 +754,13 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
    §4.2's fail-without-ending rule and rule 4 together forbid that death, and C13's two arms discriminate
    against what happens instead (§8.1).
 3. **Liveness (D4) runs before every measurement, against the tree the verbs read.** `git ls-files --
-   "$spec"`, **filtered to the paths that exist in the working tree**, must yield ≥1 (`lines=`: exactly
-   1). That is the discriminator D4 names: a typo'd pathspec makes `git grep -cE` exit 1 with no output —
-   indistinguishable from a correct pathspec matching nothing — while `git ls-files` separates the two.
+   "$spec"` must yield ≥1 path (`lines=`: exactly 1), **and at least one of those paths must be present
+   in the working tree** — a question the wire asks existentially, stopping at the first present path
+   (below). That is the discriminator D4 names: a typo'd pathspec makes `git grep -cE` exit 1 with no
+   output — indistinguishable from a correct pathspec matching nothing — while `git ls-files` separates
+   the two.
 
-   The filter is what makes the probe answer about the same tree the measurement will read. `git
+   The working-tree half is what makes the probe answer about the same tree the measurement will read. `git
    ls-files` reports the **index**; all three verbs read the **working tree**. §6 measures the gap on a
    fixture: with a file `git add`ed and then removed, `git ls-files` still lists it, while `git grep`
    exits 1 with no output and `awk` exits 2. An unfiltered probe therefore passes and then measures
@@ -726,23 +778,50 @@ $ git ls-files -- 'crates/**/*.rss' | wc -l                  → 0   (git grep -
    no tracked file` — would have been satisfied by a working-tree failure. The two have opposite fixes
    (write a real pathspec / restore the deleted file); §4.3's rule that a diagnostic must name what it
    found applies to any pair a reader has to tell apart, and a pair where one nests inside the other is
-   one diagnostic wearing two labels. §8.1 C28 controls both directions. Cost: an existence test per path
-   the pathspec already resolves to, so I7's per-annotation term keeps its order and gains no tree term.
+   one diagnostic wearing two labels. §8.1 C28 controls both directions.
+
+   **The liveness question is existential, and spelling it as a filter broke I7.** Revision 7 wrote
+   that `git ls-files` output is *"filtered to the paths that exist in the working tree"*, and priced
+   it as *"an existence test per path the pathspec already resolves to, so I7's per-annotation term
+   keeps its order and gains no tree term"*. Both halves are wrong. What `count=`/`files=` need to know
+   is whether **at least one** resolved path is present, so the test **stops at the first hit**: on a
+   live annotation — every annotation the gate is meant to pass — that is one `test -e`, not one per
+   resolved path. (The exhausting walk survives only where it is unavoidable and off the hot path:
+   emitting *none present in the working tree* requires having looked at all of them, and that branch
+   ends the run.) The filter spelling paid the whole walk on every annotation, and a resolved path set
+   is not small: C10's own pathspec resolves to
+
+   ```
+   $ git ls-files -- 'crates/**/*.rs' | wc -l   → 1407
+   $ git ls-files | wc -l                       → 1706
+   ```
+
+   82% of the tracked tree, per annotation — a term proportional to the tree, which is exactly what I7
+   forbids. The failure was invisible because C27, I7's only control, counts `git` **invocations**, and
+   an existence test is not one; the invariant could be violated with its control green. So: `count=`
+   and `files=` short-circuit on the first present path, and `lines=`, whose pathspec must resolve to
+   exactly one path anyway, tests that one. §8.1 C34 controls the short-circuit by construction — a
+   fixture whose pathspec resolves to many paths, with only the last one present, must still cost one
+   pass and must still be judged live.
 
    §6 recorded this asymmetry and left it unfixed. That was the wrong disposition and §6 now says so: a
    bound records what S1 does not reach, and this is S1's own discriminator — the clause D4 exists to
    make unfalsifiable — answering about the wrong tree.
-4. **A measurement command that fails for any reason other than "no match" is its own outcome.** `git`
-   exits 1 on no match, but 128 on a malformed ERE that §4.3's reject-list does not cover (`foo(` —
-   parentheses not balanced) and 129 on an unknown switch. Under rule 1's `else` branch all three
-   collapse to `n=0`, so a `count=0` annotation goes green on a pattern git refused to run, and any other
-   value reports `asserted=N actual=0` — I1×I4's stated hazard verbatim, where "the author reads a
-   mismatch and edits the count". The status is therefore split: 0 → the count, 1 → zero, **anything else
-   → a fourth outcome kind**, alongside malformed and dead-pathspec: the run fails, and the diagnostic
-   contains *`git could not run this pattern`*, git's exit status and git's own stderr, and never
-   `actual=`. §8.1 C29 controls it, so revision 6's closing sentence here — *"§8 needs a control for it;
-   it has none"* — is **withdrawn**: the control was written in a later commit of the same revision and
-   the sentence recording its absence was not re-read.
+4. **A measurement command that fails for any reason other than "no match" is its own outcome.** The
+   rule is stated over *the measurement program*, not over `git`: all three verbs reach it, because
+   §4.2's capture rule now covers `lines` too. `git` exits 1 on no match, but 128 on a malformed ERE
+   that §4.3's reject-list does not cover (`foo(` — parentheses not balanced) and 129 on an unknown
+   switch; `awk` exits 2 on a path it cannot open. Under a branch that discards the status all of them
+   collapse to `n=0`, so a `count=0` annotation goes green on a pattern git refused to run, and any
+   other value reports `asserted=N actual=0` — I1×I4's stated hazard verbatim, where "the author reads
+   a mismatch and edits the count". The status is therefore split: 0 → the count, 1 → zero (`git` only;
+   `awk` has no no-match status), **anything else → a fourth outcome kind**, alongside malformed and
+   dead-pathspec: the run fails, and the diagnostic contains *`the measurement command failed`*, the
+   program's name, its exit status and its own stderr, and never `actual=`. Rule 1's snippet is what
+   supplies the status, which is why its `else` branch reads `rc=$?` before anything else.
+   §8.1 C29 (`git`) and C32 (`awk`) control it, so revision 6's closing sentence here — *"§8 needs a
+   control for it; it has none"* — is **withdrawn**: the control was written in a later commit of the
+   same revision and the sentence recording its absence was not re-read.
 
 **Argv (D6), and how I5 becomes probeable.** The parser emits `$verb`, `$expected`, `$icase`,
 `$pattern`, `$spec` as separate shell variables; the executor spells the call literally with every
@@ -1207,7 +1286,9 @@ names where it comes from:
 | a pathspec matching no tracked path | `matches no tracked file` | §4.4 rule 3 |
 | tracked paths, none in the worktree | `present in the working tree` | §4.4 rule 3 |
 | `lines=` matching several paths | `resolves to more than one` | §4.4 rule 3 |
-| a measurement git refused to run | `git could not run this pattern`, with git's status and stderr | §4.4 rule 4 |
+| a measurement command that failed | `the measurement command failed`, with the program, its status and its stderr | §4.4 rule 4 |
+| a `lines=` path that is not a regular file | `resolves to a path that is not a regular file` | §4.4 rule 3 |
+| the clone the acceptance corpus needs could not be made | `could not build the corpus clone`, with git's status | §4.1.1 |
 | the self-test helper is absent | `self-test helper`, with the path looked for | §4.1.2 |
 | a shipped file over the band | `exceeds 800 lines` | §1's bound, asserted by the self-test |
 
@@ -1276,7 +1357,11 @@ grouping is unaffected — a group of one-row invocations has nothing to collide
 | C25 | §4.3 the reject set is **all ten** of `bBdDsSwW<>`, read under §4.2's fail-without-ending rule | own | — | ten annotations, one per escape, each asserted MALFORMED with its own escape named (`contains \`, ten times, each call passing the specific escape) |
 | C27 | §4.5 I7's structural half | I7 | three annotations under a counting `git` shim first on `PATH`: the tally records exactly one tree-wide `git grep`, and a per-annotation term of three | the same fixture at six annotations: the scan term must still be one and the per-annotation term must double — read from the shim's tally, not from any wire diagnostic (`st_tally`) |
 | C28 | §4.4 rule 3, liveness resolves against the working tree | own | `lines=2 in="a.md"` on a `git add`ed file that is present in the worktree | the same annotation after the file is removed, its path still in the index (`present in the working tree`) |
-| C29 | §4.4 rule 4, a measurement git refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`git could not run this pattern`) |
+| C29 | §4.4 rule 4, a measurement `git` refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`the measurement command failed`) |
+| C31 | §4.4 `lines` counts lines, not newlines | own | `lines=2` on a two-line file **with no trailing newline** — `awk` gives 2, which the annotation asserts | the same fixture asserting `lines=1`, the value `wc -l` computes (`asserted=1`) — so a wire respelled to `wc -l` reds the positive |
+| C32 | §4.4 rule 4 reached from `lines`, and rule 1's `rc=$?` ordering | own | `lines=2` on a readable two-line file | the same annotation with the file's mode set to `000`, so `awk` exits 2; must NOT report `actual=0` (`the measurement command failed`). A wire whose failing branch writes before it reads `$?` reports `asserted=2 actual=0` instead, which this arm rejects |
+| C33 | §4.4 rule 3, a `lines=` path that is present but not a regular file | own | `lines=2 in="a.md"`, a regular file | `in="d"` where `d` is a tracked-as-present directory; `awk` exits **0** answering 0, so the wire must refuse on the file-type test rather than on status (`resolves to a path that is not a regular file`) |
+| C34 | §4.4 rule 3, liveness short-circuits (I7) | own | a pathspec resolving to many tracked paths with only the **last** present → judged live, one pass | the same pathspec with **none** present (`present in the working tree`) — the arm that must exhaust, and the only one that may |
 | C30 | §1's size bound on the shipped files | own | both files under the band → self-test passes | a fixture copy padded past 800 lines (`exceeds 800 lines`) |
 
 **C10's and C11's positives assert a computed value, and that is the point of them.** Revisions 1–6 gave
