@@ -250,15 +250,20 @@ git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs | awk 'NR>
   | grep -inE 'logical|physical|text-align|sticky|fragmentainer|overflow|abspos|paged|margin-box'
 ```
 
-Spec-governed concerns it surfaces, none of them cited in the source, each §-number↔title pair
-resolved with `.claude/tools/webref heading`:
+Spec-governed concerns it surfaces, none of them cited in the source. Each §-number↔title pair is
+resolved with `.claude/tools/webref` — **`heading` or `dfn`, and the bullet names whichever
+produced it**; both emit the pair, and `dfn` is the one that finds a *property's* section from its
+name. ⚠ Two resolvers, so the umbrella sentence must not name only one: an earlier revision said
+`heading` while three bullets recorded `dfn`, which is the memo's own §0 rule (*a claim is carried
+by the command that produces it*) broken by the sentence asserting it:
 
 * `:437-447` — IFC-local logical → absolute physical fold keyed on `is_vertical`
   → **css-writing-modes-4 §6.4** *Abstract-to-Physical Mappings*. ⚠ **This one leaves the list**:
   uncited *in the source*, but this PR cites it in the `reconcile_flows` docstring, so it is the
   table's authored row, not part of the out-of-scope complement below.
 * `:470` — `text-align` already baked into `inline_start` → **css-text-3 §6.1** *Text Alignment:
-  the `text-align` shorthand* (`webref dfn css-text-3 text-align` → `type=property`, `#propdef-text-align`)
+  the `text-align` shorthand* (`webref dfn css-text-3 text-align` → **one** exact hit,
+  `type=property`, `#propdef-text-align` — nothing to disambiguate here, unlike `overflow` below)
 * `:557-569`, `:588-594` — relative/sticky offset preserved through reposition
   → **css-position-3 §3.3** *Relative Positioning* / **§3.4** *Sticky positioning*
 * `:514` — the term "fragmentainer" → **css-break-4 §2** *Fragmentation Model and Terminology*
@@ -445,7 +450,7 @@ check was run; only its *result* was missing, which is the thing a reader cannot
 | Does the extraction introduce an OO pattern (registry, observer, subscriber list, class-owned state)? | **No.** It adds one `pub(super) fn` and a `mod` declaration. No trait, no `Vec<Box<dyn …>>`, no `ObjectKind` variant, no new state container. |
 | Does it move per-entity state into a side-store? | **No.** The three parameters (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) are **pre-existing**, produced by `layout_atomic_items` and the packer; the split only makes them cross a function boundary. ⚠ Only two are entity-*keyed* (`HashMap<Entity, _>`); `relpos_atomic_placements: &[(Entity, f32, f32)]` is a flat slice, iterated in order and never looked up. The distinction is load-bearing because the rule's trigger text is written about `HashMap<entity, _>`. |
 | Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, on two independent grounds. **Shape**: they are arguments threaded through one call chain, not an entity-keyed registry held beside the World, so the rule's subject is not what they are. **Lifetime**: all three are intra-pass scratch consumed before the pass ends. ⚠ The lifetime ground survives the `do_carrier` path, which is the one that looks like a counterexample — values from all three *are* copied into `ColumnFlowSlice`, but that carrier is itself drained inside the same pass, per its own authoritative docstring (`elidex-ecs/src/components/inline_flow.rs`): *"it lives only between the IFC layout (write) and the multicol fill (drain) **within one layout pass** (transport, not state)"*. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
-| What ECS state does the moved code own? | Two components, and **this row is scoped to the split's two modules — it is NOT the workspace write-set.** Within them: **`InlineFlow`** — insert in `reconcile.rs`; removal via `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, plus two removals in the residue's early-return exits. Both write sets span the new module boundary, symmetrically. ⚠ **The workspace complement is non-empty and is not listed here** — run `git grep -n -e 'insert_one(.*InlineFlow' -e 'remove_one::<InlineFlow>' -e 'get::<&mut InlineFlow>' -e 'insert_one(.*ColumnFlowSlice' -e 'remove_one::<ColumnFlowSlice>' -- 'crates/**/*.rs'`. It reaches `elidex-layout-multicol` and `block/children/shift.rs` ([[feedback_universal-claims-need-the-complement-measured]]). |
+| What ECS state does the moved code own? | Two components, and **this row is scoped to the split's two modules — it is NOT the workspace write-set.** Within them: **`InlineFlow`** — insert in `reconcile.rs`; removal via `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, plus two removals in the residue's early-return exits. Both write sets span the new module boundary, symmetrically. ⚠ **The workspace complement is non-empty and is not listed here** — run `git grep -n 'InlineFlow\|ColumnFlowSlice' -- 'crates/**/*.rs'` and classify the hits by hand. It reaches `elidex-layout-multicol` and `block/children/shift.rs` ([[feedback_universal-claims-need-the-complement-measured]]). ⚠ **Anchor the enumerator on the component NAME, not on the call syntax.** An earlier revision listed call-shaped patterns (`insert_one(.*ColumnFlowSlice`, `remove_one::<ColumnFlowSlice>`, …) and silently dropped two real write sites: `elidex-layout-multicol/src/lib.rs`'s path-qualified `remove_one::<elidex_ecs::ColumnFlowSlice>`, and `reconcile.rs`'s `insert_one` whose `ColumnFlowSlice { .. }` literal spans several lines. The name is invariant; the call syntax is not, so a syntax-anchored pattern is a filter that looks like an enumerator ([[feedback_writesite-audit-includes-struct-literal-ctors]], [[feedback_checks-must-not-be-defined-by-the-symptom-vocabulary]]). |
 | Does anything outside the crate depend on this function's clear having run? | **Yes, and it is worth knowing before touching the persist/clear cycle.** `elidex-layout-multicol/src/lib.rs` re-inserts `InlineFlow` on the run-start after the IFC pass (`position_column_fragments`), and guards it with a `debug_assert!` that the run-start carries **no** `InlineFlow` at build time — *"cleared each column by `clear_inline_flows`"*. So the moved block's clear is a precondition of another crate's write. Nothing in this PR changes it (the code is byte-identical), but a future reshaping of the cycle that reads only the two modules above would not see the constraint. |
 | Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused** — recorded because a revision of this memo asserted otherwise and routed it to the successor slot. `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"* — and the carrier is drained within the pass, so "it outlives the pass" was false too. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. Not routed, because this PR has no ownership invariant to offer for it. |
 
@@ -505,15 +510,25 @@ The recipe the numbers come from, so a reader can re-derive rather than trust:
 #    relpos_atomic_reposition_records, reposition_atomic_box,
 #    static_atomic_reposition_records}`. `InlineFlowLine` needs none — the range already
 #    writes it fully qualified (`:426`, `:458`).
-#    ⚠ THE DOCSTRING IS THE LARGEST AUTHORED PART AND IS NOT DERIVABLE FROM THE BASE.
-#    It is the file's longest element, and it carries the probe-scope contract (§7.2)
-#    and both spec citations (§3) -- none of which exists at 658cc302. So this recipe
-#    reconstructs the committed file only WITH it, and a reader who wants the file's
-#    `wc -l` accounted for needs its span, not just the moved range's 226 lines.
-#    Its extent is a measurement, not a stored figure -- it moves whenever a review
-#    finding edits the docstring, which has happened repeatedly:
+#    ⚠ THE DOCSTRING IS THE LARGEST AUTHORED PART, and omitting it was this recipe's
+#    defect for several revisions. NO RANK IS CLAIMED BEYOND THAT: it is larger than
+#    the other authored parts (signature, `use` block, module doc), and *smaller* than
+#    the moved range, which is 226 lines and not authored here. Its extent is a
+#    measurement, not a stored figure -- it moves whenever a review finding edits it:
 #      awk '/^\/\/\//{if(!s)s=NR;e=NR} END{print s"-"e}' \
 #        crates/layout/elidex-layout-block/src/inline/reconcile.rs
+#    ⚠ What is NOT derivable from the base is the docstring's *authored* content, and
+#    that is narrower than "all of it". Per 3, `CSS 2 10.8` and the probe universal's
+#    TEXT both already exist inside the moved range at 658cc302 (base `:480` and
+#    `:521`); 3 records `CSS 2 10.8` as a DUAL-PROVENANCE row for exactly this reason.
+#    Authored here are: the number-title pair, the `css-writing-modes-4` citation, and
+#    the SCOPING of the probe universal to this function -- not the citations wholesale.
+#    Do not restate that split here; 3 is its site, and restating it is how this
+#    sentence went wrong.
+#    ⚠ This recipe reconstructs the file's ELEMENTS, and deliberately does not add up
+#    to `wc -l`: the two blank separators and the function's closing `}` are structure,
+#    not elements, and naming them would make this a line-accounting table instead of a
+#    reconstruction. Measure the total; do not sum this list.
 # 2. mod.rs = the same file with 413-639 replaced by the call alone, and
 #    `mod reconcile;` added beside the sibling `mod` declarations. ⚠ `:420`
 #    (`let first_baseline = packer.first_baseline;`) does NOT survive as a
@@ -742,17 +757,25 @@ collected credit for honesty while overstating what the contract forbade.
     `gh pr view <n> --json body -q .body | grep -nE 'origin/main|[0-9]{3}'`; **(3)** the **squash
     commit message**. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
     hook-denied — so they are historical, not authoritative, and GitHub's
-    **default** squash message is their concatenation. Every claim this memo has since
-    **retracted** therefore survives verbatim in the body of the commit that made it —
-    `git log --format='%h %B' 658cc302..HEAD` is the population, and `24874f54`'s *"Every
-    finding landed on the memo's bookkeeping"* (narrowed by `c3efc9b7`; §9 now records that
-    findings landed outside the memo) is one instance. ⚠ **This is deliberately not an
-    enumeration.** A retraction is semantic, so no command can list which unamendable bodies
-    now contradict the memo, and a hand-maintained list of them is a second decision surface
-    that drifts — the one that stood here did, naming three items and missing this fourth
-    ([[feedback_duplicated-decision-surface-blocks-converge]]). The rule is therefore
-    categorical and needs no list: **accepting the default violates this DoD**, because the
-    landing message is the composed text below and nothing else.
+    **default** squash message is their concatenation, so it can carry claims this memo has
+    since **retracted**. ⚠ **The quantifier here is "at least one", and that is all the
+    evidence supports.** The known instance: `24874f54`'s body asserts *"Every finding landed
+    on the memo's bookkeeping"*, which `c3efc9b7` narrowed — the narrowing is recorded in the
+    **preamble** (`:40-42`), not in §9. ⚠ **Do not upgrade this to "every retracted claim
+    survives in the commit that made it".** An earlier revision did, and it is false in both
+    directions: a claim can be retracted in the *memo* without ever appearing in any commit
+    body, and the bodies that most often quote a retracted claim are the **retracting**
+    commits, which carry the correction with it. `git log --format='%h %B' 658cc302..HEAD`
+    enumerates commit *bodies*, not retracted *claims*, so it cannot decide that universal —
+    the population and the predicate do not match
+    ([[feedback_universal-claims-need-the-complement-measured]]).
+    ⚠ **This is deliberately not an enumeration.** A retraction is semantic, so no command can
+    list which unamendable bodies now contradict the memo, and a hand-maintained list of them
+    is a second decision surface that drifts — the one that stood here did, omitting
+    `24874f54`'s claim ([[feedback_duplicated-decision-surface-blocks-converge]]). The rule is
+    therefore categorical and needs no list, which is also why it survives the correction
+    above: **accepting the default violates this DoD**, because the landing message is the
+    composed text below and nothing else — regardless of what the default happens to contain.
 
     ⚠ **The message is written here, not promised.** "Authored fresh at merge" would be a promise
     about a future check, which §0's rule forbids — *a claim is carried by the command that produces
@@ -772,7 +795,8 @@ collected credit for honesty while overstating what the contract forbade.
         substitution, and 226 == 226.
       * call site: parse reconcile_flows' parameter names and the call's argument
         identifiers and compare pairwise. Pass = equal. Mutation-verified against a
-        real transposition of the three adjacent bools, which the body harness passes.
+        real transposition of TWO of the three adjacent bools, which the body
+        harness passes.
 
     Stable figures: inline/mod.rs 785 -> 573; too_many_lines 177/100 and
     too_many_arguments 11/7 both still load-bearing; 325 tests pass.
@@ -945,6 +969,12 @@ comm -12 <(sed -n '/^\*\*Leaving\*\*/,/owed round 20\./p' docs/plans/2026-08-inl
              | sed 's/^| //' | tr -d '`' | sort -u)
 ```
 
+⚠ The `sed` range ends at the "Leaving" paragraph's last sentence, so a leaving-claim written
+*below* that paragraph would be invisible to the command that claims to enumerate them. Today
+there is no such claim — the only `.md` named in the tail is
+`project_line-box-decorated-inline-content.md`, already in the output — but keep leaving-claims
+inside the paragraph the range covers, or widen the range with them.
+
 They appear twice because the split is **by clause, not by file**:
 this PR writes only what its own landing makes true, and the umbrella's framing of the same file
 leaves with the umbrella. So "named above" never means "outstanding", and "named below" never
@@ -952,6 +982,25 @@ means "wholly rewritten" — read each side for *which clause* it claims. Bookin
 both sides ships it as neither, and naming a whole file on one side contradicts the other; an
 earlier revision did the latter for `MEMORY.md` and a successor could not tell whether the
 bookkeeping was still owed.
+
+⚠ **Two classes are not enough — there is a third, and it is this PR's own.** "Leaving" is the
+umbrella's framing; the table below is what this landing makes true. Neither covers **loop
+lifecycle state**: bookkeeping whose whole subject is *this PR while it is in flight*, which the
+landing does not correct but **retires**. It is not the umbrella's framing, and it is not a
+clause of the Layout-lane entry, so an earlier revision's two-class split orphaned it. Named, so
+it is owned:
+
+* `MEMORY.md`'s **`🟡 IN FLIGHT: PR #508` bullet** — a *separate* bullet from the Layout-lane
+  entry, carrying a head sha, a dry-streak count and a paused-round note. Every fact in it is
+  dead on landing.
+* the `merge 未` / `converge loop 継続中` clause inside the Layout-lane entry — same character,
+  inside a bullet whose *other* clauses are the umbrella's framing.
+* `project_pr508-converge-in-flight.md` — a memory file whose front matter describes it as
+  carrying this loop's live state. It was named **nowhere** in this §10 before this revision.
+
+**Retired, not rewritten**: the landing deletes them rather than correcting them, which is why
+they need a class of their own — "what this landing makes true" reads as an edit, and the right
+action here is removal.
 
 **Leaving** — all keyed to the umbrella program, none to this move: registering the umbrella's own
 slot in `project_open-defer-slots.md` — ⚠ **and only its own**, which is the distinction that

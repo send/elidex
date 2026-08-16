@@ -26,13 +26,33 @@ use super::{
 /// ⚠ **The probe universal in the body below is scoped to THIS function.** The
 /// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
 /// persisted render state", and gates its own `clear_inline_flows` call on
-/// `!env.is_probe`. Three removals are **ungated**, and one is in this function:
+/// `!env.is_probe`. Every other removal of either component is **ungated**.
+/// Enumerate them **per component**, not as one tally — the two are gated
+/// differently, and an earlier revision of this docstring said "three" by
+/// counting only some of them:
+///
+/// ```text
+/// git grep -n 'InlineFlow\|ColumnFlowSlice' -- 'crates/layout/**/*.rs'
+/// ```
+///
+/// ⚠ Anchor that grep on the **component name**, as above, and classify the hits
+/// by hand. A grep anchored on the *call* instead (`remove_one::<Foo>`) silently
+/// undercounts: the removal in `elidex-layout-multicol/src/lib.rs` writes the
+/// path-qualified `remove_one::<elidex_ecs::ColumnFlowSlice>`, and the insert
+/// below spreads `ColumnFlowSlice { .. }` over several lines. The name is the
+/// invariant; the call syntax is not. (The command matches this comment too.)
+///
+/// `InlineFlow` is removed only via `clear_inline_flows`: gated here, ungated at
 /// `layout_inline_context_fragmented`'s two early returns (no items / no usable
-/// font) call `clear_inline_flows` ungated, and the carrier reconcile's `else`
-/// arm below removes `ColumnFlowSlice` ungated. ⚠ That third one **fires during a
-/// probe**: both `do_carrier` write arms are `!env.is_probe`-gated, so under a
-/// probe the carrier payloads stay empty and the `else` arm runs — this
-/// component's *write* is probe-gated while its *remove* is not.
+/// font). `ColumnFlowSlice` is removed **ungated at every one** of its sites in
+/// this crate — those same two early returns, which drop the carrier alongside
+/// the flows, and the carrier reconcile's `else` arm below.
+///
+/// ⚠ The `else` arm **fires during a probe**: both `do_carrier` write arms are
+/// `!env.is_probe`-gated, so under a probe the carrier payloads stay empty and
+/// the `else` arm runs — this component's *write* is probe-gated while its
+/// *remove* is not. The early returns carry the same asymmetry for the same
+/// component, which is why this is enumerated per component rather than tallied.
 ///
 /// ⚠ **Behaviour is not at risk.** The two early returns are reached on
 /// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
