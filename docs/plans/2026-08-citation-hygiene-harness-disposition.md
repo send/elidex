@@ -368,20 +368,29 @@ review to cut it. The accumulation was measured: mentions of PR-1a-i's obligatio
 every draft since the carve, which is several times the threshold at which a lane's own notes say the
 **boundary** is the thing to suspect.
 
-**The three slices, and the order is measured, not preferred:**
+**The five slices, and the order is measured, not preferred.** ⚠ This table said *three* while listing
+four, from the draft that added `δ`; the count is now stated as the row set it heads.
 
 | slice | what it owns | why it is one thing |
 |---|---|---|
-| **1a-i-β** the classifier | the `prose` subject test; the coverage gate's content test; **`classify`'s subject tests for a derivation call — both spellings** (§3's `callsite` and `mention` rows carry the rule) | all three change **how the census classifies a line**, and none of them changes an answer about where a block ships. ⚠ **The third deliverable is not "the command-position predicate" alone.** Measured, planting α's crossing two ways: unquoted (`… $(_partset) $(_roster) <<'INVENTORYPY'`) it classifies `?` and the census is RED at rc=1 — the failure β exists to fix; **quoted** (`… "$(_partset)" "$(_roster)" …`) it reaches `mention` first (`-audit.sh:151-152`) and files a genuine home under the one class whose rule is *nothing to do*, at `9 of 9`, **rc=0**. The quoted spelling is the likelier one, and it is silently green. So β owns `mention`'s command-substitution hole as well, and **`callsite` and `mention` stop being "nothing to do" rows** |
+| **1a-i-β** the classifier | the coverage gate's content test; **`classify`'s subject tests for a derivation call — both spellings** (§3's `callsite` and `mention` rows carry the rule) | both change **how the census classifies a line**, and neither changes an answer about where a block ships. ⚠ **The third deliverable is not "the command-position predicate" alone.** Measured, planting α's crossing two ways: unquoted (`… $(_partset) $(_roster) <<'INVENTORYPY'`) it classifies `?` and the census is RED at rc=1 — the failure β exists to fix; **quoted** (`… "$(_partset)" "$(_roster)" …`) it reaches `mention` first (`-audit.sh:151-152`) and files a genuine home under the one class whose rule is *nothing to do*, at `9 of 9`, **rc=0**. The quoted spelling is the likelier one, and it is silently green. So β owns `mention`'s command-substitution hole as well, and **`callsite` and `mention` stop being "nothing to do" rows** |
 | **1a-i-α** the set | I1 × I3, I1 × I5, I2 × I5; the part-set derivation and its crossing; `memoset`; `authorlocal` | all of them say **one fact, one home** about *names and sets*; none changes a tier's answer |
 | **1a-i-γ** the routing | I2 × I3 (files); the T0/T2 collapse into one file-declaration tier; the undeclared-file RED rule; `unverifiable=`; D13's tie-break; `route = dict(decl)` | all of them change **what answer the harness gives about where a block ships** — and every deferred decision, every conditional cascade and the only change this memo flags as not behaviour-neutral is here |
+| **1a-i-ε** the subject test | the `prose` subject test, and the three rows that replace `prose` in §3 | it is the only classifier change that needs a **vocabulary** rather than a predicate — the part set for its place tokens and `GROUPS` for its group tokens — and **both reach it only through α's crossing**. ⚠ **It was inside β until β's own `/elidex-plan-review` measured that it cannot be**: `GROUPS` already exists at `-inventory.sh:168`, inside `INVENTORYPY`, while the test lives in `-audit.sh`'s `HOMESPY`, so γ collapsing the group vocabulary does not put it in scope — only the argv crossing the `roster` row assigns to α does. The two escapes were measured and both fail: spelling a second `GROUPS` in `-audit.sh` is the many-homes defect γ exists to close (and filing it under `CLASSES` reports the duplicate as *ruled* at rc=0 rather than `?`), and dropping the group half of the predicate lands every group-object row in `proseunsettled`, which is RED while non-empty — so α would inherit a red census, which is the very thing β's ordering argument exists to prevent |
 | **1a-i-δ** the guards | `reads` — a named failure on every read of the harness's or a memo's text | ⚠ **It was assigned to no slice at all when the partition was first drawn, and §3a counted it as an obligation, so the two sections contradicted each other.** It is its own slice because it fits none of the other three predicates: it changes no classification, no set and no routing answer. It is also the only slice with no ordering constraint — nothing reads its output — so it may land at any point, and that independence is the evidence the partition is right rather than an excuse for the leftovers |
 
 **β before α**, because the crossing α builds cannot be classified by the census as it stands: `classify`
 inspects only a line's first word for command position, so a derivation called from an argument position
 falls through to `?` and the census goes RED — measured, and it is the same edit either way, so it belongs
 to the slice that owns the predicate. **α before γ**, because the tier collapse requires the dispatcher to be
-in the part set, which is α's work.
+in the part set, which is α's work. **γ before ε**, because ε's group tokens are γ's single `GROUPS`, and
+**α before ε** because ε reads both its vocabularies across a process boundary that only α's crossing opens.
+**δ is unordered** — nothing reads its output.
+
+⚠ **That measurement is what this ordering argument used to be missing, and it is why ε is its own row.**
+The `?`-at-rc=1 result above is a fact about the **command-position predicate**, which is β's; it was read as
+a fact about the whole of β, and the `prose` subject test was carried along in front of the two slices whose
+output it consumes.
 
 Two things fall out of the partition rather than being argued into it. The **two conflicting "firsts"** —
 `partset` lands first, and the `prose` split is the first task — stop conflicting, because they are first in
@@ -390,7 +399,7 @@ what earlier drafts deferred as scope-deciding is a γ-internal design choice, a
 measurement rather than left to an implementer.
 
 The base case is *a slice that has **passed** its own plan-review*, not one that is merely required to take
-one, so this umbrella still cannot discharge terminality in advance; each of β, α and γ takes its own
+one, so this umbrella still cannot discharge terminality in advance; each of β, α, γ, ε and δ takes its own
 `/elidex-plan-review`. §9 authorises the scope, not its terminality. (`axes.md`'s wording —
 *scope が単一 invariant-axis 交点に絞られている場合* — is narrower on **scope** than CLAUDE.md's and omits
 the passed-review condition, so the two are not ordered; both must hold.)
@@ -531,10 +540,18 @@ and the gate stays green — measured, replacing the roster literal with a deriv
 with the `roster` class gone from `BY CLASS` entirely.
 
 So the criterion asserts over **edit sites**, and uses the census only where the observable is **per row** (a
-guard column, a roster column) and therefore cannot shrink into a false green. It carries **eight obligations**: seven of the nine class rules, plus `covgate` from §3's own keep as the
-eighth. ⚠ **And it is apportioned across the slices, because a criterion written for a PR that no longer
-exists reports every slice failing by design.** β owns `prose`, `covgate` and the two subject-test rows;
-α owns `partset`, `roster`, `authorlocal` and `memoset`; γ owns `groupvocab`; δ owns `reads`. Each slice's
+guard column, a roster column) and therefore cannot shrink into a false green. ⚠ **It is apportioned across the slices, and the total is read off the apportionment rather than stated
+beside it** — a criterion written for a PR that no longer exists reports every slice failing by design, and a
+headline count written next to a list is a second home for the list's length. **β** owns `covgate` and the two
+subject-test rows; **α** owns `partset`, `roster`, `authorlocal` and `memoset`; **γ** owns `groupvocab`;
+**ε** owns `prose` — and, once ε splits it, the three rows that replace it; **δ** owns `reads`.
+⚠ **The figure this paragraph used to carry was false before the re-slice and would be false again after it.**
+It read *"eight obligations: seven of the nine class rules, plus `covgate`"*, which was written while `mention`
+and `callsite` were regression guards; the ⚠ below promoted them to obligations without moving the count, so the
+apportionment already summed to ten against a stated eight. After ε splits `prose` the class set itself grows,
+so no fixed integer survives. The two figures beside it — *"at HEAD it fails with 8 of 8"* and *"7 of 8"* —
+were measured against a script built for the eight and are retained **as a record of that run**, not as this
+criterion's expected values; the script is in no tree. Each slice's
 exit is its own obligations met **and** the vacuity guards holding — the guards are shared, because the
 failure they catch (a block silently leaving the table) is available to any of them.
 
@@ -558,7 +575,8 @@ Three properties it must have, each of which a measurement forced:
   documents — a file falls out of the part set, `defined=` drops, every gate stays green — is caught by *no
   block left the table*, not by a count. That is the same correction §3's split criterion needed above.
 
-Measured behaviour: at HEAD it fails with **8 of 8** outstanding, naming each open site. With one rule
+Measured behaviour of the eight-obligation script (recorded, not inherited): at HEAD it failed with
+**8 of 8** outstanding, naming each open site. With one rule
 genuinely landed (a `memoset` collapse: a derivation globbing the memo directory with a named failure,
 `budget`'s loop reading it, and `inventory`'s payload fed through `argv` — the crossing the `roster` row
 requires, since that payload is a quoted heredoc) it fails with **7 of 8**, and the guards hold across the
