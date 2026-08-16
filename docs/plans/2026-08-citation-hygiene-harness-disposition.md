@@ -590,7 +590,7 @@ and it landed as a separate commit, `b088dacc`.
 **Two commits have since been run against this clause, and the judgement belongs here, not in a commit
 message.** `b088dacc` **passes**: its whole subject is this memo's falsifiability. ⚠ **`a5fab499`
 does not, on this memo's own operationalisation** — §1 defines the trigger as *a commit that moves the
-census output §3 calls the work list*, and the split moved it — `for c in b088dacc a5fab499; do git stash -q; git checkout -q $c; bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep '^  HOMES:'; done` gives
+census output §3 calls the work list*, and the split moved it — `d=$(mktemp -d); git clone -q --local --no-hardlinks . $d; for c in b088dacc a5fab499; do git -C $d checkout -q $c; bash $d/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes; done` — run in a throwaway clone, because the obvious in-place form (`git checkout` in a loop) leaves the reader's own worktree detached, and a `| grep` on the output discards the gate's `!!` lines, which is M3's charter inverted — gives
 `HOMES: 72 (31 code, 41 prose) in 8 files` then `HOMES: 70 (31 code, 39 prose) in 9 files` (verified 2026-08-16;  the two rows it dropped are `prose` rows, which is
 PR-1a-i's own `prose` rule executed by a prereq).
 
