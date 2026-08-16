@@ -226,9 +226,20 @@ it supports needs only non-emptiness.
 **They are nonetheless out of scope, by change class rather than by grep**: this PR authors no
 algorithm, so it neither creates nor deepens a missing-citation defect. That is exactly the
 position #497 took when it declined to add a §9.4.2 module-doc citation to
-`collect.rs`/`styled_run.rs` as over-claiming. §9 books the class rather than dropping it. The one
-row below is therefore what the PR *carries*, and the map's honest breadth claim is "one citation
-travels unchanged", not "one citation is the surface".
+`collect.rs`/`styled_run.rs` as over-claiming. §9 books the class rather than dropping it.
+
+**So the table below is what the PR *carries*, not what the range's spec surface is** — and its
+rows have two distinct provenances, which is the distinction the map exists to record:
+
+* **CSS 2 §10.8** *travels unchanged* — it is a comment inside the byte-identical body, moved and
+  not authored.
+* **css-writing-modes-4 §6.4** is *newly authored by this PR* — the fold it governs is likewise
+  inside the untouched body, but the **citation** is text this PR writes (the Codex-R1
+  spec-vs-bookkeeping block), which is exactly why it has to appear here.
+
+⚠ This paragraph deliberately states no row count. It said "the one row below" while the table had
+two, because the R3 fix corrected the table and the `K=`/`M=` line and left the prose describing
+them — the same restate-a-derived-value mechanism §5.5 removed, surviving one section away.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
