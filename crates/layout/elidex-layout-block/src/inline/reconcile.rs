@@ -1,9 +1,10 @@
-//! Seam 3 of `layout_inline_context_fragmented`: reconciling the IFC's
-//! render-visible flow state after packing.
+//! Reconciling the IFC's render-visible flow state after packing: `InlineFlow`
+//! persistence, atomic repositioning, and the multicol `ColumnFlowSlice` carrier.
 //!
-//! Split out of `inline/mod.rs` as a prereq of the decorated-inline umbrella;
-//! see `docs/plans/2026-08-inline-seam3-reconcile-split.md`. The body is the
-//! pre-split block verbatim apart from the bindings the signature introduces.
+//! Split out of `inline/mod.rs`, where this ran as the tail of
+//! [`super::layout_inline_context_fragmented`]; the body is that block verbatim
+//! apart from the bindings the signature introduces
+//! (`docs/plans/2026-08-inline-seam3-reconcile-split.md`).
 
 use std::collections::HashMap;
 

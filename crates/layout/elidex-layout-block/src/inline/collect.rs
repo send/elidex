@@ -127,7 +127,7 @@ fn positioned_subflow_key(
 /// raw (unfiltered) direct children of the IFC parent plus the raw direct children
 /// of every inline element recursed into (each is some run-parent's direct child,
 /// hence a potential `run[0]`). The caller clears `InlineFlow` on candidates it does
-/// not persist (see the reconcile in `layout_inline_context_fragmented`).
+/// not persist (see the reconcile in `super::reconcile`).
 ///
 /// The top-level members are tagged with the **realigned** top-level run-start key
 /// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT

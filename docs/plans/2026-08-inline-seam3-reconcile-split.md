@@ -136,9 +136,23 @@ because `packer` is consumed below; its only consumer is `InlineLayoutResult` at
 
 Moving it would cost **two** edits that are not binding substitutions — an input parameter
 (whose name would collide with the `let`'s own binding) *and* an appended return statement — to
-relocate a line that does no reconcile work. It therefore stays verbatim in the residue,
-immediately above the call. This is the only departure from "the range moves", and it is stated
-here rather than absorbed silently because §8's proof obligation is a line-for-line one.
+relocate a line that does no reconcile work. It therefore does not travel. This is the only
+departure from "the range moves", and it is stated here rather than absorbed silently because §8's
+proof obligation is a line-for-line one.
+
+⚠ **It does not survive in the residue either, and that changed at `/simplify`.** The plan as
+reviewed kept the `let` verbatim above the call. But the hoist existed *because* 226 lines of
+`packer`-consuming code followed it; with those lines gone it became a single-use binding sitting
+18 lines above its only reader, directly above a `&mut dom` call — reading as a deliberate
+pre-call snapshot when the ordering is incidental. It is now folded into its sole consumer:
+
+```rust
+    InlineLayoutResult { …, first_baseline: packer.first_baseline, … }
+```
+
+Legal after the call moves `packer.flow_lines`, because the fields are disjoint and
+`Option<f32>` is `Copy`; `reconcile_flows` never receives `packer`, so no ordering is observable.
+Measured consequence: the residue's clippy line count drops 178 → **177**, which §5.4 records.
 
 The moved body is consequently **226 lines**: `413-419` (the block's own leading comment) plus
 `421-639`.
@@ -335,13 +349,13 @@ from it.
 
 §8 requires this re-evaluated, and the source slot says (`:37`) to drop it "if the residue no
 longer needs it". **It still does.** Measured by deleting the attribute with the split applied:
-`this function has too many lines (178/100)`. It stays, and the measurement is recorded so the
+`this function has too many lines (177/100)` (178 before §2.2's fold). It stays, and the measurement is recorded so the
 next toucher re-runs it rather than re-litigating it.
 
 ### §5.5 Resulting sizes
 
-`inline/mod.rs` **785 → 573**; `reconcile.rs` **264**. ⚠ The plan predicted 254 from the
-exploratory extraction; the shipped module is **10 lines longer**, carrying a real module doc and
+`inline/mod.rs` **785 → 573**; `reconcile.rs` **265**. ⚠ The plan predicted 254 from the
+exploratory extraction; the shipped module is **11 lines longer**, carrying a real module doc and
 a docstring on `reconcile_flows` that the throwaway did not. Recorded as a correction rather than
 silently overwritten — §5.6 exists so that a predicted figure and a measured one stay
 distinguishable. Both files sit below
@@ -358,9 +372,9 @@ shipped tree before landing. Result of that re-run:
 | figure | predicted | measured on the implementation |
 |---|---|---|
 | `too_many_arguments` load-bearing | yes | yes — `this function has too many arguments (11/7)` |
-| `too_many_lines` still load-bearing on the residue | yes, `178/100` | yes, `178/100` |
+| `too_many_lines` still load-bearing on the residue | yes, `178/100` | yes, **`177/100`** (§2.2's fold) |
 | `inline/mod.rs` | 573 | **573** |
-| `reconcile.rs` | 254 | **264** (§5.5 — the docstrings) |
+| `reconcile.rs` | 254 | **265** (§5.5 — the docstrings) |
 | §6 harness | 6 hunks, `226 == 226` | **6 hunks, `226 == 226`, PASS** |
 | test baseline | 325 | **325 passed, 0 failed** |
 
@@ -382,7 +396,7 @@ cargo test   -p elidex-layout-block --all-features      # → 325 passed, 0 fail
 wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 ```
 
-⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` came out at 264
+⚠ **One prediction was wrong, and that is the point of the table**: `reconcile.rs` came out at 265
 rather than 254. A memo that had simply asserted 254 would now be carrying a false figure into
 §10's successor-slot baseline; instead the discrepancy is visible and the baseline takes the
 measured number ([[feedback_verified-claims-go-stale-under-own-later-edits]]).
@@ -434,15 +448,45 @@ own rev-22 gate caught in this lane.
   comment lines *before* matching (`layout-box-reader-trip-wire.sh:125`). Asserted by running
   `mise run trip-wires`, not by this paragraph.
 
-⚠ **One thing the move does make less accurate, and the contract forbids fixing it.** Two comments
-inside the range refer to `clear_inline_flows` by its *position relative to them* — `:549` "by the
-`is_probe`-gated `clear_inline_flows` **below**" and `:597` "Carrier reconcile (insert-or-remove,
-**mirroring** `clear_inline_flows`)". After the move that function is in the parent module, not
-below. §2.3 fixes the permitted edits at six substitution sites and §6 fails on a seventh, so this
-PR **cannot** correct them; a reader who did correct them would break the one proof this PR sells.
-Recorded rather than silently accepted, and handed to `#11-inline-fragmented-fn-seams-1-2` (§9) —
-the slot that owns the residue's further decomposition and is the natural place for a follow-up
-that may edit prose freely.
+### §7.1 Comments the move makes less accurate — the whole class, measured
+
+⚠ **An earlier revision said "**One** thing the move does make less accurate" and named only the
+two sites *inside* the range.** That is a closed-set claim whose complement — comments **outside**
+the range that address the block by its old location — was never measured, in a memo that invokes
+[[feedback_universal-claims-need-the-complement-measured]] twice elsewhere. Measured now, and
+⚠ **a line-based grep is not enough**: one site wraps the phrase across two `//` lines, so the
+sweep flattens comment continuations first:
+
+```
+python3 - <<'EOF'
+import re, pathlib
+for p in pathlib.Path('crates/layout/elidex-layout-block/src').rglob('*.rs'):
+    flat = re.sub(r'\n\s*//[/!]?', '', p.read_text())
+    for m in re.finditer(r'persist block|reconcile (comment )?in `layout_inline_context_fragmented`', flat):
+        print(p, flat[m.start()-45:m.end()+35])
+EOF
+```
+
+**Five sites outside the range**, splitting on whether they name a *location* or the block as a
+*concept*:
+
+| site | names | disposition |
+|---|---|---|
+| `mod.rs:175-177` | "see the persist block's `reposition_atomic_box` calls" — an in-file pointer, and no such block is in this file now | **fixed here** |
+| `mod.rs:562` | "the reconcile comment in `layout_inline_context_fragmented`" | **fixed here** |
+| `collect.rs:130` | "see the reconcile in `layout_inline_context_fragmented`" | **fixed here** |
+| `collect.rs:209` | "the projection axis the persist block uses for ALL groups" | **left** — names the block as a concept, still true |
+| `atomic.rs:17` | "The persist block uses this as the reposition delta basis" | **left** — same |
+
+The three fixed ones name a location that moved; the two left name a thing that still exists. That
+is the line, and it is why `collect.rs` appears in this PR's diff (§8).
+
+**Two sites inside the range cannot be fixed here**, and that is the contract working as intended:
+`:549` "by the `is_probe`-gated `clear_inline_flows` **below**" and `:597` "Carrier reconcile
+(insert-or-remove, **mirroring** `clear_inline_flows`)" — after the move that function is in the
+parent module, not below. §2.3 fixes the permitted edits at six substitution sites and §6 fails on
+a seventh, so correcting them would break the one proof this PR sells. Handed to
+`#11-inline-fragmented-fn-seams-1-2` (§9), which may edit that prose freely.
 
 ## §8. Definition of done
 
@@ -465,10 +509,10 @@ that may edit prose freely.
 * **Every figure §5.6 marks pending is re-measured on the committed tree** and recorded in the
   commit message: the two `#[allow]`s' necessity (`too_many_arguments`; `too_many_lines` at
   `178/100` per §5.4), both `wc -l`s, and §6's hunk count.
-* **`git diff --name-only origin/main...HEAD` names exactly two files** — this memo and
-  `inline/mod.rs` — plus the new `inline/reconcile.rs`. Nothing under `.claude/`, and no second
-  `docs/plans/` file: that is the mechanical statement of the narrowing in the preamble, and the
-  cheapest way for a reviewer to confirm it.
+* **`git diff --name-only origin/main...HEAD` names four files** — this memo, `inline/mod.rs`,
+  the new `inline/reconcile.rs`, and `inline/collect.rs` (one comment, §7). ⚠ **Nothing under
+  `.claude/`, and no second `docs/plans/` file** — that is the mechanical statement of the
+  narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
 * §10's ledger actions applied.
 
 ## §9. Out of scope, with disposition
@@ -491,6 +535,24 @@ that may edit prose freely.
   front matter exists to prevent. What §10 *does* carry is the slot's subject line naming §5.3's
   candidate shapes **including the side-store→component one**, so the question is not pre-answered
   as a grouping.
+  ⚠ **Booked alongside it, because it is a different defect the count would hide**: the signature
+  ends `is_vertical: bool, persist_flow: bool, do_carrier: bool` and the call site passes them
+  positionally, so **any transposition of the three is type-correct and compiles silently**. That
+  window is *new* — pre-split these were three named `let` bindings in scope (`:173`, `:322`,
+  `:343`). Measured across all non-test `crates/layout` source, only four functions have two or
+  more adjacent `bool` parameters, and `reconcile_flows` is the **only one in
+  `elidex-layout-block`**; the crate's other wide signatures separate them, apparently
+  deliberately — `layout_atomic_items` (`atomic.rs:26`) puts `layout_generation: u32` between
+  `is_vertical` and `is_probe`. A slot told only "eleven is too many" may answer with a grouping
+  that keeps the triple adjacent, so the adjacency is named on the slot, not just the count.
+* **Where the four helpers should live once their principal caller is a sibling module.** §5.2
+  keeps all four in `mod.rs`, and two of its four reasons are *design* reasons (`pub` API;
+  residue callers) while two are *scope* reasons (outside the ratified range). ⚠ A third
+  configuration exists that §5.2 does not weigh — all four into a shared sibling imported by both
+  `mod.rs` and `reconcile.rs`, which satisfies the uniformity argument **and** removes the
+  child→parent back-edge. Declining it here is right (it is outside the range), but leaving it
+  unrouted would let the next reader take §5.2 as "settled" rather than "declined on scope".
+  Routed to `#11-inline-fragmented-fn-seams-1-2`.
 * **The uncited spec-governed prose inside the moved range** (§3's measured complement:
   css-writing-modes-4 §6.4, css-position-3 §3.3/§3.4, css-break-4 §2, css-multicol-1 §7,
   css-text-3 `text-align`). **Pre-existing and not this program's**, on the rule the umbrella

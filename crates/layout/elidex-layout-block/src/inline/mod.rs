@@ -173,8 +173,9 @@ pub fn layout_inline_context_fragmented(
 
     let is_vertical = !parent_style.writing_mode.is_horizontal();
     // Layout atomic inline boxes and fill in their dimensions. Returns each atomic's
-    // un-offset margin-box origin (the reposition delta basis — see the persist
-    // block's `reposition_atomic_box` calls; preserves a relpos atomic's offset).
+    // un-offset margin-box origin (the reposition delta basis — see the
+    // `reposition_atomic_box` calls in `reconcile`; preserves a relpos atomic's
+    // offset).
     let unoffset_origins = atomic::layout_atomic_items(
         dom,
         &mut items,
@@ -411,7 +412,6 @@ pub fn layout_inline_context_fragmented(
         })
         .collect();
 
-    let first_baseline = packer.first_baseline;
     reconcile::reconcile_flows(
         dom,
         parent_entity,
@@ -429,7 +429,7 @@ pub fn layout_inline_context_fragmented(
     InlineLayoutResult {
         height: total_block,
         static_positions,
-        first_baseline,
+        first_baseline: packer.first_baseline,
         line_count,
         break_after_line,
     }
@@ -559,7 +559,7 @@ fn relpos_atomic_reposition_records(
 /// direct children); `persisted` is the set just written. `remove_one` on an entity
 /// without the component is a cheap no-op. This is the single staleness reconciler
 /// (F9 — `layout_generation` is constant 0 non-paged, so removal, not comparison).
-/// See the reconcile comment in `layout_inline_context_fragmented`.
+/// See the reconcile comment in [`reconcile::reconcile_flows`].
 fn clear_inline_flows(
     dom: &mut EcsDom,
     candidates: &[Entity],
