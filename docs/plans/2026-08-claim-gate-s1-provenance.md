@@ -301,10 +301,10 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 |---|---|---|
 | **I1** | **Total tier assignment** (D3) — every candidate line lands in exactly one of *strict* / *malformed* / *mention*; none may vanish | The lax recogniser is the outer net and strict is a subset of it. A typo cannot fall out of the world. |
 | **I2** | **Inertness** (D2) — the mention rule must never swallow a strict annotation, and the gate excludes its own files | One rule on all four surfaces: backtick it (§4.2). It is a **line predicate** — *k* backticks before the `<!--` — so no per-file state exists and no surface needs its own arm. `.claude/tools/**` is dropped by pathspec. |
-| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file; `lines=` to exactly 1 | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string — and resolved against the **working tree**, which is the tree all three verbs read (§4.4 rule 3). |
+| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (§4.4 rule 3). The working tree, not the index, because that is the tree all three verbs read. |
 | **I4** | **Dialect fidelity** (D5) — the pattern body's ERE meaning is the author's meaning | A parse-time reject-list on the pattern body, with a diagnostic naming the offending escape verbatim. |
 | **I5** | **Argv fidelity** (D6) — every parsed value reaches `git grep` as one argv element | No `eval`, no unquoted expansion, no reconstructing a command string. Probeable: §4.4. |
-| **I6** | **Provable firing** — every grammar clause has a positive *and* a negative control; the negative asserts a diagnostic substring unique to it | The self-test, the wire's invocation of it, and the `REQUIRED_WIRES` line, all in one commit. |
+| **I6** | **Provable firing** — every grammar clause has a control that can red on its regression, and where the clause has a passing direction, one that can red on *that* | The self-test, the wire's invocation of it, and the `REQUIRED_WIRES` line, all in one commit. The `$3` discrimination requirement is **§8's**, scoped to the fixture, and is not restated here — this row said "a substring unique to it" from the first draft through the revision that withdrew that requirement in §8, which is how C23 came to assert a trailing space nothing needs. §8 also states which clauses have no passing direction, and therefore which rows are negative-only by construction rather than by omission. |
 | **I7** | **Cost is bounded by the annotation count, not by the tree** | One tree-wide `git grep`, then per-annotation work. It is a *structural* bound, not a wall-clock one — see §4.5. |
 
 **Pairwise intersections**, load-bearing first.
@@ -322,10 +322,10 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 | I1 × I3 | A malformed annotation must fail *before* the liveness probe, or a typo'd verb plus a typo'd pathspec reports the pathspec. Order: tier → dialect → liveness → measure. |
 | I1 × I5 | Parsing is what produces the argv elements; a parser returning one joined string re-creates D6's hazard one level in. The parser emits each field separately. |
 | I1 × I6 | Every tier needs both directions: strict-that-passes / strict-that-fails, malformed-that-fails, mention-that-is-ignored-*while-wrong*. |
-| I1 × I7 | Tier assignment is the one stage touching every candidate line; it is a single pass over the candidate files only. |
+| I1 × I7 | Tier assignment is the one stage touching every candidate line, and it touches **no files at all**: it is a transform of the single `git grep -n` output, so I7's tree term is that one invocation and tier assignment adds nothing to it. Revisions 1–7 read "a single pass over the candidate *files*", which described the two-stage scan revision 4 deleted — the row above records that withdrawal, one line away, and this row was not swept with it. |
 | I4 × I5 | Both bound what reaches git, at different sites: I4 rejects at parse time with a visible diagnostic, I5 is invisible-by-construction in the executor. Kept separate for that reason. |
 | I4 × I6 | A ban that cannot fire is indistinguishable from a clean tree — the precedent is `layout-box-reader-trip-wire.sh:276-299`'s `ban_control`. One control per rejected escape class, each with its own diagnostic substring. |
-| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass. |
+| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (§4.4 rule 3). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. C34 controls the short-circuit directly. |
 | I2 × I6 | D2's self-exclusion is both a *correctness precondition* and a *two-directional* claim. The self-test's own fixture annotations must be inert in the real repo — they are, by the `.claude/tools/**` exclusion, which is therefore load-bearing for S1 landing rather than a convenience. And the control must assert both directions: an annotation under `.claude/tools/` ignored, and the identical annotation outside it red. Asserting only the first would pass on a wire that scanned nothing at all. |
 
 The remaining four pairs are independent, each for a stated reason: **I2×I3** (inertness decides
@@ -1557,11 +1557,11 @@ $ python3 .claude/skills/elidex-plan-review/preflight.py \
   unmapped-label rows:  8  (has §<number>, label not in SPEC_LABEL_REVERSE)
   unique specs (K):     2
   split decision:       ok (single PR scope)
-  grep-pass:            0 hard, 8 soft
+  grep-pass:            0 hard, 9 soft
 EXIT=0
 ```
 
-All 8 soft findings are one shape: a `crates/…**/…` pathspec read as a filesystem path by Check 1's
+All 9 soft findings are one shape: a `crates/…**/…` pathspec read as a filesystem path by Check 1's
 matcher, which cannot resolve a glob. The `⚠ unrecognized labels` line for the two in-repo documents §3
 substitutes for spec rows is printed *outside* that tally and is not one of them — a decomposition the
 first draft got wrong in both directions. Zero Check 3 findings: every enumeration claim in this memo has
@@ -1574,8 +1574,13 @@ C10 and C19 in prose and carries no pathspec literal at all, so it contributes n
 The sentence also said "this revision", inherited unchanged from the revision where it was true.
 
 It moved to 8 in the round-5 pass: giving §8.1's C10 a positive that states the verb it exercises put an
-eighth tree-scale pathspec in that row. The edit was right and the figure moved, which is the ordinary
-case this block exists to handle.
+eighth tree-scale pathspec in that row. It moved to 9 in the round-6 pass, at **one** site: §4.4 rule 3
+had to show what C10's pathspec actually resolves to in order to price the liveness test that broke I7,
+and that measurement is a pasted `git ls-files -- 'crates/**/*.rs'`. §2's I3×I7 row states the same
+`1407 of 1706` and contributes nothing here, because it cites §4.4 rather than repeating the literal —
+which is the distinction this paragraph got wrong about §4.5 one paragraph above, and which was checked
+by locating every such literal rather than by recalling where they are. The edit was right and the
+figure moved, which is the ordinary case this block exists to handle, twice now in consecutive rounds.
 
 That correction is also the second demonstration in two revisions, and the sharper one. The first draft
 of this very paragraph *named the pathspec inline* while explaining that naming it would add to the count
