@@ -781,9 +781,23 @@ What *is* asserted is structural, not measured: **the wire's work is one tree-wi
 per annotation — never a term per tracked file.** That is visible in the code shape (§4.1's single
 tree-wide command, §4.4's per-annotation probe and measurement) and it is what keeps the ungated job's
 real justification — no toolchain, no cache (`.github/workflows/ci.yml:128-130`) — true as annotations
-accumulate. The wire header records a re-runnable escalation trigger rather than a prediction: *if the
-per-annotation stage ever dominates a local `mise run trip-wires`, batch by `in=` before adding
-annotations.* §9 audits that and declines to mint a slot.
+accumulate. The wire header records a re-runnable escalation trigger rather than a prediction — but
+**its action was one the design forbids**, and had been since the first draft: *"batch by `in=` before
+adding annotations"*, while §2's I5×I7 row says the no-`eval` rule *"forbids the one shape that would
+batch several annotations into a single `git grep`"* and that *"serial execution is forced"*, and §9's
+audit calls the same candidate one *"which I5×I7 forbids structurally"*. Three sections, two of them
+naming the impossibility and the third prescribing it. A trigger whose remedy cannot be executed is
+§2 I4×I6's `ban_control`, one level up: it looks like a disposition and can never be acted on.
+
+It is not fixable by loosening I5, and the reason is worth stating because it is not the obvious one:
+multiple `-e` patterns **are** expressible without `eval`, each being its own argv element — but
+`git grep` does not report which `-e` matched, so per-annotation counts are unrecoverable from a batched
+run. Batching is unavailable to `count` and `files` structurally, not by convention.
+
+So the trigger keeps its condition and takes an action that exists: *if the per-annotation stage ever
+dominates a local `mise run trip-wires`, **re-plan** — reduce the annotation set, or change the execution
+model. Do not batch: I5×I7 forbids the shape and `git grep` could not attribute the result anyway.*
+§9 audits that and still declines to mint a slot, on the ground it states there.
 
 **The bound is on the wire, and the self-test is exempt** (I6×I7). C10's positive and C19's corpus row
 both run tree-scale pathspecs, deliberately: the acceptance corpus is only worth having because it runs
@@ -1104,6 +1118,34 @@ in the path of a wire whose entire justification for running ungated is that it 
 That rejection now holds without exception — §8.1's C26, which ran the memo-checker inside the wire's
 self-test and did both of those things harder than (b) would, is deleted (§8.1).
 
+**The layer rule that rejection implies, stated because §9 hands a decision across it.** Read alone, the
+(b) rejection and §9's routing collide: (b) forbids a Python interpreter and a skill-directory coupling
+in a gate's path, while `claim-gate-plan-check.py` does both deeply — `sys.path` into
+`.claude/skills/elidex-plan-review/`, `importlib` loads of `preflight.py` and `grep_pass.py` reaching
+private names, and a subprocess call to `preflight.py` — and §9 names canonical a note that books putting
+exactly that tool on the trip-wires loop. The two are only compatible under a rule neither states:
+
+> **A repository gate** — anything on the ungated per-push path — takes no toolchain and couples to no
+> skill directory. **A plan-review-stage tool** — run when a human invokes the gate that reads plan-memos
+> — may do both, because its trigger is a person and its dependencies are already in the room.
+
+`claim-gate-plan-check.py` is the second kind, which is why it is a prerequisite PR rather than a wire,
+why §5's gate lists it as a step rather than registering it, and why the *"a check nobody re-runs is a
+transcript"* objection §1 raises against a split-out helper does not transfer to it unchanged: the memo
+checker's re-runner is the author at the gate, not the driver. That is also the whole content of §9's
+own-deferral #1 — whoever executes the SKILL.md note must decide **which kind** the loop makes it, and
+moving it to the trip-wires loop converts it into the first kind and re-opens (b). Recorded here so the
+executor meets the constraint rather than discovering it.
+
+**And the cost this puts on every push, stated rather than left to be noticed.** The self-test runs on
+every wire invocation, the wire runs in `mise run trip-wires` ⊂ `mise run ci` and in the ungated CI job,
+and §4.1.1 builds one clone per self-test run — so every local gate run and every push clones this
+repository. No other wire's self-test leaves hermetic ground. It is justified by §1's own principle
+rather than excused: a corpus that runs only when someone remembers to run it is the transcript §1
+rejects, and §7 Q2's argument for the corpus is that a real firing beats a synthetic one — which is only
+true if it fires on the schedule the gate does. §4.5's escalation trigger covers it if that ever stops
+being worth it, and no figure is offered here for the reason §4.5 gives.
+
 ---
 
 ## §8 Test strategy
@@ -1216,8 +1258,8 @@ grouping is unaffected — a group of one-row invocations has nothing to collide
 | C7 | §4.4 `lines-verb` takes no `pattern` | own | `lines=` alone, true length | `lines=5 pattern="fn" in="a.md"` (`MALFORMED`) |
 | C8 | §4.3 reject `\d` | escapes | `[0-9]` accepted, true count | pattern containing `\d` (`contains \d`) |
 | C9 | §4.3 reject `\b` | escapes | `([^A-Za-z]\|$)` accepted, true count | pattern containing `\b` (`contains \b`) |
-| C10 | §4.4 liveness, `in=` ≥ 1 | clone | `in="crates/**/*.rs"` | `in="crates/**/*.rss"` (`matches no tracked file`) |
-| C11 | §4.4 liveness, `lines=` exactly 1 | clone | one-file pathspec | `in=".claude/tools/wasm-*-trip-wire.sh"`, which resolves to 2 (`resolves to more than one`) |
+| C10 | §4.4 liveness, `in=` ≥ 1 | clone | `files=<N> pattern="fn " in="crates/**/*.rs"`, **`<N>` computed from the clone at run time** — the row's subject is that the probe resolves and the wire proceeds, not the count | `in="crates/**/*.rss"` (`matches no tracked file`) |
+| C11 | §4.4 liveness, `lines=` exactly 1 | clone | `lines=<N> in=".claude/tools/layout-box-reader-trip-wire.sh"`, `<N>` computed the same way | `in=".claude/tools/wasm-*-trip-wire.sh"`, which resolves to 2 (`resolves to more than one`) |
 | C12 | §4.4 argv fidelity (I5) | own | §4.4's three-file fixture, `files=2 … in="docs/**/*.md"` → passes only if the pathspec reached git as one argv element | `files=1` with the same pathspec (`asserted=1`) — the value a shell-globbing executor would compute |
 | C13 | §4.4 `-e` is not optional | own | `pattern="-> u32"`, true count — a wire without `-e` cannot pass this arm, because git exits 129 and rule 4 makes that a measurement-failed outcome instead of a count | same pattern, wrong count (`asserted=`) — on a wire without `-e` the run fails with rule 4's diagnostic instead, which the probe reports as a failure for the wrong reason |
 | C14 | §4.4 `count` = matching lines | own | fixture line reading `sole sole`, `count=1` | `count=2` on the same fixture (`asserted=2`) |
@@ -1236,6 +1278,17 @@ grouping is unaffected — a group of one-row invocations has nothing to collide
 | C28 | §4.4 rule 3, liveness resolves against the working tree | own | `lines=2 in="a.md"` on a `git add`ed file that is present in the worktree | the same annotation after the file is removed, its path still in the index (`present in the working tree`) |
 | C29 | §4.4 rule 4, a measurement git refused to run | own | `count=1 pattern="[0-9]"` — a valid ERE, measured | `count=0 pattern="foo("` — parentheses unbalanced, git exits 128; must NOT report `actual=0` (`git could not run this pattern`) |
 | C30 | §1's size bound on the shipped files | own | both files under the band → self-test passes | a fixture copy padded past 800 lines (`exceeds 800 lines`) |
+
+**C10's and C11's positives assert a computed value, and that is the point of them.** Revisions 1–6 gave
+them no verb and no number ("`in="crates/**/*.rs"`", "one-file pathspec"), which was survivable while
+they were hermetic `own` rows whose fixture fixed the value, and stopped being so when revision 5 moved
+them to `clone`: in a clone of this repository every such value is a live measurement of files other
+lanes own. A hard-coded number would red the self-test on an unrelated commit — this program's own
+failure class, inside its own gate. So the self-test computes the expected value from the clone and
+plants it, and §8.1's row says so, because a reader would otherwise take the positive as an assertion
+about the count. What the row asserts is the **liveness clause**: the probe resolves, and the wire
+proceeds to measure rather than failing first. The negatives carry the discrimination, as they do
+everywhere else in this table.
 
 C23–C25 close three clause-shaped holes round 2 named: the `icase` keyword, the `.toml` surface (C5's
 row claimed both `.sh` and `.toml` and its fixture is a `.sh`), and the reject set, of which two of ten
@@ -1419,23 +1472,33 @@ $ python3 .claude/skills/elidex-plan-review/preflight.py \
   unmapped-label rows:  8  (has §<number>, label not in SPEC_LABEL_REVERSE)
   unique specs (K):     2
   split decision:       ok (single PR scope)
-  grep-pass:            0 hard, 7 soft
+  grep-pass:            0 hard, 8 soft
 EXIT=0
 ```
 
-All 7 soft findings are one shape: a `crates/…**/…` pathspec read as a filesystem path by Check 1's
+All 8 soft findings are one shape: a `crates/…**/…` pathspec read as a filesystem path by Check 1's
 matcher, which cannot resolve a glob. The `⚠ unrecognized labels` line for the two in-repo documents §3
-substitutes for spec rows is printed *outside* that tally and is not one of the 7 — a decomposition the
+substitutes for spec rows is printed *outside* that tally and is not one of them — a decomposition the
 first draft got wrong in both directions. Zero Check 3 findings: every enumeration claim in this memo has
 a `git grep -n…` literal within its vicinity, which is the only artifact form Check 3 accepts today (§6).
 
-The soft count is 7 rather than revision 2's 5 because revision 3 added two `crates/…**/…` pathspecs,
-**both of them in §2's I6×I7 row** — the two tree-scale controls that row exempts from I7, named there in
-one sentence. The attribution stood as "§2's I6×I7 row and §4.5's exemption" until round 5 read §4.5:
-that paragraph names C10 and C19 in prose and carries no pathspec literal at all, so it contributes
-nothing to this tally. (Neither literal is repeated here. Pasting one would add a soft finding to the
-count this block reports — the self-invalidation §8.2's per-line listing declines for the same reason.)
+The count moved from 5 to 7 when revision 3 added two `crates/…**/…` pathspecs, **both of them in §2's
+I6×I7 row** — the two tree-scale controls that row exempts from I7, named there in one sentence. The
+attribution stood as "§2's I6×I7 row and §4.5's exemption" until round 5 read §4.5: that paragraph names
+C10 and C19 in prose and carries no pathspec literal at all, so it contributes nothing to this tally.
 The sentence also said "this revision", inherited unchanged from the revision where it was true.
+
+It moved to 8 in the round-5 pass: giving §8.1's C10 a positive that states the verb it exercises put an
+eighth tree-scale pathspec in that row. The edit was right and the figure moved, which is the ordinary
+case this block exists to handle.
+
+That correction is also the second demonstration in two revisions, and the sharper one. The first draft
+of this very paragraph *named the pathspec inline* while explaining that naming it would add to the count
+— so the paragraph forbidding the act performed it, and `PREFLIGHT` reported 8 against a freshly-written
+8 that had already become 9. No literal appears here now, for the reason the sentence gives, and the
+reason is not hypothetical: **it has fired on this paragraph twice.** The self-invalidation §8.2's
+per-line listing declines is the same shape, and §8.2 declines it by construction where this block has to
+be told.
 **This block is a
 pasted transcript and therefore a claim**, so it is one `claim-gate-plan-check.py` re-derives: its
 `PREFLIGHT` check re-runs preflight against this memo and compares M, K, the malformed and
@@ -1463,13 +1526,17 @@ an own deferral and is counted as one.
 | nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in §4.4 rule 3**, controlled by §8.1 C28. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
 | "the **L4 lane**" — the five false rows of #504's `Lines at HEAD` table (§8.2) | a lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive it | **§5's commit 6**, value-only, so C21 and §8.2 stay true |
 
-**One candidate was audited and is not a slot**, unchanged from revision 6: *"batch annotation
-execution by `in=` when the annotation count grows"*, which I5 × I7 forbids structurally.
-*(1) platform gap?* No, a performance property of one script. *(2) repeat signal?* No. *(3) existing
-home?* Yes, the wire's own header, where the sibling wires keep comparable notes. *(4) second tracking
-home?* Yes. → **Not a slot**: a header note with a re-runnable escalation trigger, the disposition
-`.claude/skills/elidex-plan-review/SKILL.md:91` records for its own deferred parser ("deliberately NOT a
-`#11-*` platform slot … skill-infra not a platform gap").
+**One candidate was audited and is not a slot** — the wire's cost as the annotation count grows.
+Revisions 1–6 phrased the candidate as *"batch annotation execution by `in=`"* while stating in the same
+sentence that *"I5 × I7 forbids [it] structurally"*, so the audited item was an action the design does not
+permit and the escalation trigger §4.5 rests this verdict on prescribed it. §4.5 now carries the
+re-plan action instead, and the candidate is restated as what it actually is: *the per-annotation stage
+coming to dominate a `mise run trip-wires` run*. *(1) platform gap?* No, a performance property of one
+script. *(2) repeat signal?* No. *(3) existing home?* Yes, the wire's own header, where the sibling wires
+keep comparable notes. *(4) second tracking home?* Yes. → **Not a slot**: a header note with a
+re-runnable trigger, the disposition `.claude/skills/elidex-plan-review/SKILL.md:91` records for its own
+deferred parser ("deliberately NOT a `#11-*` platform slot … skill-infra not a platform gap"). The
+verdict is unchanged; what changed is that the thing it disposes of can now be acted on.
 
 **One own deferral survives the audit.**
 
