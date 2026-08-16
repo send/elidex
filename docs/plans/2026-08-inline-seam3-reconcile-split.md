@@ -220,6 +220,9 @@ resolved with `.claude/tools/webref heading`:
 * `:514` — the term "fragmentainer" → **css-break-4 §2** *Fragmentation Model and Terminology*
 * `:483-492`, `:531-554` — a box continuing across **column boxes**
   → **css-multicol-1 §2** *The Multi-Column Model* (`webref dfn css-multicol-1 'column box'` → §2).
+* `:419`, `:550-554`, `:506-510` — the abspos toggle; `overflow:hidden` clipping; the paged path
+  and its page generation → **css-position-3 §2** *Choosing A Positioning Scheme: position
+  property*; **css-overflow-3** `overflow`; **css-break-4 §2**.
 
 **They are nonetheless out of scope, by change class rather than by grep**: this PR authors no
 algorithm, so it neither creates nor deepens a missing-citation defect. That is exactly the
@@ -638,13 +641,8 @@ the claim, and a stronger one.
   configuration exists that §5.2 does not weigh — all four into a shared sibling imported by both
   `mod.rs` and `reconcile.rs`, which satisfies the uniformity argument **and** removes the
   child→parent back-edge. Declining it here is right (it is outside the range), but leaving it
-  unrouted would let the next reader take §5.2 as "settled" rather than "declined on scope". Over-reach on two measured counts: that slot is **not
-  open** (`grep -rl '#11-inline-spec-cite-misattribution' <memory-dir>` → nothing; it exists only
-  inside the unapproved umbrella, which books opening it to PR-1a), and its scope is the
-  umbrella's **wrong-section** class — misattributed citations, found by three concept greps — not
-  *missing* ones. A PR cannot enlarge another program's unopened slot by asserting it in prose. So
-  this memo claims no routing: the prose was uncited before and after, this PR authors no
-  algorithm, and adding citations would be an edit to the moved lines that §6 fails on.
+  unrouted would let the next reader take §5.2 as "settled" rather than "declined on scope".
+  **Routed to `#11-inline-fragmented-fn-seams-1-2`**, whose entry carries it.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
   pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
   under `#11-inline-root-inline-box`). Recorded here so the row is dispositioned rather than
@@ -726,5 +724,6 @@ therefore carries a row that writes the narrowing into the umbrella's own SSoT**
 | Register **and** close `#11-inline-fragmented-fn-decomposition` in one row, as a **partial** close | this PR discharges seam 3 and only seam 3. Seams 1 and 2 (§9) stay open in the successor slot `#11-inline-fragmented-fn-seams-1-2` (pre-existing class; trigger and self-exemptions verbatim from the umbrella's §10 row; re-eval 2026-11-01). The slot's subject line names §5.3's candidate shapes for the eleven-parameter signature, **including the side-store→component one**, so the question is not pre-answered as a grouping — and §9 records that the slot's *existing* disjunct 1 already reaches it, because the call site is in the residue |
 | Correct **every** fact this PR falsifies in `project_inline-fragmented-fn-decomposition.md` | the class, measured on that file: `:3` (front-matter, "508 lines … three concrete seams"), `:17` (its own frame: `mod.rs:139-646` = 508 lines, `#[allow]` at `:138`, "After the split `mod.rs` is **783 lines**" — ⚠ those are *its* pre-#497 coordinates, which on `658cc302` read `:141-648` / `:140` / 785, and after this PR the file is 573), `:29` (seam 3 listed open), `:37` ("On landing, drop the `#[allow(clippy::too_many_lines)]` if the residue no longer needs it" — **re-evaluated and kept** — ⚠ take the figure from §5.4 at landing rather than from this row; the number moved once already when `/simplify` folded the hoist, and a row that restates it is the duplication that drifted) and `:42` (the 783 band argument). ⚠ Sweeping only `:37` would leave the memo asserting a size, a line range and an open seam this PR closes — the *statements* surface left standing while the *obligation* surface was fixed ([[feedback_sweep-obligations-not-only-statements]]) |
 | Correct `project_inline-mod-split-owed.md:82` — "leaving `mod.rs` at **783**" | a sibling site of the same class, in a different file, reached by neither row above. A class swept per-file is a class swept partially ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]) |
+| **Write the narrowing into `project_line-box-decorated-inline-content.md`** — the umbrella's SSoT | its "NEXT SESSION STARTS HERE" still tells the next session that this branch carries the umbrella memo + tooling and that §10's five rows ship here. After this PR four rows and both files are still owed, and the plan-checker note's **event-shaped trigger has been consumed** by this PR without being discharged. Record: what left, why (the preamble's rule), that umbrella §8 is contradicted and is round 20's input, and that the trigger must be **re-keyed to a state, not an event**, or it can never fire again |
 | **Register `#11-inline-fragmented-fn-decomposition` (as partially closed) and `#11-inline-fragmented-fn-seams-1-2` (`(own)`) in `project_open-defer-slots.md`** | ⚠ the SoT per `MEMORY.md`, and `grep -c 'inline-fragmented-fn' project_open-defer-slots.md` → **0**: without this row a brand-new `#11-` slot lands with no SoT entry and no record of the omission. Dates are each slot's own — **2026-10-28** for the source (from its memo), **2026-11-01** for the successor. After this PR, four rows and both files are still owed and the trigger that would have discharged one has been consumed. Record: what left, why (the preamble's rule), that umbrella §8 is contradicted and is round 20's input, and that the plan-checker note's trigger must be **re-keyed to a state, not an event**, since its event has passed |
 | Record the residue's size in the successor slot as its size-disjunct baseline | ⚠ **re-measure with `wc -l` at landing** rather than copying §5.5's 573, per §5.6 — every figure in this memo predates the committed implementation |
