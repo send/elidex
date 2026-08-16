@@ -48,6 +48,11 @@ SYNTH_PAIRS = "\n".join(
 SYNTH_UNIQ = """## §8 Test strategy
 **`$3` a substring the diagnostic must contain.**
 
+| Fixture | Means |
+|---|---|
+| `own` | its own `mktemp -d` and its own wire invocation, torn down after. |
+| `live` | one fixture carrying every row's annotations, so their diagnostics must discriminate. |
+
 ### §8.1 Controls
 
 | # | clause | Fixture | Positive | Negative |
@@ -214,6 +219,17 @@ def selftest() -> int:
               SYNTH_UNIQ.replace("must contain.**",
                                  "must contain.** No two `$3` values below share a substring."))),
           "wrong requirement")
+    # §8's Fixture model is READ, not transcribed -- so a fixture the model does
+    # not describe must be reported rather than assumed into either scope. The
+    # transcribed form silently assumed "shared" for `clone` for a whole round
+    # after §4.1.1(b) made it per-row.
+    probe("UNIQ negative (a fixture §8's model does not describe)", True,
+          capture(check_probe_substrings, synth(
+              SYNTH_UNIQ.replace("| live |", "| ghost |"))),
+          "does not say whether")
+    probe("UNIQ positive (a per-row fixture reused by two rows does not collide)", False,
+          capture(check_probe_substrings, synth(
+              SYNTH_UNIQ.replace("`bravo`", "`alpha`").replace("| live |", "| own |"))))
     probe("UNIQ negative (no Fixture column)", True,
           capture(check_probe_substrings, synth(
               SYNTH_UNIQ.replace("| Fixture ", "").replace("| live ", "")
