@@ -67,16 +67,16 @@ does not belong here.
 
   ⚠ **No counts are recorded in this bullet, for the same reason §5.5 records no `wc -l`**: the
   checker's output is a function of the memo, so *every edit to the memo can change it* — and edits
-  did. The two counters key on different things, which is itself the reason neither is stored:
-  * **soft warnings are heterogeneous** — run the command and read them; do not infer a cause from
-    the count. They currently include an `N entries` claim without a cached artifact *and* a
-    `path … contains shell glob/brace syntax` warning emitted by a command §5.3.1 embeds, so the
-    total tracks neither §3's rows nor the memo's `N entries` claims alone.
+  did. ⚠ **One description, not two.** This bullet previously carried a causal explanation *and* a
+  separate "stable shape" list saying different things about the same counters; they drifted apart
+  and contradicted each other two bullets apart
+  ([[feedback_duplicated-decision-surface-blocks-converge]]). What the run asserts:
+  * **soft warnings only, no hard failures** — and the soft ones are **heterogeneous**, so read
+    them, never infer a cause from the total. They currently include an `N entries` claim without a
+    cached artifact **and** a `path … contains shell glob/brace syntax` warning emitted by a command
+    §5.3.1 itself embeds. The total therefore tracks neither §3's rows nor the memo's `N entries`
+    claims alone.
   * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks.
-
-  What is stable is the **shape** of the result, which is the only thing this bullet needs to assert:
-  * **soft warnings only, no hard failures.** The soft ones are `N entries` enumerations without a
-    cached grep artifact — one per such claim, so the count tracks how many the memo makes.
   * **the label warning is not noise, and the scope of that is exactly two labels.**
     `SPEC_LABEL_REVERSE` does not map **`CSS 2`** or **`css-writing-modes-4`** — this memo's two —
     so both §3 rows land in `unmapped-label rows` and the run reports `parsed citations: 0`, i.e.
