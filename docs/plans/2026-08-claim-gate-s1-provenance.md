@@ -660,6 +660,10 @@ Four execution rules, each measured. They are numbered here in the order a rende
 revision 6 added the fourth and left it spelled third in the file, and a Markdown ordered list renumbers
 on render, so every `rule 4` cross-reference pointed at the text above it.
 
+These six run in a **plain shell**, stated because the wire's regime is `set -euo pipefail` and under it
+four of them kill the script before their `echo` is reached — the status is the datum here, which is
+precisely why rule 1 requires capturing rather than letting the shell act on it:
+
 ```
 $ git grep -cE 'fetch-depth' -- '.github/workflows/ci.yml'; echo "exit=$?"     → exit=1  (no output)
 $ git grep -cE 'foo(' -- '*.md'; echo "exit=$?"                                → exit=128  (parentheses not balanced)
@@ -1061,11 +1065,26 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
    enumeration — one commit. Revision 3 put both in §0's scope and gave neither a commit, so an
    implementer following §5 literally would have shipped S1 with `ci.yml:152` still false.
 5. The second transcription retires (§0, §6): `check_annotations` delegates to the now-tracked
-   `.claude/tools/claim-provenance-trip-wire.sh`, `claim_gate_grammar.py` is deleted whole, and the
-   closing control plants a wire and asserts the checker's own grammar path is unreachable. It follows
-   commit 1 because the delegation is unwritable until the wire is tracked, and it is in this PR
-   because no later PR exists to hold it — revision 6 gave it an owner that merges before its own
-   trigger fires (§9).
+   `.claude/tools/claim-provenance-trip-wire.sh`, and `claim_gate_grammar.py` is deleted whole. The
+   deletion has **two** importers, and naming only the entry point would break the other at import
+   time: `claim-gate-plan-check.py` (`import claim_gate_grammar as grammar`) and
+   `claim_gate_selftest.py` (`from claim_gate_grammar import classify, execute, verdict_over`). The
+   self-test's three imported symbols go the way the entry point's do — through the wire — so the
+   commit touches three Python files, not one, which §3.1's table now carries.
+
+   **The closing control lands in `claim_gate_selftest.py`, not in the wire's self-test**, and the
+   distinction is §7's layer rule rather than a preference. It plants a wire and asserts the checker's
+   own grammar path is unreachable — a claim *about the checker*, so it belongs at the checker's tier,
+   where a Python interpreter and `.claude/skills/**` internals are already present and permitted. Put
+   in `claim-provenance-selftest.sh` instead, which §5's file table gives "every control in §8", it
+   would put both on the ungated per-push path: exactly what §7 Q3 rejects option (b) on, and exactly
+   what C26 was deleted for. It is therefore **not** a `C`-row in §8.1 — §8.1's rows are the wire's
+   controls — and `claim_gate_selftest.py` already carries the adjacent probe that stubs the wire and
+   replays the `check_annotations`-returns-nothing defect.
+
+   Commit 5 follows commit 1 because the delegation is unwritable until the wire is tracked, and it is
+   in this PR because no later PR exists to hold it — revision 6 gave it an owner that merges before
+   its own trigger fires (§9).
 6. The five false rows of `docs/plans/2026-07-app-mode-turn-completion-drain.md` §5's `Lines at HEAD`
    table (§8.2), corrected against that table's own declared base. A **value-only** edit — five
    numerals replaced in place, no line added or removed — which is what keeps C21's corpus row and
