@@ -29,6 +29,17 @@ PR** … No later PR re-ships them", which is a ratified surface — it is an in
 owed round 20, not a decision this memo may take silently
 ([[feedback_plan-ratified-surface-is-a-design-change]]).
 
+⚠ **That rule offers two routes and this memo takes the first; the second is weighed here rather
+than passed over.** Route (i) is to route the contradiction to plan-review as a plan delta — taken.
+Route (ii) is to **re-slice it out of the PR, when the defect pattern says the slice boundary is
+wrong**. Rejected, on the pattern rather than on convenience: a re-slice is indicated when defects
+cluster *at* the boundary, and across twelve external review rounds **not one finding landed on the
+moved range**. The range `413-639` was ratified by the umbrella, is proven byte-identical by §6's
+two harnesses, and has not moved since the first commit. Every finding landed on the memo's
+bookkeeping — the *description* of the slice, not the slice — which is the thing the narrowing
+above already re-cut. Recorded because "we took route (i)" reads as a settled rule when it is a
+choice between two, and the reader cannot otherwise tell which.
+
 **Coordinate frames.** Every `file:line` naming a *pre-split* location — `inline/mod.rs`,
 `collect.rs`, the base range — is a **`658cc302`** coordinate, produced by a command named beside
 it. References to `inline/reconcile.rs`, and to `inline/mod.rs`'s **residue** after the split, are
@@ -594,9 +605,33 @@ is the line, and it is why `collect.rs` appears in this PR's diff (§8).
 The error was reasoning about where the *definition* went without checking what the comments
 actually referred to. ⚠ It propagated: `c931dad5`'s commit message records the non-defect as
 "known and deliberate" and cannot be amended (the hooks deny it), and the successor slot memo
-carried it as work to do until this revision removed it. **Nothing inside the range needed
-fixing**, so the byte-identity contract cost this PR nothing here — which is the honest version of
-the claim, and a stronger one.
+carried it as work to do until this revision removed it.
+
+### §7.2 One comment inside the range IS made less discoverable, and it cannot be fixed here
+
+⚠ An earlier form of this section closed with *"Nothing inside the range needed fixing, so the
+byte-identity contract cost this PR nothing here"*. **That is false, and the correction is the
+honest version.** The moved body carries a universal about probe behaviour —
+
+> a probe neither PUSHes (box store, #315/#318), SHIFTs (#318), CLEARs (R1), nor WRITEs persisted
+> render state
+
+— and the residue holds **two counterexamples to the CLEAR clause**: the early returns at
+`inline/mod.rs:163` and `:203` call `clear_inline_flows` **ungated by `is_probe`**, whereas the
+moved call is `!env.is_probe`-gated.
+
+**Behaviour is unchanged and not at risk**, which is why this is recorded rather than fixed: both
+exits are gated on `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`, so
+a probe and the definitive pass reach them identically. What the split changes is **discoverability**
+— the universal now sits in a file containing neither counterexample.
+
+**It cannot be repaired in this PR, and that is a contract consequence, not an oversight.** The
+comment is inside the moved body, so editing it breaks byte-identity — the one thing §6's harness
+exists to prove. The choice is therefore between a correct comment and a proven move, and this PR
+is the move. ⚠ **Routed to `#11-inline-fragmented-fn-seams-1-2`**, whose subject is the residue's
+decomposition and which is the first slot permitted to edit this text. Recorded here because a
+byte-identity contract that costs *nothing* is a claim worth distrusting; this one cost exactly one
+comment, and naming the price is stronger than asserting there was none.
 
 ## §8. Definition of done
 
