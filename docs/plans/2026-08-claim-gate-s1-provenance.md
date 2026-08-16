@@ -1575,12 +1575,17 @@ The sentence also said "this revision", inherited unchanged from the revision wh
 
 It moved to 8 in the round-5 pass: giving §8.1's C10 a positive that states the verb it exercises put an
 eighth tree-scale pathspec in that row. It moved to 9 in the round-6 pass, at **one** site: §4.4 rule 3
-had to show what C10's pathspec actually resolves to in order to price the liveness test that broke I7,
-and that measurement is a pasted `git ls-files -- 'crates/**/*.rs'`. §2's I3×I7 row states the same
-`1407 of 1706` and contributes nothing here, because it cites §4.4 rather than repeating the literal —
-which is the distinction this paragraph got wrong about §4.5 one paragraph above, and which was checked
-by locating every such literal rather than by recalling where they are. The edit was right and the
-figure moved, which is the ordinary case this block exists to handle, twice now in consecutive rounds.
+had to show what C10's pathspec resolves to in order to price the liveness test that broke I7, and that
+measurement is a pasted `git ls-files` whose argument is the pathspec itself. §2's I3×I7 row states the
+same `1407 of 1706` and contributes nothing here, because it cites §4.4 rather than repeating the
+argument — the distinction this paragraph got wrong about §4.5 one paragraph above, established by
+locating every such literal rather than by recalling where they are.
+
+**And this paragraph has now done it three times.** The round-6 draft of the two sentences above spelled
+the pathspec inline while explaining which site spells it, `PREFLIGHT` reported 9 against a freshly
+written 9 that was already 10, and the sentence naming the hazard was the sentence committing it. The
+rule this yields is narrower than "no literal here": a paragraph whose subject is *where a token
+appears* may not contain the token, in any role, including as evidence for its own claim.
 
 That correction is also the second demonstration in two revisions, and the sharper one. The first draft
 of this very paragraph *named the pathspec inline* while explaining that naming it would add to the count
