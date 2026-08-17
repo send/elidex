@@ -31,14 +31,16 @@ use super::{
 /// gated differently:
 ///
 /// ```text
-/// git grep -n 'remove_one\|clear_inline_flows(\|despawn(' -- 'crates/**/*.rs' \
-///   | grep -i 'inlineflow\|columnflowslice\|clear_inline_flows\|despawn'
+/// git grep -n 'InlineFlow\|ColumnFlowSlice\|clear_inline_flows' -- 'crates/**/*.rs'
 /// ```
 ///
-/// ⚠ Anchor on the **component name**, never on the call syntax: the removal in
-/// `elidex-layout-multicol` is path-qualified (`remove_one::<elidex_ecs::…>`), so
-/// a `remove_one::<ColumnFlowSlice>` pattern misses it. The name is invariant;
-/// the spelling of the call is not.
+/// ⚠ Anchor on the **name**, never on the call syntax — component names, plus
+/// `clear_inline_flows`, which is the invariant for the path that removes without
+/// naming a component. The removal in `elidex-layout-multicol` is path-qualified
+/// (`remove_one::<elidex_ecs::…>`), so a `remove_one::<ColumnFlowSlice>` pattern
+/// misses it; the name is invariant, the spelling of the call is not.
+/// ⚠ Then **classify the hits by hand** — the command matches this comment too,
+/// and returns reads and definitions as well as removals.
 ///
 /// * **`InlineFlow`** — within layout, removed only via `clear_inline_flows`
 ///   (entity `despawn` drops it too, outside this concern). Gated here; ungated
