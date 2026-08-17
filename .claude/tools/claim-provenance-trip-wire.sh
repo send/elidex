@@ -48,14 +48,19 @@ note() { printf '%s\n' "$*"; }
 fail() { FAILED=1; printf '%s\n' "$*"; }
 
 # --------------------------------------------------------------------------
-# Self-test, under a recursion guard. The guard is inherited, so a wire the
-# self-test spawns skips this and does not re-enter.
+# The helper is required BY NAME, unconditionally, and only its INVOCATION sits
+# under the recursion guard. The order matters and it is not a preference: the
+# guard is an inherited environment variable, so folding the existence check
+# inside it means anything that sets the variable -- including a fork PR's own
+# script, or a stale export in a developer shell -- silently turns the entire
+# 55-control self-test into a no-op on the ungated per-push path, and the wire
+# still exits 0. A gate that can be disabled by an env var is not a gate.
 # --------------------------------------------------------------------------
+if [ ! -r "$SELFTEST" ]; then
+  fail "FAIL  self-test helper not readable at $SELFTEST"
+  exit 1
+fi
 if [ -z "${CLAIM_WIRE_SELFTEST:-}" ]; then
-  if [ ! -r "$SELFTEST" ]; then
-    fail "FAIL  self-test helper not readable at $SELFTEST"
-    exit 1
-  fi
   CLAIM_WIRE_SELFTEST=1 bash "$SELFTEST" || exit 1
 fi
 

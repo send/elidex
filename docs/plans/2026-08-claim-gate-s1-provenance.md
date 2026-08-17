@@ -63,7 +63,7 @@ a fact about how two programs behave is measured by running them rather than by 
 **Where a claim below cannot be put under that checker, the rule this paragraph stated was false of this
 file at every revision that stated it.** It said *removed, not restated more carefully*, while the
 checker's own report listed pasted commands it declined to re-run — among them the `set -euo pipefail`
-pair that overturned the wire's rule 1 (§4.2–§4.2) after five rounds. The rule as written prescribed deleting this memo's
+pair that overturned the wire's rule 1 (§4.2) after five rounds. The rule as written prescribed deleting this memo's
 most valuable measurement.
 
 Round 6 first tried the disposition the rule omits — **extend the mechanism** — by admitting a `bash -c`
@@ -133,7 +133,7 @@ S1's behalf.
 Revision 3 claimed the checker's annotation executor was a self-retiring bootstrap: *"a code path, not
 a promise, so the two implementations cannot coexist."* **That was false and is withdrawn.** The
 `WIRE.exists()` guard covered one function; the self-test called the classifier and executor directly,
-so the second transcription of §4.2/§4.2 survived the wire's arrival — and the checker's `PASTE`
+so the second transcription of §4.2 survived the wire's arrival — and the checker's `PASTE`
 verification silently switched off at the same moment, because it consumes the payload that function
 stops returning.
 
@@ -267,7 +267,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 |---|---|---|
 | **I1** | **Total tier assignment** (D3) — every candidate line lands in exactly one of *strict* / *malformed* / *mention*; none may vanish | The lax recogniser is the outer net and strict is a subset of it. A typo cannot fall out of the world. |
 | **I2** | **Inertness** (D2) — the mention rule must never swallow a strict annotation, and the gate excludes its own files | One rule on all four surfaces: backtick it (§4.2). It is a **line predicate** — *k* backticks before the `<!--` — so no per-file state exists and no surface needs its own arm. `.claude/tools/**` is dropped by pathspec. |
-| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (the wire's rule 3 (§4.2–§4.2)). The working tree, not the index, because that is the tree all three verbs read. |
+| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (the wire's rule 3 (§4.2)). The working tree, not the index, because that is the tree all three verbs read. |
 | **I4** | **Dialect fidelity** (D5) — the pattern body's ERE meaning is the author's meaning | A parse-time reject-list on the pattern body, with a diagnostic naming the offending escape verbatim. |
 | **I5** | **Argv fidelity** (D6) — every parsed value reaches `git grep` as one argv element | No `eval`, no unquoted expansion, no reconstructing a command string. Probeable: §4.2. |
 | **I6** | **Provable firing** — every grammar clause has a control that can red on its regression, and where the clause has a passing direction, one that can red on *that* | The self-test, the wire's invocation of it, and the `REQUIRED_WIRES` line, all in one commit. The `$3` discrimination requirement is **§8's**, scoped to the fixture, and is not restated here — this row said "a substring unique to it" from the first draft through the revision that withdrew that requirement in §8, which is how C23 came to assert a trailing space nothing needs. §8 also states which clauses have no passing direction, and therefore which rows are negative-only by construction rather than by omission. |
@@ -291,7 +291,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 | I1 × I7 | Tier assignment is the one stage touching every candidate line, and it touches **no files at all**: it is a transform of the single `git grep -n` output, so I7's tree term is that one invocation and tier assignment adds nothing to it. Revisions 1–7 read "a single pass over the candidate *files*", which described the two-stage scan revision 4 deleted — the row above records that withdrawal, one line away, and this row was not swept with it. |
 | I4 × I5 | Both bound what reaches git, at different sites: I4 rejects at parse time with a visible diagnostic, I5 is invisible-by-construction in the executor. Kept separate for that reason. |
 | I4 × I6 | A ban that cannot fire is indistinguishable from a clean tree — the precedent is `layout-box-reader-trip-wire.sh:276-299`'s `ban_control`. One control per rejected escape class, each with its own diagnostic substring. |
-| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (the wire's rule 3 (§4.2–§4.2)). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. **Nothing controls the stopping**, and §8 records that as an open gap rather than claiming a row for it; what the `ls-files` itself costs is priced here and was never removed. |
+| I3 × I7 | The liveness probe is one `git ls-files` per annotation, i.e. inside I7's per-annotation term, not a second tree pass — **and so is the presence test the same rule requires**, because it stops at the first present path. Spelled as a filter over every resolved path it is a tree term wearing a per-annotation label: C10's own pathspec resolves to 1407 of 1706 tracked paths (the wire's rule 3 (§4.2)). This is the pair that revision 7 violated while C27, I7's only control, stayed green — an existence test is not a `git` invocation, so the tally C27 reads cannot see it. **Nothing controls the stopping**, and §8 records that as an open gap rather than claiming a row for it; what the `ls-files` itself costs is priced here and was never removed. |
 | I2 × I6 | D2's self-exclusion is both a *correctness precondition* and a *two-directional* claim. The self-test's own fixture annotations must be inert in the real repo — they are, by the `.claude/tools/**` exclusion, which is therefore load-bearing for S1 landing rather than a convenience. And the control must assert both directions: an annotation under `.claude/tools/` ignored, and the identical annotation outside it red. Asserting only the first would pass on a wire that scanned nothing at all. |
 
 The remaining four pairs are independent, each for a stated reason: **I2×I3** (inertness decides
@@ -524,7 +524,7 @@ unreachable in exactly the situation C18 exists to test. Step 2 sits outside the
 helper fails identically whether the guard is set or not; proving step 3 fires needs the guard *cleared*,
 which is a fixture regime rather than a code shape, and the self-test's C18 paragraph states and bounds it.
 
-### §4.2–§4.2 The grammar, the tiers and the verbs — **now in the wire**
+### §4.2 The grammar, the tiers and the verbs — **now in the wire**
 
 These three sections transcribed the recogniser tiers (D3), the pattern-body lint (D5) and the three
 verbs with their four execution rules. **The transcription is withdrawn. `.claude/tools/claim-provenance-trip-wire.sh`
@@ -894,7 +894,7 @@ push → draft PR → `/review <n>`.
   substance — the base is still declared and still includes this file — but stated correctly).
 
   The block's last four lines are a fourth consequence, and it is **not a bound — it was a defect, and
-  the wire's rule 3 (§4.2–§4.2) fixes it.** The D4 liveness probe read the **index** while all three verbs read the
+  the wire's rule 3 (§4.2) fixes it.** The D4 liveness probe read the **index** while all three verbs read the
   **working tree**, so a file deleted in the worktree but still in the index passed liveness and then
   measured nothing. Revision 6 wrote it down here as "recorded rather than fixed", with no owner, no
   trigger, no re-eval date and no control; round 5 read that against what a §6 bullet is for. A bound
@@ -986,7 +986,7 @@ being worth it, and no figure is offered here for the reason §4.5 gives.
 
 ## §8 Test strategy — **now in `claim-provenance-selftest.sh`**
 
-The control table is withdrawn from this memo for the reason §4.2–§4.2 gives: a control is a program,
+The control table is withdrawn from this memo for the reason §4.2 gives: a control is a program,
 and a program's home is a file that runs. The controls exist, the driver runs them on every push (`REQUIRED_WIRES`), and their count is
 whatever `bash .claude/tools/claim-provenance-selftest.sh | tail -1` reports — a number stated here
 would be a quantity about this program's own tooling that the next control falsifies, and each `fail` arm names a substring the diagnostic must contain — because two
@@ -1040,7 +1040,7 @@ The last clause stops the criterion being satisfiable by a wire that classifies 
 are the wire's exit status. Clauses 3 and 4 are not: a mention is *ignored*, and a verb is not visible in
 an exit code, so a per-annotation tier-and-verb listing has to exist somewhere or half of a criterion
 called *standing* is re-checkable only by programs that were thrown away. It was: the listing below comes
-from two throwaway programs — a classifier transcribed from §4.2/§4.2's literal text and an executor for
+from two throwaway programs — a classifier transcribed from §4.2's literal text and an executor for
 the three verbs — which are not in the deliverable (§5 ships the wire and the self-test, and no commit
 adds anything else), and whose transcript the checker reports among the commands it cannot re-run. With
 §4.2's inventory the whole criterion is read off one run of the wire, which is the artifact that survives
@@ -1063,21 +1063,32 @@ The property was **executed**, not asserted, at the base declared at the top of 
 containing it — D10 form 3):
 
 ```
-$ git grep -nE '<!--[[:space:]]*claim[^A-Za-z]' \
-    -- '*.md' '*.rs' '*.sh' '*.toml' ':(exclude).claude/tools/**' | wc -l
-       7
-$ python3 <prototype-classifier> <this memo> <the umbrella>
---- {'strict': 5, 'mention': 3}
-$ bash <prototype-executor>
-OK      lines asserted=493  actual=493   in=.claude/tools/layout-box-reader-trip-wire.sh
-OK      files asserted=1    actual=1     in=scripts/*.sh
-OK      count asserted=0    actual=0     in=.github/workflows/ci.yml
+$ bash .claude/tools/claim-provenance-trip-wire.sh
+OK    lines asserted=493 actual=493  in=.claude/tools/layout-box-reader-trip-wire.sh
+OK    files asserted=1 actual=1  in=scripts/*.sh
+OK    count asserted=0 actual=0  in=.github/workflows/*.yml
+MENTION  docs/plans/2026-08-claim-gate-s1-provenance.md
+MENTION  docs/plans/2026-08-quantitative-claim-staleness-gate.md
+OK    count asserted=64 actual=64  in=crates/**/*.rs
+OK    count asserted=301 actual=301  in=crates/**/*.rs
 ```
 
-Zero MALFORMED, one strict annotation per verb, C6's malformed specimen correctly inert. That transcript
-also shows why it is not the standing form: its `count` row reads `in=.github/workflows/ci.yml`, the
-pathspec §5 widened to `'.github/workflows/*.yml'` afterwards, and nothing re-ran the prototypes to
-notice. A transcript of a program that no longer exists ages exactly like the claims this slice is
+(The two `MENTION` lines are pasted without their `:NNNN`, deliberately: a line number in this file
+moves whenever this file is edited, which is the one figure a paste of a run against *this memo* cannot
+hold. Everything else is byte-for-byte what the command prints.)
+
+Zero MALFORMED, one strict annotation per verb, both illustrative annotations inert. **The producer is
+the wire**, and that is the whole change: the four clauses are read off one run of the deliverable
+rather than off two throwaway prototypes.
+
+**Round 8 found the previous version of this block false, and the shape of the error is the section's
+own subject.** It pasted `{'strict': 5, 'mention': 3}` from a prototype classifier — a program the
+repository does not contain — against a scan reporting **7** candidates, which 5+3 exceeds. The wire
+reports 5 strict and **2** mentions; the restructure that moved the specification into the wire had
+deleted one illustrative annotation, and nothing re-derived a figure whose producer had been thrown
+away. `PASTE`, the check that used to re-derive exactly this number, was retired in the same PR, and
+`TRANSCRIPT` listed the block among the commands it declines to run — a bound this section then did not
+read. A transcript of a program that no longer exists ages exactly like the claims this slice is
 about; the wire's inventory is re-run on every push. The per-line
 listing is deliberately **not** pasted: every line of it carries a literal `<!-- claim …`, so pasting it
 would add candidate lines to the tree being counted and the block would disagree with itself on the next
@@ -1183,7 +1194,7 @@ C10 and C19 in prose and carries no pathspec literal at all, so it contributes n
 The sentence also said "this revision", inherited unchanged from the revision where it was true.
 
 It moved to 8 in the round-5 pass: giving the self-test's C10 a positive that states the verb it exercises put an
-eighth tree-scale pathspec in that row. It moved to 9 in the round-6 pass, at **one** site: the wire's rule 3 (§4.2–§4.2)
+eighth tree-scale pathspec in that row. It moved to 9 in the round-6 pass, at **one** site: the wire's rule 3 (§4.2)
 had to show what C10's pathspec resolves to in order to price the liveness test that broke I7, and that
 measurement is a pasted `git ls-files` whose argument is the pathspec itself. §2's I3×I7 row states the
 same `1407 of 1706` and contributes nothing here, because it cites §4.2 rather than repeating the
@@ -1226,13 +1237,13 @@ an own deferral and is counted as one.
 
 **Three of revision 6's routings were dischargeable here, and two of them became commits.** The third
 became a design fix inside commit 1 rather than a commit of its own — stated because this section's own
-rule is that an owner is *a commit, or a file that exists*, and "fixed in the wire's rule 3 (§4.2–§4.2)" is neither until
+rule is that an owner is *a commit, or a file that exists*, and "fixed in the wire's rule 3 (§4.2)" is neither until
 the row says which commit carries it.
 
 | Routed to, revision 6 | Why that owner could not hold it | Disposition |
 |---|---|---|
-| the branch S1 is stacked on, triggered by S1's landing (§0, §6) — retire the checker's second transcription of §4.2/§4.2 | it merges **before** its own trigger fires; on the day the wire exists there is no such PR left to delete `claim_gate_grammar.py` or write the closing control | **§5's commit 5.** The PR that creates the wire is the only one that can delegate to it |
-| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in the wire's rule 3 (§4.2–§4.2)** (inside §5's commit 1, which specifies the grammar), controlled by the self-test C28 and C34. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
+| the branch S1 is stacked on, triggered by S1's landing (§0, §6) — retire the checker's second transcription of §4.2 | it merges **before** its own trigger fires; on the day the wire exists there is no such PR left to delete `claim_gate_grammar.py` or write the closing control | **§5's commit 5.** The PR that creates the wire is the only one that can delegate to it |
+| nothing — "recorded here rather than fixed" (§6): the D4 probe reads the index while all three verbs read the working tree | no owner, no trigger, no re-eval date, no §8 control, and no row in this section | **fixed in the wire's rule 3 (§4.2)** (inside §5's commit 1, which specifies the grammar), controlled by the self-test C28 and C34. A bound records what S1 does not reach; this was S1's own discriminator answering about the wrong tree |
 | "the **L4 lane**" — the five false rows of #504's `Lines at HEAD` table (§8.2) | a lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive it | **§5's commit 6**, value-only, so C21 and §8.2 stay true |
 
 **One candidate was audited and is not a slot** — the wire's cost as the annotation count grows.

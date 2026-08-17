@@ -81,6 +81,23 @@ st_probe fail "C15 negative  a false zero-claim reds" "$d" "asserted=1 actual=0"
 rm -rf "$d"
 
 # --------------------------------------------------------------------------
+# C40 -- `files` counts FILES, not matching lines. Round 8 found the verb had no
+# control at all: mutating `-lE` to `-nE` (so `files=` silently counted lines)
+# reddened nothing, while §5 ships a live `files=` annotation that runs on every
+# push. The fixture discriminates the two: three files, five matching lines.
+# --------------------------------------------------------------------------
+# The data lives in a subdirectory the annotation's own file is not in: with
+# `in="*.md"` the annotation matches its own `pattern=` literal and counts
+# itself, which is a fixture defect that reds both arms and hides the verb.
+d=$(mkfixture); mkdir "$d/data"
+printf 'hit\nhit\n' > "$d/data/one.md"; printf 'hit\nhit\n' > "$d/data/two.md"; printf 'hit\n' > "$d/data/three.md"
+printf 'x <!-- claim files=3 pattern="hit" in="data/*.md" -->\n' > "$d/n.md"; add "$d"
+st_probe pass "C40 positive  files= counts files (3), not matching lines (5)" "$d" ""
+printf 'x <!-- claim files=5 pattern="hit" in="data/*.md" -->\n' > "$d/n.md"; add "$d"
+st_probe fail "C40 negative  5 is the line count, and it is wrong" "$d" "asserted=5 actual=3"
+rm -rf "$d"
+
+# --------------------------------------------------------------------------
 # C4 / C5 / C24 / C36 -- the backtick arm, on each surface, both directions.
 # Wrong-count-inert / right-shape-live, so an inertness regression reds the
 # POSITIVE rather than leaving it vacuously green.
@@ -279,11 +296,15 @@ rm -rf "$d"
 # --------------------------------------------------------------------------
 d=$(mktemp -d); mkdir -p "$d/.claude/tools"; cp "$WIRE" "$d/.claude/tools/"
 ( cd "$d" && git init -q . && git add -A >/dev/null 2>&1 )
+# The guard-SET path must fail too. Round 8 found this arm inverted: it passed
+# when the guard suppressed the check and called that "(documented)", while
+# §4.1.2 documents the opposite. An arm rewritten to assert the defect is worse
+# than a missing arm, because it reports coverage.
 out=$( cd "$d" && CLAIM_WIRE_SELFTEST=1 bash .claude/tools/claim-provenance-trip-wire.sh 2>&1 ) || true
 case "$out" in
-  *"self-test helper"*) fail_ "C18 (a)  a missing helper must fail even under the guard" \
-       "the guard suppressed the check; it must sit outside" ;;
-  *) pass_ "C18 (a) guard-set path does not require the helper (documented)" ;;
+  *"self-test helper"*) pass_ "C18 (a)  guard set: a missing helper still fails" ;;
+  *) fail_ "C18 (a)  guard set: a missing helper still fails" \
+       "the guard suppressed the check; an inherited env var must not disable the gate" ;;
 esac
 # The guard is INHERITED, so these two arms must clear it explicitly. Run
 # standalone the self-test has no guard set and they passed either way;
