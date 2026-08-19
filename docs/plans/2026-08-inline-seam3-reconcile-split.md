@@ -316,7 +316,10 @@ numbers and conflating them misclassified a row:
 
 ## §4. Verified current state
 
-Every row's Result is the command's **whole** output, not a reading of it.
+⚠ **Each row's Result is a *reading* of the command's output** — a count, the line numbers that
+matter, and a classification such as "call" or "comment". `git grep -n` emits commit-prefixed
+whole source lines; the cells do not reproduce them. Run the command for the raw text — the
+reading is a navigation aid, not a substitute for it.
 
 | claim | command | result |
 |---|---|---|
@@ -632,13 +635,22 @@ own rev-22 gate caught in this lane.
 
 ### §7.1 Comments the move makes less accurate — the whole class, measured
 
+⚠ **Pinned to `658cc302`, not the working tree.** This is a *pre-change* inventory, and this PR
+rewrites three of the five sites — run against the tree it returns **2** (the two deliberately
+left), which cannot substantiate the table below. Same pinning rule as §6's harness.
+
 ```
 python3 - <<'EOF'
-import re, pathlib
-for p in pathlib.Path('crates/layout/elidex-layout-block/src').rglob('*.rs'):
-    flat = re.sub(r'\n\s*//[/!]?', '', p.read_text())
+import re, subprocess
+files = subprocess.run(["git","ls-tree","-r","--name-only","658cc302","--",
+                        "crates/layout/elidex-layout-block/src"],
+                       capture_output=True, text=True, check=True).stdout.split()
+for f in (x for x in files if x.endswith(".rs")):
+    src = subprocess.run(["git","show",f"658cc302:{f}"],
+                         capture_output=True, text=True, check=True).stdout
+    flat = re.sub(r'\n\s*//[/!]?', '', src)
     for m in re.finditer(r'persist block|reconcile (comment )?in `layout_inline_context_fragmented`', flat):
-        print(p, flat[m.start()-45:m.end()+35])
+        print(f, flat[m.start()-45:m.end()+35])
 EOF
 ```
 
