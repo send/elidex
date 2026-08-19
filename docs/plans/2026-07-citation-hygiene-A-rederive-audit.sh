@@ -381,23 +381,40 @@ def _wcl(rel, rev=None):
     r = _git("show", "%s:%s" % (rev, rel))
     return r.stdout.count("\n") if r.returncode == 0 else None
 
-print("\n  -- THE MEMOS' OWN QUANTITIES, RUN (whole file, both 2026-08 memos) --")
-if len(_M8) != 2:
-    _CLIM.append("%d of the 2 memos are present; the checks ranged over those" % len(_M8))
+# ⚠ THE ARITY IS DERIVED, NOT WRITTEN. This line and the LIMIT below both spelled
+# `2` -- a count of the memos that existed when they were written -- so the gate
+# announced "2 memos" while ranging over three, and reported the mismatch as a
+# LIMIT rather than as the literal going stale. The beta memo raised it with the
+# trigger "the slice that lands the fourth memo"; the seam cut that moved §1 out
+# of the disposition is that slice. There is nothing left to keep in step: the
+# glob is the population, and it names what it read.
+print("\n  -- THE MEMOS' OWN QUANTITIES, RUN (whole file, %d 2026-08 memo(s)) --" % len(_M8))
+if not _M8:
+    raise SystemExit("!! no `2026-08-citation-hygiene-harness-*.md` under %s; every quantity check "
+                     "would then report clean for the reason a needle matching nothing does." % HD)
+print("     %s" % " ".join(m.name.replace("2026-08-citation-hygiene-harness-", "") for m in _M8))
 _ls = _git("ls-files")
 if _ls.returncode != 0:
     raise SystemExit("!! `git ls-files` failed under %s; every path would then resolve to "
                      "nothing for a reason that is not 'the file is absent'." % ROOT)
 TRK = _ls.stdout.split()
-_s1 = re.search(r"^## §1 .*?(?=^## §|\Z)", PLAN.read_text(encoding="utf-8"),
-                re.S | re.M) if PLAN.is_file() else None
+# ⚠ THE DEFINITIONS AND THE RULE ROWS NOW LIVE IN DIFFERENT FILES. §1 was cut out
+# of the disposition as a standalone prereq when that memo passed 1000 lines, so
+# `D<N>` resolves against the MEASUREMENTS memo while §3's rule rows still resolve
+# against the disposition. Two paths, one for each subject; the alternative --
+# globbing every memo for a definition -- would let a `D<N>` bullet written
+# anywhere satisfy a citation, which is the "somewhere in this file" defect the
+# §3 scoping above was landed to remove, one file up.
+MEAS = HD / "2026-08-citation-hygiene-harness-measurements.md"
+_s1 = re.search(r"^## §1 .*?(?=^## §|\Z)", MEAS.read_text(encoding="utf-8"),
+                re.S | re.M) if MEAS.is_file() else None
 _dd = set(DDEF.findall(_s1.group(0))) if _s1 else set()
-if PLAN.is_file() and not _dd:
+if MEAS.is_file() and not _dd:
     raise SystemExit("!! %s has no `## §1 ` section, or no `- **D<N>` bullet in it, that this "
                      "parser can read; every citation would then dangle for a reason that is "
-                     "not 'it has no definition'." % PLAN.name)
+                     "not 'it has no definition'." % MEAS.name)
 if not _dd:  # no memo, so no definitions -- and then a citation cannot DANGLE either
-    _CLIM.append("the disposition memo is absent; no `D<N>` was resolved")
+    _CLIM.append("the measurements memo is absent; no `D<N>` was resolved")
 for md in _M8:
     subj = None
     for i, s, fen in _scan(md):

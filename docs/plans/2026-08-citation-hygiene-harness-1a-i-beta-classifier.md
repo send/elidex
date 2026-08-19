@@ -111,7 +111,7 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
   (`RULED BY THE PLAN: 9 of 10 -- MISSING: ?`); quoted `python3 - "$(_partset)" "$(_roster)" <<'PY3'` →
   **`mention`** at **rc=0**, `9 of 9` — a genuine home filed under the class whose rule is *nothing to do*,
   silently green. ⚠ **There are three such host sites, not two**: `-audit.sh:53` (`HOMESPY`),
-  `-audit.sh:538` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
+  `-audit.sh:555` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
   all three (`:488`), and `:538` is the one it actually exercised. §3a O2 plants at all three.
 
   ```bash
@@ -157,11 +157,14 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
   bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -E 'BY CLASS|HOMES:|RULED'
   ```
 
-- **β5 the memo gate's arity is a literal** (`-audit.sh:385-386`; the glob it counts is `:302`). ⊕ Verified
-  at HEAD by `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep 'memos are present'`: the
-  gate prints `LIMIT: 3 of the 2 memos are present; the checks ranged over those` at rc=0, with the new file
-  scanned. This is a **present** state, not a consequence of β's implementing commit.
-  **Disposition in §5.**
+- **β5 the memo gate's arity was a literal, and it is now derived — β no longer raises it.** The gate
+  announced a count of the memos that existed when the line was written while ranging over the glob at
+  `-audit.sh:302`, so it reported its own staleness as a LIMIT. β raised it in an earlier draft with the
+  trigger *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*; the standalone prereq
+  that cut §1 out of the disposition **is** that slice, and it took the fix. ⊕ Verified at HEAD by
+  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep 'memo(s)'`: the gate now prints its
+  arity from the glob and names the files it read. **Nothing here is β's**, and §5's raise is discharged
+  rather than carried.
 
 ## §2 Coupled invariants
 
@@ -359,7 +362,7 @@ population β leaves unchanged.
 - **β lands no coverage-gate change.** Withdrawn by the umbrella; the surviving half is ε's.
 - ⚠ **β's effect on `-audit.sh`'s length is an obligation, not an assertion.** An earlier draft asserted the
   authoring band was not reached, unmeasured, in a phrasing the harness's own `BAND` needle cannot read.
-  `-audit.sh` is **638** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh`), and the
+  `-audit.sh` is **655** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh`), and the
   umbrella's precondition is that a permitted mechanism commit must not be the commit that crosses the size
   trigger. **The implementing commit measures its own tree and cuts the seam while writing if it enters the
   700–800 band**; this memo predicts no number. ⚠ **That figure is itself β's to re-derive, and §5 authorises
@@ -406,11 +409,13 @@ adding a key to `CLASSES`; or predicting a figure §4 assigns to the implementin
 **Raised for the umbrella, with a trigger** — an owner without a trigger is a drop, which this memo has
 already done once:
 
-- ⚠ **The memo gate's arity literal** (§1 β5). It is not a classification, so β does not take it. ⊕ Measured
-  by `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -cE 'audit\.sh +(385|386|302) '`,
-  which returns **0**: the two sites are **not census rows**, so α's `memoset` rule — whose work list is the
-  census — does not reach them either. **Trigger: the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`**,
-  which on the umbrella's own schedule is α.
+- ⚠ **The memo gate's arity literal — DISCHARGED, not carried** (§1 β5). The trigger this memo set was
+  *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*, and the standalone prereq that
+  cut §1 out of the disposition landed it and took the fix in the same commit. ⊕ The sites were never census
+  rows, which is why α's `memoset` rule would not have reached them — still measurable by
+  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -cE 'audit\.sh +(302|39[0-9]) '`,
+  returning **0**. Recorded rather than deleted, because a raise that fires is the evidence the trigger
+  form works.
 - ⚠ **`CLASSES` takes a literal's class from its name** (`-audit.sh:108-109`), so `PARTS="$(_roster)"`
   classifies `partset`. ⊕ Measured with `sed -n '108,109p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`
   for the map and `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep partset` for the
