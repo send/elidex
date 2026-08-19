@@ -280,103 +280,71 @@ grep -rn '#505' "$MEMORY"/*.md
   ⚠ **The criterion is not in the tree either**, so §3a's measured-behaviour figures describe a checker that
   does not exist here. Each slice's own plan-review lands its share.
 
-- **D18 — the seam `-audit.sh` will be cut on is decided here, the ⊕ checker that forces it is written and
-  measured, and neither can land on this branch. The two §9 clauses collide, which is the finding.**
-  **(a) The seam, by the file's own criterion.** `-audit.sh:9-14` already states why `inventory` is not in it:
-  the blocks that stay *"read the parts line by line and locate what they find at `file:line`, and every input
-  they need is in this checkout"*, while `inventory` takes its authority from memos on another branch. The
-  **memo-quantity gate** (`-audit.sh:285-489`, everything from `_CBAD, _CLIM, _rv` to the revision roll-up)
-  fails that criterion on both halves: its subject is the two 2026-08 memos rather than the part files, and
-  one of its own printed LIMITs is a **cross-branch pin** (`2497eb09` … *"on webref-cite-audit-tool"*). By the
-  seam the file states for itself, it belongs on `inventory`'s side, in a part of its own. That is the
-  cohesion judgement three rounds asked for and none had taken; the census and `selfcheck` stay.
-  **(b) The checker.** Its subject is the memo pair's provenance, so it belongs with the memo gate, on the far
-  side of that seam. It is 67 lines with its rationale, takes `-audit.sh` from **638** to **705**, and its
-  unit is the markdown block rather than the line, because the convention binds the item and a fence sits a
-  blank line below the sentence that introduces it. What counts as a command is keyed to **behaviour** — the
-  first token resolves on `PATH` — rather than to a list of verb names, which would leave the next tool
-  authoritative by default (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`);
-  a one-token backtick span is a *name*, since `test`, `time` and `env` all resolve, so two tokens are
-  required. ⊕ **Its yield on the pair as this session found it — a record of that run, not a figure this
-  entry predicts**: every attestation in the memo pair was checked and eleven carried no command anywhere in
-  their block, nine in the beta memo and two in the disposition. **Two of the eleven were in a paragraph
-  written twenty minutes earlier in this same session** — the memo's own §3 coverage-gate rewrite, whose two
-  ⊕ marks pointed at a fence fifteen lines and three paragraphs above them
-  (`memory/feedback_findings-cluster-in-self-added-scope.md`, live and self-inflicted). All eleven are fixed
-  above. ⚠ **Today's population and yield are not written here**: this entry's own ⊕ marks move both, so the
-  figure is whatever the fence prints, and a number beside it would be a second home going stale on landing
-  (`memory/feedback_document-landing-invalidates-its-own-measurements.md`). Run it:
+- **D18 — the ⊕ provenance checker is LANDED, in `-inventory.sh`, and the "deadlock" an earlier draft of this
+  entry declared was false**, which `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh attest` shows by
+  running. ⚠ **What that draft got wrong is recorded before what it got right**, because
+  three review axes measured it independently and the error was load-bearing: it deferred the checker to α on
+  a stated impossibility.
+  - ⚠ **"Every available cut moves the census" was a universal over two enumerated cases.** Measured, placing
+    the block in an **existing** part moves nothing: `BY CLASS`, `HOMES:` and `RULED BY THE PLAN` are
+    byte-identical to base with the block wired onto `all`'s roster. Two reviewers found this independently,
+    on `-inventory.sh` and on `-integrity.sh`. Measuring N cases and writing *every* is a second claim, and it
+    needs its own command (`memory/feedback_universal-claims-need-the-complement-measured.md`).
+  - ⚠ **The reason it gave for the new-part case was also false, and the true one is already ruled in §3.**
+    It said a new part "relocates the gate's own homes"; the gate region has **zero** census rows. What
+    actually moves the census is the **stem**: `VOCAB` is the block names union `PARTS` (`-audit.sh:73`), so a
+    new stem turns a previously-invisible line into a home — measured for three stems, a different line each
+    time. §3's `partset` row already states the remedy (*the stem is chosen against the census*), which that
+    draft did not apply. **So a new part is available too, once a stem is chosen that way**; it is not
+    available *cheaply*, because it must also join the part set by hand in both hardcoded homes until
+    `partset` lands.
+  - ⚠ **The band figure was taken at a placement the same entry had ruled out.** It measured 705 for
+    `-audit.sh` — the file whose own seam (`-audit.sh:9-14`) excludes memo-subject checks — and then made
+    705-in-the-band the blocker. The blocker was never size.
+
+  **The placement decision, which lives here because §3's rows are where placement is ruled and a second copy
+  in the harness would be one more home to drift**: the block's subject is the memos, which is the criterion
+  by which `inventory` is not in `-audit.sh` either, so it goes on `inventory`'s side of that seam. ⚠ **Its
+  true home is a part of its own** — `-inventory.sh`'s own charter is the call graph and the sibling branch's
+  memos, not this one's — and that part is the slice which collapses the part-set literals and can pick a
+  census-safe stem. An earlier draft of the block's comment argued this inline, and the census correctly filed
+  the line as a `prose` placement home: the rule that placement belongs to the memo has a checker, and it
+  fired on the violation while it was being written.
+
+  **What the block is** is stated where it runs, with its four blind spots — two declared when it was written
+  and two measured by the review that read it — and is not restated here. Run it, and its controls:
 
 ```bash
-python3 - docs/plans <<'ATT'
-import re, shutil, sys
-from pathlib import Path
-def _scan(md):
-    fen = False
-    for i, s in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
-        f0 = s.lstrip().startswith("```"); fen = fen ^ f0
-        yield i, s, fen or f0
-def _blocks(md):                      # a fence-only block belongs to the block above it
-    out, cur = [], []
-    for i, s, fen in _scan(md):
-        if not s.strip() and not fen:
-            if cur: out.append(cur); cur = []
-        else: cur.append((i, s, fen))
-    if cur: out.append(cur)
-    merged = []
-    for b in out:
-        if merged and all(f for _, _, f in b): merged[-1] = merged[-1] + b
-        else: merged.append(b)
-    return merged
-def _runnable(blk):
-    for i, s, fen in blk:
-        if fen and s.strip() and not s.lstrip().startswith("```"): return True
-        for span in re.findall(r"`([^`\n]+)`", s):
-            tok = span.split()
-            if len(tok) > 1 and shutil.which(tok[0]): return True
-    return False
-pop = bad = 0
-for md in sorted(Path(sys.argv[1]).glob("2026-08-citation-hygiene-harness-*.md")):
-    for blk in _blocks(md):
-        att = [(i, s) for i, s, fen in blk if not fen and "⊕" in s]
-        if not att: continue
-        run = _runnable(blk)
-        for i, s in att:
-            for _ in range(s.count("⊕")):
-                pop += 1
-                if not run:
-                    bad += 1
-                    print("   !! %s:%d  ⊕ carries no command: %s"
-                          % (md.name, i, s.split("⊕", 1)[1].strip().replace("**", "")[:60]))
-print("   POPULATION: ⊕ attestation=%d   findings=%d" % (pop, bad))
-sys.exit(1 if bad else 0)
-ATT
+bash docs/plans/2026-07-citation-hygiene-A-rederive.sh attest              # rc=0, per-memo population
+d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
+printf '\n⊕ A claim with no command near it.\n' >> "$d"/docs/plans/2026-08-citation-hygiene-harness-disposition.md
+bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh attest         # rc=1, findings=1
 ```
 
-  ⚠ **KNOWN BLIND SPOTS, stated because an absence here is not evidence**: a shell **builtin** as the first
-  token (`local n; _measure …`) does not resolve on `PATH` and reads as no command; and a command that runs
-  but measures a *different* claim than the sentence above it passes. The check buys the attestation carrying
-  something runnable, and nothing about what it runs. The second of those is the larger half of the root
-  round 3 named, and it is not in this artifact.
-  **(c) Why neither lands here, measured on both paths.** §9's stopping rule is operationalised in this
-  section as *a commit that moves the census output §3 calls the work list*. ⊕ The checker alone does **not**
-  move it — `HOMES: 70 (31 code, 39 prose) in 9 files; 52 with NO named failure.` before and after, and
-  `BY CLASS` byte-identical — so the stopping rule permits it. What it does trip is §9's **band
-  precondition**: 705 lines is inside the 700–800 authoring band, and the precondition says cut the seam
-  while writing. ⊕ But **every available cut moves the census.** A new part relocates the gate's own homes and
-  joins the part set by hand in both hardcoded homes, which is the very thing §9's position rule forbids
-  before `partset` lands; and the one cut that needs no new file — `selfcheck` to `-integrity.sh`, where the
-  dispatcher's own header at `A-rederive.sh:38` already routes it — relocates **four** census rows
-  (`-audit.sh:535`, `-audit.sh:536`, `-audit.sh:559`, `-audit.sh:560`), which is a change to the work list.
-  ⚠ **Those four anchors were wrong when this entry landed** — it named `:585` `:586` `:609` `:610`, read off
-  a tree with the checker patched in and never re-taken on the clean one. All four were in range, so the memo
-  gate's range-only path check passed them, and three review axes measured it independently. The count was
-  right and every anchor was wrong, which is the failure the beta memo's §4 warns about. ⚠ **They are spelled
-  in full here for a second reason**: a continuation anchor written bare, as `:586`, is invisible both to the
-  gate and to §4's enumerating command, so the shorthand is what kept them unchecked. Measure both with
-  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes`, diffing against base.
-  ⇒ **All three are α's, in one PR**: the part-set derivation, the seam cut it unblocks, and the checker that
-  moves across it. ⚠ **This is a deadlock between two §9 clauses, not a preference** — no commit on this
-  branch can add mechanism to `-audit.sh` past its 61 remaining lines of headroom, and α is the first slice
-  whose own deliverable dissolves it. Recorded here rather than acted on, because acting on it either way is
-  a slice's scope decision.
+  ⊕ Its yield on the pair when it was first run, against the tree
+  `git show d9a353a0:docs/plans/2026-08-citation-hygiene-harness-1a-i-beta-classifier.md` returns —
+  **a record of that run, not a figure this entry predicts**:
+  eleven attestations carried no command anywhere in their block, nine in the beta memo and two in the
+  disposition, and **two of the eleven were in a paragraph written twenty minutes earlier in the same
+  session** (`memory/feedback_findings-cluster-in-self-added-scope.md`, live and self-inflicted). All eleven
+  were fixed. ⚠ **Today's population and yield are not written here** — this entry's own marks move both, so
+  the figure is whatever the block prints
+  (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
+
+  ⚠ **A third control matters more than the two above and is the reason the block reds on an empty
+  population**: the check's subject set is *lines carrying the mark*, i.e. the author's own vocabulary rather
+  than the property being checked, so deleting every mark would otherwise report clean
+  (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`). ⊕ Measured — strip the mark
+  from every memo in a clone and run the block:
+
+```bash
+d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
+for m in "$d"/docs/plans/2026-08-citation-hygiene-harness-*.md; do
+  python3 -c 'import sys,pathlib;p=pathlib.Path(sys.argv[1]);p.write_text(p.read_text().replace(chr(0x2295),""))' "$m"
+done
+bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh attest    # attestation=0, rc=1
+```
+
+  That closes silencing-by-deletion
+  and closes nothing else — **a false measured claim written without the mark is still invisible**, and that
+  is the larger class. The checker for *that* is not this one and is not in the tree.
