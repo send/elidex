@@ -77,10 +77,20 @@ Numbered **β1…**, not `D<N>`: the harness's memo gate resolves every `D<N>` i
 `2026-08-citation-hygiene-harness-*.md` against the umbrella's §1, so a fresh `D`-number here would dangle —
 measured, by writing one and watching this memo's own first gate run red.
 
-⚠ **Provenance convention.** ⊕ marks an item re-measured by this memo's author, **and every ⊕ item carries
-its command here or in §3**. A previous draft asserted that and was false on twelve of thirteen items; the
-attestation is only as good as the commands, so the commands are the convention and ⊕ is shorthand for
-"a command is attached".
+⚠ **Provenance convention**, stated as a legend rather than in prose, because a line that *defines* the
+mark is not a line that *uses* it and a checker cannot tell the two apart:
+
+```text
+⊕   this item was re-measured by this memo's author, and the item carries the command IN ITS OWN BLOCK
+```
+
+⚠ **"or in §3" is gone, and its removal is the whole change.** A previous draft let an item point at a
+command elsewhere; measured, that escape is where nine of this memo's own attestations ended up — a mark with
+no command anywhere near it, indistinguishable to a reader from one that has one. The command travels with
+the claim or the claim drops the mark. ⚠ **An item whose artifact is not in the tree** (β4 below) says so and
+names the recipe that builds it; it still carries a command for the half that is measurable today.
+**D18 of the umbrella carries the falsifier for this convention**, its yield at the head that landed it, and
+why it is not in the tree.
 
 ⚠ **A figure appears in this memo only where its subject is a tree that does not exist on HEAD, or where it
 carries the command that produces it.** That applies to every section, not only this one.
@@ -115,18 +125,42 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
 
 - **β3 ⊕ a line calling the derivation once is not a census row at all, and that bounds what β buys.**
   Appending two single-token call lines leaves `HOMES:` and `BY CLASS` unchanged; adding a second token to
-  the same line moves both. ⚠ **The vocabulary grows by the plant's *definitions*, not by its calls** — an
+  the same line moves them to `mention=2` and `HOMES: 71 (32 code, 39 prose)`. ⚠ **The plant must define the
+  two names as real functions**, or sourcing the part runs them and the census produces nothing at all —
+  measured, and it looks like a clean diff:
+
+  ```bash
+  d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"; cd "$d"
+  P=docs/plans/2026-07-citation-hygiene-A-rederive-B.sh
+  r() { bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes 2>&1 | grep -E 'BY CLASS|HOMES:'; }
+  r > base
+  printf '_partset() { echo p; }\n_roster() { echo r; }\n_p() {\n  _partset\n  _roster\n}\n' >> $P
+  r | diff base -                       # empty: two single-token calls are not homes
+  git checkout -- $P
+  printf '_partset() { echo p; }\n_roster() { echo r; }\n_p() {\n  echo "$(_partset) $(_roster)"\n}\n' >> $P
+  r | diff base -                       # mention 1 -> 2, HOMES 70 -> 71
+  ```
+
+  ⚠ **The vocabulary grows by the plant's *definitions*, not by its calls** — an
   earlier draft attributed the `V` move to the call lines. ⚠ **This is the census working, not a hole**: the
   admission rule is *this line enumerates two or more members of the set*, and a single call enumerates
   nothing. β's value is scoped to lines that clear that bar, and α's crossing does, passing two derivations
   on one line.
 
 - **β4 ⊕ the scan changes no row today.** Implementing it on an unplanted clone leaves `BY CLASS`, `HOMES:`
-  and `RULED BY THE PLAN` byte-identical to base. Command in §3.
+  and `RULED BY THE PLAN` byte-identical to base. ⚠ **The artifact is not in the tree** — the scan is what β
+  lands, so this half was measured in a throwaway clone that no longer exists and §3's β4 fence is the recipe
+  that rebuilds it. What is runnable today is the base it is compared against, and the implementing commit
+  takes it first:
+
+  ```bash
+  bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -E 'BY CLASS|HOMES:|RULED'
+  ```
 
 - **β5 the memo gate's arity is a literal** (`-audit.sh:385-386`; the glob it counts is `:302`). ⊕ Verified
-  at HEAD: the gate prints `LIMIT: 3 of the 2 memos are present; the checks ranged over those` at rc=0, with
-  the new file scanned. This is a **present** state, not a consequence of β's implementing commit.
+  at HEAD by `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep 'memos are present'`: the
+  gate prints `LIMIT: 3 of the 2 memos are present; the checks ranged over those` at rc=0, with the new file
+  scanned. This is a **present** state, not a consequence of β's implementing commit.
   **Disposition in §5.**
 
 ## §2 Coupled invariants
@@ -163,7 +197,8 @@ code (`:141-146`) does something narrower: an outer `re.search` establishes only
 exists on the line, and the body then tests **the line's first word** (`WORD.search(ln.lstrip())`), plus a
 special case for `_measure` after a separator.
 
-Three consequences, all ⊕ (commands in §3):
+Three consequences, each ⊕ against the same clone recipe — take the base first with
+`bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes`, then neutralise the named lines and re-run:
 
 1. **The `then ` / `do ` / `else ` alternatives in the outer regex are dead** — the subject is the first word,
    so a line beginning `if` / `for` / `while` / `case` can never be `callsite`.
@@ -229,6 +264,25 @@ characters copied from the old regex:**
 3. **`{` opens a command position; `${` does not.** ⊕ Measured: with a bare `{` in the list,
    `echo "${_partset} ${_roster}"` becomes `callsite` (`mention` at HEAD) — parameter expansion is not a
    command. The clause is *`{` not preceded by `$`*.
+4. **`$((` does not open one either, `elif` does, and `<(` does.** These are the same clause as (3) — a
+   two-character sequence whose prefix is in the list, and a keyword the `then` / `do` / `else` group was
+   written without — and they are decided here so that an implementer does not. ⚠ **All three have an empty
+   population, and that is a measurement rather than a reason to skip them.** ⊕ `$((` occurs **twice**
+   (`-Aii.sh:240`, `:267`), both arithmetic over `_n` and `_tab` with no vocabulary token on either line;
+   ⊕ every one of the sixteen `elif` hits is **Python**, so the harness writes no shell `elif` at all; ⊕ `<(`
+   occurs **zero** times. So no line changes class under any answer, which is the same status §3a already
+   states for the guards — the discriminating power is in O1–O4, and this clause buys the rule being
+   complete rather than a fix:
+
+   ```bash
+   grep -nE '\$\(\(' docs/plans/2026-07-citation-hygiene-A-rederive*.sh
+   grep -nE '(^|[^_A-Za-z])elif ' docs/plans/2026-07-citation-hygiene-A-rederive*.sh
+   grep -cE '<\(' docs/plans/2026-07-citation-hygiene-A-rederive*.sh
+   ```
+
+   ⚠ **An empty population is why the clause is stated and not why it is skipped**: a rule the harness does
+   not exercise today is exactly the rule the next writer resolves by guessing, and the guess is invisible —
+   `homes` stays at rc=0 either way.
 
 ⚠ **`mention`'s own predicate does not move.** Because `callsite` is tested first, closing the hole in
 `callsite` closes the `mention` symptom without widening `mention`, which would strip the protection it
@@ -258,9 +312,13 @@ bookkeeping β's own change makes true — the discipline the umbrella's `roster
 | §3's `callsite` row: *"nothing to do."* | β replaces the predicate the row rules on | the row states the rule — a call site is a vocabulary token in command position — and that `_measure`'s special case retires into it. ⚠ **The row states the rule, not the position list**: the list is the mechanism's, stated once in the code, or the umbrella becomes a second home for it |
 | §3's `mention` row: *"nothing to do, and it is a subject test…"* | the row describes the behaviour β corrects — β1's quoted crossing reaching `mention` is the silent-green failure | the row keeps the subject test and gains its precondition: command substitutions are claimed by `callsite` first, so what reaches `mention` really is text |
 
-⚠ **Nothing else in the umbrella is β's to edit.** The obligation count, the withdrawn content test, the
-`19/15` figure, D16's owner and §9's authorisation path were all corrected by the umbrella in its own
-commits — each was false at HEAD before β, discovered rather than falsified by it.
+⚠ **Nothing else in the umbrella is β's to edit — no other *claim*, that is.** The obligation count, the
+narrowed content test, the `19/15` figure, D16's owner and §9's authorisation path were all corrected by the
+umbrella in its own commits — each was false at HEAD before β, discovered rather than falsified by it.
+⚠ **Anchors are the stated exception**, and they are not a claim β is taking over: §4's last bullet requires
+every `-audit.sh:N` at or below `classify` to be re-derived in β's own commit, in this memo and in the
+umbrella, because β's edit is what moved them. A row's *rule* is the umbrella's; the *line number* under a
+citation is whoever last moved the line.
 
 ⚠ **§9 now authorises through §3, §2 and §3a**, so β's authority no longer resolves through a section β
 amends. That was a **precondition**, not a raise, and it is discharged before β implements rather than
@@ -304,10 +362,37 @@ population β leaves unchanged.
   `-audit.sh` is **638** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh`), and the
   umbrella's precondition is that a permitted mechanism commit must not be the commit that crosses the size
   trigger. **The implementing commit measures its own tree and cuts the seam while writing if it enters the
-  700–800 band**; this memo predicts no number.
+  700–800 band**; this memo predicts no number. ⚠ **That figure is itself β's to re-derive, and §5 authorises
+  it.** `638` is the memo pair's only `stated length` claim — `rederive homes` measures it against the working
+  tree and reds on disagreement — so β's implementing commit falsifies it the moment it adds or removes a line
+  of `classify`. It is bookkeeping β's own change makes true, the same footing §3 β-c puts the two umbrella
+  rows on. ⚠ **And the umbrella's D18 has already measured what β will meet here**: `-audit.sh` has 61 lines
+  of headroom before the band, every available seam cut moves the census, and the cut is therefore α's. If β's
+  scan needs more than that headroom, β does **not** cut a seam to make room — it reports the collision and
+  the ordering is α's to dissolve.
 - ⚠ **β's own citations of `-audit.sh:N` move when β edits `classify`.** The memo gate's path check is
-  range-only, so a stale anchor stays green. The implementing commit re-derives every `-audit.sh:N` anchor in
-  this memo and in the umbrella's two rows, in the same commit.
+  range-only, so a stale anchor stays green — an in-range anchor pointing at the wrong line is invisible to
+  it. The implementing commit re-derives every `-audit.sh:N` anchor **below `classify`'s definition** in this
+  memo **and in the umbrella**, in the same commit. ⚠ **The site set is not "the umbrella's two rows", and an
+  earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:118`
+  (`grep -n 'def classify' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`), and the umbrella cites
+  anchors at or below it across §1, §3 and §7 — only one of which (`:151-152`) is in a row §3 β-c names.
+  Enumerate them rather than copying the list, which would give it a second home and one that goes stale as
+  soon as either memo cites another line:
+
+  ```bash
+  grep -oE '\-audit\.sh:[0-9]+' docs/plans/2026-08-citation-hygiene-harness-disposition.md \
+    | sort -u -t: -k2 -n | awk -F: '$2+0 >= 118'
+  ```
+
+  ⚠ **A range's anchor is its FIRST line, and `awk -F'[:-]'` cannot read one** — measured, that spelling
+  splits on the leading dash of `-audit.sh`, so `$2` is the string `audit.sh`, every comparison is a string
+  comparison against `118`, and the filter passes **every** anchor including `:9-14`. It reported a filtered
+  list that had filtered nothing. The form above splits on `:` alone and coerces with `+0`.
+
+  ⚠ **This is the one place §3 β-c's *"Nothing else in the umbrella is β's to edit"* is too strong**, and the
+  two statements are reconciled there rather than left to collide: β edits no umbrella **claim** beyond those
+  two rows, and re-derives umbrella **anchors** wherever its own edit moved them.
 
 ## §5 What this memo authorises
 
@@ -321,12 +406,16 @@ adding a key to `CLASSES`; or predicting a figure §4 assigns to the implementin
 **Raised for the umbrella, with a trigger** — an owner without a trigger is a drop, which this memo has
 already done once:
 
-- ⚠ **The memo gate's arity literal** (§1 β5). It is not a classification, so β does not take it. ⊕ Measured,
-  the two sites are **not census rows**, so α's `memoset` rule — whose work list is the census — does not
-  reach them either. **Trigger: the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`**,
+- ⚠ **The memo gate's arity literal** (§1 β5). It is not a classification, so β does not take it. ⊕ Measured
+  by `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -cE 'audit\.sh +(385|386|302) '`,
+  which returns **0**: the two sites are **not census rows**, so α's `memoset` rule — whose work list is the
+  census — does not reach them either. **Trigger: the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`**,
   which on the umbrella's own schedule is α.
 - ⚠ **`CLASSES` takes a literal's class from its name** (`-audit.sh:108-109`), so `PARTS="$(_roster)"`
-  classifies `partset`. ⊕ Measured: real, with **no witness in the population at HEAD**. **Trigger: α**, the
+  classifies `partset`. ⊕ Measured with `sed -n '108,109p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`
+  for the map and `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep partset` for the
+  population: real, and with **no witness at HEAD** — both `partset` rows are literals, so no line yet has a
+  derivation classified by its literal's name. **Trigger: α**, the
   slice that turns those literals into derivations — a content rule for them now would predict α's
   implementation.
 
