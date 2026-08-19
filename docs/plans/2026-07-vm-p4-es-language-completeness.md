@@ -828,8 +828,10 @@ alongside engine-gated wrapper-store rooting and the keepalive predicate
 (`vm/gc/collect.rs:1149→1235→1341`), and must define identical semantics for non-`engine` builds;
 and the `Proxy`/`Reflect` × `ObjectKind::HostObject` resolution (`vm/object_kind.rs:272`) inside core
 dispatch splits by surface, because the row that used to carry both halves became an umbrella. The
-`Reflect` half is **Slice 10a**'s — `Reflect` is that row's surface and the row is terminal, so the
-obligation is stated on it directly. The `Proxy` half falls to the children of umbrella **10b** that
+`Reflect` half is **umbrella 10a**'s — `Reflect` is that row's surface, but the row became an
+umbrella at R77 (thirteen §28.1 functions, independent mechanisms), so the obligation falls to
+whichever child its derivation mints for the `HostObject` routing rather than being stated on the
+row directly. The `Proxy` half falls to the children of umbrella **10b** that
 reach that variant; an umbrella lands no PR, so placing the obligation on the specific child is a
 mandatory output of its derivation, exactly as for 7b above. A host-side special case would violate
 the outbound rule in either half.
