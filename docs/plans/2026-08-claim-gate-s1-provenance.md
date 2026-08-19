@@ -236,7 +236,7 @@ Seven invariants hold simultaneously. Each is a way the wire can be green while 
 |---|---|---|
 | **I1** | **Total tier assignment** (D3) — every candidate line lands in exactly one of *strict* / *malformed* / *mention*; none may vanish | The lax recogniser is the outer net and strict is a subset of it. A typo cannot fall out of the world. |
 | **I2** | **Inertness** (D2) — the mention rule must never swallow a strict annotation, and the gate excludes its own files | One rule on all four surfaces: backtick it (§4.2). It is a **line predicate** — *k* backticks before the `<!--` — so no per-file state exists and no surface needs its own arm. `.claude/tools/**` is dropped by pathspec. |
-| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (the wire's rule 3 (§4.2)). The working tree, not the index, because that is the tree all three verbs read. |
+| **I3** | **Liveness precondition** (D4) — `in=` must resolve to ≥1 tracked file **present in the working tree**; `lines=` to exactly 1, and that one a regular file | A `git ls-files` probe per annotation, before the measurement, using the *same* pathspec string, and the presence question asked **existentially** — first hit wins (the wire's liveness rule, §4.2). The working tree, not the index, because that is the tree all three verbs read. |
 | **I4** | **Dialect fidelity** (D5) — the pattern body's ERE meaning is the author's meaning | A parse-time reject-list on the pattern body, with a diagnostic naming the offending escape verbatim. |
 | **I5** | **Argv fidelity** (D6) — every value the annotation supplies reaches `git grep` as one argv element | No `eval`, no reconstructing a command string, and no unquoted expansion **of annotation-derived text** — which is one field earlier than the executor: the wire's field split runs under `set -f`, because word-splitting the body is wanted and glob-expanding it is not. (Two wire-internal values *are* unquoted, deliberately: the verb's `-nE`/`-lE` flag and the optional `-i`, so an absent `icase` elides rather than passing an empty argv element. Neither comes from the annotation.) C12 probes all three crossings. |
 | **I6** | **Provable firing** — every grammar clause has a control that can red on its regression, and where the clause has a passing direction, one that can red on *that* | The self-test, the wire's invocation of it, and the `REQUIRED_WIRES` line, all in one commit. The `$3` discrimination requirement is **§8's**, scoped to the fixture, and is not restated here — this row said "a substring unique to it" from the first draft through the revision that withdrew that requirement in §8, which is how C23 came to assert a trailing space nothing needs. §8 also states which clauses have no passing direction, and therefore which rows are negative-only by construction rather than by omission. (Revisions 1–8 ended this row *"which is how C23 came to assert a trailing space nothing needs"*. The shipped control has never asserted one — its required substring is byte-identical in every commit that carries it — so the sentence described a defect in a withdrawn §8 table row, not in the self-test, and read as a live code claim.) |
@@ -468,9 +468,15 @@ govern. `own` and `escapes`/`escapes10` are the fixture model now, and §8 state
 The wire's preamble runs three things in this order, and the order is the whole content of C18:
 
 1. **Resolve the scan root** — `git rev-parse --show-toplevel` in the invoking cwd, per (a) above.
-2. **Require the helper, by name.** If `.claude/tools/claim-provenance-selftest.sh` is not a readable
-   file under that root, the wire fails with a diagnostic containing the words **`self-test helper`** and
-   the path it looked for, and exits without scanning. The diagnostic is specified rather than left to
+2. **Require the helper, by name — beside the wire, not under the scan root.** If
+   `claim-provenance-selftest.sh` is not a readable file in the wire's own directory (`$0`), the wire
+   fails with a diagnostic containing the words **`self-test helper`** and
+   the path it looked for, and exits without scanning. Revisions 5–8 wrote "under that root", meaning
+   step 1's scan root, which is the other half of the two-root rule (§4.1.1(a)) and the opposite of what
+   the wire does. **No control discriminates the two**: every `own` fixture copies the wire into the
+   fixture, so cwd and `$0` coincide there, and the shape that separated them was the clone §4.1.1
+   withdrew. Recorded as a gap rather than closed, because the fixture that would close it is the one
+   whose cost this memo declined to pay. The diagnostic is specified rather than left to
    the shell because C18 (a) asserts it and no stage was emitting it: handing a missing path
    to `bash` produces `No such file or directory`, which names the file and not what it was for, and
    which any other missing file in a fixture produces just as well.
@@ -892,7 +898,7 @@ push → draft PR → `/review <n>`.
   substance — the base is still declared and still includes this file — but stated correctly).
 
   The block's last four lines are a fourth consequence, and it is **not a bound — it was a defect, and
-  the wire's rule 3 (§4.2) fixes it.** The D4 liveness probe read the **index** while all three verbs read the
+  the wire's liveness rule (§4.2) fixes it.** The D4 liveness probe read the **index** while all three verbs read the
   **working tree**, so a file deleted in the worktree but still in the index passed liveness and then
   measured nothing. Revision 6 wrote it down here as "recorded rather than fixed", with no owner, no
   trigger, no re-eval date and no control; round 5 read that against what a §6 bullet is for. A bound
@@ -1250,7 +1256,7 @@ Check 3 finding and one of the Check 1 globs were the same sentence.
 **The count's history, and why no count of the history is given.** It was 5, then 7 when revision 3
 added two `crates/…**/…` pathspecs — both in §2's I6×I7 row, the tree-scale controls that row exempted
 from I7 — then 8 in round 5 (the self-test's C10 given a positive that stated its verb), then 9 in
-round 6, at one site: the wire's rule 3 had to show what C10's pathspec resolves to in order to price
+round 6, at one site: the wire's liveness rule had to show what a tree-scale pathspec resolves to in order to price
 the liveness test that broke I7. Round 9 removes the I6×I7 exemption with the clone (§4.1.1) and the
 pricing figures with it. **No count is given of how often this paragraph has invalidated itself**,
 because a paragraph whose subject is a self-invalidating figure had, until round 6 measured it, three
@@ -1284,7 +1290,7 @@ an own deferral and is counted as one.
 
 **Three of revision 6's routings were dischargeable here, and two of them became commits.** The third
 became a design fix inside commit 1 rather than a commit of its own — stated because this section's own
-rule is that an owner is *a commit, or a file that exists*, and "fixed in the wire's rule 3 (§4.2)" is neither until
+rule is that an owner is *a commit, or a file that exists*, and "fixed in the wire's liveness rule" is neither until
 the row says which commit carries it.
 
 | Routed to, revision 6 | Why that owner could not hold it | Disposition |
