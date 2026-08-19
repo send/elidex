@@ -27,8 +27,8 @@ use super::{
 /// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
 /// persisted render state", and gates its own `clear_inline_flows` call on
 /// `!env.is_probe`. Every other removal of either component is ungated, and the
-/// two components differ, so the facts are stated per component rather than
-/// tallied:
+/// two components' in-function removes are gated differently, so the facts are
+/// stated per component rather than tallied:
 ///
 /// * **`InlineFlow`** — within layout, removed only via `clear_inline_flows`
 ///   (entity `despawn` drops it too, outside this concern). Gated here; ungated
@@ -48,8 +48,9 @@ use super::{
 /// ⚠ **Behaviour is not at risk.** The two early returns are reached on
 /// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
 /// so a probe and the definitive pass reach them identically; and the carrier is
-/// drained within the same pass and never read by render (see
-/// [`elidex_ecs::ColumnFlowSlice`]'s docstring). What the universal gets wrong is
+/// drained — or, where `fill` never drains it, cleared by
+/// `elidex-layout-multicol` itself — within the same pass, and never read by
+/// render (see [`elidex_ecs::ColumnFlowSlice`]'s docstring). What the universal gets wrong is
 /// its *scope*: it reads as engine-wide and is not. Stated here rather than in the
 /// body because the body is proved byte-identical to its pre-split form; the text
 /// below must not be edited.

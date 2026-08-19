@@ -127,11 +127,8 @@ fn positioned_subflow_key(
 /// raw (unfiltered) direct children of the IFC parent plus the raw direct children
 /// of every inline element recursed into (each is some run-parent's direct child,
 /// hence a potential `run[0]`). The caller clears `InlineFlow` on candidates it does
-/// not persist — always via `clear_inline_flows`, but by **three** paths that do not
-/// share a probe gate: the two early returns (no items / no usable font) call it
-/// directly and **ungated**, before `super::reconcile` is reached at all; the main
-/// path delegates to `super::reconcile`, which gates its own `clear_inline_flows`
-/// call on `!env.is_probe` — the call *to* `super::reconcile` is unconditional.
+/// not persist — see [`super::reconcile::reconcile_flows`], whose docstring owns the
+/// per-component removal/gating inventory.
 ///
 /// The top-level members are tagged with the **realigned** top-level run-start key
 /// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT
