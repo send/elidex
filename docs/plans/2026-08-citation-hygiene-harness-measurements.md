@@ -348,3 +348,42 @@ bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh attest    # attestat
   That closes silencing-by-deletion
   and closes nothing else — **a false measured claim written without the mark is still invisible**, and that
   is the larger class. The checker for *that* is not this one and is not in the tree.
+
+- **D19 — a checker for false COMPLETENESS claims is not constructible as a needle over prose, and four
+  probes say so.** Round 4 measured **nine** false completeness claims across the memo pair in two commits —
+  *every available cut*, *only figures that reproduce*, *PR-1a-i no longer exists*, *one item is owed*,
+  *sixteen `elif` hits are Python*, *both `partset` rows are literals*, *Every hit is in this memo*,
+  *§5 authorises it*, *§9 no longer resolves through §3*. That is the class this program is actually losing
+  to, and the `attest` block (D18) does not reach it: its population is *lines carrying the mark*, so a false claim
+  written without one is invisible. This entry is the attempt to key a check to the property instead, and its
+  result is negative. ⚠ **It is recorded because an unrecorded negative gets re-attempted**, and because each
+  probe's population is the evidence for the next design.
+
+  | probe | predicate | population | why it fails |
+  |---|---|---|---|
+  | 1 | any sentence carrying `every` / `all` / `no` / `none` / `only` / `both` / `each` / `never` | **431 of 835 sentences** | over half the prose. A check this broad gets switched off, which is the reason `-audit.sh` gives for keeping its own length needle narrow |
+  | 2 | a bold numeral in the paragraph introducing a fence, compared against the fence's output line count | **5 of 40 fences** | too small to justify executing arbitrary fences, and it reaches none of the nine |
+  | 3 | an emphasised token followed by an absence phrase (*no longer exists*, *is gone*, *is retired*) | **5**, of which 4 are grammatical accidents (`subsumes`, `arises at`, `step 1's output`) | the subject of a natural-language absence claim is not recoverable by proximity. ⚠ **It misses `PR-1a-i no longer exists`, the very instance it was written for** — that subject is bolded prose, and widening to bold returns a complement of 13 that is entirely noise (`and is gone`, `the does not exist`) |
+  | 4 | `§N` plus *authorises / says / states / lists*, checked against that section | **22**, resolvable 21 | existence is checkable and yields nothing; the one unresolved is a legitimate cross-branch cite of A-i's §13. **It does not reach `§5 authorises it`**, because §5 exists — the defect was its *content*, and what "it" refers to is not recoverable |
+
+  Reproduce any of them against the memo set:
+
+```bash
+grep -c '' docs/plans/2026-08-citation-hygiene-harness-*.md
+grep -oE '§[0-9]+[a-z]?[^.]{0,40}(authorises|says|states|lists|names)' \
+     docs/plans/2026-08-citation-hygiene-harness-*.md | wc -l
+```
+
+  ⚠ **What the four probes agree on**: the failures are not identifiable from the *claim*, only from the
+  *subject set*, and prose does not name its subject set in a recoverable way. What closed the attestation class was a
+  **convention plus a checker over the author's own mark**, and a second mark for completeness claims would
+  inherit the same hole — it catches the claims the author already suspected. ⊕ Measured, that hole is
+  control (b) of D18's block: a false measured claim written without the mark passes, verified by planting
+  one — `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh attest` stays green.
+
+  **What is left, and it is not a needle**: the two habits the nine instances share. Every one of them either
+  (a) universalised over a set the author had just enumerated by hand — *two* cuts became *every* cut, *six*
+  swept sites became *the* dissolved owner — or (b) asserted the content of a sibling section without opening
+  it. Neither is checkable, both are stateable, and the second is the one that reached a commit message.
+  **No slice takes this**; it is recorded here as the reason the `attest` block's blind spot (3) is written down
+  rather than treated as an oversight to be fixed later.
