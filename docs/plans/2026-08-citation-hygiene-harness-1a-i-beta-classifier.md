@@ -12,11 +12,16 @@ replaces the approximation with the rule. Nothing else.
 
 - **The `prose` subject test** needs a place vocabulary and a group vocabulary, and both reach `-audit.sh`'s
   payload only through the crossing α builds. The umbrella re-sliced it as **ε**, after α and γ.
-- **The coverage gate's content test** is not constructible over a rule cell's text. Every candidate was
-  implemented and run; two of the rows each one reds belong to α and δ, so no slice can land it green inside
-  its own authorisation. The umbrella withdrew the ask and placed the one surviving half — the reverse
-  direction, `ruled - set(byclass)` — with ε, where it first has a job. **§2a records the measurements**
-  because this is where they were taken; nothing in §3 implements them.
+- **The coverage gate's content test** leaves this memo for **ε**, *both* directions. ⚠ **An earlier draft
+  of this bullet said the test was "not constructible over a rule cell's text" and that the umbrella had
+  withdrawn it. Both halves of that are now false and the umbrella retracted them.** What is not constructible
+  is the *per-class* family — predicates asking a cell to cite its own class's evidence, which red on four
+  rows, two of them α's and δ's. The complement was never measured and it is constructible: a non-per-class
+  predicate separates a rule cell from a stub and reds on the umbrella's own example of the defect. So the ask
+  was **narrowed, not withdrawn**, and ε takes the reverse direction (`ruled - set(byclass)`) and the
+  non-triviality clause together, because they are two clauses of one gate. **§2a records the measurements
+  this memo took**; the umbrella's §3 records the one that overturned them, and nothing in §3 implements
+  either.
 
 **Why β is still first.** The umbrella's ordering measurement — a derivation called from an argument position
 falls through to `?` and the census reds — is a fact about this predicate. α cannot land into a census that
@@ -192,7 +197,7 @@ content test; both are elsewhere now, and β adds and retires no class. The inte
 ⚠ **This is the base case.** Every intersection is internal to "how a line is classified", and none reaches
 a question about where a block ships.
 
-## §2a Measured — the classifier as it stands, and the two withdrawals
+## §2a Measured — the classifier as it stands, and what this memo hands off
 
 ⚠ **The `callsite` predicate does not do what its own comment says.** The comment states the rule —
 *"a line is a call site because a vocabulary token stands in COMMAND POSITION"* (`-audit.sh:138-140`). The
@@ -230,20 +235,45 @@ vocabulary cannot be *"derived from `PARTS`"* and contain the dispatcher (`PARTF
 are measured against is this memo's own, not a quotation of the umbrella** — an earlier draft attributed the
 sentence to the umbrella, where it does not appear.
 
-**Recorded — why the content test is withdrawn.** Every candidate predicate over a rule cell's text was run
-over the umbrella's nine rows. Keying the citation to the class the row rules fails on **four**
-(`authorlocal`, `reads`, `mention`, `callsite`), because `CLASSES` (`-audit.sh:108-109`) is the only
-identifier→class map and covers four classes; keying it to a census *row* of that class fails on **six**;
-and admitting "the class name itself" makes it satisfiable by typing the class name. Two of the four are α's
-and δ's rows. The umbrella withdrew the ask and placed the surviving reverse direction with ε.
+**Recorded — which family of content test is not constructible, and which is.** Every candidate predicate
+that keys a rule cell to **its own class's evidence** was run over the umbrella's nine rows. Keying the
+citation to the class the row rules fails on **four** (`authorlocal`, `reads`, `mention`, `callsite`),
+because `CLASSES` (`-audit.sh:108-109`) is the only identifier→class map and covers four classes; keying it
+to a census *row* of that class fails on **six**; and admitting "the class name itself" makes it satisfiable
+by typing the class name. Two of the four are α's and δ's rows. ⚠ **This memo then generalised that to "no
+predicate over a rule cell's text is constructible" and the umbrella carried the generalisation into a
+withdrawal. The complement was never measured, and it is constructible** — see the umbrella's §3, which
+carries the predicate and both of its controls. What this memo measured stands; what it concluded from it
+did not, and the correction is the umbrella's because the gate is.
 
 ## §3 The work — one command-position scan
 
-**A command begins at line start, after `;` `&&` `||` `|` `(` `{`, after `then` / `do` / `else`, and after
-`$(`. The token at each such position is taken, and the line is `callsite` if any of them is in the
+**A command begins at line start, after `;` `&&` `||` `|` `(` `{`, after `then` / `do` / `else` / `elif` /
+`if` / `while` / `until`, and after `$(` or `<(`. The token at each such position is taken, and the line is `callsite` if any of them is in the
 vocabulary.**
 
-⚠ **The list is a rule about shell syntax, and three of its clauses are decisions measurement forced, not
+⚠ **This harness already contains a command-position predicate, and this memo did not name it for three
+plan-review rounds.** `at_command` (`-inventory.sh:227`) decides the same question for the **call graph**,
+and its docstring states the same rule this section states — *COMMAND POSITION, not "appears anywhere"*. Its
+lead is `(?m)(?:^\s*|[;&|(]\s*|\b(?:then|do|else|if|while|until)\s+)` plus a `_measure` third-word arm,
+i.e. the two things §3 lands. ⊕ Measured with
+`grep -n 'def at_command' -A8 docs/plans/2026-07-citation-hygiene-A-rederive-inventory.sh`, the two diverge
+**in both directions**: β adds `{`, `$(`, `<(`, `elif` and single-quote stripping; `at_command` carries
+`if`, `while`, `until`, which the list above lacked until this draft.
+
+⚠ **β adopts the three it lacked rather than diverging further, and that is a fix, not symmetry.** ⊕ Two live
+shell lines put a command after one of them —
+`grep -nE '^[[:space:]]*(if|while|until)[[:space:]]+[a-z_]' docs/plans/2026-07-citation-hygiene-A-rederive*.sh | grep -E '(then|do)[[:space:]]*$' | grep -vE '(if|while|until)[[:space:]]+\['`
+returns `-B.sh:131` and `-common.sh:565`, and the second is `if _measure n git …`, which is exactly the
+shape this section says retires into the scan. A derivation call spelled `if _partset && _roster; then`
+would have been missed.
+
+⚠ **Two homes for one rule is not something β can close, and §5 raises it with a trigger.** They are Python
+inside two different quoted heredocs — `INVENTORYPY` and `HOMESPY` — so no function is shared between them
+and converging them needs the argv crossing the umbrella's `roster` row assigns to **α**. Until then the rule
+has two spellings, and the divergence above is the list of what to reconcile.
+
+⚠ **The list is a rule about shell syntax, and four of its clauses are decisions measurement forced, not
 characters copied from the old regex:**
 
 1. **`$(` is a command position; a backtick is not.** A regex cannot separate a shell backtick substitution
@@ -267,9 +297,9 @@ characters copied from the old regex:**
 3. **`{` opens a command position; `${` does not.** ⊕ Measured: with a bare `{` in the list,
    `echo "${_partset} ${_roster}"` becomes `callsite` (`mention` at HEAD) — parameter expansion is not a
    command. The clause is *`{` not preceded by `$`*.
-4. **`$((` does not open one either, `elif` does, and `<(` does.** These are the same clause as (3) — a
-   two-character sequence whose prefix is in the list, and a keyword the `then` / `do` / `else` group was
-   written without — and they are decided here so that an implementer does not. ⚠ **All three have an empty
+4. **`$((` does not open one either; `elif`, `if`, `while`, `until` and `<(` do.** These are the same clause
+   as (3) — a two-character sequence whose prefix is in the list, and keywords the `then` / `do` / `else`
+   group was written without — and they are decided here so that an implementer does not. ⚠ **All three have an empty
    population, and that is a measurement rather than a reason to skip them.** ⊕ `$((` occurs **twice**
    (`-Aii.sh:240`, `:267`), both arithmetic over `_n` and `_tab` with no vocabulary token on either line;
    ⊕ every one of the sixteen `elif` hits is **Python**, so the harness writes no shell `elif` at all; ⊕ `<(`
@@ -323,9 +353,11 @@ every `-audit.sh:N` at or below `classify` to be re-derived in β's own commit, 
 umbrella, because β's edit is what moved them. A row's *rule* is the umbrella's; the *line number* under a
 citation is whoever last moved the line.
 
-⚠ **§9 now authorises through §3, §2 and §3a**, so β's authority no longer resolves through a section β
-amends. That was a **precondition**, not a raise, and it is discharged before β implements rather than
-recorded as an owner without a trigger.
+⚠ **§9 now authorises through §3, §2 and §3a — which narrows the circularity and does not remove it.**
+An earlier draft of this paragraph said β's authority *no longer* resolves through a section β amends; adding
+two sections to the authorising set does not take the third out of it, and §9 says so where it is stated. The
+residue closes only when a slice's own rows are quoted into its slice memo, which is not β's to do. **What
+was discharged is the narrowing**, before β implements rather than recorded as an owner without a trigger.
 
 ## §3a β's exit criterion
 
@@ -342,8 +374,9 @@ blast radius, and all the discriminating power is in O1–O4.
 | # | obligation | asserted by planting, not by reading |
 |---|---|---|
 | O1 | a derivation call is a call site in every command position | plant **both** spellings at **all three** heredoc host sites (`-audit.sh:53`, `:538`, `-inventory.sh:39`) ⇒ all six rows `callsite`. Each plant defines `_partset`/`_roster` and carries two tokens |
-| O2 | the position list's three decided clauses hold | `echo '$(_partset)' '$(_roster)'` ⇒ `mention`; `echo "${_partset} ${_roster}"` ⇒ `mention`; a code line with two block names in **markdown backticks** ⇒ `mention`. Each is a case a plausible implementation gets wrong |
+| O2 | the position list's first three decided clauses hold | `echo '$(_partset)' '$(_roster)'` ⇒ `mention`; `echo "${_partset} ${_roster}"` ⇒ `mention`; a code line with two block names in **markdown backticks** ⇒ `mention`. Each is a case a plausible implementation gets wrong |
 | O3 | the scan **subsumes** `_measure`, and the special case is gone | plant `local n; _measure <two blocks>` ⇒ `callsite`. ⚠ **Not `: ; _measure …`** — measured, that shape passes under a bare deletion of the special case with no scan written, because `WORD.search` skips `:` and `;` and finds `_measure` as the first word. The `local` shape is the one that discriminates |
+| O5 | clause 4's decisions hold, and an empty population is not a reason to skip the plant | plant `elif _partset && _roster; then :` ⇒ `callsite` (the keyword opens a position), and `n=$(( citations + budget ))` ⇒ **not** `callsite` (arithmetic does not). ⊕ Measured at HEAD, both land at `?` and red the census at rc=1, so neither guess was ever invisible. ⚠ **A first draft of this row used `n=$(( $(_partset) + $(_roster) ))` as the negative plant, which is wrong**: the inner `$(` *is* a command position by clause 1, so β must classify that line `callsite` and the plant tested the opposite of what it named. The negative plant has to put bare vocabulary tokens inside the arithmetic, with no substitution. ⚠ **The stated reason for having no obligation here was also wrong** — every O1–O4 plant is synthetic too, so an empty population never separated this clause from the guarded ones |
 | O4 | `mention` still means *text about a block* | `-B.sh:87`, the one live `mention` row, still `mention` — and the whole `BY CLASS` line unchanged (G3), which is the general form of the same assertion |
 | G1 | population | every home in the base census is present after, and none arrives |
 | G2 | the spec-pair lines stay non-homes | re-derive the `-common.sh` home list from a full census run and require no spec-pair line in it; re-derive that all spec-pair lines are in `-common.sh` rather than presuming it |
@@ -359,7 +392,7 @@ population β leaves unchanged.
 - **β changes no answer about where a block ships.** No tier, no `route`, no `PART_SLICE`, no declaration.
 - **β does not split `prose` or touch any vocabulary** (ε), **does not build or use the part-set derivation**
   (α), and **adds no key to `CLASSES`**.
-- **β lands no coverage-gate change.** Withdrawn by the umbrella; the surviving half is ε's.
+- **β lands no coverage-gate change.** Both directions of it are ε's — the reverse direction and the non-triviality clause the umbrella measured constructible after this memo concluded it was not.
 - ⚠ **β's effect on `-audit.sh`'s length is an obligation, not an assertion.** An earlier draft asserted the
   authoring band was not reached, unmeasured, in a phrasing the harness's own `BAND` needle cannot read.
   `-audit.sh` is **655** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh`), and the
@@ -369,10 +402,13 @@ population β leaves unchanged.
   it.** `638` is the memo pair's only `stated length` claim — `rederive homes` measures it against the working
   tree and reds on disagreement — so β's implementing commit falsifies it the moment it adds or removes a line
   of `classify`. It is bookkeeping β's own change makes true, the same footing §3 β-c puts the two umbrella
-  rows on. ⚠ **And the umbrella's D18 has already measured what β will meet here**: `-audit.sh` has 61 lines
-  of headroom before the band, every available seam cut moves the census, and the cut is therefore α's. If β's
-  scan needs more than that headroom, β does **not** cut a seam to make room — it reports the collision and
-  the ordering is α's to dissolve.
+  rows on. ⚠ **An earlier draft added a second, opposite instruction here and it is withdrawn.** It said that if β's
+  scan needed more than `-audit.sh`'s headroom, β should *not* cut a seam but report a collision for α to
+  dissolve — which contradicted the sentence above it, and rested on D18's claim of a deadlock that the
+  umbrella has since retracted as a false universal. There is one instruction: **measure the tree, cut the
+  seam while writing if it enters the band.** ⊕ The umbrella's own prereq cuts (`2abaea1b`, `9647ba4d`) are
+  the worked examples, and D18 records what makes a cut census-neutral: place the block in an **existing**
+  part, since a new stem enters `VOCAB` and moves the work list.
 - ⚠ **β's own citations of `-audit.sh:N` move when β edits `classify`.** The memo gate's path check is
   range-only, so a stale anchor stays green — an in-range anchor pointing at the wrong line is invisible to
   it. The implementing commit re-derives every `-audit.sh:N` anchor **below `classify`'s definition** in this
@@ -399,8 +435,11 @@ population β leaves unchanged.
 
 ## §5 What this memo authorises
 
-**Authorises**, after `/elidex-plan-review` passes: the command-position scan, the two umbrella row edits
-§3 β-c enumerates, and the anchor re-derivation §4 requires — and nothing else.
+**Authorises**, after `/elidex-plan-review` passes: the command-position scan; the two umbrella row edits
+§3 β-c enumerates; the anchor re-derivation §4 requires; and **the re-derivation of §4's own `-audit.sh`
+length figure**, which β's edit falsifies and the memo gate reds on — and nothing else. ⚠ **That last item
+was asserted by §4 as *"§5 authorises it"* while this list did not contain it**, and the claim reached a
+commit message before it reached this section; a memo may not cite a sibling section it has not opened.
 
 **Does not authorise**: any change to a tier, declaration or routing answer (γ); the part-set or roster
 derivations (α); the `prose` subject test or any vocabulary (ε); the coverage gate (ε); the `reads` rule (δ);
@@ -408,6 +447,19 @@ adding a key to `CLASSES`; or predicting a figure §4 assigns to the implementin
 
 **Raised for the umbrella, with a trigger** — an owner without a trigger is a drop, which this memo has
 already done once:
+
+- ⚠ **`callsite` and `mention` decide quoted spans by two different rules, and β leaves both.** Clause 2
+  strips single-quoted spans only; `mention` keeps `hits_outside_quotes` (`-audit.sh:112-115`), which strips
+  both by flat alternation. §2a measures that predicate's premise false — a `"$(f)"` span is deleted whole,
+  so it cannot tell *named in a string* from *called through a substitution* — and §3 closes the `mention`
+  **symptom** by testing `callsite` first rather than by fixing it. ⊕ Both rules live in `classify`, ten lines
+  apart — the `callsite` branch at `-audit.sh:141-146` and the `mention` branch at `:151` calling
+  `hits_outside_quotes`, defined at `:112` — by
+  `sed -n '141,152p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`. ⚠ **An earlier draft of this
+  bullet said "four lines apart" and attached a `grep` that returns `:112` and `:151`, measuring neither the
+  distance nor the claim.**
+  **Trigger: ε**, which owns `mention`'s siblings once `prose` splits, and is the first slice that must state
+  a quote rule of its own.
 
 - ⚠ **The memo gate's arity literal — DISCHARGED, not carried** (§1 β5). The trigger this memo set was
   *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*, and the standalone prereq that
