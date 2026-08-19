@@ -1100,6 +1100,8 @@ CONTROL_RANGE = re.compile(r"`?\b(C\d+)`?\s*[–—-]\s*`?(C\d+)`?")
 # preceded by a section sign -- the first draft of this pattern reported §9's
 # "no §8 control" as a stale tally.
 COUNT_OF_CONTROLS = re.compile(r"(?<!§)\b(\d+)[- ]controls?\b")
+# The self-test's closing line, printed only after every control has run.
+COMPLETED = re.compile(r"^claim-provenance self-test: \d+/\d+ controls ok$", re.M)
 
 
 def implemented_controls() -> dict[str, set[str]]:
@@ -1116,6 +1118,14 @@ def implemented_controls() -> dict[str, set[str]]:
     if not SELFTEST_FILE.exists():
         return out
     _, listing = sh(["bash", str(SELFTEST_FILE)])
+    # A run that ABORTED is the hazard, not a run that failed. A failing control
+    # still prints its label, so a red self-test answers this question as well
+    # as a green one; a self-test killed part-way by `set -e` prints a PREFIX,
+    # and every control after the abort would then be reported as a citation the
+    # memo invented -- a flood of findings whose real cause is one line above.
+    # The closing summary is the completion sentinel: no summary, no inventory.
+    if not COMPLETED.search(listing):
+        return {}
     for line in listing.split("\n"):
         m = INVENTORY_LINE.match(line)
         if not m:
@@ -1140,8 +1150,10 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
                    sources: list[Path] | None = None) -> None:
     have = implemented_controls() if have is None else have
     if not have:
-        skip("CONTROLS", f"{SELFTEST_FILE.name} is not in this tree, so no control "
-                         f"citation in the memo was resolved against anything")
+        skip("CONTROLS", f"{SELFTEST_FILE.name} is absent, or its run did not reach "
+                         f"the closing summary that says every control ran — either "
+                         f"way no control citation in the memo was resolved against "
+                         f"anything")
         return
     retired = retired_controls(memo)
 

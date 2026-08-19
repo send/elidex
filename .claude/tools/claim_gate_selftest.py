@@ -571,7 +571,31 @@ def selftest() -> int:
           capture(check_controls, synth(LEDGER), {}, []))
     probe("  …and it says so through skip()", True,
           capture_skipped(check_controls, synth(LEDGER), {}, []),
-          "not in this tree")
+          "did not reach the closing summary")
+
+    # The inventory comes from a RUN, so a run killed part-way by `set -e` would
+    # hand back a prefix and every control after the abort would be reported as
+    # a citation the memo invented -- a flood of findings one line from their
+    # real cause. The closing summary is the completion sentinel. Both
+    # directions, against a stand-in self-test.
+    _saved_st = host.SELFTEST_FILE
+    _st = Path(tempfile.mkdtemp()) / "claim-provenance-selftest.sh"
+    try:
+        host.SELFTEST_FILE = _st
+        _st.write_text("#!/usr/bin/env bash\n"
+                       "echo '  ok    C1 positive  x'\n"
+                       "echo '  ok    C1 negative  y'\n"
+                       "echo 'claim-provenance self-test: 2/2 controls ok'\n")
+        probe("CONTROLS inventory (a complete run is read)", True,
+              [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [],
+              "C1")
+        _st.write_text("#!/usr/bin/env bash\n"
+                       "echo '  ok    C1 positive  x'\n"
+                       "echo 'bash: line 9: syntax error'\nexit 2\n")
+        probe("CONTROLS inventory (a run with no closing summary yields nothing)", False,
+              [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [])
+    finally:
+        host.SELFTEST_FILE = _saved_st
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
