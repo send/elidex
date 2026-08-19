@@ -16,11 +16,20 @@
 # An annotation preceded by an odd number of backticks on its line is a MENTION
 # and is ignored -- that is how this header can spell one without executing it.
 #
-# Cost: one tree-wide `git grep` for the scan, then a bounded term per
-# annotation. If the per-annotation stage ever takes longer than the scan it
-# belongs to, re-plan (reduce the annotation set, or change the execution
-# model). Do NOT batch by `in=`: no-eval forbids the shape, and `git grep`
-# cannot attribute a batched result to the annotation that asked for it.
+# Cost, as a shape rather than a clock: ONE tree-wide `git grep` for the scan,
+# then a CONSTANT number of commands per annotation -- never a term per tracked
+# file and never one per resolved path. C27 asserts exactly that, by counting
+# `git` invocations in a small tree and in a large one and requiring the same
+# number, so the bound is decidable on every push without a stopwatch or a
+# threshold. (A wall-clock trigger was tried and withdrawn: nothing here has a
+# sub-second timer -- stock macOS is bash 3.2, `SECONDS` and `date +%s` are
+# whole seconds -- so the comparison it named could not be evaluated by the
+# program that was asked to evaluate it.)
+#
+# When a clause needs work the shape cannot hold, RE-PLAN: reduce the
+# annotation set, or change the execution model. Do NOT batch by `in=`:
+# no-eval forbids the shape, and `git grep` cannot attribute a batched result
+# to the annotation that asked for it.
 #
 # Scope note: this wire measures the repository it is POINTED AT (cwd), while
 # the driver anchors to where the wires are ($0). Two roots, two rules, each for
@@ -52,9 +61,9 @@ fail() { FAILED=1; printf '%s\n' "$*"; }
 # under the recursion guard. The order matters and it is not a preference: the
 # guard is an inherited environment variable, so folding the existence check
 # inside it means anything that sets the variable -- including a fork PR's own
-# script, or a stale export in a developer shell -- silently turns the entire
-# 55-control self-test into a no-op on the ungated per-push path, and the wire
-# still exits 0. A gate that can be disabled by an env var is not a gate.
+# script, or a stale export in a developer shell -- silently turns the whole
+# self-test into a no-op on the ungated per-push path, and the wire still
+# exits 0. A gate that can be disabled by an env var is not a gate.
 # --------------------------------------------------------------------------
 if [ ! -r "$SELFTEST" ]; then
   fail "FAIL  self-test helper not readable at $SELFTEST"
@@ -99,7 +108,13 @@ while IFS= read -r hit; do
   fi
 
   body=${text#*<!--}; body=${body%%-->*}
-  set -- $body
+  # Word-split the body into fields, with pathname expansion OFF. The splitting
+  # is wanted; the globbing is the defect it used to carry -- an annotation body
+  # containing `*` expanded against the working directory, so the MALFORMED
+  # diagnostic named a file the author never wrote, and which file it named
+  # depended on where the wire was run. That is the "no unquoted expansion" half
+  # of argv fidelity, one field earlier than the executor.
+  set -f; set -- $body; set +f
   [ "${1:-}" = claim ] || { fail "MALFORMED  $file:$line  first field: ${1:-<empty>}"; continue; }
   shift
 

@@ -325,6 +325,81 @@ fi
 rm -rf "$d"
 
 # --------------------------------------------------------------------------
+# C12 -- argv fidelity (I5), in all three places a value crosses into a
+# command. Round 8 shipped this clause with no control at all, and the wire was
+# violating it: `set -- $body` glob-expanded the field split, so an annotation
+# body containing `*` reported a filename from the working directory as its
+# first field. Which filename depended on where the wire ran.
+# --------------------------------------------------------------------------
+d=$(mkfixture); printf 'zzz\n' > "$d/aaa.md"; printf 'q\n' > "$d/bbb.md"
+printf 'x <!-- claim * count=1 pattern="zzz" in="aaa.md" -->\n' > "$d/n.md"; add "$d"
+st_probe fail "C12 (a)  a glob in the body is a field, not a pathname expansion" "$d" "first field: *"
+rm -rf "$d"
+
+# A pathspec with a space is one argv element or it is two pathspecs.
+d=$(mkfixture); mkdir "$d/two words"; printf 'hit\nhit\n' > "$d/two words/a.md"
+printf 'x <!-- claim count=2 pattern="hit" in="two words/a.md" -->\n' > "$d/n.md"; add "$d"
+st_probe pass "C12 (b)  a pathspec containing a space reaches git as one element" "$d" ""
+printf 'x <!-- claim count=1 pattern="hit" in="two words/a.md" -->\n' > "$d/n.md"; add "$d"
+st_probe fail "C12 (b)  and it is the file that was measured, not another" "$d" "asserted=1 actual=2"
+rm -rf "$d"
+
+# No eval: a command substitution in the pattern is an ERE, not a command. The
+# arm is worth more than its verdict -- it asserts the side effect did NOT
+# happen, which no exit status can show.
+d=$(mkfixture); printf 'harmless\n' > "$d/a.md"
+printf 'x <!-- claim count=0 pattern="a`touch OWNED`b" in="a.md" -->\n' > "$d/n.md"; add "$d"
+st_probe pass "C12 (c)  a backticked pattern body is matched, not executed" "$d" ""
+if [ -e "$d/OWNED" ]; then
+  fail_ "C12 (c)  and it left no side effect" "the annotation body was executed as a command"
+else
+  pass_ "C12 (c)  and it left no side effect"
+fi
+rm -rf "$d"
+
+# --------------------------------------------------------------------------
+# C27 -- I7's structural half: the work is one tree-wide command plus a
+# CONSTANT number per annotation, never a term per tracked file. Counted, not
+# timed: a `git` shim on PATH tallies invocations, and the same annotation set
+# must cost the same in a 2-file tree and a 60-file one. Round 8 left I7 with
+# no control, while §2 described this one as though it existed.
+# --------------------------------------------------------------------------
+count_git() { # $1 = dir -> echoes the number of `git` invocations the wire made
+  local shim tally
+  shim=$(mktemp -d); tally="$shim/tally"; : > "$tally"
+  { printf '#!/usr/bin/env bash\n'
+    printf 'printf x >> %s\n' "$tally"
+    printf 'exec %s "$@"\n' "$(command -v git)"; } > "$shim/git"
+  chmod +x "$shim/git"
+  ( cd "$1" && PATH="$shim:$PATH" CLAIM_WIRE_SELFTEST=1 bash "$WIRE" ) >/dev/null 2>&1 || true
+  awk 'END{print length($0)}' "$tally" 2>/dev/null || printf '0'
+  rm -rf "$shim"
+}
+
+mk_i7() { # $1 = number of filler files -> a fixture with 2 count annotations
+  local d i; d=$(mkfixture)
+  printf 'hit\n' > "$d/a.md"
+  i=0; while [ "$i" -lt "$1" ]; do printf 'filler\n' > "$d/f$i.md"; i=$((i+1)); done
+  # `in="*.md"` deliberately: it resolves to 2 paths in the small tree and 61 in
+  # the large one, so a term per RESOLVED path diverges here too, not only a
+  # term per tracked file. The count is 3 either way -- a.md's line, plus the
+  # two annotation lines, each of which contains `hit` inside its own pattern=.
+  { printf 'x <!-- claim count=3 pattern="hit" in="*.md" -->\n'
+    printf 'y <!-- claim count=3 pattern="hit" in="*.md" -->\n'; } > "$d/n.md"
+  add "$d"; printf '%s' "$d"
+}
+small=$(mk_i7 1); large=$(mk_i7 60)
+n_small=$(count_git "$small"); n_large=$(count_git "$large")
+# rev-parse + scan, then ls-files + grep for each of the two annotations.
+if [ "$n_small" = "$n_large" ] && [ "$n_small" = 6 ]; then
+  pass_ "C27  git invocations are 2 + 2 per annotation, and do not move with the tree"
+else
+  fail_ "C27  git invocations are 2 + 2 per annotation, and do not move with the tree" \
+    "2-file tree: $n_small, 61-file tree: $n_large, expected 6 in both"
+fi
+rm -rf "$small" "$large"
+
+# --------------------------------------------------------------------------
 # C30 -- §1's size bound on the two shipped files
 # --------------------------------------------------------------------------
 over=0
