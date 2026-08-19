@@ -45,13 +45,10 @@ and `TRANSCRIPT` each hold a stated slice of it, and each names what it does not
 
 **A claim the checker cannot hold is removed unless the mechanism can be extended to hold it safely** —
 and extending a gate that *executes* what it admits is a change whose failure mode is not a missed
-finding. Round 6 tried the extension (admitting a `bash -c` whose script "only reads") and it was
-reverted: measured, it gave zero coverage for its stated motivation and admitted
-`printf %s $(rm -rf $(echo X))`, `cat <(touch X)` and `grep x & touch X`. An allow-list describing what
-a shell script *does* is the wrong instrument, and its leaking is the argument. What it bought is the
-discovery that the hole predated it, now closed by a deny-list of the shapes a reader-*named* program
-uses to write. The residue is a **bound, not a silence**: the checker names every command it declined
-and why, so the set is read off the run and no count of it is given here.
+finding. That is not a caution: round 6 tried the extension, it was reverted, and the measured reason
+was that an allow-list describing what a shell script *does* leaks — its leaking is the argument. The
+residue is a **bound, not a silence**: the checker names every command it declined and why, so the set
+is read off the run and no count of it is given here.
 
 Measurement base, stated as a **property** rather than a hash: *the working tree at this branch's head,
 with this memo `git add`ed*. A hash pinning a branch still being rewritten has the same lifetime as the
@@ -159,14 +156,10 @@ excluding what S1 adds (`':(exclude).claude/tools/**'`, stated there); that devi
 because the excluded file *is* the argument. So the figure goes and the property stays (D10 form 2).
 Consequences, both of which shape S1:
 
-⚠ **One of this section's two properties cannot fire, and it is withdrawn.** Revisions 1–8 offered
-`git grep -nE '^[[:space:]]*(source|\.)[[:space:]]' -- '.claude/tools/*-trip-wire.sh'` with the
-transition *"nothing today; S1's wire after it lands"*. The wire is tracked now and the command still
-prints nothing: it **`bash`es** its helper rather than sourcing it, so the output never changes and the
-paste cannot establish what it was offered for. The membership command above does change, and is what
-the section rests on. The property this one was reaching for — a wire that invokes a non-wire file in
-its own directory — is expressible (`git grep -lF 'claim-provenance-selftest.sh' -- '.claude/tools/*-trip-wire.sh'`)
-and is not restated here, because §4.1.2 already owns the invocation and §8's C18 controls it.
+⚠ A second property offered here until round 9 — a grep for `source`/`.` in the wire set, with the
+transition "nothing today; S1's wire after it lands" — **could never fire**: the wire `bash`es its
+helper rather than sourcing it, so the output does not change when S1 lands. Withdrawn. The membership
+command above does change, and is what the section rests on.
 
 1. **A split-out self-test is not executed by anything.** The first draft specified eleven controls in
    such a file and no invocation for it. `scripts/trip-wires.sh:105-112` already names the outcome:
@@ -203,19 +196,9 @@ registered wire splits at all — none sources a helper:
 $ git grep -nE '^[[:space:]]*(source|\.)[[:space:]]' -- '.claude/tools/*-trip-wire.sh'
 ```
 
-Nothing today; S1's wire after it lands. That is the honest shape of the claim — S1 is the first wire
-with a helper, and the paragraph above is the justification for being first. (The per-wire `wc -l`
-figures revisions 1–6 cited here are gone for the same reason as the listing above: "all four" is
-falsified by S1's own landing, and the four lengths by any other lane's edit to those files.)
-
-**What none of it buys is a prediction of S1's own size**, and the trigger that replaced the withdrawn
-projection was wrong twice over. It said *"split it at the seam then"* — naming a seam three lines after
-this section argues there is exactly one and it is already taken — and it was a **prose rule**, the
-remedy shape this program has now recorded five times as ineffective, because nothing runs it and the
-author believes it was followed. Replaced by a bound the self-test asserts: **it fails if either shipped
-file exceeds 800 lines.** A bound is not a figure — it survives every legitimate edit and fires exactly
-when the discipline is breached — and if it fires, the answer is not "split at the seam" but *re-derive
-the decomposition*, because a file over the band is evidence of a seam this analysis did not find.
+S1 is the first wire with a helper, and the paragraph above is the justification for being first. (The
+per-wire `wc -l` figures earlier revisions cited here are gone for the same reason as the listing above:
+a figure this memo's landing moves is replaced by a property.)
 
 **Where 800 comes from, because a bound with no provenance is a figure wearing a bound's clothes.** It
 is not derived from these files and it is not a prediction of their size: revision 7 arrived at it as
@@ -360,17 +343,10 @@ What is stated here is the decision, and one measurement the wire cannot make ab
 `:(exclude)` magic was verified to actually exclude: `git grep -lE 'strip_comments' -- '*.sh'` → 4
 files; with `':(exclude).claude/tools/**'` appended → 0.
 
-**That is the whole scan — one command, not two.** Revisions 1–3 specified a second stage, a tier pass
-over the files the first named, and justified it by the fence arm's per-file state. With the fence arm
-gone (§4.2) inertness is a line predicate, and `git grep -n` already prints `path:line:content`, so the
-tier pass reads the content it was given. The second stage was a consequence of the rule (c) deleted,
-and it goes with it — which is the *downstream* face of a withdrawal, the one a sweep of the statements
-alone leaves behind (memory `feedback_sweep-obligations-not-only-statements`).
-
-**The name goes with the stage.** Revisions 1–4 called this command "stage 1", and a numbered stage in a
-one-command scan names a sibling that no longer exists — the same leftover, one level down in the prose.
-Everywhere below and in §5 it is **the scan**; no argument changes, because every use of the old name was
-already about this one command.
+**It is one command, not two.** Revisions 1–3 specified a second stage, a tier pass over the files the
+first named, justified by the fence arm's per-file state; with the fence arm gone (§4.2) inertness is a
+line predicate and `git grep -n` already prints `path:line:content`, so the stage went with the rule
+that needed it. It is called **the scan** rather than "stage 1" for the same reason.
 
 ⚠ D2's exclusion governs where annotations are *looked for*, not what one may *measure*: one of §5's live
 annotations targets a file under `.claude/tools/` and is executed normally.
@@ -413,27 +389,17 @@ on the ungated job whose whole justification is that it needs no toolchain
 to carry `git clone --local` as something that runs against fork-PR content. Withdrawing it returns
 S1's self-test to the hermetic ground every sibling wire stands on.
 
-⚠ **The draft of this paragraph put a number there, and the number was false by the end of the same
-round.** It carried a figure measured before round 9 added two controls, one of which runs the wire
-twice more over a larger tree; the same command then reported a larger figure. A
-wall-clock figure is the one class no verb can express (§6) and the one §4.6 deletes from `ci.yml`
-rather than re-measure, so re-measuring it here would be this memo re-introducing at one site what it
-removes at another. The command stays and the constant goes; the decision never needed the constant,
-only that the cost is real and paid on every push.
+⚠ No constant is written beside that command, and the reason is that round 9's draft wrote one and it
+was false before the round ended — the two controls that round added moved it. A wall-clock figure is
+the one class no verb can express (§6) and the one §4.6 deletes from `ci.yml` rather than re-measure.
 
 **And the mechanism was costing more than the thing it delivered.** Roughly twenty lines existed only to
 keep the clone alive under CI's depth-1 checkout — `--local` is ignored on a shallow source, git says so
 in two warnings, `--quiet` does not reach them, so the self-test would have had to print a line
 explaining warnings it expected. That is upkeep for a fixture, not for a clause.
 
-⚠ **This retires a load-bearing altered quotation rather than fixing it.** Revisions 5–8 argued the
-shared clone safe by quoting §8 as *"Two controls in **separate fixtures** cannot mask each other at
-all, because each invocation can only emit its own diagnostics"*. `grep -c 'cannot mask each other at
-all'` over this file returns **0** for anything but that quotation: §8 says *"two `own` controls cannot
-mask each other whatever their diagnostics"*, and the substituted clause **was** the argument, since a
-shared clone is safe only under an invocation-scoped reading. That is the fifth altered quotation this
-program has produced, and round 7's correction of the fourth is what produced it. It is recorded here
-because the class outlived four sweeps; the paragraph carrying it is gone with the clone.
+⚠ The paragraph that argued the shared clone safe did so by quoting §8 with one word substituted, and
+the substituted word **was** the argument. It goes with the clone; §9 records the class.
 
 **Umbrella §3 rows 4–5 are amended in the umbrella, not reinterpreted here.** Row 5 sent "the
 acceptance corpus every slice tests against" to S1's controls, and a slice may not change what a
@@ -551,42 +517,27 @@ What *is* asserted is structural, not measured: **the wire's work is one tree-wi
 per annotation — never a term per tracked file.** That is visible in the code shape (§4.1's single
 tree-wide command, §4.2's per-annotation probe and measurement) and it is what keeps the ungated job's
 real justification — no toolchain, no cache (`.github/workflows/ci.yml:128-130`) — true as annotations
-accumulate. The wire header records a re-runnable escalation trigger rather than a prediction — but
-**its action was one the design forbids**, and had been since the first draft: *"batch by `in=` before
-adding annotations"*, while §2's I5×I7 row says the no-`eval` rule *"forbids the one shape that would
-batch several annotations into a single `git grep`"* and that *"serial execution is forced"*, and §9
-records revisions 1–6 having phrased its own audited candidate as the batching this forbids. Three
-sections, two of them naming the impossibility and the third prescribing it. A trigger whose remedy
-cannot be executed is §2 I4×I6's `ban_control`, one level up: it looks like a disposition and can never
-be acted on. (Revision 7 wrote that §9's audit *"calls the same candidate"* by that phrase in its own
-voice; §9 attributes the phrase to the revisions it is correcting. The proposition is unchanged and
-both sections still assert it — what was wrong was the present tense and the speaker.)
+accumulate. The wire header records a re-runnable escalation trigger rather than a prediction. Three earlier
+formulations of it could not be acted on, and the reason is one reason rather than three: each named an
+operand nothing evaluates. The first prescribed *"batch by `in=` before adding annotations"* — which
+§2's I5×I7 row forbids structurally, so the remedy could never be performed. The second and third named
+a wall-clock comparison, and nothing on the ungated path has a sub-second clock: stock macOS is bash
+3.2, where `SECONDS` and `date +%s` are whole seconds and both operands round to zero. A trigger whose
+condition or action cannot be evaluated is §2 I4×I6's `ban_control` one level up — it looks like a
+disposition and can never be acted on.
 
 It is not fixable by loosening I5, and the reason is worth stating because it is not the obvious one:
 multiple `-e` patterns **are** expressible without `eval`, each being its own argv element — but
 `git grep` does not report which `-e` matched, so per-annotation counts are unrecoverable from a batched
 run. Batching is unavailable to `count` and `files` structurally, not by convention.
 
-**The condition had the same defect as the action, and revision 7 fixed only the action.** *"Dominates a
-local `mise run trip-wires`"* is not a thing anything evaluates: nothing measures it, and this section's
-own argument — that the runtime figures were removed as convention-dependent and I7 is not machine-bounded
-at a useful granularity — forbids supplying the constant that would make it evaluable. A condition no
-one can decide is the same `ban_control` shape as an action no one can perform.
-
-**Revision 7's replacement was a third undecidable statement.** It read *"when the wire's
-per-annotation stage takes longer than its own tree-wide scan, re-plan"*, and asserted "the wire times
-both — it is running them anyway". The wire times nothing, and it could not, because nothing on the
-ungated path has a sub-second clock — stock macOS is bash 3.2, where
-`SECONDS` and `date +%s` are whole seconds and both operands round to zero. Worse, a wall-clock trigger
-contradicts I7 one section up, which says in its own words that the bound is *structural, not a
-wall-clock one*.
-
-⚠ Round 9 offered `grep -nE 'SECONDS|date \+|time '` over the wire as the artifact for "the wire times
-nothing", and **that command is not empty** — it matches the wire's own header, because round 9 also
-moved this paragraph's reasoning into the header, where the token names appear as prose. A grep for a
-token cannot distinguish code from the comment explaining why the code does not use it, so the artifact
-is dropped rather than narrowed: what carries the claim is C27, which measures the shape instead of
-looking for the absence of a timer.
+**The condition had the same defect as the action.** *"Dominates a local `mise run trip-wires`"* names
+no measurement, and this section's own argument — that the runtime figures were removed as
+convention-dependent and I7 is not machine-bounded at a useful granularity — forbids supplying the
+constant that would make it evaluable. A third phrasing asserted "the wire times both", of a wire that
+times nothing and, on bash 3.2, cannot: `SECONDS` and `date +%s` are whole seconds and both operands
+round to zero. A wall-clock trigger also contradicts I7 two sections up, which says the bound is
+*structural, not a wall-clock one*.
 
 So the trigger is structural, and C27 is what decides it: **the wire makes one tree-wide `git grep` plus
 a constant number of commands per annotation — never a term per tracked file, and never one per resolved
@@ -640,11 +591,6 @@ overrides, and a slice does not reverse a hand-off in its own file (§0). So S1 
 files; each wire's own header keeps saying what that wire is, and only the set-level label moves.
 §7 Q1 asks for the wording.
 
-⚠ This is a **reversal within this memo's own history**, recorded rather than smoothed over: revision 6
-split the sentence and gave S1 the `:19` half, on the reading that revision 3 had misrouted it. It had
-not. The premise was taken from §5's account of the umbrella instead of from the umbrella, which is the
-`feedback_ao-name-not-section-number-in-briefs` 追補 4 shape — a claim about another document, sourced
-from a third document that describes it. §6 records the one-PR window this leaves.
 (The two exclusions are what keep this listing stable under its own landing — the memo lives in
 `docs/plans/`, the wire and self-test in `.claude/tools/`.)
 
@@ -662,10 +608,7 @@ not cite. Every row it lists is disposed of below — two by an edit, the rest b
 disposed of, and a row is disposed of only if the line it names was read at that line. Re-derived from
 the report, in the order it emits: `.github/workflows/ci.yml:131-133` carries the ungated job's own
 argument — "Gating them would mean listing BOTH `.claude/tools/**` … and `scripts/**` … in a filter" —
-which a fifth wire does not touch. (The report emits `:131` and `:132` as two of its rows; the citation
-is the quoted *sentence's* span, which runs on into `:133`, and it read `:131-132` until round 5 checked
-the quotation against the lines. `:133` is not itself a report row — it speaks about a filter, not about
-the wires.) `CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies,
+which a fifth wire does not touch. `CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies,
 which stays true; and the two driver internals are
 
 ```
@@ -679,17 +622,15 @@ $ sed -n '25p;59p' scripts/trip-wires.sh
 never surface as "the wires are gone". All five describe the mechanism rather than the membership, so none
 is falsified by an addition to the set.
 
-**`:59` was labelled "the both-directions retention message", and it is not that line.** The retention
-rationale is at `scripts/trip-wires.sh:76-84`, the passage §1 and §6 both already cite. The listing above
-is therefore re-derived from `SITES` and spot-checked with a pasted `sed` rather than hand-corrected a
-second time: **relabelling is not re-measuring**, and only one of the two survives being run.
+The listing above is re-derived from `SITES` and spot-checked with a pasted `sed` rather than
+hand-corrected: an earlier revision relabelled one of these lines instead of re-reading it, and
+**relabelling is not re-measuring** — only one of the two survives being run.
 
-This is the general shape and it is worth naming, because it is why the edit set was wrong twice: a
-grep proves a *paste* matches its command, never that the command was the right one. `TRANSCRIPT`
-re-runs every listing pasted above and confirms each is complete for what it asks; `SITES` exists because
-that is not the same as being complete. Both edited sites were reachable only by asking "what else
-describes the *set*", which is a concept, not a string
-(memory `feedback_semantic-sibling-selfseed-and-regate-breadth`).
+The edit set was wrong twice for one reason worth naming: a grep proves a *paste* matches its command,
+never that the command was the right one. `TRANSCRIPT` re-runs every listing pasted above and confirms
+each is complete for what it asks; `SITES` exists because that is not the same as being complete. Both
+edited sites were reachable only by asking "what else describes the *set*", which is a concept, not a
+string (memory `feedback_semantic-sibling-selfseed-and-regate-breadth`).
 
 ---
 
@@ -711,15 +652,13 @@ $ git log --oneline -S'~350' 2656d83d -- docs/plans/2026-08-claim-gate-s1-proven
 494e83a9 docs(plan): S1 rewrite — close plan-review round 1 (3 CRIT / 39 IMP)
 ```
 
-— while the design of the two files it projected changed underneath it three times: revision 4 deleted
-the fence arm *and* the second scan stage from the wire, revision 4 added a `--one` entry point, and
-revision 5 withdrew `--one` and gave the self-test a `git clone --local` fixture to construct, share and
-tear down — which round 9 then withdrew in turn (§4.1.1), a fourth change. A number that survives three
-changes to its own subject is not tracking that subject, and it did not track the fourth either. Per
-§4.5's runtime table and §5's "five uses" — the two the memo already withdrew for it — a figure whose
-value depends on the author's convention rather than on what a command reports is **removed, not
+— while the design of the two files it projected changed underneath it four times, the last in round
+9. A number that survives four changes to its own subject is not tracking that subject. Per §4.5's
+runtime table and §5's "five uses" — the two the memo already withdrew for it — a figure whose value
+depends on the author's convention rather than on what a command reports is **removed, not
 re-measured** (memory `feedback_convention-dependent-figures-are-argument`). What replaces it is §1's
-authoring trigger, which is re-runnable and applies while the files are being written rather than before.
+authoring trigger, which is re-runnable and applies while the files are being written rather than
+before.
 
 **Three live annotations, one per verb**, each chosen so that S1's own landing cannot invalidate it (D10
 form 1). Once S1 lands the wire re-executes all three on every push, so each reds the build if its
@@ -786,29 +725,11 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
    enumeration — one commit. Revision 3 put both in §0's scope and gave neither a commit, so an
    implementer following §5 literally would have shipped S1 with `ci.yml:152` still false.
 5. ~~The second transcription retires here.~~ **It retired in the prerequisite PR, and this commit does
-   not exist.** Revisions 3–8 argued that only S1 could do it — "the delegation is unwritable until the
-   wire is tracked" — and the prerequisite branch wrote it anyway, deleting the grammar module and
-   pointing `check_annotations` at the wire's path. Round 9 measured what that costs and fixed it
-   there rather than here: with no wire in its tree, the checker's annotation pass now **reports that
-   it did not run** instead of failing, so the prerequisite PR stands alone on `main`. §6 states the
-   window this leaves. The two import lines revisions 6–8 quoted as the importers to sweep occur in no
-   file at either branch's head — the third and fourth fabricated quotations this program has produced
-   (§9 records the first two), and the class is the same each time: a nearby file quoted from a
-   recollection of it.
+   not exist.** Revisions 3–8 argued only S1 could do it — "the delegation is unwritable until the wire
+   is tracked" — and the prerequisite branch wrote it anyway. Round 9 fixed it there rather than here:
+   with no wire in its tree, the checker's annotation pass now **reports that it did not run** instead
+   of failing, so the prerequisite PR stands alone on `main`. §6 states the window this leaves.
 
-   **The closing control lands in `claim_gate_selftest.py`, not in the wire's self-test**, and the
-   distinction is §7's layer rule rather than a preference. It plants a wire and asserts the checker's
-   own grammar path is unreachable — a claim *about the checker*, so it belongs at the checker's tier,
-   where a Python interpreter and `.claude/skills/**` internals are already present and permitted. Put
-   in `claim-provenance-selftest.sh` instead, which §5's file table gives "every control in §8", it
-   would put both on the ungated per-push path: exactly what §7 Q3 rejects option (b) on, and exactly
-   what §7 Q3 deleted the checker-inside-the-wire control for. It is therefore **not** a `C`-row in the self-test — the self-test's rows are the wire's
-   controls — and `claim_gate_selftest.py` already carries the adjacent probe that stubs the wire and
-   replays the `check_annotations`-returns-nothing defect.
-
-   Commit 5 follows commit 1 because the delegation is unwritable until the wire is tracked, and it is
-   in this PR because no later PR exists to hold it — revision 6 gave it an owner that merges before
-   its own trigger fires (§9).
 6. The five false rows of `docs/plans/2026-07-app-mode-turn-completion-drain.md` §5's `Lines at HEAD`
    table (§8.2), corrected against that table's own declared base. A **value-only** edit — five
    numerals replaced in place, no line added or removed, so §8.2's `actual` figure for that file stays
@@ -897,16 +818,14 @@ push → draft PR → `/review <n>`.
   preamble's base is a working tree with this file in it, not an index (D10 form 3 unaffected in
   substance — the base is still declared and still includes this file — but stated correctly).
 
-  The block's last four lines are a fourth consequence, and it is **not a bound — it was a defect, and
-  the wire's liveness rule (§4.2) fixes it.** The D4 liveness probe read the **index** while all three verbs read the
-  **working tree**, so a file deleted in the worktree but still in the index passed liveness and then
-  measured nothing. Revision 6 wrote it down here as "recorded rather than fixed", with no owner, no
-  trigger, no re-eval date and no control; round 5 read that against what a §6 bullet is for. A bound
-  records what S1 does not reach. This was S1's own discriminator — the clause D4 exists to make a
-  claim falsifiable — answering about a different tree from the one it is guarding. The probe now
-  filters to paths present in the working tree, with a diagnostic distinct from the dead-pathspec one,
-  and the self-test's C28 controls both directions. What remains a bound is the half no filter reaches: the wire
-  measures uncommitted local edits, so a green local run is not a statement about what will be pushed.
+  A fourth consequence was a defect rather than a bound, and the wire's liveness rule fixes it: the D4
+  probe read the **index** while all three verbs read the **working tree**, so a file deleted in the
+  worktree but still in the index passed liveness and then measured nothing — S1's own discriminator
+  answering about a different tree from the one it guards. The probe now filters to paths present in the
+  working tree, with a diagnostic distinct from the dead-pathspec one, and the self-test controls both
+  directions. What remains a bound is the half no filter reaches: the wire measures uncommitted local
+  edits, so a green local run is not a statement about what will be pushed.
+
 - **Single-line annotations only** (§4.2), and **`count` counts matching lines, not matches** — an author
   who meant "occurrences" measures something else, correctly and forever.
 - **The wire re-executes; it does not judge.** A pattern that measures the wrong thing stays green. The
@@ -927,29 +846,14 @@ push → draft PR → `/review <n>`.
 ## §7 Open questions for plan-review
 
 **Q1 — set-label wording**, and only the wording. §4.6 widens the label at four files: is "repository
-trip-wires" the right replacement for "layering trip-wires"? The second half this question used to
-carry — *or should S1's wire get its own driver?* — is **not open**: §0 books registration in the
-existing driver's `REQUIRED_WIRES` as commit 1 and §4.6/§5 book the widening at four files, so the
-memo decides it three sections before asking it. Recorded rather than silently dropped, because a
-question whose answer is already shipped is a second decision surface for a settled decision. The
-ground for that decision, unchanged: a second driver costs a second ungated CI job and a second place a
-wire can go missing, and §1 shows the *first* driver's glob is already what decides what runs.
+trip-wires" the right replacement for "layering trip-wires"? Whether S1's wire should get its own driver
+is **not** open — §0 books registration in the existing driver's `REQUIRED_WIRES` and §4.6/§5 book the
+widening, so the memo decides it three sections before asking. The ground, unchanged: a second driver
+costs a second ungated CI job and a second place a wire can go missing, and §1 shows the *first*
+driver's glob is already what decides what runs.
 
-**Q2 — CLOSED by round 9: there is no acceptance corpus, because there was nothing for it to
-discriminate.** The question was posed as *live repo vs hermetic re-enactment* for the four corpus
-controls, which
-re-executed v1's three false annotations and one of #504's `lines=` claims and asserted FAIL with the
-historical value. Revision 5 answered **neither** — a `git clone --local` per self-test run — and
-§4.1.1 withdraws that and the corpus with it, on the ground the question never tested: falseness and
-tree-scale do not interact, so every verdict shape the corpus carried is already carried hermetically,
-arm for arm. What the corpus added was provenance.
-
-The argument that decided the old recommendation still holds and now lands elsewhere. Umbrella §2's
-worked instance — `658cc302`, another lane, moving two live annotations under this program — is why a
-real firing beats a synthetic one, and a *replay* of a historical firing inside a clone was never the
-real one. The live annotations are: umbrella §2's two, §5's three. They run against this repository on
-every push, which is stronger than anything a fixture asserts, and umbrella §3 rows 4–5 are answered by
-them together with §5's commit 6, which corrects #504's table where it lives.
+**Q2 — CLOSED by round 9: there is no acceptance corpus.** §4.1.1 withdraws it and states why;
+umbrella §3 rows 4–5 are amended to match.
 
 **Q3 — CLOSED by round 3: the wire has no fence tracker.** The question was whether the wire should
 carry a third implementation of fence tracking (a), shell out to the Python one (b), or drop the fence
@@ -1019,16 +923,12 @@ third that was specified and never built.
 
 *Mutation, not assertion.* A first run reporting every control green is a claim about the controls, so
 each clause was mutated in the wire and the self-test re-run. **No count of what each mutation reddened
-is given**, and the reason is two paragraphs up in this section's own voice: that number is a quantity
-about this program's own tooling, and the next control moves it. What is stated is the property — every
-mutation reddened at least one control, and each was confirmed to have applied **and to parse** before
-its result was read. Both halves were learned the hard way: one harness silently changed nothing and
-reported two clean mutations as controls that cannot fire, and a later one produced invalid bash whose
-"every control red" read as coverage until the file was run through `bash -n`. The mutations, named by
-what they change rather than by what they score: remove the mention arm; drop the `.claude/tools`
-exclusion; spell `lines` as `wc -l`; drop the regular-file test; drop the reject list; reject every
-backslash; swallow the fourth outcome kind; revert the field split's `set -f`; unquote the pathspec;
-`eval` the pattern body; add a git invocation per resolved path; drop the presence loop's `break`.
+is given** — that is a quantity about this program's own tooling, and the next control moves it. What is
+stated is the property: every mutation reddened at least one control, and each was confirmed to have
+applied **and to parse** before its result was read. Both halves were learned the hard way — one harness
+silently changed nothing and reported two clean mutations as controls that cannot fire, and a later one
+produced invalid bash whose "every control red" read as coverage until the file was run through
+`bash -n`.
 
 *The one that reddened nothing, which is the useful one.* Dropping the `break` turns the presence test
 into an exhaustive walk over every resolved path — the exact defect §2 I3×I7 prices — and **no control
@@ -1092,10 +992,9 @@ not of any tree, and as a standing gate it is D8's ledger — deleting an annota
 with no ledger to say which one, which §6 states S1 does not ship. It is discharged where it belongs, in
 review of §5's three annotations, one per verb.
 
-Revisions 1–3 also wrote clause 2's neighbour as "fenced or backticked", which (c) makes false in the
-direction that matters: a fenced annotation is now **strict and executed** (§4.2). The property is also
-why (c) costs nothing today rather than merely little — it is satisfied by the tree as it stands, with
-no annotation to rewrite.
+A fenced annotation is **strict and executed** (§4.2), not inert, which is also why (c) costs nothing
+today rather than merely little: the property is satisfied by the tree as it stands, with no annotation
+to rewrite.
 
 **What is left is the wire's exit status, which is the point.** Both remaining clauses are read off one
 run of the deliverable on every push. Revisions 6–8 specified an inventory and two consumers so that
@@ -1107,7 +1006,7 @@ The property was **executed**, not asserted, at the base declared at the top of 
 containing it — D10 form 3):
 
 ```
-$ bash .claude/tools/claim-provenance-trip-wire.sh | grep -E '^(OK|FAIL|MENTION|MALFORMED)'
+$ bash .claude/tools/claim-provenance-trip-wire.sh | grep -E '^(OK|FAIL|MENTION|MALFORMED)' | sed 's/:[0-9]*$//'
 OK    lines asserted=493 actual=493  in=.claude/tools/layout-box-reader-trip-wire.sh
 OK    files asserted=1 actual=1  in=scripts/*.sh
 OK    count asserted=0 actual=0  in=.github/workflows/*.yml
@@ -1117,40 +1016,26 @@ OK    count asserted=64 actual=64  in=crates/**/*.rs
 OK    count asserted=301 actual=301  in=crates/**/*.rs
 ```
 
-(Two elisions, both in the command rather than in the transcription. The `grep -E` keeps the wire's own per-annotation
-verdicts and drops the self-test's lines — the wire invokes its helper on stdout, so a bare run prints
-those first, and pasting them would put a control count in this memo by the back door (§8). It selects
-by what the wire emits per annotation rather than by excluding today's helper output, so a new line
-shape from the wire appears here instead of being filtered away. And the two `MENTION` lines
-are pasted without their `:NNNN`: a line number in this file moves whenever this file is edited, which
-is the one figure a paste of a run against *this memo* cannot hold, so the command's own output is
-shown with that column absent rather than transcribed with it wrong. Revisions 6–8 ran the command
-bare and claimed the paste was "byte-for-byte what the command prints" while showing 9 of its 71 lines
-— the elision was real and only the sentence about it was false, which is why the fix is to the
-command.)
+(Both elisions are performed by the command. The `grep -E` keeps the wire's per-annotation verdicts and
+drops the self-test's lines, which a bare run prints first — pasting those would put a control count in
+this memo by the back door (§8). The `sed` drops the `MENTION` line numbers: one of them is a line in
+*this* file, which moves whenever this file is edited, and it is the one figure a paste of a run against
+this memo cannot hold. Revisions 6–8 pasted a bare run and elided that column by hand while asserting
+the paste was "byte-for-byte what the command prints"; round 9 asserted the elision had been moved into
+the command and did not move it. It is in the command now, and the block below is a verbatim diff away
+from what that line produces.)
 
 Zero MALFORMED and every strict annotation passing — the two clauses, off one run of the deliverable
 rather than off two throwaway prototypes. The run also shows, at review time rather than as a standing
 gate, the two things §5's diff is responsible for: one strict annotation per verb, and both illustrative
 annotations inert.
 
-**Round 8 found the previous version of this block false, and the shape of the error is the section's
-own subject.** It pasted `{'strict': 5, 'mention': 3}` from a prototype classifier — a program the
-repository does not contain — against a scan reporting **7** candidates, which 5+3 exceeds. The wire
-reports 5 strict and **2** mentions; the restructure that moved the specification into the wire had
-deleted one illustrative annotation, and nothing re-derived a figure whose producer had been thrown
-away. `PASTE`, the check that used to re-derive exactly this number, was retired in the same PR, and
-`TRANSCRIPT` listed the block among the commands it declines to run — a bound this section then did not
-read. A transcript of a program that no longer exists ages exactly like the claims this slice is
-about; the wire's inventory is re-run on every push. The per-line
-listing is deliberately **not** pasted: every line of it carries a literal `<!-- claim …`, so pasting it
-would add candidate lines to the tree being counted and the block would disagree with itself on the next
-run — D10's mechanism reaching the transcript instead of the claim. (The same thing happened once more
-here: §8.3's prose originally *named* two glob shapes and so contributed two of the soft findings it was
-describing.) Building the two prototypes produced one finding each, both folded back into §4: the
-backtick arm must be evaluated against the backticks *before* the `<!--`, and the `lines` executor cannot
-share an argument position with `pattern` — the production's own "`lines=` takes no `pattern`" clause
-surfacing in the implementation, and why C7 exists.
+The per-line listing is deliberately **not** pasted: every line of it would carry a literal
+`<!-- claim …`, so pasting it would add candidate lines to the tree being counted and the block would
+disagree with itself on the next run — D10's mechanism reaching the transcript instead of the claim.
+Round 8's version pasted a tier count from a prototype classifier the repository does not contain,
+against a scan reporting more candidates than that count allowed; the wire's inventory is re-run on
+every push, which is the whole change.
 
 The same executor over the self-test's corpus rows reproduces all four expected failures:
 
@@ -1173,11 +1058,10 @@ git log --oneline 3045f256..HEAD -- crates/shell/elidex-shell/src/app/drain_host
 The file has not been touched since, so the 15-line gap was there at land time. And the column heading
 in that table is literally `Lines at HEAD`.
 
-**Revision 2 said this was the one row the correction left behind. It was not, and the real shape is
-worse.** Re-measuring every numeric row of that table against `3045f256` — which is the table's own
-declared base — gives the figures below. They are twenty live values about files three other lanes own,
-so the derivation is stated rather than the measurement trusted; the `Today` column is the same command
-with the `git show` prefix dropped:
+**Re-measuring every numeric row of that table against `3045f256` — the table's own declared base —
+gives the figures below.** They are ten live values about files three other lanes own, so the derivation
+is stated rather than the measurement trusted; the `Today` column is the same command with the
+`git show` prefix dropped:
 
 ```
 $ bash -c 'for p in crates/shell/elidex-shell/src/app/drain_host/mod.rs crates/shell/elidex-shell/src/app/drain_host/host.rs crates/shell/elidex-shell/src/app/events.rs crates/shell/elidex-shell/src/app/mod.rs; do printf "%s " "$(git show 3045f256:$p | awk "END{print NR}")"; done'
@@ -1204,12 +1088,10 @@ direction was measured *once, early*, and never re-measured as the branch kept m
 precisely the failure mode this slice exists to make impossible, caught in the artifact that first
 described it.
 
-It also corrects what revision 2 drew from this. #504's §5 drift is the origin lesson's failure 3 — it
-was found and it was corrected — and the correction fixed the numbers the finding named while leaving
-**five** untouched, not one. That is still the
-fix-the-cited-site-leave-the-mirror-sites shape (`feedback_findings-cluster-in-self-added-scope`), but
-at five out of ten it is no longer a missed mirror site: the review found one instance of a systematic
-error and treated it as an isolated one. Nobody re-ran the column.
+#504's §5 drift is the origin lesson's failure 3 — it was found, and the correction fixed the numbers
+the finding named while leaving five untouched. At five out of ten that is not a missed mirror site:
+the review found one instance of a systematic error and treated it as an isolated one. Nobody re-ran
+the column.
 
 All five are §5's commit 6. The selection rule this paragraph used to state — a corpus is chosen for
 coverage of **verdict shapes**, not for counting instances — is what §4.1.1 applies when it withdraws
@@ -1240,29 +1122,15 @@ matcher, which cannot resolve a glob. The `⚠ unrecognized labels` line for the
 substitutes for spec rows is printed *outside* that tally and is not one of them — a decomposition the
 first draft got wrong in both directions.
 
-**Round 8 found the previous version of this paragraph false in two ways at once, and both were about
-the tally it was describing.** It said *"All 5 soft findings are one shape"* and *"Zero Check 3
-findings"*, and the fifth finding was a Check 3, raised against §2's own I3×I7 row for stating a ratio
-of tracked-path counts with no re-runnable artifact beside it. So the sentence asserting zero of a class
-was refuted by a member of that class, sitting in the section the same paragraph was counting. (The
-diagnostic quotes the figures, and this paragraph does not quote the diagnostic: reproducing it here
-would re-raise the finding at the sentence describing it, which is the rule two paragraphs below,
-broken in the edit that first wrote it down.) §2's
-figures are withdrawn in round 9 for the reason §4.1.1 gives about the tracked-file count it deleted:
-two tree-wide counts that any lane's landing moves are D10's literal prohibition, and the sentence they
-priced reads the same without them. That is what takes the tally from 5 to 3 rather than to 4 — the
-Check 3 finding and one of the Check 1 globs were the same sentence.
-
-**The count's history, and why no count of the history is given.** It was 5, then 7 when revision 3
-added two `crates/…**/…` pathspecs — both in §2's I6×I7 row, the tree-scale controls that row exempted
-from I7 — then 8 in round 5 (the self-test's C10 given a positive that stated its verb), then 9 in
-round 6, at one site: the wire's liveness rule had to show what a tree-scale pathspec resolves to in order to price
-the liveness test that broke I7. Round 9 removes the I6×I7 exemption with the clone (§4.1.1) and the
-pricing figures with it. **No count is given of how often this paragraph has invalidated itself**,
-because a paragraph whose subject is a self-invalidating figure had, until round 6 measured it, three
-different tallies of its own history within thirteen lines (*three times* / *the second demonstration* /
-*twice*) — the convention-dependent class §0 removes rather than re-measures. It survived because the
-sentence's subject is this memo rather than its tooling, so `TOOLING` never looked.
+**The tally has been wrong before, in both directions, and the corrections are what shaped the rule
+below.** Round 8's version asserted "All 5 soft findings are one shape" and "Zero Check 3 findings"
+while the fifth *was* a Check 3, raised against §2's own I3×I7 row — a sentence asserting zero of a
+class, refuted by a member of that class sitting in the section it was counting. §2's figures are
+withdrawn in round 9 for the reason §4.1.1 gives about the tracked-file count it deleted, which is what
+takes the tally down by two rather than one: the Check 3 finding and one Check 1 glob were the same
+sentence. (This paragraph does not reproduce the diagnostic, which quotes the figures: doing so
+re-raises the finding at the sentence describing it — the rule below, broken in the edit that first
+wrote it down.)
 
 The rule this yields is narrower than "no literal here": **a paragraph whose subject is *where a token
 appears* may not contain the token, in any role, including as evidence for its own claim.** Each draft
@@ -1288,10 +1156,9 @@ things — an **owner** (a commit, or a file that exists), a **trigger** (an eve
 to have happened) and a **home** (something a reader can open). Where no such triple exists, the row is
 an own deferral and is counted as one.
 
-**Three of revision 6's routings were dischargeable here, and two of them became commits.** The third
-became a design fix inside commit 1 rather than a commit of its own — stated because this section's own
-rule is that an owner is *a commit, or a file that exists*, and "fixed in the wire's liveness rule" is neither until
-the row says which commit carries it.
+Two of revision 6's routings were dischargeable here and became commits; the third became a design fix
+inside commit 1, stated because this section's own rule is that an owner is *a commit, or a file that
+exists*.
 
 | Routed to, revision 6 | Why that owner could not hold it | Disposition |
 |---|---|---|
@@ -1313,29 +1180,18 @@ counts as one clause or four, which is the convention-dependent class §0 remove
 runs the self-test, and fails on any `C`-number in this memo that is neither a row the self-test printed
 nor a row §8's ledger retires. A future unwritten control cannot be named the way these were.
 
-**One candidate was audited and is not a slot** — the wire's cost as the annotation count grows.
-Revisions 1–6 phrased the candidate as *"batch annotation execution by `in=`"* while stating in the same
-sentence that *"I5 × I7 forbids [it] structurally"*, so the audited item was an action the design does not
-permit and the escalation trigger §4.5 rests this verdict on prescribed it. §4.5 now carries the
-re-plan action instead, and the candidate is restated as what it actually is: *the per-annotation stage
-coming to dominate the wire's own tree-wide scan*. **Round 6 found the condition had the same defect as
-the action** — *"dominates a `mise run trip-wires` run"* named no measurement and §4.5's own argument
-forbade supplying the constant that would make it one — and **round 8's replacement had it a third
-time**: *"the wire times both"*, of a wire that times nothing and, on bash 3.2, cannot. §4.5 now states
-the trigger structurally, as the invocation shape C27 counts, so the thing this row disposes of is
-finally something a run decides. *(1) platform gap?* No, a performance property of one
-script. *(2) repeat signal?* No. *(3) existing home?* Yes, the wire's own header, where the sibling wires
-keep comparable notes. *(4) second tracking home?* Yes. → **Not a slot**: a header note with a
-re-runnable trigger, the disposition `.claude/skills/elidex-plan-review/SKILL.md:91` records for its own
-deferred parser ("deliberately NOT a `#11-*` platform slot … skill-infra not a platform gap").
-**Re-eval: 2026-11-01**, on the ground the defer policy states — a conditional trigger that may never
-fire needs a calendar fallback more than one that fires every round. ⚠ Revisions 6–8 sourced that date
-from the same precedent, "including its **re-eval date**, which that precedent supplies". It supplies
-none: the file carries exactly one ISO date, at `:75`, and it belongs to an unrelated caller count. The
-version of `:91` carrying a date exists only on the local branch `layout-decorated-inline` — the same
-branch-locality this section takes four paragraphs to establish about the *note*, applied to the
-precedent without noticing. The date stands on the policy; the borrowed authority is withdrawn.
-The verdict is unchanged; what changed is that both halves of the thing it disposes of can now be acted on.
+**One candidate was audited and is not a slot** — the wire's cost as the annotation count grows. Three
+earlier phrasings of it could not be acted on, each because it named an operand nothing evaluates
+(§4.5); it is now the invocation shape C27 counts, which a run decides. *(1) platform gap?* No, a
+performance property of one script. *(2) repeat signal?* No. *(3) existing home?* Yes, the wire's own
+header, where the sibling wires keep comparable notes. *(4) second tracking home?* Yes. → **Not a
+slot**: a header note with a re-runnable trigger, the disposition
+`.claude/skills/elidex-plan-review/SKILL.md:91` records for its own deferred parser ("deliberately NOT a
+`#11-*` platform slot … skill-infra not a platform gap"). **Re-eval: 2026-11-01**, on the ground the
+defer policy states — a conditional trigger that may never fire needs a calendar fallback more than one
+that fires every round. ⚠ Revisions 6–8 sourced that date from the same precedent, "including its
+**re-eval date**, which that precedent supplies". It supplies none: that file carries one ISO date, at
+`:75`, belonging to an unrelated caller count. The date stands on the policy.
 
 **One own deferral survives the audit.**
 
@@ -1352,62 +1208,22 @@ The verdict is unchanged; what changed is that both halves of the thing it dispo
   home?* Minting a `#11-*` slot would create one. → **Not a slot; a memory row, and this PR's own
   deferral.**
 
-**Four things revision 6 said in routing that row were wrong, and the corrections are why the row is
-this small.**
-
-*There are not two answers to one question.* Revision 6 wrote that "two decision surfaces for *the same
-question* already exist" and that "the two answers are opposite". They answer different questions. The
-docstring answers **when the two checkers collapse into one**; the note answers **where the plan-memo
-consistency checkers run**, and says nothing about collapsing anything. What is shared is a *fact*, not
-a question: the note enumerates the checkers by name and does not know a third exists. That makes S1's
-contribution an enumeration edit rather than a decision — which is why nothing here needs deciding, and
-why the row above is a registration rather than a hand-off. **Withdrawn**, in both halves.
-
-*The competing sentence was already withdrawn, on this branch, before §9 prescribed withdrawing it.*
-Revision 6 quoted the docstring as holding "collapse them when a **third** memo wants one" and
-prescribed that it "withdraws its competing sentence rather than restating it". Read at this branch's
-head, the docstring labels that disposition the old one, records that it was priced off an undercount,
-and replaces it with *collapse once both have landed*. The prescription had nothing left to prescribe.
-
-*The note was mis-described, and one description was a quotation of a sentence that is not in the
-file.* In the order the errors matter:
-
-- The phrase §9 presented in quotation marks — *"put the plan-memo consistency checkers on a loop"* —
-  **does not occur in that file**; `grep -c` for it returns 0. What the note says is *"the plan-memo
-  consistency checkers are not on any loop"*. This is the **second** fabricated quotation this program
-  has produced. The first is recorded in the stacked branch's own docstring: a sentence attributed to
-  `plan-xcheck.py` that is not in it and that says the opposite of what that file says. Two instances
-  is a class, not a slip, and the class has a shape — both quoted a *nearby* document from a
-  recollection of it rather than from it, which is §4.6's `CONTRIBUTING.md:19` misrouting and the
-  `feedback_ao-name-not-section-number-in-briefs` 追補 4 pattern in a third dress. The remedy is not a
-  rule: a quotation is the one claim form that is trivially checkable, and `grep -c` on the quoted span
-  is the check.
-- The three files it names — `scripts/trip-wires.sh`, `mise.toml`, `.github/workflows/ci.yml` — are
-  where the note says nothing **runs** the checkers. They are its evidence for the gap, not its edit
-  set. What it specifies is two parts in one PR: (a) invoke `plan-sweep.py` and `plan-xcheck.py` from
-  **Step 1.5**, or from the ungated `trip-wires` job, generalising `plan-xcheck.py`, which hard-codes
-  one memo's labels; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to CSS-module labels. Of those,
-  `preflight.py` is not an S1 file at all, and the only possible overlap with S1 is
-  `scripts/trip-wires.sh` — under the note's parenthetical alternative, not its primary form.
-- "three of S1's five edit files" is wrong in both halves — but the correction is not a different
-  numeral. §5 states no file count; six is its *commit* count, and enumerating the files those
-  commits touch gives a different answer again depending on whether the deletion, this memo and
-  another lane's memo are counted. §3.1 now carries the enumeration by name and tier, so the
-  refutation is that the note's edit set is wrong about *which* files, not about how many.
-
-*And the note's own trigger cannot be fired from here.* It reads *the first PR that ships* `plan-sweep.py`
-*and* `plan-xcheck.py` — "for the umbrella that authored them, the seam-3 prereq PR". S1 ships neither,
-and neither does the branch it is stacked on. So revision 6's rule — *whichever of the two branches
-lands first adds the third checker to that note* — did not merely lack an owner: the file it edits does
-not carry the note on either branch that would do the editing.
-
-*Where the note is, stated as a property rather than a hash.* The note is on the local branch
-`layout-decorated-inline`, and on no remote. Revision 6 pinned it to `0d4d474c`; that commit is no
-longer that branch's head, which is the fate `ef18b828` already met in this memo's own preamble — a
-hash pinning a branch still being rewritten has the same lifetime as the branch. The re-runnable forms:
+**Two facts about that note ground the row, and both are measured rather than recalled.** It is
+branch-local and unpushed —
 `git grep -c 'not on any loop' -- .claude/skills/elidex-plan-review/SKILL.md` finds nothing in this
-worktree and nothing at `origin/main`; and `git ls-remote --heads origin` for either branch prints
-nothing, which is why neither can carry a PR, a plan-memo or a ledger row.
+worktree and nothing at `origin/main`, and `git ls-remote --heads origin` prints nothing for either
+branch — which is why it cannot carry a PR, a plan-memo or a ledger row, and why the row's home is
+memory. And what S1 contributes to it is an **enumeration edit**, not a decision: the note lists the
+plan-memo consistency checkers by name and does not know a third exists. Nothing here needs deciding,
+which is why the row is a registration.
+
+⚠ Revision 6 presented a phrase from that note in quotation marks that **does not occur in the file**
+(`grep -c` returns 0). That is one of four fabricated quotations this program has produced — the others
+are a sentence attributed to `plan-xcheck.py` that says the opposite of what that file says, and two
+import lines attributed to the checker and its probe file that occur in neither (§5). Four instances is
+a class with one shape: a *nearby* document quoted from a recollection of it rather than from it. The
+remedy is not a rule — a quotation is the one claim form that is trivially checkable, and `grep -c` on
+the quoted span is the check.
 
 **One booking is registered at ship time rather than deferred.**
 `#11-claim-annotation-diff-scoped-lint` is the umbrella's slot, audited in umbrella §5 with its trigger
@@ -1427,28 +1243,13 @@ S1 → S2 → S3 order, and the home is umbrella §6's per-slice hand-off, which
 ledger → S2; the whole `CONTRIBUTING.md:19` sentence → S2 (umbrella §6, §0, §4.6); D7/D9 and Check 3,
 including §6's four-form window → S3.
 
-Revision 2's list ended that S3 item with "and the fence-tracker reconciliation", which was a defer to
-a slice that does not accept it: umbrella §6's S3 line reads *"D7's shared word lists and the
-cross-implementation control"* and names no fence work. So the routing was a claim about another
-document that the other document does not make — the same class as the rest of round 2's findings, in
-the one section whose job is to be exact about who owns what. It is withdrawn rather than re-routed,
-because there is nothing left to route: the premise that there was a reconciliation to do was §6's
-false one, and §7 Q3 is now closed by adopting (c) — there is no third tracker to reconcile.
 
-**The finding this memo makes about a landed document is now a commit, not a routing.** Round 3's point
-was that §9's job is to be exact about who owns what, and that a memo which *proves* a landed document
-false while booking zero deferrals has hidden one in prose. #504's `Lines at HEAD` table is false in
-five of ten rows (§8.2), all undercounts, all still false on `main`. Revision 6 sent them to "the
-**L4 lane**" with the measurement attached — and gave one of the five to the acceptance corpus, which
-§4.1.1 withdraws, so all five are the commit's now rather than four, and observed correctly that S1 is
-opt-in (§6) so the wire will never red on them — which is the reason the routing needed an owner and
-not a note. A lane is not a PR, a slot or a ledger row, and that lane has nothing in flight to receive
-this. Since the measurement is already taken and pasted, the correction is **§5's commit 6**: five
-numerals, replaced in place, against the base that table itself declares.
-(memory `feedback_duplicated-decision-surface-blocks-converge`.)
+**A memo that proves a landed document false while booking zero deferrals has hidden one in prose.**
+#504's `Lines at HEAD` table is false in five of ten rows (§8.2), all undercounts, all still false on
+`main`, and S1 is opt-in (§6) so the wire will never red on them — which is why the routing needed an
+owner and not a note. Since the measurement is already taken, the correction is **§5's commit 6**.
 
-**Own deferrals: 1 of the per-PR ≤3 budget.** Revision 6 reported 0, and that 0 was **zero by
-construction**: three obligations had been handed to owners that could not execute them, and a fourth
-was written into §6 with no row here at all. The audit yields 1 rather than 4 because the other three
-turned out to be executable in this PR and became commits — which is the disposition the defer policy
-prefers anyway, and the reason 1 is an honest count rather than merely a small one.
+**Own deferrals: 1 of the per-PR ≤3 budget.** An earlier count of 0 was zero by construction — three
+obligations had been handed to owners that could not execute them, and a fourth had no row here at all.
+1 is honest rather than merely small because the other three turned out to be executable in this PR and
+became commits, which is the disposition the defer policy prefers anyway.
