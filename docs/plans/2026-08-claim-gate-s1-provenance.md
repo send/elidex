@@ -432,8 +432,12 @@ shared clone is safe only under an invocation-scoped reading. That is the fifth 
 program has produced, and round 7's correction of the fourth is what produced it. It is recorded here
 because the class outlived four sweeps; the paragraph carrying it is gone with the clone.
 
-**What umbrella §3 rows 4–5 route here is not lost.** Row 5 sends "the acceptance corpus every slice
-tests against" to S1's controls. What the corpus was evidence *for* — that a figure written once goes
+**Umbrella §3 rows 4–5 are amended in the umbrella, not reinterpreted here.** Row 5 sent "the
+acceptance corpus every slice tests against" to S1's controls, and a slice may not change what a
+binding row obliges by editing its own memo — which is the same rule this memo invokes to leave
+`CONTRIBUTING.md:19` alone (§0, §4.6). Round 9's first draft withdrew the corpus and amended nothing,
+applying the rule to the cheap disposition and not to the expensive one. The amendment is now in
+umbrella §3, in the convention D2/D3/D4 already use, and what follows is why it was made. What the corpus was evidence *for* — that a figure written once goes
 false and nothing re-derives it — is now carried by things that execute rather than by constants pasted
 into a fixture: umbrella §2's two live annotations, which another lane's `658cc302` moved and which the
 wire reds on; §5's three live annotations, one per verb; and §5's commit 6, which corrects #504's five

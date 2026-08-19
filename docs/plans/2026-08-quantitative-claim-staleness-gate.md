@@ -116,8 +116,12 @@ and still leave the measurement with nothing to read — the same unfalsifiable 
 reached by a second route. The precondition is: `in=` must match ≥1 tracked path **at least one of which
 is present in the working tree**; `lines=` exactly one tracked path, present, and a **regular file** (a
 gitlink satisfies "present" and makes `awk` answer 0 with status 0). The failure modes carry distinct
-diagnostics, because one nesting inside another is one diagnostic wearing two labels. S1 §4.4 rule 3 is
-the production rule; S1 §8.1 C28, C33 and C34 control it.
+diagnostics, because one nesting inside another is one diagnostic wearing two labels. S1's wire is the
+production rule and its self-test controls both directions. (This sentence cited `S1 §4.4 rule 3` and
+`S1 §8.1 C28, C33 and C34` until round 9: S1 §4.4 and §8.1 were deleted when the specification moved
+into the wire, and one of the three controls was withdrawn a round before that. A cross-document
+citation into a slice that is still being restructured is the same staleness this program is about,
+and nothing on either side was checking it.)
 
 This is a decision change rather than an elaboration, which is why it is recorded here: D4's stated
 mechanism admits a failure class the amended text rejects, and S2 and S3 read this file, not S1's. The
@@ -286,7 +290,26 @@ being an umbrella with three slice PRs** — i.e. the tool's recommendation is t
 | `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` §3 | allowlist diffed both directions | (ii) allowlist row absent from the tree → FAIL | S2's ledger check; D8 extends it to annotations | ✓ | no |
 | `docs/plans/2026-07-terminal-z-c3a-seam-and-audit-plan.md` §4 (the audit — grep is triage, the compiler is the proof) | token-absence enumeration | grep misses what carries no token at the use site | §4's honest-bound statement | ✓ | no |
 | `docs/plans/2026-07-app-mode-turn-completion-drain.md` §5 (its own table was measured one commit early and three counts had drifted) | measurement taken against a stale head | the numeric-claim class S1 executes | S1's `count` / `files` / `lines` verbs | ✓ | no |
-| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §0.1 (v1's postmortem — the fourth instance, self-inflicted) | self-descriptive claim written unexecuted | the acceptance corpus every slice tests against | S1 controls; S3 test cases | ✓ | no |
+| `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §0.1 (v1's postmortem — the fourth instance, self-inflicted) | self-descriptive claim written unexecuted | the verdict shapes v1's three false annotations would produce (S1 controls, hermetically); S3 test cases | ✓ | no |
+
+⚠ **AMENDED by S1 round 9: rows 4–5 no longer route an *acceptance corpus*.** Both Touch cells read
+"the acceptance corpus every slice tests against" and "the numeric-claim class S1 executes", on the
+design where S1 shipped four controls replaying v1's three false annotations and one of #504's against
+a writable clone of this repository. S1 §4.1.1 withdraws that fixture and those controls, on a ground
+this table has to record because it changes what the row obliges: **falseness does not interact with
+tree scale**, so every verdict shape the replay carried is already carried hermetically, arm for arm,
+and what the replay added was provenance rather than discriminating power.
+
+What the rows oblige after the amendment is unchanged in substance and narrower in form. Row 4's
+numeric-claim class is executed by S1's three verbs, and #504's five false rows are **corrected** by
+S1's commit 6 rather than replayed as fixtures. Row 5's postmortem is covered by the hermetic controls
+for each verdict shape, plus the live annotations §2 carries here and §5 carries in S1 — which is the
+stronger form of the same evidence, because they re-execute against the real tree on every push. §2's
+own worked instance (`658cc302`, another lane, moving both of this file's annotations) is what that
+argument rests on, and it is a real firing rather than a replayed one.
+
+Recorded here rather than in the slice, per the rule this file states: a slice may not change what a
+binding row obliges by editing its own memo. The amendment is the decision change; the slice cites it.
 
 **Breadth**: preflight reports K=4 / M=5 → SPLIT-RECOMMENDED, which this umbrella's three-slice
 structure implements.
