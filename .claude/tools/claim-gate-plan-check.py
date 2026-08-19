@@ -65,7 +65,7 @@ So: collapse them once both have landed -- not on a third memo, which is a
 trigger that no longer has a measurement behind it.
 
   PAIR        §2's pairwise enumeration is exhaustive and non-redundant
-  UNIQ        §8.1's `$3` column keeps the property §8's preamble asserts
+  CONTROLS    every control the memo names exists, with the arm it names
   SECT        every §-reference resolves, in the memo it is attributed to
   CITE        every `path:LINE` is tracked, unambiguous and in range
   ANNO        every `claim` annotation in the tree is classified and re-run
@@ -281,92 +281,6 @@ def check_pairs(memo: Memo) -> None:
             bad("PAIR", f"§2 accounts for {p[0]}×{p[1]} {n} times "
                         f"(orientation-insensitive: `{p[0]}×{p[1]}` and "
                         f"`{p[1]}×{p[0]}` are one pair)")
-
-
-# --------------------------------------------------------------------------
-# 2. UNIQ -- §8.1's `$3` column keeps the property §8's preamble asserts
-# --------------------------------------------------------------------------
-
-def check_probe_substrings(memo: Memo) -> None:
-    """`$3` discrimination, scoped to the fixture.
-
-    Two controls in separate fixtures cannot mask each other -- each wire
-    invocation can only emit its own diagnostics -- so the global uniqueness
-    property revision 2 asserted was both false and the wrong requirement.
-    What matters is the fixture group, which §8.1 now carries as a column."""
-    s81 = memo.sect("8.1")
-    if not s81:
-        bad("UNIQ", "no §8.1 section found")
-        return
-    rows = [c for c in data_rows(s81) if re.match(r"^C\d+$", c[0])]
-    if not rows:
-        bad("UNIQ", "§8.1 has no parseable control rows")
-        return
-    if not all(len(c) >= 5 for c in rows):
-        bad("UNIQ", "§8.1 rows lack the Fixture column the scoped `$3` property "
-                    "is decided by")
-        return
-
-    # Which fixtures put ONE wire invocation behind each row, and which share one
-    # across rows, is decided by §8's Fixture-model table -- so it is READ from
-    # that table's own prose rather than transcribed here. `own` was hard-coded
-    # and `clone` was not, so when §4.1.1(b) fixed the clone as one invocation
-    # per row this check went on enforcing a requirement the memo had withdrawn,
-    # for a round, until a new `clone` row collided with C19's `asserted=299`.
-    # Transcribing the answer is what made that possible; deriving it cannot
-    # drift, and a fixture whose prose says neither is reported rather than
-    # guessed at.
-    per_row, shared = set(), set()
-    for c in data_rows(memo.sect("8")):
-        if len(c) < 2:
-            continue
-        name = c[0].strip("* `")
-        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
-            continue
-        prose = c[1].lower()
-        if "one wire invocation per row" in prose or "its own wire invocation" in prose:
-            per_row.add(name)
-        elif "one fixture carrying" in prose or "in one wire invocation" in prose \
-                or "one wire invocation each" in prose:
-            shared.add(name)
-
-    # Anything §8's model does not place in one of those two is UNDECIDABLE, and
-    # that includes a fixture the table never mentions -- the first draft of this
-    # only reported names it found in the table and could classify neither way,
-    # so an unlisted fixture fell through to "shared" exactly as `clone` had.
-    # Reporting the complement rather than an enumerated exemption is the fix.
-    groups: dict[str, dict[str, list[str]]] = {}
-    for c in rows:
-        fixture = c[2].strip("* `")
-        m = re.findall(r"\(`([^`]+)`", c[-1])
-        if not m:
-            continue
-        if fixture not in per_row and fixture not in shared:
-            bad("UNIQ", f"§8's Fixture model does not say whether {fixture!r} puts one "
-                        f"wire invocation behind each row or shares one across them, so "
-                        f"the `$3` scope for {c[0]} is undecidable")
-            continue
-        key = f"{fixture}:{c[0]}" if fixture in per_row else fixture
-        groups.setdefault(key, {}).setdefault(m[-1], []).append(c[0])
-
-    for key, vals in sorted(groups.items()):
-        for a in sorted(vals):
-            for b in sorted(vals):
-                if a != b and a in b:
-                    bad("UNIQ", f"in fixture {key!r}, `$3` {a!r} ({','.join(vals[a])}) "
-                                f"is inside {b!r} ({','.join(vals[b])}); the first "
-                                f"cannot tell its own arm from the second's firing")
-        for v, who in sorted(vals.items()):
-            if len(who) > 1:
-                bad("UNIQ", f"in fixture {key!r}, `$3` {v!r} is shared by "
-                            f"{','.join(who)}; neither discriminates its own arm")
-
-    stale = re.search(r"No two `\$3` values below share a substring",
-                      memo.sect("8"))
-    if stale:
-        bad("UNIQ", "§8 still asserts the global `$3` uniqueness property, which "
-                    "is the wrong requirement (separate fixtures cannot mask each "
-                    "other) and was false where it stood")
 
 
 # --------------------------------------------------------------------------
@@ -1142,32 +1056,119 @@ def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
 
 
 # --------------------------------------------------------------------------
-# 13. FIXTURE -- §8.1's Fixture value must be derivable from the row itself
+# 13. CONTROLS -- every control the memo NAMES must exist, with the arm named
 #
-# Round 3 found C10/C11 claiming a hermetic fixture while measuring the real
-# tree. Revision 4 closed it by DEFINING the column and did not re-derive the
-# assignments, so round 4 found the same rows as a provable contradiction. A
-# label a reader must trust is not a specification; a label the row implies is.
+# This replaces FIXTURE, which derived §8.1's Fixture column from the row's own
+# pathspec. §8.1 is gone -- the control table is `claim-provenance-selftest.sh`
+# now -- and a check gated on a section that no longer exists is not dormant,
+# it is a `ban_control` that reports coverage. What it was really defending is
+# the same thing this defends one level up: that a control named in the memo is
+# a control that exists.
+#
+# Round 8 restructured the specification out of the memo and into the wire and
+# its self-test, and nothing was left holding the two together. What the memo
+# went on saying: "§8 C0 keeps a control for it" (there is no C0, and it was
+# not on the unwritten list either); "C10's positive" and "C11's positive", as
+# the evidence for the clone-fixture decision (both rows are negative-only);
+# "the entire 55-control self-test", in the shipped wire's own header, at 57.
+# Rounds of prose review read past all of them, because a control citation
+# reads exactly like coverage whether or not the control is there.
+#
+# The population is every `C<number>` token in the memo -- defined by the
+# property being checked, not by the vocabulary a live citation happens to use.
+# Historical mentions are real and must stay writable ("C34 is withdrawn",
+# "C26 was deleted"), so the escape hatch is a POSITIVE declaration rather than
+# a pattern exempting whatever phrasing today's retirements happen to have:
+# §8's retirement ledger names them in a table, and this reads that table. An
+# entry there that turns out to BE implemented fails too -- otherwise the
+# ledger becomes a place to park a citation rather than a record of one.
+# (memory `feedback_enumerated-exemptions-leave-the-next-class-authoritative`.)
 # --------------------------------------------------------------------------
 
-LIVE_PREFIX = re.compile(r'in="(crates/|scripts/|\.claude/|\.github/|docs/plans/)')
+SELFTEST_FILE = REPO / ".claude" / "tools" / "claim-provenance-selftest.sh"
+# A label as the self-test spells it: `st_probe fail "C18 (b)  ..."`, or the
+# direct `pass_ "C27  ..."`. The arm word is optional: some clauses have no
+# passing direction, which is itself a claim §8 makes.
+CONTROL_LABEL = re.compile(
+    r"""(?:st_probe\s+(?:pass|fail)\s+|pass_\s+|fail_\s+)"""
+    r"""["'](?P<id>C\d+)\b[^"']*?(?:\b(?P<arm>positive|negative)\b)?[^"']*["']""")
+# In the memo: `C10`, `C10's positive`, `C18's negative arm`, `C19`–`C22`.
+MEMO_CONTROL = re.compile(r"`?\b(?P<id>C\d+)`?(?:'s)?\s*(?P<arm>positive|negative)?")
+CONTROL_RANGE = re.compile(r"`?\b(C\d+)`?\s*[–—-]\s*`?(C\d+)`?")
+COUNT_OF_CONTROLS = re.compile(r"\b(\d+)[- ]controls?\b")
 
 
-def check_fixture_column(memo: Memo) -> None:
-    for c in data_rows(memo.sect("8.1")):
-        if not re.match(r"^C\d+$", c[0]) or len(c) < 5:
+def implemented_controls() -> dict[str, set[str]]:
+    """id -> the arms the self-test actually ships for it."""
+    out: dict[str, set[str]] = {}
+    if not SELFTEST_FILE.exists():
+        return out
+    for m in CONTROL_LABEL.finditer(SELFTEST_FILE.read_text()):
+        out.setdefault(m.group("id"), set())
+        if m.group("arm"):
+            out[m.group("id")].add(m.group("arm"))
+    return out
+
+
+def retired_controls(memo: Memo) -> dict[str, str]:
+    """id -> the reason §8's retirement ledger gives. First cell is the id."""
+    out: dict[str, str] = {}
+    for c in data_rows(memo.sect("8")):
+        if len(c) >= 2 and re.fullmatch(r"`?C\d+`?", c[0].strip()):
+            out[c[0].strip().strip("`")] = c[1]
+    return out
+
+
+def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
+                   sources: list[Path] | None = None) -> None:
+    have = implemented_controls() if have is None else have
+    if not have:
+        skip("CONTROLS", f"{SELFTEST_FILE.name} is not in this tree, so no control "
+                         f"citation in the memo was resolved against anything")
+        return
+    retired = retired_controls(memo)
+
+    for cid, why in sorted(retired.items(), key=lambda kv: int(kv[0][1:])):
+        if cid in have:
+            bad("CONTROLS", f"§8's retirement ledger lists {cid} ({why.strip()[:60]}…) "
+                            f"but the self-test ships it — a ledger row records a "
+                            f"control that is gone, it does not licence naming one")
+
+    cited: dict[str, set[str]] = {}
+    # Ranges first: `C19`–`C22` names four controls, not two.
+    for m in CONTROL_RANGE.finditer(memo.text):
+        lo, hi = int(m.group(1)[1:]), int(m.group(2)[1:])
+        if 0 <= hi - lo < 40:
+            for n in range(lo, hi + 1):
+                cited.setdefault(f"C{n}", set())
+    for m in MEMO_CONTROL.finditer(memo.text):
+        cited.setdefault(m.group("id"), set())
+        if m.group("arm"):
+            cited[m.group("id")].add(m.group("arm"))
+
+    for cid, arms in sorted(cited.items(), key=lambda kv: int(kv[0][1:])):
+        if cid in retired:
             continue
-        fixture, row = c[2].strip("* `"), " | ".join(c)
-        m = LIVE_PREFIX.search(row)
-        if m and fixture == "own":
-            bad("FIXTURE", f"§8.1 {c[0]} is Fixture `own` (its own `mktemp -d`) but "
-                           f"measures `{m.group(1)}…`, which exists only in this "
-                           f"repository — in a fresh `mktemp -d` the liveness probe "
-                           f"fires first and the arm asserts a diagnostic it cannot "
-                           f"see; the real-tree fixture is `clone` (§4.1.1)")
-        if not m and fixture == "clone":
-            bad("FIXTURE", f"§8.1 {c[0]} is Fixture `clone` but names no real-tree "
-                           f"pathspec, so nothing distinguishes it from a hermetic row")
+        if cid not in have:
+            bad("CONTROLS", f"the memo names {cid} as a live control; "
+                            f"{SELFTEST_FILE.name} has no such row, and §8's "
+                            f"retirement ledger does not list it either")
+            continue
+        for arm in sorted(arms - have[cid]):
+            bad("CONTROLS", f"the memo cites {cid}'s {arm} arm; {SELFTEST_FILE.name} "
+                            f"ships {cid} with " +
+                            (f"only its {'/'.join(sorted(have[cid]))} arm"
+                             if have[cid] else "no arm named either way"))
+
+    # A count of controls is a quantity about this program's own tooling, which
+    # §8 forbids in its own voice and the wire's header then carried anyway.
+    for path in (sources if sources is not None else [memo.path, SELFTEST_FILE, WIRE]):
+        if not path.exists():
+            continue
+        for m in COUNT_OF_CONTROLS.finditer(path.read_text()):
+            bad("CONTROLS", f"{path.name} states `{m.group(0)}` — that count moves "
+                            f"with the next control; state the property and let "
+                            f"`bash {SELFTEST_FILE.name} | tail -1` report the number")
 
 
 # --------------------------------------------------------------------------
@@ -1280,15 +1281,16 @@ def main(argv: list[str]) -> int:
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 
     check_pairs(memo)
-    # UNIQ and FIXTURE policed §8.1's control table. That table is now
+    # UNIQ, PROBE and FIXTURE policed §8.1's control table. That table is now
     # `claim-provenance-selftest.sh`, and the property they enforced -- a
     # negative arm's diagnostic substring must discriminate its own failure
     # within its invocation -- is enforced there by construction: st_probe
     # rejects a run that failed for the wrong reason. Two homes for one rule was
-    # the shape this program exists to collapse, so the prose-side pair retires
-    # with the prose. They stay callable for a memo that still carries a table.
-    if memo.sect("8.1"):
-        check_probe_substrings(memo)
+    # the shape this program exists to collapse, so the prose-side set retired
+    # with the prose. They are DELETED rather than kept callable against a
+    # section no memo has: a check gated on an absent heading never fires and
+    # never reports, which is the coverage-shaped silence `skip()` exists to
+    # prevent. CONTROLS is what replaces them, one level up.
     check_section_refs(memo, umbrella)
     check_citations(memo)
     if umbrella:
@@ -1301,8 +1303,7 @@ def main(argv: list[str]) -> int:
     check_sites(memo)
     check_tooling_quantities(memo)
     check_umbrella(memo, umbrella)
-    if memo.sect("8.1"):
-        check_fixture_column(memo)
+    check_controls(memo)
     check_preflight(memo)
 
     for line in summary("wire" if WIRE.exists() else "bootstrap"):

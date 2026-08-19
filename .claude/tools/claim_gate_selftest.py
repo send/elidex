@@ -44,22 +44,6 @@ SYNTH_PAIRS = "\n".join(
     + [f"| I{a} × I{b} | intersection |" for a, b in itertools.combinations(range(1, 5), 2)]
 )
 
-SYNTH_UNIQ = """## §8 Test strategy
-**`$3` a substring the diagnostic must contain.**
-
-| Fixture | Means |
-|---|---|
-| `own` | its own `mktemp -d` and its own wire invocation, torn down after. |
-| `live` | one fixture carrying every row's annotations, so their diagnostics must discriminate. |
-
-### §8.1 Controls
-
-| # | clause | Fixture | Positive | Negative |
-|---|---|---|---|---|
-| C1 | a | live | p | n (`alpha`) |
-| C2 | b | live | p | n (`bravo`) |
-"""
-
 
 def capture(fn, *a) -> list[str]:
     saved, host.FAILS = host.FAILS, []
@@ -156,7 +140,6 @@ def selftest() -> int:
     # The checks fired below, and the primitives they need, stay in the entry
     # point; bound to locals here so each proof reads as the call it is.
     check_pairs = host.check_pairs
-    check_probe_substrings = host.check_probe_substrings
     check_section_refs = host.check_section_refs
     check_citations = host.check_citations
     check_fence = host.check_fence
@@ -164,7 +147,6 @@ def selftest() -> int:
     check_sites = host.check_sites
     check_tooling_quantities = host.check_tooling_quantities
     check_umbrella = host.check_umbrella
-    check_fixture_column = host.check_fixture_column
     check_preflight = host.check_preflight
     fence_verdict = host.fence_verdict
     needs_state = host.needs_state
@@ -198,35 +180,6 @@ def selftest() -> int:
               + "\n\nThe remaining one pair is independent, for a stated reason:\n"
                 "**I2×I4** (they act on disjoint stages).\n")))
 
-    # UNIQ
-    probe("UNIQ positive (disjoint `$3` in one fixture)", False,
-          capture(check_probe_substrings, synth(SYNTH_UNIQ)))
-    probe("UNIQ negative (one `$3` inside another, same fixture)", True,
-          capture(check_probe_substrings, synth(SYNTH_UNIQ.replace("`bravo`", "`alphabet`"))),
-          "is inside")
-    probe("UNIQ negative (two controls share a `$3`, same fixture)", True,
-          capture(check_probe_substrings, synth(SYNTH_UNIQ.replace("`bravo`", "`alpha`"))),
-          "shared by")
-    # the whole point of scoping: the identical collision across fixtures is fine
-    probe("UNIQ positive (same `$3`, separate `own` fixtures)", False,
-          capture(check_probe_substrings, synth(
-              SYNTH_UNIQ.replace("`bravo`", "`alpha`").replace("| live |", "| own |"))))
-    probe("UNIQ negative (the withdrawn global property restated)", True,
-          capture(check_probe_substrings, synth(
-              SYNTH_UNIQ.replace("must contain.**",
-                                 "must contain.** No two `$3` values below share a substring."))),
-          "wrong requirement")
-    # §8's Fixture model is READ, not transcribed -- so a fixture the model does
-    # not describe must be reported rather than assumed into either scope. The
-    # transcribed form silently assumed "shared" for `clone` for a whole round
-    # after §4.1.1(b) made it per-row.
-    probe("UNIQ negative (a fixture §8's model does not describe)", True,
-          capture(check_probe_substrings, synth(
-              SYNTH_UNIQ.replace("| live |", "| ghost |"))),
-          "does not say whether")
-    probe("UNIQ positive (a per-row fixture reused by two rows does not collide)", False,
-          capture(check_probe_substrings, synth(
-              SYNTH_UNIQ.replace("`bravo`", "`alpha`").replace("| live |", "| own |"))))
     # This tool EXECUTES what RUNNABLE admits, and it admits by program name.
     # Every shape below was found by a review that attacked the classifier; each
     # is a reader-NAMED program writing. Both directions, so a later relaxation
@@ -278,11 +231,6 @@ def selftest() -> int:
         probe(f"BINDING registry NOT CHECKED here: {len(host.BINDING)} entries have "
               f"no umbrella in this worktree", False, [])
 
-    probe("UNIQ negative (no Fixture column)", True,
-          capture(check_probe_substrings, synth(
-              SYNTH_UNIQ.replace("| Fixture ", "").replace("| live ", "")
-              .replace("|---|---|---|---|---|", "|---|---|---|---|"))),
-          "lack the Fixture column")
 
     # SECT
     probe("SECT positive (a defined section)", False,
@@ -578,22 +526,52 @@ def selftest() -> int:
     probe("UMBRELLA positive (D4: the umbrella carries the round-6 amendment)", False,
           capture(check_umbrella, d4_withdraws, d4_amended))
 
-    FIX = ("## §8.1 Controls\n\n| # | clause | Fixture | Positive | Negative |\n"
-           "|---|---|---|---|---|\n")
-    probe("FIXTURE positive (a hermetic row with a fixture-local pathspec)", False,
-          capture(check_fixture_column,
-                  synth(FIX + '| C1 | a | own | `in="a.md"` | wrong count (`asserted=`) |\n')))
-    probe("FIXTURE negative (`own` row measuring the real tree)", True,
-          capture(check_fixture_column,
-                  synth(FIX + '| C1 | a | own | `in="crates/**/*.rs"` | x (`asserted=`) |\n')),
-          "exists only in this repository")
-    probe("FIXTURE positive (a `clone` row measuring the real tree)", False,
-          capture(check_fixture_column,
-                  synth(FIX + '| C1 | a | clone | `in="crates/**/*.rs"` | x (`asserted=`) |\n')))
-    probe("FIXTURE negative (`clone` row naming no real-tree pathspec)", True,
-          capture(check_fixture_column,
-                  synth(FIX + '| C1 | a | clone | `in="a.md"` | x (`asserted=`) |\n')),
-          "names no real-tree pathspec")
+
+    # CONTROLS. The `have` map and the files scanned for a control COUNT are
+    # both injected, so these probes decide the check's logic rather than the
+    # tree's current control set -- which is the thing the check is for.
+    check_controls = host.check_controls
+    HAVE = {"C1": {"positive", "negative"}, "C2": {"negative"}, "C3": set()}
+    LEDGER = ("## §8 Test strategy\n\n| Retired | Why |\n|---|---|\n"
+              "| `C9` | withdrawn: no probe shape observes it |\n")
+    probe("CONTROLS positive (every cited control exists, with the arm cited)", False,
+          capture(check_controls, synth(LEDGER + "\nC1's positive and C2 both hold.\n"),
+                  HAVE, []))
+    probe("CONTROLS negative (a control the self-test does not ship)", True,
+          capture(check_controls, synth(LEDGER + "\n§8 C0 keeps a control for it.\n"),
+                  HAVE, []),
+          "no such row")
+    probe("CONTROLS negative (an arm the self-test does not ship)", True,
+          capture(check_controls, synth(LEDGER + "\nC2's positive proves it.\n"), HAVE, []),
+          "only its negative arm")
+    probe("CONTROLS negative (a control with no arm named either way)", True,
+          capture(check_controls, synth(LEDGER + "\nC3's negative proves it.\n"), HAVE, []),
+          "no arm named either way")
+    # A range names every control between its ends, which is how `C19`-`C22`
+    # read as two citations while four controls went unwritten.
+    probe("CONTROLS negative (a range names the controls between its ends)", True,
+          capture(check_controls, synth(LEDGER + "\n`C1`–`C4` re-execute the corpus.\n"),
+                  HAVE, []),
+          "C4")
+    probe("CONTROLS positive (a retired control may be named)", False,
+          capture(check_controls, synth(LEDGER + "\nC9 is withdrawn (§8).\n"), HAVE, []))
+    probe("CONTROLS negative (the ledger retires a control that is shipped)", True,
+          capture(check_controls, synth(
+              LEDGER.replace("`C9`", "`C1`") + "\nC1 is withdrawn.\n"), HAVE, []),
+          "the self-test ships it")
+    _cnt = Path(tempfile.mkdtemp()) / "counted.sh"
+    _cnt.write_text("# turns the entire 55-control self-test into a no-op\n")
+    probe("CONTROLS negative (a control count in a shipped file)", True,
+          capture(check_controls, synth(LEDGER), HAVE, [_cnt]),
+          "55-control")
+    _cnt.write_text("# turns the whole self-test into a no-op\n")
+    probe("CONTROLS positive (the same sentence stating the property instead)", False,
+          capture(check_controls, synth(LEDGER), HAVE, [_cnt]))
+    probe("CONTROLS reports rather than passing when the self-test is absent", False,
+          capture(check_controls, synth(LEDGER), {}, []))
+    probe("  …and it says so through skip()", True,
+          capture_skipped(check_controls, synth(LEDGER), {}, []),
+          "not in this tree")
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
