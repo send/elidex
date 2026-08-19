@@ -69,7 +69,6 @@ trigger that no longer has a measurement behind it.
   SECT        every §-reference resolves, in the memo it is attributed to
   CITE        every `path:LINE` is tracked, unambiguous and in range
   ANNO        every `claim` annotation in the tree is classified and re-run
-  PASTE       §8.2's pasted tier counts and verdicts are re-derived
   FENCE       the "A differs from B" claim, decided by running A and B
   TRANSCRIPT  every pasted command is re-run and its pasted answer checked
   SITES       (report) lines describing the wire SET, for conscious disposal
@@ -81,10 +80,10 @@ the closing line carries that count beside the finding count. The precedent is
 `report_transcripts`: a count, the entries, and a reason on each. It exists
 because `0 finding(s)` got printed by a run in which PASTE never executed.
 
-ANNO's grammar -- §4.2's tiers and §4.4's verbs, transcribed a second time
-because the wire does not own them yet -- is `claim_gate_grammar.py`, in a file
-of its own because the memo bounds that transcription and a file is a bound that
-can be deleted whole. The firing proof for every check above is
+ANNO does not carry a grammar. It runs the wire, which owns the tiers and the
+verbs outright; the second transcription that used to live here as
+`claim_gate_grammar.py` was deleted with the module, which is what "a file is a
+bound that can be deleted whole" was for. The firing proof for every check above is
 `claim_gate_selftest.py`. Both are companions of this one rather than libraries;
 the binding block below says how they reach back into it.
 
@@ -108,10 +107,8 @@ sys.path.insert(0, str(SKILL))  # preflight.py imports grep_pass as a sibling
 # --------------------------------------------------------------------------
 # the two companions
 #
-# `claim_gate_grammar` is §4.2's tiers and §4.4's verbs transcribed a second
-# time, which this file is bound to carry until the wire exists;
-# `claim_gate_selftest` is the firing proof for every check below. Neither is a
-# library: both call back into this file, for `bad`, `sh`, `nr`, `REPO` and the
+# `claim_gate_selftest` is the firing proof for every check below. It is not a
+# library: it calls back into this file, for `bad`, `sh`, `nr`, `REPO` and the
 # checks themselves. This file's own name has hyphens and cannot be imported,
 # so the dependency is handed over from here -- each companion gets `host`,
 # this module -- rather than imported over there.
@@ -133,11 +130,11 @@ claim_gate_selftest.host = sys.modules[__name__]
 FAILS: list[str] = []
 
 # Non-coverage is REPORTED, never taken silently. `check_annotations` returned
-# `{}` the moment the wire file merely existed and `check_pasted_transcripts`
+# `{}` the moment the wire file merely existed and the paste check
 # opened with `if not live: return`, so S1's own first commit -- the one that
 # creates the wire -- would have retired the PASTE check with no finding, no
 # notice, and a run that still printed `0 finding(s)`. A check that did not run
-# is indistinguishable from a check that found nothing, which is §4.3's
+# is indistinguishable from a check that found nothing, which is the memo's
 # `ban_control` one level up: it reports a clean tree in exactly the way an
 # unexecuted claim reports a true one. So every early return that produces no
 # verdict says so through `skip()`, and the summary line carries the count.
@@ -313,7 +310,7 @@ CITE_RE = re.compile(r"`([\w./-]+\.(?:sh|py|rs|toml|yml|md)):(\d+)(?:-(\d+))?`")
 
 
 def nr(path: Path) -> int:
-    """`awk 'END{print NR}'` semantics -- the count §4.4 specifies, and the one
+    """`awk 'END{print NR}'` semantics -- the count the wire's `lines` verb uses, and the one
     that differs from `len(text.split('\\n'))` by exactly 1 on every file that
     ends with a newline. Getting this wrong makes every `lines=` verdict off by
     one in the direction that reads as staleness."""
@@ -361,7 +358,7 @@ def check_citations(memo: Memo) -> None:
 # --------------------------------------------------------------------------
 # 5/6. ANNO + PASTE -- classify and EXECUTE every claim annotation in the tree
 #
-# The grammar these two run is `claim_gate_grammar`: §4.2/§4.4 transcribed from
+# The grammar these two run is the wire's own, not a copy: §4.2 transcribed from
 # the memo's literal text, so that the memo's own live annotations are
 # re-executed now, while the wire that will own this does not yet exist.
 #
@@ -374,7 +371,7 @@ def check_citations(memo: Memo) -> None:
 # same run. Retirement is a task somebody has to do -- delete this module and
 # prove by a control that its grammar is unreachable -- not a property the
 # `WIRE.exists()` branch confers. §6 of the memo carries it as a bound, and
-# `check_tier_transcription` is what keeps the two copies agreeing until then.
+# There is no second copy left to keep in agreement.
 # --------------------------------------------------------------------------
 
 WIRE = REPO / ".claude" / "tools" / "claim-provenance-trip-wire.sh"
@@ -389,8 +386,16 @@ def check_annotations() -> dict | None:
     None is not a falsy payload but the ABSENCE of one, which PASTE now has to
     dispose of out loud."""
     if not WIRE.exists():
-        bad("ANNO", f"the wire is gone: {WIRE} does not exist, and this checker no "
-                    f"longer carries a second implementation to fall back on")
+        # A missing wire is not a memo defect, and this file lands one PR BEFORE
+        # the wire does. Round 9 measured what `bad()` here costs: cloned at this
+        # branch, the checker exits 1 on every memo -- so the prerequisite PR
+        # would put a tool on `main` that fails for a reason no memo can fix,
+        # until S1 lands. The honest verdict is that the check did not run, which
+        # is the whole point of `skip()`; making it a finding is the mirror error
+        # of taking non-coverage silently, and it is the louder of the two.
+        skip("ANNO", f"{WIRE.name} is not in this tree, so no `claim` annotation "
+                     f"was re-executed — this checker carries no second "
+                     f"implementation to fall back on, by design")
         return None
     rc, out = sh(["bash", str(WIRE)])  # noqa
     if rc != 0:
@@ -670,8 +675,8 @@ QUOTE = re.compile(r"^[ \t]*>[ \t]?")
 # different subject from an annotation's tier. §4.2 has one inertness rule -- `k`
 # backticks before the `<!--`, identical on all four surfaces. The fence arm this
 # checker used to carry, with its per-surface table and its `.rs` rustdoc strip,
-# is the rule §7 Q3 option (c) deleted; check_tier_transcription is what now
-# keeps `claim_gate_grammar`'s copy of §4.2 and the memo's copy from drifting
+# is the rule §7 Q3 option (c) deleted; the wire is the single site now, so
+# there is no second copy of §4.2 for the memo's copy to drift from
 # apart again.
 FENCE_MARK = re.compile(r"^[ \t]*(```|~~~)")
 
@@ -751,7 +756,7 @@ def check_transcripts(memo: Memo) -> list[str]:
             ln = start + 1 + i
             # A `$ ` prompt and an ` → ` answer can appear on the SAME line, and
             # the first cut let the `$ `-form branch swallow the arrow into the
-            # command string -- silently dropping §4.4's five execution-rule
+            # command string -- silently dropping the wire's five execution-rule
             # transcripts, the evidence for I3/I5 and D4/D6. Strip the prompt
             # first, then decide the form.
             line = body[i].strip()
@@ -1070,7 +1075,7 @@ def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
 # went on saying: "§8 C0 keeps a control for it" (there is no C0, and it was
 # not on the unwritten list either); "C10's positive" and "C11's positive", as
 # the evidence for the clone-fixture decision (both rows are negative-only);
-# "the entire 55-control self-test", in the shipped wire's own header, at 57.
+# and a stale control count in the shipped wire's own header.
 # Rounds of prose review read past all of them, because a control citation
 # reads exactly like coverage whether or not the control is there.
 #
@@ -1082,6 +1087,17 @@ def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
 # §8's retirement ledger names them in a table, and this reads that table. An
 # entry there that turns out to BE implemented fails too -- otherwise the
 # ledger becomes a place to park a citation rather than a record of one.
+#
+# Round 9 shipped that hatch too wide. `if cid in retired: continue` licensed
+# the id ANYWHERE, in any role, so a retired control could go on being cited as
+# live support -- and two were: §8.2 kept "the acceptance corpus takes one of
+# the five" in the present tense, and §4.1.1 then cited that paragraph as its
+# authority for withdrawing the corpus. The ledger licenses a MENTION, at the
+# one site that records the retirement; it does not license a USE. So a retired
+# id may appear inside §8's ledger rows and nowhere else, and prose elsewhere
+# says what happened without the number. That is decidable by POSITION rather
+# than by reading intent out of a sentence's vocabulary, which is the whole
+# reason this check exists.
 # (memory `feedback_enumerated-exemptions-leave-the-next-class-authoritative`.)
 # --------------------------------------------------------------------------
 
@@ -1100,6 +1116,13 @@ CONTROL_RANGE = re.compile(r"`?\b(C\d+)`?\s*[–—-]\s*`?(C\d+)`?")
 # preceded by a section sign -- the first draft of this pattern reported §9's
 # "no §8 control" as a stale tally.
 COUNT_OF_CONTROLS = re.compile(r"(?<!§)\b(\d+)[- ]controls?\b")
+# Every file this program ships that can make a claim about itself, which
+# includes THIS one and its probe file. Round 9 shipped the rule with a
+# source list of [memo, wire, shell self-test]: the checker enforced against
+# three files a rule it was breaking in the fourth. A rule whose population
+# excludes its own author is the enumerated-exemption shape, one level in.
+DEFAULT_COUNT_SOURCES = [WIRE, SELFTEST_FILE, Path(__file__).resolve(),
+                         Path(__file__).resolve().parent / "claim_gate_selftest.py"]
 # The self-test's closing line, printed only after every control has run.
 COMPLETED = re.compile(r"^claim-provenance self-test: \d+/\d+ controls ok$", re.M)
 
@@ -1137,13 +1160,24 @@ def implemented_controls() -> dict[str, set[str]]:
     return out
 
 
-def retired_controls(memo: Memo) -> dict[str, str]:
-    """id -> the reason §8's retirement ledger gives. First cell is the id."""
+def retired_controls(memo: Memo) -> tuple[dict[str, str], list[tuple[int, int]]]:
+    """(id -> the ledger's reason, and the char spans the ledger rows occupy).
+
+    The spans are what holds the hatch to a mention: an id can carry a ledger
+    row and still be cited as live one section away, which is what happened."""
     out: dict[str, str] = {}
-    for c in data_rows(memo.sect("8")):
-        if len(c) >= 2 and re.fullmatch(r"`?C\d+`?", c[0].strip()):
-            out[c[0].strip().strip("`")] = c[1]
-    return out
+    spans: list[tuple[int, int]] = []
+    sect8 = memo.sect("8")
+    base = memo.text.find(sect8) if sect8 else 0
+    for line in sect8.split("\n"):
+        c = split_row(line)
+        if not c or len(c) < 2 or not re.fullmatch(r"`?C\d+`?", c[0].strip()):
+            continue
+        out[c[0].strip().strip("`")] = c[1]
+        at = memo.text.find(line, base)
+        if at >= 0:
+            spans.append((at, at + len(line)))
+    return out, spans
 
 
 def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
@@ -1155,7 +1189,7 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
                          f"way no control citation in the memo was resolved against "
                          f"anything")
         return
-    retired = retired_controls(memo)
+    retired, ledger_spans = retired_controls(memo)
 
     for cid, why in sorted(retired.items(), key=lambda kv: int(kv[0][1:])):
         if cid in have:
@@ -1170,13 +1204,22 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
         if 0 <= hi - lo < 40:
             for n in range(lo, hi + 1):
                 cited.setdefault(f"C{n}", set())
+    outside: dict[str, list[int]] = {}
     for m in MEMO_CONTROL.finditer(memo.text):
         cited.setdefault(m.group("id"), set())
         if m.group("arm"):
             cited[m.group("id")].add(m.group("arm"))
+        if not any(a <= m.start() < b for a, b in ledger_spans):
+            outside.setdefault(m.group("id"), []).append(m.start())
 
     for cid, arms in sorted(cited.items(), key=lambda kv: int(kv[0][1:])):
         if cid in retired:
+            for at in outside.get(cid, []):
+                ln = memo.text.count("\n", 0, at) + 1
+                bad("CONTROLS", f"{memo.path.name}:{ln} names {cid}, which §8's "
+                                f"ledger retires — the ledger licenses the row "
+                                f"that records the retirement, not a citation "
+                                f"elsewhere; say what happened without the number")
             continue
         if cid not in have:
             bad("CONTROLS", f"the memo names {cid} as a live control; "
@@ -1191,7 +1234,7 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
 
     # A count of controls is a quantity about this program's own tooling, which
     # §8 forbids in its own voice and the wire's header then carried anyway.
-    for path in (sources if sources is not None else [memo.path, SELFTEST_FILE, WIRE]):
+    for path in (sources if sources is not None else DEFAULT_COUNT_SOURCES + [memo.path]):
         if not path.exists():
             continue
         for m in COUNT_OF_CONTROLS.finditer(path.read_text()):
@@ -1201,60 +1244,20 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
 
 
 # --------------------------------------------------------------------------
-# 14. TIERS -- this file's copy of §4.2 must agree with §4.2
+# 14. TIERS -- RETIRED, and deleted rather than left as data.
 #
-# §0 and §6 record a bound: this checker "carries a second transcription of
-# §4.2's tiers and §4.4's verbs" until the wire lands. Nothing held the two
-# copies together, and they came apart. Revision 4 adopted §7 Q3 option (c) and
-# deleted the fence arm from §4.2; revision 5 amended the umbrella to match;
-# `classify()` went on classifying a fenced annotation as `mention`, and a
-# --self-test probe ASSERTED that it should -- so the gate certified the rule
-# the memo had deleted. Meanwhile BINDING's D2 entry, in this same file, already
-# keyed on "there is no fence arm" as proof the slice had withdrawn it. Two
-# parts of one checker holding opposite beliefs, green, because the tree carries
-# no fenced annotation for either to be wrong about.
+# It read §3's Branch column and decided each branch by classifying a specimen
+# through this file's second copy of the tier rules -- the copy that no longer
+# exists. It cannot be re-pointed at the wire: the wire acquires annotations by
+# scanning a tree and has no per-string entry point, so a specimen has nowhere
+# to go. What it enforced now lives where it executes: the self-test carries a
+# both-directions control per surface and per tier.
 #
-# A sweep would have caught it, and four revisions of sweeping is what produced
-# it. So the bound gets a check rather than a fifth sweep. §3's coverage table
-# enumerates the classifier's branches and names each one's tier in its own
-# prose; every such branch must have a specimen here, and the specimen's tier --
-# decided by running classify() -- must be the tier §3 names. A branch added
-# without a specimen fails; a tier changed on one side alone fails.
+# Round 9's first pass retired the check and left `BRANCH_ID`, `TIER_WORD` and
+# `TIER_SPECIMEN` defined and unreferenced -- a retired mechanism's data still
+# reading as live specification, which is the same shape as the memo citing a
+# control that is gone. `dead code は接続するか削除`.
 # --------------------------------------------------------------------------
-
-BRANCH_ID = re.compile(r"^\s*\((?P<id>[ivx]+)\)")
-# A branch's tier is what it says a line lands IN, so only the text from the
-# first `→` onward is read -- not the condition before it. The first draft of
-# this check matched the whole cell and read row (iv), "lax-but-not-strict →
-# MALFORMED", as naming both tiers. Everything after the first arrow is kept
-# rather than only the last clause, so a row that really does name two tiers
-# still trips the ambiguity arm below instead of being silently halved.
-TIER_WORD = re.compile(r"\b(mention|strict|MALFORMED)\b")
-
-# One specimen per classifier branch of §3, spelled as the lines a file would
-# contain. Exactly one line of each is a candidate; that line's tier is what §3
-# has to name. The fenced specimen is the one that drifted, so it stays even
-# though §4.2 no longer has an arm for it -- "a fence does nothing" is the rule
-# now, and a rule with no probe is what §2's I4xI6 row calls a `ban_control`
-# (the name comes from `layout-box-reader-trip-wire.sh:276-299`; §4.3 is the
-# pattern-body lint and never mentions it -- the memo carried the same
-# mis-citation at two sites and it was corrected there in the same round).
-TIER_SPECIMEN: dict[str, list[str]] = {
-    "i": ['`<!-- claim count=1 pattern="x" in="a.md" -->`'],
-    "ii": ["```", '<!-- claim count=1 pattern="x" in="a.md" -->', "```"],
-    "iv": ['<!-- claim cont=3 pattern="x" in="a.md" -->'],
-    "vi": [r'<!-- claim count=1 pattern="\d" in="a.md" -->'],
-}
-
-
-# TIERS is retired with `claim_gate_grammar.py`. It read §3's Branch column and
-# decided each branch by classifying a specimen through this file's second copy
-# of the tier rules -- the copy §5's commit 5 exists to delete. It cannot be
-# re-pointed at the wire: the wire acquires annotations by scanning a tree and
-# has no per-string entry point (§4.1.1 withdrew `--one` for that reason), so a
-# specimen has nowhere to go. What it enforced now lives where it executes: the
-# self-test carries a both-directions control per surface and per tier.
-
 
 
 def check_preflight(memo: Memo) -> None:
@@ -1310,7 +1313,11 @@ def main(argv: list[str]) -> int:
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 
     check_pairs(memo)
-    # UNIQ, PROBE and FIXTURE policed §8.1's control table. That table is now
+    # UNIQ and FIXTURE policed §8.1's control table. (Round 9's first draft of
+    # this comment said "UNIQ, PROBE and FIXTURE". There has never been a
+    # PROBE check in this tree -- `git log -S'PROBE'` matches only the commit
+    # that added the word. A retirement list with an invented member reads as
+    # coverage history and inflates what the collapse retired.) That table is now
     # `claim-provenance-selftest.sh`, and the property they enforced -- a
     # negative arm's diagnostic substring must discriminate its own failure
     # within its invocation -- is enforced there by construction: st_probe
