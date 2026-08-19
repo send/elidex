@@ -1086,27 +1086,44 @@ def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
 # --------------------------------------------------------------------------
 
 SELFTEST_FILE = REPO / ".claude" / "tools" / "claim-provenance-selftest.sh"
-# A label as the self-test spells it: `st_probe fail "C18 (b)  ..."`, or the
-# direct `pass_ "C27  ..."`. The arm word is optional: some clauses have no
-# passing direction, which is itself a claim §8 makes.
-CONTROL_LABEL = re.compile(
-    r"""(?:st_probe\s+(?:pass|fail)\s+|pass_\s+|fail_\s+)"""
-    r"""["'](?P<id>C\d+)\b[^"']*?(?:\b(?P<arm>positive|negative)\b)?[^"']*["']""")
+# One line of the self-test's own output: `  ok    C14 positive  count = ...`
+# or `  FAIL  C18 (b)  the stub ran ...`. Both statuses are read -- a failing
+# run still says which controls exist, and the memo's citations are no less
+# checkable while one of them is red.
+INVENTORY_LINE = re.compile(
+    r"^\s+(?:ok|FAIL)\s+(?P<id>C\d+)\s*(?:\((?P<sub>[a-z])\))?\s*"
+    r"(?P<arm>positive|negative)?")
 # In the memo: `C10`, `C10's positive`, `C18's negative arm`, `C19`–`C22`.
 MEMO_CONTROL = re.compile(r"`?\b(?P<id>C\d+)`?(?:'s)?\s*(?P<arm>positive|negative)?")
 CONTROL_RANGE = re.compile(r"`?\b(C\d+)`?\s*[–—-]\s*`?(C\d+)`?")
-COUNT_OF_CONTROLS = re.compile(r"\b(\d+)[- ]controls?\b")
+# `§8 control` is a section reference, not a count, so the digits may not be
+# preceded by a section sign -- the first draft of this pattern reported §9's
+# "no §8 control" as a stale tally.
+COUNT_OF_CONTROLS = re.compile(r"(?<!§)\b(\d+)[- ]controls?\b")
 
 
 def implemented_controls() -> dict[str, set[str]]:
-    """id -> the arms the self-test actually ships for it."""
+    """id -> the arms the self-test actually ships, read from RUNNING it.
+
+    Not from its source. Four controls are emitted by a `for surface in md sh
+    toml rs` loop whose label is built from a variable, so their ids appear
+    nowhere in the file as literals -- a source-regex derivation reported C4,
+    C5, C24 and C36 as controls the memo had invented. Defining the population
+    by a syntactic form rather than by the property is the trap
+    `feedback_checks-must-not-be-defined-by-the-symptom-vocabulary` names; the
+    self-test prints one line per control it runs, and that is the property."""
     out: dict[str, set[str]] = {}
     if not SELFTEST_FILE.exists():
         return out
-    for m in CONTROL_LABEL.finditer(SELFTEST_FILE.read_text()):
+    _, listing = sh(["bash", str(SELFTEST_FILE)])
+    for line in listing.split("\n"):
+        m = INVENTORY_LINE.match(line)
+        if not m:
+            continue
         out.setdefault(m.group("id"), set())
-        if m.group("arm"):
-            out[m.group("id")].add(m.group("arm"))
+        for word in (m.group("arm"), m.group("sub")):
+            if word:
+                out[m.group("id")].add(word)
     return out
 
 
