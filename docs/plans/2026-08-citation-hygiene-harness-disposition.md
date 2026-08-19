@@ -289,9 +289,9 @@ grep -rn '#505' "$MEMORY"/*.md
   letter of §3's `prose` row across six readings — two readings of *"part preamble"* × three
   sentence-terminator rules — the split came out 14/20 under the most literal reading and 21/13 under the
   reading that makes the surrounding prose true; no reading reached 19/15, and no treatment of straddlers
-  reached the 849 control figure. **The straddler count of 5 reproduces, by identity.** The figure is
-  retained as a record of the run that produced it, not as ε's specification; ε measures its own. The
-  test refusing one loudly and deferring four to a human. Two structural results. **Five rows carry the tail
+  reached the 849 control figure. **The straddler count of 5 reproduces, by identity.** The two figures are
+  retained as a record of the run that produced it, not as ε's specification; ε measures its own. The test
+  refuses one row loudly and defers four to a human. Two structural results survive the non-reproduction. **Five rows carry the tail
   of one sentence and the head of another** (`-Aii.sh:7`, `-B.sh:7`, `-audit.sh:92`, `-common.sh:10`,
   `A-rederive.sh:47`), stable under every terminator rule tried, so a per-line needle is wrong on them by
   construction. And the class holds a **third kind** beyond residence and block-as-subject-of-an-event —
@@ -309,7 +309,7 @@ grep -rn '#505' "$MEMORY"/*.md
   ```
 
   ⚠ **The test is not in the tree.** **ε** builds it (the re-slice moved it out of β), and §3's `prose` row
-  states what it must carry. ⚠ **That row's own measured split does not reproduce** — see the D16 note below.
+  states what it must carry — carrying the straddler count, which reproduces, and not the two that do not.
 
 - **D17 — PR-1a-i's exit criterion cannot read the census, because the census shrinks when the work lands.**
   `RULED BY THE PLAN: N of N` ranges over the **observed** class set, so finishing a class removes it from
@@ -332,6 +332,101 @@ grep -rn '#505' "$MEMORY"/*.md
 
   ⚠ **The criterion is not in the tree either**, so §3a's measured-behaviour figures describe a checker that
   does not exist here. Each slice's own plan-review lands its share.
+
+- **D18 — the seam `-audit.sh` will be cut on is decided here, the ⊕ checker that forces it is written and
+  measured, and neither can land on this branch. The two §9 clauses collide, which is the finding.**
+  **(a) The seam, by the file's own criterion.** `-audit.sh:9-14` already states why `inventory` is not in it:
+  the blocks that stay *"read the parts line by line and locate what they find at `file:line`, and every input
+  they need is in this checkout"*, while `inventory` takes its authority from memos on another branch. The
+  **memo-quantity gate** (`-audit.sh:285-472`, everything from `_CBAD, _CLIM, _rv` to the revision roll-up)
+  fails that criterion on both halves: its subject is the two 2026-08 memos rather than the part files, and
+  one of its own printed LIMITs is a **cross-branch pin** (`2497eb09` … *"on webref-cite-audit-tool"*). By the
+  seam the file states for itself, it belongs on `inventory`'s side, in a part of its own. That is the
+  cohesion judgement three rounds asked for and none had taken; the census and `selfcheck` stay.
+  **(b) The checker.** Its subject is the memo pair's provenance, so it belongs with the memo gate, on the far
+  side of that seam. It is 67 lines with its rationale, takes `-audit.sh` from **638** to **705**, and its
+  unit is the markdown block rather than the line, because the convention binds the item and a fence sits a
+  blank line below the sentence that introduces it. What counts as a command is keyed to **behaviour** — the
+  first token resolves on `PATH` — rather than to a list of verb names, which would leave the next tool
+  authoritative by default (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`);
+  a one-token backtick span is a *name*, since `test`, `time` and `env` all resolve, so two tokens are
+  required. ⊕ **Its yield on the pair as this session found it — a record of that run, not a figure this
+  entry predicts**: every attestation in the memo pair was checked and eleven carried no command anywhere in
+  their block, nine in the beta memo and two in the disposition. **Two of the eleven were in a paragraph
+  written twenty minutes earlier in this same session** — the memo's own §3 coverage-gate rewrite, whose two
+  ⊕ marks pointed at a fence fifteen lines and three paragraphs above them
+  (`memory/feedback_findings-cluster-in-self-added-scope.md`, live and self-inflicted). All eleven are fixed
+  above. ⚠ **Today's population and yield are not written here**: this entry's own ⊕ marks move both, so the
+  figure is whatever the fence prints, and a number beside it would be a second home going stale on landing
+  (`memory/feedback_document-landing-invalidates-its-own-measurements.md`). Run it:
+
+```bash
+python3 - docs/plans <<'ATT'
+import re, shutil, sys
+from pathlib import Path
+def _scan(md):
+    fen = False
+    for i, s in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+        f0 = s.lstrip().startswith("```"); fen = fen ^ f0
+        yield i, s, fen or f0
+def _blocks(md):                      # a fence-only block belongs to the block above it
+    out, cur = [], []
+    for i, s, fen in _scan(md):
+        if not s.strip() and not fen:
+            if cur: out.append(cur); cur = []
+        else: cur.append((i, s, fen))
+    if cur: out.append(cur)
+    merged = []
+    for b in out:
+        if merged and all(f for _, _, f in b): merged[-1] = merged[-1] + b
+        else: merged.append(b)
+    return merged
+def _runnable(blk):
+    for i, s, fen in blk:
+        if fen and s.strip() and not s.lstrip().startswith("```"): return True
+        for span in re.findall(r"`([^`\n]+)`", s):
+            tok = span.split()
+            if len(tok) > 1 and shutil.which(tok[0]): return True
+    return False
+pop = bad = 0
+for md in sorted(Path(sys.argv[1]).glob("2026-08-citation-hygiene-harness-*.md")):
+    for blk in _blocks(md):
+        att = [(i, s) for i, s, fen in blk if not fen and "⊕" in s]
+        if not att: continue
+        run = _runnable(blk)
+        for i, s in att:
+            for _ in range(s.count("⊕")):
+                pop += 1
+                if not run:
+                    bad += 1
+                    print("   !! %s:%d  ⊕ carries no command: %s"
+                          % (md.name, i, s.split("⊕", 1)[1].strip().replace("**", "")[:60]))
+print("   POPULATION: ⊕ attestation=%d   findings=%d" % (pop, bad))
+sys.exit(1 if bad else 0)
+ATT
+```
+
+  ⚠ **KNOWN BLIND SPOTS, stated because an absence here is not evidence**: a shell **builtin** as the first
+  token (`local n; _measure …`) does not resolve on `PATH` and reads as no command; and a command that runs
+  but measures a *different* claim than the sentence above it passes. The check buys the attestation carrying
+  something runnable, and nothing about what it runs. The second of those is the larger half of the root
+  round 3 named, and it is not in this artifact.
+  **(c) Why neither lands here, measured on both paths.** §9's stopping rule is operationalised in this
+  section as *a commit that moves the census output §3 calls the work list*. ⊕ The checker alone does **not**
+  move it — `HOMES: 70 (31 code, 39 prose) in 9 files; 52 with NO named failure.` before and after, and
+  `BY CLASS` byte-identical — so the stopping rule permits it. What it does trip is §9's **band
+  precondition**: 705 lines is inside the 700–800 authoring band, and the precondition says cut the seam
+  while writing. ⊕ But **every available cut moves the census.** A new part relocates the gate's own homes and
+  joins the part set by hand in both hardcoded homes, which is the very thing §9's position rule forbids
+  before `partset` lands; and the one cut that needs no new file — `selfcheck` to `-integrity.sh`, where the
+  dispatcher's own header at `A-rederive.sh:38` already routes it — relocates **four** census rows
+  (`-audit.sh:585`, `:586`, `:609`, `:610`), which is a change to the work list. Measure both with
+  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes`, diffing against base.
+  ⇒ **All three are α's, in one PR**: the part-set derivation, the seam cut it unblocks, and the checker that
+  moves across it. ⚠ **This is a deadlock between two §9 clauses, not a preference** — no commit on this
+  branch can add mechanism to `-audit.sh` past its 61 remaining lines of headroom, and α is the first slice
+  whose own deliverable dissolves it. Recorded here rather than acted on, because acting on it either way is
+  a slice's scope decision.
 
 ## §2 Coupled invariants
 
@@ -380,7 +475,7 @@ four, from the draft that added `δ`; the count is now stated as the row set it 
 
 | slice | what it owns | why it is one thing |
 |---|---|---|
-| **1a-i-β** the classifier | **`classify`'s subject test for a derivation call — every command position, both spellings** (§3's `callsite` and `mention` rows carry the rule) | it is one predicate, it changes **how the census classifies a line**, and it changes no answer about where a block ships. ⚠ **The coverage gate's content test was in this row and is withdrawn from it** — β's own `/elidex-plan-review` measured that no predicate over a rule cell's text is constructible without rewriting rows β does not own (see §3's coverage-gate paragraph); the one machine-checkable half moves to **ε**, which is where it first has a job. ⚠ **What remains is not "the command-position predicate" in the narrow sense.** Measured, planting α's crossing two ways: unquoted (`… $(_partset) $(_roster) <<'INVENTORYPY'`) it classifies `?` and the census is RED at rc=1 — the failure β exists to fix; **quoted** (`… "$(_partset)" "$(_roster)" …`) it reaches `mention` first (`-audit.sh:151-152`) and files a genuine home under the one class whose rule is *nothing to do*, at `9 of 9`, **rc=0**. The quoted spelling is the likelier one, and it is silently green. So β owns `mention`'s command-substitution hole as well, and **`callsite` and `mention` stop being "nothing to do" rows** |
+| **1a-i-β** the classifier | **`classify`'s subject test for a derivation call — every command position, both spellings** (§3's `callsite` and `mention` rows carry the rule) | it is one predicate, it changes **how the census classifies a line**, and it changes no answer about where a block ships. ⚠ **The coverage gate's content test was in this row and leaves it for **ε**, both halves** — β's own `/elidex-plan-review` measured that the *per-class* family of predicates is not constructible without rewriting rows β does not own, and a later measurement found the *non-per-class* half constructible after all (see §3's coverage-gate paragraph, which carries both commands). The two halves are one gate and land in one edit; β lands no coverage-gate change either way. ⚠ **What remains is not "the command-position predicate" in the narrow sense.** Measured, planting α's crossing two ways: unquoted (`… $(_partset) $(_roster) <<'INVENTORYPY'`) it classifies `?` and the census is RED at rc=1 — the failure β exists to fix; **quoted** (`… "$(_partset)" "$(_roster)" …`) it reaches `mention` first (`-audit.sh:151-152`) and files a genuine home under the one class whose rule is *nothing to do*, at `9 of 9`, **rc=0**. The quoted spelling is the likelier one, and it is silently green. So β owns `mention`'s command-substitution hole as well, and **`callsite` and `mention` stop being "nothing to do" rows** |
 | **1a-i-α** the set | I1 × I3, I1 × I5, I2 × I5; the part-set derivation and its crossing; `memoset`; `authorlocal` | all of them say **one fact, one home** about *names and sets*; none changes a tier's answer |
 | **1a-i-γ** the routing | I2 × I3 (files); the T0/T2 collapse into one file-declaration tier; the undeclared-file RED rule; `unverifiable=`; D13's tie-break; `route = dict(decl)` | all of them change **what answer the harness gives about where a block ships** — and every deferred decision, every conditional cascade and the only change this memo flags as not behaviour-neutral is here |
 | **1a-i-ε** the subject test | the `prose` subject test; the three rows that replace `prose` in §3; and the coverage gate's **reverse** direction (`ruled - set(byclass)` reported rather than dropped) — withdrawn from β, and placed here because ε's own `prose`-row removal is the first event it can catch | it is the only classifier change that needs a **vocabulary** rather than a predicate — the part set for its place tokens and `GROUPS` for its group tokens — and **both reach it only through α's crossing**. ⚠ **It was inside β until β's own `/elidex-plan-review` measured that it cannot be**: `GROUPS` already exists at `-inventory.sh:168`, inside `INVENTORYPY`, while the test lives in `-audit.sh`'s `HOMESPY`, so γ collapsing the group vocabulary does not put it in scope — only the argv crossing the `roster` row assigns to α does. The two escapes were measured and both fail: spelling a second `GROUPS` in `-audit.sh` is the many-homes defect γ exists to close (and filing it under `CLASSES` reports the duplicate as *ruled* at rc=0 rather than `?`), and dropping the group half of the predicate lands every group-object row in `proseunsettled`, which is RED while non-empty — so α would inherit a red census, which is the very thing β's ordering argument exists to prevent |
@@ -464,32 +559,85 @@ up. The `prose` row was the live instance until its subject test was written; th
 supplies the next one, because `proseunsettled` must be RED while non-empty and a key-only gate cannot say
 so. **The section scope this paragraph used to assign alongside it has landed** — `b088dacc`
 scopes the extraction to `^## §3 ` (`-audit.sh:273`, extracting at `:277`).
-⚠ **The content test that used to be "the only half still owed" is now measured to be unconstructible in
-that form, and the ask is withdrawn rather than re-assigned.** β's `/elidex-plan-review` implemented every
-candidate predicate over a rule cell's *text* and ran each over these nine rows. Keying the cell's citation
-to the class it rules fails on **four** rows (`authorlocal`, `reads`, `mention`, `callsite`), because the
-only identifier→class map in the census is `CLASSES` (`-audit.sh:108-109`), five keys over four classes;
-keying it to a census *row* of that class fails on **six**; and admitting "the class name itself" as a
-satisfier makes the predicate satisfiable by typing the class name, which is the shape rule with no subject
-test that the rows themselves are supposed to avoid. Two of the four failures are rows whose slices are α
-and δ, so no slice can land such a gate green within its own authorisation. **The rule rows do not
-systematically cite their own class's evidence and there is no reason they should**; a predicate over their
-text is therefore measuring authorship habits, not rules. What survives is the **other** direction —
-reporting `ruled - set(byclass)`, a rule row for a class the census no longer emits — which is empty today
-and first has a job when **ε** retires `prose`, and is assigned there. (**This program already owns a machine check over this memo's own claims — the gate
+⚠ **The content test is NARROWED, not withdrawn — an earlier draft withdrew it on a claim whose universal
+half is false.** β's `/elidex-plan-review` implemented every candidate predicate over a rule cell's *text*
+and ran each over these nine rows. What it measured, and what holds, is about **one family**: predicates that
+ask a cell to cite **its own class's evidence**. Keying the cell's citation to the class it rules fails on
+**four** rows (`authorlocal`, `reads`, `mention`, `callsite`), because the only identifier→class map in the
+census is `CLASSES` (`-audit.sh:108-109`), five keys over four classes; keying it to a census *row* of that
+class fails on **six**; and admitting "the class name itself" as a satisfier makes the predicate satisfiable
+by typing the class name, which is the shape rule with no subject test that the rows themselves are supposed
+to avoid. Two of the four failures are rows whose slices are α and δ, so no slice can land **that family**
+green within its own authorisation. **The rule rows do not systematically cite their own class's evidence
+and there is no reason they should**; a per-class predicate over their text is measuring authorship habits,
+not rules.
+
+⚠ **The withdrawal generalised that to "a predicate over a rule cell's text is unconstructible", and the
+complement was never measured.** It is constructible, and the constructible form is the one defect (a)
+actually names — a cell that carries **no rule at all** — which is not a per-class question. Measured, this
+predicate is fifteen lines and separates the two states the paragraph above contrasts:
+
+```bash
+python3 - docs/plans/2026-08-citation-hygiene-harness-disposition.md <<'PY'
+import re, sys, pathlib
+s3 = re.search(r"^## §3 .*?(?=^## §|\Z)", pathlib.Path(sys.argv[1]).read_text(), re.S | re.M).group(0)
+fail = []
+for name, body in re.findall(r"^\| \*\*([a-z]+)\*\* \|(.*)$", s3, re.M):
+    cell = body.rsplit("|", 1)[0] if body.rstrip().endswith("|") else body
+    stripped = re.sub(r"\b%s\b" % re.escape(name), "", cell).strip()   # the key is not content
+    n = len(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", stripped))
+    print("   %-12s words=%d" % (name, n))
+    if n < 8:
+        fail.append((name, n))
+print("rows=%d failing=%d %s" % (len(re.findall(r"^\| \*\*[a-z]+\*\* \|", s3, re.M)), len(fail), fail))
+sys.exit(1 if fail else 0)
+PY
+```
+
+⊕ Measured at this head, by running the fence above: `rows=9 failing=0`, rc=0. ⊕ Measured with the
+`callsite` cell replaced by `TBD` in a throwaway clone —
+`d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"`, edit the row there, re-run the fence — it gives
+`rows=9 failing=1 [('callsite', 1)]` at rc=1, **while
+`bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes` on that same tree still prints
+`RULED BY THE PLAN: 9 of 9 class(es)` at rc=0.** That is defect (a)'s own example, caught.
+
+⚠ **The floor is anchored to a printed distribution rather than chosen**, which is why the command prints
+every row's size and not just the verdict. Today's nine cells measure 36 / 50 / 54 / 70 / 140 / 436 / 441 /
+569 / 729 words with the key removed; a stub of the shape defect (a) names measures 1. The floor sits in that
+gap with a factor of four below the smallest real rule, and a rule row that ever reds this gate raises the
+floor **with the re-run distribution beside it**, not by argument. ⚠ **What it does not buy**: it cannot tell
+a rule from prose of the same size, and it is blind to a cell that is wrong rather than absent. It closes
+defect (a) as stated — a key with no content — and nothing wider.
+
+**Both surviving halves are ε's, and they are one gate.** The other direction — reporting
+`ruled - set(byclass)`, a rule row for a class the census no longer emits — is empty today and first has a
+job when **ε** retires `prose`. The non-triviality clause lands beside it, in the same edit, for the same
+reason ε is where it belongs: ε **replaces the `prose` row with three**, which is this program's largest
+single injection of new rule cells, and those three are exactly the cells a key-only gate would pass empty.
+Splitting one gate's two clauses across two slices is the decision surface CLAUDE.md *One issue, one way*
+is about. ⚠ **The ordering cost is stated rather than discovered**: α and γ each rewrite rule cells **before**
+ε lands the guard, so for those two slices defect (a) stays open, and their `/elidex-plan-review` is the only
+thing standing over their cells. β does not take it either — β's whole slice is one predicate inside
+`classify`, and the gate is not a classification. (**This program already owns a machine check over this memo's own claims — the gate
 above is one**, and since `b088dacc` it also checks this memo's **quantities**: `-audit.sh:265-281` reads this
 memo and fails closed if it can read none of §3's rule rows, citing the same
-`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md` the claim-gate lane's checker cites. ⚠ **That
-gate has a defect of its own, and it is PR-1a-i's alongside the content test.** Its population print is
-written on the match branch — `_pop` at `-audit.sh:366-367`, joined at `:469-471` — so a needle matching
-nothing contributes **no key** and is absent from the line rather than printed as `=0`. Two of its needles are
-in that state at this head, `stated length` and `band claim`, which is to say the property it was landed for
-— *"a needle matching nothing reports clean for the wrong reason"*, `-audit.sh:299-300` — does not hold
-today. ⚠ **Draft 13 declined the fix on the ground that it would shift `homes`'s line numbers a second time;
-round 13 falsified that on three axes with the same edit, and the deferral is withdrawn rather than
-re-argued.** `96d8fae3` seeds `_POP` at the initialiser it already shares with `_CBAD`/`_CLIM`/`_rv`:
-`-audit.sh` stays at 638 lines, no cited anchor moves, and both keys print as `=0`. What remains PR-1a-i's
-here is the content test alone.)
+`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md` the claim-gate lane's checker cites. ⚠ **That gate
+had a population defect of its own and `96d8fae3` fixed it; this records the fix, not the state.** The
+population print was written on the match branch — `_pop` at `-audit.sh:366-367`, joined at `:469-471` — so a
+needle matching nothing contributed **no key** and was absent from the line rather than printed as `=0`, which
+is to say the property it was landed for — *"a needle matching nothing reports clean for the wrong reason"*,
+`-audit.sh:299-300` — did not hold. Draft 13 declined the fix on the ground that it would shift `homes`'s
+line numbers a second time; round 13 falsified that on three axes with the same edit. `96d8fae3` seeds `_POP`
+at the initialiser it already shares with `_CBAD`/`_CLIM`/`_rv`, so no cited anchor moves. ⊕ The fix holds at
+this head — both keys print, and the command is the gate itself:
+
+```bash
+bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep POPULATION
+```
+
+⚠ **The two needles' populations are `band claim=0` and `stated length=1`, and a zero is not a clean bill** —
+it is this gate reporting that it checked nothing, which is the whole reason the key must print. What remains
+owed here is the narrowed content test, and it is **ε's**.)
 
 | class (the census assigns it) | rule |
 |---|---|
@@ -509,7 +657,7 @@ Three consequences, all measured, all this slice's:
 | **groupvocab** | one `GROUPS` set, validated — **and the part files join the blocks in declaring against it**: each part's preamble carries `# group: <g>`, **and so does the dispatcher** (`kernel`; without it `all`'s file side is an assignment no rule has made). `_misplaced` reads that instead of `PART_SLICE`, and `PART_SLICE` retires **here, in PR-1a-i**. ⚠ **The retirement is not scoped to `_misplaced`**, which is one of **three** readers across five sites and not the load-bearing one. The load-bearing reader is **T2** (`-inventory.sh:277-278`); the third is the `home` column of the MOVE LIST report (`-inventory.sh:412`), unnamed until here and needing a replacement source in the same edit or PR-1a-i lands a `NameError`. Re-sourcing T2 off the file declaration is *not* behaviour-neutral (it flips `_wtscan` A-i → kernel, one of D11's own movers); **T2 is dropped**, because once `_misplaced` compares block-declaration against file-declaration, T2 is literally that same comparison. Four further consequences, all PR-1a-i's: **a tier with no evidence must stop answering** (D14 — `unverifiable=`, without which dropping T2 turns nine unconfirmable declarations into silent agreements), on the rule that **a dispatch edge is not a call edge** — ⚠ **and the T0 question this used to pose as an either/or is **decided** in the `partset` row: T0 and T2 collapse into one file-declaration tier, so `all` keeps a real answer, `say` keeps a real `route["all"]`, and neither orphans.** With `-inventory.sh:106` gone, `all` routes `T3 inventory` (measured): its only command-position caller edge is a Python regex string inside `inventory`'s heredoc, which `at_command`'s own docstring calls shell-opaque, so left alone `all` reports as *agreeing* on the strength of a regex — and once the heredoc payload is excluded on the same ground as a dispatch edge, `all` has no evidence and stops answering. **`say`'s only caller is `all`** (`A-rederive.sh:95`; measured, `say` is the sole block whose entire caller set resolves to `kernel`), so `route["all"]` is its whole tier input. When that input stops answering, **`say` must return no answer too** — it must not fall through to `-inventory.sh:304`'s `comp.setdefault(b, "kernel")`, labelled *"T3 caller cycle"*, which manufactures exactly the `kernel` that agrees with `say`'s own declaration. That is verbatim the defect D14 exists to remove, reintroduced at another block by the same edit. **How many blocks `unverifiable=` ends up holding is read from the block afterwards, not predicted here** (§8). ⚠ **And it takes D13's only witness with it**: `cs == ["kernel"]` arises at `say` *because* `route["all"]` answers `kernel`, so if `all` stops answering that instance is gone. The `min()` tie-break total over `GROUPS` is then justified by its **rule** — any caller resolving to `kernel` raises `ValueError`, since `kernel` is not in `ORDER` — rather than by `say` as its one measured case; T3's boundary test ranges over `GROUPS`, **with the tie-break widened in the same edit** or it raises (D13); a T3 disagreement must **name the caller declaration it rests on**, because `route` is seeded from the declarations and one wrong entry otherwise reports as a binding disagreement against its correct neighbour; and **a part file with no `# group:` line is RED**. Today such a file is *reported* but its blocks simply stop being compared — `MOVE LIST` and rc are unchanged — which would make PR-1b's exit criterion satisfiable by an undeclared file (§3b). |
 | **memoset** | the census reports **four** homes, not the two this row used to name: `inventory`'s `MEMOS` (`-inventory.sh:51-52`), `budget`'s `for m in …` loop (`-common.sh:507`), and `-inventory.sh:203`'s path builder, which is a consumer the row never reached. One derivation; both readers call it. ⚠ **A "class count is 1" check would be right for the wrong reason**: measured on a landed collapse, the census reports `memoset=1` while the surviving row is the *consumer* and the derivation's own body is not classified `memoset` at all. ⚠ **And a literal-gone needle tests a spelling** — measured, `^MEMOS = \[` still matched `MEMOS = [(g, s) for g, s in MEMOSET …]`, i.e. it reported the enumeration present when what was present was a comprehension over the derivation. The test is structural: exactly one block carries the derivation, and every named reader calls it in command position. |
 | **reads** | every read of the harness's or a memo's text must have a **named failure**. The class's size and its guarded/unguarded split are read from `homes`, not restated here; note that `_measure … \|\| failed=1` **is** a named failure, so a `guard` column that does not know the validity primitive under-reports it. |
-| **prose** | a prose home becomes a pointer to `rederive homes` / `rederive inventory`, or is deleted — ⚠ **and the subject test its siblings got is now written and measured, so the rule applies to the rows the test admits and to no others.** The test asks the siblings' kind of question — `callsite` asks about command position, `mention` about quoted spans — namely **does this sentence bind block names to a place**: a mapping arrow or colon in a part preamble, a residence relator (`are in`, `lives in`, `placed with`, `have callers in`) whose object is a part or a group, a deictic *lives here*, a `<file> holds`, a file-name copula, or an existing `rederive` pointer. ⚠ **The unit is the sentence, not the line** — measured, **five** of the class's rows carry the tail of one sentence and the head of another (`-Aii.sh:7`, `-B.sh:7`, `-audit.sh:92`, `-common.sh:10`, `A-rederive.sh:47`; the count is stable under every sentence-terminator rule tried, and it is the same five the test refuses or defers), so a per-line needle is wrong on them by construction. ⚠ **And the place vocabulary is derived from `PARTS`, not spelled**: the first version wrote the stems out, and the census reported *the subject test itself* at `?` and went RED — the needle had become a home of the fact it censuses. Measured over the class: **19 placement / 15 rationale / 5 straddling**, of which the test refuses one loudly and rules four `rationale` (do not touch) for a human to confirm; over the 872 comment lines that are **not** census rows it returns `rationale` for 849 and a placement verdict only for continuations of the same placement sentences. ⚠ **The two kinds this memo named are not exhaustive** — the class also holds *measured quantities* (`A-rederive.sh:47-48`), a *source-order invariant* (`:46`, the very sentence the `partset` row cites as `:44-49`) and a *tier-algorithm specification* (`-inventory.sh:266`). None is residence and none is a block as the subject of an event, and the rule must not touch any of them; `rationale` is where they land. It is the largest class, and read line by line it holds two kinds: lines that assert *where* blocks live (a file, a part or a group token beside them — the dispatcher header's placement table, each part's preamble) and lines that name blocks as the *subject of an event* (`marker` became a caller of `_measure`; `suiteset` returned an `echo`'s status). The second kind is mechanism rationale, and deleting it is what the rule does if applied to the class as printed. **Splitting the class is therefore ε's first task** (it was PR-1a-i's first task when this row was written,
+| **prose** | a prose home becomes a pointer to `rederive homes` / `rederive inventory`, or is deleted — ⚠ **and the subject test its siblings got is now written and measured, so the rule applies to the rows the test admits and to no others.** The test asks the siblings' kind of question — `callsite` asks about command position, `mention` about quoted spans — namely **does this sentence bind block names to a place**: a mapping arrow or colon in a part preamble, a residence relator (`are in`, `lives in`, `placed with`, `have callers in`) whose object is a part or a group, a deictic *lives here*, a `<file> holds`, a file-name copula, or an existing `rederive` pointer. ⚠ **The unit is the sentence, not the line** — measured, **five** of the class's rows carry the tail of one sentence and the head of another (`-Aii.sh:7`, `-B.sh:7`, `-audit.sh:92`, `-common.sh:10`, `A-rederive.sh:47`; the count is stable under every sentence-terminator rule tried, and it is the same five the test refuses or defers), so a per-line needle is wrong on them by construction. ⚠ **And the place vocabulary is derived from `PARTS`, not spelled**: the first version wrote the stems out, and the census reported *the subject test itself* at `?` and went RED — the needle had become a home of the fact it censuses. ⚠ **This row is ε's specification input, so the figures it carries are the ones that reproduce and no others.** Of the split recorded as *19 placement / 15 rationale / 5 straddling*, **only the straddler count of 5 reproduces** (D16 re-implemented the row across six readings and reached 14/20 and 21/13, never 19/15); the other two are retained in D16 as a record of that run and **ε measures its own**. The test refuses one row loudly and rules four `rationale` (do not touch) for a human to confirm; over the 872 comment lines that are **not** census rows it returns `rationale` for 849 and a placement verdict only for continuations of the same placement sentences. ⚠ **The two kinds this memo named are not exhaustive** — the class also holds *measured quantities* (`A-rederive.sh:47-48`), a *source-order invariant* (`:46`, the very sentence the `partset` row cites as `:44-49`) and a *tier-algorithm specification* (`-inventory.sh:266`). None is residence and none is a block as the subject of an event, and the rule must not touch any of them; `rationale` is where they land. It is the largest class, and read line by line it holds two kinds: lines that assert *where* blocks live (a file, a part or a group token beside them — the dispatcher header's placement table, each part's preamble) and lines that name blocks as the *subject of an event* (`marker` became a caller of `_measure`; `suiteset` returned an `echo`'s status). The second kind is mechanism rationale, and deleting it is what the rule does if applied to the class as printed. **Splitting the class is therefore ε's first task** (it was PR-1a-i's first task when this row was written,
 before the re-slice), exactly as the other shape rules were split, and the split has four consequences it must carry in the same commit. **(i) The `prose` row is replaced by three rows, not amended** — `placement` (the rule as written), `rationale` (nothing to do, a subject test rather than a fallthrough) and `proseunsettled` (the refusals). Without them the census emits three classes with no rule and goes RED at rc=1, which is the coverage gate working. **(ii) `proseunsettled` is RED while it is non-empty**: a refusal that exits 0 accumulates exactly like the class it came out of. **(iii) Writing the test moves the census** — `HOMES` 70 → 73, because the test's own `GROUPS` set, its pointer needle and one comment quoting this memo's `marker` example are themselves homes. That is this slice deciding its own scope, which §9 permits, but **no figure elsewhere may be written as though the split were free**. **(iv) It grows `-audit.sh` from 638 lines to 754** — measured with `wc -l` on the patched part in the sandbox that implemented the test — which reaches the authoring threshold §9's precondition names, so the precondition fires **on this commit**: the seam is cut while writing, not afterwards. (The figure carries its command because it describes a tree that does not exist yet, which is the same reason the band record earlier in this section carries one.) |
 | **mention** | nothing to do, and it is a subject test rather than a fallthrough: every vocabulary token on the line sits inside a **quoted string**, so it talks *about* a block instead of enumerating the set. Strip the quoted spans and if any token survives, the line is unclassified and RED. |
 | **callsite** | nothing to do. A line naming two blocks because one *calls* the other is not a place the set is written down. The class exists so that saying so is a rule rather than an omission. |
@@ -562,9 +710,12 @@ with the `roster` class gone from `BY CLASS` entirely.
 So the criterion asserts over **edit sites**, and uses the census only where the observable is **per row** (a
 guard column, a roster column) and therefore cannot shrink into a false green. ⚠ **It is apportioned across the slices, and the total is read off the apportionment rather than stated
 beside it** — a criterion written for a PR that no longer exists reports every slice failing by design, and a
-headline count written next to a list is a second home for the list's length. **β** owns `covgate` and the two
-subject-test rows; **α** owns `partset`, `roster`, `authorlocal` and `memoset`; **γ** owns `groupvocab`;
-**ε** owns `prose` — and, once ε splits it, the three rows that replace it; **δ** owns `reads`.
+headline count written next to a list is a second home for the list's length. **β** owns the two subject-test
+rows, `callsite` and `mention`; **α** owns `partset`, `roster`, `authorlocal` and `memoset`; **γ** owns
+`groupvocab`; **ε** owns `prose` — and, once ε splits it, the three rows that replace it — **and `covgate`**;
+**δ** owns `reads`. ⚠ **`covgate` moved off β when the coverage gate's content test was narrowed and
+re-assigned** (the paragraph in §3): β lands no coverage-gate change, and this row is the surface that
+authorises one, so leaving it on β would have this memo and β's §4 saying opposite things.
 ⚠ **The figure this paragraph used to carry was false before the re-slice and would be false again after it.**
 It read *"eight obligations: seven of the nine class rules, plus `covgate`"*, which was written while `mention`
 and `callsite` were regression guards; the ⚠ below promoted them to obligations without moving the count, so the
@@ -709,11 +860,13 @@ This memo therefore creates **no defer slot**: nothing is discarded, and the que
 on nothing but PR-1. (Checked against `memory/feedback_defer-slot-eligibility-audit-at-create.md`'s four
 questions: zero yes. The question has an owner, a trigger and a place in the forced order, which is what
 distinguishes it from a slot.) **And it defers nothing of its own.** The coverage gate's content test is
-PR-1a-i's, stated in §3, and is the only item still owed. The check over this memo's own quantities landed
-as `b088dacc`, extending the memo gate this program already owns at `-audit.sh:265-281`; §9 judges that
-commit against its own clause. Its population defect, which draft 13 recorded as a third owed item, was
-fixed in `96d8fae3` rather than carried. So one item is owed, with a site and an owner; nothing here is a
-slot and nothing is an unowned check.
+**ε's**, stated in §3 in both its halves, and is the only item still owed. ⚠ **It was PR-1a-i's when this
+paragraph was written, and PR-1a-i no longer exists** — the re-slice replaced it with β/α/γ/δ/ε, so the
+sentence named an owner that had been dissolved. The check over this memo's own quantities landed as
+`b088dacc`, extending the memo gate this program already owns at `-audit.sh:265-281`; §9 judges that commit
+against its own clause. Its population defect, which draft 13 recorded as a third owed item, was fixed in
+`96d8fae3` rather than carried. So one item is owed, with a site and an owner; nothing here is a slot and
+nothing is an unowned check.
 
 ## §7 Registers, swept by command rather than by anchor
 
