@@ -27,30 +27,39 @@ use super::{
 /// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
 /// persisted render state", and gates its own `clear_inline_flows` call on
 /// `!env.is_probe`. Every other removal of either component is ungated, and the
-/// two components' in-function removes are gated differently, so the facts are
-/// stated per component rather than tallied:
+/// two components are removed differently from *this* function — one through that
+/// gated call, one directly and ungated — so the facts are stated per component
+/// rather than tallied:
 ///
 /// * **`InlineFlow`** — within layout, removed only via `clear_inline_flows`
 ///   (entity `despawn` drops it too, outside this concern). Gated here; ungated
 ///   at `layout_inline_context_fragmented`'s two early returns (no items / no
 ///   usable font).
 /// * **`ColumnFlowSlice`** — removed ungated at all three in-crate sites: those
-///   same two early returns, and the carrier reconcile's `else` arm below.
+///   same two early returns, and the carrier reconcile's `else` arm below
+///   (entity `despawn` drops it too, outside this concern, exactly as above).
 ///   `elidex-layout-multicol` removes it twice more, also ungated.
 ///
 /// ⚠ The `else` arm **fires during a probe**: both `do_carrier` write arms are
 /// `!env.is_probe`-gated, so under a probe the carrier payloads stay empty and
-/// the `else` arm runs. ⚠ **What separates the two components is the
-/// *in-function* remove, not the write** — both writes are probe-gated, and both
-/// are removed ungated at the early returns. Here, `InlineFlow`'s remove is gated
-/// and `ColumnFlowSlice`'s is not.
+/// the `else` arm runs. ⚠ **What separates the two components here is the
+/// remove, not the write** — both writes reached from this function are
+/// `!env.is_probe`-gated, and both components are removed ungated at the early
+/// returns. Here, `InlineFlow`'s remove is gated and `ColumnFlowSlice`'s is not.
+/// ⚠ `block/children/shift.rs:127-129` states the opposite for `InlineFlow`'s
+/// write; it is stale (both writes measure gated) and correcting it is
+/// pre-existing work routed to `#11-inline-fragmented-fn-seams-1-2`.
 ///
 /// ⚠ **Behaviour is not at risk.** The two early returns are reached on
 /// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
-/// so a probe and the definitive pass reach them identically; and the carrier is
-/// drained — or, where `fill` never drains it, cleared by
-/// `elidex-layout-multicol` itself — within the same pass, and never read by
-/// render (see [`elidex_ecs::ColumnFlowSlice`]'s docstring). What the universal gets wrong is
+/// so a probe and the definitive pass reach them identically; and a carrier left
+/// behind is never read by render (see [`elidex_ecs::ColumnFlowSlice`]).
+/// ⚠ **No claim is made here about which terminal path removes it.** The
+/// component's own docstring says drain-within-one-pass; `elidex-layout-multicol`
+/// additionally clears the self-carrier case; and a carrier written on a *nested*
+/// IFC container is reached by neither. Enumerating that set is
+/// `#11-inline-fragmented-fn-seams-1-2`'s, not this docstring's — the safety
+/// argument above does not depend on it. What the universal gets wrong is
 /// its *scope*: it reads as engine-wide and is not. Stated here rather than in the
 /// body because the body is proved byte-identical to its pre-split form; the text
 /// below must not be edited.

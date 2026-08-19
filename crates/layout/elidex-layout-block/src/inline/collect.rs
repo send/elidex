@@ -128,7 +128,8 @@ fn positioned_subflow_key(
 /// of every inline element recursed into (each is some run-parent's direct child,
 /// hence a potential `run[0]`). The caller clears `InlineFlow` on candidates it does
 /// not persist — see [`super::reconcile::reconcile_flows`], whose docstring owns the
-/// per-component removal/gating inventory.
+/// per-component removal/gating inventory. The call *to* it is unconditional, so
+/// its gated clear runs on every pass that does not take an early return.
 ///
 /// The top-level members are tagged with the **realigned** top-level run-start key
 /// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT

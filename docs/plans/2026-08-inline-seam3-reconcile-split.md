@@ -278,9 +278,13 @@ bullet — re-derives with `heading <module> <section>`:
 
 **The rest are out of scope, by change class rather than by grep** (the first bullet excepted, per
 its own ⚠): this PR authors no algorithm, so it neither creates nor deepens a *missing*-citation
-defect. That is exactly the position #497 took when it declined to add module-doc citations to
-`collect.rs` (CSS 2 §9.2.2.1 *Anonymous inline boxes*) and `styled_run.rs` (CSS 2 §9.4.2
-*Inline formatting contexts*) as over-claiming. ⚠ **It is not a defence against an
+defect. That is exactly the position #497 took when it **withdrew** the module-doc citations it had
+added to `collect.rs` (CSS 2 §9.2 *Controlling box generation* — the **parent**, cited "rather
+than any one child precisely because which child applies is decided per arm") and `styled_run.rs`
+(CSS 2 §9.4.2 *Inline formatting contexts*) as over-claiming. ⚠ **Read from the landed commits**
+(`45c72c0a`, and the files at `154bac3f`), **not from #497's PR body**, which records the
+additions and not the withdrawal that superseded them — and which names a child subsection
+`45c72c0a` had already rejected at module level for this file. ⚠ **It is not a defence against an
 *incorrect* citation** — a different class, and the one that governs the two citations this PR
 does author. §9 books the complement with an explicit disposition, not a pointer.
 
@@ -906,9 +910,10 @@ collected credit for honesty while overstating what the contract forbade.
   §9 books this class, so here it is booked, with an explicit disposition rather than a pointer:
   **accepted as pre-existing and deliberately not cited by this PR.** The ground is change class —
   this PR authors no algorithm, so it neither creates nor deepens a missing-citation defect, which
-  is the position #497 took when it declined to add module-doc citations to `collect.rs`
-  (CSS 2 §9.2.2.1 *Anonymous inline boxes*) and `styled_run.rs` (CSS 2 §9.4.2 *Inline
-  formatting contexts*) as over-claiming. ⚠ **Not routed to a slot, and that is the
+  is the position #497 took when it **withdrew** the module-doc citations it had added to
+  `collect.rs` (CSS 2 §9.2 *Controlling box generation*, the parent section) and `styled_run.rs`
+  (CSS 2 §9.4.2 *Inline formatting contexts*) as over-claiming — read from the landed commits,
+  not #497's PR body (see §3). ⚠ **Not routed to a slot, and that is the
   disposition, not an omission**: the class is a property of the *residue's* algorithm, not of the
   move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
   defence against an *incorrect* citation, which is a different class and is why the two citations
