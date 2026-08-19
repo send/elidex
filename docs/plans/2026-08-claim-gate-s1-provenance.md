@@ -293,7 +293,10 @@ each branch's tier from this prose and decided it by classifying a specimen; it 
 surviving in the checker after §4.2 deleted it. **`TIERS` is retired** — it decided branches through the
 checker's own second copy of the tier rules, and that copy is the thing §5's commit 5 deletes; the wire
 acquires annotations by scanning a tree and has no per-string entry point for a specimen to go
-(`claim-gate-plan-check.py:1220` records this where the check used to be). What it enforced now lives
+(the checker records this where the check used to be, findable by
+`git grep -n 'no per-string entry point' -- .claude/tools/` rather than by a line number, because
+round 9 moved that file's contents twice — once retiring the check and once splitting the file — and
+a line citation into it went out of range both times). What it enforced now lives
 where it executes: the self-test carries a both-directions control per surface and per tier — C4, C5,
 C24 and C36 for the backtick arm on each of the four, C35 for the fenced case, C1 for an unanchored one,
 C6 for the fall-through. So the column is still normative, and the enforcement moved rather than
