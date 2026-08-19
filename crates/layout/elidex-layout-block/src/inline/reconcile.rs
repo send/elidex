@@ -26,21 +26,9 @@ use super::{
 /// ⚠ **The probe universal in the body below is scoped to THIS function.** The
 /// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
 /// persisted render state", and gates its own `clear_inline_flows` call on
-/// `!env.is_probe`. **Across the `elidex-layout-*` crates, every other removal of
-/// either component is ungated** — enumerate per component, since the two are
-/// gated differently:
-///
-/// ```text
-/// git grep -n 'InlineFlow\|ColumnFlowSlice\|clear_inline_flows' -- 'crates/**/*.rs'
-/// ```
-///
-/// ⚠ Anchor on the **name**, never on the call syntax — component names, plus
-/// `clear_inline_flows`, which is the invariant for the path that removes without
-/// naming a component. The removal in `elidex-layout-multicol` is path-qualified
-/// (`remove_one::<elidex_ecs::…>`), so a `remove_one::<ColumnFlowSlice>` pattern
-/// misses it; the name is invariant, the spelling of the call is not.
-/// ⚠ Then **classify the hits by hand** — the command matches this comment too,
-/// and returns reads and definitions as well as removals.
+/// `!env.is_probe`. Every other removal of either component is ungated, and the
+/// two components differ, so the facts are stated per component rather than
+/// tallied:
 ///
 /// * **`InlineFlow`** — within layout, removed only via `clear_inline_flows`
 ///   (entity `despawn` drops it too, outside this concern). Gated here; ungated

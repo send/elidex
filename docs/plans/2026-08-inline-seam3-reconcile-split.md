@@ -252,10 +252,10 @@ git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs | awk 'NR>
 
 Spec-governed concerns it surfaces, none of them cited in the source. Every §-number↔title pair
 below was resolved with `.claude/tools/webref` — **`heading` for the pairs, `dfn` where a
-*property* or *term* had to be located from its name first**. Both emit the pair. ⚠ **Three
-bullets annotate their `dfn` call because it disambiguated something; the rest carry no
-annotation, so re-derive them with `heading <module> <section>` rather than assuming a recorded
-provenance that is not there:**
+*property* or *term* had to be located from its name first**. Both emit the pair. ⚠ **Annotations are per *citation*, not per bullet, and three carry one.** `overflow`'s records a
+real disambiguation (two hits); `text-align`'s and `column box`'s record a single-hit lookup and
+disambiguate nothing. Every citation without an annotation — including the two inside an annotated
+bullet — re-derives with `heading <module> <section>`:
 
 * `:437-447` — IFC-local logical → absolute physical fold keyed on `is_vertical`
   → **css-writing-modes-4 §6.4** *Abstract-to-Physical Mappings*. ⚠ **This one leaves the list**:
@@ -517,12 +517,12 @@ The recipe the numbers come from, so a reader can re-derive rather than trust:
 #      awk '/^\/\/\//{if(!s)s=NR;e=NR} END{print s"-"e}' \
 #        crates/layout/elidex-layout-block/src/inline/reconcile.rs
 #    ⚠ What is NOT derivable from the base is the docstring's *authored* content, and
-#    that is narrower than "all of it". Per 3, `CSS 2 10.8` and the probe universal's
+#    that is narrower than "all of it". Per §3 for the citation and §7.2 for the probe universal, `CSS 2 §10.8` and that universal's
 #    TEXT both already exist inside the moved range at 658cc302 (base `:480` and
-#    `:521`); 3 records `CSS 2 10.8` as a DUAL-PROVENANCE row for exactly this reason.
+#    `:521`); §3 records `CSS 2 §10.8` as a DUAL-PROVENANCE row for exactly this reason.
 #    Authored here are: the number-title pair, the `css-writing-modes-4` citation, and
 #    the SCOPING of the probe universal to this function -- not the citations wholesale.
-#    Do not restate that split here; 3 is its site, and restating it is how this
+#    Do not restate that split here; §3 is its site, and restating it is how this
 #    sentence went wrong.
 #    ⚠ This recipe reconstructs the file's ELEMENTS, and deliberately does not add up
 #    to `wc -l`: the two blank separators and the function's closing `}` are structure,
@@ -952,11 +952,20 @@ skipped. They were not; the diff simply cannot show them. The single table below
 
 ⚠ **One table, one tense, no count stated** — a count beside a list is a restated derived value.
 
-⚠ **A file may appear on both sides; a *clause* may not.** Several files are named in both
-"Leaving" and the applied table. No command is offered for that set: every mechanical form tried
-here was keyed on document position or on a row's leading token, so it silently missed rows keyed
-on anything else, and reported a set smaller than the truth while looking authoritative. Read
-both sides.
+⚠ **A file may appear on both sides; a *clause* may not.** The targets named in both
+"Leaving" and the applied table are `MEMORY.md`, `project_line-box-decorated-inline-content.md`
+and `project_open-defer-slots.md` — enumerate them, do not count them:
+
+```sh
+comm -12 <(sed -n '/^\*\*Leaving\*\*/,/owed round 20\./p' docs/plans/2026-08-inline-seam3-reconcile-split.md \
+             | grep -oE '`[A-Za-z0-9_.-]+\.md`' | tr -d '`' | sort -u) \
+         <(grep -oE '^\| `[A-Za-z0-9_.-]+\.md`' docs/plans/2026-08-inline-seam3-reconcile-split.md \
+             | sed 's/^| //' | tr -d '`' | sort -u)
+```
+
+⚠ It reads the "Leaving" paragraph and rows whose first cell **begins** with a backticked
+filename. A row keyed on anything else is invisible to it — so keep applied rows file-keyed,
+and read both sides for any row that is not.
 
 They appear twice because the split is **by clause, not by file**:
 this PR writes only what its own landing makes true, and the umbrella's framing of the same file
@@ -1000,9 +1009,9 @@ Re-keying it to an unspecified "state" would **disarm** a live obligation (the
 | `project_inline-fragmented-fn-decomposition.md` | status → **PARTIALLY CLOSED**, seam 3 ✅ discharged — this PR discharges seam 3 and only seam 3. Plus the facts this PR falsifies — ⚠ **not claimed exhaustive**, since the sweep of an untracked file cannot be re-run from here; the ones found and fixed are: `:3` (front-matter, "508 lines … three concrete seams"), `:17` (its own frame: `mod.rs:139-646` = 508 lines, `#[allow]` at `:138`, "After the split `mod.rs` is **783 lines**" — ⚠ those are *its* pre-#497 coordinates, which on `658cc302` read `:141-648` / `:140` / 785), `:29` (seam 3 listed open), `:37` ("On landing, drop the `#[allow(clippy::too_many_lines)]` if the residue no longer needs it" — **re-evaluated and kept**; ⚠ take the figure from §5.4, not from that row) and `:42` (the 783 band argument). ⚠ Sweeping only `:37` would leave the memo asserting a size, a line range and an open seam this PR closes — the *statements* surface left standing while the *obligation* surface was fixed ([[feedback_sweep-obligations-not-only-statements]]) |
 | `project_inline-fragmented-fn-seams-1-2.md` | **created** — seams 1 and 2 (pre-existing, §9), the eleven-parameter signature and the adjacent-`bool` window (both created by this PR), the helper-home question (§9), and **§7.2's probe-comment repair** (the moved body asserts a probe universal whose two counterexamples now live in the residue; the *discoverability* half is repaired in this PR via the `reconcile_flows` docstring; what this slot receives is the **body comment's wording**, which byte-identity forbids editing here). ⚠ **The slot's trigger is NOT verbatim from the umbrella's §10 row** — self-exemptions and the predicate-prereq un-exemption are, but a **third disjunct was added: the next change that touches `inline/reconcile.rs`**. Both inherited disjuncts are scoped to the residue / `inline/mod.rs`, so neither could ever reach a probe universal living in the new file. Re-eval **2026-11-01**. Its subject line names §5.3's candidate shapes **including the side-store→component one**, so the question is not pre-answered as a grouping — and §9 records that the slot's *existing* disjunct 1 already reaches the signature, because the call site is in the residue. Its size-disjunct baseline is the residue's `wc -l`, **re-measured at landing** rather than copied from §5.5 |
 | `project_open-defer-slots.md` (the slot SoT) | the source slot registered as partially closed and the successor slot registered `(own)`. ⚠ The ground, anchored to the base rather than to now: `git grep -c 'inline-fragmented-fn' 658cc302` over the memory dir is not runnable (the dir is untracked), so the check is `grep -c` on the file **before this PR's own UPDATE block** — which returned 0. Running it after the block lands returns non-zero *because of this row*, so the post-landing value is not evidence ([[feedback_document-landing-invalidates-its-own-measurements]]). Dates are each slot's own — **2026-10-28** for the source, **2026-11-01** for the successor |
-| the **stale `508` figure** | `layout_inline_context_fragmented` is **295** lines after the move (`mod.rs:142-436`), not 508. Sweep the memory dir for assertions that it is 508. ⚠ **A grep keyed on this PR (`#508`, `layout-inline-seam3`) finds none of them** — they name the figure, not the PR. No spelling-based pattern is offered either: `508 *行\|508-line` misses `508 lines`, and a bare `508` sweep also returns legitimate `658cc302`-frame uses, so the hits need classifying by hand against "asserts 508 as the CURRENT size" |
+| the **stale `508` figure** | `layout_inline_context_fragmented` is **295** lines after the move (`mod.rs:142-436`), not 508. Sites: `grep -rnE '508[ -]lines?\|508 *行' <memory-dir> --include='*.md'` → `active-lane-detail.md:149`, `project_inline-mod-split-owed.md:51`, `project_layoutbox-trip-wire-in-ci-next.md:71`, and `project_inline-fragmented-fn-decomposition.md` (`:11` title, `:28` under its own pre-seam-3 banner, so `:28` needs no edit). ⚠ **A grep keyed on this PR (`#508`, `layout-inline-seam3`) finds none of them** — they name the figure, not the PR. ⚠ **`project_layoutbox-trip-wire-in-ci-next.md:71` also says "trigger not yet fired"** — this PR **is** that trigger (`project_inline-fragmented-fn-decomposition.md`: "the next change that touches `layout_inline_context_fragmented`'s body"), so that clause is falsified independently of the figure |
 | `project_inline-mod-split-owed.md` | `:82`'s "leaving `mod.rs` at **783**" corrected — a sibling site of the same class in a different file, reached by no row above. ⚠ `:51`'s `508` is a **second** site *inside this same file*, reached only by the value-anchored row above: swept per-file is still swept partially. A class swept per-file is a class swept partially ([[feedback_semantic-sibling-selfseed-and-regate-breadth]]) |
 | `project_line-box-decorated-inline-content.md` (umbrella SSoT) | the narrowing written in. Its "NEXT SESSION STARTS HERE" told the next session that this branch carries the umbrella memo + tooling and that §10's rows ship here. Recorded: what left, why (the preamble's rule), and that umbrella §8 is contradicted and is round 20's input. ⚠ **The plan-checker note's trigger is left ARMED and unmodified** — it reads "the first PR that ships these two files", this PR ships neither, so this PR is not that event and nothing was consumed. Re-keying it to a vaguer "state" would disarm a live obligation. ⚠ **Additive is not sufficient** — a new block that records the narrowing while the original instruction stands leaves both live and the narrowing inert; the superseded passage must be struck, not merely followed |
 | `MEMORY.md` | **That one clause only**: the Layout-lane entry no longer directs the next session to produce this PR — the one bookkeeping fact the *landing itself* makes true. ⚠ The entry's remaining content is the **umbrella's framing** of the lane and stays with the umbrella (see the "Leaving" paragraph, which scopes its half the same way). The entry is split by *clause*, so exactly one side owns each half and neither can read the other's as outstanding |
 | `MEMORY.md` — the `🟡 IN FLIGHT: PR #508` bullet (**retired**) | A *separate* bullet from the Layout-lane entry. ⚠ **Retire the loop-state clauses only** — head sha, dry-streak, paused-round note. Clauses that outlive the loop stay, and this memo asserts two of them elsewhere: the harnesses are not in the repo (§6.1) and `mise run ci` cannot pass (§8). Same treatment for the Layout-lane entry's `merge 未` / `converge loop 継続中` clause |
-| `project_pr508-converge-in-flight.md` (**`#retire-after-migrate`**) | 🔴 **Do NOT delete outright — it is the sole home of both harnesses.** Its own harness section carries their full text, and no executable copy exists in this repository — the plan memo quotes the harnesses' output strings in prose but ships no runnable file (§6.1: *"Neither harness ships in the repository, and that is the disposition"*, handing "standing them up" to the successor slot). **Migrate that section to `project_inline-fragmented-fn-seams-1-2.md` first**, then retire the loop state |
+| `project_pr508-converge-in-flight.md` (**`#retire-after-migrate`**) | 🔴 **Do NOT delete outright — it is the sole home of both harnesses.** Its own harness section carries their full text, and no executable copy exists in this repository — the plan memo quotes the harnesses' output strings in prose but ships no runnable file (§6.1: *"Neither harness ships in the repository, and that is the disposition"*, handing "standing them up" to the successor slot). **Migrate that section to `project_inline-fragmented-fn-seams-1-2.md` first**, then retire the loop state. ⚠ **Two edges die with it**, so both move in the same edit: its harness section (above), and its pointers to `project_seam3-pr508-review-history.md`. Retiring this file and `MEMORY.md`'s `IN FLIGHT` bullet together leaves that memo with **no inbound edge inside the memory dir** — it stays reachable from this plan (`§0`, `§5.3`, `§7`), but a successor navigating memory alone would not find it. **Add the pointer to `project_inline-fragmented-fn-seams-1-2.md`**, which today has none |
