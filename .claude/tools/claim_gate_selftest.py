@@ -6,7 +6,7 @@ whether a memo is right. Each entry is a PROOF that one check can fire, and --
 through `probe()`'s needle -- that it fires saying the thing it was written to
 say.
 
-§4.3 of the memo records why that is not optional: keying two controls on a
+The memo records why that is not optional: keying two controls on a
 shared diagnostic let each pass when the *other* arm fired, and a ban that
 cannot fire is indistinguishable from a clean tree. `ban_control` is the name
 this repository already gives that shape
@@ -249,7 +249,7 @@ def selftest() -> int:
           capture(check_citations, synth("see `scripts/no-such-file.sh:1` there")),
           "not a tracked file")
 
-    # The classifier/executor probes retire with `claim_gate_grammar.py`. They
+    # The classifier/executor probes retired with the grammar module. They
     # exercised this file's second copy of the tier rules and the verbs, which is
     # the copy the wire replaces; their subjects are now controlled by
     # `claim-provenance-selftest.sh`, whose fixtures run the wire itself. What
@@ -411,7 +411,7 @@ def selftest() -> int:
     # PASTE / PREFLIGHT / SITES -- these three shipped with NO probe at all,
     # while the docstring above and the memo's header both claimed a positive
     # and a negative for every check. Three `bad()`-emitting checks were
-    # therefore in the state §4.3 names: indistinguishable from a clean tree.
+    # therefore in the state the memo names: indistinguishable from a clean tree.
     # Each is built from what the tree says right now, so the probes hold in
     # any worktree and never require the memo this tool audits to be present --
     # that memo is a different slice, and a probe that reads it would re-create
@@ -553,17 +553,25 @@ def selftest() -> int:
           capture(check_controls, synth(LEDGER + "\n`C1`–`C4` re-execute the corpus.\n"),
                   HAVE, []),
           "C4")
-    probe("CONTROLS positive (a retired control may be named)", False,
-          capture(check_controls, synth(LEDGER + "\nC9 is withdrawn (§8).\n"), HAVE, []))
+    probe("CONTROLS positive (a retired control may be named in the ledger row)", False,
+          capture(check_controls, synth(LEDGER), HAVE, []))
+    probe("CONTROLS negative (a retired control cited outside the ledger)", True,
+          capture(check_controls, synth(LEDGER + "\nC9 still covers that case.\n"),
+                  HAVE, []),
+          "licenses the row that records the retirement")
     probe("CONTROLS negative (the ledger retires a control that is shipped)", True,
           capture(check_controls, synth(
               LEDGER.replace("`C9`", "`C1`") + "\nC1 is withdrawn.\n"), HAVE, []),
           "the self-test ships it")
+    # The literals are BUILT, not written: this file is inside the population
+    # the rule scans, so a `NN-control` literal here would red the very check it
+    # probes -- the self-exemption the rule was just widened to remove.
+    _n = 55
     _cnt = Path(tempfile.mkdtemp()) / "counted.sh"
-    _cnt.write_text("# turns the entire 55-control self-test into a no-op\n")
+    _cnt.write_text(f"# turns the entire {_n}-control self-test into a no-op\n")
     probe("CONTROLS negative (a control count in a shipped file)", True,
           capture(check_controls, synth(LEDGER), HAVE, [_cnt]),
-          "55-control")
+          f"{_n}-control")
     _cnt.write_text("# turns the whole self-test into a no-op\n")
     probe("CONTROLS positive (the same sentence stating the property instead)", False,
           capture(check_controls, synth(LEDGER), HAVE, [_cnt]))
@@ -582,10 +590,11 @@ def selftest() -> int:
     _st = Path(tempfile.mkdtemp()) / "claim-provenance-selftest.sh"
     try:
         host.SELFTEST_FILE = _st
+        _n2 = 2
         _st.write_text("#!/usr/bin/env bash\n"
                        "echo '  ok    C1 positive  x'\n"
                        "echo '  ok    C1 negative  y'\n"
-                       "echo 'claim-provenance self-test: 2/2 controls ok'\n")
+                       f"echo 'claim-provenance self-test: {_n2}/{_n2} controls ok'\n")
         probe("CONTROLS inventory (a complete run is read)", True,
               [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [],
               "C1")
