@@ -57,7 +57,7 @@ each of its five items, as assigned at `39bbdb1b`:
 
 | Item | Owner now |
 |---|---|
-| TypedArray/DataView | §8 row `#11-vm-typed-array-family-layering-and-gate` |
+| TypedArray/DataView | **the child `#11-vm-typed-array-family-layering-and-gate`'s derivation mints for the family's location decision** (§8 row) |
 | RegExp named-groups / lookbehind | named-groups → **Slice 8c** (§5 — that row states it is the owner); lookbehind → the child of umbrella 8 that its `webref heading ecma262 22.2` derivation mints for it. Slot `#11-vm-regexp-constructor-and-flags` |
 | `replaceAll` non-global | **the child of umbrella 9b that its §22.1.3 derivation mints for `replaceAll`** (§5), slot `#11-vm-builtin-prototype-static-sweep` |
 | `Object.fromEntries` iterator protocol | **was unowned** → the child of umbrella **9c** that its §20.1.2 derivation mints for the iterator drain, same slot |
@@ -214,7 +214,7 @@ fixed and re-verified:
 | Claim | Was | Is |
 |---|---|---|
 | default-derived-ctor NOTE | §15.7.14 **step 4.a** (4 sites — the round-7 sweep grepped the exact string `§15.7.14 step 4.a` and so missed `§15.7.14 ClassDefinitionEvaluation step 4.a`) | **step 14.a.iv.1** (step 4 is `outerPrivateEnv`; no sub-step a) |
-| StructuredSerialize | WHATWG HTML **§2.9** | **§2.7.4** (§2.7.7 for the transfer path); the *in-code* docstring is drifted too |
+| StructuredSerialize | WHATWG HTML **§2.9** | **§2.7.4** (§2.7.7 for the transfer path, §2.7.6 for the deserialize half this file fuses in, and **§2.7.3** StructuredSerializeInternal for the memory-map identity); the *in-code* docstring is drifted too. Slice Pc's §5 row is the authoritative retag target |
 | precedence sites | 14 | **15** — `op_array_spread` re-implements IteratorClose **inline** and is in neither grep |
 | governing algorithm | "pure ECMA-262" for all | **5 sites are WebIDL §3.2.21.1**, which has *zero* IteratorClose steps ⇒ precedence is the wrong question there |
 

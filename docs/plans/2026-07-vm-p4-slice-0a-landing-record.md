@@ -75,7 +75,7 @@ carries the measurement) and register a new divergence slot,
 named in §4 I-5 and §5's Slice-P family rows as WebIDL two-layer cases *reserved for Pa's and Pc's
 memos*, and all three sit in **Pc**'s touch set (§8's layering-gate row), so
 **Slice Pc inherits a partly-made decision** and must not re-derive it from scratch. Not done, and
-still owed by Pc: `structured_clone.rs`'s in-code `§2.9` tag is drifted (HTML §2.7.4 / §2.7.6 / §2.7.7 — the authoritative statement of the retag target is Slice Pc's §5 row, which F's classification correction reaches; this parenthetical only restates it) and
+still owed by Pc: `structured_clone.rs`'s in-code `§2.9` tag is drifted (HTML §2.7.3 / §2.7.4 / §2.7.6 / §2.7.7 — ⚠ **§2.7.3 StructuredSerializeInternal was missing from this list while Pc's row carries it**, and it is the clause the memory-map identity citations at `:194-195` and `tests_typed_array_extras.rs:235` belong to, so an implementation inheriting *this* list retags to §2.7.4/§2.7.6/§2.7.7 and leaves those two drifted; the authoritative statement of the retag target is Slice Pc's §5 row, which F's classification correction reaches, and this parenthetical only restates it) and
 survives at 8 occurrences — 0a's diff touches none of them.
 
 The two files are a touch-time split, taken proactively at 730 lines rather than after a reviewer
