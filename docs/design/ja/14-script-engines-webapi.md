@@ -31,7 +31,11 @@ pub enum EsSpecLevel {
 | arguments.callee / .caller | ✗ | ✓ | strictモードで禁止。末尾呼び出しとインライン最適化を阻害。 |
 | __proto__アクセサ | ✗ | ✓ | Annex B。代わりにObject.getPrototypeOf()を使用。 |
 | JS内HTMLコメント (\<!-- --\>) | ✗ | ✓ | 1990年代の\<script\>隠蔽のAnnex B遺物。 |
-| eval()（直接） | 制限付き | ✓ | コアはstrict-mode evalのみサポート（新スコープ）。sloppy eval（ローカルスコープ注入）は互換。 |
+| eval()（直接） | 制限付き | ✓ | 分割基準はパースされるソースのstrictness。コアはstrict sourceのみ（新スコープ）。sloppy source（ローカルスコープ注入を伴う）は互換。 |
+| eval()（間接） | 制限付き | ✓ | 同じ基準。間接evalのstrictnessは呼び出し側でなくソース自身のディレクティブで決まる（PerformEval）。strict sourceはコア、sloppy sourceは互換。 |
+| Functionコンストラクタ | 制限付き | ✓ | 同じ基準。生成される関数のstrictnessは渡されたbody自身のディレクティブで決まる（CreateDynamicFunction → OrdinaryFunctionCreate）。strict sourceはコア、sloppy sourceは互換。 |
+
+**動的コードの分割基準**: 直接eval・間接eval・Functionコンストラクタの3形態は、いずれも**パースされるソースのstrictness**で分割する。strict sourceの半分がコア、sloppy sourceの半分がLegacySemanticsプラグインである。形態の綴り（直接か間接か、evalかFunctionか）では分割しない——間接evalもFunctionコンストラクタも、渡されたソース自身が`"use strict"`を持てばstrictに実行されるため（ECMA-262 PerformEval / OrdinaryFunctionCreate）、形態ごと互換へ送るとコアはstrictな動的コードのオーナーを失う。この基準の下でコアの動的コード面は標準の**部分集合**であり、受け付けるすべてのソースに対してconformantとなる。
 
 ### 14.1.2 実装戦略
 
