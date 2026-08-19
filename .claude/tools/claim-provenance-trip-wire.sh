@@ -42,8 +42,11 @@ set -euo pipefail
 # prevent: the tree under test comes from the invoking cwd, while the wire's own
 # helper sits beside the wire wherever that has been copied to. A control that
 # copies the wire into a fixture directory has cwd = fixture and $0 = fixture,
-# so both resolve there; a control that runs the installed wire against a clone
-# has cwd = clone and $0 = this repository.
+# so both resolve there. (Revisions 5-8 grounded this on a `clone` fixture that
+# was specified and never built; the memo withdrew it, and the rule survives
+# because the `own` fixtures are what separate the two roots -- under the
+# driver's $0 rule every one of them would measure this repository instead, and
+# go green doing it.)
 # --------------------------------------------------------------------------
 SCAN_ROOT=$(git rev-parse --show-toplevel)
 WIRE_DIR=$(cd "$(dirname "$0")" && pwd)

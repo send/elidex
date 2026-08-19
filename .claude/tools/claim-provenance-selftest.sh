@@ -10,12 +10,12 @@
 # Fixture model:
 #   own        its own mktemp -d and its own wire invocation, torn down after.
 #              Two `own` rows cannot mask each other, whatever their $3.
-#   escapes    one fixture, two arms, ONE invocation -- so their diagnostics
-#              must discriminate. Both arms are malformed, which is why the
-#              fixture exists at all only under the fail-without-ending rule.
+#   escapes    one fixture carrying two malformed annotations, probed twice.
+#              Every run emits BOTH diagnostics -- the annotations share a file,
+#              not an invocation (`st_probe` runs the wire per arm) -- so the
+#              required substrings must discriminate. The fixture exists at all
+#              only under the fail-without-ending rule.
 #   escapes10  the same shape at ten arms, one per rejected escape.
-#   clone      a `git clone --local` of this repository, built once and reused,
-#              one wire invocation per row, annotation planted and removed.
 
 set -euo pipefail
 
@@ -380,10 +380,12 @@ mk_i7() { # $1 = number of filler files -> a fixture with 2 count annotations
   local d i; d=$(mkfixture)
   printf 'hit\n' > "$d/a.md"
   i=0; while [ "$i" -lt "$1" ]; do printf 'filler\n' > "$d/f$i.md"; i=$((i+1)); done
-  # `in="*.md"` deliberately: it resolves to 2 paths in the small tree and 61 in
+  # `in="*.md"` deliberately: it resolves to 3 paths in the small tree and 62 in
   # the large one, so a term per RESOLVED path diverges here too, not only a
   # term per tracked file. The count is 3 either way -- a.md's line, plus the
   # two annotation lines, each of which contains `hit` inside its own pattern=.
+  # (The resolved-path figures were 2 and 61 until round 9's review measured
+  # them; the memo had restated this comment rather than the fixture.)
   { printf 'x <!-- claim count=3 pattern="hit" in="*.md" -->\n'
     printf 'y <!-- claim count=3 pattern="hit" in="*.md" -->\n'; } > "$d/n.md"
   add "$d"; printf '%s' "$d"
@@ -395,7 +397,7 @@ if [ "$n_small" = "$n_large" ] && [ "$n_small" = 6 ]; then
   pass_ "C27  git invocations are 2 + 2 per annotation, and do not move with the tree"
 else
   fail_ "C27  git invocations are 2 + 2 per annotation, and do not move with the tree" \
-    "2-file tree: $n_small, 61-file tree: $n_large, expected 6 in both"
+    "small tree: $n_small, large tree: $n_large, expected 6 in both"
 fi
 rm -rf "$small" "$large"
 
