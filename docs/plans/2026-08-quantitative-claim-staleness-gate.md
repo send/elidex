@@ -86,7 +86,7 @@ use, having no fence concept — generalising it retires a rule rather than addi
 way*). The `.claude/tools/**` exclusion is untouched and still binding. Consequence, stated because
 it is the cost: **an annotation inside a fenced block is live and executed.**
 
-*Amended here rather than in the slice.* S1 revision 4 deleted the arm in its own §4.2 while this
+*Amended here rather than in the slice.* S1 revision 4 deleted the arm in `2026-08-claim-gate-s1-provenance.md` §4.2 while this
 decision still mandated it, which the slice's own preamble forbids ("does not reopen them"). A slice
 cannot change a binding decision; the amendment belongs in this file, and is reviewable as a decision
 change.
@@ -117,8 +117,8 @@ reached by a second route. The precondition is: `in=` must match ≥1 tracked pa
 is present in the working tree**; `lines=` exactly one tracked path, present, and a **regular file** (a
 gitlink satisfies "present" and makes `awk` answer 0 with status 0). The failure modes carry distinct
 diagnostics, because one nesting inside another is one diagnostic wearing two labels. S1's wire is the
-production rule and its self-test controls both directions. (This sentence cited `S1 §4.4 rule 3` and
-`S1 §8.1 C28, C33 and C34` until round 9: S1 §4.4 and §8.1 were deleted when the specification moved
+production rule and its self-test controls both directions. (This sentence cited S1's rule 3, in a section then numbered 4.4, and
+S1's C28, C33 and C34, in a section then numbered 8.1, until round 9: both sections were deleted when the specification moved
 into the wire, and one of the three controls was withdrawn a round before that. A cross-document
 citation into a slice that is still being restructured is the same staleness this program is about,
 and nothing on either side was checking it.)
@@ -142,7 +142,7 @@ failure directions rather than one rule. The reject set is a strict superset of 
 first named, reached by applying this decision's own reasoning — not by widening its scope.)*
 
 **D6 — the pathspec is always quoted.**
-v1's §4.1.3 stated the A4 invariant ("every value reaches `git grep` as an argv element … never as a
+v1 stated the A4 invariant, in the section it numbered 4.1.3, ("every value reaches `git grep` as an argv element … never as a
 shell word") and then illustrated it with `-- $pathspec`, unquoted. Measured under `/bin/bash`
 3.2.57: `docs/**/*.md` unquoted splits into **79** words and the same annotation yields **30** where
 the quoted form yields **32**. Silent divergence, no error, on a load-bearing claim.
@@ -277,7 +277,8 @@ program inverts that, given #504 failure 1 was itself a test-side claim.
 repository gate tooling. The table exists to satisfy the preflight structural gate.
 
 ⚠ Two honest notes v1 got wrong. First, the precedent it cited is only half-shared: both
-`terminal-z-c3a-impl-plan.md` §7 and `terminal-z-c3a-seam-and-audit-plan.md` §3 cite **genuine
+`docs/plans/2026-07-terminal-z-c3a-impl-plan.md` §7 and
+`docs/plans/2026-07-terminal-z-c3a-seam-and-audit-plan.md` §3 cite **genuine
 external specs** and share only the "reproduced solely to satisfy the gate, labels unmapped ⇒
 soft-warn" shape. **Substituting in-repo documents for spec rows is novel here**, and the §4 slot's
 trigger is written accordingly. Second, preflight counts unmapped labels toward K: it reports
@@ -295,7 +296,7 @@ being an umbrella with three slice PRs** — i.e. the tool's recommendation is t
 ⚠ **AMENDED by S1 round 9: rows 4–5 no longer route an *acceptance corpus*.** Both Touch cells read
 "the acceptance corpus every slice tests against" and "the numeric-claim class S1 executes", on the
 design where S1 shipped four controls replaying v1's three false annotations and one of #504's against
-a writable clone of this repository. S1 §4.1.1 withdraws that fixture and those controls, on a ground
+a writable clone of this repository. `2026-08-claim-gate-s1-provenance.md` §4.1.1 withdraws that fixture and those controls, on a ground
 this table has to record because it changes what the row obliges: **falseness does not interact with
 tree scale**, so every verdict shape the replay carried is already carried hermetically, arm for arm,
 and what the replay added was provenance rather than discriminating power.
@@ -333,7 +334,7 @@ Stated here once, so no slice has to infer a bound it does not have.
 - **The ledger cannot catch #504 failure 1 in the form it occurred.** That claim was written at
   `725cbe56` and became false at `39638c9d` when a second pin was added *elsewhere*; the ledger key is
   `(path, content)` and neither changed. S2 forces a *decision at authoring time* for new superlatives
-  — a nudge, not a proof — and S2's plan-memo must say so where v1's §6/§8 instead claimed all three
+  — a nudge, not a proof — and S2's plan-memo must say so where v1 instead claimed, in the sections it numbered 6 and 8, all three
   #504 failures get a mechanical trigger. Claims of the form "only this test fails under this
   mutation" need the suite to run; a cargo-invoking wire would cost minutes and falsify the
   no-toolchain property the ungated job depends on. The remedy for that class stays authoring
