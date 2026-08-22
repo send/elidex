@@ -100,11 +100,20 @@ use super::{
 ///   ⚠ **§10.8.1's current statement is `css-inline-3` §5.3 Calculating the
 ///   Logical Height Contributions ("Layout Bounds") of Inline Boxes**, whose
 ///   strut condition is broader (it also covers a box with only fallback-font
-///   glyphs). ⚠ **The half-leading here derives A and D at run level from a
-///   single resolved font** (`measure_text` resolves one `font_id`), while
-///   §10.8.1 is stated **per glyph**, so a mixed-font box is outside it.
-///   Re-anchoring this crate's CSS 2 citations is
-///   `#11-inline-root-inline-box`'s, per the umbrella that owns it.
+///   glyphs). The half-leading here derives A and D at run level from a single
+///   resolved font (`measure_text` resolves one `font_id`). Graded against
+///   §10.8.1, which is stated **per glyph**, a mixed-font box is outside it.
+///   Graded against §5.3, which splits on the computed value: its *not-normal*
+///   branch prescribes exactly this — "derived solely from metrics of its first
+///   available font (ignoring glyphs from other fonts)" — while its *normal*
+///   branch wants every glyph's A and D, and `line-height: normal` is the
+///   initial, inherited value whose keyword reaches computed style, so that
+///   branch is the **default** case and is where the divergence lives.
+///
+///   ⚠ `CSS 2` is the minority label in this crate; `CSS 2.1` is the majority.
+///   Count both with `git grep -n '10\.8' -- 'crates/layout/elidex-layout-block/**'`
+///   — ⚠ two of its hits are in this file (here and the moved body comment).
+///   That split is `#11-css2-spec-label-normalisation`'s — 9 crates, one commit.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is

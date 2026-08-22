@@ -232,7 +232,11 @@ fires `needless_pass_by_value` (clippy's pedantic group is warn-level workspace-
 
 ## §3. Spec coverage map
 
-**Breadth**: K=2 specs, M=2 entries. **Split decision**: single PR, both below the
+**Breadth**: K=3 specs (`CSS 2`, `css-writing-modes-4`, `css-inline-3`), M=4 entries — the
+`reconcile_flows` docstring authors `css-inline-3 §4.2 Transverse Box Alignment: the vertical-align
+property` and `§5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes`
+alongside the two rows below (`git grep -c css-inline-3 658cc302 -- crates` → no hits, so both are
+authored here). **Split decision**: single PR, both below the
 K≥4 / M≥20 recommend threshold, and `preflight.py` independently returns
 `split decision: ok (single PR scope)`.
 
@@ -291,13 +295,13 @@ text names §9.4.2 as the section it **refuses**: "that governs line-box formati
 additions and not the withdrawal that superseded them. ⚠ **`45c72c0a` is not reachable from
 `origin/main`** — its branch is gone from the remote, so `git show` fails in a fresh clone; the
 durable route is `refs/pull/497/head`. ⚠ **It is not a defence against an
-*incorrect* citation** — a different class, and the one that governs the two citations this PR
+*incorrect* citation** — a different class, and the one that governs the citations this PR
 does author. §9 books the complement with an explicit disposition, not a pointer.
 
 **So the table below is what the PR *carries*, not what the range's spec surface is** — and its
 rows have two distinct provenances, which is the distinction the map exists to record:
 
-⚠ **Two rows, three citation instances** — the row count and the instance count are different
+⚠ **Two rows here; the docstring adds two `css-inline-3` citations (see Breadth above)** — the row count and the instance count are different
 numbers and conflating them misclassified a row:
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
@@ -330,8 +334,12 @@ numbers and conflating them misclassified a row:
 | CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (⚠ **the enumerator must be case-insensitive AND newline-tolerant**, because this very title
 wraps a line where it is authored: `git grep -ci "line height calculations" 658cc302 -- crates`
 → one hit, `elidex-ecs/src/components/inline_flow.rs`, carrying the title's leading clause beside the
-number but not the full pair as spelled out here; the case-sensitive form returns an empty set for the wrong reason,
-and a pattern spanning the number and the title would be a filter, not an enumerator). The authored instance states the gap **positively**, and the positive clause is scoped: §10.8.1 half-leading is *approximated* in the first-baseline derivation only, at **run level from a single resolved font** — `pack/mod.rs` takes `line_height`/`em_height` from `measure_text`, which resolves one `font_id` (`elidex-shaping/src/measurement.rs:54` resolves the single `font_id`; its doc line *"using the first matching font family"* is at `:40`), whereas §10.8.1 is stated **per glyph** (`webref body CSS2 line-height`: *"for each glyph, determine the A and D … glyphs in a single element may come from different fonts"*). Mixed-font boxes are therefore outside what is implemented. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment, §10.8.1's strut, and §10.8 step 3's uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
+number but not the full pair as spelled out here; the site is lowercase, so it is the Title-cased form that returns empty,
+and a pattern spanning the number and the title would be a filter, not an enumerator). The authored instance states the gap **positively**, and the positive clause is scoped: §10.8.1 half-leading is *approximated* in the first-baseline derivation only, at **run level from a single resolved font** — `pack/mod.rs` takes `em_height` from `measure_text` and `line_height` from the computed style
+(resolved at `inline/styled_run.rs:96`), which resolves one `font_id` (`elidex-shaping/src/measurement.rs:54` resolves the single `font_id`; its doc line *"using the first matching font family"* is at `:40`), whereas §10.8.1 is stated **per glyph** (`webref body CSS2 line-height`: *"for each glyph, determine the A and D … glyphs in a single element may come from different fonts"*). Graded against §10.8.1 (per glyph) a mixed-font box is outside it; graded against
+`css-inline-3 §5.3` the *not-normal* branch prescribes exactly this single-font derivation and the
+*normal* branch — the initial, inherited value whose keyword reaches computed style — is where the
+divergence lives. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment, §10.8.1's strut, and §10.8 step 3's uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
 
 ## §4. Verified current state
 
@@ -547,8 +555,9 @@ The recipe the numbers come from, so a reader can re-derive rather than trust:
 #    that is narrower than "all of it". Per §3 for the citation and §7.2 for the probe universal, `CSS 2 §10.8` and that universal's
 #    TEXT both already exist inside the moved range at 658cc302 (base `:480` and
 #    `:521`); §3 records `CSS 2 §10.8` as a DUAL-PROVENANCE row for exactly this reason.
-#    Authored here are: the number-title pair, the `css-writing-modes-4` citation, and
-#    the SCOPING of the probe universal to this function -- not the citations wholesale.
+#    Authored here are: the number-title pair, the `css-writing-modes-4` citation, both
+#    `css-inline-3` citations, and the SCOPING of the probe universal to this function
+#    -- not the citations wholesale.
 #    Do not restate that split here; §3 is its site, and restating it is how this
 #    sentence went wrong.
 #    ⚠ This recipe reconstructs the file's ELEMENTS, and deliberately does not add up
@@ -742,7 +751,7 @@ clears. What cannot happen here is editing the **body comment**, which would bre
 the moved one (or rewording the body text) is the residual, and it goes to
 `#11-inline-fragmented-fn-seams-1-2` — ⚠ with a **trigger disjunct added to
 that slot** for this file, because its inherited disjuncts are residue/`mod.rs`-scoped and do not reach
-a false universal sitting in the new file (and disjunct 1 is self-exempted for six of the umbrella's
+a false universal sitting in the new file (and the residue disjunct is self-exempted for six of the umbrella's
 seven PRs). A concern routed to a slot no trigger reaches is not booked, it is dropped
 ([[feedback_enumerated-exemptions-leave-the-next-class-authoritative]]).
 
@@ -855,10 +864,17 @@ collected credit for honesty while overstating what the contract forbade.
   narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
 
 * **No row of the landing checklist is left `still owed`.** Evaluate it, do not assert it —
-  in `~/.claude/projects/<repo-key>/memory/project_seam3-pr508-review-history.md`,
-  `grep -c '| `still owed`' <that file>` must return **0** at merge. ⚠ The cell anchor is
-  load-bearing: a bare `grep -c 'still owed'` also counts the file's own statements of the
-  marker convention, which do not go away when the rows are discharged. ⚠ The targets are
+  in `~/.claude/projects/<repo-key>/memory/project_seam3-pr508-review-history.md`, this must
+  print `0` at merge:
+
+  ```sh
+  L=~/.claude/projects/<repo-key>/memory/project_seam3-pr508-review-history.md
+  grep -c '| `still owed`' "$L"
+  ```
+
+  ⚠ Both anchors are load-bearing: dropping the backticks counts the file's own statements of the
+  marker convention, which do not go away when the rows are discharged (8 vs 4 today); dropping
+  the leading `| ` prints `0` today, before any row is discharged. ⚠ The targets are
   outside this repository, so the diff cannot show them; the rows live with their targets and
   are not restated here.
 
@@ -952,7 +968,7 @@ collected credit for honesty while overstating what the contract forbade.
   pair that landed and was withdrawn (§9.2 / §9.2.2). ⚠ **Not routed to a slot, and that is the
   disposition, not an omission**: the class is a property of the *residue's* algorithm, not of the
   move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
-  defence against an *incorrect* citation, which is a different class and is why the two citations
+  defence against an *incorrect* citation, which is a different class and is why the citations
   this PR does author are scoped in the `reconcile_flows` docstring rather than asserted flat.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
   pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
