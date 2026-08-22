@@ -117,7 +117,7 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
   **`mention`** at **rc=0**, `9 of 9` — a genuine home filed under the class whose rule is *nothing to do*,
   silently green. ⚠ **There are three such host sites, not two**: `-audit.sh:53` (`HOMESPY`),
   `-audit.sh:555` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
-  all three (`:488`), and `:538` is the one it actually exercised. §3a O2 plants at all three.
+  all three (`disposition.md:331`), and `:538` is the one it actually exercised. §3a O2 plants at all three.
 
   ```bash
   grep -n "python3 - " docs/plans/2026-07-citation-hygiene-A-rederive*.sh
@@ -167,8 +167,9 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
   `-audit.sh:302`, so it reported its own staleness as a LIMIT. β raised it in an earlier draft with the
   trigger *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*; the standalone prereq
   that cut §1 out of the disposition **is** that slice, and it took the fix. ⊕ Verified at HEAD by
-  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep 'memo(s)'`: the gate now prints its
-  arity from the glob and names the files it read. **Nothing here is β's**, and §5's raise is discharged
+  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -A1 'memo(s)'`: the gate now prints
+  its arity from the glob **and** names the files it read on the next line — ⚠ an earlier draft attached the
+  same command without `-A1`, showing only the first half of what the sentence claims. **Nothing here is β's**, and §5's raise is discharged
   rather than carried.
 
 ## §2 Coupled invariants
@@ -258,20 +259,60 @@ and its docstring states the same rule this section states — *COMMAND POSITION
 lead is `(?m)(?:^\s*|[;&|(]\s*|\b(?:then|do|else|if|while|until)\s+)` plus a `_measure` third-word arm,
 i.e. the two things §3 lands. ⊕ Measured with
 `grep -n 'def at_command' -A8 docs/plans/2026-07-citation-hygiene-A-rederive-inventory.sh`, the two diverge
-**in both directions**: β adds `{`, `$(`, `<(`, `elif` and single-quote stripping; `at_command` carries
-`if`, `while`, `until`, which the list above lacked until this draft.
+**in both directions**. ⚠ **A first draft of this list got the divergence wrong in three places, and this
+list is the reconciliation spec, so the error mattered.** `[;&|(]` is a **character class** — `;` or `&` or
+`|` or `(` singly — so:
 
-⚠ **β adopts the three it lacked rather than diverging further, and that is a fix, not symmetry.** ⊕ Two live
-shell lines put a command after one of them —
+⚠ **Derived by probing the regex, not by reading it** — two earlier drafts of this table read the two
+patterns side by side and both got it wrong. Each row below was run:
+
+```python
+lead = r"(?m)(?:^\s*|[;&|(]\s*|\b(?:then|do|else|if|while|until)\s+)"
+re.findall(lead + "_partset" + r"(?![\w-])(?!\))", probe)     # at_command's own predicate
+```
+
+| probe | `at_command` | β §3 | |
+|---|---|---|---|
+| `{ _partset; }` | no | `callsite` | β's addition |
+| `elif _partset …` | **no** (its group is `then do else if while until`) | `callsite` | β's addition |
+| `'…_partset…'` in a single-quoted span | not stripped | stripped before the scan | β's addition |
+| `x=$(_partset arg)` | **match** — `[;&\|(]` already admits the `(` | `callsite` | ⚠ **not β's addition**; a draft listed it as one |
+| `x=$(_partset)` | **no** — the trailing `(?!\))` suppresses the argument-less form | `callsite` | ⚠ **β1's own headline crossing, and `at_command` rejects it**. Unlisted in either direction until now |
+| `diff <(_partset) b` | **no**, same guard | `callsite` | as above |
+| `n=$(( _partset + _roster ))` | **match** — arithmetic is a command position to it | **not** `callsite` (clause 4) | ⚠ **the one case the two demonstrably contradict**, and it was missing from the list §5 calls the reconciliation spec |
+| `cmd & _partset arg` | **match** — the class holds a bare `&` | **no** — β spells `&&` only | ⚠ still β's gap |
+| `if` / `while` / `until` | yes | adopted in this draft | was β's gap |
+
+⚠ **`at_command` also carries a `_measure` third-word arm** that resolves a block name in **argument**
+position (`_measure n_head _wtscan`). β's rule declines that — it widens *where* a token may stand, not
+*what counts as one* — so a reconciler taking §3 as canonical would delete an arm whose own comment records
+that missing it made `_wtscan` read as uncalled. Whether that arm survives reconciliation is **undecided
+here** and is part of what the raise below owes.
+
+⚠ **β adopts the three it lacked rather than diverging further, and that is a fix, not symmetry.** ⊕ **At least three** live shell
+lines put a command after one of them, and the command below is a **filter**, not the population —
 `grep -nE '^[[:space:]]*(if|while|until)[[:space:]]+[a-z_]' docs/plans/2026-07-citation-hygiene-A-rederive*.sh | grep -E '(then|do)[[:space:]]*$' | grep -vE '(if|while|until)[[:space:]]+\['`
-returns `-B.sh:131` and `-common.sh:565`, and the second is `if _measure n git …`, which is exactly the
-shape this section says retires into the scan. A derivation call spelled `if _partset && _roster; then`
+returns `-B.sh:131` and `-common.sh:565`, and the second is `if _measure n git …`, exactly the shape this
+section says retires into the scan. ⚠ **Dropping the trailing-keyword filter surfaces a third**,
+`-common.sh:579`, the same shape ending in a line continuation rather than `then`; the `[a-z_]` class also
+excludes any command beginning with a capital. None of the three carries two vocabulary tokens, so none is a
+census row — which is why the conclusion survives and the count does not. A derivation call spelled `if _partset && _roster; then`
 would have been missed.
 
-⚠ **Two homes for one rule is not something β can close, and §5 raises it with a trigger.** They are Python
-inside two different quoted heredocs — `INVENTORYPY` and `HOMESPY` — so no function is shared between them
-and converging them needs the argv crossing the umbrella's `roster` row assigns to **α**. Until then the rule
-has two spellings, and the divergence above is the list of what to reconcile.
+⚠ **Two homes for one rule is owed work, not a documented state — and this paragraph twice said otherwise.**
+It said *"§5 raises it with a trigger"*; §5 contained no such raise (three review axes measured `at_command`
+appearing **zero** times there), which is the failure §5's own closing ⚠ names one section away, repeated in
+the commit that added the rule against it. It also gave an ordering reason that does not hold: *"no function
+is shared between them … converging them needs the argv crossing α builds"*. ⊕ Measured — the argv transport
+already exists at **both** payloads (`grep -n 'python3 - "$REPO_ROOT' docs/plans/2026-07-citation-hygiene-A-rederive*.sh`
+shows `-audit.sh:53` and `-inventory.sh:39` each passing a path today); what α builds is the roster
+**payload**, not the transport. And `_runner` (`-Aii.sh:77-78`) already writes a Python module to a file and
+runs it, so Python is shareable across payloads now. **Nothing orders this after α.** The cheapest direction
+was never costed either: widening `at_command`'s own lead at `-inventory.sh:234` is one edit.
+
+⚠ **It is still not β's**, and the reason is scope rather than order: β's authorisation is one predicate
+inside `classify`, and reconciling two predicates changes `inventory`'s call graph. §5 raises it **as owed
+work with a trigger**, and the divergence table above is the list of what to reconcile.
 
 ⚠ **The list is a rule about shell syntax, and four of its clauses are decisions measurement forced, not
 characters copied from the old regex:**
@@ -299,12 +340,14 @@ characters copied from the old regex:**
    command. The clause is *`{` not preceded by `$`*.
 4. **`$((` does not open one either; `elif`, `if`, `while`, `until` and `<(` do.** These are the same clause
    as (3) — a two-character sequence whose prefix is in the list, and keywords the `then` / `do` / `else`
-   group was written without — and they are decided here so that an implementer does not. ⚠ **All three have an empty
-   population, and that is a measurement rather than a reason to skip them.** ⊕ `$((` occurs **twice**
-   (`-Aii.sh:240`, `:267`), both arithmetic over `_n` and `_tab` with no vocabulary token on either line;
-   ⊕ every one of the sixteen `elif` hits is **Python**, so the harness writes no shell `elif` at all; ⊕ `<(`
+   group was written without — and they are decided here so that an implementer does not. ⚠ **Three of the six — `$((`, `elif`, `<(` — have an
+   empty population, and that is a measurement rather than a reason to skip them** (`if`/`while`/`until` do
+   not; their population is the paragraph above). ⊕ `$((` occurs **three times on two lines**
+   (`-Aii.sh:240` carries two, `:267` one), all arithmetic over `_n` and `_tab` with no vocabulary token on
+   either line — ⚠ an earlier draft said *"twice"*, reporting `grep -n`'s line count as an occurrence count;
+   ⊕ **fifteen** of the sixteen `elif` hits are Python and the sixteenth (`-Aii.sh:281`) is a single-quoted `grep` alternation inside a shell line, so the harness writes no shell `elif` **keyword** at all. ⚠ **An earlier draft said all sixteen were Python**, which the umbrella's own D19 lists among round 4's false completeness claims; the exception matters because it is the one place clause 4 meets clause 2's single-quote strip; ⊕ `<(`
    occurs **zero** times. So no line changes class under any answer, which is the same status §3a already
-   states for the guards — the discriminating power is in O1–O4, and this clause buys the rule being
+   states for the guards — the discriminating power is in the **O-rows**, and this clause buys the rule being
    complete rather than a fix:
 
    ```bash
@@ -369,11 +412,12 @@ raises fire on *adding*, and β replaces.
 
 ⚠ **And the guards cannot evidence the work.** β4 measures that β changes no row on the unplanted tree, so
 **every guard below passes under a no-op**. That is stated rather than discovered later: the guards bound the
-blast radius, and all the discriminating power is in O1–O4.
+blast radius, and all the discriminating power is in the **O-rows**. ⚠ **Two sites said "O1–O4" after O5 was
+added**, and the table's order is O1, O2, O3, O5, O4, so the range was not even contiguous.
 
 | # | obligation | asserted by planting, not by reading |
 |---|---|---|
-| O1 | a derivation call is a call site in every command position | plant **both** spellings at **all three** heredoc host sites (`-audit.sh:53`, `:538`, `-inventory.sh:39`) ⇒ all six rows `callsite`. Each plant defines `_partset`/`_roster` and carries two tokens |
+| O1 | a derivation call is a call site in every command position | plant **both** spellings at the payload host of **each of `all`'s three roster readers** (`-audit.sh:53` `homes`, `-audit.sh:555` `selfcheck`, `-inventory.sh:39` `inventory`). ⚠ **`:538` was this list's spelling until the parts grew, and *"heredoc host sites"* was its label** — the harness has four argv-plus-heredoc payloads and a reader applying the phrase rather than the criterion counts them ⇒ all six rows `callsite`. Each plant defines `_partset`/`_roster` and carries two tokens |
 | O2 | the position list's first three decided clauses hold | `echo '$(_partset)' '$(_roster)'` ⇒ `mention`; `echo "${_partset} ${_roster}"` ⇒ `mention`; a code line with two block names in **markdown backticks** ⇒ `mention`. Each is a case a plausible implementation gets wrong |
 | O3 | the scan **subsumes** `_measure`, and the special case is gone | plant `local n; _measure <two blocks>` ⇒ `callsite`. ⚠ **Not `: ; _measure …`** — measured, that shape passes under a bare deletion of the special case with no scan written, because `WORD.search` skips `:` and `;` and finds `_measure` as the first word. The `local` shape is the one that discriminates |
 | O5 | clause 4's decisions hold, and an empty population is not a reason to skip the plant | plant `elif _partset && _roster; then :` ⇒ `callsite` (the keyword opens a position), and `n=$(( citations + budget ))` ⇒ **not** `callsite` (arithmetic does not). ⊕ Measured at HEAD, both land at `?` and red the census at rc=1, so neither guess was ever invisible. ⚠ **A first draft of this row used `n=$(( $(_partset) + $(_roster) ))` as the negative plant, which is wrong**: the inner `$(` *is* a command position by clause 1, so β must classify that line `callsite` and the plant tested the opposite of what it named. The negative plant has to put bare vocabulary tokens inside the arithmetic, with no substitution. ⚠ **The stated reason for having no obligation here was also wrong** — every O1–O4 plant is synthetic too, so an empty population never separated this clause from the guarded ones |
@@ -395,13 +439,16 @@ population β leaves unchanged.
 - **β lands no coverage-gate change.** Both directions of it are ε's — the reverse direction and the non-triviality clause the umbrella measured constructible after this memo concluded it was not.
 - ⚠ **β's effect on `-audit.sh`'s length is an obligation, not an assertion.** An earlier draft asserted the
   authoring band was not reached, unmeasured, in a phrasing the harness's own `BAND` needle cannot read.
-  `-audit.sh` is **655** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive*.sh`), and the
+  `-audit.sh` is **655** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`; the glob spelling an earlier draft carried prints nine rows and a total, of which this figure is one), and the
   umbrella's precondition is that a permitted mechanism commit must not be the commit that crosses the size
   trigger. **The implementing commit measures its own tree and cuts the seam while writing if it enters the
   700–800 band**; this memo predicts no number. ⚠ **That figure is itself β's to re-derive, and §5 authorises
-  it.** `638` is the memo pair's only `stated length` claim — `rederive homes` measures it against the working
-  tree and reds on disagreement — so β's implementing commit falsifies it the moment it adds or removes a line
-  of `classify`. It is bookkeeping β's own change makes true, the same footing §3 β-c puts the two umbrella
+  it.** ⊕ It is the **only** claim the gate's `LEN1` needle (`-audit.sh:335`) holds across all five memos —
+  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep POPULATION` prints `stated length=1` —
+  so β's implementing commit falsifies it the moment it adds or removes a line of `classify`. ⚠ **An earlier
+  draft named `638` as that claim.** `638` survives only in the disposition's `prose` row as *"from 638 lines
+  to 754"*, which neither `LEN1` nor `LEN2` matches, so the gate never reads it; the figure it does hold is
+  this bullet's own **655**, four lines above. It is bookkeeping β's own change makes true, the same footing §3 β-c puts the two umbrella
   rows on. ⚠ **An earlier draft added a second, opposite instruction here and it is withdrawn.** It said that if β's
   scan needed more than `-audit.sh`'s headroom, β should *not* cut a seam but report a collision for α to
   dissolve — which contradicted the sentence above it, and rested on D18's claim of a deadlock that the
@@ -415,7 +462,11 @@ population β leaves unchanged.
   memo **and in the umbrella**, in the same commit. ⚠ **The site set is not "the umbrella's two rows", and an
   earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:118`
   (`grep -n 'def classify' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`), and the umbrella cites
-  anchors at or below it across §1, §3 and §7 — only one of which (`:151-152`) is in a row §3 β-c names.
+. ⚠ **Which sections hold them is not written here, because an earlier draft wrote it and was wrong on
+  both counts** — it said §1, §3 and §7, and §1 and §7 are now forwarding stubs holding **zero** anchors while
+  §2, §6 and §9 hold some; and it said *"only one of which (`:151-152`) is in a row §3 β-c names"*, where that
+  anchor is in **§2's slice table** and §3's `mention` and `callsite` rows carry no `-audit.sh:N` anchor at
+  all, so the count is **zero**.
   Enumerate them rather than copying the list, which would give it a second home and one that goes stale as
   soon as either memo cites another line:
 
@@ -447,6 +498,15 @@ adding a key to `CLASSES`; or predicting a figure §4 assigns to the implementin
 
 **Raised for the umbrella, with a trigger** — an owner without a trigger is a drop, which this memo has
 already done once:
+
+- ⚠ **The harness has two command-position predicates and β widens the divergence** — `classify`'s scan and
+  `at_command` (`-inventory.sh:227`). §3's table is the measured divergence in both directions, including the
+  two cases the two **contradict** (`n=$(( … ))`, and the argument-less `$(_partset)` that `at_command`'s
+  `(?!\))` rejects while β1 makes it the headline crossing). ⚠ **No ordering constraint defers this** — the
+  argv transport exists at both payloads today and `_runner` shows Python is shareable — so this is owed work
+  with a real cost, not a blocked path. **Trigger: α**, because reconciling them touches `inventory`'s call
+  graph, which is α's surface; if α declines it, the next slice to touch either predicate takes it, and the
+  table is the work list. ⚠ **This bullet did not exist while §3 claimed it did.**
 
 - ⚠ **`callsite` and `mention` decide quoted spans by two different rules, and β leaves both.** Clause 2
   strips single-quoted spans only; `mention` keeps `hits_outside_quotes` (`-audit.sh:112-115`), which strips

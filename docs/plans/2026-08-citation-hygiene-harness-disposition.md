@@ -278,8 +278,10 @@ PY
 `RULED BY THE PLAN: 9 of 9 class(es)` at rc=0.** That is defect (a)'s own example, caught.
 
 ⚠ **The floor is anchored to a printed distribution rather than chosen**, which is why the command prints
-every row's size and not just the verdict. Today's nine cells measure 36 / 50 / 54 / 70 / 140 / 436 / 441 /
-569 / 729 words with the key removed; a stub of the shape defect (a) names measures 1. The floor sits in that
+every row's size and not just the verdict. ⚠ **The distribution is not written here.** Two drafts wrote it out and both were stale on landing — the
+`prose` cell alone has read 441, 495 and 547 as this session's own edits touched its row — which is why the
+command prints every row's size. A stub of the shape defect (a) names measures **1**, and the smallest real
+rule measures well over an order of magnitude more; run the fence for today's spread. The floor sits in that
 gap with a factor of four below the smallest real rule, and a rule row that ever reds this gate raises the
 floor **with the re-run distribution beside it**, not by argument. ⚠ **What it does not buy**: it cannot tell
 a rule from prose of the same size, and it is blind to a cell that is wrong rather than absent. It closes
@@ -342,7 +344,7 @@ before the re-slice), exactly as the other shape rules were split, and the split
 it is dropped.** It was wrong twice over. **(a) It is a repartition, not a rename**: `-common.sh` alone holds
 three groups, so renaming files to groups requires deciding per block where each lands — which *is* PR-1b's
 move list, so the seam PR-1a defends would collapse. **(b) `-integrity.sh`, `-audit.sh` and `-inventory.sh` all hold only
-kernel blocks**, so one-file-per-group merges them back into a single file of 1192 lines, undoing
+kernel blocks**, so one-file-per-group merges them back into a single file — **1209** lines today, by `wc -l` over the three; ⚠ an earlier draft said 1192, which was the sum before this session's parts grew, undoing
 the split `259e12cb` took on the primitive/consumer seam.
 
 **The invariant file-granular action actually needs is weaker**: *no file holds blocks from more than one
@@ -510,13 +512,18 @@ the same breath, and ε additionally holds the `prose` subject test and the thre
 The ledger is a query, not a count:
 
 ```bash
-grep -n 'owed\|Trigger:\|DISCHARGED' docs/plans/2026-08-citation-hygiene-harness-*.md
-``` ⚠ **It was PR-1a-i's when this
+grep -nE '\bowed\b|Trigger:|DISCHARGED' docs/plans/2026-08-citation-hygiene-harness-*.md
+```
+
+⚠ **The needle was unanchored until two axes measured it**: `owed` without word boundaries matched inside
+*allowed*, *followed*, *narrowed* and *showed*, so roughly a third of what the ledger returned named no item
+at all. ⚠ **And it still cannot see an item that declines to use the vocabulary** — D19's *"No slice takes
+this"* matches none of the three needles, which is the ledger's stated blind spot rather than a gap in it. ⚠ **It was PR-1a-i's when this
 paragraph was written, and PR-1a-i no longer exists** — the re-slice replaced it with β/α/γ/δ/ε, so the
 sentence named an owner that had been dissolved. The check over this memo's own quantities landed as
 `b088dacc`, extending the memo gate this program already owns at `-audit.sh:265-281`; §9 judges that commit
 against its own clause. Its population defect, which draft 13 recorded as a third owed item, was fixed in
-`96d8fae3` rather than carried, and the ⊕ checker D18 deferred is landed rather than owed. Every item the
+`96d8fae3` rather than carried. ⚠ **The provenance block is owed, not landed** — it was landed at `84a7bd67` and reverted after round 5 measured the landing against §9's stopping rule on the full census output rather than on three lines chosen from it (D18). Every item the
 query above returns has a site, an owner and a trigger; nothing here is a slot and nothing is an unowned
 check. ⚠ **What this paragraph may not do is state the count**, which is how it went false: a number beside a
 list is a second home for the list's length, which is the rule §3a already states for its own apportionment.
@@ -527,7 +534,11 @@ list is a second home for the list's length, which is the rule §3a already stat
 
 ## §8 What this memo does not get to claim
 
-**A claim is made once, in §1, beside the command that produces it; a claim with no runnable command is not
+⚠ **This clause was written when §1 was in this file and the split did not sweep it** — §1 is now a
+forwarding stub and the D-entries are in `2026-08-citation-hygiene-harness-measurements.md`, so *"beside"* has
+become a cross-file `D<N>` pointer. The rule is unchanged and its home moved:
+
+**A claim is made once, in the measurements memo's §1, beside the command that produces it; a claim with no runnable command is not
 made.** There is no separate place to write `CHECKED`, because a second copy of a claim is not a check on the
 first — it is a second thing to keep true. What that leaves without a home is the **negative** space:
 
@@ -541,8 +552,18 @@ first — it is a second thing to keep true. What that leaves without a home is 
 
 ## §9 What this memo authorises
 
-**Authorises**, after `/elidex-plan-review` passes: closing #505 **with a closing comment** (§7) and its
-branch **retained**; carrying the transfer set (D10) and this memo pair onto `webref-cite-audit-tool`; and
+⚠ **Two of this clause's referents moved out of this file and the clause was not swept.** §4 and §7 are
+forwarding stubs since `9647ba4d`; the content they held — what the close must carry, and the register
+queries — is in `2026-08-citation-hygiene-harness-external-state.md`, whose own header says it authorises
+nothing. An authorisation may not resolve into a file that disclaims authority, so the **authorising text is
+here and the external-state memo is its evidence**, not its home. ⚠ **And "this memo pair" is now five
+files** — the two splits created two of them, so an unswept transfer clause would leave both outside what it
+carries.
+
+**Authorises**, after `/elidex-plan-review` passes: closing #505 **with a closing comment whose content is
+recorded in the external-state memo's §7** and its branch **retained**; carrying the transfer set (D10) and
+**every `2026-08-citation-hygiene-harness-*.md` in this branch's `docs/plans`** onto
+`webref-cite-audit-tool`; and
 **the scopes of β, α, γ, δ and ε as stated in §3, §2 and §3a**. ⚠ **This clause authorised
 "PR-1a-i's and PR-1a-ii's scopes" until it was measured** — a slice pair the re-slice dissolved, so the
 authorisation every live slice runs through named nobody, and §6 asserted the dissolution two sections
@@ -555,8 +576,12 @@ closes only when a slice's own rows are quoted into its slice memo. It does **no
 terminal under CLAUDE.md's base case (§2).
 
 **Every PR under this umbrella takes its own `/elidex-plan-review` before implementation**, per CLAUDE.md's
-edge-dense rule *(b) 各 PR は実装前に `/elidex-plan-review` 必須*. ⚠ **The population is §2's slice table and
-is not re-listed here.** This clause used to enumerate *PR-1a-i, PR-1a-ii, PR-1b, PR-2 and PR-3*, naming none
+edge-dense rule *(b) 各 PR は実装前に `/elidex-plan-review` 必須*. ⚠ **The population is every PR this memo forces, and it is larger than §2's slice
+table.** A sweep replaced an enumeration (*PR-1a-i, PR-1a-ii, PR-1b, PR-2 and PR-3*) with a pointer to §2 —
+and §2's table holds the five slices only, so PR-1b (§3b), PR-2 (§5) and PR-3 (§6) fell out of the mandatory
+population in the commit whose subject was *four completeness claims in the umbrella were false*. The
+population is **§2's five slices plus every PR §3b, §5 and §6 name**, and it is not compressed to a pointer
+again. This clause used to enumerate *PR-1a-i, PR-1a-ii, PR-1b, PR-2 and PR-3*, naming none
 of the five slices the re-slice created, so the obligation had two homes with different content and the one
 in the authorising section was the stale one. Each slice inherits whatever mechanism has landed as **ground
 rather than as a proposal**, and should be told so — which now includes the provenance block (D18).
@@ -577,8 +602,22 @@ memo's own falsifiability* decides nothing about the harness's design and is the
 `-audit.sh:265-281`'s memo gate from §3's class-rule row keys to this memo's **quantities** was exactly that,
 and it landed as a separate commit, `b088dacc`.
 
-**Two commits have since been run against this clause, and the judgement belongs here, not in a commit
-message.** `b088dacc` **passes**: its whole subject is this memo's falsifiability. ⚠ **`a5fab499`
+**Every commit the falsifier prints is judged here, and the judgement belongs here, not in a commit
+message.** ⚠ **This paragraph said "two commits" while the falsifier printed thirteen**, and the ungraded
+ones were the three most recent — including the two this branch landed after the clause was written. The
+grades, run against §1's trigger on the **whole** `homes` output rather than on lines chosen from it:
+
+- **`96d8fae3`** seeds `_POP` at an initialiser it already shares; census unmoved; **passes**.
+- **`2abaea1b`** repoints `D<N>` resolution at the measurements memo — bookkeeping its own split makes true —
+  but also derives the memo-gate arity, which **discharged a raise β had entered**. Census unmoved, obligation
+  set changed. ⚠ **That separates the clause's words from §1's operationalisation**, and where they separate
+  the words govern: it is a **violation**, and a mild one, recorded rather than reverted because the split
+  itself was forced.
+- **`84a7bd67`** landed the provenance block. ⚠ **Census moved** — `V = 41 tokens` → `42`, and `all()`'s
+  roster row from `enumerates 10 of V` to `11 of V`, the roster being both the memo's most-cited home and
+  **α's** assigned surface. It **violates**, on the same operationalisation that graded `a5fab499`, and it was
+  **reverted** rather than absorbed: `a5fab499` was a forced split with nowhere else to go, this was elective
+  and rested on a measurement that read three named lines for the output. `b088dacc` **passes**: its whole subject is this memo's falsifiability. ⚠ **`a5fab499`
 does not, on this memo's own operationalisation** — §1 defines the trigger as *a commit that moves the
 census output §3 calls the work list*, and the split moved it — `d=$(mktemp -d); git clone -q --local --no-hardlinks . $d; for c in b088dacc a5fab499; do git -C $d checkout -q $c; bash $d/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes; done` — run in a throwaway clone, because the obvious in-place form (`git checkout` in a loop) leaves the reader's own worktree detached, and a `| grep` on the output discards the gate's `!!` lines, which is M3's charter inverted — gives
 `HOMES: 72 (31 code, 41 prose) in 8 files` then `HOMES: 70 (31 code, 39 prose) in 9 files` (verified 2026-08-16;  the two rows it dropped are `prose` rows, which is

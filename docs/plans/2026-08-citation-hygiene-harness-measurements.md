@@ -13,9 +13,14 @@ authorises, what the umbrella does not get to claim. The two age differently and
 reasons, which is the same criterion `-audit.sh:9-14` states for its own split and the one `259e12cb` used
 to cut `-integrity.sh` on the primitive/consumer seam.
 
-⚠ **The cut is late, and that is recorded rather than argued away.** The disposition entered the 700–800
-authoring band at `cdd78dc6` (813 lines) and no seam was cut there; `58643630` added 153 and carried it to
-**1007**, past CLAUDE.md's standalone-prereq trigger — in the same commit whose D18 argues that `-audit.sh`
+⚠ **The cut is late, and the first version of this record understated how late — in the flattering
+direction.** It said the disposition *"entered the 700–800 authoring band at `cdd78dc6` (813 lines)"*. ⊕
+Measured, `for c in b4a9a2a4 d85abd5e cdd78dc6 73ba71db 5090a95a 58643630; do git show $c:docs/plans/2026-08-citation-hygiene-harness-disposition.md | wc -l; done`
+gives **734 / 743 / 813 / 831 / 854 / 1007**: it **entered** the band at `b4a9a2a4` and **left** it at
+`cdd78dc6`. So 813 is the exit, not the entry, and four cut points were missed rather than one. §3 states the
+same record correctly for `-audit.sh` (`979e5426` 778, `49b4f645` 808), so the form was understood and
+misapplied only where the miss was the author's. `58643630` then added 153 and carried it to **1007**, past
+CLAUDE.md's standalone-prereq trigger — in the same commit whose D18 argues that `-audit.sh`
 must not be allowed to reach 705, and in the same file whose §9 records `a5fab499` as a violation of exactly
 this shape. `memory/feedback_touch-time-split-means-while-writing.md:35` names the collision as evidence of
 a miss, not a ground for exemption. Sizes are a command, not a figure here:
@@ -34,9 +39,19 @@ grep -c '^## §[0-9]* What this memo authorises\|^## §[0-9]* The work' \
      docs/plans/2026-08-citation-hygiene-harness-measurements.md    # 0
 ```
 
-The program's spec surface has **one** home, the disposition's `## §0.5 / §3. Spec coverage map`, and the
-harness pins the same four citations at `-common.sh:85-88`. Copying that table here would give it a fourth
-home to drift in, which is the defect §3's `partset` and `roster` rows exist to close.
+⚠ **That check does not discriminate, and three review axes said so.** `predicate-collapse.md` also scores
+**0** and `preflight.py` **passes** it, because what preflight reads is the spec-coverage-map heading. The
+needle is a negative control this file satisfies, not a predicate separating it from a plan memo. **The
+ground is the positive one**: this file authorises nothing and assigns no rule to a slice — a property of
+what it says, not of a heading — and preflight's precondition is scoped to memos that do.
+
+⚠ **The program's spec surface already has more homes than one, and an earlier draft of this paragraph
+said it had one while its own next sentence said a copy would be the fourth.** ⊕ Measured —
+`grep -l 'Spec coverage map' docs/plans/2026-08-citation-hygiene-harness-*.md` returns the disposition,
+the beta memo and the predicate-collapse memo, each carrying its own `## §0.5 / §3.` table, and the harness
+pins the same four citations a fourth time at `-common.sh:85-88`. Adding one here would make five. **That is
+the state, not the design**: it is the same many-homes defect §3's `partset` and `roster` rows exist to
+close, one altitude up, and no rule row rules it. It is not this file's to fix and not this file's to join.
 
 
 ## §1 Measurements
@@ -157,7 +172,7 @@ grep -rn '#505' "$MEMORY"/*.md
   DISAGREE=0` still holds; the predicate is "followed only by blanks and comments", as the preceding clause
   states. **`all` cannot be declared, and its declaration is not even reported as
   unread** — §3's `partset` row carries the cause and the ordering that fixes it. That inverts this harness's
-  charter (`-audit.sh`: *written-and-unread must never come out as "undeclared"*) against the block §3's own
+  charter (`-inventory.sh:376-377`: *written-and-unread must never come out as "undeclared"*; ⚠ an earlier draft attributed it to `-audit.sh`, where `grep -c 'written-and-unread'` returns **0**) against the block §3's own
   preamble calls **the single most important home**. `all()` is additionally a **line-continuation**
   definition (`all() { set -- … \`), so an inserted line lands *inside the roster literal* and `selfcheck`
   then reports three block names that do not exist — visible only if the whole run is read.
@@ -246,7 +261,7 @@ grep -rn '#505' "$MEMORY"/*.md
   row cites as `:44-49`) and a tier-algorithm specification (`-inventory.sh:266`) — none of which the rule
   may touch. ⚠ **The place vocabulary must be derived from `PARTS`, not spelled**: the first draft of the test
   wrote the stems out and the census reported *the test itself* at `?`, rc=1 — the needle had become a home
-  of the fact it censuses. Out of sample, over the 911 harness comment lines (39 census rows + 872 others),
+  of the fact it censuses. Out of sample, over the harness comment lines that are not census rows (⚠ **the figures this entry carried — 911 and 872 — moved when this session added comment lines to the parts; re-derive with `grep -h '^\s*#' docs/plans/2026-07-citation-hygiene-A-rederive*.sh | wc -l` less the census's `prose` row count**),
   it returns `rationale` for 849 of the 872 and a placement verdict only for continuations of the same
   placement sentences. Reproduce:
 
@@ -280,74 +295,125 @@ grep -rn '#505' "$MEMORY"/*.md
   ⚠ **The criterion is not in the tree either**, so §3a's measured-behaviour figures describe a checker that
   does not exist here. Each slice's own plan-review lands its share.
 
-- **D18 — the ⊕ provenance checker is LANDED, in `-inventory.sh`, and the "deadlock" an earlier draft of this
-  entry declared was false**, which `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh attest` shows by
-  running. ⚠ **What that draft got wrong is recorded before what it got right**, because
-  three review axes measured it independently and the error was load-bearing: it deferred the checker to α on
-  a stated impossibility.
-  - ⚠ **"Every available cut moves the census" was a universal over two enumerated cases.** Measured, placing
-    the block in an **existing** part moves nothing: `BY CLASS`, `HOMES:` and `RULED BY THE PLAN` are
-    byte-identical to base with the block wired onto `all`'s roster. Two reviewers found this independently,
-    on `-inventory.sh` and on `-integrity.sh`. Measuring N cases and writing *every* is a second claim, and it
-    needs its own command (`memory/feedback_universal-claims-need-the-complement-measured.md`).
-  - ⚠ **The reason it gave for the new-part case was also false, and the true one is already ruled in §3.**
-    It said a new part "relocates the gate's own homes"; the gate region has **zero** census rows. What
-    actually moves the census is the **stem**: `VOCAB` is the block names union `PARTS` (`-audit.sh:73`), so a
-    new stem turns a previously-invisible line into a home — measured for three stems, a different line each
-    time. §3's `partset` row already states the remedy (*the stem is chosen against the census*), which that
-    draft did not apply. **So a new part is available too, once a stem is chosen that way**; it is not
-    available *cheaply*, because it must also join the part set by hand in both hardcoded homes until
-    `partset` lands.
-  - ⚠ **The band figure was taken at a placement the same entry had ruled out.** It measured 705 for
-    `-audit.sh` — the file whose own seam (`-audit.sh:9-14`) excludes memo-subject checks — and then made
-    705-in-the-band the blocker. The blocker was never size.
+- **D18 — the ⊕ provenance block is written, measured, and REVERTED. It cannot land on this branch, and
+  every reason this entry gave for that before round 5 was false.** The block was landed at `84a7bd67`,
+  reverted after five review axes measured the landing, and its source is below so the slice that lands it
+  does not rewrite it. ⊕ The revert is complete: `git diff 84a7bd67^ -- docs/plans/2026-07-citation-hygiene-A-rederive-inventory.sh docs/plans/2026-07-citation-hygiene-A-rederive.sh`
+  prints nothing, and `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh selfcheck` reports 34 blocks
+  on 24 roster entries again. ⚠ **The sequence of wrong reasons is recorded because the entry kept producing a new
+  one rather than the check that would have settled it.**
 
-  **The placement decision, which lives here because §3's rows are where placement is ruled and a second copy
-  in the harness would be one more home to drift**: the block's subject is the memos, which is the criterion
-  by which `inventory` is not in `-audit.sh` either, so it goes on `inventory`'s side of that seam. ⚠ **Its
-  true home is a part of its own** — `-inventory.sh`'s own charter is the call graph and the sibling branch's
-  memos, not this one's — and that part is the slice which collapses the part-set literals and can pick a
-  census-safe stem. An earlier draft of the block's comment argued this inline, and the census correctly filed
-  the line as a `prose` placement home: the rule that placement belongs to the memo has a checker, and it
-  fired on the violation while it was being written.
+  | draft said | measured |
+  |---|---|
+  | "a new part relocates the gate's own homes" | the gate region has **zero** census rows |
+  | "**every** available cut moves the census" | a universal over two enumerated cases — two reviewers each found a third |
+  | "a new **stem** moves it — three stems, a different line each time" | ⚠ **the probe was contaminated by itself.** Its part defined a block named `x`, and `-Aii.sh:269` reads *"4 capability states x $n_fx fixtures x 2 modes"*, so the multiplication sign was the vocabulary hit and every stem produced the same row. With `_probeonly`: `attest` **70**, `memoclaims` **70**, `zzq` **70** — census-safe stems exist |
+  | "placing it in an **existing** part moves nothing" | ⚠ **measured on three named lines rather than on the output.** `BY CLASS`, `HOMES:` and `RULED` are byte-identical, and the census output is **not**: `V = 41 tokens` → `42`, and `all()`'s roster row moves `enumerates 10 of V` → `11 of V` |
 
-  **What the block is** is stated where it runs, with its four blind spots — two declared when it was written
-  and two measured by the review that read it — and is not restated here. Run it, and its controls:
-
-```bash
-bash docs/plans/2026-07-citation-hygiene-A-rederive.sh attest              # rc=0, per-memo population
-d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
-printf '\n⊕ A claim with no command near it.\n' >> "$d"/docs/plans/2026-08-citation-hygiene-harness-disposition.md
-bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh attest         # rc=1, findings=1
-```
-
-  ⊕ Its yield on the pair when it was first run, against the tree
-  `git show d9a353a0:docs/plans/2026-08-citation-hygiene-harness-1a-i-beta-classifier.md` returns —
-  **a record of that run, not a figure this entry predicts**:
-  eleven attestations carried no command anywhere in their block, nine in the beta memo and two in the
-  disposition, and **two of the eleven were in a paragraph written twenty minutes earlier in the same
-  session** (`memory/feedback_findings-cluster-in-self-added-scope.md`, live and self-inflicted). All eleven
-  were fixed. ⚠ **Today's population and yield are not written here** — this entry's own marks move both, so
-  the figure is whatever the block prints
-  (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
-
-  ⚠ **A third control matters more than the two above and is the reason the block reds on an empty
-  population**: the check's subject set is *lines carrying the mark*, i.e. the author's own vocabulary rather
-  than the property being checked, so deleting every mark would otherwise report clean
-  (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`). ⊕ Measured — strip the mark
-  from every memo in a clone and run the block:
+  **What §9 actually says, and what it decides.** The clause forbids *landing mechanism that decides what a
+  PR decides*, operationalised in this section as *a commit that moves the census output §3 calls the work
+  list*. The output is what `rederive homes` prints, not three lines chosen from it. ⊕ Run the whole thing
+  either side and diff it:
 
 ```bash
 d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
-for m in "$d"/docs/plans/2026-08-citation-hygiene-harness-*.md; do
-  python3 -c 'import sys,pathlib;p=pathlib.Path(sys.argv[1]);p.write_text(p.read_text().replace(chr(0x2295),""))' "$m"
-done
-bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh attest    # attestation=0, rc=1
+git -C "$d" checkout -q 84a7bd67^ && bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes > "$d/before"
+git -C "$d" checkout -q 84a7bd67  && bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes > "$d/after"
+diff "$d/before" "$d/after"        # V 41->42; roster row 10 of V -> 11 of V; POPULATION moves
 ```
 
-  That closes silencing-by-deletion
-  and closes nothing else — **a false measured claim written without the mark is still invisible**, and that
-  is the larger class. The checker for *that* is not this one and is not in the tree.
+  The roster literal is what this memo's own preamble calls the single most important home, and §2 assigns
+  that surface to **α**. §9 grades `a5fab499` a violation on a strictly analogous delta. So the landing fails
+  the clause, and reverting rather than recording-and-absorbing is the difference between a **forced**
+  violation and an **elective** one: `a5fab499` was a split at 1059 lines with nowhere else to go; this was
+  optional and justified by a measurement that did not measure it.
+
+  ⚠ **The placement argument misquoted the seam it cited.** It said `-audit.sh:9-14` *"excludes memo-subject
+  checks"*. It does not: it excludes checks that **source the parts** and take their **authority from memos
+  on another branch**, and `homes`'s own memo-quantity gate — a memo-subject check over the identical glob
+  — is in that file. ⊕ Read it: `sed -n '9,14p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`.
+  Measured against both files' stated criteria the block belongs with `homes`, and the reason it was put
+  elsewhere was that `-audit.sh` is 655 and would cross the authoring band — a size reason, presented as a
+  charter reason. **Where it lives is §3's to rule**, not this entry's; this entry records the runs.
+
+  ⚠ **A review axis read the landing as falsifying β's "all three" heredoc hosts. It does not, and the
+  refutation is recorded because the wording invites the reading.** §3's `roster` row scopes the three to the
+  three **readers of `all`'s roster** — `homes`, `inventory`, `selfcheck` — not to every argv-plus-heredoc
+  payload. ⊕ `grep -n 'python3 - "$REPO_ROOT' docs/plans/2026-07-citation-hygiene-A-rederive*.sh` returns four
+  such payloads even after the revert (`-audit.sh:53`, `:555`, `-inventory.sh:39`, `-common.sh:118`), and
+  `_wtscan` at `-common.sh:118` reads no roster; neither did `attest`. ⚠ **A first draft of this paragraph
+  accepted the axis's finding and added `-common.sh:118` as a fourth site β had missed — which is the same
+  error one level down**, since that payload fails the row's criterion too. What is real is the **label**: β
+  §3a O1 says *"heredoc host sites"* where the row means *the roster readers' payloads*, and a reader
+  applying the phrase rather than the row gets four. The three sites it lists are right; `:538` in that list
+  is not, and is corrected in β. An obligation stated as a
+  cardinal, and a commit inside the review window that changed it.
+
+  ⚠ **The yield this entry recorded does not reproduce with this block.** It said eleven attestations carried
+  no command, *"nine in the beta memo and two in the disposition"*, and attached a `git show` — which prints
+  a memo and runs no check, the block's own blind spot (2), in the entry that declares it. ⊕ Run the block
+  against the tree it named and it prints `findings=0`: the eleven were found by a prototype patched into
+  `homes`, and **fixed before `d9a353a0` existed**, so no tree this entry names carries them. What is true and
+  checkable is that the class was real and the prototype found it; the count belongs to a tree that was never
+  committed.
+
+  **The block, so the slice that lands it does not re-derive it.** Its unit is the markdown block; a command
+  is a backticked span of two or more tokens whose first resolves on `PATH`, which is behaviour rather than a
+  list of verb names (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`).
+
+```bash
+python3 - docs/plans <<'ATT'
+import re, shutil, sys
+from pathlib import Path
+def _scan(md):
+    fen = False
+    for i, s in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+        f0 = s.lstrip().startswith("```"); fen = fen ^ f0
+        yield i, s, fen or f0
+def _blocks(md):
+    out, cur = [], []
+    for i, s, fen in _scan(md):
+        if not s.strip() and not fen:
+            if cur: out.append(cur); cur = []
+        else: cur.append((i, s, fen))
+    if cur: out.append(cur)
+    merged = []
+    for b in out:
+        if merged and all(f for _, _, f in b): merged[-1] = merged[-1] + b
+        else: merged.append(b)
+    return merged
+def _runnable(blk):
+    for i, s, fen in blk:
+        if fen and s.strip() and not s.lstrip().startswith("```"): return True
+        for span in re.findall(r"`([^`\n]+)`", s):
+            tok = span.split()
+            if len(tok) > 1 and shutil.which(tok[0]): return True
+    return False
+pop = bad = 0
+for md in sorted(Path(sys.argv[1]).glob("2026-08-citation-hygiene-harness-*.md")):
+    for blk in _blocks(md):
+        att = [(i, s) for i, s, fen in blk if not fen and "⊕" in s]
+        if not att: continue
+        run = _runnable(blk)
+        for i, s in att:
+            for _ in range(s.count("⊕")):
+                pop += 1
+                if not run:
+                    bad += 1
+                    h = s.split("⊕", 1)[1].strip().replace("**", "")[:60]
+                    print("   !! %s:%d  ⊕ carries no command: %s" % (md.name, i, h))
+print("   POPULATION: ⊕ attestation=%d   findings=%d" % (pop, bad))
+sys.exit(1 if bad else 0)
+ATT
+```
+
+  ⚠ **Five blind spots, and the fifth was measured by the review that read the landed block**: a shell
+  BUILTIN as the first token reads as no command; a command that runs but measures a **different** claim
+  passes; **the same false claim written without the mark is invisible** (the population is the author's
+  vocabulary, not the property); a mark inside a fence leaves the population while a mark inside an inline
+  code span stays in it; and — new — **`blocks()` splits on blank lines, so a markdown table is one block**,
+  and one runnable span in any row discharges every mark in every row. β §3a's O5 mark passes on O2's row.
+  The legend's *"carries the command IN ITS OWN BLOCK"* is therefore stronger than what is checked.
 
 - **D19 — a checker for false COMPLETENESS claims is not constructible as a needle over prose, and four
   probes say so.** Round 4 measured **nine** false completeness claims across the memo pair in two commits —
@@ -366,12 +432,20 @@ bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh attest    # attestat
   | 3 | an emphasised token followed by an absence phrase (*no longer exists*, *is gone*, *is retired*) | **5**, of which 4 are grammatical accidents (`subsumes`, `arises at`, `step 1's output`) | the subject of a natural-language absence claim is not recoverable by proximity. ⚠ **It misses `PR-1a-i no longer exists`, the very instance it was written for** — that subject is bolded prose, and widening to bold returns a complement of 13 that is entirely noise (`and is gone`, `the does not exist`) |
   | 4 | `§N` plus *authorises / says / states / lists*, checked against that section | **22**, resolvable 21 | existence is checkable and yields nothing; the one unresolved is a legitimate cross-branch cite of A-i's §13. **It does not reach `§5 authorises it`**, because §5 exists — the defect was its *content*, and what "it" refers to is not recoverable |
 
-  Reproduce any of them against the memo set:
+  ⚠ **An earlier draft offered a two-command block under the words *"reproduce any of them"*, and it
+  reproduced none of the four.** The first command was `grep -c ''`, which prints **line** counts, not the
+  sentence, fence or claim populations the table states; the second returned a figure that did not match
+  probe 4's row. ⊕ The cause, measured at `d3fcc009`: the needle returns **17** over the memo set and **5**
+  over the harness scripts, and probe 4's **22** ranged over both while the reproduce command ranged over the
+  memos alone. ⚠ **A first correction of this paragraph asserted the scripts contribute zero** — written
+  without running the command it was describing, which is the failure this table is about, two layers down.
+  ⚠ **No fixed integer belongs beside these rows in any case**: the population is self-referential, since
+  this entry's own prose carries `§N … states` spans, so every edit to it moves the figure. The command is
+  given so a reader gets today's, over the memo set alone:
 
 ```bash
-grep -c '' docs/plans/2026-08-citation-hygiene-harness-*.md
 grep -oE '§[0-9]+[a-z]?[^.]{0,40}(authorises|says|states|lists|names)' \
-     docs/plans/2026-08-citation-hygiene-harness-*.md | wc -l
+     docs/plans/2026-08-citation-hygiene-harness-*.md | wc -l    # probe 4, memo set only
 ```
 
   ⚠ **What the four probes agree on**: the failures are not identifiable from the *claim*, only from the
@@ -381,9 +455,37 @@ grep -oE '§[0-9]+[a-z]?[^.]{0,40}(authorises|says|states|lists|names)' \
   control (b) of D18's block: a false measured claim written without the mark passes, verified by planting
   one — `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh attest` stays green.
 
-  **What is left, and it is not a needle**: the two habits the nine instances share. Every one of them either
-  (a) universalised over a set the author had just enumerated by hand — *two* cuts became *every* cut, *six*
-  swept sites became *the* dissolved owner — or (b) asserted the content of a sibling section without opening
-  it. Neither is checkable, both are stateable, and the second is the one that reached a commit message.
-  **No slice takes this**; it is recorded here as the reason the `attest` block's blind spot (3) is written down
-  rather than treated as an oversight to be fixed later.
+  **What is left is not a needle but a set of habits, and the first draft of this paragraph got their number
+  wrong in the way this entry is about.** It said *"the two habits the nine instances share — every one of
+  them either (a) universalised over a hand-enumerated set or (b) asserted a sibling section's content without
+  opening it"*. ⚠ **That is a false completeness claim inside the entry about false completeness claims**,
+  found by auditing this session's own added prose rather than by a reviewer. Three of the nine fit neither
+  branch. Classified against the nine:
+
+  | habit | instances | what actually happened |
+  |---|---|---|
+  | (a) universalised over a set enumerated **by hand** | *every available cut*; *PR-1a-i no longer exists*; *one item is owed* | two cuts became *every* cut; six swept sites became *the* dissolved owner |
+  | (b) asserted a **sibling section's** content without opening it | *§5 authorises it*; *§9 no longer resolves through §3* | §5 lists three items and none is the one claimed. This is the branch that reached a commit message |
+  | (c) misread a **member** of a set the machine had enumerated correctly | *sixteen `elif` hits are Python*; *both `partset` rows are literals* | the grep and the census both printed the full set; `-Aii.sh:281` is a shell alternation and `A-rederive.sh:52` is a `for` loop. **The enumeration was right and the per-member judgement was wrong**, which no enumerating command can catch |
+  | (d) wrote a clause about an object without **sweeping that object** | *only figures that reproduce* | the clause landed in the same edit as the row it ranges over, and `849` survived three lines below it |
+  | (e) attached the command and **did not run it** | *Every hit is in this memo* | the needle was written out; running it returns four hits in the other memo |
+
+  ⚠ **(c) is the one that matters most and the one the first draft erased.** Habits (a), (b) and (e) are all
+  *failures to enumerate*, and a reviewer can catch them by enumerating. (c) is a failure **after** correct
+  enumeration, so no command reaches it — which is the real reason this class has no checker, and a stronger
+  reason than the one the four probes give. ⚠ **"No slice takes this" is not a disposition on its own, and an earlier draft left it as one.** The
+  create-time rule requires the four questions before declining a slot, and question 4 — repeat signal — is
+  unambiguously **yes** here: this class is in the memory ledger and was escalated from five instances in a
+  session to nine. Run against `memory/feedback_defer-slot-eligibility-audit-at-create.md`: (1) is it
+  discarded work? **no** — nothing is dropped, the habits are stated. (2) does it block a named PR? **no**.
+  (3) is there a mechanism to build? **no** — D19's four probes and a reviewer's fifth all measure that there
+  is not. (4) repeat signal? **yes**. One yes, and it is the one that forbids silence.
+
+  **So it is recorded as an accepted cost with its price named, not as a non-slot.** The price: habits (a),
+  (b) and (e) are failures to enumerate and a reviewer catches them by enumerating — five axes did, nine
+  times in one round. Habits (c) and (d) are failures *after* correct enumeration and no reviewer command
+  reaches them either; they are caught, when they are caught, by a second person reading the sentence beside
+  the output. **Trigger for re-opening**: a round in which habit (c) or (d) accounts for more findings than
+  (a), (b) and (e) together — at that point the reviewing loop has stopped being the mechanism and something
+  else has to be. Until then this entry, and the `attest` block's blind spot (3), are where the cost is
+  written down.

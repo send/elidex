@@ -4,9 +4,15 @@
 prereq when that memo reached the 700-line authoring band for the second time. Both sections are cited by
 number and the numbering is unchanged.
 
-**Why the seam is here.** Every other section of the disposition states a rule about the block set or about
-who may change one: which slice owns which class, what each slice authorises, what the memo may not claim.
-These two do not. §4 answers where the harness lives and what that decides for **#505**; §7 is the list of
+**Why the seam is here**, stated positively rather than by a universal over what stays. ⚠ **An earlier draft
+said *"every other section of the disposition states a rule about the block set or about who may change one"*
+and that is false.** `grep -n '^## ' docs/plans/2026-08-citation-hygiene-harness-disposition.md` prints
+**eleven** headings — §0.5 / §3, §1, §2, §3, §3b, §4, §5, §6, §7, §8, §9 — two of which (§4, §7) are the
+stubs left by this cut, leaving nine. Of those nine, **§0.5 / §3 is a spec coverage table and §1 is a
+two-line pointer**, and neither rules anything about the block set. ⚠ **The first correction of this sentence
+said "nine" while attaching the command that prints eleven**, which is the same failure one layer down: the
+count was taken from the argument rather than from the output. The seam does not need the universal: what §4 and §7 have in common is a **subject**, and it is not
+the block set. §4 answers where the harness lives and what that decides for **#505**; §7 is the list of
 statements this program has made **outside this repository** — in memory files other sessions append to
 daily, and in review threads — together with the queries that re-check them. Their subject is the branch's
 relationship to things outside its own text, and their lifecycle ends when #505 closes and the transfer
@@ -25,6 +31,12 @@ same check the measurements memo states applies:
 grep -c '^## §[0-9]* What this memo authorises\|^## §[0-9]* The work' \
      docs/plans/2026-08-citation-hygiene-harness-external-state.md    # 0
 ```
+
+⚠ **That check does not discriminate, and three review axes said so.** `predicate-collapse.md` also scores
+**0** and `preflight.py` **passes** it, because what preflight reads is the spec-coverage-map heading. The
+needle is a negative control this file satisfies, not a predicate separating it from a plan memo. **The
+ground is the positive one**: this file authorises nothing and assigns no rule to a slice — a property of
+what it says, not of a heading — and preflight's precondition is scoped to memos that do.
 
 ## §4 Where the harness lives, and what that decides for #505
 
