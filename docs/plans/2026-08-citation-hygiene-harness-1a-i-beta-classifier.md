@@ -79,7 +79,9 @@ ten spec-pair lines are there today**; the assertion re-derives that rather than
 ## §1 Measurements
 
 Numbered **β1…**, not `D<N>`: the harness's memo gate resolves every `D<N>` in any
-`2026-08-citation-hygiene-harness-*.md` against the umbrella's §1, so a fresh `D`-number here would dangle —
+`2026-08-citation-hygiene-harness-*.md` against **the measurements memo's** §1 (`-audit.sh:403-411`), so a
+fresh `D`-number here would dangle — ⚠ **an earlier draft named the umbrella's §1**, which is a forwarding
+stub with zero bullets, so following the sentence found no definitions —
 measured, by writing one and watching this memo's own first gate run red.
 
 ⚠ **Provenance convention**, stated as a legend rather than in prose, because a line that *defines* the
@@ -94,7 +96,9 @@ command elsewhere; measured, that escape is where nine of this memo's own attest
 no command anywhere near it, indistinguishable to a reader from one that has one. The command travels with
 the claim or the claim drops the mark. ⚠ **An item whose artifact is not in the tree** (β4 below) says so and
 names the recipe that builds it; it still carries a command for the half that is measurable today.
-**D18 of the umbrella carries the falsifier for this convention**, its yield at the head that landed it, and
+**D18 of the measurements memo carries the falsifier for this convention** and the block's landing, revert
+and re-landing. ⚠ **It no longer carries a yield figure** — the one it recorded came from a prototype on a
+tree that was never committed, which D18 states — and
 why it is not in the tree.
 
 ⚠ **A figure appears in this memo only where its subject is a tree that does not exist on HEAD, or where it
@@ -223,9 +227,11 @@ Three consequences, each ⊕ against the same clone recipe — take the base fir
 **Recorded for ε — the `prose` predicate.** Re-implemented from the literal text of the umbrella's `prose`
 row rather than from its intent. ⚠ **That run was delegated and is not re-measured here.** Its structural
 claims reproduce exactly: the five straddling rows by identity (`-Aii.sh:7`, `-B.sh:7`, `-audit.sh:92`,
-`-common.sh:10`, `A-rederive.sh:47`); ⊕ the control population of 872
-(`grep -h '^\s*#' docs/plans/2026-07-citation-hygiene-A-rederive*.sh | wc -l` = 911, less the 39 `prose`
-census rows). Its quantitative claims do not: across six readings the placement/rationale split came out
+`-common.sh:10`, `A-rederive.sh:47`); ⊕ **the control population is whatever
+`grep -h '^\s*#' docs/plans/2026-07-citation-hygiene-A-rederive*.sh | wc -l` returns today, less the 39
+`prose` census rows** — ⚠ an earlier draft wrote `= 911` beside that very command, and it has returned 925
+and 970 since, because this program keeps adding comment lines to its own parts. The figure had three homes
+and none reproduced. Its quantitative claims do not: across six readings the placement/rationale split came out
 14/20 and 21/13, never the umbrella's 19/15, and no treatment of straddlers reached its 849 control figure.
 **The umbrella now records that at both sites that carried the figure**; ε measures its own.
 
@@ -283,6 +289,18 @@ re.findall(lead + "_partset" + r"(?![\w-])(?!\))", probe)     # at_command's own
 | `cmd & _partset arg` | **match** — the class holds a bare `&` | **no** — β spells `&&` only | ⚠ still β's gap |
 | `if` / `while` / `until` | yes | adopted in this draft | was β's gap |
 
+⚠ **The table is disagreement-by-construct, and two measured disagreement *sites* are not in it.** ⊕ Running both predicates over every line × every block name in the harness —
+`grep -c '' docs/plans/2026-07-citation-hygiene-A-rederive*.sh` for the corpus, then each regex applied per
+line in a throwaway clone — gives exactly four disagreeing lines:
+`-common.sh:212` and `:233` (`_measure n_head _wtscan …`, the third-word arm below), and — in the other
+direction — `-B.sh:35` and `-common.sh:462`, which β's rule calls call sites and `at_command`'s `(?!\))`
+suppresses. ⚠ **`-B.sh:35` is verbatim the site `at_command`'s own docstring records the guard for**:
+*"`partition`'s own docstring ends a sentence with \"all)\"; bare occurrences made … the second a caller of
+the dispatcher."* So the cheapest reconciliation direction §5 names — widening `at_command`'s lead — would
+**re-introduce a false caller edge that guard was landed to remove**, unless β's rule gains a right-boundary
+clause. §3 states four clauses measurement forced and none of them is a right boundary; **that is a fifth,
+and it is undecided here.**
+
 ⚠ **`at_command` also carries a `_measure` third-word arm** that resolves a block name in **argument**
 position (`_measure n_head _wtscan`). β's rule declines that — it widens *where* a token may stand, not
 *what counts as one* — so a reconciler taking §3 as canonical would delete an arm whose own comment records
@@ -304,8 +322,9 @@ It said *"§5 raises it with a trigger"*; §5 contained no such raise (three rev
 appearing **zero** times there), which is the failure §5's own closing ⚠ names one section away, repeated in
 the commit that added the rule against it. It also gave an ordering reason that does not hold: *"no function
 is shared between them … converging them needs the argv crossing α builds"*. ⊕ Measured — the argv transport
-already exists at **both** payloads (`grep -n 'python3 - "$REPO_ROOT' docs/plans/2026-07-citation-hygiene-A-rederive*.sh`
-shows `-audit.sh:53` and `-inventory.sh:39` each passing a path today); what α builds is the roster
+already exists at **both** payloads (that command is an **enumerator, not a filter** —
+`grep -n 'python3 - "$REPO_ROOT' docs/plans/2026-07-citation-hygiene-A-rederive*.sh` returns **four**
+payloads, of which `-audit.sh:53` and `-inventory.sh:39` are the two this sentence is about); what α builds is the roster
 **payload**, not the transport. And `_runner` (`-Aii.sh:77-78`) already writes a Python module to a file and
 runs it, so Python is shareable across payloads now. **Nothing orders this after α.** The cheapest direction
 was never costed either: widening `at_command`'s own lead at `-inventory.sh:234` is one edit.
@@ -424,7 +443,7 @@ added**, and the table's order is O1, O2, O3, O5, O4, so the range was not even 
 | O4 | `mention` still means *text about a block* | `-B.sh:87`, the one live `mention` row, still `mention` — and the whole `BY CLASS` line unchanged (G3), which is the general form of the same assertion |
 | G1 | population | every home in the base census is present after, and none arrives |
 | G2 | the spec-pair lines stay non-homes | re-derive the `-common.sh` home list from a full census run and require no spec-pair line in it; re-derive that all spec-pair lines are in `-common.sh` rather than presuming it |
-| G3 | nothing moved class | `BY CLASS` byte-identical to base on the unplanted tree |
+| G3 | nothing moved class | the **whole** `rederive homes` output diffed against base on the unplanted tree, not three lines chosen from it. ⚠ **An earlier draft named `BY CLASS` alone** — the same three-name form that let a mechanism landing read as census-neutral when `V` and a roster row had moved (§9). Line-number shifts are expected and are not a class move; what G3 forbids is a row changing class or appearing |
 | G4 | no block left the table | ⚠ **the named block set of `inventory`'s table, diffed against base — not `defined=`.** The umbrella measured the count form false: a part can leave the table with `defined=` 35 → 35 because an addition elsewhere masks the removal. `defined=` may be reported, never relied on |
 
 ⚠ **What β cannot test**: whether the position list is exhaustive for shells this harness does not write, and
@@ -463,8 +482,9 @@ population β leaves unchanged.
   earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:118`
   (`grep -n 'def classify' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`), and the umbrella cites
 . ⚠ **Which sections hold them is not written here, because an earlier draft wrote it and was wrong on
-  both counts** — it said §1, §3 and §7, and §1 and §7 are now forwarding stubs holding **zero** anchors while
-  §2, §6 and §9 hold some; and it said *"only one of which (`:151-152`) is in a row §3 β-c names"*, where that
+  both counts** — it said §1, §3 and §7, and §1 and §7 are now forwarding stubs holding **zero** anchors, and of the rest
+  **§3 holds ten of the twelve**, §2, §6 and §9 one each — ⚠ the correction that removed §1 and §7 also
+  removed §3, the one the first list had right; and it said *"only one of which (`:151-152`) is in a row §3 β-c names"*, where that
   anchor is in **§2's slice table** and §3's `mention` and `callsite` rows carry no `-audit.sh:N` anchor at
   all, so the count is **zero**.
   Enumerate them rather than copying the list, which would give it a second home and one that goes stale as

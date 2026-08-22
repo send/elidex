@@ -438,3 +438,129 @@ if _fatal:
 INVENTORYPY
   return $?
 }
+
+# THE MEMOS' PROVENANCE MARKS, AUDITED. The 2026-08 memos mark a re-measured claim
+# with `⊕`, and their own convention says every marked item carries the command in
+# ITS OWN BLOCK. THREE PLAN-REVIEW ROUNDS REPORTED THE SAME CLASS -- marks standing
+# alone -- and each remedy was a rewrite of the marks, which is the shape
+# `memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md` names: the author
+# believes the convention was followed, so only a check disagrees. Its yield when
+# first run was eleven, two of them written twenty minutes earlier in the session
+# that wrote the check.
+#
+# WHERE THIS BLOCK LIVES IS A DISPOSITION QUESTION AND THE MEMO DECIDES IT -- see
+# D18. Repeating the argument here would give a placement rule a second home in the
+# one file whose job is to find those, and the census says so: an earlier draft of
+# this comment stated the rule inline and the census correctly filed the line as a
+# `prose` placement home, moving the work list by one.
+#
+# THE UNIT IS THE BLOCK, NOT THE LINE, because the convention binds the ITEM: a
+# bullet may attest on one line and run its command three lines down, and a fence is
+# separated from the sentence introducing it by a blank line. WHAT COUNTS AS A
+# COMMAND IS KEYED TO BEHAVIOUR -- the first token resolves on `PATH` -- rather than
+# to a list of verb names, which would leave the next tool authoritative by default
+# (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`);
+# a one-token span is a NAME, since `test`, `time` and `env` all resolve, so two
+# tokens are required.
+#
+# ⚠ FOUR BLIND SPOTS, STATED BECAUSE AN ABSENCE HERE IS NOT EVIDENCE. Two were
+# declared when this landed; two more were measured by the review that read it, and
+# the second of those is the load-bearing one:
+#   (1) a shell BUILTIN as first token (`local n; _measure …`) does not resolve on
+#       `PATH` and reads as no command.
+#   (2) a command that RUNS but measures a different claim than the sentence above
+#       it passes. This is the larger half of what the reviews were reporting.
+#   (3) THE SAME FALSE MEASURED CLAIM WRITTEN WITHOUT THE MARK IS INVISIBLE. The
+#       predicate is "does this line carry `⊕`", i.e. the population is the AUTHOR'S
+#       OWN VOCABULARY rather than the property being checked
+#       (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`).
+#       A memo that uses a different convention contributes zero and says so below.
+#   (4) a mark moved INSIDE a fence leaves the population, because fenced lines are
+#       skipped so that a legend defining the mark is not read as using it -- and,
+#       the other way round, a mark inside an INLINE code span stays in it, so a
+#       memo quoting this block's own output back has written an attestation. That
+#       is not fixable by a needle: the two are the same characters in the same
+#       position, and only the sentence around them differs. Measured while writing
+#       the entry that records this block.
+# The population is printed for the same reason the quantity gate prints its own: a
+# needle matching nothing reports clean for the wrong reason.
+attest() {  # THE MEMOS' PROVENANCE MARKS — every `⊕` item carries a command in its own block
+  python3 - "$REPO_ROOT/docs/plans" <<'ATTESTPY'
+import re, shutil, sys
+from pathlib import Path
+
+HD = Path(sys.argv[1])
+M8 = sorted(HD.glob("2026-08-citation-hygiene-harness-*.md"))
+if not M8:
+    raise SystemExit("!! no `2026-08-citation-hygiene-harness-*.md` under %s; a population of zero "
+                     "would report clean for the reason a needle matching nothing does." % HD)
+
+def scan(md):
+    """(lineno, text, fenced) -- a ``` fence line counts as fenced on BOTH sides, so a
+    legend DEFINING the mark inside a fence is not read as an item USING it."""
+    fen = False
+    for i, s in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+        f0 = s.lstrip().startswith("```")
+        fen = fen ^ f0
+        yield i, s, fen or f0
+
+def blocks(md):
+    """Blank-line-delimited blocks, with a following all-fenced block merged into the
+    one above it: a fence is nobody's item on its own, and the sentence that
+    introduces it is separated from it by a blank line."""
+    out, cur = [], []
+    for i, s, fen in scan(md):
+        if not s.strip() and not fen:
+            if cur:
+                out.append(cur); cur = []
+        else:
+            cur.append((i, s, fen))
+    if cur:
+        out.append(cur)
+    merged = []
+    for b in out:
+        if merged and all(f for _, _, f in b):
+            merged[-1] = merged[-1] + b
+        else:
+            merged.append(b)
+    return merged
+
+def runnable(blk):
+    for _, s, fen in blk:
+        if fen and s.strip() and not s.lstrip().startswith("```"):
+            return True
+        for span in re.findall(r"`([^`\n]+)`", s):
+            tok = span.split()
+            if len(tok) > 1 and shutil.which(tok[0]):
+                return True
+    return False
+
+pop, bad, per = 0, [], {}
+for md in M8:
+    n = 0
+    for blk in blocks(md):
+        att = [(i, s) for i, s, fen in blk if not fen and "⊕" in s]
+        if not att:
+            continue
+        ok = runnable(blk)
+        for i, s in att:
+            for _ in range(s.count("⊕")):
+                pop += 1; n += 1
+                if not ok:
+                    bad.append((md.name, i))
+                    print("   !! %s:%d  ⊕ attests a measurement and its item carries no command: %s"
+                          % (md.name, i, s.split("⊕", 1)[1].strip().replace("**", "")[:58]))
+    per[md.name] = n
+print("   PER MEMO: %s" % "  ".join("%s=%d" % (k.replace("2026-08-citation-hygiene-harness-", ""), v)
+                                    for k, v in sorted(per.items())))
+print("   POPULATION: ⊕ attestation=%d   findings=%d" % (pop, len(bad)))
+if pop == 0:
+    raise SystemExit("!! %d memo(s) read and not one carries the mark; the convention would then be "
+                     "checked by a needle that matches nothing." % len(M8))
+if bad:
+    raise SystemExit("!! %d attestation(s) with no command in their own block. Do not remove the mark "
+                     "to silence this -- the convention is that the command travels with the claim."
+                     % len(bad))
+ATTESTPY
+  return $?
+}
