@@ -1234,6 +1234,17 @@ def selftest() -> int:
               "`.claude/tools/claim-provenance-trip-wire.sh`.\n"), True),
           "SITES")
 
+    # `FENCE_TOPIC` was the bare word, and "fence" is a concurrency term in
+    # half this repository's plan-memos. Measured across the tree: the only two
+    # FENCE findings outside this program's own memo were a navigation sentence
+    # ("the same fence content-mode's chrome-direct traversal sits behind") and
+    # a queue-algorithm one -- neither about a markdown fence at all. The word
+    # this check means is the markdown one, and the memo it audits always
+    # qualifies it: `fence arm`, `fence tracker`, `fence tracking`, `fenced`.
+    probe("FENCE ban ignores the concurrency sense of the word", False,
+          capture(check_fence, synth(
+              "## §6 x\nSlice B does not route either through the queue — both "
+              "collapse into the same fence content-mode's traversal.")))
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
               "## §6 x\nThe fence arm is defined per surface; only a matching "
