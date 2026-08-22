@@ -208,6 +208,19 @@ def shipped_files() -> list[Path]:
     return sorted((REPO / ".claude" / "tools").glob("claim[-_]*"))
 
 
+def finding_codes() -> set[str]:
+    """Every code this program can report, read off the calls that report them.
+
+    Three places wanted this set and each derived it again: TOOLING's `checks`
+    quantity, the docstring-roster probe, and the decline path in `main`, which
+    has to name what it is declining. A fourth derivation is how the roster came
+    to carry ten of twelve -- so it is one function, and the population is
+    `shipped_files()` rather than this file, which is the narrowing both splits
+    already caused once."""
+    return {c for p in shipped_files() if p.suffix == ".py"
+            for c in re.findall(r'bad\("([A-Z]+)"', p.read_text())}
+
+
 # --------------------------------------------------------------------------
 # markdown surface
 # --------------------------------------------------------------------------
@@ -589,11 +602,7 @@ def check_tooling_quantities(memo: Memo) -> None:
     # twelve -- so a memo stating the true figure was RED for being correct,
     # and the check that exists to catch a stale number was the one carrying
     # it. The population is the same glob the control-count arm uses.
-    codes: set[str] = set()
-    for path in shipped_files():
-        if path.suffix == ".py":
-            codes |= set(re.findall(r'bad\("([A-Z]+)"', path.read_text()))
-    derivable["checks"] = len(codes) or None
+    derivable["checks"] = len(finding_codes()) or None
     # `lines` and `probes` have no entry, and that is the verdict rather than an
     # omission: a line count over a multi-file program depends on which files
     # you chose to count, which is exactly the convention-dependent quantity the
@@ -836,9 +845,18 @@ def main(argv: list[str]) -> int:
     # and the remedy was verified on the check rather than re-measured on the
     # tool -- so the category error survived its own fix.
     if not IS_SUBJECT.search(memo.text):
-        print(f"claim-gate plan check: {memo.path.name} does not name "
-              f"`claim-gate-plan-check`, so it is not a memo this tool is about "
-              f"— every check declined")
+        # A decline is non-coverage, and non-coverage goes through `skip()` --
+        # the closing line is where it becomes visible. This printed a sentence
+        # for a human and left the machinery silent, so a declined run and a
+        # clean one produced the same `0 finding(s)` a reader would trust. The
+        # codes are DERIVED: naming them here would be a fourth roster, and the
+        # third one carried ten of twelve.
+        why = (f"{memo.path.name} does not name `claim-gate-plan-check`, so it "
+               f"is not a memo this tool is about")
+        for code in sorted(finding_codes()):
+            skip(code, why)
+        for line in summary("wire" if WIRE.exists() else "bootstrap"):
+            print(line)
         return 0
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 

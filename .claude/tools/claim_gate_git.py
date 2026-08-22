@@ -80,6 +80,30 @@ def commit_count() -> int | None:
     return int(out.strip()) if rc == 0 and out.strip() else None
 
 
+def paths_at_merge_base() -> list[str] | None:
+    """Every tracked path as of the point this branch left `origin/main`.
+
+    The other half of a SET question. `changed_paths()` answers "was this path
+    touched", which is not the same as "did the set gain or lose a member": a
+    one-line edit to an existing member touches a path and changes no set. A
+    caller asking about membership compares this against the tree and takes the
+    difference, and gets rename handling for free -- a renamed member leaves
+    under its old name whatever the diff machinery decides to call the move.
+    """
+    if not have_base():
+        return None
+    rc, out = host.sh(["git", "merge-base", BASE, "HEAD"])
+    if rc != 0 or not out.strip():
+        return None
+    rc, out = host.sh(["git", "ls-tree", "-r", "--name-only", out.strip()])
+    return [x for x in out.split("\n") if x] if rc == 0 else None
+
+
+def tracked_paths() -> list[str]:
+    """Every tracked path in the working tree."""
+    return [x for x in host.sh(["git", "ls-files"])[1].split("\n") if x]
+
+
 def gone_from(log_out: str, tracked: set[str]) -> list[str]:
     """The deletion log, minus what is back. A path deleted in one commit of the
     range and restored in a later one is not a file this branch removes, and

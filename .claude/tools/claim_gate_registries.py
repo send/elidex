@@ -101,12 +101,25 @@ def changes_the_wire_set() -> bool | None:
     -- names one, ships none -- did not exist.
     (memory `feedback_gate-criterion-by-behaviour-not-by-name`.)
 
-    Rename detection used to hide the removal half: a wire renamed out of the
-    set reported only its destination, so the branch that took the last wire
-    away answered False. `claim_gate_git` disables it for every derivation, for
-    that reason at every one of them."""
-    paths = claim_gate_git.changed_paths()
-    return None if paths is None else any(WIRE_FILE.match(x) for x in paths)
+    It is a SET comparison rather than a diff, because "add or remove" is not
+    what a diff answers. Reading `changed_paths()` for a wire-shaped entry made
+    a one-line edit to an existing wire answer True, and every collective
+    sentence in every governing file then landed on the disposal list of a PR
+    whose set nobody had changed -- seventeen findings for a false premise, the
+    same seventeen the by-name gate produced, arrived at the other way. What
+    SITES exists for is the sentences a MEMBERSHIP change falsifies: "the wires
+    are grep-only", "four disjoint surfaces". Editing a wire falsifies none of
+    them.
+
+    Comparing the two sets also retires the rename question here rather than
+    answering it: a renamed wire is absent from the tree under its old name
+    whatever the diff machinery decides to call the move. `claim_gate_git`
+    still disables rename detection for the derivations that ARE diffs."""
+    was, now = claim_gate_git.paths_at_merge_base(), claim_gate_git.tracked_paths()
+    if was is None:
+        return None
+    wires = lambda ps: {p for p in ps if WIRE_FILE.match(p)}  # noqa: E731
+    return wires(was) != wires(now)
 
 
 def wire_set_lines() -> list[tuple[str, int, str]]:

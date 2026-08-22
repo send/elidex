@@ -42,6 +42,8 @@ return empty, and every negative probe would silently invert.
 from __future__ import annotations
 
 import builtins
+import contextlib
+import io
 import itertools
 import os
 import re
@@ -189,6 +191,20 @@ DIVERGED = [
 # rename detection -- on by default since git 2.9 -- reports only where it
 # arrived. Every consumer of these derivations is asking about paths, so a
 # departure that names only the destination is a departure none of them sees.
+def _wire_branch(*after: list[str]) -> list[list[str]]:
+    """A base commit holding one wire, then whatever the branch does to it."""
+    return [
+        ["write", "a-trip-wire.sh", "echo a\n"],
+        ["git", "add", "-A"], ["git", "commit", "-qm", "base"],
+        ["git", "update-ref", "refs/remotes/origin/main", "refs/heads/main"],
+        ["git", "checkout", "-qb", "feat"],
+    ] + list(after) + [["git", "add", "-A"], ["git", "commit", "-qm", "branch"]]
+
+
+EDITS_A_WIRE = _wire_branch(["write", "a-trip-wire.sh", "echo a\necho more\n"])
+ADDS_A_WIRE = _wire_branch(["write", "b-trip-wire.sh", "echo b\n"])
+
+
 def renamed(old: str, new: str) -> list[list[str]]:
     return [
         ["write", old, "contents\n"],
@@ -917,6 +933,18 @@ def selftest() -> int:
             _w = registries.changes_the_wire_set()
             probes.append(("git: a wire renamed out of the set changes the set",
                            _w is True, f"{_w}"))
+        # "add or remove" is what the docstring says and what SITES is for: a
+        # governing file's collective sentences are falsified by the set gaining
+        # or losing a member, not by a member changing inside. Touching one line
+        # of an existing wire answered True, which puts every set-level line in
+        # the tree on the disposal list of a memo whose PR changed no set.
+        for _steps, _want, _label in (
+                (EDITS_A_WIRE, False, "editing a wire in place does not change the set"),
+                (ADDS_A_WIRE, True, "adding a wire does change the set")):
+            with tempfile.TemporaryDirectory() as _td:
+                at(_steps, _td)
+                _w = registries.changes_the_wire_set()
+                probes.append((f"SITES: {_label}", _w is _want, f"{_w}"))
     finally:
         host.REPO = _saved_repo
         host._resolved.clear()
@@ -1030,7 +1058,30 @@ def selftest() -> int:
         _rc, _out = sh([sys.executable, str(REPO / ".claude" / "tools" /
                         "claim-gate-plan-check.py"), str(_subj.relative_to(REPO))])
         probes.append(("APPLICABILITY a memo that does not name this tool is declined",
-                       _rc == 0 and "every check declined" in _out, f"rc={_rc}"))
+                       _rc == 0 and "check(s) not run" in _out, f"rc={_rc}"))
+        # A decline is non-coverage, and this program's rule for non-coverage is
+        # that it goes through `skip()` and is counted on the closing line --
+        # `0 finding(s)` printed by a run in which nothing executed is the shape
+        # `skip()` exists for. The decline printed a sentence a human reads and
+        # left the machinery saying nothing, so a declined run and a clean one
+        # produced the same closing line.
+        #
+        # In-process as well as out, and not for redundancy: the subprocess arm
+        # can only read rc and stdout, so it cannot say WHICH checks declined,
+        # and `--arm-coverage` cannot see a `skip()` taken in a child. Both were
+        # true of the first version of this probe, which left the new site
+        # unfired by anything the tracer could observe.
+        # `main` prints its summary; a probe is not a place to print one, and
+        # the suite's own output is compared line-for-line elsewhere.
+        with contextlib.redirect_stdout(io.StringIO()):
+            _declined = capture_skipped(lambda: host.main(["x", str(_subj)]))
+        _want = sorted(host.finding_codes())
+        _got = sorted({d.split(" — ")[0] for d in _declined})
+        probes.append(("…declining names every code the program can report",
+                       _got == _want and len(_want) >= 12,
+                       f"{len(_got)} of {len(_want)}"
+                       + (f"; missing {sorted(set(_want) - set(_got))}"
+                          if set(_want) - set(_got) else "")))
         _subj.write_text("# probe\n\nRun `claim-gate-plan-check` on it.\n\n"
                          "## §4 x\n\nIt cites §9.\n")
         _rc2, _out2 = sh([sys.executable, str(REPO / ".claude" / "tools" /
