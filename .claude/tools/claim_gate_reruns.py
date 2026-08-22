@@ -240,7 +240,7 @@ def check_fence(memo: host.Memo) -> None:
 # unchecked rather than skipped -- a silent cap reads as coverage.
 # --------------------------------------------------------------------------
 
-RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk)\b")
+RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk|wc|tail|head)\b")
 # `$NF` inside an awk program is not shell state, and a first cut that tested
 # the raw line skipped three re-runnable commands as unrunnable -- a cap that
 # reads as coverage. Single-quoted spans are removed before the test. `$?` is
@@ -385,6 +385,21 @@ def compare_arrow(memo: host.Memo, ln: int, cmd: str, want: str) -> None:
 FIXTURE_BLOCK = re.compile(r"^\s*(?:\S+=\$\()?(?:mktemp|git init)\b", re.M)
 
 
+# `RUNNABLE` gates the FIRST WORD. Everything after a separator is a command
+# position too, and nothing gated it: a review executed `| tee`, `; python3 -c`,
+# `&& python3 -c`, `$(python3 -c ...)` and a backtick form out of a memo, writing
+# six files into the repo root -- three of them with ZERO findings, because the
+# paste still matched and the run went silent. The comment above claims this hole
+# is closed; `&` has an arm and `;` never did, and `$(...)` is named there as
+# something the reverted allow-list leaked without anything replacing it.
+#
+# So every segment is gated, not the first. Substitution is REFUSED rather than
+# gated: round 6 tried to reason about what a substitution does and leaked
+# (`printf "$(rm -rf /)"`), and refusing is a reported un-run entry, not silence.
+SEPARATOR = re.compile(r"\|\||&&|[|;]")
+SUBSTITUTION = re.compile(r"\$\(|`|<\(|>\(")
+
+
 def unrunnable(cmd: str) -> str | None:
     """Why this checker will not re-run `cmd`, or None if it will.
 
@@ -394,8 +409,17 @@ def unrunnable(cmd: str) -> str | None:
     an inverted second `RUNNABLE.match`. Only one of the two copies had a probe,
     so widening either predicate could pass its own proof while the other branch
     diverged."""
-    if not RUNNABLE.match(cmd):
-        return "not one of the programs this checker runs"
+    bare = SQUOTED.sub("''", cmd)
+    if SUBSTITUTION.search(bare):
+        return ("contains a command substitution, a command position this "
+                "checker will not gate")
+    for seg in SEPARATOR.split(bare):
+        if not seg.strip():
+            return "has an empty command segment"
+        if not RUNNABLE.match(seg.strip()):
+            return "not one of the programs this checker runs"
+    if WRITES.search(cmd) or (cmd.startswith("sed") and not SED_PRINTER.match(cmd)):
+        return "uses a shape a reader-named program writes with"
     if needs_state(cmd):
         return "needs shell state the memo does not also paste"
     return None
