@@ -233,13 +233,9 @@ fires `needless_pass_by_value` (clippy's pedantic group is warn-level workspace-
 
 ## §3. Spec coverage map
 
-**Breadth**: K=2 specs, M=2 entries — ⚠ **that is the table's row count, which is what
-`preflight.py` computes; run it rather than reading a figure here.** ⚠ **The PR authors a third
-spec outside this table**: the `reconcile_flows` docstring cites `css-inline-3 §4.2 Transverse Box
-Alignment: the vertical-align property` and `§5.3 Calculating the Logical Height Contributions
-("Layout Bounds") of Inline Boxes` (`git grep -c css-inline-3 658cc302 -- crates` → no hits, so
-both are authored here; both pairs verified with `.claude/tools/webref heading`). Their absence
-from the table is why the tool reports two. **Split decision**: single PR, both below the
+**Breadth**: ⚠ **no figure is stated here** — `preflight.py` computes K and M from the table's
+rows, so run it. Every citation this PR authors has a row below, including both `css-inline-3`
+ones (`git grep -c css-inline-3 658cc302 -- crates` → no hits, so both are authored here). **Split decision**: single PR, both below the
 K≥4 / M≥20 recommend threshold, and `preflight.py` independently returns
 `split decision: ok (single PR scope)`.
 
@@ -304,7 +300,7 @@ does author. §9 books the complement with an explicit disposition, not a pointe
 **So the table below is what the PR *carries*, not what the range's spec surface is** — and its
 rows have two distinct provenances, which is the distinction the map exists to record:
 
-⚠ **Two rows here; the docstring adds two `css-inline-3` citations (see Breadth)** — the row count and the instance count are different
+⚠ **Every authored citation has a row** — the row count and the instance count are different
 numbers and conflating them misclassified a row:
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
@@ -334,6 +330,8 @@ numbers and conflating them misclassified a row:
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
+| css-inline-3 §4.2 Transverse Box Alignment: the vertical-align property | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top | **authored by this PR** in the `reconcile_flows` docstring, as the current anchor for the gap CSS 2 §10.8 states in superseded form (`css-inline-3` §1.1 *"replaces and extends … [CSS2] section 10.8"*). Pair verified with `.claude/tools/webref heading css-inline-3 4.2` | ✓ | yes |
+| css-inline-3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | the half-leading derivation | run-level from one resolved font; §5.3's *normal* branch (the default) wants every glyph's A and D | **authored by this PR** in the same docstring, as §10.8.1's current statement. Pair verified with `.claude/tools/webref heading css-inline-3 5.3` | ✓ | yes |
 | CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (⚠ **the enumerator must be case-insensitive AND newline-tolerant**, because this very title
 wraps a line where it is authored: `git grep -ci "line height calculations" 658cc302 -- crates`
 → one hit, `elidex-ecs/src/components/inline_flow.rs`, carrying the title's leading clause beside the

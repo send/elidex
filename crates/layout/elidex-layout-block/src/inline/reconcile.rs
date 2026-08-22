@@ -89,9 +89,12 @@ use super::{
 ///   conformance;
 /// * the atomics' block-axis target is the line top, which leaves
 ///   **`vertical-align` within the line box** unimplemented. The governing
-///   section is **CSS 2 §10.8 Line height calculations: the `line-height` and
-///   `vertical-align` properties**; in `css-inline-3` that property is §4.2
-///   *Transverse Box Alignment: the vertical-align property*. ⚠ Stated
+///   section is **`css-inline-3` §4.2 Transverse Box Alignment: the
+///   vertical-align property** — `css-inline-3` §1.1 says the module *"replaces
+///   and extends the CSS inline layout model and features defined in [CSS2]
+///   section 10.8"*, so the current anchor is cited here and CSS 2 §10.8 is
+///   named only as the superseded statement the rest of this crate still uses.
+///   ⚠ Stated
 ///   positively, because "only `vertical-align` is missing" would be a claim
 ///   over §10.8's whole complement: what **is** implemented is §10.8.1
 ///   half-leading, and only in the **first-baseline** derivation
@@ -125,12 +128,12 @@ use super::{
 ///     subtract its hits before quoting a figure. Owner:
 ///     `#11-css2-spec-label-normalisation`, which calls it hygiene, not
 ///     correctness.
-///   * **Anchor**: re-pointing these citations at `css-inline-3` is
-///     **correctness** — `css-inline-3` §1.1 says it *"replaces and extends"*
-///     CSS 2 §10.8 — and its owner is `#11-inline-spec-cite-misattribution`,
-///     the decorated-inline umbrella's slot for wrong-section citations. This
-///     PR authors one such instance (`:92`) and routes it there rather than
-///     fixing it, because the fix is a crate-wide sweep.
+///   * **Anchor**: this docstring cites the current sections. The rest of the
+///     crate still anchors on CSS 2 §10.8*, which `css-inline-3` §1.1 supersedes;
+///     re-pointing those is **correctness**, not label hygiene, and its owner is
+///     `#11-inline-spec-cite-misattribution`, the decorated-inline umbrella's
+///     slot for wrong-section citations. Not swept here — a crate-wide
+///     re-anchoring is not this PR's change class.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
