@@ -93,8 +93,11 @@ def _text_files(root: Path):
             continue
         try:
             yield path, path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
-            continue
+        except UnicodeDecodeError:
+            continue          # non-text: nothing to scan, legitimately
+        # An unreadable file is NOT a non-match: skipping it let S7/S8 certify
+        # a boundary census over files they never read (Codex R20). OSError
+        # propagates and fails the test.
 
 
 def _scan(root: Path, pattern: re.Pattern) -> list[str]:

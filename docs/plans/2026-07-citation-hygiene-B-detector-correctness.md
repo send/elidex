@@ -211,8 +211,10 @@ D=$(mktemp -d); printf '/// HTML §4.10.21.2-4.10.21.3 step 7\n' > $D/a.rs
 **Fix**: make the number body **atomic** so it cannot give back characters, then reject on the lookahead:
 
 ```python
-r"§\s*(?-i:(?>(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)))(?![\w-])"
+r"§\s*(?-i:(?>(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)))(?!\.*[\w-])"
 ```
+
+⚠ **The lookahead must look THROUGH dots, not just past one character** (Codex R20): `(?![\w-])` accepted `§4.10.5.foo` and `§4.10.5..1` — the atomic body stops at `5`, the next character is `.`, and the token was certified as `§4.10.5`, which is the silent-prefix behaviour this section exists to end. `(?!\.*[\w-])` rejects a dot-run that continues into a word character while still accepting the sentence-final period (`§4.10.5. ` — the dot is followed by a space). Both cases are T1 fixtures.
 
 ⚠ **The brief listed three candidate fixes; one of them is wrong.** `(?=[^\w.-]|$)` also rejects the suffixed token, but it additionally rejects **sentence-final citations** — `§4.10.5.` followed by a space — because the trailing period is not in its allowed follow-set:
 
@@ -518,10 +520,10 @@ Three deltas need naming, not just reporting:
 
 ## §6 Test plan
 
-New/changed tests, by file. Every one must **fail against the unfixed detector** (`bf580047`'s `cite_audit.py` grafted onto A's landed head — §12(2) spells out why the graft is needed) — §12 makes that a runnable check rather than a promise.
+New/changed tests, by file. Every one must **fail against the unfixed detector** (`b3a7d469`'s `cite_audit.py` grafted onto A's landed head — §12(2) spells out why the graft is needed) — §12 makes that a runnable check rather than a promise.
 
 **`test_cite_audit.py`** (36 today):
-- **T1** `TestTokenIntegrity` — 6 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7` all REJECTED; `§4.10.5.` and `§4.10.5, and` accepted. Pins the atomic form and, by the first case, forbids the lookahead form.
+- **T1** `TestTokenIntegrity` — 8 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7`, `§4.10.5.foo`, `§4.10.5..1` all REJECTED; `§4.10.5.` and `§4.10.5, and` accepted. Pins the atomic form and, by the first case, forbids the lookahead form.
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
 - **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. This is the pin that closes `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`): a CSS-module label resolving through the catalog is the whole of that slot.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
@@ -549,6 +551,8 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 WARN: A's P1-P6 already occupy that file. Read it before writing -- A's P5 pins the *tools-unavailable* remedy string and B's P4 pins the *catalog-unavailable* one: two causes, two strings, one file.
 
 **Existing tests that must change**, not silently keep passing:
+- **A-i's S6** (`test_spec_label_covers_pinned_and_non_pinned_shortnames`) asserts the *last-resort* label for `css-text-3` / `cssom-view-1` (`CSS TEXT 3`, `CSSOM VIEW 1`) and that `shortname_for("CSS TEXT 3")` is `None` — the pinned-map-only contract A-i ships. B's catalog fall-through makes both resolve, so S6 is **replaced** by the catalog expectation (S9/S11 cover the round-trip); left as-is it is red the moment `_catalog()` lands (Codex R20).
+- **A-i's S7** (`test_no_slice_b_artifact_is_named`) scans the package for `cite_audit` / `_catalog` — the absence that K3 enforced while B had not landed. B *is* that artifact: S7 is **retired** in the same commit that adds `commands/cite_audit.py`, and its K3 role passes to the harness `couplings` block's cross-tree scan, which keeps the names out of `.claude/skills/` and the rest of the generic tree.
 - `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match` (`:398`) — its name and docstring state `lookup_section` is "prefix-tolerant", the **opposite** of `resolver.py:216-226`'s documented contract, and it passes with the `hit[0] == section` guard deleted, so it pins nothing. Renamed and made real against the shared index.
 - `test_json_records_carry_relative_paths_for_both_classes` (`:388`) asserts two counts and nothing about paths, while `_record` (`:170`) emits unrelativized `str(path)`. Either the assertion becomes real (relativize, matching `agent_brief.py:59`) or the test is renamed to what it checks. **Recommendation: relativize** — machine-local absolute paths cannot be pasted into a memo or diffed across machines, which is the artifact this tool exists to produce.
 
@@ -667,14 +671,22 @@ git worktree add /tmp/citeaudit-pre <A's landed head>
 # A-i's K3 deliberately ships NO detector: at A's head `commands/cite_audit.py`
 # is absent, so a suite run there fails on import, not on T1–T9/C1 (Codex R15).
 # Graft the UNFIXED detector from the carve commit, then the red is attributable.
-git show bf580047:.claude/tools/_webref/commands/cite_audit.py \
+# `b3a7d469` is PR #501's carve commit. It is NOT on `main` (the PR squashes),
+# so fetch it by sha — GitHub keeps a merged PR's commits reachable through
+# `refs/pull/501/head`. (An earlier revision named `bf580047`, a sha that
+# exists only in one author's local object store — Codex R20.)
+git fetch origin b3a7d469
+git show b3a7d469:.claude/tools/_webref/commands/cite_audit.py \
   > /tmp/citeaudit-pre/.claude/tools/_webref/commands/cite_audit.py
 cp .claude/tools/_webref/test_*.py /tmp/citeaudit-pre/.claude/tools/_webref/
+# P4/P5 live in the plan-review suite, not under `_webref/` — without this
+# line the scratch tree keeps A's preflight suite and B's two pins never run.
+cp .claude/skills/elidex-plan-review/test_preflight.py /tmp/citeaudit-pre/.claude/skills/elidex-plan-review/
 cd /tmp/citeaudit-pre && mise run tools-test; echo "EXPECT NON-ZERO: $?"
 ```
 
-The new tests run against the **unfixed** detector — `bf580047`'s `cite_audit.py` on A's landed tree. This must exit non-zero, with at least
-one failure attributable to each of the nine classes (T1-T9) and to the coverage gap (C1). A test that
+The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. This must exit non-zero, with at least
+one failure attributable to each of the nine classes (T1-T9), to the coverage gap (C1), and to P4/P5. A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).
 
