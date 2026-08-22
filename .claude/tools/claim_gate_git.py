@@ -151,8 +151,14 @@ def removed_in_history(path: str) -> bool | None:
     rc, out = host.sh(["git", "rev-parse", "--is-shallow-repository"])
     if rc != 0 or out.strip() != "false":
         return None
+    # Both spellings, as `host.resolve` accepts both: a memo cites by basename
+    # as often as by path, and a row that spells one is declaring the same file
+    # as a row that spells the other. A bare basename is not a pathspec git
+    # matches at any depth, so without the fallback a correctly-spelled row read
+    # as a path no commit ever had -- the arm firing hardest on the memo that
+    # had done the right thing.
     rc, out = host.sh(["git", "log", "HEAD", "--diff-filter=D", "--no-renames",
-                       "--name-only", "--format=", "--", path])
+                       "--name-only", "--format=", "--", path, f"*/{path}"])
     if rc != 0:
         return None
     return any(x for x in out.split("\n") if x)
