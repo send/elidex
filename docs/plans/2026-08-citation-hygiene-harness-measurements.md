@@ -659,6 +659,22 @@ for c in $(git log --format=%h "$BASE"^..HEAD --reverse \
 done; rm -rf "$d"
 ```
 
+⚠ **THAT FENCE IS THE WRONG INSTRUMENT, and round 7 measured it.** §9's test names *"what is on the work
+list"*, and this reads `HOMES: N` — a **count**. A row that changes CLASS while the count holds is invisible
+to it, and §3a's **G3** already carries the right predicate one memo over: *"what G3 forbids is a row changing
+class or appearing"*. ⊕ Re-run keyed on `(file, class)` with line numbers dropped — replace `rows` above with
+`awk '/^  2026-07/ && $1 !~ /:/ {print $1, $5}' | sort | uniq -c` and diff the two — and exactly one commit
+separates: **`adb8a33b`, count 72 → 72, moves `-B.sh` from `callsite` to `mention`** (its own message: *"the
+plan is prose, so the census now checks the prose"*). Every other verdict is unchanged, `473b9d56` and
+`9f0fe33d` included, so the grades stand — but they were obtained by an instrument that could not support
+them, which is the same *count-masks-compensation* defect §3a's G4 books one row over.
+
+⚠ **So §9's *"four of the eight pre-clause commits DO move membership"* is FIVE.** `adb8a33b` joins
+`fc47cde1`, `259e12cb`, `7ad42edd` and `979e5426`, and it belongs to the same exempt family — it rectifies the
+census's rules (`callsite` had been the fallthrough and had swallowed a genuine home) rather than deciding a
+PR's scope. The exemption reasoning holds; the enumeration under it did not, for the second time in this
+clause's history.
+
 | commit | homes | verdict |
 |---|---|---|
 | `90e1429b`, `9a0ff039` | no `homes` block yet | **passes** — vacuously; there is no work list to move |

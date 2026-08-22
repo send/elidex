@@ -598,19 +598,11 @@ removal (PR-3, §6); deleting the `citation-hygiene-harness` branch; editing a s
 query is re-run; creating a defer slot; **or landing mechanism on this branch that decides what a PR
 decides.**
 
-⚠ **Raised with an owner and a trigger, and CARVED rather than fixed here: `CSSOM View 1` is not in the
-plan-review gate's pinned map.** ⊕ Reproduce with
-`python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-08-citation-hygiene-harness-1a-i-beta-classifier.md`,
-which prints `⚠ unrecognized labels: ['CSSOM View 1']` and counts the spec as `<CSSOM View 1>`; all three
-memos carrying the coverage map warn. The label resolves in webref (`.claude/tools/webref specs cssom-view`
-→ `cssom-view-1`), so the fix is one entry in `SPEC_LABEL_REVERSE` in `preflight.py`, kept in sync with
-`_SPEC_LABEL_MAP` in `.claude/tools/webref` as that file's own comment requires. ⚠ **It is not landed here,
-and the reason is this program's own origin.** PR-A0 bundled a citation sweep with a general-purpose detector,
-a shared spec-label refactor **and a behaviour change to `preflight.py`** — that bundle is why this umbrella
-exists. Adding a `preflight.py` behaviour change to a docs-only branch would repeat it, and it is a
-`.claude/**` edit, whose blast radius is every lane and whose landing needs the full pre-push gate rather
-than this branch's memo gate. *Owner*: its own PR. *Trigger*: before the next slice's `/elidex-plan-review`,
-so the axes are not reading a soft-warned row.
+⚠ **One item is raised with an owner and a trigger and CARVED rather than fixed here: `CSSOM View 1` is
+not in the plan-review gate's pinned map.** Its subject is this branch's relationship to a file outside
+its own text, which is `2026-08-citation-hygiene-harness-external-state.md`'s subject, so the record —
+the reproduction, the two map sites, the owner and the trigger — is **there**, cut out while writing when
+this section put the memo inside the authoring band. §9 keeps the fact that the carve exists.
 
 **That last clause is this memo's stopping rule, and it is narrower than the wording it replaces.** Earlier
 drafts forbade *"landing one more line of mechanism on this branch"*. That scope was wrong, on the review
@@ -674,12 +666,16 @@ run against its own parent, the grade table is **D21** in
 `2026-08-citation-hygiene-harness-measurements.md` — cut out while writing, because this section entered the
 authoring band and §4's rule is to cut the seam then rather than to let a later split decide a PR's scope.
 The verdicts stay here, because they are what this clause says; the measurement that produces them is there.
-**Two of the seventeen it grades (`473b9d56`, `9f0fe33d`) fall under this clause and were ungraded until it
-was run; both pass.**
+**The two newest commits it grades (`473b9d56`, `9f0fe33d`) fall under this clause and were ungraded until it
+was run; both pass.** ⚠ **An earlier draft wrote *"two of the seventeen"*, pinning a count D21's own closing
+says must not be pinned here — the falsifier's population grows with the branch, and this sentence would go
+stale at the next mechanism commit while D21 stayed correct.**
 
-⚠ **Four of the eight pre-clause commits DO move membership, and the clause still does not convict them —
-for a stated reason rather than for a date.** `fc47cde1` creates `homes`; `259e12cb`, `7ad42edd` and
-`979e5426` rectify the rules it derives the list from. The membership test asks whether a commit changed
+⚠ **FIVE of the eight pre-clause commits move membership, and the clause still does not convict them —
+for a stated reason rather than for a date.** ⚠ **An earlier draft said four, because the instrument it used
+was a count**; D21 records the re-run keyed on `(file, class)`, which adds `adb8a33b` (`-B.sh`, `callsite` →
+`mention`, count unmoved). `fc47cde1` creates `homes`; `259e12cb`, `7ad42edd`, `979e5426` and `adb8a33b`
+rectify the rules it derives the list from. The membership test asks whether a commit changed
 *what is on the work list*, and that question presupposes an instrument that produces one. It cannot grade
 the instrument's own construction: before `fc47cde1` there was no list, and a rule fix that makes the list
 CORRECT is not a decision about a PR's scope but the precondition for having one. ⚠ **That limit is stated

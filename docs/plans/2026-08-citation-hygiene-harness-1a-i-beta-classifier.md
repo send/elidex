@@ -78,103 +78,9 @@ ten spec-pair lines are there today**; the assertion re-derives that rather than
 
 ## §1 Measurements
 
-Numbered **β1…**, not `D<N>`: the harness's memo gate resolves every `D<N>` in any
-`2026-08-citation-hygiene-harness-*.md` against **the measurements memo's** §1 (`-audit.sh:445-453`), so a
-fresh `D`-number here would dangle — ⚠ **an earlier draft named the umbrella's §1**, which is a forwarding
-stub with zero bullets, so following the sentence found no definitions —
-measured, by writing one and watching this memo's own first gate run red.
-
-⚠ **Provenance convention**, stated as a legend rather than in prose, because a line that *defines* the
-mark is not a line that *uses* it and a checker cannot tell the two apart:
-
-```text
-⊕   this item was re-measured by this memo's author, and the item carries the command IN ITS OWN BLOCK
-```
-
-⚠ **"or in §3" is gone, and its removal is the whole change.** A previous draft let an item point at a
-command elsewhere; measured, that escape is where nine of this memo's own attestations ended up — a mark with
-no command anywhere near it, indistinguishable to a reader from one that has one. The command travels with
-the claim or the claim drops the mark. ⚠ **An item whose artifact is not in the tree** (β4 below) says so and
-names the recipe that builds it; it still carries a command for the half that is measurable today.
-**D18 of the measurements memo carries the falsifier for this convention** and the block's landing, revert
-and re-landing. ⚠ **It no longer carries a yield figure** — the one it recorded came from a prototype on a
-tree that was never committed, which D18 states — and
-why it is not in the tree.
-
-⚠ **A figure appears in this memo only where its subject is a tree that does not exist on HEAD, or where it
-carries the command that produces it.** That applies to every section, not only this one.
-
-Every measurement was taken in a throwaway clone, never in a worktree:
-
-```bash
-d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
-```
-
-⚠ **Never `source` the dispatcher** (`…A-rederive.sh`'s last line is `"${1:-all}" "$@"`, so sourcing re-runs
-the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous unless its tokens are in
-`VOCAB` and it carries two of them** — admission to the census needs two vocabulary hits
-(`-audit.sh:230`), so a plant without both produces no row and reads as a pass.
-
-- **β1 ⊕ the two spellings.** With `_partset`/`_roster` defined as real functions and planted at a heredoc
-  call site: unquoted `python3 - $(_partset) $(_roster) <<'PY2'` → **`?`** at **rc=1**
-  (`RULED BY THE PLAN: 9 of 10 -- MISSING: ?`); quoted `python3 - "$(_partset)" "$(_roster)" <<'PY3'` →
-  **`mention`** at **rc=0**, `9 of 9` — a genuine home filed under the class whose rule is *nothing to do*,
-  silently green. ⚠ **There are three such host sites, not two**: `-audit.sh:53` (`HOMESPY`),
-  `-audit.sh:597` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
-  all three (§3's `roster` row — cited by section, because ⚠ a draft cited it by line and this memo's own next edit moved the row two lines down), and `:538` is the one it actually exercised. §3a O2 plants at all three.
-
-  ```bash
-  grep -n "python3 - " docs/plans/2026-07-citation-hygiene-A-rederive*.sh
-  ```
-
-- **β2 ⊕ the complement**, measured alongside so that "it is broken" is a comparison and not a selection.
-  Correct today: `_partset && _roster` and `_partset > /tmp/x; _roster > /tmp/y` → `callsite`;
-  `echo '$(_partset)' '$(_roster)'` → `mention` (single quotes really are inert in bash).
-  Wrong today: `if [ -n "$x" ]; then _partset; _roster; fi` → `?`, and β1's quoted crossing.
-
-- **β3 ⊕ a line calling the derivation once is not a census row at all, and that bounds what β buys.**
-  Appending two single-token call lines leaves `HOMES:` and `BY CLASS` unchanged; adding a second token to
-  the same line moves them to `mention=2` and `HOMES: 71 (32 code, 39 prose)`. ⚠ **The plant must define the
-  two names as real functions**, or sourcing the part runs them and the census produces nothing at all —
-  measured, and it looks like a clean diff:
-
-  ```bash
-  d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"; cd "$d"
-  P=docs/plans/2026-07-citation-hygiene-A-rederive-B.sh
-  r() { bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes 2>&1 | grep -E 'BY CLASS|HOMES:'; }
-  r > base
-  printf '_partset() { echo p; }\n_roster() { echo r; }\n_p() {\n  _partset\n  _roster\n}\n' >> $P
-  r | diff base -                       # empty: two single-token calls are not homes
-  git checkout -- $P
-  printf '_partset() { echo p; }\n_roster() { echo r; }\n_p() {\n  echo "$(_partset) $(_roster)"\n}\n' >> $P
-  r | diff base -                       # mention 1 -> 2, HOMES 70 -> 71
-  ```
-
-  ⚠ **The vocabulary grows by the plant's *definitions*, not by its calls** — an
-  earlier draft attributed the `V` move to the call lines. ⚠ **This is the census working, not a hole**: the
-  admission rule is *this line enumerates two or more members of the set*, and a single call enumerates
-  nothing. β's value is scoped to lines that clear that bar, and α's crossing does, passing two derivations
-  on one line.
-
-- **β4 ⊕ the scan changes no row today.** Implementing it on an unplanted clone leaves `BY CLASS`, `HOMES:`
-  and `RULED BY THE PLAN` byte-identical to base. ⚠ **The artifact is not in the tree** — the scan is what β
-  lands, so this half was measured in a throwaway clone that no longer exists and §3's β4 fence is the recipe
-  that rebuilds it. What is runnable today is the base it is compared against, and the implementing commit
-  takes it first:
-
-  ```bash
-  bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -E 'BY CLASS|HOMES:|RULED'
-  ```
-
-- **β5 the memo gate's arity was a literal, and it is now derived — β no longer raises it.** The gate
-  announced a count of the memos that existed when the line was written while ranging over the glob at
-  `-audit.sh:344`, so it reported its own staleness as a LIMIT. β raised it in an earlier draft with the
-  trigger *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*; the standalone prereq
-  that cut §1 out of the disposition **is** that slice, and it took the fix. ⊕ Verified at HEAD by
-  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -A1 'memo(s)'`: the gate now prints
-  its arity from the glob **and** names the files it read on the next line — ⚠ an earlier draft attached the
-  same command without `-A1`, showing only the first half of what the sentence claims. **Nothing here is β's**, and §5's raise is discharged
-  rather than carried.
+**Moved** to `2026-08-citation-hygiene-harness-beta-measurements.md`, as a seam cut taken while writing
+when round 7's corrections put this memo inside the 700-800 authoring band. Every β<N> label and every ⊕
+command is unchanged there; this stub keeps the section number so citations into §1 still resolve.
 
 ## §2 Coupled invariants
 
@@ -361,11 +267,15 @@ characters copied from the old regex:**
    as (3) — a two-character sequence whose prefix is in the list, and keywords the `then` / `do` / `else`
    group was written without — and they are decided here so that an implementer does not. ⚠ **Three of the six — `$((`, `elif`, `<(` — have an
    empty population, and that is a measurement rather than a reason to skip them** (`if`/`while`/`until` do
-   not; their population is the paragraph above). ⊕ `$((` occurs **three times on two lines**
-   (`-Aii.sh:240` carries two, `:267` one), all arithmetic over `_n` and `_tab` with no vocabulary token on
-   either line — ⚠ an earlier draft said *"twice"*, reporting `grep -n`'s line count as an occurrence count;
+   not; their population is the paragraph above). ⚠ **Both figures below went stale under this memo's own
+   implementing commit, which wrote the rule comment that now holds them** — the ⊕ mark survived, the
+   numbers did not. Re-derive with `grep -cE '\$\(\('` and `grep -cE '<\('` over `…A-rederive*.sh`. When
+   decided, `$((` occurred three times on two lines (`-Aii.sh:240` twice, `:267` once), all arithmetic over
+   `_n`/`_tab` with no vocabulary token, and `<(` zero times; `473b9d56` added one of each **to the rule
+   comment itself**, so the population is now the clause's own prose. ⚠ An earlier draft said `$((` occurred
+   *"twice"*, reporting `grep -n`'s line count as an occurrence count;
    ⊕ **fifteen** of the sixteen `elif` hits are Python and the sixteenth (`-Aii.sh:281`) is a single-quoted `grep` alternation inside a shell line, so the harness writes no shell `elif` **keyword** at all. ⚠ **An earlier draft said all sixteen were Python**, which the umbrella's own D19 lists among round 4's false completeness claims; the exception matters because it is the one place clause 4 meets clause 2's single-quote strip; ⊕ `<(`
-   occurs **zero** times. So no line changes class under any answer, which is the same status §3a already
+   occurred zero times when decided. So no line changes class under any answer, which is the same status §3a already
    states for the guards — the discriminating power is in the **O-rows**, and this clause buys the rule being
    complete rather than a fix:
 
@@ -434,14 +344,23 @@ raises fire on *adding*, and β replaces.
 blast radius, and all the discriminating power is in the **O-rows**. ⚠ **Two sites said "O1–O4" after O5 was
 added**, and the table's order is O1, O2, O3, O5, O4, so the range was not even contiguous.
 
-⚠ **EVERY row below inherits two preconditions on the plant, because O1 stated one and O2 and O5 did not —
-and the implementing commit hit the missing one three times in one session.** (a) **A plant must not define a
-new function**: `VOCAB` comes from `declare -F`, so a plant named `_o2a()` enters the vocabulary and every
-line of the plant becomes a call site **on its own name** — three obligations read as passing when they were
-not, and the diff looked clean. Plant inside an existing function's body, and start no line with a
-vocabulary token. (b) **A plant must sit at a payload host** — the hosts are `-audit.sh:53` (`homes`),
-`-audit.sh:597` (`selfcheck`) and `-inventory.sh:39` (`inventory`); a plant elsewhere is not on the census's
-input and reports nothing, which reads as a pass. O1's row states (b) for itself; neither row stated (a).
+⚠ **EVERY row below inherits three preconditions. An earlier draft stated two and the first was WRONG in a
+way that made the criterion vacuous** — it said *"a plant must not define a new function; plant inside an
+existing function's body"* while O1 says *"each plant defines `_partset`/`_roster`"*. ⊕ `bash --norc
+--noprofile -c 'outer() { inner() { echo hi; }; }; declare -F'` lists **only `outer`**: a nested definition
+reaches `declare -F` only once the outer function is CALLED, and the census only SOURCES. Literally read, no
+plant token enters `VOCAB`, no row is admitted, `homes` is byte-identical to base, and **every O row passes
+while verifying nothing** — §1's *"reads as a pass"*, committed inside the paragraph written to prevent it.
+
+(a) **DEFINITIONS at top level**, so `declare -F` sees them and the tokens are in `VOCAB`. Tokens not in
+`VOCAB` ⇒ no row ⇒ reads as a pass. (b) **PROBE LINES inside an existing body, and no probe line BEGINS
+with a vocabulary token** — the trap the implementing commit hit three times: probes named `_o2a()`/`_o5b()`
+made each probe line a call site **on its own name**, three obligations read as passing, diff clean; (b) is
+what the earlier draft was reaching for. (c) **At a payload host** (`-audit.sh:53`, `:597`,
+`-inventory.sh:39`); elsewhere the plant is off the census's input and reports nothing, which also reads as
+a pass. O1 stated (c); O2 and O5 stated none. ⚠ **(a) forced a repair to the scan's own comment**, which
+named both plant tokens on one line and so became a two-token `prose` home under any plant satisfying (a);
+§5 carries it.
 
 | # | obligation | asserted by planting, not by reading |
 |---|---|---|
@@ -467,7 +386,7 @@ population β leaves unchanged.
 - **β lands no coverage-gate change.** Both directions of it are ε's — the reverse direction and the non-triviality clause the umbrella measured constructible after this memo concluded it was not.
 - ⚠ **β's effect on `-audit.sh`'s length is an obligation, not an assertion.** An earlier draft asserted the
   authoring band was not reached, unmeasured, in a phrasing the harness's own `BAND` needle cannot read.
-  `-audit.sh` is **697** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`; the glob spelling an earlier draft carried prints nine rows and a total, of which this figure is one), and the
+  `-audit.sh` is **698** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`; the glob spelling an earlier draft carried prints nine rows and a total, of which this figure is one), and the
   umbrella's precondition is that a permitted mechanism commit must not be the commit that crosses the size
   trigger. **The implementing commit measures its own tree and cuts the seam while writing if it enters the
   700–800 band**; this memo predicts no number. ⚠ **That figure is itself β's to re-derive, and §5 authorises
@@ -476,12 +395,23 @@ population β leaves unchanged.
   so β's implementing commit falsifies it the moment it adds or removes a line of `classify`. ⚠ **An earlier
   draft named `638` as that claim.** `638` survives only in the disposition's `prose` row as *"from 638 lines
   to 754"*, which neither `LEN1` nor `LEN2` matches, so the gate never reads it; the figure it does hold is
-  this bullet's own **655**, four lines above. It is bookkeeping β's own change makes true, the same footing §3 β-c puts the two umbrella
-  rows on. ⚠ **An earlier draft added a second, opposite instruction here and it is withdrawn.** It said that if β's
+  the one `LEN1` holds, above. ⚠ **An earlier draft restated it as *"this bullet's own 655, four lines
+  above"* — a second copy of the figure, stale the moment the implementing commit moved it, and nine lines
+  away rather than four. Umbrella §8: a second copy of a claim is not a check on the first, it is a second
+  thing to keep true. The restatement is deleted; the gate holds the figure.** It is bookkeeping β's own
+  change makes true, the same footing §3 β-c puts the two umbrella rows on. ⚠ **An earlier draft added a second, opposite instruction here and it is withdrawn.** It said that if β's
   scan needed more than `-audit.sh`'s headroom, β should *not* cut a seam but report a collision for α to
   dissolve — which contradicted the sentence above it, and rested on D18's claim of a deadlock that the
   umbrella has since retracted as a false universal. There is one instruction: **measure the tree, cut the
-  seam while writing if it enters the band.** ⊕ The umbrella's own prereq cuts (`2abaea1b`, `9647ba4d`) are
+  seam while writing if it is **inside the band**.** ⚠ **An earlier draft of this
+  sentence said *"enters the band"*, and round 7 graded that a defect on the ground that `BAND`
+  (`-audit.sh:385`) reads *past/in/inside/within/below/under* and not *enters*. ⊕ Measured, the grade was
+  wrong and the verb is not why: `BAND` is **line-scoped** (`-audit.sh:498`, `w and here`), so a band
+  sentence is a claim only when the harness file it is about is named on the SAME line. This sentence
+  INSTRUCTS rather than asserts, so `band claim=0` is correct and there is nothing here for the gate to
+  read. The verb list binds only where this memo asserts a position, which is the shape §4's first bullet
+  records for a still earlier draft. The phrasing is corrected anyway, so the two spellings do not diverge.
+  The same bullet diagnoses exactly this for a still earlier draft and then repeated it. ⊕ The umbrella's own prereq cuts (`2abaea1b`, `9647ba4d`) are
   the worked examples, and D18 records what makes a cut census-neutral: place the block in an **existing**
   part, since a new stem enters `VOCAB` and moves the work list.
 - ⚠ **β's own citations into `-audit.sh` move when β edits `classify`, and THE POPULATION IS NOT THE SET OF
@@ -553,14 +483,19 @@ population β leaves unchanged.
 **Authorises**, after `/elidex-plan-review` passes: the command-position scan; the two umbrella row edits
 §3 β-c enumerates; the anchor re-derivation §4 requires, **over the population §4 now defines**; **the
 re-derivation of §4's own `-audit.sh` length figure**, which β's edit falsifies and the memo gate reds on;
-and **§6's record of what happened to this memo's own gate** — and nothing else. ⚠ **That fourth item
+**§6's record of what happened to this memo's own gate**; **§3a's plant preconditions**; **the scan's own
+comment where it names the plant tokens**; and **the §1 seam cut §4's band rule forces**, which lands §1 in
+`2026-08-citation-hygiene-harness-beta-measurements.md` and leaves a forwarding stub — and nothing else. ⚠ **That fourth item
 was asserted by §4 as *"§5 authorises it"* while this list did not contain it**, and the claim reached a
 commit message before it reached this section; a memo may not cite a sibling section it has not opened.
 ⚠ **The fifth item is on this list because the same thing happened again, one commit later.** `473b9d56`
 wrote §6 — a new section, thirty lines — while this list ended *"and nothing else"* and did not contain it.
 The failure this section names is *asserting* an authorisation without opening the section; the repair is to
 open it, which is what this edit is. It is a standalone commit for that reason, and it carries no
-implementation.
+implementation. ⚠ **And it happened a THIRD time, at `3f55da2a`, which amended §3a's exit criterion under a
+commit whose subject was the umbrella's owed items** — reachable because §6 listed O5's precondition as owed
+*by the umbrella* when O5 is a row of this memo. The sixth and seventh items are that amendment and the
+comment repair it forces, opened here rather than asserted elsewhere.
 
 **Does not authorise**: any change to a tier, declaration or routing answer (γ); the part-set or roster
 derivations (α); the `prose` subject test or any vocabulary (ε); the coverage gate (ε); the `reads` rule (δ);
@@ -595,8 +530,12 @@ already done once:
   *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*, and the standalone prereq that
   cut §1 out of the disposition landed it and took the fix in the same commit. ⊕ The sites were never census
   rows, which is why α's `memoset` rule would not have reached them — still measurable by
-  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -cE 'audit\.sh +(302|39[0-9]) '`,
-  returning **0**. Recorded rather than deleted, because a raise that fires is the evidence the trigger
+  `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -cE 'audit\.sh +(344|43[0-9]) '`,
+  returning **0**. ⚠ **The needle used to say `(302|39[0-9])`, and those sites moved +42 at `473b9d56`.** It
+  still returned `0`, so the conclusion never wobbled — which is the defect: a command that runs but measures
+  a *different* claim passes unconditionally, and its `0` was guaranteed regardless of the fact. It is also a
+  line-number citation inside a command, a species §4's widened population names and `9f0fe33d`'s sweep did
+  not reach. Recorded rather than deleted, because a raise that fires is the evidence the trigger
   form works.
 - ⚠ **`CLASSES` takes a literal's class from its name** (`-audit.sh:108-109`), so `PARTS="$(_roster)"`
   classifies `partset`. ⊕ Measured with `sed -n '108,109p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`
@@ -639,8 +578,11 @@ is the measurement. The two:
    precedent transfers from a **vocabulary** to a **predicate** is the open question, and it is §3's.
 
 **So the next event for this slice is round 7 of `/elidex-plan-review`, not α.** The implementation stands
-at `473b9d56` and is not reverted: it is the artifact round 7 measures against, and reverting it would
-destroy the measurements above. What round 7 owns is §3's rule cell.
+at `473b9d56` and is not reverted. ⚠ **An earlier draft gave the reason as *"reverting it would destroy the
+measurements above"*, and that is false** — every measurement here was taken in a `git clone --local` and
+`git show 473b9d56:…` reproduces the tree entire, so a revert destroys no history. The real reason is scope:
+a revert is a mechanism commit, §5 authorises none, and the landed scan is what makes round 7 a review with
+something to run rather than a re-reading. Stated as the scope decision it is. What round 7 owns is §3's rule cell.
 
 ⚠ **Three things the closure never covered, and one it created:**
 
@@ -651,12 +593,20 @@ destroy the measurements above. What round 7 owns is §3's rule cell.
    three plan memos, O5's missing plant precondition, and §2's I4 × I5 PR cell pointing at a stub.
 3. **The bookkeeping §4 and §5 enumerate** — the length figure, and the anchors, over the population §4 now
    defines rather than the one its enumerator could see.
+4. ⚠ **One of the five items this list called *"owed by the umbrella"* was β's own, and the misattribution
+   let a β-memo edit ride under an umbrella authorisation.** *"O5's missing plant precondition"* names a row
+   of **§3a, in this memo**. `3f55da2a` amended §3a under a commit whose subject was the umbrella's items,
+   and §5's closed list did not contain it — the third occurrence of the failure §5 documents twice, by the
+   same author who wrote §5's repair one commit earlier. §5 now carries it; this item is corrected rather
+   than deleted, because the misattribution is what made the violation reachable.
 4. ⚠ **Two items this slice must NOT take, each raised with an owner and a trigger** — an owner without a
    trigger is a drop, which this memo has already done once:
    - **The ordering premise in the disposition** (`2026-08-citation-hygiene-harness-disposition.md:156`)
-     still states, present-tense, the predicate `473b9d56` replaced — and it is the stated reason for
+     stated, present-tense, the predicate `473b9d56` replaced — and it is the stated reason for
      **β before α**, i.e. the order of the whole eight-slice program. *Owner*: the umbrella. *Trigger*: the
-     next umbrella commit, and no later than round 7's dispatch, since round 7 reads it as an input.
+     next umbrella commit, and no later than round 7's dispatch. ✅ **FIRED and DISCHARGED at `819d9eed`**,
+     which put the sentence in the past tense and marked the constraint spent; §5 β5's convention is that a
+     fired trigger is recorded rather than deleted, so this bullet stays as the record.
    - **The harness is executed by no CI job.** ⊕ `scripts/trip-wires.sh` discovers only
      `.claude/tools/*trip-wire.sh`, and `[tasks.ci]` names no harness task — so §4's *"the memo gate reds on
      it"* describes a **manual** gate, and every claim resting on `findings=0` rests on a run somebody chose

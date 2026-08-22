@@ -113,7 +113,8 @@ CLASSES = {"PARTS": "partset", "ORDER": "groupvocab", "PART_SLICE": "groupvocab"
 # replaced tested only the LINE'S FIRST WORD plus a `_measure` special case, so
 # the outer regex's `then `/`do `/`else ` alternatives were dead and a derivation
 # called anywhere but first went unseen -- measured ON A PLANTED TREE (the beta
-# memo §1 holds the recipe; `_partset`/`_roster` are in no `VOCAB`): the quoted
+# memo §1 holds the recipe, and names the two tokens -- naming them HERE would
+# make this line a two-token home the moment a plant defines them): the quoted
 # crossing reached `mention` and filed a genuine home there, at rc=0.
 #
 # A command begins at LINE START, after `;` `&&` `||` `|`, after `(` -- which

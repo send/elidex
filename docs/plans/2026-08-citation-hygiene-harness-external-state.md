@@ -111,3 +111,30 @@ is a hand-written set.
 
 **Three classes, not two**: some registers need a pointer repaired, some need an amendment **retracted**, and
 some need a **rule** retired.
+
+## The plan-review gate's pinned map, and why the fix is carved
+
+**Cut out of the disposition's §9 while writing**, because that section entered the 700-800 authoring band.
+Its subject is a file outside this branch's own text, which is this memo's subject; §9 keeps the fact that
+the carve exists and this holds the record.
+
+⚠ **Raised with an owner and a trigger, and CARVED rather than fixed here: `CSSOM View 1` is not in the
+plan-review gate's pinned map.** ⊕ Reproduce with
+`python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-08-citation-hygiene-harness-1a-i-beta-classifier.md`,
+which prints `⚠ unrecognized labels: ['CSSOM View 1']` and counts the spec as `<CSSOM View 1>`; all three
+memos carrying the coverage map warn. The label resolves in webref (`.claude/tools/webref specs cssom-view`
+→ `cssom-view-1`), so the fix is **two** entries, not one: `SPEC_LABEL_REVERSE` at
+`.claude/skills/elidex-plan-review/preflight.py:51`, whose own comment at `:44-50` requires the sync, and
+`_SPEC_LABEL_MAP` at `.claude/tools/_webref/commands/coverage_map.py:13`, which has no CSSOM entry either.
+⚠ **An earlier draft of this carve sited the second map in `.claude/tools/webref`** — a 16-line shim holding
+neither the map nor the comment — so a PR executing the carve as written would have landed the one-sided edit
+the same sentence forbids. ⚠ **It is not landed here,
+and the reason is this program's own origin.** PR-A0 bundled a citation sweep with a general-purpose detector,
+a shared spec-label refactor **and a behaviour change to `preflight.py`** — that bundle is why this umbrella
+exists. Adding a `preflight.py` behaviour change to a docs-only branch would repeat it, and it is a
+`.claude/**` edit, whose blast radius is every lane and whose landing needs the full pre-push gate rather
+than this branch's memo gate. *Owner*: its own PR. *Trigger*: **any dispatch that reads a memo carrying the
+coverage map**, not the next slice boundary. ⚠ **The boundary form was already violated when it was written**:
+round 7 is a `/elidex-plan-review`, it read all three memos, and the gate verified three of the map's four
+pairs and skipped the CSSOM row — the criterion and its stated reason did not name the same event, so the
+carve could be honoured indefinitely while its purpose was missed every round.
