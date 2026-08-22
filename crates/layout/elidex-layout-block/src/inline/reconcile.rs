@@ -93,8 +93,11 @@ use super::{
 ///   `vertical-align` properties**. ⚠ Stated positively, because "only
 ///   `vertical-align` is missing" would be a claim over §10.8's whole
 ///   complement: what **is** implemented and cited elsewhere in this crate is
-///   §10.8.1 leading/half-leading and the baseline derivation (`inline/mod.rs`,
-///   `inline/pack/mod.rs`). What is **not** implemented includes `vertical-align`
+///   §10.8.1 half-leading, and only in the **first-baseline** derivation
+///   (`inline/pack/mod.rs`, `inline/mod.rs`). ⚠ Line *placement* remains
+///   leading-naive — `elidex_ecs::InlineFlowLine`'s docstring records the
+///   `block_start + ascent` placement, and `elidex-render`'s
+///   `builder/inline.rs` states leading is not yet modelled. What is **not** implemented includes `vertical-align`
 ///   alignment *and* §10.8's strut and its uppermost-top-to-lowermost-bottom
 ///   line-box height. What this crate takes instead is a max over per-item
 ///   **block contributions** — `line-height` for horizontal text, `font-size`

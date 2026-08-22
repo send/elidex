@@ -321,7 +321,7 @@ numbers and conflating them misclassified a row:
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
-| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (`git grep -c "Line height calculations" 658cc302 -- crates` → zero hits). The authored instance states the gap **positively**: §10.8.1 leading/half-leading and the baseline derivation are implemented and cited elsewhere in the crate; `vertical-align` alignment, §10.8's strut, and its uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
+| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (`git grep -c "Line height calculations" 658cc302 -- crates` → zero hits). The authored instance states the gap **positively**: §10.8.1 half-leading **in the first-baseline derivation only** — line placement stays leading-naive (`inline_flow.rs:101`, `builder/inline.rs:311`) are implemented and cited elsewhere in the crate; `vertical-align` alignment, §10.8's strut, and its uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
 
 ## §4. Verified current state
 
@@ -362,8 +362,8 @@ The moved block calls four module-private / `pub` helpers that sit below it. **A
 | helper | definition on `658cc302` | why it stays |
 |---|---|---|
 | `reposition_atomic_box` | `:679` (`pub`) | public API — `elidex-layout-multicol/src/lib.rs:11`, `:664` |
-| `static_atomic_reposition_records` | `:721` | outside `413-639`; the range is what the umbrella ratified |
-| `relpos_atomic_reposition_records` | `:747` | same |
+| `static_atomic_reposition_records` | `:721` | outside `413-639`; the range is what the umbrella ratified. ⚠ **Its only non-doc callers now live in `reconcile.rs`** (`:213`, `:263`), so keeping it here is accepted cohesion debt, not a claim the home is right |
+| `relpos_atomic_reposition_records` | `:747` | same — sole non-doc caller `reconcile.rs:289` |
 | `clear_inline_flows` | `:775` | two residue callers, `:162` and `:201` (the early returns) |
 
 Coordinates from `git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs | grep -nE '^(pub )?fn '`.
@@ -378,6 +378,12 @@ The helpers are named as **adjacent evidence that the seam is clean** — the re
 will not tangle — not as members of it. The seam is sized "~227 lines" in that same entry, and
 `637 − 411 + 1 = 227` is the range **alone** (range plus helpers is ~363), so the two documents
 never disagreed about the seam's extent.
+
+⚠ **The edge is bidirectional, and this PR accepts that rather than resolving it**: `mod.rs`
+calls into `reconcile`, and `reconcile` imports four helpers back out of `mod.rs`. For two of
+them the sole consumer is now the child, so a cohesion argument says they should travel. The
+reason they do not is scope — moving a definition is not the ratified range — and the question
+is booked as **"Where the four helpers should live"** in `#11-inline-fragmented-fn-seams-1-2`.
 
 **The back-edge this leaves is the crate's established idiom, measured rather than asserted.**
 `reconcile.rs` imports four helpers defined in its parent, which is the shape a reader is most
@@ -969,6 +975,23 @@ collected credit for honesty while overstating what the contract forbade.
 
 ## §10. Slot ledger actions at landing
 
-Moved to `project_seam3-pr508-review-history.md`, in the agent memory directory where the rows'
-targets live. §8 keeps the obligation; the row-by-row record, including which rows the landing
-still owes and against which predicate, is there.
+The **per-row rationale** lives in `project_seam3-pr508-review-history.md`, in the agent memory
+directory where the rows' targets are. ⚠ **The status index stays here**, because §8's DoD is
+audited from a clone and a bare pointer cannot be: a reader with no access to that directory must
+still be able to see what the landing owes.
+
+| target | at landing |
+|---|---|
+| `project_inline-fragmented-fn-decomposition.md` | applied — status → PARTIALLY CLOSED, seam 3 discharged |
+| `project_inline-fragmented-fn-seams-1-2.md` | applied — created (the successor slot) |
+| `project_open-defer-slots.md` | applied — source slot partially closed, successor registered `(own)` |
+| the **stale `508` figure** (spans four files) | ⚠ **still owed** |
+| `project_inline-mod-split-owed.md` | applied — `:82`'s `783` corrected |
+| `project_line-box-decorated-inline-content.md` | applied — the narrowing written in |
+| `MEMORY.md` — Layout-lane clause | applied — no longer directs producing this PR |
+| `MEMORY.md` — the `🟡 IN FLIGHT` bullet | ⚠ **still owed** (retired at landing) |
+| `project_pr508-converge-in-flight.md` | ⚠ **still owed** (`#retire-after-migrate`) |
+
+⚠ **`still owed` means "not yet written into the memory directory"**, checked by reading the
+target — not by reading this table. Rows are not files: one row is keyed on a figure whose
+obligation spans four files, and two act on different clauses of `MEMORY.md`.
