@@ -25,10 +25,14 @@ from __future__ import annotations
 import importlib.util
 import re
 import subprocess
-from pathlib import Path
 from types import ModuleType
 
 host: ModuleType  # bound by the entry point at import time
+# Annotations below spell the memo type `host.Memo`, not `Memo`: the class
+# lives in a file whose name has hyphens and cannot be imported, so a bare
+# `Memo` here resolves to nothing for any tool that evaluates annotations.
+# `from __future__ import annotations` makes either spelling harmless at
+# runtime; this one is the true one.
 
 
 # --------------------------------------------------------------------------
@@ -182,7 +186,7 @@ def line_at(idx: list[tuple[int, int]], off: int) -> int:
     return ln
 
 
-def check_fence(memo: Memo) -> None:
+def check_fence(memo: host.Memo) -> None:
     try:
         diverge, n = fence_verdict()
     except Exception as e:  # pragma: no cover
@@ -290,34 +294,52 @@ ARROW = re.compile(r"^(.*?)[ \t]+(?:→|->)[ \t]+(.*)$")
 QUOTE = re.compile(r"^[ \t]*>[ \t]?")
 
 
-# FENCE_MARK is for the MEMO's own fenced blocks (check_transcripts), which is a
-# different subject from an annotation's tier. §4.2 has one inertness rule -- `k`
-# backticks before the `<!--`, identical on all four surfaces. The fence arm this
-# checker used to carry, with its per-surface table and its `.rs` rustdoc strip,
-# is the rule §7 Q3 option (c) deleted; the wire is the single site now, so
-# there is no second copy of §4.2 for the memo's copy to drift from
-# apart again.
-FENCE_MARK = re.compile(r"^[ \t]*(```|~~~)")
-
-
-def fenced_blocks(memo: Memo) -> list[tuple[int, list[str]]]:
-    """(1-based line of the opener, body lines) for every ```-fenced block.
+# The subject here is the MEMO's own fenced blocks (`check_transcripts`), which
+# is a different question from an annotation's tier. §4.2 has one inertness rule
+# -- `k` backticks before the `<!--`, identical on all four surfaces -- and the
+# fence arm this checker used to carry for it, with its per-surface table and
+# its `.rs` rustdoc strip, is what §7 Q3 option (c) deleted. The wire is the
+# single site for that rule now. (This paragraph opened by naming a `FENCE_MARK`
+# constant that no longer exists, and trailed off mid-sentence: it was spliced
+# by the edit that deleted the pattern and not read afterwards.)
+def fenced_blocks(memo: host.Memo) -> list[tuple[int, list[str]]]:
+    """(1-based line of the opener, body lines) for every fenced block.
 
     A leading `> ` is stripped first: the memo's own status header is a
     blockquote, and its two artifact commands -- the ones the header offers as
     the proof that the memo is machine-checked -- sat outside every block
-    because `^[ \\t]*``` ` does not match `> ``` `."""
-    out, cur, start = [], None, 0
-    for i, line in enumerate(memo.lines, 1):
-        line = QUOTE.sub("", line)
-        if FENCE_MARK.match(line):
-            if cur is None:
-                cur, start = [], i
-            else:
-                out.append((start, cur))
-                cur = None
-        elif cur is not None:
-            cur.append(line)
+    because a fence pattern anchored at the margin does not match `> ``` `.
+    That strip is the only thing this needs that the repository's tracker does
+    not do, so it is the only thing done here.
+
+    The block boundaries come from `preflight._fence_state_array`, the tracker
+    FENCE compares against, rather than from a pattern of this module's own.
+    There was one: a `FENCE_MARK` toggle that flipped on ANY marker, so a `~~~`
+    closed a ```-block -- which is, line for line, the mutant the self-test
+    plants as `wrong_spans` to prove the FENCE comparison can detect a bad
+    tracker. A third fence implementation is what §7 Q3 (c) deleted, and this
+    one decided which pasted commands get re-run and which are silently not,
+    inside the program whose FENCE check exists because of exactly that. It
+    also dropped an unclosed trailing block with no finding and no un-run
+    entry; the shared tracker fences it to EOF."""
+    pf = _load("preflight")
+    lines = [QUOTE.sub("", ln) for ln in memo.lines]
+    state = pf._fence_state_array(lines)
+    out: list[tuple[int, list[str]]] = []
+    i = 0
+    while i < len(lines):
+        if not state[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(lines) and state[j + 1]:
+            j += 1
+        # The run spans opener..closer inclusive. Drop the opener always, and
+        # the closer when there is one -- an unclosed block runs to EOF and its
+        # last line is body.
+        body = lines[i + 1:j] if pf.FENCE_RE.match(lines[j]) and j > i else lines[i + 1:j + 1]
+        out.append((i + 1, body))
+        i = j + 1
     return out
 
 
@@ -326,7 +348,7 @@ def run_line(cmd: str) -> str:
     return (p.stdout or p.stderr).strip()
 
 
-def compare_arrow(memo: Memo, ln: int, cmd: str, want: str) -> None:
+def compare_arrow(memo: host.Memo, ln: int, cmd: str, want: str) -> None:
     """One `<cmd> → <answer>` line.
 
     An empty re-run is a MISMATCH unless the paste is empty too. The first cut
@@ -358,7 +380,23 @@ def compare_arrow(memo: Memo, ln: int, cmd: str, want: str) -> None:
 FIXTURE_BLOCK = re.compile(r"^\s*(?:\S+=\$\()?(?:mktemp|git init)\b", re.M)
 
 
-def check_transcripts(memo: Memo) -> list[str]:
+def unrunnable(cmd: str) -> str | None:
+    """Why this checker will not re-run `cmd`, or None if it will.
+
+    One site. This decision -- which strings out of a document get handed to
+    `bash -c` -- was spelled twice, once per pasted form, with the two reason
+    strings duplicated verbatim and the second copy re-deriving the answer from
+    an inverted second `RUNNABLE.match`. Only one of the two copies had a probe,
+    so widening either predicate could pass its own proof while the other branch
+    diverged."""
+    if not RUNNABLE.match(cmd):
+        return "not one of the programs this checker runs"
+    if needs_state(cmd):
+        return "needs shell state the memo does not also paste"
+    return None
+
+
+def check_transcripts(memo: host.Memo) -> list[str]:
     """Findings go through `host.bad`; the lines this could not re-run are RETURNED.
 
     Returned rather than printed from here, for `verdict_over`'s reason: a probe
@@ -402,12 +440,8 @@ def check_transcripts(memo: Memo) -> list[str]:
             m = ARROW.match(line)
             if m and (not prompt or RUNNABLE.match(m.group(1).strip())):
                 cmd, want = m.group(1).strip(), m.group(2).strip()
-                if not RUNNABLE.match(cmd):
-                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} "
-                                     f"(not one of the programs this checker runs)")
-                elif needs_state(cmd):
-                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} "
-                                     f"(needs shell state the memo does not also paste)")
+                if (why := unrunnable(cmd)):
+                    unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} ({why})")
                 else:
                     compare_arrow(memo, ln, cmd, want)
                 i += 1
@@ -424,10 +458,7 @@ def check_transcripts(memo: Memo) -> list[str]:
                     out_lines.append(body[j])
                     j += 1
                 pasted = {m2.group(0) for l2 in out_lines if (m2 := FILELINE.match(l2.strip()))}
-                if not RUNNABLE.match(cmd) or needs_state(cmd):
-                    why = ("needs shell state the memo does not also paste"
-                           if RUNNABLE.match(cmd)
-                           else "not one of the programs this checker runs")
+                if (why := unrunnable(cmd)):
                     unchecked.append(f"{memo.path.name}:{ln} {cmd[:60]} ({why})")
                 elif pasted:
                     actual = {m2.group(0) for l2 in run_line(cmd).split("\n")

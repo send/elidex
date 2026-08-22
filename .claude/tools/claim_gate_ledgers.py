@@ -16,13 +16,37 @@ re-deriving:
      DECLARATION in a designated section -- §8's retirement ledger, §0.1's
      removal ledger -- rather than by a pattern exempting whatever wording
      today's withdrawals happen to use;
-  3. the licence is scoped BY POSITION: the row records the fact, and it does
-     not license a use of it a section away. Both checks measure mentions
-     outside the ledger's own span, so a row cannot satisfy the obligation it
-     exists to record;
+  3. the licence is scoped BY POSITION rather than by reading intent out of a
+     sentence: both checks measure mentions outside the ledger's own span, so
+     the row's own text is never what answers the question about it;
   4. the ledger fails in both directions. A row whose subject is back -- a
      control the self-test ships, a path the tree has -- is a finding, or the
      section becomes somewhere to park a citation rather than a record of one.
+
+What they do NOT share is what the outside span is measured FOR, and the first
+draft of this header claimed they did -- "a row cannot satisfy the obligation it
+exists to record", asserted of both. Run them and the polarities are opposite:
+
+  * `CONTROLS` FORBIDS the outside mention. A retired id named anywhere but its
+    ledger row is a finding, because the ledger licenses recording a
+    retirement, not going on citing the control as live support (two sections
+    did exactly that).
+  * `PATHS` REQUIRES it. A row whose path no sentence outside §0.1 names is a
+    finding, because the row exists to re-declare what the memo still says
+    about a file, and a row with nothing to re-declare is parking.
+
+Both directions are pinned by probes, so each is deliberate; a shared helper
+for #3 would take a polarity flag and buy nothing. Only #4 -- "the row's subject
+came back" -- is one rule with two populations, and that is the piece worth
+collapsing if a third ledger ever arrives. Property #3's shared part is the
+POSITION discipline itself, and it is stated that narrowly above.
+
+Two further asymmetries, so the list above is not read as more than it is:
+`CONTROLS` matches an id TOKEN and `PATHS` a basename SUBSTRING (a generic
+`mentions()` would have to pick one and change the other check); and `CONTROLS`
+fails on a memo naming a non-member where `PATHS` deliberately does not -- the
+header below §13/§14 records the three populations measured before that arm was
+rejected.
 
 `host` is the entry point, bound by it at import time, exactly as
 `claim_gate_reruns` and `claim_gate_selftest` are. `bad` and `skip` are resolved
@@ -33,8 +57,10 @@ return empty, and every negative probe would silently invert.
 
 The same call-time rule runs the other way for the two globals the probe file
 swaps -- `SELFTEST_FILE` and `deleted_on_branch`. They live HERE, so a probe
-that rebinds them on `host` changes a name nothing reads. Both are reached as
-attributes of this module, which the entry point re-exports by name.
+that rebinds them on `host` changes a name nothing reads; both are reached as
+attributes of this module. `SELFTEST_FILE` is for that reason NOT re-exported
+by the entry point: an alias there would publish the very name rebinding does
+nothing to.
 """
 from __future__ import annotations
 
@@ -43,10 +69,15 @@ from pathlib import Path
 from types import ModuleType
 
 host: ModuleType  # bound by the entry point at import time
+# Annotations below spell the memo type `host.Memo`, not `Memo`: the class
+# lives in a file whose name has hyphens and cannot be imported, so a bare
+# `Memo` here resolves to nothing for any tool that evaluates annotations.
+# `from __future__ import annotations` makes either spelling harmless at
+# runtime; this one is the true one.
 
-# Module-level constants are built at IMPORT time, which is before the entry
-# point can bind `host` -- so the two paths below are derived here rather than
-# read off it. `host.REPO` is the same expression one directory up.
+# `SELFTEST_FILE` below is built at IMPORT time, which is before the entry point
+# can bind `host` -- so its directory is derived here rather than read off it.
+# `host.REPO` is the same expression one directory up.
 TOOLS = Path(__file__).resolve().parent
 
 
@@ -116,16 +147,12 @@ CONTROL_RANGE = re.compile(r"`?\b(C\d+)`?\s*[–—-]\s*`?(C\d+)`?")
 # preceded by a section sign -- the first draft of this pattern reported §9's
 # "no §8 control" as a stale tally.
 COUNT_OF_CONTROLS = re.compile(r"(?<!§)\b(\d+)[- ]controls?\b")
-# Every file this program ships that can make a claim about itself. Round 9
-# shipped the rule with a source list of [memo, wire, shell self-test]: the
-# checker enforced against three files a rule it was breaking in the fourth. A
-# rule whose population excludes its own author is the enumerated-exemption
-# shape, one level in -- and the hand-written repair had the defect back within
-# two rounds, because splitting `claim_gate_reruns.py` out of the entry point
-# added a fifth file and nobody edits a list they are not looking at. So the
-# population is a GLOB over what this program actually ships, and a companion
-# added tomorrow is in it without an edit.
-DEFAULT_COUNT_SOURCES = sorted(TOOLS.glob("claim[-_]*"))
+# "Every file this program ships that can make a claim about itself" is
+# `host.shipped_files()`. It lives in the entry point, not here, because two
+# checks need it -- this arm and `check_tooling_quantities`, which is not a
+# ledger check -- and a population that one of its consumers must import the
+# other module to reach is in the wrong home. Called rather than bound: the
+# entry point binds `host` after this module loads.
 # The self-test's closing line, printed only after every control has run.
 COMPLETED = re.compile(r"^claim-provenance self-test: \d+/\d+ controls ok$", re.M)
 
@@ -163,7 +190,7 @@ def implemented_controls() -> dict[str, set[str]]:
     return out
 
 
-def retired_controls(memo: Memo) -> tuple[dict[str, str], list[tuple[int, int]]]:
+def retired_controls(memo: host.Memo) -> tuple[dict[str, str], list[tuple[int, int]]]:
     """(id -> the ledger's reason, and the char spans the ledger rows occupy).
 
     The spans are what holds the hatch to a mention: an id can carry a ledger
@@ -183,7 +210,7 @@ def retired_controls(memo: Memo) -> tuple[dict[str, str], list[tuple[int, int]]]
     return out, spans
 
 
-def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
+def check_controls(memo: host.Memo, have: dict[str, set[str]] | None = None,
                    sources: list[Path] | None = None) -> None:
     have = implemented_controls() if have is None else have
     if not have:
@@ -239,7 +266,7 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
 
     # A count of controls is a quantity about this program's own tooling, which
     # §8 forbids in its own voice and the wire's header then carried anyway.
-    for path in (sources if sources is not None else DEFAULT_COUNT_SOURCES + [memo.path]):
+    for path in (sources if sources is not None else host.shipped_files() + [memo.path]):
         if not path.exists():
             continue
         for m in COUNT_OF_CONTROLS.finditer(path.read_text()):
@@ -320,7 +347,7 @@ def deleted_on_branch() -> list[str] | None:
     return gone_from(out, {x for x in host.sh(["git", "ls-files"])[1].split("\n") if x})
 
 
-def check_paths(memo: Memo, gone: list[str] | None = None) -> None:
+def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
     gone = deleted_on_branch() if gone is None else gone
     if gone is None:
         host.skip("PATHS", "`origin/main..HEAD` could not be formed in this clone, so "
