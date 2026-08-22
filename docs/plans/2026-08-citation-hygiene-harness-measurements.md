@@ -365,47 +365,95 @@ diff "$d/before" "$d/after"        # V 41->42; roster row 10 of V -> 11 of V; PO
 python3 - docs/plans <<'ATT'
 import re, shutil, sys
 from pathlib import Path
-def _scan(md):
+
+HD = Path(sys.argv[1])
+M8 = sorted(HD.glob("2026-08-citation-hygiene-harness-*.md"))
+if not M8:
+    raise SystemExit("!! no `2026-08-citation-hygiene-harness-*.md` under %s; a population of zero "
+                     "would report clean for the reason a needle matching nothing does." % HD)
+
+def scan(md):
+    """(lineno, text, fenced) -- a ``` fence line counts as fenced on BOTH sides, so a
+    legend DEFINING the mark inside a fence is not read as an item USING it."""
     fen = False
     for i, s in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
-        f0 = s.lstrip().startswith("```"); fen = fen ^ f0
+        f0 = s.lstrip().startswith("```")
+        fen = fen ^ f0
         yield i, s, fen or f0
-def _blocks(md):
+
+def blocks(md):
+    """Blank-line-delimited blocks, with a following all-fenced block merged into the
+    one above it: a fence is nobody's item on its own, and the sentence that
+    introduces it is separated from it by a blank line."""
     out, cur = [], []
-    for i, s, fen in _scan(md):
+    for i, s, fen in scan(md):
         if not s.strip() and not fen:
-            if cur: out.append(cur); cur = []
-        else: cur.append((i, s, fen))
-    if cur: out.append(cur)
+            if cur:
+                out.append(cur); cur = []
+        else:
+            cur.append((i, s, fen))
+    if cur:
+        out.append(cur)
     merged = []
     for b in out:
-        if merged and all(f for _, _, f in b): merged[-1] = merged[-1] + b
-        else: merged.append(b)
+        if merged and all(f for _, _, f in b):
+            merged[-1] = merged[-1] + b
+        else:
+            merged.append(b)
     return merged
-def _runnable(blk):
-    for i, s, fen in blk:
-        if fen and s.strip() and not s.lstrip().startswith("```"): return True
+
+def runnable(blk):
+    for _, s, fen in blk:
+        if fen and s.strip() and not s.lstrip().startswith("```"):
+            return True
         for span in re.findall(r"`([^`\n]+)`", s):
             tok = span.split()
-            if len(tok) > 1 and shutil.which(tok[0]): return True
+            if len(tok) > 1 and shutil.which(tok[0]):
+                return True
     return False
-pop = bad = 0
-for md in sorted(Path(sys.argv[1]).glob("2026-08-citation-hygiene-harness-*.md")):
-    for blk in _blocks(md):
+
+pop, bad, per = 0, [], {}
+for md in M8:
+    n = 0
+    for blk in blocks(md):
         att = [(i, s) for i, s, fen in blk if not fen and "⊕" in s]
-        if not att: continue
-        run = _runnable(blk)
+        if not att:
+            continue
+        ok = runnable(blk)
         for i, s in att:
             for _ in range(s.count("⊕")):
-                pop += 1
-                if not run:
-                    bad += 1
-                    h = s.split("⊕", 1)[1].strip().replace("**", "")[:60]
-                    print("   !! %s:%d  ⊕ carries no command: %s" % (md.name, i, h))
-print("   POPULATION: ⊕ attestation=%d   findings=%d" % (pop, bad))
-sys.exit(1 if bad else 0)
+                pop += 1; n += 1
+                if not ok:
+                    bad.append((md.name, i))
+                    print("   !! %s:%d  ⊕ attests a measurement and its item carries no command: %s"
+                          % (md.name, i, s.split("⊕", 1)[1].strip().replace("**", "")[:58]))
+    per[md.name] = n
+print("   PER MEMO: %s" % "  ".join("%s=%d" % (k.replace("2026-08-citation-hygiene-harness-", ""), v)
+                                    for k, v in sorted(per.items())))
+print("   POPULATION: ⊕ attestation=%d   findings=%d" % (pop, len(bad)))
+if pop == 0:
+    raise SystemExit("!! %d memo(s) read and not one carries the mark; the convention would then be "
+                     "checked by a needle that matches nothing." % len(M8))
+if bad:
+    raise SystemExit("!! %d attestation(s) with no command in their own block. Do not remove the mark "
+                     "to silence this -- the convention is that the command travels with the claim."
+                     % len(bad))
 ATT
 ```
+
+
+  ⚠ **Three controls, and the third is why the block reds on an empty population.** A bare mark reds; a mark
+  with a command stays clean; and **stripping every mark from every memo reds rather than reporting clean** —
+  ⊕ measured by stripping the mark from a copy of the memos in a throwaway tree —
+  `python3 -c 'import pathlib,glob;[p.write_text(p.read_text().replace(chr(0x2295),"")) for p in map(pathlib.Path, glob.glob("docs/plans/2026-08-citation-hygiene-harness-*.md"))]'`
+  — and then running the block: it prints `attestation=0` and exits **1**. ⚠ **A first version of this
+  attestation wrote the same strip as a `for` loop**, whose first token is a shell builtin and so does not
+  resolve on `PATH`; the block read it as no command and reported the line. Blind spot (1), caught by the
+  block on the sentence that introduces the block. That third control
+  exists because the population is the author's own vocabulary, so without it the convention could be
+  silenced by deletion. ⚠ **A draft of this entry inlined a
+  source that lacked it** and would have handed the next slice a block that reports clean on zero marks; the
+  source below is the one that ran at `84a7bd67`, extracted from the commit rather than retyped.
 
   ⚠ **Five blind spots, and the fifth was measured by the review that read the landed block**: a shell
   BUILTIN as the first token reads as no command; a command that runs but measures a **different** claim
