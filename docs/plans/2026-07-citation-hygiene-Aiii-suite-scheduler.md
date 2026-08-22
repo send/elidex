@@ -20,7 +20,9 @@ gives the Python suites a scheduler, and nothing else.
 
 ## §0.5 / §3. Spec coverage map
 
-**No spec surface.** A-iii touches no spec-defined behaviour: a shell script, a `mise` task, and a CI job.
+**No spec surface** — A-iii touches no spec-defined behaviour: a shell script, a `mise` task, and a CI job.
+(The period used to sit inside the bold, `**No spec surface.**`, which A-ii's `MARKER_RE` / `rederive marker`
+do not recognise — the declaration's first consumer would have hard-failed its own gate. Codex R13.)
 
 ⚠ **A-iii is the first real consumer of A-ii's §4.2.5 declaration**, and it uses it deliberately rather than
 authoring fixture citations it does not need. Under the pre-A-ii gate this memo would hard-fail (no table),
