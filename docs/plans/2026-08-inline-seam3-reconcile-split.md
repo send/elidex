@@ -301,8 +301,11 @@ does author. §9 books the complement with an explicit disposition, not a pointe
 **So the table below is what the PR *carries*, not what the range's spec surface is** — and its
 rows have two distinct provenances, which is the distinction the map exists to record:
 
-⚠ **Every authored citation has a row** — the row count and the instance count are different
-numbers and conflating them misclassified a row:
+⚠ **The row count and the instance count are different numbers, and conflating them misclassified
+a row.** ⚠ An earlier revision opened this sentence with *"Every authored citation has a row"* —
+**retracted, and §3's preamble already disclaims it**: `#propdef-line-height` is cited in the
+docstring (`reconcile.rs`, the `line-height: normal` computed-value ground) with no row, by design.
+Only the operative half below survives:
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
   the body that is byte-identical modulo the extracted signature, moved and not authored. A second is authored by this PR in the
@@ -333,6 +336,7 @@ numbers and conflating them misclassified a row:
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
 | css-inline-3 §1.1 Module Interactions | the supersession ground | `css-inline-3` *"replaces and extends the CSS inline layout model and features defined in [CSS2] section 10.8"* | **authored by this PR** in the `reconcile_flows` docstring, as the citation that licenses anchoring on `css-inline-3` rather than CSS 2 §10.8. Pair verified with `.claude/tools/webref heading css-inline-3 1.1` | ✓ | no |
+| css-inline-3 §2.2 Layout Within Line Boxes | the line-box sizing step list | step 2 *"Content Size Contribution Calculation"* = the per-box block contribution this crate does compute (`line-height` for horizontal text, the margin box for atomics); step 3 *"Line Box Sizing"* = the aggregation it substitutes with a max | **authored by this PR** in the `reconcile_flows` docstring, as the current statement of CSS 2 §10.8's step 1 / step 3 — the pair an earlier revision of that docstring asserted had *no* counterpart. Pair verified with `.claude/tools/webref heading css-inline-3 2.2`; step text with `.claude/tools/webref body css-inline-3 line-layout` | ✓ | yes |
 | css-inline-3 §4.2 Transverse Box Alignment: the vertical-align property | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top | **authored by this PR** in the `reconcile_flows` docstring, as the current anchor for the gap CSS 2 §10.8 states in superseded form (`css-inline-3` §1.1 *"replaces and extends … [CSS2] section 10.8"*). Pair verified with `.claude/tools/webref heading css-inline-3 4.2` | ✓ | yes |
 | css-inline-3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | the half-leading derivation | run-level from one resolved font; §5.3's *normal* branch (the default) wants every glyph's A and D | **authored by this PR** in the same docstring, as §10.8.1's current statement. Pair verified with `.claude/tools/webref heading css-inline-3 5.3` | ✓ | yes |
 | CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **the body comment at `:480-481` moves verbatim (no code touched); the docstring's own §10.8 references are now bare numbers, the full §number↔title pair having moved to the `css-inline-3` rows** (⚠ **the enumerator must be case-insensitive AND newline-tolerant** — the title wraps wherever it
@@ -344,7 +348,7 @@ and a pattern spanning the number and the title would be a filter, not an enumer
 (resolved at `inline/styled_run.rs:96`); `measure_text` resolves one `font_id` (`elidex-shaping/src/measurement.rs:54` resolves the single `font_id`; its doc line *"using the first matching font family"* is at `:40`), whereas §10.8.1 is stated **per glyph** (`webref body CSS2 line-height`: *"for each glyph, determine the A and D … glyphs in a single element may come from different fonts"*). Graded against §10.8.1 (per glyph) a mixed-font box is outside it; graded against
 `css-inline-3 §5.3` the *not-normal* branch prescribes exactly this single-font derivation and the
 *normal* branch — the initial, inherited value whose keyword reaches computed style — is where the
-divergence lives. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment, §10.8.1's strut, and §10.8 step 3's uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
+divergence lives. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment (`css-inline-3` §4.2), §5.3's strut, and `css-inline-3` §2.2 step 3's line-box sizing (CSS 2 §10.8 step 3's uppermost-to-lowermost height) are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
 
 ## §4. Verified current state
 
@@ -982,12 +986,22 @@ collected credit for honesty while overstating what the contract forbade.
 * **CSS 2 §10.8 is superseded, and the instance this PR authored is re-anchored.**
   `css-inline-3` §1.1 *Module Interactions* says the module *"replaces and extends the CSS inline
   layout model and features defined in [CSS2] section 10.8"*, so the `reconcile_flows` docstring
-  now names `css-inline-3` §4.2 / §5.3 as its governing sections. ⚠ **The crate's other `§10.8`
-  sites are NOT routed to a slot, and that is the disposition, not an omission**: no existing
-  slot's subject covers module supersession — a different class from *wrong-section*
-  misattribution, since CSS 2 §10.8 genuinely is the section it names — and the crate keeps CSS 2
-  numbering where `css-inline-3` has no counterpart (§10.8.1's strut, §10.8 step 1 / step 3). It
-  reopens when the crate's line-box height algorithm is next authored — not on a date.
+  now names `css-inline-3` §2.2 / §4.2 / §5.3 as its governing sections. ⚠ **The crate's other
+  `§10.8` sites are NOT routed to a slot, and that is the disposition, not an omission**: no
+  existing slot's subject covers module supersession — a different class from *wrong-section*
+  misattribution, since CSS 2 §10.8 genuinely is the section it names. It reopens when the crate's
+  line-box height algorithm is next authored — not on a date.
+  ⚠ **This bullet stated a SECOND ground, now withdrawn — and the conclusion above does not rest
+  on it.** It read *"the crate keeps CSS 2 numbering where `css-inline-3` has no counterpart
+  (§10.8.1's strut, §10.8 step 1 / step 3)"*. **False for all three**: strut and half-leading →
+  §5.3; step 1's per-box height → §2.2 step 2 *"Content Size Contribution Calculation"*; step 3's
+  line-box height → §2.2 step 3 *"Line Box Sizing"* (`.claude/tools/webref body css-inline-3
+  line-layout`). The routing destination had **already ruled the same way** before this PR asserted
+  otherwise — `project_line-box-decorated-inline-content.md` records *"The height/baseline rule is
+  `css-inline-3` §5.3 (CSS 2 §10.8/§10.8.1 is the superseded statement of the same thing…)"*.
+  ⇒ the sweep this bullet routes is **wider** than the withdrawn ground allowed — there is no
+  §10.8 fact here that `css-inline-3` leaves anchor-less — which strengthens the correctness case
+  for that sweep and changes nothing about the routing itself.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
   pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
   under `#11-inline-root-inline-box`). Recorded here so the row is dispositioned rather than

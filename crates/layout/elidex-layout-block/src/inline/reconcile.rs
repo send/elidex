@@ -104,9 +104,24 @@ use super::{
 ///   section is **`css-inline-3` §4.2 Transverse Box Alignment: the
 ///   vertical-align property** — `css-inline-3` §1.1 says the module *"replaces
 ///   and extends the CSS inline layout model and features defined in [CSS2]
-///   section 10.8"*. ⚠ CSS 2 numbering still appears below where `css-inline-3`
-///   has no counterpart section — §10.8.1's strut, and §10.8's step 1 / step 3
-///   line-box height — so it is not confined here to a historical mention.
+///   section 10.8"*. ⚠ **Inside this docstring, CSS 2 numbering is the
+///   superseded origin, never the governing anchor.** The file's one CSS 2 site
+///   *outside* the docstring — the body comment at the `persist_flow`
+///   reposition — is excluded: it travels byte-identically from the base, so it
+///   is not this PR's to re-anchor (§3 of the plan-memo records it as the
+///   dual-provenance half). Enumerate both classes rather than trusting a count
+///   here:
+///   `git grep -n '10\.8' -- crates/layout/elidex-layout-block/src/inline/reconcile.rs`
+///   The mapping, per fact:
+///   `vertical-align` alignment → **§4.2** (named above); §10.8.1's strut and
+///   half-leading → **§5.3 Calculating the Logical Height Contributions
+///   ("Layout Bounds") of Inline Boxes**; §10.8 step 1's per-box height →
+///   **§2.2 Layout Within Line Boxes, step 2 "Content Size Contribution
+///   Calculation"**; §10.8 step 3's line-box height → **§2.2 step 3 "Line Box
+///   Sizing"** (`webref body css-inline-3 line-layout`). ⚠ An earlier revision
+///   of this sentence asserted the last three had **no** counterpart section.
+///   False for all three — and it was a universal over a section inventory the
+///   claim site never enumerated.
 ///   ⚠ Stated
 ///   positively, because "only `vertical-align` is missing" would be a claim
 ///   over §10.8's whole complement: what **is** implemented is §10.8.1
@@ -162,12 +177,14 @@ use super::{
 ///   different reason — `seg_line_advance` takes `font_size` there — and
 ///   neither cite covers that.
 ///
-///   What is **not** implemented is `vertical-align` alignment, §10.8.1's strut,
-///   and §10.8 step 3's uppermost-top-to-lowermost-bottom line-box height. ⚠ The
+///   What is **not** implemented is `vertical-align` alignment (§4.2), §5.3's
+///   strut, and §2.2 step 3's line-box sizing (CSS 2 §10.8 step 3's
+///   uppermost-top-to-lowermost-bottom height). ⚠ The
 ///   per-item **block contributions** this crate does compute — `line-height`
-///   for horizontal text and the margin-box block size for atomics — are §10.8
-///   **step 1 itself**, not a substitute for it; what is substituted is the
-///   *aggregation* (a max, in place of step 3) and the vertical `font-size`
+///   for horizontal text and the margin-box block size for atomics — are §2.2
+///   **step 2 itself** (CSS 2 §10.8 step 1), not a substitute for it; what is
+///   substituted is the *aggregation* (a max, in place of §2.2 step 3) and the
+///   vertical `font-size`
 ///   contribution (`inline/pack/mod.rs`'s `seg_line_advance`). It has no strut.
 ///   See the inline comment at the `persist_flow` reposition.
 ///
