@@ -843,14 +843,16 @@ collected credit for honesty while overstating what the contract forbade.
   the new `inline/reconcile.rs`, and `inline/collect.rs` (one comment, §7). ⚠ **Nothing under
   `.claude/`, and no second `docs/plans/` file** — that is the mechanical statement of the
   narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
-⚠ **The agent-memory bookkeeping is deliberately NOT a DoD item.** Its targets are files this
-repository does not track, so this diff cannot make any of them true — a landing operator does,
-separately. Under the preamble's narrowing (*this PR carries only the bookkeeping its own change
-makes true*) that work is not this PR's to declare done, and asserting it here is what produced
-four gates of defects: an in-repo index duplicating an out-of-repo ledger, two copies drifting on
-row keys and markers, and a clone-auditability claim the repository layer cannot have. The
-checklist lives with its targets, in `project_seam3-pr508-review-history.md`, and the landing
-operator reads it there.
+
+⚠ **The agent-memory bookkeeping is a landing obligation, not a DoD item, and the distinction is
+the *subjects* test — not repository-tracking.** Two of §8's own items are also untracked and also
+written by an operator at merge (the PR description and the squash message), and they stay, so
+"the repo does not track it" cannot be the discriminator. What decides it is what a statement's
+subjects are: §9's triggers govern future *repository* work, so they are stated here; the ledger's
+rows govern edits to *memory-directory files*, so they are stated there. The obligation stands —
+the landing operator works the checklist in `project_seam3-pr508-review-history.md` — but this
+memo does not carry a second copy of its rows, because two copies of one fact is what drifted in
+every gate from #9 to #12.
 
 ## §9. Out of scope, with disposition
 
@@ -881,14 +883,15 @@ operator reads it there.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
   decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
-  user-level memory directory (§10 names the file) and a repository-only reader must still be able to tell when
+  user-level memory directory as `project_inline-fragmented-fn-seams-1-2.md` and a repository-only reader must still be able to tell when
   this work reopens. `#11-inline-fragmented-fn-seams-1-2`'s trigger, verbatim in substance:
 
   > **Either** the first change, after any of the decorated-inline umbrella's PRs, that touches
   > `layout_inline_context_fragmented`'s residue — self-exempted for **six** of the umbrella's
   > seven PRs on the grounds its §10 states, but ⚠ **not** for the seventh (the predicate prereq),
   > which the umbrella deliberately leaves un-exempted — **or** `inline/mod.rs` growing back
-  > toward 1000 lines. **Re-eval 2026-11-01.**
+  > toward 1000 lines — **or** the next change that touches `inline/reconcile.rs`, the disjunct
+  > §7.2 names and the other two cannot reach. **Re-eval 2026-11-01.**
 
   **The eleven-parameter question is reached by the first disjunct and needs no new one**: the
   eleven-argument *call site* lives in `layout_inline_context_fragmented`'s body (§5.1 — "calls it
@@ -980,7 +983,7 @@ operator reads it there.
     close. "At push time" is spent: this branch is pushed and #508 is open, so the next binding
     run is the pre-merge one.
 
-## §10. Slot ledger actions at landing
+## §10. Where the slot-ledger actions are recorded
 
 Not carried here. The row-by-row checklist — which targets the landing writes, which it still
 owes, and against what predicate — is `project_seam3-pr508-review-history.md`, in the agent
