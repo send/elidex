@@ -242,20 +242,36 @@ for name in roster:
 # apostrophe inside it ends the program mid-line and the block reports `127`
 # (command not found) -- or, with an even count, runs a DIFFERENT program than
 # the one on the page. It happened twice in one session (R15 and R16 fixes),
-# both times inside a comment added by the fix. Same class as the rest of this
-# block: a status that is an accident of text, made unrepresentable.
+# both times inside a comment added by the fix; the first version of THIS guard
+# then mis-found the payload end and reddened two sound blocks. So: read the
+# payload exactly as bash does -- everything up to the FIRST apostrophe, no
+# escapes inside single quotes -- and require (a) that text to be a complete
+# Python program (`compile`), and (b) what follows the closing quote on that
+# line to be shell tail, not prose. Text-scanning heuristics are what failed.
 PAYLOAD_OPEN = re.compile(r"python3 -c '$")
+SHELL_TAIL = re.compile(r"""^\s*($|\|\||\||&&|;|"|\$|\)|\}|<)""")
 for path in parts:
     lines = path.read_text(encoding="utf-8").splitlines()
     i = 0
     while i < len(lines):
         if PAYLOAD_OPEN.search(lines[i]):
             j = i + 1
-            while j < len(lines) and not lines[j].startswith("sys.exit("):
-                if "'" in lines[j]:
-                    bad.append((path.name, j + 1, "<python3 -c payload>",
-                                "apostrophe inside a single-quoted payload: " + lines[j].strip()[:40]))
-                j += 1
+            payload = []
+            while j < len(lines) and "'" not in lines[j]:
+                payload.append(lines[j]); j += 1
+            if j >= len(lines):
+                bad.append((path.name, i + 1, "<python3 -c payload>", "payload never closes"))
+                i = j; continue
+            before, _, after = lines[j].partition("'")
+            payload.append(before)
+            try:
+                compile("\n".join(payload), f"{path.name}:{i+1}", "exec")
+            except SyntaxError as e:
+                bad.append((path.name, i + 1 + (e.lineno or 0), "<python3 -c payload>",
+                            f"payload as the shell passes it does not compile: {e.msg}"))
+            if not SHELL_TAIL.match(after):
+                bad.append((path.name, j + 1, "<python3 -c payload>",
+                            "apostrophe closes the payload mid-text: " + lines[j].strip()[:48]))
             i = j
         i += 1
 
