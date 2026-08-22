@@ -295,7 +295,9 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 - **Accepted shape**: the `## §3. Spec coverage map` heading stays **required**; its body may carry one
   marker line in place of a table.
 - **Recognition** — the three properties `find_coverage_map_section` and `find_table` already thread:
-  **line-anchored**, **fence-aware** (`fence_state`-gated), **§3-scoped**. ⚠ The residual census
+  **line-anchored**, **fence-aware** (`fence_state`-gated), **§3-scoped** — plus **indent-gated**: at most
+  three leading spaces, because four is a CommonMark indented code block and a marker quoted inside one is
+  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ The residual census
   (`rederive marker`) implements all three, not a bare grep — anything weaker makes the marker the silent
   bypass this section argues it is not.
 - **Hard-fail on ambiguity**: marker **and** a table, with or without data rows; or the marker twice.

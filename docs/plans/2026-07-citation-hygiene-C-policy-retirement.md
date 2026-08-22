@@ -73,8 +73,11 @@ Conversely, if B lands and C never follows, both methods stay mandated at once �
    shipped class names is B's outcome, not C's assumption.
 3. **The per-spec requirement's evidence.** The single-`spec=html` run is what hid 17 phantom `XHR §4.3`
    citations; the exact figure is re-derived on B's detector, since B's attribution widening moves it.
-4. **A `§3` spec coverage map.** C ships no spec logic; its table will be fixture rows, sized to the
-   property under test, as Slice A's was.
+4. **A `§3` spec coverage map.** C ships no spec logic, and C is ordered after A-ii, so it declares
+   **No spec surface** (A-ii §4.2.5) exactly as A-iii does — not fixture rows. Fixture rows in a memo with
+   no spec surface are the fabricated-citation workaround §4.2.5 exists to retire, and they make the gate
+   report verified citations for behaviour C does not implement (Codex R8; an earlier revision said
+   "fixture rows, as Slice A's was").
 5. **The self-referential check**: a plan-review agent applying Axis 4 to *C's own memo* must not
    MIN-flag it for failing to do the thing C retires. If it does, C's own wording is the counter-example
    and the edit is incomplete.

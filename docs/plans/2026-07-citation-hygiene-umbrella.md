@@ -70,7 +70,7 @@ summarised across memos — each concern is stated once, in one slice's memo, an
 | A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | draft; `preflight` EXIT 0, K=2 |
 | A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | draft; `preflight` EXIT **1 by design** — A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet. A-iii is the first real consumer of that declaration, and its plan-review therefore follows A-ii, which the ordering already requires |
 | B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | draft; `preflight` EXIT 0. §4.0-§4.1 / §4.6 / §5 carried verbatim; §0-§2 and §7-§13 rewritten to the slice boundary |
-| C | `2026-07-citation-hygiene-C-policy-retirement.md` | draft; `preflight` EXIT **1** by design — no `§3` table until C's kickoff, a pre-existing hard-fail mode unrelated to slice A |
+| C | `2026-07-citation-hygiene-C-policy-retirement.md` | draft; `preflight` EXIT **1** by design — C declares **no spec surface** (A-ii §4.2.5), as A-iii does, and that declaration is not landed until A-ii; the row used to say "no `§3` table until C's kickoff" |
 
 **Two corrections the re-slice produced**, both by executing rather than reading, and both recorded at
 their site: the fail-closed tri-state does **not** work where the pre-slice memo sited it (a memo whose
@@ -154,6 +154,8 @@ contract for the fall-through it introduces**, which is a constraint below.
 git diff --numstat origin/main...domform-submittable-category -- docs/plans/ '.claude/**' crates/
 # the CI hole that makes slice A first
 sed -n '/filters:/,/^  check:/p' .github/workflows/ci.yml
-# detector state at any point
+# detector state — POST-B only: the `cite-audit` subcommand is carved out of A-i and
+# absent through A-i / A-ii / A-iii (the catalog fall-through and the detector are B's);
+# before B lands this exits with an invalid-subcommand error, which is the expected reading
 .claude/tools/webref cite-audit html --summary
 ```

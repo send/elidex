@@ -362,11 +362,13 @@ def shortname_from_label(label):
     # map (row 10's alias spelling came back unknown, Codex R6).
     return _shortname_for(label) if (_shortname_for is not None and label) else None
 
-MARKER_RE = re.compile(r"^\\s*\\*\\*No spec surface\\*\\*")
+# Up to three leading spaces: four is a CommonMark indented code block, and a
+# declaration quoted inside one is an example, not a declaration (Codex R8).
+MARKER_RE = re.compile(r"^ {0,3}\\*\\*No spec surface\\*\\*")
 
 
 def find_markers(lines, fence_state, start, end):
-    """§4.2.5 recognition: §3-scoped, fence-gated, line-anchored."""
+    """§4.2.5 recognition: §3-scoped, fence-gated, indent-gated, line-anchored."""
     return [j for j in range(start, end)
             if not fence_state[j] and MARKER_RE.match(lines[j])]
 

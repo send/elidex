@@ -109,8 +109,11 @@ Three grounds, in order of weight:
    better argued and already open as a PR; adopting it is entirely inside A-iii — **no file of that branch
    is touched.**
 
-This also removes a collateral class earlier drafts had to document: with no filter there is no "every
-dependabot GHA bump now runs the Python suites" side effect, because the trigger is not a path list.
+The collateral earlier drafts documented is therefore not *removed* but **accepted as the behaviour delta**:
+with no `needs`/`if`, every pull request — a Dependabot Actions bump included — runs the Python suites, exactly
+as §5 row 2 records for a `crates/**`-only PR. (An earlier revision of this sentence claimed the opposite
+because the trigger is not a path list; the absence of a path list is *why* the job runs everywhere, not a
+reason it would not. Codex R8.)
 
 **The script fails loudly when a `test_*.py` under `.claude/` is not collected by either `discover` root**
 (L2). ⚠ The set the assertion ranges over is `git ls-files '.claude/**/test_*.py'` — a *repo* fact. Wording

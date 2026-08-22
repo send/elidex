@@ -165,23 +165,41 @@ except Exception as e:
 r = subprocess.run([sys.executable, str(W), "heading", "--exact", "html", "4.10.21"],
                    capture_output=True, text=True)
 print("    CLI subprocess   = rc", r.returncode)
+# One machine-readable line per probe, for the comparison below.
+print("PROBE is_file=%s map=%s cli=%s" % (W.is_file(), "OK" if "shortname_for" in dir() else "FAIL",
+                                          "0" if r.returncode == 0 else "nonzero"))
 PY
   # `probe.py` CATCHES the import failure it is measuring and prints it, so a
   # nonzero status from it means python did not run the probe at all -- the whole
   # instrument reading is then missing, not negative. Both the subshell (which
   # ended on a restoring `mv`) and this function (which ended on `rm -rf`) threw
   # that away: four probes could each fail to start and the block still exited 0.
+  # And a probe that RAN is not yet a measurement of the state it models: §4.2.1's
+  # table says what each instrument must read on the three signals, and a probe
+  # that prints something else -- `BLOCK_MAP` no longer blocking, the shim's
+  # removal no longer breaking the CLI -- is an instrument that stopped modelling
+  # its axis while the matrix built on it stayed green (Codex R8). `_probe` runs
+  # one, prints it, and compares its PROBE line with §4.2.1's row for that mode.
   local rc=0
   ( cd "$T" || exit 1
     r=0
-    echo "  [0] intact";                     python3 "$R/probe.py" || r=1
-    echo "  [a] mv _webref  (draft 7 used this)"
-    mv .claude/tools/_webref _hidden; python3 "$R/probe.py" || r=1; mv _hidden .claude/tools/_webref
-    echo "  [b] sys.meta_path block  -> the map axis"
-    BLOCK_MAP=1 python3 "$R/runpf.py" "$R/probe.py" || r=1
-    echo "  [c] mv the webref shim   -> the CLI axis"
-    mv .claude/tools/webref _shim; python3 "$R/probe.py" || r=1; mv _shim .claude/tools/webref
-    [ "$r" = 0 ] || echo "  !! a probe did not RUN; the axis it names is unmeasured, not negative."
+    _probe() {  # $1 = label  $2 = expected `is_file=… map=… cli=…`  $3… = command
+      local lbl=$1 want=$2 out; shift 2
+      echo "  $lbl"
+      out=$("$@" 2>&1); local prc=$?
+      printf '%s\n' "$out" | grep -v '^PROBE '
+      [ "$prc" = 0 ] || { echo "  !! the probe did not RUN (exit $prc); the axis it names is unmeasured, not negative."; r=1; return; }
+      local got; got=$(printf '%s\n' "$out" | grep -o '^PROBE .*' | sed 's/^PROBE //')
+      [ "$got" = "$want" ] || { echo "  !! instrument reads [$got], §4.2.1 says [$want] — it no longer models its axis."; r=1; }
+    }
+    _probe "[0] intact"                               "is_file=True map=OK cli=0"         python3 "$R/probe.py"
+    mv .claude/tools/_webref _hidden
+    _probe "[a] mv _webref  (draft 7 used this)"      "is_file=True map=FAIL cli=nonzero" python3 "$R/probe.py"
+    mv _hidden .claude/tools/_webref
+    _probe "[b] sys.meta_path block  -> the map axis" "is_file=True map=FAIL cli=0"       env BLOCK_MAP=1 python3 "$R/runpf.py" "$R/probe.py"
+    mv .claude/tools/webref _shim
+    _probe "[c] mv the webref shim   -> the CLI axis" "is_file=False map=OK cli=nonzero"  python3 "$R/probe.py"
+    mv _shim .claude/tools/webref
     exit "$r" ) || rc=1
   git worktree remove --force "$T"; rm -rf "$R"
   return "$rc"
@@ -237,6 +255,18 @@ remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is a
   echo "EXIT=$pfrc"
   _verdict "$pfrc" "$out" || { echo "!! EXIT=$pfrc with no verdict line — the gate did not RUN; no remedy string above was measured."
                                rc=1; }
+  # The listing above is not the claim; §4.2.1 is: at the carve the map-absent
+  # case "does not exist" -- the gate still reads its module-local dict, so the
+  # rows VERIFY and no wrong-cause remedy prints. Both halves are asserted, each
+  # by its own grep status (a filter's status was discarded here before, Codex
+  # R8): the `citation verify: ok` line must be present, the `unrecognized
+  # labels` remedy must be absent. The day A-ii migrates the reader, this block
+  # flips -- which is the asymmetry A-ii's §4.2.1 exists to measure.
+  printf '%s\n' "$out" | grep -qE 'citation verify: +ok' \
+    || { echo "!! the carve did not verify the rows with the map blocked — §4.2.1's 'does not exist' no longer holds"; rc=1; }
+  if printf '%s\n' "$out" | grep -q 'unrecognized labels'; then
+    echo "!! the carve printed a wrong-cause remedy with the map blocked — §4.2.1's 'does not exist' no longer holds"; rc=1
+  fi
   git worktree remove --force "$T"; rm -rf "$F" "$R"
   return "$rc"
 }
@@ -328,7 +358,7 @@ marker() {  # §4.2.5 residual — the census must implement the SAME three prop
 import re, subprocess, sys
 sys.path.insert(0, ".claude/skills/elidex-plan-review")
 from preflight import _fence_state_array, find_coverage_map_section
-MARKER = re.compile(r"^\s*\*\*No spec surface\*\*")
+MARKER = re.compile(r"^ {0,3}\*\*No spec surface\*\*")   # indent-gated, same rule as the proto's MARKER_RE
 # A census over a file list that was never produced reports 0 markers, which is
 # also what "no markers" reports -- `_measure`'s inference bug, in python.
 _ls = subprocess.run(["git", "ls-files", "docs/plans/"], capture_output=True, text=True)
