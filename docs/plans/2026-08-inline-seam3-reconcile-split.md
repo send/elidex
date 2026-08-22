@@ -21,7 +21,7 @@ own citation rule with "citation" replaced by "ledger row":
 > a PR carries the bookkeeping **its own change makes true**, and hands the program's bookkeeping
 > to the program.
 
-So §10 keeps only what this move makes true (the source slot's partial close, the `#[allow]`
+So the slot ledger keeps only what this move makes true (the source slot's partial close, the `#[allow]`
 re-evaluation, that slot memo's falsified figures, the successor's size baseline). The umbrella's
 memo, tooling and remaining ledger rows travel with the umbrella. ⚠ This contradicts the
 umbrella's §8 sentence "**This memo and the branch's tooling files … ship with the seam-3 prereq
@@ -65,9 +65,9 @@ does not belong here.
       docs/plans/2026-08-inline-seam3-reconcile-split.md
   ```
 
-  ⚠ **What the run asserts, and why the §3 citation gate is vacuous for this memo**, is in
-  `project_seam3-pr508-review-history.md` — it is a reading of the checker's output, which the
-  rule above puts outside this memo. Run the command; do not read a verdict from either file.
+  ⚠ **Run it.** What its output means for this memo — including whether §3's citation gate does
+  any work here — is a reading of that output, so it is recorded in
+  `project_seam3-pr508-review-history.md` rather than asserted here.
 
 * **`plan-xcheck.py` — NOT RUNNABLE on this branch, and no verdict is recorded here.**
   `ls .claude/tools/plan-xcheck.py` → no such file: the checker lives on the umbrella's branch and
@@ -262,7 +262,9 @@ its own ⚠): this PR authors no algorithm, so it neither creates nor deepens a 
 defect. That is exactly the position #497 took when it **withdrew** the module-doc citations it had
 added to `collect.rs` (CSS 2 §9.2 *Controlling box generation* — the **parent**, cited "rather
 than any one child precisely because which child applies is decided per arm") and `styled_run.rs`
-(CSS 2 §9.4.2 *Inline formatting contexts*) as over-claiming. ⚠ **Read from the landed commits**
+(CSS 2 §9.2.2 *Inline-level elements and inline boxes*) as over-claiming — ⚠ that file's withdrawn
+text names §9.4.2 as the section it **refuses**: "that governs line-box formation, and `StyledRun` /
+`InlineItem` are its INPUT". ⚠ **Read from the landed commits**
 (`45c72c0a`, and the files at `154bac3f`), **not from #497's PR body**, which records the
 additions and not the withdrawal that superseded them — and which names a child subsection
 `45c72c0a` had already rejected at module level for this file. ⚠ **It is not a defence against an
@@ -302,9 +304,17 @@ numbers and conflating them misclassified a row:
 
 ## §4. Verified current state
 
-Moved to `project_seam3-pr508-review-history.md`. Every row was a *reading* of a command's
-output — a count, the line numbers that matter, a classification — which is review-time
-verification, not design. The commands are reproduced there beside their readings.
+| claim | command | result |
+|---|---|---|
+| the range is unchanged since the umbrella measured it | `git diff --stat 154bac3f..658cc302 -- crates/layout/` | empty |
+| `inline/mod.rs` size before | `git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs \| wc -l` | 785 |
+| the two record-producing helpers are called only from inside `413-639` | `git grep -n 'static_atomic_reposition_records' 658cc302 -- crates` | four lines: `:494`, `:544` (calls, both inside the range), `:721` (the **definition**), `:745` (an intra-doc link in the sibling helper's docstring) |
+| — same, relpos | `git grep -n 'relpos_atomic_reposition_records' 658cc302 -- crates` | two lines: `:570` (call, inside), `:747` (definition) |
+| `clear_inline_flows` has residue callers | `git grep -n 'clear_inline_flows' 658cc302 -- crates` | 13 lines. `inline/mod.rs`: calls `:162`, `:201` (the two early returns) and `:638` (inside the range); definition `:775`; **comments `:157`, `:549`, `:597`** — the last two inside the range (see §7). Elsewhere: `shift.rs:129`, `inline_flow.rs:219`, multicol `lib.rs:500`/`:625`/`:635`, `tests/mid_break_flow.rs:603`, all comments |
+| `reposition_atomic_box` is public API, called only from inside the range | `git grep -n 'reposition_atomic_box' 658cc302 -- crates` | 13 lines. `inline/mod.rs`: definition `:679` (`pub`), **calls `:496`, `:578` — both inside the range**, comment `:176`. Cross-crate: `elidex-layout-multicol/src/lib.rs:11` (import), `:664` (call), `:646` (comment). Comments: `shift.rs:70`/`:155`, `atomic.rs:17`, `multicol/src/tests/mid_break_flow.rs:1042`/`:1055`/`:1210` |
+| the moved range holds no `LayoutBox`/`BoxModel` **reader** | `git show 658cc302:…/inline/mod.rs \| awk 'NR>=413 && NR<=639' \| grep -cwE -e LayoutBox -e BoxModel` | 5, and all five are `//` comment lines (`:469`, `:472`, `:524`, `:535`, `:557`) — ⚠ the wire greps **both** tokens, so the `BoxModel` half was measured too: 0 |
+| …and comment lines cannot reach the wire | `awk 'NR>=124 && NR<=126' .claude/tools/layout-box-reader-trip-wire.sh` | `:124` is the `git grep -nwE 'LayoutBox\|BoxModel'`, **`:125` is `\| strip_comments`**, `:126` the test-path filter |
+| …so the allowlist is unchanged | `grep -n 'inline/mod.rs' .claude/tools/layout-box-reader-allowlist.tsv` | one row (TSV `:73`), classified `type-def`, whose content line is `inline/mod.rs:29` — above the range, and unmoved |
 
 ## §5. Design
 
@@ -424,10 +434,10 @@ check was run; only its *result* was missing, which is the thing a reader cannot
 |---|---|
 | Does the extraction introduce an OO pattern (registry, observer, subscriber list, class-owned state)? | **No.** It adds one `pub(super) fn` and a `mod` declaration. No trait, no `Vec<Box<dyn …>>`, no `ObjectKind` variant, no new state container. |
 | Does it move per-entity state into a side-store? | **No.** The three parameters (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) are **pre-existing**, produced by `layout_atomic_items` and the packer; the split only makes them cross a function boundary. ⚠ Only two are entity-*keyed* (`HashMap<Entity, _>`); `relpos_atomic_placements: &[(Entity, f32, f32)]` is a flat slice, iterated in order and never looked up. The distinction is load-bearing because the rule's trigger text is written about `HashMap<entity, _>`. |
-| Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, on two independent grounds. **Shape**: they are arguments threaded through one call chain, not an entity-keyed registry held beside the World, so the rule's subject is not what they are. **Lifetime**: all three are intra-pass scratch consumed before the pass ends. ⚠ The lifetime ground survives the `do_carrier` path, which is the one that looks like a counterexample — values from all three *are* copied into `ColumnFlowSlice`, but that carrier is itself never read by render, per its own authoritative docstring — ⚠ **no claim is made here about which terminal path removes it**: the component's docstring says drain-within-one-pass, `elidex-layout-multicol` additionally clears the self-carrier case, and a carrier written on a *nested* IFC container is reached by neither (measured by test, gate #8). Enumerating that set is `#11-inline-fragmented-fn-seams-1-2`'s (`elidex-ecs/src/components/inline_flow.rs`): *"it lives only between the IFC layout (write) and the multicol fill (drain) **within one layout pass** (transport, not state)"*. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
+| Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, on two independent grounds. **Shape**: they are arguments threaded through one call chain, not an entity-keyed registry held beside the World, so the rule's subject is not what they are. **Readership**: all three are intra-pass scratch, and the one that escapes is never read. ⚠ **It is the readership ground, not a lifetime one, that survives the `do_carrier` path.** Values from all three *are* copied into `ColumnFlowSlice`, and that carrier does **not** always die with the pass: one written on a *nested* IFC container is reached by neither terminal path — not `fill`'s drain (direct children only), nor `elidex-layout-multicol`'s self-carrier clear — and outlives `layout_multicol`'s return (measured by test, gate #8). ⚠ **`elidex-ecs/src/components/inline_flow.rs:213-215` asserts the narrower lifetime universal and that measurement falsifies it**; what the same docstring carries that *does* hold is `:214` **"Never read by render"** and `:217` "a stray write that is never drained is benign". Enumerating the terminal-path set, and correcting the component's universal, are `#11-inline-fragmented-fn-seams-1-2`'s. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
 | What ECS state does the moved code own? | Two components, and **this row is scoped to the split's two modules — it is NOT the workspace write-set.** Within them: **`InlineFlow`** — insert in `reconcile.rs`; removal via `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, plus two removals in the residue's early-return exits. Both write sets span the new module boundary, symmetrically. ⚠ **The workspace complement is non-empty and is not listed here** — run `git grep -n 'InlineFlow\|ColumnFlowSlice' -- 'crates/**/*.rs'` and classify the hits by hand. It reaches `elidex-layout-multicol` and `block/children/shift.rs` ([[feedback_universal-claims-need-the-complement-measured]]). ⚠ **Anchor the enumerator on the component NAME, not on the call syntax.** Call-shaped patterns (`insert_one(.*ColumnFlowSlice`, `remove_one::<ColumnFlowSlice>`, …) drop two real write sites here: `elidex-layout-multicol/src/lib.rs`'s path-qualified `remove_one::<elidex_ecs::ColumnFlowSlice>`, and `reconcile.rs`'s `insert_one` whose `ColumnFlowSlice { .. }` literal spans several lines. The name is invariant; the call syntax is not, so a syntax-anchored pattern is a filter that looks like an enumerator ([[feedback_writesite-audit-includes-struct-literal-ctors]], [[feedback_checks-must-not-be-defined-by-the-symptom-vocabulary]]). |
 | Does anything outside the crate depend on this function's clear having run? | **Yes, and it is worth knowing before touching the persist/clear cycle.** `elidex-layout-multicol/src/lib.rs` re-inserts `InlineFlow` on the run-start after the IFC pass (`position_column_fragments`), and guards it with a `debug_assert!` that the run-start carries **no** `InlineFlow` at build time — *"cleared each column by `clear_inline_flows`"*. So the moved block's clear is a precondition of another crate's write. Nothing in this PR changes it (the code is byte-identical), but a future reshaping of the cycle that reads only the two modules above would not see the constraint. |
-| Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused.** `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"* — and the carrier is drained within the pass, so "it outlives the pass" was false too. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. Not routed, because this PR has no ownership invariant to offer for it. |
+| Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused.** `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"* — and the carrier — which on a nested IFC container **does** outlive the pass (see the row above) — is never read by render, so the concern is answered on readership, not on lifetime. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. Not routed, because this PR has no ownership invariant to offer for it. |
 
 ### §5.4 `#[allow(clippy::too_many_lines)]` on the residue
 
@@ -447,7 +457,7 @@ the one figure in this PR that its own later commits move, because every such co
 that file; each stored copy has gone stale, and a stored copy is what §8's *"Figures are
 referenced, not restated"* forbids. **The command above is the record.** Anything that needs the
 value runs it; nothing stores it — not this section, not §5.6, not a commit message (§8), and not
-the successor slot (§10, which re-measures at landing).
+the successor slot (the ledger re-measures at landing).
 
 `mod.rs`'s **573** is stated because it is stable — it has held at every commit on this branch —
 and the 1000-line argument turns on it. Both files sit below
@@ -830,7 +840,7 @@ collected credit for honesty while overstating what the contract forbade.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
   decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
-  user-level memory directory (§10) and a repository-only reader must still be able to tell when
+  user-level memory directory (§10 points to it) and a repository-only reader must still be able to tell when
   this work reopens. `#11-inline-fragmented-fn-seams-1-2`'s trigger, verbatim in substance:
 
   > **Either** the first change, after any of the decorated-inline umbrella's PRs, that touches
@@ -841,7 +851,7 @@ collected credit for honesty while overstating what the contract forbade.
 
   **The eleven-parameter question is reached by the first disjunct and needs no new one**: the
   eleven-argument *call site* lives in `layout_inline_context_fragmented`'s body (§5.1 — "calls it
-  where the block was"), so every reshaping §5.3 names necessarily edits the residue. What §10 *does* carry is the slot's subject line naming §5.3's
+  where the block was"), so every reshaping §5.3 names necessarily edits the residue. What the ledger *does* carry is the slot's subject line naming §5.3's
   candidate shapes **including the side-store→component one**, so the question is not pre-answered
   as a grouping. ⚠ **Booked alongside it, because it is a different defect the count would hide**: the signature
   ends `is_vertical: bool, persist_flow: bool, do_carrier: bool` and the call site passes them
@@ -879,8 +889,8 @@ collected credit for honesty while overstating what the contract forbade.
   this PR authors no algorithm, so it neither creates nor deepens a missing-citation defect, which
   is the position #497 took when it **withdrew** the module-doc citations it had added to
   `collect.rs` (CSS 2 §9.2 *Controlling box generation*, the parent section) and `styled_run.rs`
-  (CSS 2 §9.4.2 *Inline formatting contexts*) as over-claiming — read from the landed commits,
-  not #497's PR body (see §3). ⚠ **Not routed to a slot, and that is the
+  (CSS 2 §9.2.2 *Inline-level elements and inline boxes*) as over-claiming — read from the landed
+  commits, not #497's PR body, which gives §9.4.2 for this file (see §3). ⚠ **Not routed to a slot, and that is the
   disposition, not an omission**: the class is a property of the *residue's* algorithm, not of the
   move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
   defence against an *incorrect* citation, which is a different class and is why the two citations
@@ -930,8 +940,8 @@ collected credit for honesty while overstating what the contract forbade.
 
 ## §10. Slot ledger actions at landing
 
-Moved to `project_seam3-pr508-review-history.md`. All nine targets are files in the agent
-memory directory — `git ls-files | grep -c memory/` → **0** — so the ledger now lives where
-its targets do, rather than describing them from a repository the diff of which cannot show
-them. §8 keeps the obligation; the row-by-row record, including which rows the landing still
-owes, is there.
+Moved to `project_seam3-pr508-review-history.md`. Every target is a file in the agent memory
+directory, which this repository does not track, so the ledger now lives where its targets do
+rather than describing them from a repository whose diff cannot show them. §8 keeps the
+obligation; the row-by-row record, including which rows the landing still owes and against which
+predicate, is there.

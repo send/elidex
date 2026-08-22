@@ -48,7 +48,7 @@ use super::{
 /// returns. Here, `InlineFlow`'s remove is gated and `ColumnFlowSlice`'s is not.
 /// ⚠ `block/children/shift.rs:127-129` states the opposite for `InlineFlow`'s
 /// write; it is stale (both writes measure gated) and correcting it is
-/// pre-existing work routed to `#11-inline-fragmented-fn-seams-1-2`.
+/// pre-existing work; the successor slot records it (grep that slot for `shift.rs`).
 ///
 /// ⚠ **Behaviour is not at risk.** The two early returns are reached on
 /// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
