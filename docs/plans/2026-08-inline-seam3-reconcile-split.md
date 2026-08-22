@@ -78,7 +78,7 @@ does not belong here.
       claims alone.
     * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks.
     * **the label warning is not noise, and the scope of that is exactly two labels.**
-      `SPEC_LABEL_REVERSE` does not map **`CSS 2`** or **`css-writing-modes-4`** — this memo's two —
+      `SPEC_LABEL_REVERSE` does not map **`CSS 2`** or **`css-writing-modes-4`** — this table's two —
       so both §3 rows land in `unmapped-label rows` and the run reports `parsed citations: 0`, i.e.
       **the §3 citation gate is vacuous *for this memo***. Its warning count therefore rises with
       §3's row count and says nothing about §3's correctness. ⚠ **Not "no CSS-module label is
@@ -232,11 +232,13 @@ fires `needless_pass_by_value` (clippy's pedantic group is warn-level workspace-
 
 ## §3. Spec coverage map
 
-**Breadth**: K=3 specs (`CSS 2`, `css-writing-modes-4`, `css-inline-3`), M=4 entries — the
-`reconcile_flows` docstring authors `css-inline-3 §4.2 Transverse Box Alignment: the vertical-align
-property` and `§5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes`
-alongside the two rows below (`git grep -c css-inline-3 658cc302 -- crates` → no hits, so both are
-authored here). **Split decision**: single PR, both below the
+**Breadth**: K=2 specs, M=2 entries — ⚠ **that is the table's row count, which is what
+`preflight.py` computes; run it rather than reading a figure here.** ⚠ **The PR authors a third
+spec outside this table**: the `reconcile_flows` docstring cites `css-inline-3 §4.2 Transverse Box
+Alignment: the vertical-align property` and `§5.3 Calculating the Logical Height Contributions
+("Layout Bounds") of Inline Boxes` (`git grep -c css-inline-3 658cc302 -- crates` → no hits, so
+both are authored here; both pairs verified with `.claude/tools/webref heading`). Their absence
+from the table is why the tool reports two. **Split decision**: single PR, both below the
 K≥4 / M≥20 recommend threshold, and `preflight.py` independently returns
 `split decision: ok (single PR scope)`.
 
@@ -301,7 +303,7 @@ does author. §9 books the complement with an explicit disposition, not a pointe
 **So the table below is what the PR *carries*, not what the range's spec surface is** — and its
 rows have two distinct provenances, which is the distinction the map exists to record:
 
-⚠ **Two rows here; the docstring adds two `css-inline-3` citations (see Breadth above)** — the row count and the instance count are different
+⚠ **Two rows here; the docstring adds two `css-inline-3` citations (see Breadth)** — the row count and the instance count are different
 numbers and conflating them misclassified a row:
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
@@ -336,7 +338,7 @@ wraps a line where it is authored: `git grep -ci "line height calculations" 658c
 → one hit, `elidex-ecs/src/components/inline_flow.rs`, carrying the title's leading clause beside the
 number but not the full pair as spelled out here; the site is lowercase, so it is the Title-cased form that returns empty,
 and a pattern spanning the number and the title would be a filter, not an enumerator). The authored instance states the gap **positively**, and the positive clause is scoped: §10.8.1 half-leading is *approximated* in the first-baseline derivation only, at **run level from a single resolved font** — `pack/mod.rs` takes `em_height` from `measure_text` and `line_height` from the computed style
-(resolved at `inline/styled_run.rs:96`), which resolves one `font_id` (`elidex-shaping/src/measurement.rs:54` resolves the single `font_id`; its doc line *"using the first matching font family"* is at `:40`), whereas §10.8.1 is stated **per glyph** (`webref body CSS2 line-height`: *"for each glyph, determine the A and D … glyphs in a single element may come from different fonts"*). Graded against §10.8.1 (per glyph) a mixed-font box is outside it; graded against
+(resolved at `inline/styled_run.rs:96`); `measure_text` resolves one `font_id` (`elidex-shaping/src/measurement.rs:54` resolves the single `font_id`; its doc line *"using the first matching font family"* is at `:40`), whereas §10.8.1 is stated **per glyph** (`webref body CSS2 line-height`: *"for each glyph, determine the A and D … glyphs in a single element may come from different fonts"*). Graded against §10.8.1 (per glyph) a mixed-font box is outside it; graded against
 `css-inline-3 §5.3` the *not-normal* branch prescribes exactly this single-font derivation and the
 *normal* branch — the initial, inherited value whose keyword reaches computed style — is where the
 divergence lives. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment, §10.8.1's strut, and §10.8 step 3's uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
@@ -864,17 +866,21 @@ collected credit for honesty while overstating what the contract forbade.
   narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
 
 * **No row of the landing checklist is left `still owed`.** Evaluate it, do not assert it —
-  in `~/.claude/projects/<repo-key>/memory/project_seam3-pr508-review-history.md`, this must
-  print `0` at merge:
+  this must print `0` at merge:
 
   ```sh
-  L=~/.claude/projects/<repo-key>/memory/project_seam3-pr508-review-history.md
+  L=$(ls "$HOME"/.claude/projects/*elidex*/memory/project_seam3-pr508-review-history.md)
   grep -c '| `still owed`' "$L"
   ```
 
-  ⚠ Both anchors are load-bearing: dropping the backticks counts the file's own statements of the
-  marker convention, which do not go away when the rows are discharged (8 vs 4 today); dropping
-  the leading `| ` prints `0` today, before any row is discharged. ⚠ The targets are
+  ⚠ **Run it verbatim before trusting it.** Three earlier versions of this item each failed a
+  different way — a corpus that included the file's own statements of the marker convention so it
+  could never reach `0`; a one-backtick code span that rendered to a different command; and an
+  unquoted `<repo-key>` placeholder that the shell read as a redirection and never executed.
+  ⚠ **Both anchors matter, and the four forms measure differently today** — `| `+backticks **4**
+  (the rows), backticks dropped **0**, leading `| ` dropped **7**, neither **8**. The backticks are
+  what keep it off a false `0`; the leading `| ` is what keeps the file's own convention
+  statements, which do not go away when the rows are discharged, out of the count. ⚠ The targets are
   outside this repository, so the diff cannot show them; the rows live with their targets and
   are not restated here.
 

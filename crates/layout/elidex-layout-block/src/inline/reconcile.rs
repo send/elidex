@@ -105,15 +105,27 @@ use super::{
 ///   §10.8.1, which is stated **per glyph**, a mixed-font box is outside it.
 ///   Graded against §5.3, which splits on the computed value: its *not-normal*
 ///   branch prescribes exactly this — "derived solely from metrics of its first
-///   available font (ignoring glyphs from other fonts)" — while its *normal*
-///   branch wants every glyph's A and D, and `line-height: normal` is the
-///   initial, inherited value whose keyword reaches computed style, so that
-///   branch is the **default** case and is where the divergence lives.
+///   available font (ignoring glyphs from other fonts)" — ⚠ under the initial
+///   `line-fit-edge: leading`, which is what keeps §5.3's half-leading clamp and
+///   MBP inflation out of scope; while its *normal*
+///   branch wants every glyph's A and D, and `line-height`'s initial value is
+///   `normal`, inherited, with the keyword surviving to the computed value
+///   (`css-inline-3` `#propdef-line-height`), so that branch is the **default**
+///   case and is where the divergence lives — ⚠ **for two reasons, not one**:
+///   the all-glyphs requirement, and the fact that `LineHeight::Normal` is
+///   flattened to `font_size * 1.2` at `inline/styled_run.rs:96` before any font
+///   is resolved, so even a **single-font** box under `normal` diverges.
 ///
-///   ⚠ `CSS 2` is the minority label in this crate; `CSS 2.1` is the majority.
-///   Count both with `git grep -n '10\.8' -- 'crates/layout/elidex-layout-block/**'`
-///   — ⚠ two of its hits are in this file (here and the moved body comment).
-///   That split is `#11-css2-spec-label-normalisation`'s — 9 crates, one commit.
+///   ⚠ Two separate follow-ups, and they are different classes. The **label**
+///   split — `CSS 2` here vs `CSS 2.1` elsewhere in this crate — is
+///   `#11-css2-spec-label-normalisation`'s (9 crates, one commit), and that slot
+///   calls it hygiene, not correctness. Count the labels from the repo root with
+///   `git grep -o 'CSS 2\.1' -- 'crates/layout/elidex-layout-block/**' | wc -l`
+///   and the `CSS 2` form with `git grep -oE 'CSS 2([^.0-9]|$)' -- <same>`;
+///   ⚠ a `10\.8`-scoped grep is **not** that enumerator — most of its hits carry
+///   no label at all. **Re-anchoring the citations themselves onto `css-inline-3`
+///   is the other class and is CORRECTNESS**, since this crate cites a statement
+///   §5.3 supersedes; it is not that slot's and is not booked by this PR.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
