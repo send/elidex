@@ -109,6 +109,51 @@ CLASSES = {"PARTS": "partset", "ORDER": "groupvocab", "PART_SLICE": "groupvocab"
            "MEMOS": "memoset", "AUTHOR_LOCAL": "authorlocal"}
 
 
+# A CALL SITE IS A VOCABULARY TOKEN IN COMMAND POSITION. The predicate this
+# replaced tested only the LINE'S FIRST WORD plus a `_measure` special case, so
+# the outer regex's `then `/`do `/`else ` alternatives were dead and a derivation
+# called anywhere but first went unseen -- measured, the quoted crossing
+# `python3 - "$(_partset)" "$(_roster)"` reached `mention` and filed a genuine
+# home under the class whose rule is *nothing to do*, at rc=0.
+#
+# A command begins at LINE START, after `;` `&&` `||` `|`, after `(` -- which
+# covers `$(` and `<(` -- after `{`, and after then/do/else/elif/if/while/until.
+# Three exclusions, each one a decision measurement forced rather than a
+# character copied from the old regex:
+#   `${` does not open one (parameter expansion is not a command);
+#   `$((` does not either (arithmetic), which is why `(` is excluded when it sits
+#     beside another `(`;
+#   a BACKTICK is not a command position -- a regex cannot tell a shell
+#     substitution from the markdown backticks this harness writes block names
+#     in, and the harness contains no legacy backtick substitution to buy.
+# A bare `&` is knowingly NOT included: the rule spells `&&`, its population here
+# is empty, and admitting it is the reconciliation's call, not this scan's.
+#
+# SINGLE-quoted spans are removed first and DOUBLE-quoted spans are not. Of the
+# three readings available exactly one satisfies every observable: stripping
+# double quotes too would kill the quoted crossing above, and stripping neither
+# would reclassify `echo '$(_partset)'`, which is correct as `mention` today.
+#
+# `_measure`'s special case RETIRES into this: `_measure` is a vocabulary token
+# (`VOCAB` comes from `declare -F`), so `local n; _measure a b` reaches command
+# position after the `;` with no case of its own.
+SQSPAN = re.compile(r"'[^']*'")
+TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+KWEND = re.compile(r"\b(?:then|do|else|elif|if|while|until)$")
+
+def _at_command(s, i):
+    """Does the token starting at `s[i]` stand in command position?"""
+    pre = s[:i].rstrip()
+    if not pre:
+        return True
+    if pre[-1] in ";|" or pre.endswith("&&"):
+        return True
+    if pre.endswith("(") and not pre.endswith("(("):
+        return True
+    if pre.endswith("{") and not pre.endswith("${"):
+        return True
+    return bool(KWEND.search(pre)) and s[i - 1].isspace()
+
 def hits_outside_quotes(ln):
     """Vocabulary tokens that are NOT inside a quoted span."""
     bare = re.sub(r"'[^']*'|\"[^\"]*\"", " ", ln)
@@ -138,12 +183,9 @@ def classify(fname, ln, code, kinds, span):
     # the defect this census exists to prevent, reproduced inside it. A line is a
     # call site because a vocabulary token stands in COMMAND POSITION, and
     # anything else is unclassified, which is RED.
-    if re.search(r"(?:^|[;&|(]|\bthen |\bdo |\belse )\s*[A-Za-z_][A-Za-z0-9_]*\s", ln):
-        first = WORD.search(ln.lstrip())
-        if first and first.group(0) in VOCAB:
-            return "callsite"
-        if re.search(r"(?:^|[;&|(])\s*_measure\b", ln):
-            return "callsite"
+    scan = SQSPAN.sub("''", ln)
+    if any(m.group(0) in VOCAB and _at_command(scan, m.start()) for m in TOKEN.finditer(scan)):
+        return "callsite"
     # A MENTION: every vocabulary hit sits inside a quoted string, so the line
     # talks ABOUT a block rather than enumerating the set. Also nothing to do --
     # and also a subject test, not a fallthrough: strip the quoted spans and if

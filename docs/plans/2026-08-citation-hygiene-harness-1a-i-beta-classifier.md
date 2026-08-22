@@ -79,7 +79,7 @@ ten spec-pair lines are there today**; the assertion re-derives that rather than
 ## §1 Measurements
 
 Numbered **β1…**, not `D<N>`: the harness's memo gate resolves every `D<N>` in any
-`2026-08-citation-hygiene-harness-*.md` against **the measurements memo's** §1 (`-audit.sh:403-411`), so a
+`2026-08-citation-hygiene-harness-*.md` against **the measurements memo's** §1 (`-audit.sh:445-453`), so a
 fresh `D`-number here would dangle — ⚠ **an earlier draft named the umbrella's §1**, which is a forwarding
 stub with zero bullets, so following the sentence found no definitions —
 measured, by writing one and watching this memo's own first gate run red.
@@ -113,14 +113,14 @@ d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
 ⚠ **Never `source` the dispatcher** (`…A-rederive.sh`'s last line is `"${1:-all}" "$@"`, so sourcing re-runs
 the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous unless its tokens are in
 `VOCAB` and it carries two of them** — admission to the census needs two vocabulary hits
-(`-audit.sh:188`), so a plant without both produces no row and reads as a pass.
+(`-audit.sh:230`), so a plant without both produces no row and reads as a pass.
 
 - **β1 ⊕ the two spellings.** With `_partset`/`_roster` defined as real functions and planted at a heredoc
   call site: unquoted `python3 - $(_partset) $(_roster) <<'PY2'` → **`?`** at **rc=1**
   (`RULED BY THE PLAN: 9 of 10 -- MISSING: ?`); quoted `python3 - "$(_partset)" "$(_roster)" <<'PY3'` →
   **`mention`** at **rc=0**, `9 of 9` — a genuine home filed under the class whose rule is *nothing to do*,
   silently green. ⚠ **There are three such host sites, not two**: `-audit.sh:53` (`HOMESPY`),
-  `-audit.sh:555` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
+  `-audit.sh:597` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
   all three (§3's `roster` row — cited by section, because ⚠ a draft cited it by line and this memo's own next edit moved the row two lines down), and `:538` is the one it actually exercised. §3a O2 plants at all three.
 
   ```bash
@@ -168,7 +168,7 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
 
 - **β5 the memo gate's arity was a literal, and it is now derived — β no longer raises it.** The gate
   announced a count of the memos that existed when the line was written while ranging over the glob at
-  `-audit.sh:302`, so it reported its own staleness as a LIMIT. β raised it in an earlier draft with the
+  `-audit.sh:344`, so it reported its own staleness as a LIMIT. β raised it in an earlier draft with the
   trigger *the slice that lands the fourth `2026-08-citation-hygiene-harness-*.md`*; the standalone prereq
   that cut §1 out of the disposition **is** that slice, and it took the fix. ⊕ Verified at HEAD by
   `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep -A1 'memo(s)'`: the gate now prints
@@ -182,8 +182,8 @@ Required by `/elidex-plan-review` Pre-condition #3.
 
 - **C1 totality** — every censused line receives a class; an unplaceable line is `?`, which is **RED**.
 - **C2 every class is a subject test** — each terminal class is reached by a **positive** predicate.
-  ⚠ The census's comment at `-audit.sh:134-140` records one measured instance of a fallthrough swallowing a
-  home; `-audit.sh:147-150` asserts the same principle for `mention` but records **no** instance, so this is
+  ⚠ The census's comment at `-audit.sh:179-185` records one measured instance of a fallthrough swallowing a
+  home; `-audit.sh:189-192` asserts the same principle for `mention` but records **no** instance, so this is
   grounded once — and β1's quoted crossing is the second.
 - **C3 self-reference** — the classifier is inside the census's glob, so a predicate spelled as a literal
   becomes a home of the fact it censuses.
@@ -205,8 +205,8 @@ a question about where a block ships.
 ## §2a Measured — the classifier as it stands, and what this memo hands off
 
 ⚠ **The `callsite` predicate does not do what its own comment says.** The comment states the rule —
-*"a line is a call site because a vocabulary token stands in COMMAND POSITION"* (`-audit.sh:138-140`). The
-code (`:141-146`) does something narrower: an outer `re.search` establishes only that *some* command position
+*"a line is a call site because a vocabulary token stands in COMMAND POSITION"* (`-audit.sh:183-185`). The
+code did something narrower — `git show 9c66be4d:docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh | sed -n '141,146p'`, since **β has now replaced those six lines** and they resolve to nothing at HEAD: an outer `re.search` establishes only that *some* command position
 exists on the line, and the body then tests **the line's first word** (`WORD.search(ln.lstrip())`), plus a
 special case for `_measure` after a separator.
 
@@ -215,12 +215,12 @@ Three consequences, each ⊕ against the same clone recipe — take the base fir
 
 1. **The `then ` / `do ` / `else ` alternatives in the outer regex are dead** — the subject is the first word,
    so a line beginning `if` / `for` / `while` / `case` can never be `callsite`.
-2. **The `_measure` special case decides no row today.** Neutralising `-audit.sh:145-146` on its own line
+2. **The `_measure` special case decided no row, and β has retired it.** Neutralising it on its own line (`git show 9c66be4d:…-audit.sh | sed -n '145,146p'`, gone at HEAD)
    leaves `rederive homes` byte-identical. ⚠ **Dead on the population, live as a predicate**: it is the only
    thing that would make `local n_fx; _measure …` (`-Aii.sh:268`) a `callsite`, which is why §3a O3 plants
    *that* shape and not one whose first word is already a block.
 3. **`mention`'s stated premise is false for a command substitution.** `hits_outside_quotes`
-   (`-audit.sh:112-115`) deletes `'…'` and `"…"` spans by flat, non-nesting alternation with no shell
+   (`-audit.sh:157-160`) deletes `'…'` and `"…"` spans by flat, non-nesting alternation with no shell
    awareness, so `"$(f)"` is deleted **whole**. The predicate decides on quote *characters* and cannot
    distinguish *named in a string* from *called through a substitution*.
 
@@ -436,7 +436,7 @@ added**, and the table's order is O1, O2, O3, O5, O4, so the range was not even 
 
 | # | obligation | asserted by planting, not by reading |
 |---|---|---|
-| O1 | a derivation call is a call site in every command position | plant **both** spellings at the payload host of **each of `all`'s three roster readers** (`-audit.sh:53` `homes`, `-audit.sh:555` `selfcheck`, `-inventory.sh:39` `inventory`). ⚠ **`:538` was this list's spelling until the parts grew, and *"heredoc host sites"* was its label** — the harness has four argv-plus-heredoc payloads and a reader applying the phrase rather than the criterion counts them ⇒ all six rows `callsite`. Each plant defines `_partset`/`_roster` and carries two tokens |
+| O1 | a derivation call is a call site in every command position | plant **both** spellings at the payload host of **each of `all`'s three roster readers** (`-audit.sh:53` `homes`, `-audit.sh:597` `selfcheck`, `-inventory.sh:39` `inventory`). ⚠ **`:538` was this list's spelling until the parts grew, and *"heredoc host sites"* was its label** — the harness has four argv-plus-heredoc payloads and a reader applying the phrase rather than the criterion counts them ⇒ all six rows `callsite`. Each plant defines `_partset`/`_roster` and carries two tokens |
 | O2 | the position list's first three decided clauses hold | `echo '$(_partset)' '$(_roster)'` ⇒ `mention`; `echo "${_partset} ${_roster}"` ⇒ `mention`; a code line with two block names in **markdown backticks** ⇒ `mention`. Each is a case a plausible implementation gets wrong |
 | O3 | the scan **subsumes** `_measure`, and the special case is gone | plant `local n; _measure <two blocks>` ⇒ `callsite`. ⚠ **Not `: ; _measure …`** — measured, that shape passes under a bare deletion of the special case with no scan written, because `WORD.search` skips `:` and `;` and finds `_measure` as the first word. The `local` shape is the one that discriminates |
 | O5 | clause 4's decisions hold, and an empty population is not a reason to skip the plant | plant `elif _partset && _roster; then :` ⇒ `callsite` (the keyword opens a position), and `n=$(( citations + budget ))` ⇒ **not** `callsite` (arithmetic does not). ⊕ Measured at HEAD, both land at `?` and red the census at rc=1, so neither guess was ever invisible. ⚠ **A first draft of this row used `n=$(( $(_partset) + $(_roster) ))` as the negative plant, which is wrong**: the inner `$(` *is* a command position by clause 1, so β must classify that line `callsite` and the plant tested the opposite of what it named. The negative plant has to put bare vocabulary tokens inside the arithmetic, with no substitution. ⚠ **The stated reason for having no obligation here was also wrong** — every O1–O4 plant is synthetic too, so an empty population never separated this clause from the guarded ones |
@@ -458,11 +458,11 @@ population β leaves unchanged.
 - **β lands no coverage-gate change.** Both directions of it are ε's — the reverse direction and the non-triviality clause the umbrella measured constructible after this memo concluded it was not.
 - ⚠ **β's effect on `-audit.sh`'s length is an obligation, not an assertion.** An earlier draft asserted the
   authoring band was not reached, unmeasured, in a phrasing the harness's own `BAND` needle cannot read.
-  `-audit.sh` is **655** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`; the glob spelling an earlier draft carried prints nine rows and a total, of which this figure is one), and the
+  `-audit.sh` is **697** lines at HEAD (`wc -l docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`; the glob spelling an earlier draft carried prints nine rows and a total, of which this figure is one), and the
   umbrella's precondition is that a permitted mechanism commit must not be the commit that crosses the size
   trigger. **The implementing commit measures its own tree and cuts the seam while writing if it enters the
   700–800 band**; this memo predicts no number. ⚠ **That figure is itself β's to re-derive, and §5 authorises
-  it.** ⊕ It is the **only** claim the gate's `LEN1` needle (`-audit.sh:335`) holds across all five memos —
+  it.** ⊕ It is the **only** claim the gate's `LEN1` needle (`-audit.sh:377`) holds across all five memos —
   `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep POPULATION` prints `stated length=1` —
   so β's implementing commit falsifies it the moment it adds or removes a line of `classify`. ⚠ **An earlier
   draft named `638` as that claim.** `638` survives only in the disposition's `prose` row as *"from 638 lines
@@ -479,7 +479,7 @@ population β leaves unchanged.
   range-only, so a stale anchor stays green — an in-range anchor pointing at the wrong line is invisible to
   it. The implementing commit re-derives every `-audit.sh:N` anchor **below `classify`'s definition** in this
   memo **and in the umbrella**, in the same commit. ⚠ **The site set is not "the umbrella's two rows", and an
-  earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:118`
+  earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:163`
   (`grep -n 'def classify' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`), and the umbrella cites
 . ⚠ **Which sections hold them is not written here, because an earlier draft wrote it and was wrong on
   both counts** — it said §1, §3 and §7, and §1 and §7 are now forwarding stubs holding **zero** anchors, and of the rest
@@ -529,11 +529,11 @@ already done once:
   table is the work list. ⚠ **This bullet did not exist while §3 claimed it did.**
 
 - ⚠ **`callsite` and `mention` decide quoted spans by two different rules, and β leaves both.** Clause 2
-  strips single-quoted spans only; `mention` keeps `hits_outside_quotes` (`-audit.sh:112-115`), which strips
+  strips single-quoted spans only; `mention` keeps `hits_outside_quotes` (`-audit.sh:157-160`), which strips
   both by flat alternation. §2a measures that predicate's premise false — a `"$(f)"` span is deleted whole,
   so it cannot tell *named in a string* from *called through a substitution* — and §3 closes the `mention`
   **symptom** by testing `callsite` first rather than by fixing it. ⊕ Both rules live in `classify`, ten lines
-  apart — the `callsite` branch at `-audit.sh:141-146` and the `mention` branch at `:151` calling
+  apart — the `callsite` branch, now `-audit.sh:186-188`, and the `mention` branch at `-audit.sh:193` calling
   `hits_outside_quotes`, defined at `:112` — by
   `sed -n '141,152p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`. ⚠ **An earlier draft of this
   bullet said "four lines apart" and attached a `grep` that returns `:112` and `:151`, measuring neither the
@@ -561,3 +561,33 @@ already done once:
 
 **This memo is the base case** under CLAUDE.md's edge-dense rule. Passing its `/elidex-plan-review`
 discharges terminality; this memo does not claim it in advance.
+
+## §6 The gate, and why it is closed here
+
+**Six rounds of `/elidex-plan-review`, five axes each. Rounds 5 and 6 answered `executability = YES`
+unanimously — ten independent implementations of §3's rule against the harness, none of which found a clause
+an outside implementer would have to decide.** That is the question this gate exists to ask, and it is
+answered.
+
+⚠ **The CRIT count did not fall — 7, 9, 6, 8, 9, 14 raw — and that is not the reason to keep going, because
+the findings stopped being about this memo.** Round 6's fourteen, by target: **eight** in the umbrella's §9
+(its stopping clause, the per-commit grades, the plan-review population, the mechanism-inheritance
+sentence); **two** in a control figure with three homes; one each in the measurements memo's preamble, its
+D19, and PR-1a-ii's ownership; **one** in this memo — a memo-to-memo anchor in §1. **Zero in §3.** Seven of
+the fourteen were defects the previous round's own corrections introduced.
+
+**So the loop had stopped gating β and started auditing the umbrella's bookkeeping about itself**, which is
+real work and is not what stands between this slice and its implementation. Round-count and fatigue are not
+inputs to a stop decision; the target distribution is. Closing here on merit is
+`memory/feedback_review-loop-convergence-merit-not-fatigue.md`'s rule applied, not evaded.
+
+⚠ **Three things this closure does not cover, and the implementing commit owes them:**
+
+1. **The right-boundary clause is undecided** (§3, the fifth clause). It does not block β — β's own scan
+   classifies `x=$(_partset)` as `callsite`, which is β1's headline case — but it blocks the *reconciliation*
+   §5 raises, and the raise says so.
+2. **The umbrella items round 6 named are still owed**, by the umbrella: §9's nine pre-clause commits, D19's
+   probes 1–3 carrying no runnable command against §8's rule, `CSSOM View 1` failing the pinned map in all
+   three plan memos, O5's missing plant precondition, and §2's I4 × I5 PR cell pointing at a stub.
+3. **The bookkeeping §4 and §5 already enumerate** — the length figure, and every `-audit.sh:N` anchor at or
+   below `classify` in this memo and in the umbrella.
