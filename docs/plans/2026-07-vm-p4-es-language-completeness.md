@@ -2163,8 +2163,14 @@ residual command below is what locates them. The other **80** are references to 
 each is now a markdown link naming its carve-out, so the extent is re-derived **from the artifact
 rather than from the convention**:
 `grep -oE '\]\(2026-07-vm-p4-(slice-1a-1b-call-spread-detail|umbrella-review-rounds|slice-0a-landing-record)\.md\)' <this file> \| wc -l`
-→ **80** in the umbrella as it now stands. *(Net zero from the rewrite of this passage itself, which
-dropped eight such references and reintroduced eight — measured, not assumed.)* The **residual** — a
+→ **84** in the umbrella as it now stands — **80** until the umbrella-naming sweep of this revision,
+which added four: three in the `edge NN` namespace declaration at §6's carve-out stub and one in the
+evidence-anchor rule, each a link that did not exist before because the sentence carrying it did not.
+⚠ *A figure written "as it now stands" is invalidated by the next edit to the file it counts, and it
+was — by an edit in this same PR, four commits after the sentence was written. The re-run is the
+claim; the number beside it is only the last time anyone ran it.* *(The rewrite of this passage was
+separately net zero, dropping eight such references and reintroducing eight — measured, not
+assumed.)* The **residual** — a
 carved heading token in running prose that is neither a link nor a backticked spelling under
 discussion — is the check that does not depend on that arithmetic, and it returns the seven named
 collisions and nothing else:
@@ -2587,7 +2593,7 @@ slot:
   and `carved at PR-B` (**20**) missed `carved this round` (**4**) and `carved here` (**1**). One
   command over all four —
   `grep -cE '^\| .*(carved by #489|carved at PR-B|carved this round|carved here)' <this file>`
-  → **30** at `6cf0ec1e`; negative control, the same command with `carved at PR-C` → **0**, so it discriminates
+  → **30** at `6cf0ec1e` and **33** at this revision, the three rows between them being what the command classifies rather than anything a reader has to be told; negative control, the same command with `carved at PR-C` → **0**, so it discriminates
   rather than matching every row. The rows it returns *are* the classification. ⚠ **Every figure above is
   re-run, never carried, and the reason is measured**: the previous wording asserted
   `carved at PR-B` → **4** and named four rows, while the
