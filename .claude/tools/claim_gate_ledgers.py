@@ -42,8 +42,16 @@ collapsing if a third ledger ever arrives. Property #3's shared part is the
 POSITION discipline itself, and it is stated that narrowly above.
 
 Two further asymmetries, so the list above is not read as more than it is:
-`CONTROLS` matches an id TOKEN and `PATHS` a basename SUBSTRING (a generic
-`mentions()` would have to pick one and change the other check); and `CONTROLS`
+`CONTROLS` matches an id TOKEN and `PATHS` a basename, and a generic
+`mentions()` would have to pick one and change the other check -- that
+argument was tested rather than inherited, and it holds: `CONTROLS` does not
+ask a yes/no question. It extracts ids, sub-arms and byte positions, and a
+bool-returning helper cannot serve it. What did NOT survive the test is the
+word this passage used to carry, "SUBSTRING": `PATHS` matched raw, so a
+sentence about a sibling counted as naming the deleted file, and 332 pairs of
+tracked basenames in this tree have one inside the other. Both checks match at
+a BOUNDARY now, which is a shared discipline rather than a shared function --
+`PATHS` adopting what `CONTROLS` already did. And `CONTROLS`
 fails on a memo naming a non-member where `PATHS` deliberately does not -- the
 headers on CONTROLS and PATHS below record the three populations measured before
 that arm was rejected. (They were cited here as "§13/§14", which reads as a memo
@@ -348,15 +356,34 @@ def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
     at = memo.text.find(section) if section else -1
     elsewhere = (memo.text[:at] + memo.text[at + len(section):]) if at >= 0 else memo.text
 
+    # A row DECLARES a path however it spells it -- basename or full path -- so
+    # both spellings are resolved to the same key before comparing. `named` was
+    # measured on the basename and `declared` keyed on the row's literal text,
+    # so a row written as `claim_gate_grammar.py` for a path git reports as
+    # `.claude/tools/claim_gate_grammar.py` satisfied neither, and the memo was
+    # told it owed a row it had already written.
+    declared_bases = {d.rsplit("/", 1)[-1] for d in declared}
+
+    def _declares(p: str) -> bool:
+        return p in declared or p.rsplit("/", 1)[-1] in declared_bases
+
     for path in gone:
         base = path.rsplit("/", 1)[-1]
-        named = base in elsewhere
-        if named and path not in declared:
+        # At a BOUNDARY, not as a substring. `base in elsewhere` counted a
+        # sentence about a sibling file as naming this one: measured on this
+        # tree, 332 pairs of tracked basenames have one inside the other
+        # (`abort.rs` inside `tests_abort.rs`). `CONTROLS` matches its ids at a
+        # boundary already; this is PATHS adopting the discipline its sibling
+        # has, and NOT a shared `mentions()` -- a bool cannot serve CONTROLS,
+        # which extracts ids, sub-arms and positions. The header's argument
+        # against merging them survives; what did not survive is the substring.
+        named = re.search(rf"(?<![\w.-]){re.escape(base)}(?![\w])", elsewhere) is not None
+        if named and not _declares(path):
             host.bad("PATHS", f"this branch deletes `{path}` and {memo.path.name} still "
                          f"names it; §{GONE_SECTION} owes a row saying what the memo "
                          f"means by it now — the sentences around it were written "
                          f"while the file was there")
-        elif not named and path in declared:
+        elif not named and _declares(path):
             host.bad("PATHS", f"§{GONE_SECTION} declares `{path}`, and no sentence outside "
                          f"that section names it — the row has outlived its subject")
     # The parking-lot arm asks whether the row's SUBJECT came back, not whether

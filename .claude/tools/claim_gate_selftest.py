@@ -967,6 +967,27 @@ def selftest() -> int:
     # history, which is why the arm reads it.
     _FAB = LEDGER_GONE.replace("claim_gate_grammar", "claim_gate_grammer") \
         + NAMES_GONE.replace("claim_gate_grammar", "claim_gate_grammer")
+    # P2: `base in elsewhere` is a RAW substring. Measured on this tree, 332
+    # pairs of tracked basenames have one inside the other (`abort.rs` inside
+    # `tests_abort.rs`), so a sentence about a sibling file counted as naming
+    # the deleted one. `CONTROLS` already matches its ids at a boundary; this
+    # is PATHS adopting the discipline its sibling has, not a shared helper --
+    # a bool-returning `mentions()` cannot serve CONTROLS, which extracts ids,
+    # sub-arms and positions (this module's header states that, and it holds).
+    _SIB = ".claude/tools/tests_zzprobe.rs"
+    probe("PATHS positive (a sibling whose name CONTAINS the deleted one)", False,
+          capture(check_paths,
+                  synth(f"## §5 x\n\nThe suite lives in `{_SIB}` and always has.\n"),
+                  [".claude/tools/zzprobe.rs"]))
+    # W2: `named` is measured on the BASENAME and `declared` keyed on the full
+    # path as the row spells it, so a row that writes the basename satisfied
+    # neither test and the memo was told it owed a row it had written.
+    probe("PATHS positive (a row spelled as a basename still declares the path)", False,
+          capture(check_paths,
+                  synth("### §0.1 What this PR removes\n\n- `claim_gate_grammar.py` — "
+                        "deleted on the prerequisite branch\n"
+                        + NAMES_GONE),
+                  [GONE]))
     probe("PATHS negative (a ledger row naming a path no commit ever had)", True,
           capture(check_paths, synth(_FAB), []),
           "no commit")
