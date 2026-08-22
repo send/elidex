@@ -61,6 +61,7 @@ HEADER = """# fixture
 | **9** | **UMBRELLA, not a terminal unit.** numeric id. | `c.rs` | — | T1 | — |
 | **C** | **UMBRELLA, not a terminal unit.** single-letter id. | `d.rs` | — | T1 | — |
 | **Qx** | {sqx} | `e.rs` | — | T1 | — |
+| **Uz** | {suz} | `f.rs` | — | T1 | {duz} |
 
 ## §8. Slot ledger changes at landing
 
@@ -77,6 +78,7 @@ HEADER = """# fixture
 BLANK = dict(c1="—", s9z="charter.", d9z="—",
              s7z="Terminal.  Acceptance: the probe must return 3.", d7z="—",
              sqx="Terminal.  Acceptance: the probe must return 4.",
+             suz="Terminal.  Acceptance: the probe must return 5.", duz="—",
              wa="why.", ta="now", wb="why.", tb="now")
 
 
@@ -161,6 +163,9 @@ case("NEGATIVE", "possessor of a charter",
      build(), "The surface sits inside umbrella 9z's charter.", 0)
 case("NEGATIVE", "statement about the row's kind",
      build(), "Slice 9z is an umbrella, so it ships no PR.", 0)
+case("NEGATIVE", "a self-declaring row that MENTIONS a sibling stays in the population",
+     build(suz="Unlike Slice 7z, **UMBRELLA, not a terminal unit.** charter."),
+     "Uz owns the close rule.", 1)
 case("NEGATIVE", "a row naming itself in its own cell",
      build(s9z="charter; 9z mints its children here."), "", 0)
 case("POSITIVE", "a multi-character id inside a bold PHRASE, not bold itself",
@@ -208,6 +213,9 @@ acase("POSITIVE", "(a) a marker that names ANOTHER row is not a self-declaration
       build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — "
                "with sub-slices; this slot points into §5."),
       "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(b) a KIND-UNDETERMINED row carrying a Deps edge is checked too",
+      build(suz="**KIND UNDETERMINED**: neither an umbrella nor a terminal unit.", duz="**7z**"),
+      "UMBRELLA-CELL", 1)
 acase("POSITIVE", "(b) an umbrella row carrying a Deps edge",
       build(d9z="**7z**"), "UMBRELLA-CELL", 1)
 acase("POSITIVE", "(c-seed) ordering vocabulary in prose against an empty Deps cell",

@@ -22,27 +22,58 @@ declared-recall seed for the second pair. That boundary is printed in the report
 rather than left to the reader, because a checker that prints `0` for a class it
 cannot see is the failure the same document records under I-8.
 
-WHY A SEPARATE FILE FROM `.claude/tools/claim-gate-plan-check.py`
-CLAUDE.md *One issue, one way* asks for N=1, and asks that anyone who keeps N>1
-be able to write down why N existed. Here it is, as commands rather than as a
-claim:
+WHY A SEPARATE FILE, AND WHAT N ACTUALLY IS
+CLAUDE.md *One issue, one way* asks for N=1 and asks that anyone keeping N>1 be
+able to write down why N existed.  This block used to answer that against the two
+paths it already knew about -- itself and `claim-gate-plan-check.py` -- and
+reported N=2.  That is the same "measure the population you know" failure this
+program exists to catch, committed in the paragraph justifying the program.
+Re-derived over every in-flight worktree instead:
 
-    # neither checker is on main, so neither is a landed home the other can join
-    git ls-tree origin/main -- .claude/tools/claim-gate-plan-check.py \
-                               .claude/tools/plan-memo-umbrella-check.py   # prints nothing
+    cd "$(git rev-parse --show-toplevel)/.." && for wt in elidex-wt-* elidex; do
+      ls "$wt"/.claude/tools/*.py 2>/dev/null; done
 
-`claim-gate-plan-check.py` is bound to the claim-gate memos' schema -- their §2
-pairwise table, their PR labels, their `claim` annotations in the tree -- and its
-checks EXECUTE things (git, bash, preflight) to compare against pasted answers.
-This file executes nothing outside the memo; its whole subject is one document's
-table parse and the prose that names its rows. What the two genuinely share is
-the GFM row splitter that honours `\\|`, some thirty lines.
+Four distinct plan-memo programs are in flight, on three branch families, and
+NONE is on `main` (`git ls-tree origin/main -- .claude/tools/` lists only
+`webref` and the trip-wire shells):
 
-So N=2 because the two were written in different lanes for different memos'
-schemas, and the merge is a landing-order question, not a design one: collapsing
-today would couple PR #506's landing to that branch's unconverged review. The
-trigger to collapse is both files being on `main`, at which point the shared
-splitter moves to one module and each checker keeps its own schema.
+  claim-gate-plan-check.py (+3 modules)  branches claim-gate-plan-check,
+                                         stale-claim-detector
+  plan-sweep.py                          branch layout-decorated-inline
+  plan-xcheck.py                         branch layout-decorated-inline
+  plan-memo-umbrella-check.py (this)     branch vm-p4-plan-doc
+
+⚠ **`plan-sweep.py` is the canonical tool for a class this file does NOT cover,
+and it should be reached for first.**  Its subject is the restatement sweep --
+"You are changing one decision.  This lists EVERY site in the memo that restates
+it" across STATEMENT / OBLIGATION / CONSEQUENCE surfaces.  That is the
+un-propagated-decision failure, and running it over this memo returns 41 sites in
+seconds.  This file's subject is different: which rows carry no owner, and which
+prose names one of them in a role §5 says it cannot hold.  Use `plan-sweep.py`
+when you change a decision; use this when you want the naming population.
+
+So N>1 is real per class, and the residue worth collapsing is the shared GFM
+row splitter that honours an escaped pipe -- some thirty lines, duplicated four ways.  The
+collapse is a landing-order question: joining them today couples each branch's
+landing to the others' unconverged reviews.  Trigger to collapse: two or more of
+them on `main`, at which point the splitter moves to one module and each program
+keeps its own schema.
+
+WHERE THIS RUNS
+It is NOT wired into `scripts/trip-wires.sh`, and deliberately: that script globs
+`.claude/tools/*-trip-wire.sh`, the CI job runs it ungated on every PR, and
+`SCHEMAS` matches one document's exact header rows -- run against any other plan
+memo this program prints `FATAL: no table matched schema(s) ...` and exits 2, so
+wiring it there would red every unrelated PR.  Its home is CLAUDE.md's
+*Development Rules*, invoked by hand when the VM-P4 umbrella memo is edited.
+
+EXIT STATUS
+  0  no mechanical finding
+  1  at least one mechanical finding (the assertions, not the seeds)
+  2  a schema did not match -- the run is a SKIP, not a clean result
+Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
+reports by default, so a green state would not exist and the code would be a
+gate nobody could ever satisfy.
 
 WHAT IS MECHANICAL AND WHAT IS A SEED (read this before believing a count)
   (a) UMBRELLA-MARK   mechanical, complete, for the half that counts: the
@@ -100,6 +131,19 @@ import pathlib
 from collections import Counter, defaultdict
 
 MARKER = "UMBRELLA, not a terminal unit"
+
+# §5's fifth row kind.  A kind-undetermined row carries the split and NOTHING
+# else -- no ordering, no owner, no acceptance -- which is the same obligation
+# the naming rule enforces against umbrellas.  Keying the population on the
+# UMBRELLA marker alone therefore left every such row outside every scan: a
+# population defined by the symptom's vocabulary rather than by the property the
+# rule is about (`feedback_checks-must-not-be-defined-by-the-symptom-vocabulary`,
+# cited in this file for ROLE_PATTERNS and violated one screen earlier).
+#
+# Two spellings are in use in the document.  This tolerates both AND reports the
+# divergence, rather than silently blessing it -- a kind with two spellings is a
+# kind no program can enumerate, which is the defect one level up.
+UNDETERMINED = re.compile(r"KIND\s*[\u2014-]?\s*UNDETERMINED", re.IGNORECASE)
 
 # --------------------------------------------------------------------------
 # GFM row parsing.  Split on UNESCAPED pipes only: a cell containing `\|`
@@ -339,10 +383,47 @@ class Memo:
         """The row id a marker names, when it is not this row's own."""
         for m in re.finditer(re.escape(MARKER), field):
             pre = field[max(0, m.start() - 70): m.start()]
-            g = re.search(ROW_NOUN + r"\s+(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*[^A-Za-z0-9]*$", pre)
+            # The id must be the marker's APPOSITIVE subject -- `Slice **E** —
+            # **UMBRELLA, …**` -- with nothing between them but dash punctuation
+            # and emphasis.  A 70-char proximity window instead excluded a
+            # genuine self-declaration that merely MENTIONED a sibling
+            # ("Unlike Slice 7z, **UMBRELLA, not a terminal unit.**"), which
+            # dropped that row from the census AND, silently, from the naming
+            # population -- so every site naming it as an owner stopped being
+            # reported.  The self-test carries both directions.
+            g = re.search(
+                ROW_NOUN + r"[\s-]+(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*"
+                r"\s*[\u2014\u2013-]\s*(?:\*\*|`)*\s*$", pre)
             if g and g.group(1) != rid:
                 return g.group(1)
         return None
+
+    def undetermined_ids(self, spellings=None):
+        """Rows whose declaring field says their kind is not settled."""
+        ids = {}
+        for name, hdr, decl, idc, _ in SCHEMAS:
+            if decl is None or idc is None:
+                continue
+            for lineno, cells in self.data_rows(name):
+                if len(cells) <= max(decl, idc):
+                    continue
+                m = UNDETERMINED.search(cells[decl])
+                if m:
+                    ids[bare_id(cells[idc])] = (name, lineno)
+                    if spellings is not None:
+                        spellings.add(m.group(0))
+        return ids
+
+    def no_owner_ids(self):
+        """Every row that carries no owner and no ordering.
+
+        This -- not "carries the UMBRELLA marker" -- is the property §5's naming
+        rule is stated over, so it is what the naming scan and the `Deps`
+        assertion are both derived from.
+        """
+        out = dict(self.umbrella_ids())
+        out.update(self.undetermined_ids())
+        return out
 
     def all_row_ids(self):
         ids = {}
@@ -621,21 +702,26 @@ def assertion_a(memo, findings, notes, attributed=None):
 def assertion_b(memo, findings, notes):
     """The `Deps` half of assertion (b).  The acceptance half has no cell to read
     and is left to (c)/(d)'s natural-language class; see the header."""
+    # Both no-owner kinds: §5 gives a kind-undetermined row the same "carries the
+    # split and nothing else" obligation, so scoping this to the UMBRELLA marker
+    # left four §5 rows unchecked for the very cell it is about.
     umb = memo.umbrella_ids()
+    undet = memo.undetermined_ids()
     checked = 0
     for lineno, cells in memo.data_rows("slice"):
         if len(cells) <= 6:
             continue
         rid = bare_id(cells[1])
-        if rid not in umb:
+        kind = "umbrella" if rid in umb else ("kind-undetermined" if rid in undet else None)
+        if kind is None:
             continue
         checked += 1
         deps = cells[6].strip()
         if deps and deps not in {"—", "-", "n/a"}:
             findings.append(("UMBRELLA-CELL", lineno,
-                             "umbrella row %r carries a Deps edge: %s" % (rid, deps[:120])))
+                             "%s row %r carries a Deps edge: %s" % (kind, rid, deps[:120])))
     notes.append(
-        "[UMBRELLA-CELL] %d §5 umbrella rows checked for a Deps edge. "
+        "[UMBRELLA-CELL] %d §5 no-owner rows (umbrella + kind-undetermined) checked for a Deps edge. "
         "⚠ HALF of assertion (b): the acceptance half is NOT checked and is not "
         "mechanisable -- §5 gives acceptance no cell, only prose in the Slice cell. "
         "A `0` here says nothing about it." % checked)
@@ -714,13 +800,40 @@ def main(argv):
         print(__doc__)
         return 2
     memo = Memo(paths[0])
-    umb = memo.umbrella_ids()
+    spellings = set()
+    undet = memo.undetermined_ids(spellings)
+    # The naming rule is stated over rows that carry no owner and no ordering.
+    # Umbrella rows are one kind of those; kind-undetermined rows are another.
+    umb = memo.no_owner_ids()
     if not umb:
         print("FATAL: no umbrella rows found -- the table schema did not match. "
               "This is a skip, not a clean run.")
         return 2
 
+    # ⚠ A guard that only fires when EVERY table is missing lets one table drop
+    # out silently.  Measured: renaming a single §8 header cell drops the census
+    # from 48 to 33 with zero slot umbrellas, no FATAL, and a report line whose
+    # `slot=` term is absent rather than zero -- which a reader must notice by
+    # absence.  Each schema must match at least one table.
+    matched = {name for name, _, _ in memo.tables}
+    missing = [name for name, hdr, decl, idc, _ in SCHEMAS if name not in matched]
+    if missing:
+        print("FATAL: no table matched schema(s) %s -- their whole population is "
+              "unscanned. This is a skip, not a clean run." % ", ".join(missing))
+        return 2
+
     findings, notes = [], []
+    if undet:
+        notes.append(
+            "[KIND-UNDETERMINED] %d row(s) declare an unsettled kind (%s) and are IN the naming "
+            "population, because §5 gives them the same no-owner/no-ordering obligation as an "
+            "umbrella." % (len(undet), ", ".join(sorted(undet))))
+        if len(spellings) > 1:
+            findings.append(
+                ("KIND-SPELLING", 0,
+                 "the undetermined kind is written %d ways (%s); a kind with more than one spelling "
+                 "is a kind no program can enumerate"
+                 % (len(spellings), " / ".join(sorted(spellings)))))
     assertion_a(memo, findings, notes)
     assertion_b(memo, findings, notes)
     assertion_cd_seed(memo, findings, notes)
@@ -805,9 +918,17 @@ def main(argv):
                 print("    %s:%d [%s] {%s}  %s"
                       % (m.file, m.lineno, m.source, ",".join(roles(m)) or "-", m.context()[:190]))
     print()
-    print("%d finding(s) from the mechanical assertions, %d reported naming site(s)."
-          % (len(findings), len(unlicensed)))
-    return 1 if (findings or unlicensed) else 0
+
+    # Mechanical findings only.  A code ending in `?` is a SEED -- a class this
+    # program cannot decide -- and seeds do not gate, nor does `unlicensed`,
+    # which is non-zero by construction because the naming scan reports by
+    # default.  Gating on either would mean no green state exists and the code
+    # would be a gate nobody could satisfy.  See EXIT STATUS in the header.
+    mechanical = [f for f in findings if not f[0].endswith("?")]
+    print("%d mechanical finding(s) gate the exit status; %d seed(s) and %d reported "
+          "naming site(s) do not." % (len(mechanical), len(findings) - len(mechanical),
+                                      len(unlicensed)))
+    return 1 if mechanical else 0
 
 
 if __name__ == "__main__":
