@@ -366,6 +366,18 @@ def selftest() -> int:
           "re-running gives")
     listing = "git grep -n 'REQUIRED_WIRES' -- 'scripts/*.sh'"
     hits = [x for x in run_line(listing).split("\n") if x]
+    # The stale-answer probe above uses `n + 7`, which happens to avoid the
+    # substring relation for today's `n`. This one pins the relation itself: the
+    # abbreviated-paste arm accepted any paste CONTAINING the answer, so `13`
+    # passed against a true `3`, silently, in the comparator round 2's CRIT
+    # lived in. A trailing gloss must still pass.
+    _wc = 'git ls-files -- ".claude/tools/claim_gate_*.py" | wc -l'
+    _n = run_line(_wc).strip()
+    probe("TRANSCRIPT arrow form, a stale answer that CONTAINS the true one", True,
+          capture(check_transcripts, synth(f"## §4 x\n\n```\n{_wc}   → 1{_n}\n```\n")),
+          "re-running gives")
+    probe("TRANSCRIPT arrow form, the true answer with a trailing gloss", False,
+          capture(check_transcripts, synth(f"## §4 x\n\n```\n{_wc}   → {_n} files\n```\n")))
     probe("TRANSCRIPT $-form, complete listing", False,
           capture(check_transcripts, block(f"$ {listing}", *hits)))
     probe("TRANSCRIPT $-form, a site dropped from the listing", True,
@@ -460,15 +472,16 @@ def selftest() -> int:
 
     sites = sorted(pending_sites())
     def disposal(rows):
-        # Names a wire, because SITES' population is the PR that changes the
-        # wire set: without this the gate added in round 10 skips, and both
-        # probes below go vacuously green -- the shape they exist to catch.
+        # The gate is INJECTED below rather than bought with this sentence.
+        # Round 10's gate was on the memo naming a wire, so the fixture named
+        # one to stay in population -- which is why naming and shipping were
+        # never separable here, and why the discriminating arm was missing.
         return ("## §4.6 Disposal\n\nS1 ships `.claude/tools/claim-provenance-trip-wire.sh`.\n\n"
                 "```\n" + "\n".join(f"{r}: x" for r in rows) + "\n```\n")
     probe("SITES positive (every wire-set line cited)", False,
-          capture(check_sites, synth(disposal(sites))))
+          capture(check_sites, synth(disposal(sites)), True))
     probe("SITES negative (one disposal dropped)", True,
-          capture(check_sites, synth(disposal(sites[1:]))),
+          capture(check_sites, synth(disposal(sites[1:])), True),
           "speaks about the wire set")
 
     real_pf = run_preflight_block(PREFLIGHT_FIXTURE)
@@ -708,9 +721,18 @@ def selftest() -> int:
     probe("PATHS negative (a ledger row no sentence outside it names)", True,
           capture(check_paths, synth(LEDGER_GONE), [GONE]),
           "outlived its subject")
-    probe("PATHS negative (a ledger row for a file this branch does not delete)", True,
-          capture(check_paths, synth(LEDGER_GONE + NAMES_GONE), []),
-          "the tree has it back")
+    # The parking arm asks whether the SUBJECT came back, so a tracked path is
+    # the finding and an absent one is not -- a row for a file the prerequisite
+    # PR removed must survive that PR landing, which is when `gone` empties.
+    _here = ".claude/tools/claim_gate_ledgers.py"
+    probe("PATHS negative (a ledger row whose subject is back in the tree)", True,
+          capture(check_paths, synth(
+              f"### §0.1 What this PR removes\n\n- `{_here}` — deleted\n"
+              + NAMES_GONE.replace("claim_gate_grammar.py", "claim_gate_ledgers.py")),
+              []),
+          "back in the tree")
+    probe("PATHS positive (a row survives its deletion leaving the branch range)", False,
+          capture(check_paths, synth(LEDGER_GONE + NAMES_GONE), []))
     probe("PATHS positive (a deleted file no sentence names owes nothing)", False,
           capture(check_paths, synth("## §5 Decomposition\n\nNothing about it.\n"),
                   [GONE]))
@@ -737,7 +759,7 @@ def selftest() -> int:
               "could not be formed")
     finally:
         ledgers.deleted_on_branch = _saved_gone
-    _gone = host.deleted_on_branch()
+    _gone = ledgers.deleted_on_branch()
     probes.append(("PATHS derives its population from this repository's git",
                    _gone is not None, f"origin/main..HEAD deletes {_gone}"))
 
@@ -757,14 +779,45 @@ def selftest() -> int:
                    f"roster−codes={sorted(_roster - _codes)} "
                    f"codes−roster={sorted(_codes - _roster)}"))
 
+    # Applicability, both directions, against the real entry point. The gate is
+    # what turns "all 68 plan-memos exit 1" into "0 of 68".
+    _subj = host.REPO / "docs" / "plans" / "zz-probe-subject.md"
+    try:
+        _subj.write_text("# probe\n\nA memo about something else entirely.\n")
+        _rc, _out = sh([sys.executable, str(REPO / ".claude" / "tools" /
+                        "claim-gate-plan-check.py"), str(_subj.relative_to(REPO))])
+        probes.append(("APPLICABILITY a memo that does not name this tool is declined",
+                       _rc == 0 and "every check declined" in _out, f"rc={_rc}"))
+        _subj.write_text("# probe\n\nRun `claim-gate-plan-check` on it.\n\n"
+                         "## §4 x\n\nIt cites §9.\n")
+        _rc2, _out2 = sh([sys.executable, str(REPO / ".claude" / "tools" /
+                          "claim-gate-plan-check.py"), str(_subj.relative_to(REPO))])
+        probes.append(("APPLICABILITY a memo that does name it is checked",
+                       _rc2 == 1 and "[SECT]" in _out2, f"rc={_rc2}"))
+    finally:
+        _subj.unlink(missing_ok=True)
+
     probe("SITES positive (a memo that ships no wire is not its subject)", False,
-          capture(check_sites, synth("## §4 x\nA memo about something else entirely.\n")))
+          capture(check_sites, synth("## §4 x\nA memo about something else entirely.\n"), False))
+    # The discriminating arm the two probes below never had between them: a memo
+    # that NAMES a wire and ships none. Under the old name-gate this collected a
+    # finding per governing line; the gate is the branch's diff now, so naming
+    # one changes nothing.
+    probe("SITES positive (naming a wire this PR does not ship is not shipping one)", False,
+          capture(check_sites, synth(
+              "## §4 x\nFollow the precedent of "
+              "`.claude/tools/layout-box-reader-trip-wire.sh`, untouched here.\n"), False))
+    probe("  …and the same memo owes every disposal once the PR does ship one", True,
+          capture(check_sites, synth(
+              "## §4 x\nFollow the precedent of "
+              "`.claude/tools/layout-box-reader-trip-wire.sh`, untouched here.\n"), True),
+          "SITES")
     probe("  …and it says so through skip()", True,
-          capture_skipped(check_sites, synth("## §4 x\nA memo about something else.\n")),
+          capture_skipped(check_sites, synth("## §4 x\nA memo about something else.\n"), False),
           "does not change the wire set")
     probe("SITES negative (a memo that ships a wire owes the disposal)", True,
           capture(check_sites, synth(
-              "## §4 x\nS1 adds `.claude/tools/claim-provenance-trip-wire.sh`.\n")),
+              "## §4 x\nS1 adds `.claude/tools/claim-provenance-trip-wire.sh`.\n"), True),
           "SITES")
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,

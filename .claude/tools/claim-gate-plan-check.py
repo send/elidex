@@ -489,17 +489,22 @@ report_transcripts = claim_gate_reruns.report_transcripts
 # enumeration of four disjoint surfaces are both invalidated by a fifth wire,
 # and neither contains the string the memo grepped for.
 #
-# The governing files are a closed set of five, and every line in them that
-# speaks about the wires *collectively* has to be consciously disposed of --
+# `GOVERNING` is a SEED (`wire_set_lines` states the measurement), and every
+# line in the files it names that speaks about the wires *collectively* has to
+# be consciously disposed of --
 # edited, or cited as deliberately left alone. Per-wire headers are out of
 # scope: a new wire only adds to those, it does not falsify them.
 #
 # This FAILS rather than reports. It shipped as a report, and a report was the
 # wrong shape twice over: `check_sites` never called `bad()`, so the one
 # mechanism credited with catching what a grep cannot contributed nothing to
-# the exit code -- `layout-box-reader-trip-wire.sh:276-299`'s `ban_control`
-# ("a ban that cannot fire is indistinguishable from a clean tree") reproduced
-# in the checker written to enforce that lesson.
+# the exit code -- the `ban_control` lesson reproduced in the checker written to
+# enforce it. That lesson's words are at `layout-box-reader-trip-wire.sh:472-473`:
+# "a ban wire that cannot fire is indistinguishable from a clean tree". This
+# passage quoted it as "a ban that cannot fire", against `:276-299` -- a range
+# that holds the `ban_control` function body and no such sentence. Two words
+# dropped and a range that does not contain the quotation is the third altered
+# quotation this program has produced; `git grep -F` decides these.
 # --------------------------------------------------------------------------
 
 GOVERNING = [".github/workflows/ci.yml", "CLAUDE.md", "CONTRIBUTING.md",
@@ -510,9 +515,28 @@ COLLECTIVE = re.compile(
 WIRE_TOPIC = re.compile(r"trip.?wire|the wires", re.I)
 
 
-# A memo owes the wire-set disposal only if its PR changes the wire set. That is
-# the property, and it is decidable: the memo names a `*-trip-wire.sh` it ships.
-SHIPS_A_WIRE = re.compile(r"[\w./-]*-trip-wire\.sh")
+WIRE_FILE = re.compile(r"[\w./-]*-trip-wire\.sh$")
+
+
+def changes_the_wire_set() -> bool | None:
+    """Does THIS BRANCH add or remove a wire? None if the range cannot form.
+
+    The property is the PR's diff, not the memo's prose. It was decided by
+    a regex over `memo.text` -- the memo NAMING a wire
+    -- which is a gate by name where the comment above it states a gate by
+    behaviour. Measured: a four-line memo reading "follow the precedent of
+    `layout-box-reader-trip-wire.sh`, which this PR does not touch" collects
+    seventeen SITES findings for a wire set it does not change, and
+    `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` takes the same seventeen.
+    Both probes varied naming and shipping TOGETHER, so the discriminating arm
+    -- names one, ships none -- did not exist.
+    (memory `feedback_gate-criterion-by-behaviour-not-by-name`.)"""
+    if sh(["git", "rev-parse", "--verify", "--quiet", "origin/main"])[0] != 0:
+        return None
+    rc, out = sh(["git", "diff", "--name-only", "origin/main...HEAD"])
+    if rc != 0:
+        return None
+    return any(WIRE_FILE.match(x) for x in out.split("\n") if x)
 
 
 def wire_set_lines() -> list[tuple[str, int, str]]:
@@ -543,17 +567,62 @@ def wire_set_lines() -> list[tuple[str, int, str]]:
     return out
 
 
-def check_sites(memo: Memo) -> None:
+def report_governing_complement() -> None:
+    """What `GOVERNING` does not cover, printed so the seed cannot read as one.
+
+    `wire_set_lines`' docstring said "`check_sites` prints what it did not look
+    at" and nothing printed anything: the seed declared itself a seed and then
+    asserted a compensating mechanism it did not have, one function away from
+    `report_umbrella_coverage`, which does exactly this for `BINDING`. Two
+    seed-declaring checks, one honouring the contract and one claiming it.
+    (memory `feedback_universal-claims-need-the-complement-measured`.)
+
+    Per-wire headers are out of scope by the rule above, so they are excluded by
+    a PREDICATE rather than by absence from a list -- an exclusion nobody can
+    read is what makes an enumeration authoritative by default."""
+    rc, out = sh(["git", "ls-files"])
+    if rc != 0:
+        return
+    rows: list[tuple[str, int]] = []
+    for rel in out.split("\n"):
+        if not rel or rel in GOVERNING or WIRE_FILE.match(rel):
+            continue
+        f = REPO / rel
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        n = sum(1 for line in text.split("\n")
+                if WIRE_TOPIC.search(line) and COLLECTIVE.search(line))
+        if n:
+            rows.append((rel, n))
+    if rows:
+        print(f"  governing-file seed: {len(rows)} tracked file(s) outside "
+              f"`GOVERNING` carry a line matching the same predicate, and were "
+              f"not examined (per-wire headers are excluded by predicate):")
+        for rel, n in sorted(rows, key=lambda r: -r[1]):
+            print(f"    {rel} ({n} line(s))")
+
+
+def check_sites(memo: Memo, ships: bool | None = None) -> None:
     # Round 10: this fired on every memo in the tree, so the prerequisite PR --
     # which lands one PR BEFORE the memo this tool is for -- put a checker on
     # `main` that exits 1 on all 68 of them, for an obligation none of them
     # has. The obligation arises from changing the wire set, not from being a
     # plan-memo, and a check whose population is "every document handed to me"
     # reports a defect that is really a category error.
-    if not SHIPS_A_WIRE.search(memo.text):
-        skip("SITES", f"{memo.path.name} names no `*-trip-wire.sh`, so its PR does "
-                      f"not change the wire set and no line describing that set "
-                      f"needs disposing of here")
+    ships = changes_the_wire_set() if ships is None else ships
+    if ships is None:
+        skip("SITES", "`origin/main...HEAD` could not be formed in this clone, so "
+                      "whether this PR changes the wire set was not decided")
+        return
+    if not ships:
+        skip("SITES", f"`git diff --name-only origin/main...HEAD` adds no "
+                      f"`*-trip-wire.sh`, so this PR does not change the wire set "
+                      f"and no line describing that set needs disposing of here "
+                      f"({memo.path.name} may still name a wire it does not ship)")
         return
     # Both spellings count as citing a line: the backticked `path:12-14` form,
     # and the bare `path:12:` form a pasted `git grep -n` listing produces --
@@ -570,6 +639,7 @@ def check_sites(memo: Memo) -> None:
             cited.add(f"{h}:{m.group(2)}")
     loose = set(re.findall(r"`?([\w./-]+\.(?:yml|toml|md|sh))`?[: ]", memo.text))
 
+    report_governing_complement()
     for rel, i, line in wire_set_lines():
         if f"{rel}:{i}" in cited:
             continue
@@ -600,9 +670,21 @@ def check_sites(memo: Memo) -> None:
 # and flagged as unanchored where it cannot.
 # --------------------------------------------------------------------------
 
-TOOLING_SUBJECT = re.compile(
-    r"claim-gate-plan-check|claim-provenance-trip-wire|claim-provenance-selftest"
-    r"|`claim-gate-plan-check`|prerequisite PR|--self-test", re.I)
+def tooling_subject() -> re.Pattern[str]:
+    """Sentences whose subject is this program's own tooling.
+
+    DERIVED from `shipped_files()`, not enumerated. The literal alternation this
+    replaces named `claim-gate-plan-check` and the two shell artifacts and
+    nothing else, so the three modules the branch's own splits created were
+    invisible: "`claim_gate_ledgers.py` carries seven checks" -- two false
+    figures -- produced no finding. That is the same narrowing-by-split the
+    `checks` derivation twenty lines below documents and fixes, left in place in
+    the predicate that decides whether `checks` is even consulted, in the edit
+    that fixed the other one."""
+    names = sorted({p.name for p in shipped_files()}
+                   | {p.stem for p in shipped_files()})
+    return re.compile("|".join([re.escape(n) for n in names]
+                               + ["prerequisite PR", "--self-test"]), re.I)
 NUMERAL = re.compile(r"(?<![\w.:/-])(\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
                      r"\s+(commits?|files?|lines?|checks?|probes?|findings?|"
                      r"controls?|stages?|CRITs?|IMPs?)\b", re.I)
@@ -622,6 +704,7 @@ def check_tooling_quantities(memo: Memo) -> None:
     # "nothing re-derives it". A check whose subject disappears when its own PR
     # lands is a `ban_control` with a delayed fuse. HEAD always resolves, and on
     # `main` the range is empty, which is the honest answer there.
+    subject = tooling_subject()
     derivable: dict[str, int | None] = {}
     rc, out = sh(["git", "rev-list", "--count", "origin/main..HEAD"])
     derivable["commits"] = int(out.strip()) if rc == 0 and out.strip() else None
@@ -649,7 +732,7 @@ def check_tooling_quantities(memo: Memo) -> None:
     # unit, so the line stated a decision it was not making.
 
     for i, line in enumerate(memo.lines, 1):
-        if not TOOLING_SUBJECT.search(line):
+        if not subject.search(line):
             continue
         for m in NUMERAL.finditer(line):
             n, unit = _num(m.group(1)), m.group(2).lower().rstrip("s")
@@ -814,7 +897,11 @@ claim_gate_ledgers.host = sys.modules[__name__]
 implemented_controls = claim_gate_ledgers.implemented_controls
 check_controls = claim_gate_ledgers.check_controls
 gone_from = claim_gate_ledgers.gone_from
-deleted_on_branch = claim_gate_ledgers.deleted_on_branch
+# `deleted_on_branch` is withheld for the same reason as `SELFTEST_FILE`, and
+# was published here anyway: the rule was stated for both names and applied to
+# one. A probe rebinding it through this alias changed a name `check_paths`
+# never resolves, so the stub was ignored and the check ran the real git
+# derivation while the probe went green.
 check_paths = claim_gate_ledgers.check_paths
 
 
@@ -887,10 +974,29 @@ def summary(mode: str) -> list[str]:
     return out
 
 
+# The memo this program is FOR names it: §0's status block pastes the two
+# commands that establish the gate. Nothing else in `docs/plans/` does.
+IS_SUBJECT = re.compile(r"claim-gate-plan-check")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "--self-test":
         return claim_gate_selftest.selftest()
     memo = Memo(Path(argv[1]).resolve())
+    # Applicability is a property of the TOOL, not an exemption inside one check.
+    # Round 10 found `SITES` exiting 1 on every plan-memo in the tree for an
+    # obligation none of them has, and fixed SITES. Measured after that fix: all
+    # 68 still exited 1, on PAIR ("no §2 section found"), SECT and CITE, which
+    # are bound to this memo's schema in exactly the same way. Exempting the one
+    # class that was noticed leaves every other class authoritative by default
+    # (memory `feedback_enumerated-exemptions-leave-the-next-class-authoritative`),
+    # and the remedy was verified on the check rather than re-measured on the
+    # tool -- so the category error survived its own fix.
+    if not IS_SUBJECT.search(memo.text):
+        print(f"claim-gate plan check: {memo.path.name} does not name "
+              f"`claim-gate-plan-check`, so it is not a memo this tool is about "
+              f"— every check declined")
+        return 0
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 
     check_pairs(memo)

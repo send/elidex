@@ -366,7 +366,12 @@ def compare_arrow(memo: host.Memo, ln: int, cmd: str, want: str) -> None:
         host.bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes `{cmd[:56]}` → {head!r}; "
                           f"re-running prints nothing at all")
         return
-    if head not in (first, got) and first not in head:
+    # `first not in head` was the acceptance for an abbreviated paste -- a `→ 3
+    # files` gloss over an output of `3`. Containment is the wrong relation for
+    # it: `13` contains `3`, so a stale count passed silently against a true
+    # one, in the comparator round 2's CRIT lived in. The gloss is always a
+    # SUFFIX, so the test is a prefix test.
+    if head not in (first, got) and not head.startswith(first):
         host.bad("TRANSCRIPT", f"{memo.path.name}:{ln} pastes `{cmd[:56]}` "
                           f"→ {head!r}; re-running gives {first!r}")
 
@@ -399,9 +404,11 @@ def unrunnable(cmd: str) -> str | None:
 def check_transcripts(memo: host.Memo) -> list[str]:
     """Findings go through `host.bad`; the lines this could not re-run are RETURNED.
 
-    Returned rather than printed from here, for `verdict_over`'s reason: a probe
-    can read a return value, and the arrow form's hole below shipped precisely
-    because nothing could assert what this list does and does not contain."""
+    Returned rather than printed from here so a probe can read it: the arrow
+    form's hole below shipped precisely because nothing could assert what this
+    list does and does not contain. (This sentence used to hand that reason off
+    to `verdict_over`, a function deleted with `claim_gate_grammar.py` — a
+    pointer whose target is gone reads as a cross-reference and is a dead end.)"""
     unchecked: list[str] = []
     for start, body in fenced_blocks(memo):
         if FIXTURE_BLOCK.search("\n".join(body)):

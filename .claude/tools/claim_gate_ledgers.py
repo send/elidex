@@ -45,8 +45,9 @@ Two further asymmetries, so the list above is not read as more than it is:
 `CONTROLS` matches an id TOKEN and `PATHS` a basename SUBSTRING (a generic
 `mentions()` would have to pick one and change the other check); and `CONTROLS`
 fails on a memo naming a non-member where `PATHS` deliberately does not -- the
-header below §13/§14 records the three populations measured before that arm was
-rejected.
+headers on CONTROLS and PATHS below record the three populations measured before
+that arm was rejected. (They were cited here as "§13/§14", which reads as a memo
+section -- every other `§` in this file means one.)
 
 `host` is the entry point, bound by it at import time, exactly as
 `claim_gate_reruns` and `claim_gate_selftest` are. `bad` and `skip` are resolved
@@ -291,12 +292,15 @@ def check_controls(memo: host.Memo, have: dict[str, set[str]] | None = None,
 # populations were measured before this one was chosen:
 #
 #   * "every backticked path that `git ls-files` cannot resolve" -- 30 tokens in
-#     this memo, 2 unresolved, but 57 of the tree's 70 plan-memos carry at least
-#     one, and nearly all of those are ELISIONS of real files
+#     this memo, 2 unresolved, but the great majority of the tree's plan-memos
+#     carry at least one, and nearly all of those are ELISIONS of real files
 #     (`elidex-dom-api/element/tree.rs` for `crates/dom/.../src/element/tree.rs`)
 #     or files outside the repository (`memory/project_open-defer-slots.md`).
-#     A check that reds 57 memos for naming files that exist is the category
-#     error `check_sites` was just corrected for.
+#     A check that reds most of the memos in the tree for naming files that
+#     exist is the category error `check_sites` was just corrected for. Stated
+#     as a proportion rather than a count because the count is a property of the
+#     BASE: measured 57 of 70 on the slice branch, and this file ships one PR
+#     earlier, where `git ls-files 'docs/plans/*.md' | wc -l` is 68.
 #   * the same, plus a "not in `git log --all` either" branch for fabrication.
 #     Withdrawn: `--all` is a property of one clone. `plan-xcheck.py` is on a
 #     local branch of another lane and vanishes from that answer in a fresh
@@ -374,9 +378,25 @@ def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
         elif not named and path in declared:
             host.bad("PATHS", f"§{GONE_SECTION} declares `{path}`, and no sentence outside "
                          f"that section names it — the row has outlived its subject")
+    # The parking-lot arm asks whether the row's SUBJECT came back, not whether
+    # this branch is still the one that removed it.
+    #
+    # Keying it on `path not in gone` was a delayed fuse of exactly the kind
+    # `check_tooling_quantities` documents and avoids. `gone` is scoped to
+    # `origin/main..HEAD`, and this repository squash-merges: the moment the
+    # prerequisite PR lands, the commit that deleted a file leaves the stacked
+    # branch's range, `gone` empties, and a §0.1 row that was MANDATORY the day
+    # before becomes a finding the author cannot discharge except by deleting a
+    # true statement. Measured on this stack: `git log
+    # claim-gate-plan-check..stale-claim-detector --diff-filter=D` is already
+    # empty while `git log origin/main..stale-claim-detector` still names the
+    # file. A row for a file some OTHER branch removed is not parking -- the
+    # tree does not have it, so the memo's sentences about it are still about an
+    # absent file, which is all the row asserts.
     for path in declared:
-        if path not in gone:
-            host.bad("PATHS", f"§{GONE_SECTION} declares `{path}` as a file this branch "
-                         f"removes; `git log origin/main..HEAD --diff-filter=D` does "
-                         f"not name it, or the tree has it back")
+        if host.resolve(path):
+            host.bad("PATHS", f"§{GONE_SECTION} declares `{path}` as removed, and "
+                              f"`git ls-files` resolves it — the row's subject is "
+                              f"back in the tree, so the section is parking a "
+                              f"citation rather than recording one")
 
