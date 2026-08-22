@@ -217,12 +217,19 @@ use super::{
 ///   contribution (`inline/pack/mod.rs`'s `seg_line_advance`). It has no strut.
 ///   See the inline comment at the `persist_flow` reposition.
 ///
-/// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset
-/// preservation, fragmentainer terminology, column-box continuation) is
-/// pre-existing and untouched by the split — this function was relocated
-/// byte-identically modulo the signature's bindings, so it authors no
-/// algorithm. Adding blanket module-level citations for it would over-claim,
-/// which is the call #497 already made for `collect.rs`/`styled_run.rs`.
+/// ⚠ The *uncited* spec-governed prose inside the body is pre-existing and
+/// untouched by the split — this function was relocated byte-identically modulo
+/// the signature's bindings, so it authors no algorithm, and adding blanket
+/// module-level citations would over-claim (the call #497 already made for
+/// `collect.rs`/`styled_run.rs`). ⚠ **It is booked, not merely accepted**:
+/// `#11-inline-fragmented-fn-seams-1-2` owns it, and that slot's entry is the
+/// enumeration. ⚠ **Do not read the three examples an earlier revision listed
+/// here — relative/sticky offset preservation, fragmentainer terminology,
+/// column-box continuation — as the set.** It has **seven** members; the four
+/// that parenthetical omitted (`text-align` baked into `inline_start`, the
+/// abspos toggle, `overflow:hidden` clipping, the paged path) are all inside
+/// this body too, so the short list read as an enumeration and undercounted by
+/// four.
 ///
 /// `persist_flow` and `do_carrier` are **mutually exclusive**, and the caller
 /// establishes it rather than this function checking it: `do_carrier` implies

@@ -297,7 +297,7 @@ additions and not the withdrawal that superseded them. ⚠ **`45c72c0a` is not r
 `origin/main`** — its branch is gone from the remote, so `git show` fails in a fresh clone; the
 durable route is `refs/pull/497/head`. ⚠ **It is not a defence against an
 *incorrect* citation** — a different class, and the one that governs the citations this PR
-does author. §9 books the complement with an explicit disposition, not a pointer.
+does author. §9 dispositions the complement: it states why the class is out of scope for this PR and names the slot that owns it.
 
 **So the table below is what the PR *carries*, not what the range's spec surface is** — and its
 rows have two distinct provenances, which is the distinction the map exists to record:
@@ -895,6 +895,15 @@ collected credit for honesty while overstating what the contract forbade.
 
 ## §9. Out of scope, with disposition
 
+⚠ **One home per disposition, and for routed work this section is not it.** A concern here is
+either **accepted** — terminal, no work follows, and this section is canonical for it — or
+**routed**, in which case the *slot* is canonical for what the work is and when it reopens, and
+this section carries only **why it is not in this PR**, plus the slot's name. ⚠ **No bullet may be
+both**, and no bullet may restate a slot's trigger, re-eval date, or item list. Gates #20-#22 spent
+three consecutive rounds on drift between this section's copies and the slots' originals — 21 of
+gate #22's 25 defects were copy-vs-copy divergence, not errors of fact — and §10 already made
+exactly this move for the slot-ledger half, with the reason recorded there: *One home*.
+
 * **Seams 1 and 2** of `#11-inline-fragmented-fn-decomposition` — `mod.rs:266-303` (orphans/widows
   break computation) and `:388-411` (the packer-relative → layout coordinate fold), both
   re-measured on `658cc302`. The umbrella books them into the successor slot
@@ -923,16 +932,14 @@ collected credit for honesty while overstating what the contract forbade.
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
   decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
   user-level memory directory as `project_inline-fragmented-fn-seams-1-2.md`, and a
-  repository-only reader must still be able to tell when this work reopens. `#11-inline-fragmented-fn-seams-1-2`'s trigger, verbatim in substance:
+  repository-only reader must still be able to tell when this work reopens — for which the slot
+  memo's § *Trigger / re-eval* is the one place to look.
 
-  > **Either** the first change, after any of the decorated-inline umbrella's PRs, that touches
-  > `layout_inline_context_fragmented`'s residue — self-exempted for **six** of the umbrella's
-  > seven PRs on the grounds its §10 states, but ⚠ **not** for the seventh (the predicate prereq),
-  > which the umbrella deliberately leaves un-exempted — **or** `inline/mod.rs` growing back
-  > toward 1000 lines — **or** the next change that touches `inline/reconcile.rs`, the disjunct
-  > §7.2 names — **or** the next change that touches
-  > `crates/core/elidex-ecs/src/components/inline_flow.rs`. **Re-eval 2026-11-01.**
-  > ⚠ The slot memo is canonical for this set; this quote is a copy for repository-only readers.
+  ⚠ **The trigger is NOT restated here.** An earlier revision carried it verbatim "for
+  repository-only readers", labelled as a copy of a canonical set — and it drifted anyway: the
+  copy rendered a one-shot disjunct (*"the **next** change that touches…"*) as a standing one
+  (*"fires on **any** change touching…"*). A copy that announces it is a copy is still a second
+  decision surface. Read `project_inline-fragmented-fn-seams-1-2.md` § *Trigger / re-eval*.
 
   **The eleven-parameter question is reached by the first disjunct and needs no new one**: the
   eleven-argument *call site* lives in `layout_inline_context_fragmented`'s body (§5.1 — "calls it
@@ -967,11 +974,16 @@ collected credit for honesty while overstating what the contract forbade.
   child→parent back-edge. Declining it here is right (it is outside the range), but leaving it
   unrouted would let the next reader take §5.2 as "settled" rather than "declined on scope".
   **Routed to `#11-inline-fragmented-fn-seams-1-2`**, whose entry carries it.
-* **The uncited spec-governed concerns §3's complement command surfaces** — `text-align` baked
-  into `inline_start`; relative/sticky offset preservation; fragmentainer terminology; column-box
-  continuation; the abspos toggle, `overflow:hidden` clipping and the paged path. §3 states that
-  §9 books this class, so here it is booked, with an explicit disposition rather than a pointer:
-  **accepted as pre-existing and deliberately not cited by this PR.** The ground is change class —
+* **The uncited spec-governed concerns in the moved body** — `text-align` baked into
+  `inline_start`; relative/sticky offset preservation; fragmentainer terminology; column-box
+  continuation; the abspos toggle, `overflow:hidden` clipping and the paged path.
+  ⚠ **This set is authored and audited, NOT the output of §3's complement command**, and an
+  earlier revision of this sentence said otherwise. Measured both directions: the command's
+  alternation carries no `column`, so it cannot reach *column-box continuation*; and it does
+  surface `margin-box` at base `:477`, which falls inside no bullet's range. §3's own wording
+  (*"the command that shows the complement is non-empty"*) is the sound one — it is a filter over
+  a hand-made list, not an enumerator of the class.
+  **Why not in this PR** — the ground is change class —
   this PR authors no algorithm, so it neither creates nor deepens a missing-citation defect, which
   is the position #497 took when it **withdrew** the module-doc citations it had added to
   `collect.rs` (CSS 2 §9.2 *Controlling box generation*, the parent section) and `styled_run.rs`
@@ -980,33 +992,49 @@ collected credit for honesty while overstating what the contract forbade.
   §3's §9.4.2 sentence records the **landed text refusing** §9.4.2, not the PR body proposing it,
   so the two are different facts about the same section number. ⚠ The PR body also carries an
   *earlier revision* of the additions (`collect.rs` → §9.2.2.1, `styled_run.rs` → §9.4.2), not the
-  pair that landed and was withdrawn (§9.2 / §9.2.2). ⚠ **Routed to
+  pair that was added on #497's branch and withdrawn there before the squash (§9.2 / §9.2.2) —
+  ⚠ *"landed"* would be wrong for either pair, since §3 records `45c72c0a` as unreachable from
+  `origin/main`; neither addition nor withdrawal is on `main`. ⚠ **Routed to
   `#11-inline-fragmented-fn-seams-1-2`**, whose entry carries it. An earlier revision said "not
   routed to a slot, and that is the disposition, not an omission … it reopens when the algorithm is
   next authored — not on a date"; **acceptance and reopening are different dispositions and it
   asserted both**, which makes it an untracked future-work deferral rather than a terminal accept.
-  ⚠ **The slot's trigger reaches this class**, which
-  [[feedback_enumerated-exemptions-leave-the-next-class-authoritative]] says to verify rather than
-  assert: disjunct 3 fires on any change touching `inline/reconcile.rs`, and the docstring there
-  names *"the uncited spec-governed prose **inside the body**"* — so the moved-body members are
-  reached even by a change confined to that file. Disjunct 1 (the residue) reaches the rest.
-  ⚠ **Do not sharpen this into a per-member file split by grepping the concern names**: those
-  strings occur in both files, but they occur in *prose about* the concerns as well as in the code,
-  so word presence is not concern location. An earlier revision of this sentence claimed "neither
-  disjunct alone covers it" on exactly that grep; every term in fact hits `reconcile.rs`, so the
-  claim was false and the method could not have established it either way. ⚠ It is also
+  ⚠ **The slot's trigger reaches this class, and disjunct 3 alone does** —
+  [[feedback_enumerated-exemptions-leave-the-next-class-authoritative]] says to verify that rather
+  than assert it, and §3 already carries the evidence: every member's provenance line
+  (`:419 :470 :483 :506 :514 :531 :550 :557 :588`) lies inside the ratified moved range
+  `413-639`, so **every member is in `inline/reconcile.rs` and the residue holds none of them**.
+  Disjunct 3 fires on a change touching that file. ⚠ **Two earlier drafts of this sentence were wrong in
+  opposite directions, neither of them committed** (`git log -S 'neither disjunct'` over this file
+  returns nothing — they were caught in the working tree), and neither is worth repeating: one claimed "neither disjunct
+  alone covers it", the other that "disjunct 1 (the residue) reaches the rest" — there is no rest.
+  Both were argued from `grep -c` of the concern names across the two files, which cannot settle
+  the question at all (those strings occur in *prose about* the concerns as well as in code, and
+  `text-align` and `column-box` do not occur in `inline/mod.rs` in any form). ⇒ **Locate members by
+  §3's provenance lines, never by word presence.** ⚠ It is also
   **not** a defence against an *incorrect* citation, which is a different class.
 
 * **CSS 2 §10.8 is superseded, and the instance this PR authored is re-anchored.**
   `css-inline-3` §1.1 *Module Interactions* says the module *"replaces and extends the CSS inline
   layout model and features defined in [CSS2] section 10.8"*, so the `reconcile_flows` docstring
-  now names `css-inline-3` §2.2 / §4.2 / §5.3 as its governing sections. ⚠ **The crate's other
-  `§10.8` sites are NOT routed to a slot, and that is the disposition, not an omission**: no
-  existing slot's subject covers module supersession — a different class from *wrong-section*
-  misattribution, since CSS 2 §10.8 genuinely is the section it names. ⚠ **Which slot owns it was
-  measured, not assumed** — `grep -o '#11-[a-z0-9-]*' project_open-defer-slots.md | sort -u | wc -l`
-  enumerates the inventory and no member's subject was module supersession, which is why a new slot
-  was registered rather than an existing one widened.
+  now names `css-inline-3` §2.2 / §4.2 / §5.3 as its governing sections. **Why not in this PR**: the sites are pre-existing, and the
+  ten outside this PR's file set span four crates it never touches. ⚠ **Not "none is among this
+  PR's files"** — an earlier revision of this clause said that and it is false: of the fifteen,
+  five are in this PR's files, and while three (`reconcile.rs:210`, `:214`, `:314`) are
+  cross-references or the moved body comment, **`inline/mod.rs:65` and `:116` are ordinary
+  `CSS 2.1 §10.8` citations in the residue, outside the byte-identity range — this PR could have
+  re-pointed them and chose not to.** That is a scope choice, recorded rather than hidden, and the
+  slot's create-time audit records the same correction. Re-pointing the rest is a crate-wide sweep
+  whose class (module supersession) is a different one from *wrong-section* misattribution, since
+  CSS 2 §10.8 genuinely is the section it names. **Routed to
+  `#11-css2-line-height-supersession-reanchor`**, which is canonical for the corpus, the trigger
+  and the re-eval date. ⚠ An earlier revision of this bullet also asserted *"NOT routed to a slot,
+  and that is the disposition, not an omission"*; gate #21 registered the slot and edited the lines
+  below that sentence without removing it, so the bullet asserted both dispositions for a further
+  round. ⚠ **Do not re-derive slot ownership from `grep -o '#11-[a-z0-9-]*' project_open-defer-slots.md`**
+  — a name enumeration cannot decide a *subject* predicate, and that file's own banner records
+  slots it does not list (`grep -rho '#11-[a-z0-9-]*' <memory-dir> | sort -u | wc -l` returns far
+  more than the same command over the ledger alone).
   ⚠ **This bullet stated a SECOND ground, now withdrawn — and the conclusion above does not rest
   on it.** It read *"the crate keeps CSS 2 numbering where `css-inline-3` has no counterpart
   (§10.8.1's strut, §10.8 step 1 / step 3)"*. **False for all three**: strut and half-leading →
@@ -1026,14 +1054,12 @@ collected credit for honesty while overstating what the contract forbade.
   asserted.** The withdrawn ground exempted the `§10.8.1` class specifically:
   `git grep -n '10\.8' -- 'crates/layout/elidex-layout-block/**' | grep -v inline/reconcile.rs`
   → 6 sites, of which `| grep -c '10\.8\.1'` → 5. So retracting it moves **5 of those 6** from
-  "deliberately kept" to "wrongly anchored". ⚠ **This bullet no longer routes anything** — an
-  earlier revision of the surrounding prose still spoke of "the routing destination" and "the
-  routing itself" after `da090456` had deleted the `#11-inline-spec-cite-misattribution` route,
-  leaving the work owned by nobody. Per §7.2 (*a concern routed to a slot no trigger reaches is
-  not booked, it is dropped*) that is a worse case, not a disposition, and CLAUDE.md's
-  TODO 先送り禁止 wants 理由 **and** 対処時期. Now booked as
-  **`#11-css2-line-height-supersession-reanchor`** in `project_open-defer-slots.md`, which carries
-  the corpus and the trigger. It is deliberately **not** folded into
+  "deliberately kept" to "wrongly anchored". ⚠ For one round this bullet routed nothing at all:
+  `da090456` deleted the `#11-inline-spec-cite-misattribution` route while the surrounding prose
+  still spoke of "the routing destination" and "the routing itself", leaving the work owned by
+  nobody. Per §7.2 (*a concern routed to a slot no trigger reaches is not booked, it is dropped*)
+  that is a worse case than an omission, and CLAUDE.md's TODO 先送り禁止 wants 理由 **and**
+  対処時期. The slot named above closes it. It is deliberately **not** folded into
   `#11-css2-spec-label-normalisation`: that slot's memo states it owns *hygiene, not correctness*,
   and says not to re-hand work to a program without checking a slice claims it.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
