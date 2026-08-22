@@ -349,25 +349,57 @@ def check_pairs(memo: Memo) -> None:
 # 3. SECT -- every §-reference resolves, in the memo it is attributed to
 # --------------------------------------------------------------------------
 
+ATTRIBUTED = re.compile(r"`([\w./-]+\.md)`[ \t]+§([\d.]+)")
+
+
 def check_section_refs(memo: Memo, umbrella: Memo | None) -> None:
-    own = memo.numbers()
+    """Every §-reference resolves, in the document it is attributed to.
+
+    Both documents, not one. `check_citations` had always run over the memo and
+    the umbrella; this ran over the memo alone, an asymmetry no comment gave a
+    reason for, so a whole document's worth of `§N` was examined by nothing.
+    Measured on the real pair before it was fixed: the umbrella cites
+    `S1 §4.1.1`, a number it has no heading of its own for, and no run had ever
+    looked at that line."""
     umb = umbrella.numbers() if umbrella else None
-    for i, line in enumerate(memo.lines, 1):
-        for m in re.finditer(r"(\w[\w'’-]*[ \t]+)?§([\d.]+)", line):
-            lead = (m.group(1) or "").strip().lower()
-            num = m.group(2).rstrip(".")
-            # `("umbrella", "the")` carried a second member that did nothing:
-            # on "the §9", the outer test passed, the inner one failed, no
-            # `continue` ran, and control reached the same `num not in own` it
-            # would have reached with no branch at all.
-            if lead == "umbrella":  # "umbrella §6"
-                if umb is not None and num not in umb:
-                    bad("SECT", f"{memo.path.name}:{i} cites umbrella §{num}, "
-                                f"which the umbrella has no heading for")
-                continue
-            if num not in own:
-                bad("SECT", f"{memo.path.name}:{i} cites §{num}, which this memo "
-                            f"has no heading for")
+    for doc in [memo] + ([umbrella] if umbrella else []):
+        own = doc.numbers()
+        for i, line in enumerate(doc.lines, 1):
+            # A reference to ANOTHER document names it the way CITE already
+            # names one: a backticked path. Attribution had been a closed list
+            # of a single word, `umbrella`, so every other form fell through to
+            # "this memo has no such heading" -- and the nine references that
+            # surfaced the moment this check began reading the umbrella were
+            # cross-document to a one.
+            consumed: list[tuple[int, int]] = []
+            for m in ATTRIBUTED.finditer(line):
+                consumed.append(m.span())
+                rel, num = m.group(1), m.group(2).rstrip(".")
+                hits = resolve(rel)
+                if len(hits) != 1:
+                    bad("SECT", f"{doc.path.name}:{i} attributes §{num} to `{rel}`, "
+                                f"which names {'no tracked file' if not hits else
+                                               f'{len(hits)} tracked files'}")
+                elif num not in Memo(REPO / hits[0]).numbers():
+                    bad("SECT", f"{doc.path.name}:{i} cites `{rel}` §{num}, which "
+                                f"that document has no heading for")
+            for m in re.finditer(r"(\w[\w'’-]*[ \t]+)?§([\d.]+)", line):
+                if any(a <= m.start(2) < b for a, b in consumed):
+                    continue
+                lead = (m.group(1) or "").strip().lower()
+                num = m.group(2).rstrip(".")
+                # `("umbrella", "the")` carried a second member that did
+                # nothing: on "the §9", the outer test passed, the inner one
+                # failed, no `continue` ran, and control reached the same
+                # `num not in own` it would have reached with no branch at all.
+                if lead == "umbrella":  # "umbrella §6"
+                    if umb is not None and num not in umb:
+                        bad("SECT", f"{doc.path.name}:{i} cites umbrella §{num}, "
+                                    f"which the umbrella has no heading for")
+                    continue
+                if num not in own:
+                    bad("SECT", f"{doc.path.name}:{i} cites §{num}, which "
+                                f"{doc.path.name} has no heading for")
 
 
 # --------------------------------------------------------------------------
