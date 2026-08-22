@@ -1283,9 +1283,14 @@ its commits enter `main`'s history; once the branch is deleted a fresh clone res
 here stops reproducing — the seed is a claim again, by the sentence above. ⚠ **The population is this document *and the three files
 carved out of it*, and it read "this file" for several revisions** — which left the carved files governed by nothing while the rule
 that reaches them sat here, the same "swept the population that motivated it" failure §5's naming rule records. Re-derived at this
-revision, per file, with the commands below: this document cites **43** distinct 8-hex tokens, of which **42** resolve as commits and
-**all 42** are ancestors of HEAD, i.e. branch-local; only **4** of those are reachable from `origin/main`, leaving **38** that die at
-the squash. The 43rd, `04734642`, is a *blob*, and a blob of this file dies with them.
+revision, per file, with the commands below: this document cites **45** distinct 8-hex tokens, of which **44** resolve as commits and
+**all 44** are ancestors of HEAD, i.e. branch-local; only **4** of those are reachable from `origin/main`, leaving **40** that die at
+the squash. The 45th, `04734642`, is a *blob*, and a blob of this file dies with them.
+⚠ *This read **43 / 42 / 38** until the revision that corrected the umbrella census, which cited two more of this branch's own
+commits in the act of pinning the steps it describes — so the figure was invalidated by an edit whose entire subject was
+invalidated figures. That is the third time in this PR a commit has staled a count while repairing another one, and it is the
+argument for the second limb of the rule below rather than a note about it: the numbers survive because the measurement that
+supports them is quoted inline, not because anyone remembered to re-run this one.*
 [The 0a landing record](2026-07-vm-p4-slice-0a-landing-record.md) cites **23**, all commits, **1** on `origin/main` ⇒ **22** die —
 and only **1** is an ancestor of this branch's HEAD, so the other 22 are already anchored to a ref this PR does not carry.
 [The 1a/1b detail](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) cites **3** ⇒ **1** dies;
