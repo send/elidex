@@ -191,7 +191,11 @@ DECOR_ID = r"(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*"
 # left them invisible to both passes; measured, four of five such sites in this
 # memo are real violations.
 MENTION_PROSE = re.compile(r"\b" + ROW_NOUN + r"[\s-]+" + DECOR_ID + r"(?![0-9A-Za-z])")
-MENTION_SLOT = re.compile(r"`(#11-[a-z0-9-]+)`")
+# A slot id is a naming site however the document spells it: backticked,
+# bold, both, or bare.  Accepting only the backticked form let an ownership
+# claim written as `**#11-vm-foo**` or plain `#11-vm-foo` pass unreported
+# under a rule whose stated polarity is reported-by-default.
+MENTION_SLOT = re.compile(r"(?<![\w-])(?:\*\*|`)*(#11-[a-z0-9-]+)(?:\*\*|`)*")
 # Bare ids inside a mention-bearing table cell, tokenised on the separators
 # those cells actually use.  No row noun is required, because the column's
 # grammar is what makes the token an id.
@@ -398,7 +402,7 @@ def roles(m, w=110):
 # fragment INSIDE a word: "own manager" parsed as owners `m` and `ator`, and the
 # seed reported 31 clauses of pure noise.  A seed that reports garbage is worse
 # than one that reports nothing, because a reader cannot tell them apart.
-_OWNER_REF = r"(?:\*\*(?P<%s>[0-9A-Za-z]{1,4})\*\*|`(?P<%s>#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})`)"
+_OWNER_REF = r"(?:\*\*(?P<%s>#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})\*\*|`(?P<%s>#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})`)"
 OWNS_TWO = re.compile(
     r"\b(?:owns?|owned by|owner is|carries|carried by)\s+"
     + (_OWNER_REF % ("a1", "a2"))

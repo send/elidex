@@ -146,7 +146,7 @@ def _link_title(s, i):
     return j + 1 if j < len(s) else i
 
 
-_REF_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:[ \t]*(\S+)", re.M)
+_REF_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:[ \t]*(<[^>\n]*>|\S+)", re.M)
 
 
 def links(s):
@@ -158,7 +158,10 @@ def links(s):
     link.  Three rounds each widened a regex by one symptom (label, fragment,
     title); the grammar is the property, and it is written once.
     """
-    defs = {m.group(1).strip().lower(): m.group(2) for m in _REF_DEF.finditer(s)}
+    # a definition's destination may be angle-bracketed; the brackets are not
+    # part of the path
+    defs = {m.group(1).strip().lower(): m.group(2).strip("<>")
+            for m in _REF_DEF.finditer(s)}
     out = []
     for m in re.finditer(r"\]\(", s):
         i = _skip_ws(s, m.end())
@@ -178,6 +181,13 @@ def links(s):
             label = s[b + 1:m.start()].strip().lower() if b >= 0 else ""
         if label in defs:
             out.append((m.start(), m.end(), defs[label]))
+    # shortcut `[label]` -- a bracket run that is neither an inline link nor a
+    # full/collapsed reference nor a definition, whose text is a defined label
+    if defs:
+        for m in re.finditer(r"\[([^\[\]\n]+)\](?![\(\[:])", s):
+            label = m.group(1).strip().lower()
+            if label in defs:
+                out.append((m.end() - 1, m.end(), defs[label]))
     return out
 
 

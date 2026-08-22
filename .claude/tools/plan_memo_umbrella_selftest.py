@@ -138,6 +138,10 @@ case("POSITIVE", "Deps cell of a terminal row names an umbrella",
      build(d7z="**9z**"), "", 1)
 case("POSITIVE", "trigger cell names another row's umbrella slot as a co-occasion",
      build(tb="now, or with `#11-zz-alpha`"), "", 1)
+case("POSITIVE-NOVEL", "prose names a slot umbrella bare",
+     build(), "Slot #11-zz-alpha lands before Slice 7z.", 1)
+case("POSITIVE-NOVEL", "prose names a slot umbrella in bold",
+     build(), "**#11-zz-alpha** owns the close rule outright.", 1)
 case("POSITIVE", "prose orders an umbrella",
      build(), "Slice 9z lands before Slice 7z.", 1)
 case("POSITIVE", "prose names an umbrella bare, with no row noun",
@@ -208,6 +212,12 @@ case("POSITIVE-NOVEL", "the sibling link uses an angle-bracket destination",
      sibling="Slice 9z lands before Slice 7z.")
 case("POSITIVE-NOVEL", "the sibling is linked by reference",
      build(), "See [the walk][sib].\n\n[sib]: slice-9z-sib.md", 1,
+     sibling="Slice 9z lands before Slice 7z.")
+case("POSITIVE-NOVEL", "the sibling is linked by a shortcut reference",
+     build(), "See [the walk].\n\n[the walk]: slice-9z-sib.md", 1,
+     sibling="Slice 9z lands before Slice 7z.")
+case("POSITIVE-NOVEL", "the reference definition has an angle-bracket destination",
+     build(), "See [the walk][sib].\n\n[sib]: <slice-9z-sib.md>", 1,
      sibling="Slice 9z lands before Slice 7z.")
 case("NEGATIVE", "an id in a titled link's destination is not a naming site",
      build(), 'See [detail](slice-9z-sib.md "the 9z walk") for the walk.', 0)
