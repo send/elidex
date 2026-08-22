@@ -200,7 +200,7 @@ next round's defect, which is the argument for the fix-delta re-gate existing at
 Both carved slots' blast radii were re-derived by command and both were wrong:
 
 - **`#11-vm-topropertykey-symbol-from-toprimitive`** said "fix the shared helper". There is no
-  shared helper: §7.1.20 is **open-coded 8 times** — two named (`VmInner::make_property_key`,
+  shared helper: §7.1.21 is **open-coded 8 times** — two named (`VmInner::make_property_key`,
   `natives_object::to_property_key`) and six inline. Critically `get_element`/`set_element` — the
   plain `o[k]` read and write — are **not** `make_property_key` callers, so "fix the helper" would
   have left them diverging while the slot read as closed. The unit is *collapse the 8, then fix*.
