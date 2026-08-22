@@ -159,12 +159,63 @@ withdrawal. The complement was never measured, and it is constructible** — see
 carries the predicate and both of its controls. What this memo measured stands; what it concluded from it
 did not, and the correction is the umbrella's because the gate is.
 
-## §3 The work — one command-position scan
+## §3 The work — one command-position scan, over shell text, with one home
 
-**A command begins at line start, after `;` `&&` `||` `|` `(` `{`, after `then` / `do` / `else` / `elif` /
-`if` / `while` / `until`, and after `$(` or `<(`. The token at each such position is taken, and the line is `callsite` if any of them is in the
-vocabulary.**
+⚠ **REDRAFTED at round 8's input. The statement this replaces was three sentences about WHERE a token may
+stand, and round 7 measured that the defect was never there.** It is kept, struck through in prose rather
+than deleted, in the ⚠ below.
 
+**SCOPE.** The rule ranges over **shell text**. A here-document body opened with a **quoted** delimiter is
+not shell text: `bash(1)`, *Here Documents* — *"If any part of word is quoted … the lines in the
+here-document are not expanded"* — and POSIX XCU, *Here-Document*, to the same effect. ⊕ Measured,
+**1623 of 2850 corpus lines (57%)** sit inside `<<'DELIM'` bodies, and `classify` itself is one of them.
+A line outside the scope is not `callsite`, not `mention`, and not `?` — the rule does not reach it.
+
+**POSITION.** Within shell text, a command begins at line start; after the control operators `;` `;;` `&&`
+`||` `|` and `&`; after `(`; after `{` **as a complete word**; after a case-item's `)`; after `!`; and after
+the reserved words `then` `do` `else` `elif` `if` `while` `until` `time`. It also begins after an assignment
+or redirection **prefix** (`FOO=1 cmd`, `> /dev/null cmd`). It does **not** begin after `${` … `}` used as
+parameter expansion, nor inside `$(( … ))`. Each is cited and probed in the clause table below.
+
+**HOME.** The rule has **one** home, reachable from every payload that needs it. β does not add a second.
+
+⚠ **The three withdrawn sentences, and why.** They said *"a command begins at line start, after `;` `&&`
+`||` `|` `(` `{`, after then/do/else/elif/if/while/until, and after `$(` or `<(`"*, with three exclusions
+and one declared gap — and the section reasoned about which positions to add. Round 7 measured three things
+that make that framing the defect rather than the rule:
+
+1. **The position list was never the binding constraint.** ⊕ 91 code lines are a call site under the landed
+   rule and only **3** reach the `callsite` branch, because `classify` runs only when `kinds` is non-empty
+   (`len(hits) >= 2`, `-audit.sh:230`, computed from the **raw** line). Every position arm this section
+   argued over — `;` `(` `{` and the keywords — fires **zero** times on the population `classify` sees.
+2. **The clause the gate closure was withdrawn over cannot be adjudicated on its own evidence.** ⊕ The two
+   corpus lines that discriminate the single/double-quote reading are `-audit.sh:94` (a Python alternation
+   read as a shell pipe) and `-common.sh:462` (an f-string) — **both are here-document payload**. Under the
+   SCOPE clause above neither is shell text, so the clause's population is empty and the question it was
+   arguing does not arise. The missing layer was the defect; the clause was its symptom.
+3. **The rule cites no specification, in a program whose subject is citation hygiene.** ⊕
+   `grep -niE 'posix|ieee|1003\.1|man bash|shell command language' …-harness-*.md …A-rederive*.sh` returned
+   nothing. Every clause below now carries one, and three of them were **wrong** when checked against the
+   shell this harness itself invokes — see the table.
+
+⚠ **CLAUSES, each cited and each probed on `bash --norc --noprofile` (GNU bash 5.3.15, the interpreter
+`-audit.sh:67` invokes).** `f(){ echo RAN; }` throughout:
+
+| clause | authority | probe | previous statement |
+|---|---|---|---|
+| `${` opens a command position when followed by a blank | bash 5.3 **function substitution**, `bash(1)` | `x=${ f; }` → **RAN** | ⚠ **wrong** — *"parameter expansion is not a command"* is true of `${name}` and false of `${ cmd; }` |
+| `{` opens one only as a **complete word** | POSIX XCU *Reserved Words*; `bash(1)` RESERVED WORDS | `{ f; }` → RAN; `{f; }` → **syntax error**; `echo a{b,c}` → `ab ac` | ⚠ **wrong** — stated as *"`{` not preceded by `$`"*, with no delimiter test |
+| `!` opens one | POSIX XCU *Pipelines* | `! f` → **RAN** | ⚠ **omitted** |
+| a case-item `)` opens one | POSIX XCU *Case Conditional Construct* | `case x in x) f ;; esac` → **RAN** | ⚠ **omitted**, and `case` is live at `-Aii.sh:227`/`:240` |
+| an assignment or redirection **prefix** precedes one | POSIX XCU *Simple Commands* (`cmd_prefix cmd_word`) | `FOO=1 f` → RAN; `> /dev/null f` → RAN | ⚠ **omitted**, live at `-Aii.sh:150`/`:203`/`:233`/`:236` |
+| `time` opens one | `bash(1)` RESERVED WORDS | `time f` → **RAN** | ⚠ **omitted** |
+| a reserved word is recognised only as a complete word | POSIX XCU *Reserved Words* | `--no-if f` → *command not found* | ⚠ **wrong** — `KWEND`'s `\b` matches `--no-if` and `foo-do` |
+| an unquoted `#` begins a comment; no position follows it | POSIX XCU *Token Recognition*; `bash(1)` | — | ⚠ **omitted**, live at 5 sites (⊕ `grep -nE 'return \$\?.*#.*;' …A-rederive*.sh` → `-Ai.sh:36`, `-Aii.sh:318`, `-Aii.sh:344`, `-B.sh:54`, `-B.sh:66`); `uncomment()` (`-audit.sh:652`) already decides it, quote-aware |
+| an escaped newline continues the logical line | POSIX XCU *Escape Character* | `echo one \` + `f h` → `one f h` | ⚠ **omitted** — line start after a continuation is an **argument** position |
+| `fname () compound_command` is a definition, not a call | POSIX XCU *Function Definition Command* | — | ⚠ **omitted**; **33 of the 62** lines the landed rule newly calls call sites are definition lines |
+
+⚠ **An empty population is why a clause is STATED, not why it is skipped** — this section's own standard,
+now applied to the clauses it had omitted rather than only to the ones it had listed.
 ⚠ **This harness already contains a command-position predicate, and this memo did not name it for three
 plan-review rounds.** `at_command` (`-inventory.sh:227`) decides the same question for the **call graph**,
 and its docstring states the same rule this section states — *COMMAND POSITION, not "appears anywhere"*. Its
@@ -235,9 +286,33 @@ payloads, of which `-audit.sh:53` and `-inventory.sh:39` are the two this senten
 runs it, so Python is shareable across payloads now. **Nothing orders this after α.** The cheapest direction
 was never costed either: widening `at_command`'s own lead at `-inventory.sh:234` is one edit.
 
-⚠ **It is still not β's**, and the reason is scope rather than order: β's authorisation is one predicate
-inside `classify`, and reconciling two predicates changes `inventory`'s call graph. §5 raises it **as owed
-work with a trigger**, and the divergence table above is the list of what to reconcile.
+⚠ **IT IS β's, and the deferral is withdrawn.** This paragraph said *"it is still not β's, and the reason
+is scope rather than order"*, one paragraph after measuring that **nothing orders the reconciliation after
+α** and that widening `at_command`'s lead is one edit. Round 7 measured the rest, and the deferral does not
+survive any of it:
+
+1. **The ε precedent carries, a fortiori.** The disposition's ε row refuses a second `GROUPS` in `-audit.sh`
+   as *"the many-homes defect γ exists to close"*, and the only distinction offered was vocabulary-vs-
+   predicate. ε had an excuse β lacks: ε **cannot** share until α's crossing lands, so its choice was
+   duplicate-or-go-red. β **can** share today — ⊕ `_runner` (`-Aii.sh:77`, four callers) already writes a
+   Python module to a file and runs it, and argv reaches every payload host. β declined the option ε was
+   denied.
+2. **β's copy is worse on ε's own stated axis.** ε's parenthetical condemns the `GROUPS` copy for reporting
+   *"as ruled at rc=0 rather than `?`"*. β's copy produces **no census signal at all** — §3a's G1/G3 assert
+   byte-identity and it holds. Silently green is the class this slice exists to remove.
+3. **There are THREE lead spellings, not two.** ⊕ `grep -nE '\[;&\||\(\?:then' …A-rederive*.sh` returns
+   `-audit.sh:144` (β's), `-audit.sh:618` (`RETURNS`, *"`^` or after a `;`/`&&`/`||`"*, in this file's other
+   payload and untouched by the implementation) and `-inventory.sh:234`; `GUARD` (`-audit.sh:93`) embeds a
+   fourth partial. §5 calls the divergence table *"the work list"* and the work list was short by two.
+4. **The two predicates range over different NAME SETS, which this section never stated.** ⊕ `VOCAB` = 42
+   (35 `declare -F` ∪ 8 part stems, **`all` absent** — `all()` is the dispatcher's and no part glob sources
+   it); `at_command`'s `known` = 36 (the same 35 ∪ `{all}`). So `-B.sh:35` disagrees because **`all ∈ known`
+   and `all ∉ VOCAB`** — a name-set fact, not a position fact — and the *"fifth clause, undecided"* that
+   this section built on it rests on the wrong cause. A single home must settle whose names it ranges over.
+
+**So β lands one predicate with one home, reachable from every payload that needs it.** The right-boundary
+clause and the `_measure` third-word arm are part of that home's rule rather than of a reconciliation owed
+to a later slice, and §5's raise is re-scoped accordingly.
 
 ⚠ **The list is a rule about shell syntax, and four of its clauses are decisions measurement forced, not
 characters copied from the old regex:**
@@ -480,7 +555,9 @@ population β leaves unchanged.
 
 ## §5 What this memo authorises
 
-**Authorises**, after `/elidex-plan-review` passes: the command-position scan; the two umbrella row edits
+**Authorises**, after `/elidex-plan-review` passes: the command-position scan — **now including the scope
+clause that excludes here-document payload, and the single home §3 requires**, since round 7 measured that
+the scan is not correct without either; the two umbrella row edits
 §3 β-c enumerates; the anchor re-derivation §4 requires, **over the population §4 now defines**; **the
 re-derivation of §4's own `-audit.sh` length figure**, which β's edit falsifies and the memo gate reds on;
 **§6's record of what happened to this memo's own gate**; **§3a's plant preconditions**; **the scan's own
@@ -504,14 +581,15 @@ adding a key to `CLASSES`; or predicting a figure §4 assigns to the implementin
 **Raised for the umbrella, with a trigger** — an owner without a trigger is a drop, which this memo has
 already done once:
 
-- ⚠ **The harness has two command-position predicates and β widens the divergence** — `classify`'s scan and
-  `at_command` (`-inventory.sh:227`). §3's table is the measured divergence in both directions, including the
-  two cases the two **contradict** (`n=$(( … ))`, and the argument-less `$(_partset)` that `at_command`'s
-  `(?!\))` rejects while β1 makes it the headline crossing). ⚠ **No ordering constraint defers this** — the
-  argv transport exists at both payloads today and `_runner` shows Python is shareable — so this is owed work
-  with a real cost, not a blocked path. **Trigger: α**, because reconciling them touches `inventory`'s call
-  graph, which is α's surface; if α declines it, the next slice to touch either predicate takes it, and the
-  table is the work list. ⚠ **This bullet did not exist while §3 claimed it did.**
+- ⚠ **WITHDRAWN as a raise, and taken into the slice.** This bullet deferred the two-predicate reconciliation
+  to α with *"Trigger: α … if α declines it, the next slice to touch either predicate takes it"* — an owner
+  with a decline branch and no terminal owner, which is the shape this section itself calls a drop. §3 now
+  answers it: the ε precedent carries a fortiori, β can share today where ε could not, and the divergence
+  table was short by **two** spellings (`-audit.sh:618` `RETURNS`, `-audit.sh:93` `GUARD`) and blind to the
+  **name-set** difference (`VOCAB` 42 vs `known` 36) that produces its `-B.sh:35` row. β lands one predicate
+  with one home; the right-boundary clause and the `_measure` third-word arm are that home's rule.
+  ⚠ **This bullet did not exist while §3 claimed it did, and then it deferred what §3 had already measured
+  was not deferrable.**
 
 - ⚠ **`callsite` and `mention` decide quoted spans by two different rules, and β leaves both.** Clause 2
   strips single-quoted spans only; `mention` keeps `hits_outside_quotes` (`-audit.sh:157-160`), which strips
@@ -612,4 +690,3 @@ something to run rather than a re-reading. Stated as the scope decision it is. W
      it"* describes a **manual** gate, and every claim resting on `findings=0` rests on a run somebody chose
      to do. *Owner*: not β — §5 does not authorise touching `mise.toml` or `scripts/`. *Trigger*: before any
      slice cites the gate as evidence that a class of defect cannot land.
-
