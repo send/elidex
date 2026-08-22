@@ -998,15 +998,23 @@ def arm_sites() -> dict[tuple[str, int], str]:
         if f.suffix != ".py":
             continue
         for n in ast.walk(ast.parse(f.read_text())):
-            if not isinstance(n, ast.Call) or not n.args:
+            if not isinstance(n, ast.Call):
                 continue
             fn = n.func
             name = (fn.attr if isinstance(fn, ast.Attribute)
                     else fn.id if isinstance(fn, ast.Name) else None)
-            if name in ("bad", "skip"):
-                a = n.args[0]
-                code = a.value if isinstance(a, ast.Constant) else "?"
-                out[(f.name, n.lineno)] = f"{name}({code})"
+            if name not in ("bad", "skip"):
+                continue
+            # `bad(code=..., msg=...)` matches the real signature, and a
+            # `not n.args` guard made it invisible to the population -- and to
+            # the DOCSTRING roster too, which keys on a POSITIONAL literal.
+            # (Spelling that regex out here put its own match in the file, and
+            # the roster check reported the comment as an unlisted code. Same
+            # shape as a `git grep` needle written into the file that greps.)
+            a = next((k.value for k in n.keywords if k.arg == "code"),
+                     n.args[0] if n.args else None)
+            code = a.value if isinstance(a, ast.Constant) else "?"
+            out[(f.name, n.lineno)] = f"{name}({code})"
     return out
 
 
@@ -1018,12 +1026,21 @@ def unreached_arms() -> list[str]:
     guard-inheritance hazard `C18` records for the wire: a self-test that
     invokes the thing invoking it recurses unless the inner one can tell."""
     sites = arm_sites()
-    executed: set[tuple[str, int]] = set()
+    fired: set[tuple[str, int]] = set()
 
     def tracer(frame, event, arg):
-        if event == "line":
-            executed.add((Path(frame.f_code.co_filename).name, frame.f_lineno))
-        return tracer
+        # CALL events, not `line`. Keying on line execution counts a site as
+        # reached whenever its LINE runs, so `False and bad(...)`, a
+        # comprehension over an empty sequence, and a one-line `if`/`for` body
+        # all reported covered by zero probes -- a false green in the one check
+        # whose whole value is that a false green cannot happen. A call event
+        # fires only when the function is actually entered, and
+        # `frame.f_back.f_lineno` is the line that entered it.
+        if event == "call" and frame.f_code.co_name in ("bad", "skip"):
+            back = frame.f_back
+            if back is not None:
+                fired.add((Path(back.f_code.co_filename).name, back.f_lineno))
+        return None
 
     buf, saved = io.StringIO(), sys.stdout
     sys.stdout = buf
@@ -1034,7 +1051,7 @@ def unreached_arms() -> list[str]:
         sys.settrace(None)
         sys.stdout = saved
     return [f"{f}:{ln} {w}" for (f, ln), w in sorted(sites.items())
-            if (f, ln) not in executed]
+            if (f, ln) not in fired]
 
 
 def summary(mode: str) -> list[str]:

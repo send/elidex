@@ -375,6 +375,28 @@ def selftest() -> int:
                    len(_quoted) == 1 and _quoted[0][1] == ["alpha"],
                    f"{_quoted}"))
 
+    # Every separator is a command position. A review executed `| tee`,
+    # `; python3 -c`, `&& python3 -c`, `$(…)` and a backtick form out of a memo
+    # and wrote six files into the repo root -- three of them silently, because
+    # the paste still matched. `RUNNABLE` gated the first word only.
+    _unrunnable = host.claim_gate_reruns.unrunnable
+    for _label, _cmd in [
+            ("a pipe into a writer", "git ls-files -- x | tee OUT"),
+            ("a semicolon", "git ls-files -- x ; python3 -c pass"),
+            ("command substitution", "git log --oneline $(python3 -c pass)"),
+            ("a backtick", "git log --oneline `python3 -c pass`"),
+            ("&&", "git ls-files && python3 -c pass"),
+            ("||", "git ls-files || python3 -c pass"),
+            ("a pipe into xargs", "grep -c a f | xargs -I{} tee OUT")]:
+        probes.append((f"ADMISSION refuses {_label}",
+                       bool(_unrunnable(_cmd)), _unrunnable(_cmd) or "ADMITTED"))
+    for _label, _cmd in [
+            ("a pipe into awk", "git show a:b | awk 'END{print NR}'"),
+            ("a pipe into wc", "git log --oneline a..b -- p | wc -l"),
+            ("a quoted pathspec", 'git ls-files -- "*.md"')]:
+        probes.append((f"ADMISSION still admits {_label}",
+                       _unrunnable(_cmd) is None, _unrunnable(_cmd) or "admitted"))
+
     probe("TRANSCRIPT arrow form, correct answer", False,
           capture(check_transcripts, block(f"{real}   → {n}")))
     probe("TRANSCRIPT arrow form, stale answer", True,
@@ -929,21 +951,42 @@ def selftest() -> int:
     # The file's opening sentence, decided by running the probes rather than by
     # asserting it. Shelled out because the measurement traces `selftest()` and
     # cannot trace itself; the child sees the guard and does not shell back.
-    if not os.environ.get(host.ARM_COVERAGE_ENV):
+    if os.environ.get(host.ARM_COVERAGE_ENV):
+        # NOT omitted. A probe that removes itself under a condition takes the
+        # count down with it and the run still closes `N/N ok`, which is the
+        # `ban_control` shape this block was added to abolish -- measured:
+        # under the guard the suite printed 136/136 with no ARMS row and no
+        # notice. It stays in the list, and it stays RED, because under the
+        # guard the universal is not being measured by anything.
+        probes.append(("ARMS every bad()/skip() site is fired by some probe",
+                       False, f"not measured: {host.ARM_COVERAGE_ENV} is set, so "
+                              f"this run is the measurement's own child"))
+    else:
         _env = dict(os.environ, **{host.ARM_COVERAGE_ENV: "1"})
         _r = subprocess.run(
             [sys.executable, str(REPO / ".claude" / "tools" / "claim-gate-plan-check.py"),
              "--arm-coverage"], cwd=REPO, capture_output=True, text=True, env=_env)
-        _unreached = [x for x in _r.stdout.split("\n") if x.strip()]
-        _declared = sorted(host.UNPROBED)
-        _extra = [x for x in _unreached if x.split()[0] not in _declared]
-        _stale = [d for d in _declared
-                  if d not in [x.split()[0] for x in _unreached]]
-        probes.append(("ARMS every bad()/skip() site is reached by some probe",
-                       not _extra and not _stale,
-                       f"unreached: {_extra}" if _extra else
-                       f"UNPROBED declares {_stale}, which the probes do reach"
-                       if _stale else f"{len(_unreached)} unreached, all declared"))
+        # A crashed child prints nothing on stdout, which is byte-identical to a
+        # clean measurement. Reading only `stdout` made a planted
+        # `raise RuntimeError` in the child close the suite green -- and
+        # `arm_sites()` parses every shipped file while `unreached_arms()` runs
+        # the whole probe set, so a syntax error or any raising probe produces
+        # exactly that shape.
+        if _r.returncode != 0 or _r.stderr.strip():
+            probes.append(("ARMS every bad()/skip() site is fired by some probe",
+                           False, f"the measurement did not complete: rc={_r.returncode} "
+                                  f"{_r.stderr.strip().splitlines()[-1:] }"))
+        else:
+            _unreached = [x for x in _r.stdout.split("\n") if x.strip()]
+            _declared = sorted(host.UNPROBED)
+            _extra = [x for x in _unreached if x.split()[0] not in _declared]
+            _stale = [d for d in _declared
+                      if d not in [x.split()[0] for x in _unreached]]
+            probes.append(("ARMS every bad()/skip() site is fired by some probe",
+                           not _extra and not _stale,
+                           f"unfired: {_extra}" if _extra else
+                           f"UNPROBED declares {_stale}, which the probes do fire"
+                           if _stale else f"{len(_unreached)} unfired, all declared"))
 
     # The closing line is where a skipped check becomes visible, so it gets its
     # own proof: every `skip()` above is worth nothing if the run still ends on a
