@@ -635,6 +635,55 @@ def selftest() -> int:
     finally:
         host.SELFTEST_FILE = _saved_st
 
+    # PATHS. `gone` is injected for the same reason `have` is: these decide the
+    # check's logic, not today's branch. The derivation that reads git gets its
+    # own proof below, because injecting the population everywhere would leave
+    # the half that talks to the repository with no firing proof at all.
+    check_paths = host.check_paths
+    GONE = ".claude/tools/claim_gate_grammar.py"
+    LEDGER_GONE = (f"### §0.1 What this PR removes\n\n- `{GONE}` — deleted on the "
+                   f"prerequisite branch; the sentences naming it are past tense\n")
+    NAMES_GONE = ("\n## §5 Decomposition\n\nThe second transcription lived in "
+                  "`claim_gate_grammar.py` until the prerequisite branch took it.\n")
+    probe("PATHS positive (a deleted file the memo declares)", False,
+          capture(check_paths, synth(LEDGER_GONE + NAMES_GONE), [GONE]))
+    probe("PATHS negative (a deleted file the memo still names, undeclared)", True,
+          capture(check_paths, synth(NAMES_GONE), [GONE]),
+          "owes a row")
+    probe("PATHS negative (a ledger row no sentence outside it names)", True,
+          capture(check_paths, synth(LEDGER_GONE), [GONE]),
+          "outlived its subject")
+    probe("PATHS negative (a ledger row for a file this branch does not delete)", True,
+          capture(check_paths, synth(LEDGER_GONE + NAMES_GONE), []),
+          "the tree has it back")
+    probe("PATHS positive (a deleted file no sentence names owes nothing)", False,
+          capture(check_paths, synth("## §5 Decomposition\n\nNothing about it.\n"),
+                  [GONE]))
+    # The declaration is licensed AT the row and nowhere else, so the row's own
+    # mention must not satisfy the memo's obligation to name what it discusses.
+    probe("PATHS negative (a ledger under a heading that is not §0.1)", True,
+          capture(check_paths, synth(LEDGER_GONE.replace("§0.1", "§0.9")), [GONE]),
+          "owes a row")
+    # The tree decides, not the log: `--diff-filter=D` names a path deleted in
+    # one commit of the range whether or not a later one puts it back, and a
+    # restored file is not one this branch removes.
+    _sub = host.gone_from("a.py\nb.py\n", {"b.py"})
+    probes.append(("PATHS population subtracts a deletion the tree has back",
+                   _sub == ["a.py"], f"{_sub}"))
+    _saved_gone = host.deleted_on_branch
+    try:
+        host.deleted_on_branch = lambda: None
+        probe("PATHS reports rather than passing when the range cannot be formed", False,
+              capture(check_paths, synth(NAMES_GONE)))
+        probe("  …and it says so through skip()", True,
+              capture_skipped(check_paths, synth(NAMES_GONE)),
+              "could not be formed")
+    finally:
+        host.deleted_on_branch = _saved_gone
+    probes.append(("PATHS derives its population from this repository's git",
+                   host.deleted_on_branch() is not None,
+                   f"origin/main..HEAD deletes {host.deleted_on_branch()}"))
+
     # SITES' population is the PR that changes the wire set, not every document.
     probe("SITES positive (a memo that ships no wire is not its subject)", False,
           capture(check_sites, synth("## §4 x\nA memo about something else entirely.\n")))
