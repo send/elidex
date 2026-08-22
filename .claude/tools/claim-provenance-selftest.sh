@@ -420,19 +420,49 @@ rm -rf "$small" "$large"
 # Scoped to the fixture, not global: two `own` rows each get their own wire
 # invocation and cannot mask each other whatever they assert (§8).
 # --------------------------------------------------------------------------
-collide=$(awk -F'\t' '
-  { dir[NR]=$1; needle[NR]=$2; n=NR }
-  END {
-    for (i=1; i<=n; i++)
-      for (j=1; j<=n; j++)
-        if (i!=j && dir[i]==dir[j] && needle[i]!=needle[j] && index(needle[j], needle[i]) > 0)
-          printf "%s is contained in %s\n", needle[i], needle[j]
-  }' "$NEEDLE_LOG" | sort -u)
+# `index()` is reflexive, so identical needles are caught by the same test --
+# and they are the MAXIMAL collision, not an exemption. The first version
+# carried `needle[i]!=needle[j]`, which skipped exactly the total-masking case
+# while catching the weaker prefix one; `i<j` gives each unordered pair once
+# without re-introducing that hole.
+detect_collisions() { # $1 = log file
+  awk -F'\t' '
+    { dir[NR]=$1; needle[NR]=$2; n=NR }
+    END {
+      for (i=1; i<=n; i++)
+        for (j=i+1; j<=n; j++)
+          if (dir[i]==dir[j] &&
+              (index(needle[j], needle[i]) > 0 || index(needle[i], needle[j]) > 0))
+            printf "%s <-> %s\n", needle[i], needle[j]
+    }' "$1" | sort -u
+}
+
+collide=$(detect_collisions "$NEEDLE_LOG")
 if [ -z "$collide" ]; then
-  pass_ "C41  within each fixture, no required substring contains another"
+  pass_ "C41 positive  within each fixture, no required substring contains another"
 else
-  fail_ "C41  within each fixture, no required substring contains another" \
+  fail_ "C41 positive  within each fixture, no required substring contains another" \
     "$(printf '%s' "$collide" | tr '\n' ';')"
+fi
+
+# C41's own ban_control. A ban that is green because nothing collides is
+# indistinguishable from a ban that cannot fire, which is what §2 I4xI6 names
+# and what the shipped C41 was: its only firing proof was a mutation run by the
+# author at authoring time, which is the transcript-not-a-gate distinction one
+# level down. Both collision modes are planted here, in a throwaway log.
+ban=$(mktemp "${TMPDIR:-/tmp}/claim-needles-ban.XXXXXX")
+printf '/x\tcontains \\d\n/x\tcontains\n/y\tunrelated\n' > "$ban"
+prefix_caught=$(detect_collisions "$ban")
+printf '/x\tsame needle\n/x\tsame needle\n' > "$ban"
+equal_caught=$(detect_collisions "$ban")
+printf '/x\talpha\n/y\talpha\n' > "$ban"
+cross_fixture=$(detect_collisions "$ban")
+rm -f "$ban"
+if [ -n "$prefix_caught" ] && [ -n "$equal_caught" ] && [ -z "$cross_fixture" ]; then
+  pass_ "C41 negative  it catches both collision modes, and not across fixtures"
+else
+  fail_ "C41 negative  it catches both collision modes, and not across fixtures" \
+    "prefix=[$prefix_caught] equal=[$equal_caught] cross-fixture=[$cross_fixture]"
 fi
 
 # --------------------------------------------------------------------------
