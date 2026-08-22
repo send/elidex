@@ -70,8 +70,14 @@ HEADER = """# fixture
 | `#11-zz-beta` | Terminal. {wb} | {tb} | 2026-12-31 |
 """
 
-BLANK = dict(c1="—", s9z="charter.", d9z="—", s7z="body.", d7z="—",
-             sqx="body.", wa="why.", ta="now", wb="why.", tb="now")
+# The two terminal rows carry acceptance vocabulary in the BASE fixture, so a
+# control that varies ONE row's cell measures that row.  Without it the
+# accept-vocab negative control counted the other terminal row and could never
+# reach 0 -- a control that cannot go green tests nothing.
+BLANK = dict(c1="—", s9z="charter.", d9z="—",
+             s7z="Terminal.  Acceptance: the probe must return 3.", d7z="—",
+             sqx="Terminal.  Acceptance: the probe must return 4.",
+             wa="why.", ta="now", wb="why.", tb="now")
 
 
 def build(**kw):
@@ -97,8 +103,14 @@ def run_on(text, prose=""):
             dd.append(m)
         mentions = dd
         findings, notes = [], []
+        # EVERY assertion the production entry point runs.  Calling only a and b
+        # here let the other two regress to reporting nothing while `--self-test`
+        # printed that all controls behaved -- a checker with no firing proof,
+        # which is the exact failure this file exists to prevent.
         M.assertion_a(memo, findings, notes)
         M.assertion_b(memo, findings, notes)
+        M.assertion_cd_seed(memo, findings, notes)
+        M.acceptance_vocab_seed(memo, findings, notes)
         return umb, [m for m in mentions if not m.licensed], findings
 
 
@@ -198,6 +210,18 @@ acase("POSITIVE", "(a) a marker that names ANOTHER row is not a self-declaration
       "UMBRELLA-MARK", 1)
 acase("POSITIVE", "(b) an umbrella row carrying a Deps edge",
       build(d9z="**7z**"), "UMBRELLA-CELL", 1)
+acase("POSITIVE", "(c-seed) ordering vocabulary in prose against an empty Deps cell",
+      build(s7z="Terminal.  This row lands before 9z and is a prerequisite of it.",
+            d7z="—"),
+      "ORDER-PROSE?", 1)
+acase("NEGATIVE", "(c-seed) ordering vocabulary WITH a Deps cell is not reported",
+      build(s7z="Terminal.  This row lands before 9z and is a prerequisite of it.",
+            d7z="**Qx**"),
+      "ORDER-PROSE?", 0)
+acase("POSITIVE", "(accept-vocab seed) a terminal row with neither `must` nor `acceptance`",
+      build(sqx="Terminal.  Lowers the thing."), "ACCEPT-VOCAB?", 1)
+acase("NEGATIVE", "(accept-vocab seed) a terminal row stating an acceptance condition",
+      build(sqx="Terminal.  Acceptance: the probe must return 3."), "ACCEPT-VOCAB?", 0)
 acase("NEGATIVE", "(b) an umbrella row with an empty Deps cell",
       build(), "UMBRELLA-CELL", 0)
 

@@ -1288,17 +1288,20 @@ revision, per file, with the commands below: this document cites **45** distinct
 the squash. The 45th, `04734642`, is a *blob*, and a blob of this file dies with them.
 ⚠ *This read **43 / 42 / 38** until the revision that corrected the umbrella census, which cited two more of this branch's own
 commits in the act of pinning the steps it describes — so the figure was invalidated by an edit whose entire subject was
-invalidated figures. That is the third time in this PR a commit has staled a count while repairing another one, and it is the
+invalidated figures. **And the repair then staled its own two neighbours**: the summary comparing the external anchors against
+this document's total, and the sentence naming what the rule's second limb carries, both stood at 38 for a revision while the
+figure they restate read 40 — three copies of one count, of which the commit moved one. That is the fourth time in this PR a
+commit has staled a count while repairing another one, and it is the
 argument for the second limb of the rule below rather than a note about it: the numbers survive because the measurement that
 supports them is quoted inline, not because anyone remembered to re-run this one.*
 [The 0a landing record](2026-07-vm-p4-slice-0a-landing-record.md) cites **23**, all commits, **1** on `origin/main` ⇒ **22** die —
 and only **1** is an ancestor of this branch's HEAD, so the other 22 are already anchored to a ref this PR does not carry.
 [The 1a/1b detail](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) cites **3** ⇒ **1** dies;
 [the review-rounds record](2026-07-vm-p4-umbrella-review-rounds.md) cites **2** ⇒ **1** dies. **24 outside this document**, against
-the 38 inside it. Enumerate with `grep -oE '\b[0-9a-f]{8}\b' <file>` de-duplicated through `sort -u`, then per token
+the 40 inside it. Enumerate with `grep -oE '\b[0-9a-f]{8}\b' <file>` de-duplicated through `sort -u`, then per token
 `git cat-file -e "<sha>^{commit}"` and `git merge-base --is-ancestor <sha> origin/main`. So the rule, and it has two limbs:
 **an evidence anchor is either reachable from `origin/main`, or the measurement it supports is quoted inline** so the figure survives
-the object. The second limb is what carries the 38, and it is why they are *not* rewritten — a mechanical re-anchoring sweep costs
+the object. The second limb is what carries the 40, and it is why they are *not* rewritten — a mechanical re-anchoring sweep costs
 more than it buys while the branch still exists. What is not permitted is the third shape: a bare sha carrying a figure stated nowhere
 but at that sha. **At merge time the lander re-runs the two commands above against the squash commit, over all four files, and converts every anchor
 still in that shape**, which is the step that keeps this from rotting silently.
