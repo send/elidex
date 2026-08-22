@@ -321,7 +321,7 @@ numbers and conflating them misclassified a row:
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
-| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (`git grep -c "Line height calculations" 658cc302 -- crates` → zero hits). The authored instance states the gap **positively**: §10.8.1 half-leading, in the first-baseline derivation only, is implemented and cited elsewhere in this crate. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment, §10.8's strut, and its uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
+| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (`git grep -c "Line height calculations" 658cc302 -- crates` → zero hits). The authored instance states the gap **positively**: §10.8.1 half-leading, in the first-baseline derivation only, is implemented and cited elsewhere in this crate. What stays leading-naive is the baseline *within* the line box on the horizontal path, recorded in two other crates — `elidex_ecs::InlineFlowLine`'s `block_size` field doc and `elidex-render`'s `builder/inline.rs`; `vertical-align` alignment, §10.8.1's strut, and §10.8 step 3's uppermost-to-lowermost line-box height are not. Title↔number pair verified with `.claude/tools/webref heading CSS2 10.8` | ✓ for citations carried; the uncited complement is §9's | yes |
 
 ## §4. Verified current state
 
@@ -845,8 +845,9 @@ collected credit for honesty while overstating what the contract forbade.
   narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
 * The slot-ledger actions applied. ⚠ **Their targets are NOT in this repository**, so the diff
   cannot show them, and since gate #9 the row-by-row ledger lives with them, in
-  `project_seam3-pr508-review-history.md`. §10 carries a target/status index over the same rows,
-  so which rows are owed **is** auditable from a clone. ⚠ **This DoD does not claim the rows
+  `project_seam3-pr508-review-history.md`. §10 carries a target/status index over the same rows, so a clone reader can **see** which rows
+  are owed. ⚠ Seeing is not verifying: §10's own predicate is "checked by reading the target",
+  and the targets are outside the repository. ⚠ **This DoD does not claim the rows
   marked `still owed` are done** — they are applied at merge, and §10 names which ones.
 
 ## §9. Out of scope, with disposition
@@ -908,9 +909,10 @@ collected credit for honesty while overstating what the contract forbade.
   signature is **authored**, so that contract does not govern it. The obstruction is one level
   in: the flags are **consumed by the arms** `if persist_flow { … } else if do_carrier { … }`,
   which *are* inside the compared body, so a `FlowSink` enum rewrites them and breaks the proof.
-  ⚠ Half the hazard is closed **for the commit as landed** — not for maintenance, since §6.1 ships neither harness, so do
-  not re-derive it at the slot: §6.1's call-site check compares argument names to parameter names
-  pairwise and is mutation-verified against a real transposition of this very triple.
+  ⚠ Half the hazard is closed **for the commit as landed only**. §6.1's call-site check compares
+  argument names to parameter names pairwise and is mutation-verified against a real transposition
+  of this very triple — but §6.1 also ships neither harness, so nothing re-runs it after landing.
+  ⚠ **The slot must therefore re-derive it**, and standing the check up is part of that work.
 * **Where the four helpers should live once their principal caller is a sibling module.** §5.2
   keeps all four in `mod.rs`, and two of its four reasons are *design* reasons (`pub` API;
   residue callers) while two are *scope* reasons (outside the ratified range). ⚠ A third
@@ -988,7 +990,7 @@ still be able to see what the landing owes.
 | `project_inline-fragmented-fn-decomposition.md` | applied — status → PARTIALLY CLOSED, seam 3 discharged |
 | `project_inline-fragmented-fn-seams-1-2.md` | applied — created (the successor slot) |
 | `project_open-defer-slots.md` | applied — source slot partially closed, successor registered `(own)` |
-| the **stale `508` figure**, **and the slot-status clauses beside it** | ⚠ **still owed** — the figure key reaches `active-lane-detail.md`, `project_inline-fragmented-fn-decomposition.md`, `project_inline-mod-split-owed.md`, `project_layoutbox-trip-wire-in-ci-next.md`; the slot-status half (that first file's *OPEN slots* placement, the successor absent from that registry, and `…trip-wire-in-ci-next.md`'s "trigger not yet fired") it does **not** reach |
+| the **stale `508` figure**, **and the slot-status clauses beside it** | ⚠ **still owed** — run the key, do not read a list: `grep -rnE -e '508[ -]lines?' -e '508 *行' <memory-dir> --include='*.md'`. ⚠ It also returns the ledger's own quotation of the figure, which is not a target. ⚠ **What it does not reach is an absence and a heading**, both verified: the successor slot is missing from `active-lane-detail.md`'s `▶ OPEN slots` registry (no grep finds an absence), and that registry's heading is not the line the figure sits on. ⚠ **A clause on the *same line* as the figure IS reached** — the ledger records one such claim as measured-false, and an earlier revision of this row made the identical error about `…trip-wire-in-ci-next.md`'s "trigger not yet fired" |
 | `project_inline-mod-split-owed.md` | applied — `:82`'s `783` corrected |
 | `project_line-box-decorated-inline-content.md` | applied — the narrowing written in |
 | `MEMORY.md` — Layout-lane, the "produce this PR" clause | applied — no longer directs producing it |
