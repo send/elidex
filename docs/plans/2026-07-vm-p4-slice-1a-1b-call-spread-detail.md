@@ -192,8 +192,13 @@ exhaustion**, a user-visible divergence. The obligation is a **conditional** clo
 termination and abrupt pattern evaluation. The child of umbrella 0bc that owns the **§8.6.2** array-binding `IteratorClose` obligation must pin both directions: `[a] = it` closes an
 unfinished iterator, `[...r] = it` does **not** close an exhausted one.
 
-**Why this lands on the critical path**: §8 declares the 0b family "owns the `IteratorClose` obligation **1b**
-does not". ⚠ **That cell read "Slice 1" and this sentence quoted it as "1a/1b"** — a misquote, and the
+**Why this lands on the critical path**: §8's `#11-vm-assignment-target-completeness` cell declares
+that its work item "owns the `IteratorClose` obligation umbrella **1b**'s charter does not cover".
+⚠ *This sentence quoted that cell as "the 0b family \u2026 obligation **1b** does not", and both halves had
+gone stale in the cell without the quotation moving: the owner is now Slices **0ba**/**0bb** and the
+children **0bc**'s derivation mints, and the obligation is stated against 1b's **charter**. A quotation
+is a second copy of a cell, and this is the second one in this program to rot in the very commit that
+repaired the original.* ⚠ **That cell read "Slice 1" and this sentence quoted it as "1a/1b"** — a misquote, and the
 claim it carried is false in the 1a half: dec. 13a gives an [C36] obligation — to *remove* a non-spec close, not to make one — to the child of umbrella 1a that removes
 `op_array_spread`'s `return()` an `IteratorClose` obligation, which is mechanism (b) of that
 umbrella's own derivation. Both sites are corrected to **1b**, which genuinely carries none. The child of umbrella 0bc that its derivation mints for the [C39]→[C36] `IteratorClose` conformance will call `iter_close` and thereby **inherit the inverted contract**,
