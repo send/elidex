@@ -73,10 +73,10 @@ does not belong here.
     and contradicted each other two bullets apart
     ([[feedback_duplicated-decision-surface-blocks-converge]]). What the run asserts:
     * **soft warnings only, no hard failures** — and the soft ones are **heterogeneous**, so read
-      them, never infer a cause from the total. They currently include an `N entries` claim without a
-      cached artifact **and** a `path … contains shell glob/brace syntax` warning emitted by a command
-      §5.3.1 itself embeds. The total therefore tracks neither §3's rows nor the memo's `N entries`
-      claims alone.
+      them, never infer a cause from the total. ⚠ **Do not enumerate them here** — the set changes
+      when the memo does, and this sentence went stale that way once already. One of them has been
+      a `path … contains shell glob/brace syntax` warning emitted by a command §5.3.1 itself
+      embeds, so the total tracks neither §3's rows nor the memo's `N entries` claims alone.
     * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks.
     * **the label warning is not noise.** ⚠ **Do not state which labels or how many** — run
       `preflight.py` and read `unrecognized labels` / `unmapped-label rows`; the set grows with the
@@ -87,11 +87,9 @@ does not belong here.
       mapped", and not a claim about other plan-memos**: `preflight.py:62` maps
       `"CSS Selectors L4": "selectors-4"`, so the map's CSS coverage is partial, not empty, and a
       memo citing only mapped labels would have a working gate.
-    * What the vacuous gate costs *here* is stated rather than hidden: **both** of §3's *table rows* were
-      verified by hand, because the gate could not — `webref heading CSS2 10.8` and
-      `webref heading css-writing-modes-4 6.4`. ⚠ "Both" scopes to the rows, not to §3's citations
-      at large: the complement bullets carry further §↔title pairs, covered separately below.
-      ⚠ "Both", not a count: §3's own K/M line is the count.
+    * What the vacuous gate costs *here* is stated rather than hidden: §3's table rows are verified by hand, because the gate cannot — each row records its own
+      `webref heading` invocation. ⚠ **Do not state how many** — the row count is `preflight.py`'s
+      to report, and it has gone stale under this sentence before.
 
 * **`plan-xcheck.py` — NOT RUNNABLE on this branch, and no verdict is recorded here.**
   `ls .claude/tools/plan-xcheck.py` → no such file: the checker lives on the umbrella's branch and
@@ -235,8 +233,10 @@ fires `needless_pass_by_value` (clippy's pedantic group is warn-level workspace-
 ## §3. Spec coverage map
 
 **Breadth**: ⚠ **no figure is stated here** — `preflight.py` computes K and M from the table's
-rows, so run it. Every citation this PR authors has a row below, including both `css-inline-3`
-ones (`git grep -c css-inline-3 658cc302 -- crates` → no hits, so both are authored here). **Split decision**: single PR, both below the
+rows, so run it. The `css-inline-3` rows below are authored by this PR
+(`git grep -c css-inline-3 658cc302 -- crates` → no hits). ⚠ **No completeness claim is made over
+"every authored citation"** — `preflight.py` counts table *rows*, so it could not falsify one, and
+anchors such as `#propdef-line-height` are cited without a row by design. **Split decision**: single PR, both below the
 K≥4 / M≥20 recommend threshold, and `preflight.py` independently returns
 `split decision: ok (single PR scope)`.
 
@@ -305,8 +305,9 @@ rows have two distinct provenances, which is the distinction the map exists to r
 numbers and conflating them misclassified a row:
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
-  the body that is byte-identical modulo the extracted signature, moved and not authored. A **second is newly authored by this PR**, in
-  the `reconcile_flows` docstring, and it is the one that spells out the full §number↔title pair:
+  the body that is byte-identical modulo the extracted signature, moved and not authored. A second is authored by this PR in the
+  `reconcile_flows` docstring — ⚠ **as a bare §-number**, the full §number↔title pair having moved
+  to the `css-inline-3` rows when the docstring was re-anchored:
   ```
   git grep -ci "line height calculations" 658cc302 -- crates  # → one hit, and it carries the
                                                              # title's leading clause only, not
@@ -334,8 +335,9 @@ numbers and conflating them misclassified a row:
 | css-inline-3 §1.1 Module Interactions | the supersession ground | `css-inline-3` *"replaces and extends the CSS inline layout model and features defined in [CSS2] section 10.8"* | **authored by this PR** in the `reconcile_flows` docstring, as the citation that licenses anchoring on `css-inline-3` rather than CSS 2 §10.8. Pair verified with `.claude/tools/webref heading css-inline-3 1.1` | ✓ | no |
 | css-inline-3 §4.2 Transverse Box Alignment: the vertical-align property | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top | **authored by this PR** in the `reconcile_flows` docstring, as the current anchor for the gap CSS 2 §10.8 states in superseded form (`css-inline-3` §1.1 *"replaces and extends … [CSS2] section 10.8"*). Pair verified with `.claude/tools/webref heading css-inline-3 4.2` | ✓ | yes |
 | css-inline-3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | the half-leading derivation | run-level from one resolved font; §5.3's *normal* branch (the default) wants every glyph's A and D | **authored by this PR** in the same docstring, as §10.8.1's current statement. Pair verified with `.claude/tools/webref heading css-inline-3 5.3` | ✓ | yes |
-| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (⚠ **the enumerator must be case-insensitive AND newline-tolerant**, because this very title
-wraps a line where it is authored: `git grep -ci "line height calculations" 658cc302 -- crates`
+| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **the body comment at `:480-481` moves verbatim (no code touched); the docstring's own §10.8 references are now bare numbers, the full §number↔title pair having moved to the `css-inline-3` rows** (⚠ **the enumerator must be case-insensitive AND newline-tolerant** — the title wraps wherever it
+is authored, and in a `///` doc comment the wrap inserts a comment marker too, so collapsing
+whitespace alone is not enough: `git grep -ci "line height calculations" 658cc302 -- crates`
 → one hit, `elidex-ecs/src/components/inline_flow.rs`, carrying the title's leading clause beside the
 number but not the full pair as spelled out here; the site is lowercase, so it is the Title-cased form that returns empty,
 and a pattern spanning the number and the title would be a filter, not an enumerator). The authored instance states the gap **positively**, and the positive clause is scoped: §10.8.1 half-leading is *approximated* in the first-baseline derivation only, at **run level from a single resolved font** — `pack/mod.rs` takes `em_height` from `measure_text` and `line_height` from the computed style
@@ -558,8 +560,8 @@ The recipe the numbers come from, so a reader can re-derive rather than trust:
 #    that is narrower than "all of it". Per §3 for the citation and §7.2 for the probe universal, `CSS 2 §10.8` and that universal's
 #    TEXT both already exist inside the moved range at 658cc302 (base `:480` and
 #    `:521`); §3 records `CSS 2 §10.8` as a DUAL-PROVENANCE row for exactly this reason.
-#    Authored here are: the number-title pair, the `css-writing-modes-4` citation, both
-#    `css-inline-3` citations, and the SCOPING of the probe universal to this function
+#    Authored here are: the `css-writing-modes-4` citation, the `css-inline-3`
+#    citations, and the SCOPING of the probe universal to this function
 #    -- not the citations wholesale.
 #    Do not restate that split here; §3 is its site, and restating it is how this
 #    sentence went wrong.
@@ -977,15 +979,15 @@ collected credit for honesty while overstating what the contract forbade.
   move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
   defence against an *incorrect* citation, which is a different class.
 
-* **The CSS 2 §10.8 anchor is superseded, and this PR authors one instance of that.**
+* **CSS 2 §10.8 is superseded, and the instance this PR authored is re-anchored.**
   `css-inline-3` §1.1 *Module Interactions* says the module *"replaces and extends the CSS inline
-  layout model and features defined in [CSS2] section 10.8"*, so `reconcile.rs:92`'s `CSS 2 §10.8`
-  is anchored on a superseded statement — and unlike the bullet above, this PR **authored** it,
-  so the pre-existing carve does not reach it. ⚠ **Routed to
-  `#11-inline-spec-cite-misattribution`**, the decorated-inline umbrella's slot for wrong-section
-  citations, whose subject is exactly this class. Not fixed here because the fix is a crate-wide
-  re-anchoring sweep, not a one-line edit, and the docstring already scopes what it claims against
-  both anchors.
+  layout model and features defined in [CSS2] section 10.8"*, so the `reconcile_flows` docstring
+  now names `css-inline-3` §4.2 / §5.3 as its governing sections. ⚠ **The crate's other `§10.8`
+  sites are NOT routed to a slot, and that is the disposition, not an omission**: no existing
+  slot's subject covers module supersession — a different class from *wrong-section*
+  misattribution, since CSS 2 §10.8 genuinely is the section it names — and the crate keeps CSS 2
+  numbering where `css-inline-3` has no counterpart (§10.8.1's strut, §10.8 step 1 / step 3). It
+  reopens when the crate's line-box height algorithm is next authored — not on a date.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
   pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
   under `#11-inline-root-inline-box`). Recorded here so the row is dispositioned rather than

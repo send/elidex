@@ -52,17 +52,19 @@ use super::{
 ///
 /// ⚠ **Behaviour is not at risk.** The two early returns are reached on
 /// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
-/// so a probe and the definitive pass reach them identically. ⚠ **That is the
-/// whole of the safety argument, and it does not extend to a carrier left
-/// behind.** Render never reads [`elidex_ecs::ColumnFlowSlice`] *directly*, but
-/// that is not the same as inert: `elidex-layout-multicol`'s
-/// `fill.rs` drains it unconditionally into a `FragmentSnapshot`, and
-/// `position_column_fragments` folds those lines into a render-visible
-/// `InlineFlow`. The drain is safe because of an invariant stated there — the
-/// IFC re-ran for this column just above, overwriting any prior carrier — and a
-/// carrier on a *nested* IFC container sits outside that invariant. Whether a
-/// stale one can reach the drain is `#11-inline-fragmented-fn-seams-1-2`'s to
-/// settle; **it is not asserted benign here.**
+/// so a probe and the definitive pass reach them identically.
+///
+/// ⚠ **A carrier left behind needs more than "render never reads it".** Render
+/// does not read [`elidex_ecs::ColumnFlowSlice`] *directly*, but
+/// `elidex-layout-multicol` drains it into a `FragmentSnapshot` and folds those
+/// lines into a render-visible `InlineFlow`, so a *stale* one would not be inert.
+/// Two measured facts close that, and neither is asserted here for the first
+/// time: the drain is keyed on the multicol's **direct children**, so a carrier
+/// on a nested IFC container cannot reach it; and the one case that could —
+/// the multicol's own self-carrier — is cleared for exactly this reason, with a
+/// named regression test. ⚠ **What is not settled** is a carrier that outlives
+/// its pass and whose entity then changes role; that residual is
+/// `#11-inline-fragmented-fn-seams-1-2`'s.
 /// ⚠ **No claim is made here about which terminal path removes it.** The
 /// component's own docstring says drain-within-one-pass; `elidex-layout-multicol`
 /// additionally clears the self-carrier case; and a carrier written on a *nested*
@@ -70,7 +72,8 @@ use super::{
 /// `#11-inline-fragmented-fn-seams-1-2`'s, not this docstring's — the safety
 /// argument above does not depend on it. What the universal gets wrong is
 /// its *scope*: it reads as engine-wide and is not. Stated here rather than in the
-/// body because the body is proved byte-identical to its pre-split form; the text
+/// body because the body is byte-identical to its pre-split form modulo the
+/// bindings the extracted signature introduces (§6: six single-line hunks); the text
 /// below must not be edited.
 ///
 /// **Spec vs bookkeeping.** Most of what this function does is elidex render
@@ -101,8 +104,9 @@ use super::{
 ///   section is **`css-inline-3` §4.2 Transverse Box Alignment: the
 ///   vertical-align property** — `css-inline-3` §1.1 says the module *"replaces
 ///   and extends the CSS inline layout model and features defined in [CSS2]
-///   section 10.8"*, so the current anchor is cited here and CSS 2 §10.8 is
-///   named only as the superseded statement the rest of this crate still uses.
+///   section 10.8"*. ⚠ CSS 2 numbering still appears below where `css-inline-3`
+///   has no counterpart section — §10.8.1's strut, and §10.8's step 1 / step 3
+///   line-box height — so it is not confined here to a historical mention.
 ///   ⚠ Stated
 ///   positively, because "only `vertical-align` is missing" would be a claim
 ///   over §10.8's whole complement: what **is** implemented is §10.8.1
@@ -137,12 +141,15 @@ use super::{
 ///     subtract its hits before quoting a figure. Owner:
 ///     `#11-css2-spec-label-normalisation`, which calls it hygiene, not
 ///     correctness.
-///   * **Anchor**: this docstring cites the current sections. The rest of the
-///     crate still anchors on CSS 2 §10.8*, which `css-inline-3` §1.1 supersedes;
-///     re-pointing those is **correctness**, not label hygiene, and its owner is
-///     `#11-inline-spec-cite-misattribution`, the decorated-inline umbrella's
-///     slot for wrong-section citations. Not swept here — a crate-wide
-///     re-anchoring is not this PR's change class.
+///     ⚠ **Anchor**: the citations *this* docstring authors name the current
+///     sections. The crate's other `§10.8` sites anchor on the superseded
+///     module (they spell it `CSS 2.1`); re-pointing those is **correctness**,
+///     not label hygiene — and a **different class from wrong-section
+///     misattribution**, because CSS 2 §10.8 genuinely is the section it names.
+///     ⚠ **Not routed to a slot, and that is the disposition, not an omission**:
+///     no existing slot's subject covers module supersession, and inventing one
+///     from a docstring would book work no reader can find. It reopens when the
+///     crate's line-box height algorithm is next authored — not on a date.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
@@ -167,7 +174,7 @@ use super::{
 /// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset
 /// preservation, fragmentainer terminology, column-box continuation) is
 /// pre-existing and untouched by the split — this function was relocated
-/// byte-identically, so it authors no algorithm. Adding blanket module-level
+/// byte-identically modulo the signature's bindings, so it authors no algorithm. Adding blanket module-level
 /// citations for it would over-claim, which is the call #497 already made for
 /// `collect.rs`/`styled_run.rs`.
 ///
