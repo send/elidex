@@ -425,16 +425,11 @@ import claim_gate_reruns  # noqa: E402
 
 claim_gate_reruns.host = sys.modules[__name__]
 
-CORPUS = claim_gate_reruns.CORPUS
-WRITES = claim_gate_reruns.WRITES
 RUNNABLE = claim_gate_reruns.RUNNABLE
 fence_verdict = claim_gate_reruns.fence_verdict
-windows = claim_gate_reruns.windows
 check_fence = claim_gate_reruns.check_fence
 needs_state = claim_gate_reruns.needs_state
-fenced_blocks = claim_gate_reruns.fenced_blocks
 run_line = claim_gate_reruns.run_line
-compare_arrow = claim_gate_reruns.compare_arrow
 check_transcripts = claim_gate_reruns.check_transcripts
 report_transcripts = claim_gate_reruns.report_transcripts
 
@@ -653,9 +648,15 @@ def report_umbrella_coverage(umbrella: Memo | None) -> None:
     for m in UMB_DECISION.finditer(umbrella.sect("1")):
         if m.group(1) not in watched:
             rows.append(f"§1 {m.group(1)} — {m.group(2).strip()[:64]}")
-    for c in data_rows(umbrella.sect("3")):
+    # The amendment marker is APPENDED BENEATH the table, which is the form
+    # this umbrella uses and which BINDING's comment above documents -- so the
+    # test is on the section, not on the row. Reading the row's own cells
+    # reported two already-amended rows as unwatched, half the report's output.
+    sect3 = umbrella.sect("3")
+    amended_here = "AMENDED" in sect3
+    for c in data_rows(sect3):
         joined = " | ".join(c)
-        if NAMES_S1.search(joined) and "AMENDED" not in joined:
+        if NAMES_S1.search(joined) and not amended_here:
             rows.append(f"§3 row — {c[2].strip()[:64] if len(c) > 2 else joined[:64]}")
     if rows:
         print(f"  umbrella: {len(rows)} binding item(s) with no BINDING entry "
@@ -737,7 +738,17 @@ INVENTORY_LINE = re.compile(
     r"^\s+(?:ok|FAIL)\s+(?P<id>C\d+)\s*(?:\((?P<sub>[a-z])\))?\s*"
     r"(?P<arm>positive|negative)?")
 # In the memo: `C10`, `C10's positive`, `C18's negative arm`, `C19`–`C22`.
-MEMO_CONTROL = re.compile(r"`?\b(?P<id>C\d+)`?(?:'s)?\s*(?P<arm>positive|negative)?")
+# Two patterns, because one cannot do both jobs. `MEMO_CONTROL` finds every id
+# and any sub-arm letter; `MEMO_CONTROL_ARM` finds an id whose arm word follows
+# within a bounded window, with the arm REQUIRED so the match cannot succeed by
+# skipping it. Round 9 required the arm to abut the id, and one inserted word
+# ("C10's *intended* positive") defeated the check at two live sites; making the
+# gap optional in one pattern does not work either -- the lazy quantifier
+# prefers zero words and reports no arm at all, which is how the first attempt
+# at this fix passed its own probe while changing nothing.
+MEMO_CONTROL = re.compile(r"`?\b(?P<id>C\d+)`?(?:'s)?\s*(?:\((?P<sub>[a-z])\))?")
+MEMO_CONTROL_ARM = re.compile(
+    r"`?\b(?P<id>C\d+)`?(?:'s)?(?:\s+\w+){0,2}\s+(?P<arm>positive|negative)\b")
 CONTROL_RANGE = re.compile(r"`?\b(C\d+)`?\s*[–—-]\s*`?(C\d+)`?")
 # `§8 control` is a section reference, not a count, so the digits may not be
 # preceded by a section sign -- the first draft of this pattern reported §9's
@@ -834,10 +845,12 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
     outside: dict[str, list[int]] = {}
     for m in MEMO_CONTROL.finditer(memo.text):
         cited.setdefault(m.group("id"), set())
-        if m.group("arm"):
-            cited[m.group("id")].add(m.group("arm"))
+        if m.group("sub"):
+            cited[m.group("id")].add(m.group("sub"))
         if not any(a <= m.start() < b for a, b in ledger_spans):
             outside.setdefault(m.group("id"), []).append(m.start())
+    for m in MEMO_CONTROL_ARM.finditer(memo.text):
+        cited.setdefault(m.group("id"), set()).add(m.group("arm"))
 
     for cid, arms in sorted(cited.items(), key=lambda kv: int(kv[0][1:])):
         if cid in retired:
@@ -958,7 +971,7 @@ def main(argv: list[str]) -> int:
     check_citations(memo)
     if umbrella:
         check_citations(umbrella)
-    live = check_annotations()
+    check_annotations()
     check_fence(memo)
     report_transcripts(check_transcripts(memo))
     if umbrella:
