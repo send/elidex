@@ -547,11 +547,17 @@ def _num(tok: str) -> int | None:
 
 
 def check_tooling_quantities(memo: Memo) -> None:
-    branch = "claim-gate-plan-check"
+    # `origin/main..HEAD`, not a named branch. Round 9 keyed both derivations on
+    # the literal `claim-gate-plan-check`, so once that branch merges and is
+    # deleted -- on `main`, where this file lands -- `commits` and `files` both
+    # resolve to None and every quantity they were re-deriving silently becomes
+    # "nothing re-derives it". A check whose subject disappears when its own PR
+    # lands is a `ban_control` with a delayed fuse. HEAD always resolves, and on
+    # `main` the range is empty, which is the honest answer there.
     derivable: dict[str, int | None] = {}
-    rc, out = sh(["git", "rev-list", "--count", f"origin/main..{branch}"])
+    rc, out = sh(["git", "rev-list", "--count", "origin/main..HEAD"])
     derivable["commits"] = int(out.strip()) if rc == 0 and out.strip() else None
-    rc, out = sh(["git", "diff", "--name-only", f"origin/main..{branch}"])
+    rc, out = sh(["git", "diff", "--name-only", "origin/main..HEAD"])
     derivable["files"] = len([x for x in out.split("\n") if x]) if rc == 0 else None
     p = REPO / ".claude" / "tools" / "claim-gate-plan-check.py"
     derivable["lines"] = nr(p) if p.exists() else None
