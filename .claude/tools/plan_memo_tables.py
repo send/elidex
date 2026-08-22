@@ -99,6 +99,88 @@ _BOLD = re.compile(r"^\*\*(.+?)\*\*$")
 _TICK = re.compile(r"^`(.+?)`$")
 
 
+def _skip_ws(s, i, newlines=1):
+    seen = 0
+    while i < len(s):
+        if s[i] in " \t":
+            i += 1
+        elif s[i] == "\n" and seen < newlines:
+            seen += 1
+            i += 1
+        else:
+            break
+    return i
+
+
+def _link_destination(s, i):
+    """CommonMark §6.6 link destination starting at `i`; returns (dest, end)."""
+    if i < len(s) and s[i] == "<":
+        j = i + 1
+        while j < len(s) and s[j] not in "<>\n":
+            j += 2 if s[j] == "\\" else 1
+        if j < len(s) and s[j] == ">":
+            return s[i + 1:j], j + 1
+        return None, i
+    j, depth = i, 0
+    while j < len(s) and not s[j].isspace() and ord(s[j]) > 31:
+        if s[j] == "\\":
+            j += 2
+            continue
+        if s[j] == "(":
+            depth += 1
+        elif s[j] == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        j += 1
+    return (s[i:j], j) if j > i and depth == 0 else (None, i)
+
+
+def _link_title(s, i):
+    if i >= len(s) or s[i] not in "\"'(":
+        return i
+    close = {"\"": "\"", "'": "'", "(": ")"}[s[i]]
+    j = i + 1
+    while j < len(s) and s[j] != close:
+        j += 2 if s[j] == "\\" else 1
+    return j + 1 if j < len(s) else i
+
+
+_REF_DEF = re.compile(r"^ {0,3}\[([^\]]+)\]:[ \t]*(\S+)", re.M)
+
+
+def links(s):
+    """Every Markdown link in `s`, by ONE grammar: CommonMark §6.6 inline links
+    (`](dest)`, `](<dest>)`, `](dest#frag)`, `](dest "title")`, balanced parens
+    in the destination) and full/collapsed reference links resolved through
+    `[label]: dest` definitions.  Returns [(start_of_tail, end, destination)]
+    where the span runs from the `]` closing the label to the end of the
+    link.  Three rounds each widened a regex by one symptom (label, fragment,
+    title); the grammar is the property, and it is written once.
+    """
+    defs = {m.group(1).strip().lower(): m.group(2) for m in _REF_DEF.finditer(s)}
+    out = []
+    for m in re.finditer(r"\]\(", s):
+        i = _skip_ws(s, m.end())
+        dest, j = _link_destination(s, i)
+        if dest is None:
+            continue
+        k = _skip_ws(s, j)
+        if k > j:
+            k = _skip_ws(s, _link_title(s, k))
+        if k < len(s) and s[k] == ")":
+            out.append((m.start(), k + 1, dest))
+    for m in re.finditer(r"\]\[([^\]]*)\]", s):
+        label = m.group(1).strip().lower()
+        if not label:
+            # collapsed `[label][]`: the label is the preceding bracket text
+            b = s.rfind("[", 0, m.start())
+            label = s[b + 1:m.start()].strip().lower() if b >= 0 else ""
+        if label in defs:
+            out.append((m.start(), m.end(), defs[label]))
+    return out
+
+
 def code_spans(s, keep=()):
     """Byte spans this scan must not read an id out of.
 
@@ -142,7 +224,8 @@ def code_spans(s, keep=()):
     # masked `9z` together with the destination, so an id that ends a label was
     # never reported -- the control above kept `9z` safe only because extra
     # label words followed it.
-    for m in re.finditer(r"\]\([^)]*\)|\[[A-Z][0-9]+\]|[\w./-]+\.md\b", s):
+    out += [(a, b) for a, b, _ in links(s)]
+    for m in re.finditer(r"\[[A-Z][0-9]+\]|[\w./-]+\.md\b", s):
         out.append(m.span())
     return out
 
@@ -186,11 +269,6 @@ class Memo:
 
     # -- carved siblings ---------------------------------------------------
 
-    # A destination may carry a fragment (`child.md#acceptance`); the file is
-    # the part before `#`.  Matching only `.md)` dropped every section-qualified
-    # link, and with it the carved memo behind it, silently.
-    _LINK = re.compile(r"\]\(([^)\s#]+\.md)(?:#[^)\s]*)?\)")
-
     def linked_memos(self):
         """Every `.md` this memo links, resolved beside it, in first-link order.
 
@@ -202,8 +280,12 @@ class Memo:
         the three-sibling one 706 -- the same exit code for three populations.
         """
         out = []
-        for m in self._LINK.finditer(self.text):
-            p = (self.path.parent / m.group(1)).resolve()
+        for _, _, dest in links(self.text):
+            # the file is the destination before any fragment or query
+            name = re.split(r"[#?]", dest, 1)[0]
+            if not name.endswith(".md"):
+                continue
+            p = (self.path.parent / name).resolve()
             if p != self.path.resolve() and p not in out:
                 out.append(p)
         return out

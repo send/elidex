@@ -200,6 +200,17 @@ case("POSITIVE-NOVEL", "a violation in a carved sibling the memo links",
 case("POSITIVE-NOVEL", "the sibling link carries a section fragment",
      build(), "See [the walk](slice-9z-sib.md#acceptance).", 1,
      sibling="Slice 9z lands before Slice 7z.")
+case("POSITIVE-NOVEL", "the sibling link carries a title",
+     build(), 'See [the walk](slice-9z-sib.md "Acceptance cases").', 1,
+     sibling="Slice 9z lands before Slice 7z.")
+case("POSITIVE-NOVEL", "the sibling link uses an angle-bracket destination",
+     build(), "See [the walk](<slice-9z-sib.md>).", 1,
+     sibling="Slice 9z lands before Slice 7z.")
+case("POSITIVE-NOVEL", "the sibling is linked by reference",
+     build(), "See [the walk][sib].\n\n[sib]: slice-9z-sib.md", 1,
+     sibling="Slice 9z lands before Slice 7z.")
+case("NEGATIVE", "an id in a titled link's destination is not a naming site",
+     build(), 'See [detail](slice-9z-sib.md "the 9z walk") for the walk.', 0)
 
 # -------------------------------------------------------------- KNOWN-MISS --
 # These are wrong sites.  The checker does not report them, and that is the
