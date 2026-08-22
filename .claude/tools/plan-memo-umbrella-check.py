@@ -45,10 +45,14 @@ trigger to collapse is both files being on `main`, at which point the shared
 splitter moves to one module and each checker keeps its own schema.
 
 WHAT IS MECHANICAL AND WHAT IS A SEED (read this before believing a count)
-  (a) UMBRELLA-MARK   mechanical, complete.  Every row that declares itself an
-                      umbrella carries the marker, read from the DECLARING FIELD
-                      (§5 rows: the `Slice` cell; §8 slot rows: `Why deferred`),
-                      never from a grep over the marker's own vocabulary.
+  (a) UMBRELLA-MARK   mechanical, complete, for the half that counts: the
+                      marker population read from the DECLARING FIELD (§5 rows:
+                      the `Slice` cell; §8 slot rows: `Why deferred`), never
+                      from a grep over the marker's own vocabulary.
+      UMBRELLA-MARK?  SEED for the other half -- a row declaring the kind in
+                      WORDS and carrying no marker.  Measured false positives:
+                      a cell quoting the criterion to conclude it is terminal,
+                      and a cell discussing another row's kind.
   (b) UMBRELLA-CELL   mechanical, complete.  No umbrella row carries an
                       acceptance condition or a `Deps` edge.
   (c) ORDER-PROSE     SEED.  Prose asserting an ordering is natural language.
@@ -519,10 +523,18 @@ def assertion_a(memo, findings, notes):
             if MARKER in field:
                 continue
             if declares.search(field):
+                # SEED, and it has a measured false-positive mechanism: this
+                # vocabulary also appears when a cell QUOTES the criterion in
+                # order to conclude the row is terminal, and when a cell
+                # discusses ANOTHER row's kind.  Deciding which of the three a
+                # sentence is doing is natural language, so the words-half of
+                # assertion (a) is reported as a seed and the marker-population
+                # read above is the mechanical half.
                 findings.append(
-                    ("UMBRELLA-MARK", lineno,
-                     "row %r declares the umbrella kind in words but does not carry the marker "
-                     "in its declaring field" % bare_id(cells[idc])))
+                    ("UMBRELLA-MARK?", lineno,
+                     "row %r uses the kind vocabulary in its declaring field without the "
+                     "marker -- read it: a declaration, a quotation of the criterion, or "
+                     "another row's kind?" % bare_id(cells[idc])))
             # the marker outside the declaring field certifies nothing
             row = "|".join(cells)
             if MARKER in row and MARKER not in field:

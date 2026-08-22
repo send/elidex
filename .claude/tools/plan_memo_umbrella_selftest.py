@@ -172,9 +172,14 @@ def acase(kind, name, text, code, expect):
     ASSERT_CASES.append((kind, name, text, code, expect))
 
 
-acase("POSITIVE", "(a) a row declaring the kind in words carries no marker",
+acase("POSITIVE", "(a-seed) a row declaring the kind in words carries no marker",
       build(sqx="This row is an umbrella: three intersecting axes."),
-      "UMBRELLA-MARK", 1)
+      "UMBRELLA-MARK?", 1)
+acase("POSITIVE", "(a-seed) fires on a cell QUOTING the criterion too -- a "
+                  "measured false positive, kept visible rather than filtered",
+      build(sqx="The criterion asks for a subsystem with no canonical algorithm; "
+                "this row touches none, so it is terminal."),
+      "UMBRELLA-MARK?", 1)
 acase("POSITIVE", "(a) the marker outside the declaring field certifies nothing",
       build(sqx="body.", d7z="**UMBRELLA, not a terminal unit** stray"),
       "UMBRELLA-MARK", 1)
