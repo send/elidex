@@ -565,9 +565,9 @@ CAUGHT**: each exited **0 while measuring nothing** against an unresolvable ref,
 `_measure` exists to make unrepresentable. No memo quantity is affected, checked block by block: every §15
 block re-derives its stated value in a resolvable checkout (`keysets` → 12 specs, 9 added spellings, 0
 changed, 0 lost; `couplings` → GREEN and the same **2** pre-existing sites §13.1 argues from below; `budget`
-→ §8's figures). `filters(exit 128)` is the last residual of the pre-`_measure` shape — a bare
-`git show "$MAIN:…" | sed`, whose 128 reaches the roster only because `set -o pipefail` is on, and which
-prints none of the `!!` diagnostic every other block gives.
+→ §8's figures). `filters(exit 128)` in that roster was the block's pre-`_measure` shape *at that head*; it
+has since been routed through `_measure` like the others, and the block — not this paragraph — states its
+current behaviour (Codex R5 found the superseded description here still in the present tense).
 
 ⚠ **Reproduce a remote-less checkout in a throwaway CLONE, never in a worktree.** `git remote remove origin`
 writes to the **shared** `$GIT_COMMON_DIR/config`, and `git update-ref -d refs/remotes/origin/main` deletes a

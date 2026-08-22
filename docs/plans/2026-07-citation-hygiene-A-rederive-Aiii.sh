@@ -116,31 +116,45 @@ ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
   _measure n_detail gh api "repos/send/elidex/rulesets/$id" --jq \
     '{enforcement, target, rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode], scope: .conditions.ref_name}' || failed=1
   _measured
-  # Printing the detail is not checking it. A-iii §4.5 claims FOUR things of this
-  # ruleset and each is a field above: it is ACTIVE (`enforcement`), it governs
-  # BRANCHES (`target`), it carries `deletion` / `non_fast_forward` /
-  # `pull_request` (`rules`), and it SELECTS main -- a ruleset's ref scope is
-  # `conditions.ref_name.include/exclude`, so `main` is in scope iff `include`
-  # names it, literally or as `~DEFAULT_BRANCH` while the repo's default branch
-  # IS main, and `exclude` does not. The name `main-protection` proves none of
-  # the four (Codex R3 for the scope, R4 for the other three). Every clause is
-  # READ, not recalled, and a failing clause is named, not summed.
-  local detail def n_def bad
+  # Printing the detail is not checking it. A-iii §4.5 claims of this ruleset
+  # that it is ACTIVE (`enforcement`), governs BRANCHES (`target`), that its
+  # rule set IS `deletion` / `non_fast_forward` / `pull_request` -- stated as a
+  # set, because §4.5's next sentence is "there is NO `required_status_checks`
+  # rule" and a superset test certifies that claim false (Codex R5) -- and that
+  # it SELECTS main: a ruleset's ref scope is `conditions.ref_name`, so `main`
+  # is in scope iff `include` names it, literally or as `~DEFAULT_BRANCH` while
+  # the repo's default branch IS main, and `exclude` does not. The name
+  # `main-protection` proves none of it (Codex R3 scope, R4 the rest). Every
+  # clause is READ, not recalled; a failing clause is named, not summed; and the
+  # check itself is a `_measure`d command -- a `jq` that cannot run is a
+  # validation that never happened, which a bare `bad=$(...)` reported as
+  # "nothing bad" (Codex R5: `jq` at exit 127 certified a non-main ruleset).
+  # The sweep that introduced `_measure` was scoped by TOOL twice over (`git`,
+  # then `gh api`); the rule is SHAPE -- every command whose status is a fact.
+  local detail def n_def
   detail=$(_measured)
   _measure n_def gh api repos/send/elidex --jq '.default_branch' || failed=1
   def=$(_measured | tr -d '[:space:]')
-  bad=$(printf '%s' "$detail" | jq -r --arg def "$def" '
-    [ (select(.enforcement != "active") | "enforcement=\(.enforcement)"),
-      (select(.target != "branch")      | "target=\(.target)"),
-      (["deletion","non_fast_forward","pull_request"] - .rules | select(length > 0) | "rules missing \(.)"),
-      (select((.scope.include | index("refs/heads/main") == null)
-              and ((.scope.include | index("~DEFAULT_BRANCH") == null) or $def != "main"))
-        | "include=\(.scope.include) default_branch=\($def)"),
-      (select(.scope.exclude | index("refs/heads/main") != null) | "exclude=\(.scope.exclude)") ]
-    | join("; ")')
+  _rulesetcheck "$detail" "$def" || failed=1
+  return "$failed"
+}
+
+_rulesetcheck() {  # $1 = projected detail JSON, $2 = default branch. 0 iff §4.5 holds.
+  local n_bad bad
+  _measure n_bad jq -rn --argjson d "$1" --arg def "$2" '
+    $d | [ (select(.enforcement != "active") | "enforcement=\(.enforcement)"),
+           (select(.target != "branch")      | "target=\(.target)"),
+           ((.rules | sort) as $r | (["deletion","non_fast_forward","pull_request"] | sort) as $want
+             | select($r != $want) | "rules=\($r) (claimed exactly \($want))"),
+           (select((.scope.include | index("refs/heads/main") == null)
+                   and ((.scope.include | index("~DEFAULT_BRANCH") == null) or $def != "main"))
+             | "include=\(.scope.include) default_branch=\($def)"),
+           (select(.scope.exclude | index("refs/heads/main") != null) | "exclude=\(.scope.exclude)") ]
+       | join("; ")' || return 1
+  bad=$(_measured)
   if [ -n "$bad" ]; then
     echo "!! main-protection does not certify A-iii §4.5: $bad"
-    failed=1
+    return 1
   fi
-  return "$failed"
+  return 0
 }
