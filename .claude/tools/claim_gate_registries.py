@@ -76,6 +76,9 @@ host: ModuleType  # bound by the entry point at import time
 # quotation this program has produced; `git grep -F` decides these.
 # --------------------------------------------------------------------------
 
+# The section a disposal must be declared in, named the way
+# `claim_gate_ledgers.GONE_SECTION` names §0.1.
+SITES_SECTION = "4.6"
 GOVERNING = [".github/workflows/ci.yml", "CLAUDE.md", "CONTRIBUTING.md",
              "mise.toml", "scripts/trip-wires.sh"]
 COLLECTIVE = re.compile(
@@ -207,22 +210,44 @@ def check_sites(memo: host.Memo, ships: bool | None = None) -> None:
                       f"and no line describing that set needs disposing of here "
                       f"({memo.path.name} may still name a wire it does not ship)")
         return
+    # The licence is POSITION-scoped, the way `CONTROLS`' and `PATHS`' are, and
+    # for the reason this module's header gives: a disposal is a positive
+    # declaration, not something a sentence elsewhere can be read as making.
+    # Scanning the whole memo meant any `path:line` discharged that line, so a
+    # range written for another purpose disposed of whatever it spanned --
+    # measured on the real memo, `scripts/trip-wires.sh:24-56` covers one
+    # set-line in thirty-three, and a whole-file range would have covered every
+    # line in that file. The alternative remedy is a cap on the span's width,
+    # which is a convention-dependent figure with nothing behind the number
+    # (memory `feedback_convention-dependent-figures-are-argument`).
+    # The population is derived BEFORE the licence is looked for: a governing
+    # file that has left the tree is a fact about the repository, and gating it
+    # behind the memo's shape hid the arm that reports it.
+    lines = wire_set_lines()
+    section = memo.sect(SITES_SECTION)
+    if not section:
+        host.skip("SITES", f"{memo.path.name} has no §{SITES_SECTION} section, so "
+                           f"this PR's disposal of the lines describing the wire "
+                           f"set has nowhere to be declared and was not audited")
+        return
     # Both spellings count as citing a line: the backticked `path:12-14` form,
     # and the bare `path:12:` form a pasted `git grep -n` listing produces --
     # §4.6's edit set is entirely of the second kind, and reading only the first
     # reported eleven sites as undisposed when §4.6 pastes six of them verbatim.
     cited = set()
-    for m in host.CITE_RE.finditer(memo.text):
+    for m in host.CITE_RE.finditer(section):
         rel, a, b = m.group(1), int(m.group(2)), m.group(3)
         for h in host.resolve(rel):
             for k in range(a, (int(b) if b else a) + 1):
                 cited.add(f"{h}:{k}")
-    for m in re.finditer(r"^([\w./-]+):(\d+):", memo.text, re.M):
+    for m in re.finditer(r"^([\w./-]+):(\d+):", section, re.M):
         for h in host.resolve(m.group(1)):
             cited.add(f"{h}:{m.group(2)}")
+    # `loose` stays whole-memo: it only decorates the finding with "the memo
+    # names the file but not this line", and that is true of a mention anywhere.
     loose = set(re.findall(r"`?([\w./-]+\.(?:yml|toml|md|sh))`?[: ]", memo.text))
 
-    for rel, i, line in wire_set_lines():
+    for rel, i, line in lines:
         if f"{rel}:{i}" in cited:
             continue
         star = (" (the memo names the file but not this line)"

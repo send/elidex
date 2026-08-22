@@ -679,6 +679,35 @@ def selftest() -> int:
     probe("SITES negative (one disposal dropped)", True,
           capture(check_sites, synth(disposal(sites[1:])), True),
           "speaks about the wire set")
+    # The licence is POSITION-scoped, as `CONTROLS`' and `PATHS`' are. A
+    # `path:line` anywhere in the memo used to discharge the line, so a range
+    # written for some other purpose disposed of whatever it happened to span
+    # -- measured on the real memo, `scripts/trip-wires.sh:24-56` covers one
+    # set-line in thirty-three, and a whole-file range would have covered every
+    # line in that file. Capping the width would be a convention-dependent
+    # figure (memory `feedback_convention-dependent-figures-are-argument`); a
+    # designated section is the form this program already uses for "a mention
+    # of a thing left alone is licensed by declaring it, not by wording".
+    probe("SITES negative (a set-line cited only outside the disposal section)", True,
+          capture(check_sites,
+                  synth(disposal(sites[1:]) + f"\n## §5 Gate\n\n`{sites[0]}` is "
+                        f"mentioned here, in passing.\n"), True),
+          "speaks about the wire set")
+    probe("SITES positive (the same citation inside the section does dispose)", False,
+          capture(check_sites, synth(disposal(sites)), True))
+    # Both spellings, both scoped. The backticked form had an out-of-section arm
+    # and the bare `path:N:` one did not, so reverting HALF the scoping left the
+    # suite green -- a fix measured on one of the two paths it changed.
+    probe("SITES negative (a grep-n line outside the section does not dispose)", True,
+          capture(check_sites,
+                  synth(disposal(sites[1:]) + "\n## §5 Gate\n\n```\n"
+                        + f"{sites[0]}: x\n" + "```\n"), True),
+          "speaks about the wire set")
+    probe("SITES reports rather than passing when the memo has no §4.6", True,
+          capture_skipped(check_sites,
+                          synth("## §5 Gate\n\n" + "\n".join(f"`{r}`" for r in sites)),
+                          True),
+          "no §4.6")
 
     real_pf = run_preflight_block(PREFLIGHT_FIXTURE)
     probe("PREFLIGHT positive (a pasted verdict matching the tool)", False,
@@ -1172,7 +1201,7 @@ def selftest() -> int:
               "`.claude/tools/layout-box-reader-trip-wire.sh`, untouched here.\n"), False))
     probe("  …and the same memo owes every disposal once the PR does ship one", True,
           capture(check_sites, synth(
-              "## §4 x\nFollow the precedent of "
+              "## §4.6 Disposal\n\nFollow the precedent of "
               "`.claude/tools/layout-box-reader-trip-wire.sh`, untouched here.\n"), True),
           "SITES")
     probe("  …and it says so through skip()", True,
@@ -1180,7 +1209,8 @@ def selftest() -> int:
           "does not change the wire set")
     probe("SITES negative (a memo that ships a wire owes the disposal)", True,
           capture(check_sites, synth(
-              "## §4 x\nS1 adds `.claude/tools/claim-provenance-trip-wire.sh`.\n"), True),
+              "## §4.6 Disposal\n\nS1 adds "
+              "`.claude/tools/claim-provenance-trip-wire.sh`.\n"), True),
           "SITES")
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,
