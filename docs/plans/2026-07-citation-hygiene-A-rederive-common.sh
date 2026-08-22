@@ -281,6 +281,12 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
   echo "   of which in A's half                            : $n_ahalf"
   echo "   pre-existing on origin/main (A-i discharges it)  : $n_base"
+  # A-i §4.2 S8 and §13.1 argue from "origin/main has TWO" (`_webref/cli.py:78`,
+  # `.claude/tools/webref:5`); the count was printed and never compared (the
+  # block-audit of 2026-08-22). The claim has a lifetime -- A-i landing makes it
+  # 0 -- and when it moves, this line says so and the two memo sentences get
+  # rewritten, rather than staying true-looking beside a green block.
+  [ "$n_base" = 2 ] || { echo "!! origin/main baseline is $n_base, not the 2 A-i §4.2 S8 / §13.1 argue from"; failed=1; }
   # K3's CROSS-TREE half. The unit suite scans PKG, so a Slice-B artifact name
   # re-imported anywhere else under GENERIC, or into `.claude/skills/`, is
   # invisible to it. Unlike the suite, this block spells the needles plainly:
@@ -654,6 +660,10 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   # authors no plan-memo" -- for a worktree whose diff could not be taken at all,
   # and §13's lane roster is exactly a claim about which worktrees those are.
   for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+    # A prunable entry (its directory is gone) is not a worktree whose diff
+    # failed; it is reported as what it is and skipped, or a scratch worktree
+    # some earlier block left behind turns this whole roster RED.
+    git -C "$w" rev-parse --git-dir >/dev/null 2>&1 || { echo "  (prunable — not a reachable worktree, skipped: $w)"; continue; }
     if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- docs/plans/; then
       [ "$n" -gt 0 ] && echo "  $n $w"
     else
@@ -668,6 +678,10 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   # OPPOSITE answer on all three files A edits.
   echo "-- worktrees touching the files A contends on (ci.yml / mise.toml / .claude/tools) --"
   for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+    # A prunable entry (its directory is gone) is not a worktree whose diff
+    # failed; it is reported as what it is and skipped, or a scratch worktree
+    # some earlier block left behind turns this whole roster RED.
+    git -C "$w" rev-parse --git-dir >/dev/null 2>&1 || { echo "  (prunable — not a reachable worktree, skipped: $w)"; continue; }
     if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- \
                      .github/workflows/ mise.toml .claude/tools/; then
       [ "$n" -gt 0 ] && { echo "  $w  [$(git -C "$w" rev-parse --short HEAD)]"

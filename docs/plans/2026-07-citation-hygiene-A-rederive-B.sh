@@ -54,14 +54,27 @@ PY
   return $?    # the heredoc'd command IS the measurement; say so
 }
 
-offline() {  # §10-Q1(a) — the SystemExit escape the boundary rests on
+offline() {  # B §4.1.7 — the SystemExit escape the offline boundary rests on
+  # B §4.1.7 embeds this script and records "SystemExit ESCAPED"; the block
+  # printed whichever reading it got and exited 0 (the block-audit of
+  # 2026-08-22). It now asserts the reading it is named for. Like `partition`,
+  # it is Slice B's: at A-i's head `spec_labels` has no `_catalog` (A-i's K3),
+  # so it reads `returned: None` and is RED until B restores the fall-through
+  # -- an expected, owner-routed RED, recorded in A-i §13.1.
   python3 - <<'PY'
 import sys, urllib.request, urllib.error, os
 os.environ["XDG_CACHE_HOME"] = "/tmp/empty-cache-rederive"; sys.path.insert(0, ".claude/tools")
 urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("offline"))
 from _webref import spec_labels
-try: print("returned:", spec_labels.shortname_for("CSS Text 3"))
-except SystemExit as e: print("SystemExit ESCAPED _catalog():", e)
+escaped = False
+try:
+    print("returned:", spec_labels.shortname_for("CSS Text 3"))
+except SystemExit as e:
+    escaped = True
+    print("SystemExit ESCAPED _catalog():", e)
+if not escaped:
+    print("!! no SystemExit escaped — B §4.1.7's reading does not hold at this head (no catalog fall-through)")
+    sys.exit(1)
 PY
   return $?    # the heredoc'd command IS the measurement; say so
 }

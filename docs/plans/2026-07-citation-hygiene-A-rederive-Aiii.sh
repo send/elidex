@@ -20,8 +20,13 @@ suites() {  # §1 / §4.3.1 / §4.3.3 — 47 tests, 4 files, and the fetch count
   _measure n ls "$T"/.claude/tools/_webref/test_*.py \
                 "$T"/.claude/skills/elidex-plan-review/test_*.py || rc=1
   echo "$n"
+  # §4.3.1 / §1 claim FOUR suite files at the base; the count was echoed and
+  # never compared (the block-audit of 2026-08-22). The figure has a lifetime --
+  # A-ii's `test_preflight.py` makes it five -- and when it moves, this line is
+  # what says so, not a reader noticing the memo drifted.
+  [ "$n" -eq 4 ] || { echo "!! $n suite files at $MAIN; A-iii §4.3.1 says 4 — the memo's figure has moved"; rc=1; }
   python3 - "$T" <<'SUITESPY' || rc=1
-import subprocess, sys
+import re, subprocess, sys
 spy = ("import sys, urllib.request\n_c=[]\n_o=urllib.request.urlopen\n"
        "urllib.request.urlopen=lambda r,*a,**k:(_c.append(getattr(r,'full_url',r)),_o(r,*a,**k))[1]\n"
        "import atexit; atexit.register(lambda: sys.stderr.write('URLOPEN=%d\\n'%len(_c)))\n")
@@ -42,6 +47,14 @@ for args in (["discover","-s",f"{t}/.claude/tools/_webref","-p","test_*.py","-t"
         print("!! line above are from a run that did not pass; they measure nothing.")
         sys.stdout.flush()          # or the replayed traceback lands above its own header
         sys.stderr.write(r.stderr)
+    # The umbrella (`:82`) and §4.3.3 cite this block for ZERO `urlopen` calls at
+    # the base; the `URLOPEN=` line was printed and never read back, so a suite
+    # that started fetching read green (the block-audit of 2026-08-22).
+    m = re.search(r"URLOPEN=(\d+)", r.stderr)
+    if m is None or m.group(1) != "0":
+        rc = 1
+        print(f"!! URLOPEN={m.group(1) if m else 'unmeasured'} under {args[2]} -- the suites fetch;"
+              " the 0-urlopen claim does not hold")
 sys.exit(rc)
 SUITESPY
   git worktree remove --force "$T"
@@ -61,6 +74,13 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
                       echo "!! nothing to range over, which is not the same as 'no uncollected suite'."
                       return 1; }
   echo "-- discover roots --"; echo ".claude/tools/_webref"; echo ".claude/skills/elidex-plan-review"
+  # J4's claim is not only that the set is non-empty but that EVERY member is
+  # under one of the two discover roots -- a suite outside both is the
+  # uncollected suite J4 exists to catch, and the roots were echoed rather than
+  # applied (the block-audit of 2026-08-22).
+  local outside
+  outside=$(printf '%s\n' "$_MEASURE_OUT" | grep -vE '^\.claude/(tools/_webref|skills/elidex-plan-review)/' || true)
+  [ -z "$outside" ] || { echo "!! suite(s) outside both discover roots — J4's uncollected-suite case:"; printf '%s\n' "$outside" | sed 's/^/     /'; return 1; }
   return 0
 }
 
@@ -76,7 +96,25 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
                       echo "!! an empty range is a renamed key, not an absent filter."
                       return 1; }
   printf '%s\n' "$body"
-  return 0
+  # §4.1 makes four claims this block printed a range for and never checked (the
+  # block-audit of 2026-08-22): `.claude/**` is in neither filter set; the three
+  # validation jobs are gated on the filter; `trip-wires` is ungated; and the
+  # workflow never invokes `mise`. The first is read off the range above, the
+  # rest off the whole file, each named when it fails.
+  local rc=0 ci
+  ci=$_MEASURE_OUT
+  printf '%s\n' "$body" | grep -q '\.claude' && { echo "!! .claude/** now appears in a filter set — §4.1's 'in neither' no longer holds"; rc=1; }
+  local j
+  for j in check doc deny; do
+    printf '%s\n' "$ci" | awk -v j="$j" '$0 ~ "^  "j":$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    needs: changes/ {ok=1} END {exit !ok}' \
+      || { echo "!! job \`$j\` is not gated on \`changes\` — §4.1's 'all three jobs gated' no longer holds"; rc=1; }
+  done
+  printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    (needs|if):/ {g=1} END {exit g}' \
+    || { echo "!! \`trip-wires\` is gated — §9's 'ungated since #496' no longer holds"; rc=1; }
+  # "invokes" = a `run:` step naming the binary; the path filter's `mise.toml`
+  # entry is a FILE, and a bare-word grep flagged it (caught on the first run).
+  printf '%s\n' "$ci" | grep -E '^\s*(-\s*)?run:' | grep -qE '(^|[^a-z./-])mise( |$)' && { echo "!! ci.yml invokes mise — §4.1's 'never invokes mise' no longer holds"; rc=1; }
+  return "$rc"
 }
 
 ruleset() {  # §13.2 — main's ruleset, READ rather than recalled

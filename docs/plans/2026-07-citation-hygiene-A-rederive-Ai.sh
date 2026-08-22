@@ -32,6 +32,22 @@ alias_free = {k.lower(): e[0] for e in s.SPECS for k in (e[0], e[1])}
 print("parse aliases:", [x for e in s.SPECS for x in e[3:]])
 print("deleting every alias changes the map?", alias_free != a,
       f"(alias-free size={len(alias_free)})")
+# The readings above are the claims §0.1 item 1 / §3.1 / §13.1 make (superset,
+# nothing changed, nothing lost, equal value sets over 12 specs, 9 added
+# spellings, alias-free map); printing them and exiting 0 certified nothing
+# (the block-audit of 2026-08-22). Each is asserted; a failing one is named.
+bad = [name for name, ok in (
+    ("superset",           all(a.get(k) == v for k, v in mk.items())),
+    ("nothing changed",    not [k for k, v in mk.items() if a.get(k) not in (None, v)]),
+    ("nothing lost",       not [k for k in mk if k not in a]),
+    ("12 specs",           len(set(a.values())) == 12),
+    ("equal value sets",   set(a.values()) == set(mk.values())),
+    ("9 added spellings",  len(set(a) - set(mk)) == 9),
+    ("alias-free map",     alias_free == a and not [x for e in s.SPECS for x in e[3:]]),
+) if not ok]
+if bad:
+    print("!! keysets: the memo's claim(s) do not hold:", ", ".join(bad))
+sys.exit(1 if bad else 0)
 PY
   return $?    # the heredoc'd command IS the measurement; say so
 }
@@ -43,10 +59,17 @@ regions() {  # §4.2 — spec_labels.py A/B region boundaries, by named artifact
   #
   # grep's status IS this block's: §4.2 cites these artifacts as PRESENT, so both
   # 1 (ran, matched nothing) and 2 (no such file) are failures here, and neither
-  # may arrive as an empty listing under a zero exit.
-  grep -nE '^"""|^SPECS|^def |^#: |_catalog|fallback|pinned = |catalog = |entry\.get|parse alias|Aliases exist|shifted the alias|entry\[3:\]|tuple\[tuple' \
-    .claude/tools/_webref/spec_labels.py
-  return $?
+  # may arrive as an empty listing under a zero exit. ONE grep PER artifact: a
+  # single alternation exits 0 when ANY alternative matches, so the block was
+  # green with 10 of 14 alternatives matching nothing (the block-audit of
+  # 2026-08-22) -- the catalog / fall-through / parse-alias artifacts are Slice
+  # B's region, absent at A-i by design (§4.2's "omitted" rows), and are not
+  # asserted here; the A-region artifacts the rows rest on are, each by name.
+  local f=.claude/tools/_webref/spec_labels.py rc=0 pat
+  for pat in '^"""' '^SPECS: tuple\[tuple' '^LABEL_TO_SHORTNAME: dict' '^def label_for' '^def shortname_for' '^#: '; do
+    grep -nE "$pat" "$f" || { echo "!! A-region artifact absent: $pat"; rc=1; }
+  done
+  return "$rc"
 }
 
 readers() {  # THE recurring root, made checkable: every reader of a piece of state

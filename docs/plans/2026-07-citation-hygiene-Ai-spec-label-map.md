@@ -381,7 +381,9 @@ lines were known before any difference could be attributed to the split (`suites
 `timing`'s `subprocess=`/`in-process=`/`ratio=` — wall-clock, and nothing else). The only non-noise
 differences after the split are the two the split *is*: `selfcheck` reports **7** harness parts rather than
 6 (its block count unmoved), and `budget`'s per-file roster gains `-integrity` and prints the new counts.
-`all` still exits **1** reporting exactly `partition(exit 1)` (§12), and `selfcheck` is GREEN — and was made
+`all` still exits **1** reporting exactly the two Slice-B blocks that read state A-i's K3 removes,
+`partition(exit 1)` and `offline(exit 1)` (§12; `offline` asserts B §4.1.7's escaped-`SystemExit` reading
+since the 2026-08-22 block-audit, and reads `None` without the catalog fall-through), and `selfcheck` is GREEN — and was made
 to fail on purpose, by dropping a **moved** block's trailing `return`, which it named at its new file and
 line before it was restored.
 

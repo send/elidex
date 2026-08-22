@@ -208,31 +208,32 @@ PY
 reloadstale() {  # §4.2.4 — an except-arm global survives a SUCCEEDING reload
   local T; T=$(mktemp -d)
   git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
-  local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
   cat > "$T/_reload_probe.py" <<'PY'
-import importlib, sys
-from pathlib import Path
-sys.path.insert(0, str(Path(".claude/skills/elidex-plan-review").resolve()))
-
-class _Block:
-    def find_spec(self, fullname, path=None, target=None):
-        if fullname.startswith("_webref"):
-            raise ModuleNotFoundError(fullname)
-        return None
-
+import sys
 # Shape only: `_err` assigned solely in the except arm vs initialised first.
+# §4.2.4's claim is the ASYMMETRY -- the except-arm-only global keeps its stale
+# error after a succeeding reload, the initialised-first one is `None` -- and a
+# probe that printed both readings and exited 0 certified neither (the
+# block-audit of 2026-08-22). Both halves are asserted.
+after = {}
 for label, prefix in (("except-arm only", ""), ("initialised first", "_err = None\n")):
     g = {}
     exec(prefix + "try:\n raise ImportError('boom')\nexcept Exception as e:\n _v=None; _err=e\n", g)
     first = repr(g.get("_err"))
     exec(prefix + "try:\n _v=1\nexcept Exception as e:\n _v=None; _err=e\n", g)
-    print(f"  {label:18s} after fail={first}  after reload={g.get('_err')!r}")
+    after[label] = g.get("_err")
+    print(f"  {label:18s} after fail={first}  after reload={after[label]!r}")
+ok = after["except-arm only"] is not None and after["initialised first"] is None
+if not ok:
+    print("!! §4.2.4's asymmetry does not hold: stale-after-reload =",
+          repr(after["except-arm only"]), "initialised-first =", repr(after["initialised first"]))
+sys.exit(0 if ok else 1)
 PY
   # The probe is the whole block; its status was discarded and the function
   # returned `rm -rf`'s.
   local rc=0
   ( cd "$T" && python3 _reload_probe.py ) || rc=1
-  git worktree remove --force "$T"; rm -rf "$R"
+  git worktree remove --force "$T"
   return "$rc"
 }
 

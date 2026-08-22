@@ -145,6 +145,19 @@ if len(parts) < 2:
     raise SystemExit("!! found %d harness part(s) under %s; a check that read no file "
                      "reports no problem for a reason that is not 'there are none'."
                      % (len(parts), D))
+# The part SET is derived from the dispatcher's own `for _part in …` line and
+# compared with what is on disk: a part on disk the dispatcher does not source,
+# or a sourced part missing from disk, is RED. A-i §13.1's "7 harness parts" is
+# then a reading of this equality, not a number this check was asked to believe
+# (`len(parts) >= 2` was all it asserted -- the block-audit of 2026-08-22).
+_src = DISPATCH.read_text(encoding="utf-8")
+_m = re.search(r"^for _part in ([a-zA-Z ]+); do$", _src, re.M)
+if _m is None:
+    raise SystemExit("!! the dispatcher has no `for _part in …; do` line; the part set cannot be derived")
+_sourced = {DISPATCH} | {D / ("2026-07-citation-hygiene-A-rederive-%s.sh" % p) for p in _m.group(1).split()}
+if set(parts) != _sourced:
+    raise SystemExit("!! part set on disk != part set the dispatcher sources:\n   disk only: %s\n   sourced only: %s"
+                     % (sorted(p.name for p in set(parts) - _sourced), sorted(p.name for p in _sourced - set(parts))))
 
 m = re.search(r"^all\(\) \{ set -- (.*?)\n\s*local failed",
               DISPATCH.read_text(encoding="utf-8"), re.S | re.M)
