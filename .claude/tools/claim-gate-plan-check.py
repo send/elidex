@@ -72,6 +72,7 @@ trigger that no longer has a measurement behind it.
   FENCE       the "A differs from B" claim, decided by running A and B
   TRANSCRIPT  every pasted command is re-run and its pasted answer checked
   SITES       (report) lines describing the wire SET, for conscious disposal
+  PATHS       a file this branch deletes, still named, must be re-declared
   PREFLIGHT   §8.3's pasted verdict is what preflight prints today
 
 A check that reaches no verdict -- the wire owning classification, a section
@@ -906,7 +907,113 @@ def check_controls(memo: Memo, have: dict[str, set[str]] | None = None,
 
 
 # --------------------------------------------------------------------------
-# 14. TIERS -- RETIRED, and deleted rather than left as data.
+# 14. PATHS -- a file this branch DELETES, still discussed by the memo
+#
+# Round 10's largest finding: §0 spent four paragraphs on `claim_gate_grammar.py`
+# in the present tense -- what it carries, what delegates to it, which commit
+# retires it -- after the prerequisite branch had deleted the file. Every check
+# was green, because none of them reads what a sentence claims: `SECT` resolves
+# a reference, `CITE` resolves a line, `CONTROLS` resolves a control id, and a
+# paragraph about a file that is not there resolves to nothing at all.
+#
+# The population is derived from GIT, not from the memo's vocabulary, which is
+# the trap this program keeps re-entering
+# (`feedback_checks-must-not-be-defined-by-the-symptom-vocabulary`). Three
+# populations were measured before this one was chosen:
+#
+#   * "every backticked path that `git ls-files` cannot resolve" -- 30 tokens in
+#     this memo, 2 unresolved, but 57 of the tree's 70 plan-memos carry at least
+#     one, and nearly all of those are ELISIONS of real files
+#     (`elidex-dom-api/element/tree.rs` for `crates/dom/.../src/element/tree.rs`)
+#     or files outside the repository (`memory/project_open-defer-slots.md`).
+#     A check that reds 57 memos for naming files that exist is the category
+#     error `check_sites` was just corrected for.
+#   * the same, plus a "not in `git log --all` either" branch for fabrication.
+#     Withdrawn: `--all` is a property of one clone. `plan-xcheck.py` is on a
+#     local branch of another lane and vanishes from that answer in a fresh
+#     clone, so the hard-fail arm would fire on the environment, not the memo.
+#   * paths removed by THIS branch and not back in the tree. Measured on this
+#     branch: exactly one, `.claude/tools/claim_gate_grammar.py` -- the subject
+#     of the finding. Zero on every other memo, since the range is empty of
+#     deletions for any branch that does not delete anything.
+#
+# The third is the property: the author cannot be asked to know what exists
+# everywhere, but a file their own commits removed is theirs to re-declare, and
+# the range `origin/main..HEAD` is the scoping `check_tooling_quantities`
+# already uses for the same reason.
+#
+# What the ledger buys is a re-declaration, not a swept paragraph: it turns the
+# deletion from a silent green into a red naming the file. Prose tense is not
+# reachable from here, and §0 says so in its own voice.
+# --------------------------------------------------------------------------
+
+# `- `path` — reason`, the shape §8's retirement ledger already uses one level
+# down. A bullet rather than a table row: preflight counts data rows, so a
+# tabular ledger would move §8.3's pasted `total entries (M)` every time a file
+# is deleted -- a second, unrelated figure rotting on the first one's edit.
+GONE_ROW = re.compile(r"^-[ \t]+`([^`\n]+)`[ \t]+—[ \t]+(\S.*)$", re.M)
+GONE_SECTION = "0.1"
+
+
+def gone_from(log_out: str, tracked: set[str]) -> list[str]:
+    """The deletion log, minus what is back. A path deleted in one commit of the
+    range and restored in a later one is not a file this branch removes, and
+    `--diff-filter=D` names it either way -- so the tree decides, not the log.
+    Split out from the git plumbing so the subtraction has a control."""
+    return sorted({p for p in log_out.split("\n") if p and p not in tracked})
+
+
+def deleted_on_branch() -> list[str] | None:
+    """Paths `origin/main..HEAD` removes and the working tree does not have back.
+
+    None when the range cannot be formed -- no `origin/main` in this clone, or a
+    HEAD unrelated to it. The caller reports that rather than reading an empty
+    answer as a clean one, which is `skip()`'s whole reason for existing."""
+    if sh(["git", "rev-parse", "--verify", "--quiet", "origin/main"])[0] != 0:
+        return None
+    rc, out = sh(["git", "log", "origin/main..HEAD", "--diff-filter=D",
+                  "--name-only", "--format="])
+    if rc != 0:
+        return None
+    return gone_from(out, {x for x in sh(["git", "ls-files"])[1].split("\n") if x})
+
+
+def check_paths(memo: Memo, gone: list[str] | None = None) -> None:
+    gone = deleted_on_branch() if gone is None else gone
+    if gone is None:
+        skip("PATHS", "`origin/main..HEAD` could not be formed in this clone, so "
+                      "no file this branch deletes was compared against what the "
+                      "memo still says about it")
+        return
+    section = memo.sect(GONE_SECTION)
+    declared = {m.group(1): m.group(2) for m in GONE_ROW.finditer(section)}
+    # The row itself names the path, so containment has to be measured OUTSIDE
+    # the ledger -- otherwise "this row has lost its subject" is unreachable and
+    # the section becomes somewhere to park a path. Same position-scoped hatch
+    # as `CONTROLS`, for the same reason.
+    at = memo.text.find(section) if section else -1
+    elsewhere = (memo.text[:at] + memo.text[at + len(section):]) if at >= 0 else memo.text
+
+    for path in gone:
+        base = path.rsplit("/", 1)[-1]
+        named = base in elsewhere
+        if named and path not in declared:
+            bad("PATHS", f"this branch deletes `{path}` and {memo.path.name} still "
+                         f"names it; §{GONE_SECTION} owes a row saying what the memo "
+                         f"means by it now — the sentences around it were written "
+                         f"while the file was there")
+        elif not named and path in declared:
+            bad("PATHS", f"§{GONE_SECTION} declares `{path}`, and no sentence outside "
+                         f"that section names it — the row has outlived its subject")
+    for path in declared:
+        if path not in gone:
+            bad("PATHS", f"§{GONE_SECTION} declares `{path}` as a file this branch "
+                         f"removes; `git log origin/main..HEAD --diff-filter=D` does "
+                         f"not name it, or the tree has it back")
+
+
+# --------------------------------------------------------------------------
+# 15. TIERS -- RETIRED, and deleted rather than left as data.
 #
 # It read §3's Branch column and decided each branch by classifying a specimen
 # through this file's second copy of the tier rules -- the copy that no longer
@@ -1003,6 +1110,7 @@ def main(argv: list[str]) -> int:
     check_umbrella(memo, umbrella)
     report_umbrella_coverage(umbrella)
     check_controls(memo)
+    check_paths(memo)
     check_preflight(memo)
 
     for line in summary("wire" if WIRE.exists() else "bootstrap"):
