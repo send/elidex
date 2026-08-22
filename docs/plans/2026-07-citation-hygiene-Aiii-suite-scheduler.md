@@ -193,6 +193,7 @@ the PR page at review time**. → `rederive ruleset`
 | **Q3** | the set Q2 ranges over is `git ls-files '.claude/**/test_*.py'`, not a filter list — asserted by planting the file at `.claude/skills/elidex-review/`, which any plausible filter would have covered | 4 | **yes** |
 | **Q4** | `mise run ci` reaches `tools-test` (the `depends` edge exists) | 3 | **yes** |
 | **Q5** | the interpreter-floor assertion fires below 3.9 | — | **yes** |
+| **Q6** | `ci.yml`'s `tools` job has a `run:` step whose command names `scripts/python-suites.sh` — read with the same full-scalar run-step collector `rederive filters` uses, not inferred from L1 prose. Without it Q1–Q3 test the script and Q4 the `mise` edge while an empty or unrelated `tools` job satisfies §12(3) (Codex R14) | 1, 2 | **yes** — the job does not exist |
 | **T-net** | `bash scripts/python-suites.sh` runs green in a child with `http_proxy`/`https_proxy` at a closed port, **and** `subprocess.run` is never called with the resolved `WEBREF` path across the suite set | 5 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, see §4.5; the
@@ -276,6 +277,9 @@ the PR page. ⚠ Stated as a **positive** observation only. Phrasing it as a del
 observation yields zero jobs") is falsified by PR #496 independently of anything A-iii does.
 
 **(4) Offline:** T-net.
+
+**(5) The job runs the driver:** Q6 — the `tools` job's step set names `scripts/python-suites.sh`. (3) alone
+is satisfiable by a job that runs nothing.
 
 ---
 

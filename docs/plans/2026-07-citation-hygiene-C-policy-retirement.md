@@ -90,10 +90,13 @@ Conversely, if B lands and C never follows, both methods stay mandated at once �
 grep -q 'cite-audit' .claude/skills/elidex-review/axes.md \
   && grep -q 'cite-audit' CLAUDE.md \
   && ! grep -q '≥4 grep pattern' .claude/skills/elidex-review/axes.md \
+  && grep -q -- '--strict' .claude/tools/_webref/DESIGN.md \
   && echo RETIRED
 ```
 
-Today (2026-07-28) this prints nothing. Note that this is a **doc assertion pinned by a grep, not by a
+Today (2026-07-28) this prints nothing. The fourth clause is §1's third site: `DESIGN.md` gaining the
+reported-class and `--strict` contract that `axes.md` will point readers to — a chain checking only
+`axes.md` and `CLAUDE.md` printed `RETIRED` with that contract still unwritten (Codex R14). Note that this is a **doc assertion pinned by a grep, not by a
 test** — the honest statement of what checks it, in the umbrella's "claims vs checks" sense, is
 `UNCHECKED by a test`. C must carry that row explicitly rather than omit it.
 

@@ -471,8 +471,8 @@ Measured: `§Deferred` → section `D`; `§C1` → section `C1`; both then reach
 | `*deref;` does not continue a comment block | fixture `*self.count += 1;` between two comment blocks |
 | `--strict` fails on UNATTRIBUTED | `TestStrictExitCode` extension; **plus** a `cli.main` end-to-end case (below) |
 | A corrupt cached extract is reported once, as itself | `test_cite_audit.py` with a truncated fixture extract; asserts the message names the cache and that **no** citation is reported UNRESOLVED |
-| `_catalog()` distinguishes unavailable from empty | `test_spec_labels.py` with `urlopen` patched to raise `URLError` — asserts no `SystemExit` escapes and the result is *unavailable* |
-| Every catalog shortname round-trips | `test_spec_labels.py` over all **948** entries under the §4.1.8 index rules |
+| `_catalog()` distinguishes unavailable from empty | `test_spec_labels.py` **S12** with `urlopen` patched to raise `URLError` — asserts no `SystemExit` escapes and the result is *unavailable* |
+| Every catalog shortname round-trips | `test_spec_labels.py` **S9** over all **948** entries under the §4.1.8 index rules |
 | The suites run at all | **Slice A** — `mise run tools-test` + the GitHub `tools` job. B inherits enforcement rather than building it, which is why B's own exit criterion (§12) can be a red/green pair rather than "and something runs it" |
 | The nine classes are *all* the under-report paths | **UNCHECKED.** Nine is what execution found; it is not a proof of exhaustion. §10-Q1 is the honest mitigation, and the `REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED` classes exist precisely so a tenth class surfaces as a count instead of as silence |
 | The 2026-07-28 counts in this memo | **Re-derivable, not pinned.** Every one ships its command; none is asserted from memory. They will drift as the tree changes — that is expected, and §12's exit criterion does not depend on any of them |
@@ -521,7 +521,7 @@ New/changed tests, by file. Every one must **fail at `bf580047`** — §12 makes
 **`test_cite_audit.py`** (36 today):
 - **T1** `TestTokenIntegrity` — 6 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7` all REJECTED; `§4.10.5.` and `§4.10.5, and` accepted. Pins the atomic form and, by the first case, forbids the lookahead form.
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
-- **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed.
+- **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. This is the pin that closes `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`): a CSS-module label resolving through the catalog is the whole of that slot.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
 - **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause.
 - **T6** `--strict` exits 1 on an UNATTRIBUTED-only tree (the `§4.10.79.1` case).
@@ -530,12 +530,15 @@ New/changed tests, by file. Every one must **fail at `bf580047`** — §12 makes
 - **T9** emitter parity — `--format json --summary` omits per-cite records; `--show-unattributed` is honoured by both emitters.
 - **C1** *(the coverage gap)* — one end-to-end `cli.main` case: `sys.argv` patched, `--strict` on a fixture tree, `SystemExit` code asserted. Mutation check: deleting the `--strict` argparse block must turn this red.
 
-**`test_spec_labels.py`** (new):
-- **S1** round-trip over **all 948** catalog entries under the §4.1.8 rules.
-- **S2** level collisions resolve to the level named (`pointerevents4` ≠ `pointerevents3`); level-less series titles resolve to `series.currentSpecification`.
-- **S3** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
-- **S4** `urlopen` raising `URLError` → no `SystemExit` escapes; result is *unavailable*, not `{}`.
-- **S5** pinned `SPECS` win over the catalog for every pinned key.
+**`test_spec_labels.py`** (**A-i's file — B appends, does not create**): A-i lands it with its own S1–S8
+(S3b included) and T-net, the only mechanical enforcement of A-i's K2/K3 boundaries. An earlier revision
+headed this list "(new)" and numbered B's pins S1–S5, a collision that would have had B's implementer author
+a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numbering**; read the file first.
+- **S9** round-trip over **all 948** catalog entries under the §4.1.8 rules.
+- **S10** level collisions resolve to the level named (`pointerevents4` ≠ `pointerevents3`); level-less series titles resolve to `series.currentSpecification`.
+- **S11** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
+- **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; result is *unavailable*, not `{}`.
+- **S13** pinned `SPECS` win over the catalog for every pinned key.
 
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):
 - **P4** catalog unavailable -> hard fail, and the remedy line does **not** say "add the spec to `spec_labels.py::SPECS`" (§4.1.7's discriminated `_catalog()` reaching the gate).
@@ -582,7 +585,7 @@ Verified 2026-07-28 (`wc -l`):
 | `.claude/tools/_webref/commands/cite_audit.py` | 289 | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
 | `.claude/tools/_webref/spec_labels.py` | 136 | ~200 | reverse index + discriminated `_catalog()` |
 | `.claude/tools/_webref/test_cite_audit.py` | 410 | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
-| `.claude/tools/_webref/test_spec_labels.py` | — | ~110 | new (S1-S5) |
+| `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S13 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
 | `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~30 | P4/P5 appended to A's file |
 | `.claude/tools/_webref/census_underreport.py` | — | ~45 | new (§4.0) |

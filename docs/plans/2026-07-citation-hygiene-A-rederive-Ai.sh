@@ -198,3 +198,25 @@ elif [(p, n) for p, n, _, _ in code] == [(p, n) for p, n, _, _ in prose]:
 sys.exit(rc)
 READERSPY
 }
+
+readercensus() {  # §15 — the four reader censuses A-i cites, as ONE roster entry
+  # `readers` takes a required <symbol> and has no zero-arg form, so it could not
+  # sit in `all`; A-i §15 therefore listed the four invocations as prose, and
+  # `all`'s exclusion notice named only `lanes staleclaims` (Codex R14). A census
+  # the roster never runs is the "authoring step that was never a command" this
+  # block's parent exists to end. The expected readings are §4.2's: the three
+  # symbols that exist at $MAIN have readers there; `label_for` is NEW in A-i, so
+  # at $MAIN its census is EMPTY -- the loud-empty guard firing IS the reading
+  # (A-i §4.2 row) -- and at HEAD it is not.
+  local rc=0 s
+  for s in _SPEC_LABEL_MAP COMMON_SHORTNAMES SPEC_LABEL_REVERSE; do
+    readers readers "$s" "$MAIN" || { echo "!! \`readers $s $MAIN\` did not produce a populated, partitioned census"; rc=1; }
+  done
+  if readers readers label_for "$MAIN" >/dev/null 2>&1; then
+    echo "!! \`readers label_for $MAIN\` found readers — §4.2's 'none at origin/main' no longer holds"; rc=1
+  else
+    echo "(readers label_for $MAIN: empty, as §4.2 states — the module is new in A-i)"
+  fi
+  readers readers label_for HEAD || { echo "!! \`readers label_for HEAD\` is empty or unpartitioned"; rc=1; }
+  return "$rc"
+}

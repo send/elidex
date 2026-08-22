@@ -524,7 +524,7 @@ which can pass on a memo whose base is wrong.
 
 | memo | sites | why it is false at the new base |
 |---|---|---|
-| **B** | `:11` *"Slice A lands first and B rebases onto it"*; `:13` *"Branch: new, cut from Slice A's landed head"*; `:18-21` describing the carve as having moved `cite_audit.py`, `spec_labels.py` and the rest "onto this branch **unchanged**"; `:578` / `:580` baselining 289 and 410 lines; **17** line-anchored `<file>.py:<n>` edits — 11 into `cite_audit.py`, 6 into `spec_labels.py` (`grep -coE '(cite_audit\|spec_labels)\.py:[0-9]'`) — concentrated in its §4.1's nine under-report paths; plus `:374` (§4.1) and `:618` / `:637` (below). ⚠ **And two sites where A-i's own work is what is at risk**, located by content (the coordinates moved twice while this row was frozen — Codex R12 — so none are carried): **the `test_spec_labels.py` row of B's size table**, reading `\| — \| ~110 \| new (S1-S5) \|`; and **B's `**test_spec_labels.py** (new):` heading** followed by B's **own S1–S5**, which mean different things than A-i's S1–S8 (B's S1 is a round-trip over 948 catalog entries, B's own figure under that heading; A-i's S1 is `shortname_for` over `SPECS`). B `:470-471` cite the same file under the same numbering | measured, `git cat-file -e origin/main:.claude/tools/_webref/commands/cite_audit.py` **fails**, as does the same test for `spec_labels.py`. B does not *repair* those files at its base; it **creates** them. For those two sites the consequence is sharper than staleness: an author working from B authors a fresh ~110-line file under a **colliding pin numbering** and drops A-i's S3, S3b, S4, S5, S6, S7, S8 and T-net — the only mechanical enforcement of K2 and K3 in the tree. Measured, A-i ships that file at **309 lines and 15 tests**, not `—` |
+| **B** | `:11` *"Slice A lands first and B rebases onto it"*; `:13` *"Branch: new, cut from Slice A's landed head"*; `:18-21` describing the carve as having moved `cite_audit.py`, `spec_labels.py` and the rest "onto this branch **unchanged**"; `:578` / `:580` baselining 289 and 410 lines; **17** line-anchored `<file>.py:<n>` edits — 11 into `cite_audit.py`, 6 into `spec_labels.py` (`grep -coE '(cite_audit\|spec_labels)\.py:[0-9]'`) — concentrated in its §4.1's nine under-report paths; plus `:374` (§4.1) and `:618` / `:637` (below). ⚠ **And two sites where A-i's own work is what is at risk**, located by content (the coordinates moved twice while this row was frozen — Codex R12 — so none are carried): **the `test_spec_labels.py` row of B's size table**, reading `\| — \| ~110 \| new (S1-S5) \|`; and **B's `**test_spec_labels.py** (new):` heading** followed by B's **own S1–S5**, which mean different things than A-i's S1–S8 (B's S1 is a round-trip over 948 catalog entries, B's own figure under that heading; A-i's S1 is `shortname_for` over `SPECS`). B `:470-471` cite the same file under the same numbering | measured, `git cat-file -e origin/main:.claude/tools/_webref/commands/cite_audit.py` **fails**, as does the same test for `spec_labels.py`. B does not *repair* those files at its base; it **creates** them. For those two sites the consequence is sharper than staleness: an author working from B authors a fresh ~110-line file under a **colliding pin numbering** and drops A-i's S3, S3b, S4, S5, S6, S7, S8 and T-net — the only mechanical enforcement of K2 and K3 in the tree. Measured, A-i ships that file at **309 lines and 15 tests**, not `—`. ✅ **Both sites discharged in this PR (Codex R14)**: B's heading now reads *A-i's file — B appends, does not create*, its pins are S9–S13 (continuing A-i's S1–S8), and the size-table row baselines on A-i's landed size |
 | **A-ii** (578 L) | `:148`, a routing row handing A-i *"`spec_labels.py`, the three consumers, `DESIGN.md`"* marked **landed** — which double-books `preflight.py`, claimed by its own next row; `:174` and `:504-505`, both premised on *"the asymmetry / the in-process reach is **created by A-i** moving the map"* | A-i has not moved `preflight.py`'s map since draft 3, and §12(1) now forbids it. A-i's `preflight.py` touch is one comment and adds no `_webref` import, so the asymmetry — and the deferral `:504-505` classes as **own** — are created by **A-ii** |
 
 **Owed to Slice B — three assertions that pin the round-trip defect GREEN.** `test_spec_labels.py`'s S6 test
@@ -680,7 +680,7 @@ owed re-derivation.
    same move as `_measure`, one level up. ⚠ **Still owed**: move `suites` from `-Aiii.sh` to
    `-common.sh` — the harness's own seam rule is *cited by more than one memo → `-common.sh`*, and `suites`
    is cited by A-iii **and** the umbrella, which `-Aiii.sh:4` records as a known exception rather than fixing.
-4. Register nothing — A-i has no slots. `#11-webref-preflight-inprocess-resolution` is **A-ii's**, and A-ii's
+4. Register nothing **new** — A-i introduces no slots. `#11-webref-preflight-inprocess-resolution` is **A-ii's**, and A-ii's
    own §11 registers it. ⚠ **`#11-preflight-css-module-labels` is a different case and an earlier draft got
    it wrong**: this memo asserted it was A-ii's, but measured, A-ii's memo mentions it **once**, at `:150`,
    and that line is a *reader-census row* about `SPEC_LABEL_REVERSE`'s four plan-memo readers — not an
@@ -695,6 +695,11 @@ owed re-derivation.
    `active-lane-detail.md:142` records *"C-3b–e は **parallel-safe でない**ため lane 対象外"* and
    `project_layoutbox-trip-wire-in-ci-next.md:61` *"C-3b–e stays ruled out (not parallel-safe)"*. C-3b is
    **not scheduled**, so the deadline is unbounded in practice and a real re-homing is what the slot needs.
+   ✅ **Re-homed at this landing (Codex R14)**: the slot is registered in `project_open-defer-slots.md` under
+   this program, **owner = Slice B** — B's §4.1.7/§4.1.8 catalog widening *is* the mechanism, and B §6 **T3**
+   (`CSS Text 3 §4.1.3` → `css-text-3`) is its closing pin — with **A-ii as prerequisite** (A-ii routes
+   `preflight.py` through `shortname_for`, which is what puts the catalog in the gate's path). Inherited from
+   C-3a row 8 and *homed*, not newly introduced, so it does not count against A-i's per-PR carve cap.
 
 ---
 
@@ -715,7 +720,10 @@ running each block A-i cites: **`citations keysets readers regions couplings bud
 is author-local in the harness's sense (`AUTHOR_LOCAL="lanes staleclaims"`, excluded from `all` because it
 reads the machine's worktree list), which does not bar a memo from citing it.
 
-⚠ **`readers` is in neither `all` nor `AUTHOR_LOCAL`**, so a reviewer who runs `all` gets **5 of A-i's 6**
-blocks and no notice of the sixth. The exclusion is correct — `readers` takes a required `<symbol>` argument
-and has no meaningful zero-arg form — but it is undeclared. Run it per symbol: `readers _SPEC_LABEL_MAP`,
-`readers COMMON_SHORTNAMES`, `readers SPEC_LABEL_REVERSE`, `readers label_for origin/main` (§4.1, §4.2).
+⚠ **`readers` takes a required `<symbol>` argument and has no zero-arg form**, so it cannot sit in `all`
+itself. Until Codex R14 the four invocations A-i needs were listed here as prose and `all` ran none of them —
+its exclusion notice named only `lanes staleclaims`, so a reviewer running `all` got 5 of A-i's 6 blocks and
+no notice of the sixth. They are now **one roster block, `readercensus`**, which runs the four and asserts
+§4.2's readings of each: `_SPEC_LABEL_MAP`, `COMMON_SHORTNAMES`, `SPEC_LABEL_REVERSE` populated at
+`origin/main`; `label_for` **empty** at `origin/main` (the module is new — the loud-empty guard firing *is*
+the reading) and populated at `HEAD`. A single `readers <symbol> [ref]` remains callable for ad-hoc censuses.

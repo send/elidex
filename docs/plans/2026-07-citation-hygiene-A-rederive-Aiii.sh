@@ -151,7 +151,13 @@ while i < len(lines):
     if m:
         indent = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
         val = m.group(3).strip()
-        if val in ("|", ">", "|-", ">-", "|+", ">+"):
+        # A block scalar is ANY value whose first character is the `|` or `>`
+        # indicator -- a plain scalar cannot begin with either -- so the test is
+        # the complement, not a list. The six-value list this replaced left
+        # `|2`, `|2-`, `>2+` (indentation indicators, YAML §8.1.1) classified as
+        # inline commands and their bodies skipped (Codex R14): the exemption
+        # list left the next header form authoritative by default.
+        if val[:1] in "|>":
             j = i + 1
             while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent):
                 cmds.append(lines[j]); j += 1
