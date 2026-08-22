@@ -303,13 +303,20 @@ class Memo:
 # --------------------------------------------------------------------------
 
 def check_pairs(memo: Memo) -> None:
+    # Absence of a pairwise table is a check with no subject, not a memo with a
+    # defect. Both of these used to `bad()`, and together with SECT's bare arm
+    # that is what made the tool exit 1 on all sixty-nine plan-memos -- which in
+    # turn made a TOOL-wide applicability gate look like the remedy, suppressing
+    # eleven checks that were working in order to silence two arms that were not.
     s2 = memo.sect("2")
     if not s2:
-        bad("PAIR", "no §2 section found")
+        skip("PAIR", f"{memo.path.name} has no §2 section, so no pairwise "
+                     f"enumeration was audited")
         return
     invariants = sorted(set(re.findall(r"\*\*(I\d)\*\*", s2)))
     if len(invariants) < 2:
-        bad("PAIR", f"§2 defines {len(invariants)} invariant(s); nothing to pair")
+        skip("PAIR", f"{memo.path.name} §2 defines {len(invariants)} "
+                     f"invariant(s); nothing to pair")
         return
     want = {tuple(sorted(p)) for p in itertools.combinations(invariants, 2)}
 
@@ -332,6 +339,18 @@ def check_pairs(memo: Memo) -> None:
     for m in re.finditer(r"(I\d)[ \t]*[x×][ \t]*(I\d)", "\n".join(acct)):
         key = tuple(sorted((m.group(1), m.group(2))))
         seen[key] = seen.get(key, 0) + 1
+
+    # A §2 that accounts for NO pair is not an incomplete accounting -- it is a
+    # memo that never claimed to make one. Tabulating invariants is common; the
+    # pairwise obligation is this program's own convention, and reading it into
+    # every §2 produced 77 findings across four other-lane memos, all of the
+    # form "never accounts for I1×I2". A §2 that accounts for SOME pairs and
+    # misses others is still a finding, which is the whole point of the check.
+    if not seen:
+        skip("PAIR", f"{memo.path.name} §2 tabulates {len(invariants)} invariants "
+                     f"and contains no pairwise accounting, so there is nothing "
+                     f"to audit for exhaustiveness")
+        return
 
     for p in sorted(want - set(seen)):
         bad("PAIR", f"§2 never accounts for {p[0]}×{p[1]} "
@@ -396,6 +415,23 @@ def check_section_refs(memo: Memo, umbrella: Memo | None) -> None:
                     if umb is not None and num not in umb:
                         bad("SECT", f"{doc.path.name}:{i} cites umbrella §{num}, "
                                     f"which the umbrella has no heading for")
+                    continue
+                # The BARE arm, and the one place in this program bound to a
+                # per-document convention. Measured, rather than assumed: in
+                # `2026-07-app-mode-turn-completion-drain.md` a bare `§7.4.4`
+                # is an HTML section and a bare `§4.2` is that memo's own
+                # sub-item, written identically, so no textual discriminator
+                # exists. Self-numbering is not one either -- 61 of the 69
+                # plan-memos carry `## §N` headings of their own and still hold
+                # 2364 unresolved bare refs between them.
+                #
+                # This is a gate by NAME, kept deliberately and scoped to the
+                # arm that needs it. `feedback_gate-criterion-by-behaviour-not-
+                # by-name` asks for behaviour where behaviour discriminates,
+                # and here it is measured not to. What the rule does forbid is
+                # what this replaces: the same gate on the whole TOOL, which
+                # silenced eleven working checks to quiet this one arm.
+                if not IS_SUBJECT.search(doc.text):
                     continue
                 if num not in own:
                     bad("SECT", f"{doc.path.name}:{i} cites §{num}, which "
@@ -867,29 +903,19 @@ def main(argv: list[str]) -> int:
             print(line)
         return 0
     memo = Memo(Path(argv[1]).resolve())
-    # Applicability is a property of the TOOL, not an exemption inside one check.
-    # Round 10 found `SITES` exiting 1 on every plan-memo in the tree for an
-    # obligation none of them has, and fixed SITES. Measured after that fix: all
-    # 68 still exited 1, on PAIR ("no §2 section found"), SECT and CITE, which
-    # are bound to this memo's schema in exactly the same way. Exempting the one
-    # class that was noticed leaves every other class authoritative by default
-    # (memory `feedback_enumerated-exemptions-leave-the-next-class-authoritative`),
-    # and the remedy was verified on the check rather than re-measured on the
-    # tool -- so the category error survived its own fix.
-    if not IS_SUBJECT.search(memo.text):
-        # A decline is non-coverage, and non-coverage goes through `skip()` --
-        # the closing line is where it becomes visible. This printed a sentence
-        # for a human and left the machinery silent, so a declined run and a
-        # clean one produced the same `0 finding(s)` a reader would trust. The
-        # codes are DERIVED: naming them here would be a fourth roster, and the
-        # third one carried ten of twelve.
-        why = (f"{memo.path.name} does not name `claim-gate-plan-check`, so it "
-               f"is not a memo this tool is about")
-        for code in sorted(finding_codes()):
-            skip(code, why)
-        for line in summary("wire" if WIRE.exists() else "bootstrap"):
-            print(line)
-        return 0
+    # Applicability is per CHECK, not per tool. The gate that used to stand
+    # here declined every check on any memo not naming this program, and the
+    # measurement that removed it is in `check_section_refs`: exactly one arm
+    # is bound to a per-document convention, and eleven checks were being
+    # silenced to quiet it. `CITE` alone reports 645 citations across the
+    # tree's plan-memos, sampled and genuine -- a path into a crate this
+    # repository deleted, a basename resolving to three files -- and none of
+    # them were reachable while the tool refused to look.
+    #
+    # Each check that can lack a subject now says so through `skip()`: PAIR on
+    # a memo with no §2, PREFLIGHT on one with no §8.3, SITES on a PR that
+    # changes no wire, and so on. That is the same mechanism, one level in,
+    # where it can be true of one check rather than asserted of all twelve.
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 
     check_pairs(memo)

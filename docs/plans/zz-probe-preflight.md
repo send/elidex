@@ -14,5 +14,5 @@
   unmapped-label rows:  1  (has §<number>, label not in SPEC_LABEL_REVERSE)
   unique specs (K):     1 (<`scripts/trip-wires.sh`>)
   grep-pass:            0 hard, 0 soft (spec: m4-12-pr-elidex-plan-review-grep-pass-spec.md)
-EXIT=9
+EXIT=0
 ```
