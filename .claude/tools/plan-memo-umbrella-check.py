@@ -295,12 +295,21 @@ class Memo:
             out.append((lineno, cells))
         return out
 
-    def umbrella_ids(self):
+    def umbrella_ids(self, attributed=None):
         """Umbrella ids, read from each table's DECLARING field.
 
         Not from a grep over the marker: the marker's literal is a substring of
         itself, so a whole-row or whole-file grep returns the marker count by
         construction and cannot disagree for any content.
+
+        ⚠ Cell-scoping is not enough either.  A marker can sit in the declaring
+        field and attribute the kind to a DIFFERENT row -- a §8 slot whose cell
+        opens `Slice **E** -- **UMBRELLA, not a terminal unit**` is declaring
+        that §5's row E is an umbrella, not that the slot is.  §5's own rule
+        says a slot that is a pointer into §5 "carries no marker of its own", so
+        such a row must not be in the count, and the earlier program put it
+        there.  Markers attributed to another row are collected in `attributed`
+        and excluded, so the figure is what §5's rule says it is.
         """
         ids = {}
         for name, hdr, decl, idc, _ in SCHEMAS:
@@ -309,9 +318,26 @@ class Memo:
             for lineno, cells in self.data_rows(name):
                 if len(cells) <= max(decl, idc):
                     continue
-                if MARKER in cells[decl]:
-                    ids[bare_id(cells[idc])] = (name, lineno)
+                if MARKER not in cells[decl]:
+                    continue
+                rid = bare_id(cells[idc])
+                other = self._attributed_to_other(cells[decl], rid)
+                if other:
+                    if attributed is not None:
+                        attributed.append((name, lineno, rid, other))
+                    continue
+                ids[rid] = (name, lineno)
         return ids
+
+    @staticmethod
+    def _attributed_to_other(field, rid):
+        """The row id a marker names, when it is not this row's own."""
+        for m in re.finditer(re.escape(MARKER), field):
+            pre = field[max(0, m.start() - 70): m.start()]
+            g = re.search(ROW_NOUN + r"\s+(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*[^A-Za-z0-9]*$", pre)
+            if g and g.group(1) != rid:
+                return g.group(1)
+        return None
 
     def all_row_ids(self):
         ids = {}
@@ -526,7 +552,7 @@ ORDER_WORDS = re.compile(
 ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE)
 
 
-def assertion_a(memo, findings, notes):
+def assertion_a(memo, findings, notes, attributed=None):
     """Every row that DECLARES itself an umbrella carries the marker.
 
     Mechanical half: the marker count read from the declaring field, reported
@@ -534,8 +560,15 @@ def assertion_a(memo, findings, notes):
     Seed half: a row whose declaring field says the kind in words -- "is an
     umbrella", "edge-dense", "no canonical algorithm" -- without the literal.
     """
-    umb = memo.umbrella_ids()
+    attributed = [] if attributed is None else attributed
+    umb = memo.umbrella_ids(attributed=attributed)
     by_table = Counter(t for t, _ in umb.values())
+    for name, lineno, rid, other in attributed:
+        findings.append(
+            ("UMBRELLA-MARK", lineno,
+             "row %r carries the marker in its declaring field but attributes it to row %r; "
+             "§5 says a pointer slot carries no marker of its own, so it is NOT in the count"
+             % (rid, other)))
     notes.append(
         "[UMBRELLA-MARK] %d rows carry the marker in their declaring field "
         "(%s) -- read from the declaring field, not from a grep over the marker"

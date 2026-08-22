@@ -185,10 +185,29 @@ acase("POSITIVE", "(a-seed) fires on a cell QUOTING the criterion too -- a "
 acase("POSITIVE", "(a) the marker outside the declaring field certifies nothing",
       build(sqx="body.", d7z="**UMBRELLA, not a terminal unit** stray"),
       "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(a) a marker that names ANOTHER row is not a self-declaration",
+      build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — "
+               "with sub-slices; this slot points into §5."),
+      "UMBRELLA-MARK", 1)
 acase("POSITIVE", "(b) an umbrella row carrying a Deps edge",
       build(d9z="**7z**"), "UMBRELLA-CELL", 1)
 acase("NEGATIVE", "(b) an umbrella row with an empty Deps cell",
       build(), "UMBRELLA-CELL", 0)
+
+
+def attribution_control():
+    """A pointer slot whose cell opens `Slice **9z** -- **UMBRELLA, ...**` is
+    declaring 9z's kind, not its own.  §5: a pointer slot "carries no marker of
+    its own".  The count must not move when such a row is added."""
+    base = build()
+    ptr = build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — points into §5.")
+    out = []
+    for text in (base, ptr):
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "fixture.md"
+            p.write_text(text)
+            out.append(len(M.Memo(str(p)).umbrella_ids()))
+    return out
 
 
 def degenerate_control():
@@ -241,6 +260,14 @@ def run():
             fails.append("%s %s [%s]: expected %s, got %d"
                          % (kind, name, code, ">=1" if expect else "0", got))
         print("  %-4s [%s] %s (%s x%d)" % ("ok" if ok else "FAIL", kind, name, code, got))
+
+    n_base, n_ptr = attribution_control()
+    ok = n_base == n_ptr
+    if not ok:
+        fails.append("attribution control: adding a pointer slot whose marker names ANOTHER "
+                     "row moved the count %d -> %d" % (n_base, n_ptr))
+    print("  %-4s [CONTROL] a marker naming another row does not enter the count (%d -> %d)"
+          % ("ok" if ok else "FAIL", n_base, n_ptr))
 
     by_field, by_grep = degenerate_control()
     ok = by_field != by_grep
