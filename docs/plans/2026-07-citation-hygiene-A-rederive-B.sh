@@ -84,9 +84,18 @@ if not hasattr(spec_labels, "_catalog"):
     sys.exit(1)
 try:
     print("returned:", spec_labels.shortname_for("CSS Text 3"))
+    cat = spec_labels._catalog()
 except SystemExit as e:
     print("!! SystemExit ESCAPED _catalog():", e, "— B §4.1.7's contract (discriminated unavailable, no escape) does not hold")
     sys.exit(1)
+# The second half of the contract: offline is UNAVAILABLE, never an available
+# empty catalog -- `{}` is the fail-open §4.1.7 names (Codex R18). B §6 S12
+# pins the exact shape; what this block can say without it is that a plain
+# dict is the wrong answer.
+if isinstance(cat, dict):
+    print("!! _catalog() returned a plain dict offline (%r) — available-empty, the fail-open B §4.1.7 forbids" % (cat,))
+    sys.exit(1)
+print("catalog offline ->", type(cat).__name__, "(discriminated, not {})")
 PY
   rm -rf "$C"
   return "$rc"    # the heredoc'd command IS the measurement; say so

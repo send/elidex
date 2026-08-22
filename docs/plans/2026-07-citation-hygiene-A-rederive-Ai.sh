@@ -134,8 +134,12 @@ spans, docsites = {}, []
 for path in sorted({p for p, _, _ in hits if p.endswith(".py")}):
     try:
         tree = ast.parse(git("show", f"{ref}:{path}"))
-    except Exception:
-        continue
+    except SyntaxError as e:
+        # A reader this interpreter cannot parse has UNKNOWN docstring spans;
+        # continuing filed its hits as code and the partition below was then
+        # a census of nothing (Codex R18). Not a census -- say so and stop.
+        raise SystemExit(f"!! `{path}` at {ref} does not parse ({e.msg}, line {e.lineno}); "
+                         "its docstring spans are unknown and the partition cannot be derived.")
     rs = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,

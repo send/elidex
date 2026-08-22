@@ -73,8 +73,12 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   printf '%s\n' "$body" | grep -q '\.claude' && { echo "!! .claude/** now appears in a filter set — §4.1's 'in neither' no longer holds"; rc=1; }
   local j
   for j in check doc deny; do
-    printf '%s\n' "$ci" | awk -v j="$j" '$0 ~ "^  "j":$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    needs: changes/ {ok=1} END {exit !ok}' \
-      || { echo "!! job \`$j\` is not gated on \`changes\` — §4.1's 'all three jobs gated' no longer holds"; rc=1; }
+    # "Gated" is the `if:` on a `changes` OUTPUT, not the `needs:` edge: `needs`
+    # only orders the always-green filter job, so a job that kept `needs:
+    # changes` and lost its `if:` runs on every PR while this read said gated
+    # (Codex R18). Both lines are required.
+    printf '%s\n' "$ci" | awk -v j="$j" '$0 ~ "^  "j":$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    needs: changes/ {n=1} f && /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}' \
+      || { echo "!! job \`$j\` lacks \`needs: changes\` or an \`if:\` on a changes output — §4.1's 'all three jobs gated' no longer holds"; rc=1; }
   done
   # A missing job is not an ungated one: the claim is "present AND ungated",
   # and an awk that never saw the header exited 0 on the pre-#496 workflow

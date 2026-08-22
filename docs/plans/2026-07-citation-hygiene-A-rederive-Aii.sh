@@ -435,9 +435,17 @@ anchors() {  # §3.1 / §4.2 — origin/main by symbol, never by stored line num
   # -- is a real failure here rather than a benign empty result, because §3.1
   # cites these symbols as present. Stated with an explicit `return` so the
   # block's status is a claim rather than a leftover.
-  git show "$MAIN:$PF" | grep -n \
-    'SECTION_REF_RE\|^def parse_spec_cell\|^def shortname_from_label\|^def verify_citation\|dest="grep_pass"\|unique_specs\|seen_pairs\|elif seen_pairs\|HARD FAIL'
-  return $?
+  # EACH anchor independently: one alternation exits 0 while any single symbol
+  # survives, so eight renamed anchors and one `HARD FAIL` still read as "all
+  # present" (Codex R18). §3.1 cites each by name; each is asserted by name.
+  local src rc=0 a
+  src=$(git show "$MAIN:$PF") || { echo "!! cannot read $PF at $MAIN"; return 1; }
+  for a in 'SECTION_REF_RE' '^def parse_spec_cell' '^def shortname_from_label' '^def verify_citation' \
+           'dest="grep_pass"' 'unique_specs' 'seen_pairs' 'elif seen_pairs' 'HARD FAIL'; do
+    if printf '%s\n' "$src" | grep -n -- "$a" | head -3; then :; else
+      echo "!! anchor not found at $MAIN:$PF — $a"; rc=1; fi
+  done
+  return "$rc"
 }
 
 marker() {  # §4.2.5 residual — the census must implement the SAME three properties

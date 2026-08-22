@@ -330,12 +330,15 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
     echo "                  a count that was never taken is not a count of zero."
     return 1
   fi
-  if [ "$n_head" = 0 ] && [ "$n_art" = 0 ]; then
+  if [ "$n_head" = 0 ] && [ "$n_art" = 0 ] && [ "$n_base_art" = 0 ]; then
     echo "   VERDICT: GREEN — no elidex file path, no Slice-B artifact name"
     return 0
   fi
   [ "$n_head" = 0 ] || echo "   VERDICT: RED — K2 is an absolute; every path listed above must go"
   [ "$n_art" = 0 ] || echo "   VERDICT: RED — K3: a Slice-B artifact is named outside its slice"
+  # The baseline line says "must also be 0"; a printed premise outside the
+  # verdict let the block certify K3 with that premise false (Codex R18).
+  [ "$n_base_art" = 0 ] || echo "   VERDICT: RED — a Slice-B artifact name already exists on $MAIN; the K3 baseline premise is false"
   return 1
 }
 
@@ -618,7 +621,9 @@ budget() {
   for m in Ai-spec-label-map Aii-gate-failure-semantics Aiii-suite-scheduler \
            umbrella B-detector-correctness C-policy-retirement; do
     f="docs/plans/2026-07-citation-hygiene-$m.md"
-    [ -f "$f" ] || continue
+    # Six memos are EXPECTED; one that is absent is a failed measurement, not a
+    # row to skip -- skipping printed no size for it and exited 0 (Codex R18).
+    [ -f "$f" ] || { echo "!! expected memo missing: $f"; failed=1; continue; }
     _measure n cat "$f" || failed=1
     echo "$n $m"
   done
