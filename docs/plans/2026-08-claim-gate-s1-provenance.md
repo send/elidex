@@ -40,8 +40,8 @@ a quantity about this program's tooling only when the sentence **names the file*
 "the wire" or "the checker" passes untouched, and its unit list is hand-written. Round 9 stood a
 universal claim here — *"this memo states no quantity about its own tooling"* — and then put four such
 quantities in §4.1.1, which is the same escape this paragraph had already recorded. The claim is
-withdrawn and replaced by its parts: the rule above is **authorial**; `TOOLING`, `CONTROLS`, `PREFLIGHT`
-and `TRANSCRIPT` each hold a stated slice of it, and each names what it does not reach.
+withdrawn and replaced by its parts: the rule above is **authorial**; `TOOLING`, `CONTROLS`, `PREFLIGHT`,
+`TRANSCRIPT` and `PATHS` each hold a stated slice of it, and each names what it does not reach.
 
 **A claim the checker cannot hold is removed unless the mechanism can be extended to hold it safely** —
 and extending a gate that *executes* what it admits is a change whose failure mode is not a missed
@@ -49,6 +49,22 @@ finding. That is not a caution: round 6 tried the extension, it was reverted, an
 was that an allow-list describing what a shell script *does* leaks — its leaking is the argument. The
 residue is a **bound, not a silence**: the checker names every command it declined and why, so the set
 is read off the run and no count of it is given here.
+
+**A statement about the current state of what this PR ships carries the command that re-derives it, or
+it is not written.** Three rounds have now applied the rule above to a different class of sentence, and
+each time the class was one this document could not hold: round 8 moved the *executable specification*
+into the wire and its self-test, round 9 moved the *history* — what each round found and changed — into
+memory, and this is the third, the **status claim**. The evidence that it is a class rather than a
+tally of slips is that a round's own corrections turn false inside the round that makes them: the
+apparatus paragraph reporting a self-test at `3.1s` was falsified by the two controls added beneath it,
+and §0 spent four paragraphs on a file the prerequisite branch had deleted. The discriminator is
+already demonstrated in this memo rather than asserted: §3.1 states the prerequisite's touch boundary
+as `git diff --stat claim-gate-plan-check..HEAD -- '.claude/tools/*.py'`, and it has stayed true across
+every rewrite of both branches, while §0 stated the same fact in a sentence and rotted. **This rule is
+authorial and the checker holds one class of it** — `PATHS`, below, for a file this branch's own
+commits remove, which is the one status claim whose subject git can enumerate. Tense is not reachable:
+nothing here can tell a present-tense sentence about a deleted file from a past-tense one, which is why
+the mechanism asks for a *re-declaration* and not for a swept paragraph.
 
 Measurement base, stated as a **property** rather than a hash: *the working tree at this branch's head,
 with this memo `git add`ed*. A hash pinning a branch still being rewritten has the same lifetime as the
@@ -131,6 +147,24 @@ issue, one way* forbids.
 
 **Why this is a terminal unit.** CLAUDE.md's edge-dense rule makes an approved umbrella's
 narrowly-scoped per-PR slice the base case: one wire, one grammar, one self-test, one registration line.
+
+### §0.1 What this branch removes, and what this memo still says about it
+
+The list is derived, not maintained: `git log origin/main..HEAD --diff-filter=D --name-only`, minus
+whatever the tree has back. A row is owed for each entry this memo names anywhere outside this section,
+and `PATHS` fails the run in both directions — an entry named with no row, and a row whose subject no
+sentence outside here names, or which that command does not report.
+
+- `.claude/tools/claim_gate_grammar.py` — the checker's second copy of the annotation grammar, deleted
+  by the prerequisite branch when the wire made it redundant (`git log origin/main..HEAD
+  --diff-filter=D --name-only -- '*claim_gate_grammar.py'`). Two sentences name it, in §0 and §6, and
+  both are about its absence: §0 withdraws the four-round argument that only S1's PR could retire it,
+  and §6 records that the window in which `main` carries two copies is therefore zero rather than one
+  PR. Nothing in this memo asks a reader to open it.
+
+This section is where a file's disappearance becomes visible; it is not where the sentences elsewhere
+get fixed. That obligation is §0's rule above, and it is authorial — the check can name the file and
+cannot read the paragraph.
 
 ---
 
@@ -337,7 +371,7 @@ it, and the two are no longer the same question.
 | `.claude/tools/claim-provenance-selftest.sh` (new) | repo gate | **yes**, via the wire's preamble (§4.1.2) |
 | `scripts/trip-wires.sh` — the `REQUIRED_WIRES` line | repo gate | yes |
 | `.github/workflows/ci.yml`, `CLAUDE.md`, `mise.toml` | prose / config | label and comment edits only (§4.6) |
-| `.claude/tools/claim-gate-plan-check.py`, `.claude/tools/claim_gate_reruns.py` and `.claude/tools/claim_gate_selftest.py` | **plan-review stage** | **no** — which is why §7's layer rule lets them keep their Python and their skill coupling. All three are the **prerequisite PR's**, not S1's: `git diff --stat claim-gate-plan-check..HEAD -- '.claude/tools/*.py'` is empty. (`claim_gate_reruns.py` is round 9's touch-time split of the entry point; the table was written against the file set that preceded it and was not re-derived when the split changed that set — the failure this section's own preamble says deriving is supposed to prevent.) |
+| the checker and its companions — `git ls-files -- '.claude/tools/claim[-_]gate*.py'` | **plan-review stage** | **no** — which is why §7's layer rule lets them keep their Python and their skill coupling. Every one of them is the **prerequisite PR's**, not S1's: `git diff --stat claim-gate-plan-check..HEAD -- '.claude/tools/*.py'` is empty. (This cell used to spell the set out, and went stale twice for the same reason: round 9 split `claim_gate_reruns.py` out of the entry point and round 10 split `claim_gate_ledgers.py`, and neither split re-derived a list nobody was looking at. The command is the set now — §0's rule, applied to the sentence that broke it.) |
 | `docs/plans/2026-07-app-mode-turn-completion-drain.md` | another lane's landed memo | no — five numerals, value-only (§5 commit 6, §9) |
 
 Nothing compiles into the engine, so the exposure delta on any input path is zero. The adjacent trust
