@@ -152,10 +152,16 @@ four, from the draft that added `δ`; the count is now stated as the row set it 
 | **1a-i-ε** the subject test | the `prose` subject test; the three rows that replace `prose` in §3; and **the coverage gate entire** — `covgate`, both directions: `ruled - set(byclass)` reported rather than dropped, **and** the non-triviality clause §3 measured constructible after an earlier draft withdrew it. ⚠ **This row said "reverse direction" alone while §3 said both halves and §3a assigned `covgate` wholesale** — three statements of one scope, two of them created in the commit that made the re-assignment. Placed here because ε's own `prose`-row removal is the first event either direction can catch | it is the only classifier change that needs a **vocabulary** rather than a predicate — the part set for its place tokens and `GROUPS` for its group tokens — and **both reach it only through α's crossing**. ⚠ **It was inside β until β's own `/elidex-plan-review` measured that it cannot be**: `GROUPS` already exists at `-inventory.sh:168`, inside `INVENTORYPY`, while the test lives in `-audit.sh`'s `HOMESPY`, so γ collapsing the group vocabulary does not put it in scope — only the argv crossing the `roster` row assigns to α does. The two escapes were measured and both fail: spelling a second `GROUPS` in `-audit.sh` is the many-homes defect γ exists to close (and filing it under `CLASSES` reports the duplicate as *ruled* at rc=0 rather than `?`), and dropping the group half of the predicate lands every group-object row in `proseunsettled`, which is RED while non-empty — so α would inherit a red census, which is the very thing β's ordering argument exists to prevent |
 | **1a-i-δ** the guards | `reads` — a named failure on every read of the harness's or a memo's text | ⚠ **It was assigned to no slice at all when the partition was first drawn, and §3a counted it as an obligation, so the two sections contradicted each other.** It is its own slice because it fits none of the other three predicates: it changes no classification, no set and no routing answer. It is also the only slice with no ordering constraint — nothing reads its output — so it may land at any point, and that independence is the evidence the partition is right rather than an excuse for the leftovers |
 
-**β before α**, because the crossing α builds cannot be classified by the census as it stands: `classify`
-inspects only a line's first word for command position, so a derivation called from an argument position
-falls through to `?` and the census goes RED — measured, and it is the same edit either way, so it belongs
-to the slice that owns the predicate. **α before γ**, because the tier collapse requires the dispatcher to be
+**β before α**, because the crossing α builds could not be classified by the census as it then stood:
+`classify` inspected only a line's first word for command position, so a derivation called from an argument
+position fell through to `?` and the census went RED — measured, and it was the same edit either way, so it
+belonged to the slice that owns the predicate. ⚠ **DISCHARGED, and this sentence is kept in the past tense
+rather than deleted, because it is the recorded reason for the order of the whole program.** `473b9d56`
+replaced that predicate; a derivation in argument position now reaches `callsite`. The constraint no longer
+binds anything, so it can neither justify nor forbid a re-ordering — if the order is re-opened it needs a
+live reason, not this one. ⚠ **It was left standing, present-tense, by the commit that falsified it**, and
+five review axes each found it independently: a reframe sweep that stops at the file being edited misses the
+premise the reframe was derived from. **α before γ**, because the tier collapse requires the dispatcher to be
 in the part set, which is α's work. **γ before ε**, because ε's group tokens are γ's single `GROUPS`, and
 **α before ε** because ε reads both its vocabularies across a process boundary that only α's crossing opens.
 **δ is unordered** — nothing reads its output.
