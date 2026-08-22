@@ -50,31 +50,46 @@ use super::{
 /// write; it is stale (both writes measure gated) and correcting it is
 /// pre-existing work; the successor slot records it (grep that slot for `shift.rs`).
 ///
-/// ⚠ **Behaviour is not at risk.** The two early returns are reached on
-/// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
-/// so a probe and the definitive pass reach them identically.
+/// ⚠ **Behaviour is not at risk**, and that claim is scoped to the two early
+/// returns: they are reached on `items.is_empty()` / no-usable-font, inputs that
+/// do not depend on `is_probe`, so a probe and the definitive pass reach them
+/// identically. It says nothing about the `else` arm above.
 ///
 /// ⚠ **A carrier left behind needs more than "render never reads it".** Render
 /// does not read [`elidex_ecs::ColumnFlowSlice`] *directly*, but
-/// `elidex-layout-multicol` drains it into a `FragmentSnapshot` and folds those
-/// lines into a render-visible `InlineFlow`, so a *stale* one would not be inert.
-/// Two measured facts close that, and neither is asserted here for the first
-/// time: the drain is keyed on the multicol's **direct children**, so a carrier
-/// on a nested IFC container cannot reach it; and the one case that could —
-/// the multicol's own self-carrier — is cleared for exactly this reason, with a
-/// named regression test. ⚠ **What is not settled** is a carrier that outlives
-/// its pass and whose entity then changes role; that residual is
-/// `#11-inline-fragmented-fn-seams-1-2`'s.
-/// ⚠ **No claim is made here about which terminal path removes it.** The
-/// component's own docstring says drain-within-one-pass; `elidex-layout-multicol`
-/// additionally clears the self-carrier case; and a carrier written on a *nested*
-/// IFC container is reached by neither. Enumerating that set is
-/// `#11-inline-fragmented-fn-seams-1-2`'s, not this docstring's — the safety
-/// argument above does not depend on it. What the universal gets wrong is
-/// its *scope*: it reads as engine-wide and is not. Stated here rather than in the
-/// body because the body is byte-identical to its pre-split form modulo the
-/// bindings the extracted signature introduces (§6: six single-line hunks); the text
-/// below must not be edited.
+/// `elidex-layout-multicol` drains it into a `FragmentSnapshot`
+/// (`multicol/src/fill.rs:228`) and folds those lines into a render-visible
+/// `InlineFlow` (`multicol/src/lib.rs:640`), so a *stale* one would not be inert.
+/// What bounds the hazard is **which entities the drain reaches**:
+/// `multicol/src/fill.rs:220` iterates `carry_midbreak` chained with
+/// `break_out_child` — the mid-break and break-out entities selected out of
+/// `composed_children_flat(dom, entity)` (`multicol/src/lib.rs:173`), which is
+/// **neither** the container's direct children **nor** that flattened set
+/// entire. The one entity in reach that can carry its own slice — the multicol's
+/// own self-carrier — is cleared at `multicol/src/lib.rs:362-377` and pinned by
+/// `multicol/src/tests/mid_break_flow.rs:894`
+/// `multicol_with_direct_inline_midbreak_leaves_no_stale_carrier`.
+/// ⚠ **What is not settled** is a carrier that outlives its pass and whose
+/// entity then changes role; that residual — and the enumeration of terminal
+/// paths it needs — is `#11-inline-fragmented-fn-seams-1-2`'s.
+///
+/// ⚠ **The shorter ground is still authored in four other places, and this PR
+/// amends none of them.** The body comment at the carrier reconcile below says
+/// *"never read by render … so a leak is benign"*; it is byte-identical to its
+/// pre-split form, so it is out of this PR's reach by construction. The other
+/// three are `elidex-ecs`'s `ColumnFlowSlice` docstring, `multicol/src/fill.rs`,
+/// and `multicol/src/lib.rs` — other crates. They reconcile with the sentence
+/// above on **scope**: for an entity the drain never reaches, non-readership is
+/// the whole story. Correcting the wording is
+/// `#11-inline-fragmented-fn-seams-1-2`'s. ⚠ Enumerate by concept, not by
+/// wording — the phrase is spelled both "never read by render" and "render never
+/// reads", and in `fill.rs` it wraps a `///` boundary, so any line-anchored grep
+/// for either spelling is a filter rather than an enumerator.
+///
+/// Stated here rather than in the body because the body is byte-identical to its
+/// pre-split form modulo the bindings the extracted signature introduces — §6 of
+/// the plan-memo carries the harness and the figures it reports, which is why no
+/// count is restated here; the text below must not be edited.
 ///
 /// **Spec vs bookkeeping.** Most of what this function does is elidex render
 /// bookkeeping with no governing section: [`InlineFlow`] and
@@ -110,8 +125,15 @@ use super::{
 ///   reposition — is excluded: it travels byte-identically from the base, so it
 ///   is not this PR's to re-anchor (§3 of the plan-memo records it as the
 ///   dual-provenance half). Enumerate both classes rather than trusting a count
-///   here:
-///   `git grep -n '10\.8' -- crates/layout/elidex-layout-block/src/inline/reconcile.rs`
+///   here — and grep the *property* (a CSS 2 anchor), not this paragraph's
+///   vocabulary, so a future `CSS 2 §9.4.2` in the body is enumerated too:
+///   `git grep -nE 'CSS ?2(\.1)?[^0-9]' -- '*/inline/reconcile.rs'`
+///   ⚠ **Where the two modules' numbers collide, a bare §-number below means
+///   `css-inline-3`** — the colliding set is §2.2, §4.2 and §5.3, each of which
+///   is also a real, unrelated CSS 2 section ("A brief CSS 2 tutorial for XML",
+///   "Rules for handling parsing errors", "Universal selector"). §10.8 and
+///   §10.8.1 do **not** collide and appear bare: `css-inline-3` has no §10 at
+///   all (`webref heading css-inline-3 10`), so those always mean CSS 2.
 ///   The mapping, per fact:
 ///   `vertical-align` alignment → **§4.2** (named above); §10.8.1's strut and
 ///   half-leading → **§5.3 Calculating the Logical Height Contributions
@@ -156,15 +178,22 @@ use super::{
 ///     subtract its hits before quoting a figure. Owner:
 ///     `#11-css2-spec-label-normalisation`, which calls it hygiene, not
 ///     correctness.
-///     ⚠ **Anchor**: the citations *this* docstring authors name the current
+///   * **Anchor**: the citations *this* docstring authors name the current
 ///     sections. The crate's other `§10.8` sites anchor on the superseded
-///     module (they spell it `CSS 2.1`); re-pointing those is **correctness**,
-///     not label hygiene — and a **different class from wrong-section
-///     misattribution**, because CSS 2 §10.8 genuinely is the section it names.
-///     ⚠ **Not routed to a slot, and that is the disposition, not an omission**:
-///     no existing slot's subject covers module supersession, and inventing one
-///     from a docstring would book work no reader can find. It reopens when the
-///     crate's line-box height algorithm is next authored — not on a date.
+///     module; re-pointing those is **correctness**, not label hygiene — and a
+///     **different class from wrong-section misattribution**, because CSS 2
+///     §10.8 genuinely is the section it names. ⚠ **The two follow-ups overlap
+///     on the page but not in class**: most of those sites also spell the label
+///     `CSS 2.1`, so Label touches them too — but not all do, and assuming so is
+///     what an earlier revision of this bullet got wrong. Enumerate before
+///     acting, and note the pathspec must not exclude this file, which is where
+///     the counterexample lives:
+///     `git grep -n '10\.8' -- 'crates/layout/elidex-layout-block/**'`
+///     Owner: `#11-css2-line-height-supersession-reanchor` (registered in
+///     `project_open-defer-slots.md`; corpus and trigger are recorded there, not
+///     here). It is a **different slot from Label's** precisely because the
+///     classes differ, and `#11-css2-spec-label-normalisation` states it owns
+///     hygiene only.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
@@ -191,9 +220,9 @@ use super::{
 /// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset
 /// preservation, fragmentainer terminology, column-box continuation) is
 /// pre-existing and untouched by the split — this function was relocated
-/// byte-identically modulo the signature's bindings, so it authors no algorithm. Adding blanket module-level
-/// citations for it would over-claim, which is the call #497 already made for
-/// `collect.rs`/`styled_run.rs`.
+/// byte-identically modulo the signature's bindings, so it authors no
+/// algorithm. Adding blanket module-level citations for it would over-claim,
+/// which is the call #497 already made for `collect.rs`/`styled_run.rs`.
 ///
 /// `persist_flow` and `do_carrier` are **mutually exclusive**, and the caller
 /// establishes it rather than this function checking it: `do_carrier` implies
