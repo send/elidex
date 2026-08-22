@@ -78,7 +78,10 @@ job is ungated (§4.2).
 `ci.yml`'s `changes` filter has two sets, `rust` and `config`; **`.claude/**` is in neither**, and all three
 jobs are gated on one of the two. `ci.yml` never invokes `mise`. `codeql.yml` analyses `[actions, rust]` on
 push plus a weekly cron, with no `pull_request` trigger; `audit.yml` is `cargo audit` on a cron. ⇒ a
-`.claude/**`-only pull request triggers **zero jobs**. → `rederive filters`, `rederive suites`
+`.claude/**`-only pull request triggers **zero validation jobs** — `Detect changes` (the filter job itself:
+no `needs`, no `if`, checkout + `dorny/paths-filter`) always runs and validates nothing, and since PR #496 the
+ungated `trip-wires` job runs too (§9); *zero jobs* was the claim here until Codex R6 counted the filter job.
+→ `rederive filters`, `rederive suites`
 
 ⚠ **That is a fact about `origin/main` with a lifetime.** The Layout lane's
 [PR #496](https://github.com/send/elidex/pull/496) lands an ungated trip-wire job, which makes it false
@@ -166,7 +169,7 @@ the PR page at review time**. → `rederive ruleset`
 
 | # | Input | `origin/main` | After A-iii |
 |---|---|---|---|
-| 1 | a `.claude/**`-only PR | **zero jobs** | the `tools` job runs |
+| 1 | a `.claude/**`-only PR | **zero validation jobs** (`Detect changes` and, since #496, `trip-wires` run) | the `tools` job runs |
 | 2 | a `crates/**`-only PR | `check`/`doc`/`deny` | + the `tools` job (ungated) |
 | 3 | `mise run ci` locally | does not run the Python suites | runs them via `[tasks.tools-test]` |
 | 4 | a new `test_*.py` under `.claude/` outside both `discover` roots | passes by not existing to anyone | **script fails loudly** (L2) |

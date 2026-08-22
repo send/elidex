@@ -354,6 +354,14 @@ try:
 except Exception:
     _shortname_for = None
 
+
+def shortname_from_label(label):
+    # A-ii's act-site 2: the row reader resolves through the shared map, not the
+    # head's `SPEC_LABEL_REVERSE` copy. Binding `_shortname_for` alone left the
+    # inherited reader in place, so the "map available" rows never exercised the
+    # map (row 10's alias spelling came back unknown, Codex R6).
+    return _shortname_for(label) if (_shortname_for is not None and label) else None
+
 MARKER_RE = re.compile(r"^\\s*\\*\\*No spec surface\\*\\*")
 
 

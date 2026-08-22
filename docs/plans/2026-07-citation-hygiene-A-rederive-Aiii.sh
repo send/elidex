@@ -114,22 +114,24 @@ ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
   fi
   echo "-- main-protection ($id), in detail --"
   _measure n_detail gh api "repos/send/elidex/rulesets/$id" --jq \
-    '{enforcement, target, rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode], scope: .conditions.ref_name}' || failed=1
+    '{enforcement, target, rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[] | {actor_type, bypass_mode}], scope: .conditions.ref_name}' || failed=1
   _measured
-  # Printing the detail is not checking it. A-iii §4.5 claims of this ruleset
-  # that it is ACTIVE (`enforcement`), governs BRANCHES (`target`), that its
-  # rule set IS `deletion` / `non_fast_forward` / `pull_request` -- stated as a
-  # set, because §4.5's next sentence is "there is NO `required_status_checks`
-  # rule" and a superset test certifies that claim false (Codex R5) -- and that
-  # it SELECTS main: a ruleset's ref scope is `conditions.ref_name`, so `main`
-  # is in scope iff `include` names it, literally or as `~DEFAULT_BRANCH` while
-  # the repo's default branch IS main, and `exclude` does not. The name
-  # `main-protection` proves none of it (Codex R3 scope, R4 the rest). Every
-  # clause is READ, not recalled; a failing clause is named, not summed; and the
-  # check itself is a `_measure`d command -- a `jq` that cannot run is a
-  # validation that never happened, which a bare `bad=$(...)` reported as
-  # "nothing bad" (Codex R5: `jq` at exit 127 certified a non-main ruleset).
-  # The sweep that introduced `_measure` was scoped by TOOL twice over (`git`,
+  # Printing the detail is not checking it. The memo makes claims of this
+  # ruleset in THREE places -- §4.5 (active; branch target; rule set exactly
+  # `deletion` / `non_fast_forward` / `pull_request`, "exactly" because §4.5's
+  # next sentence is "there is NO `required_status_checks` rule"; selects main)
+  # and §10 Q1 / §11 (`required_approving_review_count: 0`, a `RepositoryRole`
+  # bypass with `bypass_mode: always` -- the facts the deferral rests on). Three
+  # rounds enumerated clauses one memo section at a time and each round found the
+  # next section's claim unasserted (Codex R4/R5/R6), so the check is now an
+  # EQUALITY against one expected object, `_rulesetcheck`'s `$want`: every field
+  # the projection carries is a claim, and a field the memo does not claim is not
+  # projected. Main-selection is normalised first (`include` names main literally
+  # or as `~DEFAULT_BRANCH` while the repo's default branch IS main, and
+  # `exclude` does not), since that is a relation, not a literal. Every clause
+  # is READ, not recalled; a differing field is named; and the check itself is a
+  # `_measure`d command -- a `jq` that cannot run is a validation that never
+  # happened (Codex R5). The `_measure` sweep was scoped by TOOL twice (`git`,
   # then `gh api`); the rule is SHAPE -- every command whose status is a fact.
   local detail def n_def
   detail=$(_measured)
@@ -139,21 +141,23 @@ ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
   return "$failed"
 }
 
-_rulesetcheck() {  # $1 = projected detail JSON, $2 = default branch. 0 iff §4.5 holds.
+_rulesetcheck() {  # $1 = projected detail JSON, $2 = default branch. 0 iff every memo claim holds.
   local n_bad bad
   _measure n_bad jq -rn --argjson d "$1" --arg def "$2" '
-    $d | [ (select(.enforcement != "active") | "enforcement=\(.enforcement)"),
-           (select(.target != "branch")      | "target=\(.target)"),
-           ((.rules | sort) as $r | (["deletion","non_fast_forward","pull_request"] | sort) as $want
-             | select($r != $want) | "rules=\($r) (claimed exactly \($want))"),
-           (select((.scope.include | index("refs/heads/main") == null)
-                   and ((.scope.include | index("~DEFAULT_BRANCH") == null) or $def != "main"))
-             | "include=\(.scope.include) default_branch=\($def)"),
-           (select(.scope.exclude | index("refs/heads/main") != null) | "exclude=\(.scope.exclude)") ]
-       | join("; ")' || return 1
+    { enforcement: "active", target: "branch",
+      rules: ["deletion","non_fast_forward","pull_request"], pr: 0,
+      bypass: [{actor_type: "RepositoryRole", bypass_mode: "always"}],
+      selects_main: true, excludes_main: false } as $want
+    | ($d | { enforcement, target, rules: (.rules | sort), pr,
+              bypass: (.bypass | sort_by(.actor_type, .bypass_mode)),
+              selects_main: ((.scope.include | index("refs/heads/main") != null)
+                             or ((.scope.include | index("~DEFAULT_BRANCH") != null) and $def == "main")),
+              excludes_main: (.scope.exclude | index("refs/heads/main") != null) }) as $got
+    | [ ($want | keys[]) as $k | select($got[$k] != $want[$k]) | "\($k)=\($got[$k]) (claimed \($want[$k]))" ]
+    | join("; ")' || return 1
   bad=$(_measured)
   if [ -n "$bad" ]; then
-    echo "!! main-protection does not certify A-iii §4.5: $bad"
+    echo "!! main-protection does not certify the memo's claims (§4.5 / §10 Q1 / §11): $bad"
     return 1
   fi
   return 0
