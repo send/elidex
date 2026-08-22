@@ -168,7 +168,7 @@ _BOLD = re.compile(r"^\*\*(.+?)\*\*$")
 _TICK = re.compile(r"^`(.+?)`$")
 
 
-def code_spans(s):
+def code_spans(s, keep=()):
     """Byte spans this scan must not read an id out of.
 
     Inline code (`Reflect.construct(C, [], D)`), link targets and link labels
@@ -186,7 +186,11 @@ def code_spans(s):
         b = s.find("`", a + 1)
         if b < 0:
             break
-        out.append((a, b + 1))
+        # A backtick run whose whole content is a row id is the document
+        # spelling an id, not code -- `A` in "naming `A` itself would name
+        # nobody".  Masking those hid every one of row M's violations.
+        if s[a + 1:b] not in keep:
+            out.append((a, b + 1))
         i = b + 1
     for m in re.finditer(r"\]\([^)]*\)|\[[^\]]*\]|\S+\.md", s):
         out.append(m.span())
@@ -379,7 +383,7 @@ def _anchored(path, lineno, line, umb, off, cell, source, self_id, out, skip_spa
     # The mask applies to the ROW-NOUN pass only.  A slot id is always written
     # inside backticks, so masking code runs would hide every one of them --
     # which it did, and the self-test's trigger-cell control is what said so.
-    prose_skip = tuple(skip_spans) + tuple(code_spans(cell))
+    prose_skip = tuple(skip_spans) + tuple(code_spans(cell, keep=umb))
     for mt in MENTION_PROSE.finditer(cell):
         if mt.group(1) not in umb or mt.group(1) == self_id:
             continue
@@ -404,7 +408,7 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
     family name.  Both are DECLARED MISSES, carried as red controls in the
     self-test rather than argued away.
     """
-    code = code_spans(cell)
+    code = code_spans(cell, keep=umb)
     for tok in CELL_TOKEN.finditer(cell):
         tid = tok.group("id")
         if tid not in umb or tid == self_id:
@@ -684,7 +688,11 @@ def main(argv):
         sp = pathlib.Path(sib)
         sl = sp.read_text().split("\n")
         sm = Memo(sib)
-        _, stl = scan_tables(sp.name, sm, umb)
+        # The sibling's own table cells count too.  This line used to discard
+        # them and keep only `stl`, so every mention inside a carved file's
+        # tables was invisible -- a whole population silently at zero.
+        sibm, stl = scan_tables(sp.name, sm, umb)
+        mentions += sibm
         mentions += scan_prose(sp.name, sl, umb, stl)
 
     # The anchored pass and the bare pass see the same site through different

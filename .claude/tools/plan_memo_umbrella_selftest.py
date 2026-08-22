@@ -150,6 +150,8 @@ case("NEGATIVE", "statement about the row's kind",
      build(), "Slice 9z is an umbrella, so it ships no PR.", 0)
 case("NEGATIVE", "a row naming itself in its own cell",
      build(s9z="charter; 9z mints its children here."), "", 0)
+case("POSITIVE", "a backticked BARE id is the document spelling an id, not code",
+     build(), "The obligation is `9z`'s, and naming `9z` there names nobody.", 1)
 case("NEGATIVE", "an id-looking token inside inline code",
      build(), "The probe reads `Reflect.construct(9z, [], D)` and stops.", 0)
 case("NEGATIVE", "an id-looking token inside a file name",
