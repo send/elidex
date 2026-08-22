@@ -47,7 +47,7 @@ what it says, not of a heading — and preflight's precondition is scoped to mem
 
 ⚠ **The program's spec surface already has more homes than one, and an earlier draft of this paragraph
 said it had one while its own next sentence said a copy would be the fourth.** ⊕ Measured —
-`grep -l 'Spec coverage map' docs/plans/2026-08-citation-hygiene-harness-*.md` returns the disposition,
+`grep -l '^## §0.5' docs/plans/2026-08-citation-hygiene-harness-*.md` returns the disposition,
 the beta memo and the predicate-collapse memo, each carrying its own `## §0.5 / §3.` table, and the harness
 pins the same four citations a fourth time at `-common.sh:85-88`. Adding one here would make five. **That is
 the state, not the design**: it is the same many-homes defect §3's `partset` and `roster` rows exist to
@@ -262,12 +262,14 @@ grep -rn '#505' "$MEMORY"/*.md
   may touch. ⚠ **The place vocabulary must be derived from `PARTS`, not spelled**: the first draft of the test
   wrote the stems out and the census reported *the test itself* at `?`, rc=1 — the needle had become a home
   of the fact it censuses. Out of sample, over the harness comment lines that are not census rows (⚠ **the figures this entry carried — 911 and 872 — moved when this session added comment lines to the parts; re-derive with `grep -h '^\s*#' docs/plans/2026-07-citation-hygiene-A-rederive*.sh | wc -l` less the census's `prose` row count**),
-  it returns `rationale` for 849 of the 872 and a placement verdict only for continuations of the same
-  placement sentences. Reproduce:
+  it returned `rationale` for all but a handful of continuations of the same placement sentences. ⚠ **The two
+  figures that stood here (849 of 872) are not carried**: both moved with this branch's own comment lines, and
+  the warning above says so about the second while a draft left the first three lines below it. ε measures its
+  own. Reproduce the population:
 
   ```bash
   bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | awk '$5=="prose"'   # the 39 rows
-  cat docs/plans/2026-07-citation-hygiene-A-rederive*.sh | grep -cE '^\s*#'          # 911
+  cat docs/plans/2026-07-citation-hygiene-A-rederive*.sh | grep -cE '^\s*#'          # today's total
   ```
 
   ⚠ **The test is not in the tree.** **ε** builds it (the re-slice moved it out of β), and §3's `prose` row
@@ -537,3 +539,60 @@ grep -oE '§[0-9]+[a-z]?[^.]{0,40}(authorises|says|states|lists|names)' \
   (a), (b) and (e) together — at that point the reviewing loop has stopped being the mechanism and something
   else has to be. Until then this entry, and the `attest` block's blind spot (3), are where the cost is
   written down.
+
+- **D20 — how §9's stopping rule came to be worded as it is.** Cut out of the disposition's §9 as a
+  standalone prereq when that memo re-entered the 700–800 authoring band at **702**. ⚠ **The seam is the same
+  one this file was created on**: §9 keeps the clause, the authorisation, the plan-review population and the
+  per-commit grades — every forward-binding decision — while the *history of how the wording was arrived at*
+  is a record of runs, which is what this file is for. Nothing below binds a slice; §9 cites it as D20.
+
+⚠ **Draft 13 excused it with an exception, and that was wrong.** CLAUDE.md keys the standalone-prereq form to
+*touching* a file already past 1000. `-audit.sh` was 854 until `b088dacc` — this branch's own commit, which
+this clause **permits** — took it to 1059, and that commit's message announced the consequence in advance
+(*"which moves the seam cut §3 assigns to PR-1a-i … to its standalone prereq form. The split follows
+immediately."*). §3 grades the same event correctly two sections earlier: *"the cut was already late when it
+happened."* An exception here would also be **self-composing** — any commit this clause permits could
+manufacture the compulsion for the next one — and
+`memory/feedback_touch-time-split-means-while-writing.md:35` names this exact shape as **evidence of a miss**,
+not a ground for exemption. The branch's own counter-precedent is `259e12cb`, which cut `-integrity.sh` at
+768 lines, at band time, as `:39` prescribes.
+
+**The clause therefore stands unamended, and `a5fab499` is recorded as a violation of it caused by the missed
+band-time cut.** What follows is not an exception but a **precondition**: a mechanism commit this clause
+permits must not be the commit that crosses the size trigger — cut the seam while writing, at the band, so
+that no later split has to decide a PR's scope. The scope effects the split did have — two `prose` homes
+fewer on the work list — are PR-1a-i's to absorb, not facts PR-1a-i may assume.
+
+⚠ **The split did not meet the position rule draft 12 stated for it, and that is recorded rather than
+deleted with the paragraph.** The rule was: the new file joins the part set **by derivation, after
+`partset` lands**. `a5fab499` cut first and joined it by hand in **both** hardcoded homes —
+`-inventory.sh:45` and the dispatcher's bootstrap loop at `A-rederive.sh:52` — which are the two homes
+the `partset` rule exists to collapse, and exactly the two the census names (`rederive homes`, class
+`partset`). PR-1a-i collapses both; no third is claimed here, because the work list is the census and not a
+count written in this sentence.
+
+The falsifier is correspondingly a **list to judge**, not an emptiness assertion:
+
+```bash
+# BASE is the commit that INTRODUCED this memo pair, not the latest commit that
+# touches it. Recomputed as the latest, a commit that touches the memo AND
+# mechanism becomes BASE itself -- and `BASE..HEAD` excludes BASE, so it hides
+# its own mechanism change. `adb8a33b` is exactly that shape.
+BASE=$(git log --diff-filter=A --format=%H \
+       -- docs/plans/2026-08-citation-hygiene-harness-disposition.md | tail -1)
+git log --oneline "$BASE"^..HEAD --name-only \
+    -- . ':!docs/plans/2026-08-citation-hygiene-harness-*.md'
+```
+
+Its scope is the branch, matching the clause: every commit since the memo pair that touches anything but the
+pair is printed, whether or not its path matches a harness glob, and each is **judged against the clause**
+rather than counted.
+
+The reasons mechanism landed ahead of the design, and why they are now spent: the order — land the mechanism
+and falsify it before writing the design against it — was **user-ratified as the method for these drafts**,
+and a working-tree edit is invisible to review agents, who clone HEAD and whose plants found holes the author
+had missed. Neither survives the stopping rule, because an **uncommitted** mechanism can be exercised in a
+`git clone --local` sandbox (§1's preamble), which is how D4–D7 and D11–D14 were measured and the form every
+further measurement takes. And landing was never scope-free: a commit that moves the census output §3 calls
+the work list decides part of PR-1a's scope, and several did. **From here the design is fixed and PR-1a
+implements it.**

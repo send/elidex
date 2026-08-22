@@ -121,7 +121,7 @@ the suite recursively). Plants go on the **same line**. ⚠ **A plant is vacuous
   **`mention`** at **rc=0**, `9 of 9` — a genuine home filed under the class whose rule is *nothing to do*,
   silently green. ⚠ **There are three such host sites, not two**: `-audit.sh:53` (`HOMESPY`),
   `-audit.sh:555` (`SELFCHECKPY`) and `-inventory.sh:39` (`INVENTORYPY`) — the umbrella's `roster` row names
-  all three (`disposition.md:331`), and `:538` is the one it actually exercised. §3a O2 plants at all three.
+  all three (§3's `roster` row — cited by section, because ⚠ a draft cited it by line and this memo's own next edit moved the row two lines down), and `:538` is the one it actually exercised. §3a O2 plants at all three.
 
   ```bash
   grep -n "python3 - " docs/plans/2026-07-citation-hygiene-A-rederive*.sh
@@ -551,7 +551,10 @@ already done once:
 - ⚠ **`CLASSES` takes a literal's class from its name** (`-audit.sh:108-109`), so `PARTS="$(_roster)"`
   classifies `partset`. ⊕ Measured with `sed -n '108,109p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`
   for the map and `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh homes | grep partset` for the
-  population: real, and with **no witness at HEAD** — both `partset` rows are literals, so no line yet has a
+  population: real, and with **no witness at HEAD**. ⚠ **A draft said *both `partset` rows are literals*; the
+  umbrella's D19 lists that among round 4's nine false claims and it survived two sweeps.** The census's own
+  `why` column settles it: `-inventory.sh:45` prints `literal \`PARTS\`` and `A-rederive.sh:52` prints no
+  literal marker at all, being `for _part in …`. One row is a literal and one is a loop, and no line yet has a
   derivation classified by its literal's name. **Trigger: α**, the
   slice that turns those literals into derivations — a content rule for them now would predict α's
   implementation.
