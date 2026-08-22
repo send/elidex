@@ -130,7 +130,28 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
     || { echo "!! \`trip-wires\` is gated — §9's 'ungated since #496' no longer holds"; rc=1; }
   # "invokes" = a `run:` step naming the binary; the path filter's `mise.toml`
   # entry is a FILE, and a bare-word grep flagged it (caught on the first run).
-  printf '%s\n' "$ci" | grep -E '^\s*(-\s*)?run:' | grep -qE '(^|[^a-z./-])mise( |$)' && { echo "!! ci.yml invokes mise — §4.1's 'never invokes mise' no longer holds"; rc=1; }
+  # A step's command is the WHOLE scalar, block-scalar bodies (`run: |` …)
+  # included -- keeping only the `run:` key line missed every multi-line step
+  # (Codex R10). The python below collects each step's full scalar.
+  printf '%s\n' "$ci" | python3 -c '
+import re, sys
+lines = sys.stdin.read().splitlines()
+cmds = []
+i = 0
+while i < len(lines):
+    m = re.match(r"^(\s*)(-\s*)?run:\s*(.*)$", lines[i])
+    if m:
+        indent = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
+        val = m.group(3).strip()
+        if val in ("|", ">", "|-", ">-", "|+", ">+"):
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent):
+                cmds.append(lines[j]); j += 1
+            i = j; continue
+        cmds.append(val)
+    i += 1
+hit = [c for c in cmds if re.search(r"(^|[^A-Za-z0-9_./-])mise(\s|$)", c)]
+sys.exit(1 if hit else 0)' || { echo "!! ci.yml invokes mise in a run step — §4.1's 'never invokes mise' no longer holds"; rc=1; }
   return "$rc"
 }
 
@@ -169,45 +190,51 @@ ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
   fi
   echo "-- main-protection ($id), in detail --"
   _measure n_detail gh api "repos/send/elidex/rulesets/$id" --jq \
-    '{enforcement, target, rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[] | {actor_type, bypass_mode}], scope: .conditions.ref_name}' || failed=1
+    '{enforcement, target, rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[] | {actor_type, bypass_mode}]}' || failed=1
   _measured
   # Printing the detail is not checking it. The memo makes claims of this
   # ruleset in THREE places -- §4.5 (active; branch target; rule set exactly
   # `deletion` / `non_fast_forward` / `pull_request`, "exactly" because §4.5's
-  # next sentence is "there is NO `required_status_checks` rule"; selects main)
+  # next sentence is "there is NO `required_status_checks` rule"; governs main)
   # and §10 Q1 / §11 (`required_approving_review_count: 0`, a `RepositoryRole`
   # bypass with `bypass_mode: always` -- the facts the deferral rests on). Three
   # rounds enumerated clauses one memo section at a time and each round found the
-  # next section's claim unasserted (Codex R4/R5/R6), so the check is now an
-  # EQUALITY against one expected object, `_rulesetcheck`'s `$want`: every field
-  # the projection carries is a claim, and a field the memo does not claim is not
-  # projected. Main-selection is normalised first (`include` names main literally
-  # or as `~DEFAULT_BRANCH` while the repo's default branch IS main, and
-  # `exclude` does not), since that is a relation, not a literal. Every clause
-  # is READ, not recalled; a differing field is named; and the check itself is a
-  # `_measure`d command -- a `jq` that cannot run is a validation that never
-  # happened (Codex R5). The `_measure` sweep was scoped by TOOL twice (`git`,
-  # then `gh api`); the rule is SHAPE -- every command whose status is a fact.
-  local detail def n_def
+  # next section's claim unasserted (Codex R4/R5/R6), so the check is an EQUALITY
+  # against one expected object, `_rulesetcheck`'s `$want`: every field the
+  # projection carries is a claim, and a field the memo does not claim is not
+  # projected. "Governs main" is NOT simulated from `conditions.ref_name` -- a
+  # fifth round (Codex R10) found the simulation short of GitHub's own matching
+  # (`fnmatch` patterns in `exclude`), and a bash re-implementation of GitHub's
+  # ref-matching has no floor. GitHub answers the question itself:
+  # `GET /rules/branches/main` evaluates every ruleset's include/exclude and
+  # returns the rules that APPLY to `main`, each tagged with its `ruleset_id`;
+  # the rules it attributes to this ruleset must be exactly the claimed set.
+  # Every clause is READ, not recalled; a differing field is named; and both
+  # checks are `_measure`d commands -- a `jq` that cannot run is a validation
+  # that never happened (Codex R5). The `_measure` sweep was scoped by TOOL
+  # twice (`git`, then `gh api`); the rule is SHAPE -- every command whose
+  # status is a fact.
+  local detail applied n_applied
   detail=$(_measured)
-  _measure n_def gh api repos/send/elidex --jq '.default_branch' || failed=1
-  def=$(_measured | tr -d '[:space:]')
-  _rulesetcheck "$detail" "$def" || failed=1
+  _measure n_applied gh api repos/send/elidex/rules/branches/main \
+    --jq "[.[] | select(.ruleset_id == $id) | .type]" || failed=1
+  applied=$(_measured)
+  echo "-- rules GitHub applies to \`main\` from this ruleset (/rules/branches/main) --"
+  echo "$applied"
+  _rulesetcheck "$detail" "$applied" || failed=1
   return "$failed"
 }
 
-_rulesetcheck() {  # $1 = projected detail JSON, $2 = default branch. 0 iff every memo claim holds.
+_rulesetcheck() {  # $1 = projected detail JSON, $2 = rule types GitHub applies to main from it. 0 iff every memo claim holds.
   local n_bad bad
-  _measure n_bad jq -rn --argjson d "$1" --arg def "$2" '
+  _measure n_bad jq -rn --argjson d "$1" --argjson applied "$2" '
     { enforcement: "active", target: "branch",
       rules: ["deletion","non_fast_forward","pull_request"], pr: 0,
       bypass: [{actor_type: "RepositoryRole", bypass_mode: "always"}],
-      selects_main: true, excludes_main: false } as $want
+      applied_to_main: ["deletion","non_fast_forward","pull_request"] } as $want
     | ($d | { enforcement, target, rules: (.rules | sort), pr,
               bypass: (.bypass | sort_by(.actor_type, .bypass_mode)),
-              selects_main: ((.scope.include | index("refs/heads/main") != null)
-                             or ((.scope.include | index("~DEFAULT_BRANCH") != null) and $def == "main")),
-              excludes_main: (.scope.exclude | index("refs/heads/main") != null) }) as $got
+              applied_to_main: ($applied | sort) }) as $got
     | [ ($want | keys[]) as $k | select($got[$k] != $want[$k]) | "\($k)=\($got[$k]) (claimed \($want[$k]))" ]
     | join("; ")' || return 1
   bad=$(_measured)

@@ -314,11 +314,16 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
     # row has no claim to hold.
     local want
     case "$lbl" in
-      1|2|2b|5|8|10|11|11b|12|14) want=0 ;;
-      3|4|6|7|9|12b|13|16)       want=1 ;;
-      *)                          want="" ;;
+      1|2|2b|5|8|10|11|11b|12|14|15) want=0 ;;
+      3|4|6|7|9|12b|13|16)          want=1 ;;
+      *)                             want="" ;;
     esac
     [ -z "$want" ] || [ "$prc" = "$want" ] || { echo "       !! EXIT=$prc, §5 row $lbl says $want"; rc=1; }
+    # Row 15 (P11d) asserts on the MECHANISM, not the exit: a marker inside a
+    # fence must not be recognised, so no `no spec surface declared` line may
+    # appear -- the row fell through to "no expectation" until Codex R10.
+    [ "$lbl" != 15 ] || ! printf '%s\n' "$out" | grep -q 'no spec surface declared' \
+      || { echo "       !! fenced marker took the no-spec path — P11d's fence gate no longer holds"; rc=1; }
     # Item 8 is a rule about the K line, which only the table path prints (the
     # no-spec-surface path, §5 row 14, prints none): when the line is there and
     # the map is absent, it must read n/a.

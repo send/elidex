@@ -18,11 +18,17 @@ CLAUDE.md § "Design discipline": *"Edge-dense work = multi-PR program + 実装�
 
 | # | Slice | Branch | Scope | Why it must precede the next |
 |---|---|---|---|---|
-| A-i | The shared spec-label map | `webref-cite-audit-tool` (current) | **Generic tree only — A-i touches no adapter file.** Create `.claude/tools/_webref/spec_labels.py`
-**pinned-map-only**; point `coverage_map` and `cli` at it; delete the 8 inert parse aliases; the `DESIGN.md`
-bullet; move the 8 label-map tests to a generic-tree `test_spec_labels.py`; rewrite every consumer list and
-rationale naming an elidex file path (by role) or a Slice-B artifact, and correct the copy-count claim at all
-five sites asserting it.
+| A-i | The shared spec-label map | `webref-cite-audit-tool` (current) | **Generic tree, plus one comment in the adapter.** Create `.claude/tools/_webref/spec_labels.py`
+**pinned-map-only**; point `coverage_map` and `cli` at it; the `DESIGN.md` bullet; author the generic-tree
+`test_spec_labels.py`; rewrite every consumer list and rationale naming an elidex file path (by role) or a
+Slice-B artifact, and author the copy-count claim at the five sites that carry it. ⚠ **Amended at landing
+per A-i §13 item 2 (the four scope-grant clauses), measured against the `origin/main` base** — this row used
+to say *touches no adapter file* (A-i §4.1 rewrites one three-line comment in `preflight.py`, nothing else),
+*delete the 8 inert parse aliases* (`origin/main` has none; A-i **omits** them), *move the 8 label-map tests*
+(`git grep -lI '_SPEC_LABEL_MAP\|COMMON_SHORTNAMES' origin/main -- '*test*'` → empty; A-i **authors** them)
+and *correct the copy-count claim at five sites* (`origin/main` carries none under `.claude/`; all five are
+**authored**). §9 barred A-i from amending its own approval boundary mid-review; the amendment narrows and
+relabels, it grants nothing (Codex R10).
 
 ⚠ **`preflight.py`'s copy migrates in A-ii, not here** (revised 2026-08-01 after A-i round 2). Two drafts
 tried to land it in A-i and both regressed the gate, in opposite directions — measured against `origin/main`

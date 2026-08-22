@@ -50,6 +50,12 @@ for a, lab, b in bad:
 print(f"  by `webref heading` output : same={same} diff={diff} not-measured={unresolved}"
       "   <- the memo's criterion")
 for e in examples: print("    ", e[0] + ":", e[1:])
+# A comparison that was NOT MEASURED is not a partition result: `dig` says so per
+# pair, and the block still exited 0 on a run that reported `not-measured=N`
+# (Codex R10). An incomplete catalog measurement cannot certify B §4.1.8's split.
+if unresolved:
+    print(f"!! {unresolved} comparison(s) NOT MEASURED — the partition figures above are incomplete")
+    sys.exit(1)
 PY
   return $?    # the heredoc'd command IS the measurement; say so
 }
