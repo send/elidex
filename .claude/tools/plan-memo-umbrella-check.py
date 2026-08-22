@@ -53,8 +53,18 @@ WHAT IS MECHANICAL AND WHAT IS A SEED (read this before believing a count)
                       WORDS and carrying no marker.  Measured false positives:
                       a cell quoting the criterion to conclude it is terminal,
                       and a cell discussing another row's kind.
-  (b) UMBRELLA-CELL   mechanical, complete.  No umbrella row carries an
-                      acceptance condition or a `Deps` edge.
+  (b) UMBRELLA-CELL   mechanical and complete FOR THE `Deps` HALF ONLY, and
+                      only over §5's rows, which are the only rows with a `Deps`
+                      column.  ⚠ The assertion as §8 words it is "no umbrella
+                      row carries an acceptance condition OR a `Deps` edge", and
+                      **the acceptance half is not implemented and is not
+                      implementable here**: §5 gives acceptance no cell of its
+                      own -- it is prose inside the `Slice` cell -- so deciding
+                      whether a sentence states one is the same natural-language
+                      problem as (c) and (d).  A reader who takes this check for
+                      the whole of (b) reads `0` for a class it never looked at.
+                      That is the exact shape of the defect the naming rule
+                      exists for, so it is printed with the count.
   (c) ORDER-PROSE     SEED.  Prose asserting an ordering is natural language.
   (d) TWO-OWNERS      SEED.  Two sentences of one row naming two owners is
                       natural language.
@@ -221,7 +231,7 @@ LICENSE_BEFORE = re.compile(
     r"child(?:ren)?\s+(?:of\s+)?"          # the child of X / any child of X / children of X
     r"|derivation\s+(?:that\s+)?"           # the derivation Slice B runs at its own start
     r"|naming\s+"                           # naming X itself would name nobody
-    r"|mints?\s+(?:onto\s+)?"               # ... mints X
+    r"|mint(?:s|ed|ing)?\s+(?:onto\s+)?"    # ... mints / minted / minting X
     r")(?:the\s+)?$",
     re.IGNORECASE,
 )
@@ -245,12 +255,19 @@ ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"
 # The id may be decorated with bold, backticks, or both, in either order.
 DECOR_ID = r"(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*"
 
-MENTION_PROSE = re.compile(r"\b" + ROW_NOUN + r"\s+" + DECOR_ID + r"(?![0-9A-Za-z])")
+# `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
+# left them invisible to both passes; measured, four of five such sites in this
+# memo are real violations.
+MENTION_PROSE = re.compile(r"\b" + ROW_NOUN + r"[\s-]+" + DECOR_ID + r"(?![0-9A-Za-z])")
 MENTION_SLOT = re.compile(r"`(#11-[a-z0-9-]+)`")
 # Bare ids inside a mention-bearing table cell, tokenised on the separators
 # those cells actually use.  No row noun is required, because the column's
 # grammar is what makes the token an id.
-CELL_TOKEN = re.compile(r"(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*")
+# Decoration must BALANCE.  `**A call at the finalizer sites is not the fix.**`
+# opens with `**A` and a space; an unbalanced-decoration rule reads that as a
+# decorated row id `A` and reports the sentence opener.  Measured: three such
+# sites in this memo before the balance requirement.
+CELL_TOKEN = re.compile(r"(?P<l>\*\*|`)?(?P<id>[0-9A-Za-z]{1,4})(?P<r>\*\*|`)?")
 CELL_SPLIT = re.compile(r"[\s,;/()\[\]·→>+&]+")
 
 
@@ -340,7 +357,7 @@ class Mention:
 
 # A row noun standing between the licensing phrase and the id ("the child of
 # umbrella **3**") must not hide the phrase from the backward look.
-_TRAILING_NOUN = re.compile(r"\b" + ROW_NOUN + r"\s+(?:\*\*|`)*$")
+_TRAILING_NOUN = re.compile(r"\b" + ROW_NOUN + r"[\s-]+(?:\*\*|`)*$")
 
 
 def classify(m):
@@ -359,10 +376,14 @@ def classify(m):
 
 def _anchored(path, lineno, line, umb, off, cell, source, self_id, out, skip_spans=()):
     """Row-noun-anchored ids, plus `#11-` slot ids.  Works on a cell or a whole line."""
+    # The mask applies to the ROW-NOUN pass only.  A slot id is always written
+    # inside backticks, so masking code runs would hide every one of them --
+    # which it did, and the self-test's trigger-cell control is what said so.
+    prose_skip = tuple(skip_spans) + tuple(code_spans(cell))
     for mt in MENTION_PROSE.finditer(cell):
         if mt.group(1) not in umb or mt.group(1) == self_id:
             continue
-        if any(s <= mt.start(1) < e for s, e in skip_spans):
+        if any(s <= mt.start(1) < e for s, e in prose_skip):
             continue
         out.append(classify(Mention(path, lineno, mt.group(1), off + mt.start(),
                                     off + mt.end(), line, source, off + mt.start(1))))
@@ -385,14 +406,17 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
     """
     code = code_spans(cell)
     for tok in CELL_TOKEN.finditer(cell):
-        tid = tok.group(1)
+        tid = tok.group("id")
         if tid not in umb or tid == self_id:
             continue
-        if any(s <= tok.start(1) < e for s, e in code):
+        if any(s <= tok.start("id") < e for s, e in code):
             continue
         if tid.isdigit():
             continue
-        if len(tid) == 1 and tid.isalpha() and tok.group(0) == tid:
+        if tok.group("l") != tok.group("r"):
+            # unbalanced: `**A call ...` opens a bold run, it does not decorate `A`
+            continue
+        if len(tid) == 1 and tid.isalpha() and not tok.group("l"):
             continue
         s, e = tok.start(), tok.end()
         lhs, rhs = cell[:s], cell[e:]
@@ -401,7 +425,7 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
         if rhs and not CELL_SPLIT.search(rhs[0]) and rhs[0] not in "*`'\u2019.:-\u2014":
             continue
         out.append(classify(Mention(path, lineno, tid, off + s, off + e, line,
-                                    source, off + tok.start(1))))
+                                    source, off + tok.start("id"))))
 
 
 def scan_tables(path, memo, umb):
@@ -544,7 +568,8 @@ def assertion_a(memo, findings, notes):
 
 
 def assertion_b(memo, findings, notes):
-    """No umbrella row carries an acceptance condition or a `Deps` edge."""
+    """The `Deps` half of assertion (b).  The acceptance half has no cell to read
+    and is left to (c)/(d)'s natural-language class; see the header."""
     umb = memo.umbrella_ids()
     checked = 0
     for lineno, cells in memo.data_rows("slice"):
@@ -558,7 +583,11 @@ def assertion_b(memo, findings, notes):
         if deps and deps not in {"—", "-", "n/a"}:
             findings.append(("UMBRELLA-CELL", lineno,
                              "umbrella row %r carries a Deps edge: %s" % (rid, deps[:120])))
-    notes.append("[UMBRELLA-CELL] %d §5 umbrella rows checked for a Deps edge" % checked)
+    notes.append(
+        "[UMBRELLA-CELL] %d §5 umbrella rows checked for a Deps edge. "
+        "⚠ HALF of assertion (b): the acceptance half is NOT checked and is not "
+        "mechanisable -- §5 gives acceptance no cell, only prose in the Slice cell. "
+        "A `0` here says nothing about it." % checked)
 
 
 def assertion_cd_seed(memo, findings, notes):
