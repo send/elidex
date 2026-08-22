@@ -186,7 +186,10 @@ class Memo:
 
     # -- carved siblings ---------------------------------------------------
 
-    _LINK = re.compile(r"\]\(([^)\s]+\.md)\)")
+    # A destination may carry a fragment (`child.md#acceptance`); the file is
+    # the part before `#`.  Matching only `.md)` dropped every section-qualified
+    # link, and with it the carved memo behind it, silently.
+    _LINK = re.compile(r"\]\(([^)\s#]+\.md)(?:#[^)\s]*)?\)")
 
     def linked_memos(self):
         """Every `.md` this memo links, resolved beside it, in first-link order.

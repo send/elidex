@@ -2923,10 +2923,10 @@ favour of `#11-step9-class-extras`.
    `Reflect.apply`. Semantics differ (spread's array is compiler-guaranteed dense; `apply` is
    generic array-like per CreateListFromArrayLike). Share the dense fast path or keep separate with
    a stated reason? **Recommendation (added round 8 — this was the only §9 entry with none, and it
-   sits inside the 1a half's deliverable — specifically the child of umbrella 1a that owns the argument-layout and inline-cache contract): share.** `collect_array_like` already has the correct
-   `.or_undefined()` normalisation that child needs, `Reflect.apply` (that child of umbrella 10a) will home there, and
+   sits inside the 1a half's deliverable — specifically the child of umbrella 1a that owns the argument-layout and inline-cache contract): share — for that child only.** `collect_array_like` already has the correct
+   `.or_undefined()` normalisation that child needs, and
    `call_internal` — one of dec. 10's four unrooted windows — is already reached at N≫1 through it,
-   so sharing puts all of that on one audited path. The array-like/dense distinction stays a
+   so sharing puts that on one audited path. ⚠ *This entry once said `Reflect.apply` "will home there" too; that is withdrawn — **dec. 17** resolves the generic path the other way (it must NOT reuse the dense fast path), and dec. 17 is the home of that question.* The array-like/dense distinction stays a
    *caller-side* precondition, not a second helper.
 9. **Slice 0ca sweep method — RESOLVED (executed, not stipulated).** The three-pass sweep is now
    documented and **run** at the head of §2.2, and §2.2 is its output. It earned its keep

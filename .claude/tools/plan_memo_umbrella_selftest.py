@@ -197,6 +197,9 @@ case("POSITIVE-NOVEL", "umbrella id is the LAST token of a link label",
 case("POSITIVE-NOVEL", "a violation in a carved sibling the memo links",
      build(), "See [the walk](slice-9z-sib.md).", 1,
      sibling="Slice 9z lands before Slice 7z.")
+case("POSITIVE-NOVEL", "the sibling link carries a section fragment",
+     build(), "See [the walk](slice-9z-sib.md#acceptance).", 1,
+     sibling="Slice 9z lands before Slice 7z.")
 
 # -------------------------------------------------------------- KNOWN-MISS --
 # These are wrong sites.  The checker does not report them, and that is the
