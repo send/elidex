@@ -90,11 +90,18 @@ use super::{
 /// * the atomics' block-axis target is the line top, which leaves
 ///   **`vertical-align` within the line box** unimplemented. The governing
 ///   section is **CSS 2 §10.8 Line height calculations: the `line-height` and
-///   `vertical-align` properties**. ⚠ Stated positively, because "only
+///   `vertical-align` properties** — ⚠ superseded by **`css-inline-3` §5.3
+///   Calculating the Logical Height Contributions ("Layout Bounds") of Inline
+///   Boxes**, whose strut condition is the broader one; the CSS 2 anchor is kept
+///   because it is the label the rest of this crate uses, and re-anchoring the
+///   crate is `#11-inline-root-inline-box`'s. ⚠ Stated positively, because "only
 ///   `vertical-align` is missing" would be a claim over §10.8's whole
 ///   complement: what **is** implemented and cited elsewhere in this crate is
 ///   §10.8.1 half-leading, and only in the **first-baseline** derivation
-///   (`inline/pack/mod.rs`, `inline/mod.rs`).
+///   (`inline/pack/mod.rs`, `inline/mod.rs`). ⚠ That implementation is
+///   **run-level from a single resolved font** — `measure_text` resolves one
+///   `font_id` — while §10.8.1 is stated **per glyph**, so a mixed-font box is
+///   outside it.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
