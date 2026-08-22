@@ -843,12 +843,14 @@ collected credit for honesty while overstating what the contract forbade.
   the new `inline/reconcile.rs`, and `inline/collect.rs` (one comment, §7). ⚠ **Nothing under
   `.claude/`, and no second `docs/plans/` file** — that is the mechanical statement of the
   narrowing in the preamble, and the cheapest way for a reviewer to confirm it.
-* The slot-ledger actions applied. ⚠ **Their targets are NOT in this repository**, so the diff
-  cannot show them, and since gate #9 the row-by-row ledger lives with them, in
-  `project_seam3-pr508-review-history.md`. §10 carries a target/status index over the same rows, so a clone reader can **see** which rows
-  are owed. ⚠ Seeing is not verifying: §10's own predicate is "checked by reading the target",
-  and the targets are outside the repository. ⚠ **This DoD does not claim the rows
-  marked `still owed` are done** — they are applied at merge, and §10 names which ones.
+⚠ **The agent-memory bookkeeping is deliberately NOT a DoD item.** Its targets are files this
+repository does not track, so this diff cannot make any of them true — a landing operator does,
+separately. Under the preamble's narrowing (*this PR carries only the bookkeeping its own change
+makes true*) that work is not this PR's to declare done, and asserting it here is what produced
+four gates of defects: an in-repo index duplicating an out-of-repo ledger, two copies drifting on
+row keys and markers, and a clone-auditability claim the repository layer cannot have. The
+checklist lives with its targets, in `project_seam3-pr508-review-history.md`, and the landing
+operator reads it there.
 
 ## §9. Out of scope, with disposition
 
@@ -879,7 +881,7 @@ collected credit for honesty while overstating what the contract forbade.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
   decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
-  user-level memory directory (§10 points to it) and a repository-only reader must still be able to tell when
+  user-level memory directory (§10 names the file) and a repository-only reader must still be able to tell when
   this work reopens. `#11-inline-fragmented-fn-seams-1-2`'s trigger, verbatim in substance:
 
   > **Either** the first change, after any of the decorated-inline umbrella's PRs, that touches
@@ -980,30 +982,12 @@ collected credit for honesty while overstating what the contract forbade.
 
 ## §10. Slot ledger actions at landing
 
-The **per-row rationale** lives in `project_seam3-pr508-review-history.md`, in the agent memory
-directory where the rows' targets are. ⚠ **The status index stays here**, because §8's DoD is
-audited from a clone and a bare pointer cannot be: a reader with no access to that directory must
-still be able to see what the landing owes.
+Not carried here. The row-by-row checklist — which targets the landing writes, which it still
+owes, and against what predicate — is `project_seam3-pr508-review-history.md`, in the agent
+memory directory alongside every file those rows act on.
 
-| target | at landing |
-|---|---|
-| `project_inline-fragmented-fn-decomposition.md` | applied — status → PARTIALLY CLOSED, seam 3 discharged |
-| `project_inline-fragmented-fn-seams-1-2.md` | applied — created (the successor slot) |
-| `project_open-defer-slots.md` | applied — source slot partially closed, successor registered `(own)` |
-| the **stale `508` figure**, **and the slot-status clauses beside it** | ⚠ **still owed** — run the key, do not read a list: `grep -rnE -e '508[ -]lines?' -e '508 *行' <memory-dir> --include='*.md'`. ⚠ It also returns the ledger's own quotation of the figure, which is not a target. ⚠ **What it does not reach is an absence and a heading**, both verified: the successor slot is missing from `active-lane-detail.md`'s `▶ OPEN slots` registry (no grep finds an absence), and that registry's heading is not the line the figure sits on. ⚠ **A clause on the *same line* as the figure IS reached** — the ledger records one such claim as measured-false, and an earlier revision of this row made the identical error about `…trip-wire-in-ci-next.md`'s "trigger not yet fired" |
-| `project_inline-mod-split-owed.md` | applied — `:82`'s `783` corrected |
-| `project_line-box-decorated-inline-content.md` | applied — the narrowing written in |
-| `MEMORY.md` — Layout-lane, the "produce this PR" clause | applied — no longer directs producing it |
-| `MEMORY.md` — Layout-lane, the `merge 未` / `converge loop 継続中` clause | ⚠ **still owed** (retired at landing, with the `IN FLIGHT` bullet) |
-| `MEMORY.md` — the `🟡 IN FLIGHT` bullet | ⚠ **still owed** (retired at landing) |
-| `project_pr508-converge-in-flight.md` | ⚠ **still owed** (`#retire-after-migrate`) |
-| `project_inline-css2-static-position-citation-sweep.md` | ⚠ **still owed** — this PR's gate #6 found a `writing-mode` §3.1→§3.2 drift and recorded it there; no other row reaches it |
-
-⚠ **`still owed` means "not yet written into the memory directory"**, checked by reading the
-target — not by reading this table. ⚠ **Rows are not files, and reading the first cells as a file
-list drops owed work**: one row is keyed on a figure, and three act on different clauses of
-`MEMORY.md`. The two targets a file-list reading misses are `active-lane-detail.md` and
-`project_layoutbox-trip-wire-in-ci-next.md`, both still owed, both named only inside the `508`
-row's cell. ⚠ This index is a status view over the ledger's rows; the ledger also carries **open
-findings against its own rows** — including that this row's reach claim was measured false —
-which no row here reproduces.
+⚠ **This section used to carry a status index, and it is deliberately gone.** §8 no longer
+declares that work part of this PR's definition of done, so nothing in the repository consumes an
+index; keeping one meant maintaining the same fact in two places, which drifted on row keys, on
+markers, and on which clauses a key reaches — every gate from #9 to #12 found at least one. One
+home, and it is the one its subjects live in.
