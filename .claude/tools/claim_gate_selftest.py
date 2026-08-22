@@ -327,7 +327,8 @@ def selftest() -> int:
     probe("SECT positive (a defined section)", False,
           capture(check_section_refs, synth("## §4 Design\nsee §4 above\n"), None))
     probe("SECT negative (an undefined section)", True,
-          capture(check_section_refs, synth("## §4 Design\nsee §9 below\n"), None),
+          capture(check_section_refs,
+                  synth("## §4 Design\nclaim-gate-plan-check: see §9 below\n"), None),
           "§9")
     # The umbrella's OWN section references were examined by nothing. CITE runs
     # over both documents and SECT over one, an asymmetry with no reason stated
@@ -336,7 +337,8 @@ def selftest() -> int:
     # heading for, and no run has ever looked at it.
     probe("SECT negative (an undefined section in the UMBRELLA)", True,
           capture(check_section_refs, synth("## §4 Design\nnothing\n"),
-                  synth("## §2 Scope\nsee §9 below\n", "umbrella.md")),
+                  synth("## §2 Scope\nclaim-gate-plan-check: see §9 below\n",
+                        "umbrella.md")),
           "umbrella.md:2")
     probe("SECT positive (a section the umbrella does define, cited in it)", False,
           capture(check_section_refs, synth("## §4 Design\nnothing\n"),
@@ -373,6 +375,31 @@ def selftest() -> int:
     # basename fallback that produces the ambiguity never runs. The assertion
     # below is what said so -- a probe whose fixture is asserted rather than
     # assumed reports its own wrong premise.
+    # The BARE arm is the one thing in this program that is bound to a
+    # per-document convention, and the measurement says no textual
+    # discriminator exists: inside one other-lane memo,
+    # `2026-07-app-mode-turn-completion-drain.md`, bare `§7.4.4` is an HTML
+    # section and bare `§4.2` is that memo's own sub-item, written identically.
+    # Self-numbering does not separate them either -- 61 of 69 memos carry
+    # `## §N` headings of their own and still hold 2364 unresolved refs.
+    #
+    # So the exemption is scoped to the ARM, not to the tool. A tool-wide gate
+    # silenced eleven checks that were correct -- CITE alone reports 645
+    # citations across the tree, sampled and genuine (a deleted crate's path, a
+    # basename resolving to three files) -- in order to quiet this one.
+    probe("SECT bare arm is silent on a memo that does not declare the convention",
+          False, capture(check_section_refs,
+                         synth("## §4 Design\nsee §9 below\n", "other-lane.md"), None))
+    probe("SECT bare arm still fires on a memo that does", True,
+          capture(check_section_refs,
+                  synth("## §4 Design\nclaim-gate-plan-check reads §9 below\n"), None),
+          "§9")
+    probe("SECT attributed arm fires regardless of the convention", True,
+          capture(check_section_refs,
+                  synth("## §4 x\nsee `docs/plans/zz-no-such-memo.md` §2\n",
+                        "other-lane.md"), None),
+          "no tracked file")
+
     _AMBIG = "SKILL.md"
     probes.append((f"SECT: `{_AMBIG}` really is ambiguous in this tree",
                    len(host.resolve(_AMBIG)) > 1, f"{len(host.resolve(_AMBIG))} hits"))
@@ -1101,43 +1128,34 @@ def selftest() -> int:
                    f"roster−codes={sorted(_roster - _codes)} "
                    f"codes−roster={sorted(_codes - _roster)}"))
 
-    # Applicability, both directions, against the real entry point. The gate is
-    # what turns "all 68 plan-memos exit 1" into "0 of 68".
+    # Applicability, both directions, against the real entry point. There is no
+    # tool-wide gate any more: a memo that does not name this program is still
+    # CHECKED, by every check whose subject it has. What used to happen was the
+    # opposite -- one arm of SECT was convention-bound, so all twelve declined,
+    # and `CITE`'s 645 genuine findings across the tree went unreported.
     _subj = host.REPO / "docs" / "plans" / "zz-probe-subject.md"
     try:
-        _subj.write_text("# probe\n\nA memo about something else entirely.\n")
+        _subj.write_text("# probe\n\nIt cites `docs/plans/zz-no-such-memo.md:9` "
+                         "and §9, and names this program nowhere.\n")
         _rc, _out = sh([sys.executable, str(REPO / ".claude" / "tools" /
                         "claim-gate-plan-check.py"), str(_subj.relative_to(REPO))])
-        probes.append(("APPLICABILITY a memo that does not name this tool is declined",
-                       _rc == 0 and "check(s) not run" in _out, f"rc={_rc}"))
-        # A decline is non-coverage, and this program's rule for non-coverage is
-        # that it goes through `skip()` and is counted on the closing line --
-        # `0 finding(s)` printed by a run in which nothing executed is the shape
-        # `skip()` exists for. The decline printed a sentence a human reads and
-        # left the machinery saying nothing, so a declined run and a clean one
-        # produced the same closing line.
-        #
-        # In-process as well as out, and not for redundancy: the subprocess arm
-        # can only read rc and stdout, so it cannot say WHICH checks declined,
-        # and `--arm-coverage` cannot see a `skip()` taken in a child. Both were
-        # true of the first version of this probe, which left the new site
-        # unfired by anything the tracer could observe.
-        # `main` prints its summary; a probe is not a place to print one, and
-        # the suite's own output is compared line-for-line elsewhere.
-        with contextlib.redirect_stdout(io.StringIO()):
-            _declined = capture_skipped(lambda: host.main(["x", str(_subj)]))
-        _want = sorted(host.finding_codes())
-        _got = sorted({d.split(" — ")[0] for d in _declined})
-        probes.append(("…declining names every code the program can report",
-                       _got == _want and len(_want) >= 12,
-                       f"{len(_got)} of {len(_want)}"
-                       + (f"; missing {sorted(set(_want) - set(_got))}"
-                          if set(_want) - set(_got) else "")))
+        probes.append(("APPLICABILITY a memo not naming this tool is still checked",
+                       _rc == 1 and "[CITE]" in _out, f"rc={_rc}"))
+        probes.append(("…but SECT's convention-bound arm stays quiet on it",
+                       "[SECT]" not in _out,
+                       next((l.strip()[:70] for l in _out.split("\n")
+                             if "[SECT]" in l), "(quiet)")))
+        # And the checks that CAN lack a subject report that they did not run,
+        # rather than the tool reporting it once for all twelve.
+        probes.append(("…and a check with no subject here says so through skip()",
+                       "not run: PAIR" in _out,
+                       next((l.strip()[:70] for l in _out.split("\n")
+                             if "not run: PAIR" in l), "(absent)")))
         _subj.write_text("# probe\n\nRun `claim-gate-plan-check` on it.\n\n"
                          "## §4 x\n\nIt cites §9.\n")
         _rc2, _out2 = sh([sys.executable, str(REPO / ".claude" / "tools" /
                           "claim-gate-plan-check.py"), str(_subj.relative_to(REPO))])
-        probes.append(("APPLICABILITY a memo that does name it is checked",
+        probes.append(("APPLICABILITY a memo that does name it gets the bare arm too",
                        _rc2 == 1 and "[SECT]" in _out2, f"rc={_rc2}"))
     finally:
         _subj.unlink(missing_ok=True)
@@ -1176,12 +1194,38 @@ def selftest() -> int:
     # Each is a `ban_control` by this program's own definition, and the file's
     # opening sentence asserted the opposite of their existence.
     # ------------------------------------------------------------------
-    probe("PAIR negative (a memo with no §2 at all)", True,
-          capture(check_pairs, synth("## §4 x\n\nNothing pairwise here.\n")),
+    # A memo with no §2 has no pairwise table to be exhaustive about, which is
+    # a check with no subject rather than a memo with a defect. It used to
+    # `bad()`, and that -- with SECT's bare arm -- is what made the tool exit 1
+    # on all sixty-nine plan-memos and made a TOOL-wide applicability gate look
+    # like the remedy. The population is per check, and this one knows.
+    probe("PAIR does not fail a memo that has no §2 to enumerate", False,
+          capture(check_pairs, synth("## §4 x\n\nNothing pairwise here.\n")))
+    probe("  …it says so through skip()", True,
+          capture_skipped(check_pairs, synth("## §4 x\n\nNothing pairwise here.\n")),
           "no §2")
-    probe("PAIR negative (§2 with a single invariant has no pairs to enumerate)", True,
-          capture(check_pairs, synth("## §2 Coupled invariants\n\n"
-                                     "| **I1** | invariant 1 | forces something |\n")),
+    # A §2 that lists invariants and accounts for NO pair is not an incomplete
+    # accounting; it is a memo that never claimed to make one. Measured: 77
+    # findings across the tree, all of the form "never accounts for I1×I2",
+    # concentrated in four other-lane memos that tabulate invariants without a
+    # pairwise section at all. A memo that accounts for SOME pairs and misses
+    # others is still a finding -- the probes above are that case.
+    _NO_ACCT = ("## §2 Coupled invariants\n\n"
+                "| **I1** | invariant 1 | forces something |\n"
+                "| **I2** | invariant 2 | forces something |\n"
+                "| **I3** | invariant 3 | forces something |\n")
+    probe("PAIR does not fail a §2 that accounts for no pair at all", False,
+          capture(check_pairs, synth(_NO_ACCT)))
+    probe("  …it says so through skip() as well", True,
+          capture_skipped(check_pairs, synth(_NO_ACCT)),
+          "no pairwise accounting")
+
+    _ONE_INV = ("## §2 Coupled invariants\n\n"
+                "| **I1** | invariant 1 | forces something |\n")
+    probe("PAIR does not fail a §2 with a single invariant", False,
+          capture(check_pairs, synth(_ONE_INV)))
+    probe("  …it says so through skip() too", True,
+          capture_skipped(check_pairs, synth(_ONE_INV)),
           "nothing to pair")
     probe("PAIR negative (a pair naming an invariant §2 does not define)", True,
           capture(check_pairs, synth(SYNTH_PAIRS + "\n| I1 × I9 | intersection |")),
@@ -1313,6 +1357,16 @@ def selftest() -> int:
     probe("SUMMARY states the zero rather than omitting the count", True,
           [ln for ln in with_skips([]) if "check(s) not run" in ln],
           "0 check(s) not run")
+
+    # The probe fixture is a TRACKED file, and the last thing written to it was
+    # whatever the final negative probe planted -- so the tree carried a §8.3
+    # paste that disagrees with what preflight prints, and `PREFLIGHT` reported
+    # it on every corpus run. A suite that leaves a planted-false artifact in
+    # the tree is producing the exact defect this program exists to catch, one
+    # directory over from the memo it checks. Restored, and asserted restored.
+    _restored = write_probe(PREFLIGHT_FIXTURE + run_preflight_block(PREFLIGHT_FIXTURE))
+    probe("the tracked probe fixture is left true, not left planted", False,
+          capture(check_preflight, _restored))
 
     width = max(len(p[0]) for p in probes)
     failed = 0
