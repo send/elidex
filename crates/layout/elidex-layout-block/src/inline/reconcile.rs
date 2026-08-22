@@ -52,8 +52,17 @@ use super::{
 ///
 /// ⚠ **Behaviour is not at risk.** The two early returns are reached on
 /// `items.is_empty()` / no-usable-font, inputs that do not depend on `is_probe`,
-/// so a probe and the definitive pass reach them identically; and a carrier left
-/// behind is never read by render (see [`elidex_ecs::ColumnFlowSlice`]).
+/// so a probe and the definitive pass reach them identically. ⚠ **That is the
+/// whole of the safety argument, and it does not extend to a carrier left
+/// behind.** Render never reads [`elidex_ecs::ColumnFlowSlice`] *directly*, but
+/// that is not the same as inert: `elidex-layout-multicol`'s
+/// `fill.rs` drains it unconditionally into a `FragmentSnapshot`, and
+/// `position_column_fragments` folds those lines into a render-visible
+/// `InlineFlow`. The drain is safe because of an invariant stated there — the
+/// IFC re-ran for this column just above, overwriting any prior carrier — and a
+/// carrier on a *nested* IFC container sits outside that invariant. Whether a
+/// stale one can reach the drain is `#11-inline-fragmented-fn-seams-1-2`'s to
+/// settle; **it is not asserted benign here.**
 /// ⚠ **No claim is made here about which terminal path removes it.** The
 /// component's own docstring says drain-within-one-pass; `elidex-layout-multicol`
 /// additionally clears the self-carrier case; and a carrier written on a *nested*

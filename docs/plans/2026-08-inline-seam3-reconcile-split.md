@@ -78,9 +78,10 @@ does not belong here.
       §5.3.1 itself embeds. The total therefore tracks neither §3's rows nor the memo's `N entries`
       claims alone.
     * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks.
-    * **the label warning is not noise, and the scope of that is exactly two labels.**
-      `SPEC_LABEL_REVERSE` does not map **`CSS 2`** or **`css-writing-modes-4`** — this table's two —
-      so both §3 rows land in `unmapped-label rows` and the run reports `parsed citations: 0`, i.e.
+    * **the label warning is not noise.** ⚠ **Do not state which labels or how many** — run
+      `preflight.py` and read `unrecognized labels` / `unmapped-label rows`; the set grows with the
+      table. Today `SPEC_LABEL_REVERSE` maps none of the labels §3 carries,
+      so every §3 row lands in `unmapped-label rows` and the run reports `parsed citations: 0`, i.e.
       **the §3 citation gate is vacuous *for this memo***. Its warning count therefore rises with
       §3's row count and says nothing about §3's correctness. ⚠ **Not "no CSS-module label is
       mapped", and not a claim about other plan-memos**: `preflight.py:62` maps
@@ -330,6 +331,7 @@ numbers and conflating them misclassified a row:
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
+| css-inline-3 §1.1 Module Interactions | the supersession ground | `css-inline-3` *"replaces and extends the CSS inline layout model and features defined in [CSS2] section 10.8"* | **authored by this PR** in the `reconcile_flows` docstring, as the citation that licenses anchoring on `css-inline-3` rather than CSS 2 §10.8. Pair verified with `.claude/tools/webref heading css-inline-3 1.1` | ✓ | no |
 | css-inline-3 §4.2 Transverse Box Alignment: the vertical-align property | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top | **authored by this PR** in the `reconcile_flows` docstring, as the current anchor for the gap CSS 2 §10.8 states in superseded form (`css-inline-3` §1.1 *"replaces and extends … [CSS2] section 10.8"*). Pair verified with `.claude/tools/webref heading css-inline-3 4.2` | ✓ | yes |
 | css-inline-3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | the half-leading derivation | run-level from one resolved font; §5.3's *normal* branch (the default) wants every glyph's A and D | **authored by this PR** in the same docstring, as §10.8.1's current statement. Pair verified with `.claude/tools/webref heading css-inline-3 5.3` | ✓ | yes |
 | CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **dual**: the body comment at `:480-481` moves verbatim (no code touched), **and** this PR authors a second instance in the `reconcile_flows` docstring — the only one carrying the full §number↔title pair (⚠ **the enumerator must be case-insensitive AND newline-tolerant**, because this very title
