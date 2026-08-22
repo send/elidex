@@ -8,6 +8,27 @@
 # `citations`, `couplings`, `budget`, `lanes` -- and `_proto`, which `budget`
 # also calls, are in `-common.sh`.
 
+# A gate VERDICT is a line the gate prints, not an exit status. `preflight.py`'s
+# `main()` returns 0 or 1 -- but python also exits 1 on an unhandled exception
+# (import error, parse error, traceback), so `rc <= 1` certifies a crash as a
+# reading. Codex R3 reproduced it: `python3` shadowed by a process that prints a
+# traceback and exits 1 gave 18 rows of `EXIT=1` and `column` returned 0. The
+# verdict vocabulary is read off preflight.py's RETURN SITES, not off sample
+# output (a first draft keyed on `citation verify:` and flagged every passing
+# fixture with zero parsed citations, which prints the summary without that line):
+# `return 0` happens once, after the summary whose last line is `split decision:`;
+# every `return 1` follows a `preflight: ❌ HARD FAIL` print except the
+# plan-memo-not-found path, which is not a verdict either. Output with neither is
+# not a verdict, whatever the status says. One predicate, three callers
+# (`column`, `carvecolumn`, `remedies`) -- the exit-code-only test had three copies.
+_verdict() {  # _verdict <rc> <output> — 0 iff the gate RAN and printed a verdict
+  case "$1" in
+    0) printf '%s\n' "$2" | grep -q 'split decision:' ;;
+    1) printf '%s\n' "$2" | grep -q 'preflight: ❌ HARD FAIL' ;;
+    *) return 1 ;;
+  esac
+}
+
 column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI states
   # The "map" axis does not exist on origin/main (a module-local dict with no
   # import to fail), which is why §5's rows 6-9/14 read n/a there. The CLI axis
@@ -31,8 +52,8 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
       out=$( cd "$T" && python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1 ); rc=$?
       printf '%-8s %-18s EXIT=%d  %s\n' "$st" "$f" "$rc" \
         "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*' | head -1)"
-      [ "$rc" -le 1 ] || { echo "       !! EXIT=$rc is not a verdict — the gate did not RUN on this row."
-                           failed=1; }
+      _verdict "$rc" "$out" || { echo "       !! EXIT=$rc with no verdict line — the gate did not RUN on this row."
+                                 failed=1; }
     done
     [ "$st" = nocli ] && mv "$T/.shim" "$T/.claude/tools/webref"
   done
@@ -54,8 +75,8 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
     out=$(python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1); rc=$?
     printf '%-18s EXIT=%d  %s\n' "$f" "$rc" \
       "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*|⚠ unrecognized.*' | head -1)"
-    [ "$rc" -le 1 ] || { echo "   !! EXIT=$rc is not a verdict — the carve's gate did not RUN here."
-                         failed=1; }
+    _verdict "$rc" "$out" || { echo "   !! EXIT=$rc with no verdict line — the carve's gate did not RUN here."
+                               failed=1; }
   done
   rm -rf "$F"
   return "$failed"
@@ -204,8 +225,8 @@ remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is a
   pfrc=$?
   printf '%s\n' "$out" | grep -E 'unrecognized|extend|SPECS|unmapped|citation verify'
   echo "EXIT=$pfrc"
-  [ "$pfrc" -le 1 ] || { echo "!! EXIT=$pfrc — the gate did not RUN; no remedy string above was measured."
-                         rc=1; }
+  _verdict "$pfrc" "$out" || { echo "!! EXIT=$pfrc with no verdict line — the gate did not RUN; no remedy string above was measured."
+                               rc=1; }
   git worktree remove --force "$T"; rm -rf "$F" "$R"
   return "$rc"
 }

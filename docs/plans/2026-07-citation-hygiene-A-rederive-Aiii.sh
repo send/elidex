@@ -114,7 +114,23 @@ ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
   fi
   echo "-- main-protection ($id), in detail --"
   _measure n_detail gh api "repos/send/elidex/rulesets/$id" --jq \
-    '{rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode]}' || failed=1
+    '{rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode], scope: .conditions.ref_name}' || failed=1
   _measured
+  # The NAME `main-protection` does not make it main's ruleset: a ruleset's ref
+  # scope is `conditions.ref_name.include/exclude`, and a ruleset named for main
+  # that targets other branches would still pass everything above (Codex R3).
+  # `main` is in scope iff `include` names it -- literally, or as
+  # `~DEFAULT_BRANCH` while the repo's default branch IS main -- and `exclude`
+  # does not. Both halves are READ, not recalled.
+  local scope def n_def
+  scope=$(_measured | jq -c '.scope')
+  _measure n_def gh api repos/send/elidex --jq '.default_branch' || failed=1
+  def=$(_measured | tr -d '[:space:]')
+  if ! printf '%s' "$scope" | jq -e --arg def "$def" \
+       '(.include | index("refs/heads/main") != null or (index("~DEFAULT_BRANCH") != null and $def == "main"))
+        and (.exclude | index("refs/heads/main") == null)' >/dev/null; then
+    echo "!! main-protection does not select main: scope=$scope default_branch=$def"
+    failed=1
+  fi
   return "$failed"
 }
