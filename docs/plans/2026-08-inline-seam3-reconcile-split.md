@@ -980,10 +980,22 @@ collected credit for honesty while overstating what the contract forbade.
   §3's §9.4.2 sentence records the **landed text refusing** §9.4.2, not the PR body proposing it,
   so the two are different facts about the same section number. ⚠ The PR body also carries an
   *earlier revision* of the additions (`collect.rs` → §9.2.2.1, `styled_run.rs` → §9.4.2), not the
-  pair that landed and was withdrawn (§9.2 / §9.2.2). ⚠ **Not routed to a slot, and that is the
-  disposition, not an omission**: the class is a property of the *residue's* algorithm, not of the
-  move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
-  defence against an *incorrect* citation, which is a different class.
+  pair that landed and was withdrawn (§9.2 / §9.2.2). ⚠ **Routed to
+  `#11-inline-fragmented-fn-seams-1-2`**, whose entry carries it. An earlier revision said "not
+  routed to a slot, and that is the disposition, not an omission … it reopens when the algorithm is
+  next authored — not on a date"; **acceptance and reopening are different dispositions and it
+  asserted both**, which makes it an untracked future-work deferral rather than a terminal accept.
+  ⚠ **The slot's trigger reaches this class**, which
+  [[feedback_enumerated-exemptions-leave-the-next-class-authoritative]] says to verify rather than
+  assert: disjunct 3 fires on any change touching `inline/reconcile.rs`, and the docstring there
+  names *"the uncited spec-governed prose **inside the body**"* — so the moved-body members are
+  reached even by a change confined to that file. Disjunct 1 (the residue) reaches the rest.
+  ⚠ **Do not sharpen this into a per-member file split by grepping the concern names**: those
+  strings occur in both files, but they occur in *prose about* the concerns as well as in the code,
+  so word presence is not concern location. An earlier revision of this sentence claimed "neither
+  disjunct alone covers it" on exactly that grep; every term in fact hits `reconcile.rs`, so the
+  claim was false and the method could not have established it either way. ⚠ It is also
+  **not** a defence against an *incorrect* citation, which is a different class.
 
 * **CSS 2 §10.8 is superseded, and the instance this PR authored is re-anchored.**
   `css-inline-3` §1.1 *Module Interactions* says the module *"replaces and extends the CSS inline
