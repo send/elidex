@@ -31,6 +31,18 @@
 # One predicate, four callers (`column`, `carvecolumn`, `remedies`,
 # `armmatrix`'s `_row`) -- the exit-code-only test had three copies and `_row`
 # had none (Codex R4).
+# The gate verifies a citation through `webref heading`, which serves from a
+# cache and, cold, from the network. A block that runs the gate on the mapped
+# fixture rows therefore has a PRECONDITION -- the lookup the rows make can run
+# here -- and a cold cache or no network makes every verified row a HARD FAIL
+# that is about the environment, not the gate (Codex R12). Measured once, loud.
+_webref_warm() {
+  local n
+  _measure n .claude/tools/webref heading --exact html 4.10.21 \
+    || { echo "!! webref lookup unavailable (cold cache / offline) — the baseline rows are NOT MEASURABLE here"; return 1; }
+  return 0
+}
+
 _verdict() {  # _verdict <rc> <output> — 0 iff the gate RAN and printed a verdict
   case "$1" in
     0) printf '%s\n' "$2" | grep -q 'Spec coverage map preflight' ;;
@@ -55,15 +67,46 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
   local T; T=$(mktemp -d)
   git worktree add -q "$T" "$MAIN" || { echo "!! cannot create the $MAIN worktree"; return 1; }
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
+  # The rows verify citations through `webref`, which reads a cache and, cold,
+  # the network: a cold cache turns row 1 into `EXIT=1` with a well-formed
+  # HARD FAIL -- a verdict about the environment, certified as the gate's
+  # (Codex R12). The precondition is measured once, before any row: if the
+  # lookup cannot run, the baseline is NOT MEASURABLE here, which is a failed
+  # measurement rather than a reading.
+  _webref_warm || { git worktree remove --force "$T"; rm -rf "$F"; return 1; }
+  # Every cell §5's `origin/main` column tabulates is asserted, exit and all
+  # (`_verdict` alone accepts ANY well-formed verdict -- Codex R12); the
+  # `--no-verify` rows (2, 5) and `malformed.md` (16) are run too, which this
+  # loop never did. A cell §5 does not tabulate carries no claim.
+  local f mode st
   for st in both nocli; do
     [ "$st" = nocli ] && mv "$T/.claude/tools/webref" "$T/.shim"
-    for f in labelled dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker; do
-      local out rc
-      out=$( cd "$T" && python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1 ); rc=$?
-      printf '%-8s %-18s EXIT=%d  %s\n' "$st" "$f" "$rc" \
+    for f in labelled labelled:--no-verify dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker malformed; do
+      mode=""; case "$f" in *:*) mode=${f#*:}; f=${f%%:*} ;; esac
+      local out rc want
+      out=$( cd "$T" && python3 "$PF" --no-grep-pass $mode "$F/$f.md" 2>&1 ); rc=$?
+      printf '%-8s %-18s %-12s EXIT=%d  %s\n' "$st" "$f" "$mode" "$rc" \
         "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*' | head -1)"
       _verdict "$rc" "$out" || { echo "       !! EXIT=$rc with no verdict line — the gate did not RUN on this row."
                                  failed=1; }
+      case "$st/$f/$mode" in                       # §5 `origin/main` column, by row
+        both/labelled/)            want=0 ;;  # 1
+        both/labelled/--no-verify) want=0 ;;  # 2
+        both/dedup/)               want=0 ;;  # 2b
+        nocli/labelled/)           want=1 ;;  # 3
+        nocli/unlabelled/)         want=0 ;;  # 4
+        nocli/labelled/--no-verify) want=0 ;; # 5
+        both/alias/)               want=0 ;;  # 10
+        both/allunmapped/)         want=0 ;;  # 11
+        both/unlabelled/)          want=0 ;;  # 11b
+        both/nospec/)              want=1 ;;  # 12
+        both/nospec-and-header/)   want=1 ;;  # 12b
+        both/nospec-and-table/)    want=0 ;;  # 13
+        both/fenced-marker/)       want=0 ;;  # 15
+        both/malformed/)           want=1 ;;  # 16
+        *)                         want="" ;;
+      esac
+      [ -z "$want" ] || [ "$rc" = "$want" ] || { echo "       !! EXIT=$rc, §5's origin/main column says $want"; failed=1; }
     done
     [ "$st" = nocli ] && mv "$T/.shim" "$T/.claude/tools/webref"
   done
@@ -162,8 +205,11 @@ try:
     print("    map import       = OK")
 except Exception as e:
     print("    map import       = FAIL:", type(e).__name__)
-r = subprocess.run([sys.executable, str(W), "heading", "--exact", "html", "4.10.21"],
-                   capture_output=True, text=True)
+# `--help` is the CLI axis without the network: it exercises the shim's file and
+# its import of `_webref` (which is what `[a]` and `[c]` remove) and nothing a
+# cold cache can turn RED (Codex R12: `heading` made the intact axis read
+# invalid with upstream unavailable).
+r = subprocess.run([sys.executable, str(W), "--help"], capture_output=True, text=True)
 print("    CLI subprocess   = rc", r.returncode)
 # One machine-readable line per probe, for the comparison below.
 print("PROBE is_file=%s map=%s cli=%s" % (W.is_file(), "OK" if "shortname_for" in dir() else "FAIL",

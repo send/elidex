@@ -67,9 +67,14 @@ offline() {  # B §4.1.7 — the SystemExit escape the offline boundary rests on
   # it is Slice B's: at A-i's head `spec_labels` has no `_catalog` (A-i's K3),
   # so it reads `returned: None` and is RED until B restores the fall-through
   # -- an expected, owner-routed RED, recorded in A-i §13.1.
-  python3 - <<'PY'
+  # The precondition is an EMPTY cache: a fixed `/tmp` path persists across runs
+  # and users and can hold a valid catalog, satisfying the lookup without ever
+  # touching the poisoned `urlopen` (Codex R12). Fresh directory, removed after.
+  local C; C=$(mktemp -d) || { echo "!! cannot create an empty cache dir"; return 1; }
+  local rc=0
+  XDG_CACHE_HOME="$C" python3 - <<'PY' || rc=1
 import sys, urllib.request, urllib.error, os
-os.environ["XDG_CACHE_HOME"] = "/tmp/empty-cache-rederive"; sys.path.insert(0, ".claude/tools")
+sys.path.insert(0, ".claude/tools")
 urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("offline"))
 from _webref import spec_labels
 escaped = False
@@ -82,7 +87,8 @@ if not escaped:
     print("!! no SystemExit escaped — B §4.1.7's reading does not hold at this head (no catalog fall-through)")
     sys.exit(1)
 PY
-  return $?    # the heredoc'd command IS the measurement; say so
+  rm -rf "$C"
+  return "$rc"    # the heredoc'd command IS the measurement; say so
 }
 
 bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read

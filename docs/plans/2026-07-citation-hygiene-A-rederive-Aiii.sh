@@ -86,17 +86,22 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
   # `__init__.py`; the Python 3.9+ discovery contract the floor admits), so a
   # suite in `<root>/fixtures/test_x.py` passed the prefix test above and was
   # still never run (Codex R9). The package chain is checked for every file.
-  local uncollected
-  uncollected=$(printf '%s\n' "$_MEASURE_OUT" | python3 -c '
+  # The checker is a `_measure`d command: a python that cannot start is a
+  # validation that never ran, and an empty capture from it read as "every
+  # suite is collectable" (Codex R12, reproduced with python3 at exit 127).
+  local files n_unc uncollected
+  files=$_MEASURE_OUT
+  _measure n_unc python3 -c '
 import os, sys
 ROOTS = (".claude/tools/_webref", ".claude/skills/elidex-plan-review")
-for f in sys.stdin.read().split():
+for f in sys.argv[1].split():
     root = next(r for r in ROOTS if f.startswith(r + "/"))
     d = os.path.dirname(f)
     while d != root:
         if not os.path.isfile(os.path.join(d, "__init__.py")):
             print(f"{f}  (no __init__.py in {d})"); break
-        d = os.path.dirname(d)')
+        d = os.path.dirname(d)' "$files" || return 1
+  uncollected=$(_measured)
   [ -z "$uncollected" ] || { echo "!! suite(s) under a root but below a non-package directory — discover never reaches them:"; printf '%s\n' "$uncollected" | sed 's/^/     /'; return 1; }
   return 0
 }
@@ -126,8 +131,11 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
     printf '%s\n' "$ci" | awk -v j="$j" '$0 ~ "^  "j":$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    needs: changes/ {ok=1} END {exit !ok}' \
       || { echo "!! job \`$j\` is not gated on \`changes\` — §4.1's 'all three jobs gated' no longer holds"; rc=1; }
   done
-  printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    (needs|if):/ {g=1} END {exit g}' \
-    || { echo "!! \`trip-wires\` is gated — §9's 'ungated since #496' no longer holds"; rc=1; }
+  # A missing job is not an ungated one: the claim is "present AND ungated",
+  # and an awk that never saw the header exited 0 on the pre-#496 workflow
+  # (Codex R12). Both halves are required.
+  printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    (needs|if):/ {g=1} END {exit (!f || g)}' \
+    || { echo "!! \`trip-wires\` is absent or gated — §9's 'present and ungated since #496' no longer holds"; rc=1; }
   # "invokes" = a `run:` step naming the binary; the path filter's `mise.toml`
   # entry is a FILE, and a bare-word grep flagged it (caught on the first run).
   # A step's command is the WHOLE scalar, block-scalar bodies (`run: |` …)
