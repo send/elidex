@@ -56,18 +56,22 @@ through it on every call and never imported by name: the probe file REBINDS
 once here would append to the list that was swapped out, `capture()` would
 return empty, and every negative probe would silently invert.
 
-The same call-time rule runs the other way for the two globals the probe file
-swaps -- `SELFTEST_FILE` and `deleted_on_branch`. They live HERE, so a probe
-that rebinds them on `host` changes a name nothing reads; both are reached as
-attributes of this module. `SELFTEST_FILE` is for that reason NOT re-exported
-by the entry point: an alias there would publish the very name rebinding does
-nothing to.
+The same call-time rule runs the other way for the globals the probe file
+swaps. `SELFTEST_FILE` lives HERE, so a probe that rebinds it on `host` changes
+a name nothing reads; it is reached as an attribute of this module, and for that
+reason NOT re-exported by the entry point -- an alias there would publish the
+very name rebinding does nothing to. `deleted_on_branch` obeyed the same rule
+from this file until the git plumbing moved to `claim_gate_git`; the rule did
+not change, only which module owns the name, and `check_paths` reaches it as an
+attribute there so a probe swaps it there.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 from types import ModuleType
+
+import claim_gate_git
 
 host: ModuleType  # bound by the entry point at import time
 # Annotations below spell the memo type `host.Memo`, not `Memo`: the class
@@ -328,31 +332,8 @@ GONE_ROW = re.compile(r"^-[ \t]+`([^`\n]+)`[ \t]+—[ \t]+(\S.*)$", re.M)
 GONE_SECTION = "0.1"
 
 
-def gone_from(log_out: str, tracked: set[str]) -> list[str]:
-    """The deletion log, minus what is back. A path deleted in one commit of the
-    range and restored in a later one is not a file this branch removes, and
-    `--diff-filter=D` names it either way -- so the tree decides, not the log.
-    Split out from the git plumbing so the subtraction has a control."""
-    return sorted({p for p in log_out.split("\n") if p and p not in tracked})
-
-
-def deleted_on_branch() -> list[str] | None:
-    """Paths `origin/main..HEAD` removes and the working tree does not have back.
-
-    None when the range cannot be formed -- no `origin/main` in this clone, or a
-    HEAD unrelated to it. The caller reports that rather than reading an empty
-    answer as a clean one, which is `host.skip()`'s whole reason for existing."""
-    if host.sh(["git", "rev-parse", "--verify", "--quiet", "origin/main"])[0] != 0:
-        return None
-    rc, out = host.sh(["git", "log", "origin/main..HEAD", "--diff-filter=D",
-                  "--name-only", "--format="])
-    if rc != 0:
-        return None
-    return gone_from(out, {x for x in host.sh(["git", "ls-files"])[1].split("\n") if x})
-
-
 def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
-    gone = deleted_on_branch() if gone is None else gone
+    gone = claim_gate_git.deleted_on_branch() if gone is None else gone
     if gone is None:
         host.skip("PATHS", "`origin/main..HEAD` could not be formed in this clone, so "
                       "no file this branch deletes was compared against what the "
@@ -393,10 +374,30 @@ def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
     # file. A row for a file some OTHER branch removed is not parking -- the
     # tree does not have it, so the memo's sentences about it are still about an
     # absent file, which is all the row asserts.
+    #
+    # It asks only that, though, and a row's subject can be absent for two
+    # reasons: the file was removed, or the path was never a file. Both answer
+    # "no" to "did it come back", so a misspelling parked in total silence --
+    # measured, before the arm below existed: `claim_gate_grammer.py` declared
+    # and named outside the section, zero findings. That is the parking lot this
+    # module's header says a ledger must not become, opened by the very re-key
+    # that closed the delayed fuse. History is what separates the two cases, and
+    # `removed_in_history` reports rather than deciding when it cannot be asked.
     for path in declared:
         if host.resolve(path):
             host.bad("PATHS", f"§{GONE_SECTION} declares `{path}` as removed, and "
                               f"`git ls-files` resolves it — the row's subject is "
                               f"back in the tree, so the section is parking a "
                               f"citation rather than recording one")
+            continue
+        ever = claim_gate_git.removed_in_history(path)
+        if ever is None:
+            host.skip("PATHS", f"this clone's history cannot say whether `{path}` "
+                               f"was ever removed, so §{GONE_SECTION}'s row for it "
+                               f"was not checked for having a subject at all")
+        elif not ever:
+            host.bad("PATHS", f"§{GONE_SECTION} declares `{path}` as removed, and no "
+                              f"commit reachable from HEAD ever removed it — the row "
+                              f"names nothing, so a misspelling or an invented path "
+                              f"reads here as a record")
 

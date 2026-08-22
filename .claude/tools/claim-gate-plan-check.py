@@ -150,8 +150,14 @@ sys.path.insert(0, str(SKILL))  # preflight.py imports grep_pass as a sibling
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# `claim_gate_git` is the lowest layer: every question this program puts to git,
+# with one answer per question. It is first because three checks had been asking
+# the same question three ways -- that file's header states the convention and
+# what the disagreement cost.
+import claim_gate_git  # noqa: E402
 import claim_gate_selftest  # noqa: E402
 
+claim_gate_git.host = sys.modules[__name__]
 claim_gate_selftest.host = sys.modules[__name__]
 
 FAILS: list[str] = []
@@ -533,13 +539,14 @@ def changes_the_wire_set() -> bool | None:
     `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` takes the same seventeen.
     Both probes varied naming and shipping TOGETHER, so the discriminating arm
     -- names one, ships none -- did not exist.
-    (memory `feedback_gate-criterion-by-behaviour-not-by-name`.)"""
-    if sh(["git", "rev-parse", "--verify", "--quiet", "origin/main"])[0] != 0:
-        return None
-    rc, out = sh(["git", "diff", "--name-only", "origin/main...HEAD"])
-    if rc != 0:
-        return None
-    return any(WIRE_FILE.match(x) for x in out.split("\n") if x)
+    (memory `feedback_gate-criterion-by-behaviour-not-by-name`.)
+
+    Rename detection used to hide the removal half: a wire renamed out of the
+    set reported only its destination, so the branch that took the last wire
+    away answered False. `claim_gate_git` disables it for every derivation, for
+    that reason at every one of them."""
+    paths = claim_gate_git.changed_paths()
+    return None if paths is None else any(WIRE_FILE.match(x) for x in paths)
 
 
 def wire_set_lines() -> list[tuple[str, int, str]]:
@@ -708,10 +715,15 @@ def check_tooling_quantities(memo: Memo) -> None:
     # `main` the range is empty, which is the honest answer there.
     subject = tooling_subject()
     derivable: dict[str, int | None] = {}
-    rc, out = sh(["git", "rev-list", "--count", "origin/main..HEAD"])
-    derivable["commits"] = int(out.strip()) if rc == 0 and out.strip() else None
-    rc, out = sh(["git", "diff", "--name-only", "origin/main..HEAD"])
-    derivable["files"] = len([x for x in out.split("\n") if x]) if rc == 0 else None
+    derivable["commits"] = claim_gate_git.commit_count()
+    # Three dots. This read `origin/main..HEAD` -- a two-dot DIFF, which
+    # compares tips -- so files `main` gained after the branch point counted as
+    # files this branch changed, and the figure drifted upward every time main
+    # moved. A decaying number, inside the check that exists to catch decaying
+    # numbers, in the one derivation whose sibling two lines up is two-dot for a
+    # reason that does not transfer. `claim_gate_git` states the convention.
+    _paths = claim_gate_git.changed_paths()
+    derivable["files"] = None if _paths is None else len(_paths)
     # `checks` is the set of finding CODES across every file the program ships,
     # not `^def check_` in one of them. Both splits narrowed this silently: the
     # entry point held ten checks before FENCE and TRANSCRIPT moved out and
@@ -898,12 +910,14 @@ claim_gate_ledgers.host = sys.modules[__name__]
 # name that module's header warns rebinding does nothing to.
 implemented_controls = claim_gate_ledgers.implemented_controls
 check_controls = claim_gate_ledgers.check_controls
-gone_from = claim_gate_ledgers.gone_from
+gone_from = claim_gate_git.gone_from
 # `deleted_on_branch` is withheld for the same reason as `SELFTEST_FILE`, and
 # was published here anyway: the rule was stated for both names and applied to
 # one. A probe rebinding it through this alias changed a name `check_paths`
 # never resolves, so the stub was ignored and the check ran the real git
-# derivation while the probe went green.
+# derivation while the probe went green. It now lives in `claim_gate_git` and is
+# still withheld -- moving a name does not change which module a swap must
+# target, only which module that is.
 check_paths = claim_gate_ledgers.check_paths
 
 
