@@ -2557,7 +2557,7 @@ scheduled row depends on. **F is registered at landing with the rows below**, an
 derivation runs over is widened to *§5's slugs as well as this table's*, the failure being the
 population rather than the recipe. The first two are **already registered** — same ledger, same mtime,
 `grep -c -- '<slug>' <ledger>` → **1** and **2**, against a nonexistent-slug control in the same
-invocation → **0**. **No row is owed**: this section registers ledger *changes*, and they need none.
+invocation → **0**. **No *registration* row is owed. A reconciliation may still be: a slug already in the ledger whose registered `Trigger` / kind differs from the cell above is owed an edit, and that set is derived over the nonzero return above rather than over the rows I happened to notice.**
 What *was* owed is the marker: §5's rows carried a hand-written bold **new** on both, and acting on
 it at landing mints duplicates. ⚠ **The marker's admissible set is a complement, not a list**: bold
 **new** may stand in §5 only on a slot this derivation reports as a registration gap, and is removed
@@ -2571,13 +2571,46 @@ Re-derive the complement rather than reading this count forward. **This derivati
 §5, is what a lander reads for registration state.**
 
 **Ledger reconciliation owed at landing, not by this PR** (the ledger is outside this repo):
-`project_open-defer-slots.md:217` lists `Intl` / `Atomics` / `WeakRef`+`FinalizationRegistry` /
-`String.matchAll` under "Deliberately NOT slotted", and its registered trigger for
-`#11-vm-function-constructor-global` ("a dynamic-`Function` need, OR the LegacySemantics/core-strict
-compat work") is not the one this document states — so `#11-vm-function-constructor-global`,
-`#11-vm-atomics-global`, `#11-vm-weakref-finalization-registry` and the `Intl` row are reconciled on
-the ledger side at landing, and the divergence must not be closed by quietly overwriting the
-registered text.
+
+⚠ **The population is derived, never hand-listed.** For every `#11-*` slug in §8's table, compare the
+ledger's registered `Trigger` **and kind** against this table's cell, and record every difference. The
+hand-list that stood here named the one divergence its author had noticed; the derived set is larger,
+and the sentence that let it stay small was *"**No row is owed**: this section registers ledger
+*changes*, and they need none"* — which reads ledger state as a **boolean**, registered or not, and so
+cannot see a slug that is registered *and wrong*. Measured at this revision: **12** of §8's 51 slugs
+are registered, and **10** of those disagree with their §8 cell on trigger or kind.
+
+⚠ **Kind divergence is the half a trigger-only comparison misses.** §8 declares **15** umbrella slots
+(`.claude/tools/plan-memo-umbrella-check.py <this file>`, the `[UMBRELLA-MARK]` slot half); the ledger
+contains the marker **zero** times, so every registered one of them is registered as a *terminal* unit
+with a trigger handing the work to a PR. Four are registered today —
+`#11-vm-yield-delegation-lowering`, `#11-vm-typed-array-family-layering-and-gate`,
+`#11-vm-statement-completion-updateempty`, `#11-vm-function-constructor-global` — and that four is a
+**complement, not a list**: the other eleven return zero.
+
+⚠ **Six registered triggers name a §5 row that ships no PR**, so they cannot fire as written: rows
+**2**, **0b** (twice), **6**, **7** and **P**, all umbrellas. Three of the six —
+`#11-step9-class-extras`, `#11-vm-iteratorclose-precedence-convention`,
+`#11-vm-assignment-target-completeness` — have that as their **sole** disjunct and are un-fireable
+outright; the other three keep a second disjunct and are divergences rather than dead ends. The
+sharpest case is self-evidenced: §8's own typed-array cell says *"My earlier trigger … put the
+decision **after** the slice that needs it"*, repudiating the registered text, and the hand-list did
+not carry it. ⚠ *This enumeration is a **seed** for single-letter ids: a bare `P` or `2` in prose is
+not tokenisable, so the six were found by an anchored `Slice[ -]` scan and a differently-spelled
+mention is not in it.*
+
+⚠ **Which text wins is ruled here, for every row rather than for one.** §8's preamble makes the ledger
+the SoT for *what is registered*; this table is the record of what registration *should say* once the
+work lands. So where they disagree the ledger is authoritative about the present and this table about
+the intent, the divergence is recorded rather than silently closed, and **the reconciliation may not
+be discharged by overwriting the registered text** — a rewrite that leaves no trace of the divergence
+destroys the only evidence that the two ever disagreed. That rule was stated on exactly one slot's
+`Trigger` cell before this revision, which left it a per-row courtesy rather than a rule.
+
+⚠ **And do not cite the ledger by line number.** The reference that stood here read `:217` for the
+"Deliberately NOT slotted" line, which is **221** — while §8 itself, a hundred and sixty lines below,
+forbids exactly this and records that another such citation had already drifted by three. Cite by
+slug or by quoted string, both of which survive an edit above them.
 
 **Design-doc reconciliation — done by this PR, and not deferred to landing.** ⚠ **This paragraph read
 "owed at landing, not by this PR", by analogy with the ledger paragraph above, and the analogy does not
@@ -2721,15 +2754,15 @@ smaller than the table looks: the adoptions mint nothing, and
 `#11-vm-class-instance-field-init` / `#11-vm-super-property-reference` from R1 are **withdrawn** in
 favour of `#11-step9-class-extras`.
 
-**Memo corrections at landing** — `project_vm-p4-es-language-gaps.md`:
+**Memo corrections at landing** — `project_vm-p4-es-language-gaps.md`: (and move the `SoT ledger` bullet into the *Ledger reconciliation owed at landing* paragraph, which §8 makes the single home for ledger-side obligations)
 - §2 table: add super-property total loss, public instance fields → `undefined`, `obj[k] += v`
   panic, destructuring assignment no-op, `import()` → `undefined`.
 - §2 scope note: retract the `new X(...args)` "works" claim.
 - §4: async generators resolved **broken**; `new.target` resolved **working in the
   direct-constructor spelling only** — the arrow case is Slice N (§1.1, §2.2).
-- §line 113 + MEMORY.md: the 2026-07-18 probe is attributed to `f7d9b5ce`, whose commit date is
+- `project_vm-p4-es-language-gaps.md:113` + `project_vm-p4-umbrella-plan-state.md:168`: the 2026-07-18 probe is attributed to `f7d9b5ce`, whose commit date is
   **2026-07-26** — the baseline attribution is wrong and should name the then-current tip.
-- SoT ledger `#11-vm-call-spread-arguments` reads "**First slice**", and MEMORY.md reads
+- SoT ledger `#11-vm-call-spread-arguments` reads "**First slice**", and `project_vm-p4-es-language-gaps.md:111` reads
   "slice 1 = call-spread". Slice 0a and the children umbrellas 0b / P mint all precede it (the standalone `dispatch.rs` split that
   an earlier round sequenced here was **withdrawn** — see §5). Both texts need "first *feature*
   slice" or an explicit reorder.
