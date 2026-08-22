@@ -127,12 +127,12 @@ fn positioned_subflow_key(
 /// raw (unfiltered) direct children of the IFC parent plus the raw direct children
 /// of every inline element recursed into (each is some run-parent's direct child,
 /// hence a potential `run[0]`). The caller clears `InlineFlow` on candidates it does
-/// not persist — see [`super::reconcile::reconcile_flows`], whose docstring owns the
-/// per-component removal/gating inventory. What this list must be complete for is
-/// the *call*, which is unconditional on every pass that does not take an early
-/// return; whether any given removal then fires is that docstring's subject, not
-/// this one's. (It is not a summary worth restating here: the clear is
-/// `!env.is_probe`-gated, so a probe reaches the call and skips the clear.)
+/// not persist. Completeness matters at **three** consumers, all `clear_inline_flows`:
+/// the two early-return exits in [`super::layout_inline_context_fragmented`], which
+/// pass an empty persisted set and so clear every candidate, and the call inside
+/// [`super::reconcile::reconcile_flows`]. Which removals then fire is that
+/// docstring's subject — it owns the per-component removal/gating inventory — and
+/// is not restated here.
 ///
 /// The top-level members are tagged with the **realigned** top-level run-start key
 /// ([`first_eligible_child`] of `children` — render's Layer-5 `run[0]`, which is NOT
