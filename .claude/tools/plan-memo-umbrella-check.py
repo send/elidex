@@ -516,6 +516,14 @@ def assertion_cd_seed(memo, findings, notes):
     A row that states an ordering in words the seed does not carry is invisible
     to it, and no count printed here bounds that class.
     """
+    # ⚠ DECLARED MISS, measured: this compares **ids**, not **artifacts**.  Row
+    # 9db's `Deps` named "the child umbrella 9da's derivation mints for the
+    # thenable-job tick" while its prose measured an edge onto the child 9da
+    # mints for *thenable assimilation* -- 9da's own cell lists the two as
+    # SEPARATE axes, so the cell pointed at a different child than the
+    # measurement reached.  `9da` is in the cell, so the id never enters
+    # `extra` and this seed cannot see it.  An artifact-level comparison is a
+    # different program; this one does not attempt it.
     n = 0
     for lineno, cells in memo.data_rows("slice"):
         if len(cells) <= 6:
@@ -545,7 +553,13 @@ def assertion_cd_seed(memo, findings, notes):
         # earlier, from the same cause: a token shaped like an id is not an id.
         known = set(memo.all_row_ids())
         cell_ids = {m.group("id") for m in CELL_TOKEN.finditer(deps)} | set(MENTION_SLOT.findall(deps))
-        prose_ids = {m.group(1) for m in MENTION_PROSE.finditer(body)} & known
+        # ⚠ Mask first.  `_anchored` masks code spans and links before running
+        # MENTION_PROSE; this call did not, so the `[\s-]+` separator (added for
+        # `Slice-M`) read `...-slice-1a-1b-...md` as "Slice 1a".  Measured: 18
+        # filename-derived hits across §5, 2 of which reached this seed's output.
+        _mask = code_spans(body, keep=known)
+        prose_ids = {m.group(1) for m in MENTION_PROSE.finditer(body)
+                     if not any(s <= m.start(1) < e for s, e in _mask)} & known
         extra = sorted(prose_ids - cell_ids - {rid})
         if extra:
             n += 1
