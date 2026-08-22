@@ -152,6 +152,11 @@ def selftest() -> int:
     needs_state = host.needs_state
     run_line = host.run_line
     sh, REPO = host.sh, host.REPO
+    # The companion that owns CONTROLS and PATHS. Two probes below replace a
+    # global for the duration of one check, and a global is only replaceable on
+    # the module whose functions read it -- reaching these through the entry
+    # point's re-export would rebind a name nothing resolves.
+    ledgers = host.claim_gate_ledgers
 
     probes: list[tuple[str, bool, str]] = []  # (label, ok, detail)
 
@@ -604,6 +609,27 @@ def selftest() -> int:
     _cnt.write_text("# turns the whole self-test into a no-op\n")
     probe("CONTROLS positive (the same sentence stating the property instead)", False,
           capture(check_controls, synth(LEDGER), HAVE, [_cnt]))
+    # The count population is a glob, and a glob's BREADTH needs a control or
+    # narrowing it back to a hand list is a silent no-op -- which is what the
+    # hand list was: it omitted `claim_gate_reruns.py` from the round that
+    # created it, so the rule went on excluding one of its own authors. The
+    # membership is derived from a different source here, the import graph plus
+    # the two shell files the checker holds as constants, so a mutation that
+    # shrinks the glob has something to disagree with.
+    # `.exists()` because this file lands one PR BEFORE the wire and its shell
+    # self-test: on the prerequisite branch the two are not there to count, and
+    # a probe demanding them would red a branch for not yet shipping them.
+    _shipped = {p.resolve() for p in (host.WIRE, ledgers.SELFTEST_FILE) if p.exists()}
+    _shipped |= {Path(m.__file__).resolve() for m in list(sys.modules.values())
+                 if getattr(m, "__file__", None)
+                 and Path(m.__file__).resolve().parent == ledgers.TOOLS}
+    _uncounted = sorted(p.name for p in _shipped
+                        - {q.resolve() for q in ledgers.DEFAULT_COUNT_SOURCES})
+    probes.append(("CONTROLS counts every file this program ships, not a list of them",
+                   not _uncounted,
+                   f"uncounted: {_uncounted}" if _uncounted
+                   else f"{len(_shipped)} shipped file(s), all in the population"))
+
     probe("CONTROLS reports rather than passing when the self-test is absent", False,
           capture(check_controls, synth(LEDGER), {}, []))
     probe("  …and it says so through skip()", True,
@@ -615,25 +641,33 @@ def selftest() -> int:
     # a citation the memo invented -- a flood of findings one line from their
     # real cause. The closing summary is the completion sentinel. Both
     # directions, against a stand-in self-test.
-    _saved_st = host.SELFTEST_FILE
+    #
+    # The stand-in is swapped on `ledgers`, not on `host`. `SELFTEST_FILE` lives
+    # in that module now, and `implemented_controls` resolves it through that
+    # module's globals -- a rebinding on the entry point changes a name nothing
+    # reads, and the run silently measures the REAL self-test instead. `C97` is
+    # the discriminator: an id no real control carries, so a probe reading the
+    # wrong file cannot pass by finding a live id in it. (Keyed on `C1` this
+    # probe passed through exactly that mistake while its partner went red.)
+    _saved_st = ledgers.SELFTEST_FILE
     _st = Path(tempfile.mkdtemp()) / "claim-provenance-selftest.sh"
     try:
-        host.SELFTEST_FILE = _st
+        ledgers.SELFTEST_FILE = _st
         _n2 = 2
         _st.write_text("#!/usr/bin/env bash\n"
-                       "echo '  ok    C1 positive  x'\n"
-                       "echo '  ok    C1 negative  y'\n"
+                       "echo '  ok    C97 positive  x'\n"
+                       "echo '  ok    C97 negative  y'\n"
                        f"echo 'claim-provenance self-test: {_n2}/{_n2} controls ok'\n")
         probe("CONTROLS inventory (a complete run is read)", True,
               [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [],
-              "C1")
+              "C97")
         _st.write_text("#!/usr/bin/env bash\n"
-                       "echo '  ok    C1 positive  x'\n"
+                       "echo '  ok    C97 positive  x'\n"
                        "echo 'bash: line 9: syntax error'\nexit 2\n")
         probe("CONTROLS inventory (a run with no closing summary yields nothing)", False,
               [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [])
     finally:
-        host.SELFTEST_FILE = _saved_st
+        ledgers.SELFTEST_FILE = _saved_st
 
     # PATHS. `gone` is injected for the same reason `have` is: these decide the
     # check's logic, not today's branch. The derivation that reads git gets its
@@ -670,16 +704,18 @@ def selftest() -> int:
     _sub = host.gone_from("a.py\nb.py\n", {"b.py"})
     probes.append(("PATHS population subtracts a deletion the tree has back",
                    _sub == ["a.py"], f"{_sub}"))
-    _saved_gone = host.deleted_on_branch
+    # Swapped on `ledgers` for the reason the CONTROLS stand-in above is: the
+    # function lives there and `check_paths` resolves it through that module.
+    _saved_gone = ledgers.deleted_on_branch
     try:
-        host.deleted_on_branch = lambda: None
+        ledgers.deleted_on_branch = lambda: None
         probe("PATHS reports rather than passing when the range cannot be formed", False,
               capture(check_paths, synth(NAMES_GONE)))
         probe("  …and it says so through skip()", True,
               capture_skipped(check_paths, synth(NAMES_GONE)),
               "could not be formed")
     finally:
-        host.deleted_on_branch = _saved_gone
+        ledgers.deleted_on_branch = _saved_gone
     probes.append(("PATHS derives its population from this repository's git",
                    host.deleted_on_branch() is not None,
                    f"origin/main..HEAD deletes {host.deleted_on_branch()}"))
