@@ -108,7 +108,7 @@ is lost:
   the operand-width invariant holds by construction rather than by rejecting legal ES.
 - **I-3 tagged-template clause recorded, not discharged** — decide the helper's *input* shape
   (fixed-prefix count or item iterator) so Slice 4a has a live consumer path. ⚠ **Owner assigned:
-  Slice 1b**, as an explicit deliverable of `compile_call_arguments` / `ArgsForm`, with Slice **4a**'s
+  the child of umbrella 1b that owns the `compile_call_arguments` helper**, as an explicit deliverable of `compile_call_arguments` / `ArgsForm`, with Slice **4a**'s
   mandatory plan-review as the check (Slice 4 is an umbrella this document itself records as wrongly
   judged terminal; §6.3 already writes 4a). §3 already records the binding constraint (`ArgsForm` as
   specified cannot express `« siteObj »` ++ substitutions) and §5 gave Slice **4a** `Deps: 1b (I-3
@@ -168,7 +168,7 @@ Round 4 (Axes 2/3) returned **1 CRIT / 12 IMP / 8 MIN**. Applied:
   lines". It is crate-wide across **5** sites, including the canonical `iter_close` helper whose
   *docstring states the inverted rule as its contract*. Slice 0b calls `iter_close`, so its
   [C39]→[C36] conformance claim would have been false. → §6.2a-2 + carved
-  `#11-vm-iteratorclose-precedence-convention`, sequenced **before 0bc** (the child carrying the `Pa`
+  `#11-vm-iteratorclose-precedence-convention`, sequenced **before the child of umbrella 0bc that consumes it** (that child carries the `Pa`
   edge — §5's Deps column).
 - **"nine" → 18** propagated (3 residual sites) after §2.3's round-3 rebuild; `StmtKind` 23 → 24.
 - **dec. 10 resolved** — `gc_enabled` bracketing, because `actual_args` (~1000 values) is the
@@ -276,13 +276,13 @@ document, not an implementation spec. Remaining work moves into the per-slice re
 position and was **withdrawn**: it read `0a → Pb → the layering/gating decision → Pa → 0b → 0c → 1a →
 1b`, which named **three umbrellas (`0b`, `0c` and — from this revision — `1a`) as schedulable positions** — under §5's row-kind rule an
 umbrella never lands, so no event advances the order past either — and thereby blocked three terminal
-children whose `Deps` cells are empty (`0ba`, `0bb`, `0ca`; only **`0bc`** consumes Pa). It was also a
+children whose `Deps` cells are empty (`0ba`, `0bb`, `0ca`; only the child of umbrella **`0bc`** that its derivation mints for the [C39]→[C36] `IteratorClose` conformance consumes Pa). It was also a
 second home for the ordering, which §5 gives to the `Deps` column alone. What survives is the *reason*
 an edge exists, which is all this section may carry:
 ⚠ **The layering/gating decision is a prerequisite of Pa, not a parallel concern** (§8's row; §5's Pa
 `Deps` cell). Pa must edit `vm/host/typed_array_static.rs:798`, an `iter_close` caller, so without it
 Pa either changes pure ECMA-262 behaviour inside a directory whose own mandate forbids that, or omits
-a required site and ships an incomplete convention sweep that `0bc` then depends on. It is a
+a required site and ships an incomplete convention sweep that the child of umbrella `0bc` that consumes the `Pa` edge then depends on. It is a
 *decision*, so it need not be its own PR — but it must be settled before Pa starts, which is why it
 sits in Pa's `Deps` cell rather than being described as a parallel concern here. Pb carries no edge to
 the gate: its touch set reaches no `vm/host/` file, so nothing orders the two. *(The `vm/dispatch.rs` prereq split that rounds 2-9 mandated was **removed at implementation time** — §5's 1000-line check, whose figures were then re-derived at PR-B and largely withdrawn: the **match** is not relocated because CLAUDE.md exempts a flat case table; the **file's** size debt is discharged continuously by the arm-body extraction rule. Nine review rounds carried the standalone-split mandate.)*

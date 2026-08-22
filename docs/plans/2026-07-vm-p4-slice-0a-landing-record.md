@@ -99,9 +99,9 @@ to `compound_op_to_opcode`'s `unreachable!`, so **`this.#x ??= 1` still aborted 
 standard lazy-private-field idiom, and exactly the shape §16 claimed to have killed. Three agents
 found it independently. **This is the failure mode this plan documents (§13/§14: sweep the concept,
 enumerate by command) committed inside the fix for that failure mode** — §2.2's own pass-3 mandate
-names `MemberProp` as an enum needing sub-arm enumeration, but assigns it to 0c, so 0a's ad-hoc
+names `MemberProp` as an enum needing sub-arm enumeration, but assigns it to 0ca, so 0a's ad-hoc
 sibling check ran without it. Fixed as a loud `CompileError` (no `Op::SetPrivate` emit path exists
-until Slice 5, so emitting the store would silently lose the write — banned by I-1).
+until the child of umbrella 5 that owns Private Name identity + the `GetPrivate`/`SetPrivate`/`PrivateIn` dispatch lands, so emitting the store would silently lose the write — banned by I-1).
 
 ⚠ **That remedy was itself overturned post-push (§18): `CompileError` is loud but NOT scoped.** It
 yields no bytecode for the whole script, so one `this.#x = 1` anywhere took every unrelated

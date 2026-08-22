@@ -149,7 +149,7 @@ throw take precedence over the triggering abrupt completion". Exactly four sites
 (`:57` inline, `:359` inside `iter_close`), so there is exactly one such duplicate. Consequences:
 (a) fixing only `op_array_spread` does not advance P's sweep at all — the site is not in either
 grep, and §6.2a-3 excludes it by name; (b) the P family
-is sequenced before 0bc, so this site keeps the
+is sequenced before the child of umbrella 0bc that consumes the `Pa` edge, so this site keeps the
 inverted convention until dec. 13a lands with the child of umbrella 1a that removes `op_array_spread`'s `return()`, via that umbrella's derivation, which mints it — and if 13a were rescoped the site stays inverted
 invisibly. **The concept grep *was* run** (`takes precedence\|step 6-7` → 17 hits) **but its hits
 were dismissed as "incl. unrelated" and never classified — which is exactly how this one dropped
@@ -189,7 +189,7 @@ an "abrupt-only" reading would mishandle.
 drains through `IteratorStepValue` *until* `[[Done]]` becomes true — so mandating a dedicated
 `iter_close` for `[...rest] = it` makes a custom iterator observe `.return()` after **normal
 exhaustion**, a user-visible divergence. The obligation is a **conditional** close around early
-termination and abrupt pattern evaluation. Slice 0bc must pin both directions: `[a] = it` closes an
+termination and abrupt pattern evaluation. The child of umbrella 0bc that owns the **§8.6.2** array-binding `IteratorClose` obligation must pin both directions: `[a] = it` closes an
 unfinished iterator, `[...r] = it` does **not** close an exhausted one.
 
 **Why this lands on the critical path**: §8 declares the 0b family "owns the `IteratorClose` obligation **1b**
@@ -207,7 +207,7 @@ four sites but not the fifth; round 4 caught the *precedence* concept having its
 siblings. Both are [[feedback_semantic-sibling-selfseed-and-regate-breadth]] — the lesson is to grep
 the **concept**, and a concept discovered mid-paragraph needs its own sweep, not an inherited scope.
 
-⚠ **Once the child of umbrella 1a that removes `op_array_spread`'s `return()`, via that umbrella's derivation, which mints it lands, `op_array_spread` is [C19]/[C22]-only.** ⚠ *A clause here read "§5 sequences the 0b family before 1a"; it is deleted rather than re-pointed — no `Deps` cell in §5 carries that edge, and ordering has one structured home (`#11-plan-memo-spec-field-single-home-check`, §8).* 0bc owns
+⚠ **Once the child of umbrella 1a that removes `op_array_spread`'s `return()`, via that umbrella's derivation, which mints it lands, `op_array_spread` is [C19]/[C22]-only.** ⚠ *A clause here read "§5 sequences the 0b family before 1a"; it is deleted rather than re-pointed — no `Deps` cell in §5 carries that edge, and ordering has one structured home (`#11-plan-memo-spec-field-single-home-check`, §8).* The child of umbrella 0bc that repairs and consumes `Op::IteratorRest` owns
 [C39], whose rest form (`[a, ...rest] = it`) needs a drain-into-array — and ⚠ **the drain it needs
 already exists**: `compiler/stmt_destructure.rs:70` emits `Op::IteratorRest` and
 `vm/dispatch_iter.rs:295-332` implements it as a drain-into-array, so 0bc repairs and consumes that
@@ -225,7 +225,7 @@ a drain-into-array (its own comment: *"collect remaining iterator elements into 
 the collected elements rooted on the stack). So 0bc **repairs and consumes `IteratorRest`**, factoring
 out whatever it shares with `ArraySpread` — a second drain beside it is the N-mechanism outcome
 CLAUDE.md *One issue, one way* forbids, and it would also leave the real rest path's defects
-untouched, which is the opposite of what this paragraph exists to prevent. §7.2 pins all three, since an acceptance naming only the no-`return()` direction lets 0bc land with the close it does owe still missing: the drain 0bc consumes, the no-`return()` case on the exhausted-rest path, and the `[[Done]] is false` conditional close — `[a] = it` and `const [x] = it` over an iterator whose `return()` records the call (**§13.15.5.2**; **§8.6.2** BindingInitialization, production `BindingPattern : ArrayBindingPattern`, step 3, for the declaration form), which §5's 0bc row already carries as its required regression (§-numbers and
+untouched, which is the opposite of what this paragraph exists to prevent. §7.2 pins all three, since an acceptance naming only the no-`return()` direction lets the child of umbrella 0bc that owns the **§8.6.2** array-binding `IteratorClose` obligation land with the close it does owe still missing: the drain 0bc consumes, the no-`return()` case on the exhausted-rest path, and the `[[Done]] is false` conditional close — `[a] = it` and `const [x] = it` over an iterator whose `return()` records the call (**§13.15.5.2**; **§8.6.2** BindingInitialization, production `BindingPattern : ArrayBindingPattern`, step 3, for the declaration form), which §5's 0bc row already carries as its required regression (§-numbers and
 steps from `webref aoid ecma262 IteratorDestructuringAssignmentEvaluation` and
 `webref body ecma262 sec-runtime-semantics-iteratordestructuringassignmentevaluation`). (Executing dec. 13a's propagation instruction here, in §6.2a, where a
 0bc implementer reads it.)
@@ -234,7 +234,7 @@ steps from `webref aoid ecma262 IteratorDestructuringAssignmentEvaluation` and
 but the **precedence sweep is its own unit** — a cross-cutting site set (§6.2a-3 has the
 figure and its derivation), a signature change on the shared helper, and
 a completion-kind distinction. Carve `#11-vm-iteratorclose-precedence-convention` and sequence it
-**before Slice 0bc** (whose conformance claim depends on it), not inside 1a.
+**before the child of umbrella 0bc that its derivation mints for the [C39]→[C36] `IteratorClose` conformance** (whose conformance claim depends on it), not inside 1a.
 
 ### §6.3 Design — split across Slices 1a and 1b
 
@@ -266,7 +266,7 @@ unchanged"* is **vacuous** for the two *semantic* mechanisms (`op_array_spread`'
 dec. 13a; the arg-window rooting, dec. 10) — the existing suite covers neither, so an implementation
 could omit both and still pass. Edges **21**, **27/28** and **32** are therefore required tests on the
 specific children §5's 1a row names, edge 21 on the child of umbrella 1a that removes `op_array_spread`'s `return()`, edges 27/28 on the child of umbrella 1a that roots the four call-entry argument windows, edge 32 on
-the child of umbrella 1a that owns the argument-layout and inline-cache contract. 1b's is §6.4.
+the child of umbrella 1a that owns the argument-layout and inline-cache contract. The edges umbrella 1b's derivation must place on the children it mints are §6.4's.
 
 **Compiler** — one helper (I-3), replacing `compile_arguments`:
 
@@ -276,17 +276,17 @@ pub(super) enum ArgsForm { Flat(u8), Array }
 fn compile_call_arguments(…) -> Result<ArgsForm, CompileError>  // (NEW)
 ```
 
-**The I-3 tagged-template input contract is a Slice-1b deliverable, not a note.** The signature above
+**The I-3 tagged-template input contract is a deliverable of the child of umbrella 1b that owns the `compile_call_arguments` helper, not a note.** The signature above
 is the whole specification today, and `ArgsForm { Flat(u8), Array }` cannot express GetTemplateObject's
 `« siteObj »` prefix followed by the substitutions — §3's TemplateLiteral rows state that constraint
-and hand it to Slice 4a. §11 assigned the question to 1b, but an assignment in a round record owns
-nothing, so as written 1b can pass its charter and its tests and still leave Slice 4a to either change
+and hand it to the child of umbrella 4a that owns the tagged-call lowering. §11 assigned the question to 1b, but an assignment in a round record owns
+nothing, so as written every child of umbrella 1b can pass its charter and its tests and still leave the child of umbrella 4a that owns the tagged-call lowering to either change
 this helper or emit its arguments some other way. That second mechanism is exactly what I-3 exists to
-prevent. **So 1b must define the helper's input contract — a caller-supplied fixed prefix plus an item
-sequence — and test it.** Whether the prefix is a count or an item iterator is 1b's own plan-review to
+prevent. **So the child of umbrella 1b that owns the `compile_call_arguments` helper must define the helper's input contract — a caller-supplied fixed prefix plus an item
+sequence — and test it.** Whether the prefix is a count or an item iterator is that child's own plan-review to
 settle; that the contract exists, is documented at the signature and is exercised by a test is not.
 
-**Acceptance condition the child of umbrella 4a that owns the tagged-call lowering consumes**: a 1b
+**Acceptance condition the child of umbrella 4a that owns the tagged-call lowering consumes**: a test written by the child of umbrella 1b that owns the `compile_call_arguments` helper — that
 test drives `compile_call_arguments` with a
 non-empty fixed prefix plus *n* substitutions and asserts the emitted layout and the returned
 `ArgsForm` for *n* = 0 and *n* > 0, so that child reaches its tagged-template lowering by *calling* this
@@ -495,7 +495,7 @@ the child of umbrella 1a that owns the argument-layout and inline-cache contract
 convenience: it is the same independence its cell measures, one edge per mechanism.
 Edge **35** belongs to **0bb**, not inside 1a or to 1b: it has no
 spread and no call-shape change, and 0bb owns the optional-member receiver contract (§2.2, §5).
-Everything else is **1b**'s. Round 5 flagged that calling the 1a half
+Everything else is for umbrella **1b**'s derivation to place on the children it mints. Round 5 flagged that calling the 1a half
 "behaviour-preserving" while its only acceptance test was "the existing suite passes unchanged" left
 both semantic fixes unverified: no in-tree test asserts `.return()` behaviour on array-literal spread
 (`tests_generator.rs:714/736` assert the *opposite*, for `yield*`/`for-of`), and none covers iterator
