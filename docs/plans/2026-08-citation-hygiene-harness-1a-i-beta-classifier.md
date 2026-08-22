@@ -475,10 +475,31 @@ population β leaves unchanged.
   seam while writing if it enters the band.** ⊕ The umbrella's own prereq cuts (`2abaea1b`, `9647ba4d`) are
   the worked examples, and D18 records what makes a cut census-neutral: place the block in an **existing**
   part, since a new stem enters `VOCAB` and moves the work list.
-- ⚠ **β's own citations of `-audit.sh:N` move when β edits `classify`.** The memo gate's path check is
-  range-only, so a stale anchor stays green — an in-range anchor pointing at the wrong line is invisible to
-  it. The implementing commit re-derives every `-audit.sh:N` anchor **below `classify`'s definition** in this
-  memo **and in the umbrella**, in the same commit. ⚠ **The site set is not "the umbrella's two rows", and an
+- ⚠ **β's own citations into `-audit.sh` move when β edits `classify`, and THE POPULATION IS NOT THE SET OF
+  STRINGS THAT LOOK LIKE ONE.** The memo gate's path check is range-only, so a stale anchor stays green — an
+  in-range anchor pointing at the wrong line is invisible to it. ⚠ **An earlier draft of this bullet scoped
+  the obligation to "every `-audit.sh:N` anchor below `classify`'s definition in this memo and in the
+  umbrella", and `473b9d56` discharged exactly that and reported it as complete — 24 of them. Measured after
+  the fact, the scope was the defect.** `-audit.sh:N` is a **filter**, not the population, and this same
+  bullet's neighbour at `-audit.sh:361-366` already names the form it misses. The population is **every
+  citation INTO `-audit.sh`, whatever its spelling and whichever file it sits in** — the `path:N` form, the
+  **bare `:N`** form the memos write freely, `sed -n 'A,Bp'` and `sed -n 'Np'` commands, and the harness's
+  **own self-citations** (`-audit.sh:360` cites `-audit.sh:325`, and `473b9d56` broke it). ⊕ Over that
+  population the same commit is **8 anchors wrong**, in four files, none of them visible to the gate:
+  `beta-classifier.md:439` `:537` `:538`, `disposition.md:237` `:322` `:333` (twice), `measurements.md:345`,
+  and `-audit.sh:360`. Two of the eight are the sharpest possible demonstration that the scope was wrong —
+  `disposition.md:237` re-derived `:273 → :315` and left `:277` **in the same parenthetical**, and
+  `beta-classifier.md:537`'s bare `:112` sits one line below two anchors the commit did update.
+- ⚠ **And the widened population is a SEED, not an inventory — which is the real finding, and it is §3's
+  neighbour rather than β's bookkeeping.** A bare `:N` carries no path, so no enumerator can decide which
+  file it cites; the harness declares exactly this a LIMIT (`-audit.sh:361-366`). Widening a regex cannot
+  close it. What closes it is a **spelling rule** — every citation carries its path, or pins a revision the
+  way `:209` and `:218` now do — and that is a change to the memos' citation convention and to this
+  obligation's shape, so it is **round 7's**, not this commit's. ⚠ **The method claim is withdrawn too**:
+  `473b9d56`'s message said the anchors were *"mapped by line CONTENT rather than by shifting a delta"*, and
+  all 24 moved by exactly **+42** while the commit's own shift was +45 above `classify` and +42 below — the
+  one case where content and delta disagreed (`disposition.md:322`'s `-audit.sh:527`) took the delta, and
+  landed on an unrelated line in a sentence that records what the number **was** when it was written. ⚠ **The site set is not "the umbrella's two rows", and an
   earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:163`
   (`grep -n 'def classify' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`), and the umbrella cites
 . ⚠ **Which sections hold them is not written here, because an earlier draft wrote it and was wrong on
@@ -507,10 +528,16 @@ population β leaves unchanged.
 ## §5 What this memo authorises
 
 **Authorises**, after `/elidex-plan-review` passes: the command-position scan; the two umbrella row edits
-§3 β-c enumerates; the anchor re-derivation §4 requires; and **the re-derivation of §4's own `-audit.sh`
-length figure**, which β's edit falsifies and the memo gate reds on — and nothing else. ⚠ **That last item
+§3 β-c enumerates; the anchor re-derivation §4 requires, **over the population §4 now defines**; **the
+re-derivation of §4's own `-audit.sh` length figure**, which β's edit falsifies and the memo gate reds on;
+and **§6's record of what happened to this memo's own gate** — and nothing else. ⚠ **That fourth item
 was asserted by §4 as *"§5 authorises it"* while this list did not contain it**, and the claim reached a
 commit message before it reached this section; a memo may not cite a sibling section it has not opened.
+⚠ **The fifth item is on this list because the same thing happened again, one commit later.** `473b9d56`
+wrote §6 — a new section, thirty lines — while this list ended *"and nothing else"* and did not contain it.
+The failure this section names is *asserting* an authorisation without opening the section; the repair is to
+open it, which is what this edit is. It is a standalone commit for that reason, and it carries no
+implementation.
 
 **Does not authorise**: any change to a tier, declaration or routing answer (γ); the part-set or roster
 derivations (α); the `prose` subject test or any vocabulary (ε); the coverage gate (ε); the `reads` rule (δ);
@@ -562,32 +589,54 @@ already done once:
 **This memo is the base case** under CLAUDE.md's edge-dense rule. Passing its `/elidex-plan-review`
 discharges terminality; this memo does not claim it in advance.
 
-## §6 The gate, and why it is closed here
+## §6 The gate: closed on a distribution, and reopened when that distribution was falsified
 
-**Six rounds of `/elidex-plan-review`, five axes each. Rounds 5 and 6 answered `executability = YES`
-unanimously — ten independent implementations of §3's rule against the harness, none of which found a clause
-an outside implementer would have to decide.** That is the question this gate exists to ask, and it is
-answered.
+**Closed at round 6, on merit, on a stated ground — and the ground was distributional, not a judgement that
+the memo was finished.** Six rounds of `/elidex-plan-review`, five axes each; rounds 5 and 6 answered
+`executability = YES` unanimously; and of round 6's fourteen CRITs, **zero targeted §3** — eight were in the
+umbrella's §9, and seven of the fourteen were defects the previous round's own corrections had introduced.
+Round-count and fatigue are not inputs to a stop decision; the target distribution is. Closing on that
+ground was `memory/feedback_review-loop-convergence-merit-not-fatigue.md` applied, not evaded.
 
-⚠ **The CRIT count did not fall — 7, 9, 6, 8, 9, 14 raw — and that is not the reason to keep going, because
-the findings stopped being about this memo.** Round 6's fourteen, by target: **eight** in the umbrella's §9
-(its stopping clause, the per-commit grades, the plan-review population, the mechanism-inheritance
-sentence); **two** in a control figure with three homes; one each in the measurements memo's preamble, its
-D19, and PR-1a-ii's ownership; **one** in this memo — a memo-to-memo anchor in §1. **Zero in §3.** Seven of
-the fourteen were defects the previous round's own corrections introduced.
+⚠ **`/elidex-review` on the implementing commit put two CRITs on §3, so the ground is false and the closure
+is WITHDRAWN.** A distributional ground is falsifiable by measurement, which is what makes it a ground; this
+is the measurement. The two:
 
-**So the loop had stopped gating β and started auditing the umbrella's bookkeeping about itself**, which is
-real work and is not what stands between this slice and its implementation. Round-count and fatigue are not
-inputs to a stop decision; the target distribution is. Closing here on merit is
-`memory/feedback_review-loop-convergence-merit-not-fatigue.md`'s rule applied, not evaded.
+1. **§3's third decided clause is inverted by its own corpus.** §3 says the single/double quote asymmetry is
+   what *"satisfies every observable"* among three readings. ⊕ Run over the whole harness: strip-single
+   against strip-**neither** differs on **0** lines; against strip-**both** on **2**, and on both of those the
+   landed reading is the one that is wrong (`-audit.sh:94`, a Python alternation read as a shell pipe, in the
+   `GUARD` regex of the file the scan runs over; `-common.sh:462`, an f-string reached through a `(` inside a
+   double-quoted span). The two examples that discriminate are **planted** — `_partset` and `_roster` are not
+   in `VOCAB`. So the clause is decided by plants and contradicted by the tree.
+2. **§3's "it is still not β's" ruling on the second home is contested by a ratified sibling.** §3 defers
+   reconciling `at_command` (`-inventory.sh:227`) to α *"scope rather than order"*, having already measured
+   that *"nothing orders this after α"*. The disposition's ε row rejects the same shape for `GROUPS`:
+   *"spelling a second `GROUPS` in `-audit.sh` is the many-homes defect γ exists to close"*. Whether that
+   precedent transfers from a **vocabulary** to a **predicate** is the open question, and it is §3's.
 
-⚠ **Three things this closure does not cover, and the implementing commit owes them:**
+**So the next event for this slice is round 7 of `/elidex-plan-review`, not α.** The implementation stands
+at `473b9d56` and is not reverted: it is the artifact round 7 measures against, and reverting it would
+destroy the measurements above. What round 7 owns is §3's rule cell.
 
-1. **The right-boundary clause is undecided** (§3, the fifth clause). It does not block β — β's own scan
-   classifies `x=$(_partset)` as `callsite`, which is β1's headline case — but it blocks the *reconciliation*
-   §5 raises, and the raise says so.
+⚠ **Three things the closure never covered, and one it created:**
+
+1. **The right-boundary clause is undecided** (§3, the fifth clause). It blocks the *reconciliation* §5
+   raises, and the raise says so.
 2. **The umbrella items round 6 named are still owed**, by the umbrella: §9's nine pre-clause commits, D19's
    probes 1–3 carrying no runnable command against §8's rule, `CSSOM View 1` failing the pinned map in all
    three plan memos, O5's missing plant precondition, and §2's I4 × I5 PR cell pointing at a stub.
-3. **The bookkeeping §4 and §5 already enumerate** — the length figure, and every `-audit.sh:N` anchor at or
-   below `classify` in this memo and in the umbrella.
+3. **The bookkeeping §4 and §5 enumerate** — the length figure, and the anchors, over the population §4 now
+   defines rather than the one its enumerator could see.
+4. ⚠ **Two items this slice must NOT take, each raised with an owner and a trigger** — an owner without a
+   trigger is a drop, which this memo has already done once:
+   - **The ordering premise in the disposition** (`2026-08-citation-hygiene-harness-disposition.md:156`)
+     still states, present-tense, the predicate `473b9d56` replaced — and it is the stated reason for
+     **β before α**, i.e. the order of the whole eight-slice program. *Owner*: the umbrella. *Trigger*: the
+     next umbrella commit, and no later than round 7's dispatch, since round 7 reads it as an input.
+   - **The harness is executed by no CI job.** ⊕ `scripts/trip-wires.sh` discovers only
+     `.claude/tools/*trip-wire.sh`, and `[tasks.ci]` names no harness task — so §4's *"the memo gate reds on
+     it"* describes a **manual** gate, and every claim resting on `findings=0` rests on a run somebody chose
+     to do. *Owner*: not β — §5 does not authorise touching `mise.toml` or `scripts/`. *Trigger*: before any
+     slice cites the gate as evidence that a class of defect cannot land.
+
