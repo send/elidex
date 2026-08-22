@@ -141,8 +141,12 @@ WIRE_GLOB='.claude/tools/*-trip-wire.sh'
 $ git ls-files -- '.claude/tools/*.sh' ':(exclude).claude/tools/*-trip-wire.sh'
 ```
 
+The pathspec is `*.sh`-scoped on purpose, because `WIRE_GLOB` is: only a `.sh` in that directory can
+be mistaken for a wire. Widened to `*`, it also returns the two plan-review-tier Python files and two
+data files, which §7's layer rule governs and this glob does not.
+
 The second command *is* the membership test: it lists every tracked script in that directory which the
-driver's loop (`scripts/trip-wires.sh:189-206`) and its both-directions retention diff (`:208-237`) will
+driver's loop (`scripts/trip-wires.sh:189-206`) and its both-directions retention diff (`:208-238`) will
 never see, because `WIRE_GLOB` decides membership **by name, not by directory**. It prints nothing before
 S1 and prints `claim-provenance-selftest.sh` after — and that transition, not the set of names it returns
 on any one day, is what §1 is about: a helper can sit beside the wires and still not be one.
@@ -207,7 +211,17 @@ deleted, which left the bound outliving its own basis. Its ground now is the rep
 memo's: CLAUDE.md sets the touch-time split discipline at **1000 lines**, so a wire and a self-test that
 have to stay readable by anyone auditing a gate get the same discipline with headroom. Choosing 800
 rather than 1000 is a policy this memo may set for its own deliverable; choosing it because a deleted
-projection happened to end there is not a reason at all.
+projection happened to end there is not a reason at all. **The bound has a control** — the self-test
+fails if either shipped file exceeds it, which is what makes it a bound rather than an intention; §8
+does not list that control by number, because §8's ledger is for retirements and the self-test's own
+output names it on every run.
+
+⚠ **And this memo is over the threshold it is citing.** CLAUDE.md's discipline fires at 1000 lines on
+*touch*, and applies to any file, not only to source. The deliverables are compliant and controlled;
+the document is not, and the asymmetry is recorded here rather than left for a reader to notice: §1
+invokes the rule as authority for bounding a 200-line file while the file invoking it is longer than
+the rule's threshold. The split decision is the author's to take with the reviewer — what is not
+open is whether the rule applies, and it does.
 
 ---
 
@@ -294,7 +308,7 @@ lapsing; what no longer exists is a check that this table and the classifier agr
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D4 — liveness) | resolve `in=` | (v) no tracked file → fail; `lines=` resolving to ≠1 → fail | §4.2 `git ls-files` probe | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D5 — pattern-body lint) | lint the pattern body | (vi) `\` + `[bBdDsSwW<>]` → MALFORMED, diagnostic names the escape | §4.2 reject-list | ✓ | no |
 | `docs/plans/2026-08-quantitative-claim-staleness-gate.md` §1 (D6 — the pathspec is always quoted) | execute the measurement | (vii) every value as one argv element, no `eval` | §4.2 executor | ✓ | no |
-| `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` §3 (Decision D4 — the standing gate; its "runs once then rots" hole → standing in `mise run trip-wires` ⊂ `mise run ci` and in the ungated CI job) | register the wire, invoke the self-test | (viii) present in the glob but absent from `REQUIRED_WIRES` → fail; self-test helper missing → fail | §4.1.2 + §5 + `scripts/trip-wires.sh:208-237` | ✓ | no |
+| `docs/plans/2026-07-terminal-z-c3a-impl-plan.md` §3 (Decision D4 — the standing gate; its "runs once then rots" hole → standing in `mise run trip-wires` ⊂ `mise run ci` and in the ungated CI job) | register the wire, invoke the self-test | (viii) present in the glob but absent from `REQUIRED_WIRES` → fail; self-test helper missing → fail | §4.1.2 + §5 + `scripts/trip-wires.sh:208-238` | ✓ | no |
 
 **Breadth**: preflight's verdict lines for this memo are pasted verbatim in §8.3.
 
@@ -363,7 +377,7 @@ placement the scan can see in *this* worktree is closed:
 |---|---|
 | a tracked file here | the annotations are false by construction, so the real gate reds on every push |
 | `claim-provenance-selftest.sh` | D2's `.claude/tools/**` exclusion makes it inert — and §2 I2×I6 depends on exactly that |
-| a `mktemp -d` fixture | the corpus's tree-scale pathspecs resolve to 0 there, so the D4 liveness probe fires first with a diagnostic the control does not assert |
+| a `mktemp -d` fixture | *the corpus's historical pathspecs* resolve to 0 there, so the D4 liveness probe fires first with a diagnostic the control does not assert. This bounds those constants, not a corpus: once falseness is seen not to interact with tree scale (below), a hermetic fixture carries the same verdict shapes |
 | an untracked file here | `git grep` without `--untracked` does not see it (§6) |
 
 Revisions 5–8 read that table as forcing a writable **real** tree — a `git clone --local` of this
@@ -393,10 +407,12 @@ S1's self-test to the hermetic ground every sibling wire stands on.
 was false before the round ended — the two controls that round added moved it. A wall-clock figure is
 the one class no verb can express (§6) and the one §4.6 deletes from `ci.yml` rather than re-measure.
 
-**And the mechanism was costing more than the thing it delivered.** Roughly twenty lines existed only to
-keep the clone alive under CI's depth-1 checkout — `--local` is ignored on a shallow source, git says so
-in two warnings, `--quiet` does not reach them, so the self-test would have had to print a line
-explaining warnings it expected. That is upkeep for a fixture, not for a clause.
+**And the mechanism cost more than the thing it delivered.** A section of this memo existed only to keep
+the clone viable under CI's depth-1 checkout — `--local` is ignored on a shallow source, git says so in
+two warnings, `--quiet` does not reach them, so the self-test would have had to print a line explaining
+warnings it expected. That is upkeep for a fixture, not for a clause. No line count is given for it: the
+clone was never built, so any figure would be an estimate of unwritten code, which is the class §0
+removes rather than re-measures.
 
 ⚠ The paragraph that argued the shared clone safe did so by quoting §8 with one word substituted, and
 the substituted word **was** the argument. It goes with the clone; §9 records the class.
@@ -482,7 +498,7 @@ What moved, and where it now lives:
 |---|---|
 | §4.2's three tiers and the fail-without-ending rule | the wire's classify/measure loop; controls C1, C4–C7, C16, C17, C24, C35, C36 |
 | §4.2's ten-escape reject list (D5) | the wire's `case "$pattern"` arm; controls C8, C9, C25, and C37 for the accepting direction |
-| §4.2's production, three verbs and four execution rules | the wire's parser and measurement; controls C10, C11, C13–C15, C23, C28–C33 |
+| §4.2's production, three verbs and four execution rules | the wire's parser and measurement; controls C10, C11, C13–C15, C23, C28, C29, C31, C32, C33 (C30 is not among them — it is §1's size bound, and the range notation used to read it as verb coverage) |
 | §8/the self-test's control table | `claim-provenance-selftest.sh`, each `fail` arm naming a required diagnostic substring |
 
 **What did NOT move, because code cannot hold it**: D4's amendment (umbrella §1), the two-root rule
@@ -677,8 +693,9 @@ of v1's three false annotations (`files=7`, which measured 1 — umbrella §0.1)
 
 <!-- claim count=0 pattern="fetch-depth" in=".github/workflows/*.yml" -->
 No CI job requires a deep checkout — the blocker D1 rests on, and the firing trigger umbrella §5 gives
-`#11-claim-annotation-diff-scoped-lint`, whose text is *"the first job **in `.github/workflows/ci.yml`**
-that requires `fetch-depth: 0` for any reason"*. As an annotation that trigger stops being a prose
+`#11-claim-annotation-diff-scoped-lint`, whose text is *"the first job in `.github/workflows/ci.yml` that
+requires `fetch-depth: 0` for any reason"* — quoted without added emphasis, so `grep -F` on the span
+finds it, which is the check §9 nominates for exactly this class. As an annotation that trigger stops being a prose
 promise: the day a job adds one, the wire reds.
 
 **The annotation is deliberately wider than the slot's trigger, and revisions 2–7 hid that by eliding
@@ -705,7 +722,7 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
 **Commit sequencing (one PR, ordered commits):**
 
 1. `claim-provenance-trip-wire.sh` + `claim-provenance-selftest.sh` + **the `REQUIRED_WIRES` line**, in
-   one commit. The registration cannot trail: the unregistered-wire check (`scripts/trip-wires.sh:232-237`)
+   one commit. The registration cannot trail: the unregistered-wire check (`scripts/trip-wires.sh:232-238`)
    fails the moment the file appears, so any split here is a red intermediate commit.
 
    ⚠ **This branch split it, and the rule is stated from the resulting measurement rather than from the
@@ -740,8 +757,10 @@ cover what the sentence claims**, and a figure beside it must not be the thing t
 
 Gate: `claim-gate-plan-check.py` (both memos, and `--self-test`) → `cargo fmt --all` → `mise run ci` →
 `/simplify` → `/code-review` → `/review` → `/elidex-review`. The checker runs **first** because every
-stage after it reads the memo, and a stale figure in the memo costs a reviewer's round rather than a
-second. `mise run ci` is not cargo-only — `mise.toml:116` lists `trip-wires` among its `depends`, so
+stage after it reads the memo, and a stale figure caught by the checker costs nothing a reviewer's
+round costs. (An earlier phrasing put that as "rather than a second"; the checker now runs the wire,
+the self-test and `preflight.py`, so the comparison is to a figure that moves — the class §4.5 removes
+rather than re-measures.) `mise run ci` is not cargo-only — `mise.toml:116` lists `trip-wires` among its `depends`, so
 from this PR onward the local gate exercises the deliverable. `/review` needs a PR, so the order is
 push → draft PR → `/review <n>`.
 
@@ -878,14 +897,26 @@ exactly that tool on the trip-wires loop. The two are only compatible under a ru
 > **A repository gate** — anything on the ungated per-push path — takes no toolchain and couples to no
 > skill directory. **A plan-review-stage tool** — run when a human invokes the gate that reads plan-memos
 > — may do both, because its trigger is a person and its dependencies are already in the room.
+>
+> **The rule is directional, and the two tiers are positions rather than files.** A repo gate may not
+> reach *up*: it may not invoke a plan-review-stage tool, because doing so puts that tool's interpreter
+> and coupling on the ungated path. A plan-review-stage tool may reach *down* — running a repo-gate
+> artifact costs the repo gate nothing, and `CONTROLS` does exactly that, executing
+> `claim-provenance-selftest.sh` to read the control inventory. Round 9 created that crossing and the
+> rule as first written adjudicated neither direction. It also spoke of files, which does not survive
+> the crossing: `claim-provenance-selftest.sh` now runs from both tiers, so **a file may hold both**,
+> and what the rule governs is the path a run arrives by.
 
 `claim-gate-plan-check.py` is the second kind, which is why it is a prerequisite PR rather than a wire,
 why §5's gate lists it as a step rather than registering it, and why the *"a check nobody re-runs is a
 transcript"* objection §1 raises against a split-out helper does not transfer to it unchanged: the memo
 checker's re-runner is the author at the gate, not the driver. That is also the whole content of §9's
 own-deferral #1 — whoever executes the SKILL.md note must decide **which kind** the loop makes it, and
-moving it to the trip-wires loop converts it into the first kind and re-opens (b). Recorded here so the
-executor meets the constraint rather than discovering it.
+moving it to the trip-wires loop converts it into the first kind and re-opens (b). A third consequence
+since round 9, stated because an enumeration left short is what the executor will read as complete:
+after that move one push would run `claim-provenance-selftest.sh` **twice** — once from the wire's
+preamble (§4.1.2) and once from `CONTROLS` — and the cost paragraph below prices only the wire's
+invocation. Recorded here so the executor meets all three rather than discovering them.
 
 **And the cost this puts on every push, stated rather than left to be noticed.** The self-test runs on
 every wire invocation, and the wire runs in `mise run trip-wires` ⊂ `mise run ci` and in the ungated CI
@@ -960,7 +991,8 @@ turns out to be shipped.
 | `C38` | §8.2's inventory consumer, withdrawn with the clause it consumed (§8.2) |
 | `C39` | as `C38` |
 
-*Gaps, recorded rather than completed.* §4.2's liveness short-circuit has no control, measured above.
+*Gaps, recorded rather than completed — and booked in §9, because a gap with no owner is a deferral
+this section would otherwise hide.* §4.2's liveness short-circuit has no control, measured above.
 `C10` and `C11` have negative arms only: their passing direction is "a tree-scale pathspec resolves and
 measures", which the deliverable asserts on every push through §5's and umbrella §2's live annotations,
 and a self-test arm re-asserting it inside a fixture would be a smaller claim than the one already
@@ -1107,15 +1139,21 @@ that output, which is why every `$3` above is spelled `asserted=`.
 
 ```
 $ python3 .claude/skills/elidex-plan-review/preflight.py \
-    docs/plans/2026-08-claim-gate-s1-provenance.md
+    docs/plans/2026-08-claim-gate-s1-provenance.md 2>/dev/null \
+  | grep -E 'entries|malformed|unmapped|unique specs|split decision|grep-pass' \
+  | sed 's/ (spec:.*//'
   total entries  (M):   8  (data rows, breadth basis)
   malformed rows:       0  (no §<number> reference)
   unmapped-label rows:  8  (has §<number>, label not in SPEC_LABEL_REVERSE)
-  unique specs (K):     2
+  unique specs (K):     2 (<`docs/plans/2026-07-terminal-z-c3a-impl-plan.md`>, <`docs/plans/2026-08-quantitative-claim-staleness-gate.md`>)
   split decision:       ok (single PR scope)
   grep-pass:            0 hard, 3 soft
-EXIT=0
 ```
+
+The command elides rather than the transcription: preflight also prints a `heading line:` and a
+`parsed citations:` figure, and the first of those moves whenever this file is edited — the one figure
+a paste of a run against *this memo* cannot hold. `2>/dev/null` drops the `⚠` lines, which name the
+soft findings the tally below already counts.
 
 All 3 soft findings are one shape — a `crates/…**/…` pathspec read as a filesystem path by Check 1's
 matcher, which cannot resolve a glob. The `⚠ unrecognized labels` line for the two in-repo documents §3
@@ -1193,7 +1231,12 @@ that fires every round. ⚠ Revisions 6–8 sourced that date from the same prec
 **re-eval date**, which that precedent supplies". It supplies none: that file carries one ISO date, at
 `:75`, belonging to an unrelated caller count. The date stands on the policy.
 
-**One own deferral survives the audit.**
+**Three own deferrals survive the audit, and the count moved because the test was applied to two
+things §8 had recorded as bounds.** §9's rule is that a row carries an owner, a trigger and a home, and
+that where no such triple exists the item is an own deferral counted as one. Applied to §8's *Gaps*
+paragraph, two entries fail it — they have no owner, no trigger and no home, and "recorded rather than
+completed" is a description, not a disposition. Recording a gap in the section that ships the controls
+is where it belongs; not booking it here is how a memo books zero while owing something.
 
 - **A third checker belongs in `SKILL.md`'s checkers-loop note, and cannot be put there from here.**
   Owner: S1's author, at S1's landing. **Re-eval: 2026-11-01** — the calendar fallback the defer policy
@@ -1249,7 +1292,24 @@ including §6's four-form window → S3.
 `main`, and S1 is opt-in (§6) so the wire will never red on them — which is why the routing needed an
 owner and not a note. Since the measurement is already taken, the correction is **§5's commit 6**.
 
-**Own deferrals: 1 of the per-PR ≤3 budget.** An earlier count of 0 was zero by construction — three
-obligations had been handed to owners that could not execute them, and a fourth had no row here at all.
-1 is honest rather than merely small because the other three turned out to be executable in this PR and
-became commits, which is the disposition the defer policy prefers anyway.
+- **The liveness short-circuit has no control.** The property is a count of `test -e` calls, which is
+  neither a diagnostic nor a `git` invocation, so neither probe shape the self-test has can reach it —
+  measured, not argued: dropping the loop's `break` turns the presence test into an exhaustive walk and
+  **no control moves** (§8). Owner: S1's author. Trigger: a probe shape that can observe a call count,
+  which S2's ledger work is the first thing likely to need. Home: this row. **Re-eval: 2026-11-01.**
+  *(1) platform gap?* No. *(2) repeat signal?* No. *(3) existing home?* No. *(4) second tracking home?*
+  Minting a slot would create one. → **Not a slot; this row.**
+
+- **Nothing discriminates the two roots.** §4.1.2's helper resolution (`$0`) and the scan root (cwd)
+  differ only in a fixture that runs the installed wire against a *different* tree, and every `own`
+  fixture copies the wire in, so the two coincide there. The shape that separated them was the clone
+  §4.1.1 withdrew, and the withdrawal is right on its own grounds — this is the one thing it costs.
+  Owner: S1's author. Trigger: the next fixture that runs the installed wire against a tree it is not
+  installed in. Home: this row. **Re-eval: 2026-11-01.** Audit as above → **not a slot; this row.**
+
+**Own deferrals: 3 of the per-PR ≤3 budget.** Round 9 reported 1 and that was low by the section's own
+test: two items sat in §8 as "gaps, recorded rather than completed", which is a description rather than
+a disposition — the same shape as the 0 an earlier revision reported by handing three obligations to
+owners that could not execute them. At 3 the budget is met exactly, which is a signal in itself: a
+fourth would mean this slice is carrying more than it should, and the two above are both consequences
+of one withdrawal.

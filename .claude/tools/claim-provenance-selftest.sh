@@ -34,8 +34,13 @@ run_wire() { # $1 = dir
   printf '%s\n' "$out"
 }
 
+# Needles seen per fixture dir, for the discrimination check below.
+NEEDLE_LOG=$(mktemp "${TMPDIR:-/tmp}/claim-needles.XXXXXX")
+trap 'rm -f "$NEEDLE_LOG"' EXIT
+
 st_probe() { # $1 pass|fail  $2 label  $3 dir  $4 required diagnostic substring
   local res rc out
+  [ -z "$4" ] || printf '%s\t%s\n' "$3" "$4" >> "$NEEDLE_LOG"
   res=$(run_wire "$3"); rc=${res%%$'\n'*}; out=${res#*$'\n'}
   if [ "$1" = pass ]; then
     [ "$rc" -eq 0 ] && { pass_ "$2"; return; }
@@ -400,6 +405,35 @@ else
     "small tree: $n_small, large tree: $n_large, expected 6 in both"
 fi
 rm -rf "$small" "$large"
+
+# --------------------------------------------------------------------------
+# C41 -- within one fixture, no required substring may contain another.
+#
+# `st_probe` matches its needle against the WHOLE wire output, so in a fixture
+# where several annotations fire on every run -- `escapes` (two arms) and
+# `escapes10` (ten) -- an arm whose needle is a substring of another's passes
+# when the OTHER arm fires, and stops discriminating the clause it names. That
+# is the property the retired prose table policed as a `$3` column; deleting the
+# table on the ground that `st_probe` enforces it by construction was wrong,
+# because `st_probe` cannot see its siblings. This can.
+#
+# Scoped to the fixture, not global: two `own` rows each get their own wire
+# invocation and cannot mask each other whatever they assert (§8).
+# --------------------------------------------------------------------------
+collide=$(awk -F'\t' '
+  { dir[NR]=$1; needle[NR]=$2; n=NR }
+  END {
+    for (i=1; i<=n; i++)
+      for (j=1; j<=n; j++)
+        if (i!=j && dir[i]==dir[j] && needle[i]!=needle[j] && index(needle[j], needle[i]) > 0)
+          printf "%s is contained in %s\n", needle[i], needle[j]
+  }' "$NEEDLE_LOG" | sort -u)
+if [ -z "$collide" ]; then
+  pass_ "C41  within each fixture, no required substring contains another"
+else
+  fail_ "C41  within each fixture, no required substring contains another" \
+    "$(printf '%s' "$collide" | tr '\n' ';')"
+fi
 
 # --------------------------------------------------------------------------
 # C30 -- §1's size bound on the two shipped files
