@@ -1228,16 +1228,23 @@ skips. A seed that cannot name the command that produced it is a claim, not a de
 
 ⚠ **And naming the command is not enough if the object it reads does not outlive this branch.** This PR is squash-merged, so none of
 its commits enter `main`'s history; once the branch is deleted a fresh clone resolves none of them and every `git show <sha>:<path>`
-here stops reproducing — the seed is a claim again, by the sentence above. Re-derived at this revision: this file cites **43**
-distinct 8-hex tokens, of which **42** resolve as commits and **all 42** are ancestors of HEAD, i.e. branch-local; only **4** of those
-are reachable from `origin/main`, leaving **38** that die at the squash. The 43rd, `04734642`, is a *blob*, and a blob of this file
-dies with them. Enumerate with `grep -oE '\b[0-9a-f]{8}\b' <this file>` de-duplicated through `sort -u`, then per token
+here stops reproducing — the seed is a claim again, by the sentence above. ⚠ **The population is this document *and the three files
+carved out of it*, and it read "this file" for several revisions** — which left the carved files governed by nothing while the rule
+that reaches them sat here, the same "swept the population that motivated it" failure §5's naming rule records. Re-derived at this
+revision, per file, with the commands below: this document cites **43** distinct 8-hex tokens, of which **42** resolve as commits and
+**all 42** are ancestors of HEAD, i.e. branch-local; only **4** of those are reachable from `origin/main`, leaving **38** that die at
+the squash. The 43rd, `04734642`, is a *blob*, and a blob of this file dies with them.
+[The 0a landing record](2026-07-vm-p4-slice-0a-landing-record.md) cites **23**, all commits, **1** on `origin/main` ⇒ **22** die —
+and only **1** is an ancestor of this branch's HEAD, so the other 22 are already anchored to a ref this PR does not carry.
+[The 1a/1b detail](2026-07-vm-p4-slice-1a-1b-call-spread-detail.md) cites **3** ⇒ **1** dies;
+[the review-rounds record](2026-07-vm-p4-umbrella-review-rounds.md) cites **2** ⇒ **1** dies. **24 outside this document**, against
+the 38 inside it. Enumerate with `grep -oE '\b[0-9a-f]{8}\b' <file>` de-duplicated through `sort -u`, then per token
 `git cat-file -e "<sha>^{commit}"` and `git merge-base --is-ancestor <sha> origin/main`. So the rule, and it has two limbs:
 **an evidence anchor is either reachable from `origin/main`, or the measurement it supports is quoted inline** so the figure survives
 the object. The second limb is what carries the 38, and it is why they are *not* rewritten — a mechanical re-anchoring sweep costs
 more than it buys while the branch still exists. What is not permitted is the third shape: a bare sha carrying a figure stated nowhere
-but at that sha. **At merge time the lander re-runs the two commands above against the squash commit and converts every anchor still
-in that shape**, which is the step that keeps this from rotting silently.
+but at that sha. **At merge time the lander re-runs the two commands above against the squash commit, over all four files, and converts every anchor
+still in that shape**, which is the step that keeps this from rotting silently.
 
 ⚠ **And a prose rule is not the remedy, only its specification.** Three rounds running, the finding was
 a hand-written claim contradicting a cell — a class that stops when a **checker reads the memo**, not
@@ -2195,6 +2202,31 @@ seam derivation, the measured ranges and the discharge). `§6.1`, `§6.2`, `§6.
 `§6.2a-3`, `§6.3`, `§6.4` and `§6.5` keep their numbers there, and every `§6…` reference in this
 document links to that file — so scheduling from §5, §8 and §9 reads exactly as it did before the
 carve.
+
+⚠ **The `edge NN` namespace went with §6.4, and this sentence is its single home.** Every bare
+`edge NN` / `edges NN/NN` in this document, in
+[the review-rounds record](2026-07-vm-p4-umbrella-review-rounds.md) and in the detail file itself
+names an entry of **§6.4's numbered edge matrix** in that file, and nothing else in this program
+numbers edges. Most such references carry no pointer to §6.4, and before this sentence they resolved
+against a section number this document no longer contains. The repair is one declaration and not one
+annotation per site: a namespace is one of the things §5 says has exactly one structured home, and a
+pointer on every reference would be a second copy of it at every reference.
+
+Two commands, and they are the claim rather than an illustration of it. References, per file, over
+the four files of this program in the order they are listed above — **29 / 21 / 2 / 0**:
+
+    grep -o -E '\b[Ee]dges? \*{0,2}[0-9]' <file> | wc -l
+
+⚠ *Not* `grep -c`, which counts matching **lines**: §5's rows are one line each and carry several
+references apiece, so the line count reads 15 / 17 / 2 / 0 and disagrees with the reference count on
+two of the four files. Definitions, from §6.4 — **1-35, contiguous**:
+
+    grep -o -E '(^|· )\*{0,2}[0-9]{1,2}\. ' \
+        docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md |
+      grep -o '[0-9]*' | sort -n | uniq | tr '\n' ' '
+
+A reference outside that range is dangling, and the second command is what says so rather than a
+reader's memory of how far the matrix runs.
 
 ---
 
