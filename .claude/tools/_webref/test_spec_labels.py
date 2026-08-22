@@ -300,9 +300,15 @@ class TestNoNetworkOrCliSubprocess(unittest.TestCase):
                    side_effect=AssertionError("urlopen on the import path")):
             importlib.reload(spec_labels)
             importlib.reload(coverage_map)
+            # `cli` is the consumer each gate subprocess actually imports, and
+            # it was collected before the poison went in -- so a side effect on
+            # ITS import path ran unpoisoned and T-net stayed green (Codex
+            # R15). Reload it here and read its derived output under the poison.
+            importlib.reload(cli)
             self.assertEqual(spec_labels.label_for("html"), "WHATWG HTML")
             self.assertEqual(spec_labels.shortname_for("WHATWG Fetch"), "fetch")
             self.assertEqual(coverage_map._spec_label("fetch"), "WHATWG Fetch")
+            self.assertEqual(cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
 
 
 if __name__ == "__main__":

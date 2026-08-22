@@ -178,6 +178,7 @@ _wtscan() {  # $1 = ERE, $2.. = roots RELATIVE TO $REPO_ROOT. Prints `path:line:
 import os, re, sys
 os.chdir(sys.argv[1])
 ere = re.compile(sys.argv[2])
+unreadable = []
 for root in sys.argv[3:]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__")]
@@ -188,8 +189,17 @@ for root in sys.argv[3:]:
                     for i, line in enumerate(fh, 1):
                         for m in ere.finditer(line):
                             print(f"{path}:{i}:{m.group(0)}")
-            except (OSError, UnicodeDecodeError):
-                continue
+            except UnicodeDecodeError:
+                continue          # non-text: nothing to match, legitimately
+            except OSError as e:
+                # An UNREADABLE file is not a non-match: skipping it and exiting
+                # 0 told `_measure` the scan was complete, and `couplings`
+                # printed GREEN over a file it never inspected (Codex R15).
+                unreadable.append(f"{path}: {e.strerror}")
+if unreadable:
+    for u in unreadable:
+        print(f"!! unreadable, NOT scanned: {u}", file=sys.stderr)
+    sys.exit(2)
 WTSCANPY
 }
 

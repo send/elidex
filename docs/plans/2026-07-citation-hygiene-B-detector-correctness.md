@@ -516,7 +516,7 @@ Three deltas need naming, not just reporting:
 
 ## §6 Test plan
 
-New/changed tests, by file. Every one must **fail at `bf580047`** — §12 makes that a runnable check rather than a promise.
+New/changed tests, by file. Every one must **fail against the unfixed detector** (`bf580047`'s `cite_audit.py` grafted onto A's landed head — §12(2) spells out why the graft is needed) — §12 makes that a runnable check rather than a promise.
 
 **`test_cite_audit.py`** (36 today):
 - **T1** `TestTokenIntegrity` — 6 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7` all REJECTED; `§4.10.5.` and `§4.10.5, and` accepted. Pins the atomic form and, by the first case, forbids the lookahead form.
@@ -662,11 +662,16 @@ criterion. B inherits it.
 
 ```sh
 git worktree add /tmp/citeaudit-pre <A's landed head>
+# A-i's K3 deliberately ships NO detector: at A's head `commands/cite_audit.py`
+# is absent, so a suite run there fails on import, not on T1–T9/C1 (Codex R15).
+# Graft the UNFIXED detector from the carve commit, then the red is attributable.
+git show bf580047:.claude/tools/_webref/commands/cite_audit.py \
+  > /tmp/citeaudit-pre/.claude/tools/_webref/commands/cite_audit.py
 cp .claude/tools/_webref/test_*.py /tmp/citeaudit-pre/.claude/tools/_webref/
 cd /tmp/citeaudit-pre && mise run tools-test; echo "EXPECT NON-ZERO: $?"
 ```
 
-The new tests run against the **unfixed** detector at A's head. This must exit non-zero, with at least
+The new tests run against the **unfixed** detector — `bf580047`'s `cite_audit.py` on A's landed tree. This must exit non-zero, with at least
 one failure attributable to each of the nine classes (T1-T9) and to the coverage gap (C1). A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).

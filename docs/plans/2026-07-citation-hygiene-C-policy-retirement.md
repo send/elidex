@@ -90,13 +90,17 @@ Conversely, if B lands and C never follows, both methods stay mandated at once �
 grep -q 'cite-audit' .claude/skills/elidex-review/axes.md \
   && grep -q 'cite-audit' CLAUDE.md \
   && ! grep -q '≥4 grep pattern' .claude/skills/elidex-review/axes.md \
-  && grep -q -- '--strict' .claude/tools/_webref/DESIGN.md \
+  && grep -q '^## Reported classes' .claude/tools/_webref/DESIGN.md \
   && echo RETIRED
 ```
 
 Today (2026-07-28) this prints nothing. The fourth clause is §1's third site: `DESIGN.md` gaining the
 reported-class and `--strict` contract that `axes.md` will point readers to — a chain checking only
-`axes.md` and `CLAUDE.md` printed `RETIRED` with that contract still unwritten (Codex R14). Note that this is a **doc assertion pinned by a grep, not by a
+`axes.md` and `CLAUDE.md` printed `RETIRED` with that contract still unwritten (Codex R14). ⚠ The needle
+is a heading **C itself writes** (`## Reported classes`, the section §1's third row promises), not the
+option name: B's tree already carries `cite-audit html --strict` in `DESIGN.md`'s usage block, so a
+`--strict` grep was satisfied before C touched the file and let C skip its third edit (Codex R15). Measured
+absent at B's base and at A-i's head; C re-measures at kickoff. Note that this is a **doc assertion pinned by a grep, not by a
 test** — the honest statement of what checks it, in the umbrella's "claims vs checks" sense, is
 `UNCHECKED by a test`. C must carry that row explicitly rather than omit it.
 

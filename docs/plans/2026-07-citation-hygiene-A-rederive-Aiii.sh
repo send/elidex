@@ -164,7 +164,11 @@ while i < len(lines):
             i = j; continue
         cmds.append(val)
     i += 1
-hit = [c for c in cmds if re.search(r"(^|[^A-Za-z0-9_./-])mise(\s|$)", c)]
+# The executable BASENAME: `/usr/local/bin/mise run ci` and `./mise run ci` are
+# invocations, and the previous class rejected `/` and `.` before the word, so
+# both read as "never invokes mise" (Codex R15). `mise.toml` (the FILE the filter lists
+# entry) is still excluded by the trailing boundary, not by the leading one.
+hit = [c for c in cmds if re.search(r"(^|[^A-Za-z0-9_-])mise(\s|$)", c)]
 sys.exit(1 if hit else 0)' || { echo "!! ci.yml invokes mise in a run step — §4.1's 'never invokes mise' no longer holds"; rc=1; }
   return "$rc"
 }

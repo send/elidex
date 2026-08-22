@@ -212,10 +212,18 @@ readercensus() {  # §15 — the four reader censuses A-i cites, as ONE roster e
   for s in _SPEC_LABEL_MAP COMMON_SHORTNAMES SPEC_LABEL_REVERSE; do
     readers readers "$s" "$MAIN" || { echo "!! \`readers $s $MAIN\` did not produce a populated, partitioned census"; rc=1; }
   done
-  if readers readers label_for "$MAIN" >/dev/null 2>&1; then
+  # "Non-zero" is not "empty": the payload aborting for any other reason also
+  # exits non-zero, and reading that as the expected-empty result certified a
+  # census never taken (Codex R15). Only the explicit `EMPTY CENSUS` line is
+  # the reading this arm is named for.
+  local lf; lf=$(readers readers label_for "$MAIN" 2>&1); local lfrc=$?
+  if [ "$lfrc" -eq 0 ]; then
     echo "!! \`readers label_for $MAIN\` found readers — §4.2's 'none at origin/main' no longer holds"; rc=1
-  else
+  elif printf '%s\n' "$lf" | grep -q '^!! EMPTY CENSUS'; then
     echo "(readers label_for $MAIN: empty, as §4.2 states — the module is new in A-i)"
+  else
+    echo "!! \`readers label_for $MAIN\` exited $lfrc WITHOUT the EMPTY CENSUS reading — not a census:"
+    printf '%s\n' "$lf" | tail -3 | sed 's/^/   /'; rc=1
   fi
   readers readers label_for HEAD || { echo "!! \`readers label_for HEAD\` is empty or unpartitioned"; rc=1; }
   return "$rc"

@@ -131,6 +131,22 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
     _verdict "$rc" "$out" || { echo "   !! EXIT=$rc with no verdict line — the carve's gate did not RUN here."
                                failed=1; }
   done
+  # P11e's premise, at the carve: a no-spec memo with a bad `crates/…` path and
+  # grep-pass ENABLED exits non-zero here too -- via the no-table hard fail --
+  # and the diagnostic does NOT name the path. Every row above passes
+  # `--no-grep-pass`, so this block could not observe the mechanism P11e is
+  # about (Codex R15); A-ii's "fails at A-ii's head? yes, on the diagnostic" is
+  # exactly this reading, asserted rather than recalled.
+  printf '# fixture\n\n## §3. Spec coverage map\n\n**No spec surface** — tooling only.\n\nSee `crates/nonesuch/src/lib.rs`.\n' > "$F/nospec-badpath.md"
+  local out rc
+  out=$(python3 "$PF" "$F/nospec-badpath.md" 2>&1); rc=$?
+  printf '%-18s EXIT=%d  (grep-pass ON)\n' "nospec-badpath" "$rc"
+  [ "$rc" -ne 0 ] || { echo "   !! exit 0 — the carve no longer hard-fails a no-spec memo"; failed=1; }
+  if echo "$out" | grep -q 'crates/nonesuch'; then
+    echo "   !! the carve NAMES the grep-pass finding — P11e would be green at the carve, its 'yes' column is stale"; failed=1
+  else
+    echo "   carve does not name crates/nonesuch — P11e red here, as A-ii §6 states"
+  fi
   rm -rf "$F"
   return "$failed"
 }
