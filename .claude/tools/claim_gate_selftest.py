@@ -547,6 +547,19 @@ def selftest() -> int:
     probe("CONTROLS negative (a control with no arm named either way)", True,
           capture(check_controls, synth(LEDGER + "\nC3's negative proves it.\n"), HAVE, []),
           "no arm named either way")
+    # Round 10: one inserted word defeated the arm check at two live sites, and
+    # a sub-arm letter was unreadable, so `C18 (z)` passed while `C99 (a)` red.
+    probe("CONTROLS negative (an arm cited with words between it and the id)", True,
+          capture(check_controls, synth(LEDGER + "\nC2's intended positive proves it.\n"),
+                  HAVE, []),
+          "cites C2's positive arm")
+    probe("CONTROLS negative (a sub-arm the self-test does not ship)", True,
+          capture(check_controls, synth(LEDGER + "\nC1 (z) asserts it.\n"),
+                  {"C1": {"a", "b"}}, []),
+          "ships C1 with only its a/b arm")
+    probe("CONTROLS positive (a sub-arm it does ship)", False,
+          capture(check_controls, synth(LEDGER + "\nC1 (b) asserts it.\n"),
+                  {"C1": {"a", "b"}}, []))
     # A range names every control between its ends, which is how `C19`-`C22`
     # read as two citations while four controls went unwritten.
     probe("CONTROLS negative (a range names the controls between its ends)", True,
