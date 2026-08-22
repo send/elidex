@@ -484,12 +484,22 @@ population β leaves unchanged.
   bullet's neighbour at `-audit.sh:361-366` already names the form it misses. The population is **every
   citation INTO `-audit.sh`, whatever its spelling and whichever file it sits in** — the `path:N` form, the
   **bare `:N`** form the memos write freely, `sed -n 'A,Bp'` and `sed -n 'Np'` commands, and the harness's
-  **own self-citations** (`-audit.sh:360` cites `-audit.sh:325`, and `473b9d56` broke it). ⊕ Over that
-  population the same commit is **8 anchors wrong**, in four files, none of them visible to the gate:
-  `beta-classifier.md:439` `:537` `:538`, `disposition.md:237` `:322` `:333` (twice), `measurements.md:345`,
-  and `-audit.sh:360`. Two of the eight are the sharpest possible demonstration that the scope was wrong —
-  `disposition.md:237` re-derived `:273 → :315` and left `:277` **in the same parenthetical**, and
-  `beta-classifier.md:537`'s bare `:112` sits one line below two anchors the commit did update.
+  **own self-citations** (the `-audit.sh` comment that offers `-audit.sh:325` as its worked example of a
+  name-suffix reference, which `473b9d56` broke). ⊕ Over that population, and naming the sites by what they
+  cite rather than by a line number that this bullet's own edits move, the commit **broke six anchors and one
+  prose figure that were correct before it**, in four files, none of them visible to the gate: the β memo's
+  `hits_outside_quotes` anchor, its `sed -n` command over the two `classify` branches and the *"ten lines
+  apart"* that went with them; the disposition's `ruled`-extraction anchor and its `rosterspan` consumer; the
+  measurements memo's `selfcheck` payload host; and the self-citation above. Two of them are the sharpest
+  demonstration that the scope was wrong — the disposition re-derived the `_s3` extraction and left the
+  `ruled` anchor **in the same parenthetical**, and the β memo's bare `hits_outside_quotes` anchor sits one
+  line below two anchors the commit did update. ⚠ **It also renumbered a PAST-TENSE record that must not
+  move** (the disposition's *"the `all` route's line was … when it was written"*), and it left standing one
+  anchor that was **already wrong before it** (the disposition's `selfcheck` host, stale since before this
+  slice). ⚠ **And the enumerator that produced this list needed two verdicts overturned by hand**: a bare
+  `:273` that cites `-inventory.sh` rather than this file, and a `:538` that is a record of a *former*
+  spelling rather than a citation. That failure rate is the evidence for the next bullet, not a footnote to
+  it.
 - ⚠ **And the widened population is a SEED, not an inventory — which is the real finding, and it is §3's
   neighbour rather than β's bookkeeping.** A bare `:N` carries no path, so no enumerator can decide which
   file it cites; the harness declares exactly this a LIMIT (`-audit.sh:361-366`). Widening a regex cannot
@@ -497,9 +507,13 @@ population β leaves unchanged.
   way `:209` and `:218` now do — and that is a change to the memos' citation convention and to this
   obligation's shape, so it is **round 7's**, not this commit's. ⚠ **The method claim is withdrawn too**:
   `473b9d56`'s message said the anchors were *"mapped by line CONTENT rather than by shifting a delta"*, and
-  all 24 moved by exactly **+42** while the commit's own shift was +45 above `classify` and +42 below — the
-  one case where content and delta disagreed (`disposition.md:322`'s `-audit.sh:527`) took the delta, and
-  landed on an unrelated line in a sentence that records what the number **was** when it was written. ⚠ **The site set is not "the umbrella's two rows", and an
+  all 24 moved by exactly **+42** while the commit's own shift was +45 above `classify` and +42 below. ⚠ **An
+  earlier draft of this sentence named the disposition's `-audit.sh:527` as a case where content and delta
+  disagreed and the delta won; measured, they agree there** — the referent does sit 42 lines lower. The real
+  defect at that site is the opposite one and worse: the number is inside *"the `all` route's line **was** …
+  **when it was written**"*, so it is a record rather than a reference, and re-deriving it to the current head
+  destroyed what it recorded. A method that cannot tell a citation from the record of a former citation
+  cannot discharge this obligation, which is the seed/inventory point again, at the other end. ⚠ **The site set is not "the umbrella's two rows", and an
   earlier draft said it was.** ⊕ Measured — `classify` is defined at `-audit.sh:163`
   (`grep -n 'def classify' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`), and the umbrella cites
 . ⚠ **Which sections hold them is not written here, because an earlier draft wrote it and was wrong on
@@ -559,10 +573,10 @@ already done once:
   strips single-quoted spans only; `mention` keeps `hits_outside_quotes` (`-audit.sh:157-160`), which strips
   both by flat alternation. §2a measures that predicate's premise false — a `"$(f)"` span is deleted whole,
   so it cannot tell *named in a string* from *called through a substitution* — and §3 closes the `mention`
-  **symptom** by testing `callsite` first rather than by fixing it. ⊕ Both rules live in `classify`, ten lines
+  **symptom** by testing `callsite` first rather than by fixing it. ⊕ Both rules live in `classify`, seven lines
   apart — the `callsite` branch, now `-audit.sh:186-188`, and the `mention` branch at `-audit.sh:193` calling
-  `hits_outside_quotes`, defined at `:112` — by
-  `sed -n '141,152p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`. ⚠ **An earlier draft of this
+  `hits_outside_quotes`, defined at `-audit.sh:157` — by
+  `sed -n '186,193p' docs/plans/2026-07-citation-hygiene-A-rederive-audit.sh`. ⚠ **An earlier draft of this
   bullet said "four lines apart" and attached a `grep` that returns `:112` and `:151`, measuring neither the
   distance nor the claim.**
   **Trigger: ε**, which owns `mention`'s siblings once `prose` splits, and is the first slice that must state

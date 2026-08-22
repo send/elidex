@@ -342,7 +342,7 @@ diff "$d/before" "$d/after"        # V 41->42; roster row 10 of V -> 11 of V; PO
   refutation is recorded because the wording invites the reading.** §3's `roster` row scopes the three to the
   three **readers of `all`'s roster** — `homes`, `inventory`, `selfcheck` — not to every argv-plus-heredoc
   payload. ⊕ `grep -n 'python3 - "$REPO_ROOT' docs/plans/2026-07-citation-hygiene-A-rederive*.sh` returns four
-  such payloads even after the revert (`-audit.sh:53`, `:555`, `-inventory.sh:39`, `-common.sh:118`), and
+  such payloads even after the revert (`-audit.sh:53`, `-audit.sh:597`, `-inventory.sh:39`, `-common.sh:118`), and
   `_wtscan` at `-common.sh:118` reads no roster; neither did `attest`. ⚠ **A first draft of this paragraph
   accepted the axis's finding and added `-common.sh:118` as a fourth site β had missed — which is the same
   error one level down**, since that payload fails the row's criterion too. What is real is the **label**: β

@@ -112,9 +112,9 @@ CLASSES = {"PARTS": "partset", "ORDER": "groupvocab", "PART_SLICE": "groupvocab"
 # A CALL SITE IS A VOCABULARY TOKEN IN COMMAND POSITION. The predicate this
 # replaced tested only the LINE'S FIRST WORD plus a `_measure` special case, so
 # the outer regex's `then `/`do `/`else ` alternatives were dead and a derivation
-# called anywhere but first went unseen -- measured, the quoted crossing
-# `python3 - "$(_partset)" "$(_roster)"` reached `mention` and filed a genuine
-# home under the class whose rule is *nothing to do*, at rc=0.
+# called anywhere but first went unseen -- measured ON A PLANTED TREE (the beta
+# memo §1 holds the recipe; `_partset`/`_roster` are in no `VOCAB`): the quoted
+# crossing reached `mention` and filed a genuine home there, at rc=0.
 #
 # A command begins at LINE START, after `;` `&&` `||` `|`, after `(` -- which
 # covers `$(` and `<(` -- after `{`, and after then/do/else/elif/if/while/until.
@@ -129,10 +129,10 @@ CLASSES = {"PARTS": "partset", "ORDER": "groupvocab", "PART_SLICE": "groupvocab"
 # A bare `&` is knowingly NOT included: the rule spells `&&`, its population here
 # is empty, and admitting it is the reconciliation's call, not this scan's.
 #
-# SINGLE-quoted spans are removed first and DOUBLE-quoted spans are not. Of the
-# three readings available exactly one satisfies every observable: stripping
-# double quotes too would kill the quoted crossing above, and stripping neither
-# would reclassify `echo '$(_partset)'`, which is correct as `mention` today.
+# SINGLE-quoted spans are removed first and DOUBLE-quoted spans are not, argued
+# as the one of three readings satisfying every observable. ⚠ REOPENED -- both
+# discriminating cases are plants and the tree measures the other way; the gate
+# closure was withdrawn on it and round 7 owns the rule (beta memo §6).
 #
 # `_measure`'s special case RETIRES into this: `_measure` is a vocabulary token
 # (`VOCAB` comes from `declare -F`), so `local n; _measure a b` reaches command
@@ -357,7 +357,7 @@ HN = {f.name for f in PARTFILES} | {PARTFILES[0].name.split("A-rederive-")[0] + 
 REV = re.compile(r"`([0-9a-f]{8})`")
 # (2) A PATH REFERENCE resolves by UNIQUE SUFFIX over `git ls-files`, by path
 # component OR by file-NAME suffix -- which is what makes the memos' abbreviated
-# spellings resolvable (`-audit.sh:325` is a name suffix, not a path one). An
+# spellings resolvable (`-audit.sh:367` is a name suffix, not a path one). An
 # AMBIGUOUS suffix is a finding, never a silent first match. Two states print as
 # LIMITS, both NAMED rather than inferred: a bare `:N` with no path (the memos
 # write several; the subject is a sentence away), and a path outside this
