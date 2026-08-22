@@ -358,7 +358,7 @@ HN = {f.name for f in PARTFILES} | {PARTFILES[0].name.split("A-rederive-")[0] + 
 REV = re.compile(r"`([0-9a-f]{8})`")
 # (2) A PATH REFERENCE resolves by UNIQUE SUFFIX over `git ls-files`, by path
 # component OR by file-NAME suffix -- which is what makes the memos' abbreviated
-# spellings resolvable (`-audit.sh:367` is a name suffix, not a path one). An
+# spellings resolvable (`-audit.sh:368` is a name suffix, not a path one). An
 # AMBIGUOUS suffix is a finding, never a silent first match. Two states print as
 # LIMITS, both NAMED rather than inferred: a bare `:N` with no path (the memos
 # write several; the subject is a sentence away), and a path outside this

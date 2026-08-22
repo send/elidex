@@ -342,7 +342,7 @@ diff "$d/before" "$d/after"        # V 41->42; roster row 10 of V -> 11 of V; PO
   refutation is recorded because the wording invites the reading.** §3's `roster` row scopes the three to the
   three **readers of `all`'s roster** — `homes`, `inventory`, `selfcheck` — not to every argv-plus-heredoc
   payload. ⊕ `grep -n 'python3 - "$REPO_ROOT' docs/plans/2026-07-citation-hygiene-A-rederive*.sh` returns four
-  such payloads even after the revert (`-audit.sh:53`, `-audit.sh:597`, `-inventory.sh:39`, `-common.sh:118`), and
+  such payloads even after the revert (`-audit.sh:53`, `-audit.sh:598`, `-inventory.sh:39`, `-common.sh:118`), and
   `_wtscan` at `-common.sh:118` reads no roster; neither did `attest`. ⚠ **A first draft of this paragraph
   accepted the axis's finding and added `-common.sh:118` as a fourth site β had missed — which is the same
   error one level down**, since that payload fails the row's criterion too. What is real is the **label**: β
@@ -688,5 +688,10 @@ clause's history.
 | `473b9d56`, `9f0fe33d` | 70 → 70 | **passes** — ⚠ **both fall under this clause and neither was graded until now** |
 
   ⚠ **The count is not pinned here either** — the falsifier's population grows with the branch. It printed
-  thirteen commits when §9 was written and **seventeen** when this entry was added, and the two the growth
+  thirteen commits when §9 was written and seventeen when this entry was added, and the two the growth
   brought in (`473b9d56`, `9f0fe33d`) were under the clause and ungraded until this measurement.
+  ⚠ **And it happened again at the very next dispatch.** `a67ce669` touches `-audit.sh`, so the falsifier
+  prints it; round 8 found it ungraded — the **third** time this clause was dispatched over an ungraded
+  population. ⊕ Graded class-aware: `HOMES: 70 → 70`, `(file, class)` delta **0** ⇒ **passes**. The omission
+  hides no violation, which is exactly why it keeps recurring: **grading is not on the path of anything, so
+  nothing reds when it is skipped.** That is the standing defect, not the missing row.
