@@ -88,10 +88,14 @@ def build(**kw):
     return HEADER.format(**f)
 
 
-def run_on(text, prose=""):
+def run_on(text, prose="", sibling=None):
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "fixture.md"
         p.write_text(text + "\n" + prose + "\n")
+        # Every fixture link resolves to this file (discovery reads the memo's
+        # links and an absent target is a FATAL in production); its name
+        # carries an id so the destination-masking control keeps its subject.
+        (pathlib.Path(d) / "slice-9z-sib.md").write_text((sibling or "") + "\n")
         memo = M.Memo(str(p))
         # ⚠ The PRODUCTION population.  This passed `umbrella_ids()` while
         # `main()` passes `no_owner_ids()`, so a regression dropping
@@ -123,8 +127,8 @@ def run_on(text, prose=""):
 CASES = []
 
 
-def case(kind, name, text, prose, expect):
-    CASES.append((kind, name, text, prose, expect))
+def case(kind, name, text, prose, expect, sibling=None):
+    CASES.append((kind, name, text, prose, expect, sibling))
 
 
 # ---------------------------------------------------------------- POSITIVE --
@@ -183,11 +187,16 @@ case("POSITIVE", "a backticked BARE id is the document spelling an id, not code"
 case("NEGATIVE", "an id-looking token inside inline code",
      build(), "The probe reads `Reflect.construct(9z, [], D)` and stops.", 0)
 case("POSITIVE", "a visible link LABEL is prose and is scanned",
-     build(), "See [Slice 9z lands first](2026-07-detail.md) for the walk.", 1)
+     build(), "See [Slice 9z lands first](slice-9z-sib.md) for the walk.", 1)
 case("NEGATIVE", "an id-looking token inside a file name",
-     build(), "See [detail](2026-07-vm-p4-slice-9z-detail.md) for the walk.", 0)
+     build(), "See [detail](slice-9z-sib.md) for the walk.", 0)
 case("POSITIVE-NOVEL", "umbrella id is the LAST token of a link label",
-     build(), "See [Slice 9z](2026-07-detail.md) for the walk.", 1)
+     build(), "See [Slice 9z](slice-9z-sib.md) for the walk.", 1)
+# The sibling population is discovered from the memo's own links, not passed
+# by the caller: the violation below lives ONLY in the linked file.
+case("POSITIVE-NOVEL", "a violation in a carved sibling the memo links",
+     build(), "See [the walk](slice-9z-sib.md).", 1,
+     sibling="Slice 9z lands before Slice 7z.")
 
 # -------------------------------------------------------------- KNOWN-MISS --
 # These are wrong sites.  The checker does not report them, and that is the
@@ -297,10 +306,13 @@ def run():
     print("plan-memo-umbrella-check  --  self-test")
     print("=" * 74)
 
-    for kind, name, text, prose, expect in CASES:
-        umb, reported, _ = run_on(text, prose)
+    for kind, name, text, prose, expect, sibling in CASES:
+        umb, reported, _ = run_on(text, prose, sibling)
         got = len(reported)
-        ok = (got >= expect) if expect else (got == 0)
+        # Exact, not `>=`: every fixture carries exactly one intended site, so a
+        # scanner that reports one site twice must turn a control red rather
+        # than inflate the production census behind a green self-test.
+        ok = (got == expect)
         counts[kind] += 1
         if kind == "KNOWN-MISS":
             print("  RED  [KNOWN-MISS] %s -- reported %d (expected 0; this site IS wrong)"
@@ -309,8 +321,8 @@ def run():
                 fails.append("KNOWN-MISS %s now reports; update the declared miss class" % name)
             continue
         if not ok:
-            fails.append("%s %s: expected %s, got %d :: %s"
-                         % (kind, name, ">=1" if expect else "0", got,
+            fails.append("%s %s: expected %d, got %d :: %s"
+                         % (kind, name, expect, got,
                             [m.context()[:80] for m in reported]))
         print("  %-4s [%s] %s (%d reported)" % ("ok" if ok else "FAIL", kind, name, got))
 
@@ -318,10 +330,10 @@ def run():
         counts[kind] += 1
         _, _, findings = run_on(text, "")
         got = sum(1 for c, _, _ in findings if c == code)
-        ok = (got >= expect) if expect else (got == 0)
+        ok = (got == expect)
         if not ok:
-            fails.append("%s %s [%s]: expected %s, got %d"
-                         % (kind, name, code, ">=1" if expect else "0", got))
+            fails.append("%s %s [%s]: expected %d, got %d"
+                         % (kind, name, code, expect, got))
         print("  %-4s [%s] %s (%s x%d)" % ("ok" if ok else "FAIL", kind, name, code, got))
 
     n_base, n_ptr = attribution_control()

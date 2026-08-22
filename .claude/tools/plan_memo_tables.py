@@ -184,6 +184,27 @@ class Memo:
         for name, _, rows in self.tables:
             self.rows.setdefault(name, []).extend(rows)
 
+    # -- carved siblings ---------------------------------------------------
+
+    _LINK = re.compile(r"\]\(([^)\s]+\.md)\)")
+
+    def linked_memos(self):
+        """Every `.md` this memo links, resolved beside it, in first-link order.
+
+        The naming population is the memo AND the files it carved prose into;
+        the memo's own links are the only authoritative list of those.  Taking
+        them as optional positional arguments made completeness depend on the
+        caller remembering three file names: the documented main-only
+        invocation scanned 611 sites and exited 0, the two-sibling one 658,
+        the three-sibling one 706 -- the same exit code for three populations.
+        """
+        out = []
+        for m in self._LINK.finditer(self.text):
+            p = (self.path.parent / m.group(1)).resolve()
+            if p != self.path.resolve() and p not in out:
+                out.append(p)
+        return out
+
     # -- row inventories ---------------------------------------------------
 
     def data_rows(self, table):

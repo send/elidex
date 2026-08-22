@@ -121,7 +121,7 @@ A phrasing nobody has written yet is therefore reported by default rather than
 admitted by default, which is the safe polarity for a rule whose failures have
 all been new spellings of an old mistake.
 
-Usage:  plan-memo-umbrella-check.py <memo> [<sibling> ...]
+Usage:  plan-memo-umbrella-check.py <memo>      (carved siblings = the memo's own links)
         plan-memo-umbrella-check.py --self-test
 """
 
@@ -640,7 +640,7 @@ def acceptance_vocab_seed(memo, findings, notes):
 # --------------------------------------------------------------------------
 
 
-def collect_mentions(memo, umb, siblings=()):
+def collect_mentions(memo, umb):
     """The whole naming pipeline, in ONE place.
 
     The self-test used to reimplement this -- with a first-wins dedup where this
@@ -655,10 +655,10 @@ def collect_mentions(memo, umb, siblings=()):
     cellm, table_lines = scan_tables(memo.path.name, memo, umb, ids=all_ids)
     mentions += cellm
     mentions += scan_prose(memo.path.name, memo.lines, umb, table_lines, ids=all_ids)
-    for sib in siblings:
-        sp = pathlib.Path(sib)
+    # Siblings come from the memo's own links, never from the caller.
+    for sp in memo.linked_memos():
         sl = sp.read_text().split("\n")
-        sm = Memo(sib)
+        sm = Memo(str(sp))
         # The sibling's own table cells count too.  This used to discard them and
         # keep only `stl`, so every mention inside a carved file's tables was
         # invisible -- a whole population silently at zero.
@@ -686,10 +686,18 @@ def main(argv):
         import plan_memo_umbrella_selftest as st  # noqa
         return st.run()
     paths = [a for a in argv[1:] if not a.startswith("--")]
-    if not paths:
+    if len(paths) != 1:
         print(__doc__)
         return 2
     memo = Memo(paths[0])
+    # A linked sibling that is not on disk is an unscanned population, not a
+    # warning: the same exit code for "scanned" and "could not scan" is the
+    # defect this discovery replaced.
+    absent = [str(p) for p in memo.linked_memos() if not p.is_file()]
+    if absent:
+        print("FATAL: linked memo(s) not found -- their population is unscanned: %s. "
+              "This is a skip, not a clean run." % ", ".join(absent))
+        return 2
     spellings = set()
     undet = memo.undetermined_ids(spellings)
     # The naming rule is stated over rows that carry no owner and no ordering.
@@ -730,12 +738,13 @@ def main(argv):
     acceptance_vocab_seed(memo, findings, notes)
 
     # -- naming scan over the memo and its siblings ------------------------
-    mentions = []
-    mentions = collect_mentions(memo, umb, paths[1:])
+    mentions = collect_mentions(memo, umb)
     unlicensed = [m for m in mentions if not m.licensed]
 
     print("=" * 78)
     print("plan-memo-umbrella-check  --  %s" % memo.path)
+    print("  siblings (from the memo's links): %s"
+          % (", ".join(p.name for p in memo.linked_memos()) or "none"))
     print("=" * 78)
     for n in notes:
         print(n)
