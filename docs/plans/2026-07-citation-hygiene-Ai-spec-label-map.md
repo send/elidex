@@ -368,9 +368,10 @@ resolution they depend on — the primitive that makes a failed measurement unre
 scan resolves against, and the check that every roster block states its own status, which is that same
 property one level up) is one cohesive unit, and *"every block more than one memo cites"* is another. That
 unit is now `-integrity.sh`, sourced **first** because the dispatcher's `cd` needs `$REPO_ROOT` settled at
-source time and because every part but `-Ai` calls `_measure` (call sites, measured
-`grep -cE '(^|[^_A-Za-z])_measure(d)? '`: `-common` **15**, `-Aiii` **7**, `-Aii` **1**, `-B` **1**, `-Ai`
-**0**). `-common` falls to **592**, and **no part is in the band, let alone past it**.
+source time and because every part but `-Ai` calls `_measure` (call sites by
+`grep -cE '(^|[^_A-Za-z])_measure(d)? '`; the per-part counts this sentence used to carry were stale within
+three commits, so it carries none). The split took `-common` out of the band, and **whether any part is in
+the band is `rederive budget`'s line, not this one's**.
 
 **The invocation surface is unchanged** — `bash …-A-rederive.sh <block>` and `… all` still resolve every
 block name through the one path six memos cite, because the dispatcher sources the new part exactly as it

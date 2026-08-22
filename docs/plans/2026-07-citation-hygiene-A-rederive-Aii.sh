@@ -16,14 +16,19 @@
 # verdict vocabulary is read off the gate's RETURN SITES, not off sample output
 # (a first draft keyed on `citation verify:` and flagged every passing fixture
 # with zero parsed citations; a second keyed on `split decision:` and flagged
-# every `--no-verify` row of the graft, which prints neither): in `preflight.py`
-# AND in the grafted proto (`_proto`, A-ii's prototype of the same gate) the
-# `§3 Spec coverage map preflight` header is printed on every path that reaches
-# `return 0` and on no path that returns 1 before it; every verdict `return 1`
-# follows a `preflight: HARD FAIL` print (em dash in the shipped gate, hyphen in
-# the proto), and the plan-memo-not-found path prints nothing, which is not a
-# verdict either. Output with neither is not a verdict, whatever the status
-# says. One predicate, four callers (`column`, `carvecolumn`, `remedies`,
+# every `--no-verify` row of the graft, which prints neither). THREE gates are
+# graded here -- `origin/main`'s `preflight.py` (`column`), this branch's
+# (`carvecolumn`, `remedies`) and the grafted proto (`_proto`, A-ii's prototype;
+# `armmatrix`) -- and at every one of them the `§3 Spec coverage map preflight`
+# header is printed on every path that reaches `return 0` and on no path that
+# returns 1 before it, and every verdict `return 1` follows a `preflight: HARD
+# FAIL` print (em dash in the shipped gates, hyphen in the proto). The
+# plan-memo-not-found path prints `preflight: plan-memo not found` (shipped) or
+# nothing (proto); neither is a verdict and neither matches. That the three
+# vocabularies agree is not assumed here: `column` grades `origin/main`'s gate
+# with this predicate on 18 rows, so a divergence shows as a loud RED, never as
+# green. Output with neither line is not a verdict, whatever the status says.
+# One predicate, four callers (`column`, `carvecolumn`, `remedies`,
 # `armmatrix`'s `_row`) -- the exit-code-only test had three copies and `_row`
 # had none (Codex R4).
 _verdict() {  # _verdict <rc> <output> — 0 iff the gate RAN and printed a verdict

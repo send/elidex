@@ -40,8 +40,14 @@ fixtures() {
   # -- see the memo's §6 hand-off. The title is the real one: a citation-hygiene
   # program must not author spec-shaped text with a fabricated §-title, and
   # `verify_citation` checks only that the number exists, so nothing would catch it.
+  # The trailing HTML comment is DATA the `citations` block reads (the gate
+  # ignores it: not a table row): it names the shortname the title is verified
+  # against, and it asserts the premise -- `citations` fails the day the map DOES
+  # resolve `CSSOM VIEW`, because then this fixture no longer carries the
+  # all-unmapped arm it exists for. One home for both facts, here.
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
     echo '| CSSOM VIEW §4.2 The MediaQueryList Interface | s | b | t | ✓ | no |'
+    echo; echo '<!-- unmapped-by-design: CSSOM VIEW = cssom-view-1 -->'
   } > "$d/allunmapped.md"
   # item 5's denominator clause -- "N = len(data_rows), MALFORMED ROWS INCLUDED".
   # No other fixture has a row without a section mark, so through draft 8 the one
@@ -52,6 +58,7 @@ fixtures() {
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
     echo '| CSSOM VIEW §4.2 The MediaQueryList Interface | s | b | t | ✓ | no |'
     echo '| WHATWG HTML Constraints, no section mark | s | b | t | ✓ | no |'
+    echo; echo '<!-- unmapped-by-design: CSSOM VIEW = cssom-view-1 -->'
   } > "$d/malformed.md"
   # the alias spelling row 10 needs; unreachable by any draft-6 fixture.
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
@@ -88,37 +95,48 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   # fixtures is resolved through the map A-i ships (`shortname_for`), the heading
   # is read with `webref heading --exact`, and the TITLE must equal it, because
   # the fixture comment's own rule is "the title is the real one". A label the
-  # map does not know is exactly what `allunmapped` exists to carry; its
-  # shortname is taken from that fixture's own comment (`cssom-view-1`) so the
-  # title is still checked. A cell with no `§` is `malformed`'s by design and is
-  # reported as such, not verified. Zero parsed cells is a failure of this block.
+  # map does not know is exactly what `allunmapped` exists to carry: the fixture
+  # file itself says so in an `<!-- unmapped-by-design: <label> = <shortname> -->`
+  # line, which is both where the title's shortname comes from and a PREMISE this
+  # block asserts -- if the map ever resolves that label, the fixture has lost the
+  # arm it exists for and this block says so (a first draft kept the shortname in
+  # a dict here, a second home for the fixture's fact, and fell back to the map
+  # silently). A cell with no `§` is `malformed`'s by design and is reported as
+  # such, not verified. Zero parsed cells is a failure of this block.
   local rc=0
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || rc=1
   python3 - "$F" <<'CITPY' || rc=1
 import re, subprocess, sys, pathlib
 sys.path.insert(0, ".claude/tools")
 from _webref.spec_labels import shortname_for
-FIXTURE_ONLY = {"CSSOM VIEW": "cssom-view-1"}   # allunmapped.md's comment: unmapped AFTER A by design
-cells = set()
+UNMAPPED_RE = re.compile(r"^<!-- unmapped-by-design: (.+?) = (\S+) -->$")
+cells, by_design = set(), {}
 for p in sorted(pathlib.Path(sys.argv[1]).glob("*.md")):
     for ln in p.read_text().splitlines():
         if ln.startswith("| ") and not ln.startswith("| Spec section") and not ln.startswith("|---"):
             cells.add(ln.split("|")[1].strip())
+        elif (u := UNMAPPED_RE.match(ln)):
+            by_design.setdefault(u.group(1), set()).add(u.group(2))
 if not cells:
     print("!! no fixture cells parsed"); sys.exit(1)
 bad = 0
+for label, sns in sorted(by_design.items()):   # the premise each fixture states, measured
+    if len(sns) != 1:
+        print(f"!! fixtures disagree on {label!r}'s shortname: {sorted(sns)}"); bad += 1
+    if shortname_for(label) is not None:
+        print(f"!! {label!r} is declared unmapped-by-design but the map resolves it to "
+              f"{shortname_for(label)!r}: the all-unmapped fixtures no longer carry their arm"); bad += 1
 for cell in sorted(cells):
     m = re.match(r"^(.*?)\s*§([0-9.]+)\s+(.*)$", cell)
     if not m:
         print(f"  {cell!r:60} -> no §: malformed by design, not verified"); continue
     label, sec, title = m.group(1).strip(), m.group(2), m.group(3).strip()
-    sn = shortname_for(label) if label else None
-    via = "map"
-    if sn is None and label in FIXTURE_ONLY:
-        sn, via = FIXTURE_ONLY[label], "fixture comment"
     if not label:   # `unlabelled`'s cell by design: no label, so no pair to verify
         print(f"  {cell!r:60} -> label-less by design, not a pair"); continue
-    if sn is None:  # a label neither the map nor a fixture comment accounts for
+    sn, via = shortname_for(label), "map"
+    if sn is None and label in by_design:
+        sn, via = next(iter(by_design[label])), "fixture"
+    if sn is None:  # a label neither the map nor a fixture accounts for
         print(f"  {cell!r:60} -> unmapped label {label!r} with no fixture-stated shortname"); bad += 1; continue
     r = subprocess.run([".claude/tools/webref", "heading", "--exact", sn, sec], capture_output=True, text=True)
     hm = re.match(r"\s*§(\S+)\s+(.*?)\s+#\S+\s*$", r.stdout)
@@ -572,14 +590,17 @@ budget() {
     _measure n cat "$f" || failed=1
     echo "$n $m"
   done
-  # The harness is SIX files since the slice-seam split; one line-count is no
-  # longer a statement about it, and the §8 band applies per file.
+  # The harness is one file per part since the slice-seam split; one line-count
+  # is no longer a statement about it, and the §8 band applies per file. The
+  # block count is A-i §8's other layout figure, and this is its only home.
   for f in docs/plans/2026-07-citation-hygiene-A-rederive*.sh; do
     _measure n cat "$f" || failed=1
     echo "$n the re-derivation harness — ${f##*/2026-07-citation-hygiene-A-rederive}"
   done
   _measure n cat docs/plans/2026-07-citation-hygiene-A-rederive*.sh || failed=1
   echo "$n the re-derivation harness, all parts"
+  _measure n grep -hE '^[A-Za-z_][A-Za-z0-9_]*\(\)' docs/plans/2026-07-citation-hygiene-A-rederive*.sh || failed=1
+  echo "$n the re-derivation harness, blocks (function definitions, all parts)"
   echo "-- preflight.py's LOGIC growth under A --"
   # `wc -l` on the armmatrix proto is not a usable estimate: the proto trims
   # argparse help and abbreviates diagnostics, so it comes out SHORTER than the
