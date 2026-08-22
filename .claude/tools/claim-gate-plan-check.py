@@ -609,9 +609,16 @@ BINDING = [
     # contradict. The self-test's per-entry probes are what surfaced this, and
     # they are what will surface the next one.
     #
-    # Effective coverage is therefore **2 of the umbrella's 10 D-decisions**
-    # (D2 and D4). A green UMBRELLA means those two are not being silently
-    # reversed; it means nothing about the other eight.
+    # BINDING is a SEED, not an inventory, and `report_umbrella_coverage` is
+    # what keeps it readable as one. Two entries cannot cover ten decisions, and
+    # a registry that lists what it watches leaves everything else authoritative
+    # by default -- which is not hypothetical here: round 9 withdrew an
+    # obligation carried by an umbrella §3 COVERAGE-MAP row, a shape no entry
+    # could ever have watched, and the withdrawal ran unamended until review
+    # found it. So the complement is computed and printed on every run: every
+    # D-decision and every §3 row that names S1, with whether anything watches
+    # it. The registry says what it covers; the report says what it does not.
+    # (memory `feedback_enumerated-exemptions-leave-the-next-class-authoritative`)
     # Round 6. D4's stated mechanism is `git ls-files` alone, which reports the
     # index; the slice additionally requires a working-tree presence test, which
     # rejects annotations D4-as-written accepts. That is a decision change and it
@@ -625,6 +632,37 @@ BINDING = [
      r"present in the working tree|filtered to the paths that exist",
      r"AMENDED by S1 round 6: the precondition is about the working tree"),
 ]
+
+
+# Every `**Dn — ...**` heading in the umbrella's §1, and every §3 data row whose
+# cells name S1. Derived from the umbrella's own text rather than listed here,
+# so a decision or row added there appears in the report without an edit.
+UMB_DECISION = re.compile(r"^\*\*(D\d+)\s*—\s*([^*]+?)\.?\*\*", re.M)
+NAMES_S1 = re.compile(r"\bS1\b")
+
+
+def report_umbrella_coverage(umbrella: Memo | None) -> None:
+    """What BINDING does not watch, printed so the registry cannot read as one.
+
+    A green UMBRELLA means the seeded entries are not being silently reversed.
+    It means nothing about anything else, and this is where that is said."""
+    if umbrella is None:
+        return
+    watched = {name.split()[0] for name, *_ in BINDING}
+    rows: list[str] = []
+    for m in UMB_DECISION.finditer(umbrella.sect("1")):
+        if m.group(1) not in watched:
+            rows.append(f"§1 {m.group(1)} — {m.group(2).strip()[:64]}")
+    for c in data_rows(umbrella.sect("3")):
+        joined = " | ".join(c)
+        if NAMES_S1.search(joined) and "AMENDED" not in joined:
+            rows.append(f"§3 row — {c[2].strip()[:64] if len(c) > 2 else joined[:64]}")
+    if rows:
+        print(f"  umbrella: {len(rows)} binding item(s) with no BINDING entry "
+              f"(the registry is a seed; a withdrawal here is caught by review, "
+              f"not by this tool):")
+        for r in rows:
+            print(f"    {r}")
 
 
 def check_umbrella(memo: Memo, umbrella: Memo | None) -> None:
@@ -928,6 +966,7 @@ def main(argv: list[str]) -> int:
     check_sites(memo)
     check_tooling_quantities(memo)
     check_umbrella(memo, umbrella)
+    report_umbrella_coverage(umbrella)
     check_controls(memo)
     check_preflight(memo)
 
