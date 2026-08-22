@@ -116,16 +116,21 @@ use super::{
 ///   flattened to `font_size * 1.2` at `inline/styled_run.rs:96` before any font
 ///   is resolved, so even a **single-font** box under `normal` diverges.
 ///
-///   ⚠ Two separate follow-ups, and they are different classes. The **label**
-///   split — `CSS 2` here vs `CSS 2.1` elsewhere in this crate — is
-///   `#11-css2-spec-label-normalisation`'s (9 crates, one commit), and that slot
-///   calls it hygiene, not correctness. Count the labels from the repo root with
-///   `git grep -o 'CSS 2\.1' -- 'crates/layout/elidex-layout-block/**' | wc -l`
-///   and the `CSS 2` form with `git grep -oE 'CSS 2([^.0-9]|$)' -- <same>`;
-///   ⚠ a `10\.8`-scoped grep is **not** that enumerator — most of its hits carry
-///   no label at all. **Re-anchoring the citations themselves onto `css-inline-3`
-///   is the other class and is CORRECTNESS**, since this crate cites a statement
-///   §5.3 supersedes; it is not that slot's and is not booked by this PR.
+///   ⚠ Two separate follow-ups, and they are different classes.
+///   * **Label**: `CSS 2` is the minority spelling in this crate and `CSS 2.1`
+///     the majority — count each from the repo root with
+///     `git grep -o 'CSS 2\.1' -- 'crates/layout/elidex-layout-block/**' | wc -l`
+///     and the same with `-oE 'CSS 2([^.0-9]|$)'` over the same pathspec.
+///     ⚠ Both corpora include this docstring's own prose about the split, so
+///     subtract its hits before quoting a figure. Owner:
+///     `#11-css2-spec-label-normalisation`, which calls it hygiene, not
+///     correctness.
+///   * **Anchor**: re-pointing these citations at `css-inline-3` is
+///     **correctness** — `css-inline-3` §1.1 says it *"replaces and extends"*
+///     CSS 2 §10.8 — and its owner is `#11-inline-spec-cite-misattribution`,
+///     the decorated-inline umbrella's slot for wrong-section citations. This
+///     PR authors one such instance (`:92`) and routes it there rather than
+///     fixing it, because the fix is a crate-wide sweep.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is

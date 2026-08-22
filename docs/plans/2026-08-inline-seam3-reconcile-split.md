@@ -33,7 +33,8 @@ owed round 20, not a decision this memo may take silently
 than passed over.** Route (i) is to route the contradiction to plan-review as a plan delta — taken.
 Route (ii) is to **re-slice it out of the PR, when the defect pattern says the slice boundary is
 wrong**. Rejected, on the pattern rather than on convenience: a re-slice would move **the boundary**,
-and **no finding has landed on the moved range** — the byte-identical body, which is what a re-slice
+and **no finding has landed on the moved range** — the body that is byte-identical modulo the
+extracted signature, which is what a re-slice
 would re-cut. It was ratified by the umbrella, is proven unchanged by §6's two harnesses, and has
 not moved since the first commit.
 
@@ -307,7 +308,7 @@ rows have two distinct provenances, which is the distinction the map exists to r
 numbers and conflating them misclassified a row:
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
-  the byte-identical body, moved and not authored. A **second is newly authored by this PR**, in
+  the body that is byte-identical modulo the extracted signature, moved and not authored. A **second is newly authored by this PR**, in
   the `reconcile_flows` docstring, and it is the one that spells out the full §number↔title pair:
   ```
   git grep -ci "line height calculations" 658cc302 -- crates  # → one hit, and it carries the
@@ -974,8 +975,17 @@ collected credit for honesty while overstating what the contract forbade.
   pair that landed and was withdrawn (§9.2 / §9.2.2). ⚠ **Not routed to a slot, and that is the
   disposition, not an omission**: the class is a property of the *residue's* algorithm, not of the
   move, so it reopens when the algorithm is next authored — not on a date. ⚠ It is also **not** a
-  defence against an *incorrect* citation, which is a different class and is why the citations
-  this PR does author are scoped in the `reconcile_flows` docstring rather than asserted flat.
+  defence against an *incorrect* citation, which is a different class.
+
+* **The CSS 2 §10.8 anchor is superseded, and this PR authors one instance of that.**
+  `css-inline-3` §1.1 *Module Interactions* says the module *"replaces and extends the CSS inline
+  layout model and features defined in [CSS2] section 10.8"*, so `reconcile.rs:92`'s `CSS 2 §10.8`
+  is anchored on a superseded statement — and unlike the bullet above, this PR **authored** it,
+  so the pre-existing carve does not reach it. ⚠ **Routed to
+  `#11-inline-spec-cite-misattribution`**, the decorated-inline umbrella's slot for wrong-section
+  citations, whose subject is exactly this class. Not fixed here because the fix is a crate-wide
+  re-anchoring sweep, not a one-line edit, and the docstring already scopes what it claims against
+  both anchors.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
   pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
   under `#11-inline-root-inline-box`). Recorded here so the row is dispositioned rather than
