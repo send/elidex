@@ -94,16 +94,27 @@ use super::{
 ///   `vertical-align` is missing" would be a claim over §10.8's whole
 ///   complement: what **is** implemented and cited elsewhere in this crate is
 ///   §10.8.1 half-leading, and only in the **first-baseline** derivation
-///   (`inline/pack/mod.rs`, `inline/mod.rs`). ⚠ Line *placement* remains
-///   leading-naive — `elidex_ecs::InlineFlowLine`'s docstring records the
-///   `block_start + ascent` placement, and `elidex-render`'s
-///   `builder/inline.rs` states leading is not yet modelled. What is **not** implemented includes `vertical-align`
-///   alignment *and* §10.8's strut and its uppermost-top-to-lowermost-bottom
-///   line-box height. What this crate takes instead is a max over per-item
-///   **block contributions** — `line-height` for horizontal text, `font-size`
-///   for vertical (`inline/pack/mod.rs`'s `seg_line_advance`), and the
-///   margin-box block size for atomics — and it has no strut. See the inline comment at the `persist_flow`
-///   reposition.
+///   (`inline/pack/mod.rs`, `inline/mod.rs`).
+///
+///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
+///   **horizontal** path only — not the line box's own placement, which is
+///   leading-derived because `seg_line_advance` takes `line_height` there. Two
+///   other crates record it: `elidex_ecs::InlineFlowLine`'s `block_size` field
+///   doc (horizontal render places each baseline at `block_start + ascent`, and
+///   contrasts vertical, which **does** consume the line box) and
+///   `elidex-render`'s `builder/inline.rs` for its horizontal
+///   `emit_text_segment`. Vertical distributes no leading either, but for a
+///   different reason — `seg_line_advance` takes `font_size` there — and
+///   neither cite covers that.
+///
+///   What is **not** implemented is `vertical-align` alignment, §10.8.1's strut,
+///   and §10.8 step 3's uppermost-top-to-lowermost-bottom line-box height. ⚠ The
+///   per-item **block contributions** this crate does compute — `line-height`
+///   for horizontal text and the margin-box block size for atomics — are §10.8
+///   **step 1 itself**, not a substitute for it; what is substituted is the
+///   *aggregation* (a max, in place of step 3) and the vertical `font-size`
+///   contribution (`inline/pack/mod.rs`'s `seg_line_advance`). It has no strut.
+///   See the inline comment at the `persist_flow` reposition.
 ///
 /// ⚠ The *uncited* spec-governed prose inside the body (relative/sticky offset
 /// preservation, fragmentainer terminology, column-box continuation) is
