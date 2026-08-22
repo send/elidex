@@ -78,7 +78,10 @@ job is ungated (§4.2).
 ### §4.1 The hole
 
 `ci.yml`'s `changes` filter has two sets, `rust` and `config`; **`.claude/**` is in neither**, and all three
-jobs are gated on one of the two. `ci.yml` never invokes `mise`. `codeql.yml` analyses `[actions, rust]` on
+jobs are gated on one of the two. No `run:` step in `ci.yml` carries a literal `mise` command token (what
+`rederive filters` can decide from a static read — in any token position, so a false RED is possible and a
+false GREEN is not; an invocation reached through a variable is outside a static read and is the block's
+stated limit, Codex R17). `codeql.yml` analyses `[actions, rust]` on
 push plus a weekly cron, with no `pull_request` trigger; `audit.yml` is `cargo audit` on a cron. ⇒ a
 `.claude/**`-only pull request triggers **zero validation jobs** — `Detect changes` (the filter job itself:
 no `needs`, no `if`, checkout + `dorny/paths-filter`) always runs and validates nothing, and since PR #496 the
@@ -154,8 +157,12 @@ what B introduces; A-iii inherits no such dependency.
 
 ### §4.4 The interpreter floor
 
-No `.claude` Python source uses syntax newer than 3.9. `python-suites.sh` asserts
-`sys.version_info >= (3, 9)` — the measured need — and the job echoes `python3 -VV`. Slice B raises the floor
+No `.claude` Python source needs an interpreter newer than 3.9 — **measured**, not asserted: `rederive floor`
+parses every `git ls-files '.claude/**/*.py'` file under `ast` `feature_version` 3.9, rejects a PEP 604 union
+evaluated at definition time (one without `from __future__ import annotations` — the `str | None` annotations
+in `cache.py` and `preflight.py` are *under* that import, so they are strings on 3.9; Codex R17 read them as
+3.10-only), and greps the runtime-only 3.10+ APIs. `python-suites.sh` asserts
+`sys.version_info >= (3, 9)` — that measured need — and the job echoes `python3 -VV`. Slice B raises the floor
 when B lands `(?>...)`. `SKILL.md`'s Step 0 invokes `preflight.py` directly, bypassing the script;
 unaffected today, marked UNCHECKED in §6.
 

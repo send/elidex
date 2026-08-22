@@ -457,9 +457,13 @@ if _ls.returncode != 0:
                      "would read 0 for a reason that is not 'no markers'." % _ls.returncode)
 files = _ls.stdout.split()
 hits = loose = 0
+unreadable = []
 for f in files:
     try: lines = open(f, encoding="utf-8").read().splitlines()
-    except OSError: continue
+    except OSError as e:
+        # A tracked plan that cannot be opened is not "no markers": skipping it
+        # printed partial counts and exited 0 (Codex R17). Same rule as `_wtscan`.
+        unreadable.append(f"{f}: {e.strerror}"); continue
     raw = [i for i, l in enumerate(lines) if MARKER.match(l)]
     loose += len(raw)
     if not raw: continue
@@ -472,6 +476,9 @@ for f in files:
     hits += len(real)
 print(f"  recognised (line-anchored + fence-aware + §3-scoped): {hits}")
 print(f"  a bare line-anchored grep would report               : {loose}")
+if unreadable:
+    for u in unreadable: print(f"!! unreadable, NOT censused: {u}", file=sys.stderr)
+    sys.exit(2)
 MARKERPY
   return $?    # the heredoc'd command IS the measurement; say so
 }

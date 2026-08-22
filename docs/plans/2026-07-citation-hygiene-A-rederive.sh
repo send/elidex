@@ -89,7 +89,7 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # keeps the check from needing a second list to drift against.
 all() { set -- selfcheck citations partition keysets column carvecolumn instruments remedies \
                 reloadstale armmatrix suites anchors regions offline couplings suiteset marker readercensus \
-                budget filters ruleset timing bmemo
+                budget filters floor ruleset timing bmemo
         local failed="" rc
         while [ "$#" -gt 0 ]; do
           say "$1"; "$1"; rc=$?

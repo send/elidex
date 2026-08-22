@@ -11,10 +11,19 @@ edit set are all to be re-derived at C's kickoff, against B's landed detector.
 
 **Branch**: new, cut from Slice B's landed head. **Hard prerequisite**: Slice B.
 
-⚠ This memo has **no `## §3. Spec coverage map` section yet**, so `preflight.py` hard-fails on it — before
-and after Slice A, for the same pre-existing reason (no heading → exit 1). That is deliberate for a draft
-and is **not** a regression A introduces; §3 is authored at C's kickoff (§3 item 4 below). Anyone running
-the cross-lane preflight sweep in A's landing checklist should expect this file to be red and skip it.
+⚠ `preflight.py` exits **1 by design** on this memo until A-ii lands: the section below declares **No spec
+surface** (A-ii §4.2.5), and the pre-A-ii gate reads that as "no table". The umbrella's slice table says
+exactly this of C, as it does of A-iii; an earlier revision of this paragraph instead said the section did
+not exist yet and told A's cross-lane sweep to skip the file, which was the declaration's absence, not a
+description of it (Codex R17). The sweep expects EXIT 1 here, with the marker present.
+
+---
+
+## §0.5 / §3. Spec coverage map
+
+**No spec surface** — C touches no spec-defined behaviour: three documentation files (§1). Under A-ii's
+§4.2.5 this declaration is the whole of C's §3; fixture rows in a memo with no spec surface are the
+workaround §4.2.5 retires (§3 item 4 below).
 
 ---
 

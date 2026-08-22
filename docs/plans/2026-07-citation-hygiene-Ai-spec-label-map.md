@@ -382,8 +382,10 @@ lines were known before any difference could be attributed to the split (`suites
 differences after the split are the two the split *is*: `selfcheck` reports **7** harness parts rather than
 6 (its block count unmoved), and `budget`'s per-file roster gains `-integrity` and prints the new counts.
 `all` still exits **1** reporting exactly the two Slice-B blocks that read state A-i's K3 removes,
-`partition(exit 1)` and `offline(exit 1)` (§12; `offline` asserts B §4.1.7's escaped-`SystemExit` reading
-since the 2026-08-22 block-audit, and reads `None` without the catalog fall-through), and `selfcheck` is GREEN — and was made
+`partition(exit 1)` and `offline(exit 1)` (§12; `offline` asserts B §4.1.7's **contract** — no `SystemExit`
+escapes the catalog path — and at this head `spec_labels` has no catalog fall-through at all, which the block
+names as the reason it is RED; asserting the *defect* instead would have gone RED the moment B fixed it,
+Codex R17), and `selfcheck` is GREEN — and was made
 to fail on purpose, by dropping a **moved** block's trailing `return`, which it named at its new file and
 line before it was restored.
 
@@ -677,7 +679,7 @@ owed re-derivation.
    entries named nothing a reader could run, in the roster whose only job is to name what to run. `all` now
    iterates its block list as **positional parameters**, which a callee cannot reach, so the name in the
    roster is the name that was dispatched by construction rather than by every block's good behaviour — the
-   same move as `_measure`, one level up. ⚠ **Still owed**: move `suites` from `-Aiii.sh` to
+   same move as `_measure`, one level up. ✅ **Discharged (Codex R17)**: `suites` moved from `-Aiii.sh` to
    `-common.sh` — the harness's own seam rule is *cited by more than one memo → `-common.sh`*, and `suites`
    is cited by A-iii **and** the umbrella, which `-Aiii.sh:4` records as a known exception rather than fixing.
 4. Register nothing **new** — A-i introduces no slots. `#11-webref-preflight-inprocess-resolution` is **A-ii's**, and A-ii's

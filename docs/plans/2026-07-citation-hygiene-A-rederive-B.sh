@@ -2,9 +2,8 @@
 # sourced by `2026-07-citation-hygiene-A-rederive.sh`, the only entry point.
 #
 # B cites no block by name; these four are routed by the quantity they derive.
-# B §4.1.2 and §4.1.8 embed `partition`'s round-trip census (203/948) and
-# `offline`'s SystemExit escape as inline scripts -- these blocks are their
-# executable twin. `bmemo` and `staleclaims` derive the classes of edit B's memo
+# B §4.1.2 and §4.1.8 embed `partition`'s round-trip census (203/948) as an
+# inline script; `offline` asserts §4.1.7's CONTRACT (not its reproducer). `bmemo` and `staleclaims` derive the classes of edit B's memo
 # needs; `staleclaims` is author-local and excluded from `all`.
 
 partition() {  # §0 — 203/948, and the 195/8 vs 190/13 split under both criteria
@@ -60,13 +59,16 @@ PY
   return $?    # the heredoc'd command IS the measurement; say so
 }
 
-offline() {  # B §4.1.7 — the SystemExit escape the offline boundary rests on
-  # B §4.1.7 embeds this script and records "SystemExit ESCAPED"; the block
-  # printed whichever reading it got and exited 0 (the block-audit of
-  # 2026-08-22). It now asserts the reading it is named for. Like `partition`,
-  # it is Slice B's: at A-i's head `spec_labels` has no `_catalog` (A-i's K3),
-  # so it reads `returned: None` and is RED until B restores the fall-through
-  # -- an expected, owner-routed RED, recorded in A-i §13.1.
+offline() {  # B §4.1.7 — the offline CONTRACT: no SystemExit escapes the catalog path
+  # B §4.1.7 embeds a reproducer that records "SystemExit ESCAPED" -- the
+  # DEFECT. A block that asserts the defect turns permanently RED the moment B
+  # fixes it and then misdiagnoses the fix as "no catalog fall-through" (Codex
+  # R17): a control that blesses the defect is worse than none. So this block
+  # asserts B's stated contract instead -- the catalog path is present AND a
+  # poisoned network yields no SystemExit -- and B §6 S12 pins the unavailable
+  # result's shape. At A-i's head `spec_labels` has no `_catalog` (A-i's K3), so
+  # the first half is RED until B lands -- an expected, owner-routed RED,
+  # recorded in A-i §13.1 -- and says so by name.
   # The precondition is an EMPTY cache: a fixed `/tmp` path persists across runs
   # and users and can hold a valid catalog, satisfying the lookup without ever
   # touching the poisoned `urlopen` (Codex R12). Fresh directory, removed after.
@@ -77,14 +79,13 @@ import sys, urllib.request, urllib.error, os
 sys.path.insert(0, ".claude/tools")
 urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("offline"))
 from _webref import spec_labels
-escaped = False
+if not hasattr(spec_labels, "_catalog"):
+    print("!! spec_labels has no catalog fall-through at this head (A-i K3) — B-owned RED, the contract cannot be exercised yet")
+    sys.exit(1)
 try:
     print("returned:", spec_labels.shortname_for("CSS Text 3"))
 except SystemExit as e:
-    escaped = True
-    print("SystemExit ESCAPED _catalog():", e)
-if not escaped:
-    print("!! no SystemExit escaped — B §4.1.7's reading does not hold at this head (no catalog fall-through)")
+    print("!! SystemExit ESCAPED _catalog():", e, "— B §4.1.7's contract (discriminated unavailable, no escape) does not hold")
     sys.exit(1)
 PY
   rm -rf "$C"

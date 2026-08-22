@@ -1,65 +1,10 @@
 # Slice A-iii's part of the re-derivation harness (`…-Aiii-suite-scheduler.md`)
 # — sourced by `2026-07-citation-hygiene-A-rederive.sh`, the only entry point.
 #
-# `suites` is also cited by the umbrella, which is not a slice. A-iii's shared
-# blocks -- `couplings`, `budget`, `lanes` -- are in `-common.sh`.
-
-suites() {  # §1 / §4.3.1 / §4.3.3 — 47 tests, 4 files, and the fetch count
-  # THREE ways this block used to certify a run it did not have. (1) The file
-  # count was `ls … | wc -l`, which is `0` when the globs match nothing -- see
-  # `_measure`. (2) The suite runner discarded `subprocess.run`'s `returncode`,
-  # AND the output filter kept only `Ran `/`URLOPEN`/`OK`, so a failing suite
-  # printed `Ran 35 tests in 0.03s | URLOPEN=0` -- the failure invisible as well
-  # as non-fatal, and the URLOPEN figure the umbrella `:82` cites taken from a run
-  # that did not complete. (3) The function then returned the status of the
-  # SUCCESSFUL `git worktree remove`, so even a detected failure could not reach
-  # `all`'s roster.
-  local T rc=0 n
-  T=$(mktemp -d)
-  git worktree add -q "$T" "$MAIN" || { echo "!! cannot create the $MAIN worktree"; return 1; }
-  _measure n ls "$T"/.claude/tools/_webref/test_*.py \
-                "$T"/.claude/skills/elidex-plan-review/test_*.py || rc=1
-  echo "$n"
-  # §4.3.1 / §1 claim FOUR suite files at the base; the count was echoed and
-  # never compared (the block-audit of 2026-08-22). The figure has a lifetime --
-  # A-ii's `test_preflight.py` makes it five -- and when it moves, this line is
-  # what says so, not a reader noticing the memo drifted.
-  [ "$n" -eq 4 ] || { echo "!! $n suite files at $MAIN; A-iii §4.3.1 says 4 — the memo's figure has moved"; rc=1; }
-  python3 - "$T" <<'SUITESPY' || rc=1
-import re, subprocess, sys
-spy = ("import sys, urllib.request\n_c=[]\n_o=urllib.request.urlopen\n"
-       "urllib.request.urlopen=lambda r,*a,**k:(_c.append(getattr(r,'full_url',r)),_o(r,*a,**k))[1]\n"
-       "import atexit; atexit.register(lambda: sys.stderr.write('URLOPEN=%d\\n'%len(_c)))\n")
-t = sys.argv[1]
-rc = 0
-# `FAILED`/`ERROR:`/`FAIL:` are unittest's DIAGNOSTICS, and dropping them is half
-# of why a red suite read green here. They are kept, and on a nonzero exit the
-# child's whole stderr is replayed so the traceback survives too.
-KEEP = ("Ran ", "URLOPEN", "OK", "FAILED", "ERROR:", "FAIL:")
-for args in (["discover","-s",f"{t}/.claude/tools/_webref","-p","test_*.py","-t",f"{t}/.claude/tools"],
-             ["discover","-s",f"{t}/.claude/skills/elidex-plan-review","-p","test_*.py"]):
-    code = spy + "import unittest,sys;sys.argv=['x']+%r;unittest.main(module=None)" % args
-    r = subprocess.run([sys.executable,"-c",code], capture_output=True, text=True)
-    print(" | ".join(l for l in r.stderr.splitlines() if l.startswith(KEEP)))
-    if r.returncode != 0:
-        rc = 1
-        print(f"!! SUITE FAILED (rc={r.returncode}) under {args[2]} -- the counts on the")
-        print("!! line above are from a run that did not pass; they measure nothing.")
-        sys.stdout.flush()          # or the replayed traceback lands above its own header
-        sys.stderr.write(r.stderr)
-    # The umbrella (`:82`) and §4.3.3 cite this block for ZERO `urlopen` calls at
-    # the base; the `URLOPEN=` line was printed and never read back, so a suite
-    # that started fetching read green (the block-audit of 2026-08-22).
-    m = re.search(r"URLOPEN=(\d+)", r.stderr)
-    if m is None or m.group(1) != "0":
-        rc = 1
-        print(f"!! URLOPEN={m.group(1) if m else 'unmeasured'} under {args[2]} -- the suites fetch;"
-              " the 0-urlopen claim does not hold")
-sys.exit(rc)
-SUITESPY
-  git worktree remove --force "$T"
-  return "$rc"
-}
+# A-iii's shared blocks -- `suites` (cited by the umbrella too), `couplings`,
+# `budget`, `lanes` -- are in `-common.sh`, per the seam rule the dispatcher
+# states: cited by more than one memo -> common. `suites` sat here as a
+# recorded exception until Codex R17; the rule has no exceptions.
 
 suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range over
   # `git ls-files` exits 0 for a pathspec that matches NOTHING, and this block IS
@@ -170,6 +115,13 @@ while i < len(lines):
 # and a regex over a shell string has no end of boundary cases. So tokenize the
 # way the shell does and ask whether any token has basename `mise`. `mise.toml`
 # (a file the path filter lists) has basename `mise.toml`, not `mise`.
+#
+# WHAT THIS DECIDES, stated so the memo claims no more (Codex R17): the token is
+# counted in ANY position -- `echo mise` is RED too. That is the safe direction:
+# a false RED makes a reader look; a false GREEN certifies a claim. Command-
+# position parsing would buy precision the claim does not need. What a static
+# read CANNOT see is an invocation reached through a variable (`"$MISE_BIN" run`)
+# -- named as this block limit in A-iii §4.1, not papered over with a heuristic.
 import os, shlex
 def yaml_unquote(v):
     # The collector hands over the RAW scalar; a YAML-quoted `run: "…"` or
@@ -191,7 +143,7 @@ def invokes_mise(cmd):
         return True
     return any(os.path.basename(t) == "mise" for t in toks)
 hit = [c for c in cmds if invokes_mise(c)]
-sys.exit(1 if hit else 0)' || { echo "!! ci.yml invokes mise in a run step — §4.1's 'never invokes mise' no longer holds"; rc=1; }
+sys.exit(1 if hit else 0)' || { echo "!! a run step in ci.yml carries a literal mise token — §4.1's reading no longer holds"; rc=1; }
   return "$rc"
 }
 
@@ -283,4 +235,53 @@ _rulesetcheck() {  # $1 = projected detail JSON, $2 = rule types GitHub applies 
     return 1
   fi
   return 0
+}
+
+floor() {  # §4.4 — the interpreter floor is MEASURED over every .claude Python file
+  # "No .claude Python source uses syntax newer than 3.9" was a sentence with
+  # no instrument behind it (Codex R17 -- whose own evidence, `str | None` in
+  # `cache.py` and `preflight.py`, is a string annotation under `from __future__
+  # import annotations` and parses on 3.9; the point stands that nothing
+  # CHECKED). Three readings, each a way a 3.9 interpreter fails: grammar
+  # (`ast.parse` with `feature_version`), PEP 604 unions evaluated at def time
+  # (no future-import), and runtime-only 3.10+ APIs. The memo figure is 3.9.
+  local files
+  _measure files git ls-files ".claude/**/*.py" || return 1
+  [ "$files" -gt 0 ] || { echo "!! no .claude Python files enumerated"; return 1; }
+  # (The heredoc IS python3's stdin, so the file list cannot also arrive on
+  # it -- the first cut piped `git ls-files` into a heredoc and measured 0 files.)
+  python3 - <<'FLOORPY'
+import ast, re, subprocess, sys
+_ls = subprocess.run(["git", "ls-files", ".claude/**/*.py"], capture_output=True, text=True)
+if _ls.returncode != 0 or not _ls.stdout.split():
+    raise SystemExit("!! `git ls-files .claude/**/*.py` enumerated nothing; 'floor 3.0' would be the reading")
+files = _ls.stdout.split()
+RUNTIME = re.compile(r"isinstance\([^)]*\|[^)]*\)|zip\([^)]*strict=|slots=True|kw_only=|pairwise\(|TypeAlias|ParamSpec")
+PEP604 = re.compile(r"(def |: )[^#]*\|\s*None")
+need, bad = {}, []
+for f in files:
+    src = open(f, encoding="utf-8").read()
+    floor = None
+    for minor in (9, 10, 11, 12, 13):
+        try:
+            ast.parse(src, feature_version=(3, minor)); floor = minor; break
+        except SyntaxError:
+            continue
+    if floor is None:
+        bad.append((f, "does not parse under any feature_version 3.9..3.13")); continue
+    if floor == 9 and PEP604.search(src) and "from __future__ import annotations" not in src:
+        floor = 10
+    if floor < 10 and RUNTIME.search(src):
+        floor = 10
+    need[f] = floor
+mx = max(need.values()) if need else 0
+print(f"  {len(need)} files; highest floor measured: 3.{mx}")
+for f, why in bad: print(f"  !! {f}: {why}")
+if mx != 9 or bad:
+    for f, v in sorted(need.items()):
+        if v > 9: print(f"  !! needs 3.{v}: {f}")
+    print("  !! A-iii §4.4 states the floor is 3.9; the tree says otherwise")
+    sys.exit(1)
+FLOORPY
+  return $?    # the heredoc'd command IS the measurement; say so
 }

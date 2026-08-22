@@ -709,6 +709,63 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   return "$failed"
 }
 
+suites() {  # §1 / §4.3.1 / §4.3.3 — 47 tests, 4 files, and the fetch count
+  # THREE ways this block used to certify a run it did not have. (1) The file
+  # count was `ls … | wc -l`, which is `0` when the globs match nothing -- see
+  # `_measure`. (2) The suite runner discarded `subprocess.run`'s `returncode`,
+  # AND the output filter kept only `Ran `/`URLOPEN`/`OK`, so a failing suite
+  # printed `Ran 35 tests in 0.03s | URLOPEN=0` -- the failure invisible as well
+  # as non-fatal, and the URLOPEN figure the umbrella `:82` cites taken from a run
+  # that did not complete. (3) The function then returned the status of the
+  # SUCCESSFUL `git worktree remove`, so even a detected failure could not reach
+  # `all`'s roster.
+  local T rc=0 n
+  T=$(mktemp -d)
+  git worktree add -q "$T" "$MAIN" || { echo "!! cannot create the $MAIN worktree"; return 1; }
+  _measure n ls "$T"/.claude/tools/_webref/test_*.py \
+                "$T"/.claude/skills/elidex-plan-review/test_*.py || rc=1
+  echo "$n"
+  # §4.3.1 / §1 claim FOUR suite files at the base; the count was echoed and
+  # never compared (the block-audit of 2026-08-22). The figure has a lifetime --
+  # A-ii's `test_preflight.py` makes it five -- and when it moves, this line is
+  # what says so, not a reader noticing the memo drifted.
+  [ "$n" -eq 4 ] || { echo "!! $n suite files at $MAIN; A-iii §4.3.1 says 4 — the memo's figure has moved"; rc=1; }
+  python3 - "$T" <<'SUITESPY' || rc=1
+import re, subprocess, sys
+spy = ("import sys, urllib.request\n_c=[]\n_o=urllib.request.urlopen\n"
+       "urllib.request.urlopen=lambda r,*a,**k:(_c.append(getattr(r,'full_url',r)),_o(r,*a,**k))[1]\n"
+       "import atexit; atexit.register(lambda: sys.stderr.write('URLOPEN=%d\\n'%len(_c)))\n")
+t = sys.argv[1]
+rc = 0
+# `FAILED`/`ERROR:`/`FAIL:` are unittest's DIAGNOSTICS, and dropping them is half
+# of why a red suite read green here. They are kept, and on a nonzero exit the
+# child's whole stderr is replayed so the traceback survives too.
+KEEP = ("Ran ", "URLOPEN", "OK", "FAILED", "ERROR:", "FAIL:")
+for args in (["discover","-s",f"{t}/.claude/tools/_webref","-p","test_*.py","-t",f"{t}/.claude/tools"],
+             ["discover","-s",f"{t}/.claude/skills/elidex-plan-review","-p","test_*.py"]):
+    code = spy + "import unittest,sys;sys.argv=['x']+%r;unittest.main(module=None)" % args
+    r = subprocess.run([sys.executable,"-c",code], capture_output=True, text=True)
+    print(" | ".join(l for l in r.stderr.splitlines() if l.startswith(KEEP)))
+    if r.returncode != 0:
+        rc = 1
+        print(f"!! SUITE FAILED (rc={r.returncode}) under {args[2]} -- the counts on the")
+        print("!! line above are from a run that did not pass; they measure nothing.")
+        sys.stdout.flush()          # or the replayed traceback lands above its own header
+        sys.stderr.write(r.stderr)
+    # The umbrella (`:82`) and §4.3.3 cite this block for ZERO `urlopen` calls at
+    # the base; the `URLOPEN=` line was printed and never read back, so a suite
+    # that started fetching read green (the block-audit of 2026-08-22).
+    m = re.search(r"URLOPEN=(\d+)", r.stderr)
+    if m is None or m.group(1) != "0":
+        rc = 1
+        print(f"!! URLOPEN={m.group(1) if m else 'unmeasured'} under {args[2]} -- the suites fetch;"
+              " the 0-urlopen claim does not hold")
+sys.exit(rc)
+SUITESPY
+  git worktree remove --force "$T"
+  return "$rc"
+}
+
 # AUTHOR-LOCAL: these reach a per-user memory directory and sibling worktrees, so
 # they cannot run for a second reader. `all` excludes them; run them by name.
 AUTHOR_LOCAL="lanes staleclaims"
