@@ -446,7 +446,11 @@ def selftest() -> int:
 
     sites = sorted(pending_sites())
     def disposal(rows):
-        return "## §4.6 Disposal\n\n```\n" + "\n".join(f"{r}: x" for r in rows) + "\n```\n"
+        # Names a wire, because SITES' population is the PR that changes the
+        # wire set: without this the gate added in round 10 skips, and both
+        # probes below go vacuously green -- the shape they exist to catch.
+        return ("## §4.6 Disposal\n\nS1 ships `.claude/tools/claim-provenance-trip-wire.sh`.\n\n"
+                "```\n" + "\n".join(f"{r}: x" for r in rows) + "\n```\n")
     probe("SITES positive (every wire-set line cited)", False,
           capture(check_sites, synth(disposal(sites))))
     probe("SITES negative (one disposal dropped)", True,
@@ -471,14 +475,26 @@ def selftest() -> int:
     # TOOLING / UMBRELLA / FIXTURE -- the three classes round 4 found recurring.
     # Probed here at the same time they were written, because shipping a check
     # without a firing proof is the defect the same round found in ANNO.
-    n_commits = sh(["git", "rev-list", "--count", "origin/main..claim-gate-plan-check"])[1].strip()
-    probe("TOOLING positive (a count git agrees with)", False,
-          capture(check_tooling_quantities,
-                  synth(f"The prerequisite PR has {n_commits} commits.")))
-    probe("TOOLING negative (a count git contradicts)", True,
-          capture(check_tooling_quantities,
-                  synth(f"The prerequisite PR has {int(n_commits) + 3} commits.")),
-          "git says")
+    # The probe's subject must be a ref that survives this PR. Round 9 keyed it
+    # on the local branch name `claim-gate-plan-check`, so after that branch
+    # merges and is deleted -- i.e. on `main`, where this file lands -- the
+    # `rev-list` returns empty and `--self-test` dies with a ValueError. The
+    # tool the prerequisite PR ships was broken on main by construction, and the
+    # memo's own State block pastes `--self-test` as the gate's status. `HEAD`
+    # is the ref that is always resolvable.
+    rc_c, out_c = sh(["git", "rev-list", "--count", "origin/main..HEAD"])
+    if rc_c != 0 or not out_c.strip().isdigit():
+        probe("TOOLING NOT PROBED: `origin/main..HEAD` did not resolve to a count",
+              False, [])
+    else:
+        n_commits = out_c.strip()
+        probe("TOOLING positive (a count git agrees with)", False,
+              capture(check_tooling_quantities,
+                      synth(f"The prerequisite PR has {n_commits} commits.")))
+        probe("TOOLING negative (a count git contradicts)", True,
+              capture(check_tooling_quantities,
+                      synth(f"The prerequisite PR has {int(n_commits) + 3} commits.")),
+              "git says")
     probe("TOOLING negative (a quantity nothing can re-derive)", True,
           capture(check_tooling_quantities,
                   synth("`claim-gate-plan-check` closed six CRITs.")),
@@ -618,6 +634,17 @@ def selftest() -> int:
               [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [])
     finally:
         host.SELFTEST_FILE = _saved_st
+
+    # SITES' population is the PR that changes the wire set, not every document.
+    probe("SITES positive (a memo that ships no wire is not its subject)", False,
+          capture(check_sites, synth("## §4 x\nA memo about something else entirely.\n")))
+    probe("  …and it says so through skip()", True,
+          capture_skipped(check_sites, synth("## §4 x\nA memo about something else.\n")),
+          "does not change the wire set")
+    probe("SITES negative (a memo that ships a wire owes the disposal)", True,
+          capture(check_sites, synth(
+              "## §4 x\nS1 adds `.claude/tools/claim-provenance-trip-wire.sh`.\n")),
+          "SITES")
 
     probe("FENCE ban ignores fence prose with no sameness claim", False,
           capture(check_fence, synth(
