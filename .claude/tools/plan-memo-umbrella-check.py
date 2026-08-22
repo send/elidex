@@ -539,8 +539,13 @@ def assertion_cd_seed(memo, findings, notes):
                              % (rid, deps)))
             continue
         # Non-empty: report only when the prose names a party the cell does not.
+        # ⚠ Filter to ids that EXIST.  `MENTION_PROSE` matches ROW_NOUN + token,
+        # and "rows sat" / "row says" / "Slice has" put `sat` / `says` / `has`
+        # in the set -- the same garbage the two-owner seed produced one commit
+        # earlier, from the same cause: a token shaped like an id is not an id.
+        known = set(memo.all_row_ids())
         cell_ids = {m.group("id") for m in CELL_TOKEN.finditer(deps)} | set(MENTION_SLOT.findall(deps))
-        prose_ids = {m.group(1) for m in MENTION_PROSE.finditer(body)}
+        prose_ids = {m.group(1) for m in MENTION_PROSE.finditer(body)} & known
         extra = sorted(prose_ids - cell_ids - {rid})
         if extra:
             n += 1
