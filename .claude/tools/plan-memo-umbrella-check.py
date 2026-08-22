@@ -189,7 +189,12 @@ def code_spans(s, keep=()):
         # A backtick run whose whole content is a row id is the document
         # spelling an id, not code -- `A` in "naming `A` itself would name
         # nobody".  Masking those hid every one of row M's violations.
-        if s[a + 1:b] not in keep:
+        inner = s[a + 1:b]
+        # `10b → 10a` is two ids and an arrow: a Deps-shaped edge the document
+        # wrote inside backticks, not code.  Masking it hid an edge between two
+        # umbrella rows that neither triage generation ever saw.
+        toks = [x for x in re.split(r"[\s,;/→>+&|-]+", inner) if x]
+        if inner not in keep and not (toks and all(x in keep for x in toks)):
             out.append((a, b + 1))
         i = b + 1
     for m in re.finditer(r"\]\([^)]*\)|\[[^\]]*\]|\S+\.md", s):
@@ -404,12 +409,12 @@ def classify(m):
     return m
 
 
-def _anchored(path, lineno, line, umb, off, cell, source, self_id, out, skip_spans=()):
+def _anchored(path, lineno, line, umb, off, cell, source, self_id, out, skip_spans=(), ids=None):
     """Row-noun-anchored ids, plus `#11-` slot ids.  Works on a cell or a whole line."""
     # The mask applies to the ROW-NOUN pass only.  A slot id is always written
     # inside backticks, so masking code runs would hide every one of them --
     # which it did, and the self-test's trigger-cell control is what said so.
-    prose_skip = tuple(skip_spans) + tuple(code_spans(cell, keep=umb))
+    prose_skip = tuple(skip_spans) + tuple(code_spans(cell, keep=ids or umb))
     for mt in MENTION_PROSE.finditer(cell):
         if mt.group(1) not in umb or mt.group(1) == self_id:
             continue
@@ -425,7 +430,7 @@ def _anchored(path, lineno, line, umb, off, cell, source, self_id, out, skip_spa
         out.append(classify(Mention(path, lineno, mt.group(1), off + mt.start(), off + mt.end(), line, source)))
 
 
-def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
+def _bare(path, lineno, line, umb, off, cell, source, self_id, out, ids=None):
     """Bare (row-noun-free) ids.
 
     Recognised only where the token cannot be confused with the other things
@@ -434,7 +439,7 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
     family name.  Both are DECLARED MISSES, carried as red controls in the
     self-test rather than argued away.
     """
-    code = code_spans(cell, keep=umb)
+    code = code_spans(cell, keep=ids or umb)
     for tok in CELL_TOKEN.finditer(cell):
         tid = tok.group("id")
         if tid not in umb or tid == self_id:
@@ -443,10 +448,13 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
             continue
         if tid.isdigit():
             continue
-        if tok.group("l") != tok.group("r"):
-            # unbalanced: `**A call ...` opens a bold run, it does not decorate `A`
-            continue
-        if len(tid) == 1 and tid.isalpha() and not tok.group("l"):
+        # Unbalanced decoration means a bold RUN opened or closed nearby, not
+        # that this token is decorated: `**A call at the finalizer …**` and
+        # `**block-scope entry 10b**` are the two directions.  Treating it as
+        # undecorated handles both -- the single-letter guard still drops `A`,
+        # and a multi-character id inside a bold phrase is no longer invisible.
+        balanced = tok.group("l") is not None and tok.group("l") == tok.group("r")
+        if len(tid) == 1 and tid.isalpha() and not balanced:
             continue
         s, e = tok.start(), tok.end()
         lhs, rhs = cell[:s], cell[e:]
@@ -458,7 +466,7 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out):
                                     source, off + tok.start("id"))))
 
 
-def scan_tables(path, memo, umb):
+def scan_tables(path, memo, umb, ids=None):
     """Every cell of every parsed table except the row's own id cell.
 
     Bare ids are read only in the mention-bearing columns, where the column's
@@ -467,6 +475,7 @@ def scan_tables(path, memo, umb):
     naming site, so the row's own id is excluded from its own row.
     """
     out = []
+    ids = ids or set(memo.all_row_ids()) | set(umb)
     table_lines = set()
     for name, hdr, decl, idc, mention_cols in SCHEMAS:
         for lineno, cells in memo.data_rows(name):
@@ -479,25 +488,25 @@ def scan_tables(path, memo, umb):
                     off += len(cell) + 1
                     continue
                 src = "%s:col%d" % (name, col)
-                _anchored(path, lineno, line, umb, off, cell, src, self_id, out)
+                _anchored(path, lineno, line, umb, off, cell, src, self_id, out, ids=ids)
                 # Every cell but the row's own id cell is prose that can name a
                 # row, so the bare pass runs over all of them, not only the
                 # mention-bearing columns.  Scoping it to those columns was the
                 # same "sweep the population that motivated the rule" error the
                 # three earlier hand sweeps made.
-                _bare(path, lineno, line, umb, off, cell, src, self_id, out)
+                _bare(path, lineno, line, umb, off, cell, src, self_id, out, ids=ids)
                 off += len(cell) + 1
     return out, table_lines
 
 
-def scan_prose(path, lines, umb, table_lines):
+def scan_prose(path, lines, umb, table_lines, ids=None):
     """Both passes, over every line outside the parsed tables."""
     out = []
     for lineno, line in enumerate(lines, 1):
         if lineno in table_lines:
             continue
-        _anchored(path, lineno, line, umb, 0, line, "prose", None, out)
-        _bare(path, lineno, line, umb, 0, line, "prose", None, out)
+        _anchored(path, lineno, line, umb, 0, line, "prose", None, out, ids=ids)
+        _bare(path, lineno, line, umb, 0, line, "prose", None, out, ids=ids)
     return out
 
 
@@ -719,9 +728,10 @@ def main(argv):
 
     # -- naming scan over the memo and its siblings ------------------------
     mentions = []
-    cellm, table_lines = scan_tables(memo.path.name, memo, umb)
+    all_ids = set(memo.all_row_ids()) | set(umb)
+    cellm, table_lines = scan_tables(memo.path.name, memo, umb, ids=all_ids)
     mentions += cellm
-    mentions += scan_prose(memo.path.name, memo.lines, umb, table_lines)
+    mentions += scan_prose(memo.path.name, memo.lines, umb, table_lines, ids=all_ids)
     for sib in paths[1:]:
         sp = pathlib.Path(sib)
         sl = sp.read_text().split("\n")
@@ -729,9 +739,9 @@ def main(argv):
         # The sibling's own table cells count too.  This line used to discard
         # them and keep only `stl`, so every mention inside a carved file's
         # tables was invisible -- a whole population silently at zero.
-        sibm, stl = scan_tables(sp.name, sm, umb)
+        sibm, stl = scan_tables(sp.name, sm, umb, ids=all_ids)
         mentions += sibm
-        mentions += scan_prose(sp.name, sl, umb, stl)
+        mentions += scan_prose(sp.name, sl, umb, stl, ids=all_ids)
 
     # The anchored pass and the bare pass see the same site through different
     # spans.  Identity is the id token's position, and the anchored reading wins

@@ -196,7 +196,7 @@ unfinished iterator, `[...r] = it` does **not** close an exhausted one.
 does not". ⚠ **That cell read "Slice 1" and this sentence quoted it as "1a/1b"** — a misquote, and the
 claim it carried is false in the 1a half: dec. 13a gives an [C36] obligation — to *remove* a non-spec close, not to make one — to the child of umbrella 1a that removes
 `op_array_spread`'s `return()` an `IteratorClose` obligation, which is mechanism (b) of that
-umbrella's own derivation. Both sites are corrected to **1b**, which genuinely carries none. Slice 0bc will call `iter_close` and thereby **inherit the inverted contract**,
+umbrella's own derivation. Both sites are corrected to **1b**, which genuinely carries none. The child of umbrella 0bc that its derivation mints for the [C39]→[C36] `IteratorClose` conformance will call `iter_close` and thereby **inherit the inverted contract**,
 making its [C39]→[C36] conformance claim false. And because the sites span `compiler/`, core `vm/`
 and `vm/host/`, fixing only `op_array_spread` leaves every one of P's sites inverted — including the
 `for-of` catch handler (`stmt_loop.rs:147` at `658cc302`), which is the path most user code actually
@@ -210,22 +210,22 @@ the **concept**, and a concept discovered mid-paragraph needs its own sweep, not
 ⚠ **Once the child of umbrella 1a that removes `op_array_spread`'s `return()`, via that umbrella's derivation, which mints it lands, `op_array_spread` is [C19]/[C22]-only.** ⚠ *A clause here read "§5 sequences the 0b family before 1a"; it is deleted rather than re-pointed — no `Deps` cell in §5 carries that edge, and ordering has one structured home (`#11-plan-memo-spec-field-single-home-check`, §8).* The child of umbrella 0bc that repairs and consumes `Op::IteratorRest` owns
 [C39], whose rest form (`[a, ...rest] = it`) needs a drain-into-array — and ⚠ **the drain it needs
 already exists**: `compiler/stmt_destructure.rs:70` emits `Op::IteratorRest` and
-`vm/dispatch_iter.rs:295-332` implements it as a drain-into-array, so 0bc repairs and consumes that
+`vm/dispatch_iter.rs:295-332` implements it as a drain-into-array, so that child repairs and consumes that
 rather than `op_array_spread`/`spread_iter_loop`, which is the *spread* drain. ⚠ **This paragraph said the
 rest form's spec *requires* `IteratorClose` and that 0bc must therefore add an explicit `iter_close`
 site; both are withdrawn, and they contradicted the paragraph above.** **§13.15.5.5**
 IteratorDestructuringAssignmentEvaluation's `AssignmentRestElement` production repeats *while*
 `iteratorRecord.[[Done]] is false` (step 4) and performs no close, so a rest element that exhausts its
 iterator normally must **not** see `.return()` — the regression the paragraph above already pins. What
-0bc owes here is therefore the **drain**, not a close, with the conditional close staying where
+that child owes here is therefore the **drain**, not a close, with the conditional close staying where
 §13.15.5.2 puts it — around early termination and abrupt pattern evaluation. ⚠ **And "its own
 drain-into-array" is withdrawn: the rest opcode already exists.** `compiler/stmt_destructure.rs:70`
 emits `Op::IteratorRest` for an array rest element and `vm/dispatch_iter.rs:295-332` implements it as
 a drain-into-array (its own comment: *"collect remaining iterator elements into a new array"*, with
-the collected elements rooted on the stack). So 0bc **repairs and consumes `IteratorRest`**, factoring
+the collected elements rooted on the stack). So that child **repairs and consumes `IteratorRest`**, factoring
 out whatever it shares with `ArraySpread` — a second drain beside it is the N-mechanism outcome
 CLAUDE.md *One issue, one way* forbids, and it would also leave the real rest path's defects
-untouched, which is the opposite of what this paragraph exists to prevent. §7.2 pins all three, since an acceptance naming only the no-`return()` direction lets the child of umbrella 0bc that owns the **§8.6.2** array-binding `IteratorClose` obligation land with the close it does owe still missing: the drain 0bc consumes, the no-`return()` case on the exhausted-rest path, and the `[[Done]] is false` conditional close — `[a] = it` and `const [x] = it` over an iterator whose `return()` records the call (**§13.15.5.2**; **§8.6.2** BindingInitialization, production `BindingPattern : ArrayBindingPattern`, step 3, for the declaration form), which §5's 0bc row already carries as its required regression (§-numbers and
+untouched, which is the opposite of what this paragraph exists to prevent. §7.2 pins all three, since an acceptance naming only the no-`return()` direction lets the child of umbrella 0bc that owns the **§8.6.2** array-binding `IteratorClose` obligation land with the close it does owe still missing: the drain that child consumes, the no-`return()` case on the exhausted-rest path, and the `[[Done]] is false` conditional close — `[a] = it` and `const [x] = it` over an iterator whose `return()` records the call (**§13.15.5.2**; **§8.6.2** BindingInitialization, production `BindingPattern : ArrayBindingPattern`, step 3, for the declaration form), which §5's 0bc row already carries as its required regression (§-numbers and
 steps from `webref aoid ecma262 IteratorDestructuringAssignmentEvaluation` and
 `webref body ecma262 sec-runtime-semantics-iteratordestructuringassignmentevaluation`). (Executing dec. 13a's propagation instruction here, in §6.2a, where a
 0bc implementer reads it.)

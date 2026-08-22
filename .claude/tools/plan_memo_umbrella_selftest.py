@@ -86,8 +86,9 @@ def run_on(text, prose=""):
         p.write_text(text + "\n" + prose + "\n")
         memo = M.Memo(str(p))
         umb = memo.umbrella_ids()
-        cellm, tl = M.scan_tables(p.name, memo, umb)
-        mentions = cellm + M.scan_prose(p.name, memo.lines, umb, tl)
+        all_ids = set(memo.all_row_ids()) | set(umb)
+        cellm, tl = M.scan_tables(p.name, memo, umb, ids=all_ids)
+        mentions = cellm + M.scan_prose(p.name, memo.lines, umb, tl, ids=all_ids)
         seen, dd = set(), []
         for m in mentions:
             if m.key in seen:
@@ -150,6 +151,12 @@ case("NEGATIVE", "statement about the row's kind",
      build(), "Slice 9z is an umbrella, so it ships no PR.", 0)
 case("NEGATIVE", "a row naming itself in its own cell",
      build(s9z="charter; 9z mints its children here."), "", 0)
+case("POSITIVE", "a multi-character id inside a bold PHRASE, not bold itself",
+     build(c1="**block-scope entry 9z**"), "", 1)
+case("POSITIVE", "a backticked run of ids and separators is a Deps-shaped edge, not code",
+     build(), "The same thing happened to `9z / 7z`, one layer down.", 1)
+case("NEGATIVE", "a bold sentence opener is not row A",
+     build(), "⚠ **A call at the finalizer sites is not the fix.**", 0)
 case("POSITIVE", "a backticked BARE id is the document spelling an id, not code",
      build(), "The obligation is `9z`'s, and naming `9z` there names nobody.", 1)
 case("NEGATIVE", "an id-looking token inside inline code",
