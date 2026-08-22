@@ -29,7 +29,7 @@ fixtures() {
   # exercises seen_pairs' dedup `continue`, which no earlier fixture reached.
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
     echo '| WHATWG HTML §4.10.21 Constraints | s | b | t | ✓ | no |'
-    echo '| HTML §4.10.21 Constraints, again | s | b | t | ✓ | no |'
+    echo '| HTML §4.10.21 Constraints | s | b | t | ✓ | no |'
   } > "$d/dedup.md"
   { echo '# fixture'; echo; echo '## §3. Spec coverage map'; echo; echo "$HDR"
     echo '| §4.10.21 Constraints | s | b | t | ✓ | no |'
@@ -81,15 +81,56 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   # Nothing on the branch would have caught a second one at that same site.
   # A lookup that FAILED prints nothing and used to leave this block exiting 0 on
   # the status of `rm -rf` -- an unverified §-title reported as a verified one.
+  # Codex R4: four hard-coded lookups and a separate `awk` listing of the cells is
+  # a list and a print with no comparison between them -- a fixture gaining a
+  # pair, or a title drifting from the heading, left this block GREEN. The cells
+  # are now the input: every `<label> §<n> <title>` cell in the generated
+  # fixtures is resolved through the map A-i ships (`shortname_for`), the heading
+  # is read with `webref heading --exact`, and the TITLE must equal it, because
+  # the fixture comment's own rule is "the title is the real one". A label the
+  # map does not know is exactly what `allunmapped` exists to carry; its
+  # shortname is taken from that fixture's own comment (`cssom-view-1`) so the
+  # title is still checked. A cell with no `§` is `malformed`'s by design and is
+  # reported as such, not verified. Zero parsed cells is a failure of this block.
   local rc=0
-  .claude/tools/webref heading --exact html 4.10.21       || rc=1
-  .claude/tools/webref heading --exact html 4.10.21.2     || rc=1
-  .claude/tools/webref heading --exact fetch 2.2.5        || rc=1
-  .claude/tools/webref heading --exact cssom-view-1 4.2   || rc=1
-  echo "-- and the pairs actually present in the fixture bodies --"
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || rc=1
-  awk -F'|' '/^\| [A-Za-z§]/ && $2 !~ /Spec section/ {gsub(/^ +| +$/,"",$2); print "  "$2}' \
-    "$F"/*.md | sort -u || rc=1
+  python3 - "$F" <<'CITPY' || rc=1
+import re, subprocess, sys, pathlib
+sys.path.insert(0, ".claude/tools")
+from _webref.spec_labels import shortname_for
+FIXTURE_ONLY = {"CSSOM VIEW": "cssom-view-1"}   # allunmapped.md's comment: unmapped AFTER A by design
+cells = set()
+for p in sorted(pathlib.Path(sys.argv[1]).glob("*.md")):
+    for ln in p.read_text().splitlines():
+        if ln.startswith("| ") and not ln.startswith("| Spec section") and not ln.startswith("|---"):
+            cells.add(ln.split("|")[1].strip())
+if not cells:
+    print("!! no fixture cells parsed"); sys.exit(1)
+bad = 0
+for cell in sorted(cells):
+    m = re.match(r"^(.*?)\s*§([0-9.]+)\s+(.*)$", cell)
+    if not m:
+        print(f"  {cell!r:60} -> no §: malformed by design, not verified"); continue
+    label, sec, title = m.group(1).strip(), m.group(2), m.group(3).strip()
+    sn = shortname_for(label) if label else None
+    via = "map"
+    if sn is None and label in FIXTURE_ONLY:
+        sn, via = FIXTURE_ONLY[label], "fixture comment"
+    if not label:   # `unlabelled`'s cell by design: no label, so no pair to verify
+        print(f"  {cell!r:60} -> label-less by design, not a pair"); continue
+    if sn is None:  # a label neither the map nor a fixture comment accounts for
+        print(f"  {cell!r:60} -> unmapped label {label!r} with no fixture-stated shortname"); bad += 1; continue
+    r = subprocess.run([".claude/tools/webref", "heading", "--exact", sn, sec], capture_output=True, text=True)
+    hm = re.match(r"\s*§(\S+)\s+(.*?)\s+#\S+\s*$", r.stdout)
+    if r.returncode != 0 or not hm:
+        print(f"  {cell!r:60} -> {sn} §{sec}: NO HEADING (rc={r.returncode})"); bad += 1; continue
+    got = hm.group(2).strip()
+    ok = got == title
+    print(f"  {cell!r:60} -> {sn} §{sec} [{via}] title {'==' if ok else '!='} {got!r}")
+    bad += 0 if ok else 1
+print(f"cells={len(cells)} failing={bad}")
+sys.exit(1 if bad else 0)
+CITPY
   rm -rf "$F"
   return "$rc"
 }
@@ -281,7 +322,20 @@ import sys
 from pathlib import Path
 src = Path(sys.argv[1]).read_text(encoding="utf-8")
 head = src[: src.index("def main() -> int:")]
+# The graft is A-ii's act-site 1 as a PROTOTYPE, so it binds `_shortname_for`
+# ITSELF (A-ii §4.2.1: `except Exception: _shortname_for = None`). It used to
+# inherit the binding from `preflight.py`'s head, which only held it while an A-i
+# draft carried A-ii's import; when that draft was reverted every grafted row died
+# `NameError: _shortname_for` at exit 1, and `armmatrix` -- which read status,
+# not verdict -- certified 27 rows that never ran (Codex R4, reproduced).
 NEW = '''
+_shortname_for = None
+try:
+    sys.path.insert(0, str(REPO_ROOT / ".claude" / "tools"))
+    from _webref.spec_labels import shortname_for as _shortname_for
+except Exception:
+    _shortname_for = None
+
 MARKER_RE = re.compile(r"^\\s*\\*\\*No spec surface\\*\\*")
 
 
@@ -480,6 +534,13 @@ def main() -> int:
             print(f"  citation verify:      n/a (0 of {M} rows resolvable)")
 
     grep_hard = grep_pass_stage(args, plan_path)
+    if malformed_rows:
+        # The shipped gate prints its malformed verdict (`preflight.py`'s
+        # `malformed_hard_fail` branch); the proto returned 1 here WITHOUT one,
+        # the single exit-1 path of either gate that printed no verdict line, and
+        # `_verdict` (which is read off the return sites) found it on row 16.
+        print(f"\\npreflight: HARD FAIL - {malformed_rows} of {M} row(s) missing "
+              f"section reference.", file=sys.stderr)
     if malformed_rows or capability_hard_fail or verify_failed or grep_hard:
         return 1
     return 0

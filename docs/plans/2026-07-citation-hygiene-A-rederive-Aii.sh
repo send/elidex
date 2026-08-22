@@ -13,18 +13,23 @@
 # (import error, parse error, traceback), so `rc <= 1` certifies a crash as a
 # reading. Codex R3 reproduced it: `python3` shadowed by a process that prints a
 # traceback and exits 1 gave 18 rows of `EXIT=1` and `column` returned 0. The
-# verdict vocabulary is read off preflight.py's RETURN SITES, not off sample
-# output (a first draft keyed on `citation verify:` and flagged every passing
-# fixture with zero parsed citations, which prints the summary without that line):
-# `return 0` happens once, after the summary whose last line is `split decision:`;
-# every `return 1` follows a `preflight: ❌ HARD FAIL` print except the
-# plan-memo-not-found path, which is not a verdict either. Output with neither is
-# not a verdict, whatever the status says. One predicate, three callers
-# (`column`, `carvecolumn`, `remedies`) -- the exit-code-only test had three copies.
+# verdict vocabulary is read off the gate's RETURN SITES, not off sample output
+# (a first draft keyed on `citation verify:` and flagged every passing fixture
+# with zero parsed citations; a second keyed on `split decision:` and flagged
+# every `--no-verify` row of the graft, which prints neither): in `preflight.py`
+# AND in the grafted proto (`_proto`, A-ii's prototype of the same gate) the
+# `§3 Spec coverage map preflight` header is printed on every path that reaches
+# `return 0` and on no path that returns 1 before it; every verdict `return 1`
+# follows a `preflight: HARD FAIL` print (em dash in the shipped gate, hyphen in
+# the proto), and the plan-memo-not-found path prints nothing, which is not a
+# verdict either. Output with neither is not a verdict, whatever the status
+# says. One predicate, four callers (`column`, `carvecolumn`, `remedies`,
+# `armmatrix`'s `_row`) -- the exit-code-only test had three copies and `_row`
+# had none (Codex R4).
 _verdict() {  # _verdict <rc> <output> — 0 iff the gate RAN and printed a verdict
   case "$1" in
-    0) printf '%s\n' "$2" | grep -q 'split decision:' ;;
-    1) printf '%s\n' "$2" | grep -q 'preflight: ❌ HARD FAIL' ;;
+    0) printf '%s\n' "$2" | grep -q 'Spec coverage map preflight' ;;
+    1) printf '%s\n' "$2" | grep -qE 'preflight: (❌ )?HARD FAIL' ;;
     *) return 1 ;;
   esac
 }
@@ -244,7 +249,7 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
   local PROTO="${PF%/*}/preflight_proto.py"
   _row() {  # $1=label $2=state $3=fixture $4...=flags
     local lbl=$1 st=$2 fx=$3; shift 3
-    local moved=0 blk=0 out rc
+    local moved=0 blk=0 out prc
     case "$st" in
       nocli)   mv "$T/.claude/tools/webref" "$R/.shim"; moved=1 ;;
       nomap)   blk=1 ;;
@@ -252,14 +257,20 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
     esac
     if [ "$blk" = 1 ]; then
       out=$( cd "$T" && SPY_SUBPROCESS=1 BLOCK_MAP=1 python3 "$R/runpf.py" "$PROTO" \
-               --no-grep-pass "$@" "$F/$fx.md" 2>&1 ); rc=$?
+               --no-grep-pass "$@" "$F/$fx.md" 2>&1 ); prc=$?
     else
       out=$( cd "$T" && SPY_SUBPROCESS=1 PINNED_ONLY=1 python3 "$R/runpf.py" "$PROTO" \
-               --no-grep-pass "$@" "$F/$fx.md" 2>&1 ); rc=$?
+               --no-grep-pass "$@" "$F/$fx.md" 2>&1 ); prc=$?
     fi
     [ "$moved" = 1 ] && mv "$R/.shim" "$T/.claude/tools/webref"
     _n=$((_n + 1)); case "$lbl" in x*) ;; *) _tab=$((_tab + 1)) ;; esac
-    printf '%-4s %-8s %-18s %-12s EXIT=%d\n' "$lbl" "$st" "$fx" "$*" "$rc"
+    printf '%-4s %-8s %-18s %-12s EXIT=%d\n' "$lbl" "$st" "$fx" "$*" "$prc"
+    # The row's status is a VERDICT only if the graft printed one (`_verdict`, same
+    # rule as `column`): a proto that crashed with exit 1 is a row that was never
+    # measured, and it is the BLOCK's status that must say so -- `rc` here is
+    # armmatrix's own, reached through the nested function's dynamic scope.
+    _verdict "$prc" "$out" || { echo "       !! EXIT=$prc with no verdict line — the graft did not RUN on this row."
+                                rc=1; }
     # Print every line the memo cites. Draft 8's filter dropped `remedy*` and had
     # no `PROTO-DISPLAY`, so two sections cited a block that did not emit their
     # claim -- the same defect class one level down.
@@ -282,8 +293,10 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
   _row x3  nocli   nospec;              _row x4  neither unlabelled
   _row x5  nocli   dedup --no-verify;   _row x6  both    unlabelled --no-verify
   _row x7  both    allunmapped --no-verify; _row x8 nomap malformed
-  # The memo may not hand-carry these. Draft 8 said "24 states / 17 §5 rows /
-  # 20 other states"; measured they were 25 / 18 / 21.
+  # The memo may not hand-carry these, and neither does this comment: draft 8
+  # said "24 states / 17 §5 rows / 20 other states", a later revision of this
+  # line said "25 / 18 / 21", and both were stale the next time a row was added.
+  # The line below is the only statement of the totals.
   echo
   echo "STATES total=$_n  §5-tabulated=$_tab  untabulated=$((_n - _tab))"
   local n_fx; _measure n_fx ls "$F" || rc=1

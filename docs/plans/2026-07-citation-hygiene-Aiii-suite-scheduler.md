@@ -86,7 +86,8 @@ whichever of the two lands first. §12's criterion is written so it does not dep
 
 ### §4.2 The mechanism — one script, two callers, no filter
 
-`.claude/tools/python-suites.sh`, `set -euo pipefail`, then two `discover` lines rooted at
+`scripts/python-suites.sh` (the location §4.2's *Location* paragraph below selects — this sentence used to
+say `.claude/tools/`, a path no caller in this memo invokes), `set -euo pipefail`, then two `discover` lines rooted at
 `.claude/tools/_webref` and `.claude/skills/elidex-plan-review`. `mise.toml` gains `[tasks.tools-test]` added
 to `[tasks.ci].depends`; `ci.yml` gains a `tools` job that is **deliberately ungated** — no `needs: changes`,
 no path-filter entry.

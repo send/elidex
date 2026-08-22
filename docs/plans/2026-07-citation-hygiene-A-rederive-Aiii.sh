@@ -114,22 +114,32 @@ ruleset() {  # §13.2 — main's ruleset, READ rather than recalled
   fi
   echo "-- main-protection ($id), in detail --"
   _measure n_detail gh api "repos/send/elidex/rulesets/$id" --jq \
-    '{rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode], scope: .conditions.ref_name}' || failed=1
+    '{enforcement, target, rules: [.rules[].type], pr: (.rules[]|select(.type=="pull_request").parameters.required_approving_review_count), bypass: [.bypass_actors[].actor_type], mode: [.bypass_actors[].bypass_mode], scope: .conditions.ref_name}' || failed=1
   _measured
-  # The NAME `main-protection` does not make it main's ruleset: a ruleset's ref
-  # scope is `conditions.ref_name.include/exclude`, and a ruleset named for main
-  # that targets other branches would still pass everything above (Codex R3).
-  # `main` is in scope iff `include` names it -- literally, or as
-  # `~DEFAULT_BRANCH` while the repo's default branch IS main -- and `exclude`
-  # does not. Both halves are READ, not recalled.
-  local scope def n_def
-  scope=$(_measured | jq -c '.scope')
+  # Printing the detail is not checking it. A-iii §4.5 claims FOUR things of this
+  # ruleset and each is a field above: it is ACTIVE (`enforcement`), it governs
+  # BRANCHES (`target`), it carries `deletion` / `non_fast_forward` /
+  # `pull_request` (`rules`), and it SELECTS main -- a ruleset's ref scope is
+  # `conditions.ref_name.include/exclude`, so `main` is in scope iff `include`
+  # names it, literally or as `~DEFAULT_BRANCH` while the repo's default branch
+  # IS main, and `exclude` does not. The name `main-protection` proves none of
+  # the four (Codex R3 for the scope, R4 for the other three). Every clause is
+  # READ, not recalled, and a failing clause is named, not summed.
+  local detail def n_def bad
+  detail=$(_measured)
   _measure n_def gh api repos/send/elidex --jq '.default_branch' || failed=1
   def=$(_measured | tr -d '[:space:]')
-  if ! printf '%s' "$scope" | jq -e --arg def "$def" \
-       '(.include | index("refs/heads/main") != null or (index("~DEFAULT_BRANCH") != null and $def == "main"))
-        and (.exclude | index("refs/heads/main") == null)' >/dev/null; then
-    echo "!! main-protection does not select main: scope=$scope default_branch=$def"
+  bad=$(printf '%s' "$detail" | jq -r --arg def "$def" '
+    [ (select(.enforcement != "active") | "enforcement=\(.enforcement)"),
+      (select(.target != "branch")      | "target=\(.target)"),
+      (["deletion","non_fast_forward","pull_request"] - .rules | select(length > 0) | "rules missing \(.)"),
+      (select((.scope.include | index("refs/heads/main") == null)
+              and ((.scope.include | index("~DEFAULT_BRANCH") == null) or $def != "main"))
+        | "include=\(.scope.include) default_branch=\($def)"),
+      (select(.scope.exclude | index("refs/heads/main") != null) | "exclude=\(.scope.exclude)") ]
+    | join("; ")')
+  if [ -n "$bad" ]; then
+    echo "!! main-protection does not certify A-iii §4.5: $bad"
     failed=1
   fi
   return "$failed"

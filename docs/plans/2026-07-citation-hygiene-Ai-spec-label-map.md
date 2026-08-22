@@ -351,10 +351,11 @@ homes**, so every fix could only ever update one of them, and the reviewer had a
 twins (`memory/feedback_duplicated-decision-surface-blocks-converge.md` — 同じ class・別サイト が続いたら
 決定面の重複を grep; canonical site へ collapse). Collapsed rather than re-synced: **this section is the only
 site that states the harness's layout.** `umbrella:118` and §13.1 below now point here and restate nothing,
-and the `rederive budget` block prints the same figures from the tree. Layout now, derived
-(`wc -l …-A-rederive*.sh`; blocks by `cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`):
-dispatcher **102**, `-common` **592**, `-integrity` **238**, `-Ai` **177**, `-Aii` **345**, `-B` **137**,
-`-Aiii` **120**; **1711** total, **33** blocks, largest part **592**.
+and the `rederive budget` block prints the figures from the tree. **This section states no digits**:
+a sixth stale-figure finding (Codex R4) arrived *after* the collapse to one home, because a single
+prose home still does not re-derive itself when the tree changes — the only home that does is the
+command. Layout = `wc -l …-A-rederive*.sh`; blocks =
+`cat …-A-rederive*.sh | grep -cE '^[A-Za-z_][A-Za-z0-9_]*\(\)'`; `rederive budget` prints both.
 
 ✅ **`-common`'s band overrun is DISCHARGED — this commit is the split, and it is the whole of it.** The
 commit answering Codex round 2 left `-common` at **815**, past the 700-800 authoring band by 15 lines: it
