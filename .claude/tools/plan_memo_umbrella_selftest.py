@@ -93,7 +93,11 @@ def run_on(text, prose=""):
         p = pathlib.Path(d) / "fixture.md"
         p.write_text(text + "\n" + prose + "\n")
         memo = M.Memo(str(p))
-        umb = memo.umbrella_ids()
+        # ⚠ The PRODUCTION population.  This passed `umbrella_ids()` while
+        # `main()` passes `no_owner_ids()`, so a regression dropping
+        # kind-undetermined naming detection left `--self-test` green while the
+        # comment two lines below claimed the harness runs the same pipeline.
+        umb = memo.no_owner_ids()
         # The SAME pipeline main() runs -- not a copy of it.  The copy that
         # stood here had a different dedup rule and omitted two assertions.
         mentions = M.collect_mentions(memo, umb)
@@ -178,6 +182,8 @@ case("POSITIVE", "a backticked BARE id is the document spelling an id, not code"
      build(), "The obligation is `9z`'s, and naming `9z` there names nobody.", 1)
 case("NEGATIVE", "an id-looking token inside inline code",
      build(), "The probe reads `Reflect.construct(9z, [], D)` and stops.", 0)
+case("POSITIVE", "a visible link LABEL is prose and is scanned",
+     build(), "See [Slice 9z lands first](2026-07-detail.md) for the walk.", 1)
 case("NEGATIVE", "an id-looking token inside a file name",
      build(), "See [detail](2026-07-vm-p4-slice-9z-detail.md) for the walk.", 0)
 
@@ -213,6 +219,14 @@ acase("POSITIVE", "(a) a marker that names ANOTHER row is not a self-declaration
       build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — "
                "with sub-slices; this slot points into §5."),
       "UMBRELLA-MARK", 1)
+case("POSITIVE", "a KIND-UNDETERMINED row named as an owner is reported",
+     build(suz="**KIND UNDETERMINED**: neither an umbrella nor a terminal unit."),
+     "The close rule is owned by Slice **Uz**.", 1)
+acase("POSITIVE", "(d) one clause assigning a deliverable to two owners",
+      build(s9z="charter.  The drain is owned by **7z** and **Qx**."),
+      "TWO-OWNERS?", 1)
+acase("NEGATIVE", "(d) one owner is not two",
+      build(s9z="charter.  The drain is owned by **7z**."), "TWO-OWNERS?", 0)
 acase("POSITIVE", "(b) a KIND-UNDETERMINED row carrying a Deps edge is checked too",
       build(suz="**KIND UNDETERMINED**: neither an umbrella nor a terminal unit.", duz="**7z**"),
       "UMBRELLA-CELL", 1)

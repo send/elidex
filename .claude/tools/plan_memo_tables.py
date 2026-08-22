@@ -128,7 +128,15 @@ def code_spans(s, keep=()):
         if inner not in keep and not (toks and all(x in keep for x in toks)):
             out.append((a, b + 1))
         i = b + 1
-    for m in re.finditer(r"\]\([^)]*\)|\[[^\]]*\]|\S+\.md", s):
+    # ⚠ A link's visible LABEL is prose and must be scanned; only the
+    # destination and a bare filename are not.  Masking `\[[^\]]*\]` removed the
+    # label too, so `[Slice 9z lands first](detail.md)` -- an ordering claim a
+    # reader sees -- was never reported.  The existing control only exercised an
+    # id in the DESTINATION, so it could not catch this.
+    #
+    # `[C19]`-style citation ids stay masked: a bracketed token that is a
+    # citation id, not a sentence.
+    for m in re.finditer(r"\]\([^)]*\)|\[[A-Z][0-9]+\]|\S+\.md", s):
         out.append(m.span())
     return out
 

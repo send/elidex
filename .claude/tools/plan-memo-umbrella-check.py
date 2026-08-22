@@ -393,6 +393,19 @@ def roles(m, w=110):
 # Assertions (a)-(d) of `#11-plan-memo-spec-field-single-home-check`
 # --------------------------------------------------------------------------
 
+# ⚠ Both ids must be DECORATED (`**id**` / `` `id` ``) or a `#11-` slug.  The
+# first attempt allowed a bare 1-4 char token, and `[0-9A-Za-z]{1,4}` matches a
+# fragment INSIDE a word: "own manager" parsed as owners `m` and `ator`, and the
+# seed reported 31 clauses of pure noise.  A seed that reports garbage is worse
+# than one that reports nothing, because a reader cannot tell them apart.
+_OWNER_REF = r"(?:\*\*(?P<%s>[0-9A-Za-z]{1,4})\*\*|`(?P<%s>#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})`)"
+OWNS_TWO = re.compile(
+    r"\b(?:owns?|owned by|owner is|carries|carried by)\s+"
+    + (_OWNER_REF % ("a1", "a2"))
+    + r"\s*(?:,\s*|\s+and\s+|\s+or\s+|\s*/\s*)"
+    + (_OWNER_REF % ("b1", "b2")),
+    re.IGNORECASE)
+
 ORDER_WORDS = re.compile(
     r"\b(?:before|after|lands? (?:first|second)|prerequisite of|gates?|blocked by|"
     r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b",
@@ -404,6 +417,9 @@ ORDER_WORDS = re.compile(
 # with a wider predicate than the figure's own is how a cross-check agrees with
 # something it never measured.
 ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE)
+
+# A row that has already landed states no acceptance condition it still owes.
+RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b")
 
 
 def assertion_a(memo, findings, notes, attributed=None):
@@ -516,43 +532,71 @@ def assertion_cd_seed(memo, findings, notes):
                              % (rid, deps)))
     notes.append("[ORDER-PROSE?] SEED -- %d rows; the class is natural language and is not bounded by this figure" % n)
 
-
-def acceptance_vocab_seed(memo, findings, notes):
-    """The two-token approximation `#11-plan-memo-acceptance-falsifiability-check`
-    prints and rejects: a §5 row that is terminal, is not a pointer, and carries
-    neither `must` nor `acceptance`.
-
-    Reproduced here because the slot's cell states a figure for it that a reader
-    would otherwise have to take on trust.  Its measured miss class is the whole
-    deliverable, not a tail: a row that states no acceptance condition while
-    spelling `must` once in ordinary design prose is authoritative under it.
-    """
-    umb = memo.umbrella_ids()
-    hits = []
+    # (d) TWO-OWNERS.  ⚠ This half was ADVERTISED by the docstring and the file
+    # header and was never implemented -- the function searched ORDER_WORDS only
+    # and emitted (c), so assertion (d) could be entirely absent while both
+    # `--self-test` and the production run printed green.  A checker that names
+    # a check it does not run is the failure this file exists to catch.
+    #
+    # It is a SEED and keyed on ownership vocabulary, which is the miss class:
+    # a row assigning one deliverable to two owners in words this pattern does
+    # not carry is invisible to it, and the count below bounds nothing.
+    d = 0
     for lineno, cells in memo.data_rows("slice"):
         if len(cells) <= 6:
             continue
         rid = bare_id(cells[1])
-        if rid in umb:
+        for m in OWNS_TWO.finditer(cells[2]):
+            a = m.group("a1") or m.group("a2")
+            b = m.group("b1") or m.group("b2")
+            if a == b:
+                continue
+            d += 1
+            findings.append(("TWO-OWNERS?", lineno,
+                             "row %r assigns one deliverable to %r and %r in one clause: %r"
+                             % (rid, a, b, m.group(0)[:110])))
+    notes.append("[TWO-OWNERS?] SEED -- %d clause(s); ownership-vocabulary keyed, so a row that "
+                 "spells it otherwise is not in this figure" % d)
+
+
+def acceptance_vocab_seed(memo, findings, notes):
+    """Terminal §5 rows carrying neither `must` nor `acceptance`.
+
+    ⚠ The population is ACTIVE-TERMINAL, derived explicitly.  It used to be
+    "every row that is not an umbrella", which misclassifies three other kinds:
+    a **retired** row (`0a — MERGED`) has already landed, and a **kind-undetermined**
+    row is *forbidden* to carry an acceptance condition until its kind is
+    measured -- so listing them told a reader to add exactly what §5 forbids.
+    Measured on the committed memo, that complement reported `0a`, `0c`, `E` and
+    `10`, and every one of the four was wrong.
+    """
+    umb = memo.umbrella_ids()
+    undet = memo.undetermined_ids()
+    n, named = 0, []
+    for lineno, cells in memo.data_rows("slice"):
+        if len(cells) <= 6:
             continue
+        rid = bare_id(cells[1])
         body = cells[2]
-        # ⚠ Keyed on ONE spelling.  Measured: three §5 rows carry it and exactly
-        # three are pointer rows, so it is exact today -- but rows R and 1b also
-        # use the word "pointer" and are correctly not excluded only by accident
-        # of phrasing.  The polarity is the safe one: a differently-spelled
+        if rid in umb or rid in undet:
+            continue
+        # ⚠ Keyed on one spelling, and the safe polarity: a differently-spelled
         # pointer row is REPORTED, never missed.
         if "is a pointer rather than a slice" in body:
             continue
-        if not ACCEPT_WORDS.search(body):
-            hits.append((lineno, rid))
+        if RETIRED.search(body) or RETIRED.search(cells[1]):
+            continue
+        if ACCEPT_WORDS.search(body):
+            continue
+        n += 1
+        named.append(rid)
+        findings.append(("ACCEPT-VOCAB?", lineno,
+                         "active-terminal row %r carries no acceptance vocabulary" % rid))
     notes.append(
-        "[ACCEPT-VOCAB] SEED -- %d §5 terminal non-pointer rows carry no acceptance vocabulary%s. "
+        "[ACCEPT-VOCAB] SEED -- %d ACTIVE-TERMINAL §5 rows (not umbrella, not "
+        "kind-undetermined, not a pointer, not retired) carry no acceptance vocabulary: %s. "
         "The slot that owns this states the approximation's miss class IS the deliverable; "
-        "this figure bounds nothing."
-        % (len(hits), (": " + ", ".join(r for _, r in hits)) if hits else "")
-    )
-    for lineno, rid in hits:
-        findings.append(("ACCEPT-VOCAB?", lineno, "row %r carries no acceptance vocabulary" % rid))
+        "this figure bounds nothing." % (n, ", ".join(named) if named else "(none)"))
 
 
 # --------------------------------------------------------------------------
