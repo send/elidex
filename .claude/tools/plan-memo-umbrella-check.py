@@ -522,14 +522,31 @@ def assertion_cd_seed(memo, findings, notes):
             continue
         rid = bare_id(cells[1])
         deps = cells[6].strip()
-        if deps not in {"", "—", "-"}:
-            continue
         body = cells[2]
-        if ORDER_WORDS.search(body):
+        empty = deps in {"", "—", "-"}
+        if not ORDER_WORDS.search(body):
+            continue
+        # ⚠ A NON-EMPTY `Deps` cell does not discharge this.  The seed used to
+        # `continue` on one, so a row whose cell names ONE party while its prose
+        # hands off to a SECOND was invisible -- which is exactly how 2ac's
+        # super-property dependency lived in a "lands second" sentence while the
+        # cell, §5's single home for ordering, named only umbrella A's child.
+        # A partially-filled cell is the harder case, not the settled one.
+        if empty:
             n += 1
             findings.append(("ORDER-PROSE?", lineno,
                              "row %r states ordering vocabulary in prose while its Deps cell is %r"
                              % (rid, deps)))
+            continue
+        # Non-empty: report only when the prose names a party the cell does not.
+        cell_ids = {m.group("id") for m in CELL_TOKEN.finditer(deps)} | set(MENTION_SLOT.findall(deps))
+        prose_ids = {m.group(1) for m in MENTION_PROSE.finditer(body)}
+        extra = sorted(prose_ids - cell_ids - {rid})
+        if extra:
+            n += 1
+            findings.append(("ORDER-PROSE?", lineno,
+                             "row %r states ordering vocabulary in prose naming %s, which its Deps "
+                             "cell does not carry" % (rid, ", ".join(repr(e) for e in extra))))
     notes.append("[ORDER-PROSE?] SEED -- %d rows; the class is natural language and is not bounded by this figure" % n)
 
     # (d) TWO-OWNERS.  ⚠ This half was ADVERTISED by the docstring and the file

@@ -239,10 +239,14 @@ acase("POSITIVE", "(c-seed) ordering vocabulary in prose against an empty Deps c
       build(s7z="Terminal.  This row lands before 9z and is a prerequisite of it.",
             d7z="—"),
       "ORDER-PROSE?", 1)
-acase("NEGATIVE", "(c-seed) ordering vocabulary WITH a Deps cell is not reported",
-      build(s7z="Terminal.  This row lands before 9z and is a prerequisite of it.",
+acase("NEGATIVE", "(c-seed) a Deps cell that CARRIES the prose's party is not reported",
+      build(s7z="Terminal.  This row lands before Slice **Qx** and is a prerequisite of it.",
             d7z="**Qx**"),
       "ORDER-PROSE?", 0)
+acase("POSITIVE", "(c-seed) prose names a SECOND party the non-empty Deps cell omits",
+      build(s7z="Terminal.  Lands second behind Slice **Qx** and behind Slice **9z**.",
+            d7z="**Qx**"),
+      "ORDER-PROSE?", 1)
 acase("POSITIVE", "(accept-vocab seed) a terminal row with neither `must` nor `acceptance`",
       build(sqx="Terminal.  Lowers the thing."), "ACCEPT-VOCAB?", 1)
 acase("NEGATIVE", "(accept-vocab seed) a terminal row stating an acceptance condition",
