@@ -81,6 +81,23 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
   local outside
   outside=$(printf '%s\n' "$_MEASURE_OUT" | grep -vE '^\.claude/(tools/_webref|skills/elidex-plan-review)/' || true)
   [ -z "$outside" ] || { echo "!! suite(s) outside both discover roots — J4's uncollected-suite case:"; printf '%s\n' "$outside" | sed 's/^/     /'; return 1; }
+  # Under a root is not yet collected: `unittest discover` recurses only into
+  # PACKAGE directories (every directory between the root and the file needs an
+  # `__init__.py`; the Python 3.9+ discovery contract the floor admits), so a
+  # suite in `<root>/fixtures/test_x.py` passed the prefix test above and was
+  # still never run (Codex R9). The package chain is checked for every file.
+  local uncollected
+  uncollected=$(printf '%s\n' "$_MEASURE_OUT" | python3 -c '
+import os, sys
+ROOTS = (".claude/tools/_webref", ".claude/skills/elidex-plan-review")
+for f in sys.stdin.read().split():
+    root = next(r for r in ROOTS if f.startswith(r + "/"))
+    d = os.path.dirname(f)
+    while d != root:
+        if not os.path.isfile(os.path.join(d, "__init__.py")):
+            print(f"{f}  (no __init__.py in {d})"); break
+        d = os.path.dirname(d)')
+  [ -z "$uncollected" ] || { echo "!! suite(s) under a root but below a non-package directory — discover never reaches them:"; printf '%s\n' "$uncollected" | sed 's/^/     /'; return 1; }
   return 0
 }
 

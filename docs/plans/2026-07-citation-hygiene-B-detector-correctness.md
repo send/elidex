@@ -220,7 +220,11 @@ r"§\s*(?-i:(?>(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)))(?![\w-])"
 git grep -hoE '§ ?[0-9]+(\.[0-9]+)*\.($|[[:space:]])' -- 'crates/*.rs' | wc -l   # → 344
 ```
 
-**344 cites in `crates/**/*.rs`** end a sentence. The atomic form accepts all 344 and rejects all 69 truncations; the lookahead form loses both. Python 3.11+ supports `(?>...)`; the toolchain is 3.14.6. **Only the atomic form is admissible.**
+**344 cites in `crates/**/*.rs`** end a sentence. The atomic form accepts all 344 and rejects all 69 truncations; the lookahead form loses both. Python 3.11+ supports `(?>...)`; the toolchain is 3.14.6. **Only the atomic form is admissible** — and
+it moves the interpreter floor: A-iii's `scripts/python-suites.sh` asserts `>= (3, 9)` and A-iii §4.3 defers
+the raise to "when B lands `(?>...)`", so **B's edit set includes raising that floor to 3.11 at every
+entry point** (the suite driver, and the direct `webref` / `preflight.py` paths that bypass it) — a
+3.9/3.10 interpreter must fail the floor check, not die on a regex compile error at import (Codex R9).
 
 Rejected tokens must not vanish silently — that would trade an under-report for a different under-report. They become a **reported class** (`REJECTED-TOKEN`), which is also what makes the census re-derivable from the tool after this PR (§4.0).
 

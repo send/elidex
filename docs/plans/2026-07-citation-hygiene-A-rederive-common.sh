@@ -533,8 +533,14 @@ def main() -> int:
               file=sys.stderr)
     else:
         basis = ""
-    print(f"  unique specs (K):     {K}{basis} "
-          f"({', '.join(displayed) if displayed else '-'})")
+    if map_missing:
+        # item 8: with no mapper K is not a number. The proto printed `K=<n>`
+        # with a qualifier, which is the inherited CRIT item 8 names, in the
+        # prototype that exists to remove it (Codex R9).
+        print("  unique specs (K):     n/a (label map unavailable)")
+    else:
+        print(f"  unique specs (K):     {K}{basis} "
+              f"({', '.join(displayed) if displayed else '-'})")
 
     # §4.2.4: four remedies, each for its own cause and no other.
     if unrecognized_labels and not map_missing:

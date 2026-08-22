@@ -307,6 +307,27 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
     # armmatrix's own, reached through the nested function's dynamic scope.
     _verdict "$prc" "$out" || { echo "       !! EXIT=$prc with no verdict line — the graft did not RUN on this row."
                                 rc=1; }
+    # A verdict is not yet §5's verdict: the table's "After A-ii" column states
+    # an exit per tabulated row, and item 8 states the K line for every
+    # map-absent row. Both were printed and never compared (Codex R9). The
+    # expected exit lives here, keyed by §5's row label; an untabulated `x*`
+    # row has no claim to hold.
+    local want
+    case "$lbl" in
+      1|2|2b|5|8|10|11|11b|12|14) want=0 ;;
+      3|4|6|7|9|12b|13|16)       want=1 ;;
+      *)                          want="" ;;
+    esac
+    [ -z "$want" ] || [ "$prc" = "$want" ] || { echo "       !! EXIT=$prc, §5 row $lbl says $want"; rc=1; }
+    # Item 8 is a rule about the K line, which only the table path prints (the
+    # no-spec-surface path, §5 row 14, prints none): when the line is there and
+    # the map is absent, it must read n/a.
+    case "$st" in nomap|neither)
+      if printf '%s\n' "$out" | grep -q 'unique specs (K):'; then
+        printf '%s\n' "$out" | grep -q 'unique specs (K):     n/a (label map unavailable)' \
+          || { echo "       !! map absent but K is a number — §4.2.3 item 8 says n/a (label map unavailable)"; rc=1; }
+      fi ;;
+    esac
     # Print every line the memo cites. Draft 8's filter dropped `remedy*` and had
     # no `PROTO-DISPLAY`, so two sections cited a block that did not emit their
     # claim -- the same defect class one level down.
