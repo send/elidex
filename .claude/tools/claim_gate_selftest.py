@@ -142,6 +142,62 @@ def synth(text: str, name: str = "synthetic.md") -> host.Memo:
     return host.Memo(Path(name), text)
 
 
+def git_fixture(tmp: Path, steps: list[list[str]]) -> Path:
+    """A throwaway repository with a history the live one cannot supply.
+
+    Three of this program's git derivations turn on distinctions that are
+    unobservable here: the merge base of `origin/main..HEAD` IS `origin/main`
+    today, so two-dot and three-dot agree, and nothing on this branch is a
+    rename. A probe run against this repository would pass either way, which is
+    the shape `ban_control` names -- so the fixture supplies the divergence and
+    the rename, and the derivations are pointed at it by swapping the module
+    global they read, not by growing a parameter production never passes.
+    """
+    for cmd in [["git", "init", "-q", "-b", "main"],
+                ["git", "config", "user.email", "probe@example.invalid"],
+                ["git", "config", "user.name", "probe"],
+                ["git", "config", "commit.gpgsign", "false"]] + steps:
+        if cmd[0] == "write":
+            (tmp / cmd[1]).write_text(cmd[2])
+            continue
+        p = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True)
+        if p.returncode != 0:
+            raise RuntimeError(f"fixture step {cmd} failed: {p.stderr.strip()}")
+    return tmp
+
+
+# A branch point, a commit on the branch, and a commit `main` gained after it.
+# Two-dot answers "two files changed" here and three-dot answers "one", which is
+# the whole difference between comparing tips and comparing against the point
+# the branch left.
+DIVERGED = [
+    ["write", "base.txt", "base\n"],
+    ["git", "add", "-A"], ["git", "commit", "-qm", "base"],
+    ["git", "checkout", "-qb", "feat"],
+    ["write", "mine.txt", "mine\n"],
+    ["git", "add", "-A"], ["git", "commit", "-qm", "mine"],
+    ["git", "checkout", "-q", "main"],
+    ["write", "theirs.txt", "theirs\n"],
+    ["git", "add", "-A"], ["git", "commit", "-qm", "theirs"],
+    ["git", "update-ref", "refs/remotes/origin/main", "refs/heads/main"],
+    ["git", "checkout", "-q", "feat"],
+]
+
+# The same shape with a rename instead: a file leaves the set it was in, and
+# rename detection -- on by default since git 2.9 -- reports only where it
+# arrived. Every consumer of these derivations is asking about paths, so a
+# departure that names only the destination is a departure none of them sees.
+def renamed(old: str, new: str) -> list[list[str]]:
+    return [
+        ["write", old, "contents\n"],
+        ["git", "add", "-A"], ["git", "commit", "-qm", "base"],
+        ["git", "update-ref", "refs/remotes/origin/main", "refs/heads/main"],
+        ["git", "checkout", "-qb", "feat"],
+        ["git", "mv", old, new],
+        ["git", "commit", "-qm", "rename"],
+    ]
+
+
 def selftest() -> int:
     # The checks fired below, and the primitives they need, stay in the entry
     # point; bound to locals here so each proof reads as the call it is.
@@ -163,6 +219,9 @@ def selftest() -> int:
     # the module whose functions read it -- reaching these through the entry
     # point's re-export would rebind a name nothing resolves.
     ledgers = host.claim_gate_ledgers
+    # Same rule, one layer down: the git derivations live in their own module
+    # now, so a probe that stubs one swaps it there.
+    git_ = host.claim_gate_git
 
     probes: list[tuple[str, bool, str]] = []  # (label, ok, detail)
 
@@ -771,6 +830,31 @@ def selftest() -> int:
           "back in the tree")
     probe("PATHS positive (a row survives its deletion leaving the branch range)", False,
           capture(check_paths, synth(LEDGER_GONE + NAMES_GONE), []))
+    # A subject can be absent for two reasons and only one of them is a record:
+    # the file was removed, or the path was never a file. The parking arm asks
+    # whether the subject came BACK, and both answer no -- so a misspelling
+    # parks in silence. Measured before this probe existed: `claim_gate_grammer`
+    # declared, named outside, `gone=[]`, zero findings. The probe above is this
+    # one's positive control and must stay green: the two differ only in
+    # history, which is why the arm reads it.
+    _FAB = LEDGER_GONE.replace("claim_gate_grammar", "claim_gate_grammer") \
+        + NAMES_GONE.replace("claim_gate_grammar", "claim_gate_grammer")
+    probe("PATHS negative (a ledger row naming a path no commit ever had)", True,
+          capture(check_paths, synth(_FAB), []),
+          "no commit")
+    # In a shallow clone `git log HEAD` sees one commit, so every genuine removal
+    # would read as a path that never existed and the arm above would fire
+    # hardest on the memos that are most correct. It reports instead.
+    _saved_hist = git_.removed_in_history
+    try:
+        git_.removed_in_history = lambda _p: None
+        probe("PATHS does not decide when the history cannot be asked", False,
+              capture(check_paths, synth(_FAB), []))
+        probe("  …and the unaskable history is reported through skip()", True,
+              capture_skipped(check_paths, synth(_FAB), []),
+              "cannot say whether")
+    finally:
+        git_.removed_in_history = _saved_hist
     probe("PATHS positive (a deleted file no sentence names owes nothing)", False,
           capture(check_paths, synth("## §5 Decomposition\n\nNothing about it.\n"),
                   [GONE]))
@@ -785,21 +869,72 @@ def selftest() -> int:
     _sub = host.gone_from("a.py\nb.py\n", {"b.py"})
     probes.append(("PATHS population subtracts a deletion the tree has back",
                    _sub == ["a.py"], f"{_sub}"))
-    # Swapped on `ledgers` for the reason the CONTROLS stand-in above is: the
-    # function lives there and `check_paths` resolves it through that module.
-    _saved_gone = ledgers.deleted_on_branch
+    # Swapped on `git_` for the reason the CONTROLS stand-in above is swapped on
+    # `ledgers`: the function lives there and `check_paths` resolves it through
+    # that module. It used to live in `ledgers`, and this swap followed it --
+    # the rule is about ownership, not about which file the check is in.
+    _saved_gone = git_.deleted_on_branch
     try:
-        ledgers.deleted_on_branch = lambda: None
+        git_.deleted_on_branch = lambda: None
         probe("PATHS reports rather than passing when the range cannot be formed", False,
               capture(check_paths, synth(NAMES_GONE)))
         probe("  …and it says so through skip()", True,
               capture_skipped(check_paths, synth(NAMES_GONE)),
               "could not be formed")
     finally:
-        ledgers.deleted_on_branch = _saved_gone
-    _gone = ledgers.deleted_on_branch()
+        git_.deleted_on_branch = _saved_gone
+    _gone = git_.deleted_on_branch()
     probes.append(("PATHS derives its population from this repository's git",
                    _gone is not None, f"origin/main..HEAD deletes {_gone}"))
+
+    # The git substrate. Three sites asked "what does this branch change" and
+    # answered it three ways, and the live repository cannot tell them apart:
+    # its merge base IS `origin/main`, and it contains no rename. These are the
+    # discriminating arms, on histories built to have both.
+    _saved_repo, _saved_res = host.REPO, dict(host._resolved)
+    try:
+        def at(steps: list[list[str]], td: str) -> None:
+            host.REPO = git_fixture(Path(td), steps)
+            host._resolved.clear()
+
+        with tempfile.TemporaryDirectory() as _td:
+            at(DIVERGED, _td)
+            probe("git: what the branch changed is anchored at the merge base",
+                  False, capture(check_tooling_quantities,
+                                 synth("The prerequisite PR touches one file.\n")))
+        with tempfile.TemporaryDirectory() as _td:
+            at(renamed("old.sh", "new.sh"), _td)
+            _d = git_.deleted_on_branch()
+            probes.append(("git: a rename is a departure the deletion set reports",
+                           _d == ["old.sh"], f"{_d}"))
+        with tempfile.TemporaryDirectory() as _td:
+            at(renamed("x-trip-wire.sh", "x.sh"), _td)
+            _w = host.changes_the_wire_set()
+            probes.append(("git: a wire renamed out of the set changes the set",
+                           _w is True, f"{_w}"))
+    finally:
+        host.REPO = _saved_repo
+        host._resolved.clear()
+        host._resolved.update(_saved_res)
+
+    # Shallowness is a property of the CLONE, not of the tree, so no fixture
+    # history supplies it: the probe intercepts the one question that reports it
+    # and lets every other call through. Stubbing `removed_in_history` instead
+    # would prove the caller handles None, which is what the PATHS pair above
+    # proves -- measured, deleting the guard itself left the suite at 153/153
+    # until this arm existed, so the pair was not covering it.
+    _real_sh = host.sh
+
+    def _shallow_sh(cmd: list[str]) -> tuple[int, str]:
+        return (0, "true\n") if cmd[-1] == "--is-shallow-repository" else _real_sh(cmd)
+
+    try:
+        host.sh = _shallow_sh
+        _shallow = git_.removed_in_history(".claude/tools/claim_gate_grammar.py")
+    finally:
+        host.sh = _real_sh
+    probes.append(("git: a shallow clone cannot say whether a path was removed",
+                   _shallow is None, f"{_shallow}"))
 
     # SITES' population is the PR that changes the wire set, not every document.
     # The docstring's check table is presented as the index, and an index that
