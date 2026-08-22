@@ -123,13 +123,25 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
   # act on it: it ended on `rm -rf`.
   local failed=0
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
-  for f in labelled dedup unlabelled allunmapped alias nospec nospec-and-table nospec-and-header fenced-marker; do
-    local out rc
+  # EXPECTED status AND mechanism per fixture: these are the readings A-ii §6
+  # asserts "fails at A-i's head" AGAINST, so accepting any well-formed verdict
+  # (Codex R19) could not substantiate that column. `fenced-marker` exiting 0
+  # with the table verified IS P11d's premise (the marker is inert prose here).
+  local spec
+  for spec in 'labelled:0:citation verify: +ok' 'dedup:0:citation verify: +ok' \
+              'unlabelled:0:unrecognized labels' 'allunmapped:0:unrecognized labels' \
+              'alias:0:unrecognized labels' 'nospec:1:no markdown table follows' \
+              'nospec-and-table:0:citation verify: +ok' 'nospec-and-header:1:has 0 data rows' \
+              'fenced-marker:0:citation verify: +ok'; do
+    local f want_rc want_re out rc
+    f=${spec%%:*}; spec=${spec#*:}; want_rc=${spec%%:*}; want_re=${spec#*:}
     out=$(python3 "$PF" --no-grep-pass "$F/$f.md" 2>&1); rc=$?
     printf '%-18s EXIT=%d  %s\n' "$f" "$rc" \
       "$(echo "$out" | grep -oE 'citation verify: +.*|HARD FAIL — [^.]*|⚠ unrecognized.*' | head -1)"
     _verdict "$rc" "$out" || { echo "   !! EXIT=$rc with no verdict line — the carve's gate did not RUN here."
                                failed=1; }
+    [ "$rc" -eq "$want_rc" ] || { echo "   !! expected EXIT=$want_rc at the carve — A-ii §6's premise for this fixture no longer holds"; failed=1; }
+    echo "$out" | grep -qE "$want_re" || { echo "   !! expected mechanism /$want_re/ not in the carve's output"; failed=1; }
   done
   # P11e's premise, at the carve: a no-spec memo with a bad `crates/…` path and
   # grep-pass ENABLED exits non-zero here too -- via the no-table hard fail --

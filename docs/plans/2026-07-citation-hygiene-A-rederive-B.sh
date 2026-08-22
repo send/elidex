@@ -92,10 +92,13 @@ except SystemExit as e:
 # empty catalog -- `{}` is the fail-open §4.1.7 names (Codex R18). B §6 S12
 # pins the exact shape; what this block can say without it is that a plain
 # dict is the wrong answer.
-if isinstance(cat, dict):
-    print("!! _catalog() returned a plain dict offline (%r) — available-empty, the fail-open B §4.1.7 forbids" % (cat,))
+# B §4.1.7 names the shape: `CatalogResult(available, entries, cause)`. Read
+# the DISCRIMINATOR -- a type test let an available wrapper around an empty
+# catalog, or a bare None, pass as "discriminated" (Codex R19).
+if getattr(cat, "available", None) is not False:
+    print("!! _catalog() offline did not take the UNAVAILABLE branch: %r — B §4.1.7 requires available=False" % (cat,))
     sys.exit(1)
-print("catalog offline ->", type(cat).__name__, "(discriminated, not {})")
+print("catalog offline -> available=False, cause=%r" % (getattr(cat, "cause", None),))
 PY
   rm -rf "$C"
   return "$rc"    # the heredoc'd command IS the measurement; say so

@@ -298,17 +298,27 @@ class TestNoNetworkOrCliSubprocess(unittest.TestCase):
                    side_effect=AssertionError("subprocess.run on the import path")), \
              patch("urllib.request.urlopen",
                    side_effect=AssertionError("urlopen on the import path")):
-            importlib.reload(spec_labels)
-            importlib.reload(coverage_map)
-            # `cli` is the consumer each gate subprocess actually imports, and
-            # it was collected before the poison went in -- so a side effect on
-            # ITS import path ran unpoisoned and T-net stayed green (Codex
-            # R15). Reload it here and read its derived output under the poison.
-            importlib.reload(cli)
-            self.assertEqual(spec_labels.label_for("html"), "WHATWG HTML")
-            self.assertEqual(spec_labels.shortname_for("WHATWG Fetch"), "fetch")
-            self.assertEqual(coverage_map._spec_label("fetch"), "WHATWG Fetch")
-            self.assertEqual(cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
+            # `reload` re-executes ONE module; everything `cli` imports stayed
+            # cached from collection, before the poison (Codex R15, R19). A
+            # gate subprocess imports the whole chain fresh, so evict the whole
+            # package and import it again here -- every `_webref*` module body
+            # then runs under the poison, exactly as in a fresh interpreter.
+            collected = {m: sys.modules.pop(m) for m in list(sys.modules)
+                         if m == "_webref" or m.startswith("_webref.")}
+            try:
+                fresh_cli = importlib.import_module("_webref.cli")
+                fresh_sl = importlib.import_module("_webref.spec_labels")
+                fresh_cm = importlib.import_module("_webref.commands.coverage_map")
+                self.assertEqual(fresh_sl.label_for("html"), "WHATWG HTML")
+                self.assertEqual(fresh_sl.shortname_for("WHATWG Fetch"), "fetch")
+                self.assertEqual(fresh_cm._spec_label("fetch"), "WHATWG Fetch")
+                self.assertEqual(fresh_cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
+            finally:
+                # Hand the collected module objects back so the other tests keep
+                # the identities they were collected with.
+                for m in [m for m in sys.modules if m == "_webref" or m.startswith("_webref.")]:
+                    del sys.modules[m]
+                sys.modules.update(collected)
 
 
 if __name__ == "__main__":

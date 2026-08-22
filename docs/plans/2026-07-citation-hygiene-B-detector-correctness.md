@@ -344,7 +344,7 @@ Measured: **`SystemExit ESCAPED _catalog()`**. `cache.py:131` raises `sys.exit` 
 
 The second half is worse. When `except Exception` *does* fire (a malformed `index.json`), `_catalog()` returns `{}` — and `shortname_for("CSS Text 3")` becomes `None`, which is exactly the CSS-module **fail-open** that `spec_labels.py:118-121` claims to have removed ("the plan-review gate previously failed **open** on those, soft-warning and skipping citation verification").
 
-**Fix**: `_catalog()` returns a discriminated result — *available* (a possibly-empty dict) vs *unavailable* (with the cause). Callers act on the distinction: `cite-audit` puts a label it cannot resolve because the catalog is unreachable into a distinct `UNKNOWN-SPEC` class rather than silently into UNATTRIBUTED; `preflight` treats it as **Slice A's** capability precondition treats an unimportable tools tree — **not survivable without `--no-verify`** — which is why B appends to that precondition rather than inventing a second one. `SystemExit` is caught explicitly alongside `Exception`.
+**Fix**: `_catalog()` returns a discriminated result — `CatalogResult(available: bool, entries: dict, cause: str | None)`: *available* (`available=True`, a possibly-empty `entries`) vs *unavailable* (`available=False`, `entries={}`, `cause` naming the exception). The shape is stated here so that S12 and the harness `offline` block assert the discriminator itself rather than inferring it from a Python type (Codex R19). Callers act on the distinction: `cite-audit` puts a label it cannot resolve because the catalog is unreachable into a distinct `UNKNOWN-SPEC` class rather than silently into UNATTRIBUTED; `preflight` treats it as **Slice A's** capability precondition treats an unimportable tools tree — **not survivable without `--no-verify`** — which is why B appends to that precondition rather than inventing a second one. `SystemExit` is caught explicitly alongside `Exception`.
 
 #### §4.1.8 — the catalog reverse lookup is first-wins ambiguous
 
@@ -539,7 +539,7 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 - **S9** round-trip over **all 948** catalog entries under the §4.1.8 rules.
 - **S10** level collisions resolve to the level named (`pointerevents4` ≠ `pointerevents3`); level-less series titles resolve to `series.currentSpecification`.
 - **S11** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
-- **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; result is *unavailable*, not `{}`.
+- **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; `_catalog().available is False` with `cause` naming `URLError` — the *unavailable* branch, not an available empty `entries`.
 - **S13** pinned `SPECS` win over the catalog for every pinned key.
 
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):

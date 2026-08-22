@@ -125,7 +125,8 @@ while i < len(lines):
 # a false RED makes a reader look; a false GREEN certifies a claim. Command-
 # position parsing would buy precision the claim does not need. What a static
 # read CANNOT see is an invocation reached through a variable (`"$MISE_BIN" run`)
-# -- named as this block limit in A-iii §4.1, not papered over with a heuristic.
+# or built at runtime -- named as this block limit in A-iii §4.1; the memo no
+# longer says a false GREEN is impossible, only where one could come from.
 import os, shlex
 def yaml_unquote(v):
     # The collector hands over the RAW scalar; a YAML-quoted `run: "…"` or
@@ -139,8 +140,13 @@ def yaml_unquote(v):
         return body.replace(SQ + SQ, SQ) if v[0] == SQ else body.encode().decode("unicode_escape")
     return v
 def invokes_mise(cmd):
+    # `shlex.split` leaves control operators attached (`mise;`, `mise&&echo`,
+    # `(mise)` -- Codex R19); the lexer with `punctuation_chars` splits them
+    # off as their own tokens, which is the shell reading.
     try:
-        toks = shlex.split(yaml_unquote(cmd), posix=True)
+        lx = shlex.shlex(yaml_unquote(cmd), posix=True, punctuation_chars=True)
+        lx.whitespace_split = True
+        toks = list(lx)
     except ValueError:
         # Unbalanced quoting: a line the shell itself would reject. Not
         # "no invocation" -- report it so the reading is not certified.
