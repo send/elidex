@@ -682,7 +682,10 @@ disposed of, and a row is disposed of only if the line it names was read at that
 the report, in the order it emits: `.github/workflows/ci.yml:131-133` carries the ungated job's own
 argument — "Gating them would mean listing BOTH `.claude/tools/**` … and `scripts/**` … in a filter" —
 which a fifth wire does not touch. `CLAUDE.md:52` lists `trip-wires` among `mise run ci`'s dependencies,
-which stays true; and the two driver internals are
+which stays true, and so does `mise.toml:116`, the `depends` array that sentence describes — both name
+the driver task, not its members, so a fifth wire changes neither. (This row was disposed of nowhere
+until the `SITES` licence became position-scoped: the line was cited in §5 as a fact about `mise run ci`,
+and a mention outside this section is not a disposal.) The two driver internals are
 
 ```
 $ sed -n '25p;59p' scripts/trip-wires.sh
