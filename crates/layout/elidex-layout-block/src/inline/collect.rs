@@ -127,7 +127,7 @@ fn positioned_subflow_key(
 /// raw (unfiltered) direct children of the IFC parent plus the raw direct children
 /// of every inline element recursed into (each is some run-parent's direct child,
 /// hence a potential `run[0]`). The caller clears `InlineFlow` on candidates it does
-/// not persist. Completeness matters at **three** consumers, all `clear_inline_flows`:
+/// not persist. Completeness matters at the `clear_inline_flows` consumers —
 /// the two early-return exits in [`super::layout_inline_context_fragmented`], which
 /// pass an empty persisted set and so clear every candidate, and the call inside
 /// [`super::reconcile::reconcile_flows`]. Which removals then fire is that

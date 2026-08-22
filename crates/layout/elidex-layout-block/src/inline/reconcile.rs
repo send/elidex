@@ -100,15 +100,11 @@ use super::{
 ///   ⚠ **§10.8.1's current statement is `css-inline-3` §5.3 Calculating the
 ///   Logical Height Contributions ("Layout Bounds") of Inline Boxes**, whose
 ///   strut condition is broader (it also covers a box with only fallback-font
-///   glyphs). Scoping the implementation against each: it derives A and D at
-///   **run level from a single resolved font** (`measure_text` resolves one
-///   `font_id`), which §10.8.1's **per-glyph** statement does not license but
-///   §5.3's *not-normal* branch prescribes verbatim. The live divergence is
-///   §5.3's *normal* branch, which this engine cannot reach —
-///   `LineHeight::Normal` is flattened to `font_size * 1.2` before layout.
-///   ⚠ The `CSS 2` label here is the minority form in this crate: its six other
-///   §10.8* sites say `CSS 2.1`. That split is `#11-css2-spec-label-normalisation`'s
-///   and is not re-litigated by this move.
+///   glyphs). ⚠ **The half-leading here derives A and D at run level from a
+///   single resolved font** (`measure_text` resolves one `font_id`), while
+///   §10.8.1 is stated **per glyph**, so a mixed-font box is outside it.
+///   Re-anchoring this crate's CSS 2 citations is
+///   `#11-inline-root-inline-box`'s, per the umbrella that owns it.
 ///
 ///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
