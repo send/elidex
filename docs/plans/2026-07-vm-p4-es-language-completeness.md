@@ -1063,11 +1063,18 @@ no vocabulary at all: row **7** derives its kind from **two** invariant axes, ag
 paragraph states as **≥3**. No sweep keyed on wording can find that one, because its wording is
 correct and its arithmetic is not.*
 
-⚠ **The rows carrying it are marked individually, on the row, and this passage does not list them** —
-the obligation is the row's and the list would be the second copy that rots. What this passage owns
-is the rule; **`grep -c '^|.*criterion does not state' <this file>`** returns the current count,
-scoped to `^|` because an unscoped grep matches this sentence and reports one row that does not
-exist. And
+⚠ **The rows carrying it are resolved on the row, and this passage does not list them** — the
+obligation is the row's and the list would be the second copy that rots. What this passage owns is
+the rule. ⚠ *An earlier revision answered this with a **marker** appended to each affected cell, and
+counted them with `grep -c '^|.*criterion does not state'`. Both are gone: the marker left the
+declaring field asserting a kind while the note beside it said the ground was missing — prose
+contradicting the structured cell, which is worse than the restatement the single-home rule already
+forbids — and with the markers removed that grep returns 0, so as a control it could no longer
+distinguish a clean document from one whose vocabulary had moved.* Each row now reads as one of three
+things: the measurement supplied, the kind corrected, or the kind declared **undetermined in the
+declaring field**. The live count is the third of those, and it is a program's output rather than a
+grep's: `python3 .claude/tools/plan-memo-umbrella-check.py <this file>` prints it as
+`[KIND-UNDETERMINED]`. And
 the set is a **seed, not an inventory**: it was assembled by reading, the two spellings above are
 what reading found, and a row that states the same defect in a fourth spelling is not in it. If it does, the row is an umbrella; it states its charter, mints terminal
 sub-slices, and each sub-slice is its own PR under its own plan-review. Sub-slices take the parent's
@@ -1344,7 +1351,7 @@ a hand-written claim contradicting a cell — a class that stops when a **checke
 when the memo adds a fourth rule about itself. Carved as `#11-plan-memo-spec-field-single-home-check`
 (§8), whose children's deliverable is a check over this document — every prose assertion of a dependency,
 independence, ordering or ownership reconciled against the `Deps`/`Slot`/row cells — and whose natural
-home is the `claim-gate-plan-check` tooling already in flight rather than another paragraph here.
+home is a program rather than another paragraph here. ⚠ *This read "the `claim-gate-plan-check` tooling already in flight", which §8's own cell for that slot has since recorded as false — the first enumerator landed in this PR as a separate program, and a re-derivation over every in-flight worktree returns **four** plan-memo checkers on three branch families, none on `main`. The correction was made in §8 and not here, which is the second-copy failure this very sentence is about.*
 
 ⚠ **But the override runs one way only, and a plan-review that lands on the other side of the line
 must come back.** Evidence and specification are not sealed off from each other: a solution the

@@ -218,6 +218,9 @@ acase("POSITIVE", "(b) a KIND-UNDETERMINED row carrying a Deps edge is checked t
       "UMBRELLA-CELL", 1)
 acase("POSITIVE", "(b) an umbrella row carrying a Deps edge",
       build(d9z="**7z**"), "UMBRELLA-CELL", 1)
+acase("NEGATIVE", "(accept-vocab seed) a POINTER row is excluded from the population",
+      build(sqx="This row is a pointer rather than a slice; the work is scheduled from its slot."),
+      "ACCEPT-VOCAB?", 0)
 acase("POSITIVE", "(c-seed) ordering vocabulary in prose against an empty Deps cell",
       build(s7z="Terminal.  This row lands before 9z and is a prerequisite of it.",
             d7z="—"),
@@ -292,6 +295,7 @@ def run():
         print("  %-4s [%s] %s (%d reported)" % ("ok" if ok else "FAIL", kind, name, got))
 
     for kind, name, text, code, expect in ASSERT_CASES:
+        counts[kind] += 1
         _, _, findings = run_on(text, "")
         got = sum(1 for c, _, _ in findings if c == code)
         ok = (got >= expect) if expect else (got == 0)
@@ -318,9 +322,15 @@ def run():
           "(must differ)" % ("ok" if ok else "FAIL", by_field, by_grep))
 
     print()
-    print("%d case(s): %d POSITIVE, %d POSITIVE-NOVEL, %d NEGATIVE, %d KNOWN-MISS (red, "
-          "and they stay red)." % (len(CASES), counts["POSITIVE"], counts["POSITIVE-NOVEL"],
-                                   counts["NEGATIVE"], counts["KNOWN-MISS"]))
+    # ⚠ Count BOTH registries.  This read `len(CASES)` and silently omitted every
+    # assertion control, so the summary said 25 while 37 controls had run -- a
+    # report that does not match what the program did, which is the class this
+    # whole file exists to catch.
+    print("%d case(s) -- %d naming + %d assertion: %d POSITIVE, %d POSITIVE-NOVEL, %d NEGATIVE, "
+          "%d KNOWN-MISS (red, and they stay red)."
+          % (len(CASES) + len(ASSERT_CASES), len(CASES), len(ASSERT_CASES),
+             counts["POSITIVE"], counts["POSITIVE-NOVEL"],
+             counts["NEGATIVE"], counts["KNOWN-MISS"]))
     if fails:
         print()
         for f in fails:

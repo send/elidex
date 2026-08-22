@@ -246,14 +246,23 @@ def code_spans(s, keep=()):
     return out
 
 
+# An id is a short alphanumeric token or a `#11-` slug -- nothing else.  Without
+# a grammar the whole cell was taken as the id, so a retired row printed as
+# ``0a — MERGED `658cc302` `` and its real id `0a` never entered `all_row_ids`,
+# which meant a backticked `` `0a` `` was masked as code instead of read as a
+# mention.  Harmless only because `0a` is not an umbrella.
+_ID_GRAMMAR = re.compile(r"^(#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})(?![0-9A-Za-z-])")
+
+
 def bare_id(cell):
-    """The row id as written, stripped of bold/backtick decoration."""
+    """The row id as written, stripped of decoration and of trailing prose."""
     s = cell.strip()
     for pat in (_BOLD, _TICK, _BOLD):
         m = pat.match(s)
         if m:
             s = m.group(1).strip()
-    return s
+    g = _ID_GRAMMAR.match(s)
+    return g.group(1) if g else s
 
 
 # --------------------------------------------------------------------------
@@ -772,6 +781,11 @@ def acceptance_vocab_seed(memo, findings, notes):
         if rid in umb:
             continue
         body = cells[2]
+        # ⚠ Keyed on ONE spelling.  Measured: three §5 rows carry it and exactly
+        # three are pointer rows, so it is exact today -- but rows R and 1b also
+        # use the word "pointer" and are correctly not excluded only by accident
+        # of phrasing.  The polarity is the safe one: a differently-spelled
+        # pointer row is REPORTED, never missed.
         if "is a pointer rather than a slice" in body:
             continue
         if not ACCEPT_WORDS.search(body):
