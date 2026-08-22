@@ -695,3 +695,5 @@ clause's history.
   population. ⊕ Graded class-aware: `HOMES: 70 → 70`, `(file, class)` delta **0** ⇒ **passes**. The omission
   hides no violation, which is exactly why it keeps recurring: **grading is not on the path of anything, so
   nothing reds when it is skipped.** That is the standing defect, not the missing row.
+  ⚠ **A FOURTH time, in the commit that recorded the third**: `372a98f0` touches `-audit.sh`, so round 9 found it ungraded. ⊕ class-aware delta **0** ⇒ **passes**. Four recurrences, four
+  passes, one root — now an entry in §8's register, not only a line here. Grading remains off every path.
