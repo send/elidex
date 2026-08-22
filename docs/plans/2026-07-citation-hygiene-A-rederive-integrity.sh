@@ -238,6 +238,27 @@ for name in roster:
     if name not in defined:
         bad.append((DISPATCH.name, 0, name, "<dispatched by `all` but defined nowhere>"))
 
+# A `python3 -c '…'` payload is wrapped in single quotes by the shell, so ONE
+# apostrophe inside it ends the program mid-line and the block reports `127`
+# (command not found) -- or, with an even count, runs a DIFFERENT program than
+# the one on the page. It happened twice in one session (R15 and R16 fixes),
+# both times inside a comment added by the fix. Same class as the rest of this
+# block: a status that is an accident of text, made unrepresentable.
+PAYLOAD_OPEN = re.compile(r"python3 -c '$")
+for path in parts:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    i = 0
+    while i < len(lines):
+        if PAYLOAD_OPEN.search(lines[i]):
+            j = i + 1
+            while j < len(lines) and not lines[j].startswith("sys.exit("):
+                if "'" in lines[j]:
+                    bad.append((path.name, j + 1, "<python3 -c payload>",
+                                "apostrophe inside a single-quoted payload: " + lines[j].strip()[:40]))
+                j += 1
+            i = j
+        i += 1
+
 print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster")
 for fn, lineno, name, last in sorted(bad):
     print(f"  !! {fn}:{lineno} {name}: ends on {last!r}")

@@ -164,11 +164,33 @@ while i < len(lines):
             i = j; continue
         cmds.append(val)
     i += 1
-# The executable BASENAME: `/usr/local/bin/mise run ci` and `./mise run ci` are
-# invocations, and the previous class rejected `/` and `.` before the word, so
-# both read as "never invokes mise" (Codex R15). `mise.toml` (the FILE the filter lists
-# entry) is still excluded by the trailing boundary, not by the leading one.
-hit = [c for c in cmds if re.search(r"(^|[^A-Za-z0-9_-])mise(\s|$)", c)]
+# "Invokes mise" is a property of COMMAND TOKENS, not of characters around the
+# letters: three rounds (Codex R14 block-scalar headers, R15 `/usr/local/bin/mise`
+# and `./mise`, R16 `"mise"` quoted) each widened a regex by one boundary case,
+# and a regex over a shell string has no end of boundary cases. So tokenize the
+# way the shell does and ask whether any token has basename `mise`. `mise.toml`
+# (a file the path filter lists) has basename `mise.toml`, not `mise`.
+import os, shlex
+def yaml_unquote(v):
+    # The collector hands over the RAW scalar; a YAML-quoted `run: "…"` or
+    # `run: …` in single quotes still wears its YAML quotes here, and shlex
+    # would read the whole value as one token. Strip the YAML layer first.
+    # (No apostrophe may appear in this payload: the shell wraps it in single
+    # quotes, and one apostrophe ends the program mid-line -- twice this session.)
+    SQ = chr(39)
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("\"", SQ):
+        body = v[1:-1]
+        return body.replace(SQ + SQ, SQ) if v[0] == SQ else body.encode().decode("unicode_escape")
+    return v
+def invokes_mise(cmd):
+    try:
+        toks = shlex.split(yaml_unquote(cmd), posix=True)
+    except ValueError:
+        # Unbalanced quoting: a line the shell itself would reject. Not
+        # "no invocation" -- report it so the reading is not certified.
+        return True
+    return any(os.path.basename(t) == "mise" for t in toks)
+hit = [c for c in cmds if invokes_mise(c)]
 sys.exit(1 if hit else 0)' || { echo "!! ci.yml invokes mise in a run step — §4.1's 'never invokes mise' no longer holds"; rc=1; }
   return "$rc"
 }

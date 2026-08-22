@@ -194,7 +194,7 @@ the PR page at review time**. → `rederive ruleset`
 | **Q4** | `mise run ci` reaches `tools-test` (the `depends` edge exists) | 3 | **yes** |
 | **Q5** | the interpreter-floor assertion fires below 3.9 | — | **yes** |
 | **Q6** | `ci.yml`'s `tools` job has a `run:` step whose command names `scripts/python-suites.sh` — read with the same full-scalar run-step collector `rederive filters` uses, not inferred from L1 prose. Without it Q1–Q3 test the script and Q4 the `mise` edge while an empty or unrelated `tools` job satisfies §12(3) (Codex R14) | 1, 2 | **yes** — the job does not exist |
-| **T-net** | `bash scripts/python-suites.sh` runs green in a child with `http_proxy`/`https_proxy` at a closed port, **and** `subprocess.run` is never called with the resolved `WEBREF` path across the suite set | 5 | **yes** |
+| **T-net** | `bash scripts/python-suites.sh` runs green in a child whose **`XDG_CACHE_HOME` is a fresh empty directory** (a warm webref cache would serve an in-process lookup without touching the network), with `http_proxy`/`https_proxy` at a closed port **and `NO_PROXY`/`no_proxy` unset** (an inherited `NO_PROXY=*` lets `urllib` bypass the poisoned proxy); **and**, in-process across the suite set, neither `subprocess.run` with the resolved `WEBREF` path **nor `urllib.request.urlopen`** is ever called — the second clause is what catches a new in-process resolver lookup, which the first half's proxy alone does not (Codex R16) | 5 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, see §4.5; the
 interpreter floor on `SKILL.md`'s direct `preflight.py` path, which bypasses the script.

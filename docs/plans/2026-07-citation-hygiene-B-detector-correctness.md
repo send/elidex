@@ -290,6 +290,8 @@ The `\*` branch is the sharpest: **225** lines in `crates/**/*.rs` match `^\s*\*
 
 **Fix**: replace the per-line regex with a small **stateful Rust-comment scanner** — line comments (`//`, `///`, `//!`) from their start position, block comments (`/* … */`, nestable) tracked across lines, string/char literals (including raw strings `r#"…"#`) excluded. Extraction is then gated on "this `§` is inside a comment span", and a trailing `// … §x` attributes to the enclosing block instead of resetting it. This is the one fix with real implementation weight; it is also the one whose absence makes every bucket count approximate.
 
+⚠ **A string literal carrying `§N` is not always noise, so "excluded" must mean "reported", never "dropped"** (Codex R16). `crates/script/elidex-js/src/vm/well_known.rs` (`:22-24`) *deliberately* cites specs inside macro string arguments that exist only as source-navigation markers (the macro discards them), and `git grep -nE '"[^"]*§[0-9]' -- crates` shows the shape is not unique to that file. Gating extraction on comment spans therefore makes `cite-audit` stop *verifying* those citations, which is the right reading for verification — a string is not a citation of the code beside it — but it must not make them *invisible*: a `§`-bearing string literal is emitted as a fourth reported class, **`STRING-LITERAL`** (a count and a site list beside `REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED`; `--strict` does not fail on it). That class is the seed for **Slice D**, whose citation-repair pass converts navigation-marker strings that are meant as citations into comments, where the gate reaches them — One issue, one way: citations live in comments. B does not touch `crates/**` (§5), so B's landing records the class's count as its stated residue (C §3 item 1) rather than fixing the sites.
+
 #### §4.1.5 — `--strict` cannot fail on the UNATTRIBUTED bucket
 
 `cite_audit.py:288`: `if args.strict and unresolved: sys.exit(1)`. UNATTRIBUTED is printed and never gated — **6832 of 12104 tree-wide cites** (§4.0), 56%.
@@ -436,7 +438,7 @@ Whether `resolver.lookup_heading` itself is re-pointed at the shared index (bene
 
 #### §4.6.2 — the emitter signature
 
-`cite_audit.py:175` / `:202`: `_emit_text` and `_emit_json` share a **9-positional-parameter** signature, four of whose arguments (`sections`, `unresolved`, `total_cites`, `unresolved_cites`) are pure derivations of `by_section` + `resolved`. This PR adds up to three new reported classes (`REJECTED-TOKEN`, `UNKNOWN-SPEC`, `SKIPPED`), so the signature would be edited in lockstep three times.
+`cite_audit.py:175` / `:202`: `_emit_text` and `_emit_json` share a **9-positional-parameter** signature, four of whose arguments (`sections`, `unresolved`, `total_cites`, `unresolved_cites`) are pure derivations of `by_section` + `resolved`. This PR adds up to four new reported classes (`REJECTED-TOKEN`, `UNKNOWN-SPEC`, `SKIPPED`, `STRING-LITERAL`), so the signature would be edited in lockstep four times.
 
 Compounding: `args.summary` and `args.show_unattributed` are read **only** in `_emit_text`, so `--format json --summary` still dumps every record and `--show-unattributed` is a no-op there — two advertised flags one output path ignores.
 
@@ -523,7 +525,7 @@ New/changed tests, by file. Every one must **fail against the unfixed detector**
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
 - **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. This is the pin that closes `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`): a CSS-module label resolving through the catalog is the whole of that slot.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
-- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause.
+- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause. The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
 - **T6** `--strict` exits 1 on an UNATTRIBUTED-only tree (the `§4.10.79.1` case).
 - **T7** corrupt extract → single diagnostic naming the cache, **zero** sections reported UNRESOLVED, non-zero exit.
 - **T8** non-UTF-8 file → `SKIPPED` class, `--strict` exits 1.
@@ -678,7 +680,7 @@ already demonstrates in-tree (§6).
 
 **(3) The census is re-derivable from the tool, not from a script beside it.** After B, the three counts
 `census_underreport.py` computes (§4.0) are reported classes of `cite-audit` itself
-(`REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED`). The check is that the harness and the tool agree, and
+(`REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED`, plus `STRING-LITERAL` from §4.1.4). The check is that the harness and the tool agree, and
 then that the harness is no longer needed to answer the question — which is what makes B's output usable
 as **Slice C's reach measurement** and **Slice D's baseline**.
 
