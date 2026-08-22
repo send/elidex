@@ -21,7 +21,25 @@ the rest of this program exists to catch. So it is stated as commands, with
 
   # the only finding code the two share -- and both spend it on §2's pair table
   comm -12 <(grep -o 'bad("[A-Z]*"' "$X" | sort -u) \
-            <(grep -o 'bad("[A-Z]*"' .claude/tools/claim-gate-plan-check.py | sort -u)
+            <(grep -oh 'bad("[A-Z]*"' .claude/tools/claim*.py | sort -u)
+
+The glob is the point. This command named `claim-gate-plan-check.py` alone, and
+so enumerated eight of this program's twelve codes -- FENCE and TRANSCRIPT live
+in `claim_gate_reruns.py`, CONTROLS and PATHS in `claim_gate_ledgers.py`. The
+verdict happens to survive the correction, which is why it went unnoticed
+through two splits: a comparison that silently measures part of its population
+returns the right answer until it does not.
+
+Note a near-collision the collapse will have to resolve rather than merge: the
+sibling's `PATH` reports a cited file that does not exist, this program's
+`PATHS` reports a file its own branch deleted, and file existence here is
+`CITE`'s. One letter apart, opposite subjects.
+
+This section audits the FAR sibling and says nothing about the near ones.
+`preflight.py` and `grep_pass.py` are imported and executed by this program,
+and share at least a GFM row splitter, a section-span rule and a line-count
+with it. That overlap is unaudited here, and saying so is the honest state
+rather than a claim of coverage.
 
 Checked one at a time, what they share is: a `bad(code, msg)` collector emitting
 `[CODE] msg`; a GFM data-row splitter that drops the separator row (this one
@@ -43,8 +61,8 @@ difference. `plan-xcheck.py` imports `re, sys, pathlib` and runs nothing: its
 only measurement from outside the document is a `crates/**/*.rs` glob for path
 existence. Everything here that matters EXECUTES something -- git, bash,
 preflight.py, grep_pass.py -- and compares the answer to what the memo pastes,
-which is exactly where round 2's CRIT 1 lived. ANNO / PASTE / TRANSCRIPT /
-FENCE / PREFLIGHT are all of that kind. The sibling is also bound to its memo's
+which is exactly where round 2's CRIT 1 lived. ANNO / TRANSCRIPT / FENCE /
+CONTROLS / PATHS / PREFLIGHT are all of that kind. The sibling is also bound to its memo's
 schema -- PR labels, cell numbers, M-rows, flip partitions -- and none of those
 name anything in this memo.
 
@@ -73,7 +91,13 @@ trigger that no longer has a measurement behind it.
   TRANSCRIPT  every pasted command is re-run and its pasted answer checked
   SITES       (report) lines describing the wire SET, for conscious disposal
   PATHS       a file this branch deletes, still named, must be re-declared
+  TOOLING     a numeral about this program's own tooling, re-derived from git
+  UMBRELLA    a binding umbrella decision the slice may not silently withdraw
   PREFLIGHT   §8.3's pasted verdict is what preflight prints today
+
+That list is the index, so it is checked against the program rather than
+recalled: `grep -oh 'bad("[A-Z]*"' .claude/tools/claim*.py | sort -u`. It
+carried ten of twelve for as long as TOOLING and UMBRELLA have existed.
 
 A check that reaches no verdict -- the wire owning classification, a section
 absent from the memo, an argv path not passed -- says so through `skip()`, and
@@ -94,7 +118,6 @@ Exit 1 if any check fails.
 """
 from __future__ import annotations
 
-import importlib.util
 import itertools
 import re
 import subprocess
@@ -161,6 +184,21 @@ def sh(cmd: list[str]) -> tuple[int, str]:
     return p.returncode, p.stdout
 
 
+def shipped_files() -> list[Path]:
+    """Every file this program ships -- the population for any rule about what
+    the program may say about itself.
+
+    A GLOB, not a list. Round 9 wrote the list out as [memo, wire, shell
+    self-test]: the checker enforced against three files a rule it was breaking
+    in the fourth, and a rule whose population excludes its own author is the
+    enumerated-exemption shape one level in. The hand-written repair had the
+    defect back within two rounds, because each split added a companion and
+    nobody edits a list they are not looking at. Two checks consume this --
+    CONTROLS' count arm and `check_tooling_quantities` -- so it lives here
+    rather than in either of them."""
+    return sorted((REPO / ".claude" / "tools").glob("claim[-_]*"))
+
+
 # --------------------------------------------------------------------------
 # markdown surface
 # --------------------------------------------------------------------------
@@ -207,9 +245,13 @@ def data_rows(text: str) -> list[list[str]]:
 
 
 class Memo:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, text: str | None = None):
+        """`text` overrides the file, so a synthetic probe memo is built by THIS
+        constructor rather than a second one. The probe file used to reach
+        `__new__` and rebuild `heads` from its own copy of `HEADING_RE`, which
+        left every probe proving a grammar the checks do not use."""
         self.path = path
-        self.text = path.read_text()
+        self.text = path.read_text() if text is None else text
         self.lines = self.text.split("\n")
         # (level, number, char pos)
         self.heads: list[tuple[int, str, int]] = [
@@ -292,12 +334,15 @@ def check_section_refs(memo: Memo, umbrella: Memo | None) -> None:
         for m in re.finditer(r"(\w[\w'’-]*[ \t]+)?§([\d.]+)", line):
             lead = (m.group(1) or "").strip().lower()
             num = m.group(2).rstrip(".")
-            if lead in ("umbrella", "the"):  # "umbrella §6"
-                if lead == "umbrella":
-                    if umb is not None and num not in umb:
-                        bad("SECT", f"{memo.path.name}:{i} cites umbrella §{num}, "
-                                    f"which the umbrella has no heading for")
-                    continue
+            # `("umbrella", "the")` carried a second member that did nothing:
+            # on "the §9", the outer test passed, the inner one failed, no
+            # `continue` ran, and control reached the same `num not in own` it
+            # would have reached with no branch at all.
+            if lead == "umbrella":  # "umbrella §6"
+                if umb is not None and num not in umb:
+                    bad("SECT", f"{memo.path.name}:{i} cites umbrella §{num}, "
+                                f"which the umbrella has no heading for")
+                continue
             if num not in own:
                 bad("SECT", f"{memo.path.name}:{i} cites §{num}, which this memo "
                             f"has no heading for")
@@ -363,29 +408,28 @@ def check_citations(memo: Memo) -> None:
 # the memo's literal text, so that the memo's own live annotations are
 # re-executed now, while the wire that will own this does not yet exist.
 #
-# This comment used to end "It retires itself -- once the wire is tracked, this
-# module shells out to it instead of classifying anything, so the two
-# implementations never coexist." That was false, the memo's §0 withdrew it, and
-# the comment was not swept with it. The guard below covers ONE function; the
-# self-test imports `classify`, `execute` and `verdict_over` directly, so the
-# second transcription outlives the wire's arrival and both are reachable in the
-# same run. Retirement is a task somebody has to do -- delete this module and
-# prove by a control that its grammar is unreachable -- not a property the
-# `WIRE.exists()` branch confers. §6 of the memo carries it as a bound, and
-# There is no second copy left to keep in agreement.
+# This comment used to argue that retirement was a task somebody had to do
+# rather than a property `WIRE.exists()` confers, and it named the three
+# functions the self-test still imported to prove the second transcription was
+# reachable. `git grep` now finds no definition of `classify`, `execute` or
+# `verdict_over`: the module holding them is the file this branch deletes, and
+# the argument's own subject went with it. (The paragraph correcting a stale
+# claim went stale itself, which is the shape §0's rule is about, and it kept
+# a mid-sentence splice from the edit that started the correction.) What is
+# true is one sentence: no grammar lives here, and ANNO shells out to the wire.
 # --------------------------------------------------------------------------
 
 WIRE = REPO / ".claude" / "tools" / "claim-provenance-trip-wire.sh"
 
 
-def check_annotations() -> dict | None:
-    """The classified tree, or None once the wire owns classification.
+def check_annotations() -> None:
+    """Run the wire over the tree; the verdict is a finding or a `skip()`.
 
-    `{}` was the wire-mode return, and PASTE's `if not live: return` read that
-    as "nothing to check" -- so the first commit that creates the wire file
-    (presence is the whole test; untracked is enough) silently retired PASTE.
-    None is not a falsy payload but the ABSENCE of one, which PASTE now has to
-    dispose of out loud."""
+    It was annotated `-> dict | None` and documented as returning "the
+    classified tree" long after both `return`s became `None` and the caller
+    stopped reading the value: PASTE consumed that payload, and PASTE is
+    retired. A signature describing a payload no path produces is the same
+    unexecuted claim one level down."""
     if not WIRE.exists():
         # A missing wire is not a memo defect, and this file lands one PR BEFORE
         # the wire does. Round 9 measured what `bad()` here costs: cloned at this
@@ -429,6 +473,7 @@ claim_gate_reruns.host = sys.modules[__name__]
 RUNNABLE = claim_gate_reruns.RUNNABLE
 fence_verdict = claim_gate_reruns.fence_verdict
 check_fence = claim_gate_reruns.check_fence
+fenced_blocks = claim_gate_reruns.fenced_blocks
 needs_state = claim_gate_reruns.needs_state
 run_line = claim_gate_reruns.run_line
 check_transcripts = claim_gate_reruns.check_transcripts
@@ -470,6 +515,34 @@ WIRE_TOPIC = re.compile(r"trip.?wire|the wires", re.I)
 SHIPS_A_WIRE = re.compile(r"[\w./-]*-trip-wire\.sh")
 
 
+def wire_set_lines() -> list[tuple[str, int, str]]:
+    """(path, 1-based line, text) for every governing-file line about the wire SET.
+
+    One site, because the probe file needs the same population to build the
+    fixture its SITES probes cite. Written twice, a narrowing here would leave
+    both probes citing the old superset and passing against a check that
+    changed -- the `ban_control` shape one level up.
+
+    `GOVERNING` is a SEED, not the closed set its first draft called it: the
+    same predicate over `git ls-files` matches fourteen tracked files, of which
+    several are legitimately out of scope (a per-wire header is not a statement
+    about the set). Nothing here tells "deliberately excluded" from "never
+    considered", so `check_sites` prints what it did not look at."""
+    out: list[tuple[str, int, str]] = []
+    for rel in GOVERNING:
+        f = REPO / rel
+        if not f.exists():
+            # A silent `continue` here loses a fifth of the population to a
+            # rename, with no finding and no notice.
+            skip("SITES", f"{rel} is named as a governing file and is not in the "
+                          f"tree, so no line of it was examined")
+            continue
+        for i, line in enumerate(f.read_text().split("\n"), 1):
+            if WIRE_TOPIC.search(line) and COLLECTIVE.search(line):
+                out.append((rel, i, line.strip()))
+    return out
+
+
 def check_sites(memo: Memo) -> None:
     # Round 10: this fired on every memo in the tree, so the prerequisite PR --
     # which lands one PR BEFORE the memo this tool is for -- put a checker on
@@ -497,15 +570,9 @@ def check_sites(memo: Memo) -> None:
             cited.add(f"{h}:{m.group(2)}")
     loose = set(re.findall(r"`?([\w./-]+\.(?:yml|toml|md|sh))`?[: ]", memo.text))
 
-    pending = []
-    for rel in GOVERNING:
-        if not (REPO / rel).exists():
+    for rel, i, line in wire_set_lines():
+        if f"{rel}:{i}" in cited:
             continue
-        for i, line in enumerate((REPO / rel).read_text().split("\n"), 1):
-            if WIRE_TOPIC.search(line) and COLLECTIVE.search(line):
-                if f"{rel}:{i}" not in cited:
-                    pending.append((rel, i, line.strip()))
-    for rel, i, line in pending:
         star = (" (the memo names the file but not this line)"
                 if rel.split("/")[-1] in loose else "")
         bad("SITES", f"{rel}:{i} speaks about the wire set and the memo does not "
@@ -560,11 +627,26 @@ def check_tooling_quantities(memo: Memo) -> None:
     derivable["commits"] = int(out.strip()) if rc == 0 and out.strip() else None
     rc, out = sh(["git", "diff", "--name-only", "origin/main..HEAD"])
     derivable["files"] = len([x for x in out.split("\n") if x]) if rc == 0 else None
-    p = REPO / ".claude" / "tools" / "claim-gate-plan-check.py"
-    derivable["lines"] = nr(p) if p.exists() else None
-    src = p.read_text() if p.exists() else ""
-    derivable["checks"] = len(re.findall(r"^def check_\w+", src, re.M)) or None
-    derivable["probes"] = None  # only knowable by running --self-test; see below
+    # `checks` is the set of finding CODES across every file the program ships,
+    # not `^def check_` in one of them. Both splits narrowed this silently: the
+    # entry point held ten checks before FENCE and TRANSCRIPT moved out and
+    # eight after CONTROLS and PATHS did, while the program went on having
+    # twelve -- so a memo stating the true figure was RED for being correct,
+    # and the check that exists to catch a stale number was the one carrying
+    # it. The population is the same glob the control-count arm uses.
+    codes: set[str] = set()
+    for path in shipped_files():
+        if path.suffix == ".py":
+            codes |= set(re.findall(r'bad\("([A-Z]+)"', path.read_text()))
+    derivable["checks"] = len(codes) or None
+    # `lines` and `probes` have no entry, and that is the verdict rather than an
+    # omission: a line count over a multi-file program depends on which files
+    # you chose to count, which is exactly the convention-dependent quantity the
+    # memo's D10 REMOVES rather than re-measures, and a probe count is only
+    # knowable by running `--self-test`. Both fall to the "nothing re-derives
+    # it" arm below, which says so. `derivable["probes"] = None` used to be
+    # written out explicitly; `.get()` already answers None for every absent
+    # unit, so the line stated a decision it was not making.
 
     for i, line in enumerate(memo.lines, 1):
         if not TOOLING_SUBJECT.search(line):
@@ -725,7 +807,10 @@ import claim_gate_ledgers  # noqa: E402
 
 claim_gate_ledgers.host = sys.modules[__name__]
 
-SELFTEST_FILE = claim_gate_ledgers.SELFTEST_FILE
+# `SELFTEST_FILE` is deliberately NOT re-exported. The two sites that swap it
+# reach `claim_gate_ledgers.SELFTEST_FILE`, because `implemented_controls`
+# resolves it through that module -- an alias here would publish exactly the
+# name that module's header warns rebinding does nothing to.
 implemented_controls = claim_gate_ledgers.implemented_controls
 check_controls = claim_gate_ledgers.check_controls
 gone_from = claim_gate_ledgers.gone_from
@@ -758,13 +843,19 @@ def check_preflight(memo: Memo) -> None:
         return
     rc, out = sh([sys.executable, str(SKILL / "preflight.py"),
                   str(memo.path.relative_to(REPO))])
-    fields = {
-        r"total entries\s+\(M\):\s+(\d+)": r"total entries\s+\(M\):\s+(\d+)",
-        r"malformed rows:\s+(\d+)": r"malformed rows:\s+(\d+)",
-        r"unmapped-label rows:\s+(\d+)": r"unmapped-label rows:\s+(\d+)",
-        r"unique specs \(K\):\s+(\d+)": r"unique specs \(K\):\s+(\d+)",
-    }
-    for label, rx in fields.items():
+    # A seed, not preflight's whole output: it also prints `heading line`,
+    # `parsed citations`, `citation verify` and `split decision`, all pasteable
+    # into §8.3 and none of them compared here. Stated because an enumeration
+    # that does not say it is one reads as coverage. This was written as a dict
+    # mapping each regex to ITSELF, so the "label" in the diagnostic below was
+    # the raw pattern -- `§8.3 pastes \`unique specs \\(K\\):\\s+(\\d+)\`` at a reader.
+    fields = [
+        ("total entries (M)", r"total entries\s+\(M\):\s+(\d+)"),
+        ("malformed rows", r"malformed rows:\s+(\d+)"),
+        ("unmapped-label rows", r"unmapped-label rows:\s+(\d+)"),
+        ("unique specs (K)", r"unique specs \(K\):\s+(\d+)"),
+    ]
+    for label, rx in fields:
         ms, mo = re.search(rx, s), re.search(rx, out)
         if ms and mo and ms.group(1) != mo.group(1):
             bad("PREFLIGHT", f"§8.3 pastes `{label}` = {ms.group(1)}; preflight "

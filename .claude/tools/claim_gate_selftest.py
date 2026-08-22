@@ -70,14 +70,6 @@ def capture_skipped(fn, *a) -> list[str]:
         host.FAILS, host.SKIPPED = saved_f, saved_s
 
 
-def capture_live() -> dict:
-    """The ANNO payload PASTE consumes, without emitting ANNO findings."""
-    saved, out = host.FAILS[:], host.check_annotations()
-    del host.FAILS[:]
-    host.FAILS.extend(saved)
-    return out
-
-
 def write_probe(text: str) -> host.Memo:
     """A probe memo on disk -- `check_preflight` shells out to preflight.py with
     the memo's path, so a purely in-memory Memo cannot exercise it."""
@@ -115,25 +107,23 @@ def run_preflight_block(fixture: str) -> str:
 
 
 def pending_sites() -> list[str]:
-    """`rel:line` for every governing-file line that speaks about the wire set."""
-    out = []
-    for rel in host.GOVERNING:
-        if not (host.REPO / rel).exists():
-            continue
-        for i, line in enumerate((host.REPO / rel).read_text().split("\n"), 1):
-            if host.WIRE_TOPIC.search(line) and host.COLLECTIVE.search(line):
-                out.append(f"{rel}:{i}")
-    return out
+    """`rel:line` for every governing-file line that speaks about the wire set.
+
+    Read off `check_sites`' own generator rather than re-implementing its
+    predicate: a copy here builds the fixture the SITES probes cite, so
+    narrowing the check would leave both probes green against the change."""
+    return [f"{rel}:{i}" for rel, i, _ in host.wire_set_lines()]
 
 
 def synth(text: str, name: str = "synthetic.md") -> host.Memo:
-    m = host.Memo.__new__(host.Memo)
-    m.path = Path(name)
-    m.text = text
-    m.lines = text.split("\n")
-    m.heads = [(len(x.group(1)), x.group(2).rstrip("."), x.start())
-               for x in re.finditer(r"^(#{2,4})[ \t]+§([\d.]+)", text, re.M)]
-    return m
+    """A Memo over a string, built by the REAL constructor.
+
+    This used to bypass `Memo.__init__` with `__new__` and rebuild `heads` from
+    a character-for-character copy of `HEADING_RE`. Every probe in this file --
+    the firing proof for every check -- then parsed headings through the copy,
+    so widening the real grammar would leave the whole suite proving the old
+    one."""
+    return host.Memo(Path(name), text)
 
 
 def selftest() -> int:
@@ -350,6 +340,25 @@ def selftest() -> int:
 
     real = "git ls-files -- '.claude/tools/*.sh' | wc -l"
     n = run_line(real)
+    # `fenced_blocks` decides which pasted lines are commands at all, so its
+    # boundaries get their own proofs. It carried a toggle that flipped on any
+    # marker -- the `wrong_spans` mutant above, shipped as production -- and
+    # dropped an unclosed trailing block silently. Both directions, plus the
+    # blockquote strip that is the one thing it does beyond the shared tracker.
+    _fb = host.fenced_blocks
+    _mismatch = _fb(synth("```\nalpha\n~~~\nbeta\n```\ngamma\n"))
+    probes.append(("FENCE-BLOCKS a mismatched marker does not close the block",
+                   len(_mismatch) == 1 and _mismatch[0] == (1, ["alpha", "~~~", "beta"]),
+                   f"{_mismatch}"))
+    _unclosed = _fb(synth("```\nalpha\nbeta\n"))
+    probes.append(("FENCE-BLOCKS an unclosed block is fenced to EOF, not dropped",
+                   len(_unclosed) == 1 and _unclosed[0][1][:2] == ["alpha", "beta"],
+                   f"{_unclosed}"))
+    _quoted = _fb(synth("> ```\n> alpha\n> ```\n"))
+    probes.append(("FENCE-BLOCKS a blockquoted fence is still a block",
+                   len(_quoted) == 1 and _quoted[0][1] == ["alpha"],
+                   f"{_quoted}"))
+
     probe("TRANSCRIPT arrow form, correct answer", False,
           capture(check_transcripts, block(f"{real}   → {n}")))
     probe("TRANSCRIPT arrow form, stale answer", True,
@@ -470,6 +479,15 @@ def selftest() -> int:
               PREFLIGHT_FIXTURE
               + re.sub(r"(\d+) hard, (\d+) soft", r"\1 hard, 99 soft", real_pf))),
           "preflight now prints")
+    # The soft-count arm is its own `re.search` pair; the four-figure loop above
+    # it had no firing proof at all -- it was written as a dict mapping each
+    # regex to itself, and nobody had run one of its arms. One is enough to
+    # prove the loop reaches a verdict; the loop is a stated seed either way.
+    probe("PREFLIGHT negative (a figure from the four-field loop mutated)", True,
+          capture(check_preflight, write_probe(
+              PREFLIGHT_FIXTURE
+              + real_pf.replace("total entries  (M):   1", "total entries  (M):   42"))),
+          "total entries (M)")
     probe("PREFLIGHT reports itself not run when the memo has no §8.3", True,
           capture_skipped(check_preflight, synth("## §9 elsewhere\n")),
           "no §8.3 section")
@@ -623,8 +641,10 @@ def selftest() -> int:
     _shipped |= {Path(m.__file__).resolve() for m in list(sys.modules.values())
                  if getattr(m, "__file__", None)
                  and Path(m.__file__).resolve().parent == ledgers.TOOLS}
+    # Bound: this derivation shares the glob's directory assumption, so it
+    # catches a narrowed PATTERN but not a companion placed in a subdirectory.
     _uncounted = sorted(p.name for p in _shipped
-                        - {q.resolve() for q in ledgers.DEFAULT_COUNT_SOURCES})
+                        - {q.resolve() for q in host.shipped_files()})
     probes.append(("CONTROLS counts every file this program ships, not a list of them",
                    not _uncounted,
                    f"uncounted: {_uncounted}" if _uncounted
@@ -658,14 +678,15 @@ def selftest() -> int:
                        "echo '  ok    C97 positive  x'\n"
                        "echo '  ok    C97 negative  y'\n"
                        f"echo 'claim-provenance self-test: {_n2}/{_n2} controls ok'\n")
+        _inv = host.implemented_controls()
         probe("CONTROLS inventory (a complete run is read)", True,
-              [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [],
-              "C97")
+              [f"{sorted(_inv)}"] if _inv else [], "C97")
         _st.write_text("#!/usr/bin/env bash\n"
                        "echo '  ok    C97 positive  x'\n"
                        "echo 'bash: line 9: syntax error'\nexit 2\n")
+        _inv = host.implemented_controls()
         probe("CONTROLS inventory (a run with no closing summary yields nothing)", False,
-              [f"{sorted(host.implemented_controls())}"] if host.implemented_controls() else [])
+              [f"{sorted(_inv)}"] if _inv else [])
     finally:
         ledgers.SELFTEST_FILE = _saved_st
 
@@ -716,11 +737,26 @@ def selftest() -> int:
               "could not be formed")
     finally:
         ledgers.deleted_on_branch = _saved_gone
+    _gone = host.deleted_on_branch()
     probes.append(("PATHS derives its population from this repository's git",
-                   host.deleted_on_branch() is not None,
-                   f"origin/main..HEAD deletes {host.deleted_on_branch()}"))
+                   _gone is not None, f"origin/main..HEAD deletes {_gone}"))
 
     # SITES' population is the PR that changes the wire set, not every document.
+    # The docstring's check table is presented as the index, and an index that
+    # is recalled rather than derived reads as coverage while missing members.
+    # It carried ten of twelve codes for as long as TOOLING and UMBRELLA have
+    # existed, and no check could see that because the subject is this program.
+    _roster = set(re.findall(r"^  ([A-Z]{4,})\s{2,}",
+                             (REPO / ".claude" / "tools" /
+                              "claim-gate-plan-check.py").read_text(), re.M))
+    _codes = set(re.findall(r'bad\("([A-Z]+)"',
+                            "".join(q.read_text() for q in host.shipped_files()
+                                    if q.suffix == ".py")))
+    probes.append(("DOCSTRING roster names every finding code and no others",
+                   _roster == _codes,
+                   f"roster−codes={sorted(_roster - _codes)} "
+                   f"codes−roster={sorted(_codes - _roster)}"))
+
     probe("SITES positive (a memo that ships no wire is not its subject)", False,
           capture(check_sites, synth("## §4 x\nA memo about something else entirely.\n")))
     probe("  …and it says so through skip()", True,
