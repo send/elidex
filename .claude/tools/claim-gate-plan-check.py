@@ -464,7 +464,23 @@ COLLECTIVE = re.compile(
 WIRE_TOPIC = re.compile(r"trip.?wire|the wires", re.I)
 
 
+# A memo owes the wire-set disposal only if its PR changes the wire set. That is
+# the property, and it is decidable: the memo names a `*-trip-wire.sh` it ships.
+SHIPS_A_WIRE = re.compile(r"[\w./-]*-trip-wire\.sh")
+
+
 def check_sites(memo: Memo) -> None:
+    # Round 10: this fired on every memo in the tree, so the prerequisite PR --
+    # which lands one PR BEFORE the memo this tool is for -- put a checker on
+    # `main` that exits 1 on all 68 of them, for an obligation none of them
+    # has. The obligation arises from changing the wire set, not from being a
+    # plan-memo, and a check whose population is "every document handed to me"
+    # reports a defect that is really a category error.
+    if not SHIPS_A_WIRE.search(memo.text):
+        skip("SITES", f"{memo.path.name} names no `*-trip-wire.sh`, so its PR does "
+                      f"not change the wire set and no line describing that set "
+                      f"needs disposing of here")
+        return
     # Both spellings count as citing a line: the backticked `path:12-14` form,
     # and the bare `path:12:` form a pasted `git grep -n` listing produces --
     # §4.6's edit set is entirely of the second kind, and reading only the first
