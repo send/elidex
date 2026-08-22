@@ -43,14 +43,14 @@ NONE is on `main` (`git ls-tree origin/main -- .claude/tools/` lists only
   plan-xcheck.py                         branch layout-decorated-inline
   plan-memo-umbrella-check.py (this)     branch vm-p4-plan-doc
 
-⚠ **`plan-sweep.py` is the canonical tool for a class this file does NOT cover,
-and it should be reached for first.**  Its subject is the restatement sweep --
-"You are changing one decision.  This lists EVERY site in the memo that restates
-it" across STATEMENT / OBLIGATION / CONSEQUENCE surfaces.  That is the
-un-propagated-decision failure, and running it over this memo returns 41 sites in
-seconds.  This file's subject is different: which rows carry no owner, and which
-prose names one of them in a role §5 says it cannot hold.  Use `plan-sweep.py`
-when you change a decision; use this when you want the naming population.
+⚠ This file does NOT cover the restatement sweep -- "You are changing one
+decision.  This lists EVERY site in the memo that restates it" across
+STATEMENT / OBLIGATION / CONSEQUENCE surfaces, the un-propagated-decision
+failure.  That class has a tool (`plan-sweep.py`), but it is NOT in this tree,
+so nothing here names it as canonical or mandates running it; until it lands,
+a decision change over this memo is swept by hand.  This file's subject is
+different: which rows carry no owner, and which prose names one of them in a
+role §5 says it cannot hold.
 
 So N>1 is real per class, and the residue worth collapsing is the shared GFM
 row splitter that honours an escaped pipe -- some thirty lines, duplicated four ways.  The

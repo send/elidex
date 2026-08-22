@@ -102,9 +102,10 @@ _TICK = re.compile(r"^`(.+?)`$")
 def code_spans(s, keep=()):
     """Byte spans this scan must not read an id out of.
 
-    Inline code (`Reflect.construct(C, [], D)`), link targets and link labels
-    (`2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` contains `1a` and `1b`,
-    and a file name is not a naming site).  The self-test carries both as
+    Inline code (`Reflect.construct(C, [], D)`), link targets and bare file
+    names (`2026-07-vm-p4-slice-1a-1b-call-spread-detail.md` contains `1a` and
+    `1b`, and a file name is not a naming site).  A link's visible LABEL is
+    prose and is scanned.  The self-test carries both as
     NEGATIVE controls; no figure is quoted here, because a count of what a mask
     removes is a property of the document on the day it was run, and this file
     has no way to re-derive it when the document changes under it.
@@ -136,7 +137,12 @@ def code_spans(s, keep=()):
     #
     # `[C19]`-style citation ids stay masked: a bracketed token that is a
     # citation id, not a sentence.
-    for m in re.finditer(r"\]\([^)]*\)|\[[A-Z][0-9]+\]|\S+\.md", s):
+    # The bare-filename alternative is a filename character class, not `\S+`:
+    # `\S+\.md` started at the last label token of `[Slice 9z](detail.md)` and
+    # masked `9z` together with the destination, so an id that ends a label was
+    # never reported -- the control above kept `9z` safe only because extra
+    # label words followed it.
+    for m in re.finditer(r"\]\([^)]*\)|\[[A-Z][0-9]+\]|[\w./-]+\.md\b", s):
         out.append(m.span())
     return out
 

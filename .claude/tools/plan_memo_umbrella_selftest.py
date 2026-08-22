@@ -186,6 +186,8 @@ case("POSITIVE", "a visible link LABEL is prose and is scanned",
      build(), "See [Slice 9z lands first](2026-07-detail.md) for the walk.", 1)
 case("NEGATIVE", "an id-looking token inside a file name",
      build(), "See [detail](2026-07-vm-p4-slice-9z-detail.md) for the walk.", 0)
+case("POSITIVE-NOVEL", "umbrella id is the LAST token of a link label",
+     build(), "See [Slice 9z](2026-07-detail.md) for the walk.", 1)
 
 # -------------------------------------------------------------- KNOWN-MISS --
 # These are wrong sites.  The checker does not report them, and that is the
