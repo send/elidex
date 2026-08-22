@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
-"""A positive and a negative for every check in `claim-gate-plan-check.py`.
+"""A firing proof for every arm of every check in `claim-gate-plan-check.py`.
 
 A different lifecycle from the checks themselves: nothing in this file decides
 whether a memo is right. Each entry is a PROOF that one check can fire, and --
 through `probe()`'s needle -- that it fires saying the thing it was written to
 say.
+
+That opening sentence used to read "A positive and a negative for every check",
+and it was false in exactly the way this program is about: traced, thirteen of
+the forty-two `bad()` / `skip()` sites were reached by no probe at all --
+including the ANNO arm that is the only one taken on the branch this file ships
+from, and both TRANSCRIPT arms whose own comments narrate the bug they were
+added for. Thirteen `ban_control`s under a sentence asserting there were none,
+in the file that defines the term.
+
+It is not asserted now. `--arm-coverage` collects the sites by AST and runs the
+probes under `sys.settrace`; the `ARMS` probe below fails on any site no probe
+reaches, and on any entry in `UNPROBED` the probes turn out to reach. The
+sentence is true because a command says so on every run, which is the rule §0
+of the memo states and the shape the rest of this program exists to impose.
 
 The memo records why that is not optional: keying two controls on a
 shared diagnostic let each pass when the *other* arm fired, and a ban that
@@ -28,7 +42,9 @@ return empty, and every negative probe would silently invert.
 from __future__ import annotations
 
 import itertools
+import os
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -825,6 +841,109 @@ def selftest() -> int:
               "## §6 x\nThe fence arm is defined per surface; only a matching "
               "marker closes the block, in both implementations.")))
 
+
+    # ------------------------------------------------------------------
+    # The thirteen arms `--arm-coverage` reported as reached by no probe.
+    # Each is a `ban_control` by this program's own definition, and the file's
+    # opening sentence asserted the opposite of their existence.
+    # ------------------------------------------------------------------
+    probe("PAIR negative (a memo with no §2 at all)", True,
+          capture(check_pairs, synth("## §4 x\n\nNothing pairwise here.\n")),
+          "no §2")
+    probe("PAIR negative (§2 with a single invariant has no pairs to enumerate)", True,
+          capture(check_pairs, synth("## §2 Coupled invariants\n\n"
+                                     "| **I1** | invariant 1 | forces something |\n")),
+          "nothing to pair")
+    probe("PAIR negative (a pair naming an invariant §2 does not define)", True,
+          capture(check_pairs, synth(SYNTH_PAIRS + "\n| I1 × I9 | intersection |")),
+          "I9")
+    probe("SECT negative (a cited umbrella section the umbrella has no heading for)", True,
+          capture(check_section_refs, synth("## §4 x\n\nSee umbrella §9.\n"),
+                  synth("## §1 D\n", "umbrella.md")),
+          "umbrella §9")
+    probe("SECT positive (a cited umbrella section the umbrella does define)", False,
+          capture(check_section_refs, synth("## §4 x\n\nSee umbrella §1.\n"),
+                  synth("## §1 D\n", "umbrella.md")))
+    probe("CITE negative (a basename naming several tracked files)", True,
+          capture(check_citations, synth("## §4 x\n\nSee `mod.rs:5`.\n")),
+          "tracked files")
+    probe("CITE negative (an inverted range)", True,
+          capture(check_citations, synth(
+              "## §4 x\n\nSee `claim_gate_ledgers.py:10-5`.\n")),
+          "inverted range")
+    # ANNO's absent-wire arm is the one that actually runs on the prerequisite
+    # branch, and `with_wire()` always materialised a stub, so it was the least
+    # exercised path in the file and the most travelled in the tree.
+    _saved_wire = host.WIRE
+    try:
+        host.WIRE = REPO / ".claude" / "tools" / "zz-no-such-wire.sh"
+        probe("ANNO reports rather than passing when the wire is not in the tree", False,
+              capture(host.check_annotations))
+        probe("  …and it says so through skip()", True,
+              capture_skipped(host.check_annotations), "is not in this tree")
+    finally:
+        host.WIRE = _saved_wire
+    _saved_range = host.changes_the_wire_set
+    try:
+        host.changes_the_wire_set = lambda: None
+        probe("SITES reports rather than deciding when the range cannot be formed", True,
+              capture_skipped(check_sites, synth("## §4 x\n"), None),
+              "could not be formed")
+    finally:
+        host.changes_the_wire_set = _saved_range
+    _saved_gov = host.GOVERNING
+    try:
+        host.GOVERNING = ["zz-no-such-governing-file.toml"]
+        probe("SITES reports a governing file that has left the tree", True,
+              capture_skipped(check_sites, synth(
+                  "## §4 x\nS1 ships a wire.\n"), True),
+              "is not in the tree")
+    finally:
+        host.GOVERNING = _saved_gov
+    probe("PREFLIGHT negative (a pasted exit code the tool does not return)", True,
+          capture(check_preflight, write_probe(
+              PREFLIGHT_FIXTURE + real_pf.replace("EXIT=0", "EXIT=9"))),
+          "EXIT=9")
+    _saved_skill = host.SKILL
+    try:
+        host.SKILL = REPO / "zz-no-such-skill-dir"
+        probe("FENCE reports when the two trackers cannot be loaded at all", True,
+              capture(check_fence, synth("## §4 x\n")),
+              "cannot run the two in-repo fence trackers")
+    finally:
+        host.SKILL = _saved_skill
+    # The needle is BUILT, not written: a literal here is a string in the tree,
+    # so `git grep` finds this file and the command stops printing nothing --
+    # the probe would then measure its own source rather than the arm.
+    _absent = "zz" + "zznotpresent"
+    probe("TRANSCRIPT arrow form, a command that now prints nothing", True,
+          capture(check_transcripts, synth(
+              f"## §4 x\n\n```\ngit grep -l {_absent} -- .claude   → 3\n```\n")),
+          "prints nothing at all")
+    probe("TRANSCRIPT $-form, pasted non-listing output that does not reproduce", True,
+          capture(check_transcripts, synth(
+              "## §4 x\n\n```\n$ git ls-files -- '.claude/tools/claim_gate_ledgers.py'\n"
+              "some other answer entirely\n```\n")),
+          "does not reproduce")
+
+    # The file's opening sentence, decided by running the probes rather than by
+    # asserting it. Shelled out because the measurement traces `selftest()` and
+    # cannot trace itself; the child sees the guard and does not shell back.
+    if not os.environ.get(host.ARM_COVERAGE_ENV):
+        _env = dict(os.environ, **{host.ARM_COVERAGE_ENV: "1"})
+        _r = subprocess.run(
+            [sys.executable, str(REPO / ".claude" / "tools" / "claim-gate-plan-check.py"),
+             "--arm-coverage"], cwd=REPO, capture_output=True, text=True, env=_env)
+        _unreached = [x for x in _r.stdout.split("\n") if x.strip()]
+        _declared = sorted(host.UNPROBED)
+        _extra = [x for x in _unreached if x.split()[0] not in _declared]
+        _stale = [d for d in _declared
+                  if d not in [x.split()[0] for x in _unreached]]
+        probes.append(("ARMS every bad()/skip() site is reached by some probe",
+                       not _extra and not _stale,
+                       f"unreached: {_extra}" if _extra else
+                       f"UNPROBED declares {_stale}, which the probes do reach"
+                       if _stale else f"{len(_unreached)} unreached, all declared"))
 
     # The closing line is where a skipped check becomes visible, so it gets its
     # own proof: every `skip()` above is worth nothing if the run still ends on a

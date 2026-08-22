@@ -118,7 +118,10 @@ Exit 1 if any check fails.
 """
 from __future__ import annotations
 
+import ast
+import io
 import itertools
+import os
 import re
 import subprocess
 import sys
@@ -639,7 +642,6 @@ def check_sites(memo: Memo, ships: bool | None = None) -> None:
             cited.add(f"{h}:{m.group(2)}")
     loose = set(re.findall(r"`?([\w./-]+\.(?:yml|toml|md|sh))`?[: ]", memo.text))
 
-    report_governing_complement()
     for rel, i, line in wire_set_lines():
         if f"{rel}:{i}" in cited:
             continue
@@ -960,6 +962,81 @@ def check_preflight(memo: Memo) -> None:
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# Arm coverage -- the one universal this program still stated in prose
+#
+# `claim_gate_selftest.py` opens "A positive and a negative for every check",
+# and it was false: traced, ten `bad()` sites and three `skip()` sites of
+# forty-two were reached by no probe. Each is this program's own `ban_control` --
+# an arm that reports a clean tree exactly as an unexecuted claim reports a true
+# one -- and the claim asserting otherwise is the shape the whole program exists
+# to catch, one level up, in the file that enforces it.
+#
+# A prose rule cannot fix that, for the reason the module docstring gives: the
+# author believes it was followed. So it becomes a check. The population is the
+# AST -- every call to `bad`/`skip` -- rather than a grep or a hand list, and
+# coverage is decided by RUNNING the probes under a tracer rather than by
+# reading them. `UNPROBED` below is the positive-declaration hatch, the same
+# idiom §8's retirement ledger and §0.1's removal ledger use, and it fails in
+# both directions: an entry that turns out to BE reached is a finding too.
+# --------------------------------------------------------------------------
+
+ARM_COVERAGE_ENV = "CLAIM_GATE_ARM_COVERAGE"
+
+# site -> why no probe reaches it. Every entry is a bound, stated here rather
+# than left as silence.
+UNPROBED: dict[str, str] = {}
+
+
+def arm_sites() -> dict[tuple[str, int], str]:
+    """Every `bad()` / `skip()` call site this program ships, by AST.
+
+    Not by regex: `host.bad(...)` and `bad(...)` are the same call through two
+    spellings, and a line-oriented pattern also has to guess at continuations."""
+    out: dict[tuple[str, int], str] = {}
+    for f in shipped_files():
+        if f.suffix != ".py":
+            continue
+        for n in ast.walk(ast.parse(f.read_text())):
+            if not isinstance(n, ast.Call) or not n.args:
+                continue
+            fn = n.func
+            name = (fn.attr if isinstance(fn, ast.Attribute)
+                    else fn.id if isinstance(fn, ast.Name) else None)
+            if name in ("bad", "skip"):
+                a = n.args[0]
+                code = a.value if isinstance(a, ast.Constant) else "?"
+                out[(f.name, n.lineno)] = f"{name}({code})"
+    return out
+
+
+def unreached_arms() -> list[str]:
+    """`file:line name(CODE)` for every arm the probes do not reach.
+
+    Runs the probes under `sys.settrace`. The nested `selftest()` sees
+    `ARM_COVERAGE_ENV` set and declines to shell out again, which is the same
+    guard-inheritance hazard `C18` records for the wire: a self-test that
+    invokes the thing invoking it recurses unless the inner one can tell."""
+    sites = arm_sites()
+    executed: set[tuple[str, int]] = set()
+
+    def tracer(frame, event, arg):
+        if event == "line":
+            executed.add((Path(frame.f_code.co_filename).name, frame.f_lineno))
+        return tracer
+
+    buf, saved = io.StringIO(), sys.stdout
+    sys.stdout = buf
+    sys.settrace(tracer)
+    try:
+        claim_gate_selftest.selftest()
+    finally:
+        sys.settrace(None)
+        sys.stdout = saved
+    return [f"{f}:{ln} {w}" for (f, ln), w in sorted(sites.items())
+            if (f, ln) not in executed]
+
+
 def summary(mode: str) -> list[str]:
     """The run's closing lines: what was found, and what was not looked at.
 
@@ -982,6 +1059,11 @@ IS_SUBJECT = re.compile(r"claim-gate-plan-check")
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "--self-test":
         return claim_gate_selftest.selftest()
+    if len(argv) > 1 and argv[1] == "--arm-coverage":
+        os.environ[ARM_COVERAGE_ENV] = "1"
+        for line in unreached_arms():
+            print(line)
+        return 0
     memo = Memo(Path(argv[1]).resolve())
     # Applicability is a property of the TOOL, not an exemption inside one check.
     # Round 10 found `SITES` exiting 1 on every plan-memo in the tree for an
@@ -1024,6 +1106,7 @@ def main(argv: list[str]) -> int:
     if umbrella:
         report_transcripts(check_transcripts(umbrella))
     check_sites(memo)
+    report_governing_complement()
     check_tooling_quantities(memo)
     check_umbrella(memo, umbrella)
     report_umbrella_coverage(umbrella)
