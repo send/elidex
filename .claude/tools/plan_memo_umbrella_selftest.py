@@ -94,9 +94,9 @@ def run_on(text, prose=""):
         p.write_text(text + "\n" + prose + "\n")
         memo = M.Memo(str(p))
         umb = memo.umbrella_ids()
-        all_ids = set(memo.all_row_ids()) | set(umb)
-        cellm, tl = M.scan_tables(p.name, memo, umb, ids=all_ids)
-        mentions = cellm + M.scan_prose(p.name, memo.lines, umb, tl, ids=all_ids)
+        # The SAME pipeline main() runs -- not a copy of it.  The copy that
+        # stood here had a different dedup rule and omitted two assertions.
+        mentions = M.collect_mentions(memo, umb)
         seen, dd = set(), []
         for m in mentions:
             if m.key in seen:

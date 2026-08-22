@@ -805,6 +805,47 @@ def acceptance_vocab_seed(memo, findings, notes):
 # --------------------------------------------------------------------------
 
 
+def collect_mentions(memo, umb, siblings=()):
+    """The whole naming pipeline, in ONE place.
+
+    The self-test used to reimplement this -- with a first-wins dedup where this
+    one keeps the smaller start -- so every control was green against a program
+    that was not the one shipped.  The two happened to agree on today's inputs,
+    which is exactly how that kind of divergence survives.  `--self-test` calls
+    this function now, so a stage that exists in production cannot be missing
+    from the harness (which is how two assertions went unexercised).
+    """
+    mentions = []
+    all_ids = set(memo.all_row_ids()) | set(umb)
+    cellm, table_lines = scan_tables(memo.path.name, memo, umb, ids=all_ids)
+    mentions += cellm
+    mentions += scan_prose(memo.path.name, memo.lines, umb, table_lines, ids=all_ids)
+    for sib in siblings:
+        sp = pathlib.Path(sib)
+        sl = sp.read_text().split("\n")
+        sm = Memo(sib)
+        # The sibling's own table cells count too.  This used to discard them and
+        # keep only `stl`, so every mention inside a carved file's tables was
+        # invisible -- a whole population silently at zero.
+        sibm, stl = scan_tables(sp.name, sm, umb, ids=all_ids)
+        mentions += sibm
+        mentions += scan_prose(sp.name, sl, umb, stl, ids=all_ids)
+
+    # The anchored pass and the bare pass see the same site through different
+    # spans.  Identity is the id token's position, and the anchored reading wins
+    # because its span is what the licensing rule was written against.
+    seen, deduped = {}, []
+    for m in mentions:
+        prev = seen.get(m.key)
+        if prev is None:
+            seen[m.key] = m
+            deduped.append(m)
+        elif m.start < prev.start:
+            deduped[deduped.index(prev)] = m
+            seen[m.key] = m
+    return deduped
+
+
 def main(argv):
     if "--self-test" in argv:
         import plan_memo_umbrella_selftest as st  # noqa
@@ -855,34 +896,7 @@ def main(argv):
 
     # -- naming scan over the memo and its siblings ------------------------
     mentions = []
-    all_ids = set(memo.all_row_ids()) | set(umb)
-    cellm, table_lines = scan_tables(memo.path.name, memo, umb, ids=all_ids)
-    mentions += cellm
-    mentions += scan_prose(memo.path.name, memo.lines, umb, table_lines, ids=all_ids)
-    for sib in paths[1:]:
-        sp = pathlib.Path(sib)
-        sl = sp.read_text().split("\n")
-        sm = Memo(sib)
-        # The sibling's own table cells count too.  This line used to discard
-        # them and keep only `stl`, so every mention inside a carved file's
-        # tables was invisible -- a whole population silently at zero.
-        sibm, stl = scan_tables(sp.name, sm, umb, ids=all_ids)
-        mentions += sibm
-        mentions += scan_prose(sp.name, sl, umb, stl, ids=all_ids)
-
-    # The anchored pass and the bare pass see the same site through different
-    # spans.  Identity is the id token's position, and the anchored reading wins
-    # because its span is what the licensing rule was written against.
-    seen, deduped = {}, []
-    for m in mentions:
-        prev = seen.get(m.key)
-        if prev is None:
-            seen[m.key] = m
-            deduped.append(m)
-        elif m.start < prev.start:
-            deduped[deduped.index(prev)] = m
-            seen[m.key] = m
-    mentions = deduped
+    mentions = collect_mentions(memo, umb, paths[1:])
     unlicensed = [m for m in mentions if not m.licensed]
 
     print("=" * 78)
