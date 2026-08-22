@@ -108,7 +108,26 @@ NAMES_BOTH = re.compile(rf"{_A}.*{_B}|{_B}.*{_A}")
 # read clean over the very sentence that carried the §6 bound. Match the
 # concept, not the spelling (memory
 # `feedback_semantic-sibling-selfseed-and-regate-breadth`).
-FENCE_TOPIC = re.compile(r"fence", re.I)
+# The MARKDOWN sense of the word, and only that. It was the bare `fence`, and
+# "fence" is a concurrency term in half this repository's plan-memos -- measured
+# across the tree, the only two FENCE findings outside this program's own memo
+# were a navigation sentence ("the same fence content-mode's chrome-direct
+# traversal sits behind") and a queue-algorithm one, neither about a markdown
+# fence at all. What makes the narrowing safe rather than a guess is that the
+# memo this check audits always qualifies the noun: `fence arm`, `fence
+# tracker`, `fence tracking`, `fenced`, plus the two tracker function names.
+# The qualifier list is CLOSED, which is the shape this program usually warns
+# about, so the direction of its failure is what justifies it: too narrow a
+# topic pattern can only MISS a restatement, never invent one, and the stronger
+# arm (`NAMES_BOTH`, which needs no vocabulary) still catches every claim that
+# names the two modules. Too wide a one reports sentences about memory fences,
+# which is what it was doing. The separator is `[-\s]` because the compound is
+# written both ways -- `fence-tracking` and `fence tracker` -- and requiring
+# whitespace dropped the hyphenated form, which is the spelling the load-bearing
+# false claim used.
+FENCE_TOPIC = re.compile(
+    r"fenced|code[-\s]+fence|fence[-\s]+(?:arm|tracker|tracking|block|state|"
+    r"span|matching|marker)|_fence_state_array|_fenced_spans", re.I)
 PAIR_REF = re.compile(r"\b(the two|both|each other|the existing two|"
                       r"one another|two implementations|two trackers|"
                       r"the other (?:one|implementation|tracker))\b", re.I)
