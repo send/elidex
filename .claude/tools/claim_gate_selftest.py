@@ -41,10 +41,14 @@ return empty, and every negative probe would silently invert.
 """
 from __future__ import annotations
 
+import builtins
+import contextlib
+import io
 import itertools
 import os
 import re
 import subprocess
+import symtable
 import sys
 import tempfile
 from pathlib import Path
@@ -128,7 +132,7 @@ def pending_sites() -> list[str]:
     Read off `check_sites`' own generator rather than re-implementing its
     predicate: a copy here builds the fixture the SITES probes cite, so
     narrowing the check would leave both probes green against the change."""
-    return [f"{rel}:{i}" for rel, i, _ in host.wire_set_lines()]
+    return [f"{rel}:{i}" for rel, i, _ in host.claim_gate_registries.wire_set_lines()]
 
 
 def synth(text: str, name: str = "synthetic.md") -> host.Memo:
@@ -187,6 +191,20 @@ DIVERGED = [
 # rename detection -- on by default since git 2.9 -- reports only where it
 # arrived. Every consumer of these derivations is asking about paths, so a
 # departure that names only the destination is a departure none of them sees.
+def _wire_branch(*after: list[str]) -> list[list[str]]:
+    """A base commit holding one wire, then whatever the branch does to it."""
+    return [
+        ["write", "a-trip-wire.sh", "echo a\n"],
+        ["git", "add", "-A"], ["git", "commit", "-qm", "base"],
+        ["git", "update-ref", "refs/remotes/origin/main", "refs/heads/main"],
+        ["git", "checkout", "-qb", "feat"],
+    ] + list(after) + [["git", "add", "-A"], ["git", "commit", "-qm", "branch"]]
+
+
+EDITS_A_WIRE = _wire_branch(["write", "a-trip-wire.sh", "echo a\necho more\n"])
+ADDS_A_WIRE = _wire_branch(["write", "b-trip-wire.sh", "echo b\n"])
+
+
 def renamed(old: str, new: str) -> list[list[str]]:
     return [
         ["write", old, "contents\n"],
@@ -222,6 +240,9 @@ def selftest() -> int:
     # Same rule, one layer down: the git derivations live in their own module
     # now, so a probe that stubs one swaps it there.
     git_ = host.claim_gate_git
+    # SITES and UMBRELLA, and the two seed registries they read. Same rule:
+    # a probe swapping `GOVERNING` or `changes_the_wire_set` swaps it HERE.
+    registries = host.claim_gate_registries
 
     probes: list[tuple[str, bool, str]] = []  # (label, ok, detail)
 
@@ -287,7 +308,7 @@ def selftest() -> int:
     _umb = host.REPO / "docs/plans/2026-08-quantitative-claim-staleness-gate.md"
     if _umb.exists():
         _t = _umb.read_text()
-        for _name, _mand, _w, _a in host.BINDING:
+        for _name, _mand, _w, _a in registries.BINDING:
             probe(f"BINDING entry can still fire: {_name[:40]}", False,
                   [] if re.search(_mand, _t, re.S) else
                   [f"`mandates` no longer matches the umbrella; the entry is inert "
@@ -298,7 +319,7 @@ def selftest() -> int:
         # as a probe that passed, which is the defect this file exists to catch.
         # One probe records the absence by name, and it is green because the
         # prerequisite PR is allowed to be green; what it may not be is quiet.
-        probe(f"BINDING registry NOT CHECKED here: {len(host.BINDING)} entries have "
+        probe(f"BINDING registry NOT CHECKED here: {len(registries.BINDING)} entries have "
               f"no umbrella in this worktree", False, [])
 
 
@@ -909,9 +930,21 @@ def selftest() -> int:
                            _d == ["old.sh"], f"{_d}"))
         with tempfile.TemporaryDirectory() as _td:
             at(renamed("x-trip-wire.sh", "x.sh"), _td)
-            _w = host.changes_the_wire_set()
+            _w = registries.changes_the_wire_set()
             probes.append(("git: a wire renamed out of the set changes the set",
                            _w is True, f"{_w}"))
+        # "add or remove" is what the docstring says and what SITES is for: a
+        # governing file's collective sentences are falsified by the set gaining
+        # or losing a member, not by a member changing inside. Touching one line
+        # of an existing wire answered True, which puts every set-level line in
+        # the tree on the disposal list of a memo whose PR changed no set.
+        for _steps, _want, _label in (
+                (EDITS_A_WIRE, False, "editing a wire in place does not change the set"),
+                (ADDS_A_WIRE, True, "adding a wire does change the set")):
+            with tempfile.TemporaryDirectory() as _td:
+                at(_steps, _td)
+                _w = registries.changes_the_wire_set()
+                probes.append((f"SITES: {_label}", _w is _want, f"{_w}"))
     finally:
         host.REPO = _saved_repo
         host._resolved.clear()
@@ -935,6 +968,71 @@ def selftest() -> int:
         host.sh = _real_sh
     probes.append(("git: a shallow clone cannot say whether a path was removed",
                    _shallow is None, f"{_shallow}"))
+
+    # A companion reaches entry-point names as `host.X`. A BARE name that only
+    # resolves over there raises NameError on the first run that takes the line,
+    # and until then reads as working code: `CITE_RE` crossed a split that way
+    # and was caught because a probe happened to execute its line, which is luck
+    # rather than a property. The rule is structural -- a companion has no free
+    # global beyond builtins and its own imports -- so it is derived by scoping
+    # the source, not by grepping for names anyone remembered to list.
+    #
+    def _free_globals(src: str, label: str) -> list[str]:
+        st = symtable.symtable(src, label, "exec")
+        top = {s.get_name() for s in st.get_symbols()
+               if s.is_assigned() or s.is_imported()}
+        out, todo = [], [st]
+        while todo:
+            s = todo.pop()
+            todo.extend(s.get_children())
+            out += [n for n in (y.get_name() for y in s.get_symbols()
+                                if y.is_global() and not y.is_assigned())
+                    if n not in top and not hasattr(builtins, n)
+                    and not n.startswith("__")]
+        return sorted(set(out))
+
+    # The population is the IMPORT GRAPH, not the `claim[-_]*` glob. A glob has
+    # no control on its own breadth: narrowing it to one file leaves this probe
+    # green, because the one file is the entry point and the filtered set is
+    # empty -- an empty population passes every membership test there is, which
+    # is the `ban_control` shape. A companion is defined by what the entry point
+    # did to it: `host` bound to the entry point module. Nothing else in the
+    # process satisfies that, and it cannot be narrowed without unbinding a
+    # companion, which every check reaching through `host` would notice.
+    _me = sys.modules[host.__name__]
+    _companions = sorted(
+        (m for m in list(sys.modules.values())
+         if getattr(m, "host", None) is _me and getattr(m, "__file__", None)),
+        key=lambda m: m.__file__)
+    _stray = [f"{Path(m.__file__).name}:{n}"
+              for m in _companions
+              for n in _free_globals(Path(m.__file__).read_text(),
+                                     Path(m.__file__).name)]
+    probes.append(("no companion reaches an entry-point name as a bare global",
+                   not _stray, f"{_stray}" if _stray else "(clean)"))
+    # The scanner needs its own positive. Over a clean tree it returns [] whether
+    # or not it descends into function scopes, so narrowing the walk to module
+    # level is invisible -- measured: deleting the `get_children()` recursion
+    # left the suite green. A planted source pins both arms, and the second
+    # plant is nested two deep because that is the arm the narrowing removes.
+    # The names live in a string literal, so scanning THIS file does not find
+    # them (a needle written as code would make the probe its own subject).
+    _PLANT = ("import os\n"
+              "TOP = 1\n"
+              "def f():\n"
+              "    return TOP + os.sep + OUTER_STRAY\n"
+              "def g():\n"
+              "    def h():\n"
+              "        return NESTED_STRAY\n"
+              "    return h\n")
+    _found = _free_globals(_PLANT, "<plant>")
+    probes.append(("…and the scan reaches strays at module and nested scope",
+                   _found == ["NESTED_STRAY", "OUTER_STRAY"], f"{_found}"))
+    # …and the population is not empty, because the sentence above is a
+    # universal and a universal over nothing is true for free.
+    probes.append((f"…over every companion the entry point bound "
+                   f"({len(_companions)} of them)", len(_companions) >= 4,
+                   ", ".join(Path(m.__file__).name for m in _companions) or "(none)"))
 
     # SITES' population is the PR that changes the wire set, not every document.
     # The docstring's check table is presented as the index, and an index that
@@ -960,7 +1058,30 @@ def selftest() -> int:
         _rc, _out = sh([sys.executable, str(REPO / ".claude" / "tools" /
                         "claim-gate-plan-check.py"), str(_subj.relative_to(REPO))])
         probes.append(("APPLICABILITY a memo that does not name this tool is declined",
-                       _rc == 0 and "every check declined" in _out, f"rc={_rc}"))
+                       _rc == 0 and "check(s) not run" in _out, f"rc={_rc}"))
+        # A decline is non-coverage, and this program's rule for non-coverage is
+        # that it goes through `skip()` and is counted on the closing line --
+        # `0 finding(s)` printed by a run in which nothing executed is the shape
+        # `skip()` exists for. The decline printed a sentence a human reads and
+        # left the machinery saying nothing, so a declined run and a clean one
+        # produced the same closing line.
+        #
+        # In-process as well as out, and not for redundancy: the subprocess arm
+        # can only read rc and stdout, so it cannot say WHICH checks declined,
+        # and `--arm-coverage` cannot see a `skip()` taken in a child. Both were
+        # true of the first version of this probe, which left the new site
+        # unfired by anything the tracer could observe.
+        # `main` prints its summary; a probe is not a place to print one, and
+        # the suite's own output is compared line-for-line elsewhere.
+        with contextlib.redirect_stdout(io.StringIO()):
+            _declined = capture_skipped(lambda: host.main(["x", str(_subj)]))
+        _want = sorted(host.finding_codes())
+        _got = sorted({d.split(" — ")[0] for d in _declined})
+        probes.append(("…declining names every code the program can report",
+                       _got == _want and len(_want) >= 12,
+                       f"{len(_got)} of {len(_want)}"
+                       + (f"; missing {sorted(set(_want) - set(_got))}"
+                          if set(_want) - set(_got) else "")))
         _subj.write_text("# probe\n\nRun `claim-gate-plan-check` on it.\n\n"
                          "## §4 x\n\nIt cites §9.\n")
         _rc2, _out2 = sh([sys.executable, str(REPO / ".claude" / "tools" /
@@ -1040,23 +1161,23 @@ def selftest() -> int:
               capture_skipped(host.check_annotations), "is not in this tree")
     finally:
         host.WIRE = _saved_wire
-    _saved_range = host.changes_the_wire_set
+    _saved_range = registries.changes_the_wire_set
     try:
-        host.changes_the_wire_set = lambda: None
+        registries.changes_the_wire_set = lambda: None
         probe("SITES reports rather than deciding when the range cannot be formed", True,
               capture_skipped(check_sites, synth("## §4 x\n"), None),
               "could not be formed")
     finally:
-        host.changes_the_wire_set = _saved_range
-    _saved_gov = host.GOVERNING
+        registries.changes_the_wire_set = _saved_range
+    _saved_gov = registries.GOVERNING
     try:
-        host.GOVERNING = ["zz-no-such-governing-file.toml"]
+        registries.GOVERNING = ["zz-no-such-governing-file.toml"]
         probe("SITES reports a governing file that has left the tree", True,
               capture_skipped(check_sites, synth(
                   "## §4 x\nS1 ships a wire.\n"), True),
               "is not in the tree")
     finally:
-        host.GOVERNING = _saved_gov
+        registries.GOVERNING = _saved_gov
     probe("PREFLIGHT negative (a pasted exit code the tool does not return)", True,
           capture(check_preflight, write_probe(
               PREFLIGHT_FIXTURE + real_pf.replace("EXIT=0", "EXIT=9"))),
