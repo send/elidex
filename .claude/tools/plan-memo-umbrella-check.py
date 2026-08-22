@@ -518,7 +518,12 @@ ORDER_WORDS = re.compile(
     r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b",
     re.IGNORECASE,
 )
-ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must|witness|regression|assert)\b", re.IGNORECASE)
+# EXACTLY the two tokens `#11-plan-memo-acceptance-falsifiability-check` names.
+# It read `witness|regression|assert` as well for one revision, which is a
+# DIFFERENT predicate from the one this reproduces, and reproducing a figure
+# with a wider predicate than the figure's own is how a cross-check agrees with
+# something it never measured.
+ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE)
 
 
 def assertion_a(memo, findings, notes):
