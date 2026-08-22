@@ -329,6 +329,57 @@ def selftest() -> int:
     probe("SECT negative (an undefined section)", True,
           capture(check_section_refs, synth("## §4 Design\nsee §9 below\n"), None),
           "§9")
+    # The umbrella's OWN section references were examined by nothing. CITE runs
+    # over both documents and SECT over one, an asymmetry with no reason stated
+    # anywhere -- so a whole document's worth of `§N` went unchecked. Measured
+    # on the real pair: the umbrella cites `S1 §4.1.1`, a number it has no
+    # heading for, and no run has ever looked at it.
+    probe("SECT negative (an undefined section in the UMBRELLA)", True,
+          capture(check_section_refs, synth("## §4 Design\nnothing\n"),
+                  synth("## §2 Scope\nsee §9 below\n", "umbrella.md")),
+          "umbrella.md:2")
+    probe("SECT positive (a section the umbrella does define, cited in it)", False,
+          capture(check_section_refs, synth("## §4 Design\nnothing\n"),
+                  synth("## §2 Scope\nsee §2 above\n", "umbrella.md")))
+    # A reference to ANOTHER document is named the way `CITE` already names
+    # one -- a backticked path. Attribution was a closed list of one word,
+    # `umbrella`, so every other form fell through to "this memo has no such
+    # heading": measured on the real pair, nine references in the umbrella,
+    # every one of them cross-document (`S1 §4.2`, `` `terminal-z-c3a-impl-plan.md` §7 ``,
+    # `v1's §4.1.3`) and not one of them dangling.
+    _OTHER = "docs/plans/2026-07-terminal-z-c3a-impl-plan.md"
+    probe("SECT positive (a §-ref attributed to another document by path)", False,
+          capture(check_section_refs,
+                  synth(f"## §4 Design\nsee `{_OTHER}` §7 for the precedent\n"), None))
+    # The needle names the ATTRIBUTED document, not the number: `§99` is absent
+    # from the containing memo too, so the old self-reference arm fired with a
+    # message this probe accepted -- green for a rule it was not exercising.
+    probe("SECT negative (a path-attributed §-ref that document lacks)", True,
+          capture(check_section_refs,
+                  synth(f"## §4 Design\nsee `{_OTHER}` §99 for the precedent\n"), None),
+          "that document has no heading for")
+    probe("SECT negative (a §-ref attributed to a path that is not tracked)", True,
+          capture(check_section_refs,
+                  synth("## §4 Design\nsee `docs/plans/zz-no-such-memo.md` §2\n"), None),
+          "no tracked file")
+    # An AMBIGUOUS attribution is a third outcome, and weakening the guard from
+    # "exactly one" to "at least one" left the suite green until this arm
+    # existed -- the check would then have read headings off whichever file the
+    # resolver happened to list first.
+    #
+    # The fixture is `SKILL.md`, and the first choice was `README.md`, which is
+    # duplicated across the tree and is NOT ambiguous here: `resolve` tries the
+    # literal pathspec first, the repository root has a README, and the
+    # basename fallback that produces the ambiguity never runs. The assertion
+    # below is what said so -- a probe whose fixture is asserted rather than
+    # assumed reports its own wrong premise.
+    _AMBIG = "SKILL.md"
+    probes.append((f"SECT: `{_AMBIG}` really is ambiguous in this tree",
+                   len(host.resolve(_AMBIG)) > 1, f"{len(host.resolve(_AMBIG))} hits"))
+    probe("SECT negative (a §-ref attributed to an ambiguous path)", True,
+          capture(check_section_refs,
+                  synth(f"## §4 Design\nsee `{_AMBIG}` §2 for it\n"), None),
+          "tracked files")
 
     # CITE
     probe("CITE positive (in range)", False,
