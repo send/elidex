@@ -434,6 +434,15 @@ raises fire on *adding*, and β replaces.
 blast radius, and all the discriminating power is in the **O-rows**. ⚠ **Two sites said "O1–O4" after O5 was
 added**, and the table's order is O1, O2, O3, O5, O4, so the range was not even contiguous.
 
+⚠ **EVERY row below inherits two preconditions on the plant, because O1 stated one and O2 and O5 did not —
+and the implementing commit hit the missing one three times in one session.** (a) **A plant must not define a
+new function**: `VOCAB` comes from `declare -F`, so a plant named `_o2a()` enters the vocabulary and every
+line of the plant becomes a call site **on its own name** — three obligations read as passing when they were
+not, and the diff looked clean. Plant inside an existing function's body, and start no line with a
+vocabulary token. (b) **A plant must sit at a payload host** — the hosts are `-audit.sh:53` (`homes`),
+`-audit.sh:597` (`selfcheck`) and `-inventory.sh:39` (`inventory`); a plant elsewhere is not on the census's
+input and reports nothing, which reads as a pass. O1's row states (b) for itself; neither row stated (a).
+
 | # | obligation | asserted by planting, not by reading |
 |---|---|---|
 | O1 | a derivation call is a call site in every command position | plant **both** spellings at the payload host of **each of `all`'s three roster readers** (`-audit.sh:53` `homes`, `-audit.sh:597` `selfcheck`, `-inventory.sh:39` `inventory`). ⚠ **`:538` was this list's spelling until the parts grew, and *"heredoc host sites"* was its label** — the harness has four argv-plus-heredoc payloads and a reader applying the phrase rather than the criterion counts them ⇒ all six rows `callsite`. Each plant defines `_partset`/`_roster` and carries two tokens |

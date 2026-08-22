@@ -126,7 +126,7 @@ Required because the work is edge-dense (`/elidex-plan-review` Pre-condition #3)
 | I2 × I5 | A part **rename** must not change a block name. The dispatcher resolves by name across all sourced parts (D1), and once I2 holds a rename can no longer change the routing answer either. | **1a-i-α** |
 | I2 × I3 (files) | A file's group must be **declared, not read off its name**, or the move list compares a declaration against an inference and the two roles the group vocabulary plays — *whose concern a block is* and *which file holds it* — stay fused in `PART_SLICE`. That fusion is what left `umbrella` with no destination and dropped `kernel` from T3's boundary test. D12/D13. | **1a-i-γ** |
 | — | PR-1a-ii writes declarations into checks PR-1a-i has already made correct. It opens no intersection of its own. | **PR-1a-ii** |
-| I4 × I5 | The tiers still read the memos (T1), so `inventory` still needs a checkout that has them. That is **pre-existing** — M3 lists `inventory(exit 1)` among seven REDs of one class — and §4 turns on it. | §4 |
+| I4 × I5 | The tiers still read the memos (T1), so `inventory` still needs a checkout that has them. That is **pre-existing** — M3 lists `inventory(exit 1)` among seven REDs of one class — and the close/transfer turns on it. | **No slice.** The close of #505 with its branch retained, and the carry of the memo set onto `webref-cite-audit-tool`, which **§9 authorises directly** and the external-state memo's §7 records. ⚠ **This cell said `§4`** — every other cell names an actor, and §4 became a forwarding stub at `9647ba4d`, so the one row with no slice owner was the one pointing at moved text. A cell in this column names who acts, never a section that can move out from under it |
 
 ⇒ **The intersections marked `done` are already discharged, and that is why PR-1 can be split.** The seam is
 **step 1's output**: the move list does not exist until the declarations do. So PR-1a collapses and **PR-1b
@@ -598,6 +598,20 @@ removal (PR-3, §6); deleting the `citation-hygiene-harness` branch; editing a s
 query is re-run; creating a defer slot; **or landing mechanism on this branch that decides what a PR
 decides.**
 
+⚠ **Raised with an owner and a trigger, and CARVED rather than fixed here: `CSSOM View 1` is not in the
+plan-review gate's pinned map.** ⊕ Reproduce with
+`python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-08-citation-hygiene-harness-1a-i-beta-classifier.md`,
+which prints `⚠ unrecognized labels: ['CSSOM View 1']` and counts the spec as `<CSSOM View 1>`; all three
+memos carrying the coverage map warn. The label resolves in webref (`.claude/tools/webref specs cssom-view`
+→ `cssom-view-1`), so the fix is one entry in `SPEC_LABEL_REVERSE` in `preflight.py`, kept in sync with
+`_SPEC_LABEL_MAP` in `.claude/tools/webref` as that file's own comment requires. ⚠ **It is not landed here,
+and the reason is this program's own origin.** PR-A0 bundled a citation sweep with a general-purpose detector,
+a shared spec-label refactor **and a behaviour change to `preflight.py`** — that bundle is why this umbrella
+exists. Adding a `preflight.py` behaviour change to a docs-only branch would repeat it, and it is a
+`.claude/**` edit, whose blast radius is every lane and whose landing needs the full pre-push gate rather
+than this branch's memo gate. *Owner*: its own PR. *Trigger*: before the next slice's `/elidex-plan-review`,
+so the axes are not reading a soft-warned row.
+
 **That last clause is this memo's stopping rule, and it is narrower than the wording it replaces.** Earlier
 drafts forbade *"landing one more line of mechanism on this branch"*. That scope was wrong, on the review
 record's own finding: it made **prose** the only permitted response to findings whose answer was
@@ -651,10 +665,26 @@ The grades, under that test:
   cost unbooked, and the only enforcement of the mark convention removed on a false measurement.
 - **`a5fab499`** — 72 → 70. **Violates**, unchanged.
 
-⚠ **Nine further commits the falsifier prints pre-date this clause** (`adb8a33b`, `49b4f645`, `979e5426`,
-`7ad42edd`, `fc47cde1`, `259e12cb`, `9a0ff039`, `90e1429b`, and `dae569d4`'s own parent chain before the
-clause was written); the clause does not reach them and they are not graded. `dae569d4` and the commit
-carrying this paragraph do fall under it: both move output lines and neither moves membership, so both pass.
+⚠ **"Nine further commits ... are not graded" was a count of EIGHT names plus a hand-wave, and an ungraded
+population under a stopping rule is a compliance claim nobody made.** The names were `adb8a33b`, `49b4f645`,
+`979e5426`, `7ad42edd`, `fc47cde1`, `259e12cb`, `9a0ff039`, `90e1429b` — eight — and the ninth was
+*"`dae569d4`'s own parent chain before the clause was written"*, which enumerates nothing. The membership
+test costs one loop per commit, so they are graded rather than excused. ⊕ Every commit the falsifier prints,
+run against its own parent, the grade table is **D21** in
+`2026-08-citation-hygiene-harness-measurements.md` — cut out while writing, because this section entered the
+authoring band and §4's rule is to cut the seam then rather than to let a later split decide a PR's scope.
+The verdicts stay here, because they are what this clause says; the measurement that produces them is there.
+**Two of the seventeen it grades (`473b9d56`, `9f0fe33d`) fall under this clause and were ungraded until it
+was run; both pass.**
+
+⚠ **Four of the eight pre-clause commits DO move membership, and the clause still does not convict them —
+for a stated reason rather than for a date.** `fc47cde1` creates `homes`; `259e12cb`, `7ad42edd` and
+`979e5426` rectify the rules it derives the list from. The membership test asks whether a commit changed
+*what is on the work list*, and that question presupposes an instrument that produces one. It cannot grade
+the instrument's own construction: before `fc47cde1` there was no list, and a rule fix that makes the list
+CORRECT is not a decision about a PR's scope but the precondition for having one. ⚠ **That limit is stated
+here rather than left as the date argument it replaces** — "the clause does not reach them" would also
+acquit any future commit that rewrites `homes`'s rules, and this one does not.
 ⚠ **How this clause came to be worded as it is — the exception draft 13 tried, the band history of
 `b088dacc` and `a5fab499`, the position rule `a5fab499` did not meet, and why landing mechanism ahead of the
 design is spent — is recorded as D20** in `2026-08-citation-hygiene-harness-measurements.md`, cut out when

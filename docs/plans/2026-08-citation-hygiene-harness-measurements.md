@@ -493,10 +493,52 @@ ATT
   this entry's own prose carries `§N … states` spans, so every edit to it moves the figure. The command is
   given so a reader gets today's, over the memo set alone:
 
+⚠ **Probes 1-3 carried figures and no command, which §8 says is not a claim made** — the rule is *"a claim
+with no runnable command is not made"*, and it applies to this table as much as to any other. Each probe now
+carries the command that produces its population, and, like probe 4, **no fixed integer**: every population
+here is self-referential, so this entry's own prose moves all four.
+
 ```bash
+cd docs/plans
+# probe 1 -- sentences, and those carrying a universal
+python3 -c "
+import re,glob
+t=' '.join(open(f).read() for f in sorted(glob.glob('2026-08-citation-hygiene-harness-*.md')))
+s=[x for x in re.split(r'(?<=[.!?])\s+', t) if x.strip()]
+u=[x for x in s if re.search(r'\b(every|all|no|none|only|both|each|never)\b', x, re.I)]
+print('sentences=%d universal=%d' % (len(s), len(u)))"
+# probe 2 -- fences, and those whose introducing paragraph carries a bold numeral
+python3 -c "
+import re,glob
+tot=hit=0
+for f in sorted(glob.glob('2026-08-citation-hygiene-harness-*.md')):
+    L=open(f).read().splitlines(); i=0
+    while i<len(L):
+        if L[i].startswith('\`\`\`'):
+            tot+=1
+            if re.search(r'[*][*][^*]*\b\d+\b[^*]*[*][*]', ' '.join(L[max(0,i-6):i])): hit+=1
+            j=i+1
+            while j<len(L) and not L[j].startswith('\`\`\`'): j+=1
+            i=j+1
+        else: i+=1
+print('fences=%d bold-numeral=%d'%(tot,hit))"
+# probe 3 -- an emphasised token followed by an absence phrase, and the bare phrase
+grep -oiE '[*][^*]{1,40}[*][^.]{0,30}(no longer exists|is gone|is retired)' \
+     2026-08-citation-hygiene-harness-*.md | wc -l
+grep -oiE '(no longer exists|is gone|is retired)' \
+     2026-08-citation-hygiene-harness-*.md | wc -l    # the complement probe 3 cannot subject-test
+# probe 4 -- memo set only
 grep -oE '§[0-9]+[a-z]?[^.]{0,40}(authorises|says|states|lists|names)' \
-     docs/plans/2026-08-citation-hygiene-harness-*.md | wc -l    # probe 4, memo set only
+     2026-08-citation-hygiene-harness-*.md | wc -l
 ```
+
+⚠ **No figure is quoted beside them, and the first draft of this paragraph quoted four.** Those four were
+measured minutes before this entry was written and the writing itself moved every one of them — the defect
+the entry is about, committed inside the commit that fixes it. What survives is the checkable statement:
+**run the fence and compare against the table's own 431/835, 5/40, 5 and 22; not one of the four still
+holds**, and the table keeps them as what was true when it was written rather than as what is true. Probe 3's
+second command is the point of its row: the bare absence phrase is several times commoner than the emphasised
+form the probe can subject-test, so the probe reaches a fraction of its own class.
 
   ⚠ **What the four probes agree on**: the failures are not identifiable from the *claim*, only from the
   *subject set*, and prose does not name its subject set in a recoverable way. What closed the attestation class was a
@@ -596,3 +638,39 @@ had missed. Neither survives the stopping rule, because an **uncommitted** mecha
 further measurement takes. And landing was never scope-free: a commit that moves the census output §3 calls
 the work list decides part of PR-1a's scope, and several did. **From here the design is fixed and PR-1a
 implements it.**
+
+- **D21 — every commit the §9 falsifier prints, graded by the membership test.** Cut out of the disposition's
+  §9 while writing, because that section entered the authoring band; §9 holds the rule and the verdicts, this
+  entry holds the measurement. ⚠ **§9 previously excused eight of these as *"nine ... not graded"*** — a
+  count of eight names plus *"`dae569d4`'s own parent chain"*, which enumerates nothing, and an ungraded
+  population under a stopping rule is a compliance claim nobody made. ⊕ Run against each commit's own parent:
+
+```bash
+d=$(mktemp -d); git clone -q --local --no-hardlinks . "$d"
+BASE=$(git log --diff-filter=A --format=%H \
+       -- docs/plans/2026-08-citation-hygiene-harness-disposition.md | tail -1)
+for c in $(git log --format=%h "$BASE"^..HEAD --reverse \
+           -- . ':!docs/plans/2026-08-citation-hygiene-harness-*.md'); do
+  git -C "$d" checkout -q "$c^" 2>/dev/null && \
+    a=$(bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes 2>/dev/null | grep -oE 'HOMES: [0-9]+')
+  git -C "$d" checkout -q "$c" 2>/dev/null && \
+    b=$(bash "$d"/docs/plans/2026-07-citation-hygiene-A-rederive.sh homes 2>/dev/null | grep -oE 'HOMES: [0-9]+')
+  printf '%s %s -> %s\n' "$c" "${a:-none}" "${b:-none}"
+done; rm -rf "$d"
+```
+
+| commit | homes | verdict |
+|---|---|---|
+| `90e1429b`, `9a0ff039` | no `homes` block yet | **passes** — vacuously; there is no work list to move |
+| `fc47cde1` | (none) → **75** | moves — **it CREATES `homes`** |
+| `259e12cb` | 75 → **77** | moves — the integrity/primitive split, before the rules settled |
+| `7ad42edd` | 77 → **70** | moves — R3 gains its subject test |
+| `979e5426` | 70 → **72** | moves — `homes` starts assigning the CLASS |
+| `49b4f645`, `adb8a33b` | 72 → 72 | **passes** |
+| `b088dacc`, `96d8fae3`, `2abaea1b`, `84a7bd67`, `dae569d4`, `bd52f296` | unmoved | **passes**, as graded above |
+| `a5fab499` | 72 → **70** | **violates**, as graded above |
+| `473b9d56`, `9f0fe33d` | 70 → 70 | **passes** — ⚠ **both fall under this clause and neither was graded until now** |
+
+  ⚠ **The count is not pinned here either** — the falsifier's population grows with the branch. It printed
+  thirteen commits when §9 was written and **seventeen** when this entry was added, and the two the growth
+  brought in (`473b9d56`, `9f0fe33d`) were under the clause and ungraded until this measurement.
