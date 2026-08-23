@@ -162,7 +162,7 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   _bm yes "5. §4.1.8's falsified consequence sentence" 'wrong document|silently runs against' -E
   _bm no  "6. present-tense 'extant defect' framing of what the carve did" 'is an? (extant|existing) defect|today the resolver|currently (the )?resolv' -E
   _bm yes "7. §0.1 provenance paragraph naming a base B no longer has" 'branch(es)? from|carve|base' -E
-  _bm yes "8. §4.2's seam list — must name the widening as a third seam" '^\|.*seam|seams?:' -E
+  _bm yes "8. §4.2's seam list — must name the widening as a third seam" 'third seam' -E
   _bm yes "9. coverage_map's changed last-resort cited as pre-existing" '_spec_label|last.resort|upper\(\)' -E
   _bm yes "10. cap-rule restatements (must become a pointer)" 'cleanup-\|per-PR ≤3\|cap'
   _bm no  "11. line-count table measured at a base where 2 files do not exist" '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' -E

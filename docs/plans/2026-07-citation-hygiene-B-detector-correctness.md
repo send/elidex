@@ -596,9 +596,9 @@ Baselines are what exists at A's landed head — the pre-carve `wc -l` figures a
 
 | File | Now | After (est.) | Note |
 |---|---|---|---|
-| `.claude/tools/_webref/commands/cite_audit.py` | absent at A's head (K3); seeded from the carve commit via §12(2) | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
+| `.claude/tools/_webref/commands/cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
 | `.claude/tools/_webref/spec_labels.py` | A-i's landed size | +~70 | reverse index + discriminated `_catalog()` |
-| `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit via §12(2) | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
+| `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
 | `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S13 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
 | `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~30 | P4/P5 appended to A's file |
