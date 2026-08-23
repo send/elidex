@@ -40,7 +40,7 @@ Three sites, all git-tracked and editable in-branch:
 
 | Site | Current state | C's edit |
 |---|---|---|
-| `.claude/skills/elidex-review/axes.md:179` | requirement **(2) "≥4 grep pattern"** and **(4) "各 pattern の件数明記"** mandate hand-authored discovery alternations — precisely failure mode #2 in `cite_audit.py:13` ("enumeration-only-by-known-pattern") | replace (2)/(4) with the detector **for `§`-form citations**, plus the three requirements the detector's own blind spots imply: attribution-bucket **disposition**, **one run per cited spec**, and — because the detector sees only a literal `§` — a **named discovery step for the non-`§` forms** (AO names, `per <spec>` prose, spec URLs), stated as the retirement's residue rather than dropped (Codex R21: retiring (2)/(4) outright would let a sweep satisfy the rule while never enumerating those surfaces) |
+| `.claude/skills/elidex-review/axes.md:179` | requirement **(2) "≥4 grep pattern"** and **(4) "各 pattern の件数明記"** mandate hand-authored discovery alternations — precisely failure mode #2 in `cite_audit.py:13` ("enumeration-only-by-known-pattern") | replace (2)/(4) with the detector **for `§`-form citations**, plus the three requirements the detector's own blind spots imply: attribution-bucket **disposition**, **one run per cited spec**, and — because the detector sees only a literal `§` — a **named discovery step for the non-`§` forms** (AO names, `per <spec>` prose, spec URLs), stated as the retirement's residue rather than dropped (Codex R21: retiring (2)/(4) outright would let a sweep satisfy the rule while never enumerating those surfaces). The three clauses are written with the phrases §4's chain greps verbatim — `one run per cited spec`, `attribution-bucket disposition`, `non-§ discovery` — so deleting the old wording and naming the tool cannot print `RETIRED` without them (Codex R22) |
 | `CLAUDE.md` § "Spec citation" | documents `heading` / `dfn` / `aoid` / `body` / `css` / `specs`; never mentions `cite-audit` | one paragraph: `cite-audit` is the discovery instrument for citation-sweep work, and its `--strict` exit code is a gate, not a report |
 | `.claude/tools/_webref/DESIGN.md` | the `cite_audit.py` bullet describes discovery but not the gate | the reported-class contract and `--strict` semantics, since `axes.md` will point authors here |
 
@@ -100,6 +100,9 @@ grep -q 'cite-audit' .claude/skills/elidex-review/axes.md \
   && grep -q 'cite-audit' CLAUDE.md \
   && ! grep -q '≥4 grep pattern' .claude/skills/elidex-review/axes.md \
   && grep -q '^## Reported classes' .claude/tools/_webref/DESIGN.md \
+  && grep -q 'one run per cited spec' .claude/skills/elidex-review/axes.md \
+  && grep -q 'attribution-bucket disposition' .claude/skills/elidex-review/axes.md \
+  && grep -q 'non-§ discovery' .claude/skills/elidex-review/axes.md \
   && echo RETIRED
 ```
 

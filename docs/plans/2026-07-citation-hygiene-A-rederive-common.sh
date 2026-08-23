@@ -678,8 +678,17 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   local failed=0 n
   git rev-list --left-right --count "$MAIN"...HEAD || failed=1
   gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' || failed=1
-  git log --format='%h %s' --grep='carve the cite-audit detector' || failed=1
-  git log --format='%h %s' --grep='re-carve the shared spec-label map' || failed=1
+  # `git log --grep` exits 0 on NO match, so a missing carve commit read as
+  # found (Codex R22) -- and the second subject never existed in this history
+  # (the shared-map carve is `docs(plans): carve Slice A-i — the shared
+  # spec-label map`). Each census is a COUNT that must be >= 1, over --all so
+  # a branch-local carve still answers after the squash.
+  local carve
+  for carve in 'carve the cite-audit detector' 'carve Slice A-i'; do
+    _measure n git log --all --format='%h %s' --grep="$carve" || { failed=1; continue; }
+    [ "$n" -ge 1 ] || { echo "!! no commit with subject /$carve/ in any ref — a carve commit this lane roster names is absent"; failed=1; }
+    git log --all --format='%h %s' --grep="$carve" | head -3
+  done
   echo "-- worktrees carrying plan-memo diffs --"
   # The `2>/dev/null | wc -l` this used to be reported `0` -- i.e. "this worktree
   # authors no plan-memo" -- for a worktree whose diff could not be taken at all,
