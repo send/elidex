@@ -36,9 +36,14 @@
 # fixture rows therefore has a PRECONDITION -- the lookup the rows make can run
 # here -- and a cold cache or no network makes every verified row a HARD FAIL
 # that is about the environment, not the gate (Codex R12). Measured once, loud.
+# `_webref_warm [ROOT]`: the lookup runs through ROOT's CLI (default `.`), so a
+# block that grades a baseline worktree warms the SAME revision it then measures
+# -- the branch's CLI differs from origin/main's whenever these slices touch the
+# tool, and a branch-only failure or success would otherwise decide the
+# baseline census (Codex R37).
 _webref_warm() {
-  local n
-  _measure n .claude/tools/webref heading --exact html 4.10.21 \
+  local n root=${1:-.}
+  _measure n "$root/.claude/tools/webref" heading --exact html 4.10.21 \
     || { echo "!! webref lookup unavailable (cold cache / offline) — the baseline rows are NOT MEASURABLE here"; return 1; }
   return 0
 }
@@ -73,7 +78,7 @@ column() {  # §5 — the origin/main column, every fixture shape, BOTH CLI stat
   # (Codex R12). The precondition is measured once, before any row: if the
   # lookup cannot run, the baseline is NOT MEASURABLE here, which is a failed
   # measurement rather than a reading.
-  _webref_warm || { git worktree remove --force "$T"; rm -rf "$F"; return 1; }
+  _webref_warm "$T" || { git worktree remove --force "$T"; rm -rf "$F"; return 1; }
   # Every cell §5's `origin/main` column tabulates is asserted, exit and all
   # (`_verdict` alone accepts ANY well-formed verdict -- Codex R12); the
   # `--no-verify` rows (2, 5) and `malformed.md` (16) are run too, which this

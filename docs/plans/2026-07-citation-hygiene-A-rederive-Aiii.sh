@@ -63,7 +63,9 @@ PY
 # `_job_region JOB TEXT`: the lines of JOB's region (whole lines, block
 # scalars included -- a region read, not a step parser). Shared by `_gated`
 # and by A-iii §6 Q6, which reads the `tools` job's region for the driver path.
-_job_region() { printf '%s\n' "$2" | awk -v j="$1" '$0 ~ "^  "j":$" {f=1; next} f && /^  [^ #-]/ {exit} f {print}'; }
+# The header matches the key plain or quoted (`  check:` / `  "check":` /
+# `  'check':`), the same key grammar the boundary rule admits (Codex R37).
+_job_region() { printf '%s\n' "$2" | awk -v j="$1" -v q="'" '$0 ~ "^  [\"" q "]?" j "[\"" q "]?:$" {f=1; next} f && /^  [^ #-]/ {exit} f {print}'; }
 _gated() { _job_region "$1" "$2" | awk '/^    needs: changes/ {n=1} /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}'; }
 
 filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
@@ -109,7 +111,9 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # A missing job is not an ungated one: the claim is "present AND ungated",
   # and an awk that never saw the header exited 0 on the pre-#496 workflow
   # (Codex R12). Both halves are required.
-  printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [^ #-]/ {exit} f && /^    (needs|if):/ {g=1} END {exit (!f || g)}' \
+  # Same region reader as the gated jobs (quoted header admitted); "present
+  # AND ungated" = a non-empty region with no `needs:`/`if:` line.
+  { r=$(_job_region trip-wires "$ci"); [ -n "$r" ] && ! printf '%s\n' "$r" | grep -qE '^    (needs|if):'; } \
     || { echo "!! \`trip-wires\` is absent or gated — §9's 'present and ungated since #496' no longer holds"; rc=1; }
   # "Invokes mise" was read by a hand-rolled YAML step reader for four rounds
   # (R10 block scalars, R14 indentation indicators, R26 flow mappings, R27 the
@@ -252,19 +256,42 @@ if _ls.returncode != 0 or not _ls.stdout.split():
     raise SystemExit("!! `git ls-files .claude/**/*.py` enumerated nothing; 'floor 3.0' would be the reading")
 files = _ls.stdout.split()
 RUNTIME = re.compile(r"isinstance\([^)]*\|[^)]*\)|zip\([^)]*strict=|slots=True|kw_only=|pairwise\(|TypeAlias|ParamSpec")
-PEP604 = re.compile(r"(def |: )[^#]*\|\s*None")
+def pep604(tree, future):
+    # Every annotation that is EVALUATED on 3.9 -- any `X | Y` inside a
+    # parameter/return/variable annotation without the future import, and a
+    # module/class-level alias `Name = X | Y` regardless of it (an alias is a
+    # runtime expression, not an annotation) -- not only `| None` (Codex R37).
+    def has_bitor(node):
+        return any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr) for n in ast.walk(node))
+    for node in ast.walk(tree):
+        if not future:
+            if isinstance(node, ast.AnnAssign) and has_bitor(node.annotation):
+                return True
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                a = node.args
+                for arg in a.args + a.posonlyargs + a.kwonlyargs + [a.vararg, a.kwarg]:
+                    if arg is not None and arg.annotation is not None and has_bitor(arg.annotation):
+                        return True
+                if node.returns is not None and has_bitor(node.returns):
+                    return True
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.BitOr):
+            ops = [node.value.left, node.value.right]
+            if all(isinstance(o, (ast.Name, ast.Attribute, ast.Subscript)) or (isinstance(o, ast.Constant) and o.value is None) for o in ops):
+                return True
+    return False
 need, bad = {}, []
 for f in files:
     src = open(f, encoding="utf-8").read()
-    floor = None
+    floor = None; tree = None
     for minor in (9, 10, 11, 12, 13):
         try:
-            ast.parse(src, feature_version=(3, minor)); floor = minor; break
+            tree = ast.parse(src, feature_version=(3, minor)); floor = minor; break
         except SyntaxError:
             continue
     if floor is None:
         bad.append((f, "does not parse under any feature_version 3.9..3.13")); continue
-    if floor == 9 and PEP604.search(src) and "from __future__ import annotations" not in src:
+    future = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and any(a.name == "annotations" for a in n.names) for n in tree.body)
+    if floor == 9 and pep604(tree, future):
         floor = 10
     if floor < 10 and RUNTIME.search(src):
         floor = 10

@@ -499,7 +499,7 @@ Measured: `§Deferred` → section `D`; `§C1` → section `C1`; both then reach
 
 Nothing in `crates/**` changes. What changes is the tool's reported numbers, and they change a lot — which is why this is measured rather than asserted.
 
-Prototype of §4.1.1 (atomic grammar) + §4.1.2 (left-probe over a series-normalized index, 6-word cap), run against the same tree:
+Prototype of §4.1.1 (atomic grammar) + §4.1.2 (left-probe over a series-normalized index, the word cap §10-Q2 decides), run against the same tree:
 
 ```sh
 python3 .claude/tools/_webref/census_underreport.py --delta crates '*.rs'   # ships with the fix

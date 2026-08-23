@@ -23,6 +23,12 @@ if getattr(res, "available", None) is not True:
     print("!! catalog unavailable (%r) — no round-trip census can be taken" % (getattr(res, "cause", res),))
     sys.exit(1)
 cat = res.entries
+# `available=True` with no entries (an upstream/schema regression) is not a
+# catalog: every population and partition count below would print 0 and the
+# block would certify a census that ranged over nothing (Codex R37).
+if not cat:
+    print("!! catalog available but EMPTY — no round-trip census can be taken")
+    sys.exit(1)
 bad = []
 for short in cat:
     lab = s.label_for(short)
@@ -169,7 +175,12 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   _bm no  "7. §0.1 provenance paragraph naming a base B no longer has" '26721cfa|96a8e47b' -E
   _bm yes "8. §4.2's seam list — must name the generic-core scope as a third seam" 'the third seam'
   _bm no  "9. coverage_map's changed last-resort cited as pre-existing" 'already chose' -E
-  _bm yes "10. cap-rule restatements (must become a pointer)" 'cleanup-\|per-PR ≤3\|cap'
+  # The probe-window cap is decided in ONE place (§10-Q2); a restatement with
+  # a figure elsewhere drifts from it. `yes` = the pointer exists; `no` = no
+  # site states the cap as a figure (a bare `cap` matched `caps = {…}` and the
+  # canonical rule itself, so deleting the pointer stayed green -- Codex R37).
+  _bm yes "10. the probe-cap pointer §10-Q2 is present" '§10-Q2'
+  _bm no  "10b. a probe cap restated as a figure outside §10-Q2" '[0-9]+-word cap' -E
   _bm no  "11. line-count table measured at a base where 2 files do not exist" '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' -E
   return "$rc"
 }
