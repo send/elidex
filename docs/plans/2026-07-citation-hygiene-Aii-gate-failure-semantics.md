@@ -297,7 +297,7 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 - **Recognition** — the three properties `find_coverage_map_section` and `find_table` already thread:
   **line-anchored**, **fence-aware** (`fence_state`-gated), **§3-scoped** — plus **indent-gated**: at most
   three leading spaces, because four is a CommonMark indented code block and a marker quoted inside one is
-  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ **Opener length** (Codex R27): `_fence_state_array` at A-i's head records only the first three delimiter characters, so a ```` opener is "closed" by a ``` line inside it — CommonMark §4.5 closes a fence only with a delimiter at least as long as the opener — and a quoted marker after that line reads as a declaration. A-ii's edit to `preflight.py` — **and to `grep_pass.py`, whose own fence tracker (`grep_pass.py:219-253`) mirrors preflight's with the same two defects; both consumers move onto one helper, `preflight._fence_state_array`, so a memo cannot be fenced for one gate and open for the other (Codex R30; `test_grep_pass.py` pins the shared rule)** — tracks the opener length **and the closer's shape**: a closing fence is a run of the opener's character at least as long as the opener, followed by nothing but spaces or tabs (CommonMark §4.5) — `` ````not-a-close `` is content, not a closer, which the current `FENCE_RE` (`^\s*(```|~~~)`, prefix-only) misreads (Codex R28). P11f pins both halves. ⚠ The residual census
+  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ **Opener length** (Codex R27): `_fence_state_array` at A-i's head records only the first three delimiter characters, so a ```` opener is "closed" by a ``` line inside it — CommonMark §4.5 closes a fence only with a delimiter at least as long as the opener — and a quoted marker after that line reads as a declaration. A-ii's edit to `preflight.py` — **and to `grep_pass.py`, whose own fence tracker (`grep_pass.py:219-253`) mirrors preflight's with the same two defects; both consumers move onto one helper in a **dependency-neutral module, `fences.py`** (beside `preflight.py`; `preflight.py` already imports `run_grep_pass`, so a helper owned by `preflight` would give `grep_pass` a circular import — Codex R31), so a memo cannot be fenced for one gate and open for the other (Codex R30; `test_grep_pass.py` pins the shared rule through `run_grep_pass`, P11g)** — tracks the opener length **and the closer's shape**: a closing fence is a run of the opener's character at least as long as the opener, followed by nothing but spaces or tabs (CommonMark §4.5) — `` ````not-a-close `` is content, not a closer, which the current `FENCE_RE` (`^\s*(```|~~~)`, prefix-only) misreads (Codex R28). P11f pins both halves. ⚠ The residual census
   (`rederive marker`) implements all three, not a bare grep — anything weaker makes the marker the silent
   bypass this section argues it is not.
 - **Hard-fail on ambiguity**: marker **and** a table, with or without data rows; or the marker twice.
@@ -324,7 +324,7 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 
 ### §4.3 Test siting
 
-The 8 A-i tests already live in `test_spec_labels.py`. A-ii creates `test_preflight.py` and takes the
+The 8 A-i tests already live in `test_spec_labels.py`. A-ii also creates `fences.py` (the shared fence tracker, §4.2.5), edits `grep_pass.py` onto it, and appends P11g to the existing `test_grep_pass.py` (Codex R31). A-ii creates `test_preflight.py` and takes the
 `preflight` half of `test_all_three_consumers_derive_from_specs` as **P1** — which is now A-ii's by
 construction, since A-ii is the slice that makes `preflight` a consumer at all.
 
@@ -424,6 +424,7 @@ are flipped by §4.2.1's in-process instruments.
 | **P11c** | `nospec.md` with the map absent → exit 0, and the line names the absent capability | 14 | **yes** |
 | **P11d** | `fenced-marker.md` → asserted on `find_markers(...) == []` **and** the absence of any `n/a (no spec surface…)` line — *not* on the exit code | 15 | **yes**, on those assertions |
 | **P11f** | `fenced-marker-long.md` — a ```` opener, then a ``` line, then a `` ````not-a-close `` line, then the marker: `find_markers(...) == []` (neither the shorter delimiter nor the same-length delimiter with trailing text closes the fence, CommonMark §4.5) | 15 | **yes** — at A-i's head the first of those lines closes it |
+| **P11g** (`test_grep_pass.py`) | the same `fenced-marker-long.md` through `run_grep_pass`: a bad `crates/…` path quoted *inside* that fence yields **no** hard finding (grep-pass reads the fence with the same `fences.py` tracker) — the disagreement R30 named, pinned on the grep-pass side | 15 | **yes** — `grep_pass.py`'s own tracker closes the fence early and reports the path |
 | **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** | 12 | **yes**, on the diagnostic |
 | **P13** | `allunmapped.md`, `unlabelled.md` and `malformed.md` → the `n/a (0 of N rows resolvable)` line present; **and its negative half** — absent in rows 3/6/9 | 11, 11b, 16, 3, 6, 9 | **yes** |
 | **T-net** | across A-ii's whole suite, `subprocess.run` is never called with **the resolved `WEBREF` path** — the path object, *not* a `"webref"` substring, because `grep_pass` also calls `subprocess.run` with author symbols in argv | — | **yes** |
@@ -521,10 +522,10 @@ and `SKILL.md`'s contract.
 
 ## §12 Exit criterion
 
-**(1) Green:** `test_preflight.py` passes; `git diff -- crates/` empty; `git diff -- .claude/tools/_webref/`
+**(1) Green:** `test_preflight.py` **and `test_grep_pass.py`** pass (the second carries P11g — the grep-pass side of the shared fence rule); `git diff -- crates/` empty; `git diff -- .claude/tools/_webref/`
 **empty** (A-ii touches no generic-core file).
 
-**(2) Red at A-i's head:** copy `test_preflight.py` onto A-i's landed head and run it. Non-zero, with at
+**(2) Red at A-i's head:** copy `test_preflight.py` and `test_grep_pass.py` onto A-i's landed head and run them. Non-zero, with at
 least one failure attributable to **every pin whose §6 row says "yes"**. No second list: §6's column is the
 criterion.
 
