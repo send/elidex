@@ -36,7 +36,11 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
   # suite is collectable" (Codex R12, reproduced with python3 at exit 127).
   local files n_unc uncollected
   files=$_MEASURE_OUT
-  _measure n_unc python3 -c '
+  # A quoted heredoc, not `python3 -c '…'`: a `-c` payload is wrapped in the
+  # shell's single quotes, so one apostrophe in a comment ended the program
+  # mid-line twice in one session (R15/R16). The heredoc idiom has no such
+  # hazard, so the harness uses it everywhere and carries no payload guard.
+  _measure n_unc python3 - "$files" <<'PY' || return 1
 import os, sys
 ROOTS = (".claude/tools/_webref", ".claude/skills/elidex-plan-review")
 for f in sys.argv[1].split():
@@ -45,7 +49,8 @@ for f in sys.argv[1].split():
     while d != root:
         if not os.path.isfile(os.path.join(d, "__init__.py")):
             print(f"{f}  (no __init__.py in {d})"); break
-        d = os.path.dirname(d)' "$files" || return 1
+        d = os.path.dirname(d)
+PY
   uncollected=$(_measured)
   [ -z "$uncollected" ] || { echo "!! suite(s) under a root but below a non-package directory — discover never reaches them:"; printf '%s\n' "$uncollected" | sed 's/^/     /'; return 1; }
   return 0
@@ -102,92 +107,28 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # (Codex R12). Both halves are required.
   printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [^ #-]/ {exit} f && /^    (needs|if):/ {g=1} END {exit (!f || g)}' \
     || { echo "!! \`trip-wires\` is absent or gated — §9's 'present and ungated since #496' no longer holds"; rc=1; }
-  # "invokes" = a `run:` step naming the binary; the path filter's `mise.toml`
-  # entry is a FILE, and a bare-word grep flagged it (caught on the first run).
-  # A step's command is the WHOLE scalar, block-scalar bodies (`run: |` …)
-  # included -- keeping only the `run:` key line missed every multi-line step
-  # (Codex R10). The python below collects each step's full scalar.
-  printf '%s\n' "$ci" | python3 -c '
-import re, sys
-lines = sys.stdin.read().splitlines()
-cmds = []
-i = 0
-while i < len(lines):
-    # A flow-style step, `- {run: mise --version, shell: bash}`, carries its
-    # command inside the braces (Codex R26). Single-line flow mappings only --
-    # a multi-line flow mapping is the one YAML shape this reader does not
-    # parse, and A-iii §4.1 names the reader, not a YAML parser, as the instrument.
-    fm = re.match(r"^\s*-\s*\{(.*)\}\s*$", lines[i])
-    if fm:
-        fr = re.search(r"(?:^|,)\s*[\"\x27]?run[\"\x27]?\s*:\s*([^,]*)", fm.group(1))
-        if fr:
-            cmds.append(fr.group(1).strip())
-        i += 1; continue
-    # THE READER GRAMMAR, stated once (Codex R27): a step is a block-style
-    # `run:` line (key plain or quoted, value plain, quoted, or a block scalar)
-    # or a single-line flow mapping with a `run` key (plain or quoted). What it
-    # is NOT is a YAML parser -- none is installed here -- and A-iii §4.1 names
-    # this reader as the instrument, so the claim is exactly as wide as it.
-    m = re.match(r"^(\s*)(-\s*)?[\"\x27]?run[\"\x27]?\s*:\s*(.*)$", lines[i])
-    if m:
-        indent = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
-        val = m.group(3).strip()
-        # A block scalar is ANY value whose first character is the `|` or `>`
-        # indicator -- a plain scalar cannot begin with either -- so the test is
-        # the complement, not a list. The six-value list this replaced left
-        # `|2`, `|2-`, `>2+` (indentation indicators, YAML §8.1.1) classified as
-        # inline commands and their bodies skipped (Codex R14): the exemption
-        # list left the next header form authoritative by default.
-        if val[:1] in "|>":
-            j = i + 1
-            while j < len(lines) and (not lines[j].strip() or len(lines[j]) - len(lines[j].lstrip()) > indent):
-                cmds.append(lines[j]); j += 1
-            i = j; continue
-        cmds.append(val)
-    i += 1
-# "Invokes mise" is a property of COMMAND TOKENS, not of characters around the
-# letters: three rounds (Codex R14 block-scalar headers, R15 `/usr/local/bin/mise`
-# and `./mise`, R16 `"mise"` quoted) each widened a regex by one boundary case,
-# and a regex over a shell string has no end of boundary cases. So tokenize the
-# way the shell does and ask whether any token has basename `mise`. `mise.toml`
-# (a file the path filter lists) has basename `mise.toml`, not `mise`.
-#
-# WHAT THIS DECIDES, stated so the memo claims no more (Codex R17): the token is
-# counted in ANY position -- `echo mise` is RED too. That is the safe direction:
-# a false RED makes a reader look; a false GREEN certifies a claim. Command-
-# position parsing would buy precision the claim does not need. What a static
-# read CANNOT see is an invocation reached through a variable (`"$MISE_BIN" run`),
-# built at runtime, or inside a command substitution -- `shlex` does not parse
-# `` `mise --version` `` or `$(mise …)` as commands (Codex R25) -- named as this
-# block limit in A-iii §4.1; the memo no longer says a false GREEN is
-# impossible, only where one could come from.
-import os, shlex
-def yaml_unquote(v):
-    # The collector hands over the RAW scalar; a YAML-quoted `run: "…"` or
-    # `run: …` in single quotes still wears its YAML quotes here, and shlex
-    # would read the whole value as one token. Strip the YAML layer first.
-    # (No apostrophe may appear in this payload: the shell wraps it in single
-    # quotes, and one apostrophe ends the program mid-line -- twice this session.)
-    SQ = chr(39)
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("\"", SQ):
-        body = v[1:-1]
-        return body.replace(SQ + SQ, SQ) if v[0] == SQ else body.encode().decode("unicode_escape")
-    return v
-def invokes_mise(cmd):
-    # `shlex.split` leaves control operators attached (`mise;`, `mise&&echo`,
-    # `(mise)` -- Codex R19); the lexer with `punctuation_chars` splits them
-    # off as their own tokens, which is the shell reading.
-    try:
-        lx = shlex.shlex(yaml_unquote(cmd), posix=True, punctuation_chars=True)
-        lx.whitespace_split = True
-        toks = list(lx)
-    except ValueError:
-        # Unbalanced quoting: a line the shell itself would reject. Not
-        # "no invocation" -- report it so the reading is not certified.
-        return True
-    return any(os.path.basename(t) == "mise" for t in toks)
-hit = [c for c in cmds if invokes_mise(c)]
-sys.exit(1 if hit else 0)' || { echo "!! a run step in ci.yml carries a literal mise token — §4.1's reading no longer holds"; rc=1; }
+  # "Invokes mise" was read by a hand-rolled YAML step reader for four rounds
+  # (R10 block scalars, R14 indentation indicators, R26 flow mappings, R27 the
+  # grammar statement) and a shlex tokenizer for three (R14/R15/R16); each round
+  # widened it by one shape and the memo's claim narrowed to "as far as this
+  # reader parses YAML". The claim is now the COMPLEMENT, measured over the
+  # WHOLE file with no parser: every `mise` token in ci.yml is the path-filter
+  # file entry `mise.toml`. Any other position -- a run step, `uses:`/`with:`
+  # arguments, env -- is RED (a false RED makes a reader look; a false GREEN
+  # certifies a claim). A YAML comment line (`^\s*#`) is skipped: a comment
+  # can invoke nothing, and ci.yml:151 at origin/main names `mise run` in one
+  # (measured on the first run). What a static read cannot see is an
+  # invocation through a variable (`"$MISE_BIN"`) or built at runtime; that is
+  # the block's stated limit, A-iii §4.1. Quoted heredoc: no apostrophe hazard.
+  CI_YML="$ci" python3 - <<'PY' || { echo "!! ci.yml carries a \`mise\` token that is not the \`mise.toml\` filter entry — §4.1's reading no longer holds"; rc=1; }
+import os, re, sys
+text = os.environ["CI_YML"]
+hits = [(n, l.strip()) for n, l in enumerate(text.splitlines(), 1)
+        if not l.lstrip().startswith("#") and re.search(r"\bmise\b(?!\.toml\b)", l)]
+for n, l in hits:
+    print(f"  ci.yml:{n}: {l[:100]}")
+sys.exit(1 if hits else 0)
+PY
   return "$rc"
 }
 

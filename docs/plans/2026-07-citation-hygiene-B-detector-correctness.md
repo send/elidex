@@ -6,7 +6,8 @@
 **Status**: ⚠ **DRAFT — re-sliced 2026-07-28 out of the superseded single-PR memo, NOT yet plan-reviewed.**
 `/elidex-plan-review` is required before implementation, per the umbrella. The §4.0-§4.1, §4.6 and §5
 bodies below are the measured substance and are carried **verbatim** from the pre-slice memo (measured
-2026-07-28 at `bf580047`, now `26721cfa` after that day's rebase onto `96a8e47b`); the framing sections
+2026-07-28 at the carve commit `b3a7d469`, reachable through `refs/pull/501/head` — the local-only rebases
+earlier revisions named are not on GitHub); the framing sections
 (§0-§2, §7-§13) were rewritten at re-slice time to the A/B/C boundaries. Every count is re-derived at
 B's kickoff, because **Slice A lands first and B rebases onto it**.
 
@@ -16,7 +17,7 @@ is what an enforcement tool *reports*.
 
 ### §0.1 What is B's, and what left
 
-The carve `26721cfa` is a **provenance-preserving move**, not an implementation: it moved
+The carve `b3a7d469` is a **provenance-preserving move**, not an implementation: it moved
 `commands/cite_audit.py`, `spec_labels.py`, the `coverage_map.py` / `webref_data.py` / `cli.py` /
 `DESIGN.md` edits and the `preflight.py` change out of PR-A0 onto this branch **unchanged**
 (`git diff domform-submittable-category -- .claude/` → 0 lines, still true after the rebase).
@@ -118,7 +119,7 @@ Four invariants intersect in `_attribute` and its consumers. They are listed her
 
 ### §4.0 The evidence base — one harness, every count
 
-All measurements below: **2026-07-28**, branch `webref-cite-audit-tool` @ `bf580047`, scanning `crates/**/*.rs` at clean `origin/main` content (i.e. **unswept** — PR-A0's repairs are on a different branch, so these numbers are the pre-sweep tree).
+All measurements below: **2026-07-28**, branch `webref-cite-audit-tool` @ `b3a7d469`, scanning `crates/**/*.rs` at clean `origin/main` content (i.e. **unswept** — PR-A0's repairs are on a different branch, so these numbers are the pre-sweep tree).
 
 **Baseline, straight from the tool:**
 
@@ -225,7 +226,8 @@ git grep -hoE '§ ?[0-9]+(\.[0-9]+)*\.($|[[:space:]])' -- 'crates/*.rs' | wc -l 
 **344 cites in `crates/**/*.rs`** end a sentence. The atomic form accepts all 344 and rejects all 69 truncations; the lookahead form loses both. Python 3.11+ supports `(?>...)`; the toolchain is 3.14.6. **Only the atomic form is admissible** — and
 it moves the interpreter floor: A-iii's `scripts/python-suites.sh` asserts `>= (3, 9)` and A-iii §4.3 defers
 the raise to "when B lands `(?>...)`", so **B's edit set includes raising that floor to 3.11 at every
-entry point** (the suite driver, and the direct `webref` / `preflight.py` paths that bypass it) — a
+entry point** (the suite driver, the direct `webref` / `preflight.py` paths that bypass it, **and the
+`tools` job's floor matrix leg**, A-iii §4.4 — the leg is what makes the raised floor measured) — a
 3.9/3.10 interpreter must fail the floor check, not die on a regex compile error at import (Codex R9).
 
 Rejected tokens must not vanish silently — that would trade an under-report for a different under-report. They become a **reported class** (`REJECTED-TOKEN`), which is also what makes the census re-derivable from the tool after this PR (§4.0).
@@ -292,7 +294,7 @@ The `\*` branch is the sharpest: **225** lines in `crates/**/*.rs` match `^\s*\*
 
 **Fix**: replace the per-line regex with a small **stateful Rust-comment scanner** — line comments (`//`, `///`, `//!`) from their start position, block comments (`/* … */`, nestable) tracked across lines, string/char literals (including raw strings `r#"…"#`) excluded. Extraction is then gated on "this `§` is inside a comment span", and a trailing `// … §x` attributes to the enclosing block instead of resetting it. This is the one fix with real implementation weight; it is also the one whose absence makes every bucket count approximate.
 
-⚠ **A string literal carrying `§N` is not always noise, so "excluded" must mean "reported", never "dropped"** (Codex R16). `crates/script/elidex-js/src/vm/well_known.rs` (`:22-24`) *deliberately* cites specs inside macro string arguments that exist only as source-navigation markers (the macro discards them), and `git grep -nE '"[^"]*§[0-9]' -- crates` shows the shape is not unique to that file. Gating extraction on comment spans therefore makes `cite-audit` stop *verifying* those citations, which is the right reading for verification — a string is not a citation of the code beside it — but it must not make them *invisible*: a `§`-bearing string literal is emitted as a fourth reported class, **`STRING-LITERAL`** (a count and a site list beside `REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED`; `--strict` does not fail on it). That class is the seed for **Slice D**, whose citation-repair pass converts navigation-marker strings that are meant as citations into comments, where the gate reaches them — One issue, one way: citations live in comments. B does not touch `crates/**` (§5), so B's landing records the class's count as its stated residue (C §3 item 1) rather than fixing the sites.
+⚠ **A string literal carrying `§N` is not always noise, so "excluded" must mean "reported", never "dropped"** (Codex R16). `crates/script/elidex-js/src/vm/well_known.rs` (module doc-comment `:22-24`; the `§`-bearing literal is `:245`, `"History-step UA event type names (WHATWG HTML §7.4.6.2)"`) *deliberately* cites specs inside macro string arguments that exist only as source-navigation markers (the macro discards them), and `git grep -nE '"[^"]*§[0-9]' -- crates` shows the shape is not unique to that file. Gating extraction on comment spans therefore makes `cite-audit` stop *verifying* those citations, which is the right reading for verification — a string is not a citation of the code beside it — but it must not make them *invisible*: a `§`-bearing string literal is emitted as a fourth reported class, **`STRING-LITERAL`** (a count and a site list beside `REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED`; `--strict` does not fail on it). That class is the seed for **Slice D**, whose citation-repair pass converts navigation-marker strings that are meant as citations into comments, where the gate reaches them — One issue, one way: citations live in comments. B does not touch `crates/**` (§5), so B's landing records the class's count as its stated residue (C §3 item 1) rather than fixing the sites.
 
 #### §4.1.5 — `--strict` cannot fail on the UNATTRIBUTED bucket
 
@@ -369,7 +371,7 @@ for r in bad[:6]: print("   ", r)
 PY
 ```
 
-Measured: **203 of 948** catalog shortnames do not round-trip — **200** land in the same series at a different level, **3** land in a different series entirely. The dangerous shape is the level collision: `pointerevents4` → `Pointer Events` → `pointerevents3`; `wai-aria-1.3` → `WAI-ARIA` → `wai-aria` (1.2); `webaudio-1.1` → `Web Audio API 1.1` → `webaudio-1.0`; `cssom-1` → `CSSOM` → `cssom`. Consequence: `coverage-map` emits a label, `preflight` reads it back as a **different spec level**, and citation verification silently runs against the wrong document.
+Measured: **203 of 948** catalog shortnames do not round-trip — **200** land in the same series at a different level, **3** land in a different series entirely. The dangerous shape is the level collision: `pointerevents4` → `Pointer Events` → `pointerevents3`; `wai-aria-1.3` → `WAI-ARIA` → `wai-aria` (1.2); `webaudio-1.1` → `Web Audio API 1.1` → `webaudio-1.0`; `cssom-1` → `CSSOM` → `cssom`. Consequence under the carve's first-wins scan (`b3a7d469`'s resolver, which B replaces): `coverage-map` would emit a label that `preflight` reads back as a **different spec level**, and citation verification would run against the wrong document.
 
 There is a second, smaller hole in the same function: the shortname branch is `if key in catalog` with `key` already lower-cased, so a mixed-case catalog shortname never round-trips — measured, `shortname_for("DOM-Level-2-Style")` → `None`.
 
@@ -377,11 +379,11 @@ There is a second, smaller hole in the same function: the shortname branch is `i
 
 1. `SPECS` pinned map wins, verbatim.
 2. An exact **shortname** match (case-insensitively) wins next, resolving to that spec verbatim.
-3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series**; a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against, and the census shows both shapes — `Cookies: HTTP State Management Mechanism` is the **title** of both `layered-cookies` and `rfc6265bis`; `HTTP/2` is `rfc9113`'s title and `rfc7540`'s shortTitle (Codex R32). `DOM` is the third measured collision and is *not* ambiguous: rule 2 resolves it as the shortname `dom` before rule 3 sees `DOM-Level-2-Style`'s shortTitle.
+3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series**; a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against. Census on the catalog `spec_labels` actually reads — w3c/webref `ed/index.json` (`sources/webref_data.py` `BASE`; **752** entries at 2026-08-23T00:54Z — not browser-specs' own index, whose entry set differs) — finds **two** labels whose title/shortTitle candidates span series: `Cookies: HTTP State Management Mechanism` is the title *and* shortTitle of both `layered-cookies` and `rfc6265bis` (genuinely ambiguous → `UNKNOWN-SPEC`), and `DOM` is the shortTitle of both `dom` and `DOM-Level-2-Style` — *not* ambiguous, because rule 2 resolves it as the shortname `dom` before rule 3 runs (Codex R32; the cumulative `/elidex-review` re-gate caught an earlier draft that measured a different catalog and named a third, `HTTP/2`, which does not collide here: `rfc7540` is absent and `HTTP/2` is `rfc9113`'s shortTitle alone).
 
 Rule 3 is what collapses the level ambiguity structurally: the catalog carries `series.currentSpecification` for every entry, so `cssom`/`cssom-1`, `selectors`/`selectors-4`, `pointerevents`/`pointerevents4` each fold onto one shortname (**661 distinct series** vs 948 shortname keys). A label that names a *level* still resolves to that level.
 
-Paired with it: **`label_for` must return a label that round-trips, or the shortname.** Measured, **747 of 948** round-trip under the index; the other 201 render as their shortname in `coverage-map` rows. Less pretty, never wrong — and it is the same last-resort `coverage_map._spec_label` already chose (`coverage_map.py` docstring: "The last-resort now returns the shortname itself, which `shortname_for` DOES round-trip"). The round-trip becomes a test over the whole catalog, not a sample.
+Paired with it: **`label_for` must return a label that round-trips, or the shortname.** Measured, **747 of 948** round-trip under the index; the other 201 render as their shortname in `coverage-map` rows. Less pretty, never wrong — and it is the last-resort A-i's `coverage_map._spec_label` now uses — A-i changed it from the upper-cased shortname to the shortname itself (`coverage_map.py` docstring: "The last-resort now returns the shortname itself, which `shortname_for` DOES round-trip"). The round-trip becomes a test over the whole catalog, not a sample.
 
 #### §4.1.9 — `errors="ignore"` and `except OSError: continue` drop a whole file
 
@@ -467,7 +469,7 @@ for c in ['ECMA-262 §Deferred marker','WHATWG HTML §C1 note','WHATWG HTML §4.
 ```
 Measured: `§Deferred` → section `D`; `§C1` → section `C1`; both then reach `verify_citation` → non-zero → **HARD FAIL** on a memo whose `§Deferred` / `§C1` are internal markers. (The range case is the mirror image: `preflight` yields `4.10.21.2`, the *correct* first endpoint, while `cite_audit` yields `4.10.21`. Two grammars, opposite defects — the clearest possible statement that there should be one.)
 
-**Fix**: `section_sort.py` — already the established home for section-number syntax and already shared by resolver / aoid / heading / inventory — exports one `SECTION_NUMBER_RE`. `cite_audit` and `preflight` both import it. `resolver.py:211`'s discriminator is a *routing* predicate (number vs AO name), not a token grammar, and stays. **Slice A left `preflight.SECTION_REF_RE` byte-identical on purpose** (A §4.2) so this stays one edit rather than a merge.
+**Fix**: `section_sort.py` — already the established home for section-number syntax and already shared by resolver / aoid / heading / inventory — exports one `SECTION_NUMBER_RE`. `cite_audit` and `preflight` both import it. `resolver.py:211`'s discriminator is a *routing* predicate (number vs AO name), not a token grammar, and stays. **Slice A leaves `preflight.SECTION_REF_RE` untouched** (neither A-i §4.2's artifact list nor A-ii's edit set names it; A-ii `:131` records it as "untouched") so this stays one edit rather than a merge.
 
 ### §4.7 What is mechanically checked, and what is not
 
@@ -533,7 +535,7 @@ New/changed tests, by file. Every one must **fail against the unfixed detector**
 **`test_cite_audit.py`** (36 today):
 - **T1** `TestTokenIntegrity` — 8 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7`, `§4.10.5.foo`, `§4.10.5..1` all REJECTED; `§4.10.5.` and `§4.10.5, and` accepted. Pins the atomic form and, by the first case, forbids the lookahead form.
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
-- **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. **T3b** a 9-word catalog-only label: attributed with the catalog available, `UNKNOWN-SPEC` with `_catalog().available is False` (§10 Q2's offline rule). This is the pin that closes `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`): a CSS-module label resolving through the catalog is the whole of that slot.
+- **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. **T3b** a 9-word catalog-only label: attributed with the catalog available, `UNKNOWN-SPEC` with `_catalog().available is False` (§10 Q2's offline rule). T3/T3b pin the **library** side of `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`); the slot's subject is the **gate**, so its closing pin is **P-CSS** below, not T3.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
 - **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause. The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
 - **T6** `--strict` exits 1 on an UNATTRIBUTED-only tree (the `§4.10.79.1` case).
@@ -551,11 +553,12 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 - **S11** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
 - **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; `_catalog().available is False` with `cause` naming `URLError` — the *unavailable* branch, not an available empty `entries`.
 - **S13** pinned `SPECS` win over the catalog for every pinned key.
-- **S14** cross-series ambiguity: `shortname_for("Cookies: HTTP State Management Mechanism")` is `None` (title of both `layered-cookies` and `rfc6265bis`), `shortname_for("HTTP/2")` is `None` (`rfc9113` title vs `rfc7540` shortTitle), and `shortname_for("DOM")` is `"dom"` (rule 2 precedes rule 3); `label_for("layered-cookies")` and `label_for("rfc6265bis")` each return their shortname, never the shared title.
+- **S14** cross-series ambiguity, on the live catalog and on a two-series stub: `shortname_for("Cookies: HTTP State Management Mechanism")` is `None` (title and shortTitle of both `layered-cookies` and `rfc6265bis`); `shortname_for("DOM")` is `"dom"` (rule 2 precedes rule 3, so `DOM-Level-2-Style`'s shortTitle never competes); `label_for("layered-cookies")` and `label_for("rfc6265bis")` each return their shortname, never the shared title. The stub half keeps the pin red-able if the upstream index ever drops one of the pair.
 
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):
 - **P4** catalog unavailable -> hard fail, and the remedy line does **not** say "add the spec to `spec_labels.py::SPECS`" (§4.1.7's discriminated `_catalog()` reaching the gate).
 - **P5** `parse_spec_cell` on `§Deferred` / `§C1` yields no citation (shared `SECTION_NUMBER_RE`, §4.6.3).
+- **P-CSS** a plan memo whose §3 table cites `CSS Text 3 §4.1.3` passes `preflight.py`'s citation gate with the catalog available — `parsed citations: 1`, verified through `webref` — and reports `UNKNOWN-SPEC` (hard fail, catalog-unavailable remedy) with `_catalog().available is False`. **This is the one closing pin of `#11-preflight-css-module-labels`**: the slot is about the gate resolving a CSS-module label, and T3/T3b (cite-audit path) cannot witness that. Named by the ledger row and A-i §13 item 4; no second name.
 
 WARN: A's P1-P6 already occupy that file. Read it before writing -- A's P5 pins the *tools-unavailable* remedy string and B's P4 pins the *catalog-unavailable* one: two causes, two strings, one file.
 
@@ -600,7 +603,7 @@ Baselines are what exists at A's landed head — the pre-carve `wc -l` figures a
 | `.claude/tools/_webref/commands/cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
 | `.claude/tools/_webref/spec_labels.py` | A-i's landed size | +~70 | reverse index + discriminated `_catalog()` |
 | `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
-| `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S13 appended to A-i's S1–S8 + T-net |
+| `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S14 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
 | `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~30 | P4/P5 appended to A's file |
 | `.claude/tools/_webref/census_underreport.py` | — | ~45 | new (§4.0) |
@@ -698,17 +701,17 @@ cd /tmp/citeaudit-pre
 # exits non-zero when any expected failure is missing.
 bash scripts/python-suites.sh -v > /tmp/citeaudit-pre.log 2>&1; echo "suite status: $?"
 missing=0
-for pin in TestTokenIntegrity TestCatalogWidening TestLabelBoundaries TestCommentSpans \
-           test_strict test_corrupt test_skipped test_emitter test_cli_main \
-           test_round_trip test_level test_mixed_case test_unavailable test_pinned \
-           test_catalog_unavailable test_parse_spec_cell; do
-  grep -qE "^(FAIL|ERROR): .*${pin}" /tmp/citeaudit-pre.log || { echo "!! expected red, not red: $pin"; missing=1; }
+# Pin IDs, not placeholder test names: every B test is named `test_<PIN>_…`
+# (`test_T3_css_module_label_resolves`, `test_S14_cross_series_is_ambiguous`),
+# so the recipe is runnable as written and §6's column stays the only list.
+for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 C1 S9 S10 S11 S12 S13 S14 P4 P5 P-CSS; do
+  grep -qE "^(FAIL|ERROR): test_${pin//-/_}_" /tmp/citeaudit-pre.log || { echo "!! expected red, not red: $pin"; missing=1; }
 done
 [ "$missing" -eq 0 ] && echo "every pin red against the unfixed detector" || exit 1
 ```
 
-The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. The loop names each pin's test identifier (the names above are the shape; B's implementer substitutes the
-exact `test_*` names it lands, one per T1–T9, C1, S9–S13, P4, P5) and the recipe fails unless every one is
+The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. The loop names each pin by its §6 ID and B's tests carry that ID in their name (`test_<PIN>_…`, one per
+T1–T9, C1, S9–S14, P4, P5, P-CSS), so the recipe runs as written and fails unless every one is
 individually red. A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).

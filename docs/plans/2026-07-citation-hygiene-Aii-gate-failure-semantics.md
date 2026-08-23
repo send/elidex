@@ -324,7 +324,7 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 
 ### §4.3 Test siting
 
-The 8 A-i tests already live in `test_spec_labels.py`. A-ii also creates `fences.py` (the shared fence tracker, §4.2.5), edits `grep_pass.py` onto it, and appends P11g to the existing `test_grep_pass.py` (Codex R31). A-ii creates `test_preflight.py` and takes the
+A-i's 15 tests already live in `test_spec_labels.py`. A-ii also creates `fences.py` (the shared fence tracker, §4.2.5), edits `grep_pass.py` onto it, and appends P11g to the existing `test_grep_pass.py` (Codex R31). A-ii creates `test_preflight.py` and takes the
 `preflight` half of `test_all_three_consumers_derive_from_specs` as **P1** — which is now A-ii's by
 construction, since A-ii is the slice that makes `preflight` a consumer at all.
 

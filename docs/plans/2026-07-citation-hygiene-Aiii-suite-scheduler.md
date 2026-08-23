@@ -78,13 +78,14 @@ job is ungated (§4.2).
 ### §4.1 The hole
 
 `ci.yml`'s `changes` filter has two sets, `rust` and `config`; **`.claude/**` is in neither**, and all three
-jobs are gated on one of the two. No `run:` step in `ci.yml` carries a literal `mise` command token (what
-`rederive filters` can decide from a static read — every shell token, control operators split off, in any
-position, so a false RED is possible; a false GREEN can come only from what a static read cannot see — an
-invocation reached through a variable, built at runtime, or inside a command substitution (`` `…` `` /
-`$(…)`, which `shlex` does not parse as commands) — which is the block's stated limit, Codex R17/R19/R25. The reader's
-grammar is stated once in the block: block-style or single-line flow-style steps, `run` key plain or quoted,
-value plain, quoted, or a block scalar; it is not a YAML parser, and the claim is exactly as wide as it, Codex R27). `codeql.yml` analyses `[actions, rust]` on
+jobs are gated on one of the two. **Every `mise` token in `ci.yml` is the path-filter file entry `mise.toml`**
+— measured over the whole file text, not by a step reader (`rederive filters`; the hand-rolled YAML reader
+that this replaced widened one shape per round for four rounds, R10/R14/R26/R27, and the claim had narrowed
+to "as far as the reader parses YAML"). A `mise` token in any other position — a `run:` step, `uses:`/`with:`
+arguments, `env` — is RED (YAML comment lines are skipped: a comment invokes nothing, and `ci.yml:151` names
+`mise run` in one); a false RED makes a reader look, a false GREEN certifies a claim. A
+false GREEN can come only from what a static read cannot see — an invocation reached through a variable
+(`"$MISE_BIN"`) or built at runtime — which is the block's stated limit (Codex R17/R25). `codeql.yml` analyses `[actions, rust]` on
 push plus a weekly cron, with no `pull_request` trigger; `audit.yml` is `cargo audit` on a cron. ⇒ a
 `.claude/**`-only pull request triggers **zero validation jobs** — `Detect changes` (the filter job itself:
 no `needs`, no `if`, checkout + `dorny/paths-filter`) always runs and validates nothing, and since PR #496 the
@@ -166,10 +167,13 @@ evaluated at definition time (one without `from __future__ import annotations` �
 in `cache.py` and `preflight.py` are *under* that import, so they are strings on 3.9; Codex R17 read them as
 3.10-only), and greps a sample of runtime-only 3.10+ names. ⚠ A static read cannot enumerate every newer-runtime API
 (`tomllib`, `Path.walk`, an evaluated `Alias = str | None` under a future import — Codex R21); the only
-proof is running the suites under 3.9, and CI runs them under the runner's `python3` only. So the floor is
-what `python-suites.sh` asserts (`sys.version_info >= (3, 9)`) and what the job echoes (`python3 -VV`),
-not a property this memo has measured. Slice B raises the floor
-when B lands `(?>...)`. `SKILL.md`'s Step 0 invokes `preflight.py` directly, bypassing the script;
+proof is running the suites under 3.9 — so **the `tools` job runs them there**: a second matrix leg
+(`actions/setup-python` with `python-version: "3.9"`, the declared floor) beside the runner's `python3`
+(cumulative `/elidex-review` over the R6–R32 fix delta: a floor that CI does not run is declared, not
+measured, and the static pre-check's 3.10+ name list is an enumerated sample). With the leg, the floor is a
+property CI measures on every PR; `python-suites.sh`'s `sys.version_info >= (3, 9)` assertion and the job's
+`python3 -VV` echo remain the *statement* of it. Slice B raises the floor when B lands `(?>...)`, and the
+matrix leg's `python-version` moves with it (B §4.1.1 names the leg in its edit set). `SKILL.md`'s Step 0 invokes `preflight.py` directly, bypassing the script;
 unaffected today, marked UNCHECKED in §6.
 
 ### §4.5 What "enforced" can honestly mean here
@@ -293,6 +297,9 @@ observation yields zero jobs") is falsified by PR #496 independently of anything
 
 **(5) The job runs the driver:** Q6 — the `tools` job's step set names `scripts/python-suites.sh`. (3) alone
 is satisfiable by a job that runs nothing.
+
+**(6) The floor is measured:** the `tools` job's matrix carries a `python-version: "3.9"` leg and that leg is
+green (§4.4). A floor the job does not run is declared, not measured.
 
 ---
 

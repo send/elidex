@@ -241,42 +241,16 @@ for name in roster:
     if name not in defined:
         bad.append((DISPATCH.name, 0, name, "<dispatched by `all` but defined nowhere>"))
 
-# A `python3 -c '…'` payload is wrapped in single quotes by the shell, so ONE
-# apostrophe inside it ends the program mid-line and the block reports `127`
-# (command not found) -- or, with an even count, runs a DIFFERENT program than
-# the one on the page. It happened twice in one session (R15 and R16 fixes),
-# both times inside a comment added by the fix; the first version of THIS guard
-# then mis-found the payload end and reddened two sound blocks. So: read the
-# payload exactly as bash does -- everything up to the FIRST apostrophe, no
-# escapes inside single quotes -- and require (a) that text to be a complete
-# Python program (`compile`), and (b) what follows the closing quote on that
-# line to be shell tail, not prose. Text-scanning heuristics are what failed.
-PAYLOAD_OPEN = re.compile(r"python3 -c '$")
-SHELL_TAIL = re.compile(r"""^\s*($|\|\||\||&&|;|"|\$|\)|\}|<)""")
+# No `python3 -c '…'` payload may exist: the shell wraps `-c` in single quotes,
+# so one apostrophe inside ends the program mid-line (R15/R16), and the guard
+# that read payloads "as bash does" mis-found an end and reddened sound blocks.
+# The harness idiom is the quoted heredoc (`python3 - <<'PY'`), which has no
+# such hazard; a `-c` payload is a defect of idiom, not a thing to parse.
+NEEDLE = "python3 -c " + chr(39)   # built, not written: the literal would match this line
 for path in parts:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    i = 0
-    while i < len(lines):
-        if PAYLOAD_OPEN.search(lines[i]):
-            j = i + 1
-            payload = []
-            while j < len(lines) and "'" not in lines[j]:
-                payload.append(lines[j]); j += 1
-            if j >= len(lines):
-                bad.append((path.name, i + 1, "<python3 -c payload>", "payload never closes"))
-                i = j; continue
-            before, _, after = lines[j].partition("'")
-            payload.append(before)
-            try:
-                compile("\n".join(payload), f"{path.name}:{i+1}", "exec")
-            except SyntaxError as e:
-                bad.append((path.name, i + 1 + (e.lineno or 0), "<python3 -c payload>",
-                            f"payload as the shell passes it does not compile: {e.msg}"))
-            if not SHELL_TAIL.match(after):
-                bad.append((path.name, j + 1, "<python3 -c payload>",
-                            "apostrophe closes the payload mid-text: " + lines[j].strip()[:48]))
-            i = j
-        i += 1
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if NEEDLE in line and not line.lstrip().startswith("#"):
+            bad.append((path.name, n, "<python3 -c payload>", "use the quoted-heredoc idiom"))
 
 print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster")
 for fn, lineno, name, last in sorted(bad):

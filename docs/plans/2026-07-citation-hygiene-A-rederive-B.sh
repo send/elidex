@@ -88,6 +88,7 @@ offline() {  # B §4.1.7 — the offline CONTRACT: no SystemExit escapes the cat
   XDG_CACHE_HOME="$C" python3 - <<'PY' || rc=1
 import sys, urllib.request, urllib.error, os
 sys.path.insert(0, ".claude/tools")
+import re
 urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(urllib.error.URLError("offline"))
 from _webref import spec_labels
 if not hasattr(spec_labels, "_catalog"):
@@ -114,7 +115,7 @@ if getattr(cat, "available", None) is not False:
 if getattr(cat, "entries", None) != {}:
     print("!! unavailable result carries entries %r — B §4.1.7 requires entries={}" % (getattr(cat, "entries", None),))
     sys.exit(1)
-if "URLError" not in str(getattr(cat, "cause", "")):
+if not re.match(r"URLError\b", str(getattr(cat, "cause", ""))):
     print("!! unavailable result does not name the poisoned URLError as cause: %r" % (getattr(cat, "cause", None),))
     sys.exit(1)
 print("catalog offline -> available=False, entries={}, cause=%r" % (cat.cause,))
@@ -158,12 +159,16 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   _bm yes "1. file-creation claims for files A creates" 'test_spec_labels'
   _bm yes "2. pin names colliding with A's" '^\- \*\*P[0-9]' -E
   _bm yes "3. spec_labels.py line anchors" 'spec_labels\.py:'
-  _bm yes "4. Slice A section refs (swapped §4.1/§4.2)" 'Slice A §|A §4' -E
-  _bm yes "5. §4.1.8's falsified consequence sentence" 'wrong document|silently runs against' -E
+  # Items 4/5/7/9 were fixed in B's text by PR #501 (cumulative /elidex-review
+  # over R6-R32: a control that pins a known-false sentence in place blesses the
+  # defect -- the inverse of `offline`'s R17 lesson). They are now `no`, each
+  # pattern being the defect's own wording.
+  _bm no  "4. Slice A section refs (swapped §4.1/§4.2)" 'byte-identical on purpose|\(A §4\.[12]\)' -E
+  _bm no  "5. §4.1.8's falsified consequence sentence" 'silently runs against' -E
   _bm no  "6. present-tense 'extant defect' framing of what the carve did" 'is an? (extant|existing) defect|today the resolver|currently (the )?resolv' -E
-  _bm yes "7. §0.1 provenance paragraph naming a base B no longer has" 'branch(es)? from|carve|base' -E
+  _bm no  "7. §0.1 provenance paragraph naming a base B no longer has" '26721cfa|96a8e47b' -E
   _bm yes "8. §4.2's seam list — must name the widening as a third seam" 'widened the generic-tree scope to all of .\.claude/tools/' -E
-  _bm yes "9. coverage_map's changed last-resort cited as pre-existing" '_spec_label|last.resort|upper\(\)' -E
+  _bm no  "9. coverage_map's changed last-resort cited as pre-existing" 'already chose' -E
   _bm yes "10. cap-rule restatements (must become a pointer)" 'cleanup-\|per-PR ≤3\|cap'
   _bm no  "11. line-count table measured at a base where 2 files do not exist" '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' -E
   return "$rc"
