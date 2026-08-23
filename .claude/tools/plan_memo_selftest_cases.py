@@ -633,3 +633,25 @@ case("POSITIVE", "(def) a would-be MULTILINE definition that interrupts a paragr
                  "shortcut naming it is a schema miss, not an exempt citation-style shortcut",
      build(), "text\n[sib]:\nslice-9z-sib.md\nSee [sib]", 1, **SIB,
      measure=("schema", "unresolved reference 'sib'"))
+
+
+# ------------------------------------------------- PR #510 Codex R2 controls --
+
+# R2-1: §4.7 -- the title may sit on the line after the destination
+case("NEGATIVE", "(def) a next-line title is part of the definition, not prose: an id in it is no site",
+     build(), '[sib]: slice-9z-sib.md\n"9z owns it"\n\nSee [sib].', 0)
+rcase("NEGATIVE", "(def) a next-line title holding `[x](missing.md)` is a title, not a link: rc 0",
+      build(), '[sib]: slice-9z-sib.md\n"see [x](missing.md)"\n\nSee [sib].', 0)
+case("POSITIVE", "(def) a next line that is NOT a valid title is prose (the definition ends at the "
+                 "destination)",
+     build(), '[sib]: slice-9z-sib.md\n"9z owns it\n\nSee [sib].', 1)
+
+# R2-2: §6.4 -- an image is not a link, and a link may wrap one
+case("POSITIVE-NOVEL", "(link) a link wrapping an IMAGE `[![alt](img.png)](sib.md)` links the sibling; "
+                       "`img.png` is never a memo",
+     build(), "See [![alt](img.png)](slice-9z-sib.md).", 1, **SIB)
+
+# R2-3: the reference FORM comes from the lexer's escape-honouring parse
+case("POSITIVE", "(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, "
+                 "not an exempt shortcut",
+     build(), "See [foo\\]][missing].", 1, measure=("schema", "unresolved reference 'missing'"))

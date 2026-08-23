@@ -10,7 +10,8 @@ code spans (CommonMark §6.1, backtick strings of equal length) are lexed, then
 links (CommonMark §6.3 / §4.7) over the stream with code spans masked.
 
 What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
-HTML blocks, §5 container blocks (block quotes §5.1, list items §5.2 -- a
+HTML blocks, §6.4 images (`![alt](dest)` is recognised only as NOT a link:
+its destination never joins the population, its text and tail are prose), §5 container blocks (block quotes §5.1, list items §5.2 -- a
 list-item or `>` line only ENDS a paragraph here, its content is not
 re-parsed as a nested document), §6.5 autolinks, §2.5 entity references.
 Nothing here detects them.
@@ -437,6 +438,14 @@ def _bracket_text(s, i):
     return None
 
 
+def _is_image(s, i):
+    """Whether the `[` at `s[i]` opens an image (§6.4): an unescaped `!`
+    stands right before it.  Images are not links -- their destination never
+    joins the population, their text is read as written -- and a link may
+    wrap one (`[![alt](img.png)](sib.md)` links `sib.md`)."""
+    return i > 0 and s[i - 1] == "!" and not _escaped(s, i - 1)
+
+
 def _inline_tail(s, k):
     """After `](` at `k` -> (destination, end after `)`) or None.  §6.3 inline
     link: optional spaces/tabs/one line ending, an optional destination, then
@@ -465,12 +474,14 @@ def links(s, defs):
     inline `[text](dest "title")`; full `[text][label]`; collapsed `[text][]`;
     shortcut `[text]` (a link label not followed by `[]` or a link label).
 
-    The second list is every full or collapsed reference whose label `defs`
-    does not define: such a site is prose under §6.3, and a population the
-    author meant to link is silently lost unless the caller reports it.  A
-    shortcut `[text]` is not listed (every `[C19]` citation is one); the memo
-    reports a shortcut only when a definition of its label exists somewhere
-    the grammar cannot read it.
+    The second list, `[(offset, label, form)]`, is every reference whose
+    label `defs` does not define, with its FORM (`"full"` / `"collapsed"` /
+    `"shortcut"`) decided here, by the one bracket parse that honours
+    escapes -- a caller never re-walks the raw text to tell the forms apart.
+    Such a site is prose under §6.3, and a population the author meant to
+    link is silently lost unless the caller reports it; the memo exempts a
+    shortcut (every `[C19]` citation is one) unless a definition of its label
+    exists somewhere the grammar cannot read it.
     """
     out, unresolved, i = [], [], 0
     while True:
@@ -484,6 +495,9 @@ def links(s, defs):
             k -= 1
         if (i - k) % 2:
             i += 1
+            continue
+        if _is_image(s, i):
+            i += 1          # §6.4: `![alt](dest)` is an image, not a link
             continue
         bt = _bracket_text(s, i)
         if bt is None:
@@ -514,7 +528,7 @@ def links(s, defs):
                     i = close + 2
                     continue
                 if not inner:
-                    unresolved.append((i, text))
+                    unresolved.append((i, text, "collapsed"))
                 i += 1
                 continue
             raw, end = link_label(s, close)
@@ -525,7 +539,7 @@ def links(s, defs):
                     i = end
                     continue
                 # a link label follows, so `[text]` is not a shortcut either
-                unresolved.append((i, raw))
+                unresolved.append((i, raw, "full"))
                 i += 1
                 continue
         if not inner and _has_label_content(text) and len(text) <= 999:
@@ -534,7 +548,7 @@ def links(s, defs):
                 out.append((tail, close, dest))
                 i = close
                 continue
-            unresolved.append((i, text))
+            unresolved.append((i, text, "shortcut"))
         i += 1
     return out, unresolved
 
@@ -561,6 +575,15 @@ def reference_definitions(s):
         if dest is None:
             break
         eol = _line_end(s, k)
+        if eol is not None:
+            # §4.7: the title may sit on the NEXT line.  Try it; if that line
+            # is not a valid title (or is followed by more than spaces/tabs),
+            # the definition ends at the destination and the line is prose.
+            k2 = _skip_ws(s, k)
+            t = link_title(s, k2) if k2 > k else None
+            eol2 = _line_end(s, t) if t is not None else None
+            if eol2 is not None:
+                eol = eol2
         if eol is None:
             # a title may follow on this line or the next
             k2 = _skip_ws(s, k)
@@ -606,8 +629,8 @@ class Lexed:
     paragraph only -- a table cell is inline content under GFM §4.10 and
     holds no §4.7 definition, so `cell=True` parses none); `tokens` =
     [(start, end, "cite" | "file")].  `resolve` then sets `links` =
-    [(tail_start, end, destination)] and `unresolved` = [(offset, label)] of
-    the references no definition answers; `mask` is set by the disposition
+    [(tail_start, end, destination)] and `unresolved` = [(offset, label,
+    form)] of the references no definition answers; `mask` is set by the disposition
     step in `plan_memo_tables.py` once the row ids are known."""
 
     __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens",
@@ -629,7 +652,7 @@ class Lexed:
         start = self.defs_end
         found, unresolved = links(self._masked[start:], defs)
         self.links = [(a + start, b + start, dest) for a, b, dest in found]
-        self.unresolved = [(a + start, label) for a, label in unresolved]
+        self.unresolved = [(a + start, label, form) for a, label, form in unresolved]
 
     def orphan_definitions(self):
         """[(offset, label)] of definition-shaped lines the grammar could not

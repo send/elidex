@@ -151,7 +151,7 @@ MUTANTS = [
       "character that is not a space, tab, or line ending)"]),
     ("link: `[text]` followed by a link label is not a shortcut", LEXER,
      '                # a link label follows, so `[text]` is not a shortcut either\n'
-     '                unresolved.append((i, raw))\n'
+     '                unresolved.append((i, raw, "full"))\n'
      '                i += 1\n                continue',
      '                pass',
      ["(link) `[label][undefined]` is neither a full reference nor a shortcut (§6.3 Example 571: "
@@ -282,8 +282,8 @@ MUTANTS = [
      'ID_CELL_BLANKS = frozenset({"", "-", "\\u2013"})',
      ["(id) an id cell `—` is a literal blank: a deliberate non-row, rc 0"]),
     ("4.5 link: a citation-grammar label is exempt in every reference form", TABLES,
-     'exempt = _CITE_LABEL.fullmatch(key) is not None or _is_shortcut(lx, off)',
-     'exempt = _is_shortcut(lx, off)',
+     'exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"',
+     'exempt = form == "shortcut"',
      ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
       "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
     # -- PR #510 Codex R1
@@ -309,6 +309,20 @@ MUTANTS = [
      '            defs, _ = reference_definitions(s[off:])', '            defs, _ = reference_definitions(s[off:end])',
      ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
       "shortcut naming it is a schema miss, not an exempt citation-style shortcut"]),
+    # -- PR #510 Codex R2
+    ("R2-1 def: the next-line title is tried before the destination-only ending", LEXER,
+     '            t = link_title(s, k2) if k2 > k else None', '            t = None',
+     ["(def) a next-line title is part of the definition, not prose: an id in it is no site",
+      "(def) a next-line title holding `[x](missing.md)` is a title, not a link: rc 0"]),
+    ("R2-2 link: `![` opens an image, which is not a link", LEXER,
+     '    return i > 0 and s[i - 1] == "!" and not _escaped(s, i - 1)', '    return False',
+     ["(link) a link wrapping an IMAGE `[![alt](img.png)](sib.md)` links the sibling; `img.png` is "
+      "never a memo"]),
+    ("R2-3 link: the reference form is the lexer's (re-inject a raw bracket walk)", TABLES,
+     'or form == "shortcut"',
+     'or "][" not in lx.text[off:lx.text.find("]", off) + 2]',
+     ["(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, not an "
+      "exempt shortcut"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -323,10 +337,10 @@ MUTANTS = [
      '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
     ("F13 link: an unanswered full reference is reported", LEXER,
-     '                unresolved.append((i, raw))', '                pass',
+     '                unresolved.append((i, raw, "full"))', '                pass',
      ["(link) a full reference no definition answers is a schema miss"]),
     ("F13 link: a shortcut with an orphan definition is reported", LEXER,
-     '            unresolved.append((i, text))\n        i += 1', '            pass\n        i += 1',
+     '            unresolved.append((i, text, "shortcut"))\n        i += 1', '            pass\n        i += 1',
      ["(link) a shortcut whose only definition sits mid-paragraph is a schema miss"]),
     ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", TABLES,
      '            for lineno, label in memo.unresolved_references():\n'

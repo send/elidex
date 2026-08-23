@@ -438,7 +438,7 @@ class Memo:
         out = []
 
         def walk(lx, lineno_of, block=None):
-            for off, label in lx.unresolved:
+            for off, label, form in lx.unresolved:
                 key = normalize_label(label)
                 # a `[C19]`-style citation id is never a memo reference, in ANY
                 # form -- shortcut, full (`[C19][C20]` adjacent citations) or
@@ -446,7 +446,10 @@ class Memo:
                 # prose too.  An orphan definition of the label (one the grammar
                 # could not read) is still reported, citation or not, except at
                 # the definition's own bracket.
-                exempt = _CITE_LABEL.fullmatch(key) is not None or _is_shortcut(lx, off)
+                # the FORM comes from the lexer's one bracket parse (escapes
+                # honoured); a raw re-walk here once read `[foo\]][missing]`
+                # as a shortcut and exempted it
+                exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"
                 if exempt and (key not in orphans or (block, off) in orphans[key]):
                     continue
                 site = (lineno_of(off), label)
@@ -469,21 +472,6 @@ class Memo:
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 # `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
 _CITE_LABEL = re.compile(r"[a-z][0-9]+")
-
-
-def _is_shortcut(lx, off):
-    """Whether the unresolved reference at `off` is a bare `[text]` (no `[`
-    follows its closing bracket) rather than a full / collapsed form."""
-    depth, j, s = 0, off, lx.text
-    while j < len(s):
-        if s[j] == "[":
-            depth += 1
-        elif s[j] == "]":
-            depth -= 1
-            if depth == 0:
-                return not (j + 1 < len(s) and s[j + 1] == "[")
-        j += 1
-    return True
 
 
 class Population:
