@@ -674,3 +674,8 @@ case("NEGATIVE", "(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)`
 # R3-2: a root-relative destination is a site URL, never a sibling on disk
 rcase("NEGATIVE", "(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
       build(), "See [site docs](/guide.md).", 0)
+
+# re-gate MIN-3: one label grammar (`link_label`) decides what a shortcut label is
+rcase("NEGATIVE", "(link) bracket text holding unescaped brackets is not a label (§6.3), so "
+                  "`[the [x] walk][]` is no collapsed reference: rc 0",
+      build(), "See [the [x] walk][] here.", 0)

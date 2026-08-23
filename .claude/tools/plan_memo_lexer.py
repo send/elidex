@@ -7,12 +7,14 @@ Order (plan §2 "Lexing order"): fenced blocks (CommonMark §4.5) are masked
 first; a GFM table row is split on RAW unescaped `|` (GFM §4.10, incl. inside
 backticks -- Example 200); per block inline content (a paragraph or a cell)
 code spans (CommonMark §6.1, backtick strings of equal length) are lexed, then
-links (CommonMark §6.3 / §4.7) over the stream with code spans masked.
+links and images (CommonMark §6.3 / §6.4 / §4.7, by Appendix A's bracket
+stack) over the stream with code spans masked -- an image's bracket
+structure is parsed so that it is not a link and a link may wrap it; its
+destination never joins the population, its alt text is prose, its tail is
+masked.
 
 What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
-HTML blocks, §6.4 images beyond their bracket structure (`![alt](dest)` is
-parsed so that it is not a link and a link may wrap it: its destination
-never joins the population, its alt text is prose, its tail is masked), §5 container blocks (block quotes §5.1, list items §5.2 -- a
+HTML blocks, §5 container blocks (block quotes §5.1, list items §5.2 -- a
 list-item or `>` line only ENDS a paragraph here, its content is not
 re-parsed as a nested document), §6.5 autolinks, §2.5 entity references.
 Nothing here detects them.
@@ -156,27 +158,18 @@ def _cell(line, a, b, breaks):
 def split_row(line):
     """-> [Cell, ...]: body cells of a GFM row (optional leading / trailing pipe
     stripped), split on unescaped `|` BEFORE any inline lexing."""
-    bounds, breaks, start, i, n = [], [], 0, 0, len(line)
-    while i < n:
-        c = line[i]
-        if c == "\\":
-            # §2.4 parity: the pairs of a backslash run escape each other, so
-            # only an ODD run escapes the `|` after it (`a\\|b` has an
-            # unescaped pipe and is two cells); the odd backslash is consumed
-            j = i
-            while j < n and line[j] == "\\":
-                j += 1
-            if j < n and line[j] == "|" and (j - i) % 2:
-                breaks.append(j - 1)
-                i = j + 1
-            else:
-                i = j
-        elif c == "|":
+    bounds, breaks, start, n = [], [], 0, len(line)
+    for i, c in enumerate(line):
+        if c != "|":
+            continue
+        # §2.4 parity (`_escaped`): only an ODD backslash run escapes the `|`
+        # (`a\\|b` has an unescaped pipe and is two cells); the odd backslash
+        # is consumed
+        if _escaped(line, i):
+            breaks.append(i - 1)
+        else:
             bounds.append((start, i))
             start = i + 1
-            i += 1
-        else:
-            i += 1
     bounds.append((start, n))
     stripped = line.strip()
     if stripped.startswith("|") and bounds:
@@ -442,42 +435,32 @@ def _inline_tail(s, k):
     return None
 
 
-def _label_ok(text):
-    """Whether link TEXT may serve as the label of a collapsed / shortcut
-    reference (§6.3: a link label holds no unescaped `[` or `]`, at most 999
-    characters, at least one non-blank)."""
-    if len(text) > 999 or not _has_label_content(text):
-        return False
-    j = 0
-    while j < len(text):
-        if _is_escape(text, j):
-            j += 2
-            continue
-        if text[j] in "[]":
-            return False
-        j += 1
-    return True
-
-
-def _reference_tail(s, close, text, defs):
-    """The reference forms at the `]` of `s[close]` (§6.3 precedence after the
-    inline form): full `[text][label]`, collapsed `[text][]`, shortcut
-    `[text]` -> (end, dest, form).  `dest` is None when no definition answers
-    (the memo reports it as unresolved); `form` is None when the text is not
-    a label at all (literal brackets, nothing to report)."""
+def _reference_tail(s, opener, close, defs):
+    """The reference forms at the `]` of `s[close]`, whose `[` is `s[opener]`
+    (§6.3 precedence after the inline form): full `[text][label]`, collapsed
+    `[text][]`, shortcut `[text]` -> (end, dest, form, label).  `dest` is
+    None when no definition answers (the memo reports it as unresolved);
+    `form` is None when the text is not a label at all (literal brackets,
+    nothing to report).  ONE label grammar: the text of a collapsed /
+    shortcut reference is a label iff `link_label` reads `[text]` from the
+    opener (it stops at the first unescaped `[` or `]`, and the stack pairs
+    `close` with the opener, so when it reads a label it closes at `close`)."""
     nxt = close + 1
     if nxt < len(s) and s[nxt] == "[":
         if nxt + 1 < len(s) and s[nxt + 1] == "]":
-            if not _label_ok(text):
-                return nxt + 2, None, None
-            return nxt + 2, defs.get(normalize_label(text)), "collapsed"
-        raw, end = link_label(s, nxt)
-        if raw is not None:
-            # a link label follows, so `[text]` is not a shortcut either
-            return end, defs.get(normalize_label(raw)), "full"
-    if not _label_ok(text):
-        return close + 1, None, None
-    return close + 1, defs.get(normalize_label(text)), "shortcut"
+            form, end = "collapsed", nxt + 2
+        else:
+            raw, end = link_label(s, nxt)
+            if raw is not None:
+                # a link label follows, so `[text]` is not a shortcut either
+                return end, defs.get(normalize_label(raw)), "full", raw
+            form, end = "shortcut", close + 1
+    else:
+        form, end = "shortcut", close + 1
+    raw, _ = link_label(s, opener)
+    if raw is None:
+        return end, None, None, None
+    return end, defs.get(normalize_label(raw)), form, raw
 
 
 def links(s, defs):
@@ -527,7 +510,6 @@ def links(s, defs):
             i += 1
             continue
         pos, is_img, active = stack.pop()
-        text = s[pos + 1:i]
         if not active:
             i += 1                      # literal `]`; the opener is gone
             continue
@@ -537,10 +519,10 @@ def links(s, defs):
             if r is not None:
                 dest, end = r
         if end is None:
-            end, dest, form = _reference_tail(s, i, text, defs)
+            end, dest, form, label = _reference_tail(s, pos, i, defs)
             if dest is None:
                 if form is not None:
-                    unresolved.append((pos, text if form != "full" else s[i + 2:end - 1], form))
+                    unresolved.append((pos, label, form))
                 i += 1                  # literal `]`; the opener is gone
                 continue
         if is_img:
@@ -575,30 +557,30 @@ def reference_definitions(s):
         dest, k = link_destination(s, k)
         if dest is None:
             break
+        # the definition may end at the destination; a title may follow after
+        # spaces/tabs on this line or (§4.7) on the NEXT line -- ONE attempt:
+        # a valid title followed by nothing but spaces/tabs extends the
+        # definition, otherwise it ends at the destination (and if the
+        # destination does not end its line either, there is no definition)
         eol = _line_end(s, k)
-        if eol is not None:
-            # §4.7: the title may sit on the NEXT line.  Try it; if that line
-            # is not a valid title (or is followed by more than spaces/tabs),
-            # the definition ends at the destination and the line is prose.
-            k2 = _skip_ws(s, k)
-            t = link_title(s, k2) if k2 > k else None
-            eol2 = _line_end(s, t) if t is not None else None
-            if eol2 is not None:
-                eol = eol2
+        k2 = _skip_ws(s, k)
+        t = link_title(s, k2) if k2 > k else None
+        eol_t = _line_end(s, t) if t is not None else None
+        if eol_t is not None:
+            eol = eol_t
         if eol is None:
-            # a title may follow on this line or the next
-            k2 = _skip_ws(s, k)
-            if k2 == k:
-                break
-            t = link_title(s, k2)
-            eol = _line_end(s, t) if t is not None else None
-            if eol is None:
-                break
+            break
         out.append((raw, dest, eol))
         i = eol
         while i < len(s) and s[i] == "\n":
             i += 1
     return out, i
+
+
+def _next_line(s, off):
+    """Offset of the line after the one holding `s[off]` (or `len(s)`)."""
+    nl = s.find("\n", off)
+    return len(s) if nl < 0 else nl + 1
 
 
 def _line_end(s, k):
@@ -664,14 +646,25 @@ class Lexed:
         line starts, which is where its label bracket is read as a shortcut."""
         out, s, off = [], self._masked, self.defs_end
         while off < len(s):
-            nl = s.find("\n", off)
-            end = len(s) if nl < 0 else nl
+            nl = _next_line(s, off)
             # parsed from the candidate line's start over the REST of the
             # block, so a definition split over its permitted continuation
-            # line (§4.7: up to one line ending after the colon) is seen too
-            defs, _ = reference_definitions(s[off:])
-            if defs:
-                line = s[off:end]
-                out.append((off + (len(line) - len(line.lstrip(" "))), defs[0][0]))
-            off = end + 1
+            # line (§4.7: up to one line ending after the colon) is seen too.
+            # LINEAR: a hit records every consecutive definition the grammar
+            # returned (definition k+1 starts where k ended) and resumes at
+            # the returned rest offset, never re-walking a consumed line
+            defs, rest = reference_definitions(s[off:])
+            if not defs:
+                off = nl
+                continue
+            start = off
+            for raw, _, end in defs:
+                k = start
+                while s[k] == " ":
+                    k += 1
+                out.append((k, raw))
+                start = off + end
+                while start < len(s) and s[start] == "\n":
+                    start += 1
+            off += rest
         return out

@@ -80,12 +80,12 @@ MUTANTS = [
      ["(span) a quoted kind marker is not a declaration (A x E)"]),
     # -- GFM §4.10 rows and tables
     ("row: an unescaped `|` splits even inside backticks (Example 200)", LEXER,
-     '        elif c == "|":\n            bounds.append((start, i))',
-     '        elif c == "|" and line[start:i].count("`") % 2 == 0:\n            bounds.append((start, i))',
+     '        if c != "|":\n            continue',
+     '        if c != "|" or line[start:i].count("`") % 2:\n            continue',
      ["(row) an unescaped `|` inside backticks SPLITS the row: each half is prose with a literal "
       "backtick, so the id on each side is a mention"]),
     ("row: `\\|` becomes `|` (the backslash is consumed)", LEXER,
-     '                breaks.append(j - 1)\n                i = j + 1', '                i = j + 1',
+     '            breaks.append(i - 1)', '            pass',
      ["(row) `\\|` is `|` in the cell, so `9z \\| 7z` is an id-only run"]),
     ("row: the leading pipe is optional", LEXER,
      'if stripped.startswith("|") and bounds:', 'if bounds:',
@@ -150,15 +150,15 @@ MUTANTS = [
      ["(link) a label holding only a non-breaking space is a label (§6.3: at least one "
       "character that is not a space, tab, or line ending)"]),
     ("link: `[text]` followed by a link label is not a shortcut", LEXER,
-     '            return end, defs.get(normalize_label(raw)), "full"',
-     '            if defs.get(normalize_label(raw)) is not None:\n'
-     '                return end, defs.get(normalize_label(raw)), "full"',
+     '                return end, defs.get(normalize_label(raw)), "full", raw',
+     '                if defs.get(normalize_label(raw)) is not None:\n'
+     '                    return end, defs.get(normalize_label(raw)), "full", raw',
      ["(link) `[label][undefined]` is neither a full reference nor a shortcut (§6.3 Example 571: "
       "a shortcut is not followed by a link label) -- the unanswered label is a schema miss, not "
       "a link to the sibling"]),
     ("link: collapsed reference resolves the text as label", LEXER,
-     '            return nxt + 2, defs.get(normalize_label(text)), "collapsed"',
-     '            return nxt + 2, None, "collapsed"',
+     '    return end, defs.get(normalize_label(raw)), form, raw',
+     '    return end, None if form == "collapsed" else defs.get(normalize_label(raw)), form, raw',
      ["(link) collapsed reference `[label][]`"]),
     ("link: bracket text nests (full reference with inner brackets): an inactive inner opener "
      "is popped and its `]` is literal, not a failure of the outer", LEXER,
@@ -290,8 +290,8 @@ MUTANTS = [
       "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
     # -- PR #510 Codex R1
     ("R1-1 row: only an ODD backslash run escapes `|` (even run = literal backslash + pipe)", LEXER,
-     '            if j < n and line[j] == "|" and (j - i) % 2:',
-     '            if j < n and line[j] == "|":',
+     '        if _escaped(line, i):\n            breaks.append(i - 1)',
+     '        if i > 0 and line[i - 1] == "\\\\":\n            breaks.append(i - 1)',
      ["(row) `a\\\\|b` holds an UNESCAPED pipe (§2.4: `\\\\` is a literal backslash): 5 cells "
       "under a 4-cell header is a width miss, rc 2"]),
     ("R1-1 row: the trailing-pipe check uses the same parity", LEXER,
@@ -309,12 +309,12 @@ MUTANTS = [
       "(link) a reference link nested in inline brackets: the inner reference is the link, the "
       "outer tail is text"]),
     ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", LEXER,
-     '            defs, _ = reference_definitions(s[off:])', '            defs, _ = reference_definitions(s[off:end])',
+     '            defs, rest = reference_definitions(s[off:])', '            defs, rest = reference_definitions(s[off:nl])',
      ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
       "shortcut naming it is a schema miss, not an exempt citation-style shortcut"]),
     # -- PR #510 Codex R2
     ("R2-1 def: the next-line title is tried before the destination-only ending", LEXER,
-     '            t = link_title(s, k2) if k2 > k else None', '            t = None',
+     '        t = link_title(s, k2) if k2 > k else None', '        t = None',
      ["(def) a next-line title is part of the definition, not prose: an id in it is no site",
       "(def) a next-line title holding `[x](missing.md)` is a title, not a link: rc 0"]),
     ("R2-2 link: `![` opens an image, which is not a link", LEXER,
@@ -336,7 +336,7 @@ MUTANTS = [
       "never a memo"]),
     ("R3-1 link: one pass, no recursive inner re-parse (re-inject one: exponential)", LEXER,
      '        if not active:\n            i += 1                      # literal `]`; the opener is gone',
-     '        if not active or links(text, defs)[2] is None:\n            i += 1',
+     '        if not active or links(s[pos + 1:i], defs)[2] is None:\n            i += 1',
      ["links() is linear: 30 nested brackets parse in < 50 ms"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
      '        if is_img:\n            images.append((i, end))',
@@ -350,6 +350,16 @@ MUTANTS = [
     ("R3-2 population: a root-relative `/x.md` is not a sibling", TABLES,
      'if _SCHEME.match(dest) or dest.startswith("/"):', 'if _SCHEME.match(dest) or dest.startswith("//"):',
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0"]),
+    # -- design re-gate
+    ("RG-1 def: orphan_definitions resumes at the grammar's rest offset (re-inject the per-line "
+     "re-walk: quadratic)", LEXER,
+     '            off += rest', '            off = nl',
+     ["orphan_definitions() is linear: 3000 definition lines in < 50 ms"]),
+    ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
+     "reads it from the opener", LEXER,
+     '    raw, _ = link_label(s, opener)\n    if raw is None:', '    raw = s[opener + 1:close]\n    if False:',
+     ["(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` "
+      "is no collapsed reference: rc 0"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
