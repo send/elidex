@@ -240,9 +240,25 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
         self.assertIsNone(spec_labels.shortname_for("CSS TEXT 3"))
 
     def test_cli_blurb_block_reproduces_the_vendored_literal(self):
-        """S3b: the derived help block is byte-identical to the old literal."""
+        """S3b: the derived help block is byte-identical to the old literal,
+        AND it is derived -- a re-inlined copy of that literal passes the
+        equality and is exactly what S3b exists to forbid (Codex R23), so the
+        canonical blurb map is perturbed and the CLI must follow.
+        """
         self.assertEqual(cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
         self.assertIn(_VENDORED_BLURB_BLOCK, cli.COMMON_SHORTNAMES)
+        sentinel = "BLURB DERIVATION SENTINEL"
+        original = spec_labels.SHORTNAME_TO_BLURB["html"]
+        try:
+            spec_labels.SHORTNAME_TO_BLURB["html"] = sentinel
+            importlib.reload(cli)
+            self.assertIn(sentinel, cli._SHORTNAME_LINES,
+                          "cli answered from its own copy, not from SPECS")
+            self.assertIn(sentinel, cli.COMMON_SHORTNAMES)
+        finally:
+            spec_labels.SHORTNAME_TO_BLURB["html"] = original
+            importlib.reload(cli)
+        self.assertEqual(cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
 
 
 class TestSliceBoundary(unittest.TestCase):

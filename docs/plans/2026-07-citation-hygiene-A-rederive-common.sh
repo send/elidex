@@ -689,6 +689,13 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
     [ "$n" -ge 1 ] || { echo "!! no commit with subject /$carve/ in any ref — a carve commit this lane roster names is absent"; failed=1; }
     git log --all --format='%h %s' --grep="$carve" | head -3
   done
+  # The worktree listing is taken ONCE and its status observed: a process
+  # substitution that failed fed both loops an empty stream and `lanes` exited
+  # 0 having censused no worktree at all (Codex R23).
+  local wlist
+  wlist=$(git worktree list --porcelain | sed -n 's/^worktree //p'; exit "${PIPESTATUS[0]}") \
+    || { echo "!! git worktree list failed — no worktree census was taken"; failed=1; wlist=""; }
+  [ -n "$wlist" ] || { echo "!! worktree listing is empty — this worktree itself should be listed"; failed=1; }
   echo "-- worktrees carrying plan-memo diffs --"
   # The `2>/dev/null | wc -l` this used to be reported `0` -- i.e. "this worktree
   # authors no plan-memo" -- for a worktree whose diff could not be taken at all,
@@ -704,7 +711,7 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
       echo "  !! $w — NOT MEASURED ($n); absent from this roster for a reason that"
       echo "     is not 'it authors no plan-memo'"; failed=1
     fi
-  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+  done <<< "$wlist"
   # A's REAL contention is CI topology, and draft 8's version of this block could
   # not see it: `gh pr list` misses an unpushed branch, and a docs/plans/ filter
   # misses a branch whose collision is in ci.yml / mise.toml. The Layout lane's
@@ -723,7 +730,7 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
     else
       echo "  !! $w — NOT MEASURED ($n); silence here is not 'no contention'"; failed=1
     fi
-  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+  done <<< "$wlist"
   return "$failed"
 }
 

@@ -153,6 +153,10 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
   local out rc
   out=$(python3 "$PF" "$F/nospec-badpath.md" 2>&1); rc=$?
   printf '%-18s EXIT=%d  (grep-pass ON)\n' "nospec-badpath" "$rc"
+  # The premise is the NO-TABLE hard fail, reached with grep-pass on; a crash
+  # in `run_grep_pass` also exits non-zero without naming the path (Codex R23).
+  _verdict "$rc" "$out" || { echo "   !! EXIT=$rc with no verdict line — the gate did not RUN on the grep-pass fixture"; failed=1; }
+  echo "$out" | grep -q 'no markdown table follows' || { echo "   !! the carve did not reach the no-table hard fail — P11e's premise is not this reading"; failed=1; }
   [ "$rc" -ne 0 ] || { echo "   !! exit 0 — the carve no longer hard-fails a no-spec memo"; failed=1; }
   if echo "$out" | grep -q 'crates/nonesuch'; then
     echo "   !! the carve NAMES the grep-pass finding — P11e would be green at the carve, its 'yes' column is stale"; failed=1
