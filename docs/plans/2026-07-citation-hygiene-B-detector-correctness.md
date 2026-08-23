@@ -227,7 +227,10 @@ git grep -hoE '§ ?[0-9]+(\.[0-9]+)*\.($|[[:space:]])' -- 'crates/*.rs' | wc -l 
 it moves the interpreter floor: A-iii's `scripts/python-suites.sh` asserts `>= (3, 9)` and A-iii §4.3 defers
 the raise to "when B lands `(?>...)`", so **B's edit set includes raising that floor to 3.11 at every
 entry point** (the suite driver, the direct `webref` / `preflight.py` paths that bypass it, **and the
-`tools` job's floor matrix leg**, A-iii §4.4 — the leg is what makes the raised floor measured) — a
+`tools` job's floor matrix leg**, A-iii §4.4 — the leg is what makes the raised floor measured — **and the
+harness `rederive floor` block** (`2026-07-citation-hygiene-A-rederive-Aiii.sh`, whose declared figure `mx != 9`
+and A-iii §4.4's "3.9" move to 3.11 in the same commit: a regex atomic group lives inside a string literal, so
+the `ast` pre-check cannot see it and would keep certifying 3.9 — Codex R46) — a
 3.9/3.10 interpreter must fail the floor check, not die on a regex compile error at import (Codex R9).
 
 Rejected tokens must not vanish silently — that would trade an under-report for a different under-report. They become a **reported class** (`REJECTED-TOKEN`), which is also what makes the census re-derivable from the tool after this PR (§4.0).
@@ -481,7 +484,7 @@ for c in ['ECMA-262 §Deferred marker','WHATWG HTML §C1 note','WHATWG HTML §4.
 ```
 Measured: `§Deferred` → section `D`; `§C1` → section `C1`; both then reach `verify_citation` → non-zero → **HARD FAIL** on a memo whose `§Deferred` / `§C1` are internal markers. (The range case is the mirror image: `preflight` yields `4.10.21.2`, the *correct* first endpoint, while `cite_audit` yields `4.10.21`. Two grammars, opposite defects — the clearest possible statement that there should be one.)
 
-**Fix**: `section_sort.py` — already the established home for section-number syntax and already shared by resolver / aoid / heading / inventory — exports one `SECTION_NUMBER_RE`. `cite_audit` and `preflight` both import it. `resolver.py:211`'s discriminator is a *routing* predicate (number vs AO name), not a token grammar, and stays. **Slice A leaves `preflight.SECTION_REF_RE` untouched** (neither A-i §4.2's artifact list nor A-ii's edit set names it; A-ii `:131` records it as "untouched") so this stays one edit rather than a merge.
+**Fix**: `section_sort.py` — already the established home for section-number syntax and already shared by resolver / aoid / heading / inventory — exports one `SECTION_NUMBER_RE`. `cite_audit` and `preflight` both import it — **in `preflight`, under A-ii §4.2.3's capability `try` (the one cause), never as a module-level hard import**: with the tools tree absent the grammar is unavailable, `parse_spec_cell` yields no citation, and J3's `--no-verify --no-grep-pass` still exits 0 with the basis qualifier (A-ii P3); a second unconditional gate→tools edge would reintroduce the traceback row A-ii §0 forbids (Codex R46). Pinned by **P6** (B): `_webref` unimportable + `--no-verify --no-grep-pass` → exit 0, after B's import lands. `resolver.py:211`'s discriminator is a *routing* predicate (number vs AO name), not a token grammar, and stays. **Slice A leaves `preflight.SECTION_REF_RE` untouched** (neither A-i §4.2's artifact list nor A-ii's edit set names it; A-ii `:131` records it as "untouched") so this stays one edit rather than a merge.
 
 ### §4.7 What is mechanically checked, and what is not
 
@@ -549,7 +552,7 @@ New/changed tests, by file. Every one must **fail against the unfixed detector**
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
 - **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. **T3b** a 9-word catalog-only label: attributed with the catalog available, `UNKNOWN-SPEC` with `_catalog().available is False` (§10 Q2's offline rule). T3/T3b pin the **library** side of `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`); the slot's subject is the **gate**, so its closing pin is **P-CSS** below, not T3.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
-- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause, **plus a nested-depth fixture** (Rust block comments nest): `/* outer /* inner */ still outer §4.10.21 */` — the cite after the inner `*/` is still in a comment span, which a boolean (non-depth) scanner gets wrong (Codex R42). The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
+- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause, **plus a nested-depth fixture** (Rust block comments nest): `/* outer /* inner */ still outer §4.10.21 */` — the cite after the inner `*/` is still in a comment span, which a boolean (non-depth) scanner gets wrong (Codex R42); **and a lifetime fixture** — `fn f<'a>(x: &'a str) { // WHATWG HTML §4.10.21` — the trailing comment is reported, not swallowed by a scanner that reads every `'` as a character-literal opener (lifetimes are thousands of tokens in `crates/**/*.rs`; Codex R46). The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
 - **T6** `--strict` exits 1 on an UNATTRIBUTED-only tree (the `§4.10.79.1` case).
 - **T7** corrupt extract → single diagnostic naming the cache, **zero** sections reported UNRESOLVED, non-zero exit.
 - **T8** non-UTF-8 file → `SKIPPED` class, `--strict` exits 1.
@@ -573,6 +576,7 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):
 - **P4** catalog unavailable -> hard fail, and the remedy line does **not** say "add the spec to `spec_labels.py::SPECS`" (§4.1.7's discriminated `_catalog()` reaching the gate).
 - **P5** `parse_spec_cell` on `§Deferred` / `§C1` yields no citation (shared `SECTION_NUMBER_RE`, §4.6.3).
+- **P6** (B) J3 survives B's grammar import: `_webref` unimportable (import hook) + `--no-verify --no-grep-pass` → exit 0 with the basis qualifier — the `SECTION_NUMBER_RE` import sits under the capability `try`, not at module level (§4.1.1).
 - **P-CSS** a plan memo whose §3 table cites `CSS Text 3 §4.1.3` passes `preflight.py`'s citation gate with the catalog available — `parsed citations: 1`, verified through `webref` — and reports `UNKNOWN-SPEC` (hard fail, catalog-unavailable remedy) with `_catalog().available is False`. **This is the one closing pin of `#11-preflight-css-module-labels`**: the slot is about the gate resolving a CSS-module label, and T3/T3b (cite-audit path) cannot witness that. Named by the ledger row and A-i §13 item 4; no second name.
 
 WARN: A's P1-P6 already occupy that file. Read it before writing -- A's P5 pins the *tools-unavailable* remedy string and B's P4 pins the *catalog-unavailable* one: two causes, two strings, one file.
@@ -719,14 +723,14 @@ missing=0
 # Pin IDs, not placeholder test names: every B test is named `test_<PIN>_…`
 # (`test_T3_css_module_label_resolves`, `test_S14_cross_series_is_ambiguous`),
 # so the recipe is runnable as written and §6's column stays the only list.
-for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 C1 S9 S10 S11 S12 S14 P4 P5 P-CSS; do   # S13 is baseline-green (§6)
+for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 T10 T11 C1 S9 S10 S11 S12 S14 S15 P4 P5 P6 P-CSS; do   # S13 is baseline-green (§6)
   grep -qE "^(FAIL|ERROR): test_${pin//-/_}_" /tmp/citeaudit-pre.log || { echo "!! expected red, not red: $pin"; missing=1; }
 done
 [ "$missing" -eq 0 ] && echo "every pin red against the unfixed detector" || exit 1
 ```
 
 The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. The loop names each pin by its §6 ID and B's tests carry that ID in their name (`test_<PIN>_…`, one per
-T1–T9, C1, S9–S12, S14, P4, P5, P-CSS — S13 is baseline-green and checked by mutation, §6), so the recipe runs as written and fails unless every one is
+T1–T11, C1, S9–S12, S14, S15, P4, P5, P6, P-CSS — S13 is baseline-green and checked by mutation, §6), so the recipe runs as written and fails unless every one is
 individually red. A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).

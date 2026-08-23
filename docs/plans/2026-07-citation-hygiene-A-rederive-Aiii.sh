@@ -83,8 +83,12 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # A-iii's §4.3.2 argues AGAINST, handed to it for free.
   local n body
   _measure n git show "$MAIN:.github/workflows/ci.yml" || return 1
-  body=$(printf '%s' "$_MEASURE_OUT" | sed -n '/filters:/,/^  check:/p')
-  [ -n "$body" ] || { echo "!! no \`filters:\` .. \`check:\` range in ci.yml at $MAIN ($n lines read);"
+  # The filter census is the `filters:` mapping INSIDE the `changes` job: the
+  # job region comes from `_job_region` (quoted headers admitted, next job ends
+  # it -- no `sed` range keyed on unquoted `filters:`/`check:`, Codex R46), and
+  # the `filters` key inside it is matched plain or quoted.
+  body=$(_job_region changes "$_MEASURE_OUT" | awk -v q="'" '$0 ~ ("^ *[\"" q "]?filters[\"" q "]?:") {f=1} f')
+  [ -n "$body" ] || { echo "!! no \`filters:\` mapping in the \`changes\` job of ci.yml at $MAIN ($n lines read);"
                       echo "!! an empty range is a renamed key, not an absent filter."
                       return 1; }
   printf '%s\n' "$body"
