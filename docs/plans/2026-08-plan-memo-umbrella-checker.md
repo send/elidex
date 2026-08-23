@@ -5,13 +5,13 @@
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
 `plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is seven
-`.py` files: `plan-memo-umbrella-check.py` 453 / `plan_memo_tables.py` 602 / `plan_memo_umbrella_selftest.py`
-238 (the three carried names, 1,293) + `plan_memo_lexer.py` 628 / `plan_memo_roles.py` 393 /
-`plan_memo_selftest_cases.py` 592 / `plan_memo_selftest_mutants.py` 397 — **3,303 total** (`wc -l
+`.py` files: `plan-memo-umbrella-check.py` 453 / `plan_memo_tables.py` 624 / `plan_memo_umbrella_selftest.py`
+238 (the three carried names, 1,315) + `plan_memo_lexer.py` 628 / `plan_memo_roles.py` 393 /
+`plan_memo_selftest_cases.py` 604 / `plan_memo_selftest_mutants.py` 411 — **3,351 total, measured at `c18d2bda`; re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
-this PR lands (3,303 at HEAD) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
+this PR lands (3,351 at `c18d2bda`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
 
 ## §0 Why a separate program
 
