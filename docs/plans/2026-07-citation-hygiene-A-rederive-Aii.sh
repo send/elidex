@@ -128,6 +128,7 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
   # act on it: it ended on `rm -rf`.
   local failed=0
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
+  _webref_warm || { rm -rf "$F"; return 1; }
   # EXPECTED status AND mechanism per fixture: these are the readings A-ii §6
   # asserts "fails at A-i's head" AGAINST, so accepting any well-formed verdict
   # (Codex R19) could not substantiate that column. `fenced-marker` exiting 0
@@ -325,6 +326,7 @@ remedies() {  # §4.2.4 / P5 — which remedy strings co-print when the map is a
   git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
   local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
+  _webref_warm "$T" || { git worktree remove --force "$T"; rm -rf "$R" "$F"; return 1; }
   # ONE run, printed AND graded. This was two invocations of the same command --
   # one for the remedy strings, one thrown away for its exit code -- the shape
   # `couplings` had to be cured of, in which the listing and the status can come
@@ -361,6 +363,7 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
   git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
   local R; R=$(mktemp -d); _runner "$R" || { echo "!! _runner failed"; return 1; }
   local F; F=$(mktemp -d); fixtures "$F" >/dev/null || { echo "!! fixtures failed"; return 1; }
+  _webref_warm "$T" || { git worktree remove --force "$T"; rm -rf "$R" "$F"; return 1; }
   # Without the graft there is no §4.2.3 control flow to run the matrix against,
   # and every row below would be an `EXIT=` from a file that does not exist.
   _proto "$T" || { echo "!! _proto failed — there is no grafted control flow to measure"; \

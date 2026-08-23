@@ -58,7 +58,7 @@ Today it is false, and the shape of its falsity is known from B's evidence base:
 
 - `cite-audit` requires the literal `§` glyph, so AO-name citations, `per <spec>` prose lines, and
   spec-URL citations are outside its reach entirely.
-- Its label alternation is built from 12 pinned specs while the catalog carries 948, so a CSS-module or
+- Its label alternation is built from 12 pinned specs while the catalog carries hundreds more (B §4.1.8 derives the population; no literal here), so a CSS-module or
   FileAPI citation is **UNATTRIBUTED**, not attributed-and-checked.
 - `--strict` cannot fail on the UNATTRIBUTED bucket at all.
 

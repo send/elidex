@@ -70,7 +70,9 @@ _job_region() { printf '%s\n' "$2" | awk -v j="$1" -v q="'" '$0 ~ "^  [\"" q "]?
 # == 'true'` with at most the intentional push exception (`|| github.event_name ==
 # 'push'`, which is how main gets every job). A prefix match certified
 # `… == 'true' || always()` -- a job that runs on every PR -- as gated (Codex R38).
-_gated() { _job_region "$1" "$2" | awk -v q="'" '/^    needs: changes$/ {n=1} $0 ~ ("^    if: needs\\.changes\\.outputs\\.(rust|config) == " q "true" q "( \\|\\| github\\.event_name == " q "push" q ")?$") {g=1} END {exit !(n && g)}'; }
+# Mapping keys plain or quoted (`needs:` / `"needs":` / `'if':`), the grammar
+# the header already admits (Codex R39).
+_gated() { _job_region "$1" "$2" | awk -v q="'" '$0 ~ ("^    [\"" q "]?needs[\"" q "]?: changes$") {n=1} $0 ~ ("^    [\"" q "]?if[\"" q "]?: needs\\.changes\\.outputs\\.(rust|config) == " q "true" q "( \\|\\| github\\.event_name == " q "push" q ")?$") {g=1} END {exit !(n && g)}'; }
 
 filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # `git show | sed -n` under `pipefail` catches an unresolvable ref, but not the
@@ -122,7 +124,7 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # (Codex R12). Both halves are required.
   # Same region reader as the gated jobs (quoted header admitted); "present
   # AND ungated" = a non-empty region with no `needs:`/`if:` line.
-  { r=$(_job_region trip-wires "$ci"); [ -n "$r" ] && ! printf '%s\n' "$r" | grep -qE '^    (needs|if):'; } \
+  { r=$(_job_region trip-wires "$ci"); [ -n "$r" ] && ! printf '%s\n' "$r" | grep -qE "^    [\"']?(needs|if)[\"']?:"; } \
     || { echo "!! \`trip-wires\` is absent or gated — §9's 'present and ungated since #496' no longer holds"; rc=1; }
   # "Invokes mise" was read by a hand-rolled YAML step reader for four rounds
   # (R10 block scalars, R14 indentation indicators, R26 flow mappings, R27 the
@@ -266,43 +268,37 @@ if _ls.returncode != 0 or not _ls.stdout.split():
 files = _ls.stdout.split()
 RUNTIME = re.compile(r"isinstance\([^)]*\|[^)]*\)|zip\([^)]*strict=|slots=True|kw_only=|pairwise\(|TypeAlias|ParamSpec")
 def pep604(tree, future):
-    # Every annotation that is EVALUATED on 3.9 -- any `X | Y` inside a
-    # parameter/return/variable annotation without the future import, and a
-    # module/class-level alias `Name = X | Y` regardless of it (an alias is a
-    # runtime expression, not an annotation) -- not only `| None` (Codex R37).
-    def has_bitor(node):
-        return any(isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr) for n in ast.walk(node))
-    for node in ast.walk(tree):
-        if not future:
-            if isinstance(node, ast.AnnAssign) and has_bitor(node.annotation):
-                return True
+    # THE COMPLEMENT, not a list of positions (Codex R37 annotations -> R38
+    # assignment values -> R39 defaults/decorators/bases: one evaluated
+    # position per round, and a language has no end of them). On 3.9 EVERY
+    # expression is evaluated at import or definition time except an
+    # annotation under `from __future__ import annotations`. So: the set of
+    # nodes to inspect is the whole tree minus (if `future`) the annotation
+    # subtrees, and any type-shaped `X | Y` in that set raises. "Type-shaped"
+    # = both operands are bare names / subscripts / None / further unions.
+    # A runtime `flags | MASK` of two bare names reads RED (safe direction);
+    # dotted operands are not type-shaped (`re.I | re.M` is the tree's only
+    # dotted `|`, measured) -- a `mod.Type | None` would be missed: stated limit.
+    def typelike(o):
+        return (isinstance(o, ast.Name) or
+                (isinstance(o, ast.Constant) and o.value is None) or
+                (isinstance(o, ast.Subscript) and typelike(o.value)) or
+                (isinstance(o, ast.BinOp) and isinstance(o.op, ast.BitOr) and typelike(o.left) and typelike(o.right)))
+    deferred = set()
+    if future:
+        for node in ast.walk(tree):
+            anns = []
+            if isinstance(node, ast.AnnAssign): anns.append(node.annotation)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 a = node.args
-                for arg in a.args + a.posonlyargs + a.kwonlyargs + [a.vararg, a.kwarg]:
-                    if arg is not None and arg.annotation is not None and has_bitor(arg.annotation):
-                        return True
-                if node.returns is not None and has_bitor(node.returns):
-                    return True
-        # An assignment's VALUE is evaluated whatever the future import says, so
-        # any type-shaped `X | Y` anywhere inside it -- `str | bytes | None`
-        # (a BitOr whose left operand is itself a BitOr), `list[str | bytes]`
-        # (a BitOr under a Subscript) -- raises on 3.9 (Codex R38). "Type-shaped"
-        # = both operands are names / attributes / subscripts / None / further
-        # unions. A runtime `flags | MASK` of two bare names is indistinguishable
-        # statically and reads RED: the safe direction. Dotted operands are NOT
-        # type-like: `re.IGNORECASE | re.MULTILINE` is the tree's only dotted
-        # `|` (measured: `git ls-files '.claude/**/*.py' | xargs grep -nE
-        # '\b\w+\.\w+\s*\|\s*\w'` → re-flag ORs only), so a dotted
-        # `mod.Type | None` alias would be missed -- a stated limit, not a claim.
-        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-            def typelike(o):
-                return (isinstance(o, ast.Name) or
-                        (isinstance(o, ast.Constant) and o.value is None) or
-                        (isinstance(o, ast.Subscript) and typelike(o.value)) or
-                        (isinstance(o, ast.BinOp) and isinstance(o.op, ast.BitOr) and typelike(o.left) and typelike(o.right)))
-            for sub in ast.walk(node.value):
-                if isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.BitOr) and typelike(sub.left) and typelike(sub.right):
-                    return True
+                anns += [x.annotation for x in a.args + a.posonlyargs + a.kwonlyargs + [a.vararg, a.kwarg] if x is not None and x.annotation is not None]
+                if node.returns is not None: anns.append(node.returns)
+            for ann in anns:
+                deferred.update(id(n) for n in ast.walk(ann))
+    for n in ast.walk(tree):
+        if id(n) in deferred: continue
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.BitOr) and typelike(n.left) and typelike(n.right):
+            return True
     return False
 need, bad = {}, []
 for f in files:
