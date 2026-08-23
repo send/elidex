@@ -188,8 +188,20 @@ def skip(code: str, why: str) -> None:
     SKIPPED.append(f"{code} — {why}")
 
 
+SH_TIMEOUT = 120
+
+
 def sh(cmd: list[str]) -> tuple[int, str]:
-    p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
+    """Bounded, and with stdin closed, for the reason `run_line` is: a helper
+    that can block leaves the run with no output at all, since the summary
+    prints once at the end. The bound is generous -- these are git and preflight
+    calls, not memo content -- and a hit returns a non-zero rc, which every
+    caller already reports through `skip()`."""
+    try:
+        p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True,
+                           timeout=SH_TIMEOUT, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return 1, ""
     return p.returncode, p.stdout
 
 
@@ -224,6 +236,30 @@ def finding_codes() -> set[str]:
 # --------------------------------------------------------------------------
 # markdown surface
 # --------------------------------------------------------------------------
+
+def _fenced_offsets(lines: list[str]) -> set[int]:
+    """Character offsets of every line the shared tracker calls fenced.
+
+    A set of line-start offsets, so `Memo.heads` can drop a `## §N` written
+    inside an example. The tracker is `claim_gate_reruns`' -- the one FENCE
+    compares against -- rather than a pattern of this class's own: a second
+    answer to "is this line inside a fence" is what §7 Q3 (c) deleted, and
+    `fenced_blocks`' header records the last time one was written here."""
+    try:
+        state = claim_gate_reruns.fence_state(lines)
+    except Exception:  # noqa: BLE001
+        # The tracker lives in the skill directory, and a run that cannot load
+        # it is one `FENCE` already reports on. Degrading to "no line is fenced"
+        # is the behaviour every `Memo` had before this function existed;
+        # raising here would take the whole run for a heading refinement.
+        return set()
+    out, pos = set(), 0
+    for i, line in enumerate(lines):
+        if state[i]:
+            out.add(pos)
+        pos += len(line) + 1
+    return out
+
 
 HEADING_RE = re.compile(r"^(#{2,4})[ \t]+§([\d.]+)", re.M)
 SEP_CELL = re.compile(r"^:?-{2,}:?$")
@@ -275,10 +311,18 @@ class Memo:
         self.path = path
         self.text = path.read_text() if text is None else text
         self.lines = self.text.split("\n")
-        # (level, number, char pos)
+        # (level, number, char pos), and a `## §N` inside a FENCE is not one.
+        # `HEADING_RE` over the raw text made an example into a heading: the
+        # section body every other check reads then truncated at the fence, and
+        # `numbers()` resolved a SECT reference against a heading that exists
+        # only as an example. Zero occurrences in the tree the day this was
+        # written -- but these are memos about markdown, and the program already
+        # owns one answer to "is this line inside a fence".
+        fenced = _fenced_offsets(self.lines)
         self.heads: list[tuple[int, str, int]] = [
             (len(m.group(1)), m.group(2).rstrip("."), m.start())
             for m in HEADING_RE.finditer(self.text)
+            if m.start() not in fenced
         ]
 
     def numbers(self) -> set[str]:
@@ -574,6 +618,7 @@ fence_verdict = claim_gate_reruns.fence_verdict
 check_fence = claim_gate_reruns.check_fence
 fenced_blocks = claim_gate_reruns.fenced_blocks
 needs_state = claim_gate_reruns.needs_state
+unrunnable = claim_gate_reruns.unrunnable
 run_line = claim_gate_reruns.run_line
 check_transcripts = claim_gate_reruns.check_transcripts
 report_transcripts = claim_gate_reruns.report_transcripts
@@ -919,6 +964,19 @@ def main(argv: list[str]) -> int:
         for line in unreached_arms():
             print(line)
         return 0
+    # A usage error is not a finding and not a crash. `argv[1]` was indexed
+    # unconditionally, so no argument -- or `--help` -- exited 1 on an
+    # `IndexError` traceback, and a nonexistent path raised `FileNotFoundError`
+    # in `Memo.__init__` before any check ran. Exit 1 is what a run WITH
+    # findings returns: the crash/verdict ambiguity `run()` below exists to
+    # remove, reproduced at the entry it does not cover. Exit 2 is neither.
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(__doc__.strip().split("Usage:")[-1].strip())
+        return 2
+    for rel in argv[1:3]:
+        if not Path(rel).exists():
+            print(f"claim-gate plan check: {rel} does not exist")
+            return 2
     memo = Memo(Path(argv[1]).resolve())
     # Applicability is per CHECK, not per tool. The gate that used to stand
     # here declined every check on any memo not naming this program, and the

@@ -223,14 +223,38 @@ def retired_controls(memo: host.Memo) -> tuple[dict[str, str], list[tuple[int, i
     return out, spans
 
 
+def count_of_controls(memo: host.Memo, sources: list[Path] | None = None) -> None:
+    """A count of controls is a quantity about this program's own tooling, which
+    §8 forbids in its own voice and the wire's header then carried anyway.
+
+    Split out of `check_controls` so it can run on the path where there is no
+    inventory: it reads the program's own text and never touches `have`, and
+    sitting below that gate disabled it on every branch without the shell
+    self-test -- including the aborted-run case `COMPLETED` exists to detect."""
+    for path in (sources if sources is not None else host.shipped_files() + [memo.path]):
+        if not path.exists():
+            continue
+        for m in COUNT_OF_CONTROLS.finditer(path.read_text()):
+            host.bad("CONTROLS", f"{path.name} states `{m.group(0)}` — that count moves "
+                            f"with the next control; state the property and let "
+                            f"`bash {SELFTEST_FILE.name} | tail -1` report the number")
+
+
 def check_controls(memo: host.Memo, have: dict[str, set[str]] | None = None,
                    sources: list[Path] | None = None) -> None:
+    # The inventory feeds the citation arms and NOT the count ban below, which
+    # scans this program's own text for a stale `N-control` figure -- a rule
+    # about the program, independent of what the self-test ships. Returning here
+    # disabled it entirely on any branch without the shell self-test, and on the
+    # aborted-run case `COMPLETED` exists to detect. Same shape as PATHS' range
+    # gate: a guard must stop the arms it feeds, and no others.
     have = implemented_controls() if have is None else have
     if not have:
         host.skip("CONTROLS", f"{SELFTEST_FILE.name} is absent, or its run did not reach "
                          f"the closing summary that says every control ran — either "
                          f"way no control citation in the memo was resolved against "
-                         f"anything")
+                         f"anything (the control-count ban below still runs)")
+        count_of_controls(memo, sources)
         return
     retired, ledger_spans = retired_controls(memo)
 
@@ -286,15 +310,7 @@ def check_controls(memo: host.Memo, have: dict[str, set[str]] | None = None,
                             (f"only its {'/'.join(sorted(have[cid]))} arm"
                              if have[cid] else "no arm named either way"))
 
-    # A count of controls is a quantity about this program's own tooling, which
-    # §8 forbids in its own voice and the wire's header then carried anyway.
-    for path in (sources if sources is not None else host.shipped_files() + [memo.path]):
-        if not path.exists():
-            continue
-        for m in COUNT_OF_CONTROLS.finditer(path.read_text()):
-            host.bad("CONTROLS", f"{path.name} states `{m.group(0)}` — that count moves "
-                            f"with the next control; state the property and let "
-                            f"`bash {SELFTEST_FILE.name} | tail -1` report the number")
+    count_of_controls(memo, sources)
 
 
 # --------------------------------------------------------------------------
@@ -360,12 +376,18 @@ GONE_SECTION = "0.1"
 
 
 def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
+    # The range feeds ONE of this check's two questions. "Does the memo still
+    # name a file this branch deleted" needs it; "is this ledger row about a
+    # real, absent thing" reads `git ls-files` and HEAD's history and does not.
+    # Returning here stopped both, so in a clone without `origin/main` -- a
+    # fork, a detached CI checkout -- an invented §0.1 row went unreported while
+    # the skip text described only the arm that was genuinely blocked.
     gone = claim_gate_git.deleted_on_branch() if gone is None else gone
     if gone is None:
         host.skip("PATHS", "`origin/main..HEAD` could not be formed in this clone, so "
                       "no file this branch deletes was compared against what the "
-                      "memo still says about it")
-        return
+                      "memo still says about it (the ledger's own rows are still "
+                      "audited below)")
     section = memo.sect(GONE_SECTION)
     declared = {m.group(1): m.group(2) for m in GONE_ROW.finditer(section)}
     # The row itself names the path, so containment has to be measured OUTSIDE
@@ -386,7 +408,7 @@ def check_paths(memo: host.Memo, gone: list[str] | None = None) -> None:
     def _declares(p: str) -> bool:
         return p in declared or p.rsplit("/", 1)[-1] in declared_bases
 
-    for path in gone:
+    for path in (gone or []):
         base = path.rsplit("/", 1)[-1]
         # At a BOUNDARY, not as a substring. `base in elsewhere` counted a
         # sentence about a sibling file as naming this one: measured on this
