@@ -3,8 +3,8 @@
 # `2026-07-citation-hygiene-A-rederive.sh`, the only entry point.
 #
 # Blocks A-ii cites and no other memo does, plus `_runner` (whose four callers
-# are all here), `anchors` (7 preflight symbols: 26 hits in A-ii, 1 in A-i) and
-# `timing` (the CLI-subprocess axis §4.2.1 instruments). A-ii's shared blocks --
+# are all here) and `anchors` (7 preflight symbols: 26 hits in A-ii, 1 in A-i);
+# `timing` (the CLI-subprocess axis) left with A-ii §4.2.6. A-ii's shared blocks --
 # `citations`, `couplings`, `budget`, `lanes` -- and `_proto`, which `budget`
 # also calls, are in `-common.sh`.
 
