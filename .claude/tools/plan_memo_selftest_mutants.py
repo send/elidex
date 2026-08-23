@@ -334,7 +334,7 @@ MUTANTS = [
     ("R3-1 link: one pass, no recursive inner re-parse (re-inject one: exponential)", LEXER,
      '        if not active:\n            i += 1                      # literal `]`; the opener is gone',
      '        if not active or links(s[pos + 1:i], defs)[2] is None:\n            i += 1',
-     ["links() is linear: 30 nested brackets parse in < 50 ms"]),
+     ["links() is linear: 30 nested brackets are one inline_pass call"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
      '        if is_img:\n            images.append((i, end))',
      '        if is_img:\n            images.append((i, end))\n            i += 1\n            continue',
@@ -357,7 +357,7 @@ MUTANTS = [
      "re-walk: quadratic)", LEXER,
      '    text = "\\n".join(lines[i:i + 3])\n    defs, _ = reference_definitions(text, limit=1)',
      '    text = "\\n".join(lines[i:])\n    defs, _ = reference_definitions(text)',
-     ["orphan_definitions() is linear: 3000 definition lines in < 50 ms"]),
+     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line over 3000 definition lines"]),
     ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
      "reads it from the opener", LEXER,
      '    raw, _ = link_label(s, opener)\n    if raw is None:', '    raw = s[opener + 1:close]\n    if False:',
@@ -400,6 +400,11 @@ MUTANTS = [
      '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID))', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID))',
      ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
       "spelling two ids, both reported"]),
+    # -- PR #510 Codex R6
+    ("R6-2 locate: a bisect over the line offsets, not a linear scan per site", TABLES,
+     '        k = bisect.bisect_right(self.offsets, i) - 1',
+     '        k = 0\n        while k + 1 < len(self.offsets) and self.offsets[k + 1] <= i:\n            k += 1',
+     ["unresolved_references scales linearly: t(4N)/t(N) < 8"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "

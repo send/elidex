@@ -222,43 +222,115 @@ def empty_registry_control(M):
     return fired == (True, True, True, False), "guard fires %s (want True, True, True, False)" % (fired,)
 
 
+class _WorkExceeded(Exception):
+    pass
+
+
+class _count_calls:
+    """Count calls of `module.<name>` while the block runs (the callee is
+    looked up through the module global at call time, so a re-injected
+    re-parse is counted), and stop the block the moment `limit` is passed --
+    a non-timing linearity witness.  A host-speed wall-clock cutoff turned
+    the registered trip-wire red on contended runners (81-107 ms measured
+    against a 50 ms bound); a work count does not depend on the host."""
+
+    def __init__(self, module, name, limit):
+        self.module, self.name, self.limit, self.calls = module, name, limit, 0
+
+    def __enter__(self):
+        orig = getattr(self.module, self.name)
+
+        def counted(*a, **kw):
+            self.calls += 1
+            if self.calls > self.limit:
+                raise _WorkExceeded()
+            return orig(*a, **kw)
+        self._orig = orig
+        setattr(self.module, self.name, counted)
+        return self
+
+    def __exit__(self, *exc):
+        setattr(self.module, self.name, self._orig)
+        return False
+
+
 def linear_links_control(M):
-    """The linearity witness for the "Appendix: A parsing strategy" bracket stack: 30 nested
-    brackets parse in well under 50 ms.  A recursive inner re-parse (the
-    per-clause patch this replaced) is exponential in the nesting depth."""
+    """The linearity witness for the "Appendix: A parsing strategy" bracket
+    stack: 30 nested brackets are parsed by EXACTLY ONE `inline_pass` call
+    (no substring is re-parsed).  A recursive inner re-parse (the per-clause
+    patch this replaced) re-enters `inline_pass` once per `]` and is
+    exponential in the depth; the counter stops it at the second call.  The
+    timing is reported for information only."""
     import time
     import plan_memo_lexer      # the freshly loaded module
-    # depth 20 FIRST: under the re-injected recursion it takes ~600 ms
-    # (measured; 2^20 re-parses) and the control goes red there, before the
-    # 30-deep run -- which a 2^30 recursion would never finish
-    report = []
-    for depth in (20, 30):
-        s = "[" * depth + "x" + "]" * depth
-        t0 = time.perf_counter()
-        plan_memo_lexer.links(s, {})
-        ms = (time.perf_counter() - t0) * 1000
-        report.append("%d-deep %.3f ms" % (depth, ms))
-        if ms >= 50:
-            return False, "%s (must be < 50)" % ", ".join(report)
-    return True, "%s (must be < 50)" % ", ".join(report)
+    s = "[" * 30 + "x" + "]" * 30
+    t0 = time.perf_counter()
+    try:
+        with _count_calls(plan_memo_lexer, "inline_pass", limit=1) as c:
+            plan_memo_lexer.links(s, {})
+    except _WorkExceeded:
+        return False, "30-deep nested brackets re-entered inline_pass (a re-parse): not linear"
+    ms = (time.perf_counter() - t0) * 1000
+    return c.calls == 1, "30-deep nested brackets in %d inline_pass call (%.3f ms, informative)" % (c.calls, ms)
 
 
 def linear_orphans_control(M):
     """The linearity witness for Phase-1 orphan detection: a paragraph of
     3,000 definition-shaped lines (all orphans -- `text` heads the paragraph)
-    is read by `Memo` in under 50 ms.  The per-line re-walk over the rest of
-    the block this replaced was quadratic: 7.95 s measured on this fixture."""
+    is read by `Memo` with at most 4 `link_label` calls per line (each line
+    is one three-line window, first definition only).  The per-line re-walk
+    over the rest of the block this replaced parsed every remaining
+    definition again per line -- ~4.5 million `link_label` calls, 7.95 s --
+    and the counter stops it at the bound.  The timing is informative."""
     import time
-    import plan_memo_tables     # the freshly loaded module
-    text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(3000))
+    import plan_memo_lexer      # the freshly loaded module
+    import plan_memo_tables
+    lines = 3001
+    text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(lines - 1))
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "orphans.md"
         p.write_text(text)
         t0 = time.perf_counter()
-        memo = plan_memo_tables.Memo(p)
+        try:
+            with _count_calls(plan_memo_lexer, "link_label", limit=4 * lines) as c:
+                memo = plan_memo_tables.Memo(p)
+        except _WorkExceeded:
+            return False, "Memo over %d lines exceeded %d link_label calls: not linear" % (lines, 4 * lines)
         ms = (time.perf_counter() - t0) * 1000
     n = sum(len(v) for v in memo.orphans.values())
-    return n == 3000 and ms < 50, "%d orphans in %.2f ms (must be 3000 in < 50)" % (n, ms)
+    return n == lines - 1, "%d orphans, %d link_label calls over %d lines (bound %d; %.1f ms, informative)" % (
+        n, c.calls, lines, 4 * lines, ms)
+
+
+def scaling_unresolved_control(M):
+    """The scaling witness for the unresolved-reference walk: N and 4N
+    reference lines in the same process, min of 3 runs each, and the ratio
+    t(4N)/t(N) must stay below 8 (linear gives ~4, quadratic ~16).  A ratio
+    is host-independent where an absolute cutoff is not.  The quadratic
+    terms this guards: `Paragraph.locate` (a linear scan per site) and the
+    `site not in out` membership test (now a set)."""
+    import time
+    import plan_memo_tables
+
+    def best(n):
+        text = "".join("[x][missing]\n" for _ in range(n))
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "u.md"
+            p.write_text(text)
+            memo = plan_memo_tables.Memo(p)
+            t = []
+            for _ in range(3):
+                t0 = time.perf_counter()
+                sites = len(memo.unresolved_references())
+                t.append(time.perf_counter() - t0)
+        return sites, min(t)
+
+    n1, t1 = best(2000)
+    n4, t4 = best(8000)
+    ratio = t4 / t1 if t1 else float("inf")
+    return n1 == 2000 and n4 == 8000 and ratio < 8, (
+        "t(2000)=%.2f ms, t(8000)=%.2f ms, ratio %.1f (must be < 8; linear ~4, quadratic ~16)"
+        % (t1 * 1000, t4 * 1000, ratio))
 
 
 def registry():
@@ -272,8 +344,9 @@ def registry():
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
     reg["an empty control or mutant registry is a FAIL, never green"] = ("CONTROL", empty_registry_control)
-    reg["links() is linear: 30 nested brackets parse in < 50 ms"] = ("CONTROL", linear_links_control)
-    reg["orphan_definitions() is linear: 3000 definition lines in < 50 ms"] = ("CONTROL", linear_orphans_control)
+    reg["links() is linear: 30 nested brackets are one inline_pass call"] = ("CONTROL", linear_links_control)
+    reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line over 3000 definition lines"] = ("CONTROL", linear_orphans_control)
+    reg["unresolved_references scales linearly: t(4N)/t(N) < 8"] = ("CONTROL", scaling_unresolved_control)
     return reg
 
 

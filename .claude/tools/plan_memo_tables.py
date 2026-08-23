@@ -29,6 +29,7 @@ and `stream(lexed)` (every masked span blanked) is the ONE text each
 predicate over a block reads.
 """
 
+import bisect
 import pathlib
 import re
 from urllib.parse import unquote
@@ -360,10 +361,11 @@ class Paragraph:
             off += len(t) + 1
 
     def locate(self, i):
-        """Offset `i` of the content -> (lineno, line text, column)."""
-        k = 0
-        while k + 1 < len(self.offsets) and self.offsets[k + 1] <= i:
-            k += 1
+        """Offset `i` of the content -> (lineno, line text, column).  A
+        bisect over the line offsets: a linear scan per call made every
+        per-site lookup quadratic in the paragraph's length (8,000 reference
+        lines: 6.4 s, 16,000 calls)."""
+        k = bisect.bisect_right(self.offsets, i) - 1
         lineno, text = self.lines[k]
         return lineno, text, i - self.offsets[k]
 
@@ -491,7 +493,7 @@ class Memo:
         answers, plus every shortcut whose label has a definition the grammar
         could not read (a §4.7 definition cannot interrupt a paragraph) -- the
         sites where a population the author meant to link is lost."""
-        orphans, out = self.orphans, []
+        orphans, out, seen = self.orphans, [], set()   # `out` ordered; `seen` for membership
 
         def walk(lx, lineno_of):
             for off, label, form, is_image in lx.unresolved:
@@ -512,7 +514,8 @@ class Memo:
                 if exempt and (key not in orphans or lineno in orphans[key]):
                     continue
                 site = (lineno, label)
-                if site not in out:  # `[text][label]` re-scans `[label]` as a shortcut
+                if site not in seen:  # `[text][label]` re-scans `[label]` as a shortcut
+                    seen.add(site)
                     out.append(site)
 
         for p in self.paragraphs:
