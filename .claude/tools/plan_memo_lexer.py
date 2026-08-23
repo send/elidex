@@ -20,6 +20,7 @@ span is the document spelling an id, not code) is applied over a `Lexed` by
 `plan_memo_tables.py`.
 """
 
+import bisect
 import re
 import string
 
@@ -92,53 +93,77 @@ def starts_block(line):
 class Cell:
     """One body cell: `text` is the trimmed, unescaped content; `raw(i)` maps
     an offset into `text` back to a raw column (an unescaped `\\|` shifts
-    everything after it by one); `lexed` is set by the memo once its link
-    definitions are known."""
+    everything after it by one); `lexed` is the cell's `Lexed`, minted with
+    the cell (a cell is inline content and parses no reference definition).
 
-    __slots__ = ("text", "_raw", "lexed")
+    `_segments` = [(offset_in_text, raw_start)] for every maximal run of
+    characters that is contiguous in the raw line -- a run breaks only at a
+    consumed backslash."""
 
-    def __init__(self, chars):
-        # chars = [(char, raw_index)], already trimmed
-        self.text = "".join(c for c, _ in chars)
-        self._raw = [r for _, r in chars]
-        self.lexed = None
+    __slots__ = ("text", "_segments", "lexed")
+
+    def __init__(self, text, segments):
+        self.text = text
+        self._segments = segments
+        self.lexed = Lexed(text, cell=True)
 
     def raw(self, i):
-        if i < len(self._raw):
-            return self._raw[i]
-        return (self._raw[-1] + 1) if self._raw else 0
+        seg = self._segments
+        k = bisect.bisect_right(seg, (i, _INF)) - 1
+        if k < 0:
+            return 0
+        off, raw_start = seg[k]
+        return raw_start + (i - off)
+
+
+_INF = float("inf")
+
+
+def _cell(line, a, b, breaks):
+    """The cell over raw `line[a:b]` whose consumed backslashes are at the raw
+    indexes in `breaks` (each `\\|` drops the backslash and keeps the `|`)."""
+    pieces, segments, off = [], [], 0
+    start = a
+    for k in sorted(x for x in breaks if a <= x < b):
+        if k > start:
+            segments.append((off, start))
+            pieces.append(line[start:k])
+            off += k - start
+        start = k + 1
+    if b > start:
+        segments.append((off, start))
+        pieces.append(line[start:b])
+    return Cell("".join(pieces), segments)
 
 
 def split_row(line):
     """-> [Cell, ...]: body cells of a GFM row (optional leading / trailing pipe
     stripped), split on unescaped `|` BEFORE any inline lexing."""
-    parts, cur, i, n = [], [], 0, len(line)
+    bounds, breaks, start, i, n = [], [], 0, 0, len(line)
     while i < n:
         c = line[i]
         if c == "\\" and i + 1 < n and line[i + 1] == "|":
-            cur.append(("|", i + 1))
+            breaks.append(i)
             i += 2
         elif c == "|":
-            parts.append(cur)
-            cur = []
+            bounds.append((start, i))
+            start = i + 1
             i += 1
         else:
-            cur.append((c, i))
             i += 1
-    parts.append(cur)
+    bounds.append((start, n))
     stripped = line.strip()
-    if stripped.startswith("|") and parts:
-        parts = parts[1:]
-    if stripped.endswith("|") and not stripped.endswith("\\|") and parts:
-        parts = parts[:-1]
+    if stripped.startswith("|") and bounds:
+        bounds = bounds[1:]
+    if stripped.endswith("|") and not stripped.endswith("\\|") and bounds:
+        bounds = bounds[:-1]
     out = []
-    for p in parts:
-        a, b = 0, len(p)
-        while a < b and p[a][0] in " \t":
+    for a, b in bounds:
+        while a < b and line[a] in " \t":
             a += 1
-        while b > a and p[b - 1][0] in " \t":
+        while b > a and line[b - 1] in " \t":
             b -= 1
-        out.append(Cell(p[a:b]))
+        out.append(_cell(line, a, b, breaks))
     return out
 
 
@@ -171,27 +196,39 @@ def delimiter_width(line):
 _BACKTICKS = re.compile(r"`+")
 
 
+def _escaped(s, i):
+    """Whether `s[i]` sits behind an ODD run of backslashes (§2.4: the pairs
+    before it escape each other, the odd one escapes `s[i]`)."""
+    k = i
+    while k > 0 and s[k - 1] == "\\":
+        k -= 1
+    return (i - k) % 2 == 1
+
+
 def code_spans(s):
-    """[(start, end)] of every code span in `s`, backticks included."""
+    """[(start, end)] of every code span in `s`, backticks included.
+
+    An OPENING backtick string behind an odd run of backslashes loses its
+    first backtick to the escape (§2.4 / §6.1: a backslash-backtick pair is a literal
+    backtick, not a backtick string of length one).  Inside a span backslashes
+    are literal (§6.1: "backslash escapes do not work in code spans"), so a
+    closer is read raw."""
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
     out, i = [], 0
     while i < len(runs):
         a0, a1 = runs[i]
+        if _escaped(s, a0):
+            a0 += 1
         n = a1 - a0
         j = i + 1
-        while j < len(runs) and runs[j][1] - runs[j][0] != n:
+        while n and j < len(runs) and runs[j][1] - runs[j][0] != n:
             j += 1
-        if j < len(runs):
+        if n and j < len(runs):
             out.append((a0, runs[j][1]))
             i = j + 1
         else:
             i += 1
     return out
-
-
-def in_spans(i, spans):
-    """Whether offset `i` lies inside any `(start, end, ...)` span."""
-    return any(sp[0] <= i < sp[1] for sp in spans)
 
 
 def blank_spans(s, spans):
@@ -372,13 +409,20 @@ def links(s, defs):
     """Every link in `s` (a block's inline content with code spans masked),
     resolved through `defs` (normalised label -> destination).
 
-    Returns [(tail_start, end, destination)]: `tail_start` is the `]` closing
-    the link text, so a caller masking the tail leaves the visible text -- the
-    label, which is prose -- in the scanned stream.  Forms: inline
-    `[text](dest "title")`; full `[text][label]`; collapsed `[text][]`;
+    Returns ([(tail_start, end, destination)], [(offset, label)]): `tail_start`
+    is the `]` closing the link text, so a caller masking the tail leaves the
+    visible text -- the label, which is prose -- in the scanned stream.  Forms:
+    inline `[text](dest "title")`; full `[text][label]`; collapsed `[text][]`;
     shortcut `[text]` (a link label not followed by `[]` or a link label).
+
+    The second list is every full or collapsed reference whose label `defs`
+    does not define: such a site is prose under §6.3, and a population the
+    author meant to link is silently lost unless the caller reports it.  A
+    shortcut `[text]` is not listed (every `[C19]` citation is one); the memo
+    reports a shortcut only when a definition of its label exists somewhere
+    the grammar cannot read it.
     """
-    out, i = [], 0
+    out, unresolved, i = [], [], 0
     while True:
         i = s.find("[", i)
         if i < 0:
@@ -411,6 +455,8 @@ def links(s, defs):
                     out.append((tail, close + 2, dest))
                     i = close + 2
                     continue
+                if not inner:
+                    unresolved.append((i, text))
                 i += 1
                 continue
             raw, end = link_label(s, close)
@@ -421,6 +467,7 @@ def links(s, defs):
                     i = end
                     continue
                 # a link label follows, so `[text]` is not a shortcut either
+                unresolved.append((i, raw))
                 i += 1
                 continue
         if not inner and text.strip() and len(text) <= 999:
@@ -429,8 +476,9 @@ def links(s, defs):
                 out.append((tail, close, dest))
                 i = close
                 continue
+            unresolved.append((i, text))
         i += 1
-    return out
+    return out, unresolved
 
 
 def reference_definitions(s):
@@ -495,27 +543,45 @@ _TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md\b)")
 
 class Lexed:
     """The lexical facts of one block's inline content (a paragraph or a
-    cell), computed once.  `code` = code spans; `definitions` / `defs_end` =
-    the leading run of reference definitions over the code-masked stream;
-    `tokens` = [(start, end, "cite" | "file")]; `links` (after `resolve`) =
-    [(tail_start, end, destination)].  `mask` is set by the disposition step
-    in `plan_memo_tables.py` once the row ids are known."""
+    cell), computed once: `code` = code spans; `definitions` / `defs_end` =
+    the leading run of reference definitions over the code-masked stream (a
+    paragraph only -- a table cell is inline content under GFM §4.10 and
+    holds no §4.7 definition, so `cell=True` parses none); `tokens` =
+    [(start, end, "cite" | "file")].  `resolve` then sets `links` =
+    [(tail_start, end, destination)] and `unresolved` = [(offset, label)] of
+    the references no definition answers; `mask` is set by the disposition
+    step in `plan_memo_tables.py` once the row ids are known."""
 
-    __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens", "links", "mask")
+    __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens",
+                 "links", "unresolved", "mask")
 
-    def __init__(self, text):
+    def __init__(self, text, cell=False):
         self.text = text
         self.code = code_spans(text)
         masked = blank_spans(text, self.code)
-        self.definitions, self.defs_end = reference_definitions(masked)
+        self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(masked)
         self._masked = masked
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
-        self.links = []
+        self.links, self.unresolved = [], []
         self.mask = None
 
     def resolve(self, defs):
         """Links (§6.3 / §4.7) over the masked stream, past the definitions;
         `defs` = normalised label -> destination."""
         start = self.defs_end
-        self.links = [(a + start, b + start, dest)
-                      for a, b, dest in links(self._masked[start:], defs)]
+        found, unresolved = links(self._masked[start:], defs)
+        self.links = [(a + start, b + start, dest) for a, b, dest in found]
+        self.unresolved = [(a + start, label) for a, label in unresolved]
+
+    def orphan_definitions(self):
+        """[(offset, label)] of definition-shaped lines the grammar could not
+        read as definitions (a §4.7 definition cannot interrupt a paragraph),
+        for the memo's unresolved-reference report; `offset` is where the
+        line starts, which is where its label bracket is read as a shortcut."""
+        out, off = [], self.defs_end
+        for line in self._masked[self.defs_end:].split("\n"):
+            defs, _ = reference_definitions(line)
+            if defs:
+                out.append((off + (len(line) - len(line.lstrip(" "))), defs[0][0]))
+            off += len(line) + 1
+        return out

@@ -34,7 +34,7 @@ import pathlib
 import sys
 import tempfile
 
-from plan_memo_selftest_cases import ASSERT_CASES, CASES, RC_CASES, build
+from plan_memo_selftest_cases import CASES, build
 from plan_memo_tables import MARKER
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -84,7 +84,7 @@ def unload():
 
 def run_on(M, text, prose="", sibling=None, files=None):
     """Write the fixture and its siblings to a scratch dir and run `check()`.
-    Returns (no-owner ids, unlicensed mentions, findings, rc)."""
+    Returns (Result, unlicensed mentions)."""
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "fixture.md"
         p.write_text(text + "\n" + prose + "\n")
@@ -95,8 +95,7 @@ def run_on(M, text, prose="", sibling=None, files=None):
         for name, content in (files or {}).items():
             (pathlib.Path(d) / name).write_text(content)
         res = M.check(str(p))
-        umb = res.population.no_owner_ids()
-        return umb, [m for m in res.mentions if not m.licensed], res.findings, res.rc
+        return res, [m for m in res.mentions if not m.licensed]
 
 
 # ----------------------------------------------------------------------------
@@ -106,32 +105,33 @@ def run_on(M, text, prose="", sibling=None, files=None):
 # ----------------------------------------------------------------------------
 
 
-def naming_control(text, prose, expect, sibling, files):
+def measure(res, reported, m):
+    """The value a `Case.measure` takes on one run -> (got, detail)."""
+    if m == "sites":
+        return len(reported), "reported :: %s" % [x.context()[:80] for x in reported]
+    if m == "rc":
+        return res.rc, "rc :: %s" % [f[0] + " " + f[3][:60] for f in res.mechanical][:3]
+    what, arg = m
+    if what == "finding":
+        return sum(1 for f in res.findings if f[0] == arg), arg
+    if what == "note":
+        return sum(1 for n in res.notes if arg in n), "note %r" % arg
+    if what == "id":
+        return int(arg in res.population.ids), "id %r declared" % arg
+    raise ValueError(m)
+
+
+def control(c):
+    """The one factory: run the fixture, take the measure, compare EXACTLY.
+    Exact, not `>=`: every fixture carries exactly one intended site, so a
+    scanner that reports one site twice must turn a control red rather than
+    inflate the production census behind a green self-test.  Every measure
+    but `rc` also requires the run not to be a schema miss."""
     def run(M):
-        _, reported, _, rc = run_on(M, text, prose, sibling, files)
-        got = len(reported)
-        # Exact, not `>=`: every fixture carries exactly one intended site, so a
-        # scanner that reports one site twice must turn a control red rather
-        # than inflate the production census behind a green self-test.
-        ok = got == expect and rc != 2
-        return ok, "%d reported (expected %d), rc %d :: %s" % (
-            got, expect, rc, [m.context()[:80] for m in reported])
-    return run
-
-
-def assert_control(text, code, expect, prose, sibling):
-    def run(M):
-        _, _, findings, rc = run_on(M, text, prose, sibling)
-        got = sum(1 for c, _, _, _ in findings if c == code)
-        return got == expect and rc != 2, "%s x%d (expected %d), rc %d" % (code, got, expect, rc)
-    return run
-
-
-def rc_control(text, prose, sibling, files, expect):
-    def run(M):
-        _, _, findings, rc = run_on(M, text, prose, sibling, files)
-        return rc == expect, "rc %d (expected %d) :: %s" % (
-            rc, expect, [f[0] + " " + f[3][:60] for f in findings if not f[0].endswith("?")][:3])
+        res, reported = run_on(M, c.text, c.prose, c.sibling, c.files)
+        got, detail = measure(res, reported, c.measure)
+        ok = got == c.expect and (c.measure == "rc" or res.rc != 2)
+        return ok, "%s = %d (expected %d), rc %d" % (detail, got, c.expect, res.rc)
     return run
 
 
@@ -141,7 +141,7 @@ def attribution_control(M):
     its own".  The count must not move when such a row is added."""
     base = build()
     ptr = build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — points into §5.")
-    n = [len(run_on(M, t)[0]) for t in (base, ptr)]
+    n = [len(run_on(M, t)[0].population.no_owner_ids()) for t in (base, ptr)]
     return n[0] == n[1], "a marker naming another row does not enter the count (%d -> %d)" % tuple(n)
 
 
@@ -150,7 +150,7 @@ def degenerate_control(M):
     the declaring-field parse can.  This proves the two are different programs
     rather than one program written twice."""
     text = build(d7z="**UMBRELLA, not a terminal unit** stray")
-    umb = run_on(M, text)[0]
+    umb = run_on(M, text)[0].population.no_owner_ids()
     by_grep = sum(1 for l in text.split("\n") if l.startswith("|") and MARKER in l)
     return len(umb) != by_grep, "declaring-field parse=%d vs whole-line marker grep=%d (must differ)" % (
         len(umb), by_grep)
@@ -164,14 +164,14 @@ def pipe_shape_control(M):
     bare = "\n".join(l.strip("|") for l in piped.split("\n"))
     out = []
     for extra in (piped, bare):
-        umb, reported, _, rc = run_on(M, build(extra=extra))
-        out.append((rc, sorted(umb), sorted((m.id, m.source, m.text[m.start:m.end]) for m in reported)))
+        res, reported = run_on(M, build(extra=extra))
+        out.append((res.rc, sorted(res.population.no_owner_ids()), sorted((m.id, m.source, m.text[m.start:m.end]) for m in reported)))
     return out[0] == out[1] and out[0][0] != 2, "ids %s, sites %s" % (out[0][1], out[0][2])
 
 
 def raw_offset_control(M):
     """A site after a `\\|` in its cell is reported at its RAW column."""
-    _, reported, _, _ = run_on(M, build(c1=r"x \| Slice 9z owns it"))
+    _, reported = run_on(M, build(c1=r"x \| Slice 9z owns it"))
     ok = len(reported) == 1 and reported[0].line[reported[0].col:reported[0].col + 2] == "9z"
     return ok, "col lands on %r" % (reported[0].line[reported[0].col:reported[0].col + 2] if reported else None)
 
@@ -179,12 +179,9 @@ def raw_offset_control(M):
 def registry():
     """name -> (kind, control)."""
     reg = {}
-    for kind, name, text, prose, expect, sibling, files in CASES:
-        reg[name] = (kind, naming_control(text, prose, expect, sibling, files))
-    for kind, name, text, code, expect, prose, sibling in ASSERT_CASES:
-        reg[name] = (kind, assert_control(text, code, expect, prose, sibling))
-    for kind, name, text, prose, sibling, files, rc in RC_CASES:
-        reg[name] = (kind, rc_control(text, prose, sibling, files, rc))
+    for c in CASES:
+        assert c.name not in reg, "duplicate control name %r" % c.name
+        reg[c.name] = (c.kind, control(c))
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)

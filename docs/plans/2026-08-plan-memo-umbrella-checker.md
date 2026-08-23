@@ -229,9 +229,18 @@ ground for either option; it is not cited.
   `check()` is the only pipeline and `grep -n 'len(cells)'` returns only `is_separator`; the #506
   memo at its head re-run reports census `48 = 33 + 15`, rc 0, and the site count is **re-measured
   and reported with its delta** (706 at `190d2adb` → **702**, −4, re-run 2026-08-22 on `7931798d`;
-  111 controls, 49 mutants / 0 survived, `mise run trip-wires` rc 0; ⚠ **703** after the
-  `/simplify` pass made the scanners block-level like the lexer -- the one new site is
-  main-memo 2604 `2`, whose row noun `rows` ends line 2603, i.e. a line is a reporting coordinate only);
+  ⚠ **703** after the `/simplify` pass made the scanners block-level like the lexer -- the one new
+  site is main-memo 2604 `2`, whose row noun `rows` ends line 2603, i.e. a line is a reporting
+  coordinate only; **703 again, the same 703 sites** (`--worklist` file/line/id/source set
+  identical) after the `/code-review high` pass, re-run 2026-08-23: **140 controls, 67 mutants / 0
+  survived / 0 crashed** -- a crashing control is now a FAIL, not a kill -- census `48 = 33 + 15`,
+  rc 0, 36 ORDER-PROSE? rows unchanged, memo run 0.39 s → 0.28 s. ⚠ That pass changed one
+  `Population.ids` key without moving the census: the §8 `Intl` row (main memo line 2716, id cell
+  `` `Intl` → owned externally by … ``) was keyed by its WHOLE cell, because `bare_id` fell back
+  to the cell text when no grammar matched; the id cell now reads the one decorated-id grammar at
+  the cell's start and that row is keyed `Intl` (a 4-character id, terminal). A non-empty id cell
+  that does not start with an id declares nothing and is reported as an `[ID-CELL]` note; the
+  main memo has 0 such rows (`**—**` is an empty cell). `mise run trip-wires` rc 0);
   trip-wire added, registered, green in `mise run trip-wires`; header + docstrings rewritten.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads

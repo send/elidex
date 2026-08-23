@@ -46,6 +46,11 @@ gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?.
 NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
 stated beside its check in `plan_memo_roles.py` and in the report's notes.
+NOTES (printed, never gating): `[CENSUS]` the no-owner row count (0 is a
+clean result, not a schema miss), `[KIND-UNDETERMINED]`, `[LINK] unresolved
+reference` (a reference no definition answers -- the memo it meant to link is
+NOT in the population), `[ID-CELL]` (a schema row whose id cell is not an id
+declares nothing).
 
 EXIT STATUS
   0  no mechanical finding
@@ -66,12 +71,12 @@ import pathlib
 from collections import Counter, defaultdict, namedtuple
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from plan_memo_lexer import in_spans  # noqa: E402
 from plan_memo_tables import CELL_SPLIT, Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     CELL_TOKEN, MENTION_PROSE, MENTION_SLOT, acceptance_vocab_seed,
     assertion_a, assertion_b, assertion_cd_seed, classify, roles,
 )
+from plan_memo_tables import balanced  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -125,18 +130,22 @@ class Block:
     mask (spans in `text` coordinates the scanners must not read an id out of,
     each with its kind) and the map back to reporting coordinates."""
 
-    __slots__ = ("file", "text", "mask", "source", "self_id")
+    __slots__ = ("file", "text", "mask", "source", "self_id", "_map")
 
     def __init__(self, file, lexed, source, self_id=None):
         self.file, self.text, self.mask = file, lexed.text, lexed.mask
         self.source, self.self_id = source, self_id
+        self._map = None
 
-    def masked(self, i, through_code=False):
-        """Whether `i` is under the mask.  The slot pass reads THROUGH code
-        spans (a backticked slug is the document spelling an id -- the same
-        disposition exception as an id-only run -- and a backticked command
-        line naming a slot must still be seen); every other kind masks it."""
-        return in_spans(i, (m for m in self.mask if not (through_code and m[2] == "code")))
+    def masked(self, i):
+        """Whether `i` is under the mask (every kind masks; what a scanner may
+        read out of a code span -- an id-only run, a kept `#11-` slug -- was
+        already excepted by the disposition step)."""
+        if self._map is None:
+            self._map = bytearray(len(self.text))
+            for a, b, _ in self.mask:
+                self._map[a:b] = b"\x01" * (b - a)
+        return i < len(self._map) and self._map[i] != 0
 
 
 class CellBlock(Block):
@@ -168,19 +177,14 @@ class ProseBlock(Block):
 
 
 def _anchored(b, keep, out):
-    """Row-noun-anchored ids, plus `#11-` slot ids."""
-    for mt in MENTION_PROSE.finditer(b.text):
-        if mt.group(1) not in keep or mt.group(1) == b.self_id:
-            continue
-        if b.masked(mt.start(1)):
-            continue
-        out.append(classify(Mention(b, mt.group(1), mt.start(), mt.end(), mt.start(1), anchored=True)))
-    for mt in MENTION_SLOT.finditer(b.text):
-        if mt.group(1) not in keep or mt.group(1) == b.self_id:
-            continue
-        if b.masked(mt.start(1), through_code=True):
-            continue
-        out.append(classify(Mention(b, mt.group(1), mt.start(), mt.end())))
+    """Row-noun-anchored ids (the anchored reading the licensing rule was
+    written against), then `#11-` slot ids (a slug is its own anchor)."""
+    for pat, anchored in ((MENTION_PROSE, True), (MENTION_SLOT, False)):
+        for mt in pat.finditer(b.text):
+            rid = mt.group("id")
+            if rid not in keep or rid == b.self_id or b.masked(mt.start("id")):
+                continue
+            out.append(classify(Mention(b, rid, mt.start(), mt.end(), mt.start("id"), anchored=anchored)))
 
 
 def _bare(b, keep, out):
@@ -206,8 +210,7 @@ def _bare(b, keep, out):
         # `**block-scope entry 10b**` are the two directions.  Treating it as
         # undecorated handles both -- the single-letter guard still drops `A`,
         # and a multi-character id inside a bold phrase is no longer invisible.
-        balanced = tok.group("l") is not None and tok.group("l") == tok.group("r")
-        if len(tid) == 1 and tid.isalpha() and not balanced:
+        if len(tid) == 1 and tid.isalpha() and not balanced(tok):
             continue
         s, e = tok.start(), tok.end()
         lhs, rhs = text[:s], text[e:]
@@ -291,13 +294,18 @@ def check(path):
         findings.append(("SCHEMA", file, lineno, msg + ". This is a skip, not a clean run."))
     if pop.misses:
         return _result(findings, notes, 2, [], pop)
+    for memo in pop.memos:
+        for lineno, label in memo.unresolved_references():
+            notes.append("[LINK] unresolved reference %r at %s:%d -- no definition answers it, so "
+                         "a memo it meant to link is NOT in the population" % (label, memo.path.name, lineno))
+    for file, lineno, schema, cell in pop.undeclared:
+        notes.append("[ID-CELL] %s:%d  the %r row's id cell does not start with an id (%r); the row "
+                     "declares nothing" % (file, lineno, schema, cell[:60]))
     umb = pop.no_owner_ids()
-    if not umb:
-        findings.append(("SCHEMA", pop.main.path.name, 0,
-                         "no umbrella rows found -- the table schema did not match. "
-                         "This is a skip, not a clean run."))
-        return _result(findings, notes, 2, [], pop)
-    undet = pop.undetermined_ids()
+    # Schema matching is its own miss (above).  A memo whose every row is
+    # terminal has an EMPTY naming population, which is a clean result.
+    notes.append("[CENSUS] %d no-owner rows (umbrella + kind-undetermined)" % len(umb))
+    undet = pop.ids_of_kind("undetermined")
     if undet:
         notes.append(
             "[KIND-UNDETERMINED] %d row(s) declare an unsettled kind (%s) and are IN the naming "

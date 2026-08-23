@@ -10,7 +10,9 @@ re-runs the named control(s) against the patched checker:
   * the substring must occur EXACTLY ONCE in its file -- a substring that no
     longer applies (the code moved) is a FAIL, never "survived";
   * every named control must fail under the mutant; a mutant all of whose
-    controls stay green has SURVIVED, and that is a FAIL too.
+    controls stay green has SURVIVED, and that is a FAIL too;
+  * a control that CRASHES under the mutant proves nothing about the clause
+    (an exception is not the control going red) and is a FAIL.
 
 Row shape: (name, file, find, replace, [control names]).
 """
@@ -48,11 +50,11 @@ MUTANTS = [
      ["(fence) a link inside a fence is not a link (A x B)"]),
     # -- CommonMark §6.1 code spans
     ("span: opener and closer are backtick strings of EQUAL length", LEXER,
-     'while j < len(runs) and runs[j][1] - runs[j][0] != n:\n            j += 1', 'pass',
+     'while n and j < len(runs) and runs[j][1] - runs[j][0] != n:\n            j += 1', 'pass',
      ["(span) backtick strings pair by EQUAL length"]),
     ("span: an unmatched backtick string is literal", LEXER,
-     '        else:\n            i += 1\n    return out\n\n\ndef in_spans',
-     '        else:\n            out.append((a0, len(s)))\n            i += 1\n    return out\n\n\ndef in_spans',
+     '        else:\n            i += 1\n    return out\n\n\ndef blank_spans',
+     '        else:\n            out.append((a0, len(s)))\n            i += 1\n    return out\n\n\ndef blank_spans',
      ["(span) an unmatched backtick string is literal, not a mask to end of line"]),
     ("span: lexed over the paragraph, not the line", TABLES,
      '            if one_line_block(line):\n                flush()', '            flush()',
@@ -67,27 +69,26 @@ MUTANTS = [
      '_ATX.match(line) or _THEMATIC', '_THEMATIC',
      ["(span) a paragraph ends at an ATX heading"]),
     ("A x E: kind markers are read from the MASKED declaring field", TABLES,
-     'row.field = prose(row.cells[row.schema.decl].lexed, keep)',
+     'row.field = prose(row.cells[row.schema.decl].lexed)',
      'row.field = row.cells[row.schema.decl].text',
      ["(span) a quoted kind marker is not a declaration (A x E)"]),
     # -- GFM §4.10 rows and tables
     ("row: an unescaped `|` splits even inside backticks (Example 200)", LEXER,
-     '        elif c == "|":\n            parts.append(cur)',
-     '        elif c == "|" and "".join(ch for ch, _ in cur).count("`") % 2 == 0:\n            parts.append(cur)',
+     '        elif c == "|":\n            bounds.append((start, i))',
+     '        elif c == "|" and line[start:i].count("`") % 2 == 0:\n            bounds.append((start, i))',
      ["(row) an unescaped `|` inside backticks SPLITS the row: each half is prose with a literal "
       "backtick, so the id on each side is a mention"]),
     ("row: `\\|` becomes `|` (the backslash is consumed)", LEXER,
-     'cur.append(("|", i + 1))', 'cur.append(("\\\\", i))\n            cur.append(("|", i + 1))',
+     '            breaks.append(i)\n            i += 2', '            i += 2',
      ["(row) `\\|` is `|` in the cell, so `9z \\| 7z` is an id-only run"]),
     ("row: the leading pipe is optional", LEXER,
-     'if stripped.startswith("|") and parts:', 'if parts:',
+     'if stripped.startswith("|") and bounds:', 'if bounds:',
      ["(row) a table without leading and trailing pipes declares its rows"]),
     ("row: the trailing pipe is optional", LEXER,
-     'if stripped.endswith("|") and not stripped.endswith("\\\\|") and parts:', 'if parts:',
+     'if stripped.endswith("|") and not stripped.endswith("\\\\|") and bounds:', 'if bounds:',
      ["a table with and without edge pipes reads the same"]),
-    ("row: offsets come from each cell's raw start", LEXER,
-     '        if i < len(self._raw):\n            return self._raw[i]',
-     '        if i < len(self._raw):\n            return self.start + i',
+    ("row: offsets map through each cell's raw segments", LEXER,
+     '        return raw_start + (i - off)', '        return i',
      ["a site after an escaped pipe is reported at its raw column"]),
     ("table: delimiter cell = >=1 hyphen with optional colons", LEXER,
      '_DELIM_CELL = re.compile(r":?-+:?")', '_DELIM_CELL = re.compile(r"[:\\- ]*")',
@@ -134,6 +135,7 @@ MUTANTS = [
      ["(link) label matching is a Unicode case FOLD, not lower()"]),
     ("link: `[text]` followed by a link label is not a shortcut", LEXER,
      '                # a link label follows, so `[text]` is not a shortcut either\n'
+     '                unresolved.append((i, raw))\n'
      '                i += 1\n                continue',
      '                pass',
      ["(link) `[label][undefined]` is neither a full reference nor a shortcut (§6.3: a shortcut "
@@ -160,7 +162,7 @@ MUTANTS = [
      '    if s[k] == "\\n":\n        return k + 1\n    return k',
      ["(def) text after the destination is not a definition"]),
     ("def: a definition cannot interrupt a paragraph", LEXER,
-     'self.definitions, self.defs_end = reference_definitions(masked)',
+     'self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(masked)',
      'self.definitions, self.defs_end = [d for ln in masked.split("\\n") for d in reference_definitions(ln)[0]], 0',
      ["(def) a definition cannot interrupt a paragraph"]),
     # -- I-F one population, one pipeline
@@ -196,6 +198,76 @@ MUTANTS = [
     ("gate: a mechanical finding is exit 1", CHECK,
      'rc = 1 if mechanical else 0', 'rc = 0',
      ["(rc) the undetermined kind written two ways is KIND-SPELLING, rc 1"]),
+    # -- /code-review high: one mutant per fix
+    ("F1 id cell: the id is followed by a non-id character, not the cell end", TABLES,
+     '+ r"(?![0-9A-Za-z-])")', '+ r"$")',
+     ["(id) an id cell with trailing prose declares the id at its start",
+      "(id) a backticked slug with trailing prose declares the slug"]),
+    ("F1 id cell: a cell not starting with an id declares nothing (no fallback to the cell)", TABLES,
+     'return g.group("id") if g else None', 'return g.group("id") if g else cell_text.strip()',
+     ["(id) a cell that does not start with an id declares nothing"]),
+    ("F1 id cell: a non-id id cell is reported", TABLES,
+     'self.undeclared.append((memo.path.name, row.lineno, s.name, row.id_cell()))', 'pass',
+     ["(id) a non-empty id cell that is not an id is reported as a note"]),
+    ("F2 population: links in CELLS join the population", TABLES,
+     '        for lx in self.lexed():\n            for _, _, dest in lx.links:',
+     '        for lx in (p.lexed for p in self.paragraphs):\n            for _, _, dest in lx.links:',
+     ["(rc) a link to an absent memo inside a table CELL is rc 2",
+      "(population) a violation in a sibling linked ONLY from a cell is reported"]),
+    ("F3 population: a destination with a scheme or `//` is not a sibling", TABLES,
+     'if _SCHEME.match(dest) or dest.startswith("//"):', 'if False:',
+     ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0",
+      "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0"]),
+    ("F4 attribution: the FIRST marker occurrence decides", TABLES,
+     '    m = re.search(re.escape(MARKER), field)',
+     '    m = list(re.finditer(re.escape(MARKER), field))[-1]',
+     ["(a) a self-declaring field that later says a sibling 'is not it' stays self-declaring"]),
+    ("F5 kind: the undetermined spelling is collected beside the marker", TABLES,
+     '        if m:\n            self.spellings.add(m.group(0))',
+     '        if m and MARKER not in row.field:\n            self.spellings.add(m.group(0))',
+     ["(rc) a row carrying the marker AND one undetermined spelling, beside another row's other "
+      "spelling, is KIND-SPELLING rc 1"]),
+    ("F6 (c): the Deps cell's ids are the population's mentions, not a raw tokenisation", ROLES,
+     'cell_ids = in_deps.get((row.memo.path.name, row.lineno), set())',
+     'cell_ids = set(re.findall(SHORT_ID, deps))',
+     ["(c-seed) a Deps cell naming a FILE whose name holds the id does not carry the id",
+      "(c-seed) a Deps cell `xxxxC` does not carry the id `C`"]),
+    ("F7 check: an empty no-owner census is clean, not a schema miss", CHECK,
+     '    notes.append("[CENSUS] %d no-owner rows (umbrella + kind-undetermined)" % len(umb))',
+     '    if not umb:\n        return _result(findings, notes, 2, [], pop)\n'
+     '    notes.append("[CENSUS] %d no-owner rows (umbrella + kind-undetermined)" % len(umb))',
+     ["(rc) a memo whose every row is terminal is rc 0, not a schema miss",
+      "(rc) an all-terminal memo reports a zero census"]),
+    ("F8 empty cell: `n/a` is empty", TABLES,
+     'EMPTY_CELL = frozenset({"", "\\u2014", "-", "n/a"})', 'EMPTY_CELL = frozenset({"", "\\u2014", "-"})',
+     ["(c-seed) a Deps cell `n/a` is empty, so ordering prose is reported"]),
+    ("F8 empty cell: `-` is empty", TABLES,
+     'EMPTY_CELL = frozenset({"", "\\u2014", "-", "n/a"})', 'EMPTY_CELL = frozenset({"", "\\u2014", "n/a"})',
+     ["(id) an id cell `-` is empty: not declared, not reported"]),
+    ("F9 span: an escaped backtick opens no span", LEXER,
+     '        if _escaped(s, a0):\n            a0 += 1', '        if False:\n            a0 += 1',
+     ["(span) a backtick behind a backslash is literal and opens no span"]),
+    ("F10 def: a cell parses no reference definition", LEXER,
+     '([], 0) if cell else reference_definitions(masked)', 'reference_definitions(masked)',
+     ["(def) a cell shaped like a definition is inline content and is scanned"]),
+    ("F12 link: the link tail masks a slug", TABLES,
+     '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
+     ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
+    ("F13 link: an unanswered full reference is reported", LEXER,
+     '                unresolved.append((i, raw))', '                pass',
+     ["(link) a full reference no definition answers is reported as unresolved"]),
+    ("F13 link: a shortcut with an orphan definition is reported", LEXER,
+     '            unresolved.append((i, text))\n        i += 1', '            pass\n        i += 1',
+     ["(link) a shortcut whose only definition sits mid-paragraph is reported as unresolved"]),
+    ("C7 kind: the population's pointer kind excludes the row from the acceptance seed", ROLES,
+     '        if row.kind != "terminal":\n            continue',
+     '        if row.kind in ("umbrella", "undetermined"):\n            continue',
+     ["(accept-vocab seed) a POINTER row is excluded from the population",
+      "(accept-vocab seed) a row whose marker is ATTRIBUTED to another row is a pointer and owes "
+      "no acceptance condition"]),
+    ("C8 disposition: a kept slug inside a code span is visible", TABLES,
+     '            if m.group(0) in keep:', '            if False:',
+     ["(span) a kept slug inside a command-line code span is a naming site"]),
 ]
 
 
@@ -221,18 +293,27 @@ def run(reg):
             print("  FAIL [MUTANT] %s (unknown control)" % name)
             continue
         M = st.load({file: src.replace(find, replace)})
+        survived, crash = [], None
         try:
-            survived = [c for c in controls if reg[c][1](M)[0]]
-        except Exception as e:  # a mutant that crashes the pipeline is killed
-            survived = []
-            crash = "%s: %s" % (type(e).__name__, str(e)[:60])
-        else:
-            crash = None
+            for c in controls:
+                try:
+                    ok = reg[c][1](M)[0]
+                except Exception as e:
+                    # an exception is not the control going red: the clause
+                    # under test was never exercised, so this proves nothing
+                    crash = "%s: %s" % (type(e).__name__, str(e)[:60])
+                    break
+                if ok:
+                    survived.append(c)
         finally:
             st.unload()
-        if survived:
+        if crash:
+            fails.append("MUTANT %r crash: %s" % (name, crash))
+        elif survived:
             fails.append("MUTANT %r SURVIVED: control(s) stayed green: %s" % (name, survived))
-        print("  %-4s [MUTANT] %s%s" % ("FAIL" if survived else "ok", name,
-                                        " (killed by crash: %s)" % crash if crash else ""))
-    print("%d mutant(s), %d survived." % (len(MUTANTS), sum(1 for f in fails if "SURVIVED" in f)))
+        print("  %-4s [MUTANT] %s%s" % ("FAIL" if (survived or crash) else "ok", name,
+                                        " (crash: %s)" % crash if crash else ""))
+    print("%d mutant(s), %d survived, %d crashed."
+          % (len(MUTANTS), sum(1 for f in fails if "SURVIVED" in f),
+             sum(1 for f in fails if " crash: " in f)))
     return fails

@@ -127,7 +127,8 @@ jobs:
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
   # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
-  # the whole set, no toolchain, no cache), so a filter would buy nothing and cost the
+  # the whole set, no Rust toolchain, no cache; the self-test wire needs only the
+  # `python3` already on `ubuntu-latest`), so a filter would buy nothing and cost the
   # one property the wires exist for. Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an

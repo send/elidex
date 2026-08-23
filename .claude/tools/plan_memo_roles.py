@@ -14,7 +14,10 @@ memo is asserted exactly like a row of the main memo.  Findings are
 import re
 from collections import Counter
 
-from plan_memo_tables import DECOR, MARKER, ROW_NOUN, ROW_NOUN_ID, SHORT_ID, SLUG_ID, prose
+from plan_memo_tables import (
+    DECOR, MARKER, ROW_NOUN, ROW_NOUN_ID, SHORT_ID, SLUG_ID, balanced, decorated_id, is_empty,
+    prose,
+)
 
 
 # --------------------------------------------------------------------------
@@ -63,33 +66,38 @@ LICENSE_AFTER = re.compile(
     re.IGNORECASE,
 )
 
-# Row nouns that anchor an id in PROSE (`ROW_NOUN_ID`: noun, a space or a
-# hyphen, a decorated short id).  Over table cells no anchor is needed where a
-# bare token is read as an id by `_bare` without any anchor at all.
+# The three mention shapes, each the ONE decorated-id grammar with a different
+# core / anchor (group `id` is the id token in all three):
+#   * a row noun anchors a short id in PROSE (`ROW_NOUN_ID`: noun, a space or
+#     a hyphen, a decorated short id);
+#   * a slot id is a naming site however the document spells it: backticked,
+#     bold, both, or bare.  Accepting only the backticked form let an
+#     ownership claim written as `**#11-vm-foo**` or plain `#11-vm-foo` pass
+#     unreported under a rule whose stated polarity is reported-by-default;
+#   * a bare short id, in a cell or in prose, tokenised by `_bare` on the
+#     separators those blocks actually use.  No row noun is required; its
+#     decoration must BALANCE (`balanced`): `**A call at the finalizer sites
+#     is not the fix.**` opens with `**A` and a space, and an unbalanced-
+#     decoration rule read that as a decorated row id `A`.  Measured: three
+#     such sites in this memo before the balance requirement.
 MENTION_PROSE = re.compile(r"\b" + ROW_NOUN_ID + r"(?![0-9A-Za-z])")
-# A slot id is a naming site however the document spells it: backticked,
-# bold, both, or bare.  Accepting only the backticked form let an ownership
-# claim written as `**#11-vm-foo**` or plain `#11-vm-foo` pass unreported
-# under a rule whose stated polarity is reported-by-default.
-MENTION_SLOT = re.compile(r"(?<![\w-])" + DECOR + "(" + SLUG_ID + ")" + DECOR)
-# Bare ids inside a mention-bearing table cell, tokenised on the separators
-# those cells actually use.  No row noun is required, because the column's
-# grammar is what makes the token an id.
-# Decoration must BALANCE.  `**A call at the finalizer sites is not the fix.**`
-# opens with `**A` and a space; an unbalanced-decoration rule reads that as a
-# decorated row id `A` and reports the sentence opener.  Measured: three such
-# sites in this memo before the balance requirement.
-CELL_TOKEN = re.compile(r"(?P<l>\*\*|`)?(?P<id>" + SHORT_ID + r")(?P<r>\*\*|`)?")
+MENTION_SLOT = re.compile(r"(?<![\w-])" + decorated_id(SLUG_ID))
+CELL_TOKEN = re.compile(decorated_id(SHORT_ID))
 
 
 # A row noun standing between the licensing phrase and the id ("the child of
 # umbrella **3**") must not hide the phrase from the backward look.
 _TRAILING_NOUN = re.compile(r"\b" + ROW_NOUN + r"[\s-]+" + DECOR + "$")
 
+# The backward look reads the 40 characters before the mention (after a
+# trailing row noun is dropped); a row noun + its decoration is shorter than
+# 40, so an 80-character window is the same read without a block-length copy.
+_BEFORE = 80
+
 
 def classify(m):
     """Set `m.licensed` from what stands around the match in its block."""
-    before = _TRAILING_NOUN.sub("", m.text[: m.start])
+    before = _TRAILING_NOUN.sub("", m.text[max(0, m.start - _BEFORE): m.start])
     m.licensed = bool(LICENSE_BEFORE.search(before[-40:])
                       or LICENSE_AFTER.match(m.text[m.end:]))
     return m
@@ -133,21 +141,34 @@ def roles(m, w=110):
 # Assertions (a)-(d) of `#11-plan-memo-spec-field-single-home-check`
 # --------------------------------------------------------------------------
 
-# ⚠ Both ids must be DECORATED (`**id**` / `` `id` ``) or a `#11-` slug.  The
-# first attempt allowed a bare 1-4 char token, and `[0-9A-Za-z]{1,4}` matches a
-# fragment INSIDE a word: "own manager" parsed as owners `m` and `ator`, and the
-# seed reported 31 clauses of pure noise.  A seed that reports garbage is worse
-# than one that reports nothing, because a reader cannot tell them apart.
-# One group per owner; the decoration must be the SAME on both sides (a
-# backreference), so `**id**` and `` `id` `` match and `**id`` ` does not.
-_OWNER_REF = r"(?P<%sd>\*\*|`)(?P<%s>" + SLUG_ID + "|" + SHORT_ID + r")(?P=%sd)"
+# ⚠ Both ids must be DECORATED (`**id**` / `` `id` ``, balanced) or a `#11-`
+# slug.  The first attempt allowed a bare 1-4 char token, and `[0-9A-Za-z]{1,4}`
+# matches a fragment INSIDE a word: "own manager" parsed as owners `m` and
+# `ator`, and the seed reported 31 clauses of pure noise.  A seed that reports
+# garbage is worse than one that reports nothing, because a reader cannot tell
+# them apart.  One decorated-id group per owner (`a` / `b`); `_two_owners`
+# checks the balance, so `**id**` and `` `id` `` match and `**id`` ` does not.
+_OWNER_CORE = "(?:" + SLUG_ID + "|" + SHORT_ID + ")"
 OWNS_TWO = re.compile(
     r"\b(?:owns?|owned by|owner is|carries|carried by)\s+"
-    + (_OWNER_REF % ("a", "a", "a"))
+    + decorated_id(_OWNER_CORE, "a")
     + r"\s*(?:,\s*|\s+and\s+|\s+or\s+|\s*/\s*)"
-    + (_OWNER_REF % ("b", "b", "b")),
+    + decorated_id(_OWNER_CORE, "b"),
     re.IGNORECASE)
 
+
+def _owner_ok(m, tag):
+    return balanced(m, tag) or m.group(tag + "id").startswith("#11-")
+
+
+# ORDER-PROSE?'s vocabulary is DELIBERATELY narrower than the ranking's
+# "ordering" row below: the ranking reads `until` / `once` / `follows` /
+# `depends` / `gates` as single words because it only orders a reported set,
+# while this seed PRODUCES findings, and those words alone are the acceptance
+# prose of nearly every terminal row ("until the probe is green", "once the
+# drain runs").  Measured on the #506 memo's §5 tables (64 rows, `rank.search`
+# vs `ORDER_WORDS.search` over each Slice cell): the ranking vocabulary
+# matches 61 rows, this one 39 -- of which 36 reach a finding.
 ORDER_WORDS = re.compile(
     r"\b(?:before|after|lands? (?:first|second)|prerequisite of|gates?|blocked by|"
     r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b",
@@ -180,7 +201,7 @@ def assertion_a(pop, findings, notes):
     words -- "is an umbrella", "edge-dense", "no canonical algorithm" --
     without the literal.
     """
-    umb = pop.umbrella_ids()
+    umb = pop.ids_of_kind("umbrella")
     by_table = Counter(r.schema.name for r in umb.values())
     for file, name, lineno, rid, other in pop.attributed:
         findings.append(
@@ -193,7 +214,6 @@ def assertion_a(pop, findings, notes):
         "(%s) -- read from the declaring field, not from a grep over the marker"
         % (len(umb), ", ".join("%s=%d" % kv for kv in sorted(by_table.items())))
     )
-    keep = pop.keep()
     for row in pop.declaring_rows():
         if MARKER in row.field:
             continue
@@ -208,7 +228,7 @@ def assertion_a(pop, findings, notes):
                  "marker -- read it: a declaration, a quotation of the criterion, or "
                  "another row's kind?" % row.self_id))
         # the marker outside the declaring field certifies nothing
-        if any(MARKER in prose(c.lexed, keep)
+        if any(MARKER in prose(c.lexed)
                for i, c in enumerate(row.cells) if i != row.schema.decl):
             findings.append(
                 ("UMBRELLA-MARK", row.memo.path.name, row.lineno,
@@ -229,7 +249,7 @@ def assertion_b(pop, findings, notes):
         kind = "umbrella" if no_owner[row.self_id].kind == "umbrella" else "kind-undetermined"
         checked += 1
         deps = row.col("Deps").text
-        if deps and deps not in {"—", "-", "n/a"}:
+        if not is_empty(deps):
             findings.append(("UMBRELLA-CELL", row.memo.path.name, row.lineno,
                              "%s row %r carries a Deps edge: %s" % (kind, row.self_id, deps[:120])))
     notes.append(
@@ -259,17 +279,21 @@ def assertion_cd_seed(pop, mentions, findings, notes):
     # `extra` and this seed cannot see it.  An artifact-level comparison is a
     # different program; this one does not attempt it.
     n = 0
-    # (file, lineno) -> ids the anchored pass read in that row's Slice cell
-    # (the same mask, the same grammar, the same keep-set: one scan, not two)
-    named = {}
+    # (file, lineno) -> ids the anchored pass read in that row's Slice cell,
+    # and -> every id the population read in its Deps cell (the same mask,
+    # the same grammar, the same keep-set: one scan, not two -- a second
+    # tokeniser over the raw cell once read `9z` out of `slice-9z-sib.md`)
+    named, in_deps = {}, {}
     for m in mentions:
         if m.anchored and m.source == "slice:col1":
             named.setdefault((m.file, m.lineno), set()).add(m.id)
+        if m.source == "slice:col5":
+            in_deps.setdefault((m.file, m.lineno), set()).add(m.id)
     for row in pop.data_rows("slice"):
         rid = row.self_id
         deps = row.col("Deps").text
         body = row.col("Slice").text
-        empty = deps in {"", "—", "-"}
+        empty = is_empty(deps)
         if not ORDER_WORDS.search(body):
             continue
         # ⚠ A NON-EMPTY `Deps` cell does not discharge this.  The seed used to
@@ -291,7 +315,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         # scan already filters to declared ids and reads through the mask (the
         # `[\s-]+` separator once read `...-slice-1a-1b-...md` as "Slice 1a";
         # measured: 18 filename-derived hits across §5, 2 reaching this seed).
-        cell_ids = {m.group("id") for m in CELL_TOKEN.finditer(deps)} | set(MENTION_SLOT.findall(deps))
+        cell_ids = in_deps.get((row.memo.path.name, row.lineno), set())
         prose_ids = named.get((row.memo.path.name, row.lineno), set())
         extra = sorted(prose_ids - cell_ids - {rid})
         if extra:
@@ -307,8 +331,8 @@ def assertion_cd_seed(pop, mentions, findings, notes):
     d = 0
     for row in pop.data_rows("slice"):
         for m in OWNS_TWO.finditer(row.col("Slice").text):
-            a, b = m.group("a"), m.group("b")
-            if a == b:
+            a, b = m.group("aid"), m.group("bid")
+            if a == b or not (_owner_ok(m, "a") and _owner_ok(m, "b")):
                 continue
             d += 1
             findings.append(("TWO-OWNERS?", row.memo.path.name, row.lineno,
@@ -329,16 +353,13 @@ def acceptance_vocab_seed(pop, findings, notes):
     Measured on the committed memo, that complement reported `0a`, `0c`, `E` and
     `10`, and every one of the four was wrong.
     """
-    no_owner = pop.no_owner_ids()
     n, named = 0, []
     for row in pop.data_rows("slice"):
         rid = row.self_id
         body = row.col("Slice").text
-        if rid in no_owner:
-            continue
-        # ⚠ Keyed on one spelling, and the safe polarity: a differently-spelled
-        # pointer row is REPORTED, never missed.
-        if "is a pointer rather than a slice" in body:
+        # the population decided the kind once (`Population._kind`): a no-owner
+        # row and a pointer row owe no acceptance condition
+        if row.kind != "terminal":
             continue
         if RETIRED.search(body) or RETIRED.search(row.col("#").text):
             continue

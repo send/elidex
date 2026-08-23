@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """Fixture builder and control registry for `plan-memo-umbrella-check.py --self-test`.
 
-`CASES` are naming controls (a fixture, a prose tail, an optional sibling, and
-the EXACT number of sites the checker must report); `ASSERT_CASES` are
-assertion controls (a fixture and the exact count of one finding code).  The
-control kinds (POSITIVE / POSITIVE-NOVEL / NEGATIVE / KNOWN-MISS) are defined
-in `plan_memo_umbrella_selftest.py`, which runs these.  The fixture builder
-lives beside the cases because the cases are its only parameterisation.
+Every control is ONE record shape, `Case`: a fixture, a prose tail, an
+optional sibling and extra files, a MEASURE and the EXACT value it must take.
+Measures: `"sites"` (reported naming sites), `"rc"` (exit status),
+`("finding", CODE)` (count of one finding code), `("note", TEXT)` (count of
+report notes carrying TEXT), `("id", RID)` (1 if RID is declared, else 0).
+`case` / `acase` / `rcase` are spellings of the same record for the three
+common measures.  The control kinds (POSITIVE / POSITIVE-NOVEL / NEGATIVE /
+KNOWN-MISS) are defined in `plan_memo_umbrella_selftest.py`, which runs these
+through the one factory `control`.  The fixture builder lives beside the cases
+because the cases are its only parameterisation.
 """
+
+from collections import namedtuple
+
+Case = namedtuple("Case", "kind name text prose sibling files measure expect")
 
 
 # A minimal memo carrying every table schema, so the fixtures exercise the real
@@ -31,7 +39,7 @@ HEADER = """# fixture
 | # | Slice | Primary module(s) | Slot | Tier | Deps |
 |---|---|---|---|---|---|
 | **9z** | **UMBRELLA, not a terminal unit.** {s9z} | `a.rs` | — | T1 | {d9z} |
-| **7z** | Terminal. {s7z} | `b.rs` | — | T1 | {d7z} |
+| {i7z} | Terminal. {s7z} | `b.rs` | — | T1 | {d7z} |
 | **9** | **UMBRELLA, not a terminal unit.** numeric id. | `c.rs` | — | T1 | — |
 | **C** | **UMBRELLA, not a terminal unit.** single-letter id. | `d.rs` | — | T1 | — |
 | **Qx** | {sqx} | `e.rs` | — | T1 | — |
@@ -55,7 +63,7 @@ STUB = """## §4 Stubs
 |---|---|---|---|---|---|
 | `x.rs` | `a` | nothing | none | T1 | 7z |"""
 
-BLANK = dict(stub=STUB, extra="", c1="—", s9z="charter.", d9z="—",
+BLANK = dict(stub=STUB, extra="", c1="—", s9z="charter.", d9z="—", i7z="**7z**",
              s7z="Terminal.  Acceptance: the probe must return 3.", d7z="—",
              sqx="Terminal.  Acceptance: the probe must return 4.",
              suz="Terminal.  Acceptance: the probe must return 5.", duz="—",
@@ -70,8 +78,16 @@ def build(**kw):
 CASES = []
 
 
-def case(kind, name, text, prose, expect, sibling=None, files=None):
-    CASES.append((kind, name, text, prose, expect, sibling, files or {}))
+def case(kind, name, text, prose, expect, sibling=None, files=None, measure="sites"):
+    CASES.append(Case(kind, name, text, prose, sibling, files or {}, measure, expect))
+
+
+def acase(kind, name, text, code, expect, prose="", sibling=None):
+    case(kind, name, text, prose, expect, sibling, measure=("finding", code))
+
+
+def rcase(kind, name, text, prose, rc, sibling=None, files=None):
+    case(kind, name, text, prose, rc, sibling, files, measure="rc")
 
 
 # ---------------------------------------------------------------- POSITIVE --
@@ -175,12 +191,6 @@ case("KNOWN-MISS", "undecorated single letter with no row noun",
 
 
 # ---------------------------------------------------- assertion controls ----
-ASSERT_CASES = []
-
-
-def acase(kind, name, text, code, expect, prose="", sibling=None):
-    ASSERT_CASES.append((kind, name, text, code, expect, prose, sibling))
-
 
 acase("POSITIVE", "(a-seed) a row declaring the kind in words carries no marker",
       build(sqx="This row is an umbrella: three intersecting axes."),
@@ -366,13 +376,6 @@ acase("POSITIVE-NOVEL", "(b) a sibling umbrella's Deps edge is asserted",
 
 
 # ------------------------------------------------------ exit-status controls --
-# (kind, name, text, prose, sibling, files, expected rc)
-RC_CASES = []
-
-
-def rcase(kind, name, text, prose, rc, sibling=None, files=None):
-    RC_CASES.append((kind, name, text, prose, sibling, files or {}, rc))
-
 
 rcase("POSITIVE", "(rc) a linked memo that is not on disk is rc 2, never clean",
       build(), "See [gone](absent-file.md).", 2)
@@ -395,3 +398,109 @@ rcase("NEGATIVE", "(rc) a slice header over a one-cell delimiter row is not a ta
                   "so its wide body row is not a width miss",
       build(), "| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|\n"
                "| **Wz** | **UMBRELLA, not a terminal unit.** x | `w.rs` | — | T1 | — |", 0)
+
+
+# ------------------------------------------------ /code-review high controls --
+# One control (and, in `plan_memo_selftest_mutants.py`, one mutant) per fix.
+
+# F1 / F8: the id cell reads the one decorated-id grammar at its START
+case("POSITIVE", "(id) an id cell with trailing prose declares the id at its start",
+     build(i7z="**7z** — MERGED"), "", 1, measure=("id", "7z"))
+case("POSITIVE", "(id) a backticked slug with trailing prose declares the slug",
+     build(tb="now", extra="| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+                           "| `#11-zz-gamma` (carved from #483) | Terminal. Acceptance: must. | now | x |"),
+     "", 1, measure=("id", "#11-zz-gamma"))
+INTL = "`Intl` → owned externally by [[intl-icu-deferral]] (**no slot minted here**)"
+case("POSITIVE", "(id) the `Intl`-shaped cell declares the 4-character id at its start",
+     build(i7z=INTL), "", 1, measure=("id", "Intl"))
+case("NEGATIVE", "(id) the `Intl`-shaped cell never mints the whole cell as an id",
+     build(i7z=INTL), "", 0, measure=("id", INTL))
+case("NEGATIVE", "(id) a cell that does not start with an id declares nothing",
+     build(i7z="(none)"), "", 0, measure=("id", "(none)"))
+case("POSITIVE", "(id) a non-empty id cell that is not an id is reported as a note",
+     build(i7z="(none)"), "", 1, measure=("note", "[ID-CELL]"))
+case("NEGATIVE", "(id) an id cell `-` is empty: not declared, not reported",
+     build(i7z="-"), "", 0, measure=("note", "[ID-CELL]"))
+case("NEGATIVE", "(id) an id cell `-` is not an id",
+     build(i7z="-"), "", 0, measure=("id", "-"))
+acase("POSITIVE", "(c-seed) a Deps cell `n/a` is empty, so ordering prose is reported",
+      build(s7z="Terminal.  This row lands first; the probe must return 3.", d7z="n/a"),
+      "ORDER-PROSE?", 1)
+
+# F2 / F3: the population is read from every block, and only from local paths
+rcase("POSITIVE", "(rc) a link to an absent memo inside a table CELL is rc 2",
+      build(c1="[gone](absent-file.md)"), "", 2)
+case("POSITIVE-NOVEL", "(population) a violation in a sibling linked ONLY from a cell is reported",
+     build(c1="[the walk](slice-9z-sib.md)"), "", 1, **SIB)
+rcase("NEGATIVE", "(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0",
+      build(), "See [the spec](https://example.org/notes/spec.md).", 0)
+rcase("NEGATIVE", "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
+      build(), "See [the spec](//example.org/spec.md).", 0)
+
+# F4: the FIRST marker occurrence decides attribution
+acase("NEGATIVE", "(a) a self-declaring field that later says a sibling 'is not it' stays "
+                  "self-declaring",
+      build(wb="**UMBRELLA, not a terminal unit** charter. Unlike Slice **7z** — "
+               "**UMBRELLA, not a terminal unit** is not it."),
+      "UMBRELLA-MARK", 0)
+
+# F5: the undetermined spelling is collected even beside the marker
+rcase("POSITIVE", "(rc) a row carrying the marker AND one undetermined spelling, beside another "
+                  "row's other spelling, is KIND-SPELLING rc 1",
+      build(s9z="charter. **KIND-UNDETERMINED** for its second half.",
+            sqx="**KIND UNDETERMINED**: open."), "", 1)
+
+# F6: the Deps cell's ids are the population's own reading of it
+acase("POSITIVE", "(c-seed) a Deps cell naming a FILE whose name holds the id does not carry the id",
+      build(s7z="Terminal.  This row lands after Slice **9z**; the probe must return 3.",
+            d7z="see slice-9z-sib.md"),
+      "ORDER-PROSE?", 1)
+acase("POSITIVE", "(c-seed) a Deps cell `xxxxC` does not carry the id `C`",
+      build(s7z="Terminal.  This row lands after Slice **C**; the probe must return 3.",
+            d7z="xxxxC"),
+      "ORDER-PROSE?", 1)
+
+# F7: an all-terminal memo is clean
+ALL_TERMINAL = build().replace("**UMBRELLA, not a terminal unit.**", "Terminal. Acceptance: must.")
+rcase("NEGATIVE", "(rc) a memo whose every row is terminal is rc 0, not a schema miss",
+      ALL_TERMINAL, "", 0)
+case("NEGATIVE", "(rc) an all-terminal memo reports a zero census",
+     ALL_TERMINAL, "", 1, measure=("note", "[CENSUS] 0 no-owner"))
+
+# F9: a backslash-escaped backtick is literal (CommonMark §2.4 / §6.1)
+case("POSITIVE", "(span) a backtick behind a backslash is literal and opens no span",
+     build(), "Slice 9z owns \\`x` and then `Slice 9z` lands first", 2)
+
+# F10: a table cell holds no reference definition (GFM §4.10: inline content)
+case("POSITIVE", "(def) a cell shaped like a definition is inline content and is scanned",
+     build(c1='[note]: /x "Slice 9z owns the close rule"'), "", 1)
+
+# F12: declared bounds of the slot pass
+case("NEGATIVE", "(fence) a `#11-` slug inside a fenced block is not a naming site",
+     build(), "```\n#11-zz-alpha owns the close rule.\n```", 0)
+case("NEGATIVE", "(link) a `#11-` slug in a link DESTINATION is not a naming site",
+     build(), "See [the slot](#11-zz-alpha) for the close rule.", 0)
+
+# F13: a reference no definition answers is reported, not silently dropped
+case("POSITIVE", "(link) a full reference no definition answers is reported as unresolved",
+     build(), "See [the walk][sib].", 1,
+     measure=("note", "[LINK] unresolved reference 'sib'"))
+case("POSITIVE", "(link) a full reference whose definition sits mid-paragraph is reported ONCE",
+     build(), "See [the walk][sib].\n\ntext\n[sib]: slice-9z-sib.md", 1,
+     measure=("note", "[LINK] unresolved reference 'sib'"))
+case("POSITIVE", "(link) a shortcut whose only definition sits mid-paragraph is reported as unresolved",
+     build(), "See [the walk].\n\ntext\n[the walk]: slice-9z-sib.md", 1,
+     measure=("note", "[LINK] unresolved reference 'the walk'"))
+case("NEGATIVE", "(link) a `[C19]` citation is a shortcut with no definition anywhere: no note",
+     build(), "Per [C1] the probe must return 3.", 0,
+     measure=("note", "[LINK] unresolved reference"))
+
+# C8: slug disposition is the disposition step's, not the scanner's
+case("POSITIVE", "(span) a kept slug inside a command-line code span is a naming site",
+     build(tb="now, after `plan-check --slot #11-zz-alpha` is green"), "", 1)
+
+# C7: the population decides the pointer kind
+acase("NEGATIVE", "(accept-vocab seed) a row whose marker is ATTRIBUTED to another row is a pointer "
+                  "and owes no acceptance condition",
+      build(sqx="Slice **9z** — **UMBRELLA, not a terminal unit** — points there."),
+      "ACCEPT-VOCAB?", 0)
