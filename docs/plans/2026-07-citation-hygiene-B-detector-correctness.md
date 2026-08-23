@@ -212,8 +212,32 @@ D=$(mktemp -d); printf '/// HTML §4.10.21.2-4.10.21.3 step 7\n' > $D/a.rs
 **Fix**: make the number body **atomic** so it cannot give back characters, then reject on the lookahead:
 
 ```python
-r"§\s*(?-i:(?>(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)))(?!\.*[\w-])"
+r"§\s*(?-i:(?>(\d+(?:\.\d+)*|[A-Z](?:\.\d+)*)))(?!\.*[^\s!\"#$%&'()*+,./:;<=>?@\[\\\]^`{|}~])"
 ```
+
+The follow-set is written as a **complement**: after the (atomic) number and any run of dots, the only
+characters that may follow are whitespace, end of line, or ASCII punctuation other than `-` and `_` (the two
+that `\w`/range syntax continue a token with). Anything else — a letter, a digit after a dot, an ASCII
+hyphen, **or a non-ASCII dash** — rejects the token. The earlier form `(?!\.*[\w-])` enumerated the
+continuations it knew (word characters and the ASCII hyphen) and so accepted the repository's en-dash range
+shorthand — `§13.2.5.72–80` (`crates/dom/elidex-html-parser-strict/src/tokenizer/states/mod.rs:12`) was
+certified as `§13.2.5.72` — the truncation defect this section exists to end, surviving because every T1
+fixture was ASCII (Codex R47). The two populations the follow-set separates, each with its command (the
+first is the range shorthand, rejected; the second is the sentence dash after a space, accepted because the
+dash follows whitespace — every range site in the tree uses U+2013):
+
+```sh
+git grep -hP '(*UTF)§\s*[0-9]+(\.[0-9]+)*[\x{2010}-\x{2015}\x{2212}][0-9]' -- 'crates/**/*.rs' | wc -l   # → 21 at 4b3b4d21
+git grep -hP '(*UTF)§\s*[0-9]+(\.[0-9]+)* — ' -- 'crates/**/*.rs' | wc -l                                # → 316
+```
+
+Those 21 sites become `REJECTED-TOKEN` the day B lands; they are citation *repairs* in `crates/**` (the
+range must be written out, or each end cited), which B does not touch (§5) — they are the first entries of
+Slice D's repair list, recorded at B's landing beside the `STRING-LITERAL` residue (C §3 item 1). One
+consequence of the complement form is stated rather than left to be discovered: **non-ASCII punctuation**
+after the number (`’`, `…`, a full-width bracket) is in the reject half too — a reject is loud
+(`REJECTED-TOKEN`), and the tree has no such site today
+(`git grep -hP '(*UTF)§\s*[0-9]+(\.[0-9]+)*\.*[^\x00-\x7f\x{2010}-\x{2015}\x{2212}]' -- 'crates/**/*.rs'` → 0).
 
 ⚠ **The lookahead must look THROUGH dots, not just past one character** (Codex R20): `(?![\w-])` accepted `§4.10.5.foo` and `§4.10.5..1` — the atomic body stops at `5`, the next character is `.`, and the token was certified as `§4.10.5`, which is the silent-prefix behaviour this section exists to end. `(?!\.*[\w-])` rejects a dot-run that continues into a word character while still accepting the sentence-final period (`§4.10.5. ` — the dot is followed by a space). Both cases are T1 fixtures.
 
@@ -295,7 +319,14 @@ Measured: **89 cites extracted from non-comment lines**, breaking down as **58**
 
 The `\*` branch is the sharpest: **225** lines in `crates/**/*.rs` match `^\s*\*` and are treated as comments; **221 of them are `*deref` statements** (`*d ^= *k;`, `*self.count.lock().unwrap() += 1;`). The branch is 98% false positives, and each one wrongly *continues* an attribution block that a real non-comment line should have ended.
 
-**Fix**: replace the per-line regex with a small **stateful Rust-comment scanner** — line comments (`//`, `///`, `//!`) from their start position, block comments (`/* … */`, nestable) tracked across lines, string/char literals (including raw strings `r#"…"#`) excluded. Extraction is then gated on "this `§` is inside a comment span", and a trailing `// … §x` attributes to the enclosing block instead of resetting it. This is the one fix with real implementation weight; it is also the one whose absence makes every bucket count approximate.
+**Fix**: replace the per-line regex with a small **stateful Rust-comment scanner** — line comments (`//`, `///`, `//!`) from their start position, block comments (`/* … */`, nestable) tracked across lines, string/char literals excluded — **the literal tokens of the Rust reference's lexer, not a list of the ones seen so far**: string literals are an optional `b`/`c` prefix, an optional `r` with its `#` run, then `"` (`"…"`, `r#"…"#`, `b"…"`, `br#"…"#`, `c"…"`, `cr#"…"#`); character literals are `'x'` / `b'x'` with their escapes (`'"'`, `'\''`, `'\\'`), told apart from a lifetime `'a` by what follows the opening quote (one character-or-escape then `'`). An earlier revision listed two string forms and no character form: a scanner built to that list reads `br#"// WHATWG HTML §4.10.21"#` as code followed by a line comment and reports a fabricated citation (Codex R47), and reads the `"` inside `'"'` as a string opener and swallows every comment up to the next `"` — the silent-drop direction this section's ⚠ forbids. Populations, each with its command:
+
+```sh
+git grep -lP '\bb"'  -- 'crates/**/*.rs' | wc -l     # byte strings        → 158 files at 4b3b4d21
+git grep -lP '\bbr#"' -- 'crates/**/*.rs' | wc -l    # raw byte strings    → 2
+git grep -lP '\bc"|\bcr#"' -- 'crates/**/*.rs' | wc -l   # C strings      → 67
+git grep -cP "b?'\"'" -- 'crates/**/*.rs' | awk -F: '{s+=$2} END{print s}'   # '"' char literals → 41 lines
+``` Extraction is then gated on "this `§` is inside a comment span", and a trailing `// … §x` attributes to the enclosing block instead of resetting it. This is the one fix with real implementation weight; it is also the one whose absence makes every bucket count approximate.
 
 ⚠ **A string literal carrying `§N` is not always noise, so "excluded" must mean "reported", never "dropped"** (Codex R16). `crates/script/elidex-js/src/vm/well_known.rs` (module doc-comment `:22-24`; the `§`-bearing literal is `:245`, `"History-step UA event type names (WHATWG HTML §7.4.6.2)"`) *deliberately* cites specs inside macro string arguments that exist only as source-navigation markers (the macro discards them), and `git grep -nE '"[^"]*§[0-9]' -- crates` shows the shape is not unique to that file. Gating extraction on comment spans therefore makes `cite-audit` stop *verifying* those citations, which is the right reading for verification — a string is not a citation of the code beside it — but it must not make them *invisible*: a `§`-bearing string literal is emitted as a fourth reported class, **`STRING-LITERAL`** (a count and a site list beside `REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED`; `--strict` does not fail on it). That class is the seed for **Slice D**, whose citation-repair pass converts navigation-marker strings that are meant as citations into comments, where the gate reaches them — One issue, one way: citations live in comments. B does not touch `crates/**` (§5), so B's landing records the class's count as its stated residue (C §3 item 1) rather than fixing the sites.
 
@@ -351,7 +382,7 @@ Measured: **`SystemExit ESCAPED _catalog()`**. `cache.py:131` raises `sys.exit` 
 
 The second half is worse. When `except Exception` *does* fire (a malformed `index.json`), `_catalog()` returns `{}` — and `shortname_for("CSS Text 3")` becomes `None`, which is exactly the CSS-module **fail-open** that `spec_labels.py:118-121` claims to have removed ("the plan-review gate previously failed **open** on those, soft-warning and skipping citation verification").
 
-**Fix**: `_catalog()` returns a discriminated result — `CatalogResult(available: bool, entries: dict, cause: str | None)`: *available* (`available=True`, a possibly-empty `entries`) vs *unavailable* (`available=False`, `entries={}`, `cause` naming the exception). The shape is stated here so that S12 and the harness `offline` block assert the discriminator itself rather than inferring it from a Python type (Codex R19). Callers act on the distinction: `cite-audit` puts a label it cannot resolve because the catalog is unreachable into a distinct `UNKNOWN-SPEC` class rather than silently into UNATTRIBUTED; `preflight` treats it as **Slice A's** capability precondition treats an unimportable tools tree — **not survivable without `--no-verify`** — which is why B appends to that precondition rather than inventing a second one. `SystemExit` is caught explicitly alongside `Exception`.
+**Fix**: `_catalog()` returns a discriminated result — `CatalogResult(available: bool, entries: dict, cause: str | None)`: *available* (`available=True`, a possibly-empty `entries`) vs *unavailable* (`available=False`, `entries={}`, `cause` naming the exception). The shape is stated here so that S12 and the harness `offline` block assert the discriminator itself rather than inferring it from a Python type (Codex R19). Callers act on the distinction: `cite-audit` puts a label it cannot resolve because the catalog is unreachable into a distinct `UNKNOWN-SPEC` class rather than silently into UNATTRIBUTED. **This is the class's one definition — `UNKNOWN-SPEC` = a label-shaped citation that does not select exactly one document**; the catalog-unreachable case here, §4.1.8's cross-series ambiguity, §4.1.10's AO collision and offline biblio, and §10-Q2's offline label-shaped run are its members, and those sections point here rather than restating it; `preflight` treats it as **Slice A's** capability precondition treats an unimportable tools tree — **not survivable without `--no-verify`** — which is why B appends to that precondition rather than inventing a second one. `SystemExit` is caught explicitly alongside `Exception`.
 
 #### §4.1.8 — the catalog reverse lookup is first-wins ambiguous
 
@@ -382,7 +413,7 @@ There is a second, smaller hole in the same function: the shortname branch is `i
 
 1. `SPECS` pinned map wins, verbatim.
 2. An exact **shortname** match (case-insensitively) wins next, resolving to that spec verbatim.
-3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series**; a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against. Census on the catalog `spec_labels` actually reads — w3c/webref `ed/index.json` (`sources/webref_data.py` `BASE`; `_data_index()` = **752** spec entries plus series aliases, **949** keys, at 2026-08-23T00:54Z — not browser-specs' own index, whose entry set differs) — finds **two** labels whose title/shortTitle candidates span series: `Cookies: HTTP State Management Mechanism` is the title *and* shortTitle of both `layered-cookies` and `rfc6265bis` (genuinely ambiguous → `UNKNOWN-SPEC`), and `DOM` is the shortTitle of both `dom` and `DOM-Level-2-Style` — *not* ambiguous, because rule 2 resolves it as the shortname `dom` before rule 3 runs (Codex R32; the cumulative `/elidex-review` re-gate caught an earlier draft that measured a different catalog and named a third, `HTTP/2`, which does not collide here: `rfc7540` is absent and `HTTP/2` is `rfc9113`'s shortTitle alone).
+3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series** (else `UNKNOWN-SPEC`, §4.1.7's definition); a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against. Census on the catalog `spec_labels` actually reads — w3c/webref `ed/index.json` (`sources/webref_data.py` `BASE`; `_data_index()` = **752** spec entries plus series aliases, **949** keys, at 2026-08-23T00:54Z — not browser-specs' own index, whose entry set differs) — finds **two** labels whose title/shortTitle candidates span series: `Cookies: HTTP State Management Mechanism` is the title *and* shortTitle of both `layered-cookies` and `rfc6265bis` (genuinely ambiguous → `UNKNOWN-SPEC`), and `DOM` is the shortTitle of both `dom` and `DOM-Level-2-Style` — *not* ambiguous, because rule 2 resolves it as the shortname `dom` before rule 3 runs (Codex R32; the cumulative `/elidex-review` re-gate caught an earlier draft that measured a different catalog and named a third, `HTTP/2`, which does not collide here: `rfc7540` is absent and `HTTP/2` is `rfc9113`'s shortTitle alone).
 
 Rule 3 is what collapses the level ambiguity structurally: the catalog carries `series.currentSpecification` for every entry, so `cssom`/`cssom-1`, `selectors`/`selectors-4`, `pointerevents`/`pointerevents4` each fold onto one shortname (**661 distinct series** vs 949 index keys). A label that names a *level* still resolves to that level.
 
@@ -408,14 +439,55 @@ Measured: latin-1 → `0 cites`, **EXIT=0**; the same citation as UTF-8 → `1 c
 #### §4.1.10 — the three non-§ citation forms (C's hand-off)
 
 C retires `axes.md`'s "≥4 grep pattern" requirement on the strength of `cite-audit`; by B's own reach
-analysis (§2 I2) the §-form detector leaves **AO-name** cites (`per OrdinaryToPrimitive`), **`per <spec>`**
+analysis (§2 I2) the §-form detector leaves **AO-name** cites (`per OrdinaryToPrimitive`), **`per <label>`**
 prose cites and **spec URLs** outside it. So that C's exit criterion names a mechanism and not a phrase
 (#501 R42), B's detector gains `--forms ao,prose,url`: AO names are tokens `aoid` resolves (the tc39 biblio
-is the enumerable set — no hand-authored alternation, the class `cite_audit.py:13` forbids); `per <spec>` is
-`per (WHATWG|W3C|ECMA-262|ECMA-402)[^,.;]*` with the label resolved by `shortname_for`; a URL is attributed
-through the catalog's `url` / `nightly.url` host+path prefix. Each form reports into the same classes
-(attributed / `UNATTRIBUTED` / `UNKNOWN-SPEC`). Pinned by **T11**; off by default so §5's §-form counts
-stay comparable.
+is the enumerable set — no hand-authored alternation, the class `cite_audit.py:13` forbids); `per <label>`
+takes its label candidate from the **same probe §4.1.2 uses for `§` attributions** — the keyword `per` is
+matched case-insensitively (`Per HTML spec:` at `crates/dom/elidex-form-core/src/validation/mod.rs:247` is
+the shape), lower-case words between it and the label are skipped (`per the HTML spec`), the capitalised run
+that follows is the candidate window (at most `MAX_LABEL_WORDS`, §10 Q2), and `shortname_for` is asked
+**longest-candidate-first, first hit wins** — the one rule §4.1.2 states, so the prose form's reach is
+`shortname_for`'s reach by construction. An earlier revision wrote the candidate as
+`per (WHATWG|W3C|ECMA-262|ECMA-402)[^,.;]*`: a prefix alternation of exactly the class this paragraph forbids
+two lines above, reaching a minority of the population (Codex R47). The population is a command, not a
+table — it is convention-dependent (case, the `spec` suffix, `per the …`) and any digits here would be
+argument:
+
+```sh
+git grep -hoP '\b[Pp]er\b(?: [a-z]+)* [A-Z][\w-]*(?: [A-Z][\w-]*)*' -- 'crates/**/*.rs' | sort | uniq -c | sort -rn
+```
+
+A URL is attributed through the catalog's `url` / `nightly.url` host+path prefix.
+
+**One site, one form.** `ao` and `prose` key off the same text (`per <Token>`), so their order is stated:
+the text after `per` is tried as a **label** first (the probe above); only when no label resolves is the
+single token tried as an **AO**; a site is claimed by whichever form attributes it, and a site neither
+attributes is reported **once**, under `UNKNOWN-SPEC` — never twice, never silently.
+
+**AO attribution across the two TC39 catalogs.** `aoid` takes a shortname (`cli.py:111-113`), so a bare AO
+token must select one: the enumerable set is the **union** of both biblios, the token is attributed to the
+catalog that contains it when **exactly one** does, and a name present in both is `UNKNOWN-SPEC` under
+§4.1.7's definition (it does not select one document), with both candidates named in the summary; the author
+disambiguates with the qualified form `per ECMA-402 <AO>`, which is the `per <label>` path. The two biblios
+come through the same cache layer as the catalog (`sources/tc39.py` → `cache.py`), so **`--forms ao` offline
+degrades as §4.1.7 does**: when either biblio is unavailable, every AO token is `UNKNOWN-SPEC` with the cause
+named, never silently unattributed (umbrella: no slice makes resolution need the network without its
+offline form in the same slice). An implementation that assumes `ecma262` silently misses every
+ECMA-402-only AO (Codex R47). Population and collision set, by command:
+
+```sh
+python3 - <<'EOF'
+import sys; sys.path.insert(0, '.claude/tools')
+from _webref.resolver import tc39_biblio
+ao = lambda s: {e['aoid'] for e in tc39_biblio(s)['entries'] if e.get('aoid')}
+a, b = ao('ecma262'), ao('ecma402'); print(len(a), len(b), sorted(a & b))
+EOF
+# → 743 128 ['AvailableNamedTimeZoneIdentifiers'] against the biblios cached on 2026-08-23
+```
+
+Each form reports into the same classes (attributed / `UNATTRIBUTED` / `UNKNOWN-SPEC`). Pinned by **T11**;
+off by default so §5's §-form counts stay comparable.
 
 ### §4.2 What left, and where the seams are
 
@@ -548,17 +620,17 @@ Three deltas need naming, not just reporting:
 New/changed tests, by file. Every one must **fail against the unfixed detector** (`b3a7d469`'s `cite_audit.py` grafted onto A's landed head — §12(2) spells out why the graft is needed) — §12 makes that a runnable check rather than a promise.
 
 **`test_cite_audit.py`** (36 today):
-- **T1** `TestTokenIntegrity` — 8 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7`, `§4.10.5.foo`, `§4.10.5..1` all REJECTED; `§4.10.5.` and `§4.10.5, and` accepted. Pins the atomic form and, by the first case, forbids the lookahead form.
+- **T1** `TestTokenIntegrity` — 11 fixtures: `§4.10.21.2-4.10.21.3`, `§16.2-obsolete`, `§12.3-12.6`, `§4.9.5-7`, `§4.10.5.foo`, `§4.10.5..1`, **`§13.2.5.72–80`** (U+2013, the tree's form — `states/mod.rs:12`) and **`§27.2.4.1—3`** (U+2014, a synthetic probe: no tree site uses it, it pins the dash *class*) all REJECTED; `§4.10.5.`, `§4.10.5, and` and **`§4.12.5.1.5 — composed`** (sentence dash after a space) accepted. Pins the atomic form and, by the first case, forbids the lookahead form; the two Unicode-dash cases pin the complement follow-set against an ASCII-only enumeration (Codex R47).
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
 - **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. **T3b** a 9-word catalog-only label: attributed with the catalog available, `UNKNOWN-SPEC` with `_catalog().available is False` (§10 Q2's offline rule). T3/T3b pin the **library** side of `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`); the slot's subject is the **gate**, so its closing pin is **P-CSS** below, not T3.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
-- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause, **plus a nested-depth fixture** (Rust block comments nest): `/* outer /* inner */ still outer §4.10.21 */` — the cite after the inner `*/` is still in a comment span, which a boolean (non-depth) scanner gets wrong (Codex R42); **and a lifetime fixture** — `fn f<'a>(x: &'a str) { // WHATWG HTML §4.10.21` — the trailing comment is reported, not swallowed by a scanner that reads every `'` as a character-literal opener (lifetimes are thousands of tokens in `crates/**/*.rs`; Codex R46). The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
+- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, **byte string `b"… §4.10.21"` and raw byte string `br#"// WHATWG HTML §4.10.21"#` (the embedded `//` must not open a comment; both reported under `STRING-LITERAL`, Codex R47)**, **a `'"'` character literal followed by `// WHATWG HTML §4.10.21` on the same line (the quote inside the char literal must not open a string; the comment is reported)**, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Eight fixtures (one per measured cause; the string-literal cause carries four, the char-literal cause one), **plus a nested-depth fixture** (Rust block comments nest): `/* outer /* inner */ still outer §4.10.21 */` — the cite after the inner `*/` is still in a comment span, which a boolean (non-depth) scanner gets wrong (Codex R42); **and a lifetime fixture** — `fn f<'a>(x: &'a str) { // WHATWG HTML §4.10.21` — the trailing comment is reported, not swallowed by a scanner that reads every `'` as a character-literal opener (lifetimes are thousands of tokens in `crates/**/*.rs`; Codex R46). The four string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
 - **T6** `--strict` exits 1 on an UNATTRIBUTED-only tree (the `§4.10.79.1` case).
 - **T7** corrupt extract → single diagnostic naming the cache, **zero** sections reported UNRESOLVED, non-zero exit.
 - **T8** non-UTF-8 file → `SKIPPED` class, `--strict` exits 1.
 - **T9** emitter parity — `--format json --summary` omits per-cite records; `--show-unattributed` is honoured by both emitters.
 - **T10** `/// WHATWG WebIDL §3.2` (the spelling at the five `crates/script/elidex-js` sites A-i §13 lists) is **reported** under `UNKNOWN-SPEC` with the label named in the summary — never silently dropped; the re-spelling itself is `#11-webidl-label-spelling-sweep` (ledger), not B's.
-- **T11** `TestNonSectionForms` — the three non-§ citation forms C's §4 names are discovered and attributed by `cite-audit --forms ao,prose,url`: an AO-name cite (`/// per OrdinaryToPrimitive`, resolved through `aoid`), a `per <spec>` prose cite (`/// per WHATWG HTML, the focus update steps`), and a spec URL (`https://html.spec.whatwg.org/multipage/interaction.html#focus-update-steps`, attributed through the catalog's `url`/`nightly.url`); each is attributed, and an unresolvable one lands in `UNKNOWN-SPEC`, not in silence. Without `--forms`, §-form only (B's default).
+- **T11** `TestNonSectionForms` — the three non-§ citation forms C's §4 names are discovered and attributed by `cite-audit --forms ao,prose,url`: AO-name cites — `/// per OrdinaryToPrimitive` (ecma262 only → `ecma262`), **`/// per AvailableCalendars`** (ecma402 only → `ecma402`; an implementation that searches only `ecma262` fails here — the name is taken from the biblio by the §4.1.10 command, not from memory), **`/// per AvailableNamedTimeZoneIdentifiers`** (in both → `UNKNOWN-SPEC` naming both), **`/// per ECMA-402 AvailableNamedTimeZoneIdentifiers`** (qualified → `ecma402`), and **the same AO fixture under a poisoned `urlopen` with the biblio cache absent → `UNKNOWN-SPEC` naming the cause** (the `ao` offline rule); `per <label>` prose cites — `/// per WHATWG HTML, the focus update steps`, **`/// Per HTML spec: …`** (`validation/mod.rs:247`'s shape: capital `Per`, `spec` suffix), **`/// per the HTML spec …`** (a skipped lower-case word), **`/// per WebIDL …`** (→ `webidl`; the shortname is its own key, `spec_labels.py:65-72`) and **`/// per HTML …`** all attributed through `shortname_for` (a prefix-alternation implementation fails on every one but the first), **`/// per CSSOM …`** attributed with the catalog stubbed as T3 stubs it (`CSSOM` is catalog-backed, not in the pinned map) and `UNKNOWN-SPEC` under T3b's offline rule, and **`/// per WHATWG WebIDL …`** → `UNKNOWN-SPEC` (T10's spelling — `WebIDL` alone resolves, `WHATWG WebIDL` does not); and a spec URL (`https://html.spec.whatwg.org/multipage/interaction.html#focus-update-steps`, attributed through the catalog's `url`/`nightly.url`); an unresolvable one lands in `UNKNOWN-SPEC`, not in silence. Without `--forms`, §-form only (B's default).
 - **C1** *(the coverage gap)* — one end-to-end `cli.main` case: `sys.argv` patched, `--strict` on a fixture tree, `SystemExit` code asserted. Mutation check: deleting the `--strict` argparse block must turn this red.
 
 **`test_spec_labels.py`** (**A-i's file — B appends, does not create**): A-i lands it with its own S1–S8
@@ -621,7 +693,7 @@ Baselines are what exists at A's landed head — the pre-carve `wc -l` figures a
 |---|---|---|---|
 | `.claude/tools/_webref/commands/cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
 | `.claude/tools/_webref/spec_labels.py` | A-i's landed size | +~70 | reverse index + discriminated `_catalog()` |
-| `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
+| `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~560 | T1-T11, C1; −1 test moved to `test_preflight.py` |
 | `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S14 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
 | `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~45 | P4 / P5 / P-CSS appended to A's file |
@@ -701,7 +773,7 @@ criterion. B inherits it.
 ```sh
 git worktree add /tmp/citeaudit-pre <A's landed head>
 # A-i's K3 deliberately ships NO detector: at A's head `commands/cite_audit.py`
-# is absent, so a suite run there fails on import, not on T1–T9/C1 (Codex R15).
+# is absent, so a suite run there fails on import, not on T1–T11/C1 (Codex R15).
 # Graft the UNFIXED detector from the carve commit, then the red is attributable.
 # `b3a7d469` is PR #501's carve commit. It is NOT on `main` (the PR squashes),
 # so fetch it by sha — GitHub keeps a merged PR's commits reachable through

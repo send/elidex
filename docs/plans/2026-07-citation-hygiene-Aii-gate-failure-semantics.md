@@ -286,7 +286,7 @@ stale: a module global assigned only in the `except` arm keeps its previous valu
 `importlib.reload` **succeeds**. The symmetric-looking `_shortname_for = None` **is** re-established on
 reload, which is what makes the asymmetry easy to miss. → `rederive reloadstale`
 
-⚠ **And remedy 3 needs a degraded form.** §4.5 item 1 names an in-process `preflight._shortname_for = None`
+⚠ **And remedy 3 needs a degraded form.** §4.3 item 3 names an in-process `preflight._shortname_for = None`
 as a precondition-pinning mechanism; that sets the sentinel *without raising*, so the captured error is
 `None`. A-ii states the string — *"the spec-label map is unavailable (no import error was captured)"* — and
 **P5c asserts the string, not the branch**.
@@ -339,6 +339,20 @@ the verdict is unchanged) and treats a miss as the hard-fail row it is today; `p
 The exit-status vocabulary (`2` = unknown spec, `1` = unknown section) becomes the resolver's return, which
 `test_preflight.py` pins directly instead of through a child's rc.
 
+**Failures the resolver raises, not returns.** `lookup_section` is not miss-or-hit: on a cold cache the
+fetch layer `sys.exit`s on HTTP and network errors (`_webref/cache.py:129-131`, `:142-144`; `:128`/`:141`
+raise `NotFound`, an `Exception`) and a malformed cached extract raises from `json` normally. With the
+subprocess gone, an untranslated raise ends preflight **before** its `HARD FAIL` verdict and summary (Codex
+R47). The translation is **not** a per-row catch: a network failure or a truncated extract is a fact about
+this process, not about the citation that happened to trip it — §1's corollary, the reason §4.2.3 hoisted
+the capability check out of the loop, and the shape B §4.1.6 names as a defect ("one cache file is
+truncated … reported once, as itself"). So the data loop **stops at the first resolver raise**: the loop
+catches `SystemExit` and `Exception` from the resolver call, prints **one** diagnostic naming the cause and
+the citation it surfaced on, and exits with the hard-fail code — no per-citation rows, no re-attempt for
+the remaining citations, and never a re-raise. The `python3 -O` explicit-raise guard (§4.2.3) sits
+**outside** that `try` — it is preflight's own invariant, not a resolver failure, and must not be swallowed
+by it. Pinned by **T-raise** below; T-net cannot see this, because its stub returns.
+
 **What it does not decide.** Catalog-backed labels and the catalog-unavailable branch are **B's** (§4.1.7 /
 §4.1.8 there, pinned by B's P4 / P-CSS through this same path); at A-ii's head the resolver is pinned-map only
 (K3). Network: the resolver reads webref's cache; T-net pins that no `urlopen` happens under the suite's
@@ -346,7 +360,7 @@ fixtures.
 
 **Pins touched.** §4.2.1's "CLI axis" rows become the import axis (one cause); P2b runs through `main`
 rather than a subprocess; T-net becomes an absolute (no `subprocess.run` from `preflight`, no `urlopen`);
-§4.5's isolation contract loses `WEBREF` and `subprocess.run` and gains `_lookup_section`.
+§4.3 item 3's isolation contract loses `WEBREF` and `subprocess.run` and gains `_lookup_section`.
 
 ### §4.3 Test siting
 
@@ -373,8 +387,9 @@ construction, since A-ii is the slice that makes `preflight` a consumer at all.
    an in-process call, so the stub replaces `preflight._lookup_section` — preflight then has **no**
    `subprocess.run` call site at all, which T-net pins as an absolute. **No pin loses
    coverage**: P6's "reported once" is about the *hoisted* verdict, which never enters the loop; the
-   `python3 -O` explicit-raise guard is pinned by calling `verify_citation` directly with `WEBREF` pointed
-   at a nonexistent path, which reaches no subprocess.
+   `python3 -O` explicit-raise guard is pinned by calling `verify_citation` directly with
+   `preflight._lookup_section = None` (the capability absent), which must raise explicitly and reaches no
+   subprocess (`WEBREF` no longer exists after §4.2.6).
 
 ---
 
@@ -425,7 +440,8 @@ Each pin names what it **executes**; §5 owns the expected values, stated once. 
 
 **Two suite-level fixtures, stated here rather than inside a pin**, because a per-pin clause is what made the
 merged memo's pin set unsatisfiable: a shared `setUp` stubs `preflight.verify_citation → (True, "")` for
-every pin that runs `main`, and restores the five pieces of process state in `tearDown`. The capability axes
+every pin that runs `main` **except T-raise**, which needs the real function and stubs the seam below it
+(`_lookup_section`), and restores the five pieces of process state in `tearDown`. The capability axes
 are flipped by §4.2.1's in-process instruments.
 
 | Pin | What it executes | §5 rows | Fails at A-i's head? |
@@ -454,6 +470,7 @@ are flipped by §4.2.1's in-process instruments.
 | **P11g** (`test_grep_pass.py`) | the same `fenced-marker-long.md` through `run_grep_pass`: a bad `crates/…` path quoted *inside* that fence yields **no** hard finding (grep-pass reads the fence with the same `fences.py` tracker) — the disagreement R30 named, pinned on the grep-pass side | 15 | **yes** — `grep_pass.py`'s own tracker closes the fence early and reports the path |
 | **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** | 12 | **yes**, on the diagnostic |
 | **P13** | `allunmapped.md`, `unlabelled.md` and `malformed.md` → the `n/a (0 of N rows resolvable)` line present; **and its negative half** — absent in rows 3/6/9 | 11, 11b, 16, 3, 6, 9 | **yes** |
+| **T-raise** | the one pin that runs `main` with the **real** `verify_citation` (it opts out of the shared `setUp` stub, §6 preamble) and `_lookup_section` stubbed to raise `SystemExit("webref: network error …")`, then `ValueError` (a malformed extract), on a two-citation fixture: **exactly one** diagnostic naming the cause, no per-citation rows, the summary printed, exit = the hard-fail code — not the raised `SystemExit`'s and not a traceback; and the `python3 -O` guard, raised inside the same loop, is **not** caught | — (the raise is a stub state, outside `armmatrix`'s CLI/map/mode axes; like T-net, pinned by the suite only) | — not attributable there: the seam `_lookup_section` does not exist at A-i's head (the red would be an `AttributeError`, §12(2)'s excluded class); the pin guards §4.2.6's own edit — red against an implementation that catches per row or re-raises |
 | **T-net** | across A-ii's whole suite, **`subprocess.run` is never called by `preflight`** (after §4.2.6 there is no call site; the path object check an earlier revision needed is gone — `grep_pass` keeps its own `subprocess.run`, outside this pin) **and `urllib.request.urlopen` is never called** (the in-process resolver serves from the cache fixture or the `_lookup_section` stub) | — | **yes** |
 
 ⚠ **An exit-code-only assertion is not a discriminator when the base reaches the same code by another

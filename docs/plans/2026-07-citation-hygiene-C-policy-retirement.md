@@ -56,7 +56,7 @@ Retiring a discovery method rests on a **supersession claim**: the replacement r
 what it replaces. That claim is admissible only once something has **measured** the replacement's reach.
 Today it is false, and the shape of its falsity is known from B's evidence base:
 
-- `cite-audit` requires the literal `§` glyph, so AO-name citations, `per <spec>` prose lines, and
+- `cite-audit` requires the literal `§` glyph, so AO-name citations, `per <label>` prose lines, and
   spec-URL citations are outside its reach entirely.
 - Its label alternation is built from 12 pinned specs while the catalog carries hundreds more (B §4.1.8 derives the population; no literal here), so a CSS-module or
   FileAPI citation is **UNATTRIBUTED**, not attributed-and-checked.
@@ -107,7 +107,7 @@ grep -q 'cite-audit' .claude/skills/elidex-review/axes.md \
   && echo RETIRED
 ```
 
-The seventh clause is the non-§ discovery **mechanism**, not a phrase: `axes.md` must name `cite-audit --forms ao,prose,url` (B §4.1.10 — AO names via `aoid`, `per <spec>` prose, spec URLs via the catalog) and B's T11 must be green for the three forms — the class invoked directly and the executed-test count asserted ≥1, since `unittest -k` on an absent class prints `Ran 0 tests … OK` (Codex R46) (Codex R42: a sentence containing "non-§ discovery" would otherwise have printed `RETIRED` with no discovery path for those surfaces). Today (2026-07-28) this prints nothing. The fourth clause is §1's third site: `DESIGN.md` gaining the
+The seventh clause is the non-§ discovery **mechanism**, not a phrase: `axes.md` must name `cite-audit --forms ao,prose,url` (B §4.1.10 — AO names via `aoid`, `per <label>` prose, spec URLs via the catalog) and B's T11 must be green for the three forms — the class invoked directly and the executed-test count asserted ≥1, since `unittest -k` on an absent class prints `Ran 0 tests … OK` (Codex R46) (Codex R42: a sentence containing "non-§ discovery" would otherwise have printed `RETIRED` with no discovery path for those surfaces). Today (2026-07-28) this prints nothing. The fourth clause is §1's third site: `DESIGN.md` gaining the
 reported-class and `--strict` contract that `axes.md` will point readers to — a chain checking only
 `axes.md` and `CLAUDE.md` printed `RETIRED` with that contract still unwritten (Codex R14). ⚠ The needle
 is a heading **C itself writes** (`## Reported classes`, the section §1's third row promises), not the
