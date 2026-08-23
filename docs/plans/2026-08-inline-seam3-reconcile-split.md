@@ -7,8 +7,7 @@ contract and §9 its scope; this memo re-anchors both against **`658cc302`**, th
 actually has.
 
 It also discharges `#11-inline-fragmented-fn-decomposition`'s **seam 3**: that slot's trigger
-fires on this PR, and the slot memo is canonical for its wording (§9 states the rule — this memo
-does not restate a slot's trigger).
+fires on this PR, and the slot memo is canonical for its wording.
 
 ⚠ **This PR carries the code move and nothing else, and that is a narrowing of what the umbrella
 §8/§10 assigned it** (user-ratified 2026-08-16). The umbrella routes three further payloads here:
@@ -29,35 +28,11 @@ PR** … No later PR re-ships them", which is a ratified surface — it is an in
 owed round 20, not a decision this memo may take silently
 ([[feedback_plan-ratified-surface-is-a-design-change]]).
 
-⚠ **That rule offers two routes and this memo takes the first; the second is weighed here rather
-than passed over.** Route (i) is to route the contradiction to plan-review as a plan delta — taken.
-Route (ii) is to **re-slice it out of the PR, when the defect pattern says the slice boundary is
-wrong**. Rejected, on the pattern rather than on convenience: a re-slice would move **the boundary**,
-and **no finding has landed on the moved range** — the body that is byte-identical modulo the
-extracted signature, which is what a re-slice
-would re-cut. It was ratified by the umbrella, is proven unchanged by §6's two harnesses, and has
-not moved since the first commit.
-
-⚠ **Findings have landed outside the memo** — the `reconcile_flows` docstring's citations and
-`collect.rs`'s delegation comment — but both are text this PR **authored**, not the moved range.
-The defects cluster at what this PR wrote, not at where it cut, which is a stronger ground for
-keeping the boundary than a claim about the memo would be.
-
-Recorded because "we took route (i)" reads as a settled rule when it is a choice between two, and
-the reader cannot otherwise tell which.
-
 **Coordinate frames.** Every `file:line` naming a *pre-split* location — `inline/mod.rs`,
 `collect.rs`, the base range — is a **`658cc302`** coordinate, produced by a command named beside
 it. References to `inline/reconcile.rs`, and to `inline/mod.rs`'s **residue** after the split, are
 necessarily **post-split** coordinates: `reconcile.rs` does not exist at `658cc302` at all. Each is
 labelled where it appears; an unlabelled coordinate is a base one.
-
-⚠ **Review history lives in `project_seam3-pr508-review-history.md`, not here** — what each
-revision got wrong, and why. The umbrella states the rule: *"a past-tense ledger restates the
-normative decisions and then drifts from them"*. ⚠ It extends past narrative to **provenance**: a
-claim is carried by the command that produces it, never by prose asserting it was checked. Where
-this memo states a figure, a count, or a population, either the command is beside it or the claim
-does not belong here.
 
 * **`preflight.py` — run it, do not read a stored verdict from here.**
 
@@ -66,48 +41,13 @@ does not belong here.
       docs/plans/2026-08-inline-seam3-reconcile-split.md
   ```
 
-  ⚠ **No counts are recorded in this bullet, for the same reason §5.5 records no `wc -l`**: the
-    checker's output is a function of the memo, so *every edit to the memo can change it* — and edits
-    did. ⚠ **One description, not two.** This bullet previously carried a causal explanation *and* a
-    separate "stable shape" list saying different things about the same counters; they drifted apart
-    and contradicted each other two bullets apart
-    ([[feedback_duplicated-decision-surface-blocks-converge]]). What the run asserts:
-    * **soft warnings only, no hard failures** — read them rather than inferring a cause from the
-      total; they are not all one kind, and the set has been both plural and singleton across this
-      branch. ⚠ **Do not enumerate them here, and do not state how many** — the set changes
-      when the memo does, and this sentence went stale that way once already. One of them has been
-      a `path … contains shell glob/brace syntax` warning emitted by a command §5.3.1 itself
-      embeds, so the total tracks neither §3's rows nor the memo's `N entries` claims alone.
-    * **unmapped-label rows** count **§3's table rows** whose label `SPEC_LABEL_REVERSE` lacks.
-    * **the label warning is not noise.** ⚠ **Do not state which labels or how many** — run
-      `preflight.py` and read `unrecognized labels` / `unmapped-label rows`; the set grows with the
-      table. Today `SPEC_LABEL_REVERSE` maps none of the labels §3 carries,
-      so every §3 row lands in `unmapped-label rows` and the run reports `parsed citations: 0`, i.e.
-      **the §3 citation gate is vacuous *for this memo***. Its warning count therefore rises with
-      §3's row count and says nothing about §3's correctness. ⚠ **Not "no CSS-module label is
-      mapped", and not a claim about other plan-memos**: `preflight.py:62` maps
-      `"CSS Selectors L4": "selectors-4"`, so the map's CSS coverage is partial, not empty, and a
-      memo citing only mapped labels would have a working gate.
-    * What the vacuous gate costs *here* is stated rather than hidden: §3's table rows are verified by hand, because the gate cannot — each row records its own
-      `webref heading` invocation. ⚠ **Do not state how many** — the row count is `preflight.py`'s
-      to report, and it has gone stale under this sentence before.
-
-* **`plan-xcheck.py` — NOT RUNNABLE on this branch, and no verdict is recorded here.**
+* **`plan-xcheck.py` — NOT RUNNABLE on this branch.**
   `ls .claude/tools/plan-xcheck.py` → no such file: the checker lives on the umbrella's branch and
-  travelled with the umbrella's tooling under the narrowing above (preamble), so a reader of *this*
-  PR cannot re-derive any count from it. ⚠ A stored verdict was therefore removed — it was the
-  same defect as a stored `wc -l`, one bullet away from the rule forbidding it, and it additionally
-  predated three later commits to this memo.
-
-  What survives is the *shape*, which the umbrella's branch can re-derive: the checker is written
+  travelled with the umbrella's tooling under the narrowing above (preamble).
+  The checker is written
   for a **multi-PR umbrella** (it harvests §6 as a per-PR cell matrix, cross-checks M-rows and a
   flip partition, and expects the umbrella's PR labels), so its `[PR]` / `[CELL]` / `[FLIP]`
-  families are inapplicable to a single-PR memo by construction. Its **generic** checks are not,
-  and were acted on while it was still reachable: the `K=`/`M=` breadth check and the per-PR
-  own-deferral check (§3 and §5.3 answer both), and check 12, which correctly caught a superseded
-  line range (`:411-637`) restated beside its corrected form in §5.2's quotation.
-* The point of recording this is that a reader can tell an inapplicable checker from a skipped
-  one — which requires the applicable subset to be named, not the whole run waved off.
+  families are inapplicable to a single-PR memo by construction.
 
 ## §0. Re-anchoring against `658cc302` — and why nothing moved
 
@@ -192,11 +132,10 @@ relocate a line that does no reconcile work. It therefore does not travel. This 
 departure from "the range moves", and it is stated here rather than absorbed silently because §8's
 proof obligation is a line-for-line one.
 
-⚠ **It does not survive in the residue either, and that changed at `/simplify`.** The plan as
-reviewed kept the `let` verbatim above the call. But the hoist existed *because* 226 lines of
+⚠ **It does not survive in the residue either.** The hoist existed *because* 226 lines of
 `packer`-consuming code followed it; with those lines gone it became a single-use binding sitting
 18 lines above its only reader, directly above a `&mut dom` call — reading as a deliberate
-pre-call snapshot when the ordering is incidental. It is now folded into its sole consumer:
+pre-call snapshot when the ordering is incidental. It is folded into its sole consumer:
 
 ```rust
     InlineLayoutResult { …, first_baseline: packer.first_baseline, … }
@@ -233,11 +172,9 @@ fires `needless_pass_by_value` (clippy's pedantic group is warn-level workspace-
 
 ## §3. Spec coverage map
 
-**Breadth**: ⚠ **no figure is stated here** — `preflight.py` computes K and M from the table's
+**Breadth**: `preflight.py` computes K and M from the table's
 rows, so run it. The `css-inline-3` rows below are authored by this PR
-(`git grep -c css-inline-3 658cc302 -- crates` → no hits). ⚠ **No completeness claim is made over
-"every authored citation"** — `preflight.py` counts table *rows*, so it could not falsify one, and
-anchors such as `#propdef-line-height` are cited without a row by design. **Split decision**: single PR, both below the
+(`git grep -c css-inline-3 658cc302 -- crates` → no hits). Anchors such as `#propdef-line-height` are cited without a row by design. **Split decision**: single PR, both below the
 K≥4 / M≥20 recommend threshold, and `preflight.py` independently returns
 `split decision: ok (single PR scope)`.
 
@@ -250,8 +187,7 @@ git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs \
 ```
 
 but that pattern can only match prose **that already carries a citation**, so its output is not a
-measurement of the spec surface — presenting it as one would be a universal claim over an
-unmeasured complement. **The complement is non-empty**, and this is the command that shows it:
+measurement of the spec surface. **The complement is non-empty**, and this is the command that shows it:
 
 ```
 git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs | awk 'NR>=413 && NR<=639' \
@@ -260,18 +196,14 @@ git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs | awk 'NR>
 
 Spec-governed concerns it surfaces, none of them cited in the source. Every §-number↔title pair
 below was resolved with `.claude/tools/webref` — **`heading` for the pairs, `dfn` where a
-*property* or *term* had to be located from its name first**. Both emit the pair. ⚠ **Annotations are per *citation*, not per bullet, and three carry one.** `overflow`'s records a
-real disambiguation (two hits); `text-align`'s and `column box`'s record a single-hit lookup and
-disambiguate nothing. Every citation without an annotation — including the two inside an annotated
-bullet — re-derives with `heading <module> <section>`:
+*property* or *term* had to be located from its name first**. Both emit the pair. Every citation without an annotation re-derives with `heading <module> <section>`:
 
 * `:437-447` — IFC-local logical → absolute physical fold keyed on `is_vertical`
-  → **css-writing-modes-4 §6.4** *Abstract-to-Physical Mappings*. ⚠ **This one leaves the list**:
-  uncited *in the source*, but this PR cites it in the `reconcile_flows` docstring, so it is the
+  → **css-writing-modes-4 §6.4** *Abstract-to-Physical Mappings*. Uncited *in the source*, but this PR cites it in the `reconcile_flows` docstring, so it is the
   table's authored row, not part of the out-of-scope complement below.
 * `:470` — `text-align` already baked into `inline_start` → **css-text-3 §6.1** *Text Alignment:
   the `text-align` shorthand* (`webref dfn css-text-3 text-align` → **one** exact hit,
-  `type=property`, `#propdef-text-align` — nothing to disambiguate here, unlike `overflow` below)
+  `type=property`, `#propdef-text-align`)
 * `:557-569`, `:588-594` — relative/sticky offset preserved through reposition
   → **css-position-3 §3.3** *Relative Positioning* / **§3.4** *Sticky positioning*
 * `:514` — the term "fragmentainer" → **css-break-4 §2** *Fragmentation Model and Terminology*
@@ -284,14 +216,11 @@ bullet — re-derives with `heading <module> <section>`:
   `type=dfn` term at §2 and the `type=property` at §3.1; the clipping behaviour cited here is the
   property, so §3.1, not §2); **css-break-4 §2**.
 
-**The rest are out of scope, by change class rather than by grep** (the first bullet excepted, per
-its own ⚠): this PR authors no algorithm, so it neither creates nor deepens a *missing*-citation
+**The rest are out of scope, by change class rather than by grep** (the first bullet excepted): this PR authors no algorithm, so it neither creates nor deepens a *missing*-citation
 defect. That is exactly the position #497 took when it **withdrew** the module-doc citations it had
 added to `collect.rs` (CSS 2 §9.2 *Controlling box generation* — the **parent**, cited "rather
 than any one child precisely because which child applies is decided per arm") and `styled_run.rs`
-(CSS 2 §9.2.2 *Inline-level elements and inline boxes*) as over-claiming — ⚠ that file's withdrawn
-text names §9.4.2 as the section it **refuses**: "that governs line-box formation, and `StyledRun` /
-`InlineItem` are its INPUT". ⚠ **Read from the landed commits**
+(CSS 2 §9.2.2 *Inline-level elements and inline boxes*) as over-claiming. ⚠ **Read from the landed commits**
 (`45c72c0a`, and the files at `154bac3f`), **not from #497's PR body**, which records the
 additions and not the withdrawal that superseded them. ⚠ **`45c72c0a` is not reachable from
 `origin/main`** — its branch is gone from the remote, so `git show` fails in a fresh clone; the
@@ -302,24 +231,15 @@ does author. §9 dispositions the complement: it states why the class is out of 
 **So the table below is what the PR *carries*, not what the range's spec surface is** — and its
 rows have two distinct provenances, which is the distinction the map exists to record:
 
-⚠ **The row count and the instance count are different numbers, and conflating them misclassified
-a row.** ⚠ An earlier revision opened this sentence with *"Every authored citation has a row"* —
-**retracted, and §3's preamble already disclaims it**: `#propdef-line-height` is cited in the
-docstring (`reconcile.rs`, the `line-height: normal` computed-value ground) with no row, by design.
-Only the operative half below survives:
-
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
   the body that is byte-identical modulo the extracted signature, moved and not authored. A second is authored by this PR in the
   `reconcile_flows` docstring — ⚠ **as a bare §-number**: the docstring carries no CSS 2
   §number↔title pair, and the pair for CSS 2 lives in **this row**, not in the `css-inline-3` rows.
-  (An earlier revision said it "moved to the `css-inline-3` rows"; those rows carry the
-  `css-inline-3` pairs, which the docstring also spells out in full.) Measured:
+  Measured:
   ```
   git grep -ci "line height calculations" 658cc302 -- crates  # → one hit, and it carries the
                                                              # title's leading clause only, not
-                                                             # the full pair. ⚠ The case-SENSITIVE
-                                                             # form returns empty for the wrong
-                                                             # reason — see the §3 row below.
+                                                             # the full pair.
   ```
   So "travels unchanged / not authored" describes only half of this row, and the authored half is
   where an over-claim can live — which is why the docstring states the gap
@@ -333,16 +253,14 @@ Only the operative half below survives:
   `block-start` row is `top`/`right`/`left`). An unscoped "follows §6.4" would assert conformance
   the body contradicts — the class #497 fixed in `154bac3f`.
 
-⚠ **This paragraph states no row count** — the table below is the enumeration.
-
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | css-writing-modes-4 §6.4 Abstract-to-Physical Mappings | the abstract→physical mapping | inline axis → physical x (horizontal) / y (vertical); block axis → the other | **authored by this PR** — the `reconcile_flows` docstring cites it for the IFC-local logical → absolute physical fold keyed on `is_vertical`. The fold itself is inside the byte-identical (modulo the signature's bindings) body and is untouched; the *citation* is new text, which is why it belongs in this map. Pair verified with `.claude/tools/webref heading css-writing-modes-4 6.4` | ✓ | yes |
 | css-inline-3 §1.1 Module Interactions | the supersession ground | `css-inline-3` *"replaces and extends the CSS inline layout model and features defined in [CSS2] section 10.8"* | **authored by this PR** in the `reconcile_flows` docstring, as the citation that licenses anchoring on `css-inline-3` rather than CSS 2 §10.8. Pair verified with `.claude/tools/webref heading css-inline-3 1.1` | ✓ | no |
-| css-inline-3 §2.2 Layout Within Line Boxes | the line-box sizing step list | step 2 *"Content Size Contribution Calculation"* = the per-box block contribution this crate does compute (`line-height` for horizontal text, the margin box for atomics); step 3 *"Line Box Sizing"* = the aggregation it substitutes with a max | **authored by this PR** in the `reconcile_flows` docstring, as the current statement of CSS 2 §10.8's step 1 / step 3 — the pair an earlier revision of that docstring asserted had *no* counterpart. Pair verified with `.claude/tools/webref heading css-inline-3 2.2`; step text with `.claude/tools/webref body css-inline-3 line-layout` | ✓ | yes |
+| css-inline-3 §2.2 Layout Within Line Boxes | the line-box sizing step list | step 2 *"Content Size Contribution Calculation"* = the per-box block contribution this crate does compute (`line-height` for horizontal text, the margin box for atomics); step 3 *"Line Box Sizing"* = the aggregation it substitutes with a max | **authored by this PR** in the `reconcile_flows` docstring, as the current statement of CSS 2 §10.8's step 1 / step 3. Pair verified with `.claude/tools/webref heading css-inline-3 2.2`; step text with `.claude/tools/webref body css-inline-3 line-layout` | ✓ | yes |
 | css-inline-3 §4.2 Transverse Box Alignment: the vertical-align property | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top | **authored by this PR** in the `reconcile_flows` docstring, as the current anchor for the gap CSS 2 §10.8 states in superseded form (`css-inline-3` §1.1 *"replaces and extends … [CSS2] section 10.8"*). Pair verified with `.claude/tools/webref heading css-inline-3 4.2` | ✓ | yes |
 | css-inline-3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | the half-leading derivation | run-level from one resolved font; §5.3's *normal* branch (the default) wants every glyph's A and D | **authored by this PR** in the same docstring, as §10.8.1's current statement. Pair verified with `.claude/tools/webref heading css-inline-3 5.3` | ✓ | yes |
-| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **the body comment at `:480-481` moves verbatim (no code touched); the docstring's own §10.8 references are now bare numbers; the CSS 2 §number↔title pair lives in **this row**, not in the `css-inline-3` rows (those carry the `css-inline-3` pairs, which the docstring also spells out in full)** (⚠ **the enumerator must be case-insensitive** — `inline_flow.rs:100` spells it lowercase. ⚠ An earlier revision also demanded newline-tolerance, on the ground that the title wraps inside a `///` doc comment; `git grep -in "line height calculations"` shows every current authoring site carries it on one unwrapped line, the `///` instance having left the crate at `97e9774c`. Retained here only as the case rule:
+| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **the body comment at `:480-481` moves verbatim (no code touched); the docstring's own §10.8 references are now bare numbers; the CSS 2 §number↔title pair lives in **this row**, not in the `css-inline-3` rows (those carry the `css-inline-3` pairs, which the docstring also spells out in full)** (⚠ **the enumerator must be case-insensitive** — `inline_flow.rs:100` spells it lowercase:
 `git grep -ci "line height calculations" 658cc302 -- crates`
 → one hit, `elidex-ecs/src/components/inline_flow.rs`, carrying the title's leading clause beside the
 number but not the full pair as spelled out here; the site is lowercase, so it is the Title-cased form that returns empty,
@@ -391,7 +309,7 @@ The moved block calls four module-private / `pub` helpers that sit below it. **A
 | helper | definition on `658cc302` | why it stays |
 |---|---|---|
 | `reposition_atomic_box` | `:679` (`pub`) | public API — `elidex-layout-multicol/src/lib.rs:11`, `:664` |
-| `static_atomic_reposition_records` | `:721` | outside `413-639`; the range is what the umbrella ratified. ⚠ **Its only non-doc callers now live in `reconcile.rs`** (both inside `reconcile_flows`; no line numbers — the docstring above them moves with every review fix), so keeping it here is accepted cohesion debt, not a claim the home is right |
+| `static_atomic_reposition_records` | `:721` | outside `413-639`; the range is what the umbrella ratified. ⚠ **Its only non-doc callers now live in `reconcile.rs`** (both inside `reconcile_flows`), so keeping it here is accepted cohesion debt, not a claim the home is right |
 | `relpos_atomic_reposition_records` | `:747` | same — sole non-doc caller is in `reconcile.rs`'s `reconcile_flows` |
 | `clear_inline_flows` | `:775` | two residue callers, `:162` and `:201` (the early returns) |
 
@@ -418,8 +336,7 @@ is booked as **"Where the four helpers should live"** in `#11-inline-fragmented-
 `reconcile.rs` imports four helpers defined in its parent, which is the shape a reader is most
 likely to challenge. The crate already runs it:
 
-⚠ **The rows below are instances, not a census, and no instance count is stated.** The population
-is whatever this returns, and a reader who wants it should run it rather than trust a list:
+The population is whatever this returns:
 
 ```
 git grep -n 'use super::' 658cc302 -- 'crates/layout/elidex-layout-block/src/**/*.rs' | grep -v tests
@@ -441,30 +358,18 @@ stay is scope.
 harness extracts — no `fn` sits outside both extracts. That is what makes the harness a proof of
 the whole move rather than of part of it, and §8 carries it as a DoD clause.
 
-⚠ Review history — including what was argued and withdrawn about moving two of the four — lives in
-`project_seam3-pr508-review-history.md`. What survives here is the decision and its grounds. ⚠ §9
-records that "all four stay" is **declined on scope**, not settled — a third configuration (all
-four into a shared sibling imported by both) is neither weighed nor foreclosed here.
-
 ### §5.3 `#[allow(clippy::too_many_arguments)]` on the new function
 
-**Own-deferral count: the seam-3 prereq opens ONE — `#11-inline-fragmented-fn-seams-1-2`.**
-The successor slot is **created by this PR** (`grep -rl '#11-inline-fragmented-fn-seams-1-2'
-<memory-dir>` returns only files this PR writes). Its contents split by **origin, not by count**.
+The successor slot `#11-inline-fragmented-fn-seams-1-2` is **created by this PR**. Its contents split by **origin, not by count**.
 **Pre-existing**: seams 1 and 2, named by the source slot on 2026-07-28.
 **Created by this PR**: the moved body's probe universal losing its counterexamples to the residue
 (§7.2 — the *text* is pre-existing, the *separation* is this PR's, and it cannot be repaired here
 without breaking byte-identity); `reconcile_flows`' eleven-parameter signature and its
-adjacent-`bool` window, which §9 itself calls new — **and the helper-home question**, which an
-earlier classification filed as neither. ⚠ That was wrong: the question is "where should the four
+adjacent-`bool` window, which §9 itself calls new — **and the helper-home question**: the question is "where should the four
 helpers live once their principal caller is a **sibling module**", and at `658cc302` there is no
 sibling module, so the question could not be asked. Its premise is brought into existence by this
-PR; it is own. ⚠ **No own-concern count is stated here** — the bullet above *is* the enumeration,
-and a count beside a list it does not contain is the restated-derived-value shape that drifted
-elsewhere in this memo. **What the cap measures is slots, and this PR opens exactly one**:
-`#11-inline-fragmented-fn-seams-1-2`, within the ≤3 per-PR own-deferral cap. Concern *count* is
-not a cap input; concern *origin* is what §5.3 splits on, per its own "by origin, not by count".
-The slot ledger carries the slot's `(own)` row (§10 → `project_seam3-pr508-review-history.md`).
+PR; it is own.
+The slot ledger carries the slot's `(own)` row (§10).
 
 Eleven parameters exceeds clippy's threshold of seven. **Measured, not assumed**: removing the
 attribute and running `cargo clippy -p elidex-layout-block --all-features` reports
@@ -481,8 +386,7 @@ or a fold into `LayoutEnv` are groupings, and three of the eleven parameters
 (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) superficially resemble the shape,
 which is the shape CLAUDE.md's *side-store→component 判定ルール* is written about. Not a claim they
 should become components — the *parameters* are intra-pass scratch, which is a defensible
-reading of that rule's scope (⚠ their **values** do escape, via the carrier — see the row below,
-which is why the ground there is readership and not lifetime) — but the ECS question must be *on* the slot, not absent
+reading of that rule's scope (⚠ their **values** do escape, via the carrier — see the row below) — but the ECS question must be *on* the slot, not absent
 from it.
 
 ### §5.3.1 ECS-native check / OO → ECS mapping
@@ -494,10 +398,10 @@ check was run; only its *result* was missing, which is the thing a reader cannot
 |---|---|
 | Does the extraction introduce an OO pattern (registry, observer, subscriber list, class-owned state)? | **No.** It adds one `pub(super) fn` and a `mod` declaration. No trait, no `Vec<Box<dyn …>>`, no `ObjectKind` variant, no new state container. |
 | Does it move per-entity state into a side-store? | **No.** The three parameters (`unoffset_origins`, `flow_lines`, `relpos_atomic_placements`) are **pre-existing**, produced by `layout_atomic_items` and the packer; the split only makes them cross a function boundary. ⚠ Only two are entity-*keyed* (`HashMap<Entity, _>`); `relpos_atomic_placements: &[(Entity, f32, f32)]` is a flat slice, iterated in order and never looked up. The distinction is load-bearing because the rule's trigger text is written about `HashMap<entity, _>`. |
-| Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect**, and after this PR's corrections **on ONE ground, not two**. **Shape**: they are arguments threaded through one call chain, not an entity-keyed registry held beside the World, so the rule's subject is not what they are — that ground stands. ⚠ **The second ground is withdrawn**: an earlier revision of this row added *"**Readership**: all three are intra-pass scratch, and the one that escapes is never read"*, and the count "two independent grounds" survived the withdrawal in a first pass at this fix. ⚠ **The readership ground is WITHDRAWN — it was disproved, and this row carried it for three gates after the contract was corrected.** *"The escaped carrier is never read"* is false: `elidex-layout-multicol` drains a carrier into a `FragmentSnapshot` (`fill.rs:228`) and folds it into a render-visible `InlineFlow` (`lib.rs:640`), so a **stale** one is not inert. What actually bounds the hazard is **which entities the drain reaches** — `fill.rs:220` iterates `carry_midbreak` chained with `break_out_child`, selected out of `composed_children_flat(dom, entity)` (`lib.rs:173`), which is ⚠ **neither "direct children" (an earlier revision of this row said that, and it is wrong) nor that flattened set entire**. Values from all three *are* copied into `ColumnFlowSlice`, and that carrier does **not** always die with the pass: one written on a *nested* IFC container is reached by neither terminal path, and outlives `layout_multicol`'s return. The residual — a carrier that outlives its pass and whose entity then changes role — is `#11-inline-fragmented-fn-seams-1-2`'s, and `reconcile.rs`'s docstring is the corrected contract. ⚠ **This is documented in-tree**, and has been since Z-1b: `elidex-layout-multicol/src/fill.rs:48-53` states that a deeper IFC "writes its carrier on that inner container, which this drain (keyed on the direct child) never reaches: the carrier leaks (benign — render never reads it)". A throwaway test at gate #8 measured the same thing; that test is **not** in this repo and only its output line is recorded in `#11-inline-fragmented-fn-seams-1-2`, so `fill.rs:48-53` is the durable citation. ⚠ **`elidex-ecs/src/components/inline_flow.rs:214-215` asserts the narrower lifetime universal and that measurement falsifies it**; what the same docstring carries that *does* hold is `:214` **"Never read by render"** and `:217` "a stray write that is never drained is benign". Enumerating the terminal-path set, and correcting the component's universal, are `#11-inline-fragmented-fn-seams-1-2`'s. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
-| What ECS state does the moved code own? | Two components, and **this row is scoped to the split's two modules — it is NOT the workspace write-set.** Within them: **`InlineFlow`** — insert in `reconcile.rs`; removal via `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, plus two removals in the residue's early-return exits. Both write sets span the new module boundary, symmetrically. ⚠ **The workspace complement is non-empty and is not listed here** — run `git grep -n 'InlineFlow\|ColumnFlowSlice' -- 'crates/**/*.rs'` and classify the hits by hand. The two receivers most likely to be missed are `elidex-layout-multicol` and `block/children/shift.rs`. ⚠ The "never read by render" ground above: `git grep -l ColumnFlowSlice -- 'crates/core/elidex-render/**'` → empty, and the live control `git grep -l InlineFlow -- 'crates/core/elidex-render/**'` → non-empty. ⚠ **That path, not `crates/render`**, which matches no tracked file and makes any probe over it vacuous ([[feedback_universal-claims-need-the-complement-measured]]). ⚠ **Anchor the enumerator on the component NAME, not on the call syntax.** Call-shaped patterns (`insert_one(.*ColumnFlowSlice`, `remove_one::<ColumnFlowSlice>`, …) drop two real write sites here: `elidex-layout-multicol/src/lib.rs`'s path-qualified `remove_one::<elidex_ecs::ColumnFlowSlice>`, and `reconcile.rs`'s `insert_one` whose `ColumnFlowSlice { .. }` literal spans several lines. The name is invariant; the call syntax is not, so a syntax-anchored pattern is a filter that looks like an enumerator ([[feedback_writesite-audit-includes-struct-literal-ctors]], [[feedback_checks-must-not-be-defined-by-the-symptom-vocabulary]]). |
+| Do they meet CLAUDE.md's *side-store→component* rule? | **Not applicable as a defect.** **Shape**: they are arguments threaded through one call chain, not held beside the World. `elidex-layout-multicol` drains a carrier into a `FragmentSnapshot` (`fill.rs:228`) and folds it into a render-visible `InlineFlow` (`lib.rs:640`), so a **stale** one is not inert. What actually bounds the hazard is **which entities the drain reaches** — `fill.rs:220` iterates `carry_midbreak` chained with `break_out_child`, selected out of `composed_children_flat(dom, entity)` (`lib.rs:173`), which is **neither "direct children" nor that flattened set entire**. Values from all three *are* copied into `ColumnFlowSlice`, and that carrier does **not** always die with the pass: one written on a *nested* IFC container is reached by neither terminal path, and outlives `layout_multicol`'s return. The residual — a carrier that outlives its pass and whose entity then changes role — is `#11-inline-fragmented-fn-seams-1-2`'s, and `reconcile.rs`'s docstring is the contract. ⚠ **This is documented in-tree**: `elidex-layout-multicol/src/fill.rs:48-53` states that a deeper IFC "writes its carrier on that inner container, which this drain (keyed on the direct child) never reaches: the carrier leaks (benign — render never reads it)". ⚠ **`elidex-ecs/src/components/inline_flow.rs:214-215` asserts the narrower lifetime universal**; what the same docstring carries that *does* hold is `:214` **"Never read by render"** and `:217` "a stray write that is never drained is benign". Enumerating the terminal-path set, and correcting the component's universal, are `#11-inline-fragmented-fn-seams-1-2`'s. The question is nonetheless **put on the successor slot** (§9) rather than answered silently, because a future reshaping should re-make the judgment rather than inherit it. |
+| What ECS state does the moved code own? | Two components, and **this row is scoped to the split's two modules — it is NOT the workspace write-set.** Within them: **`InlineFlow`** — insert in `reconcile.rs`; removal via `remove_one::<InlineFlow>` inside `clear_inline_flows` (`mod.rs`), invoked from *both* modules (the residue's two early-return exits and the moved `!env.is_probe`-gated call). **`ColumnFlowSlice`** — insert-or-remove in `reconcile.rs`, plus two removals in the residue's early-return exits. Both write sets span the new module boundary, symmetrically. ⚠ **The workspace complement is non-empty and is not listed here** — run `git grep -n 'InlineFlow\|ColumnFlowSlice' -- 'crates/**/*.rs'` and classify the hits by hand. The two receivers most likely to be missed are `elidex-layout-multicol` and `block/children/shift.rs`. ⚠ `ColumnFlowSlice` is not read by `elidex-render`: `git grep -l ColumnFlowSlice -- 'crates/core/elidex-render/**'` → empty, and the live control `git grep -l InlineFlow -- 'crates/core/elidex-render/**'` → non-empty. ⚠ **Anchor the enumerator on the component NAME, not on the call syntax.** Call-shaped patterns (`insert_one(.*ColumnFlowSlice`, `remove_one::<ColumnFlowSlice>`, …) drop two real write sites here: `elidex-layout-multicol/src/lib.rs`'s path-qualified `remove_one::<elidex_ecs::ColumnFlowSlice>`, and `reconcile.rs`'s `insert_one` whose `ColumnFlowSlice { .. }` literal spans several lines. The name is invariant; the call syntax is not, so a syntax-anchored pattern is a filter that looks like an enumerator ([[feedback_writesite-audit-includes-struct-literal-ctors]], [[feedback_checks-must-not-be-defined-by-the-symptom-vocabulary]]). |
 | Does anything outside the crate depend on this function's clear having run? | **Yes, and it is worth knowing before touching the persist/clear cycle.** `elidex-layout-multicol/src/lib.rs` re-inserts `InlineFlow` on the run-start after the IFC pass (`position_column_fragments`), and guards it with a `debug_assert!` that the run-start carries **no** `InlineFlow` at build time — *"cleared each column by `clear_inline_flows`"*. So the moved block's clear is a precondition of another crate's write. Nothing in this PR changes it (the code is byte-identical modulo the signature's bindings), but a future reshaping of the cycle that reads only the two modules above would not see the constraint. |
-| Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused.** `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"* — and the carrier — which on a nested IFC container **does** outlive the pass (see the row above) — is never read by render, so the concern is answered on readership, not on lifetime. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. This PR has no ownership invariant to offer for it, so it is **routed, not answered**: it is booked on `#11-inline-fragmented-fn-seams-1-2` as a bullet distinct from the side-store→component rule, and that slot's trigger reaches it. |
+| Is `ColumnFlowSlice` itself a side-store→component candidate? | **No, and the question is category-confused.** `ColumnFlowSlice` **is already an ECS component**; there is no side-store to migrate *from*. Its docstring makes both halves explicit — *"so it **is** a component (per-entity, `Send + Sync`, not a per-VM identity handle — the side-store→component rule), **not** a side-store"*. ⚠ A *different* and still-open question exists nearby — whether per-entity payloads about *other* entities belong on those entities rather than on the IFC parent — but that is an **ownership** question, not this rule, and asserting it under this rule's name would direct future work to dismantle an established ECS-native phase boundary. This PR has no ownership invariant to offer for it, so it is **routed, not answered**: it is booked on `#11-inline-fragmented-fn-seams-1-2` as a bullet distinct from the side-store→component rule, and that slot's trigger reaches it. |
 
 ### §5.4 `#[allow(clippy::too_many_lines)]` on the residue
 
@@ -512,21 +416,10 @@ next toucher re-runs it rather than re-litigating it.
 wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 ```
 
-⚠ **`reconcile.rs`'s line count is structurally unstable and this memo states it nowhere.** It is
-the one figure in this PR that its own later commits move, because every such commit adds prose to
-that file; each stored copy has gone stale, and a stored copy is what §8's *"Figures are
-referenced, not restated"* forbids. **The command above is the record.** Anything that needs the
-value runs it; nothing stores it — not this section, not §5.6, not a commit message (§8), and not
-the successor slot (the ledger re-measures at landing).
-
-`mod.rs`'s **573** is stated because it is stable — it has held at every commit on this branch —
-and the 1000-line argument turns on it. Both files sit below
+`mod.rs` is **573**, and the 1000-line argument turns on it. Both files sit below
 [[feedback_touch-time-split-means-while-writing]]'s 700–800 band, and the residue is 212 lines
 further from the 1000-line gate than it was — the source slot's *second* trigger disjunct, which
 this PR moves away from firing rather than toward.
-
-⚠ Which revisions moved the number, and why the memo restated it four times before stopping, is
-review history: `project_seam3-pr508-review-history.md`, not here.
 
 ### §5.6 Provenance of §5.3–§5.5's figures
 
@@ -539,7 +432,7 @@ shipped tree before landing. Result of that re-run:
 | `too_many_arguments` load-bearing | yes | yes — `this function has too many arguments (11/7)` |
 | `too_many_lines` still load-bearing on the residue | yes, `178/100` | yes, **`177/100`** (§2.2's fold) |
 | `inline/mod.rs` | 573 | **573** |
-| `reconcile.rs` | 254 | ⚠ **wrong, and structurally unstable — no value is recorded anywhere in this memo.** Run §5.5's `wc -l`; see §5.5 for why a stored copy is forbidden |
+| `reconcile.rs` | 254 | run §5.5's `wc -l` |
 | §6 harness | 6 hunks, `226 == 226` | **6 hunks, `226 == 226`, PASS** |
 | test baseline | 325 | **325 passed, 0 failed** |
 
@@ -555,11 +448,7 @@ The recipe the numbers come from, so a reader can re-derive rather than trust:
 #    relpos_atomic_reposition_records, reposition_atomic_box,
 #    static_atomic_reposition_records}`. `InlineFlowLine` needs none — the range already
 #    writes it fully qualified (`:426`, `:458`).
-#    ⚠ THE DOCSTRING IS THE LARGEST AUTHORED PART, and omitting it was this recipe's
-#    defect for several revisions. NO RANK IS CLAIMED BEYOND THAT: it is larger than
-#    the other authored parts (signature, `use` block, module doc), and *smaller* than
-#    the moved range, which is 226 lines and not authored here. Its extent is a
-#    measurement, not a stored figure -- it moves whenever a review finding edits it:
+#    The docstring's extent:
 #      awk '/^\/\/\//{if(!s)s=NR;e=NR} END{print s"-"e}' \
 #        crates/layout/elidex-layout-block/src/inline/reconcile.rs
 #    ⚠ What is NOT derivable from the base is the docstring's *authored* content, and
@@ -569,8 +458,6 @@ The recipe the numbers come from, so a reader can re-derive rather than trust:
 #    Authored here are: the `css-writing-modes-4` citation, the `css-inline-3`
 #    citations, and the SCOPING of the probe universal to this function
 #    -- not the citations wholesale.
-#    Do not restate that split here; §3 is its site, and restating it is how this
-#    sentence went wrong.
 #    ⚠ This recipe reconstructs the file's ELEMENTS, and deliberately does not add up
 #    to `wc -l`: the two blank separators and the function's closing `}` are structure,
 #    not elements, and naming them would make this a line-accounting table instead of a
@@ -586,11 +473,6 @@ cargo test   -p elidex-layout-block --all-features      # → 325 passed, 0 fail
 wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 ```
 
-⚠ `reconcile.rs` has no final value: it moves with every commit that documents it, including
-review-fix commits. The resolution is a **command**, not a corrected number — any number written
-here is falsified by the act of writing it
-([[feedback_document-landing-invalidates-its-own-measurements]]).
-
 ## §6. Proof obligation
 
 §8's criterion — "a diff of the moved body against the same block extracted from that base
@@ -603,15 +485,12 @@ differs only in those bindings" — is discharged by a harness, not by inspectio
 
 **Pass condition**: every hunk is one of §2.3's four substitutions, and the two extracts have the
 same line count (226). Run against the exploratory extraction on `658cc302`, the harness returns
-**six single-line hunks**, one per site in §2.3, and `226 == 226` — a figure inheriting §5.6's
-pending status. The same harness is re-run on the committed implementation and its output goes in
+**six single-line hunks**, one per site in §2.3, and `226 == 226`. The same harness is re-run on the committed implementation and its output goes in
 the PR body.
 
 ⚠ **The harness above covers the body, and the body is not the whole move** — a move is the
 extracted text *plus the call that replaces it*, and the call is outside the compared region by
-construction (the extract begins after the signature's `) {`). **The gap is not theoretical**: a transposition of the call's two adjacent `bool`
-arguments was introduced into the working tree during review, and the body harness reported
-`6 hunks, 226 == 226, PASS` while 52 tests failed and clippy and `cargo fmt --check` stayed clean.
+construction (the extract begins after the signature's `) {`).
 
 ### §6.1 The call-site half
 
@@ -630,9 +509,7 @@ do_carrier` and exits 1 — the exact defect the body harness passes.
 ⚠ **Neither harness ships in the repository, and that is the disposition, not an oversight.**
 `git diff --name-only origin/main...HEAD` names four files (§8), none under `.claude/` or
 `scripts/` — the preamble's narrowing keeps this PR to what its own change makes true, and a
-one-shot verification procedure is not that. What makes it acceptable is that the recipes above
-are **sufficient to reconstruct**: a reviewer independently rebuilt §6 from this prose and
-reproduced `6 hunks, 226 == 226` exactly, without the original script. Standing them up is the
+one-shot verification procedure is not that. Standing them up is the
 successor slot's call, not this PR's.
 
 Together the two halves cover the move: §6 proves the extracted text is unchanged, §6.1 proves it
@@ -649,11 +526,6 @@ assumption: if any later revision widens the move, the harness stops proving the
 compare the moved function against the wrong source block and pass. The freshness check §0 runs
 (`git diff --stat 154bac3f..658cc302 -- crates/layout/` → empty) is a *separate* obligation and
 does not license floating the extraction base.
-
-⚠ It also compares against the repository, **not against a diff file written earlier in the
-session** — a pre-generated diff goes stale under the author's own later edits, which is the
-failure [[feedback_verified-claims-go-stale-under-own-later-edits]] names and which the umbrella's
-own rev-22 gate caught in this lane.
 
 ## §7. Downstream
 
@@ -705,9 +577,7 @@ on the property being tested, so it can neither be shown complete nor safely wid
 also matches `elidex-ecs/src/components.rs:189` ("Written by the pre-layout generated-content
 pass"), a different subject entirely. The authoritative predicate is *"a comment that names where
 the moved block lives"*; the command only proposes candidates for it. The further site it proposes — `elidex-ecs/src/components/inline_flow.rs:204` — has its
-disposition in the plan memo's §7.1 table, **not here**: it is a design decision, and keeping a
-second copy is the duplicated-decision-surface failure this very file cites at the top. The two
-copies had already diverged when gate #9 caught them.
+disposition in the §7.1 table.
 
 **Sites outside the range**, splitting on whether they name a *location* or the block as a
 *concept*:
@@ -729,10 +599,7 @@ left ones name a thing that still exists — which is why `collect.rs` appears i
 * `clear_inline_flows` takes no probe flag (`fn clear_inline_flows(dom, candidates, persisted)`),
   so "the **`is_probe`-gated** `clear_inline_flows`" cannot name the definition. It names the
   **call** guarded by `if !env.is_probe`, and that call travelled with the block, so it is in the
-  same file and below the comment. Still true. ⚠ **Stated as an ordering, not as two line
-  numbers**: `reconcile.rs`'s coordinates move with every commit that documents the file (§5.5),
-  so a stored pair here goes stale exactly as the `wc -l` did. The relation is what the claim
-  needs, and it is stable.
+  same file and below the comment. Still true.
 * "mirroring" asserts a shape analogy and makes no location claim at all.
 
 ### §7.2 One comment inside the range IS made less discoverable, and it cannot be fixed here
@@ -760,15 +627,7 @@ clears. What cannot happen here is editing the **body comment**, which would bre
 
 ⚠ **What is routed, therefore, is narrower than "the repair"**: aligning the two residue clears with
 the moved one (or rewording the body text) is the residual, and it goes to
-`#11-inline-fragmented-fn-seams-1-2` — ⚠ with a **trigger disjunct added to
-that slot** for this file, because its inherited disjuncts are residue/`mod.rs`-scoped and do not reach
-a false universal sitting in the new file (and the residue disjunct is self-exempted for six of the umbrella's
-seven PRs). A concern routed to a slot no trigger reaches is not booked, it is dropped
-([[feedback_enumerated-exemptions-leave-the-next-class-authoritative]]).
-
-Recorded because a byte-identity contract that costs *nothing* is a claim worth distrusting — but
-the price turned out to be one comment's wording, not its discoverability, and the earlier framing
-collected credit for honesty while overstating what the contract forbade.
+`#11-inline-fragmented-fn-seams-1-2`.
 
 ## §8. Definition of done
 
@@ -780,7 +639,7 @@ collected credit for honesty while overstating what the contract forbade.
   `Point` and `HashMap` unqualified.)
 * **Both halves of §6 pass** and their output is in the PR body — the body harness
   (`6 hunks, 226 == 226`) **and** the §6.1 call-site check. ⚠ The second is not optional:
-  the first cannot see the call, and that gap was exercised for real during review.
+  the first cannot see the call.
 * `cargo test -p elidex-layout-block --all-features` green with **no test touched** —
   `git diff --name-only origin/main...HEAD` names no file under `.../tests/` or `tests.rs`. ⚠ **The ground, not just the outcome**: the `#[cfg(test)] pub(crate) use` re-exports the test
   modules reach through are at `mod.rs:28-34`, entirely above the range, and the one `pub` item
@@ -797,47 +656,14 @@ collected credit for honesty while overstating what the contract forbade.
   `config` predicate, `ci.yml:43-47`), so the **PR** gate is unaffected. ⚠ Not "local-only": a `push` to
   `main` bypasses the path filter unconditionally, so `deny` runs post-merge and is red there for
   the same upstream reason — pre-existing, not caused by this PR.
-  Earlier rounds of this PR's review record reported "`mise run ci` green"; that was false and is
-  corrected here — including `cargo doc` with `RUSTDOCFLAGS=-D warnings`
-  (`relpos_atomic_reposition_records`'s intra-doc link to `[static_atomic_reposition_records]`
-  (`mod.rs:745`) must still resolve — it does trivially, both stay).
+  `cargo doc` with `RUSTDOCFLAGS=-D warnings`:
+  `relpos_atomic_reposition_records`'s intra-doc link to `[static_atomic_reposition_records]`
+  (`mod.rs:745`) must still resolve — it does trivially, both stay.
 * **Every figure §5.6 marks pending is re-measured on the committed tree**: the two `#[allow]`s'
   necessity (`too_many_arguments`; `too_many_lines` at the figure §5.4 records), both `wc -l`s,
-  and §6's hunk count. ⚠ **Figures are referenced, not restated** — every duplicated measurement
-  in this memo drifted at least once.
-  * ⚠ **`reconcile.rs`'s `wc -l` is not stored in this memo, and must not be stored in the
-    message that lands.** It is the one unstable figure (§5.5): every commit that documents that
-    file moves it, *including the commits that fix review findings*, so any location that stores
-    it is falsified by the next such commit. The obligation is to **run** §5.5's command, not to
-    store its output ([[feedback_document-landing-invalidates-its-own-measurements]]).
-  * ⚠ **The landing record is THREE artifacts, and this DoD governs all of them.** ⚠ The
-    easiest to forget is the **PR description**, and it is the one most easily fixed. The three: **(1)** this memo; **(2)** the **PR description**, editable at any time
-    with `gh pr edit --body-file` — check it with
-    `gh pr view <n> --json body -q .body | grep -nE 'origin/main|[0-9]{3}'`; **(3)** the **squash
-    commit message**. ⚠ **Per-commit bodies on this branch cannot be repaired** — amend is
-    hook-denied — so they are historical, not authoritative, and GitHub's
-    **default** squash message is their concatenation, so it can carry claims this memo has
-    since **retracted**. ⚠ **The quantifier here is "at least one", and that is all the
-    evidence supports.** The known instance: `24874f54`'s body asserts *"Every finding landed
-    on the memo's bookkeeping"*, which `c3efc9b7` narrowed — the narrowing is recorded in the
-    **preamble** (`:40-43`), not in §9. ⚠ **Do not upgrade this to "every retracted claim
-    survives in the commit that made it".** That is false in both directions: a claim can be
-    retracted in the *memo* without ever appearing in any commit body, and a body that quotes a
-    retracted claim may be the **retracting** commit, which carries the correction with it.
-    `git log --format='%h %B' 658cc302..HEAD` enumerates commit *bodies*, not retracted
-    *claims*, so it cannot decide that universal — the population and the predicate do not match
-    ([[feedback_universal-claims-need-the-complement-measured]]).
-    ⚠ **This is deliberately not an enumeration.** A retraction is semantic, so no command can
-    list which unamendable bodies now contradict the memo, and a hand-maintained list of them
-    is a second decision surface that drifts — the one that stood here did, omitting
-    `24874f54`'s claim ([[feedback_duplicated-decision-surface-blocks-converge]]). The rule is
-    therefore categorical and needs no list, which is also why it survives the correction
-    above: **accepting the default violates this DoD**, because the landing message is the
-    composed text below and nothing else — regardless of what the default happens to contain.
-
-    ⚠ **The message is written here, not promised.** "Authored fresh at merge" would be a promise
-    about a future check, which §0's rule forbids — *a claim is carried by the command that produces
-    it, never by prose asserting it was checked.* So merging is a paste, not a re-derivation:
+  and §6's hunk count.
+  * The **squash commit message** is the text below; accepting GitHub's default squash message violates this DoD.
+  * The **PR description** is re-checked at merge: `gh pr view 508 --json body -q .body | grep -nE '[0-9]{3}'` must show no stored `reconcile.rs` line count.
 
     ```text
     refactor(layout): split the IFC flow reconcile out of inline/mod.rs (seam 3)
@@ -866,9 +692,8 @@ collected credit for honesty while overstating what the contract forbade.
     test-all / doc / trip-wires each run green individually. On CI the deny job is
     skipped by the path filter for this PR.
     ```
-  * The other five figures are stable — `mod.rs` 573, `too_many_lines` 177/100,
-    `too_many_arguments` 11/7, §6's `6 hunks / 226 == 226`, 325 tests — and have held at every
-    commit on this branch, so recording them is safe and they go in the squash message at merge.
+  * The five figures are stable — `mod.rs` 573, `too_many_lines` 177/100,
+    `too_many_arguments` 11/7, §6's `6 hunks / 226 == 226`, 325 tests — and go in the squash message at merge.
 * **`git diff --name-only origin/main...HEAD` names four files** — this memo, `inline/mod.rs`,
   the new `inline/reconcile.rs`, and `inline/collect.rs` (one comment, §7). ⚠ **Nothing under
   `.claude/`, and no second `docs/plans/` file** — that is the mechanical statement of the
@@ -882,91 +707,37 @@ collected credit for honesty while overstating what the contract forbade.
   grep -c '| `still owed`' "$L"
   ```
 
-  ⚠ **Run it verbatim before trusting it.** Three earlier versions of this item each failed a
-  different way — a corpus that included the file's own statements of the marker convention so it
-  could never reach `0`; a one-backtick code span that rendered to a different command; and an
-  unquoted `<repo-key>` placeholder that the shell read as a redirection and never executed.
-  ⚠ **Both anchors matter, and the four forms measure differently today** — `| `+backticks **4**
-  (the rows), backticks dropped **0**, leading `| ` dropped **7**, neither **8**. The backticks are
-  what keep it off a false `0`; the leading `| ` is what keeps the file's own convention
-  statements, which do not go away when the rows are discharged, out of the count. ⚠ The targets are
-  outside this repository, so the diff cannot show them; the rows live with their targets and
-  are not restated here.
+  The targets are outside this repository, so the diff cannot show them.
 
 ## §9. Out of scope, with disposition
 
 ⚠ **One home per disposition, and for routed work this section is not it.** A concern here is
 either **accepted** — terminal, no work follows, and this section is canonical for it — or
 **routed**, in which case the *slot* is canonical for what the work is and when it reopens, and
-this section carries only **why it is not in this PR**, plus the slot's name. ⚠ **No bullet may be
-both**, and no bullet may restate a slot's trigger, re-eval date, or item list. Gates #20-#22 spent
-three consecutive rounds on drift between this section's copies and the slots' originals — 21 of
-gate #22's 25 defects were copy-vs-copy divergence, not errors of fact — and §10 already made
-exactly this move for the slot-ledger half, with the reason recorded there: *One home*.
+this section carries only **why it is not in this PR**, plus the slot's name.
 
 * **Seams 1 and 2** of `#11-inline-fragmented-fn-decomposition` — `mod.rs:266-303` (orphans/widows
   break computation) and `:388-411` (the packer-relative → layout coordinate fold), both
   re-measured on `658cc302`. The umbrella books them into the successor slot
   `#11-inline-fragmented-fn-seams-1-2`.
 
-    ⚠ **The trigger has FIRED for all three seams, today**, and the local evidence is that this PR
-  replaces 226 lines of `layout_inline_context_fragmented`'s body with a call. ⚠ **The trigger's
-  wording is not copied here** — `project_inline-fragmented-fn-decomposition` is canonical, and an
-  earlier revision of this bullet did quote it in full, which is the duplicate-decision-surface
-  this section's own rule forbids.
-
-  **The ground is the ratified range, and nothing else.** ⚠ Two earlier grounds are withdrawn
-  because neither yields the conclusion: CLAUDE.md's touch-time clause is scoped to **>1000-line
-  files** (`inline/mod.rs` is **785** at `658cc302`, §0) and its *"split は単独 PR"* separates a
-  split PR from a **feature** PR, not one seam from another — the banner split that created the
-  source slot shipped **three** cohesion seams in one split PR
-  ([[project_inline-mod-split-owed]]). And "folding three ranges forfeits the per-range proof" is
-  false: §6's harness takes *(pinned base, line range, extracted fn)*, so three ranges are three
-  runs against the same `658cc302`.
-
-  What actually bounds this PR is that **the umbrella ratified `413-639` and only that**. Widening
+  **The ground is the ratified range, and nothing else.** What actually bounds this PR is that **the umbrella ratified `413-639` and only that**. Widening
   to seams 1 and 2 is an unratified scope change to a ratified surface
   ([[feedback_plan-ratified-surface-is-a-design-change]]), and the per-seam cohesion analysis the
-  source slot calls for has not been done for them. ⚠ The slot is a *discharge route*, not an
-  exemption — the trigger has fired and seams 1 and 2 are owed; only the vehicle is deferred.
+  source slot calls for has not been done for them.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
-  decomposition. ⚠ **Stated here rather than referenced**, because the slot itself lives in the
-  user-level memory directory as `project_inline-fragmented-fn-seams-1-2.md`, and a
-  repository-only reader must still be able to tell when this work reopens — for which the slot
-  memo's § *Trigger / re-eval* is the one place to look.
-
-  ⚠ **The trigger is NOT restated here.** An earlier revision carried it verbatim "for
-  repository-only readers", labelled as a copy of a canonical set — and it drifted anyway: the
-  copy rendered a one-shot disjunct (*"the **next** change that touches…"*) as a standing one
-  (*"fires on **any** change touching…"*). A copy that announces it is a copy is still a second
-  decision surface. Read `project_inline-fragmented-fn-seams-1-2.md` § *Trigger / re-eval*.
-
-  **The eleven-parameter question is reached by the first disjunct and needs no new one**: the
-  eleven-argument *call site* lives in `layout_inline_context_fragmented`'s body (§5.1 — "calls it
-  where the block was"), so every reshaping §5.3 names necessarily edits the residue. What the ledger *does* carry is the slot's subject line naming §5.3's
-  candidate shapes **including the side-store→component one**, so the question is not pre-answered
-  as a grouping. ⚠ **Booked alongside it, because it is a different defect the count would hide**: the signature
+  decomposition. ⚠ **Booked alongside it, because it is a different defect the count would hide**: the signature
   carries `is_vertical: bool, persist_flow: bool, do_carrier: bool` **adjacent** (positions 5-7 of
   11 — adjacency is the hazard, not terminal position) and the call site passes them positionally, so **any transposition of the three is type-correct and compiles silently**. That
   window is *new* — pre-split these were three named `let` bindings in scope (`:173`, `:322`,
-  `:343`). Measured across all non-test `crates/layout` source, only four functions have two or
-  more adjacent `bool` parameters, and `reconcile_flows` is the **only one in
-  `elidex-layout-block`**; the crate's other wide signatures separate them, apparently
-  deliberately — `layout_atomic_items` (`atomic.rs:26`) puts `layout_generation: u32` between
-  `is_vertical` and `is_probe`. A slot told only "eleven is too many" may answer with a grouping
-  that keeps the triple adjacent, so the adjacency is named on the slot, not just the count. The real ground is altitude — the fix for a three-`bool` positional window is a **type** (an enum
-  or a flags struct, so a transposition fails to compile); shuffling an unrelated parameter between
-  them to defeat ordering is a bandaid that leaves the hazard's shape intact.
+  `:343`). The fix for a three-`bool` positional window is a **type** (an enum
+  or a flags struct, so a transposition fails to compile).
 
   ⚠ **Why the type cannot be introduced here.** Byte-identity governs the body after `) {`; the
   signature is **authored**, so that contract does not govern it. The obstruction is one level
   in: the flags are **consumed by the arms** `if persist_flow { … } else if do_carrier { … }`,
   which *are* inside the compared body, so a `FlowSink` enum rewrites them and breaks the proof.
-  ⚠ Half the hazard is closed **for the commit as landed only**. §6.1's call-site check compares
-  argument names to parameter names pairwise and is mutation-verified against a real transposition
-  of this very triple — but §6.1 also ships neither harness, so nothing re-runs it after landing.
-  ⚠ **The slot must therefore re-derive it**, and standing the check up is part of that work.
 * **Where the four helpers should live once their principal caller is a sibling module.** §5.2
   keeps all four in `mod.rs`, and two of its four reasons are *design* reasons (`pub` API;
   residue callers) while two are *scope* reasons (outside the ratified range). ⚠ A third
@@ -978,110 +749,34 @@ exactly this move for the slot-ledger half, with the reason recorded there: *One
 * **The uncited spec-governed concerns in the moved body** — `text-align` baked into
   `inline_start`; relative/sticky offset preservation; fragmentainer terminology; column-box
   continuation; the abspos toggle, `overflow:hidden` clipping and the paged path.
-  ⚠ **This set is authored and audited, NOT the output of §3's complement command**, and an
-  earlier revision of this sentence said otherwise. Measured both directions: the command's
-  alternation carries no `column`, so it cannot reach *column-box continuation*; and it does
-  surface `margin-box` at base `:477`, which falls inside no bullet's range. §3's own wording
-  (*"the command that shows the complement is non-empty"*) is the sound one — it is a filter over
-  a hand-made list, not an enumerator of the class.
   **Why not in this PR** — the ground is change class —
   this PR authors no algorithm, so it neither creates nor deepens a missing-citation defect, which
   is the position #497 took when it **withdrew** the module-doc citations it had added to
   `collect.rs` (CSS 2 §9.2 *Controlling box generation*, the parent section) and `styled_run.rs`
-  (CSS 2 §9.2.2 *Inline-level elements and inline boxes*) as over-claiming — read from the landed
-  commits, not #497's PR body, which gives §9.4.2 for `styled_run.rs` — ⚠ and note the polarity:
-  §3's §9.4.2 sentence records the **landed text refusing** §9.4.2, not the PR body proposing it,
-  so the two are different facts about the same section number. ⚠ The PR body also carries an
-  *earlier revision* of the additions (`collect.rs` → §9.2.2.1, `styled_run.rs` → §9.4.2), not the
-  pair that was added on #497's branch and withdrawn there before the squash (§9.2 / §9.2.2) —
-  ⚠ *"landed"* would be wrong for either pair, since §3 records `45c72c0a` as unreachable from
-  `origin/main`; neither addition nor withdrawal is on `main`. ⚠ **Routed to
-  `#11-inline-fragmented-fn-seams-1-2`**, whose entry carries it. An earlier revision said "not
-  routed to a slot, and that is the disposition, not an omission … it reopens when the algorithm is
-  next authored — not on a date"; **acceptance and reopening are different dispositions and it
-  asserted both**, which makes it an untracked future-work deferral rather than a terminal accept.
-  ⚠ **The slot's trigger reaches this class, and the `reconcile.rs` disjunct alone does** (named by
-  file, not by ordinal — the disjunct set has already grown 3 → 5 during this PR's review) —
-  [[feedback_enumerated-exemptions-leave-the-next-class-authoritative]] says to verify that rather
-  than assert it, and §3 already carries the evidence: every member's provenance line
-  (`:419 :470 :483 :506 :514 :531 :550 :557 :588`) lies inside the ratified moved range
-  `413-639`, so **every member is in `inline/reconcile.rs` and the residue holds none of them**.
-  Disjunct 3 fires on a change touching that file. ⚠ **Two earlier drafts of this sentence were wrong in
-  opposite directions, neither of them committed** (`git log -S 'neither disjunct'` over this file
-  returns nothing — they were caught in the working tree), and neither is worth repeating: one claimed "neither disjunct
-  alone covers it", the other that "disjunct 1 (the residue) reaches the rest" — there is no rest.
-  Both were argued from `grep -c` of the concern names across the two files, which cannot settle
-  the question at all (those strings occur in *prose about* the concerns as well as in code, and
-  `text-align` and `column-box` do not occur in `inline/mod.rs` in any form). ⇒ **Locate members by
-  §3's provenance lines, never by word presence.** ⚠ It is also
-  **not** a defence against an *incorrect* citation, which is a different class.
+  (CSS 2 §9.2.2 *Inline-level elements and inline boxes*) as over-claiming. **Routed to
+  `#11-inline-fragmented-fn-seams-1-2`**.
 
 * **CSS 2 §10.8 is superseded, and the instance this PR authored is re-anchored.**
   `css-inline-3` §1.1 *Module Interactions* says the module *"replaces and extends the CSS inline
   layout model and features defined in [CSS2] section 10.8"*, so the `reconcile_flows` docstring
-  now names `css-inline-3` §2.2 / §4.2 / §5.3 as its governing sections. **Why not in this PR**: the sites are pre-existing, and the
-  ten outside this PR's file set span four crates it never touches. ⚠ **Not "none is among this
-  PR's files"** — an earlier revision of this clause said that and it is false: of the fifteen,
-  five are in this PR's files, and while three (`reconcile.rs:210`, `:214`, `:314`) are
-  cross-references or the moved body comment, **`inline/mod.rs:65` and `:116` are ordinary
+  now names `css-inline-3` §2.2 / §4.2 / §5.3 as its governing sections. **Why not in this PR**: the sites are pre-existing.
+  **`inline/mod.rs:65` and `:116` are ordinary
   `CSS 2.1 §10.8` citations in the residue, outside the byte-identity range — this PR could have
-  re-pointed them and chose not to.** That is a scope choice, recorded rather than hidden, and the
-  slot's create-time audit records the same correction. Re-pointing the rest is a crate-wide sweep
+  re-pointed them and chose not to.** Re-pointing the rest is a crate-wide sweep
   whose class (module supersession) is a different one from *wrong-section* misattribution, since
   CSS 2 §10.8 genuinely is the section it names. **Routed to
-  `#11-css2-line-height-supersession-reanchor`**, which is canonical for the corpus, the trigger
-  and the re-eval date. ⚠ An earlier revision of this bullet also asserted *"NOT routed to a slot,
-  and that is the disposition, not an omission"*; gate #21 registered the slot and edited the lines
-  below that sentence without removing it, so the bullet asserted both dispositions for a further
-  round. ⚠ **Do not re-derive slot ownership from `grep -o '#11-[a-z0-9-]*' project_open-defer-slots.md`**
-  — a name enumeration cannot decide a *subject* predicate, and that file's own banner records
-  slots it does not list (`grep -rho '#11-[a-z0-9-]*' <memory-dir> | sort -u | wc -l` returns far
-  more than the same command over the ledger alone).
-  ⚠ **This bullet stated a SECOND ground, now withdrawn — and the conclusion above does not rest
-  on it.** It read *"the crate keeps CSS 2 numbering where `css-inline-3` has no counterpart
-  (§10.8.1's strut, §10.8 step 1 / step 3)"*. **False for all three**: strut and half-leading →
-  §5.3; step 1's per-box height → §2.2 step 2 *"Content Size Contribution Calculation"*; step 3's
-  line-box height → §2.2 step 3 *"Line Box Sizing"* (`.claude/tools/webref body css-inline-3
-  line-layout`). The routing destination had **already ruled the same way** before this PR asserted
-  otherwise — `project_line-box-decorated-inline-content.md` records *"The height/baseline rule is
-  `css-inline-3` §5.3 (CSS 2 §10.8/§10.8.1 is the superseded statement of the same thing…)"*.
-  ⚠ **That "already ruled" claim was first over-stated, then over-retracted; this is the measured
-  form.** The file rules on §10.8/§10.8.1 → §5.3 at `:39-40`, **and** names `css-inline-3` §2.2
-  four times (`grep -n '§2\.2'`), including `:852` — *"contributes `max`, not a sum — correct per
-  §2.2 (each box contributes its own layout bounds)"*, which is the step-3 aggregation fact itself.
-  So the destination had ruled on both sections. A gate-#21 review axis measured only `:39-40` and
-  reported §5.3 alone; acting on that partial measurement made this paragraph **less** accurate,
-  which is why the grep is recorded here instead of the conclusion.
-  ⇒ **The withdrawal enlarges the affected set, and the enlargement is sized here rather than
-  asserted.** The withdrawn ground exempted the `§10.8.1` class specifically:
-  `git grep -n '10\.8' -- 'crates/layout/elidex-layout-block/**' | grep -v inline/reconcile.rs`
-  → 6 sites, of which `| grep -c '10\.8\.1'` → 5. So retracting it moves **5 of those 6** from
-  "deliberately kept" to "wrongly anchored". ⚠ For one round this bullet routed nothing at all:
-  `da090456` deleted the `#11-inline-spec-cite-misattribution` route while the surrounding prose
-  still spoke of "the routing destination" and "the routing itself", leaving the work owned by
-  nobody. Per §7.2 (*a concern routed to a slot no trigger reaches is not booked, it is dropped*)
-  that is a worse case than an omission, and CLAUDE.md's TODO 先送り禁止 wants 理由 **and**
-  対処時期. The slot named above closes it. It is deliberately **not** folded into
-  `#11-css2-spec-label-normalisation`: that slot's memo states it owns *hygiene, not correctness*,
-  and says not to re-hand work to a program without checking a slice claims it.
+  `#11-css2-line-height-supersession-reanchor`**; deliberately **not** folded into
+  `#11-css2-spec-label-normalisation`, whose memo states it owns *hygiene, not correctness*.
 * **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
-  pre-existing, and owned by the umbrella itself (its §5.3 books the line-box height/baseline work
-  under `#11-inline-root-inline-box`). Recorded here so the row is dispositioned rather than
-  merely observed.
+  pre-existing, and owned by the umbrella (`docs/plans/2026-08-line-box-decorated-inline-content.md` §5.3).
 * **Cold gate** ([[feedback_split-on-touch-prereq-workflow]]), re-run on `658cc302` at this PR's
   own touch set (`crates/layout/elidex-layout-block/` plus the four `.claude/`+`docs/` files of
   `f63eb623`):
   * Open PRs: `gh pr diff <n> --name-only` for each co-open PR — the set is whatever
-    `gh pr list --state open` returns at the time of the run, **not a list stored here**, since a
-    stored enumeration goes stale as PRs open and close (it did: it named #503, since closed, and
-    predated #507). At the latest run: 381, 501, 502, 505, 506, 507 → none touches
-    `crates/layout/elidex-layout-block/`, and `comm -12` against this branch's name set is empty
-    for every one. #507 is a 38-crate dependabot bump touching `Cargo.toml`/`Cargo.lock` only;
-    disposition unchanged. ⚠ **File-disjointness is not the whole gate for #501**: it
-    edits `preflight.py`, the checker whose verdict this memo's preamble quotes, so there is a
-    *behavioural* dependency the name-set intersection cannot see. Dispositioned above (§9's
-    plan-checker bullet) rather than left to the `comm -12`; the preamble's preflight figures are
-    re-run at push time either way.
+    `gh pr list --state open` returns at the time of the run, **not a list stored here**.
+    ⚠ **File-disjointness is not the whole gate for #501**: it
+    edits `preflight.py`, so there is a
+    *behavioural* dependency the name-set intersection cannot see.
   * Unmerged refs: `git diff --name-only origin/main...<ref>` over **every** local and `origin/`
     ref (not a hand-picked subset — the loop's output is the set) → **nine** touch
     `crates/layout/elidex-layout-block/`, of which **five** touch `inline/mod.rs`:
@@ -1100,17 +795,12 @@ exactly this move for the slot-ledger half, with the reason recorded there: *One
       behind), and `layout-text-height-split` — which is additionally **#500's unsquashed history,
       already in `main`**: `git diff --stat origin/main...layout-text-height-split` and
       `git show --stat 4357cd4c` both report `11 files changed, 1393 insertions(+), 1345
-      deletions(-)` (verified 2026-08-16). Recorded because the class recurs
-      ([[feedback_universal-claims-need-the-complement-measured]]): a "none besides X" claim is a
-      claim about the complement, and only running the loop measures it.
+      deletions(-)` (verified 2026-08-16).
   * ⚠ The gate is re-run **before merge**, not trusted from here — `main` moves, and PRs open and
-    close. "At push time" is spent: this branch is pushed and #508 is open, so the next binding
-    run is the pre-merge one.
+    close.
 
 ## §10. Where the slot-ledger actions are recorded
 
 Not carried here. The row-by-row checklist — which targets the landing writes, which it still
 owes, and against what predicate — is `project_seam3-pr508-review-history.md`, in the agent
 memory directory alongside every file those rows act on.
-
-⚠ **This section used to carry a status index, and it is deliberately gone.** §8's item covers the work. One home.

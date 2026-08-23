@@ -23,7 +23,7 @@ use super::{
 ///
 /// Every effect is a `dom` mutation; nothing is returned to the caller.
 ///
-/// ⚠ **The probe universal in the body below is scoped to THIS function.** The
+/// **The probe universal in the body below is scoped to THIS function.** The
 /// body states that "a probe neither PUSHes … SHIFTs … CLEARs … nor WRITEs
 /// persisted render state", and gates its own `clear_inline_flows` call on
 /// `!env.is_probe`. Every other removal of either component is ungated, and the
@@ -40,56 +40,38 @@ use super::{
 ///   (entity `despawn` drops it too, outside this concern, exactly as above).
 ///   `elidex-layout-multicol` removes it twice more, also ungated.
 ///
-/// ⚠ The `else` arm **fires during a probe**: both `do_carrier` write arms are
+/// The `else` arm **fires during a probe**: both `do_carrier` write arms are
 /// `!env.is_probe`-gated, so under a probe the carrier payloads stay empty and
-/// the `else` arm runs. ⚠ **What separates the two components here is the
+/// the `else` arm runs. **What separates the two components here is the
 /// remove, not the write** — both writes reached from this function are
 /// `!env.is_probe`-gated, and both components are removed ungated at the early
 /// returns. Here, `InlineFlow`'s remove is gated and `ColumnFlowSlice`'s is not.
-/// ⚠ `block/children/shift.rs:127-129` states the opposite for `InlineFlow`'s
-/// write; it is stale (both writes measure gated) and correcting it is
-/// pre-existing work; the successor slot records it (grep that slot for `shift.rs`).
+/// `block/children/shift.rs` states the opposite for `InlineFlow`'s write; the
+/// successor slot owns the correction.
 ///
-/// ⚠ **Behaviour is not at risk**, and that claim is scoped to the two early
+/// **Behaviour is not at risk**, and that claim is scoped to the two early
 /// returns: they are reached on `items.is_empty()` / no-usable-font, inputs that
 /// do not depend on `is_probe`, so a probe and the definitive pass reach them
 /// identically. It says nothing about the `else` arm above.
 ///
-/// ⚠ **A carrier left behind needs more than "render never reads it".** Render
+/// **A carrier left behind needs more than "render never reads it".** Render
 /// does not read [`elidex_ecs::ColumnFlowSlice`] *directly*, but
 /// `elidex-layout-multicol` drains it into a `FragmentSnapshot`
-/// (`multicol/src/fill.rs:228`) and folds those lines into a render-visible
-/// `InlineFlow` (`multicol/src/lib.rs:640`), so a *stale* one would not be inert.
-/// What bounds the hazard is **which entities the drain reaches**:
-/// `multicol/src/fill.rs:220` iterates `carry_midbreak` chained with
-/// `break_out_child` — the mid-break and break-out entities selected out of
-/// `composed_children_flat(dom, entity)` (`multicol/src/lib.rs:173`), which is
-/// **neither** the container's direct children **nor** that flattened set
-/// entire. The one entity in reach that can carry its own slice — the multicol's
-/// own self-carrier — is cleared at `multicol/src/lib.rs:362-377` and pinned by
-/// `multicol/src/tests/mid_break_flow.rs:894`
+/// (`elidex-layout-multicol/src/fill.rs:228`) and folds those lines into a
+/// render-visible `InlineFlow` (`elidex-layout-multicol/src/lib.rs:640`), so a
+/// *stale* one would not be inert. What bounds the hazard is **which entities
+/// the drain reaches**: `elidex-layout-multicol/src/fill.rs:220` iterates
+/// `carry_midbreak` chained with `break_out_child` — the mid-break and break-out
+/// entities selected out of `composed_children_flat(dom, entity)`
+/// (`elidex-layout-multicol/src/lib.rs:173`), which is **neither** the
+/// container's direct children **nor** that flattened set entire. The one entity
+/// in reach that can carry its own slice — the multicol's own self-carrier — is
+/// cleared at `elidex-layout-multicol/src/lib.rs:362-377` and pinned by
+/// `elidex-layout-multicol/src/tests/mid_break_flow.rs:894`
 /// `multicol_with_direct_inline_midbreak_leaves_no_stale_carrier`.
-/// ⚠ **What is not settled** is a carrier that outlives its pass and whose
+/// **What is not settled** is a carrier that outlives its pass and whose
 /// entity then changes role; that residual — and the enumeration of terminal
 /// paths it needs — is `#11-inline-fragmented-fn-seams-1-2`'s.
-///
-/// ⚠ **The shorter ground is still authored in four other places, and this PR
-/// amends none of them.** The body comment at the carrier reconcile below says
-/// *"never read by render … so a leak is benign"*; it is byte-identical to its
-/// pre-split form, so it is out of this PR's reach by construction. The other
-/// three are `elidex-ecs`'s `ColumnFlowSlice` docstring, `multicol/src/fill.rs`,
-/// and `multicol/src/lib.rs` — other crates. They reconcile with the sentence
-/// above on **scope**: for an entity the drain never reaches, non-readership is
-/// the whole story. Correcting the wording is
-/// `#11-inline-fragmented-fn-seams-1-2`'s. ⚠ Enumerate by concept, not by
-/// wording — the phrase is spelled both "never read by render" and "render never
-/// reads", and in `fill.rs` it wraps a `///` boundary, so any line-anchored grep
-/// for either spelling is a filter rather than an enumerator.
-///
-/// Stated here rather than in the body because the body is byte-identical to its
-/// pre-split form modulo the bindings the extracted signature introduces — §6 of
-/// the plan-memo carries the harness and the figures it reports, which is why no
-/// count is restated here; the text below must not be edited.
 ///
 /// **Spec vs bookkeeping.** Most of what this function does is elidex render
 /// bookkeeping with no governing section: [`InlineFlow`] and
@@ -99,39 +81,29 @@ use super::{
 /// * the IFC-local logical → absolute physical fold keyed on `is_vertical`
 ///   implements the **axis assignment** of **css-writing-modes-4 §6.4
 ///   Abstract-to-Physical Mappings** — inline-axis → physical x (horizontal) /
-///   y (vertical), block-axis → the other. ⚠ It does **not** implement the rest
-///   of §6.4, whose mapping is keyed on the used `writing-mode` *and*
-///   `direction` (its `block-start` row is `top`/`right`/`left`; its
-///   `inline-start` row varies with both). **This fold reads `writing-mode`
-///   only as the boolean `is_vertical`** — the property has five values and
-///   all four *vertical* ones (`vertical-rl`, `vertical-lr`, `sideways-rl`,
-///   `sideways-lr`) collapse to `is_vertical == true`, derived at
-///   `inline/mod.rs` from `writing_mode.is_horizontal()` — **and
-///   never reads `direction` at all.** So it applies no
-///   `vertical-rl`/`sideways-rl` block-axis reversal, matching the box
-///   convention (see the comment at the fold), and the `sideways-lr` inline
-///   axis is likewise not distinguished. Cite the axis rows only; a later edit
-///   must widen the existing `is_vertical` read rather than assume
-///   `writing-mode` is not an input here, and must not read this as §6.4
-///   conformance;
+///   y (vertical), block-axis → the other. It does **not** implement the rest
+///   of css-writing-modes-4 §6.4, whose mapping is keyed on the used
+///   `writing-mode` *and* `direction` (its `block-start` row is
+///   `top`/`right`/`left`; its `inline-start` row varies with both). **This
+///   fold reads `writing-mode` only as the boolean `is_vertical`** — the
+///   property has five values and all four *vertical* ones (`vertical-rl`,
+///   `vertical-lr`, `sideways-rl`, `sideways-lr`) collapse to
+///   `is_vertical == true`, derived at `inline/mod.rs` from
+///   `writing_mode.is_horizontal()` — **and never reads `direction` at all.**
+///   So it applies no `vertical-rl`/`sideways-rl` block-axis reversal, matching
+///   the box convention (see the comment at the fold), and the `sideways-lr`
+///   inline axis is likewise not distinguished. Cite the axis rows only; a
+///   later edit must widen the existing `is_vertical` read rather than assume
+///   `writing-mode` is not an input here, and must not read this as
+///   css-writing-modes-4 §6.4 conformance;
 /// * the atomics' block-axis target is the line top, which leaves
 ///   **`vertical-align` within the line box** unimplemented. The governing
 ///   section is **`css-inline-3` §4.2 Transverse Box Alignment: the
 ///   vertical-align property** — `css-inline-3` §1.1 says the module *"replaces
 ///   and extends the CSS inline layout model and features defined in [CSS2]
-///   section 10.8"*. ⚠ **Inside this docstring, CSS 2 numbering is the
-///   superseded origin, never the governing anchor.** The file's one CSS 2 site
-///   *outside* the docstring — the body comment at the `persist_flow`
-///   reposition — is excluded: it travels byte-identically from the base, so it
-///   is not this PR's to re-anchor (§3 of the plan-memo records it as the
-///   dual-provenance half). Enumerate both classes rather than trusting a count
-///   here — and grep the *property* (a CSS 2 anchor), not this paragraph's
-///   vocabulary, so a future `CSS 2 §9.4.2` in the body is enumerated too:
-///   `git grep -nE 'CSS ?2(\.1)?[^0-9]' -- '*/inline/reconcile.rs'`
-///   ⚠ **Where the two modules' numbers collide, a bare §-number below means
-///   `css-inline-3`** — the colliding set is §2.2, §4.2 and §5.3, each of which
-///   is also a real, unrelated CSS 2 section ("A brief CSS 2 tutorial for XML",
-///   "Rules for handling parsing errors", "Universal selector"). §10.8 and
+///   section 10.8"*. **Inside this docstring, CSS 2 numbering is the
+///   superseded origin, never the governing anchor.** **Where the two modules'
+///   numbers collide, a bare §-number below means `css-inline-3`**; §10.8 and
 ///   §10.8.1 do **not** collide and appear bare: `css-inline-3` has no §10 at
 ///   all (`webref heading css-inline-3 10`), so those always mean CSS 2.
 ///   The mapping, per fact:
@@ -140,17 +112,13 @@ use super::{
 ///   ("Layout Bounds") of Inline Boxes**; §10.8 step 1's per-box height →
 ///   **§2.2 Layout Within Line Boxes, step 2 "Content Size Contribution
 ///   Calculation"**; §10.8 step 3's line-box height → **§2.2 step 3 "Line Box
-///   Sizing"** (`webref body css-inline-3 line-layout`). ⚠ An earlier revision
-///   of this sentence asserted the last three had **no** counterpart section.
-///   False for all three — and it was a universal over a section inventory the
-///   claim site never enumerated.
-///   ⚠ Stated
+///   Sizing"** (`webref body css-inline-3 line-layout`). Stated
 ///   positively, because "only `vertical-align` is missing" would be a claim
 ///   over §10.8's whole complement: what **is** implemented is §10.8.1
 ///   half-leading, and only in the **first-baseline** derivation
 ///   (`inline/pack/mod.rs`, `inline/mod.rs`).
 ///
-///   ⚠ **§10.8.1's current statement is `css-inline-3` §5.3 Calculating the
+///   **§10.8.1's current statement is `css-inline-3` §5.3 Calculating the
 ///   Logical Height Contributions ("Layout Bounds") of Inline Boxes**, whose
 ///   strut condition is broader (it also covers a box with only fallback-font
 ///   glyphs). The half-leading here derives A and D at run level from a single
@@ -158,44 +126,29 @@ use super::{
 ///   §10.8.1, which is stated **per glyph**, a mixed-font box is outside it.
 ///   Graded against §5.3, which splits on the computed value: its *not-normal*
 ///   branch prescribes exactly this — "derived solely from metrics of its first
-///   available font (ignoring glyphs from other fonts)" — ⚠ under the initial
+///   available font (ignoring glyphs from other fonts)" — under the initial
 ///   `line-fit-edge: leading`, which is what keeps §5.3's half-leading clamp and
 ///   MBP inflation out of scope; while its *normal*
 ///   branch wants every glyph's A and D, and `line-height`'s initial value is
 ///   `normal`, inherited, with the keyword surviving to the computed value
 ///   (`css-inline-3` `#propdef-line-height`), so that branch is the **default**
-///   case and is where the divergence lives — ⚠ **for two reasons, not one**:
+///   case and is where the divergence lives — **for two reasons, not one**:
 ///   the all-glyphs requirement, and the fact that `LineHeight::Normal` is
 ///   flattened to `font_size * 1.2` at `inline/styled_run.rs:96` before any font
 ///   is resolved, so even a **single-font** box under `normal` diverges.
 ///
-///   ⚠ Two separate follow-ups, and they are different classes.
+///   Two separate follow-ups, and they are different classes.
 ///   * **Label**: `CSS 2` is the minority spelling in this crate and `CSS 2.1`
-///     the majority — count each from the repo root with
-///     `git grep -o 'CSS 2\.1' -- 'crates/layout/elidex-layout-block/**' | wc -l`
-///     and the same with `-oE 'CSS 2([^.0-9]|$)'` over the same pathspec.
-///     ⚠ Both corpora include this docstring's own prose about the split, so
-///     subtract its hits before quoting a figure. Owner:
-///     `#11-css2-spec-label-normalisation`, which calls it hygiene, not
-///     correctness.
+///     the majority. Owner: `#11-css2-spec-label-normalisation`, which calls it
+///     hygiene, not correctness.
 ///   * **Anchor**: the citations *this* docstring authors name the current
 ///     sections. The crate's other `§10.8` sites anchor on the superseded
 ///     module; re-pointing those is **correctness**, not label hygiene — and a
 ///     **different class from wrong-section misattribution**, because CSS 2
-///     §10.8 genuinely is the section it names. ⚠ **The two follow-ups overlap
-///     on the page but not in class**: most of those sites also spell the label
-///     `CSS 2.1`, so Label touches them too — but not all do, and assuming so is
-///     what an earlier revision of this bullet got wrong. Enumerate before
-///     acting, and note the pathspec must not exclude this file, which is where
-///     the counterexample lives:
-///     `git grep -n '10\.8' -- 'crates/layout/elidex-layout-block/**'`
-///     Owner: `#11-css2-line-height-supersession-reanchor` (registered in
-///     `project_open-defer-slots.md`; corpus and trigger are recorded there, not
-///     here). It is a **different slot from Label's** precisely because the
-///     classes differ, and `#11-css2-spec-label-normalisation` states it owns
-///     hygiene only.
+///     §10.8 genuinely is the section it names. Owner:
+///     `#11-css2-line-height-supersession-reanchor`.
 ///
-///   ⚠ What stays leading-naive is the **baseline within** the line box, on the
+///   What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
 ///   leading-derived because `seg_line_advance` takes `line_height` there. Two
 ///   other crates record it: `elidex_ecs::InlineFlowLine`'s `block_size` field
@@ -208,7 +161,7 @@ use super::{
 ///
 ///   What is **not** implemented is `vertical-align` alignment (§4.2), §5.3's
 ///   strut, and §2.2 step 3's line-box sizing (CSS 2 §10.8 step 3's
-///   uppermost-top-to-lowermost-bottom height). ⚠ The
+///   uppermost-top-to-lowermost-bottom height). The
 ///   per-item **block contributions** this crate does compute — `line-height`
 ///   for horizontal text and the margin-box block size for atomics — are §2.2
 ///   **step 2 itself** (CSS 2 §10.8 step 1), not a substitute for it; what is
@@ -217,19 +170,8 @@ use super::{
 ///   contribution (`inline/pack/mod.rs`'s `seg_line_advance`). It has no strut.
 ///   See the inline comment at the `persist_flow` reposition.
 ///
-/// ⚠ The *uncited* spec-governed prose inside the body is pre-existing and
-/// untouched by the split — this function was relocated byte-identically modulo
-/// the signature's bindings, so it authors no algorithm, and adding blanket
-/// module-level citations would over-claim (the call #497 already made for
-/// `collect.rs`/`styled_run.rs`). ⚠ **It is booked, not merely accepted**:
-/// `#11-inline-fragmented-fn-seams-1-2` owns it, and that slot's entry is the
-/// enumeration. ⚠ **Do not read the three examples an earlier revision listed
-/// here — relative/sticky offset preservation, fragmentainer terminology,
-/// column-box continuation — as the set.** It has **seven** members; the four
-/// that parenthetical omitted (`text-align` baked into `inline_start`, the
-/// abspos toggle, `overflow:hidden` clipping, the paged path) are all inside
-/// this body too, so the short list read as an enumeration and undercounted by
-/// four.
+/// The *uncited* spec-governed prose inside the body is pre-existing;
+/// `#11-inline-fragmented-fn-seams-1-2` owns it.
 ///
 /// `persist_flow` and `do_carrier` are **mutually exclusive**, and the caller
 /// establishes it rather than this function checking it: `do_carrier` implies
