@@ -377,7 +377,7 @@ There is a second, smaller hole in the same function: the shortname branch is `i
 
 1. `SPECS` pinned map wins, verbatim.
 2. An exact **shortname** match (case-insensitively) wins next, resolving to that spec verbatim.
-3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`.
+3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series**; a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against, and the census shows both shapes — `Cookies: HTTP State Management Mechanism` is the **title** of both `layered-cookies` and `rfc6265bis`; `HTTP/2` is `rfc9113`'s title and `rfc7540`'s shortTitle (Codex R32). `DOM` is the third measured collision and is *not* ambiguous: rule 2 resolves it as the shortname `dom` before rule 3 sees `DOM-Level-2-Style`'s shortTitle.
 
 Rule 3 is what collapses the level ambiguity structurally: the catalog carries `series.currentSpecification` for every entry, so `cssom`/`cssom-1`, `selectors`/`selectors-4`, `pointerevents`/`pointerevents4` each fold onto one shortname (**661 distinct series** vs 948 shortname keys). A label that names a *level* still resolves to that level.
 
@@ -551,6 +551,7 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 - **S11** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
 - **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; `_catalog().available is False` with `cause` naming `URLError` — the *unavailable* branch, not an available empty `entries`.
 - **S13** pinned `SPECS` win over the catalog for every pinned key.
+- **S14** cross-series ambiguity: `shortname_for("Cookies: HTTP State Management Mechanism")` is `None` (title of both `layered-cookies` and `rfc6265bis`), `shortname_for("HTTP/2")` is `None` (`rfc9113` title vs `rfc7540` shortTitle), and `shortname_for("DOM")` is `"dom"` (rule 2 precedes rule 3); `label_for("layered-cookies")` and `label_for("rfc6265bis")` each return their shortname, never the shared title.
 
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):
 - **P4** catalog unavailable -> hard fail, and the remedy line does **not** say "add the spec to `spec_labels.py::SPECS`" (§4.1.7's discriminated `_catalog()` reaching the gate).

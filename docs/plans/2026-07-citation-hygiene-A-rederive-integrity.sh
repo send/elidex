@@ -159,12 +159,15 @@ if set(parts) != _sourced:
     raise SystemExit("!! part set on disk != part set the dispatcher sources:\n   disk only: %s\n   sourced only: %s"
                      % (sorted(p.name for p in set(parts) - _sourced), sorted(p.name for p in _sourced - set(parts))))
 
-m = re.search(r"^all\(\) \{ set -- (.*?)\n\s*local failed",
-              DISPATCH.read_text(encoding="utf-8"), re.S | re.M)
+# The roster is the `BLOCKS="…"` assignment (one list: `all` dispatches it,
+# the entry point admits only it -- Codex R32); read that, not `all`'s body.
+m = re.search(r'^BLOCKS="(.*?)"', DISPATCH.read_text(encoding="utf-8"), re.S | re.M)
 if m is None:
-    raise SystemExit("!! cannot read `all`'s roster from %s; this check would then range "
+    raise SystemExit("!! cannot read the `BLOCKS=` roster from %s; this check would then range "
                      "over nothing and pass." % DISPATCH.name)
 roster = m.group(1).replace("\\\n", " ").split()
+if not roster:
+    raise SystemExit("!! the `BLOCKS=` roster is empty")
 
 DEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\(\) \{")
 HEREDOC = re.compile(r"<<-?'([A-Za-z_][A-Za-z0-9_]*)'")

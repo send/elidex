@@ -51,6 +51,12 @@ for f in sys.argv[1].split():
   return 0
 }
 
+# `_gated JOB TEXT`: exit 0 iff JOB's region in TEXT carries both `needs:
+# changes` and an `if:` on a `changes` output. Region = from `  JOB:` to the next
+# line at two-space indent that is not blank/comment/list (the full job-key
+# grammar, quoted and digit-bearing keys included).
+_gated() { printf '%s\n' "$2" | awk -v j="$1" '$0 ~ "^  "j":$" {f=1; next} f && /^  [^ #-]/ {exit} f && /^    needs: changes/ {n=1} f && /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}'; }
+
 filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # `git show | sed -n` under `pipefail` catches an unresolvable ref, but not the
   # other half: a sed range that matches nothing prints nothing and exits 0, so a
@@ -77,13 +83,24 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
     # only orders the always-green filter job, so a job that kept `needs:
     # changes` and lost its `if:` runs on every PR while this read said gated
     # (Codex R18). Both lines are required.
-    printf '%s\n' "$ci" | awk -v j="$j" '$0 ~ "^  "j":$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    needs: changes/ {n=1} f && /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}' \
+    # A job REGION ends at the next key of the `jobs:` mapping = any line at
+    # exactly two-space indent that is neither blank, a comment, nor a list
+    # item -- not only an unquoted `[a-z-]+` key. The narrow pattern let
+    # `check` borrow the gates of a following `helper_2:` / `"quoted":` job
+    # (Codex R32); the negative control below pins that shape.
+    _gated "$j" "$ci" \
       || { echo "!! job \`$j\` lacks \`needs: changes\` or an \`if:\` on a changes output — §4.1's 'all three jobs gated' no longer holds"; rc=1; }
   done
+  # Negative control for the boundary rule: `check` with no gates, followed by
+  # a gated job whose key the old regex did not recognise. Must NOT be gated.
+  if _gated check "$(printf 'jobs:\n  check:\n    runs-on: x\n  helper_2:\n    needs: changes\n    if: needs.changes.outputs.rust == '"'"'true'"'"'\n')"; then
+    echo "!! boundary control: an ungated \`check\` borrowed \`helper_2\`'s gates"; rc=1; fi
+  if _gated check "$(printf 'jobs:\n  check:\n    needs: changes\n    if: needs.changes.outputs.rust == '"'"'true'"'"'\n  \"doc\":\n    runs-on: x\n')"; then :; else
+    echo "!! boundary control: a gated \`check\` read as ungated"; rc=1; fi
   # A missing job is not an ungated one: the claim is "present AND ungated",
   # and an awk that never saw the header exited 0 on the pre-#496 workflow
   # (Codex R12). Both halves are required.
-  printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [a-z-]+:$/ {exit} f && /^    (needs|if):/ {g=1} END {exit (!f || g)}' \
+  printf '%s\n' "$ci" | awk '$0 ~ "^  trip-wires:$" {f=1; next} f && /^  [^ #-]/ {exit} f && /^    (needs|if):/ {g=1} END {exit (!f || g)}' \
     || { echo "!! \`trip-wires\` is absent or gated — §9's 'present and ungated since #496' no longer holds"; rc=1; }
   # "invokes" = a `run:` step naming the binary; the path filter's `mise.toml`
   # entry is a FILE, and a bare-word grep flagged it (caught on the first run).

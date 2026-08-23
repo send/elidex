@@ -87,9 +87,17 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # named below hands back an accidental exit status, and `all` is the only place
 # the block set is written down, so deriving its scope from `$@` here is what
 # keeps the check from needing a second list to drift against.
-all() { set -- selfcheck citations partition keysets column carvecolumn instruments remedies \
-                reloadstale armmatrix suites anchors regions offline couplings suiteset marker readercensus \
-                budget filters floor ruleset timing bmemo
+# THE BLOCK ROSTER, written once. `all` dispatches it positionally (below) and
+# the entry point admits a name only from this list (+ `$AUTHOR_LOCAL`, which
+# are blocks excluded from `all` by design, and `all` itself): a sourced helper
+# such as `say`, `fixtures`, or `_measured` is a declared function too, and
+# `declare -F` alone ran it and handed back a silent exit 0 as "the
+# re-derivation" (Codex R32, measured: `… _measured` exited 0 with no output).
+BLOCKS="selfcheck citations partition keysets column carvecolumn instruments remedies \
+        reloadstale armmatrix suites anchors regions offline couplings suiteset marker readercensus \
+        budget filters floor ruleset timing bmemo"
+all() { # shellcheck disable=SC2086  # word-splitting the roster IS the positional dispatch
+        set -- $BLOCKS
         local failed="" rc
         while [ "$#" -gt 0 ]; do
           say "$1"; "$1"; rc=$?
@@ -99,13 +107,15 @@ all() { set -- selfcheck citations partition keysets column carvecolumn instrume
         if [ -n "$failed" ]; then printf 'FAILED BLOCKS:%s\n' "$failed"; return 1; fi
         printf 'ALL BLOCKS EXITED 0\n'; }
 
-# Only a DECLARED harness function is a block: a name that is a shell builtin or
-# an executable (`help`, `true`, a typo) would otherwise run and hand back its
-# own status as "the re-derivation" (Codex R26).
+# Only a ROSTERED block is dispatchable: a shell builtin, an executable, a typo
+# (Codex R26) or a sourced helper (Codex R32) would otherwise run and hand back
+# its own status as "the re-derivation". The admitted set is `$BLOCKS` +
+# `$AUTHOR_LOCAL` + `all`, and the usage line prints that same set.
 _block=${1:-all}
-if ! declare -F -- "$_block" >/dev/null; then
-  printf 'unknown block: %s\n' "$_block" >&2
-  printf 'blocks: %s\n' "$(declare -F | awk '{print $3}' | grep -v '^_' | tr '\n' ' ')" >&2
-  exit 2
-fi
+case " $BLOCKS $AUTHOR_LOCAL all " in
+  *" $_block "*) declare -F -- "$_block" >/dev/null || { printf 'rostered block not defined: %s\n' "$_block" >&2; exit 2; } ;;
+  *) printf 'unknown block: %s\n' "$_block" >&2
+     printf 'blocks: %s all\n' "$(printf '%s %s' "$BLOCKS" "$AUTHOR_LOCAL" | tr -s ' \n' ' ')" >&2
+     exit 2 ;;
+esac
 "$_block" "$@"
