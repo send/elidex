@@ -272,7 +272,7 @@ def blank_spans(s, spans):
 def _skip_ws(s, i, newlines=1):
     """Spaces, tabs and up to `newlines` line endings -- §6.3: the inline
     link's components "may be separated by spaces, tabs, and up to one line
-    ending"; §4.7 says the same of a definition's components."""
+    ending"; §4.7 allows the same separator between a definition's colon, destination and title."""
     seen = 0
     while i < len(s):
         if s[i] in " \t":
