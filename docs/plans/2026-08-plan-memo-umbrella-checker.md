@@ -1,6 +1,6 @@
 # Umbrella plan — `plan-memo-umbrella-check` carved out of #506 into a 2-slice prerequisite program
 
-**Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. Branch `vm-p4-plan-memo-checker` (worktree
+**Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb`
 (`git diff --quiet 190d2adb -- .claude/tools/` = identical): `.claude/tools/plan-memo-umbrella-check.py`
 811 lines, `plan_memo_tables.py` 407, `plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). No `crates/` change.
@@ -59,10 +59,12 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   fence lines excluded: **10** prose line-pairs in the main memo + 2 in `umbrella-review-rounds.md`;
   `--worklist` at review-rounds 276–277 lists 7 mentions of which **4** sit inside one span
   (276: 0b/0c/1a, 277: 1b) and are artefacts, while review-rounds:115 `"Slice 4"` is masked today by
-  a per-line pairing and becomes a real mention — net delta of the 706 under block lexing = **−3**,
-  to be re-measured); a line is a reporting coordinate only. A **paragraph** ends at a blank line,
-  a fence, a table row, an ATX heading, a list-item start or a `>` line (CommonMark: a span never
-  crosses a block boundary; control = backtick opened in one list item and closed in the next ⇒
+  a per-line pairing and becomes a real mention — net delta of the 706 under block lexing was
+  predicted **−3**; ⚠ measured **−4**: this plan missed a second multi-line span at review-rounds:114
+  (`` `Deps: 1b (I-3\nhelper)` ``) whose `1b` is now masked); a line is a reporting coordinate only. A **paragraph** ends at a blank line,
+  a fence, a table row, an ATX heading, a list-item start or a `>` line (⚠ each `>` line starts a
+  new paragraph — stricter than CommonMark lazy continuation; no memo has a multi-line blockquote;
+  CommonMark: a span never crosses a block boundary; control = backtick opened in one list item and closed in the next ⇒
   literal). When a `|` inside backticks splits a row, each half holds an unmatched backtick string
   (§6.1 ⇒ literal) and is scanned as prose — control: umbrella id on each side ⇒ 2 mentions. **Disposition exception**: a code span whose content is only row ids (and
   separators) is the document *spelling* an id and IS a mention (existing `code_spans(keep=…)`,
@@ -72,8 +74,10 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   casefold + strip + collapse internal whitespace; definitions per §4.7 incl. `<dest>`) yields its
   destination; the `.md` file part of each destination, **transitively** over linked memos, is the
   sibling population; duplicate definitions: **the first in the document wins** (§6.3; today a dict
-  comprehension makes the last win). An absent target = exit 2. Link **labels** are scanned as prose
-  (B×D, a stated deviation).
+  comprehension makes the last win). An absent target = exit 2. Link **text** is scanned as prose
+  (B×D, a stated deviation); ⚠ a reference *definition* line renders nothing and is masked whole,
+  label included. ⚠ The `#11-` slot-id pass reads through code spans (a backticked slug is the
+  document spelling an id — the same disposition exception as I-A); fences and link tails mask it.
 - **I-C Table admission (local policy over GFM §4.10)** — GFM: header and delimiter row must have
   equal cell counts (else no table); body rows "may vary" (short padded, long truncated); leading
   pipe optional. **This checker overrides the "may vary" clause**: a body row whose cell count ≠
@@ -115,7 +119,7 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   fields: all are `**<title> — UMBRELLA…**` with no row-noun+id, 0 attributions under both the old
   and the new rule). ` was ` is not a connective (no motivating instance in the population;
   `Slice 9z was **UMBRELLA…** until R3` in 9z's own field must stay self-declaring — NEGATIVE control).
-- **I-F One pipeline, one population** — `check(memo) -> (findings, notes, rc)` is the only entry;
+- **I-F One pipeline, one population** — `check(memo)` is the only entry (⚠ implemented as a `Result` NamedTuple whose first three fields are `findings, notes, rc` — the report also needs `mentions` and `population`);
   `main()` and `--self-test` both call it. A single transitive `Population` (tables, row ids, census)
   is built once and is the only input of the mention scan, the code-span keep-set (`all_ids`,
   `check.py:658` today main-only) and the four assertions (`memo.data_rows`, `check.py:459-616` today
@@ -160,10 +164,10 @@ and each attribution spelling has a positive control and a mutant.
 |---|---|---|---|---|---|
 | CommonMark §6.3 Links | inline link | bare destination = nonempty, not starting with `<`, no space / ASCII control, parens balanced or escaped; `<dest>` = no line ending, no *unescaped* `<`/`>`; backslash escapes ASCII punctuation only (§2.4) | `plan_memo_tables.py::_link_destination` | ✗ (`isspace`/`ord>31` ≠ spec classes; `\` skips any char) — Slice 1 | no |
 | CommonMark §6.3 Links | inline link | title `"…"` / `'…'` / `(…)` with escapes | `plan_memo_tables.py::_link_title` | ✗ (`(` inside `(…)` title unguarded) — Slice 1 | no |
-| CommonMark §6.3 Links | reference link | full / collapsed / shortcut (shortcut = label not followed by `[]` or a link label; `[a][undefined]` = shortcut `[a]` + literal); label = 1–999 chars, ≥1 non-blank; match = casefold + strip + collapse; duplicate definitions: first wins | `plan_memo_tables.py::links` | ✗ (collapse missing; collapsed label found by nearest `[`, not matching `[`) — Slice 1 | no |
+| CommonMark §6.3 Links | reference link | full / collapsed / shortcut (shortcut = label not followed by `[]` or a link label — ⚠ this plan once said `[a][undefined]` = shortcut `[a]` + literal; §6.3 / Example 570 say the opposite, `[undefined]` IS a link label so `[a]` is not a shortcut; implemented per spec with a NEGATIVE control); label = 1–999 chars, ≥1 non-blank; match = casefold + strip + collapse; duplicate definitions: first wins | `plan_memo_tables.py::links` | ✗ (collapse missing; collapsed label found by nearest `[`, not matching `[`) — Slice 1 | no |
 | CommonMark §4.7 Link reference definitions | definition | label non-blank, no unescaped `[`; optional one line ending before destination; `<dest>`; nothing after destination/title | `_REF_DEF` | ✗ (`[ \t]*`, `[^\]]+`, `\S+`) — Slice 1 | no |
 | CommonMark §6.1 Code spans | masking | opener/closer = backtick strings of equal length; unmatched strings literal | `plan_memo_tables.py::code_spans` | ✗ (next single backtick closes) — Slice 1 | no |
-| CommonMark §4.5 Fenced code blocks | masking | ≥3 ``` or ~~~, not mixed; ≤3 spaces indent; closer same char, ≥ length, ≤3 spaces indent, only spaces/tabs after; info string of a backtick fence has no backtick; unclosed runs to EOF | (NEW) `plan_memo_tables.py::fenced_spans` | ✗ (absent) — Slice 1 | no |
+| CommonMark §4.5 Fenced code blocks (⚠ all lexer touch sites below live in `plan_memo_lexer.py`, not `plan_memo_tables.py` — tables.py would have crossed ~800 lines; seam = lexing vs inventory; `mask_spans` disposition stays in tables.py because it needs ids) | masking | ≥3 ``` or ~~~, not mixed; ≤3 spaces indent; closer same char, ≥ length, ≤3 spaces indent, only spaces/tabs after; info string of a backtick fence has no backtick; unclosed runs to EOF | (NEW) `plan_memo_tables.py::fenced_spans` | ✗ (absent) — Slice 1 | no |
 | GFM §4.10 Tables | recognition | header/delimiter equal width else not a table; delimiter cell = ≥1 hyphen with optional leading/trailing colon; leading/trailing pipe optional; ends at blank line or block start | `plan_memo_tables.py::find_tables` / `is_row` / `is_separator` | ✗ (no width compare; `is_row` requires leading `|`; `[:\- ]*` admits empty / colon-only cells) — Slice 1 | no |
 | GFM §4.10 Tables | cell split | unescaped `|` splits (incl. inside backticks, Example 200); `\|` → cell content `|` (backslash consumed); spaces between pipes and content trimmed | `plan_memo_tables.py::split_row` | ✗ (keeps `\|` with the backslash — then `` `9z \| 7z` `` is masked as code while `9z | 7z` is an id-only mention) — Slice 1 | no |
 | GFM §4.10 Tables | body row width | spec: pad/truncate; **local policy**: ≠ header ⇒ exit 2 | `find_tables` (admission, one site) | ✗ — Slice 1 | no |
@@ -220,10 +224,12 @@ ground for either option; it is not cited.
 - **Slice 1**: `--self-test` and `--self-test --mutants` green; a positive control + named mutant
   for: every §3 ✗ row, §4 #1–#3, **each exit-gating stage** (absent sibling → rc 2, missing schema →
   rc 2, KIND-SPELLING → rc 1, sibling-declared umbrella in the census, sibling row in the keep-set,
-  sibling `Deps` edge asserted), multi-line code span, quoted kind marker (A×E), `\|` unescape;
+  sibling `Deps` edge asserted), multi-line code span, quoted kind marker (A×E), `\|` unescape
+  (⚠ the link-cycle control has no mutant — removing the visited set hangs; control only);
   `check()` is the only pipeline and `grep -n 'len(cells)'` returns only `is_separator`; the #506
   memo at its head re-run reports census `48 = 33 + 15`, rc 0, and the site count is **re-measured
-  and reported with its delta** (706 at `190d2adb`, expected to drop by the per-line artefacts);
+  and reported with its delta** (706 at `190d2adb` → **702**, −4, re-run 2026-08-22 on `7931798d`;
+  111 controls, 49 mutants / 0 survived, `mise run trip-wires` rc 0);
   trip-wire added, registered, green in `mise run trip-wires`; header + docstrings rewritten.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
@@ -237,7 +243,9 @@ ground for either option; it is not cited.
   touches the assertions (guard deletion) and the pipeline, Slice 2 touches roles and `_anchored`;
   both slices touch both `.py` files. Per `feedback_split-on-touch-prereq-workflow` the split precedes
   the first touching edit: roles + assertions → `plan_memo_roles.py`, behaviour-preserving, self-test
-  green. The self-test (396) receives the most new text in Slice 1 (≥20 controls + the MUTANTS
+  green. ⚠ The licensing regex block (L139–209) moved with them — the assertions import it and
+  leaving it behind is an import cycle; ⚠ the fixture builder lives with the cases, not the runner
+  (a top-level `from selftest import build` in the cases module is a cycle); the runner imports it. The self-test (396) receives the most new text in Slice 1 (≥20 controls + the MUTANTS
   table), so it is split in Slice 0 too: `plan_memo_umbrella_selftest.py` (runner + fixture builder)
   / `plan_memo_selftest_cases.py` (CASES / ASSERT_CASES) / `plan_memo_selftest_mutants.py` (MUTANTS,
   Slice 1 creates it).
