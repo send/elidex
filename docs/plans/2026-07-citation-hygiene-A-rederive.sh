@@ -31,9 +31,8 @@
 # Cited by exactly one -> that slice's file. Uncited blocks are routed by the
 # quantity they derive, not by guess:
 #   partition, offline -> B  (B §4.1.2/§4.1.8 embed these two scripts verbatim:
-#                             the 203/948 round-trip census and the SystemExit escape)
+#                             the round-trip census and the SystemExit escape)
 #   anchors            -> A-ii (its 7 preflight symbols: A-ii 26 hits, A-i 1)
-#   timing             -> A-ii (the CLI-subprocess axis §4.2.1/§4.5 instrument)
 #   bmemo, staleclaims -> B  (they derive the edit classes B's memo needs)
 #   selfcheck          -> integrity (it derives a property of the harness AS A
 #                                 WHOLE -- that every block below states its own
@@ -95,7 +94,7 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # re-derivation" (Codex R32, measured: `… _measured` exited 0 with no output).
 BLOCKS="selfcheck citations partition keysets column carvecolumn instruments remedies \
         reloadstale armmatrix suites anchors regions offline couplings suiteset marker readercensus \
-        budget filters floor ruleset timing bmemo"
+        budget filters floor ruleset bmemo"
 all() { # shellcheck disable=SC2086  # word-splitting the roster IS the positional dispatch
         set -- $BLOCKS
         local failed="" rc

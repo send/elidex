@@ -246,11 +246,21 @@ for name in roster:
 # that read payloads "as bash does" mis-found an end and reddened sound blocks.
 # The harness idiom is the quoted heredoc (`python3 - <<'PY'`), which has no
 # such hazard; a `-c` payload is a defect of idiom, not a thing to parse.
-NEEDLE = "python3 -c " + chr(39)   # built, not written: the literal would match this line
+# THE IDIOM, as a complement: a python payload is a QUOTED heredoc. Any `-c`
+# payload (either quote, `python` or `python3`) and any UNQUOTED heredoc
+# delimiter (`<<PY`, `<<EOF` -- the shell expands `$`/backticks inside) is a
+# defect of idiom, not a thing to parse (second re-gate of #501: the guard had
+# banned one spelling). Built from fragments so this line does not match itself.
+C_PAYLOAD = re.compile("python3?" + " -c" + " [" + chr(39) + chr(34) + "]")
+BARE_HEREDOC = re.compile("<<" + "-?" + "\\s*[A-Za-z_]")
 for path in parts:
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if NEEDLE in line and not line.lstrip().startswith("#"):
-            bad.append((path.name, n, "<python3 -c payload>", "use the quoted-heredoc idiom"))
+        if line.lstrip().startswith("#"):
+            continue
+        if C_PAYLOAD.search(line):
+            bad.append((path.name, n, "<python -c payload>", "use the quoted-heredoc idiom"))
+        if BARE_HEREDOC.search(line):
+            bad.append((path.name, n, "<unquoted heredoc>", "quote the delimiter: <<'X'"))
 
 print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster")
 for fn, lineno, name, last in sorted(bad):

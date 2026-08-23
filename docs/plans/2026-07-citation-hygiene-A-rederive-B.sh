@@ -2,11 +2,11 @@
 # sourced by `2026-07-citation-hygiene-A-rederive.sh`, the only entry point.
 #
 # B cites no block by name; these four are routed by the quantity they derive.
-# B §4.1.2 and §4.1.8 embed `partition`'s round-trip census (203/948) as an
+# B §4.1.2 and §4.1.8 embed `partition`'s round-trip census (derived at run time) as an
 # inline script; `offline` asserts §4.1.7's CONTRACT (not its reproducer). `bmemo` and `staleclaims` derive the classes of edit B's memo
 # needs; `staleclaims` is author-local and excluded from `all`.
 
-partition() {  # §0 — 203/948, and the 195/8 vs 190/13 split under both criteria
+partition() {  # §0 — the round-trip census (population derived), and the by-series vs by-document split
   python3 - <<'PY'
 import sys, hashlib, subprocess
 sys.path.insert(0, ".claude/tools")
@@ -180,7 +180,12 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   # site states the cap as a figure (a bare `cap` matched `caps = {…}` and the
   # canonical rule itself, so deleting the pointer stayed green -- Codex R37).
   _bm yes "10. the probe-cap pointer §10-Q2 is present" '§10-Q2'
-  _bm no  "10b. a probe cap restated as a figure outside §10-Q2" '[0-9]+-word cap' -E
+  # 10b is "no figure OUTSIDE §10-Q2": the Q2 bullet is the one site allowed to
+  # state it, so the grep excludes that line (a wording pin on `N-word cap`
+  # alone missed `cap of 6` / `MAX_LABEL_WORDS = 6` -- second re-gate of #501).
+  echo "-- 10b. a probe cap restated as a figure outside §10-Q2 --"
+  local capfig; capfig=$(grep -nE '[0-9]+-word cap|cap of [0-9]+|MAX_LABEL_WORDS *= *[0-9]' "$B" | grep -v 'Q2')
+  [ -z "$capfig" ] || { printf '%s\n' "$capfig" | head -4; echo "   !! expected NONE — a probe-cap figure outside §10-Q2"; rc=1; }
   _bm no  "11. line-count table measured at a base where 2 files do not exist" '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' -E
   return "$rc"
 }

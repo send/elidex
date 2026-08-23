@@ -530,28 +530,3 @@ MARKERPY
   return $?    # the heredoc'd command IS the measurement; say so
 }
 
-timing() {  # §11 — subprocess vs in-process resolution, 100 reps, warm cache
-  python3 - <<'PY'
-import sys, time, subprocess
-sys.path.insert(0, ".claude/tools")
-from _webref.resolver import lookup_section
-W = ".claude/tools/webref"
-lookup_section("html", "4.10.21")                      # warm
-t = time.perf_counter()
-for _ in range(100): lookup_section("html", "4.10.21")
-inp = (time.perf_counter() - t) / 100
-t = time.perf_counter()
-for _ in range(10):
-    # An invocation that dies on startup is fast, and its speed is not the
-    # subprocess cost §11's ratio is about.
-    r = subprocess.run([sys.executable, W, "heading", "--exact", "html", "4.10.21"],
-                       capture_output=True)
-    if r.returncode != 0:
-        sys.stderr.write(r.stderr.decode(errors="replace"))
-        raise SystemExit("!! the webref CLI exited %d; a failed invocation is not a "
-                         "timing of a successful one." % r.returncode)
-sub = (time.perf_counter() - t) / 10
-print(f"subprocess={sub:.4f}s  in-process={inp:.6f}s  ratio={sub/inp:.0f}x")
-PY
-  return $?    # the heredoc'd command IS the measurement; say so
-}

@@ -101,7 +101,7 @@ whichever of the two lands first. §12's criterion is written so it does not dep
 `scripts/python-suites.sh` (the location §4.2's *Location* paragraph below selects — this sentence used to
 say `.claude/tools/`, a path no caller in this memo invokes), `set -euo pipefail`, then two `discover` lines rooted at
 `.claude/tools/_webref` and `.claude/skills/elidex-plan-review`. `mise.toml` gains `[tasks.tools-test]` added
-to `[tasks.ci].depends`; `ci.yml` gains a `tools` job that is **deliberately ungated** — no `needs: changes`,
+to `[tasks.ci].depends`; `ci.yml` gains a `tools` job that is **deliberately ungated** — no `needs: changes`, with a **two-leg `python-version` matrix** (the runner's `python3` and the declared floor `"3.9"`, §4.4) —
 no path-filter entry.
 
 ⚠ **Earlier drafts of the merged Slice A specified a `tools` path-filter set (`.claude/tools/**`,
@@ -210,7 +210,8 @@ the PR page at review time**. → `rederive ruleset`
 | **Q3** | the set Q2 ranges over is `git ls-files '.claude/**/test_*.py'`, not a filter list — asserted by planting the file at `.claude/skills/elidex-review/`, which any plausible filter would have covered | 4 | **yes** |
 | **Q4** | `mise run ci` reaches `tools-test` (the `depends` edge exists) | 3 | **yes** |
 | **Q5** | the interpreter-floor assertion fires below 3.9 | — | **yes** |
-| **Q6** | `ci.yml`'s `tools` job region — read with `rederive`'s `_job_region` (the job-boundary rule `filters` uses for the gated jobs: from `  tools:` to the next two-space-indented non-comment, non-list line; whole lines, block-scalar bodies included) — contains a line carrying the token `scripts/python-suites.sh`. Not inferred from L1 prose; the run-step collector an earlier revision named was removed at #501's design re-gate. Without it Q1–Q3 test the script and Q4 the `mise` edge while an empty or unrelated `tools` job satisfies §12(3) (Codex R14/R36) | 1, 2 | **yes** — the job does not exist |
+| **Q7** | the same `tools` job region (Q6's reader) carries a `python-version:` matrix with a `"3.9"` leg — §12(6)'s instrument; a floor the job does not run is declared, not measured | — | **yes** — the job does not exist |
+| **Q6** | `ci.yml`'s `tools` job region — read by A-iii's own test with the job-boundary rule `rederive filters` uses (`_job_region`: from `  tools:` to the next two-space-indented non-comment, non-list line; whole lines, block-scalar bodies included — restated in the test, which cannot source the harness) — contains a line carrying the token `scripts/python-suites.sh`. Not inferred from L1 prose; the run-step collector an earlier revision named was removed at #501's design re-gate. Without it Q1–Q3 test the script and Q4 the `mise` edge while an empty or unrelated `tools` job satisfies §12(3) (Codex R14/R36) | 1, 2 | **yes** — the job does not exist |
 | **T-net** | `bash scripts/python-suites.sh` runs green in a child whose **`XDG_CACHE_HOME` is a fresh empty directory** (a warm webref cache would serve an in-process lookup without touching the network), with `http_proxy`/`https_proxy` at a closed port **and `NO_PROXY`/`no_proxy` unset** (an inherited `NO_PROXY=*` lets `urllib` bypass the poisoned proxy); **and**, in-process across the suite set, neither `subprocess.run` with the resolved `WEBREF` path **nor `urllib.request.urlopen`** is ever called — the second clause is what catches a new in-process resolver lookup, which the first half's proxy alone does not (Codex R16) | 5 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, see §4.5; the
@@ -298,8 +299,8 @@ observation yields zero jobs") is falsified by PR #496 independently of anything
 **(5) The job runs the driver:** Q6 — the `tools` job's step set names `scripts/python-suites.sh`. (3) alone
 is satisfiable by a job that runs nothing.
 
-**(6) The floor is measured:** the `tools` job's matrix carries a `python-version: "3.9"` leg and that leg is
-green (§4.4). A floor the job does not run is declared, not measured.
+**(6) The floor is measured:** Q7 green (the `tools` job region carries the `"3.9"` matrix leg) and that leg
+green on the PR page (§4.4). A floor the job does not run is declared, not measured.
 
 ---
 

@@ -126,8 +126,8 @@ not printed.
 ### §3.1 User-input touch audit + discovery method
 
 **No web-content input flow.** The inputs are the plan-memo's path *and its content*: `parse_spec_cell`
-extracts a label and a section number from cell text and `verify_citation` passes **both** to a subprocess,
-so memo content steers control flow (§4.2.2). Both argv elements stay bounded — `section` by
+extracts a label and a section number from cell text and `verify_citation` passes **both** to the in-process
+resolver (§4.2.6; at `origin/main` a subprocess), so memo content steers control flow (§4.2.2). Both argv elements stay bounded — `section` by
 `SECTION_REF_RE` (untouched), `shortname` by A-i's pinned map.
 
 **Discovery method.** Measured against `origin/main`, never the branch; a proposed patch is *measured*, not
@@ -182,7 +182,7 @@ drafts, and it flips **neither** axis:
 |---|---|---|---|---|
 | in-process `sys.meta_path` block | True | FAIL | **0** | **yes** — the map axis |
 | `mv .claude/tools/webref` (the 16-line shim) | **False** | OK | 2 | **yes** — the CLI axis |
-| patch `preflight.WEBREF` to a nonexistent path | **False** | OK | n/a — never spawned | **yes** — the CLI axis, in-process; what §4.5's pins use |
+| patch `preflight.WEBREF` to a nonexistent path | **False** | OK | n/a — never spawned | **yes** at `origin/main` — the CLI axis; **retired by §4.2.6** (no `WEBREF`): the import axis is the one cause |
 | `mv .claude/tools/_webref` (the tree) | True | FAIL | **1** | **NO** — neither axis |
 
 → `rederive instruments`
@@ -210,8 +210,9 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
 
 #### §4.2.3 The fix — two static causes, one verdict, two act-sites
 
-1. **Two causes, both static process facts, evaluated once at `main`'s top**: `WEBREF.is_file()` and
-   `_shortname_for is None`. The verdict is their union. **Each cause is also kept separately**, because
+1. **One cause, a static process fact, evaluated once at `main`'s top**: the tools tree is importable —
+   `_shortname_for is None` (and, after §4.2.6, `_lookup_section is None`, the same import). The verdict is
+   that fact; `WEBREF.is_file()` leaves with the subprocess (§4.2.6). **Each cause is also kept separately**, because
    items 7 and 7c key on `map_missing` specifically, not on the union.
 2. **`shortname_for` stays `str | None`.** No tri-state — that machinery existed only to carry a dynamic
    third cause that leaves with the widening (B's).
@@ -322,6 +323,31 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
   recognition properties; the gate prints `n/a`, not `ok`; Axis 4 reads the memo regardless. §10-Q1 puts the
   residual to review.
 
+#### §4.2.6 One resolution path: `verify_citation` in-process
+
+`origin/main`'s `verify_citation` spawns `.claude/tools/webref heading --exact <shortname> <section>` once per
+unique citation and reads its exit status. A-i made `preflight` reach `spec_labels` in-process; keeping the
+section lookup in a child leaves **two** resolution paths with two failure vocabularies (§1's class — the
+umbrella constraint "the plan-review gate reaches its shared library one way", revised at #501 R36 to make
+this A-ii's in-slice work; an earlier revision deferred it to B and registered a slot here, so neither slice
+would have done it).
+
+**The edit.** `verify_citation(shortname, section)` calls `_webref.resolver.lookup_section(shortname, section)`
+(imported beside `shortname_for`, under the same `try` — the capability cause of §4.2.3 is one import, so
+the verdict is unchanged) and treats a miss as the hard-fail row it is today; `preflight.WEBREF` and the
+`subprocess.run` call site are deleted. The `python3 -O` explicit-raise guard stays on the same function.
+The exit-status vocabulary (`2` = unknown spec, `1` = unknown section) becomes the resolver's return, which
+`test_preflight.py` pins directly instead of through a child's rc.
+
+**What it does not decide.** Catalog-backed labels and the catalog-unavailable branch are **B's** (§4.1.7 /
+§4.1.8 there, pinned by B's P4 / P-CSS through this same path); at A-ii's head the resolver is pinned-map only
+(K3). Network: the resolver reads webref's cache; T-net pins that no `urlopen` happens under the suite's
+fixtures.
+
+**Pins touched.** §4.2.1's "CLI axis" rows become the import axis (one cause); P2b runs through `main`
+rather than a subprocess; T-net becomes an absolute (no `subprocess.run` from `preflight`, no `urlopen`);
+§4.5's isolation contract loses `WEBREF` and `subprocess.run` and gains `_lookup_section`.
+
 ### §4.3 Test siting
 
 A-i's 15 tests already live in `test_spec_labels.py`. A-ii also creates `fences.py` (the shared fence tracker, §4.2.5), edits `grep_pass.py` onto it, and appends P11g to the existing `test_grep_pass.py` (Codex R31). A-ii creates `test_preflight.py` and takes the
@@ -339,13 +365,13 @@ construction, since A-ii is the slice that makes `preflight` a consumer at all.
    process-global state in one file. `tearDown` restores via `importlib.reload`; P1 asserts the bound state
    at `setUp` so a leak fails loudly. `unittest` orders methods alphabetically, so relying on names is not a
    plan.
-3. **The isolation contract is five pieces of process state**: `preflight._shortname_for`,
-   `_shortname_for_error`, `sys.path`, `preflight.WEBREF`, and `subprocess.run`.
+3. **The isolation contract is four pieces of process state**: `preflight._shortname_for`,
+   `_shortname_for_error`, `preflight._lookup_section`, and `sys.path` (`preflight.WEBREF` and
+   `subprocess.run` leave with §4.2.6).
 4. **`verify_citation` is stubbed by a shared `setUp` for every pin that runs `main`**, or T-net is red by
-   construction. Measured: a handful of `main` runs in default mode with resolvable rows reach
-   `subprocess.run`; with the stub installed at module level the count is **0** while every observable
-   assertion survives. `verify_citation` is the single seam between the gate and the CLI — preflight has
-   exactly one `subprocess.run` call site — so the stub is complete by enumeration. **No pin loses
+   construction. `verify_citation` is the single seam between the gate and the resolver; after §4.2.6 it is
+   an in-process call, so the stub replaces `preflight._lookup_section` — preflight then has **no**
+   `subprocess.run` call site at all, which T-net pins as an absolute. **No pin loses
    coverage**: P6's "reported once" is about the *hoisted* verdict, which never enters the loop; the
    `python3 -O` explicit-raise guard is pinned by calling `verify_citation` directly with `WEBREF` pointed
    at a nonexistent path, which reaches no subprocess.
@@ -408,7 +434,7 @@ are flipped by §4.2.1's in-process instruments.
 | **P1b** | `main` on `labelled.md`, default **and** `--no-verify` | 1, 2 | no |
 | **P1c** | `main` on `dedup.md`; asserts `1 unique citation(s) checked` from 2 rows | 2b | no |
 | **P2** | map unimportable via `importlib.reload` under an import hook | 6 | **yes** |
-| **P2b** | the same via subprocess; **mutation check** — deleting the `except Exception` clause must turn P2b red while P2 alone stays green | 6 | **yes** |
+| **P2b** | the same through `main` (the import hook installed before `main` runs, the path the gate actually takes); **mutation check** — deleting the `except Exception` clause must turn P2b red while P2 alone stays green | 6 | **yes** |
 | **P3** | `--no-verify --no-grep-pass`, map absent — exit 0 and the basis qualifier | 8 | **yes** |
 | **P3b** | `--no-verify`, CLI absent, map present — exit 0, capability unused | 5 | no |
 | **P4** | label-shape independence: `labelled.md` and `unlabelled.md` give the *same* exit code in every capability state | 4, 7, 11b | **yes** |
@@ -427,7 +453,7 @@ are flipped by §4.2.1's in-process instruments.
 | **P11g** (`test_grep_pass.py`) | the same `fenced-marker-long.md` through `run_grep_pass`: a bad `crates/…` path quoted *inside* that fence yields **no** hard finding (grep-pass reads the fence with the same `fences.py` tracker) — the disagreement R30 named, pinned on the grep-pass side | 15 | **yes** — `grep_pass.py`'s own tracker closes the fence early and reports the path |
 | **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** | 12 | **yes**, on the diagnostic |
 | **P13** | `allunmapped.md`, `unlabelled.md` and `malformed.md` → the `n/a (0 of N rows resolvable)` line present; **and its negative half** — absent in rows 3/6/9 | 11, 11b, 16, 3, 6, 9 | **yes** |
-| **T-net** | across A-ii's whole suite, `subprocess.run` is never called with **the resolved `WEBREF` path** — the path object, *not* a `"webref"` substring, because `grep_pass` also calls `subprocess.run` with author symbols in argv | — | **yes** |
+| **T-net** | across A-ii's whole suite, **`subprocess.run` is never called by `preflight`** (after §4.2.6 there is no call site; the path object check an earlier revision needed is gone — `grep_pass` keeps its own `subprocess.run`, outside this pin) **and `urllib.request.urlopen` is never called** (the in-process resolver serves from the cache fixture or the `_lookup_section` stub) | — | **yes** |
 
 ⚠ **An exit-code-only assertion is not a discriminator when the base reaches the same code by another
 route.** It bites twice: at A-i's head `fenced-marker.md` exits 0 with the table verified (the marker is
@@ -451,7 +477,7 @@ having taken the core half first. → `rederive couplings`
 
 **One-issue-one-way**: the `WEBREF.is_file()` question collapses from *n*-per-citation to one verdict. The
 one remaining instance of §1's class inside A-ii's file — `preflight` reaching `resolver.lookup_section`
-through a subprocess while reaching `spec_labels` in-process — is §11's registered slot.
+through a subprocess while reaching `spec_labels` in-process — is collapsed **in this slice** (§4.2.6).
 
 ---
 
@@ -498,11 +524,11 @@ absent.
 
 **No own deferral.** An earlier revision registered `#11-webref-preflight-inprocess-resolution` here and the
 umbrella assigned the same collapse to B — so neither slice would have done it (Codex R36). **A-ii does it**:
-`verify_citation` calls the in-process resolver (`_webref.resolver` / `spec_labels.shortname_for`) instead of
-spawning the CLI, in this slice's edit set (§4.2). It does not settle B's catalog policy by side effect: A-ii's
+`verify_citation` calls the in-process resolver (`_webref.resolver.lookup_section`) instead of spawning
+the CLI — **§4.2.6**, in this slice's edit set. It does not settle B's catalog policy by side effect: A-ii's
 resolver is pinned-only (K3 holds until B lands), and B's catalog-unavailable branch is pinned through this
-single path by P4 / P-CSS. T-net's in-process clause (`urlopen` never called) is the pin that the collapse
-reaches no network at A-ii's head.
+single path by P4 / P-CSS. T-net's `urlopen` clause (§6) is the pin that the collapse reaches no network
+at A-ii's head.
 
 **Pre-existing, not counted**: `#11-elidex-ci-required-status-checks` — the ruleset has no
 `required_status_checks` rule, so every CI job is advisory, and a bypass actor makes the rule alone

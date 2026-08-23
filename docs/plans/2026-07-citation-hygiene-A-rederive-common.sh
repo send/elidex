@@ -158,9 +158,11 @@ _wtscan() {  # $1 = ERE, $2.. = roots RELATIVE TO $REPO_ROOT. Prints `path:line:
   # that exists but is not yet added reads GREEN. Not hypothetical -- measured:
   # with `cite-audit` planted in an UNTRACKED file under `.claude/skills/`, the
   # git-grep form of this block counted 0 and printed `VERDICT: GREEN`, and a
-  # bare `git add -N` on the same file flipped it to RED. The unit suite these
-  # cross-tree limbs came from walked the filesystem for exactly that reason;
-  # moving them here must not trade the property away. The origin/main
+  # bare `git add -N` on the same file flipped it to RED (measured when the scan
+  # still ranged over `.claude/skills/`; the property is the same for an
+  # untracked file under `_webref/`). The unit suite these entry-script limbs
+  # came from walked the filesystem for exactly that reason; moving them here
+  # must not trade the property away. The origin/main
   # baselines below stay `git grep` -- only git can read a ref.
   #
   # Roots resolve against $REPO_ROOT, not cwd; python chdir's there so the printed
@@ -179,11 +181,22 @@ import os, re, sys
 os.chdir(sys.argv[1])
 ere = re.compile(sys.argv[2])
 unreadable = []
-for root in sys.argv[3:]:
+def files_under(root):
+    # A root may be a FILE: the generic core is `_webref/` PLUS the entry script
+    # `.claude/tools/webref`, and `os.walk` on a file yields NOTHING -- so the
+    # entry script was never scanned at HEAD and a plant in it read GREEN
+    # (second design re-gate of #501, measured). A file root is one file.
+    if os.path.isfile(root):
+        yield root; return
+    if not os.path.isdir(root):
+        print(f"!! root does not exist, NOT scanned: {root}", file=sys.stderr); sys.exit(2)
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__")]
         for fn in sorted(filenames):
-            path = os.path.join(dirpath, fn)
+            yield os.path.join(dirpath, fn)
+for root in sys.argv[3:]:
+    for path in files_under(root):
+        if True:
             try:
                 with open(path, encoding="utf-8") as fh:
                     for i, line in enumerate(fh, 1):
@@ -203,9 +216,8 @@ if unreadable:
 WTSCANPY
 }
 
-couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
-  # SCOPES, written down because this block now carries two of them and
-  # conflating them is what the widening below fixes:
+couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic core
+  # SCOPES, written down because this block carries two of them:
   #   PKG     `.claude/tools/_webref/` — the package. The by-role CONCEPT
   #           listing below is about the prose A-i rewrote, which lives here.
   #           `test_spec_labels.py` pins K2 and K3 over exactly this tree.
@@ -279,6 +291,17 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # mandate. So the gate is a plain grep over the whole generic tree, and the
   # pre-existing instance counts against it like any other.
   echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check (working tree) --"
+  # CONTROL for the scanner's own reach (second re-gate of #501): a plant in a
+  # FILE root and in a DIRECTORY root must both be seen -- `os.walk` on a file
+  # yields nothing, which left the entry script unscanned while this block
+  # printed GREEN. Temporary roots under the repo, removed after.
+  local ctl; ctl=$(mktemp -d "$REPO_ROOT/.wtscan-control.XXXXXX"); ctl=${ctl#"$REPO_ROOT"/}
+  mkdir -p "$ctl/d"; printf 'x .claude/skills/elidex-review/axes.md\n' > "$ctl/f"; cp "$ctl/f" "$ctl/d/g"
+  local n_ctl_f n_ctl_d
+  _measure n_ctl_f _wtscan "$PATHRE" "$ctl/f" || failed=1
+  _measure n_ctl_d _wtscan "$PATHRE" "$ctl/d" || failed=1
+  rm -rf "$REPO_ROOT/$ctl"
+  [ "$n_ctl_f" = 1 ] && [ "$n_ctl_d" = 1 ] || { echo "!! _wtscan control: file root saw $n_ctl_f, dir root saw $n_ctl_d (both must be 1)"; failed=1; }
   local n_head n_ahalf
   _measure n_head _wtscan "$PATHRE" "${GENERIC[@]}" || failed=1
   _measured
@@ -303,7 +326,7 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # re-imported into the entry script is invisible to it. Unlike the suite, this block spells the needles plainly:
   # it lives in `docs/plans/`, which is in NEITHER scope, so it cannot match
   # itself the way an in-tree test file would.
-  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC (K3 / S7 cross-tree, working tree) --"
+  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC (K3 / S7 entry-script limb, working tree) --"
   # At A-i's head NO exemption: any `cite_audit` / `_catalog` under GENERIC is
   # a K3 violation. Slice B's landing adds its canonical paths
   # (`commands/cite_audit.py`, `spec_labels.py`) as the one exemption and keeps

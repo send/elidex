@@ -79,7 +79,7 @@ The same rule applies to this memo. §4.7 states, per claim, what mechanically c
 Four invariants intersect in `_attribute` and its consumers. They are listed here because the fixes cannot be applied one at a time without transiently breaking another.
 
 - **I1 — token integrity.** The section token the detector reports must be the *whole* token the author wrote, or nothing. Today a suffixed token backtracks to a resolvable prefix (§4.1.1). Fixing I1 alone changes total cite counts, which is why §5 measures it.
-- **I2 — attribution reach.** The set of labels the detector can recognise must equal the set `spec_labels.shortname_for` can resolve. Today the regex alternation is built from the 12 pinned `SPECS` while `shortname_for` reaches a 948-entry catalog (§4.1.2). Fixing I2 requires an *enumerable* label set, which `shortname_for` alone cannot supply — §4.1.2 solves that rather than papering over it.
+- **I2 — attribution reach.** The set of labels the detector can recognise must equal the set `spec_labels.shortname_for` can resolve. Today the regex alternation is built from the 12 pinned `SPECS` while `shortname_for` reaches a catalog (population derived at run time, §4.1.8) (§4.1.2). Fixing I2 requires an *enumerable* label set, which `shortname_for` alone cannot supply — §4.1.2 solves that rather than papering over it.
 - **I3 — label boundaries.** A label must match on token boundaries, not as a suffix of an identifier (§4.1.3). I3 is structurally guaranteed by I2's fix (whitespace-delimited probing) rather than patched separately — that is why they land together.
 - **I4 — text classification.** A `§` is a citation only where a citation can live. Today extraction is never gated on `in_comment`, and `_COMMENT_RE` misclassifies both directions (§4.1.4). I4 changes which lines *end* an attribution block, so it moves cites between buckets and must be measured with I1-I3, not after them.
 
@@ -234,7 +234,7 @@ Rejected tokens must not vanish silently — that would trade an under-report fo
 
 #### §4.1.2 — the alternation bypasses the catalog widening
 
-`cite_audit.py:47-49` builds `_LABEL_ALT` from `LABEL_TO_SHORTNAME` (the 12 pinned `SPECS`, 24 keys). `cite_audit.py:130` and `:145` then index that dict directly. Meanwhile `spec_labels.shortname_for` reaches upstream's 948-entry catalog. The detector therefore cannot see any label the catalog-widening exists to serve:
+`cite_audit.py:47-49` builds `_LABEL_ALT` from `LABEL_TO_SHORTNAME` (the 12 pinned `SPECS`, 24 keys). `cite_audit.py:130` and `:145` then index that dict directly. Meanwhile `spec_labels.shortname_for` reaches upstream's catalog (949 index keys at 2026-08-23; §4.1.8 derives the population). The detector therefore cannot see any label the catalog-widening exists to serve:
 
 ```sh
 python3 - <<'PY'
@@ -248,7 +248,7 @@ PY
 ```
 Measured: `shortname_for("CSS Text 3")` → `css-text-3`; `_LABEL_ALT` → **24** branches; `_attribute` → `[(1, '4.1.3', None)]` — **UNATTRIBUTED**. `DESIGN.md:51-57` and `spec_labels.py:112-121` both advertise that CSS-module rows resolve without hand-adding; for the *detector* they do not.
 
-**The real constraint** (locked, D1.2): the alternation needs an *enumerable* label set; `shortname_for` alone cannot supply one. The answer is not to enumerate 948×2 labels into one `re.IGNORECASE` alternation — that would be slower than the regex this PR is already deleting, and it would bake a network fetch into module import (`spec_labels` is imported at load time by `cite-audit`, `coverage-map`, `cli`, and `preflight`; `preflight --no-verify` is documented as usable offline).
+**The real constraint** (locked, D1.2): the alternation needs an *enumerable* label set; `shortname_for` alone cannot supply one. The answer is not to enumerate every catalog label (two per index key) into one `re.IGNORECASE` alternation — that would be slower than the regex this PR is already deleting, and it would bake a network fetch into module import (`spec_labels` is imported at load time by `cite-audit`, `coverage-map`, `cli`, and `preflight`; `preflight --no-verify` is documented as usable offline).
 
 **Fix — invert the match.** Stop asking the regex to recognise labels:
 
@@ -564,7 +564,7 @@ WARN: A's P1-P6 already occupy that file. Read it before writing -- A's P5 pins 
 
 **Existing tests that must change**, not silently keep passing:
 - **A-i's S6** (`test_spec_label_covers_pinned_and_non_pinned_shortnames`) asserts the *last-resort* label for `css-text-3` / `cssom-view-1` (`CSS TEXT 3`, `CSSOM VIEW 1`) and that `shortname_for("CSS TEXT 3")` is `None` — the pinned-map-only contract A-i ships. B's catalog fall-through makes both resolve, so S6 is **replaced** by the catalog expectation (S9/S11 cover the round-trip); left as-is it is red the moment `_catalog()` lands (Codex R20).
-- **A-i's S7** (`test_no_slice_b_artifact_is_named`) scans the package for `cite_audit` / `_catalog` — the absence that K3 enforced while B had not landed. B *is* that artifact: S7 is **retired** in the same commit that adds `commands/cite_audit.py`, and its K3 role passes to the harness `couplings` block's cross-tree scan, which keeps the names out of `.claude/skills/` and the rest of the generic tree. ⚠ That scan ranges over all of `.claude/tools/`, so at B's head B's own canonical files (`commands/cite_audit.py`, `spec_labels.py`'s `_catalog`) trip it; **B's landing edits `couplings`** to exempt exactly those canonical paths while rejecting the names everywhere else (Codex R21). At A-i's head the exemption must NOT exist — there, any such file is a K3 violation — which is why the edit is B's, not A-i's.
+- **A-i's S7** (`test_no_slice_b_artifact_is_named`) scans the package for `cite_audit` / `_catalog` — the absence that K3 enforced while B had not landed. B *is* that artifact: S7 is **retired** in the same commit that adds `commands/cite_audit.py`, and its K3 role passes to the harness `couplings` block, which keeps the names out of the whole generic core (`_webref/` + the `webref` entry script). ⚠ That scan ranges over the whole core, so at B's head B's own canonical files (`commands/cite_audit.py`, `spec_labels.py`'s `_catalog`) trip it; **B's landing edits `couplings`** to exempt exactly those canonical paths while rejecting the names everywhere else (Codex R21). At A-i's head the exemption must NOT exist — there, any such file is a K3 violation — which is why the edit is B's, not A-i's.
 - `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match` (`:398`) — its name and docstring state `lookup_section` is "prefix-tolerant", the **opposite** of `resolver.py:216-226`'s documented contract, and it passes with the `hit[0] == section` guard deleted, so it pins nothing. Renamed and made real against the shared index.
 - `test_json_records_carry_relative_paths_for_both_classes` (`:388`) asserts two counts and nothing about paths, while `_record` (`:170`) emits unrelativized `str(path)`. Either the assertion becomes real (relativize, matching `agent_brief.py:59`) or the test is renamed to what it checks. **Recommendation: relativize** — machine-local absolute paths cannot be pasted into a memo or diffed across machines, which is the artifact this tool exists to produce.
 
@@ -605,7 +605,7 @@ Baselines are what exists at A's landed head — the pre-carve `wc -l` figures a
 | `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
 | `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S14 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
-| `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~30 | P4/P5 appended to A's file |
+| `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~45 | P4 / P5 / P-CSS appended to A's file |
 | `.claude/tools/_webref/census_underreport.py` | — | ~45 | new (§4.0) |
 | `.claude/tools/_webref/resolver.py` | 280 | ~300 | heading index |
 | `.claude/tools/_webref/sources/webref_data.py` | A-i's landed size | +~3 | `@lru_cache(maxsize=None)` on `try_fetch_data` — routed here by A-i §13; B owns the edit and its test (a second call to `try_fetch_data` issues no second fetch) |

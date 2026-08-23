@@ -276,11 +276,15 @@ def pep604(tree, future):
     # nodes to inspect is the whole tree minus (if `future`) the annotation
     # subtrees, and any type-shaped `X | Y` in that set raises. "Type-shaped"
     # = both operands are bare names / subscripts / None / further unions.
-    # A runtime `flags | MASK` of two bare names reads RED (safe direction);
-    # dotted operands are not type-shaped (`re.I | re.M` is the tree's only
-    # dotted `|`, measured) -- a `mod.Type | None` would be missed: stated limit.
+    # A runtime `flags | MASK` of two bare names reads RED (safe direction).
+    # A dotted operand IS type-shaped (`pathlib.Path | None` raises on 3.9 --
+    # second re-gate of #501 measured the earlier exclusion GREEN on it) unless
+    # its attribute is ALL-CAPS, which PEP 8 reserves for constants
+    # (`re.IGNORECASE | re.MULTILINE`, the tree's only dotted `|`): a naming
+    # rule, not a site list. A lower-case constant (`re.m`) would read RED.
     def typelike(o):
         return (isinstance(o, ast.Name) or
+                (isinstance(o, ast.Attribute) and not (o.attr.isupper() or o.attr.replace("_", "").isupper())) or
                 (isinstance(o, ast.Constant) and o.value is None) or
                 (isinstance(o, ast.Subscript) and typelike(o.value)) or
                 (isinstance(o, ast.BinOp) and isinstance(o.op, ast.BitOr) and typelike(o.left) and typelike(o.right)))
