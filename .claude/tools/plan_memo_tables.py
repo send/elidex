@@ -4,9 +4,9 @@ and the one transitive `Population` every scan and assertion reads.
 
 Everything here answers "what rows does this document set have, what is each
 one's id, and what kind does its declaring field declare?".  The lexical
-substrate (fences, rows, code spans, links) is `plan_memo_lexer.py`; what the
-prose says about the rows, and whether that is allowed, is the checker and
-`plan_memo_roles.py`.
+substrate (fences, rows, code spans, links, `Lexed`) is `plan_memo_lexer.py`;
+what the prose says about the rows, and whether that is allowed, is the
+checker and `plan_memo_roles.py`.
 
 Three rules decided here, once:
   * a table is admitted in `find_tables` and nowhere else: header and
@@ -18,14 +18,18 @@ Three rules decided here, once:
     nothing);
   * the population is transitive over the memos a memo links, and the same id
     declared twice is a schema miss.
+
+Every block (paragraph or cell) is lexed ONCE, in `Memo`; the disposition step
+(`Population`) then tags each block's mask with the kind of every span --
+`code` / `def` / `link` / `cite` / `file` -- minus the id-only code spans.
 """
 
 import pathlib
 import re
 
 from plan_memo_lexer import (
-    blank_spans, code_spans, delimiter_width, fenced_lines, is_blank, links,
-    normalize_label, one_line_block, reference_definitions, split_row, starts_block,
+    Lexed, blank_spans, delimiter_width, fenced_lines, is_blank, normalize_label,
+    one_line_block, split_row, starts_block,
 )
 
 MARKER = "UMBRELLA, not a terminal unit"
@@ -38,38 +42,100 @@ MARKER = "UMBRELLA, not a terminal unit"
 UNDETERMINED = re.compile(r"KIND\s*[—-]?\s*UNDETERMINED", re.IGNORECASE)
 
 # --------------------------------------------------------------------------
+# Id grammar, spelled once.  An id is a short alphanumeric token or a `#11-`
+# slug -- nothing else -- and may be decorated with bold, backticks, or both,
+# in either order.
+# --------------------------------------------------------------------------
+
+SHORT_ID = r"[0-9A-Za-z]{1,4}"
+SLUG_ID = r"#11-[a-z0-9-]+"
+DECOR = r"(?:\*\*|`)*"
+DECOR_ID = DECOR + "(" + SHORT_ID + ")" + DECOR
+
+ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"
+"""How this document names a row when it refers to one.  Lives here because it
+is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
+kind a marker declares."""
+
+# `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
+# left them invisible to both passes; measured, four of five such sites in this
+# memo are real violations.
+ROW_NOUN_ID = ROW_NOUN + r"[\s-]+" + DECOR_ID
+
+_ID_GRAMMAR = re.compile("^(" + SLUG_ID + "|" + SHORT_ID + r")(?![0-9A-Za-z-])")
+
+# The separators an id run is tokenised on.  `ID_SEP` is the shared core; an
+# id-only code span also splits on `|` and `-` (a `Deps`-shaped edge, `9z | 7z`
+# / `0a-0b`), while a cell boundary also splits on brackets and `·` but NOT on
+# `-` (a hyphen glues `slice-9z-sib` into one token, which is not an id).
+ID_SEP = r"\s,;/→>+&"
+_ID_RUN_SPLIT = re.compile("[" + ID_SEP + "|-]+")
+CELL_SPLIT = re.compile("[" + ID_SEP + r"()\[\]·]+")
+
+# --------------------------------------------------------------------------
 # Table schemas, identified by HEADER ROW (a line range is a figure a later
 # edit silently invalidates).  Column indexes are BODY columns: the optional
 # leading pipe is stripped at admission, so column 0 is the first cell.
-#   name, header cells (trimmed, in order), declaring column, id column
 # --------------------------------------------------------------------------
 
+
+class Schema:
+    """A table family: its exact header cells (trimmed, in order), the column
+    whose text DECLARES the row's kind, and the column holding the row id --
+    both named by header cell and resolved to body-column indexes here."""
+
+    __slots__ = ("name", "header", "decl", "idc")
+
+    def __init__(self, name, header, decl=None, idc=None):
+        self.name, self.header = name, header
+        self.decl = header.index(decl) if decl is not None else None
+        self.idc = header.index(idc) if idc is not None else None
+
+
 SCHEMAS = [
-    ("citation", ["ID", "Citation", "Anchor", "Used by"], None, 0),
-    ("stub", ["Site", "Syntax", "Emits", "Observable", "Tier", "Slice"], None, None),
-    ("slice", ["#", "Slice", "Primary module(s)", "Slot", "Tier", "Deps"], 1, 0),
-    ("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"], 1, 0),
+    Schema("citation", ["ID", "Citation", "Anchor", "Used by"], idc="ID"),
+    Schema("stub", ["Site", "Syntax", "Emits", "Observable", "Tier", "Slice"]),
+    Schema("slice", ["#", "Slice", "Primary module(s)", "Slot", "Tier", "Deps"], decl="Slice", idc="#"),
+    Schema("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"], decl="Why deferred", idc="Slot"),
 ]
 
 
-class Table:
-    __slots__ = ("schema", "header_lineno", "header", "rows", "misses")
+class Row:
+    """One table row, minted once at admission: its cells, its schema (None for
+    a non-schema table or a header row), its own id (`self_id`, from the raw
+    id cell), and -- set by `Population` -- `field`, the masked declaring
+    field, and `kind` ("umbrella" / "undetermined" / "terminal")."""
 
-    def __init__(self, schema, header_lineno, header):
-        self.schema = schema            # schema name or None
-        self.header_lineno = header_lineno
-        self.header = header            # [Cell]
-        self.rows = []                  # [(lineno, [Cell])], body rows only
+    __slots__ = ("memo", "lineno", "cells", "schema", "self_id", "field", "kind")
+
+    def __init__(self, memo, lineno, cells, schema):
+        self.memo, self.lineno, self.cells, self.schema = memo, lineno, cells, schema
+        self.self_id = bare_id(cells[schema.idc].text) if schema and schema.idc is not None else None
+        self.field, self.kind = None, None
+
+    def col(self, header_cell):
+        """The cell under the schema's header cell named `header_cell`."""
+        return self.cells[self.schema.header.index(header_cell)]
+
+
+class Table:
+    __slots__ = ("schema", "header", "rows", "misses")
+
+    def __init__(self, schema, header):
+        self.schema = schema            # Schema or None
+        self.header = header            # Row (schema None)
+        self.rows = []                  # [Row], body rows only
         self.misses = []                # [(lineno, message)] width policy
 
 
-def find_tables(lines, fenced):
-    """Admit every GFM table in `lines` (0-based; `fenced` = line indexes to
-    skip).  Returns ([Table], {line index: Table}).  The table runs from the
+def find_tables(memo):
+    """Admit every GFM table in `memo` (fenced lines skipped).  Returns
+    ([Table], {0-based line index owned by a table}).  The table runs from the
     header to the first blank line or block start; every line in between is a
     body row, pipes or not (GFM §4.10).
     """
-    tables, owner, i, n = [], {}, 0, len(lines)
+    lines, fenced = memo.lines, memo.fenced
+    tables, owned, i, n = [], set(), 0, len(lines)
     while i < n:
         if i in fenced or is_blank(lines[i]) or i + 1 >= n or starts_block(lines[i]):
             i += 1
@@ -83,23 +149,23 @@ def find_tables(lines, fenced):
             i += 1
             continue
         hdr_text = [c.text for c in header]
-        schema = next((name for name, hdr, _, _ in SCHEMAS if hdr_text == hdr), None)
-        t = Table(schema, i + 1, header)
-        owner[i], owner[i + 1] = t, t
+        schema = next((s for s in SCHEMAS if hdr_text == s.header), None)
+        t = Table(schema, Row(memo, i + 1, header, None))
+        owned.update((i, i + 1))
         j = i + 2
         while j < n and j not in fenced and not is_blank(lines[j]) and not starts_block(lines[j]):
             body = split_row(lines[j])
             if schema is not None and len(body) != width:
                 t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
                                  "a shifted read fabricates findings, so this row is "
-                                 "unscanned" % (len(body), schema, width)))
+                                 "unscanned" % (len(body), schema.name, width)))
             else:
-                t.rows.append((j + 1, body))
-            owner[j] = t
+                t.rows.append(Row(memo, j + 1, body, schema))
+            owned.add(j)
             j += 1
         tables.append(t)
         i = j
-    return tables, owner
+    return tables, owned
 
 
 # --------------------------------------------------------------------------
@@ -108,14 +174,6 @@ def find_tables(lines, fenced):
 
 _BOLD = re.compile(r"^\*\*(.+?)\*\*$")
 _TICK = re.compile(r"^`(.+?)`$")
-
-# An id is a short alphanumeric token or a `#11-` slug -- nothing else.
-ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"
-"""How this document names a row when it refers to one.  Lives here because it
-is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
-kind a marker declares."""
-
-_ID_GRAMMAR = re.compile(r"^(#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})(?![0-9A-Za-z-])")
 
 
 def bare_id(cell_text):
@@ -129,6 +187,9 @@ def bare_id(cell_text):
     return g.group(1) if g else s
 
 
+_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$")
+
+
 def attributed_to_other(field, rid):
     """The row id a marker names, when it is not this row's own: the marker's
     APPOSITIVE subject -- `Slice **E** — **UMBRELLA, …**` -- with nothing
@@ -137,83 +198,73 @@ def attributed_to_other(field, rid):
     ("Unlike Slice 7z, **UMBRELLA, not a terminal unit.**"); the self-test
     carries both directions."""
     for m in re.finditer(re.escape(MARKER), field):
-        pre = field[max(0, m.start() - 70): m.start()]
-        g = re.search(
-            ROW_NOUN + r"[\s-]+(?:\*\*|`)*([0-9A-Za-z]{1,4})(?:\*\*|`)*"
-            r"\s*[—–-]\s*(?:\*\*|`)*\s*$", pre)
+        g = _APPOSITIVE.search(field[max(0, m.start() - 70): m.start()])
         if g and g.group(1) != rid:
             return g.group(1)
     return None
 
 
+# --------------------------------------------------------------------------
+# Disposition: the one place a lexical span meets the row ids
+# --------------------------------------------------------------------------
+
+
 def id_only(inner, keep):
     """The disposition exception: a code span whose content is only row ids
     (and separators) is the document SPELLING an id, and is a mention."""
-    toks = [x for x in re.split(r"[\s,;/→>+&|-]+", inner) if x]
+    toks = [x for x in _ID_RUN_SPLIT.split(inner) if x]
     return inner in keep or (bool(toks) and all(x in keep for x in toks))
 
 
-def code_mask(s, keep):
-    """Code spans of `s` minus the id-only ones -- the spans a reader of prose
-    must skip."""
-    return [(a, b) for a, b in code_spans(s) if not id_only(s[a:b].strip("`").strip(), keep)]
+def code_mask(lx, keep):
+    """Code spans of `lx` minus the id-only ones -- the spans a reader of
+    prose must skip."""
+    return [(a, b) for a, b in lx.code if not id_only(lx.text[a:b].strip("`").strip(), keep)]
 
 
-def block_links(s, defs):
-    """Links of a block's inline content `s` (code spans masked first; a
-    leading run of reference definitions is not a link, §4.7), as
-    [(tail_start, end, destination)] in `s` coordinates."""
-    masked = blank_spans(s, code_spans(s))
-    start = reference_definitions(masked)[1]
-    return [(a + start, b + start, dest) for a, b, dest in links(masked[start:], defs)]
+def dispose(lx, keep):
+    """Tag `lx.mask`: every span the scanners must not read an id out of, as
+    (start, end, kind) -- `code` (minus id-only spans), `def` (a definition
+    renders nothing, so none of it, label included, is prose), `link` (the
+    tail; the visible text stays, it is prose), `cite`, `file`."""
+    out = [(a, b, "code") for a, b in code_mask(lx, keep)]
+    if lx.defs_end:
+        out.append((0, lx.defs_end, "def"))
+    out += [(a, b, "link") for a, b, _ in lx.links]
+    out += lx.tokens
+    lx.mask = out
 
 
-def mask_spans(s, keep, defs):
-    """Spans of `s` (a block's inline content) the scanners must not read an
-    id out of: code spans (minus id-only ones), link reference definitions,
-    link tails (the visible text stays: it is prose), `[C19]`-style citation
-    ids and bare `.md` file names."""
-    out = code_mask(s, keep)
-    # a definition renders nothing, so none of it -- label included -- is prose
-    defs_end = reference_definitions(blank_spans(s, code_spans(s)))[1]
-    if defs_end:
-        out.append((0, defs_end))
-    out += [(a, b) for a, b, _ in block_links(s, defs)]
-    for m in re.finditer(r"\[[A-Z][0-9]+\]|[\w./-]+\.md\b", s):
-        out.append(m.span())
-    return out
-
-
-def masked_text(s, keep):
-    """`s` with its code spans blanked, id-only spans excepted -- the stream
-    the kind-marker reader reads (a quoted marker is not a declaration)."""
-    return blank_spans(s, code_mask(s, keep))
+def prose(lx, keep):
+    """`lx.text` with its code spans blanked, id-only spans excepted -- the
+    stream the kind-marker reader reads (a quoted marker is not a declaration)."""
+    return blank_spans(lx.text, code_mask(lx, keep))
 
 
 class Paragraph:
     """Lines outside tables and fences, grouped at blank lines and block
-    starts; `content` is the inline content code spans are lexed over."""
+    starts; `lexed.text` is the inline content code spans are lexed over, and
+    `offsets` maps each line to its start offset in it (a line is a reporting
+    coordinate only)."""
 
-    __slots__ = ("lines", "content", "offsets")
+    __slots__ = ("lines", "offsets", "lexed")
 
     def __init__(self, numbered):
         self.lines = numbered                       # [(lineno, text)]
-        self.content = "\n".join(t for _, t in numbered)
+        self.lexed = Lexed("\n".join(t for _, t in numbered))
         self.offsets = []
         off = 0
         for _, t in numbered:
             self.offsets.append(off)
             off += len(t) + 1
 
-    def per_line(self, spans):
-        """Project content spans onto lines -> {lineno: [(s, e)]}."""
-        out = {}
-        for a, b in spans:
-            for (lineno, text), off in zip(self.lines, self.offsets):
-                s, e = max(a, off) - off, min(b, off + len(text)) - off
-                if s < e:
-                    out.setdefault(lineno, []).append((s, e))
-        return out
+    def locate(self, i):
+        """Offset `i` of the content -> (lineno, line text, column)."""
+        k = 0
+        while k + 1 < len(self.offsets) and self.offsets[k + 1] <= i:
+            k += 1
+        lineno, text = self.lines[k]
+        return lineno, text, i - self.offsets[k]
 
 
 class Memo:
@@ -222,14 +273,19 @@ class Memo:
         self.text = self.path.read_text()
         self.lines = self.text.split("\n")
         self.fenced = fenced_lines(self.lines)
-        self.tables, self.owner = find_tables(self.lines, self.fenced)
+        self.tables, self.table_lines = find_tables(self)
         self.paragraphs = self._paragraphs()
+        for t in self.tables:
+            for row in [t.header] + t.rows:
+                for cell in row.cells:
+                    cell.lexed = Lexed(cell.text)
         # §4.7: the first definition of a label wins
         self.defs = {}
         for p in self.paragraphs:
-            masked = blank_spans(p.content, code_spans(p.content))
-            for raw, dest, _ in reference_definitions(masked)[0]:
+            for raw, dest, _ in p.lexed.definitions:
                 self.defs.setdefault(normalize_label(raw), dest)
+        for lx in self.lexed():
+            lx.resolve(self.defs)
 
     def _paragraphs(self):
         out, cur = [], []
@@ -240,7 +296,7 @@ class Memo:
                 cur.clear()
 
         for i, line in enumerate(self.lines):
-            if i in self.fenced or i in self.owner or is_blank(line):
+            if i in self.fenced or i in self.table_lines or is_blank(line):
                 flush()
                 continue
             if starts_block(line):
@@ -251,11 +307,21 @@ class Memo:
         flush()
         return out
 
+    def lexed(self):
+        """Every lexed block of this memo: each cell of each table row (header
+        rows too), then each paragraph."""
+        for t in self.tables:
+            for row in [t.header] + t.rows:
+                for cell in row.cells:
+                    yield cell.lexed
+        for p in self.paragraphs:
+            yield p.lexed
+
     def linked_files(self):
         """Every `.md` this memo links, resolved beside it, in first-link order."""
         out = []
         for p in self.paragraphs:
-            for _, _, dest in block_links(p.content, self.defs):
+            for _, _, dest in p.lexed.links:
                 name = re.split(r"[#?]", dest, 1)[0]
                 if not name.endswith(".md"):
                     continue
@@ -265,14 +331,14 @@ class Memo:
         return out
 
     def schema_rows(self, name):
-        """[(lineno, [Cell])] body rows of every table matching schema `name`."""
-        return [r for t in self.tables if t.schema == name for r in t.rows]
+        """[Row] body rows of every table matching schema `name`."""
+        return [r for t in self.tables if t.schema is not None and t.schema.name == name for r in t.rows]
 
 
 class Population:
     """The memo set reachable from one memo through its links (visited set, so
-    a cycle is not an error), with ONE map `ids`: id -> (kind, memo, table,
-    lineno).  Kinds: "umbrella" / "undetermined" / "terminal".  `misses` holds
+    a cycle is not an error), with ONE map `ids`: id -> its declaring `Row`
+    (`row.kind` = "umbrella" / "undetermined" / "terminal").  `misses` holds
     every schema miss (absent memo, unmatched schema, row width, duplicate
     declaration); a non-empty `misses` is exit 2 -- never a clean run.
     """
@@ -297,52 +363,56 @@ class Population:
             queue.extend(memo.linked_files())
         self.main = self.memos[0] if self.memos else None
         if self.main is not None:
-            matched = {t.schema for t in self.main.tables}
-            for name, _, _, _ in SCHEMAS:
-                if name not in matched:
+            matched = {t.schema.name for t in self.main.tables if t.schema is not None}
+            for s in SCHEMAS:
+                if s.name not in matched:
                     self.misses.append((self.main.path.name, 0,
-                                        "no table matched schema %r -- its whole population is unscanned" % name))
+                                        "no table matched schema %r -- its whole population is unscanned" % s.name))
         for memo in self.memos:
             for t in memo.tables:
                 for lineno, msg in t.misses:
                     self.misses.append((memo.path.name, lineno, msg))
-        # ids first (the keep-set the marker reader needs), then kinds
+        # ids first (the keep-set the disposition needs), then masks, then kinds
         for memo in self.memos:
             self._declare(memo)
-        keep = set(self.ids)
-        for rid, (memo, name, lineno, decl_cell) in list(self.ids.items()):
-            self.ids[rid] = (self._kind(memo, name, lineno, rid, decl_cell, keep), memo, name, lineno)
+        keep = self.keep()
+        for memo in self.memos:
+            for lx in memo.lexed():
+                dispose(lx, keep)
+        for row in self.declaring_rows():
+            row.field = prose(row.cells[row.schema.decl].lexed, keep)
+        for row in self.ids.values():
+            row.kind = self._kind(row)
 
     # -- declarations ------------------------------------------------------
 
     def _declare(self, memo):
-        for name, _, decl, idc in SCHEMAS:
-            if idc is None:
+        for s in SCHEMAS:
+            if s.idc is None:
                 continue
-            for lineno, cells in memo.schema_rows(name):
-                rid = bare_id(cells[idc].text)
+            for row in memo.schema_rows(s.name):
+                rid = row.self_id
                 if not rid or rid == "—":
                     continue
                 if rid in self.ids:
-                    m2, t2, l2, _ = self.ids[rid]
-                    self.misses.append((memo.path.name, lineno,
+                    r2 = self.ids[rid]
+                    self.misses.append((memo.path.name, row.lineno,
                                         "row %r is declared twice (also %s:%d in %r); a population "
                                         "with two declarations of one id cannot be scanned"
-                                        % (rid, m2.path.name, l2, t2)))
+                                        % (rid, r2.memo.path.name, r2.lineno, r2.schema.name)))
                     continue
-                self.ids[rid] = (memo, name, lineno, cells[decl].text if decl is not None else None)
+                self.ids[rid] = row
 
-    def _kind(self, memo, name, lineno, rid, decl_cell, keep):
-        if decl_cell is None:
+    def _kind(self, row):
+        if row.field is None:
             return "terminal"
-        field = masked_text(decl_cell, keep)
-        if MARKER in field:
-            other = attributed_to_other(field, rid)
+        if MARKER in row.field:
+            other = attributed_to_other(row.field, row.self_id)
             if other:
-                self.attributed.append((memo.path.name, name, lineno, rid, other))
+                self.attributed.append((row.memo.path.name, row.schema.name, row.lineno, row.self_id, other))
             else:
                 return "umbrella"
-        m = UNDETERMINED.search(field)
+        m = UNDETERMINED.search(row.field)
         if m:
             self.spellings.add(m.group(0))
             return "undetermined"
@@ -351,7 +421,7 @@ class Population:
     # -- inventories -------------------------------------------------------
 
     def ids_of_kind(self, kind):
-        return {rid: v for rid, v in self.ids.items() if v[0] == kind}
+        return {rid: r for rid, r in self.ids.items() if r.kind == kind}
 
     def umbrella_ids(self):
         return self.ids_of_kind("umbrella")
@@ -362,11 +432,17 @@ class Population:
     def no_owner_ids(self):
         """Every row that carries no owner and no ordering -- the property §5's
         naming rule is stated over (umbrella + kind-undetermined)."""
-        return {rid: v for rid, v in self.ids.items() if v[0] != "terminal"}
+        return {rid: r for rid, r in self.ids.items() if r.kind != "terminal"}
 
     def data_rows(self, name):
-        """[(memo, lineno, [Cell])] over every memo, for schema `name`."""
-        return [(memo, lineno, cells) for memo in self.memos for lineno, cells in memo.schema_rows(name)]
+        """[Row] over every memo, for schema `name`."""
+        return [r for memo in self.memos for r in memo.schema_rows(name)]
+
+    def declaring_rows(self):
+        """Every row of a schema with a declaring field and an id column, over
+        every memo -- id-less rows included, since their field is read too."""
+        return [r for s in SCHEMAS if s.decl is not None and s.idc is not None
+                for r in self.data_rows(s.name)]
 
     def keep(self):
         """The code-span keep-set: every declared id, from every memo."""

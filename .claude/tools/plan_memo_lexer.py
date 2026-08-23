@@ -12,9 +12,12 @@ links (CommonMark §6.3 / §4.7) over the stream with code spans masked.
 What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
 HTML blocks, §6.5 autolinks, §2.5 entity references.  Nothing here detects them.
 
-Nothing in this module knows what a row id is; the disposition exception (an
-id-only code span is the document spelling an id, not code) is applied by the
-caller through `mask_spans(keep=...)`.
+`Lexed` is the one lexical value per block: code spans, the leading run of
+reference definitions, links, and the two bare tokens the scanners must not
+read an id out of (`[C19]`-style citation ids, `.md` file names).  Nothing in
+this module knows what a row id is; the disposition exception (an id-only code
+span is the document spelling an id, not code) is applied over a `Lexed` by
+`plan_memo_tables.py`.
 """
 
 import re
@@ -43,7 +46,7 @@ def fenced_lines(lines):
             i += 1
             continue
         ch, k = m.group(1)[0], len(m.group(1))
-        closer = re.compile(r"^ {0,3}%s{%d,}[ \t]*$" % (re.escape(ch), k))
+        closer = re.compile(r"^ {0,3}" + re.escape(ch) + "{%d,}" % k + r"[ \t]*$")
         out.add(i)
         i += 1
         while i < n:
@@ -87,25 +90,23 @@ def starts_block(line):
 
 
 class Cell:
-    """One body cell: `text` is the trimmed, unescaped content; `start` is the
-    raw column of its first character; `raw(i)` maps an offset into `text`
-    back to a raw column (an unescaped `\\|` shifts everything after it by one)."""
+    """One body cell: `text` is the trimmed, unescaped content; `raw(i)` maps
+    an offset into `text` back to a raw column (an unescaped `\\|` shifts
+    everything after it by one); `lexed` is set by the memo once its link
+    definitions are known."""
 
-    __slots__ = ("text", "start", "_raw")
+    __slots__ = ("text", "_raw", "lexed")
 
     def __init__(self, chars):
         # chars = [(char, raw_index)], already trimmed
         self.text = "".join(c for c, _ in chars)
         self._raw = [r for _, r in chars]
-        self.start = self._raw[0] if self._raw else 0
+        self.lexed = None
 
     def raw(self, i):
         if i < len(self._raw):
             return self._raw[i]
-        return (self._raw[-1] + 1) if self._raw else self.start
-
-    def __repr__(self):
-        return "Cell(%r@%d)" % (self.text, self.start)
+        return (self._raw[-1] + 1) if self._raw else 0
 
 
 def split_row(line):
@@ -137,11 +138,7 @@ def split_row(line):
             a += 1
         while b > a and p[b - 1][0] in " \t":
             b -= 1
-        cell = Cell(p[a:b])
-        if not p[a:b]:
-            # an empty cell still has a position: the column after its pipe
-            cell.start = p[0][1] if p else 0
-        out.append(cell)
+        out.append(Cell(p[a:b]))
     return out
 
 
@@ -192,6 +189,11 @@ def code_spans(s):
     return out
 
 
+def in_spans(i, spans):
+    """Whether offset `i` lies inside any `(start, end, ...)` span."""
+    return any(sp[0] <= i < sp[1] for sp in spans)
+
+
 def blank_spans(s, spans):
     """`s` with every span replaced by spaces (line endings kept), so offsets
     survive and a later grammar cannot see inside a masked construct."""
@@ -229,7 +231,7 @@ def _unescape(s):
     punctuation character is removed; any other backslash is literal."""
     out, i = [], 0
     while i < len(s):
-        if s[i] == "\\" and i + 1 < len(s) and s[i + 1] in ASCII_PUNCT:
+        if _is_escape(s, i):
             out.append(s[i + 1])
             i += 2
         else:
@@ -377,11 +379,16 @@ def links(s, defs):
     shortcut `[text]` (a link label not followed by `[]` or a link label).
     """
     out, i = [], 0
-    while i < len(s):
-        if _is_escape(s, i):
-            i += 2
-            continue
-        if s[i] != "[":
+    while True:
+        i = s.find("[", i)
+        if i < 0:
+            break
+        # a `[` behind an odd run of backslashes is escaped (§2.4: the pairs
+        # before it escape each other)
+        k = i
+        while k > 0 and s[k - 1] == "\\":
+            k -= 1
+        if (i - k) % 2:
             i += 1
             continue
         bt = _bracket_text(s, i)
@@ -474,3 +481,41 @@ def _line_end(s, k):
     if s[k] == "\n":
         return k + 1
     return None
+
+
+# --------------------------------------------------------------------------
+# Bare tokens (no CommonMark construct, but a tokenisation fact of these
+# documents): a `[C19]`-style citation id and a bare `.md` file name are read
+# as one token, never as a run of row ids.  Found over the raw text, so a
+# file name inside a code span is a token too.
+# --------------------------------------------------------------------------
+
+_TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md\b)")
+
+
+class Lexed:
+    """The lexical facts of one block's inline content (a paragraph or a
+    cell), computed once.  `code` = code spans; `definitions` / `defs_end` =
+    the leading run of reference definitions over the code-masked stream;
+    `tokens` = [(start, end, "cite" | "file")]; `links` (after `resolve`) =
+    [(tail_start, end, destination)].  `mask` is set by the disposition step
+    in `plan_memo_tables.py` once the row ids are known."""
+
+    __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens", "links", "mask")
+
+    def __init__(self, text):
+        self.text = text
+        self.code = code_spans(text)
+        masked = blank_spans(text, self.code)
+        self.definitions, self.defs_end = reference_definitions(masked)
+        self._masked = masked
+        self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
+        self.links = []
+        self.mask = None
+
+    def resolve(self, defs):
+        """Links (§6.3 / §4.7) over the masked stream, past the definitions;
+        `defs` = normalised label -> destination."""
+        start = self.defs_end
+        self.links = [(a + start, b + start, dest)
+                      for a, b, dest in links(self._masked[start:], defs)]

@@ -49,23 +49,31 @@ MODULES = [
 ]
 
 
+_CODE = {}      # file name -> code object of the UNPATCHED source (immutable)
+
+
 def load(patches=None):
     """A FRESH module set, exec'd from source text (`patches` = {file name:
     source} overrides), installed in `sys.modules` in dependency order so the
     checker's own imports resolve to the patched modules.  Returns the checker
-    module.  `unload()` removes the set again."""
+    module.  `unload()` removes the set again.  Unpatched sources are compiled
+    once; every call still execs into fresh module dicts."""
     patches = patches or {}
     unload()
     mod = None
     for name, file in MODULES:
         src = patches.get(file)
-        if src is None:
-            src = (HERE / file).read_text()
+        if src is not None:
+            code = compile(src, str(HERE / file), "exec")
+        elif file in _CODE:
+            code = _CODE[file]
+        else:
+            code = _CODE[file] = compile((HERE / file).read_text(), str(HERE / file), "exec")
         spec = importlib.util.spec_from_loader(name, loader=None, origin=str(HERE / file))
         mod = importlib.util.module_from_spec(spec)
         mod.__file__ = str(HERE / file)
         sys.modules[name] = mod
-        exec(compile(src, str(HERE / file), "exec"), mod.__dict__)
+        exec(code, mod.__dict__)
     return mod
 
 
@@ -98,7 +106,7 @@ def run_on(M, text, prose="", sibling=None, files=None):
 # ----------------------------------------------------------------------------
 
 
-def naming_control(kind, text, prose, expect, sibling, files):
+def naming_control(text, prose, expect, sibling, files):
     def run(M):
         _, reported, _, rc = run_on(M, text, prose, sibling, files)
         got = len(reported)
@@ -157,22 +165,22 @@ def pipe_shape_control(M):
     out = []
     for extra in (piped, bare):
         umb, reported, _, rc = run_on(M, build(extra=extra))
-        out.append((rc, sorted(umb), sorted((m.id, m.source, m.line[m.start:m.end]) for m in reported)))
+        out.append((rc, sorted(umb), sorted((m.id, m.source, m.text[m.start:m.end]) for m in reported)))
     return out[0] == out[1] and out[0][0] != 2, "ids %s, sites %s" % (out[0][1], out[0][2])
 
 
 def raw_offset_control(M):
     """A site after a `\\|` in its cell is reported at its RAW column."""
     _, reported, _, _ = run_on(M, build(c1=r"x \| Slice 9z owns it"))
-    ok = len(reported) == 1 and reported[0].line[reported[0].idpos:reported[0].idpos + 2] == "9z"
-    return ok, "idpos lands on %r" % (reported[0].line[reported[0].idpos:reported[0].idpos + 2] if reported else None)
+    ok = len(reported) == 1 and reported[0].line[reported[0].col:reported[0].col + 2] == "9z"
+    return ok, "col lands on %r" % (reported[0].line[reported[0].col:reported[0].col + 2] if reported else None)
 
 
 def registry():
     """name -> (kind, control)."""
     reg = {}
     for kind, name, text, prose, expect, sibling, files in CASES:
-        reg[name] = (kind, naming_control(kind, text, prose, expect, sibling, files))
+        reg[name] = (kind, naming_control(text, prose, expect, sibling, files))
     for kind, name, text, code, expect, prose, sibling in ASSERT_CASES:
         reg[name] = (kind, assert_control(text, code, expect, prose, sibling))
     for kind, name, text, prose, sibling, files, rc in RC_CASES:
