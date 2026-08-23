@@ -737,3 +737,29 @@ case("POSITIVE-NOVEL", "(def) a label spanning FIVE lines is a definition (§4.7
 rcase("POSITIVE", "(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition: "
                   "the later `[sib]` is an unresolved reference, rc 2, and child.md is not walked",
       build(), '[sib]: slice-9z-sib.md "title\n\nmore"\n\nSee [sib].', 2, **SIB)
+
+
+# ------------------------------------------------- PR #510 Codex R8 controls --
+
+# R8 root: one sibling-path resolver, stages in spec order
+case("POSITIVE-NOVEL", "(link) `notes%3Achild.md` has no scheme (WHATWG URL: a scheme is read BEFORE "
+                       "decoding): it is the local file `notes:child.md`, and it is scanned",
+     build(), "See [the walk](notes%3Achild.md).", 1, files={"notes:child.md": VIOLATION + "\n"})
+
+# R8-3: the far side of a `.` after a bare id is the ASCII id class
+case("POSITIVE-NOVEL", "(bare) `9z.次の工程` bounds the id: the far side of the `.` is not an ASCII id "
+                       "character, so the site is reported",
+     build(), "The integrator is 9z.次の工程へ渡す.", 1)
+case("POSITIVE-NOVEL", "(bare) `9z.é` bounds the id (a dotted number is ASCII on both sides)",
+     build(), "The integrator is 9z.élu.", 1)
+
+# R8-4: edge pipes are detected with the space/tab class, not `str.strip()`
+case("NEGATIVE", "(table) a row opening with an NBSP before its `|` is not edge-piped: the NBSP is a "
+                 "cell, the header is 7 wide over a 6-cell delimiter, no table",
+     build(), "\u00a0| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|---|---|---|---|---|\n"
+              "| **Wz** | **UMBRELLA, not a terminal unit.** x | `w.rs` | — | T1 | — |\n\n"
+              "Wz owns the close rule.", 0)
+# sweep: §4.9 blank line = spaces or tabs only
+case("NEGATIVE", "(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end "
+                 "the paragraph and the code span crosses it",
+     build(), "open `here\n\u00a0\n9z owns it` there", 0)

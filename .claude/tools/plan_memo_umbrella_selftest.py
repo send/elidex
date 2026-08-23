@@ -356,6 +356,59 @@ def control_char_destination_control(M):
     return res.rc == 0, "rc %d (must be 0, no exception)" % res.rc
 
 
+def unavailable_sibling_control(M):
+    """(e) of `sibling_path`: an `OSError` from `resolve()` (an over-long
+    name) is the unavailable-sibling schema miss, rc 2 -- not an exception.
+    `resolve()` does not raise for such a name on every platform, so the
+    error is injected: `Path.resolve` raises for the over-long name while
+    the control runs.  An exception from `check()` is red here."""
+    import plan_memo_tables
+    long_name = "a" * 4000 + ".md"
+    orig = plan_memo_tables.pathlib.Path.resolve
+
+    def resolve(self, *a, **kw):
+        if self.name == long_name:
+            raise OSError(36, "File name too long")
+        return orig(self, *a, **kw)
+    plan_memo_tables.pathlib.Path.resolve = resolve
+    try:
+        res, _ = run_on(M, build(), "See [x](%s)." % long_name)
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    finally:
+        plan_memo_tables.pathlib.Path.resolve = orig
+    miss = any(f[0] == "SCHEMA" and "linked memo not found" in f[3] for f in res.findings)
+    return res.rc == 2 and miss, "rc %d, unavailable-sibling miss %s (must be rc 2 with the miss)" % (res.rc, miss)
+
+
+def scaling_linked_files_control(M):
+    """`linked_files` over N and 4N links, min of 3, t(4N)/t(N) < 8 (linear
+    ~4, quadratic ~16): the dedup is a set, not a list membership test."""
+    import time
+    import plan_memo_tables
+
+    def best(n):
+        # N DISTINCT siblings (none need exist: `linked_files` names, the
+        # population checks), so the dedup structure actually grows
+        text = "".join("See [x%d](slice-9z-sib-%d.md).\n" % (i, i) for i in range(n))
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "links.md"
+            p.write_text(text)
+            memo = plan_memo_tables.Memo(p)
+            t = []
+            for _ in range(3):
+                t0 = time.perf_counter()
+                k = len(memo.linked_files())
+                t.append(time.perf_counter() - t0)
+        return k, min(t)
+
+    k1, t1 = best(2000)
+    k4, t4 = best(8000)
+    ratio = t4 / t1 if t1 else float("inf")
+    return k1 == 2000 and k4 == 8000 and ratio < 8, "t(2000)=%.2f ms, t(8000)=%.2f ms, ratio %.1f (must be < 8)" % (
+        t1 * 1000, t4 * 1000, ratio)
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -371,6 +424,8 @@ def registry():
     reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"] = ("CONTROL", linear_orphans_control)
     reg["unresolved_references scales linearly: t(4N)/t(N) < 8"] = ("CONTROL", scaling_unresolved_control)
     reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
+    reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
+    reg["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"] = ("CONTROL", scaling_linked_files_control)
     return reg
 
 

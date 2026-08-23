@@ -54,7 +54,9 @@ EMPTY_WORDS = frozenset({"n/a", "none"})
 
 def is_empty(cell_text):
     """Decoration does not fill a cell: `**—**` is as empty as `—`."""
-    bare = cell_text.strip().strip("*`").strip()
+    bare = cell_text.strip(" \t").strip("*`").strip(" \t")
+    # `isalnum` is DELIBERATELY Unicode: a letter in any script fills a cell
+    # (`—あ` is not empty); the shape rule is "no letter or digit at all"
     return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS
 
 
@@ -68,7 +70,7 @@ ID_CELL_BLANKS = frozenset({"", "\u2014", "-", "\u2013"})
 def is_blank_id_cell(cell_text):
     """Whether an id cell is a deliberate non-row (a literal blank), as
     opposed to unkeyed content."""
-    return cell_text.strip().strip("*`").strip() in ID_CELL_BLANKS
+    return cell_text.strip(" \t").strip("*`").strip(" \t") in ID_CELL_BLANKS
 
 
 MARKER = "UMBRELLA, not a terminal unit"
@@ -254,7 +256,7 @@ def bare_id(cell_text):
     """The row id an id cell declares: the decorated-id grammar at the cell's
     start, decoration stripped, trailing prose ignored -- or None when the
     cell does not start with an id (then the row declares nothing)."""
-    g = _ID_CELL.match(cell_text.strip())
+    g = _ID_CELL.match(cell_text.strip(" \t"))
     return g.group("id") if g else None
 
 
@@ -307,7 +309,7 @@ def code_mask(lx, keep):
     spans a reader of prose must skip."""
     out = []
     for a, b in lx.code:
-        if id_only(lx.text[a:b].strip("`").strip(), keep):
+        if id_only(lx.text[a:b].strip("`"), keep):    # whitespace is a separator token
             continue
         cut = a
         for m in _SLUG_IN_CODE.finditer(lx.text, a, b):
@@ -492,28 +494,51 @@ class Memo:
         for p in self.paragraphs:
             yield p.lexed
 
+    def sibling_path(self, dest):
+        """The ONE destination -> sibling mapping: the memo on disk a link
+        destination names, or None when it names none.  POLICY (CommonMark
+        §6.3 / GFM say nothing about siblings on disk): a sibling is a
+        RELATIVE `.md` path beside this memo.  Stages, in spec order:
+          (a) the scheme test on the RAW path component -- per WHATWG URL a
+              scheme is read before percent-decoding, so `notes%3Achild.md`
+              has no scheme: it is the local file `notes:child.md`;
+          (b) percent-decode (`slice%20sib.md` is `slice sib.md`, as
+              `<slice sib.md>` is);
+          (c) the DECODED name must not be absolute (`/x`, `//host/x` -- a
+              site URL joined to the memo's directory would probe the host's
+              filesystem root) nor hold a C0 control / DEL (`child%00.md`
+              would make `resolve()` raise);
+          (d) the `.md` suffix;
+          (e) `resolve()` beside the memo; an `OSError` there (an over-long
+              name, a loop) makes the sibling UNAVAILABLE: the joined,
+              unresolved path is returned and the population reports it
+              as a linked memo that is not on disk (exit 2), never a crash,
+              never a silent drop.
+        """
+        raw = re.split(r"[#?]", dest, 1)[0]
+        if _SCHEME.match(raw):                                       # (a)
+            return None
+        name = unquote(raw)                                          # (b)
+        if name.startswith("/") or _CONTROL.search(name):            # (c)
+            return None
+        if not name.endswith(".md"):                                 # (d)
+            return None
+        joined = self.path.parent / name
+        try:
+            return joined.resolve()                                  # (e)
+        except OSError:
+            return joined
+
     def linked_files(self):
-        """Every LOCAL `.md` this memo links -- from any block, cells included
-        -- resolved beside it, in first-link order.  POLICY (not CommonMark
-        §6.3 / GFM, which say nothing about siblings on disk): a memo's
-        siblings are RELATIVE paths only: a destination with a scheme (`https:`,
-        `mailto:`), a protocol-relative `//` host, or a root-relative `/`
-        path (a site URL, which joined to the memo's directory would probe
-        the host's filesystem root) is not a sibling on disk, whatever its
-        path ends in."""
-        out = []
+        """Every sibling this memo links (`sibling_path`) -- from any block,
+        cells included -- in first-link order, each once, the memo itself
+        excluded."""
+        out, seen = [], {self.path.resolve()}
         for lx in self.lexed():
             for _, _, dest in lx.links:
-                # the PATH component, percent-decoded (`slice%20sib.md` is the
-                # file `slice sib.md`, as `<slice sib.md>` is), validated ONCE
-                # after decoding -- so `%2Ftmp%2Fx.md` is `/tmp/x.md` and is
-                # rejected like a raw `/tmp/x.md` or `//host/x.md`
-                name = unquote(re.split(r"[#?]", dest, 1)[0])
-                if (_SCHEME.match(name) or name.startswith("/") or _CONTROL.search(name)
-                        or not name.endswith(".md")):
-                    continue            # a C0 control (`child%00.md`) would make `resolve()` raise
-                f = (self.path.parent / name).resolve()
-                if f != self.path.resolve() and f not in out:
+                f = self.sibling_path(dest)
+                if f is not None and f not in seen:
+                    seen.add(f)
                     out.append(f)
         return out
 
@@ -561,6 +586,15 @@ class Memo:
 
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+
+
+def _is_file(p):
+    """`p.is_file()` with an `OSError` (an unavailable path: over-long, a
+    loop) read as "not on disk" -- the schema-miss path, not a crash."""
+    try:
+        return p.is_file()
+    except OSError:
+        return False
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
 _CITE_LABEL = re.compile(r"[a-z][0-9]+")
@@ -587,7 +621,7 @@ class Population:
             if p in seen:
                 continue
             seen.add(p)
-            if not p.is_file():
+            if not _is_file(p):
                 self.misses.append((p.name, 0, "linked memo not found -- its population is unscanned"))
                 continue
             memo = Memo(p)

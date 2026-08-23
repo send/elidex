@@ -95,7 +95,10 @@ _QUOTE = re.compile(r"^ {0,3}>")
 
 
 def is_blank(line):
-    return not line.strip()
+    """CommonMark §4.9: a blank line "contains no characters, or only spaces
+    or tabs" -- the ASCII class, not `str.strip()`'s Unicode whitespace (an
+    NBSP-only line is paragraph text)."""
+    return not line.strip(" \t")
 
 
 def one_line_block(line):
@@ -178,7 +181,7 @@ def split_row(line):
             bounds.append((start, i))
             start = i + 1
     bounds.append((start, n))
-    stripped = line.strip()
+    stripped = line.strip(" \t")    # the same space/tab class as cell trimming
     if stripped.startswith("|") and bounds:
         bounds = bounds[1:]
     if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):

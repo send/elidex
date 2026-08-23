@@ -237,8 +237,8 @@ MUTANTS = [
      ["(rc) a link to an absent memo inside a table CELL is rc 2",
       "(population) a violation in a sibling linked ONLY from a cell is reported"]),
     ("F3 population: a destination with a scheme or `//` is not a sibling", TABLES,
-     'if (_SCHEME.match(name) or name.startswith("/") or _CONTROL.search(name)',
-     'if (name.startswith("/") or _CONTROL.search(name)',
+     '        if _SCHEME.match(raw):                                       # (a)',
+     '        if False:                                                    # (a)',
      ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0"]),
     ("F4 attribution: the FIRST marker occurrence decides", TABLES,
      '    m = re.search(re.escape(MARKER), field)',
@@ -346,8 +346,8 @@ MUTANTS = [
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
      "`%2Ftmp%2Fx.md` -- is not a sibling", TABLES,
-     'if (_SCHEME.match(name) or name.startswith("/") or _CONTROL.search(name)',
-     'if (_SCHEME.match(name) or _CONTROL.search(name)',
+     '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
+     '        if _CONTROL.search(name):                                    # (c)',
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
       "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
       "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after decoding "
@@ -370,7 +370,8 @@ MUTANTS = [
      ["(image) an undefined reference image `![diagram][missing-image]` is literal syntax, not an "
       "unresolved memo reference: rc 0"]),
     ("R4-2 population: the destination path is percent-decoded", TABLES,
-     'name = unquote(re.split(r"[#?]", dest, 1)[0])', 'name = re.split(r"[#?]", dest, 1)[0]',
+     '        name = unquote(raw)                                          # (b)',
+     '        name = raw                                                   # (b)',
      ["(link) a percent-encoded destination `slice%20sib.md` links the file `slice sib.md`, as "
       "`<slice sib.md>` does"]),
     ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,
@@ -418,8 +419,38 @@ MUTANTS = [
      ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition: the "
       "later `[sib]` is an unresolved reference, rc 2, and child.md is not walked"]),
     ("R7-2 population: a C0 control character in a decoded destination is rejected", TABLES,
-     'or _CONTROL.search(name)', 'or False',
+     '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
+     '        if name.startswith("/"):                                     # (c)',
      ["a decoded destination with a C0 control character is rejected, never resolved"]),
+    # -- PR #510 Codex R8
+    ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", TABLES,
+     '        if _SCHEME.match(raw):                                       # (a)',
+     '        if _SCHEME.match(unquote(raw)):                              # (a)',
+     ["(link) `notes%3Achild.md` has no scheme (WHATWG URL: a scheme is read BEFORE decoding): it is "
+      "the local file `notes:child.md`, and it is scanned"]),
+    ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", TABLES,
+     '        try:\n            return joined.resolve()                                  # (e)\n'
+     '        except OSError:\n            return joined',
+     '        return joined.resolve()',
+     ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
+    ("R8-5 sibling: the dedup is a set (re-inject the list membership test)", TABLES,
+     '                if f is not None and f not in seen:\n                    seen.add(f)',
+     '                if f is not None and f not in out:\n                    pass',
+     ["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"]),
+    ("R8-3 bare id: the far side of a `.` is the ASCII id class, not `str.isalnum`", CHECK,
+     'bool(_ID_CONTINUES.match(text[j]))', 'text[j].isalnum()',
+     ["(bare) `9z.次の工程` bounds the id: the far side of the `.` is not an ASCII id character, so "
+      "the site is reported",
+      "(bare) `9z.é` bounds the id (a dotted number is ASCII on both sides)"]),
+    ("R8-4 row: edge pipes are detected with the space/tab class", LEXER,
+     '    stripped = line.strip(" \\t")    # the same space/tab class as cell trimming',
+     '    stripped = line.strip()',
+     ["(table) a row opening with an NBSP before its `|` is not edge-piped: the NBSP is a cell, the "
+      "header is 7 wide over a 6-cell delimiter, no table"]),
+    ("R8 sweep: a blank line is spaces or tabs only (§4.9)", LEXER,
+     '    return not line.strip(" \\t")', '    return not line.strip()',
+     ["(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end the "
+      "paragraph and the code span crosses it"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -466,7 +497,8 @@ MUTANTS = [
      '|(?P<file>[\\w./-]+\\.md\\b)', '',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
     ("#3 bare id: a dotted number is one token", CHECK,
-     '    return text[i] == "." and 0 <= j < len(text) and text[j].isalnum()', '    return False',
+     '    return text[i] == "." and 0 <= j < len(text) and bool(_ID_CONTINUES.match(text[j]))',
+     '    return False',
      ["(bare) a dotted number is one token: `§6.9z` names no row"]),
     ("#3 bare id: a decorated side is bounded by its decoration", CHECK,
      '        if not tok.group("r") and _glued(text, e, +1):', '        if _glued(text, e, +1):',

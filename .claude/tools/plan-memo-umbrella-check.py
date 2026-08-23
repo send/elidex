@@ -235,7 +235,9 @@ def _glued(text, i, step):
     if _ID_CONTINUES.match(text[i]):
         return True
     j = i + step
-    return text[i] == "." and 0 <= j < len(text) and text[j].isalnum()
+    # the far side of the `.` is tested with the SAME ASCII class: `9z.次の`
+    # / `9z.é` bound the id (a dotted number is ASCII on both sides)
+    return text[i] == "." and 0 <= j < len(text) and bool(_ID_CONTINUES.match(text[j]))
 
 
 def _bare(b, keep, out):
@@ -255,7 +257,7 @@ def _bare(b, keep, out):
             continue
         if b.masked(tok.start("id")):
             continue
-        if tid.isdigit():
+        if tid.isdigit():       # `tid` is SHORT_ID, ASCII by grammar: this is `[0-9]+`
             continue
         # Unbalanced decoration means a bold RUN opened or closed nearby, not
         # that this token is decorated: `**A call at the finalizer …**` and
