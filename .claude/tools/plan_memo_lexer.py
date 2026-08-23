@@ -90,8 +90,34 @@ def fenced_lines(lines):
 
 _ATX = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
 _THEMATIC = re.compile(r"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
-_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)")
+_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)")   # §5.2: ASCII digits
 _QUOTE = re.compile(r"^ {0,3}>")
+# §4.3 setext heading underline: `=` or `-` characters, <=3 spaces of indent,
+# trailing spaces/tabs.  Precedence (§4.1 / §4.3): a `-` line after paragraph
+# text is the underline, not a thematic break (Example 59); after a list item
+# or `>` line it is NOT an underline (Examples 92-94: "cannot be a lazy
+# continuation line in a list item or block quote") and stays a thematic
+# break / text; with no paragraph before it, `---` is a thematic break and
+# `===` is text.
+_SETEXT = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+# §4.4 indented code: >=4 spaces at a block start (it cannot interrupt a
+# paragraph); §4.6 HTML block start conditions 1-7 (after <=3 spaces).
+_INDENTED = re.compile(r"^ {4,}[^ \t]")
+_HTML_BLOCK = re.compile(
+    r"^ {0,3}<(?:"
+    r"(?:pre|script|style|textarea)(?:[ \t>]|$)"          # 1
+    r"|!--"                                                # 2
+    r"|\?"                                                 # 3
+    r"|![A-Za-z]"                                          # 4
+    r"|!\[CDATA\["                                         # 5
+    r"|/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|"
+    r"details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|"
+    r"head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|"
+    r"option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)"
+    r"(?:[ \t>]|/>|$)"                                     # 6
+    r"|(?:[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*"
+    r"(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?>|/[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$"   # 7
+    r")", re.IGNORECASE | re.ASCII)
 
 
 def is_blank(line):
@@ -103,6 +129,28 @@ def is_blank(line):
 
 def one_line_block(line):
     return bool(_ATX.match(line) or _THEMATIC.match(line))
+
+
+def is_setext_underline(line):
+    """§4.3: a setext heading underline (the caller supplies the paragraph
+    it closes and the precedence above)."""
+    return bool(_SETEXT.match(line))
+
+
+def unsupported_block(line, at_block_start):
+    """The PROSE-AS-WRITTEN block type a raw line would open under CommonMark
+    §4 / §5 -- "quote" (§5.1), "indented-code" (§4.4, at a block start only:
+    it cannot interrupt a paragraph), "html" (§4.6 start conditions 1-7) --
+    or None.  Phase 1 reads such a line as paragraph text; the checker
+    reports it as a `[LEX-UNSUPPORTED?]` SEED when it holds a `|` or a
+    declared id, so the bound of the lexer is printed rather than assumed."""
+    if _QUOTE.match(line):
+        return "quote"
+    if at_block_start and _INDENTED.match(line):
+        return "indented-code"
+    if _HTML_BLOCK.match(line):
+        return "html"
+    return None
 
 
 def starts_block(line):
@@ -150,10 +198,11 @@ _INF = float("inf")
 
 def _cell(line, a, b, breaks):
     """The cell over raw `line[a:b]` whose consumed backslashes are at the raw
-    indexes in `breaks` (each `\\|` drops the backslash and keeps the `|`)."""
+    indexes in `breaks` -- THIS cell's breaks, in order, partitioned by the
+    row scan (each `\\|` drops the backslash and keeps the `|`)."""
     pieces, segments, off = [], [], 0
     start = a
-    for k in sorted(x for x in breaks if a <= x < b):
+    for k in breaks:
         if k > start:
             segments.append((off, start))
             pieces.append(line[start:k])
@@ -168,31 +217,33 @@ def _cell(line, a, b, breaks):
 def split_row(line):
     """-> [Cell, ...]: body cells of a GFM row (optional leading / trailing pipe
     stripped), split on unescaped `|` BEFORE any inline lexing."""
-    bounds, breaks, start, n = [], [], 0, len(line)
+    bounds, breaks, start, n = [], [[]], 0, len(line)   # breaks[k] = cell k's, in order
     for i, c in enumerate(line):
         if c != "|":
             continue
         # §2.4 parity (`_escaped`): only an ODD backslash run escapes the `|`
         # (`a\\|b` has an unescaped pipe and is two cells); the odd backslash
-        # is consumed
+        # is consumed.  The break is partitioned to its cell HERE, in the one
+        # scan -- a per-cell filter over a row-wide list was quadratic.
         if _escaped(line, i):
-            breaks.append(i - 1)
+            breaks[-1].append(i - 1)
         else:
             bounds.append((start, i))
+            breaks.append([])
             start = i + 1
     bounds.append((start, n))
     stripped = line.strip(" \t")    # the same space/tab class as cell trimming
     if stripped.startswith("|") and bounds:
-        bounds = bounds[1:]
+        bounds, breaks = bounds[1:], breaks[1:]
     if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):
-        bounds = bounds[:-1]       # the same parity: `\\|` at the end is a trailing pipe
+        bounds, breaks = bounds[:-1], breaks[:-1]   # the same parity: `\\|` at the end is a trailing pipe
     out = []
-    for a, b in bounds:
+    for (a, b), cell_breaks in zip(bounds, breaks):
         while a < b and line[a] in " \t":
             a += 1
         while b > a and line[b - 1] in " \t":
             b -= 1
-        out.append(_cell(line, a, b, breaks))
+        out.append(_cell(line, a, b, cell_breaks))
     return out
 
 
@@ -673,7 +724,11 @@ def _line_end(s, k):
 # file name inside a code span is a token too.
 # --------------------------------------------------------------------------
 
-_TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md\b)")
+# `\w` here is DELIBERATELY Unicode: a file name is not an ASCII grammar
+# (`計画.md` is a file); only the END boundary is the ASCII id class, so that
+# `x.mdの` still ends the token where `\b` (no boundary between `d` and `の`)
+# would not.
+_TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md(?![0-9A-Za-z]))")
 
 
 class Lexed:

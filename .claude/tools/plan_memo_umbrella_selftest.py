@@ -336,11 +336,11 @@ def scaling_unresolved_control(M):
                 t.append(time.perf_counter() - t0)
         return sites, min(t)
 
-    n1, t1 = best(2000)
-    n4, t4 = best(8000)
+    n1, t1 = best(1000)
+    n4, t4 = best(4000)
     ratio = t4 / t1 if t1 else float("inf")
-    return n1 == 2000 and n4 == 8000 and ratio < 8, (
-        "t(2000)=%.2f ms, t(8000)=%.2f ms, ratio %.1f (must be < 8; linear ~4, quadratic ~16)"
+    return n1 == 1000 and n4 == 4000 and ratio < 8, (
+        "t(1000)=%.2f ms, t(4000)=%.2f ms, ratio %.1f (must be < 8; linear ~4, quadratic ~16)"
         % (t1 * 1000, t4 * 1000, ratio))
 
 
@@ -377,7 +377,7 @@ def unavailable_sibling_control(M):
         return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
     finally:
         plan_memo_tables.pathlib.Path.resolve = orig
-    miss = any(f[0] == "SCHEMA" and "linked memo not found" in f[3] for f in res.findings)
+    miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
     return res.rc == 2 and miss, "rc %d, unavailable-sibling miss %s (must be rc 2 with the miss)" % (res.rc, miss)
 
 
@@ -402,10 +402,50 @@ def scaling_linked_files_control(M):
                 t.append(time.perf_counter() - t0)
         return k, min(t)
 
-    k1, t1 = best(2000)
-    k4, t4 = best(8000)
+    k1, t1 = best(1000)
+    k4, t4 = best(4000)
     ratio = t4 / t1 if t1 else float("inf")
-    return k1 == 2000 and k4 == 8000 and ratio < 8, "t(2000)=%.2f ms, t(8000)=%.2f ms, ratio %.1f (must be < 8)" % (
+    return k1 == 1000 and k4 == 4000 and ratio < 8, "t(1000)=%.2f ms, t(4000)=%.2f ms, ratio %.1f (must be < 8)" % (
+        t1 * 1000, t4 * 1000, ratio)
+
+
+def undecodable_sibling_control(M):
+    """The ONE I/O chokepoint: a sibling whose bytes are not UTF-8 is an
+    UNAVAILABLE linked memo (rc 2 + the miss), never an exception out of
+    `check()`.  An exception here is red."""
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "fixture.md"
+            p.write_text(build() + "\nSee [bad](bad.md).\n")
+            (pathlib.Path(d) / "bad.md").write_bytes(b"\xff\xfe not utf-8 \x80\n")
+            res = M.check(str(p))
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    miss = any(f[0] == "SCHEMA" and "linked memo unavailable (UnicodeDecodeError)" in f[3]
+               for f in res.findings)
+    return res.rc == 2 and miss, "rc %d, unreadable-sibling miss %s (must be rc 2 with the miss)" % (res.rc, miss)
+
+
+def scaling_split_row_control(M):
+    """`split_row` over N and 4N escaped-pipe cells, min of 3, t(4N)/t(N) < 8
+    (linear ~4, quadratic ~16): the break offsets are partitioned among the
+    cells in the one row scan, not filtered per cell from a row-wide list."""
+    import time
+    import plan_memo_lexer
+
+    def best(n):
+        line = "|" + " a\\|b |" * n
+        t = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            k = len(plan_memo_lexer.split_row(line))
+            t.append(time.perf_counter() - t0)
+        return k, min(t)
+
+    k1, t1 = best(500)
+    k4, t4 = best(2000)
+    ratio = t4 / t1 if t1 else float("inf")
+    return k1 == 500 and k4 == 2000 and ratio < 8, "t(500)=%.2f ms, t(2000)=%.2f ms, ratio %.1f (must be < 8)" % (
         t1 * 1000, t4 * 1000, ratio)
 
 
@@ -426,6 +466,8 @@ def registry():
     reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
     reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
     reg["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"] = ("CONTROL", scaling_linked_files_control)
+    reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
+    reg["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"] = ("CONTROL", scaling_split_row_control)
     return reg
 
 

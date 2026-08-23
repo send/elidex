@@ -84,7 +84,7 @@ MUTANTS = [
      ["(row) an unescaped `|` inside backticks SPLITS the row: each half is prose with a literal "
       "backtick, so the id on each side is a mention"]),
     ("row: `\\|` becomes `|` (the backslash is consumed)", LEXER,
-     '            breaks.append(i - 1)', '            pass',
+     '            breaks[-1].append(i - 1)', '            pass',
      ["(row) `\\|` is `|` in the cell, so `9z \\| 7z` is an id-only run"]),
     ("row: the leading pipe is optional", LEXER,
      'if stripped.startswith("|") and bounds:', 'if bounds:',
@@ -200,8 +200,8 @@ MUTANTS = [
      'queue.extend(memo.linked_files() if len(self.memos) == 1 else [])',
      ["(population) the population is transitive: a memo linked from a linked memo is scanned"]),
     ("gate: an absent linked memo is a schema miss", TABLES,
-     'self.misses.append((p.name, 0, "linked memo not found -- its population is unscanned"))',
-     'pass',
+     '            except (OSError, UnicodeDecodeError) as e:\n                self.misses.append(',
+     '            except (OSError, UnicodeDecodeError) as e:\n                [].append(',
      ["(rc) a linked memo that is not on disk is rc 2, never clean"]),
     ("gate: an unmatched schema is a schema miss", TABLES,
      '                if s.name not in matched:', '                if False:',
@@ -286,8 +286,8 @@ MUTANTS = [
       "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
     # -- PR #510 Codex R1
     ("R1-1 row: only an ODD backslash run escapes `|` (even run = literal backslash + pipe)", LEXER,
-     '        if _escaped(line, i):\n            breaks.append(i - 1)',
-     '        if i > 0 and line[i - 1] == "\\\\":\n            breaks.append(i - 1)',
+     '        if _escaped(line, i):\n            breaks[-1].append(i - 1)',
+     '        if i > 0 and line[i - 1] == "\\\\":\n            breaks[-1].append(i - 1)',
      ["(row) `a\\\\|b` holds an UNESCAPED pipe (§2.4: `\\\\` is a literal backslash): 5 cells "
       "under a 4-cell header is a width miss, rc 2"]),
     ("R1-1 row: the trailing-pipe check uses the same parity", LEXER,
@@ -399,7 +399,7 @@ MUTANTS = [
      ["(table) a reference definition right after a schema table ENDS the table (GFM §4.10 block "
       "start): no width miss, the definition resolves, the sibling is walked, rc 0"]),
     ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", TABLES,
-     '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID))', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID))',
+     '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID),',
      ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
       "spelling two ids, both reported"]),
     # -- PR #510 Codex R6
@@ -451,6 +451,43 @@ MUTANTS = [
      '    return not line.strip(" \\t")', '    return not line.strip()',
      ["(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end the "
       "paragraph and the code span crosses it"]),
+    # -- PR #510 Codex R9
+    ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", TABLES,
+     '            if cur and is_setext_underline(line) and not starts_block(cur[0][1]):',
+     '            if False:',
+     ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
+      "span opened in the heading does not reach the next paragraph's site"]),
+    ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", TABLES,
+     'is_setext_underline(line) and not starts_block(cur[0][1]):', 'is_setext_underline(line):',
+     ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
+      "paragraph continues and a code span crosses it"]),
+    ("R9 F1 seed: PROSE-AS-WRITTEN block openers are recorded", TABLES,
+     '            kind = unsupported_block(line, not cur)', '            kind = None',
+     ["(lex-seed) a block-quote line holding a declared id is a LEX-UNSUPPORTED? seed",
+      "(lex-seed) an indented-code line at a block start holding a `|` is a seed",
+      "(lex-seed) an HTML-block opener holding a declared id is a seed"]),
+    ("R9 F1 seed: only a line holding a `|` or a declared id is reported", CHECK,
+     '            if "|" in line or ids:', '            if True:',
+     ["(lex-seed) a block-quote line with neither a `|` nor a declared id is no seed"]),
+    ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", TABLES,
+     '            except (OSError, UnicodeDecodeError) as e:', '            except OSError as e:',
+     ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
+    ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
+     'MENTION_PROSE = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_ID', 'MENTION_PROSE = re.compile(r"\\b" + ROW_NOUN_ID',
+     ["(ascii) `次のSlice Cが所有する` reaches the naming worklist: the row-noun anchor is not `\\b` "
+      "(no Unicode word boundary before `Slice`)"]),
+    ("R9 F3 ascii: the slug anchor is an ASCII class (re-inject `\\w`)", ROLES,
+     'MENTION_SLOT = re.compile(r"(?<![0-9A-Za-z_-])"', 'MENTION_SLOT = re.compile(r"(?<![\\w-])"',
+     ["(ascii) `次は#11-zz-alphaが所有する` reaches the naming worklist: the slug anchor is an ASCII "
+      "class, not `\\w`"]),
+    ("R9 F3 ascii: list markers are ASCII digits (re-inject `\\d`)", LEXER,
+     '_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?:[ \\t]|$)")',
+     '_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\\d{1,9}[.)])(?:[ \\t]|$)")',
+     ["(ascii) `١.` (an Arabic-Indic digit) is not a list marker (§5.2: ASCII digits)"]),
+    ("R9 #3 row: breaks are partitioned in the one scan (re-inject the per-cell filter)", LEXER,
+     '        out.append(_cell(line, a, b, cell_breaks))',
+     '        out.append(_cell(line, a, b, [x for bs in breaks for x in bs if a <= x < b]))',
+     ["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -494,7 +531,7 @@ MUTANTS = [
      '_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")', '_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")',
      ["(bare) a hyphen bounds a short id: `after 9z-7z` names 9z"]),
     ("#3 file token: a bare `.md` file name is masked before the bare scan", LEXER,
-     '|(?P<file>[\\w./-]+\\.md\\b)', '',
+     '|(?P<file>[\\w./-]+\\.md(?![0-9A-Za-z]))', '',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
     ("#3 bare id: a dotted number is one token", CHECK,
      '    return text[i] == "." and 0 <= j < len(text) and bool(_ID_CONTINUES.match(text[j]))',

@@ -50,7 +50,7 @@ LICENSE_BEFORE = re.compile(
     r"|naming\s+"                           # naming X itself would name nobody
     r"|mint(?:s|ed|ing)?\s+(?:onto\s+)?"    # ... mints / minted / minting X
     r")(?:the\s+)?$",
-    re.IGNORECASE,
+    re.IGNORECASE | re.ASCII,
 )
 
 # What may stand immediately AFTER the mention: the mention possesses one of
@@ -63,7 +63,7 @@ LICENSE_AFTER = re.compile(
     r"|\s+runs\s+at\s+its\s+own\s+start"
     r"|\s+became\s+an\s+umbrella"
     r")",
-    re.IGNORECASE,
+    re.IGNORECASE | re.ASCII,
 )
 
 # The three mention shapes, each the ONE decorated-id grammar with a different
@@ -80,14 +80,19 @@ LICENSE_AFTER = re.compile(
 #     is not the fix.**` opens with `**A` and a space, and an unbalanced-
 #     decoration rule read that as a decorated row id `A`.  Measured: three
 #     such sites in this memo before the balance requirement.
-MENTION_PROSE = re.compile(r"\b" + ROW_NOUN_ID + r"(?![0-9A-Za-z])")
-MENTION_SLOT = re.compile(r"(?<![\w-])" + decorated_id(SLUG_ID))
+# ⚠ ASCII boundaries by PROPERTY: every anchor around these ASCII grammars
+# is an explicit ASCII class (or the pattern is compiled `re.ASCII`), never
+# `\b` / `\w` in Unicode mode -- there `次のSlice C` has no word boundary
+# before `Slice` and `次は#11-zz-alpha` none before `#`, and both naming sites
+# went unreported.
+MENTION_PROSE = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_ID + r"(?![0-9A-Za-z])")
+MENTION_SLOT = re.compile(r"(?<![0-9A-Za-z_-])" + decorated_id(SLUG_ID))
 CELL_TOKEN = re.compile(decorated_id(SHORT_ID))
 
 
 # A row noun standing between the licensing phrase and the id ("the child of
 # umbrella **3**") must not hide the phrase from the backward look.
-_TRAILING_NOUN = re.compile(r"\b" + ROW_NOUN + r"[\s-]+" + DECOR + "$")
+_TRAILING_NOUN = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN + r"[ \t\n-]+" + DECOR + "$")
 
 # The backward look reads the 40 characters before the mention (after a
 # trailing row noun is dropped); a row noun + its decoration is shorter than
@@ -120,17 +125,17 @@ ROLE_PATTERNS = [
     ("ordering", re.compile(
         r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
         r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"
-        r"waits? on|until|once)\b", re.IGNORECASE)),
+        r"waits? on|until|once)\b", re.IGNORECASE | re.ASCII)),
     ("owner", re.compile(
         r"\b(?:owns?|owned|owner|belongs?|carries|carry|holds?|responsible|"
         r"assigned|charter(?:ed)?s? to|placed on|home|hand(?:s|ed)?-?off)\b",
-        re.IGNORECASE)),
+        re.IGNORECASE | re.ASCII)),
     ("landing", re.compile(
         r"\b(?:lands?|landed|landing|ships?|shipped|retires?|retired|merged|"
-        r"PR|delivers?|deliverable)\b")),
+        r"PR|delivers?|deliverable)\b", re.ASCII)),
     ("acceptance", re.compile(
         r"\b(?:acceptance|witness|regression|assert(?:s|ion)?|must|probe|"
-        r"observable|green|red)\b", re.IGNORECASE)),
+        r"observable|green|red)\b", re.IGNORECASE | re.ASCII)),
 ]
 
 
@@ -169,7 +174,7 @@ OWNS_TWO = re.compile(
     + decorated_id(_OWNER_CORE, "a")
     + r"\s*(?:,\s*|\s+and\s+|\s+or\s+|\s*/\s*)"
     + decorated_id(_OWNER_CORE, "b"),
-    re.IGNORECASE)
+    re.IGNORECASE | re.ASCII)
 
 
 def _owner_ok(m, tag):
@@ -187,23 +192,23 @@ def _owner_ok(m, tag):
 ORDER_WORDS = re.compile(
     r"\b(?:before|after|lands? (?:first|second)|prerequisite of|gates?|blocked by|"
     r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b",
-    re.IGNORECASE,
+    re.IGNORECASE | re.ASCII,
 )
 # EXACTLY the two tokens `#11-plan-memo-acceptance-falsifiability-check` names.
 # It read `witness|regression|assert` as well for one revision, which is a
 # DIFFERENT predicate from the one this reproduces, and reproducing a figure
 # with a wider predicate than the figure's own is how a cross-check agrees with
 # something it never measured.
-ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE)
+ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE | re.ASCII)
 
 # A row that has already landed states no acceptance condition it still owes.
-RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b")
+RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b", re.ASCII)
 
 # The kind said in WORDS, for assertion (a)'s seed half.
 DECLARES = re.compile(
     r"(?:is an umbrella|not a terminal unit|≥3 intersecting|three intersecting|"
     r"no canonical algorithm|edge-dense)",
-    re.IGNORECASE,
+    re.IGNORECASE | re.ASCII,
 )
 
 

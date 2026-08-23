@@ -207,12 +207,34 @@ and each attribution spelling has a positive control and a mutant.
 | **local policy** (no spec clause) | sibling destinations (percent-decoded, validated ONCE after decoding) | the path component of a destination is percent-decoded before resolving (`slice%20sib.md` = `slice sib.md`, as `<slice sib.md>`) | `plan_memo_tables.py::Memo.linked_files` (`urllib.parse.unquote`) | ✓ control "(link) a percent-encoded destination `slice%20sib.md`…" | no |
 | **local policy** (no spec clause) | sibling destinations | a memo's siblings are RELATIVE paths only: a scheme, a protocol-relative `//` host, or a root-relative `/` path is never joined to the memo's directory | `plan_memo_tables.py::Memo.linked_files` | ✓ controls "(rc) an absolute URL ending in `.md`…", "(rc) a protocol-relative `//host/x.md`…", "(rc) a root-relative `/guide.md`…" | no |
 
-**Out of the lexing bound (not lexed, and — honestly — not detected)**: CommonMark §4.4 indented
-code, §4.6 HTML blocks, §5 container blocks, §6.5 autolinks, §2.5 entity references (§6.4 images
-ARE lexed — their bracket structure, see the PR #510 rows). Text in those constructs is read
-*as written*: a non-`|` line as prose, a `|` line as a row (so a `|` row inside an HTML comment is
-admitted, and a `> |` row is not a row). Population today: 0 such rows. No `[LEX-UNSUPPORTED]`
-detector is claimed; the bound is the listed rows, nothing more.
+### §3.0 Block grammar — the spec's CLOSED list (the bound IS this table)
+
+CommonMark 0.31.2 enumerates its block types in §4 (leaf blocks) and §5 (container blocks); GFM 0.29
+adds §4.10 tables. Every type has a disposition here: **LEXED** (a Phase-1 clause with a control) or
+**PROSE-AS-WRITTEN** (read as paragraph text; a `[LEX-UNSUPPORTED?]` SEED names such a line when it
+holds a `|` or a declared id — a seed in the ORDER-PROSE? idiom, never an inventory). Section numbers
+are the spec's own (`.claude/tools/webref specs commonmark` = no source: webref carries no CommonMark
+extract, so this list is cited from the 0.31.2 text directly, re-verified 2026-08-23).
+
+| § | Block type | Disposition | Phase-1 site | Control |
+|---|---|---|---|---|
+| §4.1 | Thematic break | LEXED — one-line block, ends a paragraph / table; `---` after paragraph text is a §4.3 underline instead (Example 59) | `one_line_block` (`_THEMATIC`) | "(span) a paragraph ends at an ATX heading" family; "(setext) a `---` after paragraph text…" |
+| §4.2 | ATX heading | LEXED — one-line block; its text is inline content | `one_line_block` (`_ATX`) | "(span) a paragraph ends at an ATX heading" |
+| §4.3 | Setext heading | LEXED — paragraph text + `=`/`-` underline; the underline ends the paragraph and is not content; not after a list item / `>` line (Examples 92–94) | `Memo._blocks` (`is_setext_underline`) | "(setext) `Heading\n===`…", "(setext) `==` after a list item is NOT an underline…" |
+| §4.4 | Indented code block | PROSE-AS-WRITTEN (+ SEED at a block start only: it cannot interrupt a paragraph) | `unsupported_block` (`_INDENTED`) | "(lex-seed) an indented-code line at a block start holding a `\|` is a seed" |
+| §4.5 | Fenced code block | LEXED — masked whole | `fenced_lines` | "(fence) …" family (10 controls) |
+| §4.6 | HTML block | PROSE-AS-WRITTEN (+ SEED, start conditions 1–7) | `unsupported_block` (`_HTML_BLOCK`) | "(lex-seed) an HTML-block opener holding a declared id is a seed" |
+| §4.7 | Link reference definition | LEXED — a block of its own at a block start, parsed over the rest of its run; elsewhere an orphan | `Memo._blocks` / `definition_block` / `definition_shape` | "(def) …" family |
+| §4.8 | Paragraph | LEXED — the inline unit Phase 2 scans | `Memo._blocks` / `Paragraph` | every prose control |
+| §4.9 | Blank line | LEXED — spaces or tabs only; ends every block | `is_blank` | "(span) an NBSP-only line is NOT blank…" |
+| §5.1 | Block quote | PROSE-AS-WRITTEN (+ SEED): a `>` line starts a paragraph and its marker stays text; no lazy continuation | `starts_block` (`_QUOTE`), `unsupported_block` | "(span) a paragraph ends at a `>` line", "(lex-seed) a block-quote line holding a declared id…" |
+| §5.2 / §5.3 | List item / list | LEXED-FLAT — a list-item line starts a paragraph and its content is inline content; nesting, laziness and the §5.2 interruption rules (empty item, ordered-from-1) are not modelled (local policy, stricter: any marker line interrupts); ASCII digits only | `starts_block` (`_LIST_ITEM`) | "(span) a paragraph ends at a list item…", "(ascii) `١.` is not a list marker" |
+| GFM §4.10 | Table | LEXED — see the §3 rows above | `find_tables` / `split_row` | "(row)" / "(table)" families |
+
+Inline constructs outside the lexed rows (§6.5 autolinks, §2.5 entity references, §6.2 emphasis
+beyond the `**` / `` ` `` decoration the id grammar reads) are read as written; the umbrella memo's
+`[LEX-UNSUPPORTED?]` count at `07ecf7d8`+ is **5** (one `>` line, four indented-code lines at a block
+start — all `sed`/shell examples holding a `|` or a digit-shaped id), reported, not gating.
 
 **Breadth**: K=2 (CommonMark 0.31.2, GFM 0.29), M=9
 **Split decision**: by the edge-dense rule (not K/M): umbrella + **2 slices** (§7). Each slice is a

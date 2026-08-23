@@ -763,3 +763,38 @@ case("NEGATIVE", "(table) a row opening with an NBSP before its `|` is not edge-
 case("NEGATIVE", "(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end "
                  "the paragraph and the code span crosses it",
      build(), "open `here\n\u00a0\n9z owns it` there", 0)
+
+
+# ------------------------------------------------- PR #510 Codex R9 controls --
+
+# FAMILY 1 (b): §4.3 setext headings end the paragraph (the reviewer's case)
+case("POSITIVE-NOVEL", "(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, "
+                       "so a code span opened in the heading does not reach the next paragraph's site",
+     build(), "Heading `open\n===\nSlice 9z owns it` here", 1)
+case("POSITIVE", "(setext) the reviewer's case: `Heading\\n===\\nSlice `9z` owns it` reports the site",
+     build(), "Heading\n===\nSlice `9z` owns it", 1)
+case("POSITIVE", "(setext) a `---` after paragraph text is the heading's underline (§4.3 over §4.1, "
+                 "Example 59) and ends the paragraph like the thematic break it is not",
+     build(), "open `here\n---\n9z owns it` there", 1)
+case("NEGATIVE", "(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
+                 "paragraph continues and a code span crosses it",
+     build(), "- a `x\n==\n9z owns it` end", 0)
+# FAMILY 1 (c): the LEX-UNSUPPORTED? seed
+acase("POSITIVE", "(lex-seed) a block-quote line holding a declared id is a LEX-UNSUPPORTED? seed",
+      build(), "LEX-UNSUPPORTED?", 1, prose="> Slice 9z owns it, says the quote.")
+acase("POSITIVE", "(lex-seed) an indented-code line at a block start holding a `|` is a seed",
+      build(), "LEX-UNSUPPORTED?", 1, prose="    | a | b |")
+acase("POSITIVE", "(lex-seed) an HTML-block opener holding a declared id is a seed",
+      build(), "LEX-UNSUPPORTED?", 1, prose="<div>9z owns it</div>")
+acase("NEGATIVE", "(lex-seed) a block-quote line with neither a `|` nor a declared id is no seed",
+      build(), "LEX-UNSUPPORTED?", 0, prose="> a quotation about nothing in particular.")
+
+# FAMILY 3: ASCII boundaries by property (the reviewer's cases)
+case("POSITIVE-NOVEL", "(ascii) `次のSlice Cが所有する` reaches the naming worklist: the row-noun anchor is "
+                       "not `\\b` (no Unicode word boundary before `Slice`)",
+     build(), "次のSlice Cが所有する。", 1)
+case("POSITIVE-NOVEL", "(ascii) `次は#11-zz-alphaが所有する` reaches the naming worklist: the slug anchor "
+                       "is an ASCII class, not `\\w`",
+     build(), "次は#11-zz-alphaが所有する。", 1)
+case("NEGATIVE", "(ascii) `١.` (an Arabic-Indic digit) is not a list marker (§5.2: ASCII digits)",
+     build(), "open `here\n\u0661. 9z owns it` there", 0)

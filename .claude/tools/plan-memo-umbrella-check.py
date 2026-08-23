@@ -43,7 +43,9 @@ runs `--self-test --mutants` under `scripts/trip-wires.sh` on every PR.
 FINDING CODES.  Mechanical (gate the exit status): UMBRELLA-MARK (a),
 UMBRELLA-CELL (b, the `Deps` half only -- the acceptance half has no cell and
 is not implementable here), KIND-SPELLING, SCHEMA.  Seeds (`?` suffix, never
-gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?.
+gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?,
+LEX-UNSUPPORTED? (a block-quote / indented-code / HTML-block line read as
+paragraph text that holds a `|` or a declared id).
 NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
 stated beside its check in `plan_memo_roles.py` and in the report's notes.
@@ -319,6 +321,32 @@ def collect_mentions(pop):
     return list(seen.values())
 
 
+_BARE_TOKEN = re.compile(r"(?<![0-9A-Za-z-])(?:#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})(?![0-9A-Za-z-])")
+
+
+def lex_unsupported_seed(pop, findings, notes):
+    """`[LEX-UNSUPPORTED?]` SEED: a line Phase 1 read as paragraph text that
+    CommonMark §4 / §5 would open as a block this lexer does not parse (a
+    block quote, indented code at a block start, an HTML block), when that
+    line holds a `|` or a declared id -- the content a table or a naming
+    scan would have read differently.  A seed in the ORDER-PROSE? idiom:
+    never gating, and no count here bounds the class (a quoted table row
+    whose ids are undeclared is invisible to it)."""
+    keep, n = pop.keep(), 0
+    for memo in pop.memos:
+        for lineno, kind, line in memo.unsupported:
+            ids = sorted({t for t in _BARE_TOKEN.findall(line) if t in keep})
+            if "|" in line or ids:
+                n += 1
+                findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno,
+                                 "a %s line (CommonMark %s) is read as paragraph text; it holds %s"
+                                 % (kind, {"quote": "§5.1", "indented-code": "§4.4", "html": "§4.6"}[kind],
+                                    ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
+    notes.append("[LEX-UNSUPPORTED?] SEED -- %d line(s) of a block type this lexer reads as written "
+                 "(block quote / indented code / HTML block) hold a `|` or a declared id; the bound is "
+                 "the plan's §3 table, not this figure" % n)
+
+
 # --------------------------------------------------------------------------
 # The pipeline
 # --------------------------------------------------------------------------
@@ -367,6 +395,7 @@ def check(path):
                  "the undetermined kind is written %d ways (%s); a kind with more than one spelling "
                  "is a kind no program can enumerate"
                  % (len(pop.spellings), " / ".join(sorted(pop.spellings)))))
+    lex_unsupported_seed(pop, findings, notes)
     all_mentions = collect_mentions(pop)
     assertion_a(pop, findings, notes)
     assertion_b(pop, findings, notes)

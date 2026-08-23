@@ -36,7 +36,7 @@ from urllib.parse import unquote
 
 from plan_memo_lexer import (
     Lexed, blank_spans, definition_block, definition_shape, delimiter_width, fenced_lines, is_blank,
-    normalize_label, one_line_block, split_row, starts_block,
+    is_setext_underline, normalize_label, one_line_block, split_row, starts_block, unsupported_block,
 )
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -80,7 +80,7 @@ MARKER = "UMBRELLA, not a terminal unit"
 # the naming rule enforces against umbrellas.  Two spellings are in use; both
 # are tolerated and the divergence is reported (a kind with two spellings is a
 # kind no program can enumerate).
-UNDETERMINED = re.compile(r"KIND\s*[—-]?\s*UNDETERMINED", re.IGNORECASE)
+UNDETERMINED = re.compile(r"KIND\s*[—-]?\s*UNDETERMINED", re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
 # "SCHEDULED FROM ITS OWN SLOT" rows).  ⚠ Keyed on one spelling, and the safe
@@ -126,7 +126,7 @@ kind a marker declares."""
 # `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
 # left them invisible to both passes; measured, four of five such sites in this
 # memo are real violations.
-ROW_NOUN_ID = ROW_NOUN + r"[\s-]+" + decorated_id(SHORT_ID)
+ROW_NOUN_ID = ROW_NOUN + r"[ \t\n-]+" + decorated_id(SHORT_ID)   # ASCII separators (`\s` is Unicode)
 
 # The id cell: the grammar at the cell's START, then a non-id character (so
 # `**7z** — MERGED` and `` `#11-x` (carved from #483) `` read `7z` / `#11-x`,
@@ -134,7 +134,7 @@ ROW_NOUN_ID = ROW_NOUN + r"[\s-]+" + decorated_id(SHORT_ID)
 # id cell.
 _ID_CELL = re.compile("^" + decorated_id("(?:%s|%s|%s)" % (SLUG_ID, CITE_ID, SHORT_ID))
                       + r"(?![0-9A-Za-z-])")
-_SLUG_IN_CODE = re.compile(r"(?<![\w-])" + SLUG_ID)
+_SLUG_IN_CODE = re.compile(r"(?<![0-9A-Za-z_-])" + SLUG_ID)     # an ASCII class, not `\w` (Unicode)
 
 # An id-only code span is tokenised by the declared-id GRAMMAR, longest
 # alternative first (a `#11-` slug is atomic -- its internal hyphens are not
@@ -144,7 +144,8 @@ _SLUG_IN_CODE = re.compile(r"(?<![\w-])" + SLUG_ID)
 # complement of the id-continuation class (the checker's `_ID_CONTINUES`); a
 # hyphen bounds a short id, and `slice-9z-sib.md` is safe because a file
 # name is a lexer `file` token, masked before the scan.
-_ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID))
+_ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),
+                           re.ASCII)
 
 # --------------------------------------------------------------------------
 # Table schemas, identified by HEADER ROW (a line range is a figure a later
@@ -260,7 +261,7 @@ def bare_id(cell_text):
     return g.group("id") if g else None
 
 
-_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$")
+_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)
 
 
 def attributed_to_other(field, rid):
@@ -392,6 +393,7 @@ class Memo:
         self.tables, self.table_lines = find_tables(self)
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
         self.orphans = {}           # normalised label -> {1-based line numbers}
+        self.unsupported = []       # [(lineno, kind, line)] PROSE-AS-WRITTEN block openers
         self.paragraphs = self._blocks()
         for lx in self.lexed():
             lx.resolve(self.defs)
@@ -461,6 +463,18 @@ class Memo:
                 flush()
                 i += 1
                 continue
+            # §4.3 setext heading: paragraph text followed by an underline is a
+            # heading, and the underline closes it (the text stays inline
+            # content to scan; the underline is not content).  Not after a
+            # list item or `>` line (Examples 92-94), where `---` stays a
+            # thematic break via `one_line_block` below.
+            if cur and is_setext_underline(line) and not starts_block(cur[0][1]):
+                flush()
+                i += 1
+                continue
+            kind = unsupported_block(line, not cur)
+            if kind is not None:
+                self.unsupported.append((i + 1, kind, line))
             d = self.definition_at(i) if not cur else None
             if d is not None:
                 # a block start: the definition is a block of its own
@@ -511,9 +525,9 @@ class Memo:
           (d) the `.md` suffix;
           (e) `resolve()` beside the memo; an `OSError` there (an over-long
               name, a loop) makes the sibling UNAVAILABLE: the joined,
-              unresolved path is returned and the population reports it
-              as a linked memo that is not on disk (exit 2), never a crash,
-              never a silent drop.
+              unresolved path is returned and the population's one I/O
+              chokepoint reports it as an unavailable linked memo (exit 2),
+              never a crash, never a silent drop.
         """
         raw = re.split(r"[#?]", dest, 1)[0]
         if _SCHEME.match(raw):                                       # (a)
@@ -586,15 +600,6 @@ class Memo:
 
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
-
-
-def _is_file(p):
-    """`p.is_file()` with an `OSError` (an unavailable path: over-long, a
-    loop) read as "not on disk" -- the schema-miss path, not a crash."""
-    try:
-        return p.is_file()
-    except OSError:
-        return False
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
 _CITE_LABEL = re.compile(r"[a-z][0-9]+")
@@ -621,10 +626,16 @@ class Population:
             if p in seen:
                 continue
             seen.add(p)
-            if not _is_file(p):
-                self.misses.append((p.name, 0, "linked memo not found -- its population is unscanned"))
+            # the ONE I/O chokepoint: a memo that cannot be opened, read or
+            # decoded (absent, a directory, over-long, invalid UTF-8) is an
+            # UNAVAILABLE linked memo -- the documented exit-2 miss, never an
+            # exception out of the population
+            try:
+                memo = Memo(p)
+            except (OSError, UnicodeDecodeError) as e:
+                self.misses.append((p.name, 0, "linked memo unavailable (%s) -- its population is "
+                                    "unscanned" % type(e).__name__))
                 continue
-            memo = Memo(p)
             self.memos.append(memo)
             queue.extend(memo.linked_files())
             # a reference no definition answers is prose under §6.3, and the
