@@ -658,7 +658,7 @@ case("POSITIVE", "(link) `[foo\\]][missing]` is a FULL reference (the `]` is esc
 
 
 # ------------------------------------------------- PR #510 Codex R3 controls --
-# `links()` is CommonMark Appendix A's bracket stack (one pass, no re-parse).
+# `links()` is CommonMark "Appendix: A parsing strategy" bracket stack (one pass, no re-parse).
 
 case("NEGATIVE", "(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read "
                  "as a shortcut, and the image destination is not a memo",

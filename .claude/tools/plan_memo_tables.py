@@ -412,8 +412,9 @@ class Memo:
 
     def linked_files(self):
         """Every LOCAL `.md` this memo links -- from any block, cells included
-        -- resolved beside it, in first-link order.  A memo's siblings are
-        RELATIVE paths only: a destination with a scheme (`https:`,
+        -- resolved beside it, in first-link order.  POLICY (not CommonMark
+        §6.3 / GFM, which say nothing about siblings on disk): a memo's
+        siblings are RELATIVE paths only: a destination with a scheme (`https:`,
         `mailto:`), a protocol-relative `//` host, or a root-relative `/`
         path (a site URL, which joined to the memo's directory would probe
         the host's filesystem root) is not a sibling on disk, whatever its

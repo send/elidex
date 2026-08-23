@@ -483,7 +483,7 @@ def _reference_tail(s, close, text, defs):
 def links(s, defs):
     """Every link and image in `s` (a block's inline content with code spans
     masked), resolved through `defs` (normalised label -> destination), by
-    CommonMark 0.31.2 Appendix A "A parsing strategy", Phase 2 "inline
+    CommonMark 0.31.2 "Appendix: A parsing strategy", Phase 2 "inline
     structure" -> "look for link or image", restricted to the bracket
     delimiters (no emphasis is processed here):
 

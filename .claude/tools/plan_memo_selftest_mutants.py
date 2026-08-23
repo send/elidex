@@ -326,7 +326,7 @@ MUTANTS = [
      'or "][" not in lx.text[off:lx.text.find("]", off) + 2]',
      ["(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, not an "
       "exempt shortcut"]),
-    # -- PR #510 Codex R3: Appendix A bracket stack
+    # -- PR #510 Codex R3: "Appendix: A parsing strategy" bracket stack
     ("R3-1 link: an IMAGE does not deactivate the openers before it (deactivate on image)", LEXER,
      '            for opener in stack:        # links may not contain links\n                if not opener[1]:',
      '        if True:\n            for opener in stack:\n                if not opener[1]:',

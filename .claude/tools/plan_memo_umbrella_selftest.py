@@ -223,7 +223,7 @@ def empty_registry_control(M):
 
 
 def linear_links_control(M):
-    """The linearity witness for Appendix A's bracket stack: 30 nested
+    """The linearity witness for the "Appendix: A parsing strategy" bracket stack: 30 nested
     brackets parse in well under 50 ms.  A recursive inner re-parse (the
     per-clause patch this replaced) is exponential in the nesting depth."""
     import time
