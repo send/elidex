@@ -150,18 +150,20 @@ MUTANTS = [
      ["(link) a label holding only a non-breaking space is a label (§6.3: at least one "
       "character that is not a space, tab, or line ending)"]),
     ("link: `[text]` followed by a link label is not a shortcut", LEXER,
-     '                # a link label follows, so `[text]` is not a shortcut either\n'
-     '                unresolved.append((i, raw, "full"))\n'
-     '                i += 1\n                continue',
-     '                pass',
+     '            return end, defs.get(normalize_label(raw)), "full"',
+     '            if defs.get(normalize_label(raw)) is not None:\n'
+     '                return end, defs.get(normalize_label(raw)), "full"',
      ["(link) `[label][undefined]` is neither a full reference nor a shortcut (§6.3 Example 571: "
       "a shortcut is not followed by a link label) -- the unanswered label is a schema miss, not "
       "a link to the sibling"]),
     ("link: collapsed reference resolves the text as label", LEXER,
-     'dest = defs.get(normalize_label(text)) if not inner else None', 'dest = None',
+     '            return nxt + 2, defs.get(normalize_label(text)), "collapsed"',
+     '            return nxt + 2, None, "collapsed"',
      ["(link) collapsed reference `[label][]`"]),
-    ("link: bracket text nests (full reference with inner brackets)", LEXER,
-     '            if depth > 1:\n                inner = True', '            if depth > 1:\n                return None',
+    ("link: bracket text nests (full reference with inner brackets): an inactive inner opener "
+     "is popped and its `]` is literal, not a failure of the outer", LEXER,
+     '                i += 1                  # literal `]`; the opener is gone\n                continue',
+     '                stack.clear()\n                i += 1\n                continue',
      ["(link) full reference whose text holds nested brackets; the label is the link's tail, not "
       "prose, and so is the definition"]),
     ("link: links are taken from the masked stream (A x B)", LEXER,
@@ -239,7 +241,7 @@ MUTANTS = [
      ["(rc) a link to an absent memo inside a table CELL is rc 2",
       "(population) a violation in a sibling linked ONLY from a cell is reported"]),
     ("F3 population: a destination with a scheme or `//` is not a sibling", TABLES,
-     'if _SCHEME.match(dest) or dest.startswith("//"):', 'if False:',
+     'if _SCHEME.match(dest) or dest.startswith("/"):', 'if False:',
      ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0",
       "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0"]),
     ("F4 attribution: the FIRST marker occurrence decides", TABLES,
@@ -299,8 +301,9 @@ MUTANTS = [
     ("R1-2 runner: the emptiness guard fires on zero controls / zero mutants", SELFTEST,
      '    if n_controls == 0:\n        out.append(', '    if False:\n        out.append(',
      ["an empty control or mutant registry is a FAIL, never green"]),
-    ("R1-3 link: a completed link inside the bracket text makes the outer brackets text", LEXER,
-     '        if inner and links(text, defs)[0]:', '        if False:',
+    ("R1-3 link: a link deactivates every `[` opener before it (links may not contain links)", LEXER,
+     '                if not opener[1]:\n                    opener[2] = False',
+     '                if False:\n                    opener[2] = False',
      ["(link) nested inline links: the INNER link is the link, the outer tail is text -- "
       "`child.md` joins the population, absent `parent.md` is not linked",
       "(link) a reference link nested in inline brackets: the inner reference is the link, the "
@@ -323,6 +326,30 @@ MUTANTS = [
      'or "][" not in lx.text[off:lx.text.find("]", off) + 2]',
      ["(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, not an "
       "exempt shortcut"]),
+    # -- PR #510 Codex R3: Appendix A bracket stack
+    ("R3-1 link: an IMAGE does not deactivate the openers before it (deactivate on image)", LEXER,
+     '            for opener in stack:        # links may not contain links\n                if not opener[1]:',
+     '        if True:\n            for opener in stack:\n                if not opener[1]:',
+     ["(link) a link wrapping a REFERENCE image `[![alt][img]](child.md)`: the image does not "
+      "deactivate the outer opener, so `child.md` is scanned",
+      "(link) a link wrapping an IMAGE `[![alt](img.png)](sib.md)` links the sibling; `img.png` is "
+      "never a memo"]),
+    ("R3-1 link: one pass, no recursive inner re-parse (re-inject one: exponential)", LEXER,
+     '        if not active:\n            i += 1                      # literal `]`; the opener is gone',
+     '        if not active or links(text, defs)[2] is None:\n            i += 1',
+     ["links() is linear: 30 nested brackets parse in < 50 ms"]),
+    ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
+     '        if is_img:\n            images.append((i, end))',
+     '        if is_img:\n            images.append((i, end))\n            i += 1\n            continue',
+     ["(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read as a "
+      "shortcut, and the image destination is not a memo"]),
+    ("R3-1 link: an escaped `[` is not an opener", LEXER,
+     '        if _is_escape(s, i):\n            i += 2                      # §2.4',
+     '        if False:\n            i += 2                      # §2.4',
+     ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
+    ("R3-2 population: a root-relative `/x.md` is not a sibling", TABLES,
+     'if _SCHEME.match(dest) or dest.startswith("/"):', 'if _SCHEME.match(dest) or dest.startswith("//"):',
+     ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -337,10 +364,10 @@ MUTANTS = [
      '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
     ("F13 link: an unanswered full reference is reported", LEXER,
-     '                unresolved.append((i, raw, "full"))', '                pass',
+     '                if form is not None:', '                if form is not None and form != "full":',
      ["(link) a full reference no definition answers is a schema miss"]),
     ("F13 link: a shortcut with an orphan definition is reported", LEXER,
-     '            unresolved.append((i, text, "shortcut"))\n        i += 1', '            pass\n        i += 1',
+     '                if form is not None:', '                if form is not None and form != "shortcut":',
      ["(link) a shortcut whose only definition sits mid-paragraph is a schema miss"]),
     ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", TABLES,
      '            for lineno, label in memo.unresolved_references():\n'

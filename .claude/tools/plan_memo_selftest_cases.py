@@ -655,3 +655,22 @@ case("POSITIVE-NOVEL", "(link) a link wrapping an IMAGE `[![alt](img.png)](sib.m
 case("POSITIVE", "(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, "
                  "not an exempt shortcut",
      build(), "See [foo\\]][missing].", 1, measure=("schema", "unresolved reference 'missing'"))
+
+
+# ------------------------------------------------- PR #510 Codex R3 controls --
+# `links()` is CommonMark Appendix A's bracket stack (one pass, no re-parse).
+
+case("NEGATIVE", "(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read "
+                 "as a shortcut, and the image destination is not a memo",
+     build(), "See ![alt][img] here.\n\n[img]: absent-file.md", 0,
+     measure=("schema", "unresolved reference"))
+case("POSITIVE-NOVEL", "(link) a link wrapping a REFERENCE image `[![alt][img]](child.md)`: the image "
+                       "does not deactivate the outer opener, so `child.md` is scanned",
+     build(), "See [![alt][img]](child.md).\n\n[img]: pic.png", 1,
+     files={"child.md": VIOLATION + "\n"})
+case("NEGATIVE", "(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0",
+     build(), "See \\[x](absent-file.md) here.", 0, measure=("schema", "linked memo not found"))
+
+# R3-2: a root-relative destination is a site URL, never a sibling on disk
+rcase("NEGATIVE", "(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
+      build(), "See [site docs](/guide.md).", 0)

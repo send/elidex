@@ -222,6 +222,27 @@ def empty_registry_control(M):
     return fired == (True, True, True, False), "guard fires %s (want True, True, True, False)" % (fired,)
 
 
+def linear_links_control(M):
+    """The linearity witness for Appendix A's bracket stack: 30 nested
+    brackets parse in well under 50 ms.  A recursive inner re-parse (the
+    per-clause patch this replaced) is exponential in the nesting depth."""
+    import time
+    import plan_memo_lexer      # the freshly loaded module
+    # depth 20 FIRST: under the re-injected recursion it takes ~600 ms
+    # (measured; 2^20 re-parses) and the control goes red there, before the
+    # 30-deep run -- which a 2^30 recursion would never finish
+    report = []
+    for depth in (20, 30):
+        s = "[" * depth + "x" + "]" * depth
+        t0 = time.perf_counter()
+        plan_memo_lexer.links(s, {})
+        ms = (time.perf_counter() - t0) * 1000
+        report.append("%d-deep %.3f ms" % (depth, ms))
+        if ms >= 50:
+            return False, "%s (must be < 50)" % ", ".join(report)
+    return True, "%s (must be < 50)" % ", ".join(report)
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -233,6 +254,7 @@ def registry():
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
     reg["an empty control or mutant registry is a FAIL, never green"] = ("CONTROL", empty_registry_control)
+    reg["links() is linear: 30 nested brackets parse in < 50 ms"] = ("CONTROL", linear_links_control)
     return reg
 
 

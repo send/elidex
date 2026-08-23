@@ -307,11 +307,13 @@ def dispose(lx, keep):
     """Tag `lx.mask`: every span the scanners must not read an id out of, as
     (start, end, kind) -- `code` (minus id-only spans and kept slugs), `def`
     (a definition renders nothing, so none of it, label included, is prose),
-    `link` (the tail; the visible text stays, it is prose), `cite`, `file`."""
+    `link` (the tail; the visible text stays, it is prose), `image` (the
+    same, for an image), `cite`, `file`."""
     out = [(a, b, "code") for a, b in code_mask(lx, keep)]
     if lx.defs_end:
         out.append((0, lx.defs_end, "def"))
     out += [(a, b, "link") for a, b, _ in lx.links]
+    out += [(a, b, "image") for a, b in lx.images]
     out += lx.tokens
     lx.mask = out
 
@@ -410,13 +412,16 @@ class Memo:
 
     def linked_files(self):
         """Every LOCAL `.md` this memo links -- from any block, cells included
-        -- resolved beside it, in first-link order.  A destination with a
-        scheme (`https:`, `mailto:`) or a protocol-relative `//` host is not a
-        sibling on disk, whatever its path ends in."""
+        -- resolved beside it, in first-link order.  A memo's siblings are
+        RELATIVE paths only: a destination with a scheme (`https:`,
+        `mailto:`), a protocol-relative `//` host, or a root-relative `/`
+        path (a site URL, which joined to the memo's directory would probe
+        the host's filesystem root) is not a sibling on disk, whatever its
+        path ends in."""
         out = []
         for lx in self.lexed():
             for _, _, dest in lx.links:
-                if _SCHEME.match(dest) or dest.startswith("//"):
+                if _SCHEME.match(dest) or dest.startswith("/"):
                     continue
                 name = re.split(r"[#?]", dest, 1)[0]
                 if not name.endswith(".md"):

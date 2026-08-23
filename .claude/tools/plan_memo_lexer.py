@@ -10,8 +10,9 @@ code spans (CommonMark §6.1, backtick strings of equal length) are lexed, then
 links (CommonMark §6.3 / §4.7) over the stream with code spans masked.
 
 What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
-HTML blocks, §6.4 images (`![alt](dest)` is recognised only as NOT a link:
-its destination never joins the population, its text and tail are prose), §5 container blocks (block quotes §5.1, list items §5.2 -- a
+HTML blocks, §6.4 images beyond their bracket structure (`![alt](dest)` is
+parsed so that it is not a link and a link may wrap it: its destination
+never joins the population, its alt text is prose, its tail is masked), §5 container blocks (block quotes §5.1, list items §5.2 -- a
 list-item or `>` line only ENDS a paragraph here, its content is not
 re-parsed as a nested document), §6.5 autolinks, §2.5 entity references.
 Nothing here detects them.
@@ -415,29 +416,6 @@ def link_label(s, i):
     return raw, j + 1
 
 
-def _bracket_text(s, i):
-    """`s[i] == '['`: the balanced bracket text starting here -> (text, end
-    after `]`, contains_bracket) or None when unbalanced.  §6.3 link text:
-    brackets inside it only backslash-escaped or as a matched pair; "links
-    may not contain other links" -- `contains_bracket` is what the caller
-    uses to refuse a collapsed / shortcut reading of nested bracket text."""
-    depth, j, inner = 0, i, False
-    while j < len(s):
-        if _is_escape(s, j):
-            j += 2
-            continue
-        if s[j] == "[":
-            depth += 1
-            if depth > 1:
-                inner = True
-        elif s[j] == "]":
-            depth -= 1
-            if depth == 0:
-                return s[i + 1:j], j + 1, inner
-        j += 1
-    return None
-
-
 def _is_image(s, i):
     """Whether the `[` at `s[i]` opens an image (§6.4): an unescaped `!`
     stands right before it.  Images are not links -- their destination never
@@ -464,93 +442,116 @@ def _inline_tail(s, k):
     return None
 
 
+def _label_ok(text):
+    """Whether link TEXT may serve as the label of a collapsed / shortcut
+    reference (§6.3: a link label holds no unescaped `[` or `]`, at most 999
+    characters, at least one non-blank)."""
+    if len(text) > 999 or not _has_label_content(text):
+        return False
+    j = 0
+    while j < len(text):
+        if _is_escape(text, j):
+            j += 2
+            continue
+        if text[j] in "[]":
+            return False
+        j += 1
+    return True
+
+
+def _reference_tail(s, close, text, defs):
+    """The reference forms at the `]` of `s[close]` (§6.3 precedence after the
+    inline form): full `[text][label]`, collapsed `[text][]`, shortcut
+    `[text]` -> (end, dest, form).  `dest` is None when no definition answers
+    (the memo reports it as unresolved); `form` is None when the text is not
+    a label at all (literal brackets, nothing to report)."""
+    nxt = close + 1
+    if nxt < len(s) and s[nxt] == "[":
+        if nxt + 1 < len(s) and s[nxt + 1] == "]":
+            if not _label_ok(text):
+                return nxt + 2, None, None
+            return nxt + 2, defs.get(normalize_label(text)), "collapsed"
+        raw, end = link_label(s, nxt)
+        if raw is not None:
+            # a link label follows, so `[text]` is not a shortcut either
+            return end, defs.get(normalize_label(raw)), "full"
+    if not _label_ok(text):
+        return close + 1, None, None
+    return close + 1, defs.get(normalize_label(text)), "shortcut"
+
+
 def links(s, defs):
-    """Every link in `s` (a block's inline content with code spans masked),
-    resolved through `defs` (normalised label -> destination).
+    """Every link and image in `s` (a block's inline content with code spans
+    masked), resolved through `defs` (normalised label -> destination), by
+    CommonMark 0.31.2 Appendix A "A parsing strategy", Phase 2 "inline
+    structure" -> "look for link or image", restricted to the bracket
+    delimiters (no emphasis is processed here):
 
-    Returns ([(tail_start, end, destination)], [(offset, label)]): `tail_start`
-    is the `]` closing the link text, so a caller masking the tail leaves the
-    visible text -- the label, which is prose -- in the scanned stream.  Forms:
-    inline `[text](dest "title")`; full `[text][label]`; collapsed `[text][]`;
-    shortcut `[text]` (a link label not followed by `[]` or a link label).
+      a single left-to-right pass keeps a stack of `[` / `![` openers, each
+      "active"; on `]` the nearest opener is popped -- "if we do find one,
+      but it's not active, we remove the inactive delimiter from the stack,
+      and return a literal text node ]"; if active, "we parse ahead to see if
+      we have an inline link/image, reference link/image, collapsed reference
+      link/image, or shortcut reference link/image.  If we don't, then we
+      remove the opening delimiter from the delimiter stack and return a
+      literal text node ]"; if we do, the link or image is emitted and "if we
+      have a link (and not an image), we also set all [ delimiters before the
+      opening delimiter to inactive.  (This will prevent us from getting links
+      within links.)"
 
-    The second list, `[(offset, label, form)]`, is every reference whose
-    label `defs` does not define, with its FORM (`"full"` / `"collapsed"` /
-    `"shortcut"`) decided here, by the one bracket parse that honours
-    escapes -- a caller never re-walks the raw text to tell the forms apart.
-    Such a site is prose under §6.3, and a population the author meant to
-    link is silently lost unless the caller reports it; the memo exempts a
-    shortcut (every `[C19]` citation is one) unless a definition of its label
-    exists somewhere the grammar cannot read it.
+    Linear: no substring is re-parsed.  Returns (links, images, unresolved):
+    `links` = [(tail_start, end, destination)] with `tail_start` the `]`
+    closing the link text, so a caller masking the tail leaves the visible
+    text -- prose -- in the scanned stream; `images` = [(tail_start, end)]
+    (§6.4: an image's destination never joins the population, its alt text
+    is prose, its tail is masked); `unresolved` = [(offset, label, form)],
+    every reference whose label `defs` does not define, with its FORM
+    (`"full"` / `"collapsed"` / `"shortcut"`) decided by this one
+    escape-honouring parse -- a caller never re-walks the raw text.  Such a
+    site is prose under §6.3, and a population the author meant to link is
+    silently lost unless the caller reports it; the memo exempts a shortcut
+    (every `[C19]` citation is one) unless a definition of its label exists
+    somewhere the grammar cannot read it.
     """
-    out, unresolved, i = [], [], 0
-    while True:
-        i = s.find("[", i)
-        if i < 0:
-            break
-        # a `[` behind an odd run of backslashes is escaped (§2.4: the pairs
-        # before it escape each other)
-        k = i
-        while k > 0 and s[k - 1] == "\\":
-            k -= 1
-        if (i - k) % 2:
+    out, images, unresolved, stack, i, n = [], [], [], [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if _is_escape(s, i):
+            i += 2                      # §2.4: `\[` / `\]` are literal
+            continue
+        if c == "[":
+            stack.append([i, _is_image(s, i), True])
             i += 1
             continue
-        if _is_image(s, i):
-            i += 1          # §6.4: `![alt](dest)` is an image, not a link
-            continue
-        bt = _bracket_text(s, i)
-        if bt is None:
+        if c != "]" or not stack:
             i += 1
             continue
-        text, close, inner = bt
-        tail = close - 1
-        # §6.3: "links may not contain other links, at any level of nesting;
-        # if multiple otherwise valid link definitions appear nested inside
-        # each other, the inner-most definition is used" -- bracket text that
-        # holds a completed link makes the OUTER brackets literal text, and
-        # the scan continues inside them
-        if inner and links(text, defs)[0]:
-            i += 1
+        pos, is_img, active = stack.pop()
+        text = s[pos + 1:i]
+        if not active:
+            i += 1                      # literal `]`; the opener is gone
             continue
-        if close < len(s) and s[close] == "(":
-            r = _inline_tail(s, close + 1)
+        dest, end, form = None, None, None
+        if i + 1 < n and s[i + 1] == "(":
+            r = _inline_tail(s, i + 2)
             if r is not None:
-                out.append((tail, r[1], r[0]))
-                i = r[1]
+                dest, end = r
+        if end is None:
+            end, dest, form = _reference_tail(s, i, text, defs)
+            if dest is None:
+                if form is not None:
+                    unresolved.append((pos, text if form != "full" else s[i + 2:end - 1], form))
+                i += 1                  # literal `]`; the opener is gone
                 continue
-        if close < len(s) and s[close] == "[":
-            if close + 1 < len(s) and s[close + 1] == "]":
-                # collapsed: the label is the text
-                dest = defs.get(normalize_label(text)) if not inner else None
-                if dest is not None:
-                    out.append((tail, close + 2, dest))
-                    i = close + 2
-                    continue
-                if not inner:
-                    unresolved.append((i, text, "collapsed"))
-                i += 1
-                continue
-            raw, end = link_label(s, close)
-            if raw is not None:
-                dest = defs.get(normalize_label(raw))
-                if dest is not None:
-                    out.append((tail, end, dest))
-                    i = end
-                    continue
-                # a link label follows, so `[text]` is not a shortcut either
-                unresolved.append((i, raw, "full"))
-                i += 1
-                continue
-        if not inner and _has_label_content(text) and len(text) <= 999:
-            dest = defs.get(normalize_label(text))
-            if dest is not None:
-                out.append((tail, close, dest))
-                i = close
-                continue
-            unresolved.append((i, text, "shortcut"))
-        i += 1
-    return out, unresolved
+        if is_img:
+            images.append((i, end))
+        else:
+            out.append((i, end, dest))
+            for opener in stack:        # links may not contain links
+                if not opener[1]:
+                    opener[2] = False
+        i = end
+    return out, images, unresolved
 
 
 def reference_definitions(s):
@@ -629,12 +630,13 @@ class Lexed:
     paragraph only -- a table cell is inline content under GFM §4.10 and
     holds no §4.7 definition, so `cell=True` parses none); `tokens` =
     [(start, end, "cite" | "file")].  `resolve` then sets `links` =
-    [(tail_start, end, destination)] and `unresolved` = [(offset, label,
-    form)] of the references no definition answers; `mask` is set by the disposition
+    [(tail_start, end, destination)], `images` = [(tail_start, end)] and
+    `unresolved` = [(offset, label, form)] of the references no definition
+    answers; `mask` is set by the disposition
     step in `plan_memo_tables.py` once the row ids are known."""
 
     __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens",
-                 "links", "unresolved", "mask")
+                 "links", "images", "unresolved", "mask")
 
     def __init__(self, text, cell=False):
         self.text = text
@@ -643,15 +645,16 @@ class Lexed:
         self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(masked)
         self._masked = masked
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
-        self.links, self.unresolved = [], []
+        self.links, self.images, self.unresolved = [], [], []
         self.mask = None
 
     def resolve(self, defs):
         """Links (§6.3 / §4.7) over the masked stream, past the definitions;
         `defs` = normalised label -> destination."""
         start = self.defs_end
-        found, unresolved = links(self._masked[start:], defs)
+        found, images, unresolved = links(self._masked[start:], defs)
         self.links = [(a + start, b + start, dest) for a, b, dest in found]
+        self.images = [(a + start, b + start) for a, b in images]
         self.unresolved = [(a + start, label, form) for a, label, form in unresolved]
 
     def orphan_definitions(self):
