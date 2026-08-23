@@ -99,4 +99,13 @@ all() { set -- selfcheck citations partition keysets column carvecolumn instrume
         if [ -n "$failed" ]; then printf 'FAILED BLOCKS:%s\n' "$failed"; return 1; fi
         printf 'ALL BLOCKS EXITED 0\n'; }
 
-"${1:-all}" "$@"
+# Only a DECLARED harness function is a block: a name that is a shell builtin or
+# an executable (`help`, `true`, a typo) would otherwise run and hand back its
+# own status as "the re-derivation" (Codex R26).
+_block=${1:-all}
+if ! declare -F -- "$_block" >/dev/null; then
+  printf 'unknown block: %s\n' "$_block" >&2
+  printf 'blocks: %s\n' "$(declare -F | awk '{print $3}' | grep -v '^_' | tr '\n' ' ')" >&2
+  exit 2
+fi
+"$_block" "$@"

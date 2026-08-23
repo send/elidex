@@ -414,8 +414,12 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
     # Print every line the memo cites. Draft 8's filter dropped `remedy*` and had
     # no `PROTO-DISPLAY`, so two sections cited a block that did not emit their
     # claim -- the same defect class one level down.
-    echo "$out" | grep -oE 'PROTO-(ARM|DISPLAY) .*|SPY webref-subprocess=[0-9]+|remedy[0-9][a-z -]*|citation verify: +.*|(unclassified|unknown-label|label-less) rows: +[0-9]+|unique specs \(K\): +.*|HARD FAIL - [^.]*' |
-      sed 's/^/       /'
+    # A row whose instrumentation lines are MISSING is a row the memo cannot
+    # cite; the filter's empty output returned 1 into nowhere (Codex R26).
+    local instr
+    instr=$(echo "$out" | grep -oE 'PROTO-(ARM|DISPLAY) .*|SPY webref-subprocess=[0-9]+|remedy[0-9][a-z -]*|citation verify: +.*|(unclassified|unknown-label|label-less) rows: +[0-9]+|unique specs \(K\): +.*|HARD FAIL - [^.]*')
+    if [ -n "$instr" ]; then printf '%s\n' "$instr" | sed 's/^/       /'
+    else echo "       !! no instrumentation line (PROTO-*/SPY/remedy/count) in this row's output — the memo cites lines this row did not emit"; rc=1; fi
   }
   echo "row  state    fixture            flags        exit"
   _row 1   both    labelled;            _row 2   both    labelled --no-verify

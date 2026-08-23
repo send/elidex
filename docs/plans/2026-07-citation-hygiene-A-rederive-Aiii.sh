@@ -96,6 +96,16 @@ lines = sys.stdin.read().splitlines()
 cmds = []
 i = 0
 while i < len(lines):
+    # A flow-style step, `- {run: mise --version, shell: bash}`, carries its
+    # command inside the braces (Codex R26). Single-line flow mappings only --
+    # a multi-line flow mapping is the one YAML shape this reader does not
+    # parse, and A-iii §4.1 names the reader, not a YAML parser, as the instrument.
+    fm = re.match(r"^\s*-\s*\{(.*)\}\s*$", lines[i])
+    if fm:
+        fr = re.search(r"(?:^|,)\s*run:\s*([^,]*)", fm.group(1))
+        if fr:
+            cmds.append(fr.group(1).strip())
+        i += 1; continue
     m = re.match(r"^(\s*)(-\s*)?run:\s*(.*)$", lines[i])
     if m:
         indent = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
