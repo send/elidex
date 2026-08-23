@@ -96,8 +96,14 @@ not printed.
 - **J1b — J1 at the reporting layer.** No summary line may assert a classification the process did not
   make. This is J1's consequence and it is listed separately because the merged memo satisfied J1 and
   violated J1b in seven measured states.
-- **J2 — the two capabilities degrade the same direction.** Verifying needs the `webref` CLI *and* the
-  label map; measured on A-i's head, one hard-fails and the other exits 0.
+- **J2 — one capability, one degradation.** At A-i's head `preflight.py` still reads its inline label dict,
+  so the only capability there is the `webref` CLI (missing → a hard fail per citation). The moment A-ii's
+  import lands, verifying needs the CLI *and* the import, and measured on the pre-§4.2.6 prototype
+  (`rederive armmatrix` at that revision) the two degraded opposite ways: shim moved → hard fail, import
+  blocked → exit 0 with a wrong-cause remedy. A-ii does not make two causes agree; it **removes one** —
+  §4.2.6 resolves sections in-process, so the shim is never consulted and the tools tree's importability is
+  the single capability. Every state below that flips "CLI" alone is a state of `origin/main`, not of A-ii
+  (Codex R48).
 - **J3 — one degradation must survive.** `--no-verify --no-grep-pass` must keep working with the tools tree
   absent.
 
@@ -106,9 +112,9 @@ not printed.
 | pair | intersection |
 |---|---|
 | J1 × J1b | the row loop keeps two arms (control flow) while the summary keys on the *capability*, not the row count — the two must not be re-derived from each other |
-| J1 × J2 | one verdict for both causes, but the **diagnostic** names each absent cause separately |
+| J1 × J2 | one verdict, one cause, and the **diagnostic** names it with the captured import error — there is no second cause left to name |
 | J1 × J3 | classification still runs under `--no-verify`, so the loop must not raise — draft 5 of the merged memo made it raise and turned J3's row into a traceback |
-| J1b × J2 | with only the *CLI* absent the mapper **ran**, so rows are classified and remedy 1 is correct; keying J1b on the union verdict reports a problem the run does not have |
+| J1b × J2 | the verdict and the mapper share the one import, so "mapper ran but verification cannot" is not a reachable state after §4.2.6; J1b's guard is the capability, and it cannot disagree with the row classification |
 | J2 × J3 | `--no-verify` suppresses the hard fail by construction, so the verdict must be consulted at the verification stage, not at `main`'s top |
 
 ---
@@ -142,7 +148,7 @@ values** — the umbrella constraint that round 8 and round 9 both forced.
 
 | Concern | Slice | Why |
 |---|---|---|
-| the capability verdict, both act-sites, the four remedy strings, the summary's basis rules | **A-ii** | the gate's failure semantics |
+| the capability verdict, both act-sites, the three remedy strings, the summary's basis rules | **A-ii** | the gate's failure semantics |
 | the no-spec-surface declaration and its recognition rule | **A-ii** | the gate's contract of record |
 | `SKILL.md` — Hard-fail, Soft-warn and **Flags** bullets, `--no-verify`'s meaning, Pre-condition #1 | **A-ii** | a gate's contract of record travels with the gate |
 | `spec_labels.py`, the three consumers, `DESIGN.md` | **A-i** | landed |
@@ -181,7 +187,7 @@ drafts, and it flips **neither** axis:
 | instrument | `WEBREF.is_file()` | map import | child `webref` rc | is it a §5 state? |
 |---|---|---|---|---|
 | in-process `sys.meta_path` block | True | FAIL | **0** | **yes** — the map axis |
-| `mv .claude/tools/webref` (the 16-line shim) | **False** | OK | 2 | **yes** — the CLI axis |
+| `mv .claude/tools/webref` (the 16-line shim) | **False** | OK | 2 | **yes** at `origin/main` — the CLI axis; **retired by §4.2.6**: the shim is not consulted, so after A-ii this flips nothing |
 | patch `preflight.WEBREF` to a nonexistent path | **False** | OK | n/a — never spawned | **yes** at `origin/main` — the CLI axis; **retired by §4.2.6** (no `WEBREF`): the import axis is the one cause |
 | `mv .claude/tools/_webref` (the tree) | True | FAIL | **1** | **NO** — neither axis |
 
@@ -208,12 +214,12 @@ def shortname_from_label(label: str | None) -> str | None:
 row short-circuits before the capability is consulted. The gate's fail-closed property becomes **a function
 of the reviewed memo's cell formatting** — J1 restated as a defect.
 
-#### §4.2.3 The fix — two static causes, one verdict, two act-sites
+#### §4.2.3 The fix — one static cause, one verdict, two act-sites
 
 1. **One cause, a static process fact, evaluated once at `main`'s top**: the tools tree is importable —
    `_shortname_for is None` (and, after §4.2.6, `_lookup_section is None`, the same import). The verdict is
-   that fact; `WEBREF.is_file()` leaves with the subprocess (§4.2.6). **Each cause is also kept separately**, because
-   items 7 and 7c key on `map_missing` specifically, not on the union.
+   that fact; `WEBREF.is_file()` leaves with the subprocess (§4.2.6). Items 7 and 7c key on `map_missing`
+   by name — after §4.2.6 that is the verdict itself, the name is kept because it is what was measured.
 2. **`shortname_for` stays `str | None`.** No tri-state — that machinery existed only to carry a dynamic
    third cause that leaves with the widening (B's).
 3. **`shortname_from_label` keeps returning `None` when the map is absent**, and the row loop keeps its two
@@ -242,10 +248,12 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
    spelling" for a row that has no label. `unmapped_rows` is incremented for **both** classes while items 7b
    and 7d partition every other consumer. **A-ii's rule**: the basis names the classes it counted —
    `(<u> unknown-label, <l> label-less, of <N>)` — and is emitted only when the mapper ran.
-7. **The per-row soft-warn is suppressed when *the map* is absent — not whenever the verdict is absent.**
-   ⚠ Keying this on the union verdict is wrong and only the executable showed it: with only the *CLI*
-   missing, the mapper ran and declined, so the row genuinely **is** unmapped and remedy 1 is the correct
-   diagnosis. Measured, the two remedies then co-print for two independent causes, which is what P5 asks.
+7. **The per-row soft-warn is suppressed when the map is absent.** Before §4.2.6 this had to be keyed on
+   the *map* specifically and not on the union verdict — measured on the pre-§4.2.6 prototype, with only
+   the shim missing the mapper ran and declined, so the row genuinely was unmapped and remedy 1 was the
+   correct diagnosis beside the CLI remedy (at `origin/main` itself there is no map to be absent, so the
+   state was never measurable there). After §4.2.6 the verdict *is* the map's import, so the two keys
+   coincide; the rule is kept in its specific form because it is the one that was measured.
 7b. **The row loop partitions the unmapped bucket**, or remedies 1 and 2 cannot be per-cause: `origin/main`
    appends `label or "<empty>"` to **one** list. `unrecognized_labels` keeps only *labelled-but-unknown*; a
    separate `labelless_rows` counts the rest.
@@ -271,14 +279,13 @@ and a direct caller would get exactly the silent non-zero this change removes.
 
 #### §4.2.4 The remedy text
 
-**Four** strings, currently one.
+**Three** strings, currently one (an earlier revision had four; the CLI remedy left with the subprocess, §4.2.6).
 
 | Condition | Remedy |
 |---|---|
 | genuinely unmapped label | "add the spec to `.claude/tools/_webref/spec_labels.py::SPECS`, or check the label spelling" |
 | **label-less cell** | "the Spec section cell must open with a spec label" |
 | map unavailable | the captured import error and the path attempted, plus `--no-verify` |
-| CLI missing | the expected path, plus `--no-verify` |
 
 ⚠ Remedy 3 names "the import error", which `except Exception: _shortname_for = None` **discards** — A-ii
 captures it (`_shortname_for_error`) alongside the sentinel. **Initialised before the `try`**, or it goes
@@ -332,12 +339,18 @@ umbrella constraint "the plan-review gate reaches its shared library one way", r
 this A-ii's in-slice work; an earlier revision deferred it to B and registered a slot here, so neither slice
 would have done it).
 
-**The edit.** `verify_citation(shortname, section)` calls `_webref.resolver.lookup_section(shortname, section)`
-(imported beside `shortname_for`, under the same `try` — the capability cause of §4.2.3 is one import, so
-the verdict is unchanged) and treats a miss as the hard-fail row it is today; `preflight.WEBREF` and the
-`subprocess.run` call site are deleted. The `python3 -O` explicit-raise guard stays on the same function.
-The exit-status vocabulary (`2` = unknown spec, `1` = unknown section) becomes the resolver's return, which
-`test_preflight.py` pins directly instead of through a child's rc.
+**The edit.** `verify_citation(shortname, section)` resolves in-process through `_webref.resolver`
+(imported beside `shortname_for`, **under the same `try`** — two imports, one `except`, so the capability
+cause of §4.2.3 stays one fact and the verdict is unchanged) and treats a miss as the hard-fail row it is
+today; `preflight.WEBREF` and the `subprocess.run` call site are deleted. The `python3 -O` explicit-raise
+guard stays on the same function. **The exit-status vocabulary (`2` = unknown spec, `1` = unknown section)
+does not come for free from the resolver**: `lookup_section` returns `None` for *both* an absent headings
+extract and an absent clause (`resolver.py:216-247` — `try_fetch_data_json` → `None`, and a clause miss →
+`None`), so a call that only tests `None` would report a mapped spec that webref does not track as a drifted
+citation. `verify_citation` keeps the two-word vocabulary by asking the question the child used to answer
+first: `try_fetch_data_json("headings", shortname)` (tc39: `tc39_biblio`, `NotFound`) → `None` is **"unknown
+spec"** (the row's message names the missing extract); only then `lookup_section` → `None` is **"unknown
+section"**. `test_preflight.py` pins both messages directly instead of through a child's rc (Codex R48 gate).
 
 **Failures the resolver raises, not returns.** `lookup_section` is not miss-or-hit: on a cold cache the
 fetch layer `sys.exit`s on HTTP and network errors (`_webref/cache.py:129-131`, `:142-144`; `:128`/`:141`
@@ -354,7 +367,7 @@ the remaining citations, and never a re-raise. The `python3 -O` explicit-raise g
 by it. Pinned by **T-raise** below; T-net cannot see this, because its stub returns.
 
 **What it does not decide.** Catalog-backed labels and the catalog-unavailable branch are **B's** (§4.1.7 /
-§4.1.8 there, pinned by B's P4 / P-CSS through this same path); at A-ii's head the resolver is pinned-map only
+§4.1.8 there, pinned by B's P8 / P-CSS through this same path); at A-ii's head the resolver is pinned-map only
 (K3). Network: the resolver reads webref's cache; T-net pins that no `urlopen` happens under the suite's
 fixtures.
 
@@ -395,9 +408,9 @@ construction, since A-ii is the slice that makes `preflight` a consumer at all.
 
 ## §5 Behaviour deltas
 
-**Both columns measured** — baseline by `rederive column` (which varies the CLI axis), *After A-ii* by
-`rederive armmatrix` running the grafted control flow. **On `origin/main` the "map" axis does not exist**, so
-those rows read `n/a`. The two capability causes are a **union**, so any combination yields one verdict;
+**Both columns measured** — baseline by `rederive column` (which varies the CLI axis, a state `origin/main` has), *After A-ii* by
+`rederive armmatrix` running the grafted control flow (where moving the shim is inert — §4.2.6 — so every "CLI ✗" row's *After* value is its "CLI ✓" twin's: `armmatrix` compares the two rows' output **byte-for-byte** (3≡1, 4≡11b, 5≡2, 9≡6), not only their exit codes). **On `origin/main` the "map" axis does not exist**, so
+those rows read `n/a`. At `origin/main` the CLI is a cause; after A-ii only the import is (§4.2.6), so every "CLI ✗" row collapses onto its twin;
 what differs is the **diagnostic**.
 
 | # | CLI | map | mode | §3 shape | `origin/main` | After A-ii |
@@ -405,13 +418,13 @@ what differs is the **diagnostic**.
 | 1 | ✓ | ✓ | default | labelled | 0, verified | **0** |
 | 2 | ✓ | ✓ | `--no-verify` | labelled | 0 | **0** |
 | 2b | ✓ | ✓ | default | `dedup.md` | 0, **1** unique from 2 rows | **0**, unchanged |
-| 3 | ✗ | ✓ | default | labelled | 1, one failure per citation | **1** — one diagnostic line |
-| 4 | ✗ | ✓ | default | label-less | **0** | **1** |
-| 5 | ✗ | ✓ | `--no-verify` | either | 0 | **0** — capability unused |
+| 3 | ✗ | ✓ | default | labelled | 1, one failure per citation | **0** — identical to row 1; the shim is not consulted (§4.2.6) |
+| 4 | ✗ | ✓ | default | label-less | **0** | **0** — identical to row 11b (`n/a` line + remedy 2) |
+| 5 | ✗ | ✓ | `--no-verify` | either | 0 | **0** — identical to row 2 |
 | 6 | ✓ | ✗ | default | labelled | n/a | **1** |
 | 7 | ✓ | ✗ | default | label-less | n/a | **1** (§4.2.2) |
 | 8 | ✓ | ✗ | `--no-verify` | either | n/a | **0** (J3) |
-| 9 | ✗ | ✗ | default | any | n/a | **1**, diagnostic names **both** causes |
+| 9 | ✗ | ✗ | default | any | n/a | **1** — identical to row 6: the one cause |
 | 10 | ✓ | ✓ | default | **alias spelling** | 0, unmapped soft-warn, no verify line | **0**, mapped and verified |
 | 11 | ✓ | ✓ | default | **all rows unmapped** | **0**, **no `citation verify:` line at all** | **0** + `n/a (0 of N rows resolvable)` |
 | 11b | ✓ | ✓ | default | **label-less** | 0, no verify line | **0** + the same line, + remedy 2 |
@@ -422,8 +435,8 @@ what differs is the **diagnostic**.
 | 15 | ✓ | ✓ | default | **marker inside a fence** | **0** (table verifies) | **0**, unchanged — fence rule |
 | 16 | ✓ | ✓ | default | **one unmapped + one malformed** | 1 (malformed) | **1**, **and** `n/a (0 of 2 rows resolvable)` — item 5's denominator |
 
-**Newly-red**: 4, 6, 7, 9, 13. **1 → 0**: row 12 only. **1 → 1, changed diagnostic**: 3, 12b, 16.
-**Exit unchanged, output changed**: 10, 11, 11b, 14.
+**Newly-red**: 6, 7, 9, 13. **1 → 0**: 3 (the CLI cause is gone) and 12. **1 → 1, changed diagnostic**: 12b, 16.
+**Exit unchanged, output changed**: 4, 5, 10, 11, 11b, 14.
 
 ⚠ **The harness runs further untabulated states, and they are not all agreement.** The merged memo asserted
 "none diverges between the candidate predicates" as evidence of row-set completeness; measured, several
@@ -439,9 +452,10 @@ Each pin names what it **executes**; §5 owns the expected values, stated once. 
 §12(2) reads — no second list.
 
 **Two suite-level fixtures, stated here rather than inside a pin**, because a per-pin clause is what made the
-merged memo's pin set unsatisfiable: a shared `setUp` stubs `preflight.verify_citation → (True, "")` for
-every pin that runs `main` **except T-raise**, which needs the real function and stubs the seam below it
-(`_lookup_section`), and restores the five pieces of process state in `tearDown`. The capability axes
+merged memo's pin set unsatisfiable: a shared `setUp` stubs **`preflight._lookup_section`** (the seam below `verify_citation`, §4.3 item 4 — the
+real `verify_citation` runs in every pin, so its guard and its vocabulary are exercised everywhere) to
+return a hit for every pin that runs `main`, and restores the four pieces of process state (§4.3 item 3) in
+`tearDown`. T-raise replaces that stub with one that raises; it is not an opt-out. The capability axes
 are flipped by §4.2.1's in-process instruments.
 
 | Pin | What it executes | §5 rows | Fails at A-i's head? |
@@ -452,14 +466,14 @@ are flipped by §4.2.1's in-process instruments.
 | **P2** | map unimportable via `importlib.reload` under an import hook | 6 | **yes** |
 | **P2b** | the same through `main` (the import hook installed before `main` runs, the path the gate actually takes); **mutation check** — deleting the `except Exception` clause must turn P2b red while P2 alone stays green | 6 | **yes** |
 | **P3** | `--no-verify --no-grep-pass`, map absent — exit 0 and the basis qualifier | 8 | **yes** |
-| **P3b** | `--no-verify`, CLI absent, map present — exit 0, capability unused | 5 | no |
+| **P3b** | the shim moved (`origin/main`'s "CLI absent"), map present — exit 0 **and** verification ran (`citation verify:` line present): the shim is not a capability after §4.2.6 | 3, 5 | **yes** — at A-i's head row 3 hard-fails |
 | **P4** | label-shape independence: `labelled.md` and `unlabelled.md` give the *same* exit code in every capability state | 4, 7, 11b | **yes** |
-| **P5** | each of the four remedies appears for its own cause **and no other** — incl. the soft-warn suppressed when **the map** is absent (item 7) and remedy 1 vs 2 separated by item 7b | 3, 6, 7, 9, 11, 11b | **yes** |
+| **P5** | each of the three remedies appears for its own cause **and no other** — incl. the soft-warn suppressed when **the map** is absent (item 7) and remedy 1 vs 2 separated by item 7b | 6, 7, 9, 11, 11b | **yes** |
 | **P5b** | with the map absent the summary reads `unclassified rows`, not `unmapped-label rows` (item 7c) | 6, 7, 8, 9 | **yes** |
 | **P5c** | remedy 3's **string**, in both the captured-error and the degraded (`None`) case | 6, 9 | **yes** |
 | **P5d** | the basis qualifier names the classes it counted, and is absent when the mapper did not run (item 6) | 11, 11b, 16 | **yes** |
 | **P5e** | `K` is `n/a (label map unavailable)` when `map_missing`, and agrees with its printed list otherwise (item 8) | 6, 9, 11, 11b | **yes** |
-| **P6** | CLI missing reported once, not per citation; row 9's diagnostic names both causes | 3, 9 | **yes** |
+| **P6** | the import-missing hard fail is reported **once**, not per citation, and row 9 (shim moved *and* import blocked) prints the same single diagnostic as row 6 — one cause, never a second line for the shim | 6, 9 | **yes** — at A-i's head the CLI failure is reported **per citation** (`rederive column`: `nocli labelled` → `2 failure(s)`), not once |
 | **P10** | `main` on `alias.md`; asserts the row is MAPPED and verified | 10 | no |
 | **P11** | `nospec.md` → exit 0, asserting the `n/a` strings, not just the code | 12 | **yes** |
 | **P11b** | `nospec-and-table.md` and `nospec-and-header.md` → exit 1 naming the ambiguity — **two fixtures, one branch** | 12b, 13 | **yes** |
@@ -470,7 +484,7 @@ are flipped by §4.2.1's in-process instruments.
 | **P11g** (`test_grep_pass.py`) | the same `fenced-marker-long.md` through `run_grep_pass`: a bad `crates/…` path quoted *inside* that fence yields **no** hard finding (grep-pass reads the fence with the same `fences.py` tracker) — the disagreement R30 named, pinned on the grep-pass side | 15 | **yes** — `grep_pass.py`'s own tracker closes the fence early and reports the path |
 | **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** | 12 | **yes**, on the diagnostic |
 | **P13** | `allunmapped.md`, `unlabelled.md` and `malformed.md` → the `n/a (0 of N rows resolvable)` line present; **and its negative half** — absent in rows 3/6/9 | 11, 11b, 16, 3, 6, 9 | **yes** |
-| **T-raise** | the one pin that runs `main` with the **real** `verify_citation` (it opts out of the shared `setUp` stub, §6 preamble) and `_lookup_section` stubbed to raise `SystemExit("webref: network error …")`, then `ValueError` (a malformed extract), on a two-citation fixture: **exactly one** diagnostic naming the cause, no per-citation rows, the summary printed, exit = the hard-fail code — not the raised `SystemExit`'s and not a traceback; and the `python3 -O` guard, raised inside the same loop, is **not** caught | — (the raise is a stub state, outside `armmatrix`'s CLI/map/mode axes; like T-net, pinned by the suite only) | — not attributable there: the seam `_lookup_section` does not exist at A-i's head (the red would be an `AttributeError`, §12(2)'s excluded class); the pin guards §4.2.6's own edit — red against an implementation that catches per row or re-raises |
+| **T-raise** | `main` with the shared `_lookup_section` stub replaced by one that raises `SystemExit("webref: network error …")`, then `ValueError` (a malformed extract), on a two-citation fixture: **exactly one** diagnostic naming the cause, no per-citation rows, the summary printed, exit = the hard-fail code — not the raised `SystemExit`'s and not a traceback; and the `python3 -O` guard, raised inside the same loop, is **not** caught | — (the raise is a stub state, outside `armmatrix`'s CLI/map/mode axes; like T-net, pinned by the suite only) | — not attributable there: the seam `_lookup_section` does not exist at A-i's head (the red would be an `AttributeError`, §12(2)'s excluded class); the pin guards §4.2.6's own edit — red against an implementation that catches per row or re-raises |
 | **T-net** | across A-ii's whole suite, **`subprocess.run` is never called by `preflight`** (after §4.2.6 there is no call site; the path object check an earlier revision needed is gone — `grep_pass` keeps its own `subprocess.run`, outside this pin) **and `urllib.request.urlopen` is never called** (the in-process resolver serves from the cache fixture or the `_lookup_section` stub) | — | **yes** |
 
 ⚠ **An exit-code-only assertion is not a discriminator when the base reaches the same code by another
@@ -493,7 +507,7 @@ adapter — `preflight.py`, `test_preflight.py`, `SKILL.md`. **A-ii touches the 
 nowhere**, which is a stronger statement than the merged memo could make and is a direct consequence of A-i
 having taken the core half first. → `rederive couplings`
 
-**One-issue-one-way**: the `WEBREF.is_file()` question collapses from *n*-per-citation to one verdict. The
+**One-issue-one-way**: the capability question collapses from *n*-per-citation `WEBREF.is_file()` re-tests to one verdict on one import (`WEBREF` itself leaves with §4.2.6). The
 one remaining instance of §1's class inside A-ii's file — `preflight` reaching `resolver.lookup_section`
 through a subprocess while reaching `spec_labels` in-process — is collapsed **in this slice** (§4.2.6).
 
@@ -502,7 +516,7 @@ through a subprocess while reaching `spec_labels` in-process — is collapsed **
 ## §8 Line-count budget
 
 → `rederive budget`. `preflight.py` is the largest file in the touch set; A-ii's edit set is roughly
-**statement-neutral** because the hoisted verdict deletes the per-citation `WEBREF.is_file()` re-test and
+**statement-neutral** because the hoisted verdict deletes the per-citation `WEBREF.is_file()` re-test (and §4.2.6 deletes `WEBREF`) and
 §4.2.5's branch replaces work rather than adding it. Nothing is near a split.
 
 ---
@@ -545,16 +559,16 @@ umbrella assigned the same collapse to B — so neither slice would have done it
 `verify_citation` calls the in-process resolver (`_webref.resolver.lookup_section`) instead of spawning
 the CLI — **§4.2.6**, in this slice's edit set. It does not settle B's catalog policy by side effect: A-ii's
 resolver is pinned-only (K3 holds until B lands), and B's catalog-unavailable branch is pinned through this
-single path by P4 / P-CSS. T-net's `urlopen` clause (§6) is the pin that the collapse reaches no network
+single path by B's P8 / P-CSS. T-net's `urlopen` clause (§6) is the pin that the collapse reaches no network
 at A-ii's head.
 
 **Pre-existing, not counted**: `#11-elidex-ci-required-status-checks` — the ruleset has no
 `required_status_checks` rule, so every CI job is advisory, and a bypass actor makes the rule alone
 author-bypassable. Registered by A-iii, which is the slice that adds a job.
 
-**Explicitly NOT deferred**: the two-cause verdict and both act-sites, all four remedy strings and the
+**Explicitly NOT deferred**: the one-cause verdict and both act-sites, all three remedy strings and the
 degraded form, the soft-warn suppression, the partition and its summary consumers, both inherited CRITs, the
-no-spec-surface verdict and its recognition rule, the verify-line silence, the five-piece isolation contract,
+no-spec-surface verdict and its recognition rule, the verify-line silence, the four-piece isolation contract,
 and `SKILL.md`'s contract.
 
 ---
@@ -573,6 +587,8 @@ against a build where only the *other* one is fixed — the instrumentation must
 claim can be false, which is what the merged memo's version did not do.
 
 **(4) J3 survives:** `--no-verify --no-grep-pass` exits 0 with the tools tree absent.
+
+**(5) The prototype is gone:** the landing commit deletes `_proto` from `docs/plans/2026-07-citation-hygiene-A-rederive-common.sh` — its control flow now lives in `preflight.py`, and a second copy would be §1's class one level up.
 
 ---
 

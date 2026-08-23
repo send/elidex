@@ -380,7 +380,7 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
 # `_proto` grafts §4.2.3 + §4.2.5 onto a copy of `preflight.py` in a scratch
 # worktree, and `armmatrix` runs every §5 row against every capability state
 # with THREE candidate reporting predicates instrumented side by side. The
-# implementation PR lands this control flow AND DELETES `_proto` (memo §12(4)).
+# implementation PR lands this control flow AND DELETES `_proto` (memo §12(5)).
 _proto() {  # $1 = worktree; writes preflight_proto.py beside preflight.py
   python3 - "$1/$PF" "$1/${PF%/*}/preflight_proto.py" <<'PY'
 import sys
@@ -395,11 +395,44 @@ head = src[: src.index("def main() -> int:")]
 # not verdict -- certified 27 rows that never ran (Codex R4, reproduced).
 NEW = '''
 _shortname_for = None
+_lookup_section = None
 try:
     sys.path.insert(0, str(REPO_ROOT / ".claude" / "tools"))
     from _webref.spec_labels import shortname_for as _shortname_for
+    # §4.2.6: the section resolver is the SAME import as the map, so the
+    # capability is one cause; the head's `WEBREF` shim is never consulted.
+    from _webref.resolver import lookup_section as _lookup_section
+    from _webref.resolver import TC39_FAMILY as _TC39_FAMILY, tc39_biblio as _tc39_biblio
+    from _webref.cache import NotFound as _NotFound
+    from _webref.sources.webref_data import try_fetch_data_json as _try_fetch_data_json
 except Exception:
     _shortname_for = None
+    _lookup_section = None
+
+
+def _capability_guard():
+    # The `python3 -O` explicit-raise guard (§4.2.3): preflight's own
+    # invariant, called by the loop BEFORE the resolver `try` (§4.2.6).
+    if _lookup_section is None:
+        raise RuntimeError("preflight: verify_citation called with the capability absent")
+
+
+def verify_citation(shortname, section):
+    # §4.2.6: in-process, overriding the head's subprocess form. The two-word
+    # vocabulary is kept by asking the extract question first: `lookup_section`
+    # returns None for an absent extract AND an absent clause.
+    _capability_guard()
+    if shortname in _TC39_FAMILY:
+        try:
+            _tc39_biblio(shortname)
+        except _NotFound:
+            return (False, f"{shortname}: unknown spec (no tc39 biblio)")
+    elif _try_fetch_data_json("headings", shortname) is None:
+        return (False, f"{shortname}: unknown spec (no headings extract)")
+    hit = _lookup_section(shortname, section)
+    if hit is None:
+        return (False, f"{shortname} §{section}: unknown section")
+    return (True, "")
 
 
 def shortname_from_label(label):
@@ -449,12 +482,12 @@ def main() -> int:
     p.add_argument("--strict-enum", action="store_true")
     args = p.parse_args()
 
-    # item 1: two static causes, evaluated ONCE, before any data loop.
-    cli_missing = not WEBREF.is_file()
-    map_missing = _shortname_for is None
-    unavailable = cli_missing or map_missing
-    causes = ((["the webref CLI"] if cli_missing else [])
-              + (["the spec-label map"] if map_missing else []))
+    # item 1: ONE static cause (§4.2.6), evaluated ONCE, before any data loop.
+    # The shim is not read: `armmatrix` proves rows 3/4/5/9 identical to their
+    # shim-present twins by comparing output, not by a flag (Codex R48 / gate).
+    map_missing = _shortname_for is None or _lookup_section is None
+    unavailable = map_missing
+    causes = (["the spec-label map"] if map_missing else [])
 
     plan_path = Path(args.plan_memo)
     if not plan_path.is_file():
@@ -482,7 +515,7 @@ def main() -> int:
         print("  breadth:              n/a (no spec surface declared)")
         suffix = (f"; {' and '.join(causes)} unavailable" if unavailable else "")
         print(f"  citation verify:      n/a (no spec surface declared{suffix})")
-        print(f"PROTO-STATE path=marker cli_missing={cli_missing} map_missing={map_missing}",
+        print(f"PROTO-STATE path=marker map_missing={map_missing}",
               file=sys.stderr)
         return 1 if grep_pass_stage(args, plan_path) else 0
 
@@ -524,6 +557,7 @@ def main() -> int:
 
     # item 4: act-site 1, at the verification stage.
     verify_failed: list[tuple[str, str, str]] = []
+    resolver_failed = None
     seen_pairs: set[tuple[str, str]] = set()
     capability_hard_fail = False
     verify_ran = False                 # candidate 3: a flag set INSIDE the stage
@@ -537,7 +571,15 @@ def main() -> int:
                 if key in seen_pairs:
                     continue
                 seen_pairs.add(key)
-                ok, msg = verify_citation(shortname, section_num)
+                # §4.2.6: a raise from the resolver is a process-level fact --
+                # stop at the first, one diagnostic, no per-citation rows. The
+                # `-O` guard is raised OUTSIDE this `try`, so it is never swallowed.
+                _capability_guard()
+                try:
+                    ok, msg = verify_citation(shortname, section_num)
+                except (SystemExit, Exception) as e:   # noqa: BLE001
+                    resolver_failed = (shortname, section_num, f"{type(e).__name__}: {e}")
+                    break
                 if not ok:
                     verify_failed.append((shortname, section_num, msg))
 
@@ -583,7 +625,7 @@ def main() -> int:
         print(f"  unique specs (K):     {K}{basis} "
               f"({', '.join(displayed) if displayed else '-'})")
 
-    # §4.2.4: four remedies, each for its own cause and no other.
+    # §4.2.4: three remedies, each for its own cause and no other.
     if unrecognized_labels and not map_missing:
         print(f"  remedy1 unrecognized: {sorted(set(unrecognized_labels))}", file=sys.stderr)
     if labelless_rows and not map_missing:
@@ -593,7 +635,7 @@ def main() -> int:
     arm_d7 = bool(not args.no_verify and data_rows and not seen_pairs)
     arm_avail = bool(not args.no_verify and data_rows and not unavailable and not seen_pairs)
     arm_flag = bool(verify_ran and data_rows and not seen_pairs)
-    print(f"PROTO-STATE cli_missing={cli_missing} map_missing={map_missing} "
+    print(f"PROTO-STATE map_missing={map_missing} "
           f"citations={len(citations)} M={M} seen_pairs={len(seen_pairs)} "
           f"unmapped={unmapped_rows} verify_ran={verify_ran}", file=sys.stderr)
     print(f"PROTO-ARM d7={arm_d7} avail={arm_avail} flag={arm_flag}", file=sys.stderr)
@@ -602,10 +644,11 @@ def main() -> int:
         if capability_hard_fail:
             print(f"\\npreflight: HARD FAIL - citation verification unavailable: "
                   f"{' and '.join(causes)} missing.", file=sys.stderr)
-            if cli_missing:
-                print("  remedy4 cli-missing", file=sys.stderr)
             if map_missing:
                 print("  remedy3 import-error", file=sys.stderr)
+        elif resolver_failed:
+            print(f"\\npreflight: HARD FAIL - citation resolver failed on "
+                  f"{resolver_failed[0]} §{resolver_failed[1]}: {resolver_failed[2]}", file=sys.stderr)
         elif verify_failed:
             print(f"\\npreflight: HARD FAIL - citation verification: "
                   f"{len(verify_failed)} failure(s)", file=sys.stderr)
@@ -622,7 +665,7 @@ def main() -> int:
         # `_verdict` (which is read off the return sites) found it on row 16.
         print(f"\\npreflight: HARD FAIL - {malformed_rows} of {M} row(s) missing "
               f"section reference.", file=sys.stderr)
-    if malformed_rows or capability_hard_fail or verify_failed or grep_hard:
+    if malformed_rows or capability_hard_fail or resolver_failed or verify_failed or grep_hard:
         return 1
     return 0
 

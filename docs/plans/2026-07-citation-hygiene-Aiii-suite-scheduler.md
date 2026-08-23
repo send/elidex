@@ -68,7 +68,7 @@ job is ungated (§4.2).
 |---|---|
 | L1 × L2 | the loud failure belongs to the **script**, not to either caller — otherwise it is itself a thing one caller can skip |
 | L1 × L3 | with no filter, the CI caller's trigger is unconditional, so the two callers differ only in *where* they run, never in *whether* |
-| L2 × L3 | the set L2 ranges over is `git ls-files '.claude/**/test_*.py'` — a repo fact, not a filter list |
+| L2 × L3 | the set L2 ranges over is `git ls-files ':(glob).claude/**/test_*.py'` — a repo fact, not a filter list (the `:(glob)` spelling states the set without leaning on `.gitignore:28`, which today keeps every tracked file at least one directory deep — see Q3) |
 | L3 × L4 | an ungated job runs on every PR, so a network-dependent suite would fail every unrelated PR |
 
 ---
@@ -125,7 +125,7 @@ because the trigger is not a path list; the absence of a path list is *why* the 
 reason it would not. Codex R8.)
 
 **The script fails loudly when a `test_*.py` under `.claude/` is not collected by either `discover` root**
-(L2). ⚠ The set the assertion ranges over is `git ls-files '.claude/**/test_*.py'` — a *repo* fact. Wording
+(L2). ⚠ The set the assertion ranges over is `git ls-files ':(glob).claude/**/test_*.py'` — a *repo* fact (the same pathspec the harness uses, `-Aiii.sh:18`; the plain form would skip a root-level file — unreachable today under `.gitignore:28`, Codex R48 / gate). Wording
 it as "outside the filtered paths" keys on a CI filter that no longer exists, and would have let a suite at
 `.claude/skills/elidex-review/` pass while uncollected. → `rederive suiteset`
 
@@ -140,7 +140,7 @@ trip-wire scripts already live there", which conflates the wires with their driv
 
 Measured: **0 `urlopen` calls** across all `origin/main` tests. A-i's suite exercises the pinned dicts and
 `coverage_map._spec_label`; under A-i's split none reaches `sources/webref_data`, because `spec_labels.py`
-no longer imports it. A-ii's suite stubs `verify_citation` at suite level, so it spawns no `webref` child.
+no longer imports it. A-ii's suite stubs `preflight._lookup_section` at suite level (A-ii §6), and after A-ii §4.2.6 `preflight` has no child to spawn.
 → `rederive suites`
 
 ⚠ **The baseline instrument has a stated limit.** `verify_citation` runs
@@ -162,7 +162,7 @@ what B introduces; A-iii inherits no such dependency.
 ### §4.4 The interpreter floor
 
 The floor is **declared** at 3.9 and **statically pre-checked**, not proven: `rederive floor`
-parses every `git ls-files '.claude/**/*.py'` file under `ast` `feature_version` 3.9, rejects a PEP 604 union
+parses every `git ls-files ':(glob).claude/**/*.py'` file (the harness's pathspec, `-Aiii.sh`) under `ast` `feature_version` 3.9, rejects a PEP 604 union
 evaluated at definition time (one without `from __future__ import annotations` — the `str | None` annotations
 in `cache.py` and `preflight.py` are *under* that import, so they are strings on 3.9; Codex R17 read them as
 3.10-only), and greps a sample of runtime-only 3.10+ names. ⚠ A static read cannot enumerate every newer-runtime API
@@ -207,12 +207,12 @@ the PR page at review time**. → `rederive ruleset`
 |---|---|---|---|
 | **Q1** | `bash scripts/python-suites.sh` collects and passes both roots' suites | 3 | **yes** — the script does not exist |
 | **Q2** | a `test_*.py` planted outside both `discover` roots makes the script exit non-zero, naming the file (L2) | 4 | **yes** |
-| **Q3** | the set Q2 ranges over is `git ls-files '.claude/**/test_*.py'`, not a filter list — asserted by planting the file at `.claude/skills/elidex-review/`, which any plausible filter would have covered | 4 | **yes** |
+| **Q3** | the set Q2 ranges over is `git ls-files ':(glob).claude/**/test_*.py'`, not a filter list — asserted by planting a file at `.claude/skills/elidex-review/` (staged with `git add -N`, since `ls-files` enumerates tracked files), which any plausible filter would have covered. A root-level plant is **not** a fixture: `.gitignore:28` ignores `.claude/*` except `skills/` and `tools/`, so no tracked `test_*.py` can sit at `.claude/` today — the `:(glob)` spelling is kept because it states the intended set without leaning on that ignore rule, not because a root file is reachable | 4 | **yes** |
 | **Q4** | `mise run ci` reaches `tools-test` (the `depends` edge exists) | 3 | **yes** |
 | **Q5** | the interpreter-floor assertion fires below 3.9 | — | **yes** |
-| **Q7** | the same `tools` job region (Q6's reader) carries a `python-version:` matrix with a `"3.9"` leg — §12(6)'s instrument; a floor the job does not run is declared, not measured | — | **yes** — the job does not exist |
-| **Q6** | `ci.yml`'s `tools` job region — read by A-iii's own test with the job-boundary rule `rederive filters` uses (`_job_region`: from `  tools:` to the next two-space-indented non-comment, non-list line; whole lines, block-scalar bodies included — restated in the test, which cannot source the harness) — contains a line carrying the token `scripts/python-suites.sh`. Not inferred from L1 prose; the run-step collector an earlier revision named was removed at #501's design re-gate. Without it Q1–Q3 test the script and Q4 the `mise` edge while an empty or unrelated `tools` job satisfies §12(3) (Codex R14/R36) | 1, 2 | **yes** — the job does not exist |
-| **T-net** | `bash scripts/python-suites.sh` runs green in a child whose **`XDG_CACHE_HOME` is a fresh empty directory** (a warm webref cache would serve an in-process lookup without touching the network), with `http_proxy`/`https_proxy` at a closed port **and `NO_PROXY`/`no_proxy` unset** (an inherited `NO_PROXY=*` lets `urllib` bypass the poisoned proxy); **and**, in-process across the suite set, neither `subprocess.run` with the resolved `WEBREF` path **nor `urllib.request.urlopen`** is ever called — the second clause is what catches a new in-process resolver lookup, which the first half's proxy alone does not (Codex R16) | 5 | **yes** |
+| **Q7** | the same `tools` job region (Q6's reader) carries a `python-version:` matrix with a `"3.9"` leg **and a `uses: actions/setup-python` step whose `python-version:` input is `${{ matrix.python-version }}`** — a matrix no step consumes runs the runner's Python on every leg and measures nothing (Codex R48); §12(6)'s instrument; a floor the job does not run is declared, not measured | — | **yes** — the job does not exist |
+| **Q6** | `ci.yml`'s `tools` job region — read by A-iii's own test with the job-boundary rule `rederive filters` uses (`_job_region`: from `  tools:` to the next two-space-indented non-comment, non-list line; whole lines, block-scalar bodies included — restated in the test, which cannot source the harness) — contains a **`run:` step that executes the driver**: the property, not a spelling — after shell word-splitting, some command line of a `run:` scalar (or of its block-scalar body) has an argv token that resolves to `scripts/python-suites.sh` (`bash scripts/…`, `./scripts/…`, `cd x && bash …/scripts/…` all qualify), or is `mise run tools-test`, the edge Q4 pins. The token *anywhere* in the region is not enough: `env: DRIVER: scripts/python-suites.sh` names the driver and runs nothing (Codex R48). Not inferred from L1 prose; the region reader is the one above, and the step predicate is the `run:` scalar, not a whole-region grep. Without it Q1–Q3 test the script and Q4 the `mise` edge while an empty or unrelated `tools` job satisfies §12(3) (Codex R14/R36) | 1, 2 | **yes** — the job does not exist |
+| **T-net** | `bash scripts/python-suites.sh` runs green in a child whose **`XDG_CACHE_HOME` is a fresh empty directory** (a warm webref cache would serve an in-process lookup without touching the network), with `http_proxy`/`https_proxy` at a closed port **and `NO_PROXY`/`no_proxy` unset** (an inherited `NO_PROXY=*` lets `urllib` bypass the poisoned proxy); **and**, in-process across the suite set, neither `subprocess.run` from `preflight` (A-ii §4.2.6 deleted `WEBREF` and the call site) **nor `urllib.request.urlopen`** is ever called — the second clause is what catches a new in-process resolver lookup, which the first half's proxy alone does not (Codex R16) | 5 | **yes** |
 
 ⚠ **UNCHECKED, marked not omitted**: that a red `tools` job **blocks** a merge — **false**, see §4.5; the
 interpreter floor on `SKILL.md`'s direct `preflight.py` path, which bypasses the script.
@@ -296,10 +296,10 @@ observation yields zero jobs") is falsified by PR #496 independently of anything
 
 **(4) Offline:** T-net.
 
-**(5) The job runs the driver:** Q6 — the `tools` job's step set names `scripts/python-suites.sh`. (3) alone
+**(5) The job runs the driver:** Q6 — a `run:` step of the `tools` job invokes `scripts/python-suites.sh`. (3) alone
 is satisfiable by a job that runs nothing.
 
-**(6) The floor is measured:** Q7 green (the `tools` job region carries the `"3.9"` matrix leg) and that leg
+**(6) The floor is measured:** Q7 green (the `tools` job carries the `"3.9"` matrix leg and a `setup-python` step consuming it) and that leg
 green on the PR page (§4.4). A floor the job does not run is declared, not measured.
 
 ---

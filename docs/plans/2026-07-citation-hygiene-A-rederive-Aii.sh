@@ -174,7 +174,9 @@ carvecolumn() {  # the same fixtures at the carve — what §12(2)'s red-check c
 }
 
 # --- capability instruments ---------------------------------------------------
-# §5's two axes are "CLI" and "map". Getting either wrong invalidates every row
+# §5's two axes are "CLI" and "map" at `origin/main`; after A-ii §4.2.6 the CLI
+# axis is inert (the shim is never consulted) and `armmatrix` proves it by
+# comparing each "CLI ✗" row's output with its twin. Getting either wrong invalidates every row
 # measured with it, and draft 7 got the map axis wrong: `mv .claude/tools/_webref`
 # leaves `WEBREF.is_file()` TRUE — `.claude/tools/webref` is a separate 16-line
 # shim — while the CLI dies `ModuleNotFoundError` at invocation. That is a state
@@ -386,6 +388,10 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
     fi
     [ "$moved" = 1 ] && mv "$R/.shim" "$T/.claude/tools/webref"
     _n=$((_n + 1)); case "$lbl" in x*) ;; *) _tab=$((_tab + 1)) ;; esac
+    # Keep every row's output + exit: §5 says each "CLI ✗" row is IDENTICAL to
+    # its shim-present twin after §4.2.6, and `_twin` below compares them
+    # byte-for-byte (the exit-only grade never measured "identical", gate #R48).
+    printf '%s\n' "$out" > "$R/row.$lbl.out"; echo "$prc" > "$R/row.$lbl.rc"
     printf '%-4s %-8s %-18s %-12s EXIT=%d\n' "$lbl" "$st" "$fx" "$*" "$prc"
     # The row's status is a VERDICT only if the graft printed one (`_verdict`, same
     # rule as `column`): a proto that crashed with exit 1 is a row that was never
@@ -400,8 +406,8 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
     # row has no claim to hold.
     local want
     case "$lbl" in
-      1|2|2b|5|8|10|11|11b|12|14|15) want=0 ;;
-      3|4|6|7|9|12b|13|16)          want=1 ;;
+      1|2|2b|3|4|5|8|10|11|11b|12|14|15) want=0 ;;   # 3/4: the shim is inert after §4.2.6 (Codex R48)
+      6|7|9|12b|13|16)                  want=1 ;;
       *)                             want="" ;;
     esac
     [ -z "$want" ] || [ "$prc" = "$want" ] || { echo "       !! EXIT=$prc, §5 row $lbl says $want"; rc=1; }
@@ -451,6 +457,15 @@ armmatrix() {  # §4.2.3 item 5 / §5 — every row, every capability state, 3 p
   _row 12b both    nospec-and-header;   _row 13  both    nospec-and-table
   _row 14  nomap   nospec;              _row 15  both    fenced-marker
   _row 16  both    malformed
+  # §5: the CLI axis is inert after §4.2.6 — rows 3/4/5/9 must equal rows 1/11b/2/6
+  # in output AND exit, not merely in exit (the memo's "identical to row N").
+  _twin() {  # $1=CLI-✗ row  $2=its shim-present twin
+    if ! cmp -s "$R/row.$1.out" "$R/row.$2.out" || ! cmp -s "$R/row.$1.rc" "$R/row.$2.rc"; then
+      echo "       !! §5 row $1 is not identical to its twin row $2 — the shim is still a cause somewhere:"
+      diff "$R/row.$2.out" "$R/row.$1.out" | sed 's/^/         /' | head -20; rc=1
+    else echo "twin  row $1 == row $2 (output + exit)"; fi
+  }
+  _twin 3 1; _twin 4 11b; _twin 5 2; _twin 9 6
   echo "-- states §5 does not tabulate, checked for a further predicate divergence --"
   _row x1  nocli   allunmapped;         _row x2  nomap   allunmapped
   _row x3  nocli   nospec;              _row x4  neither unlabelled

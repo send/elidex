@@ -64,7 +64,8 @@ PY
 # grammar, quoted and digit-bearing keys included).
 # `_job_region JOB TEXT`: the lines of JOB's region (whole lines, block
 # scalars included -- a region read, not a step parser). Shared by `_gated`
-# and by A-iii §6 Q6, which reads the `tools` job's region for the driver path.
+# and by A-iii §6 Q6, which reads the `tools` job's region for a `run:` step
+# that executes the driver (a property of the step's argv, not a token grep).
 # The header matches the key plain or quoted (`  check:` / `  "check":` /
 # `  'check':`), the same key grammar the boundary rule admits (Codex R37).
 _job_region() { printf '%s\n' "$2" | awk -v j="$1" -v q="'" '$0 ~ "^  [\"" q "]?" j "[\"" q "]?:$" {f=1; next} f && /^  [^ #-]/ {exit} f {print}'; }
@@ -252,7 +253,8 @@ floor() {  # §4.4 — a STATIC PRE-CHECK of the declared 3.9 floor, not a proof
   # unions, and a sample of runtime-only 3.10+ names. What it cannot: every
   # newer-runtime API (`tomllib`, `Path.walk`, …) or an evaluated type alias
   # under a future import (Codex R21). The only proof that the suites run on
-  # 3.9 is running them on 3.9, which CI does not do; A-iii §4.4 says so and
+  # 3.9 is running them on 3.9, which CI does only once A-iii's matrix leg
+  # lands (§4.4, Q7); until then §4.4
   # claims "declared and pre-checked", not "measured".
   # "No .claude Python source uses syntax newer than 3.9" was a sentence with
   # no instrument behind it (Codex R17 -- whose own evidence, `str | None` in
