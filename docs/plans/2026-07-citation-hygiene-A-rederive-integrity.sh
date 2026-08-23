@@ -147,7 +147,7 @@ if len(parts) < 2:
                      % (len(parts), D))
 # The part SET is derived from the dispatcher's own `for _part in …` line and
 # compared with what is on disk: a part on disk the dispatcher does not source,
-# or a sourced part missing from disk, is RED. A-i §13.1's "7 harness parts" is
+# or a sourced part missing from disk, is RED. A-i §13.1's harness-part count is
 # then a reading of this equality, not a number this check was asked to believe
 # (`len(parts) >= 2` was all it asserted -- the block-audit of 2026-08-22).
 _src = DISPATCH.read_text(encoding="utf-8")

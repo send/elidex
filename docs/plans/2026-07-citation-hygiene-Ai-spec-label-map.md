@@ -380,15 +380,13 @@ three commits, so it carries none). The split took `-common` out of the band, an
 the band is `rederive budget`'s line, not this one's**.
 
 **The invocation surface is unchanged** — `bash …-A-rederive.sh <block>` and `… all` still resolve every
-block name through the one path six memos cite, because the dispatcher sources the new part exactly as it
-sources the other five. Verified behaviourally, not by inspection: every block's stdout+stderr and exit code
+block name through the one path the memos cite, because the dispatcher sources the new part exactly as it
+sources the others. Verified behaviourally, not by inspection: every block's stdout+stderr and exit code
 captured before and after, with the capture run **twice on the unsplit file first** so the non-deterministic
 lines were known before any difference could be attributed to the split (`suites`' `Ran N tests in Xs` and
 `timing`'s `subprocess=`/`in-process=`/`ratio=` — wall-clock, and nothing else). The only non-noise
-differences after the split are the two the split *is*: `selfcheck` reports **7** harness parts rather than
-6 (its block count unmoved), and `budget`'s per-file roster gains `-integrity` and prints the new counts.
-`all` still exits **1** reporting exactly the two Slice-B blocks that read state A-i's K3 removes,
-`partition(exit 1)` and `offline(exit 1)` (§12; `offline` asserts B §4.1.7's **contract** — no `SystemExit`
+differences after the split are the two the split *is*: `selfcheck` reports one more harness part (its block count unmoved), and `budget`'s per-file roster gains `-integrity` and prints the new counts.
+*(Until 2026-08-23 `all` also exited **1** reporting the two Slice-B blocks that read state A-i's K3 removes, `partition(exit 1)` and `offline(exit 1)`; those blocks now travel with B's memo on branch `citation-hygiene-slice-memos`, and `all` on this branch exits **0** — `ALL BLOCKS EXITED 0`, measured.)* (§12; `offline` asserts B §4.1.7's **contract** — no `SystemExit`
 escapes the catalog path — and at this head `spec_labels` has no catalog fall-through at all, which the block
 names as the reason it is RED; asserting the *defect* instead would have gone RED the moment B fixed it,
 Codex R17), and `selfcheck` is GREEN — and was made
@@ -546,7 +544,7 @@ under B's reverse index it plausibly still returns `None` — it does not become
 **vestigial**, because the output it was pinning as unreadable is no longer the output. B disposes of it
 either way; A-i does not assume which.
 
-**Owed to Slice B — the `partition` block is broken by A-i's own K3, and was failing silently.** Measured,
+**Owed to Slice B — the `partition` block is broken by A-i's own K3, and was failing silently.** *(Historical as of 2026-08-23: the block left this branch with B's memo — `citation-hygiene-slice-memos` — where it stays RED until B restores `_catalog`; kept because it records why `all` must propagate block status.)* Measured,
 `rederive partition` (a Slice-B block, in `…-A-rederive-B.sh`) calls `spec_labels._catalog()`, which A-i
 removes from the generic tree because K3 forbids it. So the block has raised `AttributeError` since
 `6be73a82`, and `all` **swallowed it** — the same discarded-exit-status bug the Step 4.5 pass found in
