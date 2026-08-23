@@ -126,8 +126,9 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
-  # the whole set, no Rust toolchain, no cache; the self-test wire needs only the
+  # are filtered because each pays for a Rust toolchain; the wires need none (the layering
+  # wires ~1s; the self-test wire's mutant run ~1-2 min of plain python3, measured at
+  # 0310f618 -- no Rust toolchain, no cache; the self-test wire needs only the
   # `python3` already on `ubuntu-latest`), so a filter would buy nothing and cost the
   # one property the wires exist for. Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
