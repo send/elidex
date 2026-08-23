@@ -31,6 +31,7 @@ predicate over a block reads.
 
 import pathlib
 import re
+from urllib.parse import unquote
 
 from plan_memo_lexer import (
     Lexed, blank_spans, delimiter_width, fenced_lines, is_blank, normalize_label,
@@ -424,7 +425,9 @@ class Memo:
             for _, _, dest in lx.links:
                 if _SCHEME.match(dest) or dest.startswith("/"):
                     continue
-                name = re.split(r"[#?]", dest, 1)[0]
+                # the PATH component, percent-decoded (`slice%20sib.md` is the
+                # file `slice sib.md`, as `<slice sib.md>` is)
+                name = unquote(re.split(r"[#?]", dest, 1)[0])
                 if not name.endswith(".md"):
                     continue
                 f = (self.path.parent / name).resolve()
@@ -444,7 +447,9 @@ class Memo:
         out = []
 
         def walk(lx, lineno_of, block=None):
-            for off, label, form in lx.unresolved:
+            for off, label, form, is_image in lx.unresolved:
+                if is_image:
+                    continue     # §6.4: literal image syntax; an image never links a memo
                 key = normalize_label(label)
                 # a `[C19]`-style citation id is never a memo reference, in ANY
                 # form -- shortcut, full (`[C19][C20]` adjacent citations) or

@@ -679,3 +679,25 @@ rcase("NEGATIVE", "(rc) a root-relative `/guide.md` is not a sibling on disk (no
 rcase("NEGATIVE", "(link) bracket text holding unescaped brackets is not a label (§6.3), so "
                   "`[the [x] walk][]` is no collapsed reference: rc 0",
       build(), "See [the [x] walk][] here.", 0)
+
+
+# ------------------------------------------------- PR #510 Codex R4 controls --
+
+# R4-1: an undefined reference-style IMAGE is literal image syntax (§6.4), never a memo miss
+rcase("NEGATIVE", "(image) an undefined reference image `![diagram][missing-image]` is literal syntax, "
+                  "not an unresolved memo reference: rc 0",
+      build(), "See ![diagram][missing-image] here.", 0)
+
+# R4-2: a percent-encoded destination names the decoded file
+case("POSITIVE-NOVEL", "(link) a percent-encoded destination `slice%20sib.md` links the file "
+                       "`slice sib.md`, as `<slice sib.md>` does",
+     build(), "See [the walk](slice%20sib.md).", 1, files={"slice sib.md": VIOLATION + "\n"})
+
+# R4-3: code spans and brackets are ONE inline pass (Appendix A); the inline
+# tail is parsed by lookahead on the raw text
+case("POSITIVE-NOVEL", "(span) a backtick inside a link DESTINATION is consumed by the link, not a "
+                       "code span: `[sib](slice`x`.md)` links the sibling",
+     build(), "See [the walk](slice`x`.md).", 1, files={"slice`x`.md": VIOLATION + "\n"})
+rcase("NEGATIVE", "(span) a backtick BEFORE the `]` opens a code span that swallows it: "
+                  "`[not a `link](absent.md)`` is code, no link, rc 0",
+      build(), "See [not a `link](absent-file.md)` here.", 0)

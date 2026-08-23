@@ -56,11 +56,11 @@ MUTANTS = [
      ["(fence) a link inside a fence is not a link (A x B)"]),
     # -- CommonMark §6.1 code spans
     ("span: opener and closer are backtick strings of EQUAL length", LEXER,
-     'while n and j < len(runs) and runs[j][1] - runs[j][0] != n:\n            j += 1', 'pass',
+     '        if rb - ra == k:\n            return rb', '        if True:\n            return rb',
      ["(span) backtick strings pair by EQUAL length"]),
     ("span: an unmatched backtick string is literal", LEXER,
-     '        else:\n            i += 1\n    return out\n\n\ndef blank_spans',
-     '        else:\n            out.append((a0, len(s)))\n            i += 1\n    return out\n\n\ndef blank_spans',
+     '            if close is None:\n                i = a1                  # an unmatched backtick string is literal',
+     '            if close is None:\n                code.append((i, n))\n                i = n',
      ["(span) an unmatched backtick string is literal, not a mask to end of line"]),
     ("span: lexed over the paragraph, not the line", TABLES,
      '            if one_line_block(line):\n                flush()', '            flush()',
@@ -166,9 +166,6 @@ MUTANTS = [
      '                stack.clear()\n                i += 1\n                continue',
      ["(link) full reference whose text holds nested brackets; the label is the link's tail, not "
       "prose, and so is the definition"]),
-    ("link: links are taken from the masked stream (A x B)", LEXER,
-     'masked = blank_spans(text, self.code)', 'masked = text',
-     ["(rc) a code-quoted link to an absent file is not a link: rc 0"]),
     ("def: the first definition of a label wins", TABLES,
      'self.defs.setdefault(normalize_label(raw), dest)', 'self.defs[normalize_label(raw)] = dest',
      ["(def) the FIRST definition of a label wins"]),
@@ -182,8 +179,8 @@ MUTANTS = [
      ["(def) text after the destination is not a definition, so the reference is unanswered: "
       "a schema miss"]),
     ("def: a definition cannot interrupt a paragraph", LEXER,
-     'self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(masked)',
-     'self.definitions, self.defs_end = [d for ln in masked.split("\\n") for d in reference_definitions(ln)[0]], 0',
+     'self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(self._masked)',
+     'self.definitions, self.defs_end = [d for ln in self._masked.split("\\n") for d in reference_definitions(ln)[0]], 0',
      ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
@@ -344,8 +341,8 @@ MUTANTS = [
      ["(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read as a "
       "shortcut, and the image destination is not a memo"]),
     ("R3-1 link: an escaped `[` is not an opener", LEXER,
-     '        if _is_escape(s, i):\n            i += 2                      # §2.4',
-     '        if False:\n            i += 2                      # §2.4',
+     '        if _is_escape(s, i):\n            i += 2                      # §2.4: `\\[` / `\\]` / `\\`` are literal',
+     '        if _is_escape(s, i) and s[i + 1] != "[":\n            i += 2',
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 population: a root-relative `/x.md` is not a sibling", TABLES,
      'if _SCHEME.match(dest) or dest.startswith("/"):', 'if _SCHEME.match(dest) or dest.startswith("//"):',
@@ -360,15 +357,38 @@ MUTANTS = [
      '    raw, _ = link_label(s, opener)\n    if raw is None:', '    raw = s[opener + 1:close]\n    if False:',
      ["(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` "
       "is no collapsed reference: rc 0"]),
+    # -- PR #510 Codex R4
+    ("R4-1 gate: an unresolved IMAGE reference is not a memo miss", TABLES,
+     '                if is_image:\n                    continue', '                if False:\n                    continue',
+     ["(image) an undefined reference image `![diagram][missing-image]` is literal syntax, not an "
+      "unresolved memo reference: rc 0"]),
+    ("R4-2 population: the destination path is percent-decoded", TABLES,
+     'name = unquote(re.split(r"[#?]", dest, 1)[0])', 'name = re.split(r"[#?]", dest, 1)[0]',
+     ["(link) a percent-encoded destination `slice%20sib.md` links the file `slice sib.md`, as "
+      "`<slice sib.md>` does"]),
+    ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,
+     'code, found, images, unresolved = inline_pass(self.text[start:], defs)',
+     'code, found, images, unresolved = inline_pass(blank_spans(self.text, [(m.start(), m.end()) '
+     'for m in re.finditer(r"`[^`]*`", self.text)])[start:], defs)',
+     ["(span) a backtick inside a link DESTINATION is consumed by the link, not a code span: "
+      "`[sib](slice`x`.md)` links the sibling"]),
+    ("R4-3 pass: a code span swallows a `]` (brackets inside it are not delimiters)", LEXER,
+     '                code.append((i, close))\n                i = close',
+     '                code.append((i, close))\n                i += 1',
+     ["(span) a backtick BEFORE the `]` opens a code span that swallows it: `[not a "
+      "`link](absent.md)`` is code, no link, rc 0",
+      "(link) a link inside a code span is not a link (A x B)",
+      "(rc) a code-quoted link to an absent file is not a link: rc 0"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
       "stated polarity is a reported edge (false rc 1), never a silent skip"]),
     ("F9 span: an escaped backtick opens no span", LEXER,
-     '        if _escaped(s, a0):\n            a0 += 1', '        if False:\n            a0 += 1',
+     '        if _is_escape(s, i):\n            i += 2                      # §2.4: `\\[` / `\\]` / `\\`` are literal',
+     '        if _is_escape(s, i) and s[i + 1] != "`":\n            i += 2',
      ["(span) a backtick behind a backslash is literal and opens no span"]),
     ("F10 def: a cell parses no reference definition", LEXER,
-     '([], 0) if cell else reference_definitions(masked)', 'reference_definitions(masked)',
+     '([], 0) if cell else reference_definitions(self._masked)', 'reference_definitions(self._masked)',
      ["(def) a cell shaped like a definition is inline content and is scanned"]),
     ("F12 link: the link tail masks a slug", TABLES,
      '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',

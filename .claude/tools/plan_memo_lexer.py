@@ -6,12 +6,13 @@ CommonMark 0.31.2 and GFM 0.29, lexed by construction from the clauses
 Order (plan §2 "Lexing order"): fenced blocks (CommonMark §4.5) are masked
 first; a GFM table row is split on RAW unescaped `|` (GFM §4.10, incl. inside
 backticks -- Example 200); per block inline content (a paragraph or a cell)
-code spans (CommonMark §6.1, backtick strings of equal length) are lexed, then
-links and images (CommonMark §6.3 / §6.4 / §4.7, by Appendix A's bracket
-stack) over the stream with code spans masked -- an image's bracket
-structure is parsed so that it is not a link and a link may wrap it; its
-destination never joins the population, its alt text is prose, its tail is
-masked.
+code spans (CommonMark §6.1, backtick strings of equal length) and links /
+images (CommonMark §6.3 / §6.4 / §4.7) are lexed by ONE left-to-right pass
+(`inline_pass`, "Appendix: A parsing strategy"): a code span is skipped as
+met, an inline-link tail is parsed by lookahead on the raw text -- there is
+no code pre-mask.  An image's bracket structure is parsed so that it is not
+a link and a link may wrap it; its destination never joins the population,
+its alt text is prose, its tail is masked.
 
 What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
 HTML blocks, §5 container blocks (block quotes §5.1, list items §5.2 -- a
@@ -214,7 +215,8 @@ def delimiter_width(line):
 # backticks) opens a span closed by the NEXT backtick string of equal length;
 # a string with no equal-length partner is literal, and scanning resumes after
 # it.  A span may contain line endings, so the unit is the block's inline
-# content, never a line.
+# content, never a line.  Code spans and brackets are recognised by ONE
+# left-to-right pass (`inline_pass`, below the link grammar).
 # --------------------------------------------------------------------------
 
 _BACKTICKS = re.compile(r"`+")
@@ -230,29 +232,11 @@ def _escaped(s, i):
 
 
 def code_spans(s):
-    """[(start, end)] of every code span in `s`, backticks included.
-
-    An OPENING backtick string behind an odd run of backslashes loses its
-    first backtick to the escape (§2.4 / §6.1: a backslash-backtick pair is a literal
-    backtick, not a backtick string of length one).  Inside a span backslashes
-    are literal (§6.1: "backslash escapes do not work in code spans"), so a
-    closer is read raw."""
-    runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
-    out, i = [], 0
-    while i < len(runs):
-        a0, a1 = runs[i]
-        if _escaped(s, a0):
-            a0 += 1
-        n = a1 - a0
-        j = i + 1
-        while n and j < len(runs) and runs[j][1] - runs[j][0] != n:
-            j += 1
-        if n and j < len(runs):
-            out.append((a0, runs[j][1]))
-            i = j + 1
-        else:
-            i += 1
-    return out
+    """[(start, end)] of every code span in `s`, backticks included -- a view
+    over `inline_pass`'s code tokens (there is no separate pre-mask: a
+    backtick string inside a link destination the pass consumed by lookahead
+    is not a code span)."""
+    return inline_pass(s, {})[0]
 
 
 def blank_spans(s, spans):
@@ -463,44 +447,83 @@ def _reference_tail(s, opener, close, defs):
     return end, defs.get(normalize_label(raw)), form, raw
 
 
-def links(s, defs):
-    """Every link and image in `s` (a block's inline content with code spans
-    masked), resolved through `defs` (normalised label -> destination), by
-    CommonMark 0.31.2 "Appendix: A parsing strategy", Phase 2 "inline
-    structure" -> "look for link or image", restricted to the bracket
-    delimiters (no emphasis is processed here):
+def _code_closer(s, runs, a1, k):
+    """The end offset of the first backtick string of length `k` starting at
+    or after `a1` (§6.1: the closer is "the next backtick string of equal
+    length"), or None.  `runs` = every backtick string of `s`, in order."""
+    j = bisect.bisect_left(runs, (a1, 0))
+    while j < len(runs):
+        ra, rb = runs[j]
+        if rb - ra == k:
+            return rb
+        j += 1
+    return None
 
-      a single left-to-right pass keeps a stack of `[` / `![` openers, each
-      "active"; on `]` the nearest opener is popped -- "if we do find one,
-      but it's not active, we remove the inactive delimiter from the stack,
-      and return a literal text node ]"; if active, "we parse ahead to see if
-      we have an inline link/image, reference link/image, collapsed reference
-      link/image, or shortcut reference link/image.  If we don't, then we
-      remove the opening delimiter from the delimiter stack and return a
-      literal text node ]"; if we do, the link or image is emitted and "if we
-      have a link (and not an image), we also set all [ delimiters before the
-      opening delimiter to inactive.  (This will prevent us from getting links
-      within links.)"
 
-    Linear: no substring is re-parsed.  Returns (links, images, unresolved):
-    `links` = [(tail_start, end, destination)] with `tail_start` the `]`
-    closing the link text, so a caller masking the tail leaves the visible
-    text -- prose -- in the scanned stream; `images` = [(tail_start, end)]
-    (§6.4: an image's destination never joins the population, its alt text
-    is prose, its tail is masked); `unresolved` = [(offset, label, form)],
-    every reference whose label `defs` does not define, with its FORM
-    (`"full"` / `"collapsed"` / `"shortcut"`) decided by this one
-    escape-honouring parse -- a caller never re-walks the raw text.  Such a
-    site is prose under §6.3, and a population the author meant to link is
-    silently lost unless the caller reports it; the memo exempts a shortcut
-    (every `[C19]` citation is one) unless a definition of its label exists
-    somewhere the grammar cannot read it.
+def inline_pass(s, defs):
+    """ONE left-to-right pass over a block's inline content -- CommonMark
+    0.31.2 "Appendix: A parsing strategy", Phase 2 "inline structure" --
+    recognising backtick strings (§6.1) and brackets (§6.3 / §6.4) together,
+    and resolving references through `defs` (normalised label ->
+    destination).  Returns (code, links, images, unresolved).
+
+    Backtick strings: a run opens a code span closed by the next run of
+    equal length; the scan jumps past the span (brackets inside it are never
+    delimiters: `` `[a](x.md)` `` is code); an unmatched run is literal and
+    the scan resumes after it.  Inside a span backslashes are literal (§6.1:
+    "backslash escapes do not work in code spans"), so a closer is read raw.
+    An escaped backtick (`\\` + `` ` ``, §2.4) is a literal character and
+    opens nothing.
+
+    Brackets, per the Appendix's "look for link or image": a stack of `[` /
+    `![` openers, each "active"; on `]` the nearest opener is popped -- "if
+    we do find one, but it's not active, we remove the inactive delimiter
+    from the stack, and return a literal text node ]"; if active, "we parse
+    ahead to see if we have an inline link/image, reference link/image,
+    collapsed reference link/image, or shortcut reference link/image" -- the
+    inline tail is parsed by LOOKAHEAD ON THE RAW TEXT and the scan jumps
+    past it, so a backtick inside a destination (`[sib](slice`x`.md)`) is
+    consumed by the link, while a backtick BEFORE the `]` (`[not a
+    `link](/foo`)`) opens a span that swallows the `]` and no link forms.
+    "If we don't, then we remove the opening delimiter from the delimiter
+    stack and return a literal text node ]"; if we do, the link or image is
+    emitted and "if we have a link (and not an image), we also set all [
+    delimiters before the opening delimiter to inactive.  (This will prevent
+    us from getting links within links.)"
+
+    Linear in the bracket structure: no substring is re-parsed.  `code` =
+    [(start, end)] backticks included; `links` = [(tail_start, end,
+    destination)] with `tail_start` the `]` closing the link text, so a
+    caller masking the tail leaves the visible text -- prose -- in the
+    scanned stream; `images` = [(tail_start, end)] (§6.4: an image's
+    destination never joins the population, its alt text is prose, its tail
+    is masked); `unresolved` = [(offset, label, form, is_image)], every
+    reference whose label `defs` does not define, with its FORM (`"full"` /
+    `"collapsed"` / `"shortcut"`) decided by this one escape-honouring parse
+    -- a caller never re-walks the raw text -- and whether the opener was an
+    image (literal image syntax under §6.4, never a memo the author meant to
+    link).  Such a LINK site is prose under §6.3, and a population the
+    author meant to link is silently lost unless the caller reports it; the
+    memo exempts a shortcut (every `[C19]` citation is one) unless a
+    definition of its label exists somewhere the grammar cannot read it.
     """
-    out, images, unresolved, stack, i, n = [], [], [], [], 0, len(s)
+    runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
+    code, out, images, unresolved, stack, i, n = [], [], [], [], [], 0, len(s)
     while i < n:
         c = s[i]
         if _is_escape(s, i):
-            i += 2                      # §2.4: `\[` / `\]` are literal
+            i += 2                      # §2.4: `\[` / `\]` / `\`` are literal
+            continue
+        if c == "`":
+            a1 = i
+            while a1 < n and s[a1] == "`":
+                a1 += 1
+            close = _code_closer(s, runs, a1, a1 - i)
+            if close is None:
+                i = a1                  # an unmatched backtick string is literal
+            else:
+                code.append((i, close))
+                i = close
             continue
         if c == "[":
             stack.append([i, _is_image(s, i), True])
@@ -522,7 +545,7 @@ def links(s, defs):
             end, dest, form, label = _reference_tail(s, pos, i, defs)
             if dest is None:
                 if form is not None:
-                    unresolved.append((pos, label, form))
+                    unresolved.append((pos, label, form, is_img))
                 i += 1                  # literal `]`; the opener is gone
                 continue
         if is_img:
@@ -533,7 +556,12 @@ def links(s, defs):
                 if not opener[1]:
                     opener[2] = False
         i = end
-    return out, images, unresolved
+    return code, out, images, unresolved
+
+
+def links(s, defs):
+    """The bracket half of `inline_pass` -> (links, images, unresolved)."""
+    return inline_pass(s, defs)[1:]
 
 
 def reference_definitions(s):
@@ -607,37 +635,43 @@ _TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md\b)")
 
 class Lexed:
     """The lexical facts of one block's inline content (a paragraph or a
-    cell), computed once: `code` = code spans; `definitions` / `defs_end` =
-    the leading run of reference definitions over the code-masked stream (a
-    paragraph only -- a table cell is inline content under GFM §4.10 and
-    holds no §4.7 definition, so `cell=True` parses none); `tokens` =
-    [(start, end, "cite" | "file")].  `resolve` then sets `links` =
-    [(tail_start, end, destination)], `images` = [(tail_start, end)] and
-    `unresolved` = [(offset, label, form)] of the references no definition
-    answers; `mask` is set by the disposition
-    step in `plan_memo_tables.py` once the row ids are known."""
+    cell), computed by ONE inline pass (`inline_pass`): `code` = code spans;
+    `definitions` / `defs_end` = the leading run of reference definitions
+    over the code-masked stream (a paragraph only -- a table cell is inline
+    content under GFM §4.10 and holds no §4.7 definition, so `cell=True`
+    parses none); `tokens` = [(start, end, "cite" | "file")].  `resolve`
+    re-runs the pass past the definitions with the memo's `defs` and sets
+    `code` (final), `links` = [(tail_start, end, destination)], `images` =
+    [(tail_start, end)] and `unresolved` = [(offset, label, form, is_image)]
+    of the references no definition answers; `mask` is set by the
+    disposition step in `plan_memo_tables.py` once the row ids are known."""
 
     __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens",
                  "links", "images", "unresolved", "mask")
 
     def __init__(self, text, cell=False):
         self.text = text
+        # the definitions are block structure and come first; the pass that
+        # decides them runs without `defs` (inline links need none, and they
+        # are what decides which backticks a tail consumes)
         self.code = code_spans(text)
-        masked = blank_spans(text, self.code)
-        self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(masked)
-        self._masked = masked
+        self._masked = blank_spans(text, self.code)
+        self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(self._masked)
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
         self.links, self.images, self.unresolved = [], [], []
         self.mask = None
 
     def resolve(self, defs):
-        """Links (§6.3 / §4.7) over the masked stream, past the definitions;
-        `defs` = normalised label -> destination."""
+        """The inline pass over the RAW text past the definitions (code spans
+        and brackets together; no pre-mask), with `defs` = normalised label ->
+        destination."""
         start = self.defs_end
-        found, images, unresolved = links(self._masked[start:], defs)
+        code, found, images, unresolved = inline_pass(self.text[start:], defs)
+        self.code = [c for c in self.code if c[1] <= start] + [(a + start, b + start) for a, b in code]
+        self._masked = blank_spans(self.text, self.code)
         self.links = [(a + start, b + start, dest) for a, b, dest in found]
         self.images = [(a + start, b + start) for a, b in images]
-        self.unresolved = [(a + start, label, form) for a, label, form in unresolved]
+        self.unresolved = [(a + start, label, form, img) for a, label, form, img in unresolved]
 
     def orphan_definitions(self):
         """[(offset, label)] of definition-shaped lines the grammar could not
