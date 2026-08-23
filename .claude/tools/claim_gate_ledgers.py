@@ -241,13 +241,22 @@ def check_controls(memo: host.Memo, have: dict[str, set[str]] | None = None,
                             f"control that is gone, it does not licence naming one")
 
     cited: dict[str, set[str]] = {}
+    outside: dict[str, list[int]] = {}
     # Ranges first: `C19`–`C22` names four controls, not two.
+    #
+    # And it names them AT A POSITION, which is what the retired-use arm below
+    # reads. `outside` was filled only by `MEMO_CONTROL`, which matches the two
+    # endpoints and nothing between them -- so a retired control cited inside a
+    # range was cited and unrecorded, and the arm that forbids citing one could
+    # not see it. Measured while probing this: every range SPELLING puts both
+    # endpoints in `outside`, so the ends were never the gap; the interior was.
     for m in CONTROL_RANGE.finditer(memo.text):
         lo, hi = int(m.group(1)[1:]), int(m.group(2)[1:])
         if 0 <= hi - lo < 40:
             for n in range(lo, hi + 1):
                 cited.setdefault(f"C{n}", set())
-    outside: dict[str, list[int]] = {}
+                if not any(a <= m.start() < b for a, b in ledger_spans):
+                    outside.setdefault(f"C{n}", []).append(m.start())
     for m in MEMO_CONTROL.finditer(memo.text):
         cited.setdefault(m.group("id"), set())
         if m.group("sub"):
@@ -333,10 +342,20 @@ def check_controls(memo: host.Memo, have: dict[str, set[str]] | None = None,
 # --------------------------------------------------------------------------
 
 # `- `path` — reason`, the shape §8's retirement ledger already uses one level
-# down. A bullet rather than a table row: preflight counts data rows, so a
-# tabular ledger would move §8.3's pasted `total entries (M)` every time a file
-# is deleted -- a second, unrelated figure rotting on the first one's edit.
-GONE_ROW = re.compile(r"^-[ \t]+`([^`\n]+)`[ \t]+—[ \t]+(\S.*)$", re.M)
+# down. A bullet list here where §8's sibling ledger is a table, and the reason
+# this comment used to give for that -- "preflight counts data rows, so a
+# tabular ledger would move §8.3's pasted `total entries (M)`" -- is FALSE.
+# Measured: appending a table to this memo leaves preflight's M at 8, because it
+# counts §3's rows and no others. The asymmetry has no measured justification;
+# it is simply the shape the section was written in, and saying so beats keeping
+# a reason that does not hold.
+#
+# What DOES matter is that the grammar accepts what an author writes. It
+# demanded one bullet marker and one dash, so `* `x` — …`, `- `x` - …` and an
+# en dash each parsed as no row at all -- and a memo that HAD declared the path
+# was then told it owed a declaration, which is the spelling-reads-as-absence
+# class `_declares` fixes one function below.
+GONE_ROW = re.compile(r"^[-*+][ \t]+`([^`\n]+)`[ \t]+[—–-][ \t]+(\S.*)$", re.M)
 GONE_SECTION = "0.1"
 
 

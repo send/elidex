@@ -477,7 +477,16 @@ def check_citations(memo: Memo) -> None:
             if not hits:
                 bad("CITE", f"{memo.path.name}:{i} cites `{rel}:{a}`, not a tracked file")
                 continue
-            if len(hits) > 1 and not any(h.endswith("/" + rel) and rel.count("/") for h in hits):
+            # Ambiguity is ambiguity, and the exemption this replaces GREW
+            # weaker as the ambiguity grew: it excused any `rel` containing a
+            # slash that some hit ends with, which is exactly what a partial
+            # path matching many files always does. `src/lib.rs` resolves to 53
+            # tracked files and passed. The 38 citations across the tree that
+            # took the exemption are all `mutation/mod.rs` against two files --
+            # a line number nothing can verify, which is the finding's own
+            # wording. A fully-spelled path is not affected: `git ls-files`
+            # returns exactly one hit for it, so this branch is not reached.
+            if len(hits) > 1:
                 bad("CITE", f"{memo.path.name}:{i} cites `{rel}:{a}`, which names "
                             f"{len(hits)} tracked files ({', '.join(hits[:3])}…); a "
                             f"line number against an ambiguous path is unverifiable")
