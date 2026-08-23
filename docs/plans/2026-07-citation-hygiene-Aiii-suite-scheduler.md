@@ -81,7 +81,8 @@ job is ungated (§4.2).
 jobs are gated on one of the two. No `run:` step in `ci.yml` carries a literal `mise` command token (what
 `rederive filters` can decide from a static read — every shell token, control operators split off, in any
 position, so a false RED is possible; a false GREEN can come only from what a static read cannot see — an
-invocation reached through a variable or built at runtime — which is the block's stated limit, Codex R17/R19). `codeql.yml` analyses `[actions, rust]` on
+invocation reached through a variable, built at runtime, or inside a command substitution (`` `…` `` /
+`$(…)`, which `shlex` does not parse as commands) — which is the block's stated limit, Codex R17/R19/R25). `codeql.yml` analyses `[actions, rust]` on
 push plus a weekly cron, with no `pull_request` trigger; `audit.yml` is `cargo audit` on a cron. ⇒ a
 `.claude/**`-only pull request triggers **zero validation jobs** — `Detect changes` (the filter job itself:
 no `needs`, no `if`, checkout + `dorny/paths-filter`) always runs and validates nothing, and since PR #496 the

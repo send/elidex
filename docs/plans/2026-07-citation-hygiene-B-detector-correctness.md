@@ -412,13 +412,19 @@ real memo is a second decision surface. Each is now stated once, in its own slic
 | §4.4 | D4 — move the consumer-derivation assertion off the tools package | **Slice A** §4.4 |
 | §4.5 | D5 — wire the `_webref` suites into `mise` + CI | **Slice A** §4.3 |
 
-**Two seams B must respect at kickoff**, both created by A landing first:
+**Three seams B must respect at kickoff**, all created by A landing first:
 
 1. **`preflight.SECTION_REF_RE` is untouched by A** — deliberately, so B's one-grammar collapse (§4.6.3)
    is a single edit rather than a merge against A's changes to the same file. B rebases onto A and edits
    `preflight.py` for the grammar only.
 2. **`test_preflight.py` will already exist** (A creates it with P1-P6). B's `parse_spec_cell` and
    catalog-availability cases are *additions* to that file, not a new file — check before writing.
+3. **A-i widened the generic-tree scope to all of `.claude/tools/`** — its K2 absolute (no elidex file
+   path) and its S8 scan range over the whole directory, not only `_webref/`, and the harness `couplings`
+   block scans the same widened tree for Slice-B artifact names. B's new files (`commands/cite_audit.py`,
+   `census_underreport.py`) land inside that widened scope: they carry no `crates/**` path, and the one
+   exemption B adds to `couplings` (§6, the S7 retirement bullet) names B's canonical paths only. This is
+   the third seam — the earlier list named two and `rederive bmemo` item 8 read it as missing.
 
 ### §4.6 Touch-time items folded in
 
@@ -586,13 +592,13 @@ plan that spans three `DESIGN.md` layers in one PR is the shape that boundary ex
 
 ## §8 Line-count budget
 
-Verified 2026-07-28 (`wc -l`):
+Baselines are what exists at A's landed head — the pre-carve `wc -l` figures an earlier revision carried baselined files A-i's K3 deliberately omits (`rederive bmemo` item 11):
 
 | File | Now | After (est.) | Note |
 |---|---|---|---|
-| `.claude/tools/_webref/commands/cite_audit.py` | 289 | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
-| `.claude/tools/_webref/spec_labels.py` | 136 | ~200 | reverse index + discriminated `_catalog()` |
-| `.claude/tools/_webref/test_cite_audit.py` | 410 | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
+| `.claude/tools/_webref/commands/cite_audit.py` | absent at A's head (K3); seeded from the carve commit via §12(2) | ~330 | comment scanner + probe in, `_LABEL_ALT` + `_DANGLING_LABEL_RE` + 9-arg emitters out |
+| `.claude/tools/_webref/spec_labels.py` | A-i's landed size | +~70 | reverse index + discriminated `_catalog()` |
+| `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit via §12(2) | ~560 | T1-T9, C1; −1 test moved to `test_preflight.py` |
 | `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S13 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
 | `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~30 | P4/P5 appended to A's file |
@@ -677,18 +683,31 @@ git worktree add /tmp/citeaudit-pre <A's landed head>
 # so fetch it by sha — GitHub keeps a merged PR's commits reachable through
 # `refs/pull/501/head`. (An earlier revision named `bf580047`, a sha that
 # exists only in one author's local object store — Codex R20.)
-git fetch origin b3a7d469
+git fetch origin refs/pull/501/head        # an abbreviated sha is not a refspec (Codex R25); the PR ref carries the carve
 git show b3a7d469:.claude/tools/_webref/commands/cite_audit.py \
   > /tmp/citeaudit-pre/.claude/tools/_webref/commands/cite_audit.py
 cp .claude/tools/_webref/test_*.py /tmp/citeaudit-pre/.claude/tools/_webref/
 # P4/P5 live in the plan-review suite, not under `_webref/` — without this
 # line the scratch tree keeps A's preflight suite and B's two pins never run.
 cp .claude/skills/elidex-plan-review/test_preflight.py /tmp/citeaudit-pre/.claude/skills/elidex-plan-review/
-cd /tmp/citeaudit-pre && mise run tools-test; echo "EXPECT NON-ZERO: $?"
+cd /tmp/citeaudit-pre
+# EVERY named pin must be red, individually — one import error reads as "red" to
+# an aggregate status while nine pins never ran (Codex R25). The recipe itself
+# exits non-zero when any expected failure is missing.
+bash scripts/python-suites.sh -v > /tmp/citeaudit-pre.log 2>&1; echo "suite status: $?"
+missing=0
+for pin in TestTokenIntegrity TestCatalogWidening TestLabelBoundaries TestCommentSpans \
+           test_strict test_corrupt test_skipped test_emitter test_cli_main \
+           test_round_trip test_level test_mixed_case test_unavailable test_pinned \
+           test_catalog_unavailable test_parse_spec_cell; do
+  grep -qE "^(FAIL|ERROR): .*${pin}" /tmp/citeaudit-pre.log || { echo "!! expected red, not red: $pin"; missing=1; }
+done
+[ "$missing" -eq 0 ] && echo "every pin red against the unfixed detector" || exit 1
 ```
 
-The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. This must exit non-zero, with at least
-one failure attributable to each of the nine classes (T1-T9), to the coverage gap (C1), and to P4/P5. A test that
+The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. The loop names each pin's test identifier (the names above are the shape; B's implementer substitutes the
+exact `test_*` names it lands, one per T1–T9, C1, S9–S13, P4, P5) and the recipe fails unless every one is
+individually red. A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).
 

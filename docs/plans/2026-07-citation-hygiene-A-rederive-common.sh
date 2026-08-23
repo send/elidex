@@ -675,7 +675,7 @@ PY
 }
 
 lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two carve commits
-  local failed=0 n
+  local failed=0 n m
   git rev-list --left-right --count "$MAIN"...HEAD || failed=1
   gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' || failed=1
   # `git log --grep` exits 0 on NO match, so a missing carve commit read as
@@ -705,8 +705,11 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
     # failed; it is reported as what it is and skipped, or a scratch worktree
     # some earlier block left behind turns this whole roster RED.
     git -C "$w" rev-parse --git-dir >/dev/null 2>&1 || { echo "  (prunable — not a reachable worktree, skipped: $w)"; continue; }
-    if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- docs/plans/; then
-      [ "$n" -gt 0 ] && echo "  $n $w"
+    # Committed range AND the working tree: a memo being authored but not yet
+    # committed is exactly what this census promises to list (Codex R25).
+    if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- docs/plans/ \
+       && _measure m git -C "$w" status --porcelain --untracked-files=all -- docs/plans/; then
+      [ $((n + m)) -gt 0 ] && echo "  $((n + m)) $w  (committed $n, uncommitted $m)"
     else
       echo "  !! $w — NOT MEASURED ($n); absent from this roster for a reason that"
       echo "     is not 'it authors no plan-memo'"; failed=1
@@ -724,8 +727,10 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
     # some earlier block left behind turns this whole roster RED.
     git -C "$w" rev-parse --git-dir >/dev/null 2>&1 || { echo "  (prunable — not a reachable worktree, skipped: $w)"; continue; }
     if _measure n git -C "$w" diff --name-only "$MAIN"...HEAD -- \
+                     .github/workflows/ mise.toml .claude/tools/ \
+       && _measure m git -C "$w" status --porcelain --untracked-files=all -- \
                      .github/workflows/ mise.toml .claude/tools/; then
-      [ "$n" -gt 0 ] && { echo "  $w  [$(git -C "$w" rev-parse --short HEAD)]"
+      [ $((n + m)) -gt 0 ] && { echo "  $w  [$(git -C "$w" rev-parse --short HEAD)]"
                           _measured | sed 's/^/      /'; }
     else
       echo "  !! $w — NOT MEASURED ($n); silence here is not 'no contention'"; failed=1

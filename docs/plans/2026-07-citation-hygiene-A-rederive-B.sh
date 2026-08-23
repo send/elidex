@@ -109,7 +109,15 @@ except SystemExit as e:
 if getattr(cat, "available", None) is not False:
     print("!! _catalog() offline did not take the UNAVAILABLE branch: %r — B §4.1.7 requires available=False" % (cat,))
     sys.exit(1)
-print("catalog offline -> available=False, cause=%r" % (getattr(cat, "cause", None),))
+# The WHOLE unavailable shape (B §4.1.7): entries empty, cause naming the
+# exception. `available=False` with stale entries or no cause passed (Codex R25).
+if getattr(cat, "entries", None) != {}:
+    print("!! unavailable result carries entries %r — B §4.1.7 requires entries={}" % (getattr(cat, "entries", None),))
+    sys.exit(1)
+if "URLError" not in str(getattr(cat, "cause", "")):
+    print("!! unavailable result does not name the poisoned URLError as cause: %r" % (getattr(cat, "cause", None),))
+    sys.exit(1)
+print("catalog offline -> available=False, entries={}, cause=%r" % (cat.cause,))
 PY
   rm -rf "$C"
   return "$rc"    # the heredoc'd command IS the measurement; say so
@@ -131,24 +139,34 @@ bmemo() {  # §13 — the classes of edit B's memo needs, grep-derived not read
   # greps read as eleven clean items.
   [ -f "$B" ] || { echo "!! $B is not there — eleven empty greps are not eleven clean items."
                    return 1; }
-  echo "-- 1. file-creation claims for files A creates --"; grep -n 'test_spec_labels' "$B"
-  echo "-- 2. pin names colliding with A's --";             grep -nE '^\- \*\*P[0-9]' "$B"
-  echo "-- 3. spec_labels.py line anchors --";              grep -n 'spec_labels\.py:' "$B"
-  echo "-- 4. Slice A section refs (swapped §4.1/§4.2) --"; grep -nE 'Slice A §|A §4' "$B"
-  echo "-- 5. §4.1.8's falsified consequence sentence --"
-  grep -nE 'wrong document|silently runs against' "$B"
-  echo "-- 6. present-tense 'extant defect' framing of what the carve did --"
-  grep -nE 'is an? (extant|existing) defect|today the resolver|currently (the )?resolv' "$B" || echo "   (none)"
-  echo "-- 7. §0.1 provenance paragraph naming a base B no longer has --"
-  grep -nE 'branch(es)? from|carve|base' "$B" | head -8
-  echo "-- 8. §4.2's seam list — must name the widening as a third seam --"
-  grep -nE '^\|.*seam|seams?:' "$B" | head -8
-  echo "-- 9. coverage_map's changed last-resort cited as pre-existing --"
-  grep -nE '_spec_label|last.resort|upper\(\)' "$B"
-  echo "-- 10. cap-rule restatements (must become a pointer) --"; grep -n 'cleanup-\|per-PR ≤3\|cap' "$B"
-  echo "-- 11. line-count table measured at a base where 2 files do not exist --"
-  grep -nE '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' "$B"
-  return 0
+  # Each item carries its EXPECTED reading: `yes` = the class must be present in
+  # B (a memo that lost it silently is a different memo), `no` = the class is a
+  # defect B must not carry. A grep whose status was discarded certified neither
+  # (Codex R25). `_bm expect label pattern [grep-flags]`.
+  local rc=0
+  _bm() {
+    local want=$1 label=$2 pat=$3; shift 3
+    echo "-- $label --"
+    local hits; hits=$(grep -n "$@" -- "$pat" "$B")
+    [ -n "$hits" ] && printf '%s\n' "$hits" | head -8
+    case "$want:${hits:+y}" in
+      yes:y|no:) ;;
+      yes:) echo "   !! expected this class PRESENT in B, found nothing — the memo lost it"; rc=1 ;;
+      no:y)  echo "   !! expected NONE — B still carries this defect"; rc=1 ;;
+    esac
+  }
+  _bm yes "1. file-creation claims for files A creates" 'test_spec_labels'
+  _bm yes "2. pin names colliding with A's" '^\- \*\*P[0-9]' -E
+  _bm yes "3. spec_labels.py line anchors" 'spec_labels\.py:'
+  _bm yes "4. Slice A section refs (swapped §4.1/§4.2)" 'Slice A §|A §4' -E
+  _bm yes "5. §4.1.8's falsified consequence sentence" 'wrong document|silently runs against' -E
+  _bm no  "6. present-tense 'extant defect' framing of what the carve did" 'is an? (extant|existing) defect|today the resolver|currently (the )?resolv' -E
+  _bm yes "7. §0.1 provenance paragraph naming a base B no longer has" 'branch(es)? from|carve|base' -E
+  _bm yes "8. §4.2's seam list — must name the widening as a third seam" '^\|.*seam|seams?:' -E
+  _bm yes "9. coverage_map's changed last-resort cited as pre-existing" '_spec_label|last.resort|upper\(\)' -E
+  _bm yes "10. cap-rule restatements (must become a pointer)" 'cleanup-\|per-PR ≤3\|cap'
+  _bm no  "11. line-count table measured at a base where 2 files do not exist" '^\|[^|]*(cite_audit|spec_labels|webref_data)[^|]*\|[^|]*[0-9]{2,}' -E
+  return "$rc"
 }
 
 staleclaims() {  # §13 — the cross-file claims this memo corrects, by concept not string

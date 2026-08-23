@@ -124,9 +124,11 @@ while i < len(lines):
 # counted in ANY position -- `echo mise` is RED too. That is the safe direction:
 # a false RED makes a reader look; a false GREEN certifies a claim. Command-
 # position parsing would buy precision the claim does not need. What a static
-# read CANNOT see is an invocation reached through a variable (`"$MISE_BIN" run`)
-# or built at runtime -- named as this block limit in A-iii §4.1; the memo no
-# longer says a false GREEN is impossible, only where one could come from.
+# read CANNOT see is an invocation reached through a variable (`"$MISE_BIN" run`),
+# built at runtime, or inside a command substitution -- `shlex` does not parse
+# `` `mise --version` `` or `$(mise …)` as commands (Codex R25) -- named as this
+# block limit in A-iii §4.1; the memo no longer says a false GREEN is
+# impossible, only where one could come from.
 import os, shlex
 def yaml_unquote(v):
     # The collector hands over the RAW scalar; a YAML-quoted `run: "…"` or
