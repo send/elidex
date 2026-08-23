@@ -677,7 +677,9 @@ PY
 lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two carve commits
   local failed=0 n m
   git rev-list --left-right --count "$MAIN"...HEAD || failed=1
-  gh pr list --state open --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' || failed=1
+  # `gh pr list` returns 30 items by default; an open PR past the first page is
+  # a contending lane this roster would silently omit (Codex R28).
+  gh pr list --state open --limit 1000 --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' || failed=1
   # `git log --grep` exits 0 on NO match, so a missing carve commit read as
   # found (Codex R22) -- and the second subject never existed in this history
   # (the shared-map carve is `docs(plans): carve Slice A-i — the shared
