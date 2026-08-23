@@ -103,7 +103,7 @@ grep -q 'cite-audit' .claude/skills/elidex-review/axes.md \
   && grep -q 'one run per cited spec' .claude/skills/elidex-review/axes.md \
   && grep -q 'attribution-bucket disposition' .claude/skills/elidex-review/axes.md \
   && grep -q 'cite-audit --forms ao,prose,url' .claude/skills/elidex-review/axes.md \
-  && (cd .claude/tools && python3 -m unittest _webref.commands.test_cite_audit -k NonSectionForms 2>&1 | tail -1 | grep -q '^OK') \
+  && (cd .claude/tools && python3 -m unittest _webref.test_cite_audit -k NonSectionForms 2>&1 | tail -1 | grep -q '^OK') \
   && echo RETIRED
 ```
 
