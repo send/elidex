@@ -160,7 +160,7 @@ and each attribution spelling has a positive control and a mutant.
 
 ## §3. Spec coverage map
 
-| Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
+| Spec section | Step | Branch | Touch (site name @ `190d2adb`; implemented in `plan_memo_lexer.py` as `link_destination` / `link_title` / `reference_definitions` / `fenced_lines` / `split_row` + `delimiter_width` / `code_spans`) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
 | CommonMark §6.3 Links | inline link | bare destination = nonempty, not starting with `<`, no space / ASCII control, parens balanced or escaped; `<dest>` = no line ending, no *unescaped* `<`/`>`; backslash escapes ASCII punctuation only (§2.4) | `plan_memo_tables.py::_link_destination` | ✗ (`isspace`/`ord>31` ≠ spec classes; `\` skips any char) — Slice 1 | no |
 | CommonMark §6.3 Links | inline link | title `"…"` / `'…'` / `(…)` with escapes | `plan_memo_tables.py::_link_title` | ✗ (`(` inside `(…)` title unguarded) — Slice 1 | no |
