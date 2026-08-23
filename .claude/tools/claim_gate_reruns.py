@@ -259,7 +259,45 @@ def check_fence(memo: host.Memo) -> None:
 # unchecked rather than skipped -- a silent cap reads as coverage.
 # --------------------------------------------------------------------------
 
-RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk|wc|tail|head)\b")
+# The boundary is WHITESPACE or end of string, not `\b`. `\b` sits happily
+# between `grep` and `-`, so preflight's own pasted output line
+# `grep-pass:            0 hard, 3 soft` was admitted as a command to run.
+RUNNABLE = re.compile(r"^(git (?:grep|ls-files|show|log)|grep|sed|awk|wc|tail|head)(\s|$)")
+
+# Options are ALLOW-listed by name, and the list is derived from the population:
+# the eighteen admitted lines across this repository's two claim-gate memos use
+# these and nothing else. The deny-list this replaces missed a SPELLING --
+# `git grep -O<cmd>` was refused and `--open-files-in-pager=<cmd>`, the same
+# option with the same execution, was admitted -- and a deny-list of dangerous
+# options leaves every option nobody thought of allowed
+# (`feedback_enumerated-exemptions-leave-the-next-class-authoritative`, at the
+# polarity that costs arbitrary code execution from a document).
+#
+# The failure direction is what makes an allow-list right here where the
+# whole-command ANALYSIS of round 6 was wrong: refusing an unlisted option can
+# only MISS a re-run, and the miss is reported in the un-run list with its
+# reason. Admitting one runs it.
+OPT_OK = {"-n", "-c", "-l", "-E", "-i", "-S", "-e", "--oneline", "--cached"}
+OPT_SHORT_OK = set("nclEiSe")
+OPTION = re.compile(r"(?<!\S)(--?[A-Za-z][A-Za-z0-9-]*)")
+
+
+def unlisted_option(bare: str) -> str | None:
+    """The first option name not on `OPT_OK`, or None.
+
+    `bare` has single-quoted spans blanked already, so a flag inside a grep
+    pattern is not read as one. A short cluster (`-niE`) is decomposed: every
+    letter has to be admitted on its own, because a cluster is exactly how an
+    unlisted letter travels next to listed ones."""
+    for m in OPTION.finditer(bare):
+        name = m.group(1)
+        if name in OPT_OK:
+            continue
+        if not name.startswith("--") and set(name[1:]) <= OPT_SHORT_OK:
+            continue
+        return name
+    return None
+
 # `$NF` inside an awk program is not shell state, and a first cut that tested
 # the raw line skipped three re-runnable commands as unrunnable -- a cap that
 # reads as coverage. Single-quoted spans are removed before the test. `$?` is
@@ -321,6 +359,26 @@ QUOTE = re.compile(r"^[ \t]*>[ \t]?")
 # single site for that rule now. (This paragraph opened by naming a `FENCE_MARK`
 # constant that no longer exists, and trailed off mid-sentence: it was spliced
 # by the edit that deleted the pattern and not read afterwards.)
+def fence_state(lines: list[str]) -> list[bool]:
+    """Per-line "is this inside a fence", from the shared tracker.
+
+    Published so `host.Memo` can ask the same question `fenced_blocks` asks,
+    rather than growing a second answer to it -- which is the thing this
+    module's own header records deleting."""
+    pf = _load("preflight")
+    return pf._fence_state_array([QUOTE.sub("", ln) for ln in lines])
+
+
+def _marker(line: str) -> str:
+    """The fence character a marker line opens or closes with, or ``.
+
+    One character, so that `fenced_blocks` can tell this block's closer from the
+    next block's opener. Everything else about fences -- which lines are inside
+    one at all -- stays with `preflight._fence_state_array`."""
+    s = line.lstrip()
+    return s[0] if s[:3] in ("```", "~~~") else ""
+
+
 def fenced_blocks(memo: host.Memo) -> list[tuple[int, list[str]]]:
     """(1-based line of the opener, body lines) for every fenced block.
 
@@ -350,9 +408,24 @@ def fenced_blocks(memo: host.Memo) -> list[tuple[int, list[str]]]:
         if not state[i]:
             i += 1
             continue
+        # Stop at THIS block's closer, not at the end of the contiguous run.
+        # The tracker marks both markers True, so two blocks with no blank line
+        # between them are one run of `state`, and reading the whole run merged
+        # them: one block whose body held the closer, the next opener and the
+        # second block's lines, every one reported at the first opener's line
+        # number and offered to the command classifier.
+        #
+        # The tracker still owns "is this line inside a fence". What is decided
+        # here is only which of the marker lines it flagged closes THIS block,
+        # and that is one comparison -- same marker character -- not a fence
+        # implementation. A `~~~` does not close a ```-block, which is the
+        # mutant `wrong_spans` plants and the probe above pins.
+        opener = _marker(lines[i])
         j = i
         while j + 1 < len(lines) and state[j + 1]:
             j += 1
+            if _marker(lines[j]) == opener:
+                break
         # The run spans opener..closer inclusive. Drop the opener always, and
         # the closer when there is one -- an unclosed block runs to EOF and its
         # last line is body.
@@ -362,8 +435,21 @@ def fenced_blocks(memo: host.Memo) -> list[tuple[int, list[str]]]:
     return out
 
 
+# A re-run is BOUNDED and its stdin is closed. Neither was true: an admitted
+# command that reads stdin (`wc -l`, `grep x`) blocked on the terminal, and one
+# that never returns blocked forever -- with no output at all, because the
+# summary prints once at the end of `main`. A checker that can hang on a
+# document is a checker a document can stop.
+RERUN_TIMEOUT = 20
+
+
 def run_line(cmd: str) -> str:
-    p = subprocess.run(["bash", "-c", cmd], cwd=host.REPO, capture_output=True, text=True)
+    try:
+        p = subprocess.run(["bash", "-c", cmd], cwd=host.REPO, capture_output=True,
+                           text=True, timeout=RERUN_TIMEOUT,
+                           stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return f"(the re-run did not finish within {RERUN_TIMEOUT}s)"
     return (p.stdout or p.stderr).strip()
 
 
@@ -437,6 +523,9 @@ def unrunnable(cmd: str) -> str | None:
             return "has an empty command segment"
         if not RUNNABLE.match(seg.strip()):
             return "not one of the programs this checker runs"
+    if (opt := unlisted_option(bare)) is not None:
+        return (f"uses `{opt}`, which is not one of the options this checker "
+                f"admits — an option can name a program to run")
     if WRITES.search(cmd) or (cmd.startswith("sed") and not SED_PRINTER.match(cmd)):
         return "uses a shape a reader-named program writes with"
     if needs_state(cmd):

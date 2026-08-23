@@ -146,6 +146,21 @@ def synth(text: str, name: str = "synthetic.md") -> host.Memo:
     return host.Memo(Path(name), text)
 
 
+FENCED_HEADING = """# probe
+
+## §2 Coupled invariants
+
+Real body.
+
+```markdown
+## §2 Example
+this is an EXAMPLE, not a heading
+```
+
+More real body.
+"""
+
+
 def git_fixture(tmp: Path, steps: list[list[str]]) -> Path:
     """A throwaway repository with a history the live one cannot supply.
 
@@ -626,6 +641,66 @@ def selftest() -> int:
     probe("TRANSCRIPT $-form keeps reporting its non-runnable command", True,
           not_rerun(block('$ python3 <prototype-classifier> <this memo>   → 3 rows')),
           "not one of the programs this checker runs")
+    # `/code-review high`, 2026-08-23. The option deny-list missed a SPELLING:
+    # `-O<cmd>` was refused and `--open-files-in-pager=<cmd>` -- the same git
+    # option, same execution -- was admitted, from a document, in a tool whose
+    # whole job is auditing documents. A deny-list of dangerous options leaves
+    # every option nobody listed allowed, which is
+    # `feedback_enumerated-exemptions-leave-the-next-class-authoritative` with
+    # the polarity that costs code execution.
+    #
+    # The option NAME is allow-listed now, derived from the population: the 18
+    # admitted lines across both trees use `-n -c -l -E -i -S --oneline
+    # --cached` and nothing else. Refusing an unlisted option can only MISS a
+    # re-run -- it lands in the un-run list with its reason -- while admitting
+    # one runs it.
+    for _attack in ("git grep --open-files-in-pager='touch zz-pwned' -e claim",
+                    "git grep --open-files-in-pager=touch -e claim",
+                    "git -c core.pager=touch grep -e claim",
+                    "git log --pager=touch --oneline",
+                    "git grep -Otouch -e claim"):
+        probes.append((f"RUNNABLE refuses `{_attack[:44]}`",
+                       host.unrunnable(_attack) is not None,
+                       str(host.unrunnable(_attack))[:56]))
+    # …and every shape the two memos actually paste is still admitted, so the
+    # allow-list is measured rather than guessed.
+    for _ok in ("git grep -nE 'x' -- '.claude/tools/*.sh'",
+                "git grep -niE 'layering trip-wire' -- ':(exclude)docs/plans/**'",
+                "git log --oneline -S'~350' 2656d83d -- docs/plans/a.md",
+                "git grep --cached -c alpha -- a.txt",
+                "grep -n '~1s' .github/workflows/ci.yml CLAUDE.md",
+                "git ls-files -- a.txt"):
+        probes.append((f"RUNNABLE still admits `{_ok[:44]}`",
+                       host.unrunnable(_ok) is None, str(host.unrunnable(_ok))[:56]))
+    # A pasted OUTPUT line that happens to start with a reader's name is not a
+    # command. `grep-pass:            0 hard, 3 soft` is preflight's own output
+    # and was admitted, because `\b` sits happily between `grep` and `-`.
+    # `/code-review high` #2: nothing bounded the re-run. `run_line` passed no
+    # timeout and left stdin attached, so an admitted command that reads stdin
+    # (`wc -l`, `grep x`) or never returns blocked the checker forever -- with
+    # no output at all, because the summary only prints at the end of `main`.
+    # The bound is swapped down for the probe, on the module that owns it, so
+    # the suite does not pay the production timeout to prove it exists.
+    import time as _time
+    _reruns = host.claim_gate_reruns
+    _saved_to = _reruns.RERUN_TIMEOUT
+    try:
+        _reruns.RERUN_TIMEOUT = 2
+        _t0 = _time.monotonic()
+        _r = run_line("sleep 20")
+        _el = _time.monotonic() - _t0
+        probes.append(("a re-run that does not return is bounded, not waited on",
+                       _el < 10 and "did not finish" in _r, f"{_el:.1f}s {_r[:38]}"))
+        _t0 = _time.monotonic()
+        _r = run_line("wc -l")
+        _el = _time.monotonic() - _t0
+        probes.append(("…and a re-run that reads stdin is not waiting on a terminal",
+                       _el < 2 and "did not finish" not in _r, f"{_el:.1f}s {_r[:20]!r}"))
+    finally:
+        _reruns.RERUN_TIMEOUT = _saved_to
+    _out = "grep-pass:            0 hard, 3 soft"
+    probes.append(("RUNNABLE does not admit a pasted output line",
+                   host.unrunnable(_out) is not None, str(host.unrunnable(_out))[:56]))
     probes.append(("TRANSCRIPT `$NF` in an awk program is not shell state",
                    not needs_state("git grep -cE 'x' -- '*.rs' | awk -F: "
                                    "'{s+=$NF} END{print s}'"), ""))
@@ -843,6 +918,23 @@ def selftest() -> int:
           capture(check_controls, synth(LEDGER + "\n`C1`–`C4` re-execute the corpus.\n"),
                   HAVE, []),
           "C4")
+    # `/code-review high` #3: the control-COUNT ban does not depend on the
+    # inventory -- it scans the program's own text for a stale `N-control`
+    # figure -- yet it sat below `if not have: skip(); return`. On this branch
+    # the shell self-test does not exist, so the ban never ran at all, and the
+    # aborted-run case `COMPLETED` exists to detect disabled it too.
+    # The source is a real file OUTSIDE the tree: the ban reads files from disk,
+    # and a literal count written into this repository would red the very rule
+    # it is proving -- the `git grep` needle trap, one class over.
+    with tempfile.TemporaryDirectory() as _td:
+        _src = Path(_td) / "carrier.md"
+        _src.write_text("the " + "55" + "-control self-test\n")
+        _got = capture(check_controls, synth("## §8 x\n"), {}, [_src])
+        probes.append(("CONTROLS' count ban runs even with no inventory",
+                       bool(_got), "; ".join(_got)[:70] or "(clean)"))
+        probes.append(("…and the count ban still runs WITH an inventory",
+                       bool(capture(check_controls, synth("## §8 x\n"),
+                                    {"C1": set()}, [_src])), ""))
     probe("CONTROLS positive (a retired control may be named in the ledger row)", False,
           capture(check_controls, synth(LEDGER), HAVE, []))
     probe("CONTROLS negative (a retired control cited outside the ledger)", True,
@@ -1050,6 +1142,14 @@ def selftest() -> int:
         git_.deleted_on_branch = lambda: None
         probe("PATHS reports rather than passing when the range cannot be formed", False,
               capture(check_paths, synth(NAMES_GONE)))
+        # #4: the arms BELOW that gate do not use the range. "The subject came
+        # back" reads `git ls-files`; "no commit ever removed it" reads HEAD's
+        # history. Both were unreachable once `deleted_on_branch()` returned
+        # None -- so in a clone without `origin/main` (a fork, a detached CI
+        # checkout) an invented §0.1 row went unreported, and the skip text
+        # described only the other arm.
+        probe("PATHS still audits the ledger when the branch range is unformable",
+              True, capture(check_paths, synth(_FAB)), "no commit")
         probe("  …and it says so through skip()", True,
               capture_skipped(check_paths, synth(NAMES_GONE)),
               "could not be formed")
@@ -1518,6 +1618,40 @@ def selftest() -> int:
         probe("  …and says so through skip()", True,
               capture_skipped(check_preflight, host.Memo(_far)),
               "is outside")
+    # `/code-review high` #6: `Memo.heads` reads `HEADING_RE` over the raw text,
+    # so a `## §N` inside a fenced EXAMPLE becomes a heading. The section body
+    # every other check reads is then truncated at the fence, and `numbers()`
+    # resolves a SECT reference against a heading that exists only as an
+    # example. Zero occurrences in the tree today -- but these are memos about
+    # markdown, and the program uses `preflight._fence_state_array` elsewhere
+    # for exactly this question.
+    _fh = synth(FENCED_HEADING)
+    probes.append(("a `## §N` inside a fence is not a heading",
+                   [n for _, n, _ in _fh.heads].count("2") == 1,
+                   f"heads={[n for _, n, _ in _fh.heads]}"))
+    probes.append(("…so the section body is not truncated at the fence",
+                   "More real body." in _fh.sect("2"),
+                   repr(_fh.sect("2")[-30:])))
+    # #7: two fenced blocks with no blank line between them merged into one, so
+    # the closer and the next opener were handed to the command classifier and
+    # every line of the second block was reported at the FIRST block's number.
+    _adj = synth("# p\n\n```\nalpha\n```\n```\nbeta\n```\n")
+    _blocks = host.fenced_blocks(_adj)
+    probes.append(("adjacent fenced blocks are two blocks, not one",
+                   len(_blocks) == 2 and _blocks[0][1] == ["alpha"]
+                   and _blocks[1][1] == ["beta"], f"{_blocks}"))
+    # `/code-review high` #5: `main` indexed `argv[1]` unconditionally, so
+    # running the tool with no argument -- or `--help` -- exited 1 with an
+    # `IndexError` traceback, and a nonexistent path raised `FileNotFoundError`
+    # in `Memo.__init__` before any check. Exit 1 is what a run WITH findings
+    # returns, which is the crash/verdict ambiguity `run()` was added to remove,
+    # reproduced at the entry it does not cover.
+    for _argv, _want in ((["x"], 2), (["x", "--help"], 2),
+                         (["x", str(host.REPO / "zz-no-such-memo.md")], 2)):
+        with contextlib.redirect_stdout(io.StringIO()) as _cap:
+            _rc = host.main(_argv)
+        probes.append((f"main exits usefully on {_argv[1:] or 'no argument'}",
+                       _rc == _want, f"rc={_rc} {_cap.getvalue().strip()[:44]}"))
     # `main`'s runner spells a code beside each call. That is the list of checks
     # rather than a second roster -- but only if it is the WHOLE list, and a new
     # check added without a `run(` wrapper would be invisible to both.
