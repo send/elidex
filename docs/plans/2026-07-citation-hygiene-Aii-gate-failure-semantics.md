@@ -297,7 +297,7 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 - **Recognition** — the three properties `find_coverage_map_section` and `find_table` already thread:
   **line-anchored**, **fence-aware** (`fence_state`-gated), **§3-scoped** — plus **indent-gated**: at most
   three leading spaces, because four is a CommonMark indented code block and a marker quoted inside one is
-  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ The residual census
+  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ **Opener length** (Codex R27): `_fence_state_array` at A-i's head records only the first three delimiter characters, so a ```` opener is "closed" by a ``` line inside it — CommonMark §4.5 closes a fence only with a delimiter at least as long as the opener — and a quoted marker after that line reads as a declaration. A-ii's edit to `preflight.py` tracks the opener length; P11f pins it. ⚠ The residual census
   (`rederive marker`) implements all three, not a bare grep — anything weaker makes the marker the silent
   bypass this section argues it is not.
 - **Hard-fail on ambiguity**: marker **and** a table, with or without data rows; or the marker twice.
@@ -423,6 +423,7 @@ are flipped by §4.2.1's in-process instruments.
 | **P11b** | `nospec-and-table.md` and `nospec-and-header.md` → exit 1 naming the ambiguity — **two fixtures, one branch** | 12b, 13 | **yes** |
 | **P11c** | `nospec.md` with the map absent → exit 0, and the line names the absent capability | 14 | **yes** |
 | **P11d** | `fenced-marker.md` → asserted on `find_markers(...) == []` **and** the absence of any `n/a (no spec surface…)` line — *not* on the exit code | 15 | **yes**, on those assertions |
+| **P11f** | `fenced-marker-long.md` — a ```` opener, a ``` line inside it, then the marker: `find_markers(...) == []` (the shorter line does not close the longer fence, CommonMark §4.5) | 15 | **yes** — at A-i's head the three-character line closes it |
 | **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** | 12 | **yes**, on the diagnostic |
 | **P13** | `allunmapped.md`, `unlabelled.md` and `malformed.md` → the `n/a (0 of N rows resolvable)` line present; **and its negative half** — absent in rows 3/6/9 | 11, 11b, 16, 3, 6, 9 | **yes** |
 | **T-net** | across A-ii's whole suite, `subprocess.run` is never called with **the resolved `WEBREF` path** — the path object, *not* a `"webref"` substring, because `grep_pass` also calls `subprocess.run` with author symbols in argv | — | **yes** |

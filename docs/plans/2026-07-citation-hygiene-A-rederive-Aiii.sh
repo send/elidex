@@ -102,11 +102,16 @@ while i < len(lines):
     # parse, and A-iii §4.1 names the reader, not a YAML parser, as the instrument.
     fm = re.match(r"^\s*-\s*\{(.*)\}\s*$", lines[i])
     if fm:
-        fr = re.search(r"(?:^|,)\s*run:\s*([^,]*)", fm.group(1))
+        fr = re.search(r"(?:^|,)\s*[\"\x27]?run[\"\x27]?\s*:\s*([^,]*)", fm.group(1))
         if fr:
             cmds.append(fr.group(1).strip())
         i += 1; continue
-    m = re.match(r"^(\s*)(-\s*)?run:\s*(.*)$", lines[i])
+    # THE READER GRAMMAR, stated once (Codex R27): a step is a block-style
+    # `run:` line (key plain or quoted, value plain, quoted, or a block scalar)
+    # or a single-line flow mapping with a `run` key (plain or quoted). What it
+    # is NOT is a YAML parser -- none is installed here -- and A-iii §4.1 names
+    # this reader as the instrument, so the claim is exactly as wide as it.
+    m = re.match(r"^(\s*)(-\s*)?[\"\x27]?run[\"\x27]?\s*:\s*(.*)$", lines[i])
     if m:
         indent = len(m.group(1)) + (len(m.group(2)) if m.group(2) else 0)
         val = m.group(3).strip()
