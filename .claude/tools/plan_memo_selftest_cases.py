@@ -701,3 +701,24 @@ case("POSITIVE-NOVEL", "(span) a backtick inside a link DESTINATION is consumed 
 rcase("NEGATIVE", "(span) a backtick BEFORE the `]` opens a code span that swallows it: "
                   "`[not a `link](absent.md)`` is code, no link, rc 0",
       build(), "See [not a `link](absent-file.md)` here.", 0)
+
+
+# ------------------------------------------------- PR #510 Codex R5 controls --
+
+# R5-1/4: Phase 1 (block structure) owns reference definitions and block ends
+case("POSITIVE-NOVEL", "(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` "
+                       "keeps its backticks in the destination and the sibling is scanned",
+     build(), "[sib]: slice`x`.md\n\nSee [sib].", 1, files={"slice`x`.md": VIOLATION + "\n"})
+rcase("NEGATIVE", "(table) a reference definition right after a schema table ENDS the table (GFM §4.10 "
+                  "block start): no width miss, the definition resolves, the sibling is walked, rc 0",
+      build(extra=SLOT4 % "now" + "\n[sib]: slice-9z-sib.md"), "See [sib].", 0, **SIB)
+
+# R5-2: the decoded path is re-validated
+rcase("NEGATIVE", "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after "
+                  "decoding (never probes `/tmp/child.md`): rc 0",
+      build(), "See [x](%2Ftmp%2Fchild.md).", 0)
+
+# R5-3: declared ids are atomic tokens in an id-only run
+case("POSITIVE", "(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the "
+                 "document spelling two ids, both reported",
+     build(), "The same thing happened to `#11-zz-alpha / 9z`.", 2)

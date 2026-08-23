@@ -167,7 +167,8 @@ MUTANTS = [
      ["(link) full reference whose text holds nested brackets; the label is the link's tail, not "
       "prose, and so is the definition"]),
     ("def: the first definition of a label wins", TABLES,
-     'self.defs.setdefault(normalize_label(raw), dest)', 'self.defs[normalize_label(raw)] = dest',
+     '                self.defs.setdefault(normalize_label(raw), dest)',
+     '                self.defs[normalize_label(raw)] = dest',
      ["(def) the FIRST definition of a label wins"]),
     ("def: up to one line ending before the destination", LEXER,
      '        k = _skip_ws(s, k + 1)\n        dest, k = link_destination(s, k)',
@@ -178,9 +179,8 @@ MUTANTS = [
      '    if s[k] == "\\n":\n        return k + 1\n    return k',
      ["(def) text after the destination is not a definition, so the reference is unanswered: "
       "a schema miss"]),
-    ("def: a definition cannot interrupt a paragraph", LEXER,
-     'self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(self._masked)',
-     'self.definitions, self.defs_end = [d for ln in self._masked.split("\\n") for d in reference_definitions(ln)[0]], 0',
+    ("def: a definition cannot interrupt a paragraph (Phase 1: only at a block start)", TABLES,
+     '            if d is not None and not cur:', '            if d is not None:',
      ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
@@ -238,9 +238,9 @@ MUTANTS = [
      ["(rc) a link to an absent memo inside a table CELL is rc 2",
       "(population) a violation in a sibling linked ONLY from a cell is reported"]),
     ("F3 population: a destination with a scheme or `//` is not a sibling", TABLES,
-     'if _SCHEME.match(dest) or dest.startswith("/"):', 'if False:',
-     ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0",
-      "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0"]),
+     'if _SCHEME.match(name) or name.startswith("/") or not name.endswith(".md"):',
+     'if name.startswith("/") or not name.endswith(".md"):',
+     ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0"]),
     ("F4 attribution: the FIRST marker occurrence decides", TABLES,
      '    m = re.search(re.escape(MARKER), field)',
      '    m = list(re.finditer(re.escape(MARKER), field))[-1]',
@@ -306,7 +306,7 @@ MUTANTS = [
       "(link) a reference link nested in inline brackets: the inner reference is the link, the "
       "outer tail is text"]),
     ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", LEXER,
-     '            defs, rest = reference_definitions(s[off:])', '            defs, rest = reference_definitions(s[off:nl])',
+     '    text = "\\n".join(lines[i:i + 3])', '    text = lines[i]',
      ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
       "shortcut naming it is a schema miss, not an exempt citation-style shortcut"]),
     # -- PR #510 Codex R2
@@ -344,13 +344,19 @@ MUTANTS = [
      '        if _is_escape(s, i):\n            i += 2                      # §2.4: `\\[` / `\\]` / `\\`` are literal',
      '        if _is_escape(s, i) and s[i + 1] != "[":\n            i += 2',
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
-    ("R3-2 population: a root-relative `/x.md` is not a sibling", TABLES,
-     'if _SCHEME.match(dest) or dest.startswith("/"):', 'if _SCHEME.match(dest) or dest.startswith("//"):',
-     ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0"]),
+    ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
+     "`%2Ftmp%2Fx.md` -- is not a sibling", TABLES,
+     'if _SCHEME.match(name) or name.startswith("/") or not name.endswith(".md"):',
+     'if _SCHEME.match(name) or not name.endswith(".md"):',
+     ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
+      "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
+      "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after decoding "
+      "(never probes `/tmp/child.md`): rc 0"]),
     # -- design re-gate
     ("RG-1 def: orphan_definitions resumes at the grammar's rest offset (re-inject the per-line "
      "re-walk: quadratic)", LEXER,
-     '            off += rest', '            off = nl',
+     '    text = "\\n".join(lines[i:i + 3])\n    defs, _ = reference_definitions(text, limit=1)',
+     '    text = "\\n".join(lines[i:])\n    defs, _ = reference_definitions(text)',
      ["orphan_definitions() is linear: 3000 definition lines in < 50 ms"]),
     ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
      "reads it from the opener", LEXER,
@@ -367,9 +373,9 @@ MUTANTS = [
      ["(link) a percent-encoded destination `slice%20sib.md` links the file `slice sib.md`, as "
       "`<slice sib.md>` does"]),
     ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,
-     'code, found, images, unresolved = inline_pass(self.text[start:], defs)',
-     'code, found, images, unresolved = inline_pass(blank_spans(self.text, [(m.start(), m.end()) '
-     'for m in re.finditer(r"`[^`]*`", self.text)])[start:], defs)',
+     '= inline_pass(self.text, defs)',
+     '= inline_pass(blank_spans(self.text, [(m.start(), m.end()) '
+     'for m in re.finditer(r"`[^`]*`", self.text)]), defs)',
      ["(span) a backtick inside a link DESTINATION is consumed by the link, not a code span: "
       "`[sib](slice`x`.md)` links the sibling"]),
     ("R4-3 pass: a code span swallows a `]` (brackets inside it are not delimiters)", LEXER,
@@ -379,6 +385,21 @@ MUTANTS = [
       "`link](absent.md)`` is code, no link, rc 0",
       "(link) a link inside a code span is not a link (A x B)",
       "(rc) a code-quoted link to an absent file is not a link: rc 0"]),
+    # -- PR #510 Codex R5: Phase 1 / Phase 2
+    ("R5-1 phase 1: definitions are read from RAW lines (re-inject the inline pre-mask)", LEXER,
+     '    defs, _ = reference_definitions(text, limit=1)',
+     '    defs, _ = reference_definitions(blank_spans(text, code_spans(text)), limit=1)',
+     ["(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` keeps its "
+      "backticks in the destination and the sibling is scanned"]),
+    ("R5-4 phase 1: a reference definition is a block start that ends a table", TABLES,
+     '        return starts_block(self.lines[i]) or self.definition_at(i) is not None',
+     '        return starts_block(self.lines[i])',
+     ["(table) a reference definition right after a schema table ENDS the table (GFM §4.10 block "
+      "start): no width miss, the definition resolves, the sibling is walked, rc 0"]),
+    ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", TABLES,
+     '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID))', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID))',
+     ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
+      "spelling two ids, both reported"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -387,9 +408,6 @@ MUTANTS = [
      '        if _is_escape(s, i):\n            i += 2                      # §2.4: `\\[` / `\\]` / `\\`` are literal',
      '        if _is_escape(s, i) and s[i + 1] != "`":\n            i += 2',
      ["(span) a backtick behind a backslash is literal and opens no span"]),
-    ("F10 def: a cell parses no reference definition", LEXER,
-     '([], 0) if cell else reference_definitions(self._masked)', 'reference_definitions(self._masked)',
-     ["(def) a cell shaped like a definition is inline content and is scanned"]),
     ("F12 link: the link tail masks a slug", TABLES,
      '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),

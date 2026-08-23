@@ -3,11 +3,17 @@
 CommonMark 0.31.2 and GFM 0.29, lexed by construction from the clauses
 `docs/plans/2026-08-plan-memo-umbrella-checker.md` §3 lists.
 
-Order (plan §2 "Lexing order"): fenced blocks (CommonMark §4.5) are masked
-first; a GFM table row is split on RAW unescaped `|` (GFM §4.10, incl. inside
-backticks -- Example 200); per block inline content (a paragraph or a cell)
-code spans (CommonMark §6.1, backtick strings of equal length) and links /
-images (CommonMark §6.3 / §6.4 / §4.7) are lexed by ONE left-to-right pass
+Order (plan §2 "Lexing order"; CommonMark "Appendix: A parsing strategy"):
+PHASE 1, block structure over raw lines (driven by `plan_memo_tables.py::
+Memo`, with this module's `fenced_lines` / `definition_block` /
+`starts_block` / `split_row`): fenced blocks (CommonMark §4.5) are masked
+first; reference definitions (§4.7) are blocks of their own, recognised at a
+block start from RAW lines; a GFM table row is split on RAW unescaped `|`
+(GFM §4.10, incl. inside backticks -- Example 200) and a table ends at a
+blank line or any block start, a definition included.  PHASE 2, per block
+inline content (a paragraph or a cell): code spans (CommonMark §6.1,
+backtick strings of equal length) and links / images (§6.3 / §6.4) are
+lexed by ONE left-to-right pass
 (`inline_pass`, "Appendix: A parsing strategy"): a code span is skipped as
 met, an inline-link tail is parsed by lookahead on the raw text -- there is
 no code pre-mask.  An image's bracket structure is parsed so that it is not
@@ -20,9 +26,9 @@ list-item or `>` line only ENDS a paragraph here, its content is not
 re-parsed as a nested document), §6.5 autolinks, §2.5 entity references.
 Nothing here detects them.
 
-`Lexed` is the one lexical value per block: code spans, the leading run of
-reference definitions, links, and the two bare tokens the scanners must not
-read an id out of (`[C19]`-style citation ids, `.md` file names).  Nothing in
+`Lexed` is the one Phase-2 value per block: code spans, links, images, and
+the two bare tokens the scanners must not read an id out of (`[C19]`-style
+citation ids, `.md` file names).  Nothing in
 this module knows what a row id is; the disposition exception (an id-only code
 span is the document spelling an id, not code) is applied over a `Lexed` by
 `plan_memo_tables.py`.
@@ -125,7 +131,7 @@ class Cell:
     def __init__(self, text, segments):
         self.text = text
         self._segments = segments
-        self.lexed = Lexed(text, cell=True)
+        self.lexed = Lexed(text)
 
     def raw(self, i):
         seg = self._segments
@@ -564,17 +570,36 @@ def links(s, defs):
     return inline_pass(s, defs)[1:]
 
 
-def reference_definitions(s):
-    """CommonMark §4.7 link reference definitions at the START of `s` (a
-    paragraph's inline content; a definition cannot interrupt a paragraph).
-    Consumes consecutive definitions.  Returns ([(label, dest, end)], rest_offset).
+def definition_block(lines, i):
+    """Phase 1 ("Appendix: A parsing strategy", block structure): the
+    reference definition (§4.7) whose first raw line is `lines[i]`, or None.
+    Returns (label, destination, n_lines) -- a definition spans at most three
+    lines (label and colon; up to one line ending before the destination; up
+    to one before the title), so a three-line window is the whole grammar.
+    Read from RAW lines, before any inline parsing: a backtick in the
+    destination (`[sib]: slice`x`.md`) is destination text, not a code span.
+    The caller decides whether `i` is a block start (a definition cannot
+    interrupt a paragraph); here the line is only recognised."""
+    text = "\n".join(lines[i:i + 3])
+    defs, _ = reference_definitions(text, limit=1)
+    if not defs:
+        return None
+    raw, dest, end = defs[0]
+    consumed = text[:end]
+    return raw, dest, consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
+
+
+def reference_definitions(s, limit=None):
+    """CommonMark §4.7 link reference definitions at the START of `s` (raw
+    block text; the caller guarantees a block start).  Consumes consecutive
+    definitions (at most `limit`).  Returns ([(label, dest, end)], rest_offset).
 
     Grammar: <=3 spaces, a link label, `:`, optional whitespace incl. up to one
     line ending, a destination, optionally whitespace incl. up to one line
     ending and a title, then nothing but spaces/tabs before the line ending.
     """
     out, i = [], 0
-    while True:
+    while limit is None or len(out) < limit:
         j = 0
         while j < 3 and i + j < len(s) and s[i + j] == " ":
             j += 1
@@ -634,71 +659,26 @@ _TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md\b)")
 
 
 class Lexed:
-    """The lexical facts of one block's inline content (a paragraph or a
-    cell), computed by ONE inline pass (`inline_pass`): `code` = code spans;
-    `definitions` / `defs_end` = the leading run of reference definitions
-    over the code-masked stream (a paragraph only -- a table cell is inline
-    content under GFM §4.10 and holds no §4.7 definition, so `cell=True`
-    parses none); `tokens` = [(start, end, "cite" | "file")].  `resolve`
-    re-runs the pass past the definitions with the memo's `defs` and sets
-    `code` (final), `links` = [(tail_start, end, destination)], `images` =
-    [(tail_start, end)] and `unresolved` = [(offset, label, form, is_image)]
-    of the references no definition answers; `mask` is set by the
+    """The lexical facts of one block's INLINE content (a paragraph or a
+    cell) -- Phase 2 of "Appendix: A parsing strategy"; block structure
+    (fences, reference definitions, tables, paragraphs) is Phase 1, decided
+    over raw lines by `plan_memo_tables.py::Memo`, and a reference
+    definition is never inline content.  `tokens` = [(start, end, "cite" |
+    "file")] over the raw text.  `resolve(defs)` runs `inline_pass` and sets
+    `code` = code spans, `links` = [(tail_start, end, destination)],
+    `images` = [(tail_start, end)] and `unresolved` = [(offset, label, form,
+    is_image)] of the references no definition answers; `mask` is set by the
     disposition step in `plan_memo_tables.py` once the row ids are known."""
 
-    __slots__ = ("text", "code", "_masked", "definitions", "defs_end", "tokens",
-                 "links", "images", "unresolved", "mask")
+    __slots__ = ("text", "code", "tokens", "links", "images", "unresolved", "mask")
 
-    def __init__(self, text, cell=False):
+    def __init__(self, text):
         self.text = text
-        # the definitions are block structure and come first; the pass that
-        # decides them runs without `defs` (inline links need none, and they
-        # are what decides which backticks a tail consumes)
-        self.code = code_spans(text)
-        self._masked = blank_spans(text, self.code)
-        self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(self._masked)
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
-        self.links, self.images, self.unresolved = [], [], []
+        self.code, self.links, self.images, self.unresolved = [], [], [], []
         self.mask = None
 
     def resolve(self, defs):
-        """The inline pass over the RAW text past the definitions (code spans
-        and brackets together; no pre-mask), with `defs` = normalised label ->
-        destination."""
-        start = self.defs_end
-        code, found, images, unresolved = inline_pass(self.text[start:], defs)
-        self.code = [c for c in self.code if c[1] <= start] + [(a + start, b + start) for a, b in code]
-        self._masked = blank_spans(self.text, self.code)
-        self.links = [(a + start, b + start, dest) for a, b, dest in found]
-        self.images = [(a + start, b + start) for a, b in images]
-        self.unresolved = [(a + start, label, form, img) for a, label, form, img in unresolved]
-
-    def orphan_definitions(self):
-        """[(offset, label)] of definition-shaped lines the grammar could not
-        read as definitions (a §4.7 definition cannot interrupt a paragraph),
-        for the memo's unresolved-reference report; `offset` is where the
-        line starts, which is where its label bracket is read as a shortcut."""
-        out, s, off = [], self._masked, self.defs_end
-        while off < len(s):
-            nl = _next_line(s, off)
-            # parsed from the candidate line's start over the REST of the
-            # block, so a definition split over its permitted continuation
-            # line (§4.7: up to one line ending after the colon) is seen too.
-            # LINEAR: a hit records every consecutive definition the grammar
-            # returned (definition k+1 starts where k ended) and resumes at
-            # the returned rest offset, never re-walking a consumed line
-            defs, rest = reference_definitions(s[off:])
-            if not defs:
-                off = nl
-                continue
-            start = off
-            for raw, _, end in defs:
-                k = start
-                while s[k] == " ":
-                    k += 1
-                out.append((k, raw))
-                start = off + end
-                while start < len(s) and s[start] == "\n":
-                    start += 1
-            off += rest
-        return out
+        """The inline pass over the RAW text (code spans and brackets
+        together; no pre-mask), with `defs` = normalised label -> destination."""
+        self.code, self.links, self.images, self.unresolved = inline_pass(self.text, defs)

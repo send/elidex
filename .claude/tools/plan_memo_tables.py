@@ -34,7 +34,7 @@ import re
 from urllib.parse import unquote
 
 from plan_memo_lexer import (
-    Lexed, blank_spans, delimiter_width, fenced_lines, is_blank, normalize_label,
+    Lexed, blank_spans, definition_block, delimiter_width, fenced_lines, is_blank, normalize_label,
     one_line_block, split_row, starts_block,
 )
 
@@ -133,13 +133,15 @@ _ID_CELL = re.compile("^" + decorated_id("(?:%s|%s|%s)" % (SLUG_ID, CITE_ID, SHO
                       + r"(?![0-9A-Za-z-])")
 _SLUG_IN_CODE = re.compile(r"(?<![\w-])" + SLUG_ID)
 
-# The separators an id-only code span is tokenised on: whitespace, the list
-# punctuation, `|` and `-` (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`).  A
-# bare id in a cell or in prose is NOT tokenised on a list -- it is bounded by
-# the complement of the id-continuation class (the checker's `_ID_CONTINUES`);
-# a hyphen bounds a short id, and `slice-9z-sib.md` is safe because a file
+# An id-only code span is tokenised by the declared-id GRAMMAR, longest
+# alternative first (a `#11-` slug is atomic -- its internal hyphens are not
+# separators), with the separators whitespace, list punctuation, `|` and `-`
+# (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`) between tokens.  A bare id in
+# a cell or in prose is NOT tokenised on a list -- it is bounded by the
+# complement of the id-continuation class (the checker's `_ID_CONTINUES`); a
+# hyphen bounds a short id, and `slice-9z-sib.md` is safe because a file
 # name is a lexer `file` token, masked before the scan.
-_ID_RUN_SPLIT = re.compile(r"[\s,;/→>+&|-]+")
+_ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID))
 
 # --------------------------------------------------------------------------
 # Table schemas, identified by HEADER ROW (a line range is a figure a later
@@ -204,13 +206,15 @@ class Table:
 def find_tables(memo):
     """Admit every GFM table in `memo` (fenced lines skipped).  Returns
     ([Table], {0-based line index owned by a table}).  The table runs from the
-    header to the first blank line or block start; every line in between is a
-    body row, pipes or not (GFM §4.10).
+    header to the first blank line or block start (`Memo.block_start`: a heading,
+    thematic break, list item, `>` line or a reference definition -- GFM
+    §4.10 "the beginning of another block-level structure"); every line in
+    between is a body row, pipes or not.
     """
     lines, fenced = memo.lines, memo.fenced
     tables, owned, i, n = [], set(), 0, len(lines)
     while i < n:
-        if i in fenced or is_blank(lines[i]) or i + 1 >= n or starts_block(lines[i]):
+        if i in fenced or is_blank(lines[i]) or i + 1 >= n or memo.block_start(i):
             i += 1
             continue
         width = delimiter_width(lines[i + 1])
@@ -226,7 +230,7 @@ def find_tables(memo):
         t = Table(schema, Row(memo, i + 1, header, None))
         owned.update((i, i + 1))
         j = i + 2
-        while j < n and j not in fenced and not is_blank(lines[j]) and not starts_block(lines[j]):
+        while j < n and j not in fenced and not is_blank(lines[j]) and not memo.block_start(j):
             body = split_row(lines[j])
             if schema is not None and len(body) != width:
                 t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
@@ -281,9 +285,18 @@ def attributed_to_other(field, rid):
 
 def id_only(inner, keep):
     """The disposition exception: a code span whose content is only row ids
-    (and separators) is the document SPELLING an id, and is a mention."""
-    toks = [x for x in _ID_RUN_SPLIT.split(inner) if x]
-    return inner in keep or (bool(toks) and all(x in keep for x in toks))
+    (and separators) is the document SPELLING an id, and is a mention.  The
+    run must be covered end to end by id tokens and separators."""
+    if inner in keep:
+        return True
+    pos, ids = 0, []
+    for m in _ID_RUN_TOKEN.finditer(inner):
+        if m.start() != pos:
+            return False
+        pos = m.end()
+        if m.group("id") is not None:
+            ids.append(m.group("id"))
+    return pos == len(inner) and bool(ids) and all(x in keep for x in ids)
 
 
 def code_mask(lx, keep):
@@ -306,13 +319,11 @@ def code_mask(lx, keep):
 
 def dispose(lx, keep):
     """Tag `lx.mask`: every span the scanners must not read an id out of, as
-    (start, end, kind) -- `code` (minus id-only spans and kept slugs), `def`
-    (a definition renders nothing, so none of it, label included, is prose),
-    `link` (the tail; the visible text stays, it is prose), `image` (the
-    same, for an image), `cite`, `file`."""
+    (start, end, kind) -- `code` (minus id-only spans and kept slugs), `link`
+    (the tail; the visible text stays, it is prose), `image` (the same, for
+    an image), `cite`, `file`.  A reference definition is a Phase-1 block of
+    its own, never inline content, so no block holds one to mask."""
     out = [(a, b, "code") for a, b in code_mask(lx, keep)]
-    if lx.defs_end:
-        out.append((0, lx.defs_end, "def"))
     out += [(a, b, "link") for a, b, _ in lx.links]
     out += [(a, b, "image") for a, b in lx.images]
     out += lx.tokens
@@ -321,8 +332,8 @@ def dispose(lx, keep):
 
 def stream(lx):
     """`lx.text` with EVERY span of its disposed mask blanked -- code spans
-    (id-only spans and kept slugs were excepted there), definition lines, link
-    tails, citation ids, file names.  This is the ONE stream every predicate
+    (id-only spans and kept slugs were excepted there), link tails, citation
+    ids, file names.  This is the ONE stream every predicate
     over a block reads: the kind-marker reader (a quoted marker is not a
     declaration), the seeds' vocabularies (a `gates` inside a code span is not
     ordering prose; a `MERGED` inside one is not a retirement), the licensing
@@ -358,20 +369,42 @@ class Paragraph:
 
 
 class Memo:
+    """One memo, in the two phases of CommonMark's "Appendix: A parsing
+    strategy".  Phase 1 (block structure, over RAW lines, here): fenced
+    blocks (§4.5), GFM tables (§4.10, ending at a blank line or any block
+    start), reference definitions (§4.7 -- a block of its own, recognised
+    only at a block start; a definition-shaped line INSIDE a paragraph is an
+    orphan, recorded in `orphans`), paragraphs.  Phase 2 (inline structure,
+    `Lexed.resolve` / `inline_pass`) then runs over each paragraph's and
+    cell's content only, with `defs` from the Phase-1 definition blocks."""
+
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.text = self.path.read_text()
         self.lines = self.text.split("\n")
         self.fenced = fenced_lines(self.lines)
+        self._defs_at = {}          # line index -> definition_block(...) (read once per line)
         self.tables, self.table_lines = find_tables(self)
-        self.paragraphs = self._paragraphs()
-        # §4.7: the first definition of a label wins
-        self.defs = {}
-        for p in self.paragraphs:
-            for raw, dest, _ in p.lexed.definitions:
-                self.defs.setdefault(normalize_label(raw), dest)
+        self.defs = {}              # normalised label -> destination (§4.7: the first wins)
+        self.orphans = {}           # normalised label -> {1-based line numbers}
+        self.paragraphs = self._blocks()
         for lx in self.lexed():
             lx.resolve(self.defs)
+
+    def definition_at(self, i):
+        """The reference definition whose first raw line is `i`, or None
+        (`definition_block`, computed once per line)."""
+        if i not in self._defs_at:
+            self._defs_at[i] = definition_block(self.lines, i)
+        return self._defs_at[i]
+
+    def block_start(self, i):
+        """Whether raw line `i` begins a block-level structure other than a
+        paragraph continuation: an ATX heading, a thematic break, a list
+        item, a `>` line (`starts_block`) or a reference definition -- what
+        ends a GFM table (§4.10: "the beginning of another block-level
+        structure") and a paragraph."""
+        return starts_block(self.lines[i]) or self.definition_at(i) is not None
 
     @property
     def key(self):
@@ -381,23 +414,41 @@ class Memo:
         aliases their rows; the basename (`path.name`) is for display only."""
         return str(self.path)
 
-    def _paragraphs(self):
-        out, cur = [], []
+    def _blocks(self):
+        """Phase 1 over the lines no fence or table owns: definition blocks
+        (filling `defs`, first wins) and paragraphs; a definition-shaped line
+        that is not at a block start stays paragraph text and is an orphan.
+        Linear: one three-line window per line."""
+        out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
 
         def flush():
             if cur:
                 out.append(Paragraph(list(cur)))
                 cur.clear()
 
-        for i, line in enumerate(self.lines):
+        while i < n:
+            line = lines[i]
             if i in self.fenced or i in self.table_lines or is_blank(line):
                 flush()
+                i += 1
                 continue
-            if starts_block(line):
+            d = self.definition_at(i)
+            if d is not None and not cur:
+                # a block start: the definition is a block of its own
+                raw, dest, k = d
+                self.defs.setdefault(normalize_label(raw), dest)
+                i += k
+                continue
+            if d is not None:
+                # §4.7: a definition cannot interrupt a paragraph -- the line is
+                # paragraph text the author meant as a definition
+                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
+            elif starts_block(line):    # `d is None`: the other block starts
                 flush()
             cur.append((i + 1, line))
             if one_line_block(line):
                 flush()
+            i += 1
         flush()
         return out
 
@@ -423,12 +474,12 @@ class Memo:
         out = []
         for lx in self.lexed():
             for _, _, dest in lx.links:
-                if _SCHEME.match(dest) or dest.startswith("/"):
-                    continue
                 # the PATH component, percent-decoded (`slice%20sib.md` is the
-                # file `slice sib.md`, as `<slice sib.md>` is)
+                # file `slice sib.md`, as `<slice sib.md>` is), validated ONCE
+                # after decoding -- so `%2Ftmp%2Fx.md` is `/tmp/x.md` and is
+                # rejected like a raw `/tmp/x.md` or `//host/x.md`
                 name = unquote(re.split(r"[#?]", dest, 1)[0])
-                if not name.endswith(".md"):
+                if _SCHEME.match(name) or name.startswith("/") or not name.endswith(".md"):
                     continue
                 f = (self.path.parent / name).resolve()
                 if f != self.path.resolve() and f not in out:
@@ -440,13 +491,9 @@ class Memo:
         answers, plus every shortcut whose label has a definition the grammar
         could not read (a §4.7 definition cannot interrupt a paragraph) -- the
         sites where a population the author meant to link is lost."""
-        orphans = {}         # normalised label -> {offsets of its definition lines}
-        for p in self.paragraphs:
-            for off, raw in p.lexed.orphan_definitions():
-                orphans.setdefault(normalize_label(raw), set()).add((p, off))
-        out = []
+        orphans, out = self.orphans, []
 
-        def walk(lx, lineno_of, block=None):
+        def walk(lx, lineno_of):
             for off, label, form, is_image in lx.unresolved:
                 if is_image:
                     continue     # §6.4: literal image syntax; an image never links a memo
@@ -461,14 +508,15 @@ class Memo:
                 # honoured); a raw re-walk here once read `[foo\]][missing]`
                 # as a shortcut and exempted it
                 exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"
-                if exempt and (key not in orphans or (block, off) in orphans[key]):
+                lineno = lineno_of(off)
+                if exempt and (key not in orphans or lineno in orphans[key]):
                     continue
-                site = (lineno_of(off), label)
+                site = (lineno, label)
                 if site not in out:  # `[text][label]` re-scans `[label]` as a shortcut
                     out.append(site)
 
         for p in self.paragraphs:
-            walk(p.lexed, lambda off, p=p: p.locate(off)[0], p)
+            walk(p.lexed, lambda off, p=p: p.locate(off)[0])
         for t in self.tables:
             for row in [t.header] + t.rows:
                 for cell in row.cells:

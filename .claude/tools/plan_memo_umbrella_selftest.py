@@ -244,17 +244,20 @@ def linear_links_control(M):
 
 
 def linear_orphans_control(M):
-    """The linearity witness for `orphan_definitions`: a paragraph of 3,000
-    definition lines (all orphans -- `text` heads the paragraph) in under
-    50 ms.  The per-line re-walk this replaced was quadratic: 7.95 s
-    measured on this fixture."""
+    """The linearity witness for Phase-1 orphan detection: a paragraph of
+    3,000 definition-shaped lines (all orphans -- `text` heads the paragraph)
+    is read by `Memo` in under 50 ms.  The per-line re-walk over the rest of
+    the block this replaced was quadratic: 7.95 s measured on this fixture."""
     import time
-    import plan_memo_lexer      # the freshly loaded module
+    import plan_memo_tables     # the freshly loaded module
     text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(3000))
-    lx = plan_memo_lexer.Lexed(text)
-    t0 = time.perf_counter()
-    n = len(lx.orphan_definitions())
-    ms = (time.perf_counter() - t0) * 1000
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "orphans.md"
+        p.write_text(text)
+        t0 = time.perf_counter()
+        memo = plan_memo_tables.Memo(p)
+        ms = (time.perf_counter() - t0) * 1000
+    n = sum(len(v) for v in memo.orphans.values())
     return n == 3000 and ms < 50, "%d orphans in %.2f ms (must be 3000 in < 50)" % (n, ms)
 
 
