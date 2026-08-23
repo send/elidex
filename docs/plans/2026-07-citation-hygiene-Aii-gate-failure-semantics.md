@@ -543,7 +543,7 @@ and `SKILL.md`'s contract.
 
 ## §12 Exit criterion
 
-**(1) Green:** `test_preflight.py` **and `test_grep_pass.py`** pass (the second carries P11g — the grep-pass side of the shared fence rule); `git diff -- crates/` empty; `git diff -- .claude/tools/_webref/`
+**(1) Green:** `test_preflight.py` **and `test_grep_pass.py`** pass (the second carries P11g — the grep-pass side of the shared fence rule); `git diff -- crates/` empty; **A-i's frozen literals untouched** — `git diff <A-i landing sha> -- .claude/tools/_webref/test_spec_labels.py` shows no hunk over S5's 15 `SPEC_LABEL_REVERSE` pairs or S3b's vendored blurb (K4: pins, not mirrors — A-i §13); `git diff -- .claude/tools/_webref/`
 **empty** (A-ii touches no generic-core file).
 
 **(2) Red at A-i's head:** copy `test_preflight.py` and `test_grep_pass.py` onto A-i's landed head and run them. Non-zero, with at

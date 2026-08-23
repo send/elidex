@@ -604,14 +604,16 @@ no CI wiring is involved, so `#11-layoutbox-trip-wire-not-in-ci` is untouched.
 
 **Frozen literals.** S5's 15 `SPEC_LABEL_REVERSE` pairs **and** S3b's vendored `COMMON_SHORTNAMES` blurb text
 are both `origin/main` snapshots taken at vendoring time and refreshed never — which is what makes them pins
-rather than mirrors (K4). ⚠ **A-ii must not refresh either — and this is OWED, not routed**: measured,
-`grep -ciE 'frozen|refresh|S3b|15 pairs' …-Aii….md` → **0**. Nothing in A-ii receives it today.
+rather than mirrors (K4). ✅ **A-ii must not refresh either — routed (#501 R42)**: A-ii §12(1) requires both
+literals byte-identical to A-i's landing, measured by `git diff` over the two literals, not by prose.
 
-**Known hole → A-ii, OWED.** Not an A-i defect: K4 asserts identity with `origin/main`, never completeness,
+**Known hole → B (T10) + a registered sweep slot (#501 R42).** Not an A-i defect: K4 asserts identity with `origin/main`, never completeness,
 and A-i must not "fix" the map. The pinned label for `webidl` is **`Web IDL`, unprefixed**, though webref
 reports `organization=WHATWG` for it and `xhr` is pinned `WHATWG XHR` — so under the frozen map a
 `WHATWG`-prefixed spelling returns `None`. ⚠ **The failing spelling is `WHATWG WebIDL`, no space** — and
-A-ii does not receive this hand-off today (`grep -ciE 'web ?idl' …-Aii….md` → **0**). Measured,
+the receiving pins are B's **T10** (the spelling is *reported* under `UNKNOWN-SPEC`, never dropped) and the
+ledger slot `#11-webidl-label-spelling-sweep` (the five sites below re-spelled to the pinned `Web IDL`, owner =
+the cite-sweep program, trigger = B's `cite-audit` listing them on `main`). Measured,
 `git grep -clI 'WHATWG Web IDL' -- . ':!docs/plans/2026-07-citation-hygiene*'` → **0** files;
 `git grep -clI 'WHATWG WebIDL' …` → **5**, all in `crates/script/elidex-js/`: `src/vm/error.rs:33`,
 `src/vm/host/fetch/mod.rs:258`, `src/vm/host/request_response/mod.rs:188`,
@@ -619,7 +621,7 @@ A-ii does not receive this hand-off today (`grep -ciE 'web ?idl' …-Aii….md` 
 both spellings, which is how the count 5 is right while the spaced spelling it was attached to would key a
 remedy closing **0** of them. Found by Axis 4.
 
-**Second known hole → A-ii, OWED.** Same class, recorded the same way and for the same reason: pre-existing,
+**Second known hole → B (S15) (#501 R42).** Same class, recorded the same way and for the same reason: pre-existing,
 byte-identical to `origin/main`, so **K4 forbids A-i touching the map**. `webcrypto` is pinned as the
 **series** label `Web Cryptography API`, unlevelled. Measured, `.claude/tools/webref specs Cryptography`
 resolves to **`webcrypto-2  Web Cryptography API Level 2`** (the other two hits are
@@ -627,8 +629,8 @@ resolves to **`webcrypto-2  Web Cryptography API Level 2`** (the other two hits 
 written as `Web Cryptography API §N` verifies against **L2's numbering under a level-free label**, and will
 silently re-target when the series advances to L3 — the same defect class as B's `CSSOM`→`cssom-1` /
 `Selectors`→`selectors-4` re-pointing, arriving through the pinned map instead of the catalog. A-i ships the
-map unchanged and hands the hole to A-ii's completeness pass, exactly as the `webidl` one is handed.
-⚠ A-ii does not receive it today either: measured, `grep -ciE 'webcrypto' …-Aii….md` → **0**.
+map unchanged; **B re-points the pinned `webcrypto` entry to `webcrypto-2`** in the same edit as its other
+level re-pointings (umbrella "Cross-lane coordination"; B §6 **S15** pins it).
 
 **Owed to Slice B — B *adds* it.** `sources/webref_data.py`'s `@lru_cache(maxsize=None)` on `try_fetch_data`
 (**+9 / −0**) rides on `b3a7d469` and leaves A-i's lineage with it. A real optimization by its own

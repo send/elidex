@@ -102,11 +102,12 @@ grep -q 'cite-audit' .claude/skills/elidex-review/axes.md \
   && grep -q '^## Reported classes' .claude/tools/_webref/DESIGN.md \
   && grep -q 'one run per cited spec' .claude/skills/elidex-review/axes.md \
   && grep -q 'attribution-bucket disposition' .claude/skills/elidex-review/axes.md \
-  && grep -q 'non-§ discovery' .claude/skills/elidex-review/axes.md \
+  && grep -q 'cite-audit --forms ao,prose,url' .claude/skills/elidex-review/axes.md \
+  && (cd .claude/tools && python3 -m unittest _webref.commands.test_cite_audit -k NonSectionForms 2>&1 | tail -1 | grep -q '^OK') \
   && echo RETIRED
 ```
 
-Today (2026-07-28) this prints nothing. The fourth clause is §1's third site: `DESIGN.md` gaining the
+The seventh clause is the non-§ discovery **mechanism**, not a phrase: `axes.md` must name `cite-audit --forms ao,prose,url` (B §4.1.10 — AO names via `aoid`, `per <spec>` prose, spec URLs via the catalog) and B's T11 must be green for the three forms (Codex R42: a sentence containing "non-§ discovery" would otherwise have printed `RETIRED` with no discovery path for those surfaces). Today (2026-07-28) this prints nothing. The fourth clause is §1's third site: `DESIGN.md` gaining the
 reported-class and `--strict` contract that `axes.md` will point readers to — a chain checking only
 `axes.md` and `CLAUDE.md` printed `RETIRED` with that contract still unwritten (Codex R14). ⚠ The needle
 is a heading **C itself writes** (`## Reported classes`, the section §1's third row promises), not the

@@ -402,6 +402,18 @@ Measured: latin-1 → `0 cites`, **EXIT=0**; the same citation as UTF-8 → `1 c
 
 **Fix**: decode strictly; on `UnicodeDecodeError` or `OSError`, record the path in a `SKIPPED` class and fail `--strict`.
 
+#### §4.1.10 — the three non-§ citation forms (C's hand-off)
+
+C retires `axes.md`'s "≥4 grep pattern" requirement on the strength of `cite-audit`; by B's own reach
+analysis (§2 I2) the §-form detector leaves **AO-name** cites (`per OrdinaryToPrimitive`), **`per <spec>`**
+prose cites and **spec URLs** outside it. So that C's exit criterion names a mechanism and not a phrase
+(#501 R42), B's detector gains `--forms ao,prose,url`: AO names are tokens `aoid` resolves (the tc39 biblio
+is the enumerable set — no hand-authored alternation, the class `cite_audit.py:13` forbids); `per <spec>` is
+`per (WHATWG|W3C|ECMA-262|ECMA-402)[^,.;]*` with the label resolved by `shortname_for`; a URL is attributed
+through the catalog's `url` / `nightly.url` host+path prefix. Each form reports into the same classes
+(attributed / `UNATTRIBUTED` / `UNKNOWN-SPEC`). Pinned by **T11**; off by default so §5's §-form counts
+stay comparable.
+
 ### §4.2 What left, and where the seams are
 
 Four subsections of the pre-slice memo lived here. They are **not summarised** — a summary beside the
@@ -537,11 +549,13 @@ New/changed tests, by file. Every one must **fail against the unfixed detector**
 - **T2** rejected tokens appear in `--format json` and in the text summary count.
 - **T3** `TestCatalogWidening` — `/// CSS Text 3 §4.1.3` → `css-text-3`, catalog stubbed. **T3b** a 9-word catalog-only label: attributed with the catalog available, `UNKNOWN-SPEC` with `_catalog().available is False` (§10 Q2's offline rule). T3/T3b pin the **library** side of `#11-preflight-css-module-labels` (registered in the defer ledger at A-i's landing, owner B, prerequisite A-ii's `shortname_for` routing in `preflight.py`); the slot's subject is the **gate**, so its closing pin is **P-CSS** below, not T3.
 - **T4** `TestLabelBoundaries` — `EcsDom` / `scriptURL` / `innerHTML` / `PR5-streams` carry nothing.
-- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause. The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
+- **T5** `TestCommentSpans` — string literal, raw string `r#"…"#`, trailing `//` on a code line, `/* */` body without leading `*`, `*deref;` statement. Five fixtures, one per measured cause, **plus a nested-depth fixture** (Rust block comments nest): `/* outer /* inner */ still outer §4.10.21 */` — the cite after the inner `*/` is still in a comment span, which a boolean (non-depth) scanner gets wrong (Codex R42). The two string-literal fixtures assert the cite is **reported under `STRING-LITERAL`**, not merely absent from the verified set (§4.1.4's ⚠).
 - **T6** `--strict` exits 1 on an UNATTRIBUTED-only tree (the `§4.10.79.1` case).
 - **T7** corrupt extract → single diagnostic naming the cache, **zero** sections reported UNRESOLVED, non-zero exit.
 - **T8** non-UTF-8 file → `SKIPPED` class, `--strict` exits 1.
 - **T9** emitter parity — `--format json --summary` omits per-cite records; `--show-unattributed` is honoured by both emitters.
+- **T10** `/// WHATWG WebIDL §3.2` (the spelling at the five `crates/script/elidex-js` sites A-i §13 lists) is **reported** under `UNKNOWN-SPEC` with the label named in the summary — never silently dropped; the re-spelling itself is `#11-webidl-label-spelling-sweep` (ledger), not B's.
+- **T11** `TestNonSectionForms` — the three non-§ citation forms C's §4 names are discovered and attributed by `cite-audit --forms ao,prose,url`: an AO-name cite (`/// per OrdinaryToPrimitive`, resolved through `aoid`), a `per <spec>` prose cite (`/// per WHATWG HTML, the focus update steps`), and a spec URL (`https://html.spec.whatwg.org/multipage/interaction.html#focus-update-steps`, attributed through the catalog's `url`/`nightly.url`); each is attributed, and an unresolvable one lands in `UNKNOWN-SPEC`, not in silence. Without `--forms`, §-form only (B's default).
 - **C1** *(the coverage gap)* — one end-to-end `cli.main` case: `sys.argv` patched, `--strict` on a fixture tree, `SystemExit` code asserted. Mutation check: deleting the `--strict` argparse block must turn this red.
 
 **`test_spec_labels.py`** (**A-i's file — B appends, does not create**): A-i lands it with its own S1–S8
@@ -553,6 +567,7 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 - **S11** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
 - **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; `_catalog().available is False` with `cause` naming `URLError` — the *unavailable* branch, not an available empty `entries`.
 - **S13** pinned `SPECS` win over the catalog for every pinned key. ⚠ **Baseline-green** at A-i's head (the pinned-only `shortname_for` already returns every `SPECS` mapping, Codex R36), so S13 is not in §12(2)'s red roster; its check is a **mutation**: deleting the `SPECS`-first branch of the §4.1.8 index must turn it red.
+- **S15** the pinned `webcrypto` entry re-pointed to `webcrypto-2`: `shortname_for("Web Cryptography API")` → `webcrypto-2`, `label_for("webcrypto-2")` carries the level, and a `Web Cryptography API §N` row no longer re-targets when the series advances (A-i §13's second hole; umbrella cross-lane bullet).
 - **S14** cross-series ambiguity, on the live catalog and on a two-series stub: `shortname_for("Cookies: HTTP State Management Mechanism")` is `None` (title and shortTitle of both `layered-cookies` and `rfc6265bis`); `shortname_for("DOM")` is `"dom"` (rule 2 precedes rule 3, so `DOM-Level-2-Style`'s shortTitle never competes); `label_for("layered-cookies")` and `label_for("rfc6265bis")` each return their shortname, never the shared title. The stub half keeps the pin red-able if the upstream index ever drops one of the pair.
 
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):
