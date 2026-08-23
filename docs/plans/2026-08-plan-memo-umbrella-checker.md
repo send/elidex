@@ -262,15 +262,17 @@ ground for either option; it is not cited.
   Stage-6 pass below: a schema miss, rc 2 — an unkeyed row's cells go unasserted, the I-C class); the
   main memo has 0 such rows (`**—**` is an empty cell). `mise run trip-wires` rc 0);
   trip-wire added, registered, green in `mise run trip-wires`; header + docstrings rewritten.
-  ⚠ **`/elidex-review` Stage-6 pass (re-run 2026-08-23)**: **160 controls, 79 mutants / 0 survived / 0
+  ⚠ **`/elidex-review` Stage-6 pass (re-run 2026-08-23)**: **162 controls, 80 mutants / 0 survived / 0
   crashed**, census `48 = 33 + 15`, rc 0, **36 ORDER-PROSE? rows unchanged (same rows)**, sites
-  **703 → 712** (−2 / +11): both sides of the bare-id boundary are now the complement of the
-  id-continuation class (`[0-9A-Za-z-]`, a `.` inside a dotted number, a decorated side bounded by its
-  decoration) — the two lost sites are hyphen-glued words (`1b-5` at main:1983, `0b-family` at
-  main:2680, both one token under the class); the eleven gained are ten ids bounded by an ASCII `"`
-  the old punctuation list did not name (main:1944/2007×2/3004/3009/3049, detail:201×2/215/267 —
-  all quotations of withdrawn ordering / owner text, reported by default) and `` `9d` `` at main:1081,
-  the far end of `` `9a`-`9d` `` whose decoration now bounds it. Unresolved references and unkeyed
+  **703 → 717** (+14, nothing lost): both sides of the bare-id boundary are now the complement of the
+  id-continuation class (`[0-9A-Za-z]`, a `.` inside a dotted number; a decorated side bounded by its
+  decoration; a hyphen BOUNDS a short id on both sides — only the `#11-` slug keeps internal hyphens,
+  and `slice-9z-sib.md` is safe as a lexer `file` token). Gained: ten ids bounded by an ASCII `"` the
+  old punctuation list did not name (main:1944/2007×2/3004/3009/3049, detail:201×2/215/267 — all
+  quotations of withdrawn ordering / owner text, reported by default); `` `9d` `` at main:1081, the far
+  end of `` `9a`-`9d` `` whose decoration now bounds it; and three ids the old asymmetric rule (rhs `-`
+  admitted, lhs `-` not) hid behind a leading hyphen — main:1978 `9c` in `9a-9c`, main:1983 `1b` in the
+  second `"1b-5"`, main:3053 `1a` in `0cb-before-1a`. Unresolved references and unkeyed
   schema rows became schema misses (rc 2) — the memo has 0 of either, so rc stays 0. Every seed and
   the licensing rule read the block's one disposed stream (`stream()`), so a `gates` or `MERGED`
   inside a code span is code; measured: no ORDER-PROSE? row moved. `is_empty` is decided by shape

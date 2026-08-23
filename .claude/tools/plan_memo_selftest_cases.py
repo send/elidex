@@ -540,14 +540,18 @@ case("POSITIVE-NOVEL", "(bare) an id inside ASCII double quotes is bounded",
      build(), 'The integrator is "9z" here.', 1)
 case("POSITIVE-NOVEL", "(bare) an id inside curly double quotes is bounded",
      build(), "The integrator is \u201c9z\u201d here.", 1)
-case("NEGATIVE", "(bare) a hyphen continues the token: `9z-era` is one word, not an id",
-     build(), "The 9z-era integrator is unnamed.", 0)
+case("POSITIVE-NOVEL", "(bare) a hyphen bounds a short id: `after 9z-7z` names 9z",
+     build(), "Everything lands after 9z-7z here.", 1)
+case("NEGATIVE", "(bare) a bare `.md` file name holding an id is a file token, not a site",
+     build(), "Read slice-9z-sib.md for the walk.", 0)
 case("NEGATIVE", "(bare) a dotted number is one token: `§6.9z` names no row",
      build(), "See §6.9z for the integrator.", 0)
 case("POSITIVE", "(bare) a full stop after an id is a boundary",
      build(), "The integrator is 9z.", 1)
 case("POSITIVE", "(bare) a decorated side is bounded by its decoration: `` `9z`-`7z` `` is two ids",
      build(), "Sub-slices are spelled `9z`-`7z` here.", 1)
+case("POSITIVE", "(bare) the decoration closes the token even against an id character: `**9z**7z`",
+     build(), "The pair **9z**7z is spelled oddly.", 1)
 
 # #8: every predicate reads the block's ONE disposed stream
 acase("NEGATIVE", "(c-seed) ordering vocabulary inside a code span is code, not prose",

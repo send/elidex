@@ -213,16 +213,18 @@ def _anchored(b, keep, out):
             out.append(classify(Mention(b, rid, mt.start(), mt.end(), mt.start("id"), anchored=anchored)))
 
 
-# What continues an id token: an id character or a hyphen (`slice-9z-sib`,
-# `9z-era`, `1b-5` are one word, not an id), or a `.` with an id character on
-# its far side (a dotted number: `§6.2a` names no row `2a`).  A bare id is
-# bounded by the COMPLEMENT of this class -- any other character, or the
-# block edge -- not by a list of punctuation marks: a list left `9z?` / `9z!`
-# / `"9z"` / `“9z”` unreported while the report claimed "everything else is
-# reported".  A side that carries decoration (`**9z**`, `` `9a` ``) is bounded
-# by the decoration itself: the mark closes the token, so `` `9a`-`9d` `` is
-# two ids, while bare `9a-9d` is one word.
-_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")
+# What continues a SHORT id token: an id character, or a `.` with an id
+# character on its far side (a dotted number: `§6.2a` names no row `2a`).  A
+# hyphen BOUNDS a short id on both sides -- `after 1b-5` names `1b`,
+# `0b-family` names `0b` -- symmetrically; only the `#11-` slug grammar keeps
+# its internal hyphens, and a `.md` file name (`slice-9z-sib.md`) is a lexer
+# `file` token, masked before this scan reads it.  A bare id is bounded by
+# the COMPLEMENT of this class -- any other character, or the block edge --
+# not by a list of punctuation marks: a list left `9z?` / `9z!` / `"9z"` /
+# `“9z”` unreported while the report claimed "everything else is reported".
+# A side that carries decoration (`**9z**`, `` `9a` ``) is bounded by the
+# decoration itself: the mark closes the token, so `` `9a`-`9d` `` is two ids.
+_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")
 
 
 def _glued(text, i, step):

@@ -122,8 +122,9 @@ _SLUG_IN_CODE = re.compile(r"(?<![\w-])" + SLUG_ID)
 # The separators an id-only code span is tokenised on: whitespace, the list
 # punctuation, `|` and `-` (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`).  A
 # bare id in a cell or in prose is NOT tokenised on a list -- it is bounded by
-# the complement of the id-continuation class (the checker's `_ID_CONTINUES`),
-# under which a hyphen glues `slice-9z-sib` into one token, which is not an id.
+# the complement of the id-continuation class (the checker's `_ID_CONTINUES`);
+# a hyphen bounds a short id, and `slice-9z-sib.md` is safe because a file
+# name is a lexer `file` token, masked before the scan.
 _ID_RUN_SPLIT = re.compile(r"[\s,;/→>+&|-]+")
 
 # --------------------------------------------------------------------------
