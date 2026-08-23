@@ -225,7 +225,7 @@ MUTANTS = [
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
     ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", TABLES,
-     '                    if not is_empty(row.id_cell()):\n'
+     '                    if not is_blank_id_cell(row.id_cell()):\n'
      '                        self.misses.append(',
      '                    if False:\n'
      '                        self.misses.append(',
@@ -268,8 +268,22 @@ MUTANTS = [
      'return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS',
      'return bare in {"", "\\u2014", "-"} or bare.casefold() in EMPTY_WORDS',
      ["(c-seed) a Deps cell `–` (en dash) is empty by shape: no alphanumeric",
-      "(c-seed) a Deps cell `--` is empty by shape",
-      "(id) an id cell `–` (en dash) is empty by shape"]),
+      "(c-seed) a Deps cell `--` is empty by shape"]),
+    ("4.5 id cell: blanks are LITERAL, not the shape rule (re-inject `is_empty`)", TABLES,
+     '                    if not is_blank_id_cell(row.id_cell()):',
+     '                    if not is_empty(row.id_cell()):',
+     ["(id) an id cell `?` is not a blank: unkeyed, rc 2",
+      "(id) an id cell `…` is not a blank: unkeyed, rc 2 (the shape rule would skip it)",
+      "(id) an id cell `**?**` is not a blank: decoration does not blank it, rc 2"]),
+    ("4.5 id cell: `—` is a literal blank", TABLES,
+     'ID_CELL_BLANKS = frozenset({"", "\\u2014", "-", "\\u2013"})',
+     'ID_CELL_BLANKS = frozenset({"", "-", "\\u2013"})',
+     ["(id) an id cell `—` is a literal blank: a deliberate non-row, rc 0"]),
+    ("4.5 link: a citation-grammar label is exempt in every reference form", TABLES,
+     'exempt = _CITE_LABEL.fullmatch(key) is not None or _is_shortcut(lx, off)',
+     'exempt = _is_shortcut(lx, off)',
+     ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
+      "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "

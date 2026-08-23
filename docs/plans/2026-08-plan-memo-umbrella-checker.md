@@ -276,7 +276,11 @@ ground for either option; it is not cited.
   schema rows became schema misses (rc 2) — the memo has 0 of either, so rc stays 0. Every seed and
   the licensing rule read the block's one disposed stream (`stream()`), so a `gates` or `MERGED`
   inside a code span is code; measured: no ORDER-PROSE? row moved. `is_empty` is decided by shape
-  (no alphanumeric) with `n/a` / `none` as the only lexical exceptions. Slice-1 delta recorded under
+  (no alphanumeric) with `n/a` / `none` as the only lexical exceptions — for `Deps`; the ID cell's
+  blanks are LITERAL (`""` / `—` / `-` / `–` after decoration strip, `is_blank_id_cell`), so a `?` / `…`
+  id cell is unkeyed → rc 2, not a silent non-row. A citation-grammar label (`[C19]`) is exempt from
+  the unresolved-reference miss in every form (shortcut / full `[C19][C20]` / collapsed `[C19][]`).
+  Stage 4.5 re-run: **168 controls, 83 mutants / 0 / 0**, 717 sites unchanged. Slice-1 delta recorded under
   I-E above. `mise run trip-wires` rc 0.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads

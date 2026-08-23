@@ -428,8 +428,16 @@ case("POSITIVE", "(id) a cell that does not start with an id declares nothing: t
      build(i7z="(none)"), "", 1, measure=("schema", "id cell does not start with an id"))
 case("NEGATIVE", "(id) an id cell `-` is empty: not declared, not a schema miss",
      build(i7z="-"), "", 0, measure=("schema", "id cell does not start with an id"))
-case("NEGATIVE", "(id) an id cell `–` (en dash) is empty by shape",
+case("NEGATIVE", "(id) an id cell `–` (en dash) is a literal blank: a non-row",
      build(i7z="\u2013"), "", 0, measure=("schema", "id cell does not start with an id"))
+rcase("NEGATIVE", "(id) an id cell `—` is a literal blank: a deliberate non-row, rc 0",
+      build(i7z="\u2014"), "", 0)
+rcase("POSITIVE", "(id) an id cell `?` is not a blank: unkeyed, rc 2",
+      build(i7z="?"), "", 2)
+rcase("POSITIVE", "(id) an id cell `…` is not a blank: unkeyed, rc 2 (the shape rule would skip it)",
+      build(i7z="\u2026"), "", 2)
+rcase("POSITIVE", "(id) an id cell `**?**` is not a blank: decoration does not blank it, rc 2",
+      build(i7z="**?**"), "", 2)
 case("NEGATIVE", "(id) an id cell `-` is not an id",
      build(i7z="-"), "", 0, measure=("id", "-"))
 acase("POSITIVE", "(c-seed) a Deps cell `n/a` is empty, so ordering prose is reported",
@@ -516,6 +524,10 @@ case("POSITIVE", "(link) a shortcut whose only definition sits mid-paragraph is 
 case("NEGATIVE", "(link) a `[C19]` citation is a shortcut with no definition anywhere: no miss",
      build(), "Per [C1] the probe must return 3.", 0,
      measure=("schema", "unresolved reference"))
+rcase("NEGATIVE", "(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
+      build(), "Per [C1][C2] step 1 the probe must return 3.", 0)
+rcase("NEGATIVE", "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0",
+      build(), "Per [C1][] step 1 the probe must return 3.", 0)
 
 # C8: slug disposition is the disposition step's, not the scanner's
 case("POSITIVE", "(span) a kept slug inside a command-line code span is a naming site",

@@ -56,6 +56,19 @@ def is_empty(cell_text):
     return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS
 
 
+# The ID cell is the one place the shape rule is WRONG: an id cell is either
+# an id or a deliberate blank, and anything else (`?`, `…`, `**?**`, `--`) is
+# an UNKEYED row -- the silent-skip class the schema miss exists for.  So the
+# blanks are LITERAL here: exactly these four after decoration strip.
+ID_CELL_BLANKS = frozenset({"", "\u2014", "-", "\u2013"})
+
+
+def is_blank_id_cell(cell_text):
+    """Whether an id cell is a deliberate non-row (a literal blank), as
+    opposed to unkeyed content."""
+    return cell_text.strip().strip("*`").strip() in ID_CELL_BLANKS
+
+
 MARKER = "UMBRELLA, not a terminal unit"
 
 # §5's fifth row kind.  A kind-undetermined row carries the split and NOTHING
@@ -427,8 +440,15 @@ class Memo:
         def walk(lx, lineno_of, block=None):
             for off, label in lx.unresolved:
                 key = normalize_label(label)
-                if _is_shortcut(lx, off) and (key not in orphans or (block, off) in orphans[key]):
-                    continue     # a plain `[C19]`, or the orphan definition's own bracket
+                # a `[C19]`-style citation id is never a memo reference, in ANY
+                # form -- shortcut, full (`[C19][C20]` adjacent citations) or
+                # collapsed (`[C19][]`); a plain shortcut of any other label is
+                # prose too.  An orphan definition of the label (one the grammar
+                # could not read) is still reported, citation or not, except at
+                # the definition's own bracket.
+                exempt = _CITE_LABEL.fullmatch(key) is not None or _is_shortcut(lx, off)
+                if exempt and (key not in orphans or (block, off) in orphans[key]):
+                    continue
                 site = (lineno_of(off), label)
                 if site not in out:  # `[text][label]` re-scans `[label]` as a shortcut
                     out.append(site)
@@ -447,6 +467,8 @@ class Memo:
 
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+# `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
+_CITE_LABEL = re.compile(r"[a-z][0-9]+")
 
 
 def _is_shortcut(lx, off):
@@ -529,11 +551,11 @@ class Population:
             for row in memo.schema_rows(s.name):
                 rid = row.self_id
                 if rid is None:
-                    # an empty id cell is a deliberate non-row; anything else
-                    # that is not an id is an UNKEYED row: it would be dropped
+                    # a LITERAL blank id cell is a deliberate non-row; anything
+                    # else that is not an id is an UNKEYED row: it would be dropped
                     # from `ids`, so assertion (b) would never see its Deps
                     # edge -- the I-C silent-skip class, and a schema miss
-                    if not is_empty(row.id_cell()):
+                    if not is_blank_id_cell(row.id_cell()):
                         self.misses.append((memo.path.name, row.lineno,
                                             "the %r row's id cell does not start with an id (%r); "
                                             "the row declares nothing and is unkeyed, so its cells "
