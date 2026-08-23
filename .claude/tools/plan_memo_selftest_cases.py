@@ -10,8 +10,10 @@ lives beside the cases because the cases are its only parameterisation.
 """
 
 
-# A minimal memo carrying both table schemas, so the fixtures exercise the real
-# parse rather than a hand-built cell list.
+# A minimal memo carrying every table schema, so the fixtures exercise the real
+# parse rather than a hand-built cell list.  `{stub}` is the stub table (a
+# control drops it to prove a missing schema is rc 2); `{extra}` is a slot for
+# a control's own table, placed before §5 so it sits inside the tables.
 HEADER = """# fixture
 
 ## §0.5 Spec citation table
@@ -19,6 +21,10 @@ HEADER = """# fixture
 | ID | Citation | Anchor | Used by |
 |---|---|---|---|
 | [C1] | ECMA-262 §1 X | `#a` | {c1} |
+
+{stub}
+
+{extra}
 
 ## §5. Slice plan
 
@@ -43,7 +49,13 @@ HEADER = """# fixture
 # control that varies ONE row's cell measures that row.  Without it the
 # accept-vocab negative control counted the other terminal row and could never
 # reach 0 -- a control that cannot go green tests nothing.
-BLANK = dict(c1="—", s9z="charter.", d9z="—",
+STUB = """## §4 Stubs
+
+| Site | Syntax | Emits | Observable | Tier | Slice |
+|---|---|---|---|---|---|
+| `x.rs` | `a` | nothing | none | T1 | 7z |"""
+
+BLANK = dict(stub=STUB, extra="", c1="—", s9z="charter.", d9z="—",
              s7z="Terminal.  Acceptance: the probe must return 3.", d7z="—",
              sqx="Terminal.  Acceptance: the probe must return 4.",
              suz="Terminal.  Acceptance: the probe must return 5.", duz="—",
@@ -58,8 +70,8 @@ def build(**kw):
 CASES = []
 
 
-def case(kind, name, text, prose, expect, sibling=None):
-    CASES.append((kind, name, text, prose, expect, sibling))
+def case(kind, name, text, prose, expect, sibling=None, files=None):
+    CASES.append((kind, name, text, prose, expect, sibling, files or {}))
 
 
 # ---------------------------------------------------------------- POSITIVE --
@@ -166,8 +178,8 @@ case("KNOWN-MISS", "undecorated single letter with no row noun",
 ASSERT_CASES = []
 
 
-def acase(kind, name, text, code, expect):
-    ASSERT_CASES.append((kind, name, text, code, expect))
+def acase(kind, name, text, code, expect, prose="", sibling=None):
+    ASSERT_CASES.append((kind, name, text, code, expect, prose, sibling))
 
 
 acase("POSITIVE", "(a-seed) a row declaring the kind in words carries no marker",
@@ -219,3 +231,167 @@ acase("NEGATIVE", "(accept-vocab seed) a terminal row stating an acceptance cond
       build(sqx="Terminal.  Acceptance: the probe must return 3."), "ACCEPT-VOCAB?", 0)
 acase("NEGATIVE", "(b) an umbrella row with an empty Deps cell",
       build(), "UMBRELLA-CELL", 0)
+
+
+# ------------------------------------------------ Slice 1 lexing controls --
+# One control per clause of the plan's §3 rows and §2 invariants I-A/B/C/F.
+# Every control here has a named mutant in `plan_memo_selftest_mutants.py`.
+
+LINK = "See [the walk](slice-9z-sib.md)."
+VIOLATION = "Slice 9z lands before Slice 7z."
+
+# -- I-A fenced blocks (CommonMark §4.5)
+case("NEGATIVE", "(fence) text inside a fenced block is not prose",
+     build(), "```\n" + VIOLATION + "\n```", 0)
+case("NEGATIVE", "(fence) a tilde fence masks too",
+     build(), "~~~\n" + VIOLATION + "\n~~~", 0)
+case("NEGATIVE", "(fence) an unclosed fence runs to the end of the document",
+     build(), "```\n" + VIOLATION, 0)
+case("NEGATIVE", "(fence) a closer of the OTHER character does not close",
+     build(), "```\nx\n~~~\n" + VIOLATION, 0)
+case("NEGATIVE", "(fence) a shorter closer does not close",
+     build(), "````\nx\n```\n" + VIOLATION + "\n````", 0)
+case("NEGATIVE", "(fence) a closer followed by text does not close",
+     build(), "```\nx\n``` y\n" + VIOLATION, 0)
+case("POSITIVE", "(fence) a backtick fence whose info string holds a backtick is not a fence",
+     build(), "``` a`b\n" + VIOLATION, 1)
+case("POSITIVE", "(fence) four spaces of indent is not a fence",
+     build(), "    ```\n" + VIOLATION, 1)
+case("NEGATIVE", "(fence) three spaces of indent is",
+     build(), "   ```\n" + VIOLATION + "\n```", 0)
+case("NEGATIVE", "(fence) a link inside a fence is not a link (A x B)",
+     build(), "~~~\n[the walk](absent-file.md)\n~~~", 0)
+
+# -- I-A code spans (CommonMark §6.1) over the block, not the line
+case("NEGATIVE", "(span) a code span may cross a line ending",
+     build(), "The chain `0a → then\n9z` was withdrawn.", 0)
+case("NEGATIVE", "(span) backtick strings pair by EQUAL length",
+     build(), "The run ``a ` 9z`` owns nothing.", 0)
+case("POSITIVE", "(span) an unmatched backtick string is literal, not a mask to end of line",
+     build(), "A lone ` backtick, then 9z owns it.", 1)
+case("POSITIVE", "(span) a paragraph ends at a list item: a backtick open in one item "
+                 "and closed in the next is literal",
+     build(), "- a `9z owns it\n- b` end", 1)
+case("POSITIVE", "(span) a paragraph ends at a blank line",
+     build(), "open `here\n\n9z owns it` there", 1)
+case("POSITIVE", "(span) a paragraph ends at an ATX heading",
+     build(), "open `here\n## 9z owns it` there", 1)
+case("POSITIVE", "(span) a paragraph ends at a `>` line",
+     build(), "open `here\n> 9z owns it` there", 1)
+case("POSITIVE", "(span) a paragraph ends at a table row",
+     build(), "open `here\n| a | b |\n|---|---|\n| 9z owns it` | x |", 1)
+case("NEGATIVE", "(span) a quoted kind marker is not a declaration (A x E)",
+     build(sqx="Terminal.  A row quoting `UMBRELLA, not a terminal unit` as the criterion; "
+               "the probe must return 4."),
+     "Qx owns the close rule.", 0)
+
+# -- I-C row split (GFM §4.10)
+case("POSITIVE", "(row) an unescaped `|` inside backticks SPLITS the row: each half is "
+                 "prose with a literal backtick, so the id on each side is a mention",
+     build(), "| a | b |\n|---|---|\n| `9z owns | 9z owns` |", 2)
+case("POSITIVE", "(row) `\\|` is `|` in the cell, so `9z \\| 7z` is an id-only run",
+     build(c1=r"`9z \| 7z`"), "", 1)
+case("POSITIVE", "(row) a table without leading and trailing pipes declares its rows",
+     build(extra="Slot | Why deferred | Trigger | Re-eval\n"
+                 "---|---|---|---\n"
+                 "`#11-zz-gamma` | **UMBRELLA, not a terminal unit.** carved. | now | 2026-12-31"),
+     "`#11-zz-gamma` owns the close rule.", 1)
+case("NEGATIVE", "(table) header and delimiter of unequal width are not a table",
+     build(), "| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|\n"
+              "| **Wz** | **UMBRELLA, not a terminal unit.** x | `w.rs` | — | T1 | — |\n\n"
+              "Wz owns the close rule.", 0)
+case("NEGATIVE", "(table) a delimiter cell is >=1 hyphen with optional colons; `:` alone is not",
+     build(), "| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|---|---|---|---|:|\n"
+              "| **Wz** | **UMBRELLA, not a terminal unit.** x | `w.rs` | — | T1 | — |\n\n"
+              "Wz owns the close rule.", 0)
+
+# -- I-B links (CommonMark §6.3 / §4.7): every form reaches the sibling
+SIB = dict(sibling=VIOLATION)
+case("POSITIVE-NOVEL", "(link) bare destination with a balanced parenthesis pair",
+     build(), "See [the walk](slice-9z-sib.md#(a)).", 1, **SIB)
+case("POSITIVE-NOVEL", "(link) bare destination with an escaped parenthesis",
+     build(), "See [the walk](slice-9z-sib.md#\\(a).", 1, **SIB)
+case("POSITIVE-NOVEL", "(link) a non-ASCII space is destination content (only ASCII space "
+                       "and controls end it)",
+     build(), "See [the walk](slice-9z-sib.md#\u00a0x).", 1, **SIB)
+case("NEGATIVE", "(link) an ASCII control character (0x7F) ends a bare destination",
+     build(), "See [the walk](slice-9z-sib.md#\x7fx).", 0, **SIB)
+case("NEGATIVE", "(link) `<dest>` may not contain an unescaped `<`",
+     build(), "See [the walk](<slice-9z-sib.md#<x>).", 0, **SIB)
+case("POSITIVE-NOVEL", "(link) `<dest>` may contain an escaped `>`",
+     build(), "See [the walk](<slice-9z-sib.md#\\>x>).", 1, **SIB)
+case("NEGATIVE", "(link) a `(…)` title may not contain an unescaped `(`",
+     build(), "See [the walk](slice-9z-sib.md (a(b)).", 0, **SIB)
+case("POSITIVE-NOVEL", "(link) a `\"…\"` title may contain an escaped `\"`",
+     build(), 'See [the walk](slice-9z-sib.md "a\\"b").', 1, **SIB)
+case("POSITIVE-NOVEL", "(link) collapsed reference `[label][]`",
+     build(), "See [the walk][].\n\n[the walk]: slice-9z-sib.md", 1, **SIB)
+case("POSITIVE-NOVEL", "(link) label matching collapses internal whitespace",
+     build(), "See [the   walk][].\n\n[the walk]: slice-9z-sib.md", 1, **SIB)
+case("POSITIVE-NOVEL", "(link) label matching is a Unicode case FOLD, not lower()",
+     build(), "See [the straße][].\n\n[THE STRASSE]: slice-9z-sib.md", 1, **SIB)
+case("NEGATIVE", "(link) `[label][undefined]` is neither a full reference nor a shortcut "
+                 "(§6.3: a shortcut is not followed by a link label)",
+     build(), "See [the walk][nope].\n\n[the walk]: slice-9z-sib.md", 0, **SIB)
+case("POSITIVE-NOVEL", "(link) full reference whose text holds nested brackets; the label "
+                       "is the link's tail, not prose, and so is the definition",
+     build(), "See [the [x] walk][9z].\n\n[9z]: slice-9z-sib.md", 1, **SIB)
+case("POSITIVE-NOVEL", "(def) the FIRST definition of a label wins",
+     build(), "See [the walk][sib].\n\n[sib]: slice-9z-sib.md\n[sib]: clean.md", 1,
+     sibling=VIOLATION, files={"clean.md": "nothing here.\n"})
+case("POSITIVE-NOVEL", "(def) one line ending is allowed before the destination",
+     build(), "See [the walk][sib].\n\n[sib]:\nslice-9z-sib.md", 1, **SIB)
+case("NEGATIVE", "(def) text after the destination is not a definition",
+     build(), "See [the walk][sib].\n\n[sib]: slice-9z-sib.md junk", 0, **SIB)
+case("NEGATIVE", "(def) a definition cannot interrupt a paragraph",
+     build(), "See [the walk][sib].\n\ntext\n[sib]: slice-9z-sib.md", 0, **SIB)
+case("NEGATIVE", "(link) a link inside a code span is not a link (A x B)",
+     build(), "The memo says `[the walk](absent-file.md)` and stops.", 0)
+
+# -- I-F one population: sibling-declared rows join census, keep-set, assertions
+SIB_TABLE = ("## §5 carved\n\n| # | Slice | Primary module(s) | Slot | Tier | Deps |\n"
+             "|---|---|---|---|---|---|\n"
+             "| **Wz** | **UMBRELLA, not a terminal unit.** carved. | `w.rs` | — | T1 | %s |\n"
+             "| **Tq** | Terminal.  Acceptance: the probe must return 6. | `t.rs` | — | T1 | — |\n")
+case("POSITIVE-NOVEL", "(population) an umbrella declared in a linked memo is in the census",
+     build(), LINK + "\n\nWz owns the close rule.", 1, sibling=SIB_TABLE % "—")
+case("POSITIVE-NOVEL", "(population) a terminal id declared in a linked memo is in the "
+                       "keep-set, so `Tq / 9z` is an id-only run, not code",
+     build(), LINK + "\n\nThe same thing happened to `Tq / 9z`.", 1, sibling=SIB_TABLE % "—")
+case("POSITIVE-NOVEL", "(population) the population is transitive: a memo linked from a "
+                       "linked memo is scanned",
+     build(), LINK, 1, sibling="See [further](far.md).", files={"far.md": VIOLATION + "\n"})
+acase("POSITIVE-NOVEL", "(b) a sibling umbrella's Deps edge is asserted",
+      build(), "UMBRELLA-CELL", 1, prose=LINK, sibling=SIB_TABLE % "**7z**")
+
+
+# ------------------------------------------------------ exit-status controls --
+# (kind, name, text, prose, sibling, files, expected rc)
+RC_CASES = []
+
+
+def rcase(kind, name, text, prose, rc, sibling=None, files=None):
+    RC_CASES.append((kind, name, text, prose, sibling, files or {}, rc))
+
+
+rcase("POSITIVE", "(rc) a linked memo that is not on disk is rc 2, never clean",
+      build(), "See [gone](absent-file.md).", 2)
+rcase("POSITIVE", "(rc) a schema with no matching table is rc 2",
+      build(stub=""), "", 2)
+rcase("POSITIVE", "(rc) a schema body row whose width differs from its header is rc 2",
+      build(extra="| # | Slice | Primary module(s) | Slot | Tier | Deps |\n"
+                  "|---|---|---|---|---|---|\n"
+                  "| **Wz** | **UMBRELLA, not a terminal unit.** | `w.rs` | — | T1 | — | extra |"),
+      "", 2)
+rcase("POSITIVE", "(rc) the same id declared in two memos is rc 2",
+      build(), LINK, 2, sibling=SIB_TABLE.replace("**Wz**", "**9z**") % "—")
+rcase("POSITIVE", "(rc) the undetermined kind written two ways is KIND-SPELLING, rc 1",
+      build(sqx="**KIND UNDETERMINED**: open.", suz="**KIND-UNDETERMINED**: open."), "", 1)
+rcase("NEGATIVE", "(rc) a link cycle (A -> B -> A) is walked once and is not an error",
+      build(), LINK, 0, sibling="See [back](fixture.md).")
+rcase("NEGATIVE", "(rc) a code-quoted link to an absent file is not a link: rc 0",
+      build(), "The memo says `[the walk](absent-file.md)` and stops.", 0)
+rcase("NEGATIVE", "(rc) a slice header over a one-cell delimiter row is not a table, "
+                  "so its wide body row is not a width miss",
+      build(), "| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|\n"
+               "| **Wz** | **UMBRELLA, not a terminal unit.** x | `w.rs` | — | T1 | — |", 0)

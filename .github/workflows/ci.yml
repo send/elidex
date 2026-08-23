@@ -149,6 +149,9 @@ jobs:
       - uses: actions/checkout@v6
 
       # The same script `mise run trip-wires` runs, so the local gate and CI
-      # cannot diverge. No toolchain step: the wires are grep-only.
+      # cannot diverge. No toolchain step: the wires are grep-only except
+      # `plan-memo-umbrella-selftest-trip-wire.sh`, which needs `python3`
+      # (stdlib only, no packages) — present on `ubuntu-latest`; that wire
+      # FAILs rather than skips if the interpreter is absent.
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh

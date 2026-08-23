@@ -21,7 +21,12 @@ control here, and the controls come in four kinds:
                     out of scope -- is the failure
                     `feedback_control-rewritten-to-bless-the-defect` names.
 
-Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test
+Every control runs `check()` -- the SAME pipeline `main()` runs, not a copy of
+it.  The registries live in `plan_memo_selftest_cases.py`; the mutants (a
+re-executable proof that each control can go red) in
+`plan_memo_selftest_mutants.py`.
+
+Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
 import importlib.util
@@ -29,156 +34,184 @@ import pathlib
 import sys
 import tempfile
 
-from plan_memo_selftest_cases import ASSERT_CASES, CASES, build
+from plan_memo_selftest_cases import ASSERT_CASES, CASES, RC_CASES, build
 from plan_memo_tables import MARKER
 
 HERE = pathlib.Path(__file__).resolve().parent
 
+# Import name -> file, in dependency order.  The checker's file name is not an
+# import name, so it is loaded under a fixed one.
+MODULES = [
+    ("plan_memo_lexer", "plan_memo_lexer.py"),
+    ("plan_memo_tables", "plan_memo_tables.py"),
+    ("plan_memo_roles", "plan_memo_roles.py"),
+    ("plan_memo_umbrella_check", "plan-memo-umbrella-check.py"),
+]
 
-def _load():
-    spec = importlib.util.spec_from_file_location(
-        "pmuc", HERE / "plan-memo-umbrella-check.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+
+def load(patches=None):
+    """A FRESH module set, exec'd from source text (`patches` = {file name:
+    source} overrides), installed in `sys.modules` in dependency order so the
+    checker's own imports resolve to the patched modules.  Returns the checker
+    module.  `unload()` removes the set again."""
+    patches = patches or {}
+    unload()
+    mod = None
+    for name, file in MODULES:
+        src = patches.get(file)
+        if src is None:
+            src = (HERE / file).read_text()
+        spec = importlib.util.spec_from_loader(name, loader=None, origin=str(HERE / file))
+        mod = importlib.util.module_from_spec(spec)
+        mod.__file__ = str(HERE / file)
+        sys.modules[name] = mod
+        exec(compile(src, str(HERE / file), "exec"), mod.__dict__)
     return mod
 
 
-M = _load()
+def unload():
+    for name, _ in MODULES:
+        sys.modules.pop(name, None)
 
 
-def run_on(text, prose="", sibling=None):
+def run_on(M, text, prose="", sibling=None, files=None):
+    """Write the fixture and its siblings to a scratch dir and run `check()`.
+    Returns (no-owner ids, unlicensed mentions, findings, rc)."""
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "fixture.md"
         p.write_text(text + "\n" + prose + "\n")
-        # Every fixture link resolves to this file (discovery reads the memo's
-        # links and an absent target is a FATAL in production); its name
-        # carries an id so the destination-masking control keeps its subject.
+        # Every fixture link resolves to this file (an absent target is rc 2);
+        # its name carries an id so the destination-masking control keeps its
+        # subject.
         (pathlib.Path(d) / "slice-9z-sib.md").write_text((sibling or "") + "\n")
-        memo = M.Memo(str(p))
-        # ⚠ The PRODUCTION population.  This passed `umbrella_ids()` while
-        # `main()` passes `no_owner_ids()`, so a regression dropping
-        # kind-undetermined naming detection left `--self-test` green while the
-        # comment two lines below claimed the harness runs the same pipeline.
-        umb = memo.no_owner_ids()
-        # The SAME pipeline main() runs -- not a copy of it.  The copy that
-        # stood here had a different dedup rule and omitted two assertions.
-        mentions = M.collect_mentions(memo, umb)
-        seen, dd = set(), []
-        for m in mentions:
-            if m.key in seen:
-                continue
-            seen.add(m.key)
-            dd.append(m)
-        mentions = dd
-        findings, notes = [], []
-        # EVERY assertion the production entry point runs.  Calling only a and b
-        # here let the other two regress to reporting nothing while `--self-test`
-        # printed that all controls behaved -- a checker with no firing proof,
-        # which is the exact failure this file exists to prevent.
-        M.assertion_a(memo, findings, notes)
-        M.assertion_b(memo, findings, notes)
-        M.assertion_cd_seed(memo, findings, notes)
-        M.acceptance_vocab_seed(memo, findings, notes)
-        return umb, [m for m in mentions if not m.licensed], findings
+        for name, content in (files or {}).items():
+            (pathlib.Path(d) / name).write_text(content)
+        res = M.check(str(p))
+        umb = res.population.no_owner_ids()
+        return umb, [m for m in res.mentions if not m.licensed], res.findings, res.rc
 
 
-def attribution_control():
+# ----------------------------------------------------------------------------
+# Each control is a function of the checker module returning (ok, detail).
+# The mutant runner re-runs controls BY NAME against a patched module set, so
+# the registry is name -> callable and every control is reachable that way.
+# ----------------------------------------------------------------------------
+
+
+def naming_control(kind, text, prose, expect, sibling, files):
+    def run(M):
+        _, reported, _, rc = run_on(M, text, prose, sibling, files)
+        got = len(reported)
+        # Exact, not `>=`: every fixture carries exactly one intended site, so a
+        # scanner that reports one site twice must turn a control red rather
+        # than inflate the production census behind a green self-test.
+        ok = got == expect and rc != 2
+        return ok, "%d reported (expected %d), rc %d :: %s" % (
+            got, expect, rc, [m.context()[:80] for m in reported])
+    return run
+
+
+def assert_control(text, code, expect, prose, sibling):
+    def run(M):
+        _, _, findings, rc = run_on(M, text, prose, sibling)
+        got = sum(1 for c, _, _, _ in findings if c == code)
+        return got == expect and rc != 2, "%s x%d (expected %d), rc %d" % (code, got, expect, rc)
+    return run
+
+
+def rc_control(text, prose, sibling, files, expect):
+    def run(M):
+        _, _, findings, rc = run_on(M, text, prose, sibling, files)
+        return rc == expect, "rc %d (expected %d) :: %s" % (
+            rc, expect, [f[0] + " " + f[3][:60] for f in findings if not f[0].endswith("?")][:3])
+    return run
+
+
+def attribution_control(M):
     """A pointer slot whose cell opens `Slice **9z** -- **UMBRELLA, ...**` is
     declaring 9z's kind, not its own.  §5: a pointer slot "carries no marker of
     its own".  The count must not move when such a row is added."""
     base = build()
     ptr = build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — points into §5.")
-    out = []
-    for text in (base, ptr):
-        with tempfile.TemporaryDirectory() as d:
-            p = pathlib.Path(d) / "fixture.md"
-            p.write_text(text)
-            out.append(len(M.Memo(str(p)).umbrella_ids()))
-    return out
+    n = [len(run_on(M, t)[0]) for t in (base, ptr)]
+    return n[0] == n[1], "a marker naming another row does not enter the count (%d -> %d)" % tuple(n)
 
 
-def degenerate_control():
-    """A whole-line grep for the marker CANNOT disagree with the marker count.
-
-    The declaring-field parse can.  This proves the two are different programs
-    rather than one program written twice, which is what the memo's own control
-    failed at when it searched the same literal it was counting.
-    """
+def degenerate_control(M):
+    """A whole-line grep for the marker CANNOT disagree with the marker count;
+    the declaring-field parse can.  This proves the two are different programs
+    rather than one program written twice."""
     text = build(d7z="**UMBRELLA, not a terminal unit** stray")
-    with tempfile.TemporaryDirectory() as d:
-        p = pathlib.Path(d) / "fixture.md"
-        p.write_text(text)
-        memo = M.Memo(str(p))
-        by_field = len(memo.umbrella_ids())
-        by_grep = sum(1 for l in memo.lines
-                      if l.startswith("|") and MARKER in l)
-    return by_field, by_grep
+    umb = run_on(M, text)[0]
+    by_grep = sum(1 for l in text.split("\n") if l.startswith("|") and MARKER in l)
+    return len(umb) != by_grep, "declaring-field parse=%d vs whole-line marker grep=%d (must differ)" % (
+        len(umb), by_grep)
 
 
-def run():
+def pipe_shape_control(M):
+    """The same table written with and without leading/trailing pipes yields
+    the same ids and the same reported sites (I-C cell shape)."""
+    piped = ("| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+             "| `#11-zz-gamma` | **UMBRELLA, not a terminal unit.** Slice 9z lands first. | now | 2026-12-31 |")
+    bare = "\n".join(l.strip("|") for l in piped.split("\n"))
+    out = []
+    for extra in (piped, bare):
+        umb, reported, _, rc = run_on(M, build(extra=extra))
+        out.append((rc, sorted(umb), sorted((m.id, m.source, m.line[m.start:m.end]) for m in reported)))
+    return out[0] == out[1] and out[0][0] != 2, "ids %s, sites %s" % (out[0][1], out[0][2])
+
+
+def raw_offset_control(M):
+    """A site after a `\\|` in its cell is reported at its RAW column."""
+    _, reported, _, _ = run_on(M, build(c1=r"x \| Slice 9z owns it"))
+    ok = len(reported) == 1 and reported[0].line[reported[0].idpos:reported[0].idpos + 2] == "9z"
+    return ok, "idpos lands on %r" % (reported[0].line[reported[0].idpos:reported[0].idpos + 2] if reported else None)
+
+
+def registry():
+    """name -> (kind, control)."""
+    reg = {}
+    for kind, name, text, prose, expect, sibling, files in CASES:
+        reg[name] = (kind, naming_control(kind, text, prose, expect, sibling, files))
+    for kind, name, text, code, expect, prose, sibling in ASSERT_CASES:
+        reg[name] = (kind, assert_control(text, code, expect, prose, sibling))
+    for kind, name, text, prose, sibling, files, rc in RC_CASES:
+        reg[name] = (kind, rc_control(text, prose, sibling, files, rc))
+    reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
+    reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
+    reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
+    reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
+    return reg
+
+
+def run(mutants=False):
     fails = []
-    counts = {"POSITIVE": 0, "POSITIVE-NOVEL": 0, "NEGATIVE": 0, "KNOWN-MISS": 0}
+    counts = {}
     print("=" * 74)
     print("plan-memo-umbrella-check  --  self-test")
     print("=" * 74)
-
-    for kind, name, text, prose, expect, sibling in CASES:
-        umb, reported, _ = run_on(text, prose, sibling)
-        got = len(reported)
-        # Exact, not `>=`: every fixture carries exactly one intended site, so a
-        # scanner that reports one site twice must turn a control red rather
-        # than inflate the production census behind a green self-test.
-        ok = (got == expect)
-        counts[kind] += 1
+    M = load()
+    reg = registry()
+    for name, (kind, control) in reg.items():
+        counts[kind] = counts.get(kind, 0) + 1
+        ok, detail = control(M)
         if kind == "KNOWN-MISS":
-            print("  RED  [KNOWN-MISS] %s -- reported %d (expected 0; this site IS wrong)"
-                  % (name, got))
-            if got:
+            # `ok` means "reported 0": the site IS wrong, so the control stays red
+            print("  RED  [KNOWN-MISS] %s -- %s (this site IS wrong)" % (name, detail))
+            if not ok:
                 fails.append("KNOWN-MISS %s now reports; update the declared miss class" % name)
             continue
         if not ok:
-            fails.append("%s %s: expected %d, got %d :: %s"
-                         % (kind, name, expect, got,
-                            [m.context()[:80] for m in reported]))
-        print("  %-4s [%s] %s (%d reported)" % ("ok" if ok else "FAIL", kind, name, got))
-
-    for kind, name, text, code, expect in ASSERT_CASES:
-        counts[kind] += 1
-        _, _, findings = run_on(text, "")
-        got = sum(1 for c, _, _ in findings if c == code)
-        ok = (got == expect)
-        if not ok:
-            fails.append("%s %s [%s]: expected %d, got %d"
-                         % (kind, name, code, expect, got))
-        print("  %-4s [%s] %s (%s x%d)" % ("ok" if ok else "FAIL", kind, name, code, got))
-
-    n_base, n_ptr = attribution_control()
-    ok = n_base == n_ptr
-    if not ok:
-        fails.append("attribution control: adding a pointer slot whose marker names ANOTHER "
-                     "row moved the count %d -> %d" % (n_base, n_ptr))
-    print("  %-4s [CONTROL] a marker naming another row does not enter the count (%d -> %d)"
-          % ("ok" if ok else "FAIL", n_base, n_ptr))
-
-    by_field, by_grep = degenerate_control()
-    ok = by_field != by_grep
-    if not ok:
-        fails.append("degenerate control: declaring-field parse (%d) agreed with a "
-                     "whole-line marker grep (%d) on a fixture built to separate them"
-                     % (by_field, by_grep))
-    print("  %-4s [CONTROL] declaring-field parse=%d vs whole-line marker grep=%d "
-          "(must differ)" % ("ok" if ok else "FAIL", by_field, by_grep))
+            fails.append("%s %s :: %s" % (kind, name, detail))
+        print("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90]))
+    unload()
 
     print()
-    # ⚠ Count BOTH registries.  This read `len(CASES)` and silently omitted every
-    # assertion control, so the summary said 25 while 37 controls had run -- a
-    # report that does not match what the program did, which is the class this
-    # whole file exists to catch.
-    print("%d case(s) -- %d naming + %d assertion: %d POSITIVE, %d POSITIVE-NOVEL, %d NEGATIVE, "
-          "%d KNOWN-MISS (red, and they stay red)."
-          % (len(CASES) + len(ASSERT_CASES), len(CASES), len(ASSERT_CASES),
-             counts["POSITIVE"], counts["POSITIVE-NOVEL"],
-             counts["NEGATIVE"], counts["KNOWN-MISS"]))
+    print("%d control(s): %s."
+          % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts))))
+    if mutants:
+        import plan_memo_selftest_mutants as mm
+        fails += mm.run(reg)
     if fails:
         print()
         for f in fails:

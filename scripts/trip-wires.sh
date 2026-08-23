@@ -85,6 +85,7 @@ fi
 REQUIRED_WIRES="
 layout-box-reader-trip-wire.sh
 native-ctor-guard-trip-wire.sh
+plan-memo-umbrella-selftest-trip-wire.sh
 wasm-runtime-trip-wire.sh
 wasm-vm-trip-wire.sh
 "

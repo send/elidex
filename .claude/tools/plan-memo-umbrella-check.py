@@ -2,78 +2,77 @@
 """Machine-check a plan memo's umbrella rows against the way its own prose names them.
 
 Why this exists rather than another prose rule, and rather than a hand sweep.
-`docs/plans/2026-07-vm-p4-es-language-completeness.md` §5 states that an umbrella
-row carries neither the ordering nor the owner and no acceptance condition, so
-"naming an umbrella as an owner, as a 'lands second' party, or in a `Deps` cell
-names *nobody*". Four converge rounds of PR #506 then found that rule violated by
-hand, one site per round, and three separate sweeps each scoped themselves to
-whatever the previous round had named -- §5's `Deps` column once, the acceptance
-class once, that round's own corrections once -- so each swept the population
-that motivated it rather than the population the rule reaches. This program is
-the enumerator those sweeps did not have.
+The VM-P4 umbrella memo's §5 states that an umbrella row carries neither the
+ordering nor the owner and no acceptance condition, so "naming an umbrella as
+an owner, as a 'lands second' party, or in a `Deps` cell names *nobody*".  Four
+converge rounds of PR #506 then found that rule violated by hand, one site per
+round, and three separate sweeps each scoped themselves to whatever the
+previous round had named -- §5's `Deps` column once, the acceptance class once,
+that round's own corrections once -- so each swept the population that
+motivated it rather than the population the rule reaches.  This program is the
+enumerator those sweeps did not have.
 
-It does NOT discharge either of the two slots this document carves. Both are
+It does NOT discharge either of the two slots that memo carves.  Both are
 declared `UMBRELLA, not a terminal unit`, so what discharges them is their own
-derivation minting terminal children. `#11-plan-memo-spec-field-single-home-check`
-says so in its own cell: of its four assertions, two are "mechanical programs over
-this document's table parse" and two are natural-language claim extraction "for
-which no canonical algorithm exists". This file is the first pair, plus a
-declared-recall seed for the second pair. That boundary is printed in the report
-rather than left to the reader, because a checker that prints `0` for a class it
-cannot see is the failure the same document records under I-8.
+derivation minting terminal children.  `#11-plan-memo-spec-field-single-home-check`
+says so in its own cell: of its four assertions, two are "mechanical programs
+over this document's table parse" and two are natural-language claim extraction
+"for which no canonical algorithm exists".  This file is the first pair, plus a
+declared-recall seed for the second pair.  That boundary is printed in the
+report rather than left to the reader, because a checker that prints `0` for a
+class it cannot see is the failure the same document records under I-8.
 
-WHY A SEPARATE FILE, AND WHAT N ACTUALLY IS
-CLAUDE.md *One issue, one way* asks for N=1 and asks that anyone keeping N>1 be
-able to write down why N existed.  This block used to answer that against the two
-paths it already knew about -- itself and `claim-gate-plan-check.py` -- and
-reported N=2.  That is the same "measure the population you know" failure this
-program exists to catch, committed in the paragraph justifying the program.
-Re-derived over every in-flight worktree instead:
-
-    cd "$(git rev-parse --show-toplevel)/.." && for wt in elidex-wt-* elidex; do
-      ls "$wt"/.claude/tools/*.py 2>/dev/null; done
-
-Four distinct plan-memo programs are in flight, on three branch families, and
-NONE is on `main` (`git ls-tree origin/main -- .claude/tools/` lists only
-`webref` and the trip-wire shells):
-
-  claim-gate-plan-check.py (+3 modules)  branches claim-gate-plan-check,
-                                         stale-claim-detector
-  plan-sweep.py                          branch layout-decorated-inline
-  plan-xcheck.py                         branch layout-decorated-inline
-  plan-memo-umbrella-check.py (this)     branch vm-p4-plan-doc
+PROGRAM AND MODULES
+Carved out of #506 into its own program
+(`docs/plans/2026-08-plan-memo-umbrella-checker.md`, branch
+`vm-p4-plan-memo-checker`): the checker grew inside a converge loop without a
+plan-review and then became the loop's only subject for three rounds.  Modules:
+  plan_memo_lexer.py      CommonMark 0.31.2 / GFM 0.29 subset: fences, rows,
+                          code spans, links, reference definitions
+  plan_memo_tables.py     schemas, `Memo`, the transitive `Population`
+  plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
+  (this file)             mention scanners, `check()`, the report
+  plan_memo_umbrella_selftest.py / _selftest_cases.py / _selftest_mutants.py
+The §8 defer of the plan names the GFM row splitter duplicated across the
+in-flight plan-memo programs on their branch families; `plan_memo_lexer.py::
+split_row` is the candidate canonical copy, trigger = two of them on `main`.
 
 ⚠ This file does NOT cover the restatement sweep -- "You are changing one
 decision.  This lists EVERY site in the memo that restates it" across
-STATEMENT / OBLIGATION / CONSEQUENCE surfaces, the un-propagated-decision
-failure.  That class has a tool (`plan-sweep.py`), but it is NOT in this tree,
-so nothing here names it as canonical or mandates running it; until it lands,
-a decision change over this memo is swept by hand.  This file's subject is
-different: which rows carry no owner, and which prose names one of them in a
-role §5 says it cannot hold.
-
-So N>1 is real per class, and the residue worth collapsing is the shared GFM
-row splitter that honours an escaped pipe -- some thirty lines, duplicated four ways.  The
-collapse is a landing-order question: joining them today couples each branch's
-landing to the others' unconverged reviews.  Trigger to collapse: two or more of
-them on `main`, at which point the splitter moves to one module and each program
-keeps its own schema.
+STATEMENT / OBLIGATION / CONSEQUENCE surfaces.  That class has its own tool on
+another branch (`plan-sweep.py`); until it lands, a decision change over a memo
+is swept by hand.  This file's subject is different: which rows carry no owner,
+and which prose names one of them in a role §5 says it cannot hold.
 
 WHERE THIS RUNS
-It is NOT wired into `scripts/trip-wires.sh`, and deliberately: that script globs
-`.claude/tools/*-trip-wire.sh`, the CI job runs it ungated on every PR, and
-`SCHEMAS` matches one document's exact header rows -- run against any other plan
-memo this program prints `FATAL: no table matched schema(s) ...` and exits 2, so
-wiring it there would red every unrelated PR.  Its home is CLAUDE.md's
-*Development Rules*, invoked by hand when the VM-P4 umbrella memo is edited.
+Two places.  (1) By hand, on a memo: `SCHEMAS` matches one document family's
+exact header rows, so against any other plan memo this program prints
+`FATAL: no table matched schema ...` and exits 2 -- which is why the MEMO run
+is not a trip-wire.  (2) Its self-test IS one:
+`.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh` runs
+`--self-test --mutants` (memo-independent; fixtures live in `tempfile` dirs)
+under `scripts/trip-wires.sh` on every PR, so the checker cannot rot on `main`
+while the memo it gates is still in flight.
 
 EXIT STATUS
   0  no mechanical finding
   1  at least one mechanical finding (the assertions, not the seeds)
-  2  a schema did not match -- the run is a SKIP, not a clean result
+  2  a schema miss -- an absent linked memo, an unmatched schema, a body row
+     whose width differs from its header, the same id declared twice.  The run
+     is a SKIP, not a clean result, and it is never exit 0.
 Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
+
+LEXING (plan §2 / §3 -- the bound is the listed constructs, nothing more)
+  fenced blocks (CommonMark §4.5) masked -> GFM rows split on RAW unescaped `|`
+  (GFM §4.10; an escaped pipe becomes `|`) -> per block (paragraph / cell): code spans
+  (CommonMark §6.1, equal-length backtick strings; a span may cross a line, a
+  line is a reporting coordinate only) -> links (CommonMark §6.3 / §4.7) over
+  the masked stream -> row ids from the raw id cell -> disposition (an id-only
+  code span is the document spelling an id: a mention) -> kind markers from the
+  MASKED declaring field -> scanners.  Not lexed, read as written: §4.4 indented
+  code, §4.6 HTML blocks, §6.5 autolinks, §2.5 entities.
 
 WHAT IS MECHANICAL AND WHAT IS A SEED (read this before believing a count)
   (a) UMBRELLA-MARK   mechanical, complete, for the half that counts: the
@@ -94,22 +93,18 @@ WHAT IS MECHANICAL AND WHAT IS A SEED (read this before believing a count)
                       whether a sentence states one is the same natural-language
                       problem as (c) and (d).  A reader who takes this check for
                       the whole of (b) reads `0` for a class it never looked at.
-                      That is the exact shape of the defect the naming rule
-                      exists for, so it is printed with the count.
   (c) ORDER-PROSE     SEED.  Prose asserting an ordering is natural language.
   (d) TWO-OWNERS      SEED.  Two sentences of one row naming two owners is
                       natural language.
   NAMING              mechanical over its population, SEED as to that population.
-                      Every mention of an umbrella id that is not inside one of
+                      Every mention of a no-owner id that is not inside one of
                       the constructions §5 licenses.  Two passes, over every
                       table cell except the row's own id cell AND over every
-                      line outside the tables: a row-noun-anchored pass, and a
-                      bare pass that needs no row noun.  Two id shapes are
+                      paragraph outside the tables: a row-noun-anchored pass,
+                      and a bare pass that needs no row noun.  Two id shapes are
                       DECLARED MISSES, held as red controls in the self-test:
                       a purely numeric id and an undecorated single letter,
-                      each written without a row noun.  Everything else is
-                      reported whether or not anyone has written that spelling
-                      before, which is what the POSITIVE-NOVEL controls test.
+                      each written without a row noun.
   ACCEPT-VOCAB        SEED, and declared as one by the memo itself: the slot
                       `#11-plan-memo-acceptance-falsifiability-check` measures
                       this approximation's own miss class and prints it.
@@ -117,24 +112,20 @@ WHAT IS MECHANICAL AND WHAT IS A SEED (read this before believing a count)
 The licensing rule is NOT a list of forbidden phrasings.  It is the complement:
 a mention is licensed iff the umbrella is named as the possessor of a DERIVATION
 or of its CHILDREN, or as the thing a child is "of".  Anything else is reported.
-A phrasing nobody has written yet is therefore reported by default rather than
-admitted by default, which is the safe polarity for a rule whose failures have
-all been new spellings of an old mistake.
 
-Usage:  plan-memo-umbrella-check.py <memo>      (carved siblings = the memo's own links)
-        plan-memo-umbrella-check.py --self-test
+Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the population)
+        plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
-import re
 import sys
 import pathlib
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, namedtuple
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from plan_memo_tables import ROW_NOUN, SCHEMAS, Memo, bare_id, code_spans  # noqa: E402
+from plan_memo_tables import SCHEMAS, Population, bare_id, code_mask, mask_spans  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
-    CELL_SPLIT, CELL_TOKEN, LICENSE_AFTER, LICENSE_BEFORE, MENTION_PROSE, MENTION_SLOT,
-    acceptance_vocab_seed, assertion_a, assertion_b, assertion_cd_seed, roles,
+    CELL_SPLIT, CELL_TOKEN, MENTION_PROSE, MENTION_SLOT, acceptance_vocab_seed,
+    assertion_a, assertion_b, assertion_cd_seed, classify, roles,
 )
 
 
@@ -150,7 +141,7 @@ class Mention:
     one) because that is what the licensing rule reads around.  `idpos` is the
     position of the ID TOKEN, and it is the identity: the anchored pass and the
     bare pass see the same site through different spans, and deduping on the
-    match span would count it twice.
+    match span would count it twice.  All three are RAW columns of `line`.
     """
 
     __slots__ = ("file", "lineno", "id", "start", "end", "idpos", "line",
@@ -170,47 +161,46 @@ class Mention:
         return self.line[max(0, self.start - w) : self.end + w].strip()
 
 
-# A row noun standing between the licensing phrase and the id ("the child of
-# umbrella **3**") must not hide the phrase from the backward look.
-_TRAILING_NOUN = re.compile(r"\b" + ROW_NOUN + r"[\s-]+(?:\*\*|`)*$")
+class Block:
+    """One scanned unit of text -- a cell or one line of a paragraph -- with
+    its mask (spans in `text` coordinates the scanners must not read an id out
+    of) and `raw`, the map from a `text` offset to a column of `line`."""
+
+    __slots__ = ("file", "lineno", "line", "text", "raw", "mask", "link_mask", "source", "self_id")
+
+    def __init__(self, file, lineno, line, text, raw, mask, link_mask, source, self_id=None):
+        self.file, self.lineno, self.line, self.text = file, lineno, line, text
+        self.raw, self.mask, self.link_mask = raw, mask, link_mask
+        self.source, self.self_id = source, self_id
+
+    def masked(self, i):
+        return any(s <= i < e for s, e in self.mask)
 
 
-def classify(m):
-    before = m.line[: m.start]
-    before = _TRAILING_NOUN.sub("", before)
-    after = m.line[m.end :]
-    if LICENSE_BEFORE.search(before[-40:]):
-        m.licensed, m.why = True, "child-of / derivation-runner"
-        return m
-    if LICENSE_AFTER.match(after):
-        m.licensed, m.why = True, "possessor of a thing §5 says an umbrella carries"
-        return m
-    m.licensed, m.why = False, ""
-    return m
-
-
-def _anchored(path, lineno, line, umb, off, cell, source, self_id, out, skip_spans=(), ids=None):
-    """Row-noun-anchored ids, plus `#11-` slot ids.  Works on a cell or a whole line."""
-    # The mask applies to the ROW-NOUN pass only.  A slot id is always written
-    # inside backticks, so masking code runs would hide every one of them --
-    # which it did, and the self-test's trigger-cell control is what said so.
-    prose_skip = tuple(skip_spans) + tuple(code_spans(cell, keep=ids or umb))
-    for mt in MENTION_PROSE.finditer(cell):
-        if mt.group(1) not in umb or mt.group(1) == self_id:
+def _anchored(b, umb, out):
+    """Row-noun-anchored ids, plus `#11-` slot ids."""
+    for mt in MENTION_PROSE.finditer(b.text):
+        if mt.group(1) not in umb or mt.group(1) == b.self_id:
             continue
-        if any(s <= mt.start(1) < e for s, e in prose_skip):
+        if b.masked(mt.start(1)):
             continue
-        out.append(classify(Mention(path, lineno, mt.group(1), off + mt.start(),
-                                    off + mt.end(), line, source, off + mt.start(1))))
-    for mt in MENTION_SLOT.finditer(cell):
-        if mt.group(1) not in umb or mt.group(1) == self_id:
+        out.append(classify(Mention(b.file, b.lineno, mt.group(1), b.raw(mt.start()),
+                                    b.raw(mt.end()), b.line, b.source, b.raw(mt.start(1)))))
+    # The slot pass reads through code spans: a slot id is always written
+    # inside backticks, and a declared slot id is an id-only span and therefore
+    # unmasked -- but a backticked command line naming a slot is not, and the
+    # slot pass must still see it.  Links and fences mask it like everything
+    # else.
+    for mt in MENTION_SLOT.finditer(b.text):
+        if mt.group(1) not in umb or mt.group(1) == b.self_id:
             continue
-        if any(s <= mt.start(1) < e for s, e in skip_spans):
+        if any(s <= mt.start(1) < e for s, e in b.link_mask):
             continue
-        out.append(classify(Mention(path, lineno, mt.group(1), off + mt.start(), off + mt.end(), line, source)))
+        out.append(classify(Mention(b.file, b.lineno, mt.group(1), b.raw(mt.start()),
+                                    b.raw(mt.end()), b.line, b.source)))
 
 
-def _bare(path, lineno, line, umb, off, cell, source, self_id, out, ids=None):
+def _bare(b, umb, out):
     """Bare (row-noun-free) ids.
 
     Recognised only where the token cannot be confused with the other things
@@ -219,12 +209,12 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out, ids=None):
     family name.  Both are DECLARED MISSES, carried as red controls in the
     self-test rather than argued away.
     """
-    code = code_spans(cell, keep=ids or umb)
-    for tok in CELL_TOKEN.finditer(cell):
+    text = b.text
+    for tok in CELL_TOKEN.finditer(text):
         tid = tok.group("id")
-        if tid not in umb or tid == self_id:
+        if tid not in umb or tid == b.self_id:
             continue
-        if any(s <= tok.start("id") < e for s, e in code):
+        if b.masked(tok.start("id")):
             continue
         if tid.isdigit():
             continue
@@ -237,91 +227,56 @@ def _bare(path, lineno, line, umb, off, cell, source, self_id, out, ids=None):
         if len(tid) == 1 and tid.isalpha() and not balanced:
             continue
         s, e = tok.start(), tok.end()
-        lhs, rhs = cell[:s], cell[e:]
+        lhs, rhs = text[:s], text[e:]
         if lhs and not CELL_SPLIT.search(lhs[-1]) and lhs[-1] not in "*`":
             continue
         if rhs and not CELL_SPLIT.search(rhs[0]) and rhs[0] not in "*`'\u2019.:-\u2014":
             continue
-        out.append(classify(Mention(path, lineno, tid, off + s, off + e, line,
-                                    source, off + tok.start("id"))))
+        out.append(classify(Mention(b.file, b.lineno, tid, b.raw(s), b.raw(e), b.line,
+                                    b.source, b.raw(tok.start("id")))))
 
 
-def scan_tables(path, memo, umb, ids=None):
-    """Every cell of every parsed table except the row's own id cell.
-
-    Bare ids are read only in the mention-bearing columns, where the column's
-    grammar makes a bare token an id.  Everywhere else in the row an id must be
-    anchored by a row noun, exactly as in prose.  A row naming ITSELF is not a
-    naming site, so the row's own id is excluded from its own row.
-    """
+def blocks(memo, keep):
+    """Every scanned unit of `memo`: each cell of each table row (header rows
+    too; the delimiter row has no cells to scan; a schema data row's own id
+    cell is excluded) and each line of each paragraph, with the block-level
+    mask projected onto it."""
+    name = memo.path.name
     out = []
-    ids = ids or set(memo.all_row_ids()) | set(umb)
-    table_lines = set()
-    for name, hdr, decl, idc, mention_cols in SCHEMAS:
-        for lineno, cells in memo.data_rows(name):
+    for t in memo.tables:
+        rows = [(t.header_lineno, t.header, None)]
+        for lineno, cells in t.rows:
+            rows.append((lineno, cells, t.schema))
+        for lineno, cells, schema in rows:
             line = memo.lines[lineno - 1]
-            table_lines.add(lineno)
-            self_id = bare_id(cells[idc]) if idc is not None and len(cells) > idc else None
-            off = 0
+            idc = next((i for n, _, _, i in SCHEMAS if n == schema), None)
+            self_id = bare_id(cells[idc].text) if idc is not None else None
             for col, cell in enumerate(cells):
                 if col == idc:
-                    off += len(cell) + 1
                     continue
-                src = "%s:col%d" % (name, col)
-                _anchored(path, lineno, line, umb, off, cell, src, self_id, out, ids=ids)
-                # Every cell but the row's own id cell is prose that can name a
-                # row, so the bare pass runs over all of them, not only the
-                # mention-bearing columns.  Scoping it to those columns was the
-                # same "sweep the population that motivated the rule" error the
-                # three earlier hand sweeps made.
-                _bare(path, lineno, line, umb, off, cell, src, self_id, out, ids=ids)
-                off += len(cell) + 1
-    return out, table_lines
-
-
-def scan_prose(path, lines, umb, table_lines, ids=None):
-    """Both passes, over every line outside the parsed tables."""
-    out = []
-    for lineno, line in enumerate(lines, 1):
-        if lineno in table_lines:
-            continue
-        _anchored(path, lineno, line, umb, 0, line, "prose", None, out, ids=ids)
-        _bare(path, lineno, line, umb, 0, line, "prose", None, out, ids=ids)
+                src = "%s:col%d" % (schema or "table", col)
+                full = mask_spans(cell.text, keep, memo.defs)
+                code = code_mask(cell.text, keep)
+                out.append(Block(name, lineno, line, cell.text, cell.raw, full,
+                                 [sp for sp in full if sp not in code], src, self_id))
+    for para in memo.paragraphs:
+        full = para.per_line(mask_spans(para.content, keep, memo.defs))
+        code = para.per_line(code_mask(para.content, keep))
+        for lineno, text in para.lines:
+            f, c = full.get(lineno, []), code.get(lineno, [])
+            out.append(Block(name, lineno, text, text, lambda i: i, f,
+                             [sp for sp in f if sp not in c], "prose"))
     return out
 
 
-
-# --------------------------------------------------------------------------
-# Report
-# --------------------------------------------------------------------------
-
-
-def collect_mentions(memo, umb):
-    """The whole naming pipeline, in ONE place.
-
-    The self-test used to reimplement this -- with a first-wins dedup where this
-    one keeps the smaller start -- so every control was green against a program
-    that was not the one shipped.  The two happened to agree on today's inputs,
-    which is exactly how that kind of divergence survives.  `--self-test` calls
-    this function now, so a stage that exists in production cannot be missing
-    from the harness (which is how two assertions went unexercised).
-    """
+def collect_mentions(pop, umb):
+    """The whole naming pipeline, in ONE place, over the whole population."""
     mentions = []
-    all_ids = set(memo.all_row_ids()) | set(umb)
-    cellm, table_lines = scan_tables(memo.path.name, memo, umb, ids=all_ids)
-    mentions += cellm
-    mentions += scan_prose(memo.path.name, memo.lines, umb, table_lines, ids=all_ids)
-    # Siblings come from the memo's own links, never from the caller.
-    for sp in memo.linked_memos():
-        sl = sp.read_text().split("\n")
-        sm = Memo(str(sp))
-        # The sibling's own table cells count too.  This used to discard them and
-        # keep only `stl`, so every mention inside a carved file's tables was
-        # invisible -- a whole population silently at zero.
-        sibm, stl = scan_tables(sp.name, sm, umb, ids=all_ids)
-        mentions += sibm
-        mentions += scan_prose(sp.name, sl, umb, stl, ids=all_ids)
-
+    keep = pop.keep() | set(umb)
+    for memo in pop.memos:
+        for b in blocks(memo, keep):
+            _anchored(b, umb, mentions)
+            _bare(b, umb, mentions)
     # The anchored pass and the bare pass see the same site through different
     # spans.  Identity is the id token's position, and the anchored reading wins
     # because its span is what the licensing rule was written against.
@@ -337,82 +292,96 @@ def collect_mentions(memo, umb):
     return deduped
 
 
-def main(argv):
-    if "--self-test" in argv:
-        import plan_memo_umbrella_selftest as st  # noqa
-        return st.run()
-    paths = [a for a in argv[1:] if not a.startswith("--")]
-    if len(paths) != 1:
-        print(__doc__)
-        return 2
-    memo = Memo(paths[0])
-    # A linked sibling that is not on disk is an unscanned population, not a
-    # warning: the same exit code for "scanned" and "could not scan" is the
-    # defect this discovery replaced.
-    absent = [str(p) for p in memo.linked_memos() if not p.is_file()]
-    if absent:
-        print("FATAL: linked memo(s) not found -- their population is unscanned: %s. "
-              "This is a skip, not a clean run." % ", ".join(absent))
-        return 2
-    spellings = set()
-    undet = memo.undetermined_ids(spellings)
-    # The naming rule is stated over rows that carry no owner and no ordering.
-    # Umbrella rows are one kind of those; kind-undetermined rows are another.
-    umb = memo.no_owner_ids()
-    if not umb:
-        print("FATAL: no umbrella rows found -- the table schema did not match. "
-              "This is a skip, not a clean run.")
-        return 2
+# --------------------------------------------------------------------------
+# The pipeline
+# --------------------------------------------------------------------------
 
-    # ⚠ A guard that only fires when EVERY table is missing lets one table drop
-    # out silently.  Measured: renaming a single §8 header cell drops the census
-    # from 48 to 33 with zero slot umbrellas, no FATAL, and a report line whose
-    # `slot=` term is absent rather than zero -- which a reader must notice by
-    # absence.  Each schema must match at least one table.
-    matched = {name for name, _, _ in memo.tables}
-    missing = [name for name, hdr, decl, idc, _ in SCHEMAS if name not in matched]
-    if missing:
-        print("FATAL: no table matched schema(s) %s -- their whole population is "
-              "unscanned. This is a skip, not a clean run." % ", ".join(missing))
-        return 2
+Result = namedtuple("Result", "findings notes rc mentions population")
 
+
+def check(path):
+    """The ONLY pipeline: `main()` and `--self-test` both run this.
+
+    Returns `Result(findings, notes, rc, mentions, population)`; findings are
+    `(code, file, lineno, message)`.  rc 2 = the population could not be
+    scanned (every schema miss is listed as a `SCHEMA` finding); rc 1 = a
+    mechanical finding; rc 0 = none.  Seeds (`?` codes) and naming sites never
+    gate.
+    """
+    pop = Population(path)
     findings, notes = [], []
+    for file, lineno, msg in pop.misses:
+        findings.append(("SCHEMA", file, lineno, msg + ". This is a skip, not a clean run."))
+    if pop.misses:
+        return Result(findings, notes, 2, [], pop)
+    umb = pop.no_owner_ids()
+    if not umb:
+        findings.append(("SCHEMA", pop.main.path.name, 0,
+                         "no umbrella rows found -- the table schema did not match. "
+                         "This is a skip, not a clean run."))
+        return Result(findings, notes, 2, [], pop)
+    undet = pop.undetermined_ids()
     if undet:
         notes.append(
             "[KIND-UNDETERMINED] %d row(s) declare an unsettled kind (%s) and are IN the naming "
             "population, because §5 gives them the same no-owner/no-ordering obligation as an "
             "umbrella." % (len(undet), ", ".join(sorted(undet))))
-        if len(spellings) > 1:
+        if len(pop.spellings) > 1:
             findings.append(
-                ("KIND-SPELLING", 0,
+                ("KIND-SPELLING", pop.main.path.name, 0,
                  "the undetermined kind is written %d ways (%s); a kind with more than one spelling "
                  "is a kind no program can enumerate"
-                 % (len(spellings), " / ".join(sorted(spellings)))))
-    assertion_a(memo, findings, notes)
-    assertion_b(memo, findings, notes)
-    assertion_cd_seed(memo, findings, notes)
-    acceptance_vocab_seed(memo, findings, notes)
+                 % (len(pop.spellings), " / ".join(sorted(pop.spellings)))))
+    assertion_a(pop, findings, notes)
+    assertion_b(pop, findings, notes)
+    assertion_cd_seed(pop, findings, notes)
+    acceptance_vocab_seed(pop, findings, notes)
+    mentions = collect_mentions(pop, umb)
+    # Mechanical findings only.  A code ending in `?` is a SEED -- a class this
+    # program cannot decide -- and seeds do not gate, nor do naming sites, which
+    # are non-zero by construction because the scan reports by default.
+    mechanical = [f for f in findings if not f[0].endswith("?")]
+    return Result(findings, notes, 1 if mechanical else 0, mentions, pop)
 
-    # -- naming scan over the memo and its siblings ------------------------
-    mentions = collect_mentions(memo, umb)
+
+# --------------------------------------------------------------------------
+# Report
+# --------------------------------------------------------------------------
+
+
+def main(argv):
+    if "--self-test" in argv:
+        import plan_memo_umbrella_selftest as st  # noqa
+        return st.run(mutants="--mutants" in argv)
+    paths = [a for a in argv[1:] if not a.startswith("--")]
+    if len(paths) != 1:
+        print(__doc__)
+        return 2
+    res = check(paths[0])
+    if res.rc == 2:
+        for code, file, lineno, msg in res.findings:
+            print("FATAL [%s] %s:%d  %s" % (code, file, lineno, msg))
+        return 2
+    pop, mentions = res.population, res.mentions
     unlicensed = [m for m in mentions if not m.licensed]
 
     print("=" * 78)
-    print("plan-memo-umbrella-check  --  %s" % memo.path)
-    print("  siblings (from the memo's links): %s"
-          % (", ".join(p.name for p in memo.linked_memos()) or "none"))
+    print("plan-memo-umbrella-check  --  %s" % pop.main.path)
+    print("  population (transitive over the memo's links): %s"
+          % ", ".join(m.path.name for m in pop.memos[1:]) if len(pop.memos) > 1
+          else "  population: the memo alone (it links no other memo)")
     print("=" * 78)
-    for n in notes:
+    for n in res.notes:
         print(n)
     print()
-    print("[NAMING] %d mentions of an umbrella id; %d licensed, %d REPORTED."
+    print("[NAMING] %d mentions of a no-owner id; %d licensed, %d REPORTED."
           % (len(mentions), len(mentions) - len(unlicensed), len(unlicensed)))
     print("         SEED, not an inventory.  Two classes are DECLARED MISSES and are")
     print("         carried as red controls in --self-test rather than argued away:")
-    print("           * a purely numeric id (Slice 2/3/4/5/6/7/8/9/10) written without")
-    print("             a row noun -- indistinguishable from a §-number or a step;")
-    print("           * an undecorated single letter (A/B/C/E/L/M/P/R) written without")
-    print("             a row noun -- indistinguishable from an article or a family.")
+    print("           * a purely numeric id written without a row noun --")
+    print("             indistinguishable from a §-number or a step;")
+    print("           * an undecorated single letter written without a row noun --")
+    print("             indistinguishable from an article or a family.")
     print("         Everything else is reported, licensed or not, so a spelling nobody")
     print("         has written yet is reported by default rather than admitted.")
     print()
@@ -428,8 +397,8 @@ def main(argv):
     for k, v in byrole.most_common(8):
         print("         %-42s %d" % (k[:42], v))
     print()
-    for code, lineno, msg in findings:
-        print("[%s] %s:%d  %s" % (code, memo.path.name, lineno, msg))
+    for code, file, lineno, msg in res.findings:
+        print("[%s] %s:%d  %s" % (code, file, lineno, msg))
     print()
     byid = defaultdict(list)
     for m in unlicensed:
@@ -446,17 +415,11 @@ def main(argv):
                 print("    %s:%d [%s] {%s}  %s"
                       % (m.file, m.lineno, m.source, ",".join(roles(m)) or "-", m.context()[:190]))
     print()
-
-    # Mechanical findings only.  A code ending in `?` is a SEED -- a class this
-    # program cannot decide -- and seeds do not gate, nor does `unlicensed`,
-    # which is non-zero by construction because the naming scan reports by
-    # default.  Gating on either would mean no green state exists and the code
-    # would be a gate nobody could satisfy.  See EXIT STATUS in the header.
-    mechanical = [f for f in findings if not f[0].endswith("?")]
+    mechanical = [f for f in res.findings if not f[0].endswith("?")]
     print("%d mechanical finding(s) gate the exit status; %d seed(s) and %d reported "
-          "naming site(s) do not." % (len(mechanical), len(findings) - len(mechanical),
+          "naming site(s) do not." % (len(mechanical), len(res.findings) - len(mechanical),
                                       len(unlicensed)))
-    return 1 if mechanical else 0
+    return res.rc
 
 
 if __name__ == "__main__":

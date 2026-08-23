@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Licensing rule, role ranking and assertions (a)-(d) for `plan-memo-umbrella-check.py`.
 
-Split out of that file at the touch-time threshold (Slice 0 of
-`docs/plans/2026-08-plan-memo-umbrella-checker.md` §7), behaviour-preserving.
 Everything here answers "is this mention licensed, which role does its context
 spell, and do the four assertions of
 `#11-plan-memo-spec-field-single-home-check` hold over the row inventory?".
 The mention scanners and the report stay in the checker; the row inventory
-(tables, ids, kinds) is `plan_memo_tables.py`.
+(tables, ids, kinds) is the transitive `Population` in `plan_memo_tables.py`,
+which is the ONLY input of every assertion below: a row declared in a linked
+memo is asserted exactly like a row of the main memo.  Findings are
+`(code, file, lineno, message)`; a code ending in `?` is a seed and never gates.
 """
 
 import re
 from collections import Counter
 
-from plan_memo_tables import MARKER, ROW_NOUN, SCHEMAS, bare_id, code_spans
+from plan_memo_tables import MARKER, ROW_NOUN, SCHEMAS, bare_id, mask_spans, masked_text
 
 
 # --------------------------------------------------------------------------
@@ -88,6 +89,25 @@ CELL_SPLIT = re.compile(r"[\s,;/()\[\]·→>+&]+")
 
 
 
+# A row noun standing between the licensing phrase and the id ("the child of
+# umbrella **3**") must not hide the phrase from the backward look.
+_TRAILING_NOUN = re.compile(r"\b" + ROW_NOUN + r"[\s-]+(?:\*\*|`)*$")
+
+
+def classify(m):
+    before = m.line[: m.start]
+    before = _TRAILING_NOUN.sub("", before)
+    after = m.line[m.end :]
+    if LICENSE_BEFORE.search(before[-40:]):
+        m.licensed, m.why = True, "child-of / derivation-runner"
+        return m
+    if LICENSE_AFTER.match(after):
+        m.licensed, m.why = True, "possessor of a thing §5 says an umbrella carries"
+        return m
+    m.licensed, m.why = False, ""
+    return m
+
+
 # --------------------------------------------------------------------------
 # Role ranking.
 #
@@ -154,21 +174,24 @@ ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE)
 # A row that has already landed states no acceptance condition it still owes.
 RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b")
 
+# The `slice` schema's body columns the assertions read.
+SLICE_ID, SLICE_BODY, SLICE_DEPS = 0, 1, 5
 
-def assertion_a(memo, findings, notes, attributed=None):
+
+def assertion_a(pop, findings, notes):
     """Every row that DECLARES itself an umbrella carries the marker.
 
-    Mechanical half: the marker count read from the declaring field, reported
-    with the two halves so the figure is a program's output rather than recall.
-    Seed half: a row whose declaring field says the kind in words -- "is an
-    umbrella", "edge-dense", "no canonical algorithm" -- without the literal.
+    Mechanical half: the marker count read from the masked declaring field,
+    reported with the two halves so the figure is a program's output rather
+    than recall.  Seed half: a row whose declaring field says the kind in
+    words -- "is an umbrella", "edge-dense", "no canonical algorithm" --
+    without the literal.
     """
-    attributed = [] if attributed is None else attributed
-    umb = memo.umbrella_ids(attributed=attributed)
-    by_table = Counter(t for t, _ in umb.values())
-    for name, lineno, rid, other in attributed:
+    umb = pop.umbrella_ids()
+    by_table = Counter(t for _, _, t, _ in umb.values())
+    for file, name, lineno, rid, other in pop.attributed:
         findings.append(
-            ("UMBRELLA-MARK", lineno,
+            ("UMBRELLA-MARK", file, lineno,
              "row %r carries the marker in its declaring field but attributes it to row %r; "
              "§5 says a pointer slot carries no marker of its own, so it is NOT in the count"
              % (rid, other)))
@@ -182,56 +205,48 @@ def assertion_a(memo, findings, notes, attributed=None):
         r"no canonical algorithm|edge-dense)",
         re.IGNORECASE,
     )
-    for name, hdr, decl, idc, _ in SCHEMAS:
+    keep = pop.keep()
+    for name, _, decl, idc in SCHEMAS:
         if decl is None or idc is None:
             continue
-        for lineno, cells in memo.data_rows(name):
-            if len(cells) <= max(decl, idc):
-                continue
-            field = cells[decl]
-            if MARKER in field:
-                continue
-            if declares.search(field):
-                # SEED, and it has a measured false-positive mechanism: this
-                # vocabulary also appears when a cell QUOTES the criterion in
-                # order to conclude the row is terminal, and when a cell
-                # discusses ANOTHER row's kind.  Deciding which of the three a
-                # sentence is doing is natural language, so the words-half of
-                # assertion (a) is reported as a seed and the marker-population
-                # read above is the mechanical half.
+        for memo, lineno, cells in pop.data_rows(name):
+            rid = bare_id(cells[idc].text)
+            field = masked_text(cells[decl].text, keep)
+            if MARKER not in field and declares.search(field):
+                # SEED, with a measured false-positive mechanism: this
+                # vocabulary also appears when a cell QUOTES the criterion to
+                # conclude the row is terminal, and when a cell discusses
+                # ANOTHER row's kind.  Deciding which is natural language.
                 findings.append(
-                    ("UMBRELLA-MARK?", lineno,
+                    ("UMBRELLA-MARK?", memo.path.name, lineno,
                      "row %r uses the kind vocabulary in its declaring field without the "
                      "marker -- read it: a declaration, a quotation of the criterion, or "
-                     "another row's kind?" % bare_id(cells[idc])))
+                     "another row's kind?" % rid))
             # the marker outside the declaring field certifies nothing
-            row = "|".join(cells)
-            if MARKER in row and MARKER not in field:
+            if MARKER not in field and any(
+                    MARKER in masked_text(c.text, keep) for i, c in enumerate(cells) if i != decl):
                 findings.append(
-                    ("UMBRELLA-MARK", lineno,
-                     "row %r carries the marker outside its declaring field" % bare_id(cells[idc])))
+                    ("UMBRELLA-MARK", memo.path.name, lineno,
+                     "row %r carries the marker outside its declaring field" % rid))
 
 
-def assertion_b(memo, findings, notes):
+def assertion_b(pop, findings, notes):
     """The `Deps` half of assertion (b).  The acceptance half has no cell to read
     and is left to (c)/(d)'s natural-language class; see the header."""
     # Both no-owner kinds: §5 gives a kind-undetermined row the same "carries the
     # split and nothing else" obligation, so scoping this to the UMBRELLA marker
     # left four §5 rows unchecked for the very cell it is about.
-    umb = memo.umbrella_ids()
-    undet = memo.undetermined_ids()
+    no_owner = pop.no_owner_ids()
     checked = 0
-    for lineno, cells in memo.data_rows("slice"):
-        if len(cells) <= 6:
+    for memo, lineno, cells in pop.data_rows("slice"):
+        rid = bare_id(cells[SLICE_ID].text)
+        if rid not in no_owner:
             continue
-        rid = bare_id(cells[1])
-        kind = "umbrella" if rid in umb else ("kind-undetermined" if rid in undet else None)
-        if kind is None:
-            continue
+        kind = "umbrella" if no_owner[rid][0] == "umbrella" else "kind-undetermined"
         checked += 1
-        deps = cells[6].strip()
+        deps = cells[SLICE_DEPS].text
         if deps and deps not in {"—", "-", "n/a"}:
-            findings.append(("UMBRELLA-CELL", lineno,
+            findings.append(("UMBRELLA-CELL", memo.path.name, lineno,
                              "%s row %r carries a Deps edge: %s" % (kind, rid, deps[:120])))
     notes.append(
         "[UMBRELLA-CELL] %d §5 no-owner rows (umbrella + kind-undetermined) checked for a Deps edge. "
@@ -240,7 +255,7 @@ def assertion_b(memo, findings, notes):
         "A `0` here says nothing about it." % checked)
 
 
-def assertion_cd_seed(memo, findings, notes):
+def assertion_cd_seed(pop, findings, notes):
     """(c) prose ordering vs the cell it names, and (d) two owners in one row.
 
     Both are natural-language claim extraction, for which the memo's own cell
@@ -258,12 +273,11 @@ def assertion_cd_seed(memo, findings, notes):
     # `extra` and this seed cannot see it.  An artifact-level comparison is a
     # different program; this one does not attempt it.
     n = 0
-    for lineno, cells in memo.data_rows("slice"):
-        if len(cells) <= 6:
-            continue
-        rid = bare_id(cells[1])
-        deps = cells[6].strip()
-        body = cells[2]
+    known = pop.keep()
+    for memo, lineno, cells in pop.data_rows("slice"):
+        rid = bare_id(cells[SLICE_ID].text)
+        deps = cells[SLICE_DEPS].text
+        body = cells[SLICE_BODY].text
         empty = deps in {"", "—", "-"}
         if not ORDER_WORDS.search(body):
             continue
@@ -275,7 +289,7 @@ def assertion_cd_seed(memo, findings, notes):
         # A partially-filled cell is the harder case, not the settled one.
         if empty:
             n += 1
-            findings.append(("ORDER-PROSE?", lineno,
+            findings.append(("ORDER-PROSE?", memo.path.name, lineno,
                              "row %r states ordering vocabulary in prose while its Deps cell is %r"
                              % (rid, deps)))
             continue
@@ -284,51 +298,41 @@ def assertion_cd_seed(memo, findings, notes):
         # and "rows sat" / "row says" / "Slice has" put `sat` / `says` / `has`
         # in the set -- the same garbage the two-owner seed produced one commit
         # earlier, from the same cause: a token shaped like an id is not an id.
-        known = set(memo.all_row_ids())
         cell_ids = {m.group("id") for m in CELL_TOKEN.finditer(deps)} | set(MENTION_SLOT.findall(deps))
-        # ⚠ Mask first.  `_anchored` masks code spans and links before running
-        # MENTION_PROSE; this call did not, so the `[\s-]+` separator (added for
-        # `Slice-M`) read `...-slice-1a-1b-...md` as "Slice 1a".  Measured: 18
-        # filename-derived hits across §5, 2 of which reached this seed's output.
-        _mask = code_spans(body, keep=known)
+        # ⚠ Mask first: the `[\s-]+` separator (added for `Slice-M`) read
+        # `...-slice-1a-1b-...md` as "Slice 1a".  Measured: 18 filename-derived
+        # hits across §5, 2 of which reached this seed's output.
+        _mask = mask_spans(body, known, memo.defs)
         prose_ids = {m.group(1) for m in MENTION_PROSE.finditer(body)
                      if not any(s <= m.start(1) < e for s, e in _mask)} & known
         extra = sorted(prose_ids - cell_ids - {rid})
         if extra:
             n += 1
-            findings.append(("ORDER-PROSE?", lineno,
+            findings.append(("ORDER-PROSE?", memo.path.name, lineno,
                              "row %r states ordering vocabulary in prose naming %s, which its Deps "
                              "cell does not carry" % (rid, ", ".join(repr(e) for e in extra))))
     notes.append("[ORDER-PROSE?] SEED -- %d rows; the class is natural language and is not bounded by this figure" % n)
 
-    # (d) TWO-OWNERS.  ⚠ This half was ADVERTISED by the docstring and the file
-    # header and was never implemented -- the function searched ORDER_WORDS only
-    # and emitted (c), so assertion (d) could be entirely absent while both
-    # `--self-test` and the production run printed green.  A checker that names
-    # a check it does not run is the failure this file exists to catch.
-    #
-    # It is a SEED and keyed on ownership vocabulary, which is the miss class:
-    # a row assigning one deliverable to two owners in words this pattern does
-    # not carry is invisible to it, and the count below bounds nothing.
+    # (d) TWO-OWNERS.  A SEED keyed on ownership vocabulary, which is the miss
+    # class: a row assigning one deliverable to two owners in words this
+    # pattern does not carry is invisible to it, and the count bounds nothing.
     d = 0
-    for lineno, cells in memo.data_rows("slice"):
-        if len(cells) <= 6:
-            continue
-        rid = bare_id(cells[1])
-        for m in OWNS_TWO.finditer(cells[2]):
+    for memo, lineno, cells in pop.data_rows("slice"):
+        rid = bare_id(cells[SLICE_ID].text)
+        for m in OWNS_TWO.finditer(cells[SLICE_BODY].text):
             a = m.group("a1") or m.group("a2")
             b = m.group("b1") or m.group("b2")
             if a == b:
                 continue
             d += 1
-            findings.append(("TWO-OWNERS?", lineno,
+            findings.append(("TWO-OWNERS?", memo.path.name, lineno,
                              "row %r assigns one deliverable to %r and %r in one clause: %r"
                              % (rid, a, b, m.group(0)[:110])))
     notes.append("[TWO-OWNERS?] SEED -- %d clause(s); ownership-vocabulary keyed, so a row that "
                  "spells it otherwise is not in this figure" % d)
 
 
-def acceptance_vocab_seed(memo, findings, notes):
+def acceptance_vocab_seed(pop, findings, notes):
     """Terminal §5 rows carrying neither `must` nor `acceptance`.
 
     ⚠ The population is ACTIVE-TERMINAL, derived explicitly.  It used to be
@@ -339,27 +343,24 @@ def acceptance_vocab_seed(memo, findings, notes):
     Measured on the committed memo, that complement reported `0a`, `0c`, `E` and
     `10`, and every one of the four was wrong.
     """
-    umb = memo.umbrella_ids()
-    undet = memo.undetermined_ids()
+    no_owner = pop.no_owner_ids()
     n, named = 0, []
-    for lineno, cells in memo.data_rows("slice"):
-        if len(cells) <= 6:
-            continue
-        rid = bare_id(cells[1])
-        body = cells[2]
-        if rid in umb or rid in undet:
+    for memo, lineno, cells in pop.data_rows("slice"):
+        rid = bare_id(cells[SLICE_ID].text)
+        body = cells[SLICE_BODY].text
+        if rid in no_owner:
             continue
         # ⚠ Keyed on one spelling, and the safe polarity: a differently-spelled
         # pointer row is REPORTED, never missed.
         if "is a pointer rather than a slice" in body:
             continue
-        if RETIRED.search(body) or RETIRED.search(cells[1]):
+        if RETIRED.search(body) or RETIRED.search(cells[SLICE_ID].text):
             continue
         if ACCEPT_WORDS.search(body):
             continue
         n += 1
         named.append(rid)
-        findings.append(("ACCEPT-VOCAB?", lineno,
+        findings.append(("ACCEPT-VOCAB?", memo.path.name, lineno,
                          "active-terminal row %r carries no acceptance vocabulary" % rid))
     notes.append(
         "[ACCEPT-VOCAB] SEED -- %d ACTIVE-TERMINAL §5 rows (not umbrella, not "
