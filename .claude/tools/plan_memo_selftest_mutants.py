@@ -23,31 +23,31 @@ the RUNNER itself (`plan_memo_umbrella_selftest.py`) patches the runner, not
 the checker set, and takes its controls from the patched runner's registry.
 """
 
-LEXER, TABLES, ROLES, CHECK, SELFTEST = (
-    "plan_memo_lexer.py", "plan_memo_tables.py", "plan_memo_roles.py",
+LEXER, BLOCKS, TABLES, ROLES, CHECK, SELFTEST = (
+    "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py", "plan_memo_roles.py",
     "plan-memo-umbrella-check.py", "plan_memo_umbrella_selftest.py")
 
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks
-    ("fence: opener needs >=3 fence characters", LEXER,
+    ("fence: opener needs >=3 fence characters", BLOCKS,
      '(`{3,}|~{3,})', '(`{4,}|~{4,})',
      # the tilde control: three literal backtick lines would pair as a code
      # span and mask the site anyway, so only the tilde form can go red
      ["(fence) a tilde fence masks too"]),
-    ("fence: opener indent <=3 spaces", LEXER,
+    ("fence: opener indent <=3 spaces", BLOCKS,
      '_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")',
      '_FENCE_OPEN = re.compile(r"^ *(`{3,}|~{3,})(.*)$")',
      ["(fence) four spaces of indent is not a fence"]),
-    ("fence: backtick info string may not hold a backtick", LEXER,
+    ("fence: backtick info string may not hold a backtick", BLOCKS,
      '(m.group(1)[0] == "`" and "`" in m.group(2))', 'False',
      ["(fence) a backtick fence whose info string holds a backtick is not a fence"]),
-    ("fence: closer uses the opener's character", LEXER,
+    ("fence: closer uses the opener's character", BLOCKS,
      're.escape(ch)', '"[`~]"',
      ["(fence) a closer of the OTHER character does not close"]),
-    ("fence: closer at least as long as the opener", LEXER,
+    ("fence: closer at least as long as the opener", BLOCKS,
      '"{%d,}" % k', '"{3,}"',
      ["(fence) a shorter closer does not close"]),
-    ("fence: closer followed only by spaces/tabs", LEXER,
+    ("fence: closer followed only by spaces/tabs", BLOCKS,
      'r"[ \\t]*$"', 'r".*$"',
      ["(fence) a closer followed by text does not close"]),
     ("fence: fenced lines are not paragraph lines (A x B)", TABLES,
@@ -64,13 +64,13 @@ MUTANTS = [
     ("span: lexed over the paragraph, not the line", TABLES,
      '            if one_line_block(line):\n                flush()', '            flush()',
      ["(span) a code span may cross a line ending"]),
-    ("span: a list item starts a block", LEXER,
+    ("span: a list item starts a block", BLOCKS,
      '_LIST_ITEM.match(line) or ', '',
      ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal"]),
-    ("span: a `>` line starts a block", LEXER,
-     ' or _QUOTE.match(line))', ')',
+    ("span: a `>` line starts a block", BLOCKS,
+     ' or _QUOTE.match(line) or _SETEXT.match(line):', ' or _SETEXT.match(line):',
      ["(span) a paragraph ends at a `>` line"]),
-    ("span: an ATX heading is a block", LEXER,
+    ("span: an ATX heading is a block", BLOCKS,
      '_ATX.match(line) or _THEMATIC', '_THEMATIC',
      ["(span) a paragraph ends at an ATX heading"]),
     ("A x E: kind markers are read from the MASKED declaring field", TABLES,
@@ -78,24 +78,24 @@ MUTANTS = [
      'row.field = row.cells[row.schema.decl].text',
      ["(span) a quoted kind marker is not a declaration (A x E)"]),
     # -- GFM §4.10 rows and tables
-    ("row: an unescaped `|` splits even inside backticks (Example 200)", LEXER,
+    ("row: an unescaped `|` splits even inside backticks (Example 200)", BLOCKS,
      '        if c != "|":\n            continue',
      '        if c != "|" or line[start:i].count("`") % 2:\n            continue',
      ["(row) an unescaped `|` inside backticks SPLITS the row: each half is prose with a literal "
       "backtick, so the id on each side is a mention"]),
-    ("row: `\\|` becomes `|` (the backslash is consumed)", LEXER,
+    ("row: `\\|` becomes `|` (the backslash is consumed)", BLOCKS,
      '            breaks[-1].append(i - 1)', '            pass',
      ["(row) `\\|` is `|` in the cell, so `9z \\| 7z` is an id-only run"]),
-    ("row: the leading pipe is optional", LEXER,
+    ("row: the leading pipe is optional", BLOCKS,
      'if stripped.startswith("|") and bounds:', 'if bounds:',
      ["(row) a table without leading and trailing pipes declares its rows"]),
-    ("row: the trailing pipe is optional", LEXER,
+    ("row: the trailing pipe is optional", BLOCKS,
      'if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):', 'if bounds:',
      ["a table with and without edge pipes reads the same"]),
-    ("row: offsets map through each cell's raw segments", LEXER,
+    ("row: offsets map through each cell's raw segments", BLOCKS,
      '        return raw_start + (i - off)', '        return i',
      ["a site after an escaped pipe is reported at its raw column"]),
-    ("table: delimiter cell = >=1 hyphen with optional colons", LEXER,
+    ("table: delimiter cell = >=1 hyphen with optional colons", BLOCKS,
      '_DELIM_CELL = re.compile(r":?-+:?")', '_DELIM_CELL = re.compile(r"[:\\- ]*")',
      ["(table) a delimiter cell is >=1 hyphen with optional colons; `:` alone is not"]),
     ("table: header and delimiter must have equal width", TABLES,
@@ -169,17 +169,17 @@ MUTANTS = [
      '                self.defs.setdefault(normalize_label(raw), dest)',
      '                self.defs[normalize_label(raw)] = dest',
      ["(def) the FIRST definition of a label wins"]),
-    ("def: up to one line ending before the destination", LEXER,
+    ("def: up to one line ending before the destination", BLOCKS,
      '        k = _skip_ws(s, k + 1)\n        dest, k = link_destination(s, k)',
      '        k = _skip_ws(s, k + 1, newlines=0)\n        dest, k = link_destination(s, k)',
      ["(def) one line ending is allowed before the destination"]),
-    ("def: nothing but whitespace after the destination/title", LEXER,
+    ("def: nothing but whitespace after the destination/title", BLOCKS,
      '    if s[k] == "\\n":\n        return k + 1\n    return None',
      '    if s[k] == "\\n":\n        return k + 1\n    return k',
      ["(def) text after the destination is not a definition, so the reference is unanswered: "
       "a schema miss"]),
     ("def: a definition cannot interrupt a paragraph (Phase 1: only at a block start)", TABLES,
-     '            d = self.definition_at(i) if not cur else None', '            d = self.definition_at(i)',
+     '            if d is not None and not cur:', '            if d is not None:',
      ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
@@ -200,8 +200,8 @@ MUTANTS = [
      'queue.extend(memo.linked_files() if len(self.memos) == 1 else [])',
      ["(population) the population is transitive: a memo linked from a linked memo is scanned"]),
     ("gate: an absent linked memo is a schema miss", TABLES,
-     '            except (OSError, UnicodeDecodeError) as e:\n                self.misses.append(',
-     '            except (OSError, UnicodeDecodeError) as e:\n                [].append(',
+     '            except (OSError, RuntimeError, UnicodeDecodeError) as e:\n                self.misses.append(',
+     '            except (OSError, RuntimeError, UnicodeDecodeError) as e:\n                [].append(',
      ["(rc) a linked memo that is not on disk is rc 2, never clean"]),
     ("gate: an unmatched schema is a schema miss", TABLES,
      '                if s.name not in matched:', '                if False:',
@@ -285,12 +285,12 @@ MUTANTS = [
      ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
       "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
     # -- PR #510 Codex R1
-    ("R1-1 row: only an ODD backslash run escapes `|` (even run = literal backslash + pipe)", LEXER,
+    ("R1-1 row: only an ODD backslash run escapes `|` (even run = literal backslash + pipe)", BLOCKS,
      '        if _escaped(line, i):\n            breaks[-1].append(i - 1)',
      '        if i > 0 and line[i - 1] == "\\\\":\n            breaks[-1].append(i - 1)',
      ["(row) `a\\\\|b` holds an UNESCAPED pipe (§2.4: `\\\\` is a literal backslash): 5 cells "
       "under a 4-cell header is a width miss, rc 2"]),
-    ("R1-1 row: the trailing-pipe check uses the same parity", LEXER,
+    ("R1-1 row: the trailing-pipe check uses the same parity", BLOCKS,
      'if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):',
      'if stripped.endswith("|") and bounds and not stripped.endswith("\\\\|"):',
      ["(row) a trailing `\\\\|` is a literal backslash then the trailing pipe: rc 0"]),
@@ -310,7 +310,7 @@ MUTANTS = [
      ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
       "shortcut naming it is a schema miss, not an exempt citation-style shortcut"]),
     # -- PR #510 Codex R2
-    ("R2-1 def: the next-line title is tried before the destination-only ending", LEXER,
+    ("R2-1 def: the next-line title is tried before the destination-only ending", BLOCKS,
      '        t = link_title(s, k2) if k2 > k else None', '        t = None',
      ["(def) a next-line title is part of the definition, not prose: an id in it is no site",
       "(def) a next-line title holding `[x](missing.md)` is a title, not a link: rc 0"]),
@@ -333,7 +333,7 @@ MUTANTS = [
       "never a memo"]),
     ("R3-1 link: one pass, no recursive inner re-parse (re-inject one: exponential)", LEXER,
      '        if not active:\n            i += 1                      # literal `]`; the opener is gone',
-     '        if not active or links(s[pos + 1:i], defs)[2] is None:\n            i += 1',
+     '        if not active or inline_pass(s[pos + 1:i], defs)[3] is None:\n            i += 1',
      ["links() is linear: 30 nested brackets are one inline_pass call"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
      '        if is_img:\n            images.append((i, end))',
@@ -356,7 +356,7 @@ MUTANTS = [
     ("RG-1 def: orphan detection joins each run ONCE (re-inject a per-line join of the rest: "
      "quadratic)", TABLES,
      '            self._defs_at[i] = definition_block(self._run_text[i], self._run_off[i])',
-     '            self._defs_at[i] = (__import__("plan_memo_lexer").reference_definitions('
+     '            self._defs_at[i] = (__import__("plan_memo_blocks").reference_definitions('
      '"\\n".join(self.lines[i:]))[0] or [None])[0]',
      ["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"]),
     ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
@@ -388,16 +388,11 @@ MUTANTS = [
       "(link) a link inside a code span is not a link (A x B)",
       "(rc) a code-quoted link to an absent file is not a link: rc 0"]),
     # -- PR #510 Codex R5: Phase 1 / Phase 2
-    ("R5-1 phase 1: definitions are read from RAW lines (re-inject the inline pre-mask)", LEXER,
+    ("R5-1 phase 1: definitions are read from RAW lines (re-inject the inline pre-mask)", BLOCKS,
      '    defs, _ = reference_definitions(block, limit=1, start=off)',
-     '    defs, _ = reference_definitions(blank_spans(block, code_spans(block)), limit=1, start=off)',
+     '    defs, _ = reference_definitions(__import__("plan_memo_lexer").blank_spans(block, __import__("plan_memo_lexer").inline_pass(block, {})[0]), limit=1, start=off)',
      ["(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` keeps its "
       "backticks in the destination and the sibling is scanned"]),
-    ("R5-4 phase 1: a reference definition is a block start that ends a table", TABLES,
-     '        return starts_block(self.lines[i]) or self.definition_at(i)',
-     '        return starts_block(self.lines[i])',
-     ["(table) a reference definition right after a schema table ENDS the table (GFM §4.10 block "
-      "start): no width miss, the definition resolves, the sibling is walked, rc 0"]),
     ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", TABLES,
      '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID),',
      ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
@@ -413,11 +408,12 @@ MUTANTS = [
      '            text, off = "\\n".join(lines[i:i + 3]), 0',
      ["(def) a label spanning FIVE lines is a definition (§4.7 / §6.3: a label may span lines); "
       "the later shortcut resolves and the sibling is scanned"]),
-    ("R7-3 def: a title may not cross a blank line (the block ends at one; re-inject the blank)", TABLES,
-     '            while j < n and not (j in self.fenced or is_blank(lines[j])):',
-     '            while j < n and j not in self.fenced:',
-     ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition: the "
-      "later `[sib]` is an unresolved reference, rc 2, and child.md is not walked"]),
+    ("R7-3 def: a title may not cross a blank line (re-inject the blank into the run)", TABLES,
+     '            while j < n and not block_end(lines, j, fenced):\n                j += 1\n            text, off',
+     '            while j < n and (j not in fenced and is_blank(lines[j]) or not block_end(lines, j, fenced)):\n                j += 1\n            text, off',
+     ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition "
+      "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
+      "NOT walked -- its violation is not reported"]),
     ("R7-2 population: a C0 control character in a decoded destination is rejected", TABLES,
      '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
      '        if name.startswith("/"):                                     # (c)',
@@ -429,9 +425,8 @@ MUTANTS = [
      ["(link) `notes%3Achild.md` has no scheme (WHATWG URL: a scheme is read BEFORE decoding): it is "
       "the local file `notes:child.md`, and it is scanned"]),
     ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", TABLES,
-     '        try:\n            return joined.resolve()                                  # (e)\n'
-     '        except OSError:\n            return joined',
-     '        return joined.resolve()',
+     '    try:\n        return path.resolve()\n    except (OSError, RuntimeError):\n        return path',
+     '    return path.resolve()',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
     ("R8-5 sibling: the dedup is a set (re-inject the list membership test)", TABLES,
      '                if f is not None and f not in seen:\n                    seen.add(f)',
@@ -442,23 +437,24 @@ MUTANTS = [
      ["(bare) `9z.次の工程` bounds the id: the far side of the `.` is not an ASCII id character, so "
       "the site is reported",
       "(bare) `9z.é` bounds the id (a dotted number is ASCII on both sides)"]),
-    ("R8-4 row: edge pipes are detected with the space/tab class", LEXER,
+    ("R8-4 row: edge pipes are detected with the space/tab class", BLOCKS,
      '    stripped = line.strip(" \\t")    # the same space/tab class as cell trimming',
      '    stripped = line.strip()',
      ["(table) a row opening with an NBSP before its `|` is not edge-piped: the NBSP is a cell, the "
       "header is 7 wide over a 6-cell delimiter, no table"]),
-    ("R8 sweep: a blank line is spaces or tabs only (§4.9)", LEXER,
+    ("R8 sweep: a blank line is spaces or tabs only (§2.1)", BLOCKS,
      '    return not line.strip(" \\t")', '    return not line.strip()',
      ["(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end the "
       "paragraph and the code span crosses it"]),
     # -- PR #510 Codex R9
     ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", TABLES,
-     '            if cur and is_setext_underline(line) and not starts_block(cur[0][1]):',
-     '            if False:',
+     '            if cur and is_setext_underline(line):\n                if not starts_block(cur[0][1]):',
+     '            if cur and is_setext_underline(line):\n                if False:',
      ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
       "span opened in the heading does not reach the next paragraph's site"]),
     ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", TABLES,
-     'is_setext_underline(line) and not starts_block(cur[0][1]):', 'is_setext_underline(line):',
+     '                if not starts_block(cur[0][1]):\n                    flush()',
+     '                if True:\n                    flush()',
      ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
       "paragraph continues and a code span crosses it"]),
     ("R9 F1 seed: PROSE-AS-WRITTEN block openers are recorded", TABLES,
@@ -470,7 +466,7 @@ MUTANTS = [
      '            if "|" in line or ids:', '            if True:',
      ["(lex-seed) a block-quote line with neither a `|` nor a declared id is no seed"]),
     ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", TABLES,
-     '            except (OSError, UnicodeDecodeError) as e:', '            except OSError as e:',
+     '            except (OSError, RuntimeError, UnicodeDecodeError) as e:', '            except (OSError, RuntimeError) as e:',
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
      'MENTION_PROSE = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_ID', 'MENTION_PROSE = re.compile(r"\\b" + ROW_NOUN_ID',
@@ -480,14 +476,63 @@ MUTANTS = [
      'MENTION_SLOT = re.compile(r"(?<![0-9A-Za-z_-])"', 'MENTION_SLOT = re.compile(r"(?<![\\w-])"',
      ["(ascii) `次は#11-zz-alphaが所有する` reaches the naming worklist: the slug anchor is an ASCII "
       "class, not `\\w`"]),
-    ("R9 F3 ascii: list markers are ASCII digits (re-inject `\\d`)", LEXER,
+    ("R9 F3 ascii: list markers are ASCII digits (re-inject `\\d`)", BLOCKS,
      '_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?:[ \\t]|$)")',
      '_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\\d{1,9}[.)])(?:[ \\t]|$)")',
      ["(ascii) `١.` (an Arabic-Indic digit) is not a list marker (§5.2: ASCII digits)"]),
-    ("R9 #3 row: breaks are partitioned in the one scan (re-inject the per-cell filter)", LEXER,
+    ("R9 #3 row: breaks are partitioned in the one scan (re-inject the per-cell filter)", BLOCKS,
      '        out.append(_cell(line, a, b, cell_breaks))',
      '        out.append(_cell(line, a, b, [x for bs in breaks for x in bs if a <= x < b]))',
      ["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"]),
+    # -- design re-gate R4-R9
+    ("RG2 IMP-1: _runs reads the ONE predicate (re-inject fence/blank-only run ends)", TABLES,
+     '            while j < n and not block_end(lines, j, fenced):\n                j += 1\n            text, off',
+     '            while j < n and not (j in fenced or is_blank(lines[j])):\n                j += 1\n            text, off',
+     ["(block) `[Slice 9z owns it]:\\n---` is a setext heading (`<h2>…</h2>`), not a definition: the "
+      "label line is paragraph text and its site is reported",
+      "(block) `[Slice 9z owns it]:\\n#` is a paragraph and an ATX heading, not a definition",
+      "(block) `[Slice 9z owns it]:\\n>` is a paragraph and a block quote, not a definition",
+      "(block) `[Slice 9z owns it]:\\n***` is a paragraph and a thematic break, not a definition",
+      "(block) `[Slice 9z owns it]:\\n<div>` is a paragraph and an HTML block (type 6 interrupts a "
+      "paragraph), not a definition"]),
+    ("RG2 IMP-1: a table header is a block end (local policy; re-inject the pure-CommonMark reading)", BLOCKS,
+     '            or table_header_at(lines, i))', '            or False)',
+     ["(block) `[Slice 9z owns it]:\\n|a|b|\\n|--|--|` -- the table header ends the run (local policy "
+      "over pure CommonMark, which has no tables): a paragraph and a table, not a definition with the "
+      "header row as its destination"]),
+    ("RG2 IMP-1: find_tables reads the ONE predicate (re-inject a third boundary)", TABLES,
+     '        while j < n and not block_end(lines, j, fenced):\n            body = split_row(lines[j])',
+     '        while j < n and j not in fenced and not is_blank(lines[j]):\n            body = split_row(lines[j])',
+     ["(table) a list item right after a schema table ends it (a block start), so it is not a 1-cell "
+      "body row: rc 0"]),
+    ("RG2 IMP-1: indented code does not interrupt (re-inject it as a block start)", BLOCKS,
+     '    if one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line):',
+     '    if one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line) or _INDENTED.match(line):',
+     ["(block) `[Slice 9z owns it]:\\n    code` IS a definition (§4.4: indented code cannot interrupt "
+      "a paragraph; commonmark.js: destination `code`): a block of its own, not scanned"]),
+    ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", TABLES,
+     '            if d is not None:\n                # a valid definition that cannot take effect: the orphan\n'
+     '                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)',
+     '            if d is not None or (line.lstrip(" ").startswith("[") and "]:" in line):\n'
+     '                self.orphans.setdefault(normalize_label(d[0] if d else line.split("]:")[0].lstrip(" [")), set()).add(i + 1)',
+     ["(cite) `[C1]: ECMA-262 §1 says so, and the table cites it.` at a block start is prose "
+      "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
+      "(def) a label-and-colon line that is NOT a valid definition (junk after the destination) at a "
+      "block start is prose, not an orphan: `[sib]` later is exempt, rc 0"]),
+    ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", TABLES,
+     '    except (OSError, RuntimeError):\n        return path', '    except OSError:\n        return path',
+     ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
+    ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", TABLES,
+     '                    if not html_block_ends(t, line):\n                        html = t',
+     '                    if False:\n                        html = t',
+     ["(lex-seed) `<pre>\\nSlice 9z owns it\\n</pre>`: the inner line holding the id is seeded (type 1 "
+      "ends at `</pre>`)",
+      "(lex-seed) `<!-- c\\n|9z|\\n-->`: a `|` line inside a comment block (type 2 ends at `-->`) is "
+      "seeded"]),
+    ("RG2 MIN-1: a type-6 block ends at a blank line", TABLES,
+     'if html_block_ends(html, line) or (html in ("t6", "t7") and is_blank(line)):',
+     'if html_block_ends(html, line):',
+     ["(lex-seed) a type-6 block ends at a blank line: the paragraph after it is not seeded"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "

@@ -42,6 +42,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 # import name, so it is loaded under a fixed one.
 MODULES = [
     ("plan_memo_lexer", "plan_memo_lexer.py"),
+    ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),
     ("plan_memo_roles", "plan_memo_roles.py"),
     ("plan_memo_umbrella_check", "plan-memo-umbrella-check.py"),
@@ -267,7 +268,7 @@ def linear_links_control(M):
     t0 = time.perf_counter()
     try:
         with _count_calls(plan_memo_lexer, "inline_pass", limit=1) as c:
-            plan_memo_lexer.links(s, {})
+            plan_memo_lexer.inline_pass(s, {})
     except _WorkExceeded:
         return False, "30-deep nested brackets re-entered inline_pass (a re-parse): not linear"
     ms = (time.perf_counter() - t0) * 1000
@@ -357,28 +358,33 @@ def control_char_destination_control(M):
 
 
 def unavailable_sibling_control(M):
-    """(e) of `sibling_path`: an `OSError` from `resolve()` (an over-long
-    name) is the unavailable-sibling schema miss, rc 2 -- not an exception.
-    `resolve()` does not raise for such a name on every platform, so the
-    error is injected: `Path.resolve` raises for the over-long name while
-    the control runs.  An exception from `check()` is red here."""
+    """(e) of `sibling_path`: an `OSError` (an over-long name) OR, on Python
+    3.9-3.12, a `RuntimeError` (a symlink loop) from `resolve()` is the
+    unavailable-sibling schema miss, rc 2 -- not an exception.  Neither is
+    raised for these names on every platform / version, so both are
+    injected: `Path.resolve` raises for the named file while the control
+    runs.  An exception from `check()` is red here."""
     import plan_memo_tables
-    long_name = "a" * 4000 + ".md"
     orig = plan_memo_tables.pathlib.Path.resolve
-
-    def resolve(self, *a, **kw):
-        if self.name == long_name:
-            raise OSError(36, "File name too long")
-        return orig(self, *a, **kw)
-    plan_memo_tables.pathlib.Path.resolve = resolve
-    try:
-        res, _ = run_on(M, build(), "See [x](%s)." % long_name)
-    except Exception as e:       # noqa: BLE001 -- the defect under test
-        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
-    finally:
-        plan_memo_tables.pathlib.Path.resolve = orig
-    miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
-    return res.rc == 2 and miss, "rc %d, unavailable-sibling miss %s (must be rc 2 with the miss)" % (res.rc, miss)
+    report = []
+    for name, exc in (("a" * 4000 + ".md", OSError(36, "File name too long")),
+                      ("loop.md", RuntimeError("Symlink loop from 'loop.md'"))):
+        def resolve(self, *a, _name=name, _exc=exc, **kw):
+            if self.name == _name:
+                raise _exc
+            return orig(self, *a, **kw)
+        plan_memo_tables.pathlib.Path.resolve = resolve
+        try:
+            res, _ = run_on(M, build(), "See [x](%s)." % name)
+        except Exception as e:       # noqa: BLE001 -- the defect under test
+            return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+        finally:
+            plan_memo_tables.pathlib.Path.resolve = orig
+        miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
+        if res.rc != 2 or not miss:
+            return False, "%s: rc %d, miss %s (must be rc 2 with the miss)" % (type(exc).__name__, res.rc, miss)
+        report.append("%s -> rc 2 + miss" % type(exc).__name__)
+    return True, "; ".join(report)
 
 
 def scaling_linked_files_control(M):
@@ -431,14 +437,14 @@ def scaling_split_row_control(M):
     (linear ~4, quadratic ~16): the break offsets are partitioned among the
     cells in the one row scan, not filtered per cell from a row-wide list."""
     import time
-    import plan_memo_lexer
+    import plan_memo_blocks
 
     def best(n):
         line = "|" + " a\\|b |" * n
         t = []
         for _ in range(3):
             t0 = time.perf_counter()
-            k = len(plan_memo_lexer.split_row(line))
+            k = len(plan_memo_blocks.split_row(line))
             t.append(time.perf_counter() - t0)
         return k, min(t)
 

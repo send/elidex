@@ -4,7 +4,7 @@ and the one transitive `Population` every scan and assertion reads.
 
 Everything here answers "what rows does this document set have, what is each
 one's id, and what kind does its declaring field declare?".  The lexical
-substrate (fences, rows, code spans, links, `Lexed`) is `plan_memo_lexer.py`;
+substrate (Phase 1 blocks: `plan_memo_blocks.py`; Phase 2 inline: `plan_memo_lexer.py`) is the lexer's;
 what the prose says about the rows, and whether that is allowed, is the
 checker and `plan_memo_roles.py`.
 
@@ -34,10 +34,11 @@ import pathlib
 import re
 from urllib.parse import unquote
 
-from plan_memo_lexer import (
-    Lexed, blank_spans, definition_block, definition_shape, delimiter_width, fenced_lines, is_blank,
-    is_setext_underline, normalize_label, one_line_block, split_row, starts_block, unsupported_block,
+from plan_memo_blocks import (
+    block_end, definition_block, delimiter_width, fenced_lines, html_block_ends, html_block_type,
+    is_blank, is_setext_underline, one_line_block, split_row, starts_block, unsupported_block,
 )
+from plan_memo_lexer import Lexed, blank_spans, normalize_label
 
 # A cell that carries nothing: the one predicate every reader of an optional
 # cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
@@ -210,15 +211,17 @@ class Table:
 def find_tables(memo):
     """Admit every GFM table in `memo` (fenced lines skipped).  Returns
     ([Table], {0-based line index owned by a table}).  The table runs from the
-    header to the first blank line or block start (`Memo.block_start`: a heading,
-    thematic break, list item, `>` line or a reference definition -- GFM
-    §4.10 "the beginning of another block-level structure"); every line in
-    between is a body row, pipes or not.
+    header to the first `block_end` -- a blank line or a paragraph-
+    interrupting block start (GFM §4.10 "the beginning of another
+    block-level structure"); every line in between is a body row, pipes or
+    not (GFM Example 202: a pipe-less line after the rows is a row -- so a
+    reference definition written right after a table is a row of it, never a
+    definition).
     """
     lines, fenced = memo.lines, memo.fenced
     tables, owned, i, n = [], set(), 0, len(lines)
     while i < n:
-        if i in fenced or is_blank(lines[i]) or i + 1 >= n or memo.block_start(i):
+        if i in fenced or is_blank(lines[i]) or i + 1 >= n or starts_block(lines[i]):
             i += 1
             continue
         width = delimiter_width(lines[i + 1])
@@ -234,7 +237,7 @@ def find_tables(memo):
         t = Table(schema, Row(memo, i + 1, header, None))
         owned.update((i, i + 1))
         j = i + 2
-        while j < n and j not in fenced and not is_blank(lines[j]) and not memo.block_start(j):
+        while j < n and not block_end(lines, j, fenced):
             body = split_row(lines[j])
             if schema is not None and len(body) != width:
                 t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
@@ -385,7 +388,7 @@ class Memo:
 
     def __init__(self, path):
         self.path = pathlib.Path(path)
-        self.text = self.path.read_text()
+        self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
         self.lines = self.text.split("\n")
         self.fenced = fenced_lines(self.lines)
         self._run_text, self._run_off, self._defs_at = {}, {}, {}
@@ -400,18 +403,20 @@ class Memo:
 
     def _runs(self):
         """Phase 1's text units, computed ONCE and linearly: a run is the
-        consecutive raw lines no fence or blank line interrupts, joined; each
-        line maps to its run's text and its offset in it (`_run_text` /
-        `_run_off`).  A definition is parsed over the rest of its run -- the
-        text the block phase hands over -- never over a fixed window, and
-        §4.7 "may not contain a blank line" holds because a run ends at one."""
-        lines, i, n = self.lines, 0, len(self.lines)
+        consecutive raw lines up to the next `block_end` (the ONE boundary
+        predicate: blank, fence, paragraph-interrupting block start, table
+        header), joined; each line maps to its run's text and its offset in
+        it (`_run_text` / `_run_off`).  A line that IS a block start begins
+        its own run.  A definition is parsed over the rest of its run -- the
+        text the block phase hands over -- so its continuation lines can
+        never cross a blank line, a fence or a block start."""
+        lines, fenced, i, n = self.lines, self.fenced, 0, len(self.lines)
         while i < n:
-            if i in self.fenced or is_blank(lines[i]):
+            if i in fenced or is_blank(lines[i]):
                 i += 1
                 continue
-            j = i
-            while j < n and not (j in self.fenced or is_blank(lines[j])):
+            j = i + 1
+            while j < n and not block_end(lines, j, fenced):
                 j += 1
             text, off = "\n".join(lines[i:j]), 0
             for k in range(i, j):
@@ -427,14 +432,6 @@ class Memo:
             self._defs_at[i] = definition_block(self._run_text[i], self._run_off[i])
         return self._defs_at[i]
 
-    def block_start(self, i):
-        """Whether raw line `i` begins a block-level structure other than a
-        paragraph continuation: an ATX heading, a thematic break, a list
-        item, a `>` line (`starts_block`) or a reference definition -- what
-        ends a GFM table (§4.10: "the beginning of another block-level
-        structure") and a paragraph."""
-        return starts_block(self.lines[i]) or self.definition_at(i) is not None
-
     @property
     def key(self):
         """The memo's identity for every per-memo map (mention identity, the
@@ -446,11 +443,20 @@ class Memo:
     def _blocks(self):
         """Phase 1 over the lines no fence or table owns: definition blocks at
         a block start (filling `defs`, first wins; each parsed over the rest
-        of its run, `definition_at`) and paragraphs.  A line that opens like
-        a definition (`definition_shape`) but is not one -- inside a
-        paragraph, or invalid -- stays paragraph text and is an orphan.
-        Linear: the runs are joined once (`_runs`); one parse per line."""
+        of its run, `definition_at`) and paragraphs, every boundary decided
+        by the ONE predicate `block_end` (plus §4.3's context rule for a
+        setext underline).  An ORPHAN is exactly the spec-grounded class: a
+        line that parses as a VALID §4.7 definition but cannot take effect
+        because it is not at a block start ("a link reference definition
+        cannot interrupt a paragraph"); a label-and-colon line that is not a
+        valid definition is plain prose (commonmark.js: `[C1]: ECMA-262 §1
+        says so` is a paragraph), and a shortcut naming it is exempt.  Lines
+        of a PROSE-AS-WRITTEN block (a `>` line, indented code at a block
+        start, an HTML block from its §4.6 opener to its end condition) are
+        recorded in `unsupported` for the LEX-UNSUPPORTED? seed.  Linear: the
+        runs are joined once (`_runs`); one parse per line."""
         out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
+        html = None                 # the open HTML block's §4.6 type, if any
 
         def flush():
             if cur:
@@ -459,6 +465,13 @@ class Memo:
 
         while i < n:
             line = lines[i]
+            if html is not None:
+                # inside an HTML block: every line is PROSE-AS-WRITTEN until
+                # the §4.6 end condition -- types 1-5 by content, 6 / 7 at a
+                # blank line (which also ends every block below)
+                self.unsupported.append((i + 1, "html", line))
+                if html_block_ends(html, line) or (html in ("t6", "t7") and is_blank(line)):
+                    html = None
             if i in self.fenced or i in self.table_lines or is_blank(line):
                 flush()
                 i += 1
@@ -466,30 +479,36 @@ class Memo:
             # §4.3 setext heading: paragraph text followed by an underline is a
             # heading, and the underline closes it (the text stays inline
             # content to scan; the underline is not content).  Not after a
-            # list item or `>` line (Examples 92-94), where `---` stays a
-            # thematic break via `one_line_block` below.
-            if cur and is_setext_underline(line) and not starts_block(cur[0][1]):
-                flush()
-                i += 1
-                continue
+            # list item or `>` line (Examples 92-94): there the line is lazy
+            # continuation text (`==`) or a thematic break (`---`, below).
+            if cur and is_setext_underline(line):
+                if not starts_block(cur[0][1]):
+                    flush()
+                    i += 1
+                    continue
+                if not one_line_block(line):
+                    cur.append((i + 1, line))
+                    i += 1
+                    continue
             kind = unsupported_block(line, not cur)
-            if kind is not None:
+            if kind is not None and html is None:
                 self.unsupported.append((i + 1, kind, line))
-            d = self.definition_at(i) if not cur else None
-            if d is not None:
+                if kind == "html":
+                    t = html_block_type(line)
+                    if not html_block_ends(t, line):
+                        html = t
+            d = self.definition_at(i)
+            if d is not None and not cur:
                 # a block start: the definition is a block of its own
                 raw, dest, stop = d
                 self.defs.setdefault(normalize_label(raw), dest)
                 consumed = self._run_text[i][self._run_off[i]:stop]
                 i += consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
                 continue
-            shape = definition_shape(self._run_text[i], self._run_off[i])
-            if shape is not None:
-                # §4.7: a definition cannot interrupt a paragraph, and an
-                # invalid one is not a definition -- either way the line is
-                # paragraph text the author meant as a definition
-                self.orphans.setdefault(normalize_label(shape), set()).add(i + 1)
-            elif starts_block(line):
+            if d is not None:
+                # a valid definition that cannot take effect: the orphan
+                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
+            elif block_end(lines, i, self.fenced):
                 flush()
             cur.append((i + 1, line))
             if one_line_block(line):
@@ -523,11 +542,12 @@ class Memo:
               filesystem root) nor hold a C0 control / DEL (`child%00.md`
               would make `resolve()` raise);
           (d) the `.md` suffix;
-          (e) `resolve()` beside the memo; an `OSError` there (an over-long
-              name, a loop) makes the sibling UNAVAILABLE: the joined,
-              unresolved path is returned and the population's one I/O
-              chokepoint reports it as an unavailable linked memo (exit 2),
-              never a crash, never a silent drop.
+          (e) `resolve()` beside the memo (`_resolve`); an `OSError` or --
+              on Python 3.9-3.12, for a symlink loop -- a `RuntimeError`
+              there makes the sibling UNAVAILABLE: the joined, unresolved
+              path is returned and the population's one I/O chokepoint
+              reports it as an unavailable linked memo (exit 2), never a
+              crash, never a silent drop.
         """
         raw = re.split(r"[#?]", dest, 1)[0]
         if _SCHEME.match(raw):                                       # (a)
@@ -537,17 +557,13 @@ class Memo:
             return None
         if not name.endswith(".md"):                                 # (d)
             return None
-        joined = self.path.parent / name
-        try:
-            return joined.resolve()                                  # (e)
-        except OSError:
-            return joined
+        return _resolve(self.path.parent / name)                     # (e)
 
     def linked_files(self):
         """Every sibling this memo links (`sibling_path`) -- from any block,
         cells included -- in first-link order, each once, the memo itself
         excluded."""
-        out, seen = [], {self.path.resolve()}
+        out, seen = [], {_resolve(self.path)}
         for lx in self.lexed():
             for _, _, dest in lx.links:
                 f = self.sibling_path(dest)
@@ -600,6 +616,18 @@ class Memo:
 
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+
+
+def _resolve(path):
+    """`path.resolve()`, or `path` itself when resolving raises -- `OSError`
+    (an over-long name) or, on Python 3.9-3.12, `RuntimeError` for a symlink
+    loop (3.13 made that an `OSError`).  The ONE site that guards it; the
+    unresolved path then reaches the population's I/O chokepoint as an
+    unavailable memo."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return path
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
 _CITE_LABEL = re.compile(r"[a-z][0-9]+")
@@ -620,7 +648,7 @@ class Population:
         self.spellings = set()
         self.attributed = []        # [(file, table, lineno, rid, other)]
         self.ids = {}
-        queue, seen = [pathlib.Path(main_path).resolve()], set()
+        queue, seen = [_resolve(pathlib.Path(main_path))], set()
         while queue:
             p = queue.pop(0)
             if p in seen:
@@ -632,7 +660,7 @@ class Population:
             # exception out of the population
             try:
                 memo = Memo(p)
-            except (OSError, UnicodeDecodeError) as e:
+            except (OSError, RuntimeError, UnicodeDecodeError) as e:
                 self.misses.append((p.name, 0, "linked memo unavailable (%s) -- its population is "
                                     "unscanned" % type(e).__name__))
                 continue

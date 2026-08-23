@@ -709,9 +709,10 @@ rcase("NEGATIVE", "(span) a backtick BEFORE the `]` opens a code span that swall
 case("POSITIVE-NOVEL", "(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` "
                        "keeps its backticks in the destination and the sibling is scanned",
      build(), "[sib]: slice`x`.md\n\nSee [sib].", 1, files={"slice`x`.md": VIOLATION + "\n"})
-rcase("NEGATIVE", "(table) a reference definition right after a schema table ENDS the table (GFM §4.10 "
-                  "block start): no width miss, the definition resolves, the sibling is walked, rc 0",
-      build(extra=SLOT4 % "now" + "\n[sib]: slice-9z-sib.md"), "See [sib].", 0, **SIB)
+rcase("POSITIVE", "(table) a reference definition right after a schema table is a ROW of it (GFM "
+                  "Example 202: a pipe-less line after the rows is a row; §4.7: a definition cannot "
+                  "interrupt a block) -- one cell under a 4-cell header, width miss rc 2",
+      build(extra=SLOT4 % "now" + "\n[sib]: slice-9z-sib.md"), "See [sib].", 2, **SIB)
 
 # R5-2: the decoded path is re-validated
 rcase("NEGATIVE", "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after "
@@ -734,9 +735,15 @@ case("POSITIVE-NOVEL", "(def) a label spanning FIVE lines is a definition (§4.7
 # R7-3: a title crossing a blank line is no title, so the line is no definition
 # (§4.7 "may not contain a blank line"); the shape is an orphan and the later
 # shortcut is a schema miss; child.md is never walked
-rcase("POSITIVE", "(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition: "
-                  "the later `[sib]` is an unresolved reference, rc 2, and child.md is not walked",
-      build(), '[sib]: slice-9z-sib.md "title\n\nmore"\n\nSee [sib].', 2, **SIB)
+# commonmark.js 0.31.2 decides this shape: `[sib]: child.md "title\n\nmore"` is
+# a paragraph (`<p>[sib]: child.md "title</p><p>more"</p>`), not a definition,
+# and `[sib]` later is literal text -- so it is an exempt shortcut (rc 0).  The
+# load-bearing assertions stay: the sibling is NOT walked (its violation is not
+# reported) and the text is not masked.
+case("NEGATIVE", "(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition "
+                 "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling "
+                 "is NOT walked -- its violation is not reported",
+     build(), '[sib]: slice-9z-sib.md "title\n\nmore"\n\nSee [sib].', 0, **SIB)
 
 
 # ------------------------------------------------- PR #510 Codex R8 controls --
@@ -798,3 +805,64 @@ case("POSITIVE-NOVEL", "(ascii) `次は#11-zz-alphaが所有する` reaches the 
      build(), "次は#11-zz-alphaが所有する。", 1)
 case("NEGATIVE", "(ascii) `١.` (an Arabic-Indic digit) is not a list marker (§5.2: ASCII digits)",
      build(), "open `here\n\u0661. 9z owns it` there", 0)
+
+
+# ------------------------------------------ design re-gate R4-R9 controls --
+# Every block-structure expectation below was checked against commonmark.js
+# 0.31.2 (`node cm.js '["<md>"]'`) before being written.
+
+# IMP-1: ONE block-boundary rule -- a definition's continuation line cannot
+# be a block start; the six probe shapes
+# The label line carries a naming site: when the shape is NOT a definition the
+# line is paragraph text and the site is reported (1); a definition is a block
+# of its own, never scanned (0) -- so each control discriminates the two reads.
+case("POSITIVE", "(block) `[Slice 9z owns it]:\\n---` is a setext heading (`<h2>…</h2>`), not a "
+                 "definition: the label line is paragraph text and its site is reported",
+     build(), "[Slice 9z owns it]:\n---\n\nSee [foo].", 1)
+case("POSITIVE", "(block) `[Slice 9z owns it]:\\n#` is a paragraph and an ATX heading, not a definition",
+     build(), "[Slice 9z owns it]:\n#\n\nSee [foo].", 1)
+case("POSITIVE", "(block) `[Slice 9z owns it]:\\n>` is a paragraph and a block quote, not a definition",
+     build(), "[Slice 9z owns it]:\n>\n\nSee [foo].", 1)
+case("POSITIVE", "(block) `[Slice 9z owns it]:\\n***` is a paragraph and a thematic break, not a "
+                 "definition",
+     build(), "[Slice 9z owns it]:\n***\n\nSee [foo].", 1)
+case("POSITIVE", "(block) `[Slice 9z owns it]:\\n|a|b|\\n|--|--|` -- the table header ends the run "
+                 "(local policy over pure CommonMark, which has no tables): a paragraph and a table, "
+                 "not a definition with the header row as its destination",
+     build(), "[Slice 9z owns it]:\n|a|b|\n|--|--|\n|c|d|\n\nSee [foo].", 1)
+case("NEGATIVE", "(block) `[Slice 9z owns it]:\\n    code` IS a definition (§4.4: indented code cannot "
+                 "interrupt a paragraph; commonmark.js: destination `code`): a block of its own, not "
+                 "scanned",
+     build(), "[Slice 9z owns it]:\n    code\n\nSee [foo].", 0)
+rcase("NEGATIVE", "(table) a list item right after a schema table ends it (a block start), so it is "
+                  "not a 1-cell body row: rc 0",
+      build(extra=SLOT4 % "now" + "\n- an item"), "", 0)
+case("POSITIVE-NOVEL", "(block) `[foo]:\\nslice-9z-sib.md` IS a definition (destination on the next "
+                       "line): the sibling is walked",
+     build(), "[foo]:\nslice-9z-sib.md\n\nSee [foo].", 1, **SIB)
+case("POSITIVE", "(block) `[Slice 9z owns it]:\\n<div>` is a paragraph and an HTML block (type 6 "
+                 "interrupts a paragraph), not a definition",
+     build(), "[Slice 9z owns it]:\n<div>\n\nSee [foo].", 1)
+case("POSITIVE", "(block) `[foo]:\\n- item`: the list item interrupts, so `[foo]:` is a paragraph and a "
+                 "code span opened before the marker does not cross it",
+     build(), "open `x\n- 9z owns it` end", 1)
+
+# IMP-2: an orphan is a VALID definition that cannot take effect; a gloss is prose
+rcase("NEGATIVE", "(cite) `[C1]: ECMA-262 §1 says so, and the table cites it.` at a block start is prose "
+                  "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
+      build(), "[C1]: ECMA-262 §1 says so, and the table cites it.\n\nPer [C1] the probe must return 3.", 0)
+rcase("NEGATIVE", "(cite) the same gloss mid-paragraph is prose: rc 0",
+      build(), "Notes follow.\n[C1]: ECMA-262 §1 says so.\n\nPer [C1] the probe must return 3.", 0)
+rcase("NEGATIVE", "(def) a label-and-colon line that is NOT a valid definition (junk after the "
+                  "destination) at a block start is prose, not an orphan: `[sib]` later is exempt, rc 0",
+      build(), "[sib]: slice-9z-sib.md junk here\n\nSee [sib].", 0, **SIB)
+
+# MIN-1: every line of an HTML block is seeded, to its §4.6 end condition
+acase("POSITIVE", "(lex-seed) `<pre>\\nSlice 9z owns it\\n</pre>`: the inner line holding the id is "
+                  "seeded (type 1 ends at `</pre>`)",
+      build(), "LEX-UNSUPPORTED?", 1, prose="<pre>\nSlice 9z owns it\n</pre>")
+acase("POSITIVE", "(lex-seed) `<!-- c\\n|9z|\\n-->`: a `|` line inside a comment block (type 2 ends at "
+                  "`-->`) is seeded",
+      build(), "LEX-UNSUPPORTED?", 1, prose="<!-- c\n|9z| x\n-->")
+acase("NEGATIVE", "(lex-seed) a type-6 block ends at a blank line: the paragraph after it is not seeded",
+      build(), "LEX-UNSUPPORTED?", 0, prose="<div>\nplain\n\nSlice 9z owns it")

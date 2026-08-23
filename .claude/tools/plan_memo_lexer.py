@@ -1,30 +1,22 @@
 #!/usr/bin/env python3
-"""Lexical substrate for `plan-memo-umbrella-check.py`: a subset of
-CommonMark 0.31.2 and GFM 0.29, lexed by construction from the clauses
-`docs/plans/2026-08-plan-memo-umbrella-checker.md` §3 lists.
+"""Phase 2 of CommonMark 0.31.2 "Appendix: A parsing strategy" -- INLINE
+structure -- for `plan-memo-umbrella-check.py`: a subset of CommonMark
+0.31.2 and GFM 0.29, lexed by construction from the clauses
+`docs/plans/2026-08-plan-memo-umbrella-checker.md` §3 lists.  Block
+structure (Phase 1: fences, block starts, the one `block_end` predicate,
+table rows, reference definitions) is `plan_memo_blocks.py`, which imports
+this module's inline grammar; the order is plan §2 "Lexing order".
 
-Order (plan §2 "Lexing order"; CommonMark "Appendix: A parsing strategy"):
-PHASE 1, block structure over raw lines (driven by `plan_memo_tables.py::
-Memo`, with this module's `fenced_lines` / `definition_block` /
-`starts_block` / `split_row`): fenced blocks (CommonMark §4.5) are masked
-first; reference definitions (§4.7) are blocks of their own, recognised at a
-block start from RAW lines; a GFM table row is split on RAW unescaped `|`
-(GFM §4.10, incl. inside backticks -- Example 200) and a table ends at a
-blank line or any block start, a definition included.  PHASE 2, per block
-inline content (a paragraph or a cell): code spans (CommonMark §6.1,
-backtick strings of equal length) and links / images (§6.3 / §6.4) are
-lexed by ONE left-to-right pass
-(`inline_pass`, "Appendix: A parsing strategy"): a code span is skipped as
-met, an inline-link tail is parsed by lookahead on the raw text -- there is
-no code pre-mask.  An image's bracket structure is parsed so that it is not
-a link and a link may wrap it; its destination never joins the population,
-its alt text is prose, its tail is masked.
-
-What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
-HTML blocks, §5 container blocks (block quotes §5.1, list items §5.2 -- a
-list-item or `>` line only ENDS a paragraph here, its content is not
-re-parsed as a nested document), §6.5 autolinks, §2.5 entity references.
-Nothing here detects them.
+Per block inline content (a paragraph or a cell): code spans (CommonMark
+§6.1, backtick strings of equal length) and links / images (§6.3 / §6.4)
+are lexed by ONE left-to-right pass (`inline_pass`): a code span is skipped
+as met, an inline-link tail is parsed by lookahead on the raw text -- there
+is no code pre-mask.  An image's bracket structure is parsed so that it is
+not a link and a link may wrap it; its destination never joins the
+population, its alt text is prose, its tail is masked.  Inline constructs
+outside the lexed clauses (§6.5 autolinks, §2.5 entity references, §6.2
+emphasis beyond the decoration the id grammar reads) are read as written;
+the block types not modelled are the plan's §3.0 table.
 
 `Lexed` is the one Phase-2 value per block: code spans, links, images, and
 the two bare tokens the scanners must not read an id out of (`[C19]`-style
@@ -39,235 +31,6 @@ import re
 import string
 
 ASCII_PUNCT = frozenset(string.punctuation)
-
-# --------------------------------------------------------------------------
-# CommonMark §4.5 fenced code blocks
-# --------------------------------------------------------------------------
-
-_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-
-
-def fenced_lines(lines):
-    """0-based indices of every line inside a fenced code block, fence lines
-    included.  Opener: <=3 spaces of indent, >=3 backticks or tildes (not
-    mixed); a backtick fence's info string may not contain a backtick.  Closer:
-    same character, at least as long, <=3 spaces of indent, nothing but spaces
-    and tabs after it.  An unclosed fence runs to "the end of the containing
-    block (or document)" (§4.5); this lexer has no container blocks (see the
-    header), so that is the end of the document.
-    """
-    out, i, n = set(), 0, len(lines)
-    while i < n:
-        m = _FENCE_OPEN.match(lines[i])
-        if not m or (m.group(1)[0] == "`" and "`" in m.group(2)):
-            i += 1
-            continue
-        ch, k = m.group(1)[0], len(m.group(1))
-        closer = re.compile(r"^ {0,3}" + re.escape(ch) + "{%d,}" % k + r"[ \t]*$")
-        out.add(i)
-        i += 1
-        while i < n:
-            out.add(i)
-            i += 1
-            if closer.match(lines[i - 1]):
-                break
-    return out
-
-
-# --------------------------------------------------------------------------
-# Block starts that end a paragraph or a table (GFM §4.10: "the table is
-# broken at the first empty line, or beginning of another block-level
-# structure").  ATX headings (CommonMark §4.2) and thematic breaks (§4.1) are
-# one-line leaf blocks; a list-item line (§5.2) or a block-quote line (§5.1)
-# starts a new paragraph.  ⚠ LOCAL POLICY, stricter than CommonMark: here ANY
-# list-item-shaped or `>` line interrupts a paragraph, whereas under §5.2 an
-# empty list item cannot interrupt a paragraph, an ordered list item can only
-# when its number is 1, and under §5.1 / §5.2 a line without the marker can
-# be lazy continuation text of the container.  The policy is the safe side
-# for a scanner: a span is never read across such a line, so a backtick
-# opened in one item and closed in the next is literal (control).
-# --------------------------------------------------------------------------
-
-_ATX = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
-_THEMATIC = re.compile(r"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
-_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)")   # §5.2: ASCII digits
-_QUOTE = re.compile(r"^ {0,3}>")
-# §4.3 setext heading underline: `=` or `-` characters, <=3 spaces of indent,
-# trailing spaces/tabs.  Precedence (§4.1 / §4.3): a `-` line after paragraph
-# text is the underline, not a thematic break (Example 59); after a list item
-# or `>` line it is NOT an underline (Examples 92-94: "cannot be a lazy
-# continuation line in a list item or block quote") and stays a thematic
-# break / text; with no paragraph before it, `---` is a thematic break and
-# `===` is text.
-_SETEXT = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
-# §4.4 indented code: >=4 spaces at a block start (it cannot interrupt a
-# paragraph); §4.6 HTML block start conditions 1-7 (after <=3 spaces).
-_INDENTED = re.compile(r"^ {4,}[^ \t]")
-_HTML_BLOCK = re.compile(
-    r"^ {0,3}<(?:"
-    r"(?:pre|script|style|textarea)(?:[ \t>]|$)"          # 1
-    r"|!--"                                                # 2
-    r"|\?"                                                 # 3
-    r"|![A-Za-z]"                                          # 4
-    r"|!\[CDATA\["                                         # 5
-    r"|/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|"
-    r"details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|"
-    r"head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|"
-    r"option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)"
-    r"(?:[ \t>]|/>|$)"                                     # 6
-    r"|(?:[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*"
-    r"(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?>|/[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$"   # 7
-    r")", re.IGNORECASE | re.ASCII)
-
-
-def is_blank(line):
-    """CommonMark §4.9: a blank line "contains no characters, or only spaces
-    or tabs" -- the ASCII class, not `str.strip()`'s Unicode whitespace (an
-    NBSP-only line is paragraph text)."""
-    return not line.strip(" \t")
-
-
-def one_line_block(line):
-    return bool(_ATX.match(line) or _THEMATIC.match(line))
-
-
-def is_setext_underline(line):
-    """§4.3: a setext heading underline (the caller supplies the paragraph
-    it closes and the precedence above)."""
-    return bool(_SETEXT.match(line))
-
-
-def unsupported_block(line, at_block_start):
-    """The PROSE-AS-WRITTEN block type a raw line would open under CommonMark
-    §4 / §5 -- "quote" (§5.1), "indented-code" (§4.4, at a block start only:
-    it cannot interrupt a paragraph), "html" (§4.6 start conditions 1-7) --
-    or None.  Phase 1 reads such a line as paragraph text; the checker
-    reports it as a `[LEX-UNSUPPORTED?]` SEED when it holds a `|` or a
-    declared id, so the bound of the lexer is printed rather than assumed."""
-    if _QUOTE.match(line):
-        return "quote"
-    if at_block_start and _INDENTED.match(line):
-        return "indented-code"
-    if _HTML_BLOCK.match(line):
-        return "html"
-    return None
-
-
-def starts_block(line):
-    return bool(one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line))
-
-
-# --------------------------------------------------------------------------
-# GFM §4.10 row split.  Raw unescaped `|` splits -- "including inside other
-# inline spans" -- and `\|` becomes `|` in the cell content (the backslash is
-# consumed).  Leading / trailing pipe optional.  GFM: "Spaces between pipes
-# and cell content are trimmed" -- ⚠ this splitter trims TABS too (a stated
-# widening: a tab-padded cell is the same cell; no memo in the population
-# holds a tab).
-# --------------------------------------------------------------------------
-
-
-class Cell:
-    """One body cell: `text` is the trimmed, unescaped content; `raw(i)` maps
-    an offset into `text` back to a raw column (an unescaped `\\|` shifts
-    everything after it by one); `lexed` is the cell's `Lexed`, minted with
-    the cell (a cell is inline content and parses no reference definition).
-
-    `_segments` = [(offset_in_text, raw_start)] for every maximal run of
-    characters that is contiguous in the raw line -- a run breaks only at a
-    consumed backslash."""
-
-    __slots__ = ("text", "_segments", "lexed")
-
-    def __init__(self, text, segments):
-        self.text = text
-        self._segments = segments
-        self.lexed = Lexed(text)
-
-    def raw(self, i):
-        seg = self._segments
-        k = bisect.bisect_right(seg, (i, _INF)) - 1
-        if k < 0:
-            return 0
-        off, raw_start = seg[k]
-        return raw_start + (i - off)
-
-
-_INF = float("inf")
-
-
-def _cell(line, a, b, breaks):
-    """The cell over raw `line[a:b]` whose consumed backslashes are at the raw
-    indexes in `breaks` -- THIS cell's breaks, in order, partitioned by the
-    row scan (each `\\|` drops the backslash and keeps the `|`)."""
-    pieces, segments, off = [], [], 0
-    start = a
-    for k in breaks:
-        if k > start:
-            segments.append((off, start))
-            pieces.append(line[start:k])
-            off += k - start
-        start = k + 1
-    if b > start:
-        segments.append((off, start))
-        pieces.append(line[start:b])
-    return Cell("".join(pieces), segments)
-
-
-def split_row(line):
-    """-> [Cell, ...]: body cells of a GFM row (optional leading / trailing pipe
-    stripped), split on unescaped `|` BEFORE any inline lexing."""
-    bounds, breaks, start, n = [], [[]], 0, len(line)   # breaks[k] = cell k's, in order
-    for i, c in enumerate(line):
-        if c != "|":
-            continue
-        # §2.4 parity (`_escaped`): only an ODD backslash run escapes the `|`
-        # (`a\\|b` has an unescaped pipe and is two cells); the odd backslash
-        # is consumed.  The break is partitioned to its cell HERE, in the one
-        # scan -- a per-cell filter over a row-wide list was quadratic.
-        if _escaped(line, i):
-            breaks[-1].append(i - 1)
-        else:
-            bounds.append((start, i))
-            breaks.append([])
-            start = i + 1
-    bounds.append((start, n))
-    stripped = line.strip(" \t")    # the same space/tab class as cell trimming
-    if stripped.startswith("|") and bounds:
-        bounds, breaks = bounds[1:], breaks[1:]
-    if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):
-        bounds, breaks = bounds[:-1], breaks[:-1]   # the same parity: `\\|` at the end is a trailing pipe
-    out = []
-    for (a, b), cell_breaks in zip(bounds, breaks):
-        while a < b and line[a] in " \t":
-            a += 1
-        while b > a and line[b - 1] in " \t":
-            b -= 1
-        out.append(_cell(line, a, b, cell_breaks))
-    return out
-
-
-# GFM §4.10: "The delimiter row consists of cells whose only content are
-# hyphens (-), and optionally, a leading or trailing colon (:), or both".
-_DELIM_CELL = re.compile(r":?-+:?")
-
-
-def is_separator(cells):
-    """GFM §4.10 delimiter row: every cell is >=1 hyphen with an optional
-    leading and trailing colon."""
-    return len(cells) > 0 and all(_DELIM_CELL.fullmatch(c.text) for c in cells)
-
-
-def delimiter_width(line):
-    """Cell count of `line` if it is a GFM delimiter row, else None.  ⚠ LOCAL
-    POLICY: the row must carry at least one pipe.  GFM §4.10 does not say so
-    (a one-column table's delimiter row may be `---` alone under GFM); here a
-    bare `---` line is read as CommonMark does outside the extension -- a
-    setext underline or a thematic break (§4.3 / §4.1) -- never a table."""
-    if "|" not in line or is_blank(line):
-        return None
-    delim = split_row(line)
-    return len(delim) if is_separator(delim) else None
 
 
 # --------------------------------------------------------------------------
@@ -289,14 +52,6 @@ def _escaped(s, i):
     while k > 0 and s[k - 1] == "\\":
         k -= 1
     return (i - k) % 2 == 1
-
-
-def code_spans(s):
-    """[(start, end)] of every code span in `s`, backticks included -- a view
-    over `inline_pass`'s code tokens (there is no separate pre-mask: a
-    backtick string inside a link destination the pass consumed by lookahead
-    is not a code span)."""
-    return inline_pass(s, {})[0]
 
 
 def blank_spans(s, spans):
@@ -509,7 +264,7 @@ def _reference_tail(s, opener, close, defs):
 
 def _code_closer(s, runs, a1, k):
     """The end offset of the first backtick string of length `k` starting at
-    or after `a1` (§6.1: the closer is "the next backtick string of equal
+    or after `a1` (§6.1: a code span "ends with a backtick string of equal
     length"), or None.  `runs` = every backtick string of `s`, in order."""
     j = bisect.bisect_left(runs, (a1, 0))
     while j < len(runs):
@@ -618,103 +373,6 @@ def inline_pass(s, defs):
         i = end
     return code, out, images, unresolved
 
-
-def links(s, defs):
-    """The bracket half of `inline_pass` -> (links, images, unresolved)."""
-    return inline_pass(s, defs)[1:]
-
-
-def definition_block(block, off):
-    """Phase 1 ("Appendix: A parsing strategy", block structure): the
-    reference definition (§4.7) starting at offset `off` of `block` -- the
-    RAW text of the rest of the paragraph block (every remaining line up to
-    the next blank line, fence or table row; what the block phase hands
-    over), or None.  Returns (label, destination, end_offset).  The label
-    (`link_label`, §6.3: up to 999 characters, may span lines) and the
-    title (`link_title`) are read over that whole text, and §4.7 "may not
-    contain a blank line" holds by construction: the block ends at one.
-    Read before any inline parsing: a backtick in the destination
-    (`[sib]: slice`x`.md`) is destination text, not a code span.  The caller
-    decides whether `off` is a block start (a definition cannot interrupt a
-    paragraph); here the definition is only recognised."""
-    defs, _ = reference_definitions(block, limit=1, start=off)
-    return defs[0] if defs else None
-
-
-def definition_shape(block, off):
-    """Whether `block[off:]` OPENS like a definition -- up to three spaces, a
-    link label, a colon -- whatever follows.  A line of this shape that is
-    not a definition (inside a paragraph, or invalid: a title crossing a
-    blank line, junk after the destination) is text the author meant as a
-    definition: an orphan, so that a shortcut naming its label is reported
-    rather than exempted.  Returns the raw label or None."""
-    j = off
-    while j < off + 3 and j < len(block) and block[j] == " ":
-        j += 1
-    raw, k = link_label(block, j)
-    if raw is None or k >= len(block) or block[k] != ":":
-        return None
-    return raw
-
-
-def reference_definitions(s, limit=None, start=0):
-    """CommonMark §4.7 link reference definitions at offset `start` of `s`
-    (raw block text; the caller guarantees a block start).  Consumes
-    consecutive definitions (at most `limit`).  Returns ([(label, dest,
-    end)], rest_offset).
-
-    Grammar: <=3 spaces, a link label, `:`, optional whitespace incl. up to one
-    line ending, a destination, optionally whitespace incl. up to one line
-    ending and a title, then nothing but spaces/tabs before the line ending.
-    """
-    out, i = [], start
-    while limit is None or len(out) < limit:
-        j = 0
-        while j < 3 and i + j < len(s) and s[i + j] == " ":
-            j += 1
-        raw, k = link_label(s, i + j)
-        if raw is None or k >= len(s) or s[k] != ":":
-            break
-        k = _skip_ws(s, k + 1)
-        dest, k = link_destination(s, k)
-        if dest is None:
-            break
-        # the definition may end at the destination; a title may follow after
-        # spaces/tabs on this line or (§4.7) on the NEXT line -- ONE attempt:
-        # a valid title followed by nothing but spaces/tabs extends the
-        # definition, otherwise it ends at the destination (and if the
-        # destination does not end its line either, there is no definition)
-        eol = _line_end(s, k)
-        k2 = _skip_ws(s, k)
-        t = link_title(s, k2) if k2 > k else None
-        eol_t = _line_end(s, t) if t is not None else None
-        if eol_t is not None:
-            eol = eol_t
-        if eol is None:
-            break
-        out.append((raw, dest, eol))
-        i = eol
-        while i < len(s) and s[i] == "\n":
-            i += 1
-    return out, i
-
-
-def _next_line(s, off):
-    """Offset of the line after the one holding `s[off]` (or `len(s)`)."""
-    nl = s.find("\n", off)
-    return len(s) if nl < 0 else nl + 1
-
-
-def _line_end(s, k):
-    """Offset just past the line ending after only spaces/tabs from `k`, or
-    the end of `s`; None if anything else intervenes."""
-    while k < len(s) and s[k] in " \t":
-        k += 1
-    if k >= len(s):
-        return k
-    if s[k] == "\n":
-        return k + 1
-    return None
 
 
 # --------------------------------------------------------------------------

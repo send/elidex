@@ -26,8 +26,10 @@ OBLIGATION / CONSEQUENCE surfaces); a decision change over a memo is swept by
 hand.
 
 MODULES
-  plan_memo_lexer.py      CommonMark 0.31.2 / GFM 0.29 subset: fences, rows,
-                          code spans, links, reference definitions, `Lexed`
+  plan_memo_lexer.py      Phase 2 (inline): code spans + links / images in one
+                          pass, link grammar, `Lexed`
+  plan_memo_blocks.py     Phase 1 (blocks): fences, block starts, the one
+                          `block_end` predicate, GFM rows, reference definitions
   plan_memo_tables.py     schemas, `Row`, `Memo`, the transitive `Population`,
                           the mask disposition
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
@@ -77,7 +79,7 @@ from collections import Counter, defaultdict, namedtuple
 HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
-from plan_memo_tables import Population, stream  # noqa: E402
+from plan_memo_tables import SHORT_ID, SLUG_ID, Population, stream  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     CELL_TOKEN, MENTION_PROSE, MENTION_SLOT, acceptance_vocab_seed,
     assertion_a, assertion_b, assertion_cd_seed, classify, roles,
@@ -321,7 +323,7 @@ def collect_mentions(pop):
     return list(seen.values())
 
 
-_BARE_TOKEN = re.compile(r"(?<![0-9A-Za-z-])(?:#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})(?![0-9A-Za-z-])")
+_BARE_TOKEN = re.compile(r"(?<![0-9A-Za-z-])(?:%s|%s)(?![0-9A-Za-z-])" % (SLUG_ID, SHORT_ID))
 
 
 def lex_unsupported_seed(pop, findings, notes):
