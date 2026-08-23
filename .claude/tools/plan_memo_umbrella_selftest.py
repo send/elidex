@@ -81,6 +81,18 @@ def unload():
         sys.modules.pop(name, None)
 
 
+def patched_runner(src):
+    """This runner itself, exec'd from patched source text into a fresh
+    module (not installed in `sys.modules`), so a mutant against the RUNNER's
+    own guards can take its control from the patched registry."""
+    spec = importlib.util.spec_from_loader("plan_memo_umbrella_selftest_patched", loader=None,
+                                           origin=str(HERE / "plan_memo_umbrella_selftest.py"))
+    mod = importlib.util.module_from_spec(spec)
+    mod.__file__ = str(HERE / "plan_memo_umbrella_selftest.py")
+    exec(compile(src, mod.__file__, "exec"), mod.__dict__)
+    return mod
+
+
 def run_on(M, text, prose="", sibling=None, files=None):
     """Write the fixture and its siblings to a scratch dir and run `check()`.
     Returns (Result, unlicensed mentions)."""
@@ -188,6 +200,28 @@ def raw_offset_control(M):
     return ok, "col lands on %r" % (reported[0].line[reported[0].col:reported[0].col + 2] if reported else None)
 
 
+def empty_registry_fails(n_controls, n_mutants):
+    """The emptiness guard: a run over ZERO controls or (when mutants are
+    requested) ZERO mutants proves nothing and must be a FAIL, not a green
+    `0 mutant(s), 0 survived` -- the trip-wire checks the same two counts
+    from the outside, so neither guard is the only one.  `n_mutants` is None
+    when mutants were not requested.  Returns the FAIL strings."""
+    out = []
+    if n_controls == 0:
+        out.append("EMPTY REGISTRY: 0 controls ran; a self-test over nothing is not green")
+    if n_mutants == 0:
+        out.append("EMPTY REGISTRY: 0 mutants ran; a mutation proof over nothing is not green")
+    return out
+
+
+def empty_registry_control(M):
+    """The runner-level proof that an empty registry is a FAIL: the guard
+    fires on (0, 0), on (0, None), on (n, 0), and is silent on (n, m)."""
+    fired = (bool(empty_registry_fails(0, 0)), bool(empty_registry_fails(0, None)),
+             bool(empty_registry_fails(5, 0)), bool(empty_registry_fails(5, 7)))
+    return fired == (True, True, True, False), "guard fires %s (want True, True, True, False)" % (fired,)
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -198,6 +232,7 @@ def registry():
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
+    reg["an empty control or mutant registry is a FAIL, never green"] = ("CONTROL", empty_registry_control)
     return reg
 
 
@@ -226,9 +261,12 @@ def run(mutants=False):
     print()
     print("%d control(s): %s."
           % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts))))
+    n_mutants = None
     if mutants:
         import plan_memo_selftest_mutants as mm
         fails += mm.run(reg)
+        n_mutants = len(mm.MUTANTS)
+    fails += empty_registry_fails(len(reg), n_mutants)
     if fails:
         print()
         for f in fails:

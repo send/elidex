@@ -157,9 +157,18 @@ def split_row(line):
     bounds, breaks, start, i, n = [], [], 0, 0, len(line)
     while i < n:
         c = line[i]
-        if c == "\\" and i + 1 < n and line[i + 1] == "|":
-            breaks.append(i)
-            i += 2
+        if c == "\\":
+            # §2.4 parity: the pairs of a backslash run escape each other, so
+            # only an ODD run escapes the `|` after it (`a\\|b` has an
+            # unescaped pipe and is two cells); the odd backslash is consumed
+            j = i
+            while j < n and line[j] == "\\":
+                j += 1
+            if j < n and line[j] == "|" and (j - i) % 2:
+                breaks.append(j - 1)
+                i = j + 1
+            else:
+                i = j
         elif c == "|":
             bounds.append((start, i))
             start = i + 1
@@ -170,8 +179,8 @@ def split_row(line):
     stripped = line.strip()
     if stripped.startswith("|") and bounds:
         bounds = bounds[1:]
-    if stripped.endswith("|") and not stripped.endswith("\\|") and bounds:
-        bounds = bounds[:-1]
+    if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):
+        bounds = bounds[:-1]       # the same parity: `\\|` at the end is a trailing pipe
     out = []
     for a, b in bounds:
         while a < b and line[a] in " \t":
@@ -482,6 +491,14 @@ def links(s, defs):
             continue
         text, close, inner = bt
         tail = close - 1
+        # §6.3: "links may not contain other links, at any level of nesting;
+        # if multiple otherwise valid link definitions appear nested inside
+        # each other, the inner-most definition is used" -- bracket text that
+        # holds a completed link makes the OUTER brackets literal text, and
+        # the scan continues inside them
+        if inner and links(text, defs)[0]:
+            i += 1
+            continue
         if close < len(s) and s[close] == "(":
             r = _inline_tail(s, close + 1)
             if r is not None:
@@ -619,10 +636,16 @@ class Lexed:
         read as definitions (a §4.7 definition cannot interrupt a paragraph),
         for the memo's unresolved-reference report; `offset` is where the
         line starts, which is where its label bracket is read as a shortcut."""
-        out, off = [], self.defs_end
-        for line in self._masked[self.defs_end:].split("\n"):
-            defs, _ = reference_definitions(line)
+        out, s, off = [], self._masked, self.defs_end
+        while off < len(s):
+            nl = s.find("\n", off)
+            end = len(s) if nl < 0 else nl
+            # parsed from the candidate line's start over the REST of the
+            # block, so a definition split over its permitted continuation
+            # line (§4.7: up to one line ending after the colon) is seen too
+            defs, _ = reference_definitions(s[off:])
             if defs:
+                line = s[off:end]
                 out.append((off + (len(line) - len(line.lstrip(" "))), defs[0][0]))
-            off += len(line) + 1
+            off = end + 1
         return out

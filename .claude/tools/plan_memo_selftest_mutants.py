@@ -18,12 +18,14 @@ The runner patches the source TEXT, exec's a fresh module set from it (plan
   * a control that CRASHES under the mutant proves nothing about the clause
     (an exception is not the control going red) and is a FAIL.
 
-Row shape: (name, file, find, replace, [control names]).
+Row shape: (name, file, find, replace, [control names]).  A row whose file is
+the RUNNER itself (`plan_memo_umbrella_selftest.py`) patches the runner, not
+the checker set, and takes its controls from the patched runner's registry.
 """
 
-LEXER, TABLES, ROLES, CHECK = (
+LEXER, TABLES, ROLES, CHECK, SELFTEST = (
     "plan_memo_lexer.py", "plan_memo_tables.py", "plan_memo_roles.py",
-    "plan-memo-umbrella-check.py")
+    "plan-memo-umbrella-check.py", "plan_memo_umbrella_selftest.py")
 
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks
@@ -83,13 +85,13 @@ MUTANTS = [
      ["(row) an unescaped `|` inside backticks SPLITS the row: each half is prose with a literal "
       "backtick, so the id on each side is a mention"]),
     ("row: `\\|` becomes `|` (the backslash is consumed)", LEXER,
-     '            breaks.append(i)\n            i += 2', '            i += 2',
+     '                breaks.append(j - 1)\n                i = j + 1', '                i = j + 1',
      ["(row) `\\|` is `|` in the cell, so `9z \\| 7z` is an id-only run"]),
     ("row: the leading pipe is optional", LEXER,
      'if stripped.startswith("|") and bounds:', 'if bounds:',
      ["(row) a table without leading and trailing pipes declares its rows"]),
     ("row: the trailing pipe is optional", LEXER,
-     'if stripped.endswith("|") and not stripped.endswith("\\\\|") and bounds:', 'if bounds:',
+     'if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):', 'if bounds:',
      ["a table with and without edge pipes reads the same"]),
     ("row: offsets map through each cell's raw segments", LEXER,
      '        return raw_start + (i - off)', '        return i',
@@ -284,6 +286,29 @@ MUTANTS = [
      'exempt = _is_shortcut(lx, off)',
      ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
       "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
+    # -- PR #510 Codex R1
+    ("R1-1 row: only an ODD backslash run escapes `|` (even run = literal backslash + pipe)", LEXER,
+     '            if j < n and line[j] == "|" and (j - i) % 2:',
+     '            if j < n and line[j] == "|":',
+     ["(row) `a\\\\|b` holds an UNESCAPED pipe (§2.4: `\\\\` is a literal backslash): 5 cells "
+      "under a 4-cell header is a width miss, rc 2"]),
+    ("R1-1 row: the trailing-pipe check uses the same parity", LEXER,
+     'if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):',
+     'if stripped.endswith("|") and bounds and not stripped.endswith("\\\\|"):',
+     ["(row) a trailing `\\\\|` is a literal backslash then the trailing pipe: rc 0"]),
+    ("R1-2 runner: the emptiness guard fires on zero controls / zero mutants", SELFTEST,
+     '    if n_controls == 0:\n        out.append(', '    if False:\n        out.append(',
+     ["an empty control or mutant registry is a FAIL, never green"]),
+    ("R1-3 link: a completed link inside the bracket text makes the outer brackets text", LEXER,
+     '        if inner and links(text, defs)[0]:', '        if False:',
+     ["(link) nested inline links: the INNER link is the link, the outer tail is text -- "
+      "`child.md` joins the population, absent `parent.md` is not linked",
+      "(link) a reference link nested in inline brackets: the inner reference is the link, the "
+      "outer tail is text"]),
+    ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", LEXER,
+     '            defs, _ = reference_definitions(s[off:])', '            defs, _ = reference_definitions(s[off:end])',
+     ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
+      "shortcut naming it is a schema miss, not an exempt citation-style shortcut"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -384,12 +409,18 @@ def run(reg):
             fails.append("MUTANT %r names unknown control(s) %s" % (name, unknown))
             print("  FAIL [MUTANT] %s (unknown control)" % name)
             continue
-        M = st.load({file: src.replace(find, replace)})
+        patched = src.replace(find, replace)
+        if file == SELFTEST:
+            # a mutant against the runner: the checker set is unpatched, the
+            # controls come from the PATCHED runner's registry
+            M, table = st.load(), st.patched_runner(patched).registry()
+        else:
+            M, table = st.load({file: patched}), reg
         survived, crash = [], None
         try:
             for c in controls:
                 try:
-                    ok = reg[c][1](M)[0]
+                    ok = table[c][1](M)[0]
                 except Exception as e:
                     # an exception is not the control going red: the clause
                     # under test was never exercised, so this proves nothing

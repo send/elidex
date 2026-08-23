@@ -602,3 +602,34 @@ acase("NEGATIVE", "(stream) ordering vocabulary in a link TITLE is the link's ta
       build(s7z='Terminal.  The probe must return 3.  See [the walk](slice-9z-sib.md "lands before").',
             d7z="—"),
       "ORDER-PROSE?", 0)
+
+
+# ------------------------------------------------- PR #510 Codex R1 controls --
+
+# R1-1: §2.4 parity in the row split -- only an ODD backslash run escapes `|`
+SLOT4 = ("| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+         "| `#11-zz-gamma` | Terminal. Acceptance: must. | %s | 2026-12-31 |")
+rcase("POSITIVE", "(row) `a\\\\|b` holds an UNESCAPED pipe (§2.4: `\\\\` is a literal backslash): "
+                  "5 cells under a 4-cell header is a width miss, rc 2",
+      build(extra=SLOT4 % "a\\\\|b"), "", 2)
+rcase("NEGATIVE", "(row) `a\\|b` is one cell (the odd backslash escapes the pipe): rc 0",
+      build(extra=SLOT4 % "a\\|b"), "", 0)
+rcase("NEGATIVE", "(row) a trailing `\\\\|` is a literal backslash then the trailing pipe: rc 0",
+      build(extra=(SLOT4 % "now")[:-1] + "\\\\|"), "", 0)
+
+# R1-3: §6.3 -- links may not contain links; the inner-most link is the one
+NEST = {"child.md": VIOLATION + "\n"}
+case("POSITIVE-NOVEL", "(link) nested inline links: the INNER link is the link, the outer tail is "
+                       "text -- `child.md` joins the population, absent `parent.md` is not linked",
+     build(), "See [outer [child](child.md)](parent.md).", 1, files=NEST)
+case("POSITIVE-NOVEL", "(link) a reference link nested in inline brackets: the inner reference is "
+                       "the link, the outer tail is text",
+     build(), "See [outer [child][c]](parent.md).\n\n[c]: child.md", 1, files=NEST)
+
+# R1-4: an orphan definition split over its permitted continuation line is
+# still an orphan (§4.7 invalidates it: it interrupts a paragraph), so the
+# shortcut that names it is unanswered
+case("POSITIVE", "(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
+                 "shortcut naming it is a schema miss, not an exempt citation-style shortcut",
+     build(), "text\n[sib]:\nslice-9z-sib.md\nSee [sib]", 1, **SIB,
+     measure=("schema", "unresolved reference 'sib'"))

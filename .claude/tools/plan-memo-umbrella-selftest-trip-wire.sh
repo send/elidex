@@ -22,7 +22,13 @@
 # absent interpreter is a FAIL, not a skip -- a gate that silently covers less
 # than the docs claim is the failure `scripts/trip-wires.sh` exists to catch.
 #
-# Run from anywhere.  Exits non-zero on any failing control or surviving mutant.
+# Run from anywhere.  Exits non-zero on any failing control or surviving mutant,
+# and on a summary that does not carry a NONZERO control count and a NONZERO
+# mutant count: an empty registry prints `0 mutant(s), 0 survived` and exits 0
+# from the runner's point of view (the runner has its own emptiness guard; this
+# wire must not be the only one, nor rely on it).  Probed once by hand
+# (2026-08-23): a summary of `0 control(s)` / `0 mutant(s)` piped through the
+# check below exits 1.
 
 set -euo pipefail
 
@@ -41,7 +47,16 @@ fi
 echo "trip-wire: plan-memo-umbrella-check --self-test --mutants"
 if out="$(python3 "$CHECKER" --self-test --mutants 2>&1)"; then
   # the summary lines only; the per-control listing is for a failing run
-  printf '%s\n' "$out" | grep -E 'control\(s\):|mutant\(s\),|all controls' || true
+  summary="$(printf '%s\n' "$out" | grep -E 'control\(s\):|mutant\(s\),|all controls' || true)"
+  printf '%s\n' "$summary"
+  controls="$(printf '%s\n' "$summary" | sed -nE 's/^([0-9]+) control\(s\):.*/\1/p')"
+  mutants="$(printf '%s\n' "$summary" | sed -nE 's/^([0-9]+) mutant\(s\),.*/\1/p')"
+  if [ -z "$controls" ] || [ -z "$mutants" ] || [ "$controls" -eq 0 ] || [ "$mutants" -eq 0 ]; then
+    red "FAIL: the self-test summary does not carry a nonzero control count AND a nonzero"
+    red "      mutant count (controls='${controls:-?}', mutants='${mutants:-?}') -- an empty"
+    red "      registry is not a green wire."
+    exit 1
+  fi
   green "OK (every control behaved as declared; every mutant was killed)"
   exit 0
 fi
