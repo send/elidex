@@ -233,7 +233,7 @@ rows have two distinct provenances, which is the distinction the map exists to r
 
 * **CSS 2 §10.8** is **dual-provenance**. One instance *travels unchanged* — the comment inside
   the body that is byte-identical modulo the extracted signature, moved and not authored. A second is authored by this PR in the
-  `reconcile_flows` docstring — ⚠ **as a bare §-number**: the docstring carries no CSS 2
+  `reconcile_flows` docstring — ⚠ **without a title**: the docstring carries no CSS 2
   §number↔title pair, and the pair for CSS 2 lives in **this row**, not in the `css-inline-3` rows.
   Measured:
   ```
@@ -260,7 +260,7 @@ rows have two distinct provenances, which is the distinction the map exists to r
 | css-inline-3 §2.2 Layout Within Line Boxes | the line-box sizing step list | step 2 *"Content Size Contribution Calculation"* = the per-box block contribution this crate does compute (`line-height` for horizontal text, the margin box for atomics); step 3 *"Line Box Sizing"* = the aggregation it substitutes with a max | **authored by this PR** in the `reconcile_flows` docstring, as the current statement of CSS 2 §10.8's step 1 / step 3. Pair verified with `.claude/tools/webref heading css-inline-3 2.2`; step text with `.claude/tools/webref body css-inline-3 line-layout` | ✓ | yes |
 | css-inline-3 §4.2 Transverse Box Alignment: the vertical-align property | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top | **authored by this PR** in the `reconcile_flows` docstring, as the current anchor for the gap CSS 2 §10.8 states in superseded form (`css-inline-3` §1.1 *"replaces and extends … [CSS2] section 10.8"*). Pair verified with `.claude/tools/webref heading css-inline-3 4.2` | ✓ | yes |
 | css-inline-3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | the half-leading derivation | run-level from one resolved font; §5.3's *normal* branch (the default) wants every glyph's A and D | **authored by this PR** in the same docstring, as §10.8.1's current statement. Pair verified with `.claude/tools/webref heading css-inline-3 5.3` | ✓ | yes |
-| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **the body comment at `:480-481` moves verbatim (no code touched); the docstring's own §10.8 references are now bare numbers; the CSS 2 §number↔title pair lives in **this row**, not in the `css-inline-3` rows (those carry the `css-inline-3` pairs, which the docstring also spells out in full)** (⚠ **the enumerator must be case-insensitive** — `inline_flow.rs:100` spells it lowercase:
+| CSS 2 §10.8 Line height calculations: the `line-height` and `vertical-align` properties | `vertical-align` within the line box | not implemented — the atomic's block-axis reposition target is the line top (baseline-naive). ⚠ **Both** sinks, not the mid-break one: the citing comment sits under `if persist_flow {` (`:468`), and the target itself comes from `static_atomic_reposition_records`, whose docstring calls itself "the SINGLE derivation shared by both the `persist_flow` sink … and the `do_carrier` sink" (`:717-720`) and which returns `line.block_start` (`:734`) | ⚠ **the body comment at `:480-481` moves verbatim (no code touched); the docstring's own §10.8 references carry no §number↔title pair; the CSS 2 §number↔title pair lives in **this row**, not in the `css-inline-3` rows (those carry the `css-inline-3` pairs, which the docstring also spells out in full)** (⚠ **the enumerator must be case-insensitive** — `inline_flow.rs:100` spells it lowercase:
 `git grep -ci "line height calculations" 658cc302 -- crates`
 → one hit, `elidex-ecs/src/components/inline_flow.rs`, carrying the title's leading clause beside the
 number but not the full pair as spelled out here; the site is lowercase, so it is the Title-cased form that returns empty,
@@ -727,12 +727,8 @@ this section carries only **why it is not in this PR**, plus the slot's name.
   source slot calls for has not been done for them.
 * **The eleven-parameter signature.** Reducing it is a design change (§5.3) and belongs with the
   successor slot `#11-inline-fragmented-fn-seams-1-2`, whose subject is the residue's
-  decomposition. ⚠ **Booked alongside it, because it is a different defect the count would hide**: the signature
-  carries `is_vertical: bool, persist_flow: bool, do_carrier: bool` **adjacent** (positions 5-7 of
-  11 — adjacency is the hazard, not terminal position) and the call site passes them positionally, so **any transposition of the three is type-correct and compiles silently**. That
-  window is *new* — pre-split these were three named `let` bindings in scope (`:173`, `:322`,
-  `:343`). The fix for a three-`bool` positional window is a **type** (an enum
-  or a flags struct, so a transposition fails to compile).
+  decomposition. Booked alongside it: the three adjacent `bool` parameters (positions 5-7 of 11) form a
+  positional window that is new to this PR; the slot's entry carries the hazard and the candidate shapes.
 
   ⚠ **Why the type cannot be introduced here.** Byte-identity governs the body after `) {`; the
   signature is **authored**, so that contract does not govern it. The obstruction is one level
