@@ -163,15 +163,21 @@ def report_governing_complement() -> None:
     seed-declaring checks, one honouring the contract and one claiming it.
     (memory `feedback_universal-claims-need-the-complement-measured`.)
 
-    Per-wire headers are out of scope by the rule above, so they are excluded by
-    a PREDICATE rather than by absence from a list -- an exclusion nobody can
-    read is what makes an enumeration authoritative by default."""
+    The wire files are IN this report, and used to be excluded from it. The rule
+    that exclusion cited -- "per-wire headers are out of scope: a new wire only
+    adds to those, it does not falsify them" -- is about what `check_sites`
+    CHECKS. This function's job is the opposite: to name what was NOT looked at.
+    Measured, the exclusion hid twelve lines across five wires, and not all of
+    them are headers (`layout-box-reader-trip-wire.sh:55` is "Run BOTH locally …
+    and in CI", a statement about the set). A report that silently drops the
+    population most likely to carry a collective sentence is the shape a
+    complement report exists to prevent."""
     rc, out = host.sh(["git", "ls-files"])
     if rc != 0:
         return
     rows: list[tuple[str, int]] = []
     for rel in out.split("\n"):
-        if not rel or rel in GOVERNING or WIRE_FILE.match(rel):
+        if not rel or rel in GOVERNING:
             continue
         f = host.REPO / rel
         if not f.is_file():

@@ -477,7 +477,16 @@ def check_citations(memo: Memo) -> None:
             if not hits:
                 bad("CITE", f"{memo.path.name}:{i} cites `{rel}:{a}`, not a tracked file")
                 continue
-            if len(hits) > 1 and not any(h.endswith("/" + rel) and rel.count("/") for h in hits):
+            # Ambiguity is ambiguity, and the exemption this replaces GREW
+            # weaker as the ambiguity grew: it excused any `rel` containing a
+            # slash that some hit ends with, which is exactly what a partial
+            # path matching many files always does. `src/lib.rs` resolves to 53
+            # tracked files and passed. The 38 citations across the tree that
+            # took the exemption are all `mutation/mod.rs` against two files --
+            # a line number nothing can verify, which is the finding's own
+            # wording. A fully-spelled path is not affected: `git ls-files`
+            # returns exactly one hit for it, so this branch is not reached.
+            if len(hits) > 1:
                 bad("CITE", f"{memo.path.name}:{i} cites `{rel}:{a}`, which names "
                             f"{len(hits)} tracked files ({', '.join(hits[:3])}…); a "
                             f"line number against an ambiguous path is unverifiable")
@@ -751,6 +760,14 @@ def check_preflight(memo: Memo) -> None:
         skip("PREFLIGHT", f"{memo.path.name} has no §8.3 section, so preflight's "
                           f"verdict was not compared against any paste")
         return
+    # preflight takes a repo-relative path, so a memo outside the tree is a
+    # question it cannot be asked. `relative_to` raised, and `run` in `main`
+    # contains that now -- but a check that CANNOT reach a verdict says so,
+    # rather than reporting a defect in this program as though the memo had one.
+    if not memo.path.is_relative_to(REPO):
+        skip("PREFLIGHT", f"{memo.path.name} is outside {REPO.name}, and preflight "
+                          f"takes a path relative to it, so no verdict was compared")
+        return
     rc, out = sh([sys.executable, str(SKILL / "preflight.py"),
                   str(memo.path.relative_to(REPO))])
     # A seed, not preflight's whole output: it also prints `heading line`,
@@ -918,7 +935,25 @@ def main(argv: list[str]) -> int:
     # where it can be true of one check rather than asserted of all twelve.
     umbrella = Memo(Path(argv[2]).resolve()) if len(argv) > 2 else None
 
-    check_pairs(memo)
+    # Every check runs through `run`, so a raise costs its own verdict and
+    # nothing else. `main` prints the summary once, at the end, so an exception
+    # used to discard every finding collected before it -- and Python exits 1
+    # on an uncaught exception, the same code a run WITH findings returns, so a
+    # caller reading rc could not tell a crash from a verdict. Measured: a memo
+    # outside the repository with a §8.3 raised `ValueError` in
+    # `check_preflight` and threw away a CITE finding already in the list.
+    #
+    # The code beside each call is not a second roster -- this IS the list of
+    # checks, and a probe asserts the set spelled here is `finding_codes()`.
+    def run(code: str, fn, *args) -> None:
+        try:
+            fn(*args)
+        except Exception as e:  # noqa: BLE001 -- reporting is the point
+            bad(code, f"the check itself raised {type(e).__name__}: {e} — that "
+                      f"is a defect in this program rather than in the memo, "
+                      f"and it is reported rather than raised so the findings "
+                      f"already collected survive it")
+
     # UNIQ and FIXTURE policed §8.1's control table. (Round 9's first draft of
     # this comment said "UNIQ, PROBE and FIXTURE". There has never been a
     # PROBE check in this tree -- `git log -S'PROBE'` matches only the commit
@@ -933,23 +968,24 @@ def main(argv: list[str]) -> int:
     # section no memo has: a check gated on an absent heading never fires and
     # never reports, which is the coverage-shaped silence `skip()` exists to
     # prevent. CONTROLS is what replaces them, one level up.
-    check_section_refs(memo, umbrella)
-    check_citations(memo)
+    run("PAIR", check_pairs, memo)
+    run("SECT", check_section_refs, memo, umbrella)
+    run("CITE", check_citations, memo)
     if umbrella:
-        check_citations(umbrella)
-    check_annotations()
-    check_fence(memo)
-    report_transcripts(check_transcripts(memo))
+        run("CITE", check_citations, umbrella)
+    run("ANNO", check_annotations)
+    run("FENCE", check_fence, memo)
+    run("TRANSCRIPT", lambda m: report_transcripts(check_transcripts(m)), memo)
     if umbrella:
-        report_transcripts(check_transcripts(umbrella))
-    check_sites(memo)
-    report_governing_complement()
-    check_tooling_quantities(memo)
-    check_umbrella(memo, umbrella)
-    report_umbrella_coverage(umbrella)
-    check_controls(memo)
-    check_paths(memo)
-    check_preflight(memo)
+        run("TRANSCRIPT", lambda m: report_transcripts(check_transcripts(m)), umbrella)
+    run("SITES", check_sites, memo)
+    run("SITES", report_governing_complement)
+    run("TOOLING", check_tooling_quantities, memo)
+    run("UMBRELLA", check_umbrella, memo, umbrella)
+    run("UMBRELLA", report_umbrella_coverage, umbrella)
+    run("CONTROLS", check_controls, memo)
+    run("PATHS", check_paths, memo)
+    run("PREFLIGHT", check_preflight, memo)
 
     for line in summary("wire" if WIRE.exists() else "bootstrap"):
         print(line)

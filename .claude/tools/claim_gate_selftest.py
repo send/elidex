@@ -849,6 +849,18 @@ def selftest() -> int:
           capture(check_controls, synth(LEDGER + "\nC9 still covers that case.\n"),
                   HAVE, []),
           "licenses the row that records the retirement")
+    # A range reaches the retired-use arm at its ENDS and not in its middle.
+    # `CONTROL_RANGE` fills `cited` with every id between the ends, while
+    # `outside` -- the position map that arm reads -- is filled by
+    # `MEMO_CONTROL`, which matches the two endpoints and nothing between them.
+    # So `C8`–`C10` cites C9 and no position records it. Measured before this
+    # probe: every range SPELLING puts both endpoints in `outside`, so the
+    # endpoints were never the gap; the interior was.
+    probe("CONTROLS negative (a retired control INSIDE a range's ends)", True,
+          capture(check_controls,
+                  synth(LEDGER + "\n`C8`–`C10` re-execute the corpus.\n"),
+                  dict(HAVE, C8=set(), C10=set()), []),
+          "licenses the row that records the retirement")
     probe("CONTROLS negative (the ledger retires a control that is shipped)", True,
           capture(check_controls, synth(
               LEDGER.replace("`C9`", "`C1`") + "\nC1 is withdrawn.\n"), HAVE, []),
@@ -1009,6 +1021,17 @@ def selftest() -> int:
                   [GONE]))
     # The declaration is licensed AT the row and nowhere else, so the row's own
     # mention must not satisfy the memo's obligation to name what it discusses.
+    # The row grammar demanded one bullet marker and one dash. A row written
+    # `- `x` - deleted` or with an en dash or a `*` bullet parsed as no row at
+    # all, so a memo that HAD declared the path was told it owed a declaration
+    # -- the W2 class again, one layer down: a spelling difference reading as
+    # an absence.
+    for _mark, _dash in (("*", "—"), ("-", "-"), ("+", "–")):
+        probe(f"PATHS positive (a row spelled `{_mark} … {_dash} …`)", False,
+              capture(check_paths,
+                      synth(LEDGER_GONE.replace("- `", f"{_mark} `")
+                                       .replace(" — ", f" {_dash} ")
+                            + NAMES_GONE), [GONE]))
     probe("PATHS negative (a ledger under a heading that is not §0.1)", True,
           capture(check_paths, synth(LEDGER_GONE.replace("§0.1", "§0.9")), [GONE]),
           "owes a row")
@@ -1302,6 +1325,15 @@ def selftest() -> int:
     probe("CITE negative (a basename naming several tracked files)", True,
           capture(check_citations, synth("## §4 x\n\nSee `mod.rs:5`.\n")),
           "tracked files")
+    # The guard used to weaken as the ambiguity GREW: it excused any `rel`
+    # containing a slash that some hit ends with, which is what a partial path
+    # matching many files always does. Measured, `src/lib.rs` resolves to 53
+    # tracked files and passed; the 38 citations across the tree that took the
+    # exemption are all `mutation/mod.rs` against two files, every one of them
+    # a line number nothing can verify.
+    probe("CITE negative (a partial PATH naming many tracked files)", True,
+          capture(check_citations, synth("## §4 x\n\nSee `src/lib.rs:5`.\n")),
+          "tracked files")
     probe("CITE negative (an inverted range)", True,
           capture(check_citations, synth(
               "## §4 x\n\nSee `claim_gate_ledgers.py:10-5`.\n")),
@@ -1335,6 +1367,21 @@ def selftest() -> int:
               "is not in the tree")
     finally:
         registries.GOVERNING = _saved_gov
+    # The complement report EXCLUDED every `*-trip-wire.sh` from the population
+    # it reports on. The rule that exclusion cited -- "per-wire headers are out
+    # of scope: a new wire only adds to those" -- is about what SITES CHECKS,
+    # and the report's job is the opposite: to name what was NOT looked at.
+    # Measured, the exclusion hid twelve lines, and not all of them are headers
+    # (`layout-box-reader-trip-wire.sh:55` is "Run BOTH locally … and in CI",
+    # which is about the set). Conflating the check's scope with the report's is
+    # the thing a complement report exists to prevent.
+    _comp = io.StringIO()
+    with contextlib.redirect_stdout(_comp):
+        registries.report_governing_complement()
+    probes.append(("SITES' complement report does not exclude the wire files",
+                   "-trip-wire.sh" in _comp.getvalue(),
+                   next((l.strip()[:70] for l in _comp.getvalue().split("\n")
+                         if "trip-wire.sh" in l), "(absent)")))
     probe("PREFLIGHT negative (a pasted exit code the tool does not return)", True,
           capture(check_preflight, write_probe(
               PREFLIGHT_FIXTURE + real_pf.replace("EXIT=0", "EXIT=9"))),
@@ -1429,6 +1476,58 @@ def selftest() -> int:
     _restored = write_probe(PREFLIGHT_FIXTURE + run_preflight_block(PREFLIGHT_FIXTURE))
     probe("the tracked probe fixture is left true, not left planted", False,
           capture(check_preflight, _restored))
+
+    # A check that RAISES used to take the run with it. `main` prints the
+    # summary once, at the end, so every finding collected before the
+    # exception was discarded -- and Python exits 1 on an uncaught exception,
+    # which is the code a run WITH findings returns, so a caller reading rc
+    # could not tell a crash from a verdict. Measured: a memo outside the
+    # repository with a §8.3 raised `ValueError` in `check_preflight` and threw
+    # away a CITE finding already in the list.
+    def _boom(_memo):
+        host.bad("CITE", "collected before the crash")
+        raise RuntimeError("planted")
+
+    _saved_pf = host.check_preflight
+    try:
+        host.check_preflight = _boom
+        with contextlib.redirect_stdout(io.StringIO()) as _cap:
+            _rc = host.main(["x", str(host.REPO / "docs" / "plans" /
+                                      "zz-probe-preflight.md")])
+        _out = _cap.getvalue()
+    finally:
+        host.check_preflight = _saved_pf
+    probes.append(("a raising check does not discard the findings already collected",
+                   "collected before the crash" in _out, _out.strip()[-70:]))
+    probes.append(("…and the raise is reported as a finding of its own",
+                   "PREFLIGHT" in _out and "planted" in _out,
+                   next((l.strip()[:70] for l in _out.split("\n")
+                         if "planted" in l), "(silent)")))
+    probes.append(("…and the run still ends on its summary line",
+                   "finding(s)" in _out and _rc == 1, f"rc={_rc}"))
+    # preflight takes a repo-relative path, so a memo outside the tree cannot be
+    # asked. `run` would contain the `ValueError`, but a check that cannot reach
+    # a verdict says so rather than reporting a defect in this program as though
+    # the memo had one.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _td:
+        _far = Path(_td) / "outside.md"
+        _far.write_text("# probe\n\n## §8.3 Preflight\n\n```\nEXIT=0\n```\n")
+        probe("PREFLIGHT reports rather than raising on a memo outside the repo",
+              False, capture(check_preflight, host.Memo(_far)))
+        probe("  …and says so through skip()", True,
+              capture_skipped(check_preflight, host.Memo(_far)),
+              "is outside")
+    # `main`'s runner spells a code beside each call. That is the list of checks
+    # rather than a second roster -- but only if it is the WHOLE list, and a new
+    # check added without a `run(` wrapper would be invisible to both.
+    _runner = set(re.findall(r'run\("([A-Z]+)"',
+                             (REPO / ".claude" / "tools" /
+                              "claim-gate-plan-check.py").read_text()))
+    probes.append(("main's runner covers every code the program can report",
+                   _runner == host.finding_codes(),
+                   f"only in runner {sorted(_runner - host.finding_codes())}; "
+                   f"only in codes {sorted(host.finding_codes() - _runner)}"))
 
     width = max(len(p[0]) for p in probes)
     failed = 0
