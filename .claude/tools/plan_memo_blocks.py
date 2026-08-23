@@ -55,6 +55,48 @@ def fenced_lines(lines):
     return out
 
 
+def raw_lines(lines):
+    """THE ONE raw-extent map of Phase 1: {0-based line index: "fence" |
+    "html"} for every line whose content is RAW -- never inline-parsed,
+    always a run / paragraph / table end.  Fenced code blocks (§4.5,
+    `fenced_lines`) and HTML blocks (§4.6) share it: an HTML block is a leaf
+    block "treated as raw HTML", from a line meeting a start condition to
+    the first line meeting its end condition (types 1-5 by content, possibly
+    the opener itself; types 6 and 7 at the next blank line or the end of
+    the document).  A type-7 opener counts only at a block start ("all
+    types of HTML blocks except type 7 may interrupt a paragraph"): here,
+    after a blank, raw or one-line-block line, or at the document start --
+    commonmark.js: `text\n<span>` stays a paragraph, `<span>\nx\ny\n\nz`
+    is a raw block to the blank.  Computed once; `block_end`, `_runs`,
+    `_blocks`, `find_tables` and the LEX-UNSUPPORTED? seed all read it."""
+    out = {i: "fence" for i in fenced_lines(lines)}
+    i, n = 0, len(lines)
+    while i < n:
+        if i in out:
+            i += 1
+            continue
+        t = html_block_type(lines[i])
+        at_start = i == 0 or (i - 1) in out or is_blank(lines[i - 1]) or one_line_block(lines[i - 1])
+        if t is None or (t == "t7" and not at_start):
+            i += 1
+            continue
+        start, end = i, i
+        if not html_block_ends(t, lines[i]):    # the opener may meet the end condition itself
+            end = i + 1
+            while end < n:
+                if t in ("t6", "t7") and is_blank(lines[end]):
+                    end -= 1
+                    break
+                if html_block_ends(t, lines[end]):
+                    break
+                end += 1
+            end = min(end, n - 1)
+        for k in range(start, end + 1):
+            out[k] = "html"                     # the ONE marking site of an HTML extent
+        i = end + 1
+    return out
+
+
 # --------------------------------------------------------------------------
 # Block starts that end a paragraph or a table (GFM §4.10: "the table is
 # broken at the first empty line, or beginning of another block-level
@@ -143,21 +185,17 @@ def html_block_ends(kind, line):
 
 
 def unsupported_block(line, at_block_start):
-    """The PROSE-AS-WRITTEN block type a raw line would open under CommonMark
-    §4 / §5 -- "quote" (§5.1), "indented-code" (§4.4, at a block start only:
-    it cannot interrupt a paragraph), "html" (§4.6; a type-7 start only at a
-    block start: "all types of HTML blocks except type 7 may interrupt a
-    paragraph") -- or None.  Phase 1 reads such a line as paragraph text;
-    the checker reports it as a `[LEX-UNSUPPORTED?]` SEED when it holds a
-    `|` or a declared id, so the bound of the lexer is printed rather than
-    assumed."""
+    """The PROSE-AS-WRITTEN block type a paragraph line would open under
+    CommonMark §5.1 / §4.4 -- "quote" (§5.1), "indented-code" (§4.4, at a
+    block start only: it cannot interrupt a paragraph) -- or None.  Phase 1
+    reads such a line as paragraph text; the checker reports it as a
+    `[LEX-UNSUPPORTED?]` SEED when it holds a `|` or a declared id, so the
+    bound of the lexer is printed rather than assumed.  (HTML blocks are
+    RAW extents, `raw_lines`, seeded from that map.)"""
     if _QUOTE.match(line):
         return "quote"
     if at_block_start and _INDENTED.match(line):
         return "indented-code"
-    t = html_block_type(line)
-    if t is not None and (at_block_start or t != "t7"):
-        return "html"
     return None
 
 
@@ -173,8 +211,8 @@ def starts_block(line):
     interrupt).  NOT in the set, by the same oracle: an indented line (§4.4
     "cannot interrupt a paragraph": `[foo]:\n    code` is a definition with
     destination `code`) and a reference definition (§4.7 "cannot interrupt a
-    paragraph").  A fenced code opener and a blank line end a run too; they
-    are the caller's (`Memo`) own sets, not lines a run may start on."""
+    paragraph").  A RAW line (a fence or HTML block, `raw_lines`) and a
+    blank line end a run too; they are never lines a run may start on."""
     if one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line):
         return True
     t = html_block_type(line)
@@ -193,14 +231,15 @@ def table_header_at(lines, i):
     return width is not None and len(split_row(lines[i])) == width
 
 
-def block_end(lines, i, fenced):
+def block_end(lines, i, raw):
     """THE ONE block-boundary predicate (plan §2 I-A): whether raw line `i`
-    ends the run / paragraph / table before it -- a blank line (§2.1), a
-    fenced-block line (§4.5), a paragraph-interrupting block start
-    (`starts_block`) or a GFM table header (`table_header_at`).  `_runs`,
-    `_blocks`, `find_tables` and, through the runs, `definition_block`'s
-    continuation lines all read this and nothing else."""
-    return (i in fenced or is_blank(lines[i]) or starts_block(lines[i])
+    ends the run / paragraph / table before it -- a blank line (§2.1), a RAW
+    line (a fenced code block §4.5 or an HTML block §4.6, `raw_lines`), a
+    paragraph-interrupting block start (`starts_block`) or a GFM table
+    header (`table_header_at`).  `_runs`, `_blocks`, `find_tables` and,
+    through the runs, `definition_block`'s continuation lines all read this
+    and nothing else."""
+    return (i in raw or is_blank(lines[i]) or starts_block(lines[i])
             or table_header_at(lines, i))
 
 

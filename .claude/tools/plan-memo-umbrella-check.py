@@ -281,7 +281,8 @@ def _bare(b, keep, out):
 def blocks(pop):
     """Every scanned unit of the population, memo by memo: each cell of each
     table row (header rows too; the delimiter row has no cells to scan; a
-    schema data row's own id cell is excluded) and each paragraph.  Takes the
+    schema data row's own id cell is scanned with its own id suppressed) and
+    each paragraph.  Takes the
     `Population`, not a memo, because a block's stream exists only after the
     population's disposition step ran over every memo.  A cell's `source` is
     `<schema>:<header cell>` (`slice:Deps`) -- the name the seeds key on --
@@ -291,10 +292,10 @@ def blocks(pop):
         for t in memo.tables:
             for row in [t.header] + t.rows:
                 line = memo.lines[row.lineno - 1]
-                idc = row.schema.idc if row.schema is not None else None
+                # the id cell is scanned too: its trailing prose (`**7z** —
+                # Slice 9z lands first`) can name a row; the row's OWN id
+                # token is suppressed by `self_id` in both passes
                 for col, cell in enumerate(row.cells):
-                    if col == idc:
-                        continue
                     src = ("%s:%s" % (t.schema.name, t.schema.header[col]) if t.schema is not None
                            else "table:col%d" % col)
                     out.append(CellBlock(memo, row.lineno, line, cell, src, row.self_id))
@@ -329,8 +330,9 @@ _BARE_TOKEN = re.compile(r"(?<![0-9A-Za-z-])(?:%s|%s)(?![0-9A-Za-z-])" % (SLUG_I
 def lex_unsupported_seed(pop, findings, notes):
     """`[LEX-UNSUPPORTED?]` SEED: a line Phase 1 read as paragraph text that
     CommonMark §4 / §5 would open as a block this lexer does not parse (a
-    block quote, indented code at a block start, an HTML block), when that
-    line holds a `|` or a declared id -- the content a table or a naming
+    block quote, indented code at a block start), or a RAW line of an HTML
+    block (never inline-parsed, like a fence), when that line holds a `|` or
+    a declared id -- the content a table or a naming
     scan would have read differently.  A seed in the ORDER-PROSE? idiom:
     never gating, and no count here bounds the class (a quoted table row
     whose ids are undeclared is invisible to it)."""

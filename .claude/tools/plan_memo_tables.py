@@ -35,8 +35,8 @@ import re
 from urllib.parse import unquote
 
 from plan_memo_blocks import (
-    block_end, definition_block, delimiter_width, fenced_lines, html_block_ends, html_block_type,
-    is_blank, is_setext_underline, one_line_block, split_row, starts_block, unsupported_block,
+    block_end, definition_block, delimiter_width, is_blank, is_setext_underline, one_line_block,
+    raw_lines, split_row, starts_block, unsupported_block,
 )
 from plan_memo_lexer import Lexed, blank_spans, normalize_label
 
@@ -209,7 +209,7 @@ class Table:
 
 
 def find_tables(memo):
-    """Admit every GFM table in `memo` (fenced lines skipped).  Returns
+    """Admit every GFM table in `memo` (raw lines skipped).  Returns
     ([Table], {0-based line index owned by a table}).  The table runs from the
     header to the first `block_end` -- a blank line or a paragraph-
     interrupting block start (GFM §4.10 "the beginning of another
@@ -218,10 +218,10 @@ def find_tables(memo):
     reference definition written right after a table is a row of it, never a
     definition).
     """
-    lines, fenced = memo.lines, memo.fenced
+    lines, raw = memo.lines, memo.raw
     tables, owned, i, n = [], set(), 0, len(lines)
     while i < n:
-        if i in fenced or is_blank(lines[i]) or i + 1 >= n or starts_block(lines[i]):
+        if i in raw or is_blank(lines[i]) or i + 1 >= n or starts_block(lines[i]):
             i += 1
             continue
         width = delimiter_width(lines[i + 1])
@@ -237,7 +237,7 @@ def find_tables(memo):
         t = Table(schema, Row(memo, i + 1, header, None))
         owned.update((i, i + 1))
         j = i + 2
-        while j < n and not block_end(lines, j, fenced):
+        while j < n and not block_end(lines, j, raw):
             body = split_row(lines[j])
             if schema is not None and len(body) != width:
                 t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
@@ -378,8 +378,9 @@ class Paragraph:
 
 class Memo:
     """One memo, in the two phases of CommonMark's "Appendix: A parsing
-    strategy".  Phase 1 (block structure, over RAW lines, here): fenced
-    blocks (§4.5), GFM tables (§4.10, ending at a blank line or any block
+    strategy".  Phase 1 (block structure, over RAW lines, here): the raw
+    extents -- fenced blocks (§4.5) and HTML blocks (§4.6), one map -- GFM
+    tables (§4.10, ending at a blank line or any block
     start), reference definitions (§4.7 -- a block of its own, recognised
     only at a block start; a definition-shaped line INSIDE a paragraph is an
     orphan, recorded in `orphans`), paragraphs.  Phase 2 (inline structure,
@@ -390,7 +391,7 @@ class Memo:
         self.path = pathlib.Path(path)
         self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
         self.lines = self.text.split("\n")
-        self.fenced = fenced_lines(self.lines)
+        self.raw = raw_lines(self.lines)     # {index: "fence" | "html"}: the ONE raw-extent map
         self._run_text, self._run_off, self._defs_at = {}, {}, {}
         self._runs()
         self.tables, self.table_lines = find_tables(self)
@@ -410,13 +411,13 @@ class Memo:
         its own run.  A definition is parsed over the rest of its run -- the
         text the block phase hands over -- so its continuation lines can
         never cross a blank line, a fence or a block start."""
-        lines, fenced, i, n = self.lines, self.fenced, 0, len(self.lines)
+        lines, raw, i, n = self.lines, self.raw, 0, len(self.lines)
         while i < n:
-            if i in fenced or is_blank(lines[i]):
+            if i in raw or is_blank(lines[i]):
                 i += 1
                 continue
             j = i + 1
-            while j < n and not block_end(lines, j, fenced):
+            while j < n and not block_end(lines, j, raw):
                 j += 1
             text, off = "\n".join(lines[i:j]), 0
             for k in range(i, j):
@@ -452,11 +453,11 @@ class Memo:
         valid definition is plain prose (commonmark.js: `[C1]: ECMA-262 §1
         says so` is a paragraph), and a shortcut naming it is exempt.  Lines
         of a PROSE-AS-WRITTEN block (a `>` line, indented code at a block
-        start, an HTML block from its §4.6 opener to its end condition) are
-        recorded in `unsupported` for the LEX-UNSUPPORTED? seed.  Linear: the
+        start) and the RAW lines of an HTML block (`raw`, like a fence, never
+        inline-parsed) are recorded in `unsupported` for the LEX-UNSUPPORTED?
+        seed.  Linear: the
         runs are joined once (`_runs`); one parse per line."""
         out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
-        html = None                 # the open HTML block's §4.6 type, if any
 
         def flush():
             if cur:
@@ -465,14 +466,11 @@ class Memo:
 
         while i < n:
             line = lines[i]
-            if html is not None:
-                # inside an HTML block: every line is PROSE-AS-WRITTEN until
-                # the §4.6 end condition -- types 1-5 by content, 6 / 7 at a
-                # blank line (which also ends every block below)
+            if self.raw.get(i) == "html":
+                # a RAW line of an HTML block: never inline-parsed (like a
+                # fence), seeded so its content is printed rather than assumed
                 self.unsupported.append((i + 1, "html", line))
-                if html_block_ends(html, line) or (html in ("t6", "t7") and is_blank(line)):
-                    html = None
-            if i in self.fenced or i in self.table_lines or is_blank(line):
+            if i in self.raw or i in self.table_lines or is_blank(line):
                 flush()
                 i += 1
                 continue
@@ -491,12 +489,8 @@ class Memo:
                     i += 1
                     continue
             kind = unsupported_block(line, not cur)
-            if kind is not None and html is None:
+            if kind is not None:
                 self.unsupported.append((i + 1, kind, line))
-                if kind == "html":
-                    t = html_block_type(line)
-                    if not html_block_ends(t, line):
-                        html = t
             d = self.definition_at(i)
             if d is not None and not cur:
                 # a block start: the definition is a block of its own
@@ -508,7 +502,7 @@ class Memo:
             if d is not None:
                 # a valid definition that cannot take effect: the orphan
                 self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
-            elif block_end(lines, i, self.fenced):
+            elif block_end(lines, i, self.raw):
                 flush()
             cur.append((i + 1, line))
             if one_line_block(line):

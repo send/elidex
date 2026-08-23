@@ -50,8 +50,8 @@ MUTANTS = [
     ("fence: closer followed only by spaces/tabs", BLOCKS,
      'r"[ \\t]*$"', 'r".*$"',
      ["(fence) a closer followed by text does not close"]),
-    ("fence: fenced lines are not paragraph lines (A x B)", TABLES,
-     '        self.fenced = fenced_lines(self.lines)', '        self.fenced = set()',
+    ("fence: fenced lines are not paragraph lines (A x B)", BLOCKS,
+     '    out = {i: "fence" for i in fenced_lines(lines)}', '    out = {}',
      ["(fence) a link inside a fence is not a link (A x B)"]),
     # -- CommonMark §6.1 code spans
     ("span: opener and closer are backtick strings of EQUAL length", LEXER,
@@ -409,8 +409,8 @@ MUTANTS = [
      ["(def) a label spanning FIVE lines is a definition (§4.7 / §6.3: a label may span lines); "
       "the later shortcut resolves and the sibling is scanned"]),
     ("R7-3 def: a title may not cross a blank line (re-inject the blank into the run)", TABLES,
-     '            while j < n and not block_end(lines, j, fenced):\n                j += 1\n            text, off',
-     '            while j < n and (j not in fenced and is_blank(lines[j]) or not block_end(lines, j, fenced)):\n                j += 1\n            text, off',
+     '            while j < n and not block_end(lines, j, raw):\n                j += 1\n            text, off',
+     '            while j < n and (j not in raw and is_blank(lines[j]) or not block_end(lines, j, raw)):\n                j += 1\n            text, off',
      ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition "
       "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
       "NOT walked -- its violation is not reported"]),
@@ -460,8 +460,7 @@ MUTANTS = [
     ("R9 F1 seed: PROSE-AS-WRITTEN block openers are recorded", TABLES,
      '            kind = unsupported_block(line, not cur)', '            kind = None',
      ["(lex-seed) a block-quote line holding a declared id is a LEX-UNSUPPORTED? seed",
-      "(lex-seed) an indented-code line at a block start holding a `|` is a seed",
-      "(lex-seed) an HTML-block opener holding a declared id is a seed"]),
+      "(lex-seed) an indented-code line at a block start holding a `|` is a seed"]),
     ("R9 F1 seed: only a line holding a `|` or a declared id is reported", CHECK,
      '            if "|" in line or ids:', '            if True:',
      ["(lex-seed) a block-quote line with neither a `|` nor a declared id is no seed"]),
@@ -486,23 +485,21 @@ MUTANTS = [
      ["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"]),
     # -- design re-gate R4-R9
     ("RG2 IMP-1: _runs reads the ONE predicate (re-inject fence/blank-only run ends)", TABLES,
-     '            while j < n and not block_end(lines, j, fenced):\n                j += 1\n            text, off',
-     '            while j < n and not (j in fenced or is_blank(lines[j])):\n                j += 1\n            text, off',
+     '            while j < n and not block_end(lines, j, raw):\n                j += 1\n            text, off',
+     '            while j < n and not (j in raw or is_blank(lines[j])):\n                j += 1\n            text, off',
      ["(block) `[Slice 9z owns it]:\\n---` is a setext heading (`<h2>…</h2>`), not a definition: the "
       "label line is paragraph text and its site is reported",
       "(block) `[Slice 9z owns it]:\\n#` is a paragraph and an ATX heading, not a definition",
       "(block) `[Slice 9z owns it]:\\n>` is a paragraph and a block quote, not a definition",
-      "(block) `[Slice 9z owns it]:\\n***` is a paragraph and a thematic break, not a definition",
-      "(block) `[Slice 9z owns it]:\\n<div>` is a paragraph and an HTML block (type 6 interrupts a "
-      "paragraph), not a definition"]),
+      "(block) `[Slice 9z owns it]:\\n***` is a paragraph and a thematic break, not a definition"]),
     ("RG2 IMP-1: a table header is a block end (local policy; re-inject the pure-CommonMark reading)", BLOCKS,
      '            or table_header_at(lines, i))', '            or False)',
      ["(block) `[Slice 9z owns it]:\\n|a|b|\\n|--|--|` -- the table header ends the run (local policy "
       "over pure CommonMark, which has no tables): a paragraph and a table, not a definition with the "
       "header row as its destination"]),
     ("RG2 IMP-1: find_tables reads the ONE predicate (re-inject a third boundary)", TABLES,
-     '        while j < n and not block_end(lines, j, fenced):\n            body = split_row(lines[j])',
-     '        while j < n and j not in fenced and not is_blank(lines[j]):\n            body = split_row(lines[j])',
+     '        while j < n and not block_end(lines, j, raw):\n            body = split_row(lines[j])',
+     '        while j < n and j not in raw and not is_blank(lines[j]):\n            body = split_row(lines[j])',
      ["(table) a list item right after a schema table ends it (a block start), so it is not a 1-cell "
       "body row: rc 0"]),
     ("RG2 IMP-1: indented code does not interrupt (re-inject it as a block start)", BLOCKS,
@@ -522,17 +519,43 @@ MUTANTS = [
     ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", TABLES,
      '    except (OSError, RuntimeError):\n        return path', '    except OSError:\n        return path',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
-    ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", TABLES,
-     '                    if not html_block_ends(t, line):\n                        html = t',
-     '                    if False:\n                        html = t',
+    ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", BLOCKS,
+     '        if not html_block_ends(t, lines[i]):    # the opener may meet the end condition itself',
+     '        if False:',
      ["(lex-seed) `<pre>\\nSlice 9z owns it\\n</pre>`: the inner line holding the id is seeded (type 1 "
       "ends at `</pre>`)",
       "(lex-seed) `<!-- c\\n|9z|\\n-->`: a `|` line inside a comment block (type 2 ends at `-->`) is "
       "seeded"]),
-    ("RG2 MIN-1: a type-6 block ends at a blank line", TABLES,
-     'if html_block_ends(html, line) or (html in ("t6", "t7") and is_blank(line)):',
-     'if html_block_ends(html, line):',
+    ("RG2 MIN-1: a type-6 block ends at a blank line", BLOCKS,
+     '                if t in ("t6", "t7") and is_blank(lines[end]):',
+     '                if False:',
      ["(lex-seed) a type-6 block ends at a blank line: the paragraph after it is not seeded"]),
+    # -- PR #510 Codex R10
+    ("R10-1 raw: HTML-block lines are raw extents (re-inject them into the paragraph)", BLOCKS,
+     '            out[k] = "html"                     # the ONE marking site of an HTML extent',
+     '            pass',
+     ["(html) `<pre>\\n`\\n</pre>\\nSlice 9z` owns it`: the backtick inside the raw HTML block does "
+      "not pair with the prose one -- the site is reported",
+      "(lex-seed) an HTML-block opener holding a declared id is a seed"]),
+    ("R10-1 raw: a type-7 opener counts only at a block start", BLOCKS,
+     '        if t is None or (t == "t7" and not at_start):', '        if t is None:',
+     ["(html) `text\\n<span>\\n9z owns it` -- a type-7 opener cannot interrupt a paragraph "
+      "(commonmark.js): the lines stay paragraph text and the site is reported"]),
+    ("R10-1 raw: the end condition on the opener line closes the block there", BLOCKS,
+     '        if not html_block_ends(t, lines[i]):    # the opener may meet the end condition itself\n            end = i + 1',
+     '        if True:\n            end = i + 1',
+     ["(html) `<pre></pre>\\n9z owns it` -- the opener meets the end condition itself, so the block is "
+      "that one line and the next line is prose"]),
+    ("R10-2 blocks: the id cell is scanned with its own id suppressed (re-inject the skip)", CHECK,
+     '                for col, cell in enumerate(row.cells):\n                    src = (',
+     '                for col, cell in enumerate(row.cells):\n                    if row.schema is not None and col == row.schema.idc:\n                        continue\n                    src = (',
+     ["(id) the id cell's trailing prose is scanned: `**7z** — Slice 9z lands first` reports `9z` "
+      "(the row's own `7z` is suppressed)"]),
+    ("R10-3 file: a bare `.md` name is a path-syntax run (re-inject the narrow class)", LEXER,
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?![0-9A-Za-z]))',
+     '|(?P<file>[\\w./-]+\\.md(?![0-9A-Za-z]))',
+     ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",
+      "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -576,7 +599,7 @@ MUTANTS = [
      '_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")', '_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")',
      ["(bare) a hyphen bounds a short id: `after 9z-7z` names 9z"]),
     ("#3 file token: a bare `.md` file name is masked before the bare scan", LEXER,
-     '|(?P<file>[\\w./-]+\\.md(?![0-9A-Za-z]))', '',
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?![0-9A-Za-z]))', '',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
     ("#3 bare id: a dotted number is one token", CHECK,
      '    return text[i] == "." and 0 <= j < len(text) and bool(_ID_CONTINUES.match(text[j]))',

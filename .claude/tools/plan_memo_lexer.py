@@ -382,11 +382,20 @@ def inline_pass(s, defs):
 # file name inside a code span is a token too.
 # --------------------------------------------------------------------------
 
-# `\w` here is DELIBERATELY Unicode: a file name is not an ASCII grammar
-# (`計画.md` is a file); only the END boundary is the ASCII id class, so that
-# `x.mdの` still ends the token where `\b` (no boundary between `d` and `の`)
-# would not.
-_TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])|(?P<file>[\w./-]+\.md(?![0-9A-Za-z]))")
+# A bare `.md` file name is read by PATH SYNTAX, not a character class: the
+# maximal run of non-whitespace characters ending in `.md`, bounded by
+# spaces / tabs / line ends or the cell edge (`9z+notes.md`, `9z@notes.md`,
+# `計画.md` are file names -- what `sibling_path` would accept), with the
+# inline delimiters `[` `]` `<` `>` `` ` `` `|` excluded so a link's visible
+# text (`[Slice 9z](slice-9z-sib.md)`) and a code span are not swallowed,
+# and parentheses admitted only as a balanced pair (`(9z).md`).  Trailing
+# closing punctuation (`)` `,` `.` `;`) needs no autolink-style stripping
+# rule: the token ENDS at `.md`, so anything after it is outside by
+# construction (the GFM §6.9 extended-autolink trailing-punctuation rule is
+# moot here, and is why none is picked).  The end boundary is the ASCII id
+# class, so `x.mdの` still ends the token.
+_TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])"
+                    r"|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))+\.md(?![0-9A-Za-z]))")
 
 
 class Lexed:

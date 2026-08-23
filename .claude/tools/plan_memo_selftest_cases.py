@@ -866,3 +866,47 @@ acase("POSITIVE", "(lex-seed) `<!-- c\\n|9z|\\n-->`: a `|` line inside a comment
       build(), "LEX-UNSUPPORTED?", 1, prose="<!-- c\n|9z| x\n-->")
 acase("NEGATIVE", "(lex-seed) a type-6 block ends at a blank line: the paragraph after it is not seeded",
       build(), "LEX-UNSUPPORTED?", 0, prose="<div>\nplain\n\nSlice 9z owns it")
+
+
+# ------------------------------------------------ PR #510 Codex R10 controls --
+
+# #1: an HTML block is a RAW extent like a fence (the reviewer's input)
+# The reviewer's exact input (`<pre>\n`\n</pre>\nSlice `9z` owns it`) reports
+# the site under BOTH readings (the raw backtick pairs with the one before
+# `9z`, leaving `9z` outside the span), so the discriminating shape puts the
+# prose backtick AFTER the id: a paragraph reading swallows `9z`, the raw
+# reading leaves it.
+case("POSITIVE", "(html) `<pre>\\n`\\n</pre>\\nSlice 9z` owns it`: the backtick inside the raw HTML "
+                 "block does not pair with the prose one -- the site is reported",
+     build(), "<pre>\n`\n</pre>\nSlice 9z` owns it", 1)
+case("POSITIVE", "(html) the reviewer's input `<pre>\\n`\\n</pre>\\nSlice `9z` owns it` reports the site",
+     build(), "<pre>\n`\n</pre>\nSlice `9z` owns it", 1)
+case("POSITIVE", "(html) `text\\n<span>\\n9z owns it` -- a type-7 opener cannot interrupt a paragraph "
+                 "(commonmark.js): the lines stay paragraph text and the site is reported",
+     build(), "text\n<span>\n9z owns it", 1)
+case("NEGATIVE", "(html) `<span>\\n9z owns it` at a block start IS a type-7 block to the blank line: raw",
+     build(), "<span>\n9z owns it\n\nafter", 0)
+case("POSITIVE", "(html) `<div>\\nx\\n</div>\\ny` -- a type-6 block runs to the BLANK line, not to "
+                 "`</div>`: `y` is raw, the paragraph after the blank is prose",
+     build(), "<div>\nx\n</div>\n9z is raw here\n\n9z owns it", 1)
+case("POSITIVE", "(html) `<pre></pre>\\n9z owns it` -- the opener meets the end condition itself, so the "
+                 "block is that one line and the next line is prose",
+     build(), "<pre></pre>\n9z owns it", 1)
+
+# #2: an accepted id cell with trailing prose is scanned, the row's own id suppressed
+case("POSITIVE", "(id) the id cell's trailing prose is scanned: `**7z** — Slice 9z lands first` reports "
+                 "`9z` (the row's own `7z` is suppressed)",
+     build(i7z="**7z** — Slice 9z lands first"), "", 1)
+case("NEGATIVE", "(id) the id cell's own id is not a site: `**7z** — MERGED` reports nothing",
+     build(i7z="**7z** — MERGED"), "", 0)
+
+# #3: a bare `.md` file name is read by path syntax
+case("NEGATIVE", "(file) `9z+notes.md` is one file name: no site",
+     build(), "Read 9z+notes.md for the walk.", 0)
+case("NEGATIVE", "(file) `9z@notes.md` is one file name: no site",
+     build(), "Read 9z@notes.md for the walk.", 0)
+case("NEGATIVE", "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site",
+     build(), "Read (9z).md for the walk.", 0)
+case("POSITIVE", "(file) a link's visible text is not swallowed into the destination token: "
+                 "`[Slice 9z](slice-9z-sib.md)` still reports `9z`",
+     build(), "See [Slice 9z](slice-9z-sib.md) for the walk.", 1)
