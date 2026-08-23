@@ -395,44 +395,51 @@ head = src[: src.index("def main() -> int:")]
 # not verdict -- certified 27 rows that never ran (Codex R4, reproduced).
 NEW = '''
 _shortname_for = None
-_lookup_section = None
+_resolve_citation = None
 try:
     sys.path.insert(0, str(REPO_ROOT / ".claude" / "tools"))
     from _webref.spec_labels import shortname_for as _shortname_for
-    # §4.2.6: the section resolver is the SAME import as the map, so the
+    # §4.2.6: the resolver comes from the SAME try as the map, so the
     # capability is one cause; the head's `WEBREF` shim is never consulted.
     from _webref.resolver import lookup_section as _lookup_section
     from _webref.resolver import TC39_FAMILY as _TC39_FAMILY, tc39_biblio as _tc39_biblio
     from _webref.cache import NotFound as _NotFound
     from _webref.sources.webref_data import try_fetch_data_json as _try_fetch_data_json
+
+    def _resolve_citation(shortname, section):
+        # §4.2.6: THE seam -- the whole resolution. Everything below here may
+        # touch the network (the extract probe, a warm-cache 304 revalidation),
+        # so the suite stubs this function and nothing below it (Codex R49).
+        # The two-word vocabulary: `lookup_section` is None for an absent
+        # extract AND an absent clause, so ask the extract question first.
+        if shortname in _TC39_FAMILY:
+            try:
+                _tc39_biblio(shortname)
+            except _NotFound:
+                return ("unknown-spec", f"{shortname}: unknown spec (no tc39 biblio)")
+        elif _try_fetch_data_json("headings", shortname) is None:
+            return ("unknown-spec", f"{shortname}: unknown spec (no headings extract)")
+        if _lookup_section(shortname, section) is None:
+            return ("unknown-section", f"{shortname} §{section}: unknown section")
+        return ("hit", "")
 except Exception:
     _shortname_for = None
-    _lookup_section = None
+    _resolve_citation = None
 
 
 def _capability_guard():
     # The `python3 -O` explicit-raise guard (§4.2.3): preflight's own
     # invariant, called by the loop BEFORE the resolver `try` (§4.2.6).
-    if _lookup_section is None:
+    if _resolve_citation is None:
         raise RuntimeError("preflight: verify_citation called with the capability absent")
 
 
 def verify_citation(shortname, section):
-    # §4.2.6: in-process, overriding the head's subprocess form. The two-word
-    # vocabulary is kept by asking the extract question first: `lookup_section`
-    # returns None for an absent extract AND an absent clause.
+    # §4.2.6: in-process, overriding the head's subprocess form; renders the
+    # seam's discriminated result as the row.
     _capability_guard()
-    if shortname in _TC39_FAMILY:
-        try:
-            _tc39_biblio(shortname)
-        except _NotFound:
-            return (False, f"{shortname}: unknown spec (no tc39 biblio)")
-    elif _try_fetch_data_json("headings", shortname) is None:
-        return (False, f"{shortname}: unknown spec (no headings extract)")
-    hit = _lookup_section(shortname, section)
-    if hit is None:
-        return (False, f"{shortname} §{section}: unknown section")
-    return (True, "")
+    kind, msg = _resolve_citation(shortname, section)
+    return (kind == "hit", msg)
 
 
 def shortname_from_label(label):
@@ -485,7 +492,7 @@ def main() -> int:
     # item 1: ONE static cause (§4.2.6), evaluated ONCE, before any data loop.
     # The shim is not read: `armmatrix` proves rows 3/4/5/9 identical to their
     # shim-present twins by comparing output, not by a flag (Codex R48 / gate).
-    map_missing = _shortname_for is None or _lookup_section is None
+    map_missing = _shortname_for is None or _resolve_citation is None
     unavailable = map_missing
     causes = (["the spec-label map"] if map_missing else [])
 

@@ -217,7 +217,7 @@ of the reviewed memo's cell formatting** — J1 restated as a defect.
 #### §4.2.3 The fix — one static cause, one verdict, two act-sites
 
 1. **One cause, a static process fact, evaluated once at `main`'s top**: the tools tree is importable —
-   `_shortname_for is None` (and, after §4.2.6, `_lookup_section is None`, the same import). The verdict is
+   `_shortname_for is None` (and, after §4.2.6, `_resolve_citation is None`, bound under the same `try`). The verdict is
    that fact; `WEBREF.is_file()` leaves with the subprocess (§4.2.6). Items 7 and 7c key on `map_missing`
    by name — after §4.2.6 that is the verdict itself, the name is kept because it is what was measured.
 2. **`shortname_for` stays `str | None`.** No tri-state — that machinery existed only to carry a dynamic
@@ -305,9 +305,9 @@ as a precondition-pinning mechanism; that sets the sentinel *without raising*, s
 - **Recognition** — the three properties `find_coverage_map_section` and `find_table` already thread:
   **line-anchored**, **fence-aware** (`fence_state`-gated), **§3-scoped** — plus **indent-gated**: at most
   three leading spaces, because four is a CommonMark indented code block and a marker quoted inside one is
-  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ **Opener length** (Codex R27): `_fence_state_array` at A-i's head records only the first three delimiter characters, so a ```` opener is "closed" by a ``` line inside it — CommonMark §4.5 closes a fence only with a delimiter at least as long as the opener — and a quoted marker after that line reads as a declaration. A-ii's edit to `preflight.py` — **and to `grep_pass.py`, whose own fence tracker (`grep_pass.py:219-253`) mirrors preflight's with the same two defects; both consumers move onto one helper in a **dependency-neutral module, `fences.py`** (beside `preflight.py`; `preflight.py` already imports `run_grep_pass`, so a helper owned by `preflight` would give `grep_pass` a circular import — Codex R31), so a memo cannot be fenced for one gate and open for the other (Codex R30; `test_grep_pass.py` pins the shared rule through `run_grep_pass`, P11g)** — tracks the opener length **and the closer's shape**: a closing fence is a run of the opener's character at least as long as the opener, followed by nothing but spaces or tabs (CommonMark §4.5) — `` ````not-a-close `` is content, not a closer, which the current `FENCE_RE` (`^\s*(```|~~~)`, prefix-only) misreads (Codex R28) — **and the opener's indent: at most three leading spaces** (CommonMark §4.5; a four-space-indented backtick run is indented code, not a fence, so the marker or path after it is live — the current `^\s*` accepts any indent and would hide it; Codex R46). P11f pins the first two halves; **P11h** the indent. ⚠ The residual census
-  (`rederive marker`) implements all three, not a bare grep — anything weaker makes the marker the silent
-  bypass this section argues it is not.
+  an example, not a declaration (`fence_state` tracks backtick/tilde fences only; Codex R8). ⚠ **Opener length** (Codex R27): `_fence_state_array` at A-i's head records only the first three delimiter characters, so a ```` opener is "closed" by a ``` line inside it — CommonMark §4.5 closes a fence only with a delimiter at least as long as the opener — and a quoted marker after that line reads as a declaration. A-ii's edit to `preflight.py` — **and to `grep_pass.py`, whose own fence tracker (`grep_pass.py:219-253`) mirrors preflight's with the same two defects; both consumers move onto one helper in a **dependency-neutral module, `fences.py`** (beside `preflight.py`; `preflight.py` already imports `run_grep_pass`, so a helper owned by `preflight` would give `grep_pass` a circular import — Codex R31), so a memo cannot be fenced for one gate and open for the other (Codex R30; `test_grep_pass.py` pins the shared rule through `run_grep_pass`, P11g)** — tracks the opener length **and the closer's shape**: a closing fence is a run of the opener's character at least as long as the opener, followed by nothing but spaces or tabs (CommonMark §4.5) — `` ````not-a-close `` is content, not a closer, which the current `FENCE_RE` (`^\s*(```|~~~)`, prefix-only) misreads (Codex R28) — **and the opener's indent: at most three leading spaces** (CommonMark §4.5; a four-space-indented backtick run is indented code, not a fence, so the marker or path after it is live — the current `^\s*` accepts any indent and would hide it; Codex R46) — **and the opener's info string: after a backtick run, the rest of the line may not contain a backtick** (CommonMark §4.5 — `` ``` bad`info `` is not a fence opener, so the marker or path after it is live; a tracker that enters fence state there hides them while P11f/P11h pass; Codex R49; a **tilde** fence's info string may contain backticks, so `~~~ a`b` *does* open a fence — the rule is backtick-only). P11f pins the first two halves; **P11h** the indent; **P11i** the info string — `fenced-marker-infostring.md`: a `` ``` bad`info `` line, then the marker and a bad `crates/…` path: `find_markers(...)` sees the marker and grep-pass reports the path; then a `` ~~~ a`b `` line, a quoted marker, `~~~`: the tilde opener *is* a fence and the marker inside it is not seen — the positive twin, so a tracker that rejects backticks after `~~~` too is red (both consumers, through the shared `fences.py`, like P11h). ⚠ The residual census
+  (`rederive marker`) implements the three *recognition* properties with HEAD's tracker, not a bare grep — anything weaker makes the marker the silent
+  bypass this section argues it is not; the four fence-*shape* rules (opener length, closer shape, indent, info string) are pinned by P11f/P11h/P11i, not by the census.
 - **Hard-fail on ambiguity**: marker **and** a table, with or without data rows; or the marker twice.
   ⚠ These are **one code path** — `find_table` returns non-`None` for a header-only table — so one
   diagnostic serves both fixtures.
@@ -339,18 +339,26 @@ umbrella constraint "the plan-review gate reaches its shared library one way", r
 this A-ii's in-slice work; an earlier revision deferred it to B and registered a slot here, so neither slice
 would have done it).
 
-**The edit.** `verify_citation(shortname, section)` resolves in-process through `_webref.resolver`
-(imported beside `shortname_for`, **under the same `try`** — two imports, one `except`, so the capability
-cause of §4.2.3 stays one fact and the verdict is unchanged) and treats a miss as the hard-fail row it is
+**The edit.** `verify_citation(shortname, section)` resolves in-process through **one seam,
+`preflight._resolve_citation(shortname, section)`** — a module-level callable bound beside `_shortname_for`
+under the same `try` (imports from `_webref.resolver`, `_webref.sources` and `_webref.cache`; one `except`, so the capability
+cause of §4.2.3 stays one fact and the verdict is unchanged) — and treats a miss as the hard-fail row it is
 today; `preflight.WEBREF` and the `subprocess.run` call site are deleted. The `python3 -O` explicit-raise
-guard stays on the same function. **The exit-status vocabulary (`2` = unknown spec, `1` = unknown section)
+guard stays on the same function. **The seam is the whole resolution, not one library call**: everything
+below `_resolve_citation` may touch the network — the extract probe below *and* a warm-cache conditional
+revalidation (`cache.py:88` is the `urlopen`, `:106` the 304 branch it lands in — a warm cache still sends the request) — so a stub that replaced only
+`lookup_section` would leave the ordinary `main` pins fetching while T-net forbids any `urlopen` (Codex
+R49). The suite replaces `_resolve_citation` and nothing below it. **The exit-status vocabulary (`2` = unknown spec, `1` = unknown section)
 does not come for free from the resolver**: `lookup_section` returns `None` for *both* an absent headings
 extract and an absent clause (`resolver.py:216-247` — `try_fetch_data_json` → `None`, and a clause miss →
 `None`), so a call that only tests `None` would report a mapped spec that webref does not track as a drifted
-citation. `verify_citation` keeps the two-word vocabulary by asking the question the child used to answer
+citation. `_resolve_citation` keeps the two-word vocabulary by asking the question the child used to answer
 first: `try_fetch_data_json("headings", shortname)` (tc39: `tc39_biblio`, `NotFound`) → `None` is **"unknown
 spec"** (the row's message names the missing extract); only then `lookup_section` → `None` is **"unknown
-section"**. `test_preflight.py` pins both messages directly instead of through a child's rc (Codex R48 gate).
+section"**. **The result shape, stated once**: a pair `(kind, message)` with `kind ∈ {"unknown-spec",
+"unknown-section", "hit"}` and `message` the row text (`""` for a hit) — the suite's stub returns
+`("hit", "")`; `verify_citation` renders `kind == "hit"` and the message as the row. `test_preflight.py` pins
+both non-hit messages directly (V1/V2, §6) instead of through a child's rc (Codex R48 gate).
 
 **Failures the resolver raises, not returns.** `lookup_section` is not miss-or-hit: on a cold cache the
 fetch layer `sys.exit`s on HTTP and network errors (`_webref/cache.py:129-131`, `:142-144`; `:128`/`:141`
@@ -373,7 +381,7 @@ fixtures.
 
 **Pins touched.** §4.2.1's "CLI axis" rows become the import axis (one cause); P2b runs through `main`
 rather than a subprocess; T-net becomes an absolute (no `subprocess.run` from `preflight`, no `urlopen`);
-§4.3 item 3's isolation contract loses `WEBREF` and `subprocess.run` and gains `_lookup_section`.
+§4.3 item 3's isolation contract loses `WEBREF` and `subprocess.run` and gains `_resolve_citation`.
 
 ### §4.3 Test siting
 
@@ -393,15 +401,15 @@ construction, since A-ii is the slice that makes `preflight` a consumer at all.
    at `setUp` so a leak fails loudly. `unittest` orders methods alphabetically, so relying on names is not a
    plan.
 3. **The isolation contract is four pieces of process state**: `preflight._shortname_for`,
-   `_shortname_for_error`, `preflight._lookup_section`, and `sys.path` (`preflight.WEBREF` and
+   `_shortname_for_error`, `preflight._resolve_citation`, and `sys.path` (`preflight.WEBREF` and
    `subprocess.run` leave with §4.2.6).
-4. **`verify_citation` is stubbed by a shared `setUp` for every pin that runs `main`**, or T-net is red by
-   construction. `verify_citation` is the single seam between the gate and the resolver; after §4.2.6 it is
-   an in-process call, so the stub replaces `preflight._lookup_section` — preflight then has **no**
+4. **The resolution seam is stubbed by a shared `setUp` for every pin that runs `main`**, or T-net is red by
+   construction. `_resolve_citation` is the single seam between the gate and the resolver, `verify_citation`
+   the renderer above it; after §4.2.6 the seam is an in-process callable, so the stub replaces `preflight._resolve_citation` (the whole resolution — §4.2.6; a stub one level lower still fetches) — preflight then has **no**
    `subprocess.run` call site at all, which T-net pins as an absolute. **No pin loses
    coverage**: P6's "reported once" is about the *hoisted* verdict, which never enters the loop; the
    `python3 -O` explicit-raise guard is pinned by calling `verify_citation` directly with
-   `preflight._lookup_section = None` (the capability absent), which must raise explicitly and reaches no
+   `preflight._resolve_citation = None` (the capability absent), which must raise explicitly and reaches no
    subprocess (`WEBREF` no longer exists after §4.2.6).
 
 ---
@@ -452,10 +460,16 @@ Each pin names what it **executes**; §5 owns the expected values, stated once. 
 §12(2) reads — no second list.
 
 **Two suite-level fixtures, stated here rather than inside a pin**, because a per-pin clause is what made the
-merged memo's pin set unsatisfiable: a shared `setUp` stubs **`preflight._lookup_section`** (the seam below `verify_citation`, §4.3 item 4 — the
-real `verify_citation` runs in every pin, so its guard and its vocabulary are exercised everywhere) to
-return a hit for every pin that runs `main`, and restores the four pieces of process state (§4.3 item 3) in
-`tearDown`. T-raise replaces that stub with one that raises; it is not an opt-out. The capability axes
+merged memo's pin set unsatisfiable: a shared `setUp` stubs **`preflight._resolve_citation`** (the seam below `verify_citation`, §4.3 item 4 — the
+real `verify_citation` runs in every pin, so its guard is exercised everywhere) to return `("hit", "")` for
+every pin that runs `main`, and restores the four pieces of process state (§4.3 item 3) in `tearDown`.
+T-raise replaces that stub with one that raises; it is not an opt-out. **The two-word vocabulary lives
+inside the stubbed callable**, so no `main` pin exercises it: the two vocabulary pins (**V1** unknown spec,
+**V2** unknown section, §4.2.6) call `_resolve_citation` **directly** — no `main`, so T-net's clause over the
+`main` pins is untouched — with the three library bindings it reads (`preflight._try_fetch_data_json`,
+`_tc39_biblio`, `_lookup_section`) replaced for the duration of that pin and restored by the pin itself, not
+by the shared `setUp` (the four pieces stay four); a stub at that level is the "one level lower" §4.3 item 4
+forbids for `main` pins precisely because here nothing above it runs. The capability axes
 are flipped by §4.2.1's in-process instruments.
 
 | Pin | What it executes | §5 rows | Fails at A-i's head? |
@@ -480,12 +494,15 @@ are flipped by §4.2.1's in-process instruments.
 | **P11c** | `nospec.md` with the map absent → exit 0, and the line names the absent capability | 14 | **yes** |
 | **P11d** | `fenced-marker.md` → asserted on `find_markers(...) == []` **and** the absence of any `n/a (no spec surface…)` line — *not* on the exit code | 15 | **yes**, on those assertions |
 | **P11f** | `fenced-marker-long.md` — a ```` opener, then a ``` line, then a `` ````not-a-close `` line, then the marker: `find_markers(...) == []` (neither the shorter delimiter nor the same-length delimiter with trailing text closes the fence, CommonMark §4.5) | 15 | **yes** — at A-i's head the first of those lines closes it |
+| **P11i** | `fenced-marker-infostring.md` — a `` ``` bad`info `` line (a backtick in a backtick fence's info string, CommonMark §4.5), then a quoted marker and a bad `crates/…` path: not an opener, so `find_markers(...)` sees the marker and grep-pass reports the path; **and** a `` ~~~ a`b `` … `~~~` block around a second quoted marker: a tilde opener, the marker inside is *not* seen (both consumers via `fences.py`) | 15 | **yes** — both trackers open a fence on any backtick run |
 | **P11h** | `fenced-marker-indented.md` — a four-space-indented ```` run, then a quoted marker and a bad `crates/…` path: the run is indented code (CommonMark §4.5), so `find_markers(...)` sees the marker and grep-pass reports the path (both consumers via `fences.py`) | 15 | **yes** — both trackers accept any indent today |
 | **P11g** (`test_grep_pass.py`) | the same `fenced-marker-long.md` through `run_grep_pass`: a bad `crates/…` path quoted *inside* that fence yields **no** hard finding (grep-pass reads the fence with the same `fences.py` tracker) — the disagreement R30 named, pinned on the grep-pass side | 15 | **yes** — `grep_pass.py`'s own tracker closes the fence early and reports the path |
 | **P11e** | a no-spec-surface memo still runs grep-pass: `nospec.md` with a bad `crates/…` path → exit 1 **naming the grep-pass finding** | 12 | **yes**, on the diagnostic |
 | **P13** | `allunmapped.md`, `unlabelled.md` and `malformed.md` → the `n/a (0 of N rows resolvable)` line present; **and its negative half** — absent in rows 3/6/9 | 11, 11b, 16, 3, 6, 9 | **yes** |
-| **T-raise** | `main` with the shared `_lookup_section` stub replaced by one that raises `SystemExit("webref: network error …")`, then `ValueError` (a malformed extract), on a two-citation fixture: **exactly one** diagnostic naming the cause, no per-citation rows, the summary printed, exit = the hard-fail code — not the raised `SystemExit`'s and not a traceback; and the `python3 -O` guard, raised inside the same loop, is **not** caught | — (the raise is a stub state, outside `armmatrix`'s CLI/map/mode axes; like T-net, pinned by the suite only) | — not attributable there: the seam `_lookup_section` does not exist at A-i's head (the red would be an `AttributeError`, §12(2)'s excluded class); the pin guards §4.2.6's own edit — red against an implementation that catches per row or re-raises |
-| **T-net** | across A-ii's whole suite, **`subprocess.run` is never called by `preflight`** (after §4.2.6 there is no call site; the path object check an earlier revision needed is gone — `grep_pass` keeps its own `subprocess.run`, outside this pin) **and `urllib.request.urlopen` is never called** (the in-process resolver serves from the cache fixture or the `_lookup_section` stub) | — | **yes** |
+| **V1** | `_resolve_citation("html", "4.10.21")` called directly with `preflight._try_fetch_data_json` replaced by one returning `None` (and, for `ecma262`, `_tc39_biblio` raising `NotFound`): `("unknown-spec", …)` whose message names the missing extract / biblio — the restore is the pin's own | — | **yes** — the seam does not exist at A-i's head |
+| **V2** | `_resolve_citation("html", "99.99")` with `_try_fetch_data_json` returning a headings object and `_lookup_section` returning `None`: `("unknown-section", …)` naming the section — a call that tests only `None` reports both V1 and V2 alike | — | **yes** |
+| **T-raise** | `main` with the shared `_resolve_citation` stub replaced by one that raises `SystemExit("webref: network error …")`, then `ValueError` (a malformed extract), on a two-citation fixture: **exactly one** diagnostic naming the cause, no per-citation rows, the summary printed, exit = the hard-fail code — not the raised `SystemExit`'s and not a traceback; and the `python3 -O` guard, raised inside the same loop, is **not** caught | — (the raise is a stub state, outside `armmatrix`'s CLI/map/mode axes; like T-net, pinned by the suite only) | — not attributable there: the seam `_resolve_citation` does not exist at A-i's head (the red would be an `AttributeError`, §12(2)'s excluded class); the pin guards §4.2.6's own edit — red against an implementation that catches per row or re-raises |
+| **T-net** | across A-ii's whole suite, **`subprocess.run` is never called by `preflight`** (after §4.2.6 there is no call site; the path object check an earlier revision needed is gone — `grep_pass` keeps its own `subprocess.run`, outside this pin) **and `urllib.request.urlopen` is never called** (the `_resolve_citation` stub answers every pin that runs `main`; nothing below it is reached — a stub at `lookup_section` would still revalidate a warm cache, `cache.py:106`) | — | **yes** |
 
 ⚠ **An exit-code-only assertion is not a discriminator when the base reaches the same code by another
 route.** It bites twice: at A-i's head `fenced-marker.md` exits 0 with the table verified (the marker is

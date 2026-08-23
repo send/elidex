@@ -461,15 +461,29 @@ git grep -hoP '\b[Pp]er\b(?: [a-z]+)* [A-Z][\w-]*(?: [A-Z][\w-]*)*' -- 'crates/*
 A URL is attributed through the catalog's `url` / `nightly.url` host+path prefix.
 
 **One site, one form.** `ao` and `prose` key off the same text (`per <Token>`), so their order is stated:
-the text after `per` is tried as a **label** first (the probe above); only when no label resolves is the
-single token tried as an **AO**; a site is claimed by whichever form attributes it, and a site neither
-attributes is reported **once**, under `UNKNOWN-SPEC` — never twice, never silently.
+(1) the text after `per` is tried as a **label** first (the probe above); (2) if the label resolves to a
+`TC39_FAMILY` shortname **and the very next token is an identifier** (`[A-Za-z][A-Za-z0-9]*`, the character
+class of every plain `aoid` in both biblios; the 81 aoids outside it — `Number::add`, `𝔽` — are never
+written in prose cites) the site is a **qualified AO lookup** in that catalog, decided by biblio
+**membership**: present → attributed to it, absent → `UNKNOWN-SPEC` naming the catalog and the token (never
+"attributed" on the label alone — a misspelled AO must not pass, Codex R49); a following token that is not an
+identifier (`§7.1.22`, a comma, `Intl.DateTimeFormat`) leaves the site on the label path. Measured at
+`b7a65335`, no `per ECMA-262 <Identifier>` prose site exists in `crates/**/*.rs` (every one continues with
+`§`), so the rule changes no existing attribution:
+
+```sh
+git grep -hoP '\b[Pp]er ECMA-(262|402) [A-Za-z][A-Za-z0-9]*\b' -- 'crates/**/*.rs' | wc -l   # → 0
+```
+
+(3) only when no label resolves is the single token tried as a bare **AO**; a site is claimed by whichever
+form attributes it, and a site none attributes is reported **once**, under `UNKNOWN-SPEC` — never twice,
+never silently.
 
 **AO attribution across the two TC39 catalogs.** `aoid` takes a shortname (`cli.py:111-113`), so a bare AO
 token must select one: the enumerable set is the **union** of both biblios, the token is attributed to the
 catalog that contains it when **exactly one** does, and a name present in both is `UNKNOWN-SPEC` under
 §4.1.7's definition (it does not select one document), with both candidates named in the summary; the author
-disambiguates with the qualified form `per ECMA-402 <AO>`, which is the `per <label>` path. The two biblios
+disambiguates with the qualified form `per ECMA-402 <AO>` — step (2) of "One site, one form" above, so `per ECMA-402 NotAnAbstractOperation` is `UNKNOWN-SPEC`, never "attributed" (Codex R49). The two biblios
 come through the same cache layer as the catalog (`sources/tc39.py` → `cache.py`), so **`--forms ao` offline
 degrades as §4.1.7 does**: when either biblio is unavailable, every AO token is `UNKNOWN-SPEC` with the cause
 named, never silently unattributed (umbrella: no slice makes resolution need the network without its
@@ -630,7 +644,7 @@ New/changed tests, by file. Every one must **fail against the unfixed detector**
 - **T8** non-UTF-8 file → `SKIPPED` class, `--strict` exits 1.
 - **T9** emitter parity — `--format json --summary` omits per-cite records; `--show-unattributed` is honoured by both emitters.
 - **T10** `/// WHATWG WebIDL §3.2` (the spelling at the five `crates/script/elidex-js` sites A-i §13 lists) is **reported** under `UNKNOWN-SPEC` with the label named in the summary — never silently dropped; the re-spelling itself is `#11-webidl-label-spelling-sweep` (ledger), not B's.
-- **T11** `TestNonSectionForms` — the three non-§ citation forms C's §4 names are discovered and attributed by `cite-audit --forms ao,prose,url`: AO-name cites — `/// per OrdinaryToPrimitive` (ecma262 only → `ecma262`), **`/// per AvailableCalendars`** (ecma402 only → `ecma402`; an implementation that searches only `ecma262` fails here — the name is taken from the biblio by the §4.1.10 command, not from memory), **`/// per AvailableNamedTimeZoneIdentifiers`** (in both → `UNKNOWN-SPEC` naming both), **`/// per ECMA-402 AvailableNamedTimeZoneIdentifiers`** (qualified → `ecma402`), and **the same AO fixture under a poisoned `urlopen` with the biblio cache absent → `UNKNOWN-SPEC` naming the cause** (the `ao` offline rule); `per <label>` prose cites — `/// per WHATWG HTML, the focus update steps`, **`/// Per HTML spec: …`** (`validation/mod.rs:247`'s shape: capital `Per`, `spec` suffix), **`/// per the HTML spec …`** (a skipped lower-case word), **`/// per WebIDL …`** (→ `webidl`; the shortname is its own key, `spec_labels.py:65-72`) and **`/// per HTML …`** all attributed through `shortname_for` (a prefix-alternation implementation fails on every one but the first), **`/// per CSSOM …`** attributed with the catalog stubbed as T3 stubs it (`CSSOM` is catalog-backed, not in the pinned map) and `UNKNOWN-SPEC` under T3b's offline rule, and **`/// per WHATWG WebIDL …`** → `UNKNOWN-SPEC` (T10's spelling — `WebIDL` alone resolves, `WHATWG WebIDL` does not); and a spec URL (`https://html.spec.whatwg.org/multipage/interaction.html#focus-update-steps`, attributed through the catalog's `url`/`nightly.url`); an unresolvable one lands in `UNKNOWN-SPEC`, not in silence. Without `--forms`, §-form only (B's default).
+- **T11** `TestNonSectionForms` — the three non-§ citation forms C's §4 names are discovered and attributed by `cite-audit --forms ao,prose,url`: AO-name cites — `/// per OrdinaryToPrimitive` (ecma262 only → `ecma262`), **`/// per AvailableCalendars`** (ecma402 only → `ecma402`; an implementation that searches only `ecma262` fails here — the name is taken from the biblio by the §4.1.10 command, not from memory), **`/// per AvailableNamedTimeZoneIdentifiers`** (in both → `UNKNOWN-SPEC` naming both), **`/// per ECMA-402 AvailableNamedTimeZoneIdentifiers`** (qualified → `ecma402`), **`/// per ECMA-402 NotAnAbstractOperation`** (qualified, AO absent from that biblio → `UNKNOWN-SPEC`; an implementation that stops at the label hit fails here), **`/// per ECMA-262 §7.1.22 ToNumber`** (the next token is `§7.1.22`, not an identifier → label path, attributed `ecma262`; the prose control for step (2)), and **the same AO fixture under a poisoned `urlopen` with the biblio cache absent → `UNKNOWN-SPEC` naming the cause** (the `ao` offline rule); `per <label>` prose cites — `/// per WHATWG HTML, the focus update steps`, **`/// Per HTML spec: …`** (`validation/mod.rs:247`'s shape: capital `Per`, `spec` suffix), **`/// per the HTML spec …`** (a skipped lower-case word), **`/// per WebIDL …`** (→ `webidl`; the shortname is its own key, `spec_labels.py:65-72`) and **`/// per HTML …`** all attributed through `shortname_for` (a prefix-alternation implementation fails on every one but the first), **`/// per CSSOM …`** attributed with the catalog stubbed as T3 stubs it (`CSSOM` is catalog-backed, not in the pinned map) and `UNKNOWN-SPEC` under T3b's offline rule, and **`/// per WHATWG WebIDL …`** → `UNKNOWN-SPEC` (T10's spelling — `WebIDL` alone resolves, `WHATWG WebIDL` does not); and a spec URL (`https://html.spec.whatwg.org/multipage/interaction.html#focus-update-steps`, attributed through the catalog's `url`/`nightly.url`); an unresolvable one lands in `UNKNOWN-SPEC`, not in silence. Without `--forms`, §-form only (B's default).
 - **C1** *(the coverage gap)* — one end-to-end `cli.main` case: `sys.argv` patched, `--strict` on a fixture tree, `SystemExit` code asserted. Mutation check: deleting the `--strict` argparse block must turn this red.
 
 **`test_spec_labels.py`** (**A-i's file — B appends, does not create**): A-i lands it with its own S1–S8
@@ -649,9 +663,10 @@ a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numberi
 - **P8** (B; an earlier revision called this P4, colliding with A-ii's P4) catalog unavailable -> hard fail, and the remedy line does **not** say "add the spec to `spec_labels.py::SPECS`" (§4.1.7's discriminated `_catalog()` reaching the gate).
 - **P9** (B; an earlier revision called this P5, colliding with A-ii's P5) `parse_spec_cell` on `§Deferred` / `§C1` yields no citation (shared `SECTION_NUMBER_RE`, §4.6.3).
 - **P7** (B; an earlier revision called this P6, colliding with A-ii's P6) J3 survives B's grammar import: `_webref` unimportable (import hook) + `--no-verify --no-grep-pass` → exit 0 with the basis qualifier — the `SECTION_NUMBER_RE` import sits under the capability `try`, not at module level (§4.1.1). ⚠ **Baseline-green** like S13: at A's landed head the grammar import does not exist, so A-ii's P3 already gives exit 0 — a correct P7 cannot be red against the unfixed tree, and §12's red roster excludes it; it is validated by **mutation** instead — the mutation has no subject until B's code exists, so it is an **exit-criterion step at B's landing**, not a line of §12's pre-landing recipe: move the `SECTION_NUMBER_RE` import to module level, run P7, record the red in the landing commit message — the same form S13's mutation takes (Codex R48; both were prose-only before the gate).
+- **F1** *(interpreter floor, §4.1.1)* — each **direct** entry point (`.claude/tools/webref`, `.claude/skills/elidex-plan-review/preflight.py`) run in a child where, before the entry executes, `sys.version_info` is replaced by `(3, 10, 0, 'final', 0)` **and `sys.modules['_webref'] = None`** (so any `_webref` import raises `ImportError`): `python3 -c "import sys, os, runpy; sys.path.insert(0, os.path.dirname('<entry>')); sys.version_info = (3, 10, 0, 'final', 0); sys.modules['_webref'] = None; runpy.run_path('<entry>', run_name='__main__')"` (the `sys.path` insert reproduces what a direct `python3 <entry>` does, which `run_path` does not). Asserted: exit non-zero, output = the floor diagnostic naming 3.11 and the version found, **and nothing else** — no `ImportError`, no `re.error`, no preflight summary. The poison is what makes the *ordering* measurable: a guard placed after the `_webref` import dies with `ImportError` (`webref`) or falls into preflight's capability `try` and prints a wrong-cause summary (preflight catches the import error — and on a real 3.10 would catch the `re.error` the same way, reporting "map missing" instead of the floor); only a guard that runs first prints the diagnostic alone. Two constraints the pin imposes on the guard, stated so they are not discovered: it compares **`sys.version_info` as a tuple** (`sys.version_info < (3, 11)` — `.major` on the patched tuple is an `AttributeError`, and `sys.version`/`platform` are not patched), and it renders the version found from that same tuple. The suite-driver assertion and the CI leg do not reach these paths (Codex R49). Sited in `test_preflight.py` beside P7/P8/P9 because both entries are *skill-side* surfaces (the shim and the gate), not `_webref` library code. **Red at A's head** (no guard: `webref` dies `ModuleNotFoundError` — measured with the command above — and preflight prints its summary).
 - **P-CSS** a plan memo whose §3 table cites `CSS Text 3 §4.1.3` passes `preflight.py`'s citation gate with the catalog available — `parsed citations: 1`, verified through `webref` — and reports `UNKNOWN-SPEC` (hard fail, catalog-unavailable remedy) with `_catalog().available is False`. **This is the one closing pin of `#11-preflight-css-module-labels`**: the slot is about the gate resolving a CSS-module label, and T3/T3b (cite-audit path) cannot witness that. Named by the ledger row and A-i §13 item 4; no second name.
 
-WARN: A-ii's P1/P1b/P1c/P2/P2b/P3/P3b/P4/P5/P5b-e/P6/P10/P11*/P13/T-raise/T-net already occupy that file (A-ii §6 is the list; B's IDs P7/P8/P9/P-CSS are chosen outside it). Read it before writing -- A-ii's P5 pins the *tools-unavailable* remedy string and B's P8 pins the *catalog-unavailable* one: two causes, two strings, one file.
+WARN: A-ii's P1/P1b/P1c/P2/P2b/P3/P3b/P4/P5/P5b-e/P6/P10/P11*/P13/T-raise/T-net already occupy that file (A-ii §6 is the list; B's IDs P7/P8/P9/F1/P-CSS are chosen outside it). Read it before writing -- A-ii's P5 pins the *tools-unavailable* remedy string and B's P8 pins the *catalog-unavailable* one: two causes, two strings, one file.
 
 **Existing tests that must change**, not silently keep passing:
 - **A-i's S6** (`test_spec_label_covers_pinned_and_non_pinned_shortnames`) asserts the *last-resort* label for `css-text-3` / `cssom-view-1` (`CSS TEXT 3`, `CSSOM VIEW 1`) and that `shortname_for("CSS TEXT 3")` is `None` — the pinned-map-only contract A-i ships. B's catalog fall-through makes both resolve, so S6 is **replaced** by the catalog expectation (S9/S11 cover the round-trip); left as-is it is red the moment `_catalog()` lands (Codex R20).
@@ -696,7 +711,7 @@ Baselines are what exists at A's landed head — the pre-carve `wc -l` figures a
 | `.claude/tools/_webref/test_cite_audit.py` | absent at A's head (K3); seeded from the carve commit by the red-run recipe | ~560 | T1-T11, C1; −1 test moved to `test_preflight.py` |
 | `.claude/tools/_webref/test_spec_labels.py` | A-i's landed size | +~110 | S9–S14 appended to A-i's S1–S8 + T-net |
 | `.claude/skills/elidex-plan-review/preflight.py` | A's landed size | +~10 | §4.6.3 shared grammar only — the fail-closed work is A's |
-| `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~45 | P7 / P8 / P9 / P-CSS appended to A's file |
+| `.claude/skills/elidex-plan-review/test_preflight.py` | A's landed size | +~45 | P7 / P8 / P9 / F1 / P-CSS appended to A's file (F1 = two `subprocess.run` one-liners, inside the estimate) |
 | `.claude/tools/_webref/census_underreport.py` | — | ~45 | new (§4.0) |
 | `.claude/tools/_webref/resolver.py` | 280 | ~300 | heading index |
 | `.claude/tools/_webref/sources/webref_data.py` | A-i's landed size | +~3 | `@lru_cache(maxsize=None)` on `try_fetch_data` — routed here by A-i §13; B owns the edit and its test (a second call to `try_fetch_data` issues no second fetch) |
@@ -783,7 +798,7 @@ git fetch origin refs/pull/501/head        # an abbreviated sha is not a refspec
 git show b3a7d469:.claude/tools/_webref/commands/cite_audit.py \
   > /tmp/citeaudit-pre/.claude/tools/_webref/commands/cite_audit.py
 cp .claude/tools/_webref/test_*.py /tmp/citeaudit-pre/.claude/tools/_webref/
-# P8/P9 live in the plan-review suite, not under `_webref/` — without this
+# P8/P9/F1/P-CSS live in the plan-review suite, not under `_webref/` — without this
 # line the scratch tree keeps A's preflight suite and B's two pins never run.
 cp .claude/skills/elidex-plan-review/test_preflight.py /tmp/citeaudit-pre/.claude/skills/elidex-plan-review/
 cd /tmp/citeaudit-pre
@@ -795,14 +810,14 @@ missing=0
 # Pin IDs, not placeholder test names: every B test is named `test_<PIN>_…`
 # (`test_T3_css_module_label_resolves`, `test_S14_cross_series_is_ambiguous`),
 # so the recipe is runnable as written and §6's column stays the only list.
-for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 T10 T11 C1 S9 S10 S11 S12 S14 S15 P8 P9 P-CSS; do   # S13 and P7 are baseline-green, mutation-checked (§6)
+for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 T10 T11 C1 S9 S10 S11 S12 S14 S15 P8 P9 F1 P-CSS; do   # S13 and P7 are baseline-green, mutation-checked (§6)
   grep -qE "^(FAIL|ERROR): test_${pin//-/_}_" /tmp/citeaudit-pre.log || { echo "!! expected red, not red: $pin"; missing=1; }
 done
 [ "$missing" -eq 0 ] && echo "every pin red against the unfixed detector" || exit 1
 ```
 
 The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. The loop names each pin by its §6 ID and B's tests carry that ID in their name (`test_<PIN>_…`, one per
-T1–T11, C1, S9–S12, S14, S15, P8, P9, P-CSS — S13 and P7 are baseline-green and checked by mutation, §6), so the recipe runs as written and fails unless every one is
+T1–T11, C1, S9–S12, S14, S15, P8, P9, F1, P-CSS — S13 and P7 are baseline-green and checked by mutation, §6), so the recipe runs as written and fails unless every one is
 individually red. A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).
