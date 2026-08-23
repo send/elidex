@@ -370,6 +370,320 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   return 1
 }
 
+# --- §4.2.3's control flow, executable ----------------------------------------
+# Rounds 5, 6 and 7 each found a defect in §4.2.3 that only a REVIEW ROUND could
+# find, because the section specifies the control flow of code that does not
+# exist yet, in prose. Draft 6's reporting arm was False in the one row it
+# exists for; draft 7's fix made it True in six rows where it must be False.
+# Two inversions in a row is a method failure, not an attention failure.
+#
+# `_proto` grafts §4.2.3 + §4.2.5 onto a copy of `preflight.py` in a scratch
+# worktree, and `armmatrix` runs every §5 row against every capability state
+# with THREE candidate reporting predicates instrumented side by side. The
+# implementation PR lands this control flow AND DELETES `_proto` (memo §12(5)).
+_proto() {  # $1 = worktree; writes preflight_proto.py beside preflight.py
+  python3 - "$1/$PF" "$1/${PF%/*}/preflight_proto.py" <<'PY'
+import sys
+from pathlib import Path
+src = Path(sys.argv[1]).read_text(encoding="utf-8")
+head = src[: src.index("def main() -> int:")]
+# The graft is A-ii's act-site 1 as a PROTOTYPE, so it binds `_shortname_for`
+# ITSELF (A-ii §4.2.1: `except Exception: _shortname_for = None`). It used to
+# inherit the binding from `preflight.py`'s head, which only held it while an A-i
+# draft carried A-ii's import; when that draft was reverted every grafted row died
+# `NameError: _shortname_for` at exit 1, and `armmatrix` -- which read status,
+# not verdict -- certified 27 rows that never ran (Codex R4, reproduced).
+NEW = '''
+_shortname_for = None
+_resolve_citation = None
+try:
+    sys.path.insert(0, str(REPO_ROOT / ".claude" / "tools"))
+    from _webref.spec_labels import shortname_for as _shortname_for
+    # §4.2.6: the resolver comes from the SAME try as the map, so the
+    # capability is one cause; the head's `WEBREF` shim is never consulted.
+    from _webref.resolver import lookup_section as _lookup_section
+    from _webref.resolver import TC39_FAMILY as _TC39_FAMILY, tc39_biblio as _tc39_biblio
+    from _webref.cache import NotFound as _NotFound
+    from _webref.sources.webref_data import try_fetch_data_json as _try_fetch_data_json
+
+    def _resolve_citation(shortname, section):
+        # §4.2.6: THE seam -- the whole resolution. Everything below here may
+        # touch the network (the extract probe, a warm-cache 304 revalidation),
+        # so the suite stubs this function and nothing below it (Codex R49).
+        # The two-word vocabulary: `lookup_section` is None for an absent
+        # extract AND an absent clause, so ask the extract question first.
+        if shortname in _TC39_FAMILY:
+            try:
+                _tc39_biblio(shortname)
+            except _NotFound:
+                return ("unknown-spec", f"{shortname}: unknown spec (no tc39 biblio)")
+        elif _try_fetch_data_json("headings", shortname) is None:
+            return ("unknown-spec", f"{shortname}: unknown spec (no headings extract)")
+        if _lookup_section(shortname, section) is None:
+            return ("unknown-section", f"{shortname} §{section}: unknown section")
+        return ("hit", "")
+except Exception:
+    _shortname_for = None
+    _resolve_citation = None
+
+
+def _capability_guard():
+    # The `python3 -O` explicit-raise guard (§4.2.3): preflight's own
+    # invariant, called by the loop BEFORE the resolver `try` (§4.2.6).
+    if _resolve_citation is None:
+        raise RuntimeError("preflight: verify_citation called with the capability absent")
+
+
+def verify_citation(shortname, section):
+    # §4.2.6: in-process, overriding the head's subprocess form; renders the
+    # seam's discriminated result as the row.
+    _capability_guard()
+    kind, msg = _resolve_citation(shortname, section)
+    return (kind == "hit", msg)
+
+
+def shortname_from_label(label):
+    # A-ii's act-site 2: the row reader resolves through the shared map, not the
+    # head's `SPEC_LABEL_REVERSE` copy. Binding `_shortname_for` alone left the
+    # inherited reader in place, so the "map available" rows never exercised the
+    # map (row 10's alias spelling came back unknown, Codex R6).
+    return _shortname_for(label) if (_shortname_for is not None and label) else None
+
+# Up to three leading spaces: four is a CommonMark indented code block, and a
+# declaration quoted inside one is an example, not a declaration (Codex R8).
+MARKER_RE = re.compile(r"^ {0,3}\\*\\*No spec surface\\*\\*")
+
+
+def find_markers(lines, fence_state, start, end):
+    """§4.2.5 recognition: §3-scoped, fence-gated, indent-gated, line-anchored."""
+    return [j for j in range(start, end)
+            if not fence_state[j] and MARKER_RE.match(lines[j])]
+
+
+def grep_pass_stage(args, plan_path) -> bool:
+    """True on a hard finding. Shared by the table path AND the no-spec-surface
+    path: a slice with no spec surface still has §4-§7 structural references, so
+    the marker must not disable grep-pass."""
+    if not args.grep_pass:
+        return False
+    findings = run_grep_pass(plan_path, REPO_ROOT, strict_symbols=args.strict_symbols,
+                             strict_enum=args.strict_enum)
+    hard = [m for sev, m in findings if sev == "HARD"]
+    soft = [m for sev, m in findings if sev == "SOFT"]
+    print(f"  grep-pass:            {len(hard)} hard, {len(soft)} soft")
+    for msg in soft:
+        print(f"  \\u26a0 {msg}", file=sys.stderr)
+    if hard:
+        print(f"\\npreflight: HARD FAIL - grep-pass: {len(hard)} finding(s)", file=sys.stderr)
+        return True
+    return False
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("plan_memo")
+    p.add_argument("--no-verify", action="store_true")
+    p.add_argument("--strict-breadth", action="store_true")
+    p.add_argument("--no-grep-pass", dest="grep_pass", action="store_false", default=True)
+    p.add_argument("--strict-symbols", action="store_true")
+    p.add_argument("--strict-enum", action="store_true")
+    args = p.parse_args()
+
+    # item 1: ONE static cause (§4.2.6), evaluated ONCE, before any data loop.
+    # The shim is not read: `armmatrix` proves rows 3/4/5/9 identical to their
+    # shim-present twins by comparing output, not by a flag (Codex R48 / gate).
+    map_missing = _shortname_for is None or _resolve_citation is None
+    unavailable = map_missing
+    causes = (["the spec-label map"] if map_missing else [])
+
+    plan_path = Path(args.plan_memo)
+    if not plan_path.is_file():
+        return 1
+    lines = plan_path.read_text(encoding="utf-8").splitlines()
+    fence_state = _fence_state_array(lines)
+    section = find_coverage_map_section(lines, fence_state)
+    if section is None:
+        print("preflight: HARD FAIL - no Spec coverage map heading.", file=sys.stderr)
+        return 1
+    heading_line, body_start, body_end = section
+    markers = find_markers(lines, fence_state, body_start, body_end)
+    table = find_table(lines, body_start, body_end, fence_state)
+
+    # §4.2.5. NOTE: this path returns before `data_rows` EXISTS, so item 4's
+    # third arm is unreachable here, not merely False.
+    if markers:
+        if len(markers) > 1 or table is not None:
+            why = ("the marker appears twice" if len(markers) > 1
+                   else "a §3 table is present alongside the marker")
+            print(f"preflight: HARD FAIL - ambiguous §3 declaration: {why}.", file=sys.stderr)
+            print("PROTO-STATE path=marker-ambiguous", file=sys.stderr)
+            return 1
+        print(f"§3 Spec coverage map preflight - {plan_path.name}")
+        print("  breadth:              n/a (no spec surface declared)")
+        suffix = (f"; {' and '.join(causes)} unavailable" if unavailable else "")
+        print(f"  citation verify:      n/a (no spec surface declared{suffix})")
+        print(f"PROTO-STATE path=marker map_missing={map_missing}",
+              file=sys.stderr)
+        return 1 if grep_pass_stage(args, plan_path) else 0
+
+    if table is None:
+        print("preflight: HARD FAIL - heading but no table.", file=sys.stderr)
+        return 1
+    data_rows = table[2:] if len(table) >= 2 and is_separator_row(table[1]) else table[1:]
+    if not data_rows:
+        print("preflight: HARD FAIL - 0 data rows.", file=sys.stderr)
+        return 1
+
+    specs_seen: dict[str, int] = {}
+    malformed_rows = 0
+    unmapped_rows = 0
+    citations: list[tuple[str, str]] = []
+    unrecognized_labels: list[str] = []
+    labelless_rows = 0                 # item 7b: partitioned OFF unrecognized_labels
+    unique_specs: set[str] = set()
+    for row in data_rows:
+        spec_cell = row[0] if row else ""
+        label, section_num = parse_spec_cell(spec_cell)
+        if section_num is None:
+            malformed_rows += 1
+            continue
+        shortname = shortname_from_label(label)
+        if shortname is None:
+            if label:
+                unrecognized_labels.append(label)
+            else:
+                labelless_rows += 1
+            unmapped_rows += 1
+            unique_specs.add(f"unmapped:{label}" if label else "unmapped:<empty>")
+            continue
+        specs_seen[shortname] = specs_seen.get(shortname, 0) + 1
+        citations.append((shortname, section_num))
+        unique_specs.add(shortname)
+
+    K, M = len(unique_specs), len(data_rows)
+
+    # item 4: act-site 1, at the verification stage.
+    verify_failed: list[tuple[str, str, str]] = []
+    resolver_failed = None
+    seen_pairs: set[tuple[str, str]] = set()
+    capability_hard_fail = False
+    verify_ran = False                 # candidate 3: a flag set INSIDE the stage
+    if not args.no_verify and (citations or (unavailable and data_rows)):
+        if unavailable:
+            capability_hard_fail = True
+        else:
+            verify_ran = True
+            for shortname, section_num in citations:
+                key = (shortname, section_num)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                # §4.2.6: a raise from the resolver is a process-level fact --
+                # stop at the first, one diagnostic, no per-citation rows. The
+                # `-O` guard is raised OUTSIDE this `try`, so it is never swallowed.
+                _capability_guard()
+                try:
+                    ok, msg = verify_citation(shortname, section_num)
+                except (SystemExit, Exception) as e:   # noqa: BLE001
+                    resolver_failed = (shortname, section_num, f"{type(e).__name__}: {e}")
+                    break
+                if not ok:
+                    verify_failed.append((shortname, section_num, msg))
+
+    print(f"§3 Spec coverage map preflight - {plan_path.name}")
+    print(f"  total entries  (M):   {M}")
+    # item 7c (J1 at the REPORTING layer): with the capability absent these rows
+    # are not "unmapped" - the mapper never ran. And item 7b's partition is a
+    # DISPLAY concern too: one merged counter cannot name two classes, and it
+    # says "label" for a row that has none.
+    if map_missing:
+        print(f"  unclassified rows:    {unmapped_rows}  (label map unavailable)")
+    else:
+        print(f"  unknown-label rows:   {len(unrecognized_labels)}")
+        print(f"  label-less rows:      {labelless_rows}")
+
+    # item 6's basis qualifier, under item 7c: with no mapper there is no
+    # "label spelling" count to report - every row is unclassified, and the
+    # <label> display notation would present a spec the pinned map DOES know as
+    # one it does not.
+    displayed = sorted(specs_seen)
+    if map_missing:
+        basis = " (label map unavailable - no row classified)"
+    elif unmapped_rows:
+        basis = f" ({unmapped_rows} of {M} counted by label spelling)"
+        displayed += [f"<{lbl}>" for lbl in sorted(set(unrecognized_labels))]
+        unrouted = list(displayed)          # item 7b as drafted: label-less absent
+        if labelless_rows:
+            displayed.append("<label-less>")
+        # item 8: "K and the spec list it prints cannot disagree". MEASURE IT,
+        # under both the routed and the unrouted display, because item 7b moves
+        # label-less rows OUT of `unrecognized_labels` and item 8 never noticed.
+        print(f"PROTO-DISPLAY K={K} routed={len(displayed)} unrouted={len(unrouted)} "
+              f"item8_routed={K == len(displayed)} item8_unrouted={K == len(unrouted)}",
+              file=sys.stderr)
+    else:
+        basis = ""
+    if map_missing:
+        # item 8: with no mapper K is not a number. The proto printed `K=<n>`
+        # with a qualifier, which is the inherited CRIT item 8 names, in the
+        # prototype that exists to remove it (Codex R9).
+        print("  unique specs (K):     n/a (label map unavailable)")
+    else:
+        print(f"  unique specs (K):     {K}{basis} "
+              f"({', '.join(displayed) if displayed else '-'})")
+
+    # §4.2.4: three remedies, each for its own cause and no other.
+    if unrecognized_labels and not map_missing:
+        print(f"  remedy1 unrecognized: {sorted(set(unrecognized_labels))}", file=sys.stderr)
+    if labelless_rows and not map_missing:
+        print(f"  remedy2 label-less:   {labelless_rows} row(s)", file=sys.stderr)
+
+    # item 5: act-site 2. THREE CANDIDATES, measured side by side.
+    arm_d7 = bool(not args.no_verify and data_rows and not seen_pairs)
+    arm_avail = bool(not args.no_verify and data_rows and not unavailable and not seen_pairs)
+    arm_flag = bool(verify_ran and data_rows and not seen_pairs)
+    print(f"PROTO-STATE map_missing={map_missing} "
+          f"citations={len(citations)} M={M} seen_pairs={len(seen_pairs)} "
+          f"unmapped={unmapped_rows} verify_ran={verify_ran}", file=sys.stderr)
+    print(f"PROTO-ARM d7={arm_d7} avail={arm_avail} flag={arm_flag}", file=sys.stderr)
+
+    if not args.no_verify:
+        if capability_hard_fail:
+            print(f"\\npreflight: HARD FAIL - citation verification unavailable: "
+                  f"{' and '.join(causes)} missing.", file=sys.stderr)
+            if map_missing:
+                print("  remedy3 import-error", file=sys.stderr)
+        elif resolver_failed:
+            print(f"\\npreflight: HARD FAIL - citation resolver failed on "
+                  f"{resolver_failed[0]} §{resolver_failed[1]}: {resolver_failed[2]}", file=sys.stderr)
+        elif verify_failed:
+            print(f"\\npreflight: HARD FAIL - citation verification: "
+                  f"{len(verify_failed)} failure(s)", file=sys.stderr)
+        elif seen_pairs:
+            print(f"  citation verify:      ok ({len(seen_pairs)} unique citation(s) checked)")
+        elif arm_avail:
+            print(f"  citation verify:      n/a (0 of {M} rows resolvable)")
+
+    grep_hard = grep_pass_stage(args, plan_path)
+    if malformed_rows:
+        # The shipped gate prints its malformed verdict (`preflight.py`'s
+        # `malformed_hard_fail` branch); the proto returned 1 here WITHOUT one,
+        # the single exit-1 path of either gate that printed no verdict line, and
+        # `_verdict` (which is read off the return sites) found it on row 16.
+        print(f"\\npreflight: HARD FAIL - {malformed_rows} of {M} row(s) missing "
+              f"section reference.", file=sys.stderr)
+    if malformed_rows or capability_hard_fail or resolver_failed or verify_failed or grep_hard:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+Path(sys.argv[2]).write_text(head + NEW.lstrip("\n"), encoding="utf-8")
+PY
+}
+
 budget() {
   # §8's whole content is counts, so every one of them goes through `_measure`.
   # `git show "$MAIN:$f" | wc -l` printed `0 <path>` for a file that does not
@@ -382,11 +696,11 @@ budget() {
     _measure n git show "$MAIN:$f" || failed=1
     echo "$n $f"; done
   echo "-- on this branch --"
-  for m in Ai-spec-label-map umbrella; do
+  for m in Ai-spec-label-map Aii-gate-failure-semantics Aiii-suite-scheduler \
+           umbrella B-detector-correctness C-policy-retirement; do
     f="docs/plans/2026-07-citation-hygiene-$m.md"
-    # Both memos are EXPECTED (the slice memos B / A-ii / A-iii / C travel on branch
-    # `citation-hygiene-slice-memos`); one that is absent is a failed measurement,
-    # not a row to skip -- skipping printed no size for it and exited 0 (Codex R18).
+    # Six memos are EXPECTED; one that is absent is a failed measurement, not a
+    # row to skip -- skipping printed no size for it and exited 0 (Codex R18).
     [ -f "$f" ] || { echo "!! expected memo missing: $f"; failed=1; continue; }
     _measure n cat "$f" || failed=1
     echo "$n $m"
@@ -402,8 +716,35 @@ budget() {
   echo "$n the re-derivation harness, all parts"
   _measure n grep -hE '^[A-Za-z_][A-Za-z0-9_]*\(\)' docs/plans/2026-07-citation-hygiene-A-rederive*.sh || failed=1
   echo "$n the re-derivation harness, blocks (function definitions, all parts)"
-  # The "+A statement growth" measurement grafted A-ii's prototype; it left with the
-  # A-ii part (branch `citation-hygiene-slice-memos`).
+  echo "-- preflight.py's LOGIC growth under A --"
+  # `wc -l` on the armmatrix proto is not a usable estimate: the proto trims
+  # argparse help and abbreviates diagnostics, so it comes out SHORTER than the
+  # file it grows. Statement count is the honest measure of what A adds.
+  # A worktree that was not created, or a graft that did not happen, would leave
+  # the statement delta below measured against nothing at all.
+  local T; T=$(mktemp -d)
+  git worktree add -q "$T" HEAD || { echo "!! cannot create the HEAD worktree"; return 1; }
+  _proto "$T" || failed=1
+  python3 - "$T/${PF%/*}/preflight_proto.py" <<'PY' || failed=1
+import ast, subprocess, sys
+def stmts(src): return sum(isinstance(n, ast.stmt) for n in ast.walk(ast.parse(src)))
+_b = subprocess.run(["git", "show",
+                     "origin/main:.claude/skills/elidex-plan-review/preflight.py"],
+                    capture_output=True, text=True)
+if _b.returncode != 0:
+    sys.stderr.write(_b.stderr)
+    raise SystemExit("!! `git show origin/main:…preflight.py` failed (rc=%d); there is no "
+                     "baseline to compute a delta against." % _b.returncode)
+base = _b.stdout
+proto = open(sys.argv[1]).read()
+b, p = stmts(base), stmts(proto)
+print(f"  origin/main={b} statements   +A={p}   delta={p - b:+d} ({100 * (p - b) / b:+.0f}%)")
+print("  caveat: the proto collapses several multi-line diagnostics into one print,")
+print("  and each print is a statement, so the shipped delta is somewhat larger.")
+PY
+  # The cleanup runs LAST but must not BE the answer: `git worktree remove`
+  # succeeding says nothing about whether anything above was measured.
+  git worktree remove --force "$T"
   return "$failed"
 }
 

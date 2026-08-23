@@ -15,12 +15,8 @@
 #
 # THIS FILE IS THE DISPATCHER AND THE ONLY ENTRY POINT. The blocks live in the
 # sourced parts below, one per slice plus a common part and an integrity part;
-# the memos cite block names by THIS path, so the invocation surface above is
+# six memos cite block names by THIS path, so the invocation surface above is
 # fixed and every block name resolves here regardless of which part defines it.
-# Since 2026-08-23 this branch carries the `integrity`, `common` and `Ai` parts;
-# `Aii`, `Aiii`, `B` (and `_proto`) travel with their memos on
-# `citation-hygiene-slice-memos`, stacked on this branch — the seam map below is
-# kept as the routing record for the whole harness.
 #
 # The slice seam, MEASURED (`grep -nE 'rederive [a-z ]*<block>' …-citation-hygiene-*.md`,
 # plus each memo's §15 block list, which is the authoritative enumeration):
@@ -42,7 +38,7 @@
 #                                 WHOLE -- that every block below states its own
 #                                 exit status -- so it belongs to no slice)
 # Helpers are placed with their callers: `_runner` (4 A-ii blocks) -> A-ii;
-# `fixtures` has callers in two files -> common (`_proto` left with the A-ii part).
+# `fixtures` and `_proto` have callers in two files -> common.
 #
 # `-integrity.sh` is the ONE PART THAT IS NOT ON THE SLICE SEAM, and it is
 # sourced FIRST because everything else reads it: `$REPO_ROOT`, settled at SOURCE
@@ -52,8 +48,7 @@
 # none. A-i §8 names this seam and is the only site carrying the layout figures.
 set -uo pipefail
 _HARNESS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# The Aii / Aiii / B parts travel with their memos (branch `citation-hygiene-slice-memos`).
-for _part in integrity common Ai; do
+for _part in integrity common Ai Aii Aiii B; do
   # shellcheck source=/dev/null
   . "$_HARNESS_DIR/2026-07-citation-hygiene-A-rederive-$_part.sh"
 done
@@ -97,10 +92,9 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # such as `say`, `fixtures`, or `_measured` is a declared function too, and
 # `declare -F` alone ran it and handed back a silent exit 0 as "the
 # re-derivation" (Codex R32, measured: `… _measured` exited 0 with no output).
-BLOCKS="selfcheck citations keysets suites regions couplings readercensus budget"
-# The A-ii / A-iii / B blocks (column carvecolumn instruments remedies reloadstale armmatrix
-# anchors marker / suiteset filters floor ruleset / partition offline bmemo) left with their
-# memos: branch `citation-hygiene-slice-memos`, which stacks on this one.
+BLOCKS="selfcheck citations partition keysets column carvecolumn instruments remedies \
+        reloadstale armmatrix suites anchors regions offline couplings suiteset marker readercensus \
+        budget filters floor ruleset bmemo"
 all() { # shellcheck disable=SC2086  # word-splitting the roster IS the positional dispatch
         set -- $BLOCKS
         local failed="" rc
