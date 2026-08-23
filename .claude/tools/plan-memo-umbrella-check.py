@@ -339,7 +339,7 @@ def lex_unsupported_seed(pop, findings, notes):
             if "|" in line or ids:
                 n += 1
                 findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno,
-                                 "a %s line (CommonMark %s) is read as paragraph text; it holds %s"
+                                 "%s line (CommonMark %s) read as paragraph text; it holds %s"
                                  % (kind, {"quote": "§5.1", "indented-code": "§4.4", "html": "§4.6"}[kind],
                                     ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
     notes.append("[LEX-UNSUPPORTED?] SEED -- %d line(s) of a block type this lexer reads as written "
