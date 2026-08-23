@@ -257,7 +257,7 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   # is checked before any count is, because a count that was never taken is not a
   # count of zero -- see `_measure`.
   local failed=0 _n
-  _measure _n git ls-files '.claude/tools/_webref/*.py' '.claude/tools/_webref/**/*.py' \
+  _measure _n git ls-files ':(glob).claude/tools/_webref/**/*.py' \
                            '.claude/tools/_webref/*.md' '.claude/tools/webref' || failed=1
   local AHALF=()
   while IFS= read -r f; do

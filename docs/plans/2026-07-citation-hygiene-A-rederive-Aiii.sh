@@ -13,7 +13,9 @@ suiteset() {  # §4.3.2 J4 — the set the uncollected-suite check must range ov
   # about which suites EXIST; an empty answer is a broken glob, not a repo with
   # no tests.
   local n
-  _measure n git ls-files '.claude/**/test_*.py' || return 1
+  # `:(glob)` magic: without it a `/**/` still demands a directory component,
+  # so a suite directly under `.claude/` is not enumerated (Codex R45).
+  _measure n git ls-files ':(glob).claude/**/test_*.py' || return 1
   _measured
   [ "$n" -gt 0 ] || { echo "!! EMPTY SUITE SET — the pathspec matched no file; J4 has"
                       echo "!! nothing to range over, which is not the same as 'no uncollected suite'."
@@ -256,15 +258,15 @@ floor() {  # §4.4 — a STATIC PRE-CHECK of the declared 3.9 floor, not a proof
   # (`ast.parse` with `feature_version`), PEP 604 unions evaluated at def time
   # (no future-import), and runtime-only 3.10+ APIs. The memo figure is 3.9.
   local files
-  _measure files git ls-files ".claude/**/*.py" || return 1
+  _measure files git ls-files ':(glob).claude/**/*.py' || return 1
   [ "$files" -gt 0 ] || { echo "!! no .claude Python files enumerated"; return 1; }
   # (The heredoc IS python3's stdin, so the file list cannot also arrive on
   # it -- the first cut piped `git ls-files` into a heredoc and measured 0 files.)
   python3 - <<'FLOORPY'
 import ast, re, subprocess, sys
-_ls = subprocess.run(["git", "ls-files", ".claude/**/*.py"], capture_output=True, text=True)
+_ls = subprocess.run(["git", "ls-files", ":(glob).claude/**/*.py"], capture_output=True, text=True)  # glob magic: zero intervening dirs allowed
 if _ls.returncode != 0 or not _ls.stdout.split():
-    raise SystemExit("!! `git ls-files .claude/**/*.py` enumerated nothing; 'floor 3.0' would be the reading")
+    raise SystemExit("!! `git ls-files :(glob).claude/**/*.py` enumerated nothing; 'floor 3.0' would be the reading")
 files = _ls.stdout.split()
 RUNTIME = re.compile(r"isinstance\([^)]*\|[^)]*\)|zip\([^)]*strict=|slots=True|kw_only=|pairwise\(|TypeAlias|ParamSpec")
 def pep604(tree, future):
@@ -276,18 +278,31 @@ def pep604(tree, future):
     # nodes to inspect is the whole tree minus (if `future`) the annotation
     # subtrees, and any type-shaped `X | Y` in that set raises. "Type-shaped"
     # = both operands are bare names / subscripts / None / further unions.
-    # A runtime `flags | MASK` of two bare names reads RED (safe direction).
-    # A dotted operand IS type-shaped (`pathlib.Path | None` raises on 3.9 --
-    # second re-gate of #501 measured the earlier exclusion GREEN on it) unless
-    # its attribute is ALL-CAPS, which PEP 8 reserves for constants
-    # (`re.IGNORECASE | re.MULTILINE`, the tree's only dotted `|`): a naming
-    # rule, not a site list. A lower-case constant (`re.m`) would read RED.
+    # THE OPERAND PREDICATE IS A COMPLEMENT TOO (Codex R45: listing Name /
+    # Attribute / Subscript missed `type(...) | None`, a Call). An operand is
+    # PLAINLY NOT A TYPE only when the grammar says so: a non-None literal
+    # (`1 | 2`, `"a" | x`), a collection display (`{1} | s`), or a PEP 8
+    # constant (an ALL-CAPS name or attribute: `FLAGS | MASK`, `re.I | re.M`,
+    # the tree's only dotted `|`), or a call of a lower_case function/method
+    # (`before.keys() | after.keys()`, `diff.py:85` -- PEP 8 names functions
+    # lower_case and classes CapWords; `type(...)` is the builtin exception and
+    # stays type-shaped). EVERYTHING ELSE is type-shaped -- names, dotted
+    # names, subscripts, CapWords/`type` calls, nested unions -- so the unknown
+    # reads RED (a false RED makes a reader look; a false GREEN certifies).
+    def is_const_name(s):
+        return s.isupper() or (s.replace("_", "").isupper() and "_" in s)
+    def callee_name(c):
+        f = c.func
+        return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+    def plainly_not_type(o):
+        return ((isinstance(o, ast.Constant) and o.value is not None) or
+                isinstance(o, (ast.Set, ast.List, ast.Dict, ast.Tuple, ast.JoinedStr)) or
+                (isinstance(o, ast.Name) and is_const_name(o.id)) or
+                (isinstance(o, ast.Attribute) and is_const_name(o.attr)) or
+                (isinstance(o, ast.Call) and callee_name(o) != "type" and callee_name(o)[:1].islower()) or
+                (isinstance(o, ast.BinOp) and not isinstance(o.op, ast.BitOr)))
     def typelike(o):
-        return (isinstance(o, ast.Name) or
-                (isinstance(o, ast.Attribute) and not (o.attr.isupper() or o.attr.replace("_", "").isupper())) or
-                (isinstance(o, ast.Constant) and o.value is None) or
-                (isinstance(o, ast.Subscript) and typelike(o.value)) or
-                (isinstance(o, ast.BinOp) and isinstance(o.op, ast.BitOr) and typelike(o.left) and typelike(o.right)))
+        return not plainly_not_type(o)
     deferred = set()
     if future:
         for node in ast.walk(tree):
