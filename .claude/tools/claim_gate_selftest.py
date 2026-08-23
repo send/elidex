@@ -1430,6 +1430,58 @@ def selftest() -> int:
     probe("the tracked probe fixture is left true, not left planted", False,
           capture(check_preflight, _restored))
 
+    # A check that RAISES used to take the run with it. `main` prints the
+    # summary once, at the end, so every finding collected before the
+    # exception was discarded -- and Python exits 1 on an uncaught exception,
+    # which is the code a run WITH findings returns, so a caller reading rc
+    # could not tell a crash from a verdict. Measured: a memo outside the
+    # repository with a §8.3 raised `ValueError` in `check_preflight` and threw
+    # away a CITE finding already in the list.
+    def _boom(_memo):
+        host.bad("CITE", "collected before the crash")
+        raise RuntimeError("planted")
+
+    _saved_pf = host.check_preflight
+    try:
+        host.check_preflight = _boom
+        with contextlib.redirect_stdout(io.StringIO()) as _cap:
+            _rc = host.main(["x", str(host.REPO / "docs" / "plans" /
+                                      "zz-probe-preflight.md")])
+        _out = _cap.getvalue()
+    finally:
+        host.check_preflight = _saved_pf
+    probes.append(("a raising check does not discard the findings already collected",
+                   "collected before the crash" in _out, _out.strip()[-70:]))
+    probes.append(("…and the raise is reported as a finding of its own",
+                   "PREFLIGHT" in _out and "planted" in _out,
+                   next((l.strip()[:70] for l in _out.split("\n")
+                         if "planted" in l), "(silent)")))
+    probes.append(("…and the run still ends on its summary line",
+                   "finding(s)" in _out and _rc == 1, f"rc={_rc}"))
+    # preflight takes a repo-relative path, so a memo outside the tree cannot be
+    # asked. `run` would contain the `ValueError`, but a check that cannot reach
+    # a verdict says so rather than reporting a defect in this program as though
+    # the memo had one.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _td:
+        _far = Path(_td) / "outside.md"
+        _far.write_text("# probe\n\n## §8.3 Preflight\n\n```\nEXIT=0\n```\n")
+        probe("PREFLIGHT reports rather than raising on a memo outside the repo",
+              False, capture(check_preflight, host.Memo(_far)))
+        probe("  …and says so through skip()", True,
+              capture_skipped(check_preflight, host.Memo(_far)),
+              "is outside")
+    # `main`'s runner spells a code beside each call. That is the list of checks
+    # rather than a second roster -- but only if it is the WHOLE list, and a new
+    # check added without a `run(` wrapper would be invisible to both.
+    _runner = set(re.findall(r'run\("([A-Z]+)"',
+                             (REPO / ".claude" / "tools" /
+                              "claim-gate-plan-check.py").read_text()))
+    probes.append(("main's runner covers every code the program can report",
+                   _runner == host.finding_codes(),
+                   f"only in runner {sorted(_runner - host.finding_codes())}; "
+                   f"only in codes {sorted(host.finding_codes() - _runner)}"))
+
     width = max(len(p[0]) for p in probes)
     failed = 0
     for label, ok, detail in probes:
