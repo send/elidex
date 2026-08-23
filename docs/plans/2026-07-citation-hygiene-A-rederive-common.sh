@@ -303,6 +303,10 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # it lives in `docs/plans/`, which is in NEITHER scope, so it cannot match
   # itself the way an in-tree test file would.
   echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree, working tree) --"
+  # At A-i's head NO exemption: any `cite_audit` / `_catalog` under GENERIC or
+  # SKILLS is a K3 violation. Slice B's landing adds its canonical paths
+  # (`commands/cite_audit.py`, `spec_labels.py`) as the one exemption and keeps
+  # the rest of the scan (B §6, the S7 retirement bullet — Codex R21).
   local B_ART='cite.?audit' B_FT='_catalog'
   local n_art n_base_art
   _measure n_art _wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS" || failed=1
@@ -680,7 +684,7 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
   # The `2>/dev/null | wc -l` this used to be reported `0` -- i.e. "this worktree
   # authors no plan-memo" -- for a worktree whose diff could not be taken at all,
   # and §13's lane roster is exactly a claim about which worktrees those are.
-  for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+  while IFS= read -r w; do   # whole path, whitespace-safe (Codex R21: `$2` truncated it)
     # A prunable entry (its directory is gone) is not a worktree whose diff
     # failed; it is reported as what it is and skipped, or a scratch worktree
     # some earlier block left behind turns this whole roster RED.
@@ -691,14 +695,14 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
       echo "  !! $w — NOT MEASURED ($n); absent from this roster for a reason that"
       echo "     is not 'it authors no plan-memo'"; failed=1
     fi
-  done
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
   # A's REAL contention is CI topology, and draft 8's version of this block could
   # not see it: `gh pr list` misses an unpushed branch, and a docs/plans/ filter
   # misses a branch whose collision is in ci.yml / mise.toml. The Layout lane's
   # `layout-trip-wire-ci` was invisible to both halves while committing an
   # OPPOSITE answer on all three files A edits.
   echo "-- worktrees touching the files A contends on (ci.yml / mise.toml / .claude/tools) --"
-  for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+  while IFS= read -r w; do   # whole path, whitespace-safe (Codex R21: `$2` truncated it)
     # A prunable entry (its directory is gone) is not a worktree whose diff
     # failed; it is reported as what it is and skipped, or a scratch worktree
     # some earlier block left behind turns this whole roster RED.
@@ -710,7 +714,7 @@ lanes() {  # §13 — base, open PRs, worktrees authoring plan-memos, the two ca
     else
       echo "  !! $w — NOT MEASURED ($n); silence here is not 'no contention'"; failed=1
     fi
-  done
+  done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
   return "$failed"
 }
 

@@ -356,7 +356,9 @@ The second half is worse. When `except Exception` *does* fire (a malformed `inde
 python3 - <<'PY'
 import sys; sys.path.insert(0, ".claude/tools")
 from _webref import spec_labels
-cat = spec_labels._catalog()
+res = spec_labels._catalog()          # CatalogResult (§4.1.7); the census ranges over .entries
+assert res.available, res.cause
+cat = res.entries
 bad = [(s, spec_labels.label_for(s), spec_labels.shortname_for(spec_labels.label_for(s) or ""))
        for s in cat if spec_labels.shortname_for(spec_labels.label_for(s) or "") != s]
 print(f"non-round-tripping: {len(bad)} / {len(cat)}")
@@ -552,7 +554,7 @@ WARN: A's P1-P6 already occupy that file. Read it before writing -- A's P5 pins 
 
 **Existing tests that must change**, not silently keep passing:
 - **A-i's S6** (`test_spec_label_covers_pinned_and_non_pinned_shortnames`) asserts the *last-resort* label for `css-text-3` / `cssom-view-1` (`CSS TEXT 3`, `CSSOM VIEW 1`) and that `shortname_for("CSS TEXT 3")` is `None` — the pinned-map-only contract A-i ships. B's catalog fall-through makes both resolve, so S6 is **replaced** by the catalog expectation (S9/S11 cover the round-trip); left as-is it is red the moment `_catalog()` lands (Codex R20).
-- **A-i's S7** (`test_no_slice_b_artifact_is_named`) scans the package for `cite_audit` / `_catalog` — the absence that K3 enforced while B had not landed. B *is* that artifact: S7 is **retired** in the same commit that adds `commands/cite_audit.py`, and its K3 role passes to the harness `couplings` block's cross-tree scan, which keeps the names out of `.claude/skills/` and the rest of the generic tree.
+- **A-i's S7** (`test_no_slice_b_artifact_is_named`) scans the package for `cite_audit` / `_catalog` — the absence that K3 enforced while B had not landed. B *is* that artifact: S7 is **retired** in the same commit that adds `commands/cite_audit.py`, and its K3 role passes to the harness `couplings` block's cross-tree scan, which keeps the names out of `.claude/skills/` and the rest of the generic tree. ⚠ That scan ranges over all of `.claude/tools/`, so at B's head B's own canonical files (`commands/cite_audit.py`, `spec_labels.py`'s `_catalog`) trip it; **B's landing edits `couplings`** to exempt exactly those canonical paths while rejecting the names everywhere else (Codex R21). At A-i's head the exemption must NOT exist — there, any such file is a K3 violation — which is why the edit is B's, not A-i's.
 - `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match` (`:398`) — its name and docstring state `lookup_section` is "prefix-tolerant", the **opposite** of `resolver.py:216-226`'s documented contract, and it passes with the `hit[0] == section` guard deleted, so it pins nothing. Renamed and made real against the shared index.
 - `test_json_records_carry_relative_paths_for_both_classes` (`:388`) asserts two counts and nothing about paths, while `_record` (`:170`) emits unrelativized `str(path)`. Either the assertion becomes real (relativize, matching `agent_brief.py:59`) or the test is renamed to what it checks. **Recommendation: relativize** — machine-local absolute paths cannot be pasted into a memo or diffed across machines, which is the artifact this tool exists to produce.
 

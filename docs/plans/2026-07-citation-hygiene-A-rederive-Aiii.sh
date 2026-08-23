@@ -247,7 +247,13 @@ _rulesetcheck() {  # $1 = projected detail JSON, $2 = rule types GitHub applies 
   return 0
 }
 
-floor() {  # §4.4 — the interpreter floor is MEASURED over every .claude Python file
+floor() {  # §4.4 — a STATIC PRE-CHECK of the declared 3.9 floor, not a proof of it
+  # What this block can decide: grammar (`ast` feature_version), def-time PEP 604
+  # unions, and a sample of runtime-only 3.10+ names. What it cannot: every
+  # newer-runtime API (`tomllib`, `Path.walk`, …) or an evaluated type alias
+  # under a future import (Codex R21). The only proof that the suites run on
+  # 3.9 is running them on 3.9, which CI does not do; A-iii §4.4 says so and
+  # claims "declared and pre-checked", not "measured".
   # "No .claude Python source uses syntax newer than 3.9" was a sentence with
   # no instrument behind it (Codex R17 -- whose own evidence, `str | None` in
   # `cache.py` and `preflight.py`, is a string annotation under `from __future__

@@ -157,12 +157,15 @@ what B introduces; A-iii inherits no such dependency.
 
 ### §4.4 The interpreter floor
 
-No `.claude` Python source needs an interpreter newer than 3.9 — **measured**, not asserted: `rederive floor`
+The floor is **declared** at 3.9 and **statically pre-checked**, not proven: `rederive floor`
 parses every `git ls-files '.claude/**/*.py'` file under `ast` `feature_version` 3.9, rejects a PEP 604 union
 evaluated at definition time (one without `from __future__ import annotations` — the `str | None` annotations
 in `cache.py` and `preflight.py` are *under* that import, so they are strings on 3.9; Codex R17 read them as
-3.10-only), and greps the runtime-only 3.10+ APIs. `python-suites.sh` asserts
-`sys.version_info >= (3, 9)` — that measured need — and the job echoes `python3 -VV`. Slice B raises the floor
+3.10-only), and greps a sample of runtime-only 3.10+ names. ⚠ A static read cannot enumerate every newer-runtime API
+(`tomllib`, `Path.walk`, an evaluated `Alias = str | None` under a future import — Codex R21); the only
+proof is running the suites under 3.9, and CI runs them under the runner's `python3` only. So the floor is
+what `python-suites.sh` asserts (`sys.version_info >= (3, 9)`) and what the job echoes (`python3 -VV`),
+not a property this memo has measured. Slice B raises the floor
 when B lands `(?>...)`. `SKILL.md`'s Step 0 invokes `preflight.py` directly, bypassing the script;
 unaffected today, marked UNCHECKED in §6.
 

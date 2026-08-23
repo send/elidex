@@ -11,7 +11,18 @@ partition() {  # §0 — 203/948, and the 195/8 vs 190/13 split under both crite
 import sys, hashlib, subprocess
 sys.path.insert(0, ".claude/tools")
 from _webref import spec_labels as s
-cat = s._catalog()
+if not hasattr(s, "_catalog"):
+    print("!! spec_labels has no catalog fall-through at this head (A-i K3) — B-owned RED; no census can be taken")
+    sys.exit(1)
+res = s._catalog()
+# B §4.1.7: `_catalog()` returns `CatalogResult(available, entries, cause)`.
+# Iterating the result itself raised the moment B landed the contract (Codex
+# R21); the census ranges over `entries`, and an unavailable catalog is not a
+# partition of anything.
+if getattr(res, "available", None) is not True:
+    print("!! catalog unavailable (%r) — no round-trip census can be taken" % (getattr(res, "cause", res),))
+    sys.exit(1)
+cat = res.entries
 bad = []
 for short in cat:
     lab = s.label_for(short)
