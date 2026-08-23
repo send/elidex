@@ -24,8 +24,8 @@ So the slot ledger keeps only what this move makes true (the source slot's parti
 re-evaluation, that slot memo's falsified figures, the successor's size baseline). The umbrella's
 memo, tooling and remaining ledger rows travel with the umbrella. ⚠ This contradicts the
 umbrella's §8 sentence "**This memo and the branch's tooling files … ship with the seam-3 prereq
-PR** … No later PR re-ships them", which is a ratified surface — it is an input to the umbrella's
-owed round 20, not a decision this memo may take silently
+PR** … No later PR re-ships them" and its §5.3 "the seam-3 prereq opens none" (it opens one), both
+ratified surfaces — they are inputs to the umbrella's owed round 20, not a decision this memo may take silently
 ([[feedback_plan-ratified-surface-is-a-design-change]]).
 
 **Coordinate frames.** Every `file:line` naming a *pre-split* location — `inline/mod.rs`,
@@ -194,7 +194,7 @@ git show 658cc302:crates/layout/elidex-layout-block/src/inline/mod.rs | awk 'NR>
   | grep -inE 'logical|physical|text-align|sticky|fragmentainer|overflow|abspos|paged|margin-box'
 ```
 
-Spec-governed concerns it surfaces, none of them cited in the source. Every §-number↔title pair
+Spec-governed concerns in the range, none cited in the source (a judgment; the command above only bounds the set from below). Every §-number↔title pair
 below was resolved with `.claude/tools/webref` — **`heading` for the pairs, `dfn` where a
 *property* or *term* had to be located from its name first**. Both emit the pair. Every citation without an annotation re-derives with `heading <module> <section>`:
 
@@ -418,7 +418,7 @@ wc -l crates/layout/elidex-layout-block/src/inline/{mod,reconcile}.rs
 
 `mod.rs` is **573**, and the 1000-line argument turns on it. Both files sit below
 [[feedback_touch-time-split-means-while-writing]]'s 700–800 band, and the residue is 212 lines
-further from the 1000-line gate than it was — the source slot's *second* trigger disjunct, which
+further from the 1000-line gate than it was — the source slot's 1000-line trigger disjunct, which
 this PR moves away from firing rather than toward.
 
 ### §5.6 Provenance of §5.3–§5.5's figures
@@ -663,7 +663,7 @@ the moved one (or rewording the body text) is the residual, and it goes to
   necessity (`too_many_arguments`; `too_many_lines` at the figure §5.4 records), both `wc -l`s,
   and §6's hunk count.
   * The **squash commit message** is the text below; accepting GitHub's default squash message violates this DoD.
-  * The **PR description** is re-checked at merge: `gh pr view 508 --json body -q .body | grep -nE '[0-9]{3}'` must show no stored `reconcile.rs` line count.
+  * The **PR description** is re-checked at merge: `gh pr view 508 --json body -q .body | tr '\n' ' ' | grep -oE '[^.]*reconcile\.rs[^.]*'` — read the sentences it prints; none may state a line count.
 
     ```text
     refactor(layout): split the IFC flow reconcile out of inline/mod.rs (seam 3)
@@ -746,9 +746,7 @@ this section carries only **why it is not in this PR**, plus the slot's name.
   child→parent back-edge. Declining it here is right (it is outside the range), but leaving it
   unrouted would let the next reader take §5.2 as "settled" rather than "declined on scope".
   **Routed to `#11-inline-fragmented-fn-seams-1-2`**, whose entry carries it.
-* **The uncited spec-governed concerns in the moved body** — `text-align` baked into
-  `inline_start`; relative/sticky offset preservation; fragmentainer terminology; column-box
-  continuation; the abspos toggle, `overflow:hidden` clipping and the paged path.
+* **The uncited spec-governed concerns in the moved body** (the slot's entry enumerates them).
   **Why not in this PR** — the ground is change class —
   this PR authors no algorithm, so it neither creates nor deepens a missing-citation defect, which
   is the position #497 took when it **withdrew** the module-doc citations it had added to
@@ -767,9 +765,9 @@ this section carries only **why it is not in this PR**, plus the slot's name.
   CSS 2 §10.8 genuinely is the section it names. **Routed to
   `#11-css2-line-height-supersession-reanchor`**; deliberately **not** folded into
   `#11-css2-spec-label-normalisation`, whose memo states it owns *hygiene, not correctness*.
-* **The CSS 2 §10.8 `vertical-align` deferral** that §3's CSS 2 row records — likewise
-  pre-existing, and owned by the umbrella (`docs/plans/2026-08-line-box-decorated-inline-content.md` §5.3).
-* **Cold gate** ([[feedback_split-on-touch-prereq-workflow]]), re-run on `658cc302` at this PR's
+* **The `vertical-align` gap** that §3's CSS 2 row and the docstring record — pre-existing, and this
+  PR authors no algorithm for it. **Routed to `#11-vertical-align-line-box`** (pre-existing class).
+* **Cold gate** (not a concern — a gate record, re-run at merge per its last line; [[feedback_split-on-touch-prereq-workflow]]), re-run on `658cc302` at this PR's
   own touch set (`crates/layout/elidex-layout-block/` plus the four `.claude/`+`docs/` files of
   `f63eb623`):
   * Open PRs: `gh pr diff <n> --name-only` for each co-open PR — the set is whatever

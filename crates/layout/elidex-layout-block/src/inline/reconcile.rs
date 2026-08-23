@@ -150,13 +150,13 @@ use super::{
 ///
 ///   What stays leading-naive is the **baseline within** the line box, on the
 ///   **horizontal** path only — not the line box's own placement, which is
-///   leading-derived because `seg_line_advance` takes `line_height` there. Two
+///   leading-derived because `seg_line_advance` is `line_height` there. Two
 ///   other crates record it: `elidex_ecs::InlineFlowLine`'s `block_size` field
 ///   doc (horizontal render places each baseline at `block_start + ascent`, and
 ///   contrasts vertical, which **does** consume the line box) and
 ///   `elidex-render`'s `builder/inline.rs` for its horizontal
 ///   `emit_text_segment`. Vertical distributes no leading either, but for a
-///   different reason — `seg_line_advance` takes `font_size` there — and
+///   different reason — `seg_line_advance` is `font_size` there — and
 ///   neither cite covers that.
 ///
 ///   What is **not** implemented is `vertical-align` alignment (§4.2), §5.3's
