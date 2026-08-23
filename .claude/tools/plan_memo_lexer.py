@@ -570,35 +570,50 @@ def links(s, defs):
     return inline_pass(s, defs)[1:]
 
 
-def definition_block(lines, i):
+def definition_block(block, off):
     """Phase 1 ("Appendix: A parsing strategy", block structure): the
-    reference definition (§4.7) whose first raw line is `lines[i]`, or None.
-    Returns (label, destination, n_lines) -- a definition spans at most three
-    lines (label and colon; up to one line ending before the destination; up
-    to one before the title), so a three-line window is the whole grammar.
-    Read from RAW lines, before any inline parsing: a backtick in the
-    destination (`[sib]: slice`x`.md`) is destination text, not a code span.
-    The caller decides whether `i` is a block start (a definition cannot
-    interrupt a paragraph); here the line is only recognised."""
-    text = "\n".join(lines[i:i + 3])
-    defs, _ = reference_definitions(text, limit=1)
-    if not defs:
+    reference definition (§4.7) starting at offset `off` of `block` -- the
+    RAW text of the rest of the paragraph block (every remaining line up to
+    the next blank line, fence or table row; what the block phase hands
+    over), or None.  Returns (label, destination, end_offset).  The label
+    (`link_label`, §6.3: up to 999 characters, may span lines) and the
+    title (`link_title`) are read over that whole text, and §4.7 "may not
+    contain a blank line" holds by construction: the block ends at one.
+    Read before any inline parsing: a backtick in the destination
+    (`[sib]: slice`x`.md`) is destination text, not a code span.  The caller
+    decides whether `off` is a block start (a definition cannot interrupt a
+    paragraph); here the definition is only recognised."""
+    defs, _ = reference_definitions(block, limit=1, start=off)
+    return defs[0] if defs else None
+
+
+def definition_shape(block, off):
+    """Whether `block[off:]` OPENS like a definition -- up to three spaces, a
+    link label, a colon -- whatever follows.  A line of this shape that is
+    not a definition (inside a paragraph, or invalid: a title crossing a
+    blank line, junk after the destination) is text the author meant as a
+    definition: an orphan, so that a shortcut naming its label is reported
+    rather than exempted.  Returns the raw label or None."""
+    j = off
+    while j < off + 3 and j < len(block) and block[j] == " ":
+        j += 1
+    raw, k = link_label(block, j)
+    if raw is None or k >= len(block) or block[k] != ":":
         return None
-    raw, dest, end = defs[0]
-    consumed = text[:end]
-    return raw, dest, consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
+    return raw
 
 
-def reference_definitions(s, limit=None):
-    """CommonMark §4.7 link reference definitions at the START of `s` (raw
-    block text; the caller guarantees a block start).  Consumes consecutive
-    definitions (at most `limit`).  Returns ([(label, dest, end)], rest_offset).
+def reference_definitions(s, limit=None, start=0):
+    """CommonMark §4.7 link reference definitions at offset `start` of `s`
+    (raw block text; the caller guarantees a block start).  Consumes
+    consecutive definitions (at most `limit`).  Returns ([(label, dest,
+    end)], rest_offset).
 
     Grammar: <=3 spaces, a link label, `:`, optional whitespace incl. up to one
     line ending, a destination, optionally whitespace incl. up to one line
     ending and a title, then nothing but spaces/tabs before the line ending.
     """
-    out, i = [], 0
+    out, i = [], start
     while limit is None or len(out) < limit:
         j = 0
         while j < 3 and i + j < len(s) and s[i + j] == " ":

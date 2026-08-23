@@ -722,3 +722,18 @@ rcase("NEGATIVE", "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.m
 case("POSITIVE", "(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the "
                  "document spelling two ids, both reported",
      build(), "The same thing happened to `#11-zz-alpha / 9z`.", 2)
+
+
+# ------------------------------------------------- PR #510 Codex R7 controls --
+
+# R7-1: a definition is parsed over the rest of its block (§4.7: a label may
+# span lines -- here five -- but not a blank line)
+case("POSITIVE-NOVEL", "(def) a label spanning FIVE lines is a definition (§4.7 / §6.3: a label may span "
+                       "lines); the later shortcut resolves and the sibling is scanned",
+     build(), "[the\nfive\nline\nwalk\nlabel]: slice-9z-sib.md\n\nSee [the five line walk label].", 1, **SIB)
+# R7-3: a title crossing a blank line is no title, so the line is no definition
+# (§4.7 "may not contain a blank line"); the shape is an orphan and the later
+# shortcut is a schema miss; child.md is never walked
+rcase("POSITIVE", "(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition: "
+                  "the later `[sib]` is an unresolved reference, rc 2, and child.md is not walked",
+      build(), '[sib]: slice-9z-sib.md "title\n\nmore"\n\nSee [sib].', 2, **SIB)

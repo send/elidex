@@ -51,8 +51,7 @@ MUTANTS = [
      'r"[ \\t]*$"', 'r".*$"',
      ["(fence) a closer followed by text does not close"]),
     ("fence: fenced lines are not paragraph lines (A x B)", TABLES,
-     'if i in self.fenced or i in self.table_lines or is_blank(line):',
-     'if i in self.table_lines or is_blank(line):',
+     '        self.fenced = fenced_lines(self.lines)', '        self.fenced = set()',
      ["(fence) a link inside a fence is not a link (A x B)"]),
     # -- CommonMark §6.1 code spans
     ("span: opener and closer are backtick strings of EQUAL length", LEXER,
@@ -180,7 +179,7 @@ MUTANTS = [
      ["(def) text after the destination is not a definition, so the reference is unanswered: "
       "a schema miss"]),
     ("def: a definition cannot interrupt a paragraph (Phase 1: only at a block start)", TABLES,
-     '            if d is not None and not cur:', '            if d is not None:',
+     '            d = self.definition_at(i) if not cur else None', '            d = self.definition_at(i)',
      ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
@@ -238,8 +237,8 @@ MUTANTS = [
      ["(rc) a link to an absent memo inside a table CELL is rc 2",
       "(population) a violation in a sibling linked ONLY from a cell is reported"]),
     ("F3 population: a destination with a scheme or `//` is not a sibling", TABLES,
-     'if _SCHEME.match(name) or name.startswith("/") or not name.endswith(".md"):',
-     'if name.startswith("/") or not name.endswith(".md"):',
+     'if (_SCHEME.match(name) or name.startswith("/") or _CONTROL.search(name)',
+     'if (name.startswith("/") or _CONTROL.search(name)',
      ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0"]),
     ("F4 attribution: the FIRST marker occurrence decides", TABLES,
      '    m = re.search(re.escape(MARKER), field)',
@@ -305,8 +304,9 @@ MUTANTS = [
       "`child.md` joins the population, absent `parent.md` is not linked",
       "(link) a reference link nested in inline brackets: the inner reference is the link, the "
       "outer tail is text"]),
-    ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", LEXER,
-     '    text = "\\n".join(lines[i:i + 3])', '    text = lines[i]',
+    ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", TABLES,
+     '            text, off = "\\n".join(lines[i:j]), 0',
+     '            text, off = "\\n".join(lines[i:i + 1]), 0',
      ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
       "shortcut naming it is a schema miss, not an exempt citation-style shortcut"]),
     # -- PR #510 Codex R2
@@ -346,18 +346,19 @@ MUTANTS = [
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
      "`%2Ftmp%2Fx.md` -- is not a sibling", TABLES,
-     'if _SCHEME.match(name) or name.startswith("/") or not name.endswith(".md"):',
-     'if _SCHEME.match(name) or not name.endswith(".md"):',
+     'if (_SCHEME.match(name) or name.startswith("/") or _CONTROL.search(name)',
+     'if (_SCHEME.match(name) or _CONTROL.search(name)',
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
       "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
       "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after decoding "
       "(never probes `/tmp/child.md`): rc 0"]),
     # -- design re-gate
-    ("RG-1 def: orphan_definitions resumes at the grammar's rest offset (re-inject the per-line "
-     "re-walk: quadratic)", LEXER,
-     '    text = "\\n".join(lines[i:i + 3])\n    defs, _ = reference_definitions(text, limit=1)',
-     '    text = "\\n".join(lines[i:])\n    defs, _ = reference_definitions(text)',
-     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line over 3000 definition lines"]),
+    ("RG-1 def: orphan detection joins each run ONCE (re-inject a per-line join of the rest: "
+     "quadratic)", TABLES,
+     '            self._defs_at[i] = definition_block(self._run_text[i], self._run_off[i])',
+     '            self._defs_at[i] = (__import__("plan_memo_lexer").reference_definitions('
+     '"\\n".join(self.lines[i:]))[0] or [None])[0]',
+     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"]),
     ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
      "reads it from the opener", LEXER,
      '    raw, _ = link_label(s, opener)\n    if raw is None:', '    raw = s[opener + 1:close]\n    if False:',
@@ -387,12 +388,12 @@ MUTANTS = [
       "(rc) a code-quoted link to an absent file is not a link: rc 0"]),
     # -- PR #510 Codex R5: Phase 1 / Phase 2
     ("R5-1 phase 1: definitions are read from RAW lines (re-inject the inline pre-mask)", LEXER,
-     '    defs, _ = reference_definitions(text, limit=1)',
-     '    defs, _ = reference_definitions(blank_spans(text, code_spans(text)), limit=1)',
+     '    defs, _ = reference_definitions(block, limit=1, start=off)',
+     '    defs, _ = reference_definitions(blank_spans(block, code_spans(block)), limit=1, start=off)',
      ["(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` keeps its "
       "backticks in the destination and the sibling is scanned"]),
     ("R5-4 phase 1: a reference definition is a block start that ends a table", TABLES,
-     '        return starts_block(self.lines[i]) or self.definition_at(i) is not None',
+     '        return starts_block(self.lines[i]) or self.definition_at(i)',
      '        return starts_block(self.lines[i])',
      ["(table) a reference definition right after a schema table ENDS the table (GFM §4.10 block "
       "start): no width miss, the definition resolves, the sibling is walked, rc 0"]),
@@ -405,6 +406,20 @@ MUTANTS = [
      '        k = bisect.bisect_right(self.offsets, i) - 1',
      '        k = 0\n        while k + 1 < len(self.offsets) and self.offsets[k + 1] <= i:\n            k += 1',
      ["unresolved_references scales linearly: t(4N)/t(N) < 8"]),
+    # -- PR #510 Codex R7
+    ("R7-1 def: the definition is parsed over the rest of the block (re-inject a 3-line window)", TABLES,
+     '            text, off = "\\n".join(lines[i:j]), 0',
+     '            text, off = "\\n".join(lines[i:i + 3]), 0',
+     ["(def) a label spanning FIVE lines is a definition (§4.7 / §6.3: a label may span lines); "
+      "the later shortcut resolves and the sibling is scanned"]),
+    ("R7-3 def: a title may not cross a blank line (the block ends at one; re-inject the blank)", TABLES,
+     '            while j < n and not (j in self.fenced or is_blank(lines[j])):',
+     '            while j < n and j not in self.fenced:',
+     ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition: the "
+      "later `[sib]` is an unresolved reference, rc 2, and child.md is not walked"]),
+    ("R7-2 population: a C0 control character in a decoded destination is rejected", TABLES,
+     'or _CONTROL.search(name)', 'or False',
+     ["a decoded destination with a C0 control character is rejected, never resolved"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "

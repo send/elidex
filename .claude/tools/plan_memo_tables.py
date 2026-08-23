@@ -35,8 +35,8 @@ import re
 from urllib.parse import unquote
 
 from plan_memo_lexer import (
-    Lexed, blank_spans, definition_block, delimiter_width, fenced_lines, is_blank, normalize_label,
-    one_line_block, split_row, starts_block,
+    Lexed, blank_spans, definition_block, definition_shape, delimiter_width, fenced_lines, is_blank,
+    normalize_label, one_line_block, split_row, starts_block,
 )
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -385,7 +385,8 @@ class Memo:
         self.text = self.path.read_text()
         self.lines = self.text.split("\n")
         self.fenced = fenced_lines(self.lines)
-        self._defs_at = {}          # line index -> definition_block(...) (read once per line)
+        self._run_text, self._run_off, self._defs_at = {}, {}, {}
+        self._runs()
         self.tables, self.table_lines = find_tables(self)
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
         self.orphans = {}           # normalised label -> {1-based line numbers}
@@ -393,11 +394,33 @@ class Memo:
         for lx in self.lexed():
             lx.resolve(self.defs)
 
+    def _runs(self):
+        """Phase 1's text units, computed ONCE and linearly: a run is the
+        consecutive raw lines no fence or blank line interrupts, joined; each
+        line maps to its run's text and its offset in it (`_run_text` /
+        `_run_off`).  A definition is parsed over the rest of its run -- the
+        text the block phase hands over -- never over a fixed window, and
+        §4.7 "may not contain a blank line" holds because a run ends at one."""
+        lines, i, n = self.lines, 0, len(self.lines)
+        while i < n:
+            if i in self.fenced or is_blank(lines[i]):
+                i += 1
+                continue
+            j = i
+            while j < n and not (j in self.fenced or is_blank(lines[j])):
+                j += 1
+            text, off = "\n".join(lines[i:j]), 0
+            for k in range(i, j):
+                self._run_text[k], self._run_off[k] = text, off
+                off += len(lines[k]) + 1
+            i = j
+
     def definition_at(self, i):
-        """The reference definition whose first raw line is `i`, or None
-        (`definition_block`, computed once per line)."""
+        """The reference definition starting at raw line `i`, parsed over the
+        rest of its run (`definition_block`; computed once per line) -> (label,
+        destination, end offset in the run text) or None."""
         if i not in self._defs_at:
-            self._defs_at[i] = definition_block(self.lines, i)
+            self._defs_at[i] = definition_block(self._run_text[i], self._run_off[i])
         return self._defs_at[i]
 
     def block_start(self, i):
@@ -417,10 +440,12 @@ class Memo:
         return str(self.path)
 
     def _blocks(self):
-        """Phase 1 over the lines no fence or table owns: definition blocks
-        (filling `defs`, first wins) and paragraphs; a definition-shaped line
-        that is not at a block start stays paragraph text and is an orphan.
-        Linear: one three-line window per line."""
+        """Phase 1 over the lines no fence or table owns: definition blocks at
+        a block start (filling `defs`, first wins; each parsed over the rest
+        of its run, `definition_at`) and paragraphs.  A line that opens like
+        a definition (`definition_shape`) but is not one -- inside a
+        paragraph, or invalid -- stays paragraph text and is an orphan.
+        Linear: the runs are joined once (`_runs`); one parse per line."""
         out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
 
         def flush():
@@ -434,18 +459,21 @@ class Memo:
                 flush()
                 i += 1
                 continue
-            d = self.definition_at(i)
-            if d is not None and not cur:
-                # a block start: the definition is a block of its own
-                raw, dest, k = d
-                self.defs.setdefault(normalize_label(raw), dest)
-                i += k
-                continue
+            d = self.definition_at(i) if not cur else None
             if d is not None:
-                # §4.7: a definition cannot interrupt a paragraph -- the line is
+                # a block start: the definition is a block of its own
+                raw, dest, stop = d
+                self.defs.setdefault(normalize_label(raw), dest)
+                consumed = self._run_text[i][self._run_off[i]:stop]
+                i += consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
+                continue
+            shape = definition_shape(self._run_text[i], self._run_off[i])
+            if shape is not None:
+                # §4.7: a definition cannot interrupt a paragraph, and an
+                # invalid one is not a definition -- either way the line is
                 # paragraph text the author meant as a definition
-                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
-            elif starts_block(line):    # `d is None`: the other block starts
+                self.orphans.setdefault(normalize_label(shape), set()).add(i + 1)
+            elif starts_block(line):
                 flush()
             cur.append((i + 1, line))
             if one_line_block(line):
@@ -481,8 +509,9 @@ class Memo:
                 # after decoding -- so `%2Ftmp%2Fx.md` is `/tmp/x.md` and is
                 # rejected like a raw `/tmp/x.md` or `//host/x.md`
                 name = unquote(re.split(r"[#?]", dest, 1)[0])
-                if _SCHEME.match(name) or name.startswith("/") or not name.endswith(".md"):
-                    continue
+                if (_SCHEME.match(name) or name.startswith("/") or _CONTROL.search(name)
+                        or not name.endswith(".md")):
+                    continue            # a C0 control (`child%00.md`) would make `resolve()` raise
                 f = (self.path.parent / name).resolve()
                 if f != self.path.resolve() and f not in out:
                     out.append(f)
@@ -532,6 +561,7 @@ class Memo:
 
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
 _CITE_LABEL = re.compile(r"[a-z][0-9]+")
 

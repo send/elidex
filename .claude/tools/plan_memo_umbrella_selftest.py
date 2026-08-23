@@ -275,31 +275,42 @@ def linear_links_control(M):
 
 
 def linear_orphans_control(M):
-    """The linearity witness for Phase-1 orphan detection: a paragraph of
-    3,000 definition-shaped lines (all orphans -- `text` heads the paragraph)
-    is read by `Memo` with at most 4 `link_label` calls per line (each line
-    is one three-line window, first definition only).  The per-line re-walk
-    over the rest of the block this replaced parsed every remaining
-    definition again per line -- ~4.5 million `link_label` calls, 7.95 s --
-    and the counter stops it at the bound.  The timing is informative."""
+    """The linearity witness for Phase-1 orphan detection, two-fold: a
+    paragraph of N definition-shaped lines (all orphans -- `text` heads the
+    paragraph) is read by `Memo` with at most 4 `link_label` calls per line
+    (one shape parse per line), AND the time scales -- t(4N)/t(N) < 8 over
+    N = 1000 / 4N = 4000, min of 3 runs (linear ~4, quadratic ~16), which is
+    what catches a per-line re-join of the rest of the run, a cost no call
+    count sees.  The per-line re-walk this replaced parsed every remaining
+    definition again per line (~4.5 million `link_label` calls, 7.95 s)."""
     import time
     import plan_memo_lexer      # the freshly loaded module
     import plan_memo_tables
-    lines = 3001
-    text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(lines - 1))
-    with tempfile.TemporaryDirectory() as d:
-        p = pathlib.Path(d) / "orphans.md"
-        p.write_text(text)
-        t0 = time.perf_counter()
-        try:
-            with _count_calls(plan_memo_lexer, "link_label", limit=4 * lines) as c:
-                memo = plan_memo_tables.Memo(p)
-        except _WorkExceeded:
-            return False, "Memo over %d lines exceeded %d link_label calls: not linear" % (lines, 4 * lines)
-        ms = (time.perf_counter() - t0) * 1000
-    n = sum(len(v) for v in memo.orphans.values())
-    return n == lines - 1, "%d orphans, %d link_label calls over %d lines (bound %d; %.1f ms, informative)" % (
-        n, c.calls, lines, 4 * lines, ms)
+
+    def best(n):
+        text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(n - 1))
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "orphans.md"
+            p.write_text(text)
+            t, calls, orphans = [], 0, 0
+            for _ in range(3):
+                t0 = time.perf_counter()
+                with _count_calls(plan_memo_lexer, "link_label", limit=4 * n) as c:
+                    memo = plan_memo_tables.Memo(p)
+                t.append(time.perf_counter() - t0)
+                calls = c.calls
+                orphans = sum(len(v) for v in memo.orphans.values())
+        return orphans, calls, min(t)
+
+    try:
+        o1, c1, t1 = best(1000)
+        o4, c4, t4 = best(4000)
+    except _WorkExceeded:
+        return False, "Memo exceeded 4 link_label calls per line: not linear"
+    ratio = t4 / t1 if t1 else float("inf")
+    ok = o1 == 999 and o4 == 3999 and ratio < 8
+    return ok, "%d/%d orphans, %d/%d link_label calls, t(1000)=%.1f ms t(4000)=%.1f ms ratio %.1f (< 8)" % (
+        o1, o4, c1, c4, t1 * 1000, t4 * 1000, ratio)
 
 
 def scaling_unresolved_control(M):
@@ -333,6 +344,18 @@ def scaling_unresolved_control(M):
         % (t1 * 1000, t4 * 1000, ratio))
 
 
+def control_char_destination_control(M):
+    """A decoded destination holding a C0 control (`child%00.md`) is not a
+    sibling: rejected in the validation line, so `Path.resolve()` never
+    sees it.  An exception from `check()` is caught HERE and is red -- a
+    crash is the defect this control exists for, not a harness accident."""
+    try:
+        res, _ = run_on(M, build(), "See [x](child%00.md).")
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    return res.rc == 0, "rc %d (must be 0, no exception)" % res.rc
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -345,8 +368,9 @@ def registry():
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
     reg["an empty control or mutant registry is a FAIL, never green"] = ("CONTROL", empty_registry_control)
     reg["links() is linear: 30 nested brackets are one inline_pass call"] = ("CONTROL", linear_links_control)
-    reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line over 3000 definition lines"] = ("CONTROL", linear_orphans_control)
+    reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"] = ("CONTROL", linear_orphans_control)
     reg["unresolved_references scales linearly: t(4N)/t(N) < 8"] = ("CONTROL", scaling_unresolved_control)
+    reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
     return reg
 
 
