@@ -60,7 +60,11 @@ PY
 # changes` and an `if:` on a `changes` output. Region = from `  JOB:` to the next
 # line at two-space indent that is not blank/comment/list (the full job-key
 # grammar, quoted and digit-bearing keys included).
-_gated() { printf '%s\n' "$2" | awk -v j="$1" '$0 ~ "^  "j":$" {f=1; next} f && /^  [^ #-]/ {exit} f && /^    needs: changes/ {n=1} f && /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}'; }
+# `_job_region JOB TEXT`: the lines of JOB's region (whole lines, block
+# scalars included -- a region read, not a step parser). Shared by `_gated`
+# and by A-iii §6 Q6, which reads the `tools` job's region for the driver path.
+_job_region() { printf '%s\n' "$2" | awk -v j="$1" '$0 ~ "^  "j":$" {f=1; next} f && /^  [^ #-]/ {exit} f {print}'; }
+_gated() { _job_region "$1" "$2" | awk '/^    needs: changes/ {n=1} /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}'; }
 
 filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # `git show | sed -n` under `pipefail` catches an unresolvable ref, but not the

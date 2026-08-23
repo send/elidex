@@ -62,7 +62,11 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
 - **K1 — one enumeration in the generic tree.** After A-i, `coverage_map` and `cli` import rather than
   enumerate. `preflight`'s copy is A-ii's; K1 completes there.
 - **K2 — the generic core names no elidex file path**, where *file path* means `.claude/(skills|tools)/` plus
-  **two further segments** and *generic core* is **`.claude/tools/`**, not `.claude/tools/_webref/`. The
+  **two further segments** and *generic core* is **`.claude/tools/_webref/` plus the entry script
+  `.claude/tools/webref`** — `DESIGN.md`'s by-responsibility definition. ✅ **Redrawn at #501 R36** (the
+  plan-review altitude for this memo is this PR's converge): an earlier revision bound it to all of
+  `.claude/tools/`, which measured bought zero evidence (both pre-existing sites lie inside `_webref/cli.py`
+  and `webref`) and imported five other-lane trip-wire artifacts into §12(3). The
   tool's own invocation path `.claude/tools/webref` is one segment and occurs **22** times in `origin/main`'s
   `cli.py`; excluding it is intended — an install path is not a path into elidex's tree — and
   `rederive couplings` carries the predicate in the block rather than leaving it implicit in a regex. An
@@ -73,10 +77,11 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
   point is generic core by any reading — 16 lines at `origin/main`, a docstring plus
   `from _webref.cli import main`, the
   docstring being the site — and unlike `cli.py` it has no other routing at all.
-  ✅ **`rederive couplings` now filters to `.claude/tools/`** and reports both pre-existing sites; the owed
-  widening was taken in this commit set, not deferred (§13 item 3).
-- **K3 — the generic core names no Slice-B artifact.** `cite-audit` and `_catalog` are absent from
-  `.claude/tools/` and `.claude/skills/` (matching `origin/main`, measured 0 each at both refs); `webref_data`
+  ✅ **`rederive couplings` ranges over exactly the generic core** (`_webref/` + `webref`) and reports both
+  pre-existing sites (§13 item 3 records the widening-then-redraw).
+- **K3 — the generic core names no Slice-B artifact.** `cite-audit` and `_catalog` are absent from the
+  generic core (`_webref/` + `webref`; matching `origin/main`, measured 0 at both refs — `.claude/skills/` is
+  the **adapter** by `DESIGN.md`'s split and is no longer in K3's range, #501 R36); `webref_data`
   is absent from `spec_labels.py`. Measured (`git grep -lI 'webref_data' origin/main --
   .claude/tools/_webref/`), `webref_data` is **8 files, 6 of them command modules** (`css` `dfn` `element`
   `heading` `idl` `specs`) — the rest are `inventory.py` and `resolver.py`, neither a command module.
@@ -261,7 +266,7 @@ which **T-net** pins.
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct precisely because the point is to freeze the *old* table (K4) | no |
 | **S6** | `_spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the last-resort | no |
 | **S7** | K3 by scan: `cite.?audit` and `_catalog` absent, and `webref_data` absent from `spec_labels.py`. ⚠ **The two ranges are NESTED, not split by tree** — an earlier draft of this row said "split", and there is no partition. Measured, walking each tree under the rule both scanners use: the unit suite ranges over `.claude/tools/_webref/`, **33** files (verified 2026-08-02); `rederive couplings` ranges over `.claude/tools/`, **39** files (verified 2026-08-02) — the same 33 **plus** 6 (`webref` and five elidex trip-wire artifacts) — and `.claude/skills/`, **10** files (verified 2026-08-02). The package is a **strict subset**, and the two scanners use the same regexes, so the suite's two tree-scanning tests have **zero discriminating power** over `couplings`: every plant the suite catches, `couplings` catches. What only `couplings` witnesses is the 6 + 10 files outside the package (verified 2026-08-02). The exception is S7's **third** clause — `webref_data` in `spec_labels.py` — which the suite checks and `couplings` does not | no — `origin/main` satisfies it at both ranges (measured 0), which is the point |
-| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in **`.claude/tools/`**. **Nested the same way**, not "the suite covers the package, `couplings` the rest": `couplings` covers the package **and** the 6 + 10 files outside it (verified 2026-08-02). ⚠ Whether that containment should be removed is a **scope** question over §2's K2/K3 definitions, routed to plan-review; this row only stops describing a partition that does not exist | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
+| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). **Nested**: `couplings` covers the package **and** the entry script; the suite the package only. ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
 | **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 15 test methods (`grep -n 'def test_' …/test_spec_labels.py | wc -l` → 15), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
 
 **UNCHECKED, marked not omitted**: that `shortname_for` and `origin/main`'s `shortname_from_label` are
@@ -299,15 +304,15 @@ live in `couplings`, which is where cross-tree assertions belong and where the w
 *split* between the instruments, and §6's S7/S8 said "split by tree" and "`rederive couplings` the rest".
 Measured, walking each tree under the rule both scanners use (`__pycache__` skipped, undecodable files
 skipped), and with the same two regexes on both sides: the suite ranges over `.claude/tools/_webref/` — **33**
-files; `couplings` ranges over `.claude/tools/` — **39**, the same 33 plus `webref` and the five trip-wire
-artifacts — plus `.claude/skills/` — **10**. The package range is a **strict subset** of the harness's.
+files; `couplings` ranges over the generic core — **34**, the same 33 plus the `webref` entry script (an
+earlier revision ranged over all of `.claude/tools/` — 39, adding five other-lane trip-wire artifacts — plus
+`.claude/skills/` — 10; redrawn at #501 R36). The package range is a **strict subset** of the harness's.
 Verified by planting a violation in each of the three trees, before and after: a package plant turns the
 suite red **and** `couplings` RED, so the suite's two tree-scanning tests discriminate **nothing** that
 `couplings` would miss; `.claude/tools/`-outside-the-package and `.claude/skills/` plants are caught by
 `couplings` alone, and before the widening by neither. What the suite adds over `couplings` is S7's third
 clause (`webref_data` in `spec_labels.py`, which `couplings` does not check) and the schedule it runs on —
-not range. Whether the containment should be removed is a **scope** question over §2's K2/K3 definitions and
-is routed to plan-review, not decided here.
+not range. The containment stays: the scope is §2's generic core, decided at #501 R36.
 
 **One-issue-one-way**: the label enumeration goes three sites → one, two of the three in this slice.
 
@@ -582,21 +587,19 @@ failing everywhere until someone re-adds the remote. Use
 `git clone --local <repo> <tmp> && cd <tmp> && git remote remove origin`, which is isolated and, on this
 repo's 36 MB object store, effectively free.
 
-⚠ **ROUTED TO PLAN-REVIEW, umbrella altitude — K2/K3's scope is mis-drawn, and no check can be right until it
-is redrawn.** A Trigger-B root-cause pass on the Step 4.5 fix found that §2 binds *generic core* to
-`.claude/tools/`, while `DESIGN.md` defines the generic core by responsibility and lists modules all under
-`_webref/`; its only occurrences of `.claude/tools/` are invocation examples. **Measured, the widening buys
-zero evidence** — `git grep -oE '<PATHRE>' origin/main -- .claude/tools/` and the same restricted to
-`.claude/tools/_webref/ .claude/tools/webref` both return **2**, the identical two sites — while importing
-five other-lane artifacts (`layout-box-reader-allowlist.tsv`, `layout-box-reader-trip-wire.sh`, and three
-`*-trip-wire.sh`) into A-i's §12(3) exit criterion, so a Layout-lane edit with no webref content can fail it.
-K3 is mis-drawn a second way: its headline says *the generic core* names no Slice-B artifact, but its body
-ranges over `.claude/skills/`, which by `DESIGN.md`'s own split is the **adapter**. The likely correction —
-bind K2/K3 to `_webref/` plus the `.claude/tools/webref` entry script, and collapse to one enforcement point
-— costs no evidence and removes all cross-lane coupling. **It is not A-i's to take**: re-stating a
-plan-ratified invariant's scope routes to plan-review ([[feedback_plan-ratified-surface-is-a-design-change]]),
-the canonical-site choice is shared with A-ii and A-iii (both cite `couplings`), and wiring a CI trip-wire
-collides with the Layout lane's approved `#11-layoutbox-trip-wire-not-in-ci`.
+✅ **K2/K3 REDRAWN at #501 R36** (the converge of this PR is the plan-review altitude for this memo; Codex
+R36 declined to hand an acknowledged mis-drawn exit criterion forward). A Trigger-B root-cause pass on the
+Step 4.5 fix had found that §2 bound *generic core* to `.claude/tools/`, while `DESIGN.md` defines the generic
+core by responsibility and lists modules all under `_webref/`; its only occurrences of `.claude/tools/` are
+invocation examples. **Measured, the widening bought zero evidence** — `git grep -oE '<PATHRE>' origin/main --
+.claude/tools/` and the same restricted to `.claude/tools/_webref/ .claude/tools/webref` both return **2**, the
+identical two sites — while importing five other-lane artifacts (`layout-box-reader-allowlist.tsv`,
+`layout-box-reader-trip-wire.sh`, and three `*-trip-wire.sh`) into A-i's §12(3) exit criterion, so a Layout-lane
+edit with no webref content could fail it. K3 was mis-drawn a second way: its headline said *the generic core*
+names no Slice-B artifact, but its body ranged over `.claude/skills/`, the **adapter**. The correction — K2/K3
+bound to `_webref/` plus the `.claude/tools/webref` entry script, one enforcement point (`couplings`) — costs
+no evidence and removes all cross-lane coupling. A-ii and A-iii cite `couplings` by name and are unaffected;
+no CI wiring is involved, so `#11-layoutbox-trip-wire-not-in-ci` is untouched.
 
 **Frozen literals.** S5's 15 `SPEC_LABEL_REVERSE` pairs **and** S3b's vendored `COMMON_SHORTNAMES` blurb text
 are both `origin/main` snapshots taken at vendoring time and refreshed never — which is what makes them pins
@@ -667,9 +670,10 @@ owed re-derivation.
    measured, `git cat-file -e` returns **0** and the blob still reads 1196 lines. The conclusion (prefer
    `<commit-that-deleted-it>^`) is sound, but on the ground of **unreachability**
    (`git branch -a --contains ee2d0dc0` → empty), not non-existence.
-3. **Harness edits.** ✅ **Discharged in part**: `couplings`'s path filter is **widened** from
-   `.claude/tools/_webref/` to `.claude/tools/`, so S8 witnesses K2's second site, and the block also gained
-   K3's cross-tree limb (§2, §7, §12(2)/(3)). ✅ **Also discharged — the roster named two things that were
+3. **Harness edits.** ✅ **Discharged**: `couplings`'s path filter was widened from
+   `.claude/tools/_webref/` to `.claude/tools/` so S8 witnesses K2's second site (`webref`), then **redrawn at
+   #501 R36 to exactly the generic core** (`_webref/` + `webref`) once the wider range measured as adding no
+   evidence and five other-lane artifacts; the block also gained K3's entry-script limb (§2, §7, §12(2)/(3)). ✅ **Also discharged — the roster named two things that were
    not blocks.** `all` rolled up as `for f in …; do "$f" || failed="$failed $f(exit $?)"; done`, which reads
    `$f` **after** the block has run; the shell has no lexical scoping, so a block assigning a plain `f`
    renamed its own roster entry. Measured in the eight-entry degraded roster above, before the fix:
@@ -682,8 +686,8 @@ owed re-derivation.
    same move as `_measure`, one level up. ✅ **Discharged (Codex R17)**: `suites` moved from `-Aiii.sh` to
    `-common.sh` — the harness's own seam rule is *cited by more than one memo → `-common.sh`*, and `suites`
    is cited by A-iii **and** the umbrella, which `-Aiii.sh:4` records as a known exception rather than fixing.
-4. Register nothing **new** — A-i introduces no slots. `#11-webref-preflight-inprocess-resolution` is **A-ii's**, and A-ii's
-   own §11 registers it. ⚠ **`#11-preflight-css-module-labels` is a different case and an earlier draft got
+4. Register nothing **new** — A-i introduces no slots. The in-process collapse of `preflight.verify_citation`
+   is **A-ii's in-slice work** (umbrella constraint revised at #501 R36; no slot). ⚠ **`#11-preflight-css-module-labels` is a different case and an earlier draft got
    it wrong**: this memo asserted it was A-ii's, but measured, A-ii's memo mentions it **once**, at `:150`,
    and that line is a *reader-census row* about `SPEC_LABEL_REVERSE`'s four plan-memo readers — not an
    obligation. A-ii's §11 lists **one** own slot and its landing checklist registers only that one. So the

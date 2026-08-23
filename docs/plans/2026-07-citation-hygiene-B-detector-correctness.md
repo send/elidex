@@ -371,7 +371,7 @@ for r in bad[:6]: print("   ", r)
 PY
 ```
 
-Measured: **203 of 948** catalog shortnames do not round-trip — **200** land in the same series at a different level, **3** land in a different series entirely. The dangerous shape is the level collision: `pointerevents4` → `Pointer Events` → `pointerevents3`; `wai-aria-1.3` → `WAI-ARIA` → `wai-aria` (1.2); `webaudio-1.1` → `Web Audio API 1.1` → `webaudio-1.0`; `cssom-1` → `CSSOM` → `cssom`. Consequence under the carve's first-wins scan (`b3a7d469`'s resolver, which B replaces): `coverage-map` would emit a label that `preflight` reads back as a **different spec level**, and citation verification would run against the wrong document.
+Measured on `_data_index()`'s keys — **752** spec entries plus the series aliases it adds, **949** keys at 2026-08-23 (948 on 2026-07-28): **204 of 949** do not round-trip — **201** land in the same series at a different level, **3** in a different series or nowhere. The dangerous shape is the level collision: `pointerevents4` → `Pointer Events` → `pointerevents3`; `wai-aria-1.3` → `WAI-ARIA` → `wai-aria` (1.2); `webaudio-1.1` → `Web Audio API 1.1` → `webaudio-1.0`; `cssom-1` → `CSSOM` → `cssom`. Consequence under the carve's first-wins scan (`b3a7d469`'s resolver, which B replaces): `coverage-map` would emit a label that `preflight` reads back as a **different spec level**, and citation verification would run against the wrong document.
 
 There is a second, smaller hole in the same function: the shortname branch is `if key in catalog` with `key` already lower-cased, so a mixed-case catalog shortname never round-trips — measured, `shortname_for("DOM-Level-2-Style")` → `None`.
 
@@ -379,11 +379,11 @@ There is a second, smaller hole in the same function: the shortname branch is `i
 
 1. `SPECS` pinned map wins, verbatim.
 2. An exact **shortname** match (case-insensitively) wins next, resolving to that spec verbatim.
-3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series**; a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against. Census on the catalog `spec_labels` actually reads — w3c/webref `ed/index.json` (`sources/webref_data.py` `BASE`; **752** entries at 2026-08-23T00:54Z — not browser-specs' own index, whose entry set differs) — finds **two** labels whose title/shortTitle candidates span series: `Cookies: HTTP State Management Mechanism` is the title *and* shortTitle of both `layered-cookies` and `rfc6265bis` (genuinely ambiguous → `UNKNOWN-SPEC`), and `DOM` is the shortTitle of both `dom` and `DOM-Level-2-Style` — *not* ambiguous, because rule 2 resolves it as the shortname `dom` before rule 3 runs (Codex R32; the cumulative `/elidex-review` re-gate caught an earlier draft that measured a different catalog and named a third, `HTTP/2`, which does not collide here: `rfc7540` is absent and `HTTP/2` is `rfc9113`'s shortTitle alone).
+3. A title/shortTitle match resolves to that spec — **unless** the string equals the *series'* own title, in which case it resolves to `series.currentSpecification`. **Rule 3 admits a match only when every candidate entry lies in ONE series**; a label whose title/shortTitle candidates span two or more series is **ambiguous by construction** and resolves to nothing (`cite-audit` reports it as `UNKNOWN-SPEC`, the same class as a catalog miss), and `label_for` never emits such a label (it falls to the shortname, below). No field precedence (title over shortTitle) is defined: that would be a convention deciding which document a citation is verified against. Census on the catalog `spec_labels` actually reads — w3c/webref `ed/index.json` (`sources/webref_data.py` `BASE`; `_data_index()` = **752** spec entries plus series aliases, **949** keys, at 2026-08-23T00:54Z — not browser-specs' own index, whose entry set differs) — finds **two** labels whose title/shortTitle candidates span series: `Cookies: HTTP State Management Mechanism` is the title *and* shortTitle of both `layered-cookies` and `rfc6265bis` (genuinely ambiguous → `UNKNOWN-SPEC`), and `DOM` is the shortTitle of both `dom` and `DOM-Level-2-Style` — *not* ambiguous, because rule 2 resolves it as the shortname `dom` before rule 3 runs (Codex R32; the cumulative `/elidex-review` re-gate caught an earlier draft that measured a different catalog and named a third, `HTTP/2`, which does not collide here: `rfc7540` is absent and `HTTP/2` is `rfc9113`'s shortTitle alone).
 
-Rule 3 is what collapses the level ambiguity structurally: the catalog carries `series.currentSpecification` for every entry, so `cssom`/`cssom-1`, `selectors`/`selectors-4`, `pointerevents`/`pointerevents4` each fold onto one shortname (**661 distinct series** vs 948 shortname keys). A label that names a *level* still resolves to that level.
+Rule 3 is what collapses the level ambiguity structurally: the catalog carries `series.currentSpecification` for every entry, so `cssom`/`cssom-1`, `selectors`/`selectors-4`, `pointerevents`/`pointerevents4` each fold onto one shortname (**661 distinct series** vs 949 index keys). A label that names a *level* still resolves to that level.
 
-Paired with it: **`label_for` must return a label that round-trips, or the shortname.** Measured, **747 of 948** round-trip under the index; the other 201 render as their shortname in `coverage-map` rows. Less pretty, never wrong — and it is the last-resort A-i's `coverage_map._spec_label` now uses — A-i changed it from the upper-cased shortname to the shortname itself (`coverage_map.py` docstring: "The last-resort now returns the shortname itself, which `shortname_for` DOES round-trip"). The round-trip becomes a test over the whole catalog, not a sample.
+Paired with it: **`label_for` must return a label that round-trips, or the shortname.** Measured, **745 of 949** round-trip under the index (2026-08-23); the other 204 render as their shortname in `coverage-map` rows. Less pretty, never wrong — and **B changes `coverage_map._spec_label`'s last resort** from `shortname.upper().replace("-", " ")` — what A-i lands and S6 pins as `CSS TEXT 3` — to the shortname itself; the `commands/coverage_map.py` edit is in B's edit set and S6 is rewritten with it ("Existing tests that must change", §6). (The docstring B lands: "The last-resort now returns the shortname itself, which `shortname_for` DOES round-trip"). The round-trip becomes a test over the whole catalog, not a sample.
 
 #### §4.1.9 — `errors="ignore"` and `except OSError: continue` drop a whole file
 
@@ -421,10 +421,10 @@ real memo is a second decision surface. Each is now stated once, in its own slic
    `preflight.py` for the grammar only.
 2. **`test_preflight.py` will already exist** (A creates it with P1-P6). B's `parse_spec_cell` and
    catalog-availability cases are *additions* to that file, not a new file — check before writing.
-3. **A-i widened the generic-tree scope to all of `.claude/tools/`** — its K2 absolute (no elidex file
-   path) and its S8 scan range over the whole directory, not only `_webref/`, and the harness `couplings`
-   block scans the same widened tree for Slice-B artifact names. B's new files (`commands/cite_audit.py`,
-   `census_underreport.py`) land inside that widened scope: they carry no `crates/**` path, and the one
+3. **A-i's generic-core scope is `_webref/` plus the `webref` entry script** (K2 absolute, S8, and the
+   harness `couplings` block all range over exactly that; an earlier A-i revision widened it to all of
+   `.claude/tools/` and #501 R36 redrew it). B's new files (`commands/cite_audit.py`,
+   `census_underreport.py`) land inside that scope: they carry no `crates/**` path, and the one
    exemption B adds to `couplings` (§6, the S7 retirement bullet) names B's canonical paths only. This is
    the third seam — the earlier list named two and `rederive bmemo` item 8 read it as missing.
 
@@ -486,7 +486,7 @@ Measured: `§Deferred` → section `D`; `§C1` → section `C1`; both then reach
 | `--strict` fails on UNATTRIBUTED | `TestStrictExitCode` extension; **plus** a `cli.main` end-to-end case (below) |
 | A corrupt cached extract is reported once, as itself | `test_cite_audit.py` with a truncated fixture extract; asserts the message names the cache and that **no** citation is reported UNRESOLVED |
 | `_catalog()` distinguishes unavailable from empty | `test_spec_labels.py` **S12** with `urlopen` patched to raise `URLError` — asserts no `SystemExit` escapes and the result is *unavailable* |
-| Every catalog shortname round-trips | `test_spec_labels.py` **S9** over all **948** entries under the §4.1.8 index rules |
+| Every catalog shortname round-trips | `test_spec_labels.py` **S9** over every key of the catalog fixture, population derived and reported, never a literal |
 | The suites run at all | **Slice A** — `mise run tools-test` + the GitHub `tools` job. B inherits enforcement rather than building it, which is why B's own exit criterion (§12) can be a red/green pair rather than "and something runs it" |
 | The nine classes are *all* the under-report paths | **UNCHECKED.** Nine is what execution found; it is not a proof of exhaustion. §10-Q1 is the honest mitigation, and the `REJECTED-TOKEN` / `UNKNOWN-SPEC` / `SKIPPED` classes exist precisely so a tenth class surfaces as a count instead of as silence |
 | The 2026-07-28 counts in this memo | **Re-derivable, not pinned.** Every one ships its command; none is asserted from memory. They will drift as the tree changes — that is expected, and §12's exit criterion does not depend on any of them |
@@ -548,11 +548,11 @@ New/changed tests, by file. Every one must **fail against the unfixed detector**
 (S3b included) and T-net, the only mechanical enforcement of A-i's K2/K3 boundaries. An earlier revision
 headed this list "(new)" and numbered B's pins S1–S5, a collision that would have had B's implementer author
 a fresh file and drop A-i's suite (Codex R14). B's pins **continue A-i's numbering**; read the file first.
-- **S9** round-trip over **all 948** catalog entries under the §4.1.8 rules.
+- **S9** round-trip over **every key `_catalog().entries` returns** under the §4.1.8 rules — the population is derived from the fixture and printed in the assertion message, never a literal (949 at 2026-08-23, 948 at 2026-07-28: a literal drifts with upstream).
 - **S10** level collisions resolve to the level named (`pointerevents4` ≠ `pointerevents3`); level-less series titles resolve to `series.currentSpecification`.
 - **S11** mixed-case shortname (`DOM-Level-2-Style`) round-trips.
 - **S12** `urlopen` raising `URLError` → no `SystemExit` escapes; `_catalog().available is False` with `cause` naming `URLError` — the *unavailable* branch, not an available empty `entries`.
-- **S13** pinned `SPECS` win over the catalog for every pinned key.
+- **S13** pinned `SPECS` win over the catalog for every pinned key. ⚠ **Baseline-green** at A-i's head (the pinned-only `shortname_for` already returns every `SPECS` mapping, Codex R36), so S13 is not in §12(2)'s red roster; its check is a **mutation**: deleting the `SPECS`-first branch of the §4.1.8 index must turn it red.
 - **S14** cross-series ambiguity, on the live catalog and on a two-series stub: `shortname_for("Cookies: HTTP State Management Mechanism")` is `None` (title and shortTitle of both `layered-cookies` and `rfc6265bis`); `shortname_for("DOM")` is `"dom"` (rule 2 precedes rule 3, so `DOM-Level-2-Style`'s shortTitle never competes); `label_for("layered-cookies")` and `label_for("rfc6265bis")` each return their shortname, never the shared title. The stub half keeps the pin red-able if the upstream index ever drops one of the pair.
 
 **`test_preflight.py`** (created by Slice A — B **adds** to it, does not create it):
@@ -651,7 +651,7 @@ scheduler exists (so A precedes B).
 
 ## §11 Defer slots + per-PR ≤3 audit
 
-**Two own deferrals** against a budget of ≤3 ([[feedback_defer_cap_policy]]). Both are non-spec tooling cleanups, so they are named `cleanup-webref-*` rather than `#11-*` — but they are **counted against the cap anyway**, because the discipline is restraint, not accounting. A third, `cleanup-webref-preflight-inprocess-resolution`, went to **Slice A** with the file it concerns; B must not re-register it.
+**Two own deferrals** against a budget of ≤3 ([[feedback_defer_cap_policy]]). Both are non-spec tooling cleanups, so they are named `cleanup-webref-*` rather than `#11-*` — but they are **counted against the cap anyway**, because the discipline is restraint, not accounting. The in-process collapse of `preflight.verify_citation` is **A-ii's in-slice work** (umbrella constraint, revised at #501 R36), not a slot of anyone's; B pins its catalog-unavailable branch through that single path (P4, P-CSS).
 
 | Slot | 4-question audit |
 |---|---|
@@ -704,14 +704,14 @@ missing=0
 # Pin IDs, not placeholder test names: every B test is named `test_<PIN>_…`
 # (`test_T3_css_module_label_resolves`, `test_S14_cross_series_is_ambiguous`),
 # so the recipe is runnable as written and §6's column stays the only list.
-for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 C1 S9 S10 S11 S12 S13 S14 P4 P5 P-CSS; do
+for pin in T1 T2 T3 T3b T4 T5 T6 T7 T8 T9 C1 S9 S10 S11 S12 S14 P4 P5 P-CSS; do   # S13 is baseline-green (§6)
   grep -qE "^(FAIL|ERROR): test_${pin//-/_}_" /tmp/citeaudit-pre.log || { echo "!! expected red, not red: $pin"; missing=1; }
 done
 [ "$missing" -eq 0 ] && echo "every pin red against the unfixed detector" || exit 1
 ```
 
 The new tests run against the **unfixed** detector — `b3a7d469`'s `cite_audit.py` on A's landed tree. The loop names each pin by its §6 ID and B's tests carry that ID in their name (`test_<PIN>_…`, one per
-T1–T9, C1, S9–S14, P4, P5, P-CSS), so the recipe runs as written and fails unless every one is
+T1–T9, C1, S9–S12, S14, P4, P5, P-CSS — S13 is baseline-green and checked by mutation, §6), so the recipe runs as written and fails unless every one is
 individually red. A test that
 passes here pins nothing — the failure mode `test_prefix_tolerant_resolver_is_pinned_to_an_exact_match`
 already demonstrates in-tree (§6).

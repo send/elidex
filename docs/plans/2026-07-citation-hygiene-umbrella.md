@@ -105,10 +105,13 @@ contract for the fall-through it introduces**, which is a constraint below.
   unmapped is the property under test, and must be marked as such.
 - **A check must derive its own coverage, not only its values.** Round 8 and round 9 of Slice A's review both found blocks that printed a correct number while their stated derivation ranged over the wrong set — a grep that discarded the lines the memo cited it for, instrumentation sited in the branch where the defect was already fixed. A derivation that cannot witness the claim's negation is not a check.
 - **No slice may make label resolution require the network without shipping its offline degradation in the same slice.** Slice B introduces the catalog fall-through and therefore owns the offline contract for it.
-- **The plan-review gate reaches its shared library one way.** Slice B, which lands the offline contract,
-  collapses `verify_citation`'s subprocess onto the in-process resolver in the same slice. ⚠ **To be
-  registered as `#11-webref-preflight-inprocess-resolution` by A-ii** — measured, it is in no ledger today, so
-  no memo may describe it as already tracked.
+- **The plan-review gate reaches its shared library one way.** **A-ii**, which rewrites the gate's
+  resolution path, collapses `verify_citation`'s subprocess onto the in-process resolver **in its own
+  slice**. ⚠ Revised at #501 R36: this bullet assigned the collapse to B while A-ii registered it as a defer
+  slot, so both slices declined it and two resolution paths with different offline semantics would have
+  survived B's landing. A-ii's in-process resolver is pinned-only (K3 holds until B), and B's
+  catalog-unavailable branch is then pinned **through that single path** (P4, P-CSS). No
+  `#11-webref-preflight-inprocess-resolution` slot exists or is to be registered.
 - **Review cost tracks blast radius.** ⚠ Added after A-i's round 2 returned 38 IMP of which **one** was a
   defect in the change and the rest were defects in its description. A slice memo is a record of decisions,
   not a second specification: where the diff and the tests are the canonical statement of what the code does,

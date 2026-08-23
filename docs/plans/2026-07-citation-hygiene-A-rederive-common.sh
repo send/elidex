@@ -209,17 +209,19 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   #   PKG     `.claude/tools/_webref/` — the package. The by-role CONCEPT
   #           listing below is about the prose A-i rewrote, which lives here.
   #           `test_spec_labels.py` pins K2 and K3 over exactly this tree.
-  #   GENERIC `.claude/tools/` — what §2 defines the generic core to be, and
-  #           what K2 is an absolute over. WIDER than the package: it also
-  #           holds five elidex trip-wire artifacts owned by other lanes.
-  # The unit suite scans PKG only, so GENERIC minus PKG -- and `.claude/skills/`
-  # for K3 -- can be witnessed HERE and nowhere else. Verified by planting a
-  # violation in each of the three trees; before this widening a plant in
-  # `.claude/tools/` outside the package and a `cite-audit` plant in
-  # `.claude/skills/` both left this block GREEN.
+  #   GENERIC the package PLUS the entry script `.claude/tools/webref` — what
+  #           A-i §2 defines the generic core to be (DESIGN.md's
+  #           by-responsibility split), and what K2/K3 are absolutes over.
+  #           REDRAWN at #501 R36: this used to be all of `.claude/tools/`,
+  #           which measured added no evidence (both pre-existing K2 sites are
+  #           in `_webref/cli.py` and `webref`) and pulled five other-lane
+  #           trip-wire artifacts into §12(3); `.claude/skills/` is the
+  #           adapter and is out of K3's range for the same reason.
+  # The unit suite scans PKG only, so GENERIC minus PKG (the entry script) is
+  # witnessed HERE and nowhere else. Verified by planting a violation in each
+  # tree.
   local PKG='.claude/tools/_webref/'
-  local GENERIC='.claude/tools/'
-  local SKILLS='.claude/skills/'
+  local GENERIC=('.claude/tools/_webref/' '.claude/tools/webref')
   local CONCEPT='\.claude/skills|elidex-plan-review|plan-review|plan-memo|memos abbreviate'
   # An elidex FILE PATH is what DESIGN.md's closing rule forbids; by-role prose it
   # permits. Draft 8 offered one mixed 25-line list as the check for a claim about
@@ -266,7 +268,7 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # the same needle over the same ref -- a shape in which the listing and the
   # count can disagree and neither one's status is read.
   local n_base
-  _measure --nomatch 1 n_base git grep -noE "$PATHRE" "$MAIN" -- "$GENERIC" || failed=1
+  _measure --nomatch 1 n_base git grep -noE "$PATHRE" "$MAIN" -- "${GENERIC[@]}" || failed=1
   _measured
   echo "   count: $n_base"
   # SUPERSEDED, A-i round 1: this block used to gate on the DELTA -- `comm -13`
@@ -278,7 +280,7 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # pre-existing instance counts against it like any other.
   echo "-- FILE PATHS only, HEAD, GENERIC — §12(3)'s actual check (working tree) --"
   local n_head n_ahalf
-  _measure n_head _wtscan "$PATHRE" "$GENERIC" || failed=1
+  _measure n_head _wtscan "$PATHRE" "${GENERIC[@]}" || failed=1
   _measured
   # An EMPTY `AHALF` is not "A's half has no paths": `git grep -- ` with no
   # pathspec ranges over the WHOLE repo, so the census failing above turned this
@@ -297,22 +299,21 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3's CROSS-TREE halves
   # 0 -- and when it moves, this line says so and the two memo sentences get
   # rewritten, rather than staying true-looking beside a green block.
   [ "$n_base" = 2 ] || { echo "!! origin/main baseline is $n_base, not the 2 A-i §4.2 S8 / §13.1 argue from"; failed=1; }
-  # K3's CROSS-TREE half. The unit suite scans PKG, so a Slice-B artifact name
-  # re-imported anywhere else under GENERIC, or into `.claude/skills/`, is
-  # invisible to it. Unlike the suite, this block spells the needles plainly:
+  # K3's entry-script half. The unit suite scans PKG, so a Slice-B artifact name
+  # re-imported into the entry script is invisible to it. Unlike the suite, this block spells the needles plainly:
   # it lives in `docs/plans/`, which is in NEITHER scope, so it cannot match
   # itself the way an in-tree test file would.
-  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC + SKILLS (K3 / S7 cross-tree, working tree) --"
-  # At A-i's head NO exemption: any `cite_audit` / `_catalog` under GENERIC or
-  # SKILLS is a K3 violation. Slice B's landing adds its canonical paths
+  echo "-- SLICE-B ARTIFACT NAMES, HEAD, GENERIC (K3 / S7 cross-tree, working tree) --"
+  # At A-i's head NO exemption: any `cite_audit` / `_catalog` under GENERIC is
+  # a K3 violation. Slice B's landing adds its canonical paths
   # (`commands/cite_audit.py`, `spec_labels.py`) as the one exemption and keeps
   # the rest of the scan (B §6, the S7 retirement bullet — Codex R21).
   local B_ART='cite.?audit' B_FT='_catalog'
   local n_art n_base_art
-  _measure n_art _wtscan "$B_ART|$B_FT" "$GENERIC" "$SKILLS" || failed=1
+  _measure n_art _wtscan "$B_ART|$B_FT" "${GENERIC[@]}" || failed=1
   _measured
   _measure --nomatch 1 n_base_art \
-    git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "$GENERIC" "$SKILLS" || failed=1
+    git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "${GENERIC[@]}" || failed=1
   echo "   Slice-B artifact names at HEAD (K3 / S7 — MUST BE 0) : $n_art"
   echo "   pre-existing on origin/main (must also be 0)         : $n_base_art"
   # THE VERDICT IS A RETURN STATUS, not only a printed line. §12(3) names this

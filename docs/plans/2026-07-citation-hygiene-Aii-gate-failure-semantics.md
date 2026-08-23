@@ -496,18 +496,13 @@ absent.
 
 ## §11 Defer slots + per-PR ≤3 audit
 
-**One own deferral.**
-
-| Slot | `#11-webref-preflight-inprocess-resolution` |
-|---|---|
-| **Why deferred** | the collapse is small, but it decides the offline contract for the resolver, which is Slice B's. Folding it in would settle B's policy by side effect — the failure §4.2.3 exists to stop |
-| **Re-evaluation trigger** | Slice B landing the catalog fall-through |
-| **Re-evaluation date** | 2026-10-31 |
-| **Confidence** | High — the consumer is named and the trigger is a slice already planned |
-
-⚠ It is an **own** deferral, not a pre-existing one: `origin/main`'s `preflight.py` has **no `_webref`
-import**, so the in-process reach is created by A-i and inherited here. The umbrella carries a
-forward-binding constraint as the **pointer**; this table is the record.
+**No own deferral.** An earlier revision registered `#11-webref-preflight-inprocess-resolution` here and the
+umbrella assigned the same collapse to B — so neither slice would have done it (Codex R36). **A-ii does it**:
+`verify_citation` calls the in-process resolver (`_webref.resolver` / `spec_labels.shortname_for`) instead of
+spawning the CLI, in this slice's edit set (§4.2). It does not settle B's catalog policy by side effect: A-ii's
+resolver is pinned-only (K3 holds until B lands), and B's catalog-unavailable branch is pinned through this
+single path by P4 / P-CSS. T-net's in-process clause (`urlopen` never called) is the pin that the collapse
+reaches no network at A-ii's head.
 
 **Pre-existing, not counted**: `#11-elidex-ci-required-status-checks` — the ruleset has no
 `required_status_checks` rule, so every CI job is advisory, and a bypass actor makes the rule alone
@@ -554,8 +549,8 @@ re-runs preflight from each worktree that authors a plan-memo and records the re
 **Landing checklist**
 
 1. Re-run preflight from each plan-memo-authoring worktree → `rederive lanes` derives the set.
-2. Register `#11-webref-preflight-inprocess-resolution` in `project_open-defer-slots.md`. Measured, it
-   exists in no ledger today, so no sentence may describe it as already recorded.
+2. (Removed at #501 R36 — there is no `#11-webref-preflight-inprocess-resolution` slot; the collapse is
+   A-ii's in-slice work, §11.)
 3. Update `project_citation-hygiene-program.md` with A-ii's outcome.
 4. PR description: §4.2.1's instrument table, §4.2.5's contract change, and the two inherited CRITs.
 

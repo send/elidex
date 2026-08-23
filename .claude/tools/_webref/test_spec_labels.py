@@ -26,8 +26,8 @@ from _webref.commands import coverage_map  # noqa: E402
 # on `origin/main` existed only in the elidex adapter) would make a package
 # test depend on where the package is checked out, and would put unrelated
 # elidex artifacts under `.claude/tools/` inside a webref unit test's blast
-# radius. K2's and K3's CROSS-TREE halves — the wider `.claude/tools/` and
-# `.claude/skills/` — are checked by `rederive couplings`, where cross-tree
+# radius. K2's and K3's other half — the entry script `.claude/tools/webref`,
+# outside the package — is checked by `rederive couplings`, where cross-tree
 # assertions belong.
 WEBREF_PKG = Path(__file__).resolve().parent
 
@@ -269,10 +269,10 @@ class TestSliceBoundary(unittest.TestCase):
     looked at which files exist would pass on the failure it exists for.
 
     Scoped to `WEBREF_PKG`, which is the tree these pins are actually about.
-    K2 and K3 both range wider than the package (`.claude/tools/` and
-    `.claude/skills/`); that half is `rederive couplings`', so a violation
-    planted outside the package turns the harness red and leaves this suite
-    green — verified by planting one.
+    K2 and K3 also cover the entry script `.claude/tools/webref`, outside the
+    package; that half is `rederive couplings`', so a violation planted there
+    turns the harness red and leaves this suite green — verified by planting
+    one.
     """
 
     # Assembled from fragments on purpose: written whole, the needles would
