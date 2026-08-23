@@ -66,7 +66,11 @@ PY
 # The header matches the key plain or quoted (`  check:` / `  "check":` /
 # `  'check':`), the same key grammar the boundary rule admits (Codex R37).
 _job_region() { printf '%s\n' "$2" | awk -v j="$1" -v q="'" '$0 ~ "^  [\"" q "]?" j "[\"" q "]?:$" {f=1; next} f && /^  [^ #-]/ {exit} f {print}'; }
-_gated() { _job_region "$1" "$2" | awk '/^    needs: changes/ {n=1} /^    if: needs\.changes\.outputs\.(rust|config) == .true./ {g=1} END {exit !(n && g)}'; }
+# "Gated" = the COMPLETE approved condition, anchored: `needs.changes.outputs.<set>
+# == 'true'` with at most the intentional push exception (`|| github.event_name ==
+# 'push'`, which is how main gets every job). A prefix match certified
+# `… == 'true' || always()` -- a job that runs on every PR -- as gated (Codex R38).
+_gated() { _job_region "$1" "$2" | awk -v q="'" '/^    needs: changes$/ {n=1} $0 ~ ("^    if: needs\\.changes\\.outputs\\.(rust|config) == " q "true" q "( \\|\\| github\\.event_name == " q "push" q ")?$") {g=1} END {exit !(n && g)}'; }
 
 filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
   # `git show | sed -n` under `pipefail` catches an unresolvable ref, but not the
@@ -108,6 +112,11 @@ filters() {  # §4.3.2 — ci.yml's path filters at the base A-iii argues from
     echo "!! boundary control: an ungated \`check\` borrowed \`helper_2\`'s gates"; rc=1; fi
   if _gated check "$(printf 'jobs:\n  check:\n    needs: changes\n    if: needs.changes.outputs.rust == '"'"'true'"'"'\n  \"doc\":\n    runs-on: x\n')"; then :; else
     echo "!! boundary control: a gated \`check\` read as ungated"; rc=1; fi
+  # Condition controls: the push exception is gated; an `|| always()` tail is not.
+  if _gated check "$(printf 'jobs:\n  check:\n    needs: changes\n    if: needs.changes.outputs.rust == '"'"'true'"'"' || github.event_name == '"'"'push'"'"'\n')"; then :; else
+    echo "!! condition control: the approved push exception read as ungated"; rc=1; fi
+  if _gated check "$(printf 'jobs:\n  check:\n    needs: changes\n    if: needs.changes.outputs.rust == '"'"'true'"'"' || always()\n')"; then
+    echo "!! condition control: an \`|| always()\` job read as gated"; rc=1; fi
   # A missing job is not an ungated one: the claim is "present AND ungated",
   # and an awk that never saw the header exited 0 on the pre-#496 workflow
   # (Codex R12). Both halves are required.
@@ -274,10 +283,26 @@ def pep604(tree, future):
                         return True
                 if node.returns is not None and has_bitor(node.returns):
                     return True
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.BitOr):
-            ops = [node.value.left, node.value.right]
-            if all(isinstance(o, (ast.Name, ast.Attribute, ast.Subscript)) or (isinstance(o, ast.Constant) and o.value is None) for o in ops):
-                return True
+        # An assignment's VALUE is evaluated whatever the future import says, so
+        # any type-shaped `X | Y` anywhere inside it -- `str | bytes | None`
+        # (a BitOr whose left operand is itself a BitOr), `list[str | bytes]`
+        # (a BitOr under a Subscript) -- raises on 3.9 (Codex R38). "Type-shaped"
+        # = both operands are names / attributes / subscripts / None / further
+        # unions. A runtime `flags | MASK` of two bare names is indistinguishable
+        # statically and reads RED: the safe direction. Dotted operands are NOT
+        # type-like: `re.IGNORECASE | re.MULTILINE` is the tree's only dotted
+        # `|` (measured: `git ls-files '.claude/**/*.py' | xargs grep -nE
+        # '\b\w+\.\w+\s*\|\s*\w'` → re-flag ORs only), so a dotted
+        # `mod.Type | None` alias would be missed -- a stated limit, not a claim.
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            def typelike(o):
+                return (isinstance(o, ast.Name) or
+                        (isinstance(o, ast.Constant) and o.value is None) or
+                        (isinstance(o, ast.Subscript) and typelike(o.value)) or
+                        (isinstance(o, ast.BinOp) and isinstance(o.op, ast.BitOr) and typelike(o.left) and typelike(o.right)))
+            for sub in ast.walk(node.value):
+                if isinstance(sub, ast.BinOp) and isinstance(sub.op, ast.BitOr) and typelike(sub.left) and typelike(sub.right):
+                    return True
     return False
 need, bad = {}, []
 for f in files:
