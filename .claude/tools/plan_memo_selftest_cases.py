@@ -5,7 +5,9 @@ Every control is ONE record shape, `Case`: a fixture, a prose tail, an
 optional sibling and extra files, a MEASURE and the EXACT value it must take.
 Measures: `"sites"` (reported naming sites), `"rc"` (exit status),
 `("finding", CODE)` (count of one finding code), `("note", TEXT)` (count of
-report notes carrying TEXT), `("id", RID)` (1 if RID is declared, else 0).
+report notes carrying TEXT), `("id", RID)` (1 if RID is declared, else 0),
+`("schema", TEXT)` (count of SCHEMA findings carrying TEXT -- the one measure
+that reads an rc-2 run, and requires rc 2 exactly when it counts one).
 `case` / `acase` / `rcase` are spellings of the same record for the three
 common measures.  The control kinds (POSITIVE / POSITIVE-NOVEL / NEGATIVE /
 KNOWN-MISS) are defined in `plan_memo_umbrella_selftest.py`, which runs these
@@ -341,8 +343,10 @@ case("POSITIVE-NOVEL", "(link) label matching collapses internal whitespace",
 case("POSITIVE-NOVEL", "(link) label matching is a Unicode case FOLD, not lower()",
      build(), "See [the straße][].\n\n[THE STRASSE]: slice-9z-sib.md", 1, **SIB)
 case("NEGATIVE", "(link) `[label][undefined]` is neither a full reference nor a shortcut "
-                 "(§6.3: a shortcut is not followed by a link label)",
-     build(), "See [the walk][nope].\n\n[the walk]: slice-9z-sib.md", 0, **SIB)
+                 "(§6.3 Example 571: a shortcut is not followed by a link label) -- the "
+                 "unanswered label is a schema miss, not a link to the sibling",
+     build(), "See [the walk][nope].\n\n[the walk]: slice-9z-sib.md", 1, **SIB,
+     measure=("schema", "unresolved reference 'nope'"))
 case("POSITIVE-NOVEL", "(link) full reference whose text holds nested brackets; the label "
                        "is the link's tail, not prose, and so is the definition",
      build(), "See [the [x] walk][9z].\n\n[9z]: slice-9z-sib.md", 1, **SIB)
@@ -351,10 +355,14 @@ case("POSITIVE-NOVEL", "(def) the FIRST definition of a label wins",
      sibling=VIOLATION, files={"clean.md": "nothing here.\n"})
 case("POSITIVE-NOVEL", "(def) one line ending is allowed before the destination",
      build(), "See [the walk][sib].\n\n[sib]:\nslice-9z-sib.md", 1, **SIB)
-case("NEGATIVE", "(def) text after the destination is not a definition",
-     build(), "See [the walk][sib].\n\n[sib]: slice-9z-sib.md junk", 0, **SIB)
-case("NEGATIVE", "(def) a definition cannot interrupt a paragraph",
-     build(), "See [the walk][sib].\n\ntext\n[sib]: slice-9z-sib.md", 0, **SIB)
+case("NEGATIVE", "(def) text after the destination is not a definition, so the reference "
+                 "is unanswered: a schema miss",
+     build(), "See [the walk][sib].\n\n[sib]: slice-9z-sib.md junk", 1, **SIB,
+     measure=("schema", "unresolved reference 'sib'"))
+case("NEGATIVE", "(def) a definition cannot interrupt a paragraph: the reference is "
+                 "unanswered, and reported ONCE (`[text][label]` re-scans `[label]`)",
+     build(), "See [the walk][sib].\n\ntext\n[sib]: slice-9z-sib.md", 1, **SIB,
+     measure=("schema", "unresolved reference 'sib'"))
 case("NEGATIVE", "(link) a link inside a code span is not a link (A x B)",
      build(), "The memo says `[the walk](absent-file.md)` and stops.", 0)
 
@@ -415,17 +423,30 @@ case("POSITIVE", "(id) the `Intl`-shaped cell declares the 4-character id at its
      build(i7z=INTL), "", 1, measure=("id", "Intl"))
 case("NEGATIVE", "(id) the `Intl`-shaped cell never mints the whole cell as an id",
      build(i7z=INTL), "", 0, measure=("id", INTL))
-case("NEGATIVE", "(id) a cell that does not start with an id declares nothing",
-     build(i7z="(none)"), "", 0, measure=("id", "(none)"))
-case("POSITIVE", "(id) a non-empty id cell that is not an id is reported as a note",
-     build(i7z="(none)"), "", 1, measure=("note", "[ID-CELL]"))
-case("NEGATIVE", "(id) an id cell `-` is empty: not declared, not reported",
-     build(i7z="-"), "", 0, measure=("note", "[ID-CELL]"))
+case("POSITIVE", "(id) a cell that does not start with an id declares nothing: the row is "
+                 "unkeyed (its Deps edge would go unasserted), so the run is a schema miss",
+     build(i7z="(none)"), "", 1, measure=("schema", "id cell does not start with an id"))
+case("NEGATIVE", "(id) an id cell `-` is empty: not declared, not a schema miss",
+     build(i7z="-"), "", 0, measure=("schema", "id cell does not start with an id"))
+case("NEGATIVE", "(id) an id cell `–` (en dash) is empty by shape",
+     build(i7z="\u2013"), "", 0, measure=("schema", "id cell does not start with an id"))
 case("NEGATIVE", "(id) an id cell `-` is not an id",
      build(i7z="-"), "", 0, measure=("id", "-"))
 acase("POSITIVE", "(c-seed) a Deps cell `n/a` is empty, so ordering prose is reported",
       build(s7z="Terminal.  This row lands first; the probe must return 3.", d7z="n/a"),
       "ORDER-PROSE?", 1)
+acase("POSITIVE", "(c-seed) a Deps cell `N/A` is empty (the lexical exception is case-insensitive)",
+      build(s7z="Terminal.  This row lands first; the probe must return 3.", d7z="N/A"),
+      "ORDER-PROSE?", 1)
+acase("POSITIVE", "(c-seed) a Deps cell `–` (en dash) is empty by shape: no alphanumeric",
+      build(s7z="Terminal.  This row lands first; the probe must return 3.", d7z="\u2013"),
+      "ORDER-PROSE?", 1)
+acase("POSITIVE", "(c-seed) a Deps cell `--` is empty by shape",
+      build(s7z="Terminal.  This row lands first; the probe must return 3.", d7z="--"),
+      "ORDER-PROSE?", 1)
+acase("POSITIVE", "(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT "
+                  "empty: the stated polarity is a reported edge (false rc 1), never a silent skip",
+      build(d9z="nil"), "UMBRELLA-CELL", 1)
 
 # F2 / F3: the population is read from every block, and only from local paths
 rcase("POSITIVE", "(rc) a link to an absent memo inside a table CELL is rc 2",
@@ -482,18 +503,19 @@ case("NEGATIVE", "(link) a `#11-` slug in a link DESTINATION is not a naming sit
      build(), "See [the slot](#11-zz-alpha) for the close rule.", 0)
 
 # F13: a reference no definition answers is reported, not silently dropped
-case("POSITIVE", "(link) a full reference no definition answers is reported as unresolved",
+# F13 / Stage 6 #1: a reference no definition answers means the memo it meant
+# to link is outside the population -- §1 "could not scan" is never clean
+case("POSITIVE", "(link) a full reference no definition answers is a schema miss",
      build(), "See [the walk][sib].", 1,
-     measure=("note", "[LINK] unresolved reference 'sib'"))
-case("POSITIVE", "(link) a full reference whose definition sits mid-paragraph is reported ONCE",
-     build(), "See [the walk][sib].\n\ntext\n[sib]: slice-9z-sib.md", 1,
-     measure=("note", "[LINK] unresolved reference 'sib'"))
-case("POSITIVE", "(link) a shortcut whose only definition sits mid-paragraph is reported as unresolved",
+     measure=("schema", "unresolved reference 'sib'"))
+rcase("POSITIVE", "(rc) a full reference no definition answers is rc 2, never clean",
+      build(), "See [the walk][sib].", 2)
+case("POSITIVE", "(link) a shortcut whose only definition sits mid-paragraph is a schema miss",
      build(), "See [the walk].\n\ntext\n[the walk]: slice-9z-sib.md", 1,
-     measure=("note", "[LINK] unresolved reference 'the walk'"))
-case("NEGATIVE", "(link) a `[C19]` citation is a shortcut with no definition anywhere: no note",
+     measure=("schema", "unresolved reference 'the walk'"))
+case("NEGATIVE", "(link) a `[C19]` citation is a shortcut with no definition anywhere: no miss",
      build(), "Per [C1] the probe must return 3.", 0,
-     measure=("note", "[LINK] unresolved reference"))
+     measure=("schema", "unresolved reference"))
 
 # C8: slug disposition is the disposition step's, not the scanner's
 case("POSITIVE", "(span) a kept slug inside a command-line code span is a naming site",
@@ -504,3 +526,63 @@ acase("NEGATIVE", "(accept-vocab seed) a row whose marker is ATTRIBUTED to anoth
                   "and owes no acceptance condition",
       build(sqx="Slice **9z** — **UMBRELLA, not a terminal unit** — points there."),
       "ACCEPT-VOCAB?", 0)
+
+
+# ------------------------------------------- /elidex-review Stage 6 controls --
+
+# #3: a bare id is bounded by the COMPLEMENT of the id-continuation class, not
+# by a punctuation list (`?` / `!` / `"` / `“ ”` were unreported under the list)
+case("POSITIVE-NOVEL", "(bare) an id before `?` is bounded",
+     build(), "Who integrates it -- 9z?", 1)
+case("POSITIVE-NOVEL", "(bare) an id before `!` is bounded",
+     build(), "The integrator is 9z!", 1)
+case("POSITIVE-NOVEL", "(bare) an id inside ASCII double quotes is bounded",
+     build(), 'The integrator is "9z" here.', 1)
+case("POSITIVE-NOVEL", "(bare) an id inside curly double quotes is bounded",
+     build(), "The integrator is \u201c9z\u201d here.", 1)
+case("NEGATIVE", "(bare) a hyphen continues the token: `9z-era` is one word, not an id",
+     build(), "The 9z-era integrator is unnamed.", 0)
+case("NEGATIVE", "(bare) a dotted number is one token: `§6.9z` names no row",
+     build(), "See §6.9z for the integrator.", 0)
+case("POSITIVE", "(bare) a full stop after an id is a boundary",
+     build(), "The integrator is 9z.", 1)
+case("POSITIVE", "(bare) a decorated side is bounded by its decoration: `` `9z`-`7z` `` is two ids",
+     build(), "Sub-slices are spelled `9z`-`7z` here.", 1)
+
+# #8: every predicate reads the block's ONE disposed stream
+acase("NEGATIVE", "(c-seed) ordering vocabulary inside a code span is code, not prose",
+      build(s7z="Terminal.  The probe must return 3.  See `x gates y`.", d7z="—"),
+      "ORDER-PROSE?", 0)
+acase("POSITIVE", "(accept-vocab seed) a retirement word inside a code span does not retire the row",
+      build(s7z="Terminal.  No accept words.  Run `grep MERGED`."), "ACCEPT-VOCAB?", 1)
+acase("NEGATIVE", "(d) an ownership clause inside a code span is code, not a two-owner claim",
+      build(s9z="charter.  The probe prints `the drain is owned by **7z** and **Qx**, twice`."),
+      "TWO-OWNERS?", 0)
+case("POSITIVE", "(licence) a licensing phrase inside a code span licenses nothing",
+     build(), "Everything here sits with 9z`'s charter` spelled as code.", 1)
+
+# #11: the seeds' row maps are keyed on the memo's resolved path, not its basename
+_LINE_7Z = next(i for i, l in enumerate(build().split("\n"), 1) if l.startswith("| **7z**"))
+SAME_NAME_SIB = ("\n" * (_LINE_7Z - 3)       # the Rz row lands on the main memo's 7z line
+                 + "| # | Slice | Primary module(s) | Slot | Tier | Deps |\n"
+                 + "|---|---|---|---|---|---|\n"
+                 + "| **Rz** | Terminal.  Acceptance: must. | `r.rs` | — | T1 | **9z** |\n")
+acase("POSITIVE", "(c-seed) a sibling of the SAME basename in another directory, whose Deps cell "
+                  "at the same line names the party, does not discharge the main memo's row",
+      build(s7z="Terminal.  Lands second behind Slice **Qx** and behind Slice **9z**.",
+            d7z="**Qx**"),
+      "ORDER-PROSE?", 1, prose="See [the twin](sub/fixture.md).")
+CASES[-1] = CASES[-1]._replace(files={"sub/fixture.md": SAME_NAME_SIB})
+
+# #15: §6.3 label classes are space / tab / line ending, not Unicode whitespace
+case("POSITIVE-NOVEL", "(link) a label holding only a non-breaking space is a label (§6.3: "
+                       "at least one character that is not a space, tab, or line ending)",
+     build(), "See [\u00a0][].\n\n[\u00a0]: slice-9z-sib.md", 1, **SIB)
+case("NEGATIVE", "(link) label matching collapses spaces, tabs and line endings only: a "
+                 "non-breaking space is not a space, so the reference is unanswered",
+     build(), "See [the\u00a0walk][].\n\n[the walk]: slice-9z-sib.md", 1, **SIB,
+     measure=("schema", "unresolved reference"))
+acase("NEGATIVE", "(stream) ordering vocabulary in a link TITLE is the link's tail, not prose",
+      build(s7z='Terminal.  The probe must return 3.  See [the walk](slice-9z-sib.md "lands before").',
+            d7z="—"),
+      "ORDER-PROSE?", 0)

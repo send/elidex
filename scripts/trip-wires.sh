@@ -27,7 +27,7 @@ set -euo pipefail
 #
 # Resolve symlinks first: a bare `dirname "$0"` points at the LINK, so this script
 # symlinked onto someone's PATH would `cd` outside the repo, match no wires, and
-# report it as "required trip-wire(s) did not run" — telling the reader that every
+# report it as "required trip-wire(s) did not run" — telling the reader that all
 # wires were deleted and inviting them to edit REQUIRED_WIRES, which is the one
 # edit that genuinely disables the gate. A gate whose diagnostic misdirects toward
 # switching it off is worse than one that simply refuses to run. `readlink -f` is

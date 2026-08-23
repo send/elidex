@@ -2,8 +2,8 @@
 """Licensing rule, role ranking and assertions (a)-(d) for `plan-memo-umbrella-check.py`.
 
 Everything here answers "is this mention licensed, which role does its context
-spell, and do the four assertions of
-`#11-plan-memo-spec-field-single-home-check` hold over the row inventory?".
+spell, and do the four assertions of the single-home slot (minted in #506's
+memo §8, not yet in the slot SoT ledger) hold over the row inventory?".
 The mention scanners and the report stay in the checker; the row inventory
 (tables, ids, kinds) is the transitive `Population` in `plan_memo_tables.py`,
 which is the ONLY input of every assertion below: a row declared in a linked
@@ -16,7 +16,7 @@ from collections import Counter
 
 from plan_memo_tables import (
     DECOR, MARKER, ROW_NOUN, ROW_NOUN_ID, SHORT_ID, SLUG_ID, balanced, decorated_id, is_empty,
-    prose,
+    stream,
 )
 
 
@@ -96,7 +96,9 @@ _BEFORE = 80
 
 
 def classify(m):
-    """Set `m.licensed` from what stands around the match in its block."""
+    """Set `m.licensed` from what stands around the match in its block's
+    DISPOSED stream (`m.text`): a licensing phrase inside a code span is
+    code, not a licence."""
     before = _TRAILING_NOUN.sub("", m.text[max(0, m.start - _BEFORE): m.start])
     m.licensed = bool(LICENSE_BEFORE.search(before[-40:])
                       or LICENSE_AFTER.match(m.text[m.end:]))
@@ -133,13 +135,26 @@ ROLE_PATTERNS = [
 
 
 def roles(m, w=110):
-    ctx = m.context(w)
+    """Role vocabulary around the mention, read from the disposed stream."""
+    ctx = m.window(w)
     return [name for name, pat in ROLE_PATTERNS if pat.search(ctx)]
 
 
 # --------------------------------------------------------------------------
-# Assertions (a)-(d) of `#11-plan-memo-spec-field-single-home-check`
+# Assertions (a)-(d) of the single-home slot #506's memo §8 mints
 # --------------------------------------------------------------------------
+
+
+def _stream(row, header_cell):
+    """The disposed stream of the cell under `header_cell` -- the ONE text a
+    seed's vocabulary reads (a `gates` or a `MERGED` inside a code span is
+    code, not prose)."""
+    return stream(row.col(header_cell).lexed)
+
+
+def _row_key(x):
+    """(memo identity, line) of a `Row` or a `Mention`: the seeds' row map key."""
+    return (x.memo.key, x.lineno)
 
 # ⚠ Both ids must be DECORATED (`**id**` / `` `id` ``, balanced) or a `#11-`
 # slug.  The first attempt allowed a bare 1-4 char token, and `[0-9A-Za-z]{1,4}`
@@ -228,7 +243,7 @@ def assertion_a(pop, findings, notes):
                  "marker -- read it: a declaration, a quotation of the criterion, or "
                  "another row's kind?" % row.self_id))
         # the marker outside the declaring field certifies nothing
-        if any(MARKER in prose(c.lexed)
+        if any(MARKER in stream(c.lexed)
                for i, c in enumerate(row.cells) if i != row.schema.decl):
             findings.append(
                 ("UMBRELLA-MARK", row.memo.path.name, row.lineno,
@@ -283,16 +298,18 @@ def assertion_cd_seed(pop, mentions, findings, notes):
     # and -> every id the population read in its Deps cell (the same mask,
     # the same grammar, the same keep-set: one scan, not two -- a second
     # tokeniser over the raw cell once read `9z` out of `slice-9z-sib.md`)
+    # keyed on the memo's resolved path + line (`Memo.key`): a basename key
+    # aliases two memos of the same name in different directories
     named, in_deps = {}, {}
     for m in mentions:
-        if m.anchored and m.source == "slice:col1":
-            named.setdefault((m.file, m.lineno), set()).add(m.id)
-        if m.source == "slice:col5":
-            in_deps.setdefault((m.file, m.lineno), set()).add(m.id)
+        if m.anchored and m.source == "slice:Slice":
+            named.setdefault(_row_key(m), set()).add(m.id)
+        if m.source == "slice:Deps":
+            in_deps.setdefault(_row_key(m), set()).add(m.id)
     for row in pop.data_rows("slice"):
         rid = row.self_id
         deps = row.col("Deps").text
-        body = row.col("Slice").text
+        body = _stream(row, "Slice")
         empty = is_empty(deps)
         if not ORDER_WORDS.search(body):
             continue
@@ -315,8 +332,8 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         # scan already filters to declared ids and reads through the mask (the
         # `[\s-]+` separator once read `...-slice-1a-1b-...md` as "Slice 1a";
         # measured: 18 filename-derived hits across §5, 2 reaching this seed).
-        cell_ids = in_deps.get((row.memo.path.name, row.lineno), set())
-        prose_ids = named.get((row.memo.path.name, row.lineno), set())
+        cell_ids = in_deps.get(_row_key(row), set())
+        prose_ids = named.get(_row_key(row), set())
         extra = sorted(prose_ids - cell_ids - {rid})
         if extra:
             n += 1
@@ -330,7 +347,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
     # pattern does not carry is invisible to it, and the count bounds nothing.
     d = 0
     for row in pop.data_rows("slice"):
-        for m in OWNS_TWO.finditer(row.col("Slice").text):
+        for m in OWNS_TWO.finditer(_stream(row, "Slice")):
             a, b = m.group("aid"), m.group("bid")
             if a == b or not (_owner_ok(m, "a") and _owner_ok(m, "b")):
                 continue
@@ -356,12 +373,12 @@ def acceptance_vocab_seed(pop, findings, notes):
     n, named = 0, []
     for row in pop.data_rows("slice"):
         rid = row.self_id
-        body = row.col("Slice").text
+        body = _stream(row, "Slice")
         # the population decided the kind once (`Population._kind`): a no-owner
         # row and a pointer row owe no acceptance condition
         if row.kind != "terminal":
             continue
-        if RETIRED.search(body) or RETIRED.search(row.col("#").text):
+        if RETIRED.search(body) or RETIRED.search(_stream(row, "#")):
             continue
         if ACCEPT_WORDS.search(body):
             continue

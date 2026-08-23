@@ -2,10 +2,14 @@
 """Re-executable mutation proof for `plan-memo-umbrella-check.py --self-test --mutants`.
 
 A control that has never gone red proves nothing.  `MUTANTS` names, for each
-lexing clause and each gating stage, ONE edit to the source that removes it,
-and the control that must turn red when the edit is applied.  The runner
-patches the source TEXT, exec's a fresh module set from it (plan §2 I-F), and
-re-runs the named control(s) against the patched checker:
+lexing clause and each gating stage, ONE edit to the source that defeats it,
+and the control that must turn red when the edit is applied.  Most rows
+REMOVE a clause; a few (F7, the shape rule of `is_empty`) RE-INJECT the
+defect the clause was written against, because the clause is a default (an
+empty census is clean; a cell with no alphanumeric is empty) and there is no
+line to delete -- the defect has to be put back to show the control sees it.
+The runner patches the source TEXT, exec's a fresh module set from it (plan
+§2 I-F), and re-runs the named control(s) against the patched checker:
 
   * the substring must occur EXACTLY ONCE in its file -- a substring that no
     longer applies (the code moved) is a FAIL, never "survived";
@@ -69,7 +73,7 @@ MUTANTS = [
      '_ATX.match(line) or _THEMATIC', '_THEMATIC',
      ["(span) a paragraph ends at an ATX heading"]),
     ("A x E: kind markers are read from the MASKED declaring field", TABLES,
-     'row.field = prose(row.cells[row.schema.decl].lexed)',
+     'row.field = stream(row.cells[row.schema.decl].lexed)',
      'row.field = row.cells[row.schema.decl].text',
      ["(span) a quoted kind marker is not a declaration (A x E)"]),
     # -- GFM §4.10 rows and tables
@@ -98,22 +102,21 @@ MUTANTS = [
      '        if False:\n            i += 1\n            continue',
      ["(rc) a slice header over a one-cell delimiter row is not a table, so its wide body row "
       "is not a width miss"]),
-    ("table: a schema body row of the wrong width is exit 2", TABLES,
-     'if schema is not None and len(body) != width:', 'if False:',
+    ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", TABLES,
+     '                for lineno, msg in t.misses:\n'
+     '                    self.misses.append((memo.path.name, lineno, msg))',
+     '                for lineno, msg in t.misses:\n'
+     '                    pass',
      ["(rc) a schema body row whose width differs from its header is rc 2"]),
     # -- CommonMark §6.3 links / §4.7 definitions
     ("link: bare destination balances parentheses", LEXER,
      '        if c == "(":\n            depth += 1', '        if c == "(":\n            break',
      ["(link) bare destination with a balanced parenthesis pair"]),
-    ("link: backslash escapes ASCII punctuation (destination)", LEXER,
+    ("link: backslash escapes ASCII punctuation (destination, `<dest>`, title)", LEXER,
      'return s[j] == "\\\\" and j + 1 < len(s) and s[j + 1] in ASCII_PUNCT', 'return False',
-     ["(link) bare destination with an escaped parenthesis"]),
-    ("link: backslash escapes ASCII punctuation (`<dest>`)", LEXER,
-     'return s[j] == "\\\\" and j + 1 < len(s) and s[j + 1] in ASCII_PUNCT', 'return False',
-     ["(link) `<dest>` may contain an escaped `>`"]),
-    ("link: backslash escapes ASCII punctuation (title)", LEXER,
-     'return s[j] == "\\\\" and j + 1 < len(s) and s[j + 1] in ASCII_PUNCT', 'return False',
-     ['(link) a `"…"` title may contain an escaped `"`']),
+     ["(link) bare destination with an escaped parenthesis",
+      "(link) `<dest>` may contain an escaped `>`",
+      '(link) a `"…"` title may contain an escaped `"`']),
     ("link: only ASCII space ends a bare destination, not Unicode whitespace", LEXER,
      'if c == " " or ord(c) <= 31 or ord(c) == 127:', 'if c.isspace() or ord(c) <= 31:',
      ["(link) a non-ASCII space is destination content (only ASCII space and controls end it)"]),
@@ -128,18 +131,30 @@ MUTANTS = [
      '        elif False:\n            return None',
      ["(link) a `(…)` title may not contain an unescaped `(`"]),
     ("link: label matching collapses internal whitespace", LEXER,
-     'return " ".join(label.split()).casefold()', 'return label.strip().casefold()',
+     'return _LABEL_WS.sub(" ", label.strip(" \\t\\r\\n")).casefold()',
+     'return label.strip(" \\t\\r\\n").casefold()',
      ["(link) label matching collapses internal whitespace"]),
     ("link: label matching is a case FOLD", LEXER,
-     'return " ".join(label.split()).casefold()', 'return " ".join(label.split()).lower()',
+     'return _LABEL_WS.sub(" ", label.strip(" \\t\\r\\n")).casefold()',
+     'return _LABEL_WS.sub(" ", label.strip(" \\t\\r\\n")).lower()',
      ["(link) label matching is a Unicode case FOLD, not lower()"]),
+    ("link: label matching folds spaces, tabs, line endings -- not Unicode whitespace", LEXER,
+     'return _LABEL_WS.sub(" ", label.strip(" \\t\\r\\n")).casefold()',
+     'return " ".join(label.split()).casefold()',
+     ["(link) label matching collapses spaces, tabs and line endings only: a non-breaking "
+      "space is not a space, so the reference is unanswered"]),
+    ("link: label content = a character that is not a space, tab, or line ending", LEXER,
+     'return bool(raw.strip(" \\t\\r\\n"))', 'return bool(raw.strip())',
+     ["(link) a label holding only a non-breaking space is a label (§6.3: at least one "
+      "character that is not a space, tab, or line ending)"]),
     ("link: `[text]` followed by a link label is not a shortcut", LEXER,
      '                # a link label follows, so `[text]` is not a shortcut either\n'
      '                unresolved.append((i, raw))\n'
      '                i += 1\n                continue',
      '                pass',
-     ["(link) `[label][undefined]` is neither a full reference nor a shortcut (§6.3: a shortcut "
-      "is not followed by a link label)"]),
+     ["(link) `[label][undefined]` is neither a full reference nor a shortcut (§6.3 Example 571: "
+      "a shortcut is not followed by a link label) -- the unanswered label is a schema miss, not "
+      "a link to the sibling"]),
     ("link: collapsed reference resolves the text as label", LEXER,
      'dest = defs.get(normalize_label(text)) if not inner else None', 'dest = None',
      ["(link) collapsed reference `[label][]`"]),
@@ -160,11 +175,13 @@ MUTANTS = [
     ("def: nothing but whitespace after the destination/title", LEXER,
      '    if s[k] == "\\n":\n        return k + 1\n    return None',
      '    if s[k] == "\\n":\n        return k + 1\n    return k',
-     ["(def) text after the destination is not a definition"]),
+     ["(def) text after the destination is not a definition, so the reference is unanswered: "
+      "a schema miss"]),
     ("def: a definition cannot interrupt a paragraph", LEXER,
      'self.definitions, self.defs_end = ([], 0) if cell else reference_definitions(masked)',
      'self.definitions, self.defs_end = [d for ln in masked.split("\\n") for d in reference_definitions(ln)[0]], 0',
-     ["(def) a definition cannot interrupt a paragraph"]),
+     ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
+      "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
     ("population: every memo's rows are declared (census)", TABLES,
      '        for memo in self.memos:\n            self._declare(memo)', '        self._declare(self.main)',
@@ -205,10 +222,15 @@ MUTANTS = [
       "(id) a backticked slug with trailing prose declares the slug"]),
     ("F1 id cell: a cell not starting with an id declares nothing (no fallback to the cell)", TABLES,
      'return g.group("id") if g else None', 'return g.group("id") if g else cell_text.strip()',
-     ["(id) a cell that does not start with an id declares nothing"]),
-    ("F1 id cell: a non-id id cell is reported", TABLES,
-     'self.undeclared.append((memo.path.name, row.lineno, s.name, row.id_cell()))', 'pass',
-     ["(id) a non-empty id cell that is not an id is reported as a note"]),
+     ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
+      "Deps edge would go unasserted), so the run is a schema miss"]),
+    ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", TABLES,
+     '                    if not is_empty(row.id_cell()):\n'
+     '                        self.misses.append(',
+     '                    if False:\n'
+     '                        self.misses.append(',
+     ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
+      "Deps edge would go unasserted), so the run is a schema miss"]),
     ("F2 population: links in CELLS join the population", TABLES,
      '        for lx in self.lexed():\n            for _, _, dest in lx.links:',
      '        for lx in (p.lexed for p in self.paragraphs):\n            for _, _, dest in lx.links:',
@@ -228,7 +250,7 @@ MUTANTS = [
      ["(rc) a row carrying the marker AND one undetermined spelling, beside another row's other "
       "spelling, is KIND-SPELLING rc 1"]),
     ("F6 (c): the Deps cell's ids are the population's mentions, not a raw tokenisation", ROLES,
-     'cell_ids = in_deps.get((row.memo.path.name, row.lineno), set())',
+     'cell_ids = in_deps.get(_row_key(row), set())',
      'cell_ids = set(re.findall(SHORT_ID, deps))',
      ["(c-seed) a Deps cell naming a FILE whose name holds the id does not carry the id",
       "(c-seed) a Deps cell `xxxxC` does not carry the id `C`"]),
@@ -238,12 +260,20 @@ MUTANTS = [
      '    notes.append("[CENSUS] %d no-owner rows (umbrella + kind-undetermined)" % len(umb))',
      ["(rc) a memo whose every row is terminal is rc 0, not a schema miss",
       "(rc) an all-terminal memo reports a zero census"]),
-    ("F8 empty cell: `n/a` is empty", TABLES,
-     'EMPTY_CELL = frozenset({"", "\\u2014", "-", "n/a"})', 'EMPTY_CELL = frozenset({"", "\\u2014", "-"})',
-     ["(c-seed) a Deps cell `n/a` is empty, so ordering prose is reported"]),
-    ("F8 empty cell: `-` is empty", TABLES,
-     'EMPTY_CELL = frozenset({"", "\\u2014", "-", "n/a"})', 'EMPTY_CELL = frozenset({"", "\\u2014", "n/a"})',
-     ["(id) an id cell `-` is empty: not declared, not reported"]),
+    ("F8 / #4 empty cell: `n/a` is a lexical exception (case-insensitive)", TABLES,
+     'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"none"})',
+     ["(c-seed) a Deps cell `n/a` is empty, so ordering prose is reported",
+      "(c-seed) a Deps cell `N/A` is empty (the lexical exception is case-insensitive)"]),
+    ("#4 empty cell: emptiness is decided by SHAPE (no alphanumeric), re-injecting the old list", TABLES,
+     'return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS',
+     'return bare in {"", "\\u2014", "-"} or bare.casefold() in EMPTY_WORDS',
+     ["(c-seed) a Deps cell `–` (en dash) is empty by shape: no alphanumeric",
+      "(c-seed) a Deps cell `--` is empty by shape",
+      "(id) an id cell `–` (en dash) is empty by shape"]),
+    ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
+     'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
+     ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
+      "stated polarity is a reported edge (false rc 1), never a silent skip"]),
     ("F9 span: an escaped backtick opens no span", LEXER,
      '        if _escaped(s, a0):\n            a0 += 1', '        if False:\n            a0 += 1',
      ["(span) a backtick behind a backslash is literal and opens no span"]),
@@ -255,10 +285,17 @@ MUTANTS = [
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
     ("F13 link: an unanswered full reference is reported", LEXER,
      '                unresolved.append((i, raw))', '                pass',
-     ["(link) a full reference no definition answers is reported as unresolved"]),
+     ["(link) a full reference no definition answers is a schema miss"]),
     ("F13 link: a shortcut with an orphan definition is reported", LEXER,
      '            unresolved.append((i, text))\n        i += 1', '            pass\n        i += 1',
-     ["(link) a shortcut whose only definition sits mid-paragraph is reported as unresolved"]),
+     ["(link) a shortcut whose only definition sits mid-paragraph is a schema miss"]),
+    ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", TABLES,
+     '            for lineno, label in memo.unresolved_references():\n'
+     '                self.misses.append(',
+     '            for lineno, label in ():\n'
+     '                self.misses.append(',
+     ["(rc) a full reference no definition answers is rc 2, never clean",
+      "(link) a full reference no definition answers is a schema miss"]),
     ("C7 kind: the population's pointer kind excludes the row from the acceptance seed", ROLES,
      '        if row.kind != "terminal":\n            continue',
      '        if row.kind in ("umbrella", "undetermined"):\n            continue',
@@ -268,6 +305,44 @@ MUTANTS = [
     ("C8 disposition: a kept slug inside a code span is visible", TABLES,
      '            if m.group(0) in keep:', '            if False:',
      ["(span) a kept slug inside a command-line code span is a naming site"]),
+    # -- /elidex-review Stage 6
+    ("#3 bare id: bounded by the complement of the id-continuation class (re-inject a list)", CHECK,
+     '_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")', '_ID_CONTINUES = re.compile(r"[^\\s,;/()\\[\\]*`.:]")',
+     ["(bare) an id before `?` is bounded", "(bare) an id before `!` is bounded",
+      "(bare) an id inside ASCII double quotes is bounded",
+      "(bare) an id inside curly double quotes is bounded"]),
+    ("#3 bare id: a hyphen continues the token", CHECK,
+     '_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")', '_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")',
+     ["(bare) a hyphen continues the token: `9z-era` is one word, not an id"]),
+    ("#3 bare id: a dotted number is one token", CHECK,
+     '    return text[i] == "." and 0 <= j < len(text) and text[j].isalnum()', '    return False',
+     ["(bare) a dotted number is one token: `§6.9z` names no row"]),
+    ("#3 bare id: a decorated side is bounded by its decoration", CHECK,
+     '        if not tok.group("r") and _glued(text, e, +1):', '        if _glued(text, e, +1):',
+     ["(bare) a decorated side is bounded by its decoration: `` `9z`-`7z` `` is two ids"]),
+    ("#8 stream: the (c) seed reads the Slice cell's disposed stream", ROLES,
+     '        body = _stream(row, "Slice")\n        empty = is_empty(deps)',
+     '        body = row.col("Slice").text\n        empty = is_empty(deps)',
+     ["(c-seed) ordering vocabulary inside a code span is code, not prose"]),
+    ("#8 stream: the acceptance seed and RETIRED read the disposed stream", ROLES,
+     '        body = _stream(row, "Slice")\n        # the population decided',
+     '        body = row.col("Slice").text\n        # the population decided',
+     ["(accept-vocab seed) a retirement word inside a code span does not retire the row"]),
+    ("#8 stream: the (d) seed reads the disposed stream", ROLES,
+     'for m in OWNS_TWO.finditer(_stream(row, "Slice")):', 'for m in OWNS_TWO.finditer(row.col("Slice").text):',
+     ["(d) an ownership clause inside a code span is code, not a two-owner claim"]),
+    ("#8 stream: the licensing rule reads the disposed stream", CHECK,
+     '        return self.block.stream\n\n    @property\n    def key',
+     '        return self.block.text\n\n    @property\n    def key',
+     ["(licence) a licensing phrase inside a code span licenses nothing"]),
+    ("#8 stream: every span of the mask is blanked, not only code", TABLES,
+     'return blank_spans(lx.text, [(a, b) for a, b, _ in lx.mask])',
+     'return blank_spans(lx.text, [(a, b) for a, b, k in lx.mask if k == "code"])',
+     ["(stream) ordering vocabulary in a link TITLE is the link's tail, not prose"]),
+    ("#11 identity: per-memo maps are keyed on the resolved path, not the basename", TABLES,
+     '        return str(self.path)', '        return self.path.name',
+     ["(c-seed) a sibling of the SAME basename in another directory, whose Deps cell at the "
+      "same line names the party, does not discharge the main memo's row"]),
 ]
 
 

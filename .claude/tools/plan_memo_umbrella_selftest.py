@@ -35,7 +35,6 @@ import sys
 import tempfile
 
 from plan_memo_selftest_cases import CASES, build
-from plan_memo_tables import MARKER
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -93,7 +92,9 @@ def run_on(M, text, prose="", sibling=None, files=None):
         # subject.
         (pathlib.Path(d) / "slice-9z-sib.md").write_text((sibling or "") + "\n")
         for name, content in (files or {}).items():
-            (pathlib.Path(d) / name).write_text(content)
+            f = pathlib.Path(d) / name
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(content)
         res = M.check(str(p))
         return res, [m for m in res.mentions if not m.licensed]
 
@@ -116,6 +117,10 @@ def measure(res, reported, m):
         return sum(1 for f in res.findings if f[0] == arg), arg
     if what == "note":
         return sum(1 for n in res.notes if arg in n), "note %r" % arg
+    if what == "schema":
+        # the one measure that reads a schema-miss run: SCHEMA findings carrying `arg`
+        return (sum(1 for f in res.findings if f[0] == "SCHEMA" and arg in f[3]),
+                "SCHEMA %r (rc must be 2 iff any)" % arg)
     if what == "id":
         return int(arg in res.population.ids), "id %r declared" % arg
     raise ValueError(m)
@@ -126,11 +131,17 @@ def control(c):
     Exact, not `>=`: every fixture carries exactly one intended site, so a
     scanner that reports one site twice must turn a control red rather than
     inflate the production census behind a green self-test.  Every measure
-    but `rc` also requires the run not to be a schema miss."""
+    but `rc` and `schema` also requires the run not to be a schema miss;
+    `schema` requires rc 2 exactly when it counts one."""
     def run(M):
         res, reported = run_on(M, c.text, c.prose, c.sibling, c.files)
         got, detail = measure(res, reported, c.measure)
-        ok = got == c.expect and (c.measure == "rc" or res.rc != 2)
+        if c.measure == "rc":
+            ok = got == c.expect
+        elif c.measure[0] == "schema":
+            ok = got == c.expect and (res.rc == 2) == (got > 0)
+        else:
+            ok = got == c.expect and res.rc != 2
         return ok, "%s = %d (expected %d), rc %d" % (detail, got, c.expect, res.rc)
     return run
 
@@ -149,9 +160,10 @@ def degenerate_control(M):
     """A whole-line grep for the marker CANNOT disagree with the marker count;
     the declaring-field parse can.  This proves the two are different programs
     rather than one program written twice."""
+    import plan_memo_tables   # the FRESHLY loaded module, not the import-time one
     text = build(d7z="**UMBRELLA, not a terminal unit** stray")
     umb = run_on(M, text)[0].population.no_owner_ids()
-    by_grep = sum(1 for l in text.split("\n") if l.startswith("|") and MARKER in l)
+    by_grep = sum(1 for l in text.split("\n") if l.startswith("|") and plan_memo_tables.MARKER in l)
     return len(umb) != by_grep, "declaring-field parse=%d vs whole-line marker grep=%d (must differ)" % (
         len(umb), by_grep)
 

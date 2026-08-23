@@ -10,7 +10,10 @@ code spans (CommonMark §6.1, backtick strings of equal length) are lexed, then
 links (CommonMark §6.3 / §4.7) over the stream with code spans masked.
 
 What is NOT lexed, and is read as written: CommonMark §4.4 indented code, §4.6
-HTML blocks, §6.5 autolinks, §2.5 entity references.  Nothing here detects them.
+HTML blocks, §5 container blocks (block quotes §5.1, list items §5.2 -- a
+list-item or `>` line only ENDS a paragraph here, its content is not
+re-parsed as a nested document), §6.5 autolinks, §2.5 entity references.
+Nothing here detects them.
 
 `Lexed` is the one lexical value per block: code spans, the leading run of
 reference definitions, links, and the two bare tokens the scanners must not
@@ -38,7 +41,9 @@ def fenced_lines(lines):
     included.  Opener: <=3 spaces of indent, >=3 backticks or tildes (not
     mixed); a backtick fence's info string may not contain a backtick.  Closer:
     same character, at least as long, <=3 spaces of indent, nothing but spaces
-    and tabs after it.  An unclosed fence runs to the end of the document.
+    and tabs after it.  An unclosed fence runs to "the end of the containing
+    block (or document)" (§4.5); this lexer has no container blocks (see the
+    header), so that is the end of the document.
     """
     out, i, n = set(), 0, len(lines)
     while i < n:
@@ -59,10 +64,17 @@ def fenced_lines(lines):
 
 
 # --------------------------------------------------------------------------
-# Block starts that end a paragraph or a table (CommonMark §4 / GFM §4.10:
-# "the table is broken at the first empty line, or beginning of another
-# block-level structure").  ATX headings and thematic breaks are one-line
-# blocks; a list item or a `>` line starts a new paragraph.
+# Block starts that end a paragraph or a table (GFM §4.10: "the table is
+# broken at the first empty line, or beginning of another block-level
+# structure").  ATX headings (CommonMark §4.2) and thematic breaks (§4.1) are
+# one-line leaf blocks; a list-item line (§5.2) or a block-quote line (§5.1)
+# starts a new paragraph.  ⚠ LOCAL POLICY, stricter than CommonMark: here ANY
+# list-item-shaped or `>` line interrupts a paragraph, whereas under §5.2 an
+# empty list item cannot interrupt a paragraph, an ordered list item can only
+# when its number is 1, and under §5.1 / §5.2 a line without the marker can
+# be lazy continuation text of the container.  The policy is the safe side
+# for a scanner: a span is never read across such a line, so a backtick
+# opened in one item and closed in the next is literal (control).
 # --------------------------------------------------------------------------
 
 _ATX = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
@@ -86,7 +98,10 @@ def starts_block(line):
 # --------------------------------------------------------------------------
 # GFM §4.10 row split.  Raw unescaped `|` splits -- "including inside other
 # inline spans" -- and `\|` becomes `|` in the cell content (the backslash is
-# consumed).  Leading / trailing pipe optional; cell content is trimmed.
+# consumed).  Leading / trailing pipe optional.  GFM: "Spaces between pipes
+# and cell content are trimmed" -- ⚠ this splitter trims TABS too (a stated
+# widening: a tab-padded cell is the same cell; no memo in the population
+# holds a tab).
 # --------------------------------------------------------------------------
 
 
@@ -167,18 +182,23 @@ def split_row(line):
     return out
 
 
+# GFM §4.10: "The delimiter row consists of cells whose only content are
+# hyphens (-), and optionally, a leading or trailing colon (:), or both".
 _DELIM_CELL = re.compile(r":?-+:?")
 
 
 def is_separator(cells):
-    """GFM delimiter row: every cell is >=1 hyphen with an optional leading and
-    trailing colon.  The row must carry at least one pipe (a bare `---` line is
-    a setext underline or thematic break under CommonMark, not a table)."""
+    """GFM §4.10 delimiter row: every cell is >=1 hyphen with an optional
+    leading and trailing colon."""
     return len(cells) > 0 and all(_DELIM_CELL.fullmatch(c.text) for c in cells)
 
 
 def delimiter_width(line):
-    """Cell count of `line` if it is a GFM delimiter row, else None."""
+    """Cell count of `line` if it is a GFM delimiter row, else None.  ⚠ LOCAL
+    POLICY: the row must carry at least one pipe.  GFM §4.10 does not say so
+    (a one-column table's delimiter row may be `---` alone under GFM); here a
+    bare `---` line is read as CommonMark does outside the extension -- a
+    setext underline or a thematic break (§4.3 / §4.1) -- never a table."""
     if "|" not in line or is_blank(line):
         return None
     delim = split_row(line)
@@ -250,7 +270,9 @@ def blank_spans(s, spans):
 
 
 def _skip_ws(s, i, newlines=1):
-    """Spaces, tabs and up to `newlines` line endings."""
+    """Spaces, tabs and up to `newlines` line endings -- §6.3: the inline
+    link's components "may be separated by spaces, tabs, and up to one line
+    ending"; §4.7 says the same of a definition's components."""
     seen = 0
     while i < len(s):
         if s[i] in " \t":
@@ -282,11 +304,11 @@ def _is_escape(s, j):
 
 
 def link_destination(s, i):
-    """Link destination at `i` -> (destination, end) or (None, i).
-
+    """Link destination at `i` -> (destination, end) or (None, i).  §6.3:
     `<...>`: no line ending, no unescaped `<` or `>`.  Bare: nonempty, no ASCII
-    control character (0x00-0x1F, 0x7F) or space, does not start with `<`,
-    parentheses only backslash-escaped or in balanced unescaped pairs.
+    control character (§2.1: U+0000-1F or U+007F) or space, does not start
+    with `<`, parentheses only backslash-escaped or in balanced unescaped
+    pairs.
     """
     if i < len(s) and s[i] == "<":
         j = i + 1
@@ -341,16 +363,30 @@ def link_title(s, i):
     return None
 
 
+# §6.3 / §2.1: the characters label matching strips and collapses are spaces,
+# tabs and line endings -- NOT Unicode whitespace (`str.split()` would fold a
+# no-break space into a space and match two labels the spec keeps apart).
+_LABEL_WS = re.compile(r"[ \t\r\n]+")
+
+
 def normalize_label(label):
-    """§6.3 label matching: Unicode case fold, strip, collapse internal
-    whitespace to one space."""
-    return " ".join(label.split()).casefold()
+    """§6.3 label matching: "perform the Unicode case fold, strip leading and
+    trailing spaces, tabs, and line endings, and collapse consecutive internal
+    spaces, tabs, and line endings to a single space"."""
+    return _LABEL_WS.sub(" ", label.strip(" \t\r\n")).casefold()
+
+
+def _has_label_content(raw):
+    """§6.3: "at least one character that is not a space, tab, or line ending"."""
+    return bool(raw.strip(" \t\r\n"))
 
 
 def link_label(s, i):
     """A link label opening at `s[i] == '['` -> (raw_label, end) or (None, i).
-    Up to 999 characters between the brackets, no unescaped `[` or `]`, at
-    least one non-whitespace character."""
+    §6.3: it "ends with the first right bracket (]) that is not
+    backslash-escaped"; no unescaped `[` or `]` inside; at most 999
+    characters between the brackets; at least one character that is not a
+    space, tab, or line ending."""
     if i >= len(s) or s[i] != "[":
         return None, i
     j = i + 1
@@ -364,14 +400,17 @@ def link_label(s, i):
     if j >= len(s) or s[j] != "]":
         return None, i
     raw = s[i + 1:j]
-    if len(raw) > 999 or not raw.strip():
+    if len(raw) > 999 or not _has_label_content(raw):
         return None, i
     return raw, j + 1
 
 
 def _bracket_text(s, i):
     """`s[i] == '['`: the balanced bracket text starting here -> (text, end
-    after `]`, contains_bracket) or None when unbalanced."""
+    after `]`, contains_bracket) or None when unbalanced.  §6.3 link text:
+    brackets inside it only backslash-escaped or as a matched pair; "links
+    may not contain other links" -- `contains_bracket` is what the caller
+    uses to refuse a collapsed / shortcut reading of nested bracket text."""
     depth, j, inner = 0, i, False
     while j < len(s):
         if _is_escape(s, j):
@@ -390,7 +429,9 @@ def _bracket_text(s, i):
 
 
 def _inline_tail(s, k):
-    """After `](` at `k` -> (destination, end after `)`) or None."""
+    """After `](` at `k` -> (destination, end after `)`) or None.  §6.3 inline
+    link: optional spaces/tabs/one line ending, an optional destination, then
+    (separated the same way) an optional title, then `)`."""
     i = _skip_ws(s, k)
     dest, j = link_destination(s, i)
     if dest is None:
@@ -470,7 +511,7 @@ def links(s, defs):
                 unresolved.append((i, raw))
                 i += 1
                 continue
-        if not inner and text.strip() and len(text) <= 999:
+        if not inner and _has_label_content(text) and len(text) <= 999:
             dest = defs.get(normalize_label(text))
             if dest is not None:
                 out.append((tail, close, dest))

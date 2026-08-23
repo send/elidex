@@ -14,16 +14,19 @@ Three rules decided here, once:
     "may vary" clause -- a body row of a SCHEMA table whose width differs from
     the header is a schema miss (exit 2), never a silent skip or a shifted read;
   * row ids are read from the raw id cell (`bare_id` reads the one decorated-id
-    grammar at the cell's START; a cell that does not start with an id declares
-    nothing), kind markers from the MASKED declaring field (a quoted marker
-    declares nothing);
-  * the population is transitive over the memos a memo links, and the same id
-    declared twice is a schema miss.
+    grammar at the cell's START; a non-empty cell that does not start with an
+    id is an UNKEYED row and a schema miss), kind markers from the disposed
+    declaring field (a quoted marker declares nothing);
+  * the population is transitive over the memos a memo links; the same id
+    declared twice, and a reference no definition answers (the memo it meant
+    to link is outside the population), are schema misses.
 
 Every block is lexed ONCE, where it is minted (a cell in `split_row`, a
 paragraph in `Paragraph`); `Memo` resolves the links; the disposition step
 (`Population`) then tags each block's mask with the kind of every span --
-`code` / `def` / `link` / `cite` / `file` -- minus the id-only code spans.
+`code` / `def` / `link` / `cite` / `file` -- minus the id-only code spans,
+and `stream(lexed)` (every masked span blanked) is the ONE text each
+predicate over a block reads.
 """
 
 import pathlib
@@ -35,13 +38,22 @@ from plan_memo_lexer import (
 )
 
 # A cell that carries nothing: the one predicate every reader of an optional
-# cell (an id cell, a `Deps` cell) decides emptiness by.
-EMPTY_CELL = frozenset({"", "\u2014", "-", "n/a"})
+# cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
+# by SHAPE -- after decoration is stripped, a cell with no alphanumeric
+# character carries nothing (`—`, `-`, `–`, `--`, `…`, `` ` ``) -- plus the
+# ONLY lexical exceptions, `EMPTY_WORDS`, matched exactly (case-insensitive)
+# after the strip.  A closed word list on a gating predicate leaves the next
+# spelling authoritative, so the list is the exception and the shape is the
+# rule; the polarity of a word outside the list (`nil`, `(none)`) is a
+# FALSE rc 1 -- the cell is read as a `Deps` edge and reported by assertion
+# (b) -- never a silent skip.
+EMPTY_WORDS = frozenset({"n/a", "none"})
 
 
 def is_empty(cell_text):
     """Decoration does not fill a cell: `**—**` is as empty as `—`."""
-    return cell_text.strip().strip("*`").strip() in EMPTY_CELL
+    bare = cell_text.strip().strip("*`").strip()
+    return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS
 
 
 MARKER = "UMBRELLA, not a terminal unit"
@@ -107,13 +119,12 @@ _ID_CELL = re.compile("^" + decorated_id("(?:%s|%s|%s)" % (SLUG_ID, CITE_ID, SHO
                       + r"(?![0-9A-Za-z-])")
 _SLUG_IN_CODE = re.compile(r"(?<![\w-])" + SLUG_ID)
 
-# The separators an id run is tokenised on.  `ID_SEP` is the shared core; an
-# id-only code span also splits on `|` and `-` (a `Deps`-shaped edge, `9z | 7z`
-# / `0a-0b`), while a cell boundary also splits on brackets and `·` but NOT on
-# `-` (a hyphen glues `slice-9z-sib` into one token, which is not an id).
-ID_SEP = r"\s,;/→>+&"
-_ID_RUN_SPLIT = re.compile("[" + ID_SEP + "|-]+")
-CELL_SPLIT = re.compile("[" + ID_SEP + r"()\[\]·]+")
+# The separators an id-only code span is tokenised on: whitespace, the list
+# punctuation, `|` and `-` (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`).  A
+# bare id in a cell or in prose is NOT tokenised on a list -- it is bounded by
+# the complement of the id-continuation class (the checker's `_ID_CONTINUES`),
+# under which a hyphen glues `slice-9z-sib` into one token, which is not an id.
+_ID_RUN_SPLIT = re.compile(r"[\s,;/→>+&|-]+")
 
 # --------------------------------------------------------------------------
 # Table schemas, identified by HEADER ROW (a line range is a figure a later
@@ -291,11 +302,16 @@ def dispose(lx, keep):
     lx.mask = out
 
 
-def prose(lx):
-    """`lx.text` with the code spans of its disposed mask blanked (id-only
-    spans and kept slugs were excepted there) -- the stream the kind-marker
-    reader reads (a quoted marker is not a declaration).  `dispose` first."""
-    return blank_spans(lx.text, [(a, b) for a, b, kind in lx.mask if kind == "code"])
+def stream(lx):
+    """`lx.text` with EVERY span of its disposed mask blanked -- code spans
+    (id-only spans and kept slugs were excepted there), definition lines, link
+    tails, citation ids, file names.  This is the ONE stream every predicate
+    over a block reads: the kind-marker reader (a quoted marker is not a
+    declaration), the seeds' vocabularies (a `gates` inside a code span is not
+    ordering prose; a `MERGED` inside one is not a retirement), the licensing
+    rule's context.  `dispose` first -- the mask is None before it."""
+    assert lx.mask is not None, "stream() before dispose(): the Population has not run yet"
+    return blank_spans(lx.text, [(a, b) for a, b, _ in lx.mask])
 
 
 class Paragraph:
@@ -339,6 +355,14 @@ class Memo:
                 self.defs.setdefault(normalize_label(raw), dest)
         for lx in self.lexed():
             lx.resolve(self.defs)
+
+    @property
+    def key(self):
+        """The memo's identity for every per-memo map (mention identity, the
+        seeds' row maps): the RESOLVED path.  Two memos in different
+        directories may share a basename, and a map keyed on the basename
+        aliases their rows; the basename (`path.name`) is for display only."""
+        return str(self.path)
 
     def _paragraphs(self):
         out, cur = [], []
@@ -443,8 +467,9 @@ class Population:
     """The memo set reachable from one memo through its links (visited set, so
     a cycle is not an error), with ONE map `ids`: id -> its declaring `Row`
     (`row.kind` = "umbrella" / "undetermined" / "pointer" / "terminal").  `misses` holds
-    every schema miss (absent memo, unmatched schema, row width, duplicate
-    declaration); a non-empty `misses` is exit 2 -- never a clean run.
+    every schema miss (absent memo, unresolved reference, unmatched schema, row
+    width, duplicate declaration, unkeyed schema row); a non-empty `misses`
+    is exit 2 -- never a clean run.
     """
 
     def __init__(self, main_path):
@@ -452,7 +477,6 @@ class Population:
         self.misses = []            # [(file, lineno, message)]
         self.spellings = set()
         self.attributed = []        # [(file, table, lineno, rid, other)]
-        self.undeclared = []        # [(file, lineno, schema, id cell text)]
         self.ids = {}
         queue, seen = [pathlib.Path(main_path).resolve()], set()
         while queue:
@@ -466,6 +490,12 @@ class Population:
             memo = Memo(p)
             self.memos.append(memo)
             queue.extend(memo.linked_files())
+            # a reference no definition answers is prose under §6.3, and the
+            # memo it meant to link is NOT in the population: never a clean run
+            for lineno, label in memo.unresolved_references():
+                self.misses.append((memo.path.name, lineno,
+                                    "unresolved reference %r -- no definition answers it, so a memo "
+                                    "it meant to link is NOT in the population" % label))
         self.main = self.memos[0] if self.memos else None
         if self.main is not None:
             matched = {t.schema.name for t in self.main.tables if t.schema is not None}
@@ -485,7 +515,7 @@ class Population:
             for lx in memo.lexed():
                 dispose(lx, keep)
         for row in self.declaring_rows():
-            row.field = prose(row.cells[row.schema.decl].lexed)
+            row.field = stream(row.cells[row.schema.decl].lexed)
         for row in self.ids.values():
             row.kind = self._kind(row)
 
@@ -499,9 +529,14 @@ class Population:
                 rid = row.self_id
                 if rid is None:
                     # an empty id cell is a deliberate non-row; anything else
-                    # that is not an id is reported (never minted as one)
+                    # that is not an id is an UNKEYED row: it would be dropped
+                    # from `ids`, so assertion (b) would never see its Deps
+                    # edge -- the I-C silent-skip class, and a schema miss
                     if not is_empty(row.id_cell()):
-                        self.undeclared.append((memo.path.name, row.lineno, s.name, row.id_cell()))
+                        self.misses.append((memo.path.name, row.lineno,
+                                            "the %r row's id cell does not start with an id (%r); "
+                                            "the row declares nothing and is unkeyed, so its cells "
+                                            "would go unasserted" % (s.name, row.id_cell()[:60])))
                     continue
                 if rid in self.ids:
                     r2 = self.ids[rid]
@@ -552,7 +587,12 @@ class Population:
 
     def declaring_rows(self):
         """Every row of a schema with a declaring field and an id column, over
-        every memo -- id-less rows included, since their field is read too."""
+        every memo -- the set `field` is written for and read over (assertion
+        (a)).  It is NOT `ids.values()`: a row whose id cell is EMPTY (`**—**`)
+        is a deliberate non-row, unkeyed and outside `ids`, but its declaring
+        field is still read (the #506 memo has one such row, the
+        `Function`/`eval` row); a non-empty non-id cell is a schema miss, so
+        after `misses` those two sets differ by exactly the empty-id rows."""
         return [r for s in SCHEMAS if s.decl is not None and s.idc is not None
                 for r in self.data_rows(s.name)]
 

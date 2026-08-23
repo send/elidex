@@ -1,11 +1,17 @@
 # Umbrella plan — `plan-memo-umbrella-check` carved out of #506 into a 2-slice prerequisite program
 
 **Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
-`elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb`
-(`git diff --quiet 190d2adb -- .claude/tools/` = identical): `.claude/tools/plan-memo-umbrella-check.py`
-811 lines, `plan_memo_tables.py` 407, `plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). No `crates/` change.
+`elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
+carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
+at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is seven
+`.py` files: `plan-memo-umbrella-check.py` 451 / `plan_memo_tables.py` 598 / `plan_memo_umbrella_selftest.py`
+238 (the three carried names, 1,287) + `plan_memo_lexer.py` 628 / `plan_memo_roles.py` 393 /
+`plan_memo_selftest_cases.py` 588 / `plan_memo_selftest_mutants.py` 394 — **3,290 total** (`wc -l
+.claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
-`memory/project_open-defer-slots.md`; its "1,449 LoC" is stale → 1,614) — **CLOSE −1 at landing of Slice 2**.
+`memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
+this PR lands (3,290 at HEAD) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
 
 ## §0 Why a separate program
 
@@ -41,8 +47,16 @@ directions and FAILs an unregistered wire (list `scripts/trip-wires.sh:85-90`, d
 same commit: `.github/workflows/ci.yml:152` "No toolchain step: the wires are grep-only" (this wire
 needs `python3`, present on `ubuntu-latest` but named nowhere in the workflow — state the dependency
 there) and the wire inventory comment in `mise.toml:103-106`. A CLAUDE.md *Development Rules*
-sentence names the tool + its trip-wire. The memo-specific invocation clause stays in #506, and **#506
-owes a rewording** of its `CLAUDE.md:54` "だから `trip-wires` には入れない" (true of the memo run,
+sentence names the tool + its trip-wire. The memo-specific invocation clause stays in #506. **#506's
+concurrent-branch obligations at its `git merge origin/main`** (both branches touch the same paths;
+neither is resolved by the merge driver): (a) the three pre-split tool files #506 carries
+(`plan-memo-umbrella-check.py` / `plan_memo_tables.py` / `plan_memo_umbrella_selftest.py`, last touched
+there at `190d2adb`) conflict modify/modify against this PR's rewrite of the same names — #506 must
+**DROP its side** (`git checkout --theirs`, i.e. take `main`'s) rather than resolve hunk by hunk, since
+its versions are the pre-Slice-0 monolith this program replaces; (b) `CLAUDE.md:54` is duplicated: #506's
+"Plan-memo checker" bullet must **shrink to the memo-specific invocation clause only** (which memo, when to
+run it, what its exit means for that memo) — this PR's bullet carries the tool description, exit codes and
+the trip-wire — and must **reword** its "だから `trip-wires` には入れない" sentence (true of the memo run,
 false of the self-test wire once this lands). The file header's "branch `vm-p4-plan-doc`" / "home is
 CLAUDE.md" / "duplicated four ways" lines and the two `§6.6` docstrings (`plan_memo_tables.py:116/153`,
 CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
@@ -119,6 +133,11 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   fields: all are `**<title> — UMBRELLA…**` with no row-noun+id, 0 attributions under both the old
   and the new rule). ` was ` is not a connective (no motivating instance in the population;
   `Slice 9z was **UMBRELLA…** until R3` in 9z's own field must stay self-declaring — NEGATIVE control).
+  ⚠ **Slice-1 delta in I-E territory** (`/code-review high` F4, `2ff35065`, kept): `attributed_to_other`
+  now reads the **first** marker occurrence in the field and that occurrence alone decides — a field that
+  declares itself and then says a sibling "is not it" is self-declaring, and a later occurrence never
+  overrides the first ("first marker occurrence decides; self-declaring ⇒ None"). Slice 2's connective
+  grammar is written over that rule, not over "any occurrence".
 - **I-F One pipeline, one population** — `check(memo)` is the only entry (⚠ implemented as a `Result` NamedTuple whose first three fields are `findings, notes, rc` — the report also needs `mentions` and `population`);
   `main()` and `--self-test` both call it. A single transitive `Population` (tables, row ids, census)
   is built once and is the only input of the mention scan, the code-span keep-set (`all_ids`,
@@ -164,7 +183,7 @@ and each attribution spelling has a positive control and a mutant.
 |---|---|---|---|---|---|
 | CommonMark §6.3 Links | inline link | bare destination = nonempty, not starting with `<`, no space / ASCII control, parens balanced or escaped; `<dest>` = no line ending, no *unescaped* `<`/`>`; backslash escapes ASCII punctuation only (§2.4) | `plan_memo_tables.py::_link_destination` | ✗ (`isspace`/`ord>31` ≠ spec classes; `\` skips any char) — Slice 1 | no |
 | CommonMark §6.3 Links | inline link | title `"…"` / `'…'` / `(…)` with escapes | `plan_memo_tables.py::_link_title` | ✗ (`(` inside `(…)` title unguarded) — Slice 1 | no |
-| CommonMark §6.3 Links | reference link | full / collapsed / shortcut (shortcut = label not followed by `[]` or a link label — ⚠ this plan once said `[a][undefined]` = shortcut `[a]` + literal; §6.3 / Example 570 say the opposite, `[undefined]` IS a link label so `[a]` is not a shortcut; implemented per spec with a NEGATIVE control); label = 1–999 chars, ≥1 non-blank; match = casefold + strip + collapse; duplicate definitions: first wins | `plan_memo_tables.py::links` | ✗ (collapse missing; collapsed label found by nearest `[`, not matching `[`) — Slice 1 | no |
+| CommonMark §6.3 Links | reference link | full / collapsed / shortcut (shortcut = label not followed by `[]` or a link label — ⚠ this plan once said `[a][undefined]` = shortcut `[a]` + literal; §6.3 / Example 571 say the opposite (571 = `[foo][bar][baz]` with `[foo]` defined and `[bar]` not: "`[foo]` is not parsed as a shortcut reference, because it is followed by a link label"; 570 is the full-reference case), `[undefined]` IS a link label so `[a]` is not a shortcut; implemented per spec with a NEGATIVE control); label = 1–999 chars, ≥1 non-blank; match = casefold + strip + collapse; duplicate definitions: first wins | `plan_memo_tables.py::links` | ✗ (collapse missing; collapsed label found by nearest `[`, not matching `[`) — Slice 1 | no |
 | CommonMark §4.7 Link reference definitions | definition | label non-blank, no unescaped `[`; optional one line ending before destination; `<dest>`; nothing after destination/title | `_REF_DEF` | ✗ (`[ \t]*`, `[^\]]+`, `\S+`) — Slice 1 | no |
 | CommonMark §6.1 Code spans | masking | opener/closer = backtick strings of equal length; unmatched strings literal | `plan_memo_tables.py::code_spans` | ✗ (next single backtick closes) — Slice 1 | no |
 | CommonMark §4.5 Fenced code blocks (⚠ all lexer touch sites below live in `plan_memo_lexer.py`, not `plan_memo_tables.py` — tables.py would have crossed ~800 lines; seam = lexing vs inventory; `dispose` (mask disposition) stays in tables.py because it needs ids) | masking | ≥3 ``` or ~~~, not mixed; ≤3 spaces indent; closer same char, ≥ length, ≤3 spaces indent, only spaces/tabs after; info string of a backtick fence has no backtick; unclosed runs to EOF | (NEW) `plan_memo_tables.py::fenced_spans` | ✗ (absent) — Slice 1 | no |
@@ -239,9 +258,24 @@ ground for either option; it is not cited.
   `` `Intl` → owned externally by … ``) was keyed by its WHOLE cell, because `bare_id` fell back
   to the cell text when no grammar matched; the id cell now reads the one decorated-id grammar at
   the cell's start and that row is keyed `Intl` (a 4-character id, terminal). A non-empty id cell
-  that does not start with an id declares nothing and is reported as an `[ID-CELL]` note; the
+  that does not start with an id declares nothing and was reported as an `[ID-CELL]` note (⚠ since the
+  Stage-6 pass below: a schema miss, rc 2 — an unkeyed row's cells go unasserted, the I-C class); the
   main memo has 0 such rows (`**—**` is an empty cell). `mise run trip-wires` rc 0);
   trip-wire added, registered, green in `mise run trip-wires`; header + docstrings rewritten.
+  ⚠ **`/elidex-review` Stage-6 pass (re-run 2026-08-23)**: **160 controls, 79 mutants / 0 survived / 0
+  crashed**, census `48 = 33 + 15`, rc 0, **36 ORDER-PROSE? rows unchanged (same rows)**, sites
+  **703 → 712** (−2 / +11): both sides of the bare-id boundary are now the complement of the
+  id-continuation class (`[0-9A-Za-z-]`, a `.` inside a dotted number, a decorated side bounded by its
+  decoration) — the two lost sites are hyphen-glued words (`1b-5` at main:1983, `0b-family` at
+  main:2680, both one token under the class); the eleven gained are ten ids bounded by an ASCII `"`
+  the old punctuation list did not name (main:1944/2007×2/3004/3009/3049, detail:201×2/215/267 —
+  all quotations of withdrawn ordering / owner text, reported by default) and `` `9d` `` at main:1081,
+  the far end of `` `9a`-`9d` `` whose decoration now bounds it. Unresolved references and unkeyed
+  schema rows became schema misses (rc 2) — the memo has 0 of either, so rc stays 0. Every seed and
+  the licensing rule read the block's one disposed stream (`stream()`), so a `gates` or `MERGED`
+  inside a code span is code; measured: no ORDER-PROSE? row moved. `is_empty` is decided by shape
+  (no alphanumeric) with `n/a` / `none` as the only lexical exceptions. Slice-1 delta recorded under
+  I-E above. `mise run trip-wires` rc 0.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
@@ -276,8 +310,12 @@ ground for either option; it is not cited.
   `#11-plan-memo-acceptance-falsifiability-check` is minted in #506's memo (§5 mention `190d2adb:…:1218`, §8 row `:2711`)
   and is **not yet in the slot SoT ledger** (`memory/project_open-defer-slots.md` = 0 hits); its
   ledger registration is owed at #506's landing, not here. No date — trigger = #506 landing.
+- The four assertions' owner, `#11-plan-memo-spec-field-single-home-check` (cited by the tool headers
+  as "the single-home slot #506's memo §8 mints") — the same pre-agreed commitment: minted in #506's
+  memo §8 (`190d2adb:…:2710`), **not in the slot SoT ledger** (0 hits), registration owed at #506's
+  landing, not here; the headers cite that origin rather than presenting the slot as registered.
 - Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
-- GFM row splitter duplicated four ways across three branch families (header) — trigger = two of
+- GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - Markdown library dependency (§5) — trigger-only (see §5); no slot; no date.

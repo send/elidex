@@ -13,16 +13,17 @@ to whatever the previous round had named -- §5's `Deps` column once, the
 acceptance class once, that round's own corrections once -- so each swept the
 population that motivated it rather than the population the rule reaches.
 This is the enumerator those sweeps did not have.  It does NOT discharge the
-two slots #506's memo carves (both are umbrellas; their own derivations do):
-`#11-plan-memo-spec-field-single-home-check` says in its own cell that of its
-four assertions two are "mechanical programs over this document's table parse"
-and two are natural-language claim extraction "for which no canonical
-algorithm exists" -- this file is the first pair plus a declared-recall seed
-for the second, and prints that boundary rather than leaving it to the reader.
-NOT covered: the restatement sweep ("you are changing one decision; list EVERY
-site that restates it" over STATEMENT / OBLIGATION / CONSEQUENCE surfaces) --
-that class has its own tool on another branch (`plan-sweep.py`); until it
-lands, a decision change over a memo is swept by hand.
+two slots #506's memo §8 carves (both are umbrellas; their own derivations
+do; neither is in the slot SoT ledger yet -- registration is owed at #506's
+landing, see the plan's §8): the single-home slot says in its own §8 cell
+that of its four assertions two are "mechanical programs over this
+document's table parse" and two are natural-language claim extraction "for
+which no canonical algorithm exists" -- this file is the first pair plus a
+declared-recall seed for the second, and prints that boundary rather than
+leaving it to the reader.  NOT covered: the restatement sweep ("you are
+changing one decision; list EVERY site that restates it" over STATEMENT /
+OBLIGATION / CONSEQUENCE surfaces); a decision change over a memo is swept by
+hand.
 
 MODULES
   plan_memo_lexer.py      CommonMark 0.31.2 / GFM 0.29 subset: fences, rows,
@@ -47,17 +48,17 @@ NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
 stated beside its check in `plan_memo_roles.py` and in the report's notes.
 NOTES (printed, never gating): `[CENSUS]` the no-owner row count (0 is a
-clean result, not a schema miss), `[KIND-UNDETERMINED]`, `[LINK] unresolved
-reference` (a reference no definition answers -- the memo it meant to link is
-NOT in the population), `[ID-CELL]` (a schema row whose id cell is not an id
-declares nothing).
+clean result, not a schema miss), `[KIND-UNDETERMINED]`.
 
 EXIT STATUS
   0  no mechanical finding
   1  at least one mechanical finding (the assertions, not the seeds)
-  2  a schema miss -- an absent linked memo, an unmatched schema, a body row
-     whose width differs from its header, the same id declared twice.  The run
-     is a SKIP, not a clean result, and it is never exit 0.
+  2  a schema miss -- an absent linked memo, a reference no definition answers
+     (the memo it meant to link is NOT in the population), an unmatched
+     schema, a body row whose width differs from its header, the same id
+     declared twice, a schema row whose id cell is not an id (unkeyed, so its
+     cells would go unasserted).  The run is a SKIP, not a clean result, and
+     it is never exit 0.
 Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
@@ -66,12 +67,15 @@ Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the po
         plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
+import re
 import sys
 import pathlib
 from collections import Counter, defaultdict, namedtuple
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from plan_memo_tables import CELL_SPLIT, Population  # noqa: E402
+HERE = str(pathlib.Path(__file__).resolve().parent)
+if HERE not in sys.path:      # the self-test execs this file once per mutant
+    sys.path.insert(0, HERE)
+from plan_memo_tables import Population, stream  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     CELL_TOKEN, MENTION_PROSE, MENTION_SLOT, acceptance_vocab_seed,
     assertion_a, assertion_b, assertion_cd_seed, classify, roles,
@@ -110,16 +114,27 @@ class Mention:
         return self.block.file
 
     @property
+    def memo(self):
+        return self.block.memo
+
+    @property
     def source(self):
         return self.block.source
 
     @property
     def text(self):
-        return self.block.text
+        """The block's DISPOSED stream (what the licensing rule reads around
+        the match), not its raw text."""
+        return self.block.stream
 
     @property
     def key(self):
-        return (self.file, self.lineno, self.col)
+        return (self.block.memo.key, self.lineno, self.col)
+
+    def window(self, w=110):
+        """The disposed stream around the match (what the role ranking
+        reads); `context()` is the raw text, for display."""
+        return self.block.window(self.start, self.end, w)
 
     def context(self, w=95):
         return self.block.context(self.start, self.end, w)
@@ -128,14 +143,25 @@ class Mention:
 class Block:
     """One scanned unit of text -- a cell or a paragraph -- with its tagged
     mask (spans in `text` coordinates the scanners must not read an id out of,
-    each with its kind) and the map back to reporting coordinates."""
+    each with its kind), its disposed `stream` (the one text every predicate
+    reads), and the map back to reporting coordinates.  Minted only after the
+    `Population` has disposed the block (`stream()` asserts it)."""
 
-    __slots__ = ("file", "text", "mask", "source", "self_id", "_map")
+    __slots__ = ("memo", "text", "mask", "stream", "source", "self_id", "_map")
 
-    def __init__(self, file, lexed, source, self_id=None):
-        self.file, self.text, self.mask = file, lexed.text, lexed.mask
+    def __init__(self, memo, lexed, source, self_id=None):
+        self.memo, self.text, self.mask = memo, lexed.text, lexed.mask
+        self.stream = stream(lexed)
         self.source, self.self_id = source, self_id
         self._map = None
+
+    @property
+    def file(self):
+        """Basename, for display; identity is `memo.key`."""
+        return self.memo.path.name
+
+    def window(self, start, end, w):
+        return self.stream[max(0, start - w): end + w].replace("\n", " ")
 
     def masked(self, i):
         """Whether `i` is under the mask (every kind masks; what a scanner may
@@ -151,8 +177,8 @@ class Block:
 class CellBlock(Block):
     __slots__ = ("lineno", "line", "cell")
 
-    def __init__(self, file, lineno, line, cell, source, self_id):
-        super().__init__(file, cell.lexed, source, self_id)
+    def __init__(self, memo, lineno, line, cell, source, self_id):
+        super().__init__(memo, cell.lexed, source, self_id)
         self.lineno, self.line, self.cell = lineno, line, cell
 
     def locate(self, i):
@@ -165,8 +191,8 @@ class CellBlock(Block):
 class ProseBlock(Block):
     __slots__ = ("para",)
 
-    def __init__(self, file, para):
-        super().__init__(file, para.lexed, "prose")
+    def __init__(self, memo, para):
+        super().__init__(memo, para.lexed, "prose")
         self.para = para
 
     def locate(self, i):
@@ -187,6 +213,29 @@ def _anchored(b, keep, out):
             out.append(classify(Mention(b, rid, mt.start(), mt.end(), mt.start("id"), anchored=anchored)))
 
 
+# What continues an id token: an id character or a hyphen (`slice-9z-sib`,
+# `9z-era`, `1b-5` are one word, not an id), or a `.` with an id character on
+# its far side (a dotted number: `§6.2a` names no row `2a`).  A bare id is
+# bounded by the COMPLEMENT of this class -- any other character, or the
+# block edge -- not by a list of punctuation marks: a list left `9z?` / `9z!`
+# / `"9z"` / `“9z”` unreported while the report claimed "everything else is
+# reported".  A side that carries decoration (`**9z**`, `` `9a` ``) is bounded
+# by the decoration itself: the mark closes the token, so `` `9a`-`9d` `` is
+# two ids, while bare `9a-9d` is one word.
+_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")
+
+
+def _glued(text, i, step):
+    """Whether the character at `text[i]` continues an id token that ends
+    just before it (`step` = +1) or starts just after it (`step` = -1)."""
+    if not (0 <= i < len(text)):
+        return False
+    if _ID_CONTINUES.match(text[i]):
+        return True
+    j = i + step
+    return text[i] == "." and 0 <= j < len(text) and text[j].isalnum()
+
+
 def _bare(b, keep, out):
     """Bare (row-noun-free) ids.
 
@@ -194,7 +243,8 @@ def _bare(b, keep, out):
     these documents write: pure digits are §-numbers, step numbers, file counts
     and line numbers; an undecorated single letter is an English article or a
     family name.  Both are DECLARED MISSES, carried as red controls in the
-    self-test rather than argued away.
+    self-test rather than argued away.  Everything else bounded by a non-id
+    character (`_glued`) is reported, licensed or not.
     """
     text = b.text
     for tok in CELL_TOKEN.finditer(text):
@@ -213,31 +263,35 @@ def _bare(b, keep, out):
         if len(tid) == 1 and tid.isalpha() and not balanced(tok):
             continue
         s, e = tok.start(), tok.end()
-        lhs, rhs = text[:s], text[e:]
-        if lhs and not CELL_SPLIT.search(lhs[-1]) and lhs[-1] not in "*`":
+        if not tok.group("l") and _glued(text, s - 1, -1):
             continue
-        if rhs and not CELL_SPLIT.search(rhs[0]) and rhs[0] not in "*`'\u2019.:-\u2014":
+        if not tok.group("r") and _glued(text, e, +1):
             continue
         out.append(classify(Mention(b, tid, s, e, tok.start("id"))))
 
 
-def blocks(memo):
-    """Every scanned unit of `memo`: each cell of each table row (header rows
-    too; the delimiter row has no cells to scan; a schema data row's own id
-    cell is excluded) and each paragraph."""
-    name = memo.path.name
+def blocks(pop):
+    """Every scanned unit of the population, memo by memo: each cell of each
+    table row (header rows too; the delimiter row has no cells to scan; a
+    schema data row's own id cell is excluded) and each paragraph.  Takes the
+    `Population`, not a memo, because a block's stream exists only after the
+    population's disposition step ran over every memo.  A cell's `source` is
+    `<schema>:<header cell>` (`slice:Deps`) -- the name the seeds key on --
+    or `table:col<n>` for a non-schema table."""
     out = []
-    for t in memo.tables:
-        for row in [t.header] + t.rows:
-            line = memo.lines[row.lineno - 1]
-            idc = row.schema.idc if row.schema is not None else None
-            for col, cell in enumerate(row.cells):
-                if col == idc:
-                    continue
-                src = "%s:col%d" % (t.schema.name if t.schema is not None else "table", col)
-                out.append(CellBlock(name, row.lineno, line, cell, src, row.self_id))
-    for para in memo.paragraphs:
-        out.append(ProseBlock(name, para))
+    for memo in pop.memos:
+        for t in memo.tables:
+            for row in [t.header] + t.rows:
+                line = memo.lines[row.lineno - 1]
+                idc = row.schema.idc if row.schema is not None else None
+                for col, cell in enumerate(row.cells):
+                    if col == idc:
+                        continue
+                    src = ("%s:%s" % (t.schema.name, t.schema.header[col]) if t.schema is not None
+                           else "table:col%d" % col)
+                    out.append(CellBlock(memo, row.lineno, line, cell, src, row.self_id))
+        for para in memo.paragraphs:
+            out.append(ProseBlock(memo, para))
     return out
 
 
@@ -247,10 +301,9 @@ def collect_mentions(pop):
     ordering seed reads the rest)."""
     mentions = []
     keep = pop.keep()
-    for memo in pop.memos:
-        for b in blocks(memo):
-            _anchored(b, keep, mentions)
-            _bare(b, keep, mentions)
+    for b in blocks(pop):
+        _anchored(b, keep, mentions)
+        _bare(b, keep, mentions)
     # The anchored pass and the bare pass see the same site through different
     # spans.  Identity is the id token's position, and the anchored reading wins
     # because its span is what the licensing rule was written against.
@@ -294,13 +347,6 @@ def check(path):
         findings.append(("SCHEMA", file, lineno, msg + ". This is a skip, not a clean run."))
     if pop.misses:
         return _result(findings, notes, 2, [], pop)
-    for memo in pop.memos:
-        for lineno, label in memo.unresolved_references():
-            notes.append("[LINK] unresolved reference %r at %s:%d -- no definition answers it, so "
-                         "a memo it meant to link is NOT in the population" % (label, memo.path.name, lineno))
-    for file, lineno, schema, cell in pop.undeclared:
-        notes.append("[ID-CELL] %s:%d  the %r row's id cell does not start with an id (%r); the row "
-                     "declares nothing" % (file, lineno, schema, cell[:60]))
     umb = pop.no_owner_ids()
     # Schema matching is its own miss (above).  A memo whose every row is
     # terminal has an EMPTY naming population, which is a clean result.
@@ -363,8 +409,8 @@ def main(argv):
     print("             indistinguishable from a §-number or a step;")
     print("           * an undecorated single letter written without a row noun --")
     print("             indistinguishable from an article or a family.")
-    print("         Everything else is reported, licensed or not, so a spelling nobody")
-    print("         has written yet is reported by default rather than admitted.")
+    print("         Everything else bounded by a non-id character is reported, licensed or")
+    print("         not, so a spelling nobody has written yet is reported by default.")
     print()
     bysrc = Counter(m.source for m in unlicensed)
     for k, v in sorted(bysrc.items()):
