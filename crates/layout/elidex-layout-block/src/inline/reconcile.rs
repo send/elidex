@@ -174,9 +174,9 @@ use super::{
 /// `#11-inline-fragmented-fn-seams-1-2` owns it.
 ///
 /// `persist_flow` and `do_carrier` are **mutually exclusive**, and the caller
-/// establishes it rather than this function checking it: `do_carrier` implies
-/// `frag_is_column && !column_is_whole`, which falsifies `persist_flow`'s second
-/// conjunct (see their derivation in [`super::layout_inline_context_fragmented`]).
+/// establishes it rather than this function checking it: `do_carrier` is
+/// `frag_is_column && !column_is_whole` — by De Morgan the exact negation of
+/// `persist_flow` (see their derivation in [`super::layout_inline_context_fragmented`]).
 /// The arms below are therefore written `if persist_flow … else if do_carrier`,
 /// and the `else if` is exclusivity, not precedence — if both were ever true the
 /// carrier payload would be silently dropped.

@@ -127,6 +127,24 @@ identically-decided branch plus the type simplification that makes the deletion 
 * `:45` — "(D-mc2 — the optimistic `flow_align` for `Column` …)" → the optimism is now the
   packer's unconditional recording, not a `flow_align` variant; reworded, claim unchanged.
 
+`crates/layout/elidex-layout-block/src/inline/reconcile.rs` (found by the pre-push `/simplify`
+pass — the initial sweep grepped only the deleted tokens, i.e. was defined by the symptom
+vocabulary; the property "describes `persist_flow`'s formula" reaches one more site):
+
+* `:178-179` — the mutual-exclusivity proof said `do_carrier` "falsifies `persist_flow`'s second
+  conjunct"; with the conjunct gone, `do_carrier` is the exact negation of `persist_flow` (De
+  Morgan), and the doc now says so. A `grep -rn 'persist_flow\|do_carrier' crates/ --include='*.rs'`
+  sweep confirms no other site describes the formula's *shape* (the rest reference the flags or
+  the implication chain `do_carrier ⟹ persist_flow == false`, both shape-independent).
+
+Two further hygiene edits from the same `/simplify` pass, both inside the dedented `flush_line`
+body: the duplicate `let block_size = self.current_line_height;` binding (stranded in one scope
+with `line_height` by the dedent) is dropped — the `InlineFlowLine` push reads `block_size:
+line_height`; and the persistence-gate narration that lived at both the `FlowAlign` construction
+site and the `persist_flow` gate is consolidated at the gate (one decision, one narration site) —
+the construction site keeps only the recording-is-unconditional paragraph, which is about the
+input built there.
+
 ## §3. Spec coverage map
 
 The PR adds no algorithm and changes no observable behaviour (§4), so every row is a

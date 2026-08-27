@@ -233,7 +233,6 @@ impl LinePacker {
             let line_width = self.current_inline - self.current_line_last_hang;
             let free = (fa.containing_inline_size - line_width).max(0.0);
             let block_start = self.current_block_offset;
-            let block_size = self.current_line_height;
             // `text-align: justify` (CSS Text 3 §6.4) is suppressed on the block's
             // last line / a forced-break line (§6.3/§6.1 → start-aligned) and in
             // vertical writing modes (pre-existing render-capability limit — the
@@ -368,7 +367,7 @@ impl LinePacker {
                     .or_default()
                     .push(InlineFlowLine {
                         block_start,
-                        block_size,
+                        block_size: line_height,
                         runs,
                         justify_word_spacing,
                     });

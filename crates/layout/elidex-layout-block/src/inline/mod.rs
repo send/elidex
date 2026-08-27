@@ -212,20 +212,6 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate. There is NO cross-cutting legacy route left: the
-    // three text-feature gates that once forced render's legacy collect/collapse/emit
-    // path — text-transform, bidi, and **justify** — have all converged into the
-    // packer (text-transform applied in-place before packing; RTL runs persisted in
-    // logical order and reordered at paint, UAX #9 L2; justify positions baked here,
-    // `flush_line`/`bake_justify`, like the other three alignments — CSS Text 3 §6).
-    // Member-kind divergences are likewise gone (slice 3p-a static-atomic / 3p-b
-    // relpos/sticky inline / 3p-b-2 relative/sticky atomic). The ONLY remaining gate is
-    // fragmentation: persist when non-fragmented, **paged** (slice 4 / I-paged: the
-    // per-page slice + continuation rebase below model the per-page geometry, fragment
-    // stamped with the page generation), or **multicol whole-in-column** (slice 4 /
-    // I-multicol — see `persist_flow` below, the post-pack gate). A multicol IFC split
-    // mid-column is the last legacy route (→ Z).
-    //
     // The packer records `flow_lines`/`relpos_atomic_placements` unconditionally and
     // OPTIMISTICALLY: whether a multicol run persists needs `break_after_line`/
     // `skip_lines` (computed after packing), so the decision is `persist_flow`'s below,
@@ -307,10 +293,21 @@ pub fn layout_inline_context_fragmented(
     let effective_line_count = break_after_line.unwrap_or(line_count);
     let skip_lines = frag_constraint.map_or(0, |c| c.skip_lines);
 
-    // Persistence gate (slice 4 / I-multicol). Every run persists except a multicol
-    // run that is not WHOLE in its column: whole = the run starts at line 0 (not a
-    // continuation carried from a prior column) AND is not truncated by a fragment
-    // break. A continuation (`skip_lines > 0`) would render only the tail (the prior
+    // Persistence gate — the ONLY gate left; there is NO cross-cutting legacy route:
+    // the three text-feature gates that once forced render's legacy
+    // collect/collapse/emit path — text-transform, bidi, and **justify** — have all
+    // converged into the packer (text-transform applied in-place before packing; RTL
+    // runs persisted in logical order and reordered at paint, UAX #9 L2; justify
+    // positions baked in `flush_line`/`bake_justify`, like the other three alignments
+    // — CSS Text 3 §6), and member-kind divergences are likewise gone (slice 3p-a
+    // static-atomic / 3p-b relpos/sticky inline / 3p-b-2 relative/sticky atomic).
+    // Every run persists — non-fragmented, **paged** (slice 4 / I-paged: the per-page
+    // slice + continuation rebase below model the per-page geometry, fragment stamped
+    // with the page generation), **multicol whole-in-column** (slice 4 / I-multicol) —
+    // except a multicol run that is NOT whole in its column, the last legacy route
+    // (→ Z). Whole = the run starts at line 0 (not a continuation carried from a
+    // prior column) AND is not truncated by a fragment break.
+    // A continuation (`skip_lines > 0`) would render only the tail (the prior
     // column's lines were gated out → lost); a truncation (`break_after_line.is_some()`)
     // drops its tail to a column the column shift won't reach. Either ⇒ legacy, so no
     // lines are lost. Mid-IFC column break converges with box fragments at Z (G11: one
