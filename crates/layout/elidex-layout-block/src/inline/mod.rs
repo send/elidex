@@ -214,16 +214,13 @@ pub fn layout_inline_context_fragmented(
 
     // The packer records `flow_lines`/`relpos_atomic_placements` unconditionally and
     // OPTIMISTICALLY: whether a multicol run persists needs `break_after_line`/
-    // `skip_lines` (computed after packing), so the decision is `persist_flow`'s below,
-    // and a run that resolves mid-break just has its recorded lines discarded.
+    // `skip_lines` (computed after packing), so the routing is `persist_flow`'s below —
+    // a run that resolves mid-break is not persisted; its recorded lines leave via the
+    // `ColumnFlowSlice` carrier instead (only a probe's are discarded).
     // Recording never perturbs box geometry — `entity_bounds`/`static_positions`/
     // `line_boxes`/the break computation are committed independently of it. (Vertical
     // writing modes persist too — the packer is axis-agnostic, the origin fold swaps
     // axes.)
-    let frag_is_paged =
-        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
-    let frag_is_column =
-        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
     let flow_align = pack::FlowAlign {
         text_align: parent_style.text_align,
         direction: parent_style.direction,
@@ -313,9 +310,13 @@ pub fn layout_inline_context_fragmented(
     // lines are lost. Mid-IFC column break converges with box fragments at Z (G11: one
     // LayoutBox/InlineFlow per entity; the column shift moves a run-start's whole
     // subtree by one delta, so a two-fragment run-start cannot split across columns).
-    // A column run that resolves mid-break here just isn't persisted — its
-    // optimistically-recorded `flow_lines` are discarded (box geometry is
-    // recording-independent — the packer commits it unconditionally).
+    // A column run that resolves mid-break here isn't persisted — its recorded lines
+    // leave via the `ColumnFlowSlice` carrier (next paragraph); box geometry is
+    // recording-independent — the packer commits it unconditionally.
+    let frag_is_paged =
+        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
+    let frag_is_column =
+        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
     let column_is_whole = skip_lines == 0 && break_after_line.is_none();
     let persist_flow = !frag_is_column || column_is_whole;
     // Multicol mid-break (the last non-persisted column route): the per-column line
@@ -323,9 +324,10 @@ pub fn layout_inline_context_fragmented(
     // base and does not know the column inline offset). It is captured into the
     // transient `ColumnFlowSlice` carrier on `parent_entity`, drained by multicol
     // fill, and folded into the run-start's `InlineFlow` (offset per column) by
-    // `position_column_fragments` (Z-1b, Option D). Mutually exclusive with
-    // `persist_flow`: `do_carrier` ⟹ `frag_is_column && !column_is_whole` ⟹
-    // `persist_flow == false`.
+    // `position_column_fragments` (Z-1b, Option D). The dichotomy is definitional:
+    // `do_carrier = !persist_flow` (by De Morgan, exactly the mid-break condition
+    // `frag_is_column && !column_is_whole`), so persist-vs-carry is one bit and no
+    // both-true or neither state exists.
     //
     // A mid-break IFC whose own block clips overflow ALSO carries now (terminal-Z
     // C-1, retiring the #316 `midbreak_clips` legacy-fallback): render's
@@ -338,7 +340,7 @@ pub fn layout_inline_context_fragmented(
     // for the clipping case is the chain that fixes the col-0-clipped-away regression
     // #316 deferred (§2.6 hard invariant: this term and the C-1 render consume land
     // together).
-    let do_carrier = frag_is_column && !column_is_whole;
+    let do_carrier = !persist_flow;
     let total_block: f32 = packer
         .line_boxes
         .iter()
@@ -415,7 +417,6 @@ pub fn layout_inline_context_fragmented(
         env,
         is_vertical,
         persist_flow,
-        do_carrier,
         &candidate_keys,
         &unoffset_origins,
         packer.flow_lines,

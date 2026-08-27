@@ -24,7 +24,8 @@ this deletion makes true (§5 below) — nothing else of the umbrella's.
 (seam-3 landed), and every coordinate below is a `7e256029` coordinate, re-measured. The shift
 against the umbrella's frame: seam-3 made two one-line insertions in `inline/mod.rs` — the
 `mod reconcile;` declaration near `:17` and one doc-comment line in the `:172-181` region — so a
-site at or below `:172` shifts +1 and the dead-arm sites (all ≥ `:215`) shift **+2**;
+site above `:17` shifts 0, a site in `(17, ~172]` shifts +1, and the dead-arm sites (all ≥ `:215`)
+shift **+2**;
 `pack/mod.rs` is untouched since the umbrella's frame:
 
 ```
@@ -119,8 +120,8 @@ identically-decided branch plus the type simplification that makes the deletion 
 `crates/layout/elidex-layout-block/src/inline/pack/items.rs`:
 
 * `:37-38` — `FlowMember`'s doc "(only when persisting — `flow_align.is_some()`)" → recorded
-  unconditionally; a run that does not ultimately persist is discarded by the caller
-  (`persist_flow`).
+  unconditionally; where a recorded run goes is the caller's `persist_flow` routing —
+  persisted, carried per column, or (probe only) discarded.
 
 `crates/layout/elidex-layout-block/src/inline/tests/inline_flow/fragment.rs`:
 
@@ -144,6 +145,38 @@ line_height`; and the persistence-gate narration that lived at both the `FlowAli
 site and the `persist_flow` gate is consolidated at the gate (one decision, one narration site) —
 the construction site keeps only the recording-is-unconditional paragraph, which is about the
 input built there.
+
+### Pre-push `/code-review` findings, applied — including the class the deletion made evident
+
+The 8-angle bug/cleanup pass (medium) confirmed the deletion's mechanics independently (token
+identity of the dedent, constructor sweep incl. `#[cfg(test)]`, truth-table equivalence) and
+surfaced two real find groups, both applied:
+
+1. **A false claim my own consolidation had replicated**: "a non-persisting run's recorded lines
+   are discarded" is wrong for the carrier route — `reconcile_flows` captures them into
+   `ColumnFlowSlice` as the paint source for terminal-Z C-1/C-2; only a **probe's** are
+   discarded. Reworded at the construction-site paragraph, the `persist_flow` gate comment,
+   `place_item`'s recording comment, `FlowMember`'s doc, and this memo (the items.rs bullet
+   above); also the stranded "When persisting:" in `pack`'s Atomic-dispatch comment and
+   `FlowAlign`'s "context for persisting" heading (recording is unconditional).
+2. **The two-bool `reconcile_flows` interface re-encoded the deleted third state.** With the
+   conjunct gone, `do_carrier` is definitionally `!persist_flow`, so the `persist_flow ||
+   do_carrier` guard (`reconcile.rs:219`, base frame) was a tautology whose skip path was
+   unreachable by exactly §1's sole-caller argument — the one place §4's "type simplification
+   makes the deletion permanent" did not reach. Collapsed to **one bit**: `inline/mod.rs` derives
+   `do_carrier = !persist_flow` (the `frag_is_paged || do_carrier` consumer keeps the name),
+   `reconcile_flows` takes `persist_flow` alone, the tautological guard is dropped (its block
+   dedents), the `else if do_carrier && …` arms lose their redundant conjunct, and the carrier
+   reconcile keys on `!persist_flow`. The exclusivity the arms rely on now holds by construction;
+   the doc's "if both were ever true" hedge is deleted with the state it defended. Also moved the
+   `frag_is_paged`/`frag_is_column` bindings down beside `persist_flow` (their placement was
+   residue of the deleted pre-gate).
+
+⚠ Item 2 exceeds the surface the umbrella's §5.2 dead-arm row enumerates (that row lists
+`pack/mod.rs`'s arm and the `inline/mod.rs` pre-gate half only; the interface collapse reaches
+`reconcile.rs`'s signature). It is the same class — control flow shaped by the vacuous pre-gate —
+so it lands here under *one issue, one way*, and the delta is recorded as an input for the
+umbrella's round 20 rather than taken silently.
 
 ## §3. Spec coverage map
 

@@ -29,7 +29,8 @@ pub(super) use items::build_pack_items;
 use items::{FlowMember, PackItem};
 use justify::{align_offset, bake_justify, justify_opportunity_counts, resolve_align, FlushReason};
 
-/// Inline-alignment context for persisting an [`InlineFlow`](elidex_ecs::InlineFlow).
+/// Inline-alignment context for recording an [`InlineFlow`](elidex_ecs::InlineFlow)'s
+/// lines (whether a recorded run persists is the caller's post-pack decision).
 ///
 /// `LinePacker` records per-line positioned text runs with `text-align` baked into
 /// each run's `inline_start` — **including `justify`** (the 4th alignment; CSS Text 3
@@ -606,7 +607,7 @@ impl LinePacker {
                 }
 
                 // Atomic boxes don't break internally; treat as a single unit. An
-                // atomic inline box is always rendered content. When persisting:
+                // atomic inline box is always rendered content.
                 // - a *static* atomic → `place_item` records an `AtomicBox` member in
                 //   this atomic's group bucket; render paints it by `walk()`-ing the
                 //   entity at the `LayoutBox` layout repositions to the member's
@@ -681,9 +682,9 @@ impl LinePacker {
             ));
         }
 
-        // Record this placed item (recorded unconditionally and optimistically — a
-        // run that does not ultimately persist is discarded by the caller's
-        // `persist_flow` decision):
+        // Record this placed item (recorded unconditionally and optimistically —
+        // where a recorded run goes is the caller's `persist_flow` routing: persisted,
+        // carried per column, or — for a probe only — discarded):
         // - PositionedAtomic (relpos/sticky): its on-line position goes into the flat
         //   `current_line_relpos_atomics` reposition bucket — NOT a group flow member
         //   (render Layer 6 paints it; a member would double-paint), so it ignores

@@ -34,9 +34,10 @@ pub(in crate::inline) enum PackItem {
     Placeholder { entity: Entity },
 }
 
-/// What `place_item` records for a placed item (recorded unconditionally; a run
-/// that does not ultimately persist is discarded by the caller's `persist_flow`
-/// decision). A text segment coalesces into a contiguous same-entity
+/// What `place_item` records for a placed item (recorded unconditionally; where a
+/// recorded run goes is the caller's `persist_flow` routing — persisted, carried
+/// per column, or, for a probe only, discarded). A text segment coalesces into a
+/// contiguous same-entity
 /// [`InlineFlowRun::Text`]; a *static* atomic inline-level box becomes its own
 /// [`InlineFlowRun::AtomicBox`] flow member (render `walk()`s it at its
 /// repositioned `LayoutBox`); a *positioned* (relative/sticky) atomic is recorded
