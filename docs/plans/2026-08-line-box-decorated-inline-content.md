@@ -1243,7 +1243,7 @@ pre-existing — the same skip already freezes `LayoutBox.content` — and
 JS-observable-after-mutation guarantee it cannot give. **§7's full `LayoutBox`-edge reader list
 dispositioned, not just paint** (a `getBoundingClientRect` assertion included, made through the
 layout-level channel §5.2 names, not in `elidex-dom-api`) — **and dispositioned over a second entity
-class, generated content**: a decorated `::before`/`::after` (cell 6g) gets real edges here too, so
+class, generated content**: a decorated `::before`/`::after` (the 6g class, pinned under PR-1a) gets real edges here too, so
 every reader listed for elements is re-read for pseudo entities (render's `builder/inline.rs:205`
 walks them by `PseudoElementMarker` and `walk.rs` paints on `ComputedStyle` + `LayoutBox`, which
 a pseudo already carries today through its own `place_item` run — cell 13's delta on a second
