@@ -25,7 +25,9 @@ Every control runs `check()` -- the SAME pipeline `main()` runs, not a copy of
 it.  The registry lives in `plan_memo_selftest_cases.py` (builder + pre-converge
 controls) and `plan_memo_selftest_cases_pr510.py` (the PR #510 review-round
 controls, appended to the same `CASES`); the mutants (a re-executable proof
-that each control can go red) in `plan_memo_selftest_mutants.py`.
+that each control can go red) in `plan_memo_selftest_mutants.py` (the pre-converge
+rows + the runner) and `plan_memo_selftest_mutants_pr510.py` (the PR #510
+review-round rows, appended to the same `MUTANTS`), split at the same seam.
 
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
@@ -717,6 +719,7 @@ def run(mutants=False):
     n_mutants = None
     if mutants:
         import plan_memo_selftest_mutants as mm
+        import plan_memo_selftest_mutants_pr510  # noqa: F401 -- appends the review-round mutants to MUTANTS
         fails += mm.run(reg)
         n_mutants = len(mm.MUTANTS)
     fails += empty_registry_fails(len(reg), n_mutants)

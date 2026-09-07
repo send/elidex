@@ -6,7 +6,7 @@
 # Runs `plan-memo-umbrella-check.py --self-test --mutants`: every control in
 # `plan_memo_selftest_cases.py` (POSITIVE / POSITIVE-NOVEL / NEGATIVE /
 # KNOWN-MISS) against the checker's ONE pipeline (`check()`), then every row of
-# `plan_memo_selftest_mutants.py` -- a source edit that removes one lexing
+# `plan_memo_selftest_mutants.py` / `_mutants_pr510.py` -- a source edit that removes one lexing
 # clause or gating stage, exec'd into a fresh module set, whose named control
 # must turn red.  A mutant whose substring no longer applies is a FAIL, as is
 # one that survives.

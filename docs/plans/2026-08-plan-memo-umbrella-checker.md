@@ -508,7 +508,10 @@ ground for either option; it is not cited.
   review-round seam — `plan_memo_selftest_cases.py` keeps the builder, the record shape and every
   pre-converge control; `plan_memo_selftest_cases_pr510.py` holds the PR #510 review-round controls
   (Codex R1–R11, the design re-gate) and appends to the same `CASES`; the runner is the one import
-  site of both. ⚠ Touch-time split before design re-gate 3 (`plan_memo_tables.py` had reached 879
+  site of both. ⚠ Touch-time split before Codex R15 (`plan_memo_selftest_mutants.py` had reached 981
+  lines): the mutant registry is split at the SAME seam — `plan_memo_selftest_mutants.py` keeps the
+  row shape, `run` and every pre-converge mutant; `plan_memo_selftest_mutants_pr510.py` holds the PR
+  #510 review-round mutants and appends to the same `MUTANTS`; the runner imports both. ⚠ Touch-time split before design re-gate 3 (`plan_memo_tables.py` had reached 879
   lines): `Memo` (the Phase-1 driver `_parse` / `_quote`, Phase-2 resolution, file I/O, the sibling
   resolver) AND `Population` move to `plan_memo_memo.py` — `Population` cannot stay behind, since
   `Population → Memo → admit_table` would then be an import cycle (`admit_table` stays with the

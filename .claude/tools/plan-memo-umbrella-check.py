@@ -40,7 +40,8 @@ MODULES
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
   (this file)             mention scanners, `check()`, the report
   plan_memo_umbrella_selftest.py / _selftest_cases.py / _selftest_cases_pr510.py /
-                          _selftest_mutants.py / _selftest_conformance.py (the
+                          _selftest_mutants.py / _selftest_mutants_pr510.py /
+                          _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)
 
