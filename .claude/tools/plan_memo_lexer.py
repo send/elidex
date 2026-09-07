@@ -417,7 +417,7 @@ class Lexed:
     """The lexical facts of one block's INLINE content (a paragraph or a
     cell) -- Phase 2 of "Appendix: A parsing strategy"; block structure
     (fences, reference definitions, tables, paragraphs) is Phase 1, decided
-    over raw lines by `plan_memo_tables.py::Memo`, and a reference
+    over raw lines by `plan_memo_memo.py::Memo`, and a reference
     definition is never inline content.  `tokens` = [(start, end, "cite" |
     "file")] over the raw text.  `resolve(defs)` runs `inline_pass` and sets
     `code` = code spans, `links` = [(tail_start, end, destination)],

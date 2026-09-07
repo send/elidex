@@ -31,8 +31,10 @@ MODULES
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
                           HTML blocks), the block-quote marker, block starts, the
                           one `block_end` predicate, GFM rows, reference definitions
-  plan_memo_tables.py     schemas, `Row`, `Memo`, the transitive `Population`,
-                          the mask disposition
+  plan_memo_tables.py     id grammar, schemas, `Row`, `admit_table`, the mask
+                          disposition
+  plan_memo_memo.py       `Memo` (the Phase-1 driver, file I/O, the sibling
+                          resolver) and the transitive `Population`
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
   (this file)             mention scanners, `check()`, the report
   plan_memo_umbrella_selftest.py / _selftest_cases.py / _selftest_cases_pr510.py /
@@ -85,12 +87,12 @@ from collections import Counter, defaultdict, namedtuple
 HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
-from plan_memo_tables import SHORT_ID, SLUG_ID, Population, stream  # noqa: E402
+from plan_memo_tables import SHORT_ID, SLUG_ID, balanced, stream  # noqa: E402
+from plan_memo_memo import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     CELL_TOKEN, MENTION_PROSE, MENTION_SLOT, acceptance_vocab_seed,
     assertion_a, assertion_b, assertion_cd_seed, classify, roles,
 )
-from plan_memo_tables import balanced  # noqa: E402
 
 
 # --------------------------------------------------------------------------

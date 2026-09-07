@@ -46,6 +46,7 @@ MODULES = [
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),
+    ("plan_memo_memo", "plan_memo_memo.py"),
     ("plan_memo_roles", "plan_memo_roles.py"),
     ("plan_memo_umbrella_check", "plan-memo-umbrella-check.py"),
 ]
@@ -295,7 +296,7 @@ def linear_orphans_control(M):
     definition again per line (~4.5 million `link_label` calls, 7.95 s)."""
     import time
     import plan_memo_blocks     # the freshly loaded module
-    import plan_memo_tables
+    import plan_memo_memo
 
     def best(n):
         text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(n - 1))
@@ -306,7 +307,7 @@ def linear_orphans_control(M):
             for _ in range(3):
                 t0 = time.perf_counter()
                 with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:
-                    memo = plan_memo_tables.Memo(p)
+                    memo = plan_memo_memo.Memo(p)
                 t.append(time.perf_counter() - t0)
                 calls = c.calls
                 orphans = sum(len(v) for v in memo.orphans.values())
@@ -331,14 +332,14 @@ def scaling_unresolved_control(M):
     terms this guards: `Paragraph.locate` (a linear scan per site) and the
     `site not in out` membership test (now a set)."""
     import time
-    import plan_memo_tables
+    import plan_memo_memo
 
     def best(n):
         text = "".join("[x][missing]\n" for _ in range(n))
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "u.md"
             p.write_text(text)
-            memo = plan_memo_tables.Memo(p)
+            memo = plan_memo_memo.Memo(p)
             t = []
             for _ in range(3):
                 t0 = time.perf_counter()
@@ -373,8 +374,8 @@ def unavailable_sibling_control(M):
     raised for these names on every platform / version, so both are
     injected: `Path.resolve` raises for the named file while the control
     runs.  An exception from `check()` is red here."""
-    import plan_memo_tables
-    orig = plan_memo_tables.pathlib.Path.resolve
+    import plan_memo_memo
+    orig = plan_memo_memo.pathlib.Path.resolve
     report = []
     for name, exc in (("a" * 4000 + ".md", OSError(36, "File name too long")),
                       ("loop.md", RuntimeError("Symlink loop from 'loop.md'"))):
@@ -382,13 +383,13 @@ def unavailable_sibling_control(M):
             if self.name == _name:
                 raise _exc
             return orig(self, *a, **kw)
-        plan_memo_tables.pathlib.Path.resolve = resolve
+        plan_memo_memo.pathlib.Path.resolve = resolve
         try:
             res, _ = run_on(M, build(), "See [x](%s)." % name)
         except Exception as e:       # noqa: BLE001 -- the defect under test
             return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
         finally:
-            plan_memo_tables.pathlib.Path.resolve = orig
+            plan_memo_memo.pathlib.Path.resolve = orig
         miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
         if res.rc != 2 or not miss:
             return False, "%s: rc %d, miss %s (must be rc 2 with the miss)" % (type(exc).__name__, res.rc, miss)
@@ -400,7 +401,7 @@ def scaling_linked_files_control(M):
     """`linked_files` over N and 4N links, min of 3, t(4N)/t(N) < 8 (linear
     ~4, quadratic ~16): the dedup is a set, not a list membership test."""
     import time
-    import plan_memo_tables
+    import plan_memo_memo
 
     def best(n):
         # N DISTINCT siblings (none need exist: `linked_files` names, the
@@ -409,7 +410,7 @@ def scaling_linked_files_control(M):
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "links.md"
             p.write_text(text)
-            memo = plan_memo_tables.Memo(p)
+            memo = plan_memo_memo.Memo(p)
             t = []
             for _ in range(3):
                 t0 = time.perf_counter()
@@ -470,9 +471,9 @@ def spec_examples_control(M):
     its expected html or excluded by a stated §3.0 disposition; the multi-
     line detail is printed whole because the exclusion list IS the report."""
     import plan_memo_blocks     # the freshly loaded modules
-    import plan_memo_tables
+    import plan_memo_memo
     import plan_memo_selftest_conformance as conf
-    ok, detail = conf.run(plan_memo_blocks, plan_memo_tables)
+    ok, detail = conf.run(plan_memo_blocks, plan_memo_memo)
     print("       " + detail.replace("\n", "\n       "))
     return ok, detail.split("\n")[0]
 
@@ -485,7 +486,7 @@ def sequence_control(M):
     before being written, except the two table shapes (no tables there),
     which follow cmark-gfm's rule that a lazy line is paragraph text and a
     table is not a paragraph.  A crash on a shape is red."""
-    import plan_memo_tables       # the freshly loaded module
+    import plan_memo_memo         # the freshly loaded module
     shapes = [
         # a candidate where no paragraph is open ends the quote
         ("> # h\nlazy", [["quote", 1, 1], ["h1", 1, 1], ["p", 2, 2]]),
@@ -514,7 +515,7 @@ def sequence_control(M):
         for md, want in shapes:
             p.write_text(md + "\n")
             try:
-                got = plan_memo_tables.Memo(p).sequence
+                got = plan_memo_memo.Memo(p).sequence
             except Exception as e:       # noqa: BLE001 -- the defect under test
                 return False, "%r raised %s: %s" % (md, type(e).__name__, str(e)[:60])
             if got != want:
@@ -525,19 +526,19 @@ def sequence_control(M):
 def scaling_quotes_control(M):
     """The linearity witness for §5.1: N one-line block quotes separated by
     blank lines are read with at most 4N `quote_content` calls (counted at
-    the driver's binding, `plan_memo_tables`: the branch test, the marker
+    the driver's binding, `plan_memo_memo`: the branch test, the marker
     line, the blank candidate) and at least N (a counter watching nothing
     is red).  A quote that gathers every remaining line as a candidate
     (the bound dropped) makes N^2 calls and is stopped at the limit."""
-    import plan_memo_tables
+    import plan_memo_memo
     n = 1000
     text = "> q\n\n" * n
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "quotes.md"
         p.write_text(text)
         try:
-            with _count_calls(plan_memo_tables, "quote_content", limit=4 * n) as c:
-                memo = plan_memo_tables.Memo(p)
+            with _count_calls(plan_memo_memo, "quote_content", limit=4 * n) as c:
+                memo = plan_memo_memo.Memo(p)
         except _WorkExceeded:
             return False, "%d quotes exceeded %d quote_content calls: not linear" % (n, 4 * n)
     quotes = sum(1 for b in memo.sequence if b[0] == "quote")

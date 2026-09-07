@@ -23,9 +23,9 @@ the RUNNER itself (`plan_memo_umbrella_selftest.py`) patches the runner, not
 the checker set, and takes its controls from the patched runner's registry.
 """
 
-LEXER, BLOCKS, TABLES, ROLES, CHECK, SELFTEST = (
-    "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py", "plan_memo_roles.py",
-    "plan-memo-umbrella-check.py", "plan_memo_umbrella_selftest.py")
+LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, SELFTEST = (
+    "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py", "plan_memo_memo.py",
+    "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_umbrella_selftest.py")
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
@@ -69,7 +69,7 @@ MUTANTS = [
      '            if close is None:\n                i = a1                  # an unmatched backtick string is literal',
      '            if close is None:\n                code.append((i, n))\n                i = n',
      ["(span) an unmatched backtick string is literal, not a mask to end of line"]),
-    ("span: lexed over the paragraph, not the line", TABLES,
+    ("span: lexed over the paragraph, not the line", MEMO,
      '            if kind:\n                flush(kind)', '            flush()',
      ["(span) a code span may cross a line ending"]),
     ("span: a list item starts a block", BLOCKS,
@@ -82,7 +82,7 @@ MUTANTS = [
     ("span: an ATX heading is a block", BLOCKS,
      '    m = _ATX.match(rest)\n    if m:', '    m = None\n    if m:',
      ["(span) a paragraph ends at an ATX heading"]),
-    ("A x E: kind markers are read from the MASKED declaring field", TABLES,
+    ("A x E: kind markers are read from the MASKED declaring field", MEMO,
      'row.field = stream(row.cells[row.schema.decl].lexed)',
      'row.field = row.cells[row.schema.decl].text',
      ["(span) a quoted kind marker is not a declaration (A x E)"]),
@@ -112,7 +112,7 @@ MUTANTS = [
      '    return width is not None',
      ["(rc) a slice header over a one-cell delimiter row is not a table, so its wide body row "
       "is not a width miss"]),
-    ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", TABLES,
+    ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", MEMO,
      '                for lineno, msg in t.misses:\n'
      '                    self.misses.append((memo.path.name, lineno, msg))',
      '                for lineno, msg in t.misses:\n'
@@ -174,7 +174,7 @@ MUTANTS = [
      '                stack.clear()\n                i += 1\n                continue',
      ["(link) full reference whose text holds nested brackets; the label is the link's tail, not "
       "prose, and so is the definition"]),
-    ("def: the first definition of a label wins", TABLES,
+    ("def: the first definition of a label wins", MEMO,
      '                self.defs.setdefault(normalize_label(raw), dest)',
      '                self.defs[normalize_label(raw)] = dest',
      ["(def) the FIRST definition of a label wins"]),
@@ -187,35 +187,35 @@ MUTANTS = [
      '    if s[k] == "\\n":\n        return k + 1\n    return k',
      ["(def) text after the destination is not a definition, so the reference is unanswered: "
       "a schema miss"]),
-    ("def: a definition cannot interrupt a paragraph (Phase 1: only at a block start)", TABLES,
+    ("def: a definition cannot interrupt a paragraph (Phase 1: only at a block start)", MEMO,
      '            if d is not None and not cur:', '            if d is not None:',
      ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
-    ("population: every memo's rows are declared (census)", TABLES,
+    ("population: every memo's rows are declared (census)", MEMO,
      '        for memo in self.memos:\n            self._declare(memo)', '        self._declare(self.main)',
      ["(population) an umbrella declared in a linked memo is in the census"]),
-    ("population: every memo's ids are in the keep-set", TABLES,
+    ("population: every memo's ids are in the keep-set", MEMO,
      '        return set(self.ids)',
      '        return {rid for rid, r in self.ids.items() if r.memo is self.main}',
      ["(population) a terminal id declared in a linked memo is in the keep-set, so `Tq / 9z` is "
       "an id-only run, not code"]),
-    ("population: every memo's rows are asserted", TABLES,
+    ("population: every memo's rows are asserted", MEMO,
      'return [r for memo in self.memos for r in memo.schema_rows(name)]',
      'return list(self.main.schema_rows(name))',
      ["(b) a sibling umbrella's Deps edge is asserted"]),
-    ("population: the link walk is transitive", TABLES,
+    ("population: the link walk is transitive", MEMO,
      'queue.extend(memo.linked_files())',
      'queue.extend(memo.linked_files() if len(self.memos) == 1 else [])',
      ["(population) the population is transitive: a memo linked from a linked memo is scanned"]),
-    ("gate: an absent linked memo is a schema miss", TABLES,
+    ("gate: an absent linked memo is a schema miss", MEMO,
      '            except (OSError, RuntimeError, UnicodeDecodeError) as e:\n                self.misses.append(',
      '            except (OSError, RuntimeError, UnicodeDecodeError) as e:\n                [].append(',
      ["(rc) a linked memo that is not on disk is rc 2, never clean"]),
-    ("gate: an unmatched schema is a schema miss", TABLES,
+    ("gate: an unmatched schema is a schema miss", MEMO,
      '                if s.name not in matched:', '                if False:',
      ["(rc) a schema with no matching table is rc 2"]),
-    ("gate: a duplicate declaration is a schema miss", TABLES,
+    ("gate: a duplicate declaration is a schema miss", MEMO,
      '                if rid in self.ids:', '                if False:',
      ["(rc) the same id declared in two memos is rc 2"]),
     ("gate: KIND-SPELLING is a mechanical finding", CHECK,
@@ -233,19 +233,19 @@ MUTANTS = [
      'return g.group("id") if g else None', 'return g.group("id") if g else cell_text.strip()',
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
-    ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", TABLES,
+    ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", MEMO,
      '                    if not is_blank_id_cell(row.id_cell()):\n'
      '                        self.misses.append(',
      '                    if False:\n'
      '                        self.misses.append(',
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
-    ("F2 population: links in CELLS join the population", TABLES,
+    ("F2 population: links in CELLS join the population", MEMO,
      '        for lx in self.lexed():\n            for _, _, dest in lx.links:',
      '        for lx in (p.lexed for p in self.paragraphs):\n            for _, _, dest in lx.links:',
      ["(rc) a link to an absent memo inside a table CELL is rc 2",
       "(population) a violation in a sibling linked ONLY from a cell is reported"]),
-    ("F3 population: a destination with a scheme or `//` is not a sibling", TABLES,
+    ("F3 population: a destination with a scheme or `//` is not a sibling", MEMO,
      '        if _SCHEME.match(raw):                                       # (a)',
      '        if False:                                                    # (a)',
      ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0"]),
@@ -253,7 +253,7 @@ MUTANTS = [
      '    m = re.search(re.escape(MARKER), field)',
      '    m = list(re.finditer(re.escape(MARKER), field))[-1]',
      ["(a) a self-declaring field that later says a sibling 'is not it' stays self-declaring"]),
-    ("F5 kind: the undetermined spelling is collected beside the marker", TABLES,
+    ("F5 kind: the undetermined spelling is collected beside the marker", MEMO,
      '        if m:\n            self.spellings.add(m.group(0))',
      '        if m and MARKER not in row.field:\n            self.spellings.add(m.group(0))',
      ["(rc) a row carrying the marker AND one undetermined spelling, beside another row's other "
@@ -278,9 +278,9 @@ MUTANTS = [
      'return bare in {"", "\\u2014", "-"} or bare.casefold() in EMPTY_WORDS',
      ["(c-seed) a Deps cell `–` (en dash) is empty by shape: no alphanumeric",
       "(c-seed) a Deps cell `--` is empty by shape"]),
-    ("4.5 id cell: blanks are LITERAL, not the shape rule (re-inject `is_empty`)", TABLES,
+    ("4.5 id cell: blanks are LITERAL, not the shape rule (re-inject `is_empty`)", MEMO,
      '                    if not is_blank_id_cell(row.id_cell()):',
-     '                    if not is_empty(row.id_cell()):',
+     '                    if not __import__("plan_memo_tables").is_empty(row.id_cell()):',
      ["(id) an id cell `?` is not a blank: unkeyed, rc 2",
       "(id) an id cell `…` is not a blank: unkeyed, rc 2 (the shape rule would skip it)",
       "(id) an id cell `**?**` is not a blank: decoration does not blank it, rc 2"]),
@@ -288,7 +288,7 @@ MUTANTS = [
      'ID_CELL_BLANKS = frozenset({"", "\\u2014", "-", "\\u2013"})',
      'ID_CELL_BLANKS = frozenset({"", "-", "\\u2013"})',
      ["(id) an id cell `—` is a literal blank: a deliberate non-row, rc 0"]),
-    ("4.5 link: a citation-grammar label is exempt in every reference form", TABLES,
+    ("4.5 link: a citation-grammar label is exempt in every reference form", MEMO,
      'exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"',
      'exempt = form == "shortcut"',
      ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
@@ -313,7 +313,7 @@ MUTANTS = [
       "`child.md` joins the population, absent `parent.md` is not linked",
       "(link) a reference link nested in inline brackets: the inner reference is the link, the "
       "outer tail is text"]),
-    ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", TABLES,
+    ("R1-4 def: an orphan candidate is parsed with its continuation line, not per line", MEMO,
      '            text, off = "\\n".join(lines[i:j]), 0',
      '            text, off = "\\n".join(lines[i:i + 1]), 0',
      ["(def) a would-be MULTILINE definition that interrupts a paragraph is an orphan: the "
@@ -327,7 +327,7 @@ MUTANTS = [
      '    return i > 0 and s[i - 1] == "!" and not _escaped(s, i - 1)', '    return False',
      ["(link) a link wrapping an IMAGE `[![alt](img.png)](sib.md)` links the sibling; `img.png` is "
       "never a memo"]),
-    ("R2-3 link: the reference form is the lexer's (re-inject a raw bracket walk)", TABLES,
+    ("R2-3 link: the reference form is the lexer's (re-inject a raw bracket walk)", MEMO,
      'or form == "shortcut"',
      'or "][" not in lx.text[off:lx.text.find("]", off) + 2]',
      ["(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, not an "
@@ -354,7 +354,7 @@ MUTANTS = [
      '        if _is_escape(s, i) and s[i + 1] != "[":\n            i += 2',
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
-     "`%2Ftmp%2Fx.md` -- is not a sibling", TABLES,
+     "`%2Ftmp%2Fx.md` -- is not a sibling", MEMO,
      '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
      '        if _CONTROL.search(name):                                    # (c)',
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
@@ -363,7 +363,7 @@ MUTANTS = [
       "(never probes `/tmp/child.md`): rc 0"]),
     # -- design re-gate
     ("RG-1 def: orphan detection joins each run ONCE (re-inject a per-line join of the rest: "
-     "quadratic)", TABLES,
+     "quadratic)", MEMO,
      '                defs_at[i] = definition_block(run_text[i], run_off[i])',
      '                defs_at[i] = (__import__("plan_memo_blocks").reference_definitions('
      '"\\n".join(lines[i:]))[0] or [None])[0]',
@@ -374,11 +374,11 @@ MUTANTS = [
      ["(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` "
       "is no collapsed reference: rc 0"]),
     # -- PR #510 Codex R4
-    ("R4-1 gate: an unresolved IMAGE reference is not a memo miss", TABLES,
+    ("R4-1 gate: an unresolved IMAGE reference is not a memo miss", MEMO,
      '                if is_image:\n                    continue', '                if False:\n                    continue',
      ["(image) an undefined reference image `![diagram][missing-image]` is literal syntax, not an "
       "unresolved memo reference: rc 0"]),
-    ("R4-2 population: the destination path is percent-decoded", TABLES,
+    ("R4-2 population: the destination path is percent-decoded", MEMO,
      '        name = unquote(raw)                                          # (b)',
      '        name = raw                                                   # (b)',
      ["(link) a percent-encoded destination `slice%20sib.md` links the file `slice sib.md`, as "
@@ -407,12 +407,12 @@ MUTANTS = [
      ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
       "spelling two ids, both reported"]),
     # -- PR #510 Codex R6
-    ("R6-2 locate: a bisect over the line offsets, not a linear scan per site", TABLES,
+    ("R6-2 locate: a bisect over the line offsets, not a linear scan per site", MEMO,
      '        k = bisect.bisect_right(self.offsets, i) - 1',
      '        k = 0\n        while k + 1 < len(self.offsets) and self.offsets[k + 1] <= i:\n            k += 1',
      ["unresolved_references scales linearly: t(4N)/t(N) < 8"]),
     # -- PR #510 Codex R7
-    ("R7-1 def: the definition is parsed over the rest of the block (re-inject a 3-line window)", TABLES,
+    ("R7-1 def: the definition is parsed over the rest of the block (re-inject a 3-line window)", MEMO,
      '                text, off = "\\n".join(lines[i:j]), 0',
      '                text, off = "\\n".join(lines[i:i + 3]), 0',
      ["(def) a label spanning FIVE lines is a definition (§4.7 / §6.3: a label may span lines); "
@@ -423,21 +423,21 @@ MUTANTS = [
      ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition "
       "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
       "NOT walked -- its violation is not reported"]),
-    ("R7-2 population: a C0 control character in a decoded destination is rejected", TABLES,
+    ("R7-2 population: a C0 control character in a decoded destination is rejected", MEMO,
      '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
      '        if name.startswith("/"):                                     # (c)',
      ["a decoded destination with a C0 control character is rejected, never resolved"]),
     # -- PR #510 Codex R8
-    ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", TABLES,
+    ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", MEMO,
      '        if _SCHEME.match(raw):                                       # (a)',
      '        if _SCHEME.match(unquote(raw)):                              # (a)',
      ["(link) `notes%3Achild.md` has no scheme (WHATWG URL: a scheme is read BEFORE decoding): it is "
       "the local file `notes:child.md`, and it is scanned"]),
-    ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", TABLES,
+    ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", MEMO,
      '    try:\n        return path.resolve()\n    except (OSError, RuntimeError):\n        return path',
      '    return path.resolve()',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
-    ("R8-5 sibling: the dedup is a set (re-inject the list membership test)", TABLES,
+    ("R8-5 sibling: the dedup is a set (re-inject the list membership test)", MEMO,
      '                if f is not None and f not in seen:\n                    seen.add(f)',
      '                if f is not None and f not in out:\n                    pass',
      ["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"]),
@@ -456,17 +456,17 @@ MUTANTS = [
      ["(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end the "
       "paragraph and the code span crosses it"]),
     # -- PR #510 Codex R9
-    ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", TABLES,
+    ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", MEMO,
      '                if cur and is_setext_underline(line) and not container_text(cur[0][1]):',
      '                if False:',
      ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
       "span opened in the heading does not reach the next paragraph's site"]),
-    ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", TABLES,
+    ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", MEMO,
      '                if cur and is_setext_underline(line) and not container_text(cur[0][1]):',
      '                if cur and is_setext_underline(line):',
      ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
       "paragraph continues and a code span crosses it"]),
-    ("R9 F1 / R13 seed: every raw HTML-block line is recorded for the seed", TABLES,
+    ("R9 F1 / R13 seed: every raw HTML-block line is recorded for the seed", MEMO,
      '                        self.raw_html.extend((linenos[k], lines[k]) for k in range(i, end))',
      '                        pass',
      ["(lex-seed) an HTML-block opener holding a declared id is a seed",
@@ -475,7 +475,7 @@ MUTANTS = [
     ("R9 F1 seed: only a line holding a `|` or a declared id is reported", CHECK,
      '            if "|" in line or ids:', '            if True:',
      ["(lex-seed) an HTML-block line with neither a `|` nor a declared id is no seed"]),
-    ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", TABLES,
+    ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", MEMO,
      '            except (OSError, RuntimeError, UnicodeDecodeError) as e:', '            except (OSError, RuntimeError) as e:',
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
@@ -511,7 +511,7 @@ MUTANTS = [
       "header row as its destination"]),
     ("RG2 IMP-1: admit_table reads the ONE predicate (re-inject a third boundary)", TABLES,
      '    while j < n and not block_end(lines, j, False, lazy):\n        body = split_row(lines[j])',
-     '    while j < n and not is_blank(lines[j]):\n        body = split_row(lines[j])',
+     '    while j < n and not __import__("plan_memo_blocks").is_blank(lines[j]):\n        body = split_row(lines[j])',
      ["(table) a list item right after a schema table ends it (a block start), so it is not a 1-cell "
       "body row: rc 0"]),
     ("RG2 IMP-1 / R13 §4.4: indented code cannot interrupt a paragraph (re-inject it as an opener "
@@ -523,7 +523,7 @@ MUTANTS = [
       "(indented) `text\\n    Slice 9z owns it`: an indented line cannot interrupt a paragraph (§4.4; "
       "commonmark.js: one paragraph) -- paragraph text, the site is reported",
       SPEC_EXAMPLES]),
-    ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", TABLES,
+    ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", MEMO,
      '            if d is not None:\n                # a valid definition that cannot take effect: the orphan\n'
      '                self.orphans.setdefault(normalize_label(d[0]), set()).add(linenos[i])',
      '            if d is not None or (line.lstrip(" ").startswith("[") and "]:" in line):\n'
@@ -532,7 +532,7 @@ MUTANTS = [
       "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
       "(def) a label-and-colon line that is NOT a valid definition (junk after the destination) at a "
       "block start is prose, not an orphan: `[sib]` later is exempt, rc 0"]),
-    ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", TABLES,
+    ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", MEMO,
      '    except (OSError, RuntimeError):\n        return path', '    except OSError:\n        return path',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
     ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", BLOCKS,
@@ -573,7 +573,7 @@ MUTANTS = [
       "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
     # -- PR #510 Codex R11
     ("R11-1 driver: block start from the block STATE (re-inject the look-back at the previous raw line: "
-     "blank / one-line block before it)", TABLES,
+     "blank / one-line block before it)", MEMO,
      '                opener = raw_opener(line, False)',
      '                opener = raw_opener(line, not (i == 0 or is_blank(lines[i - 1]) '
      'or one_line_block(lines[i - 1])))',
@@ -623,7 +623,7 @@ MUTANTS = [
      '                if form is not None and not (form == "shortcut" and pos == relabel):',
      '                if form is not None and form != "shortcut":',
      ["(link) a shortcut whose only definition sits mid-paragraph is a schema miss"]),
-    ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", TABLES,
+    ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", MEMO,
      '            for lineno, label in memo.unresolved_references():\n'
      '                self.misses.append(',
      '            for lineno, label in ():\n'
@@ -683,7 +683,7 @@ MUTANTS = [
      'return blank_spans(lx.text, [(a, b) for a, b, _ in lx.mask])',
      'return blank_spans(lx.text, [(a, b) for a, b, k in lx.mask if k == "code"])',
      ["(stream) ordering vocabulary in a link TITLE is the link's tail, not prose"]),
-    ("#11 identity: per-memo maps are keyed on the resolved path, not the basename", TABLES,
+    ("#11 identity: per-memo maps are keyed on the resolved path, not the basename", MEMO,
      '        return str(self.path)', '        return self.path.name',
      ["(c-seed) a sibling of the SAME basename in another directory, whose Deps cell at the "
       "same line names the party, does not discharge the main memo's row"]),
@@ -741,7 +741,7 @@ MUTANTS = [
     ("R13 §4.4: the trailing blank lines are not part of the block (re-inject them)", BLOCKS,
      '        return end\n    if kind == "fence":', '        return j\n    if kind == "fence":',
      [SEQUENCE]),
-    ("R13 §5.1: a `>` line opens the container (drop the branch: the marker line heads a paragraph)", TABLES,
+    ("R13 §5.1: a `>` line opens the container (drop the branch: the marker line heads a paragraph)", MEMO,
      '                if quote_content(line) is not None:\n                    flush()',
      '                if False:\n                    flush()',
      ["(quote) `> [sib]: slice-9z-sib.md`: a definition inside a block quote registers (§5.1 container, "
@@ -760,7 +760,7 @@ MUTANTS = [
       "text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site",
       SPEC_EXAMPLES]),
     ("R13 §5.1: a lazy candidate where no paragraph is open ends the quote (drop the stop: it is "
-     "parsed inside)", TABLES,
+     "parsed inside)", MEMO,
      '                if lazy is not None and lazy[i]:\n                    break',
      '                if False:\n                    break',
      [SEQUENCE]),
@@ -778,22 +778,22 @@ MUTANTS = [
      [SEQUENCE]),
     ("R13 §5.1: a quote's lazy candidates are gathered once, up to the first boundary (drop the "
      "bound: every quote re-scans the rest of the document, quadratic -- the result is the same, the "
-     "cost is not)", TABLES,
+     "cost is not)", MEMO,
      '                if block_end(content, len(content) - 1, True, inner_lazy):',
      '                if False:',
      ["block quotes are linear: N quotes cost <= 4N quote_content calls"]),
-    ("R13 §5.1: lazy continuation (drop it: a marker-less line never joins the quote)", TABLES,
+    ("R13 §5.1: lazy continuation (drop it: a marker-less line never joins the quote)", MEMO,
      '                if block_end(content, len(content) - 1, True, inner_lazy):',
      '                if True:',
      ["(quote) `> open `here\\nSlice 9z owns it` there`: the marker-less line is lazy continuation text "
       "of the quote's paragraph (§5.1), so the span crosses it: no site",
       SEQUENCE, SPEC_EXAMPLES]),
-    ("R13 §5.2 seed: indented code after a list item's paragraph is recorded for the seed", TABLES,
+    ("R13 §5.2 seed: indented code after a list item's paragraph is recorded for the seed", MEMO,
      '                        self.item_code.extend((linenos[k], lines[k]) for k in range(i, end))',
      '                        pass',
      ["(lex-seed) `- item\\n\\n    Slice 9z owns it`: an indented line after a list item's paragraph is "
       "the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- seeded"]),
-    ("R13 §5.2 seed: only after a LIST ITEM's paragraph (re-inject 'after any paragraph')", TABLES,
+    ("R13 §5.2 seed: only after a LIST ITEM's paragraph (re-inject 'after any paragraph')", MEMO,
      '                after_item = kind == "p" and list_item_line(cur[0][1])',
      '                after_item = kind == "p"',
      ["(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is a code block "

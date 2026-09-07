@@ -11,7 +11,7 @@ closes one (§4.3), the ONE block-boundary predicate `block_end` -- with the
 §5.1 lazy-continuation arm every container reads through it -- and the run
 it bounds (`run_end`), GFM §4.10 table rows, and link reference definitions
 (§4.7).  Driven line by line, in ONE forward pass, by
-`plan_memo_tables.py::Memo._parse`, which owns the block state (what is
+`plan_memo_memo.py::Memo._parse`, which owns the block state (what is
 open: a raw extent, a table, a run) and recurses into a block quote's
 content with the same pass -- this module holds no state and looks at no
 previous line.  The inline grammar a definition's label, destination and

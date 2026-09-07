@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The CommonMark 0.31.2 spec's OWN examples as the falsifier of Phase 1
-(`plan_memo_blocks.py` / `Memo._parse`) -- the control behind every row of
+(`plan_memo_blocks.py` / `plan_memo_memo.Memo._parse`) -- the control behind every row of
 the plan's §3.0 table.
 
 WHY.  Two review rounds in a row were spec-table transcription errors, in
@@ -127,9 +127,9 @@ def align(memo, html):
     return None
 
 
-def run(B, T):
-    """(ok, detail): every vendored example through `T.Memo` (the freshly
-    loaded `plan_memo_tables`; `B` the freshly loaded `plan_memo_blocks`),
+def run(B, M):
+    """(ok, detail): every vendored example through `M.Memo` (the freshly
+    loaded `plan_memo_memo`; `B` the freshly loaded `plan_memo_blocks`),
     aligned or excluded; a crash on any example is a FAIL of that example."""
     data = json.loads(EXAMPLES.read_text(encoding="utf-8"))
     passed, fails, skips = 0, [], {}
@@ -139,7 +139,7 @@ def run(B, T):
             no = ex["example"]
             p.write_text(ex["markdown"], encoding="utf-8")
             try:
-                memo = T.Memo(p)
+                memo = M.Memo(p)
                 why = excluded(memo, B)
                 if why is not None:
                     skips.setdefault(why, []).append(no)
