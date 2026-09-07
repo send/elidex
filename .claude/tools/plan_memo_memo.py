@@ -762,7 +762,7 @@ class Population:
         self.memos = []
         self.misses = []            # [(file, lineno, message)]
         self.spellings = set()
-        self.attributed = []        # [(file, table, lineno, rid, other)]
+        self.attributed = []        # [(file, table, lineno, row name (`Row.name`), other)]
         self.ids = {}
         queue, seen = [_resolve(pathlib.Path(main_path))], set()
         self.root = queue[0].parent     # the root memo's directory: what `display` names relative to
@@ -853,9 +853,9 @@ class Population:
                 if rid in self.ids:
                     r2 = self.ids[rid]
                     self.misses.append((self.display(memo.path), row.lineno,
-                                        "row %r is declared twice (also %s:%d in %r); a population "
+                                        "row %s is declared twice (also %s:%d in %r); a population "
                                         "with two declarations of one id cannot be scanned"
-                                        % (rid, self.display(r2.memo.path), r2.lineno, r2.schema.name)))
+                                        % (row.name(), self.display(r2.memo.path), r2.lineno, r2.schema.name)))
                     continue
                 self.ids[rid] = row
 
@@ -874,7 +874,7 @@ class Population:
         if MARKER in row.field:
             other = attributed_to_other(row.field, row.self_id)
             if other:
-                self.attributed.append((self.display(row.memo.path), row.schema.name, row.lineno, row.self_id, other))
+                self.attributed.append((self.display(row.memo.path), row.schema.name, row.lineno, row.name(), other))
                 return "pointer"
             return "umbrella"
         if m:

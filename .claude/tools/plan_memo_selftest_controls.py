@@ -703,6 +703,34 @@ def display_path_control(M):
         want, seeds)
 
 
+def empty_id_row_name_control(M):
+    """PR #510 R20: a finding names a row whose id cell declares no id by its
+    declaring LOCATOR -- `row <no id> at :LINE (TOKEN)`, the row's line and
+    the first token of its declaring field (`Row.name`, the one spelling every
+    printer composes) -- never `row None`, which named nothing a reader could
+    find.  The fixture is the umbrella memo's shape at its line 1985: a §5 row
+    whose id cell is the literal blank `**—**` (a deliberate non-row: unkeyed,
+    outside `ids`, still a data row) and whose Slice cell opens
+    `` `Function`/`eval` `` and orders itself after a slug its Deps cell does
+    not carry, so the ORDER-PROSE? seed fires on it.  WHAT the seed compares
+    (Deps vs prose) is a documented seed class and is not under test; the NAME
+    the finding carries is.  Every finding of the run is read for `row None`:
+    the empty-id row also reaches the declaring-field printers through
+    `declaring_rows()`."""
+    table = ("| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|---|---|---|---|---|\n"
+             "| **—** | `Function`/`eval` — Terminal.  Acceptance: the probe must return 3.  "
+             "Lands after Slice `#11-zz-alpha`. | `g.rs` | — | T1 | **9z** |")
+    text = build(extra=table)
+    lineno = next(i for i, l in enumerate(text.split("\n"), 1) if l.startswith("| **—** |"))
+    res, _ = run_on(M, text)
+    hits = [f[3] for f in res.findings if f[0] == "ORDER-PROSE?" and f[2] == lineno]
+    want = "row <no id> at :%d (Function/eval)" % lineno
+    none = sorted({f[0] for f in res.findings if "row None" in f[3]})
+    ok = res.rc != 2 and len(hits) == 1 and want in hits[0] and not none
+    return ok, "rc %d (not 2), ORDER-PROSE? on line %d x%d (must be 1) carrying %r: %s; findings spelling `row None`: %s" % (
+        res.rc, lineno, len(hits), want, bool(hits) and want in hits[0], none or "none")
+
+
 # The spellings the grammar module owns.  A SOURCE-TEXT sweep over string
 # constants: it reads these exact spellings and nothing about purpose.
 _ID_SPELLINGS = (
@@ -796,4 +824,5 @@ def registry():
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)
     reg["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"] = ("CONTROL", display_path_control)
+    reg["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never `row None`"] = ("CONTROL", empty_id_row_name_control)
     return reg

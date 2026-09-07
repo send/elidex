@@ -5,12 +5,12 @@
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
 `plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is fifteen
-`.py` files: `plan-memo-umbrella-check.py` 498 / `plan_memo_tables.py` 344 / `plan_memo_umbrella_selftest.py`
-89 (the three carried names, 931) + `plan_memo_ids.py` 184 / `plan_memo_lexer.py` 699 / `plan_memo_blocks.py` 746 /
+`.py` files: `plan-memo-umbrella-check.py` 498 / `plan_memo_tables.py` 364 / `plan_memo_umbrella_selftest.py`
+89 (the three carried names, 951) + `plan_memo_ids.py` 184 / `plan_memo_lexer.py` 699 / `plan_memo_blocks.py` 746 /
 `plan_memo_memo.py` 913 / `plan_memo_roles.py` 399 / `plan_memo_selftest_cases.py` 612 /
-`plan_memo_selftest_cases_pr510.py` 949 / `plan_memo_selftest_conformance.py` 279 / `plan_memo_selftest_controls.py` 799 /
-`plan_memo_selftest_harness.py` 266 / `plan_memo_selftest_mutants.py` 457 / `plan_memo_selftest_mutants_pr510.py` 867
-— **8,101 total, measured at `git add` of the self-test touch-time split commit (parent `883b89d3`); re-run at landing** (`wc -l
+`plan_memo_selftest_cases_pr510.py` 949 / `plan_memo_selftest_conformance.py` 279 / `plan_memo_selftest_controls.py` 828 /
+`plan_memo_selftest_harness.py` 266 / `plan_memo_selftest_mutants.py` 457 / `plan_memo_selftest_mutants_pr510.py` 873
+— **8,156 total, measured at `git add` of the R20 `Row.name` fix commit (parent `9e0c37a0`); re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
@@ -690,7 +690,18 @@ ground for either option; it is not cited.
   hole this round closes. `scripts/trip-wires.sh` rc 0. ⚠ Two R20 brief premises were false: `_TRAILING_NOUN` is not
   an id composer (above), and "the umbrella memo has 15 slot rows; if any declaring field attributes to a slug row
   the census WILL change" — no declaring field in that memo does (48 unchanged); what moved was the (c) seed, via
-  `_anchored`, which the brief did not name.
+  `_anchored`, which the brief did not name. **#3 (MIN, follow-up commit)** — that finding printed `row None`: every
+  printer composed `row %r` of `Row.self_id` itself (eight sites in `plan_memo_roles.py`, one in `plan_memo_memo.py`),
+  so a row whose id cell is the literal blank `**—**` was named by nothing a reader could find. One naming site now:
+  `Row.name()` — the id's repr when the cell declares one (identical output for every keyed row), else the
+  declaring LOCATOR `<no id> at :LINE (TOKEN)` (the line and the declaring field's first token, decoration
+  stripped; line 1985 prints `row <no id> at :1985 (Function/eval)`); `Population.attributed` carries the name, not
+  the id. ⚠ The brief's "the ONE place rows are named in findings" did not exist — there were nine inline
+  `row %r` sites, and the fix is what creates the one place. Control (function-shaped, the message text is the
+  subject): an `extra` §5 table with a `**—**` row whose Slice cell opens `` `Function`/`eval` `` and orders after
+  a slug its Deps cell lacks — ORDER-PROSE? x1 on that line carrying the locator, no finding of the run spelling
+  `row None`; mutant `R20 #3` re-injects the unconditional `repr(self.self_id)`. 410 controls / 215 mutants 0 / 0;
+  census 48 / 717 / 37 / 6 unchanged.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.

@@ -173,6 +173,26 @@ class Row:
         """The raw text of this row's id cell (None for a row without one)."""
         return self.cells[self.schema.idc].text if self.schema and self.schema.idc is not None else None
 
+    def name(self):
+        """How a finding names this row -- the ONE spelling, so no printer
+        composes `row %r` of `self_id` itself: the repr of its id when the id
+        cell declares one (`'9z'`, `'#11-x'`), else its declaring LOCATOR,
+        `<no id> at :LINE (TOKEN)` -- the row's line and the first
+        whitespace-delimited token of its declaring field with the inline
+        decoration (backticks, asterisks) stripped, e.g. `<no id> at :1985
+        (Function/eval)` for the umbrella memo's `Function`/`eval` row, whose
+        id cell is the literal blank `**—**` (a deliberate non-row: unkeyed,
+        outside `ids`, still a data row the seeds and the declaring-field
+        printers read).  `row None` named nothing a reader could find (PR
+        #510 R20); a row with no declaring field is named by its line alone."""
+        if self.self_id is not None:
+            return repr(self.self_id)
+        token = ""
+        if self.schema is not None and self.schema.decl is not None:
+            words = re.sub(r"[`*]", "", self.cells[self.schema.decl].text).split()
+            token = words[0] if words else ""
+        return "<no id> at :%d%s" % (self.lineno, " (%s)" % token if token else "")
+
     def col(self, header_cell):
         """The cell under the schema's header cell named `header_cell`."""
         return self.cells[self.schema.header.index(header_cell)]

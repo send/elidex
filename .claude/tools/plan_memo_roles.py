@@ -224,12 +224,12 @@ def assertion_a(pop, findings, notes):
     """
     umb = pop.ids_of_kind("umbrella")
     by_table = Counter(r.schema.name for r in umb.values())
-    for file, _name, lineno, rid, other in pop.attributed:
+    for file, _name, lineno, name, other in pop.attributed:
         findings.append(
             ("UMBRELLA-MARK", file, lineno,
-             "row %r carries the marker in its declaring field but attributes it to row %r; "
+             "row %s carries the marker in its declaring field but attributes it to row %r; "
              "§5 says a pointer slot carries no marker of its own, so it is NOT in the count"
-             % (rid, other)))
+             % (name, other)))
     notes.append(
         "[UMBRELLA-MARK] %d rows carry the marker in their declaring field "
         "(%s) -- read from the declaring field, not from a grep over the marker"
@@ -245,15 +245,15 @@ def assertion_a(pop, findings, notes):
             # ANOTHER row's kind.  Deciding which is natural language.
             findings.append(
                 ("UMBRELLA-MARK?", pop.display(row.memo.path), row.lineno,
-                 "row %r uses the kind vocabulary in its declaring field without the "
+                 "row %s uses the kind vocabulary in its declaring field without the "
                  "marker -- read it: a declaration, a quotation of the criterion, or "
-                 "another row's kind?" % row.self_id))
+                 "another row's kind?" % row.name()))
         # the marker outside the declaring field certifies nothing
         if any(MARKER in stream(c.lexed)
                for i, c in enumerate(row.cells) if i != row.schema.decl):
             findings.append(
                 ("UMBRELLA-MARK", pop.display(row.memo.path), row.lineno,
-                 "row %r carries the marker outside its declaring field" % row.self_id))
+                 "row %s carries the marker outside its declaring field" % row.name()))
 
 
 def assertion_b(pop, findings, notes):
@@ -272,7 +272,7 @@ def assertion_b(pop, findings, notes):
         deps = row.col("Deps").text
         if not is_empty(deps):
             findings.append(("UMBRELLA-CELL", pop.display(row.memo.path), row.lineno,
-                             "%s row %r carries a Deps edge: %s" % (kind, row.self_id, deps[:120])))
+                             "%s row %s carries a Deps edge: %s" % (kind, row.name(), deps[:120])))
     notes.append(
         "[UMBRELLA-CELL] %d §5 no-owner rows (umbrella + kind-undetermined) checked for a Deps edge. "
         "⚠ HALF of assertion (b): the acceptance half is NOT checked and is not "
@@ -328,8 +328,8 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         if empty:
             n += 1
             findings.append(("ORDER-PROSE?", pop.display(row.memo.path), row.lineno,
-                             "row %r states ordering vocabulary in prose while its Deps cell is %r"
-                             % (rid, deps)))
+                             "row %s states ordering vocabulary in prose while its Deps cell is %r"
+                             % (row.name(), deps)))
             continue
         # Non-empty: report only when the prose names a party the cell does not.
         # ⚠ Only ids that EXIST: the anchored pass matches ROW_NOUN + token, and
@@ -344,8 +344,8 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         if extra:
             n += 1
             findings.append(("ORDER-PROSE?", pop.display(row.memo.path), row.lineno,
-                             "row %r states ordering vocabulary in prose naming %s, which its Deps "
-                             "cell does not carry" % (rid, ", ".join(repr(e) for e in extra))))
+                             "row %s states ordering vocabulary in prose naming %s, which its Deps "
+                             "cell does not carry" % (row.name(), ", ".join(repr(e) for e in extra))))
     notes.append("[ORDER-PROSE?] SEED -- %d rows; the class is natural language and is not bounded by this figure" % n)
 
     # (d) TWO-OWNERS.  A SEED keyed on ownership vocabulary, which is the miss
@@ -359,8 +359,8 @@ def assertion_cd_seed(pop, mentions, findings, notes):
                 continue
             d += 1
             findings.append(("TWO-OWNERS?", pop.display(row.memo.path), row.lineno,
-                             "row %r assigns one deliverable to %r and %r in one clause: %r"
-                             % (row.self_id, a, b, m.group(0)[:110])))
+                             "row %s assigns one deliverable to %r and %r in one clause: %r"
+                             % (row.name(), a, b, m.group(0)[:110])))
     notes.append("[TWO-OWNERS?] SEED -- %d clause(s); ownership-vocabulary keyed, so a row that "
                  "spells it otherwise is not in this figure" % d)
 
@@ -391,7 +391,7 @@ def acceptance_vocab_seed(pop, findings, notes):
         n += 1
         named.append(rid)
         findings.append(("ACCEPT-VOCAB?", pop.display(row.memo.path), row.lineno,
-                         "active-terminal row %r carries no acceptance vocabulary" % rid))
+                         "active-terminal row %s carries no acceptance vocabulary" % row.name()))
     notes.append(
         "[ACCEPT-VOCAB] SEED -- %d ACTIVE-TERMINAL §5 rows (not umbrella, not "
         "kind-undetermined, not a pointer, not retired) carry no acceptance vocabulary: %s. "

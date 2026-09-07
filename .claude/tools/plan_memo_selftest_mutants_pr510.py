@@ -864,4 +864,10 @@ MUTANTS += [
       "reading admits the slug, so the prose names a party the cell does not carry -- ORDER-PROSE? 1",
       "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the "
       "spelling sweep)"]),
+    ("R20 #3 naming: a row with no id is named by its declaring locator (re-inject `%r` of the id: `row None`)",
+     TABLES,
+     '        if self.self_id is not None:\n            return repr(self.self_id)',
+     '        if True:\n            return repr(self.self_id)',
+     ["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never "
+      "`row None`"]),
 ]
