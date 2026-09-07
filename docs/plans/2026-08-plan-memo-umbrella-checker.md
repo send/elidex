@@ -4,14 +4,15 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is seven
-`.py` files: `plan-memo-umbrella-check.py` 453 / `plan_memo_tables.py` 624 / `plan_memo_umbrella_selftest.py`
-238 (the three carried names, 1,315) + `plan_memo_lexer.py` 628 / `plan_memo_roles.py` 393 /
-`plan_memo_selftest_cases.py` 604 / `plan_memo_selftest_mutants.py` 411 — **3,351 total, measured at `c18d2bda`; re-run at landing** (`wc -l
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is nine
+`.py` files: `plan-memo-umbrella-check.py` 488 / `plan_memo_tables.py` 770 / `plan_memo_umbrella_selftest.py`
+519 (the three carried names, 1,777) + `plan_memo_lexer.py` 439 / `plan_memo_blocks.py` 457 / `plan_memo_roles.py` 398 /
+`plan_memo_selftest_cases.py` 611 / `plan_memo_selftest_cases_pr510.py` 365 / `plan_memo_selftest_mutants.py` 724 — **4,771 total, measured on the
+tree of the commit after `1840251b` (the R11 follow-up); re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
-this PR lands (3,351 at `c18d2bda`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
+this PR lands (4,771 on the tree of the commit after `1840251b`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
 
 ## §0 Why a separate program
 
@@ -243,8 +244,8 @@ extract, so this list is cited from the 0.31.2 text directly, re-verified 2026-0
 | §4.2 | ATX heading | LEXED — one-line block; its text is inline content | `one_line_block` (`_ATX`) | "(span) a paragraph ends at an ATX heading" |
 | §4.3 | Setext heading | LEXED — paragraph text + `=`/`-` underline; the underline ends the paragraph and is not content; not after a list item / `>` line (Examples 92–94) | `Memo._phase1` (`is_setext_underline`) | "(setext) `Heading\n===`…", "(setext) `==` after a list item is NOT an underline…" |
 | §4.4 | Indented code block | PROSE-AS-WRITTEN (+ SEED at a block start only: it cannot interrupt a paragraph, so `[foo]:\n    code` is a definition) | `unsupported_block` (`_INDENTED`) | "(lex-seed) an indented-code line at a block start holding a `\|` is a seed" |
-| §4.5 | Fenced code block | LEXED — a RAW extent: never inline-parsed, always a run / paragraph / table end; one opener rule (`raw_opener`) and one extent map (`Memo.raw`) shared with HTML blocks | `plan_memo_blocks.py::fence_opener` / `raw_opener` / `raw_extent` | "(fence) …" family (10 controls) |
-| §4.6 | HTML block | RAW (+ SEED) — a leaf block "treated as raw HTML", exactly like a fence: its lines from the opener to the §4.6 end condition (types 1–5 by content, possibly the opener itself; 6–7 at the next blank line) are a RAW extent in the same map as fences (`Memo.raw`), never inline-parsed, always a run / paragraph / table end; a type-7 opener only where no paragraph is open — the driver's block state, so after a table, a one-line block or a setext heading it IS a block start (R11) — type 1–6 openers interrupt; every raw HTML line holding a `\|` or a declared id is a `[LEX-UNSUPPORTED?]` seed (commonmark.js: `<pre>\n`\n</pre>` is raw, `text\n<span>` is a paragraph, `# h\n<span>` a heading and a raw block, `<div>\nx\n</div>\ny` runs to the blank) | `plan_memo_blocks.py::raw_opener` / `raw_extent` / `html_block_type` / `html_block_ends`, `Memo._phase1` (seed) | "(lex-seed) an HTML-block opener holding a declared id is a seed", "(html) …" family, "(table) a type-7 HTML opener right after a schema table ENDS it…" |
+| §4.5 | Fenced code block | LEXED — a RAW extent: never inline-parsed, always a run / paragraph / table end; one opener rule (`raw_opener`) and one extent rule (`raw_extent`) shared with HTML blocks, consumed in place by the driver (no map of raw lines outlives Phase 1) | `plan_memo_blocks.py::fence_opener` / `raw_opener` / `raw_extent` | "(fence) …" family (10 controls) |
+| §4.6 | HTML block | RAW (+ SEED) — a leaf block "treated as raw HTML", exactly like a fence: its lines from the opener to the §4.6 end condition (types 1–5 by content, possibly the opener itself; 6–7 at the next blank line) are a RAW extent under the same opener / extent rules as fences (`raw_opener` / `raw_extent`), never inline-parsed, always a run / paragraph / table end; a type-7 opener only where no paragraph is open — the driver's block state, so after a table, a one-line block or a setext heading it IS a block start (R11) — type 1–6 openers interrupt; every raw HTML line holding a `\|` or a declared id is a `[LEX-UNSUPPORTED?]` seed (commonmark.js: `<pre>\n`\n</pre>` is raw, `text\n<span>` is a paragraph, `# h\n<span>` a heading and a raw block, `<div>\nx\n</div>\ny` runs to the blank) | `plan_memo_blocks.py::raw_opener` / `raw_extent` / `html_block_type` / `html_block_ends`, `Memo._phase1` (seed) | "(lex-seed) an HTML-block opener holding a declared id is a seed", "(html) …" family, "(table) a type-7 HTML opener right after a schema table ENDS it…" |
 | §4.7 | Link reference definition | LEXED — a block of its own at a block start, parsed over the rest of its run; elsewhere an orphan | `Memo._phase1` / `definition_block` (`run_end`) | "(def) …" family |
 | §4.8 | Paragraph | LEXED — the inline unit Phase 2 scans | `Memo._phase1` / `Paragraph` | every prose control |
 | §2.1 / §4.9 | Blank line | LEXED — "A line containing no characters, or a line containing only spaces (U+0020) or tabs (U+0009), is called a blank line" (§2.1); ends every block | `is_blank` | "(span) an NBSP-only line is NOT blank…" |
@@ -361,8 +362,14 @@ ground for either option; it is not cited.
   leaving it behind is an import cycle; ⚠ the fixture builder lives with the cases, not the runner
   (a top-level `from selftest import build` in the cases module is a cycle); the runner imports it. The self-test (396) receives the most new text in Slice 1 (≥20 controls + the MUTANTS
   table), so it is split in Slice 0 too: `plan_memo_umbrella_selftest.py` (runner + fixture builder)
-  / `plan_memo_selftest_cases.py` (CASES / ASSERT_CASES) / `plan_memo_selftest_mutants.py` (MUTANTS,
-  Slice 1 creates it).
+  / `plan_memo_selftest_cases.py` (the one `CASES` list; ⚠ the plan's "ASSERT_CASES" never existed —
+  assertion controls are `Case` records with a `("finding", CODE)` measure in the same list) /
+  `plan_memo_selftest_mutants.py` (MUTANTS, Slice 1 creates it). ⚠ Touch-time split during the #510
+  converge (the cases module reached 954 lines at `1840251b`): the registry is split at the
+  review-round seam — `plan_memo_selftest_cases.py` keeps the builder, the record shape and every
+  pre-converge control; `plan_memo_selftest_cases_pr510.py` holds the PR #510 review-round controls
+  (Codex R1–R11, the design re-gate) and appends to the same `CASES`; the runner is the one import
+  site of both.
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,

@@ -368,7 +368,8 @@ class Memo:
     strategy".  Phase 1 (block structure, over RAW lines, `_phase1`: ONE
     forward pass, the way the Appendix reads a document line by line with
     its open block in hand): the raw extents -- fenced blocks (§4.5) and
-    HTML blocks (§4.6), one map -- GFM tables (§4.10, ending at a blank line
+    HTML blocks (§4.6), one opener rule and one extent rule, consumed in
+    place -- GFM tables (§4.10, ending at a blank line
     or any block start), runs and their reference definitions (§4.7 -- a
     block of its own, recognised only at a block start; a definition-shaped
     line INSIDE a paragraph is an orphan, recorded in `orphans`),
@@ -380,7 +381,6 @@ class Memo:
         self.path = pathlib.Path(path)
         self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
         self.lines = self.text.split("\n")
-        self.raw = {}               # {index: "fence" | "html"}: the ONE raw-extent map
         self.tables = []            # [Table], in document order
         self._run_text, self._run_off, self._defs_at = {}, {}, {}
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
@@ -401,10 +401,11 @@ class Memo:
         classified once, in order:
 
           * a raw-extent opener (`raw_opener`; fences and HTML blocks share
-            the map `raw`): its lines to `raw_extent` are never inline-
-            parsed; an HTML block's lines are recorded in `unsupported` for
-            the LEX-UNSUPPORTED? seed, so their content is printed rather
-            than assumed;
+            the one rule): its lines to `raw_extent` are never inline-parsed
+            and are consumed here -- no map of them outlives the pass; an
+            HTML block's lines are recorded in `unsupported` for the
+            LEX-UNSUPPORTED? seed, so their content is printed rather than
+            assumed;
           * a blank line ends the paragraph;
           * a GFM table header off a block start: `admit_table`, the one
             admission site;
@@ -444,10 +445,8 @@ class Memo:
                 if opener is not None:
                     flush()
                     end = raw_extent(lines, i, opener)
-                    for k in range(i, end):
-                        self.raw[k] = opener[0]         # the ONE marking site of a raw extent
-                        if opener[0] == "html":
-                            self.unsupported.append((k + 1, "html", lines[k]))
+                    if opener[0] == "html":
+                        self.unsupported.extend((k + 1, "html", lines[k]) for k in range(i, end))
                     i = end
                     continue
                 if is_blank(line):

@@ -22,9 +22,10 @@ control here, and the controls come in four kinds:
                     `feedback_control-rewritten-to-bless-the-defect` names.
 
 Every control runs `check()` -- the SAME pipeline `main()` runs, not a copy of
-it.  The registries live in `plan_memo_selftest_cases.py`; the mutants (a
-re-executable proof that each control can go red) in
-`plan_memo_selftest_mutants.py`.
+it.  The registry lives in `plan_memo_selftest_cases.py` (builder + pre-converge
+controls) and `plan_memo_selftest_cases_pr510.py` (the PR #510 review-round
+controls, appended to the same `CASES`); the mutants (a re-executable proof
+that each control can go red) in `plan_memo_selftest_mutants.py`.
 
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
@@ -35,6 +36,7 @@ import sys
 import tempfile
 
 from plan_memo_selftest_cases import CASES, build
+import plan_memo_selftest_cases_pr510  # noqa: F401 -- appends the review-round controls to CASES
 
 HERE = pathlib.Path(__file__).resolve().parent
 

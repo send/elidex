@@ -558,9 +558,10 @@ MUTANTS = [
      ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",
       "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
     # -- PR #510 Codex R11
-    ("R11-1 driver: block start from the block STATE (re-inject the look-back at the previous raw line)", TABLES,
+    ("R11-1 driver: block start from the block STATE (re-inject the look-back at the previous raw line: "
+     "blank / one-line block before it)", TABLES,
      '                opener = raw_opener(line, False)',
-     '                opener = raw_opener(line, not (i == 0 or (i - 1) in self.raw or is_blank(lines[i - 1]) '
+     '                opener = raw_opener(line, not (i == 0 or is_blank(lines[i - 1]) '
      'or one_line_block(lines[i - 1])))',
      ["(table) the prose inside the type-7 block after a schema table is raw, not a site",
       "(html) `Heading\\n===\\n<span>\\n9z owns it`: after a setext heading no paragraph is open "
