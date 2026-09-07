@@ -220,7 +220,7 @@ def assertion_a(pop, findings, notes):
     """
     umb = pop.ids_of_kind("umbrella")
     by_table = Counter(r.schema.name for r in umb.values())
-    for file, name, lineno, rid, other in pop.attributed:
+    for file, _name, lineno, rid, other in pop.attributed:
         findings.append(
             ("UMBRELLA-MARK", file, lineno,
              "row %r carries the marker in its declaring field but attributes it to row %r; "

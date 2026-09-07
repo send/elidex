@@ -265,7 +265,7 @@ def _reference_tail(s, opener, close, defs):
     return end, defs.get(normalize_label(raw)), form, raw
 
 
-def _code_closer(s, runs, a1, k):
+def _code_closer(runs, a1, k):
     """The end offset of the first backtick string of length `k` starting at
     or after `a1` (§6.1: a code span "ends with a backtick string of equal
     length"), or None.  `runs` = every backtick string of `s`, in order."""
@@ -349,7 +349,7 @@ def inline_pass(s, defs):
             a1 = i
             while a1 < n and s[a1] == "`":
                 a1 += 1
-            close = _code_closer(s, runs, a1, a1 - i)
+            close = _code_closer(runs, a1, a1 - i)
             if close is None:
                 i = a1                  # an unmatched backtick string is literal
             else:
