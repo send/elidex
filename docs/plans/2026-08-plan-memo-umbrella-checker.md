@@ -642,6 +642,7 @@ ground for either option; it is not cited.
   byte-identical to `4c15b7a7`'s tools on the same memo, path column included: the population's four memos all
   sit in the root memo's directory, so the relative names ARE the former basenames); `[LEX-UNSUPPORTED?]` 6,
   unchanged. `scripts/trip-wires.sh` rc 0.
+  ⚠ **De-flake (commit `b0a7def4`, after R19)**: a mutant killed ONLY by a wall-clock ratio (`t(4N)/t(N) < 8`) survived once under host load (209 mutants, 1 survived; 6 clean runs followed). The three such kills — `R6-2 locate` (bisect over the line offsets), `R8-5 sibling` (set dedup), `R9 #3 row` (breaks partitioned in the one scan) — now carry deterministic counting witnesses (bisect reads of the line-offset table per site; `Path.__eq__` calls under the dedup; source-line reads per character); timing is informative only. Measured: 10 consecutive `--self-test --mutants` runs under 30 bursty CPU-load processes → `209 mutant(s), 0 survived, 0 crashed` each, 15.8–20.7 s wall.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
