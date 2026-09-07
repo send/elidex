@@ -234,26 +234,22 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
 class TestModuleShape(unittest.TestCase):
     """The pinned map reaches no upstream source.
 
-    ⚠ **This class used to also pin the slice boundary — that policy has moved
-    out of the generic suite entirely** (Codex R55). `DESIGN.md:3-5,33-37`
-    assigns review/plan workflow policy to the elidex adapter, and the two
-    tests that lived here were a second copy of what `rederive couplings`
-    already asserts over the same tree with the same expressions: an elidex
-    file path (`couplings`' `PATHRE` is character-for-character `_ELIDEX_PATH`)
-    and a Slice-B artifact name (`couplings` carries both needles verbatim;
-    they are not repeated here, because `couplings` scans this file and a
-    needle written whole would redden it — measured, twice). Two homes for one
-    decision is what this program exists to remove, and the copy that lived
-    HERE additionally had to be DELETED by the slice that adds B's detector
-    module — a passing unit test that a downstream slice must remove in order
-    to add functionality. `couplings` is the single
-    home; §13 records that Slice C, which retires the harness, must re-home the
-    assertion rather than drop it.
+    ⚠ **This class used to also scan the package for host-project policy —
+    that has moved out of the generic suite entirely.** `DESIGN.md:3-5,33-37`
+    assigns review/plan workflow policy to the host project's adapter, and the
+    two tests that lived here were a second copy of a check the host already
+    runs over this same tree with the same expressions. Two homes for one
+    decision is what this package's own design forbids, and the copy that lived
+    HERE would additionally have had to be DELETED by the change that adds the
+    module it forbade naming — a passing unit test removed in order to add
+    functionality. The host's copy is the single home, and the host's own
+    records carry the obligation to keep it when the mechanism that runs it is
+    retired.
 
-    What remains is not slice policy: a module whose job is a literal label map
-    has no business importing the upstream fetcher, whichever slice is landing.
-    The needle is assembled from fragments because, written whole, it would
-    match this file.
+    What remains is not host policy: a module whose job is a literal label map
+    has no business importing the upstream fetcher, whatever is being landed
+    around it. The needle is assembled from fragments because, written whole,
+    it would match this file.
     """
 
     _UPSTREAM_SOURCE = re.compile(re.escape("webref" + "_data"))
@@ -270,9 +266,9 @@ class TestNoNetworkOrCliSubprocess(unittest.TestCase):
         Scoped to the import path, not to the suite: this one test is where
         the escapes are poisoned, because the module load is the thing under
         test and re-executing it once under the poison exercises it. The
-        load-time cost is paid on every plan-review gate run — the gate
-        subprocesses the CLI once per citation it verifies — so what has to
-        be inert is the import, not each subsequent call.
+        load-time cost is paid on every run of a consumer that subprocesses
+        the CLI once per citation it verifies, so what has to be inert is the
+        import, not each subsequent call.
         """
         with patch("subprocess.run",
                    side_effect=AssertionError("subprocess.run on the import path")), \

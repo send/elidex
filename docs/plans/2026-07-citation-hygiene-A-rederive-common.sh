@@ -125,7 +125,7 @@ import re, subprocess, sys, pathlib
 sys.path.insert(0, ".claude/tools")
 from _webref.spec_labels import shortname_for
 UNMAPPED_RE = re.compile(r"^<!-- unmapped-by-design: (.+?) = (\S+) -->$")
-cells, by_design = set(), {}
+cells, by_design, verified = set(), {}, set()
 for p in sorted(pathlib.Path(sys.argv[1]).glob("*.md")):
     for ln in p.read_text().splitlines():
         if ln.startswith("| ") and not ln.startswith("| Spec section") and not ln.startswith("|---"):
@@ -161,7 +161,40 @@ for cell in sorted(cells):
     ok = got == title
     print(f"  {cell!r:60} -> {sn} §{sec} [{via}] title {'==' if ok else '!='} {got!r}")
     bad += 0 if ok else 1
-print(f"cells={len(cells)} failing={bad}")
+    if ok:
+        verified.add((sn, sec))
+
+# THE ADVERTISED COVERAGE, NOT JUST A NON-EMPTY POPULATION. `if not cells` only
+# rejected the ALL-empty case, so deleting one fixture silently dropped whatever
+# citation only it exercised while the remaining cells kept the block green.
+# The population this block claims to cover is not a count -- it is the memo's
+# §0.5 table, which is the canonical statement of what A-i cites. Read it and
+# require every row to have been verified, resolved through the same map the
+# cells go through so a variant spelling in a fixture still counts.
+memo = pathlib.Path("docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md")
+if not memo.exists():
+    print(f"!! {memo} is missing; the coverage claim cannot be derived"); sys.exit(1)
+rows, in_table = [], False
+for ln in memo.read_text(encoding="utf-8").splitlines():
+    if ln.startswith("## §0.5"):
+        in_table = True; continue
+    if in_table and ln.startswith("## "):
+        break
+    if in_table and ln.startswith("| `"):
+        m0 = re.match(r"^\|\s*`([^`]+?)\s+§([0-9.]+)`\s*\|", ln)
+        if m0:
+            rows.append((m0.group(1).strip(), m0.group(2)))
+if not rows:
+    print("!! §0.5's citation table parsed EMPTY; this coverage check would then "
+          "certify any fixture set at all"); sys.exit(1)
+for label, sec in rows:
+    sn = shortname_for(label)
+    if sn is None:
+        print(f"!! §0.5 cites {label!r}, which the map does not resolve"); bad += 1
+    elif (sn, sec) not in verified:
+        print(f"!! §0.5 cites {label} §{sec} and no fixture cell verified it — the "
+              f"fixture that carried it is gone, or stopped resolving"); bad += 1
+print(f"cells={len(cells)} §0.5 rows={len(rows)} failing={bad}")
 sys.exit(1 if bad else 0)
 CITPY
   rm -rf "$F"
@@ -284,12 +317,34 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   # `| wc -l` masked it for the counts: with the ref unresolvable the listing came
   # back EMPTY and the block read that as "no couplings". Routed through
   # `_measure`, the listing and its status arrive together.
-  echo "-- concept, $MAIN baseline (PKG — the by-role prose A-i rewrites) --"
-  _measure --nomatch 1 _n git grep -nE "$CONCEPT" "$MAIN" -- "$PKG" || failed=1
+  # ⚠ THE TWO CENSUSES BELOW ARE A READING, NOT A GATE, and saying so is the
+  # point: `$CONCEPT` matches domain vocabulary the generic tree legitimately
+  # uses (`coverage-map`'s whole job is a plan-memo §3 skeleton, and that
+  # wording is in the baseline), so an absolute over it would forbid the
+  # package describing what it does. Deciding which occurrence is "role" and
+  # which is "policy" is a taste judgement no expression holds — so it is not
+  # asserted, and a grown count is a prompt to read the diff, not a verdict.
+  echo "-- concept, $MAIN baseline (PKG — the by-role prose A-i rewrites; CENSUS, not asserted) --"
+  _measure --nomatch 1 _n_con_base git grep -nE "$CONCEPT" "$MAIN" -- "$PKG" || failed=1
   _measured
-  echo "-- concept, HEAD (PKG; A's files and B's together) --"
-  _measure --nomatch 1 _n git grep -nE "$CONCEPT" -- "$PKG" || failed=1
+  echo "-- concept, HEAD (PKG; A's files and B's together; CENSUS, not asserted) --"
+  _measure --nomatch 1 _n_con_head git grep -nE "$CONCEPT" -- "$PKG" || failed=1
   _measured
+  echo "   by-role prose: $MAIN $_n_con_base -> HEAD $_n_con_head (a reading; see the note above)"
+  # WHAT *IS* ASSERTED is the half with no taste in it. This program's own
+  # vocabulary -- a `rederive` block name, a slice letter, a `K<n>` invariant,
+  # a PR number, a `#11-` ledger slot -- is never domain wording; it can only
+  # be host-project state, which `DESIGN.md` puts in the adapter. It reached
+  # the generic tree twice, both times in a docstring written to explain why
+  # the *previous* instance had been removed, and the census above printed
+  # both without objecting because it was never compared to anything.
+  local PROGRAM='rederive |Slice [A-C]\b|\bK[0-9]\b|#5[0-9][0-9]\b|#11-'
+  echo "-- HOST-PROJECT VOCABULARY, HEAD, GENERIC (MUST BE 0) --"
+  local n_prog
+  _measure --nomatch 1 n_prog git grep -nE "$PROGRAM" -- "${GENERIC[@]}" || failed=1
+  _measured
+  echo "   host-project names at HEAD (MUST BE 0)              : $n_prog"
+  [ "$n_prog" = 0 ] || { echo "!! $n_prog host-project name(s) in the generic tree — DESIGN.md puts that wording in the adapter"; failed=1; }
   echo "-- FILE PATHS only, $MAIN, GENERIC (the baseline §7 argues from) --"
   # ONE run, printed AND counted. This used to be two `git grep` invocations of
   # the same needle over the same ref -- a shape in which the listing and the

@@ -154,7 +154,8 @@ _src = DISPATCH.read_text(encoding="utf-8")
 _m = re.search(r"^for _part in ([a-zA-Z ]+); do$", _src, re.M)
 if _m is None:
     raise SystemExit("!! the dispatcher has no `for _part in …; do` line; the part set cannot be derived")
-_sourced = {DISPATCH} | {D / ("2026-07-citation-hygiene-A-rederive-%s.sh" % p) for p in _m.group(1).split()}
+_order = [D / ("2026-07-citation-hygiene-A-rederive-%s.sh" % p) for p in _m.group(1).split()] + [DISPATCH]
+_sourced = set(_order)
 if set(parts) != _sourced:
     raise SystemExit("!! part set on disk != part set the dispatcher sources:\n   disk only: %s\n   sourced only: %s"
                      % (sorted(p.name for p in set(parts) - _sourced), sorted(p.name for p in _sourced - set(parts))))
@@ -258,9 +259,24 @@ def uncomment(s):
 
 # Walk first, judge later: the DISPATCHABLE set is read from the roster
 # assignments below, so the status audit cannot run inside this loop.
+# Walk in SOURCE order, not sorted order: the duplicate check below reports
+# which definition the shell keeps, and the shell keeps the last one SOURCED.
+# `sorted(D.glob(...))` puts `-Ai.sh` first while the dispatcher sources
+# `integrity common Ai`, so a sorted walk names the wrong winner.
 defined, last_stmt, bad = {}, {}, []
-for path in parts:
+for path in _order:
     for name, lineno, body in blocks(path):
+        # A DUPLICATE DEFINITION IS NOT AN UPDATE. `defined[name] = …` silently
+        # kept the last one, exactly as the shell silently keeps the last
+        # `name() {` it sources -- so a later part redefining an existing block
+        # would make `all` run the override while this check certified the
+        # original. Appending `citations() { return 0; }` to a later-sourced
+        # part left `selfcheck` GREEN with real citation verification skipped.
+        if name in defined:
+            bad.append((path.name, lineno, name,
+                        "redefines the block already defined at %s:%d; the shell keeps "
+                        "the LAST definition sourced, so `all` would run this one"
+                        % defined[name]))
         defined[name] = (path.name, lineno)
         last = ""
         for raw in reversed(body):

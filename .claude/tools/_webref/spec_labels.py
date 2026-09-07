@@ -11,14 +11,11 @@ construction. Both now derive from `SPECS` below, which is the single
 SOURCE site: neither consumer carries an enumeration any more.
 
 ⚠ That is not the same as "a spec is added in exactly one place", which an
-earlier revision of this docstring claimed. Measured, adding one row to
-`SPECS` reddens three unit tests here, three `rederive keysets` claims, and
-leaves the plan-review gate unable to resolve the new label. Those are
-deliberate — the tests and `keysets` PIN the vendored `origin/main` baseline
-(the slice's K4), so they are supposed to redden when the map moves, and the
-gate's own reversed copy is Slice A-ii's to migrate. The honest reading is:
-one source, plus pins that must be re-derived with it, plus one copy that
-lives outside this tree behind its own failure semantics until A-ii.
+earlier revision of this docstring claimed. Adding a row also requires
+re-deriving every pin that vendors a snapshot of this map — the suite beside
+this module holds one — and reaching any consumer outside this package that
+still keeps a reverse map of its own. Those pins are deliberate: they exist
+to redden when the map moves. One SOURCE, plus the pins that travel with it.
 """
 from __future__ import annotations
 
@@ -68,8 +65,8 @@ SHORTNAME_TO_BLURB: dict[str, str] = {e[0]: e[2] for e in SPECS}
 #: accumulating loop so no module-level temporaries exist to `del`: a
 #: trailing `del _entry, …` raises `NameError` **at import** if `SPECS`
 #: is ever empty, and this module is imported at load time by
-#: `coverage-map` and `cli` — and, once the gate's copy migrates, by the
-#: plan-review gate too.
+#: `coverage-map` and `cli`, so an import-time failure is a failure of
+#: every consumer at once.
 LABEL_TO_SHORTNAME: dict[str, str] = {
     key.lower(): entry[0]
     for entry in SPECS

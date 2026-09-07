@@ -14,13 +14,12 @@ from ..spec_labels import label_for
 # cited.
 #
 # ⚠ This comment used to end "(cosmetic only, not load-bearing for
-# verification)", and that is false for the verifier this command feeds. The
-# label is what the plan-review gate parses to decide whether it checks the
-# row at all, so a generated `CSS TEXT 3 §4.1.3 …` row reaches the gate as an
-# unrecognised label and its §-number is never verified — a fabricated one
-# passes green. The hole is registered as `#11-preflight-css-module-labels`;
-# closing it is not this slice's (the last resort is kept `origin/main`
-# verbatim under K4, and the gate's own reverse map migrates in Slice A-ii).
+# verification)", and that is false for any verifier that resolves a row BY
+# ITS LABEL. A generated `CSS TEXT 3 §4.1.3 …` row carries a label no reverse
+# map knows, so such a verifier cannot look the row up and skips it silently —
+# a fabricated §-number passes. Extending `SPECS` is what closes that for a
+# given spec; the fall-back stays as it is so the map remains the only place
+# the enumeration lives.
 
 
 def _spec_label(shortname: str) -> str:
