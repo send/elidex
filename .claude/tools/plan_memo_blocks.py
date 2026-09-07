@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Phase 1 of CommonMark 0.31.2 "Appendix: A parsing strategy" -- BLOCK
-structure -- for `plan-memo-umbrella-check.py`: fenced code blocks (§4.5),
-the block starts that interrupt a paragraph (§4.1 / §4.2 / §4.3 / §5.1 /
-§5.2 / §4.6), the ONE block-boundary predicate `block_end`, GFM §4.10 table
-rows, and link reference definitions (§4.7).  Driven line by line by
-`plan_memo_tables.py::Memo`; the inline grammar a definition's label,
+structure -- for `plan-memo-umbrella-check.py`: the line grammar of the
+block types -- raw extents (fenced code blocks §4.5, HTML blocks §4.6:
+`raw_opener` / `raw_extent`), the block starts that interrupt a paragraph
+(§4.1 / §4.2 / §4.3 / §5.1 / §5.2), the ONE block-boundary predicate
+`block_end` and the run it bounds (`run_end`), GFM §4.10 table rows, and
+link reference definitions (§4.7).  Driven line by line, in ONE forward
+pass, by `plan_memo_tables.py::Memo._phase1`, which owns the block state
+(what is open: a raw extent, a table, a run) -- this module holds no state
+and looks at no previous line.  The inline grammar a definition's label,
 destination and title reuse (`link_label`, `link_destination`,
 `link_title`, `_skip_ws`, `_escaped`) is Phase 2's, in
 `plan_memo_lexer.py`, which this module imports and never the reverse.
@@ -28,73 +32,20 @@ from plan_memo_lexer import (
 _FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
-def fenced_lines(lines):
-    """0-based indices of every line inside a fenced code block, fence lines
-    included.  Opener: <=3 spaces of indent, >=3 backticks or tildes (not
-    mixed); a backtick fence's info string may not contain a backtick.  Closer:
-    same character, at least as long, <=3 spaces of indent, nothing but spaces
-    and tabs after it.  An unclosed fence runs to "the end of the containing
-    block (or document)" (§4.5); this lexer has no container blocks (see the
-    header), so that is the end of the document.
-    """
-    out, i, n = set(), 0, len(lines)
-    while i < n:
-        m = _FENCE_OPEN.match(lines[i])
-        if not m or (m.group(1)[0] == "`" and "`" in m.group(2)):
-            i += 1
-            continue
-        ch, k = m.group(1)[0], len(m.group(1))
-        closer = re.compile(r"^ {0,3}" + re.escape(ch) + "{%d,}" % k + r"[ \t]*$")
-        out.add(i)
-        i += 1
-        while i < n:
-            out.add(i)
-            i += 1
-            if closer.match(lines[i - 1]):
-                break
-    return out
-
-
-def raw_lines(lines):
-    """THE ONE raw-extent map of Phase 1: {0-based line index: "fence" |
-    "html"} for every line whose content is RAW -- never inline-parsed,
-    always a run / paragraph / table end.  Fenced code blocks (§4.5,
-    `fenced_lines`) and HTML blocks (§4.6) share it: an HTML block is a leaf
-    block "treated as raw HTML", from a line meeting a start condition to
-    the first line meeting its end condition (types 1-5 by content, possibly
-    the opener itself; types 6 and 7 at the next blank line or the end of
-    the document).  A type-7 opener counts only at a block start ("all
-    types of HTML blocks except type 7 may interrupt a paragraph"): here,
-    after a blank, raw or one-line-block line, or at the document start --
-    commonmark.js: `text\n<span>` stays a paragraph, `<span>\nx\ny\n\nz`
-    is a raw block to the blank.  Computed once; `block_end`, `_runs`,
-    `_blocks`, `find_tables` and the LEX-UNSUPPORTED? seed all read it."""
-    out = {i: "fence" for i in fenced_lines(lines)}
-    i, n = 0, len(lines)
-    while i < n:
-        if i in out:
-            i += 1
-            continue
-        t = html_block_type(lines[i])
-        at_start = i == 0 or (i - 1) in out or is_blank(lines[i - 1]) or one_line_block(lines[i - 1])
-        if t is None or (t == "t7" and not at_start):
-            i += 1
-            continue
-        start, end = i, i
-        if not html_block_ends(t, lines[i]):    # the opener may meet the end condition itself
-            end = i + 1
-            while end < n:
-                if t in ("t6", "t7") and is_blank(lines[end]):
-                    end -= 1
-                    break
-                if html_block_ends(t, lines[end]):
-                    break
-                end += 1
-            end = min(end, n - 1)
-        for k in range(start, end + 1):
-            out[k] = "html"                     # the ONE marking site of an HTML extent
-        i = end + 1
-    return out
+def fence_opener(line):
+    """The closer pattern of the fenced code block `line` opens (§4.5), or
+    None.  Opener: <=3 spaces of indent, >=3 backticks or tildes (not
+    mixed); a backtick fence's info string may not contain a backtick.
+    Closer: same character, at least as long, <=3 spaces of indent, nothing
+    but spaces and tabs after it.  An unclosed fence runs to "the end of the
+    containing block (or document)" (§4.5); this lexer has no container
+    blocks (see the header), so that is the end of the document
+    (`raw_extent`)."""
+    m = _FENCE_OPEN.match(line)
+    if not m or (m.group(1)[0] == "`" and "`" in m.group(2)):
+        return None
+    ch, k = m.group(1)[0], len(m.group(1))
+    return re.compile(r"^ {0,3}" + re.escape(ch) + "{%d,}" % k + r"[ \t]*$")
 
 
 # --------------------------------------------------------------------------
@@ -191,7 +142,7 @@ def unsupported_block(line, at_block_start):
     reads such a line as paragraph text; the checker reports it as a
     `[LEX-UNSUPPORTED?]` SEED when it holds a `|` or a declared id, so the
     bound of the lexer is printed rather than assumed.  (HTML blocks are
-    RAW extents, `raw_lines`, seeded from that map.)"""
+    RAW extents, `raw_opener` / `raw_extent`, seeded by the driver.)"""
     if _QUOTE.match(line):
         return "quote"
     if at_block_start and _INDENTED.match(line):
@@ -200,23 +151,68 @@ def unsupported_block(line, at_block_start):
 
 
 def starts_block(line):
-    """The block starts that INTERRUPT a paragraph (and so end a run, a
+    """The NON-RAW block starts that INTERRUPT a paragraph (and so end a run, a
     paragraph and a GFM table) -- CommonMark §4 / §5, each verified against
     commonmark.js 0.31.2: an ATX heading (§4.2), a thematic break (§4.1), a
     list item (§5.2; ⚠ local policy, stricter: any marker line, where the
     spec lets only a non-empty item, an ordered one starting at 1,
     interrupt), a `>` line (§5.1), a setext underline (§4.3: the paragraph
     before it becomes a heading -- `[foo]:\n---` is a heading, not a
-    definition), an HTML block opener of type 1-6 (§4.6; type 7 cannot
-    interrupt).  NOT in the set, by the same oracle: an indented line (§4.4
-    "cannot interrupt a paragraph": `[foo]:\n    code` is a definition with
-    destination `code`) and a reference definition (§4.7 "cannot interrupt a
-    paragraph").  A RAW line (a fence or HTML block, `raw_lines`) and a
-    blank line end a run too; they are never lines a run may start on."""
-    if one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line):
-        return True
+    definition).  The RAW block starts -- a fence (§4.5), an HTML block
+    opener (§4.6: types 1-6 interrupt, type 7 only where no paragraph is
+    open) -- are `raw_opener`'s, the other arm of `block_end`.  NOT in the
+    set, by the same oracle: an indented line (§4.4 "cannot interrupt a
+    paragraph": `[foo]:\n    code` is a definition with destination `code`)
+    and a reference definition (§4.7 "cannot interrupt a paragraph")."""
+    return bool(one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line))
+
+
+def raw_opener(line, para_open):
+    """THE one rule for where a RAW extent begins -- lines never
+    inline-parsed, always a run / paragraph / table end: ("fence", closer)
+    for a fenced code block opener (§4.5), ("html", type) for a line meeting
+    an HTML block start condition (§4.6), else None.  `para_open` is Phase
+    1's one context bit, the driver's block state: "all types of HTML blocks
+    except type 7 may interrupt a paragraph", so a type-7 opener counts only
+    where no paragraph is open -- the document start, after a blank line, a
+    raw extent, a TABLE, a one-line block or a setext heading (commonmark.js
+    0.31.2: `text\n<span>`, `[foo]: /url\n<span>` and `- item\n<span>` stay
+    one paragraph; `# h\n<span>` and `text\n===\n<span>` are a heading and
+    a raw block; GFM §4.10: a table "is broken at the first empty line, or
+    beginning of another block-level structure", and a table is not a
+    paragraph, so `<span>` right after a table's rows opens a block)."""
+    closer = fence_opener(line)
+    if closer is not None:
+        return "fence", closer
     t = html_block_type(line)
-    return t is not None and t != "t7"
+    if t is None or (t == "t7" and para_open):
+        return None
+    return "html", t
+
+
+def raw_extent(lines, i, opener):
+    """End (exclusive) of the raw extent `opener` (from `raw_opener`) opens
+    at `lines[i]`: a fence runs through its closer, or to the end of the
+    document; an HTML block from the opener to the line meeting its §4.6 end
+    condition (types 1-5 by content, possibly the opener itself) or, for
+    types 6 and 7, up to the next blank line (excluded) or the end."""
+    kind, arg = opener
+    n = len(lines)
+    if kind == "fence":
+        j = i + 1
+        while j < n and not arg.match(lines[j]):
+            j += 1
+        return min(j + 1, n)
+    if html_block_ends(arg, lines[i]):      # the opener may meet the end condition itself
+        return i + 1
+    j = i + 1
+    while j < n:
+        if arg in ("t6", "t7") and is_blank(lines[j]):
+            return j
+        j += 1
+        if html_block_ends(arg, lines[j - 1]):
+            return j
+    return n
 
 
 def table_header_at(lines, i):
@@ -231,18 +227,36 @@ def table_header_at(lines, i):
     return width is not None and len(split_row(lines[i])) == width
 
 
-def block_end(lines, i, raw):
-    """THE ONE block-boundary predicate (plan §2 I-A): whether raw line `i`
-    ends the run / paragraph / table before it -- a blank line (§2.1), a RAW
-    line (a fenced code block §4.5 or an HTML block §4.6, `raw_lines`), a
-    paragraph-interrupting block start (`starts_block`) or a GFM table
-    header (`table_header_at`).  `_runs`, `_blocks`, `find_tables` and,
-    through the runs, `definition_block`'s continuation lines all read this
-    and nothing else."""
-    return (i in raw or is_blank(lines[i]) or starts_block(lines[i])
-            or table_header_at(lines, i))
+def block_end(lines, i, para_open):
+    """THE ONE block-boundary predicate (plan §2 I-A): whether line `i`
+    begins a block, ending the run / paragraph / table before it -- a blank
+    line (§2.1), a raw-extent opener (`raw_opener`: a fenced code block §4.5
+    or an HTML block §4.6, where `para_open` -- the ONE context bit, the
+    driver's block state -- decides the type-7 case), a paragraph-
+    interrupting block start (`starts_block`) or a GFM table header
+    (`table_header_at`).  `run_end` (a run: paragraph text, `para_open`
+    True) and `admit_table` (a table body: no paragraph is open, False) read
+    this and nothing else, and the driver `Memo._phase1` classifies a line
+    outside a run by the same four arms; no caller looks back at a previous
+    line."""
+    return (is_blank(lines[i]) or raw_opener(lines[i], para_open) is not None
+            or starts_block(lines[i]) or table_header_at(lines, i))
 
 
+def run_end(lines, i):
+    """End (exclusive) of the RUN starting at `lines[i]` -- Phase 1's text
+    unit, the lines a definition is parsed over and a paragraph is grouped
+    from: the consecutive lines up to the next `block_end` WITH A PARAGRAPH
+    OPEN (a run is paragraph text -- a reference definition included, §4.7
+    keeps the paragraph open -- so a type-7 HTML opener does not end it),
+    or the one line of a one-line block (§4.1 / §4.2).  A closing setext
+    underline is not a run (the driver drops it before asking)."""
+    if one_line_block(lines[i]):
+        return i + 1
+    j = i + 1
+    while j < len(lines) and not block_end(lines, j, True):
+        j += 1
+    return j
 
 
 # --------------------------------------------------------------------------
@@ -362,16 +376,18 @@ def delimiter_width(line):
 def definition_block(block, off):
     """Phase 1 ("Appendix: A parsing strategy", block structure): the
     reference definition (§4.7) starting at offset `off` of `block` -- the
-    RAW text of the rest of the RUN (every remaining line up to the next
-    `block_end`: a blank line, a fence, a paragraph-interrupting block start,
-    a table header; what the block phase hands over), or None.  Returns
+    RAW text of the rest of the RUN (`run_end`: every remaining line up to
+    the next `block_end` -- a blank line, a raw-extent opener, a paragraph-
+    interrupting block start, a table header; what the block phase hands
+    over), or None.  Returns
     (label, destination, end_offset).  The label (`link_label`, §6.3: up to
     999 characters, may span lines) and the title (`link_title`) are read
     over that whole text; §4.7 "may not contain a blank line" and "a
     definition's continuation line cannot be a block start" hold by
     construction, because the run ends there (`[foo]:\n---` is a setext
     heading, `[foo]:\n#` / `>` / `***` a paragraph and a block, `[foo]:\n
-    code` a definition -- commonmark.js 0.31.2 agrees on each).  Read before
+    code` a definition, `[foo]: /url\n<span>` a definition and a paragraph
+    `<span>` -- commonmark.js 0.31.2 agrees on each).  Read before
     any inline parsing: a backtick in the destination (`[sib]: slice`x`.md`)
     is destination text, not a code span.  The caller decides whether `off`
     is a block start (a definition cannot interrupt a paragraph); here the

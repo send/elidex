@@ -9,7 +9,7 @@ what the prose says about the rows, and whether that is allowed, is the
 checker and `plan_memo_roles.py`.
 
 Three rules decided here, once:
-  * a table is admitted in `find_tables` and nowhere else: header and
+  * a table is admitted in `admit_table` and nowhere else: header and
     delimiter rows of equal width (GFM §4.10), and -- local policy over GFM's
     "may vary" clause -- a body row of a SCHEMA table whose width differs from
     the header is a schema miss (exit 2), never a silent skip or a shifted read;
@@ -36,7 +36,7 @@ from urllib.parse import unquote
 
 from plan_memo_blocks import (
     block_end, definition_block, delimiter_width, is_blank, is_setext_underline, one_line_block,
-    raw_lines, split_row, starts_block, unsupported_block,
+    raw_extent, raw_opener, run_end, split_row, starts_block, table_header_at, unsupported_block,
 )
 from plan_memo_lexer import Lexed, blank_spans, normalize_label
 
@@ -208,48 +208,35 @@ class Table:
         self.misses = []                # [(lineno, message)] width policy
 
 
-def find_tables(memo):
-    """Admit every GFM table in `memo` (raw lines skipped).  Returns
-    ([Table], {0-based line index owned by a table}).  The table runs from the
-    header to the first `block_end` -- a blank line or a paragraph-
-    interrupting block start (GFM §4.10 "the beginning of another
-    block-level structure"); every line in between is a body row, pipes or
-    not (GFM Example 202: a pipe-less line after the rows is a row -- so a
-    reference definition written right after a table is a row of it, never a
-    definition).
+def admit_table(memo, i):
+    """Admit the GFM table whose header is `memo.lines[i]` -- the ONE
+    admission site; the driver (`Memo._phase1`) found `table_header_at`
+    there, off a raw line, a blank and a block start.  Returns (Table, end):
+    the table runs from the header to the first `block_end` with NO
+    PARAGRAPH OPEN -- a blank line or the beginning of another block-level
+    structure (GFM §4.10), a type-7 HTML opener included (a table is not a
+    paragraph, so `<span>` right after the rows opens an HTML block; the
+    lines after it are raw, not one-cell rows); every line in between is a
+    body row, pipes or not (GFM Example 202: a pipe-less line after the rows
+    is a row -- so a reference definition written right after a table is a
+    row of it, never a definition).
     """
-    lines, raw = memo.lines, memo.raw
-    tables, owned, i, n = [], set(), 0, len(lines)
-    while i < n:
-        if i in raw or is_blank(lines[i]) or i + 1 >= n or starts_block(lines[i]):
-            i += 1
-            continue
-        width = delimiter_width(lines[i + 1])
-        if width is None:
-            i += 1
-            continue
-        header = split_row(lines[i])
-        if len(header) != width:
-            i += 1
-            continue
-        hdr_text = [c.text for c in header]
-        schema = next((s for s in SCHEMAS if hdr_text == s.header), None)
-        t = Table(schema, Row(memo, i + 1, header, None))
-        owned.update((i, i + 1))
-        j = i + 2
-        while j < n and not block_end(lines, j, raw):
-            body = split_row(lines[j])
-            if schema is not None and len(body) != width:
-                t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
-                                 "a shifted read fabricates findings, so this row is "
-                                 "unscanned" % (len(body), schema.name, width)))
-            else:
-                t.rows.append(Row(memo, j + 1, body, schema))
-            owned.add(j)
-            j += 1
-        tables.append(t)
-        i = j
-    return tables, owned
+    lines, n = memo.lines, len(memo.lines)
+    header, width = split_row(lines[i]), delimiter_width(lines[i + 1])
+    hdr_text = [c.text for c in header]
+    schema = next((s for s in SCHEMAS if hdr_text == s.header), None)
+    t = Table(schema, Row(memo, i + 1, header, None))
+    j = i + 2
+    while j < n and not block_end(lines, j, False):
+        body = split_row(lines[j])
+        if schema is not None and len(body) != width:
+            t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
+                             "a shifted read fabricates findings, so this row is "
+                             "unscanned" % (len(body), schema.name, width)))
+        else:
+            t.rows.append(Row(memo, j + 1, body, schema))
+        j += 1
+    return t, j
 
 
 # --------------------------------------------------------------------------
@@ -350,10 +337,10 @@ def stream(lx):
 
 
 class Paragraph:
-    """Lines outside tables and fences, grouped at blank lines and block
-    starts; `lexed.text` is the inline content code spans are lexed over, and
-    `offsets` maps each line to its start offset in it (a line is a reporting
-    coordinate only)."""
+    """The lines of one run no definition consumed, grouped by the driver
+    (`Memo._phase1`) at the block boundaries; `lexed.text` is the inline
+    content code spans are lexed over, and `offsets` maps each line to its
+    start offset in it (a line is a reporting coordinate only)."""
 
     __slots__ = ("lines", "offsets", "lexed")
 
@@ -378,52 +365,136 @@ class Paragraph:
 
 class Memo:
     """One memo, in the two phases of CommonMark's "Appendix: A parsing
-    strategy".  Phase 1 (block structure, over RAW lines, here): the raw
-    extents -- fenced blocks (§4.5) and HTML blocks (§4.6), one map -- GFM
-    tables (§4.10, ending at a blank line or any block
-    start), reference definitions (§4.7 -- a block of its own, recognised
-    only at a block start; a definition-shaped line INSIDE a paragraph is an
-    orphan, recorded in `orphans`), paragraphs.  Phase 2 (inline structure,
-    `Lexed.resolve` / `inline_pass`) then runs over each paragraph's and
-    cell's content only, with `defs` from the Phase-1 definition blocks."""
+    strategy".  Phase 1 (block structure, over RAW lines, `_phase1`: ONE
+    forward pass, the way the Appendix reads a document line by line with
+    its open block in hand): the raw extents -- fenced blocks (§4.5) and
+    HTML blocks (§4.6), one map -- GFM tables (§4.10, ending at a blank line
+    or any block start), runs and their reference definitions (§4.7 -- a
+    block of its own, recognised only at a block start; a definition-shaped
+    line INSIDE a paragraph is an orphan, recorded in `orphans`),
+    paragraphs.  Phase 2 (inline structure, `Lexed.resolve` / `inline_pass`)
+    then runs over each paragraph's and cell's content only, with `defs`
+    from the Phase-1 definition blocks."""
 
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
         self.lines = self.text.split("\n")
-        self.raw = raw_lines(self.lines)     # {index: "fence" | "html"}: the ONE raw-extent map
+        self.raw = {}               # {index: "fence" | "html"}: the ONE raw-extent map
+        self.tables = []            # [Table], in document order
         self._run_text, self._run_off, self._defs_at = {}, {}, {}
-        self._runs()
-        self.tables, self.table_lines = find_tables(self)
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
         self.orphans = {}           # normalised label -> {1-based line numbers}
-        self.unsupported = []       # [(lineno, kind, line)] PROSE-AS-WRITTEN block openers
-        self.paragraphs = self._blocks()
+        self.unsupported = []       # [(lineno, kind, line)] PROSE-AS-WRITTEN / raw HTML lines
+        self.paragraphs = self._phase1()
         for lx in self.lexed():
             lx.resolve(self.defs)
 
-    def _runs(self):
-        """Phase 1's text units, computed ONCE and linearly: a run is the
-        consecutive raw lines up to the next `block_end` (the ONE boundary
-        predicate: blank, fence, paragraph-interrupting block start, table
-        header), joined; each line maps to its run's text and its offset in
-        it (`_run_text` / `_run_off`).  A line that IS a block start begins
-        its own run.  A definition is parsed over the rest of its run -- the
-        text the block phase hands over -- so its continuation lines can
-        never cross a blank line, a fence or a block start."""
-        lines, raw, i, n = self.lines, self.raw, 0, len(self.lines)
+    def _phase1(self):
+        """Phase 1 as ONE forward pass over the lines, the block STATE in
+        hand -- which of a raw extent, a table or a run is open -- and every
+        boundary decided by the ONE predicate `block_end` (a line inside a
+        run was already found not to be one, with a paragraph open; a line
+        outside a run is asked with none open, so a type-7 HTML opener after
+        a table, a one-line block or a setext heading opens a raw extent
+        there and stays paragraph text after a run line).  Each line is
+        classified once, in order:
+
+          * a raw-extent opener (`raw_opener`; fences and HTML blocks share
+            the map `raw`): its lines to `raw_extent` are never inline-
+            parsed; an HTML block's lines are recorded in `unsupported` for
+            the LEX-UNSUPPORTED? seed, so their content is printed rather
+            than assumed;
+          * a blank line ends the paragraph;
+          * a GFM table header off a block start: `admit_table`, the one
+            admission site;
+          * a setext underline after paragraph text (§4.3, not after a list
+            item or `>` first line, Examples 92-94): the paragraph is the
+            heading and the underline closes it, content of nothing;
+          * otherwise a RUN starts (`run_end`; joined once, each line mapped
+            to its offset, the text a definition is parsed over) and its
+            lines are read one by one: a definition at a block start is a
+            block of its own (`defs`, first wins); a VALID definition that
+            cannot take effect because a paragraph is open ("a link
+            reference definition cannot interrupt a paragraph") is an
+            ORPHAN -- exactly that class: a label-and-colon line that is not
+            a valid definition is plain prose (commonmark.js: `[C1]:
+            ECMA-262 §1 says so` is a paragraph), and a shortcut naming it is
+            exempt; a PROSE-AS-WRITTEN block opener (a `>` line, indented
+            code at a block start) is seeded; the rest is paragraph text,
+            grouped so that a run start begins a new paragraph (a lazy
+            setext-shaped line after a list item / `>` line is the item's
+            text) and a one-line block is a paragraph of its own.
+
+        Linear: one lookahead per run, one parse per line."""
+        out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
+
+        def flush():
+            if cur:
+                out.append(Paragraph(list(cur)))
+                cur.clear()
+
         while i < n:
-            if i in raw or is_blank(lines[i]):
-                i += 1
+            line = lines[i]
+            new_run = i not in self._run_text
+            if new_run:
+                # outside a run no paragraph is open: the block state is the
+                # run map itself, not a look at the previous line
+                opener = raw_opener(line, False)
+                if opener is not None:
+                    flush()
+                    end = raw_extent(lines, i, opener)
+                    for k in range(i, end):
+                        self.raw[k] = opener[0]         # the ONE marking site of a raw extent
+                        if opener[0] == "html":
+                            self.unsupported.append((k + 1, "html", lines[k]))
+                    i = end
+                    continue
+                if is_blank(line):
+                    flush()
+                    i += 1
+                    continue
+                if not starts_block(line) and table_header_at(lines, i):
+                    flush()
+                    t, i = admit_table(self, i)
+                    self.tables.append(t)
+                    continue
+                if cur and is_setext_underline(line) and not starts_block(cur[0][1]):
+                    # §4.3: the paragraph is a heading; the underline closes
+                    # it and is not content
+                    flush()
+                    i += 1
+                    continue
+                j = run_end(lines, i)
+                text, off = "\n".join(lines[i:j]), 0
+                for k in range(i, j):
+                    self._run_text[k], self._run_off[k] = text, off
+                    off += len(lines[k]) + 1
+            kind = unsupported_block(line, not cur)
+            if kind is not None:
+                self.unsupported.append((i + 1, kind, line))
+            d = self.definition_at(i)
+            if d is not None and not cur:
+                # a block start: the definition is a block of its own
+                raw, dest, stop = d
+                self.defs.setdefault(normalize_label(raw), dest)
+                consumed = self._run_text[i][self._run_off[i]:stop]
+                i += consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
                 continue
-            j = i + 1
-            while j < n and not block_end(lines, j, raw):
-                j += 1
-            text, off = "\n".join(lines[i:j]), 0
-            for k in range(i, j):
-                self._run_text[k], self._run_off[k] = text, off
-                off += len(lines[k]) + 1
-            i = j
+            if d is not None:
+                # a valid definition that cannot take effect: the orphan
+                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
+            elif new_run and not (cur and is_setext_underline(line) and not one_line_block(line)):
+                # a run start begins a paragraph -- unless it is the lazy
+                # `==` after a list item / `>` line (Examples 92-94), which
+                # is that paragraph's text
+                flush()
+            cur.append((i + 1, line))
+            if one_line_block(line):
+                flush()
+            i += 1
+        flush()
+        return out
 
     def definition_at(self, i):
         """The reference definition starting at raw line `i`, parsed over the
@@ -440,76 +511,6 @@ class Memo:
         directories may share a basename, and a map keyed on the basename
         aliases their rows; the basename (`path.name`) is for display only."""
         return str(self.path)
-
-    def _blocks(self):
-        """Phase 1 over the lines no fence or table owns: definition blocks at
-        a block start (filling `defs`, first wins; each parsed over the rest
-        of its run, `definition_at`) and paragraphs, every boundary decided
-        by the ONE predicate `block_end` (plus §4.3's context rule for a
-        setext underline).  An ORPHAN is exactly the spec-grounded class: a
-        line that parses as a VALID §4.7 definition but cannot take effect
-        because it is not at a block start ("a link reference definition
-        cannot interrupt a paragraph"); a label-and-colon line that is not a
-        valid definition is plain prose (commonmark.js: `[C1]: ECMA-262 §1
-        says so` is a paragraph), and a shortcut naming it is exempt.  Lines
-        of a PROSE-AS-WRITTEN block (a `>` line, indented code at a block
-        start) and the RAW lines of an HTML block (`raw`, like a fence, never
-        inline-parsed) are recorded in `unsupported` for the LEX-UNSUPPORTED?
-        seed.  Linear: the
-        runs are joined once (`_runs`); one parse per line."""
-        out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
-
-        def flush():
-            if cur:
-                out.append(Paragraph(list(cur)))
-                cur.clear()
-
-        while i < n:
-            line = lines[i]
-            if self.raw.get(i) == "html":
-                # a RAW line of an HTML block: never inline-parsed (like a
-                # fence), seeded so its content is printed rather than assumed
-                self.unsupported.append((i + 1, "html", line))
-            if i in self.raw or i in self.table_lines or is_blank(line):
-                flush()
-                i += 1
-                continue
-            # §4.3 setext heading: paragraph text followed by an underline is a
-            # heading, and the underline closes it (the text stays inline
-            # content to scan; the underline is not content).  Not after a
-            # list item or `>` line (Examples 92-94): there the line is lazy
-            # continuation text (`==`) or a thematic break (`---`, below).
-            if cur and is_setext_underline(line):
-                if not starts_block(cur[0][1]):
-                    flush()
-                    i += 1
-                    continue
-                if not one_line_block(line):
-                    cur.append((i + 1, line))
-                    i += 1
-                    continue
-            kind = unsupported_block(line, not cur)
-            if kind is not None:
-                self.unsupported.append((i + 1, kind, line))
-            d = self.definition_at(i)
-            if d is not None and not cur:
-                # a block start: the definition is a block of its own
-                raw, dest, stop = d
-                self.defs.setdefault(normalize_label(raw), dest)
-                consumed = self._run_text[i][self._run_off[i]:stop]
-                i += consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
-                continue
-            if d is not None:
-                # a valid definition that cannot take effect: the orphan
-                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
-            elif block_end(lines, i, self.raw):
-                flush()
-            cur.append((i + 1, line))
-            if one_line_block(line):
-                flush()
-            i += 1
-        flush()
-        return out
 
     def lexed(self):
         """Every lexed block of this memo: each cell of each table row (header
@@ -571,7 +572,7 @@ class Memo:
         answers, plus every shortcut whose label has a definition the grammar
         could not read (a §4.7 definition cannot interrupt a paragraph) -- the
         sites where a population the author meant to link is lost."""
-        orphans, out, seen = self.orphans, [], set()   # `out` ordered; `seen` for membership
+        orphans, out = self.orphans, []
 
         def walk(lx, lineno_of):
             for off, label, form, is_image in lx.unresolved:
@@ -586,15 +587,14 @@ class Memo:
                 # the definition's own bracket.
                 # the FORM comes from the lexer's one bracket parse (escapes
                 # honoured); a raw re-walk here once read `[foo\]][missing]`
-                # as a shortcut and exempted it
+                # as a shortcut and exempted it.  Each site is recorded once
+                # there: the label bracket of a failed `[text][label]` is
+                # re-scanned (§6.3 Example 571) but not recorded again
                 exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"
                 lineno = lineno_of(off)
                 if exempt and (key not in orphans or lineno in orphans[key]):
                     continue
-                site = (lineno, label)
-                if site not in seen:  # `[text][label]` re-scans `[label]` as a shortcut
-                    seen.add(site)
-                    out.append(site)
+                out.append((lineno, label))
 
         for p in self.paragraphs:
             walk(p.lexed, lambda off, p=p: p.locate(off)[0])

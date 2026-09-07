@@ -51,7 +51,8 @@ MUTANTS = [
      'r"[ \\t]*$"', 'r".*$"',
      ["(fence) a closer followed by text does not close"]),
     ("fence: fenced lines are not paragraph lines (A x B)", BLOCKS,
-     '    out = {i: "fence" for i in fenced_lines(lines)}', '    out = {}',
+     '    closer = fence_opener(line)\n    if closer is not None:\n        return "fence", closer',
+     '    closer = None\n    if closer is not None:\n        return "fence", closer',
      ["(fence) a link inside a fence is not a link (A x B)"]),
     # -- CommonMark §6.1 code spans
     ("span: opener and closer are backtick strings of EQUAL length", LEXER,
@@ -68,7 +69,7 @@ MUTANTS = [
      '_LIST_ITEM.match(line) or ', '',
      ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal"]),
     ("span: a `>` line starts a block", BLOCKS,
-     ' or _QUOTE.match(line) or _SETEXT.match(line):', ' or _SETEXT.match(line):',
+     ' or _QUOTE.match(line) or _SETEXT.match(line))', ' or _SETEXT.match(line))',
      ["(span) a paragraph ends at a `>` line"]),
     ("span: an ATX heading is a block", BLOCKS,
      '_ATX.match(line) or _THEMATIC', '_THEMATIC',
@@ -98,9 +99,9 @@ MUTANTS = [
     ("table: delimiter cell = >=1 hyphen with optional colons", BLOCKS,
      '_DELIM_CELL = re.compile(r":?-+:?")', '_DELIM_CELL = re.compile(r"[:\\- ]*")',
      ["(table) a delimiter cell is >=1 hyphen with optional colons; `:` alone is not"]),
-    ("table: header and delimiter must have equal width", TABLES,
-     '        if len(header) != width:\n            i += 1\n            continue',
-     '        if False:\n            i += 1\n            continue',
+    ("table: header and delimiter must have equal width", BLOCKS,
+     '    return width is not None and len(split_row(lines[i])) == width',
+     '    return width is not None',
      ["(rc) a slice header over a one-cell delimiter row is not a table, so its wide body row "
       "is not a width miss"]),
     ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", TABLES,
@@ -161,7 +162,7 @@ MUTANTS = [
      ["(link) collapsed reference `[label][]`"]),
     ("link: bracket text nests (full reference with inner brackets): an inactive inner opener "
      "is popped and its `]` is literal, not a failure of the outer", LEXER,
-     '                i += 1                  # literal `]`; the opener is gone\n                continue',
+     '                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed\n                continue',
      '                stack.clear()\n                i += 1\n                continue',
      ["(link) full reference whose text holds nested brackets; the label is the link's tail, not "
       "prose, and so is the definition"]),
@@ -404,13 +405,13 @@ MUTANTS = [
      ["unresolved_references scales linearly: t(4N)/t(N) < 8"]),
     # -- PR #510 Codex R7
     ("R7-1 def: the definition is parsed over the rest of the block (re-inject a 3-line window)", TABLES,
-     '            text, off = "\\n".join(lines[i:j]), 0',
-     '            text, off = "\\n".join(lines[i:i + 3]), 0',
+     '                text, off = "\\n".join(lines[i:j]), 0',
+     '                text, off = "\\n".join(lines[i:i + 3]), 0',
      ["(def) a label spanning FIVE lines is a definition (§4.7 / §6.3: a label may span lines); "
       "the later shortcut resolves and the sibling is scanned"]),
-    ("R7-3 def: a title may not cross a blank line (re-inject the blank into the run)", TABLES,
-     '            while j < n and not block_end(lines, j, raw):\n                j += 1\n            text, off',
-     '            while j < n and (j not in raw and is_blank(lines[j]) or not block_end(lines, j, raw)):\n                j += 1\n            text, off',
+    ("R7-3 def: a title may not cross a blank line (re-inject the blank into the run)", BLOCKS,
+     '    while j < len(lines) and not block_end(lines, j, True):\n        j += 1',
+     '    while j < len(lines) and (is_blank(lines[j]) or not block_end(lines, j, True)):\n        j += 1',
      ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition "
       "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
       "NOT walked -- its violation is not reported"]),
@@ -448,13 +449,13 @@ MUTANTS = [
       "paragraph and the code span crosses it"]),
     # -- PR #510 Codex R9
     ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", TABLES,
-     '            if cur and is_setext_underline(line):\n                if not starts_block(cur[0][1]):',
-     '            if cur and is_setext_underline(line):\n                if False:',
+     '                if cur and is_setext_underline(line) and not starts_block(cur[0][1]):',
+     '                if False:',
      ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
       "span opened in the heading does not reach the next paragraph's site"]),
     ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", TABLES,
-     '                if not starts_block(cur[0][1]):\n                    flush()',
-     '                if True:\n                    flush()',
+     '                if cur and is_setext_underline(line) and not starts_block(cur[0][1]):',
+     '                if cur and is_setext_underline(line):',
      ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
       "paragraph continues and a code span crosses it"]),
     ("R9 F1 seed: PROSE-AS-WRITTEN block openers are recorded", TABLES,
@@ -484,27 +485,28 @@ MUTANTS = [
      '        out.append(_cell(line, a, b, [x for bs in breaks for x in bs if a <= x < b]))',
      ["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"]),
     # -- design re-gate R4-R9
-    ("RG2 IMP-1: _runs reads the ONE predicate (re-inject fence/blank-only run ends)", TABLES,
-     '            while j < n and not block_end(lines, j, raw):\n                j += 1\n            text, off',
-     '            while j < n and not (j in raw or is_blank(lines[j])):\n                j += 1\n            text, off',
+    ("RG2 IMP-1: run_end reads the ONE predicate (re-inject raw/blank-only run ends)", BLOCKS,
+     '    while j < len(lines) and not block_end(lines, j, True):\n        j += 1',
+     '    while j < len(lines) and not (raw_opener(lines[j], True) is not None or is_blank(lines[j])):\n        j += 1',
      ["(block) `[Slice 9z owns it]:\\n---` is a setext heading (`<h2>…</h2>`), not a definition: the "
       "label line is paragraph text and its site is reported",
       "(block) `[Slice 9z owns it]:\\n#` is a paragraph and an ATX heading, not a definition",
       "(block) `[Slice 9z owns it]:\\n>` is a paragraph and a block quote, not a definition",
       "(block) `[Slice 9z owns it]:\\n***` is a paragraph and a thematic break, not a definition"]),
     ("RG2 IMP-1: a table header is a block end (local policy; re-inject the pure-CommonMark reading)", BLOCKS,
-     '            or table_header_at(lines, i))', '            or False)',
+     '            or starts_block(lines[i]) or table_header_at(lines, i))',
+     '            or starts_block(lines[i]) or False)',
      ["(block) `[Slice 9z owns it]:\\n|a|b|\\n|--|--|` -- the table header ends the run (local policy "
       "over pure CommonMark, which has no tables): a paragraph and a table, not a definition with the "
       "header row as its destination"]),
-    ("RG2 IMP-1: find_tables reads the ONE predicate (re-inject a third boundary)", TABLES,
-     '        while j < n and not block_end(lines, j, raw):\n            body = split_row(lines[j])',
-     '        while j < n and j not in raw and not is_blank(lines[j]):\n            body = split_row(lines[j])',
+    ("RG2 IMP-1: admit_table reads the ONE predicate (re-inject a third boundary)", TABLES,
+     '    while j < n and not block_end(lines, j, False):\n        body = split_row(lines[j])',
+     '    while j < n and not is_blank(lines[j]):\n        body = split_row(lines[j])',
      ["(table) a list item right after a schema table ends it (a block start), so it is not a 1-cell "
       "body row: rc 0"]),
     ("RG2 IMP-1: indented code does not interrupt (re-inject it as a block start)", BLOCKS,
-     '    if one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line):',
-     '    if one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line) or _INDENTED.match(line):',
+     '    return bool(one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line))',
+     '    return bool(one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line) or _INDENTED.match(line))',
      ["(block) `[Slice 9z owns it]:\\n    code` IS a definition (§4.4: indented code cannot interrupt "
       "a paragraph; commonmark.js: destination `code`): a block of its own, not scanned"]),
     ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", TABLES,
@@ -520,30 +522,29 @@ MUTANTS = [
      '    except (OSError, RuntimeError):\n        return path', '    except OSError:\n        return path',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
     ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", BLOCKS,
-     '        if not html_block_ends(t, lines[i]):    # the opener may meet the end condition itself',
-     '        if False:',
+     '    if html_block_ends(arg, lines[i]):      # the opener may meet the end condition itself\n        return i + 1',
+     '    if True:\n        return i + 1',
      ["(lex-seed) `<pre>\\nSlice 9z owns it\\n</pre>`: the inner line holding the id is seeded (type 1 "
       "ends at `</pre>`)",
       "(lex-seed) `<!-- c\\n|9z|\\n-->`: a `|` line inside a comment block (type 2 ends at `-->`) is "
       "seeded"]),
     ("RG2 MIN-1: a type-6 block ends at a blank line", BLOCKS,
-     '                if t in ("t6", "t7") and is_blank(lines[end]):',
-     '                if False:',
+     '        if arg in ("t6", "t7") and is_blank(lines[j]):',
+     '        if False:',
      ["(lex-seed) a type-6 block ends at a blank line: the paragraph after it is not seeded"]),
     # -- PR #510 Codex R10
     ("R10-1 raw: HTML-block lines are raw extents (re-inject them into the paragraph)", BLOCKS,
-     '            out[k] = "html"                     # the ONE marking site of an HTML extent',
-     '            pass',
+     '    return "html", t', '    return None',
      ["(html) `<pre>\\n`\\n</pre>\\nSlice 9z` owns it`: the backtick inside the raw HTML block does "
       "not pair with the prose one -- the site is reported",
       "(lex-seed) an HTML-block opener holding a declared id is a seed"]),
-    ("R10-1 raw: a type-7 opener counts only at a block start", BLOCKS,
-     '        if t is None or (t == "t7" and not at_start):', '        if t is None:',
+    ("R10-1 raw: a type-7 opener counts only where no paragraph is open (make it interrupt)", BLOCKS,
+     '    if t is None or (t == "t7" and para_open):', '    if t is None:',
      ["(html) `text\\n<span>\\n9z owns it` -- a type-7 opener cannot interrupt a paragraph "
       "(commonmark.js): the lines stay paragraph text and the site is reported"]),
     ("R10-1 raw: the end condition on the opener line closes the block there", BLOCKS,
-     '        if not html_block_ends(t, lines[i]):    # the opener may meet the end condition itself\n            end = i + 1',
-     '        if True:\n            end = i + 1',
+     '    if html_block_ends(arg, lines[i]):      # the opener may meet the end condition itself\n        return i + 1',
+     '    if False:\n        return i + 1',
      ["(html) `<pre></pre>\\n9z owns it` -- the opener meets the end condition itself, so the block is "
       "that one line and the next line is prose"]),
     ("R10-2 blocks: the id cell is scanned with its own id suppressed (re-inject the skip)", CHECK,
@@ -556,6 +557,38 @@ MUTANTS = [
      '|(?P<file>[\\w./-]+\\.md(?![0-9A-Za-z]))',
      ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",
       "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
+    # -- PR #510 Codex R11
+    ("R11-1 driver: block start from the block STATE (re-inject the look-back at the previous raw line)", TABLES,
+     '                opener = raw_opener(line, False)',
+     '                opener = raw_opener(line, not (i == 0 or (i - 1) in self.raw or is_blank(lines[i - 1]) '
+     'or one_line_block(lines[i - 1])))',
+     ["(table) the prose inside the type-7 block after a schema table is raw, not a site",
+      "(html) `Heading\\n===\\n<span>\\n9z owns it`: after a setext heading no paragraph is open "
+      "(commonmark.js: a heading and a raw block) -- the look-back at the previous line missed this: no site"]),
+    ("R11-1 table: no paragraph is open inside a table (re-inject the paragraph's interruption rule)", TABLES,
+     '    while j < n and not block_end(lines, j, False):', '    while j < n and not block_end(lines, j, True):',
+     ["(table) a type-7 HTML opener right after a schema table ENDS it (a table is not a paragraph): "
+      "`<span>` + prose are raw lines, not one-cell rows -- no width miss, rc 0"]),
+    ("R11-1 raw: a type-7 opener opens where no paragraph is open (re-inject 'never at a block start')", BLOCKS,
+     '    if t is None or (t == "t7" and para_open):', '    if t is None or t == "t7":',
+     ["(html) `# h\\n<span>\\n9z owns it`: after a one-line block no paragraph is open, so the type-7 "
+      "opener is a block start (commonmark.js: a heading and a raw block): no site",
+      "(table) a type-7 HTML opener right after a schema table ENDS it (a table is not a paragraph): "
+      "`<span>` + prose are raw lines, not one-cell rows -- no width miss, rc 0"]),
+    ("R11-2 link: the re-scanned label of a failed full reference is the same site (re-inject the second record)", LEXER,
+     '                if form is not None and not (form == "shortcut" and pos == relabel):',
+     '                if form is not None:',
+     ["(image) the reviewer's input `![alt][missing]` + an orphan `[missing]: image.md` in the same "
+      "paragraph: the re-scanned `[missing]` is the same failed site, not a shortcut for the orphan rule "
+      "-- rc 0, `image.md` never walked",
+      "(def) a definition cannot interrupt a paragraph: the reference is unanswered, and reported ONCE "
+      "(`[text][label]` re-scans `[label]`)"]),
+    ("R11-2 link: the tail of a failed reference is NOT consumed (re-inject the advance to `end`)", LEXER,
+     '                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed',
+     '                i = end',
+     ["(image) `![alt][missing][Slice 9z]` with `[Slice 9z]` defined: the failed image's label is "
+      "re-scanned and `[missing][Slice 9z]` is a link (§6.3 Example 571; commonmark.js) -- its tail is "
+      "masked, the sibling is walked: 1 site, not 2"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
@@ -568,10 +601,12 @@ MUTANTS = [
      '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
     ("F13 link: an unanswered full reference is reported", LEXER,
-     '                if form is not None:', '                if form is not None and form != "full":',
+     '                if form is not None and not (form == "shortcut" and pos == relabel):',
+     '                if form is not None and form != "full" and not (form == "shortcut" and pos == relabel):',
      ["(link) a full reference no definition answers is a schema miss"]),
     ("F13 link: a shortcut with an orphan definition is reported", LEXER,
-     '                if form is not None:', '                if form is not None and form != "shortcut":',
+     '                if form is not None and not (form == "shortcut" and pos == relabel):',
+     '                if form is not None and form != "shortcut":',
      ["(link) a shortcut whose only definition sits mid-paragraph is a schema miss"]),
     ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", TABLES,
      '            for lineno, label in memo.unresolved_references():\n'

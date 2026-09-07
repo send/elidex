@@ -910,3 +910,45 @@ case("NEGATIVE", "(file) `(9z).md` is one file name (a balanced parenthesis pair
 case("POSITIVE", "(file) a link's visible text is not swallowed into the destination token: "
                  "`[Slice 9z](slice-9z-sib.md)` still reports `9z`",
      build(), "See [Slice 9z](slice-9z-sib.md) for the walk.", 1)
+
+
+# ------------------------------------------------ PR #510 Codex R11 controls --
+# Every block-structure expectation below was checked against commonmark.js
+# 0.31.2 (`node cm.js '["<md>"]'`) before being written.
+
+# #1: "is this line at a block start" is the driver's block STATE (no run
+# open), never a look at the previous raw line.  A table is not a paragraph
+# (GFM §4.10: broken at "beginning of another block-level structure"), so a
+# type-7 opener right after its rows opens an HTML block.
+rcase("NEGATIVE", "(table) a type-7 HTML opener right after a schema table ENDS it (a table is not a "
+                  "paragraph): `<span>` + prose are raw lines, not one-cell rows -- no width miss, rc 0",
+      build(extra=SLOT4 % "now" + "\n<span>\n9z owns it"), "", 0)
+case("NEGATIVE", "(table) the prose inside the type-7 block after a schema table is raw, not a site",
+     build(extra=SLOT4 % "now" + "\n<span>\n9z owns it"), "", 0)
+acase("POSITIVE", "(lex-seed) the raw line holding a declared id inside the type-7 block after a table "
+                  "is seeded",
+      build(extra=SLOT4 % "now" + "\n<span>\n9z owns it"), "LEX-UNSUPPORTED?", 1)
+case("NEGATIVE", "(html) `# h\\n<span>\\n9z owns it`: after a one-line block no paragraph is open, so the "
+                 "type-7 opener is a block start (commonmark.js: a heading and a raw block): no site",
+     build(), "# h\n<span>\n9z owns it", 0)
+case("NEGATIVE", "(html) `Heading\\n===\\n<span>\\n9z owns it`: after a setext heading no paragraph is open "
+                 "(commonmark.js: a heading and a raw block) -- the look-back at the previous line missed "
+                 "this: no site",
+     build(), "Heading\n===\n<span>\n9z owns it", 0)
+case("POSITIVE", "(html) `[sib]: slice-9z-sib.md\\n<span>\\n9z owns it`: a definition keeps the paragraph "
+                 "open (§4.7; commonmark.js: `<span>` is paragraph text), so the site is reported",
+     build(), "[sib]: slice-9z-sib.md\n<span>\n9z owns it", 1)
+case("POSITIVE", "(html) `- item\\n<span>\\n9z owns it`: the item's paragraph is open (lazy continuation), "
+                 "so type 7 does not open a block: paragraph text, the site is reported",
+     build(), "- item\n<span>\n9z owns it", 1)
+
+# #2: a failed reference is recorded ONCE; its label bracket is re-scanned
+# (§6.3 Example 571) but the tail is never consumed
+rcase("NEGATIVE", "(image) the reviewer's input `![alt][missing]` + an orphan `[missing]: image.md` in the "
+                  "same paragraph: the re-scanned `[missing]` is the same failed site, not a shortcut for "
+                  "the orphan rule -- rc 0, `image.md` never walked",
+      build(), "See ![alt][missing] here.\n[missing]: image.md", 0)
+case("POSITIVE-NOVEL", "(image) `![alt][missing][Slice 9z]` with `[Slice 9z]` defined: the failed image's "
+                       "label is re-scanned and `[missing][Slice 9z]` is a link (§6.3 Example 571; "
+                       "commonmark.js) -- its tail is masked, the sibling is walked: 1 site, not 2",
+     build(), "See ![alt][missing][Slice 9z] here.\n\n[Slice 9z]: slice-9z-sib.md", 1, **SIB)

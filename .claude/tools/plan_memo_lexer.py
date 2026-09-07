@@ -321,9 +321,22 @@ def inline_pass(s, defs):
     author meant to link is silently lost unless the caller reports it; the
     memo exempts a shortcut (every `[C19]` citation is one) unless a
     definition of its label exists somewhere the grammar cannot read it.
+
+    Each failed reference is recorded ONCE.  After a failed FULL reference
+    `[text][label]` (an image's too) the scan resumes after the literal
+    `]`, so `[label]` is re-scanned -- it must be: §6.3 Example 571,
+    `[foo][bar][baz]` with only `baz` defined, links `[bar][baz]`, and
+    commonmark.js renders `![alt][missing][baz]` as `![alt]` plus that
+    link.  When that re-scan closes as a SHORTCUT it fails for the very
+    reason the full form did (same label, same `defs`) and is the same
+    site, not a second one: it is not recorded, so `![alt][missing]` never
+    leaves a bare `[missing]` behind for the orphan rule to read (§6.4: an
+    undefined image reference is literal text, never a memo the author
+    meant to link).
     """
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
     code, out, images, unresolved, stack, i, n = [], [], [], [], [], 0, len(s)
+    relabel = -1        # the `[` of the label of the last failed full reference
     while i < n:
         c = s[i]
         if _is_escape(s, i):
@@ -359,9 +372,11 @@ def inline_pass(s, defs):
         if end is None:
             end, dest, form, label = _reference_tail(s, pos, i, defs)
             if dest is None:
-                if form is not None:
+                if form is not None and not (form == "shortcut" and pos == relabel):
                     unresolved.append((pos, label, form, is_img))
-                i += 1                  # literal `]`; the opener is gone
+                if form == "full":
+                    relabel = i + 1     # `[label]` is re-scanned next (Example 571), not re-recorded
+                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed
                 continue
         if is_img:
             images.append((i, end))
