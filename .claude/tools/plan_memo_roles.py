@@ -14,10 +14,8 @@ memo is asserted exactly like a row of the main memo.  Findings are
 import re
 from collections import Counter
 
-from plan_memo_tables import (
-    DECOR, MARKER, ROW_NOUN, ROW_NOUN_ID, SHORT_ID, SLUG_ID, balanced, decorated_id, is_empty,
-    stream,
-)
+from plan_memo_ids import ALNUM, DECOR, SHORT_ID, SLUG_ID, balanced, decorated_id, kind_of
+from plan_memo_tables import MARKER, ROW_NOUN_SEP, is_empty, stream
 
 
 # --------------------------------------------------------------------------
@@ -66,33 +64,32 @@ LICENSE_AFTER = re.compile(
     re.IGNORECASE | re.ASCII,
 )
 
-# The three mention shapes, each the ONE decorated-id grammar with a different
-# core / anchor (group `id` is the id token in all three):
-#   * a row noun anchors a short id in PROSE (`ROW_NOUN_ID`: noun, a space or
-#     a hyphen, a decorated short id);
-#   * a slot id is a naming site however the document spells it: backticked,
-#     bold, both, or bare.  Accepting only the backticked form let an
-#     ownership claim written as `**#11-vm-foo**` or plain `#11-vm-foo` pass
-#     unreported under a rule whose stated polarity is reported-by-default;
-#   * a bare short id, in a cell or in prose, tokenised by `_bare` on the
-#     separators those blocks actually use.  No row noun is required; its
-#     decoration must BALANCE (`balanced`): `**A call at the finalizer sites
-#     is not the fix.**` opens with `**A` and a space, and an unbalanced-
-#     decoration rule read that as a decorated row id `A`.  Measured: three
-#     such sites in this memo before the balance requirement.
-# ⚠ ASCII boundaries by PROPERTY: every anchor around these ASCII grammars
-# is an explicit ASCII class (or the pattern is compiled `re.ASCII`), never
-# `\b` / `\w` in Unicode mode -- there `次のSlice C` has no word boundary
-# before `Slice` and `次は#11-zz-alpha` none before `#`, and both naming sites
-# went unreported.
-MENTION_PROSE = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_ID + r"(?![0-9A-Za-z])")
-MENTION_SLOT = re.compile(r"(?<![0-9A-Za-z_-])" + decorated_id(SLUG_ID))
-CELL_TOKEN = re.compile(decorated_id(SHORT_ID))
+# The mention shapes.  Every id token -- a short id or a `#11-` slug, in a
+# cell or in prose, decorated or bare -- is read by the ONE grammar
+# (`plan_memo_ids.tokens`: the checker's `_bare` pass; a slug is its own
+# anchor, and a slot id is a naming site however the document spells it --
+# backticked, bold, both, or bare; accepting only the backticked form let an
+# ownership claim written as `**#11-vm-foo**` or plain `#11-vm-foo` pass
+# unreported under a rule whose stated polarity is reported-by-default).  A
+# short id's decoration must BALANCE (`Token.balanced`): `**A call at the
+# finalizer sites is not the fix.**` opens with `**A` and a space, and an
+# unbalanced-decoration rule read that as a decorated row id `A`.  Measured:
+# three such sites in this memo before the balance requirement.
+#
+# The ANCHORED reading (the one the licensing rule was written against) is
+# a row noun, a space or a hyphen, then a short-id token starting exactly
+# where `NOUN_ANCHOR` ends -- the token's boundary is the grammar's, not a
+# second spelling here.
+# ⚠ ASCII boundaries by PROPERTY: the anchor before the row noun composes the
+# grammar's `ALNUM`, never `\b` / `\w` in Unicode mode -- there `次のSlice C`
+# has no word boundary before `Slice` and `次は#11-zz-alpha` none before `#`,
+# and both naming sites went unreported.
+NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))
 
 
 # A row noun standing between the licensing phrase and the id ("the child of
 # umbrella **3**") must not hide the phrase from the backward look.
-_TRAILING_NOUN = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN + r"[ \t\n-]+" + DECOR + "$")
+_TRAILING_NOUN = re.compile(NOUN_ANCHOR.pattern + DECOR + "$")
 
 # The backward look reads the 40 characters before the mention (after a
 # trailing row noun is dropped); a row noun + its decoration is shorter than
@@ -178,7 +175,7 @@ OWNS_TWO = re.compile(
 
 
 def _owner_ok(m, tag):
-    return balanced(m, tag) or m.group(tag + "id").startswith("#11-")
+    return balanced(m, tag) or kind_of(m.group(tag + "id")) == "slug"
 
 
 # ORDER-PROSE?'s vocabulary is DELIBERATELY narrower than the ranking's
@@ -331,7 +328,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
                              % (rid, deps)))
             continue
         # Non-empty: report only when the prose names a party the cell does not.
-        # ⚠ Only ids that EXIST: `MENTION_PROSE` matches ROW_NOUN + token, and
+        # ⚠ Only ids that EXIST: the anchored pass matches ROW_NOUN + token, and
         # "rows sat" / "row says" / "Slice has" would put `sat` / `says` / `has`
         # in the set -- a token shaped like an id is not an id.  The mention
         # scan already filters to declared ids and reads through the mask (the

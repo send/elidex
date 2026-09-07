@@ -20,15 +20,18 @@ the block types not modelled are the plan's §3.0 table.
 
 `Lexed` is the one Phase-2 value per block: code spans, links, images, and
 the two bare tokens the scanners must not read an id out of (`[C19]`-style
-citation ids, `.md` file names).  Nothing in
-this module knows what a row id is; the disposition exception (an id-only code
-span is the document spelling an id, not code) is applied over a `Lexed` by
-`plan_memo_tables.py`.
+citation ids, `.md` file names).  Nothing in this module knows what a ROW
+id is: the citation shape and the ASCII boundary it composes are the id
+grammar's (`plan_memo_ids.py`, below this module), and the disposition
+exception (an id-only code span is the document spelling an id, not code)
+is applied over a `Lexed` by `plan_memo_tables.py`.
 """
 
 import bisect
 import re
 import string
+
+from plan_memo_ids import ALNUM, CITE_ID
 
 ASCII_PUNCT = frozenset(string.punctuation)
 
@@ -407,10 +410,13 @@ def inline_pass(s, defs):
 # closing punctuation (`)` `,` `.` `;`) needs no autolink-style stripping
 # rule: the token ENDS at `.md`, so anything after it is outside by
 # construction (the GFM §6.9 extended-autolink trailing-punctuation rule is
-# moot here, and is why none is picked).  The end boundary is the ASCII id
-# class, so `x.mdの` still ends the token.
-_TOKEN = re.compile(r"(?P<cite>\[[A-Z][0-9]+\])"
-                    r"|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))+\.md(?![0-9A-Za-z]))")
+# moot here, and is why none is picked).  The end boundary is the grammar's
+# ASCII class (`ALNUM`), so `x.mdの` still ends the token; the citation
+# shape is the grammar's `CITE_ID` (either case -- `[c1]` is `[C1]` under
+# §6.3 label matching, and the unresolved-reference walk exempts it by the
+# same predicate).
+_TOKEN = re.compile(r"(?P<cite>%s)|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))+\.md(?!%s))"
+                    % (CITE_ID, ALNUM))
 
 
 class Lexed:

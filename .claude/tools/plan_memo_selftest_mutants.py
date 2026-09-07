@@ -23,9 +23,10 @@ the RUNNER itself (`plan_memo_umbrella_selftest.py`) patches the runner, not
 the checker set, and takes its controls from the patched runner's registry.
 """
 
-LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, SELFTEST = (
-    "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py", "plan_memo_memo.py",
-    "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_umbrella_selftest.py")
+IDS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, SELFTEST = (
+    "plan_memo_ids.py", "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py",
+    "plan_memo_memo.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
+    "plan_memo_umbrella_selftest.py")
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
@@ -227,11 +228,13 @@ MUTANTS = [
      ["(rc) the undetermined kind written two ways is KIND-SPELLING, rc 1"]),
     # -- /code-review high: one mutant per fix
     ("F1 id cell: the id is followed by a non-id character, not the cell end", TABLES,
-     '+ r"(?![0-9A-Za-z-])")', '+ r"$")',
+     'return t.id if t is not None and t.start == 0 else None',
+     'return t.id if t is not None and t.start == 0 and t.end == len(cell_text.strip(" \\t")) else None',
      ["(id) an id cell with trailing prose declares the id at its start",
       "(id) a backticked slug with trailing prose declares the slug"]),
     ("F1 id cell: a cell not starting with an id declares nothing (no fallback to the cell)", TABLES,
-     'return g.group("id") if g else None', 'return g.group("id") if g else cell_text.strip()',
+     'return t.id if t is not None and t.start == 0 else None',
+     'return t.id if t is not None and t.start == 0 else cell_text.strip()',
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
     ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", MEMO,
@@ -290,7 +293,7 @@ MUTANTS = [
      'ID_CELL_BLANKS = frozenset({"", "-", "\\u2013"})',
      ["(id) an id cell `—` is a literal blank: a deliberate non-row, rc 0"]),
     ("4.5 link: a citation-grammar label is exempt in every reference form", MEMO,
-     'exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"',
+     'exempt = is_cite_label(key) or form == "shortcut"',
      'exempt = form == "shortcut"',
      ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
       "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
@@ -442,8 +445,8 @@ MUTANTS = [
      '                if f is not None and f not in seen:\n                    seen.add(f)',
      '                if f is not None and f not in out:\n                    pass',
      ["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"]),
-    ("R8-3 bare id: the far side of a `.` is the ASCII id class, not `str.isalnum`", CHECK,
-     'bool(_ID_CONTINUES.match(text[j]))', 'text[j].isalnum()',
+    ("R8-3 bare id: the far side of a `.` is the ASCII id class, not `str.isalnum`", IDS,
+     'bool(cont.match(text[j]))', 'text[j].isalnum()',
      ["(bare) `9z.次の工程` bounds the id: the far side of the `.` is not an ASCII id character, so "
       "the site is reported",
       "(bare) `9z.é` bounds the id (a dotted number is ASCII on both sides)"]),
@@ -479,11 +482,12 @@ MUTANTS = [
      '            except (OSError, RuntimeError, UnicodeDecodeError) as e:', '            except (OSError, RuntimeError) as e:',
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
-     'MENTION_PROSE = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_ID', 'MENTION_PROSE = re.compile(r"\\b" + ROW_NOUN_ID',
+     'NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))',
+     'NOUN_ANCHOR = re.compile(r"\\b%s" % ROW_NOUN_SEP)',
      ["(ascii) `次のSlice Cが所有する` reaches the naming worklist: the row-noun anchor is not `\\b` "
       "(no Unicode word boundary before `Slice`)"]),
-    ("R9 F3 ascii: the slug anchor is an ASCII class (re-inject `\\w`)", ROLES,
-     'MENTION_SLOT = re.compile(r"(?<![0-9A-Za-z_-])"', 'MENTION_SLOT = re.compile(r"(?<![\\w-])"',
+    ("R9 F3 ascii: the slug boundary is an ASCII class (re-inject `\\w`)", IDS,
+     '    "slug": re.compile("[%s_-]" % ALNUM_CHARS),', '    "slug": re.compile(r"[\\w-]"),',
      ["(ascii) `次は#11-zz-alphaが所有する` reaches the naming worklist: the slug anchor is an ASCII "
       "class, not `\\w`"]),
     ("R9 F3 ascii: list markers are ASCII digits (re-inject `\\d`)", BLOCKS,
@@ -524,10 +528,11 @@ MUTANTS = [
       "commonmark.js: one paragraph) -- paragraph text, the site is reported",
       SPEC_EXAMPLES]),
     ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", MEMO,
-     '            if d is not None:\n                # a valid definition that cannot take effect: the orphan\n'
-     '                self.orphans.setdefault(normalize_label(d[0]), set()).add(linenos[i])',
+     '            if d is not None:\n                # a valid definition that cannot take effect: the orphan, keyed\n'
+     '                # on its label\'s `[` (§4.7: after <=3 columns of indentation)\n'
+     '                self.orphans.setdefault(normalize_label(d[0]), set()).add((linenos[i], indentation(line)[1]))',
      '            if d is not None or (line.lstrip(" ").startswith("[") and "]:" in line):\n'
-     '                self.orphans.setdefault(normalize_label(d[0] if d else line.split("]:")[0].lstrip(" [")), set()).add(linenos[i])',
+     '                self.orphans.setdefault(normalize_label(d[0] if d else line.split("]:")[0].lstrip(" [")), set()).add((linenos[i], indentation(line)[1]))',
      ["(cite) `[C1]: ECMA-262 §1 says so, and the table cites it.` at a block start is prose "
       "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
       "(def) a label-and-colon line that is NOT a valid definition (junk after the destination) at a "
@@ -567,8 +572,8 @@ MUTANTS = [
      ["(id) the id cell's trailing prose is scanned: `**7z** — Slice 9z lands first` reports `9z` "
       "(the row's own `7z` is suppressed)"]),
     ("R10-3 file: a bare `.md` name is a path-syntax run (re-inject the narrow class)", LEXER,
-     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?![0-9A-Za-z]))',
-     '|(?P<file>[\\w./-]+\\.md(?![0-9A-Za-z]))',
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?!%s))',
+     '|(?P<file>[\\w./-]+\\.md(?!%s))',
      ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",
       "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
     # -- PR #510 Codex R11
@@ -637,26 +642,31 @@ MUTANTS = [
       "(accept-vocab seed) a row whose marker is ATTRIBUTED to another row is a pointer and owes "
       "no acceptance condition"]),
     ("C8 disposition: a kept slug inside a code span is visible", TABLES,
-     '            if m.group(0) in keep:', '            if False:',
+     '            if t.kind == "slug" and t.id in keep:', '            if False:',
      ["(span) a kept slug inside a command-line code span is a naming site"]),
     # -- /elidex-review Stage 6
-    ("#3 bare id: bounded by the complement of the id-continuation class (re-inject a list)", CHECK,
-     '_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")', '_ID_CONTINUES = re.compile(r"[^\\s,;/()\\[\\]*`.:]")',
+    ("#3 bare id: bounded by the complement of the id-continuation class (re-inject a list)", IDS,
+     '    "short": re.compile(ALNUM),', '    "short": re.compile(r"[^\\s,;/()\\[\\]*`.:]"),',
      ["(bare) an id before `?` is bounded", "(bare) an id before `!` is bounded",
       "(bare) an id inside ASCII double quotes is bounded",
       "(bare) an id inside curly double quotes is bounded"]),
-    ("#3 bare id: a hyphen bounds a short id (re-inject it into the class)", CHECK,
-     '_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")', '_ID_CONTINUES = re.compile(r"[0-9A-Za-z-]")',
-     ["(bare) a hyphen bounds a short id: `after 9z-7z` names 9z"]),
+    ("#3 / R14-1 bare id: a hyphen bounds a short id, in prose and on a raw line (re-inject it into the "
+     "class)", IDS,
+     '    "short": re.compile(ALNUM),', '    "short": re.compile("[%s-]" % ALNUM_CHARS),',
+     ["(bare) a hyphen bounds a short id: `after 9z-7z` names 9z",
+      "(lex-seed) a raw HTML line `9z-owner`: a hyphen bounds the short id on the raw line as in "
+      "prose, so the line is seeded holding `9z`",
+      "(lex-seed) a raw HTML line `owner-9z`: the hyphen bounds on the left too -- seeded holding `9z`"]),
     ("#3 file token: a bare `.md` file name is masked before the bare scan", LEXER,
-     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?![0-9A-Za-z]))', '',
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?!%s))', '|(?P<file>(?!)%s)',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
-    ("#3 bare id: a dotted number is one token", CHECK,
-     '    return text[i] == "." and 0 <= j < len(text) and bool(_ID_CONTINUES.match(text[j]))',
+    ("#3 bare id: a dotted number is one token", IDS,
+     '    return kind == "short" and text[i] == "." and lo <= j < hi and bool(cont.match(text[j]))',
      '    return False',
      ["(bare) a dotted number is one token: `§6.9z` names no row"]),
-    ("#3 bare id: a decorated side is bounded by its decoration", CHECK,
-     '        if not tok.group("r") and _glued(text, e, +1):', '        if _glued(text, e, +1):',
+    ("#3 bare id: a decorated side is bounded by its decoration", IDS,
+     '        if not t.r and _glued(text, t.end, +1, t.kind, pos, hi):',
+     '        if _glued(text, t.end, +1, t.kind, pos, hi):',
      ["(bare) the decoration closes the token even against an id character: `**9z**7z`"]),
     ("#8 stream: the (c) seed reads the Slice cell's disposed stream", ROLES,
      '        body = _stream(row, "Slice")\n        empty = is_empty(deps)',
@@ -712,8 +722,10 @@ MUTANTS = [
      '    rest = unindented(line)\n    return rest is not None and pat.match(rest) is not None',
      '    rest = line.lstrip(" ")\n    return pat.match(rest) is not None',
      [SPEC_EXAMPLES]),
-    ("R12-C anchors: the anchored pass reads the disposed stream (re-inject the raw text)", CHECK,
-     '        for mt in pat.finditer(b.stream):', '        for mt in pat.finditer(b.text):',
+    ("R12-C anchors: the anchored pass reads the disposed stream (re-inject the raw text, for the anchor "
+     "and the token map alike)", CHECK,
+     '    at = {t.start: t for t in b.tokens}\n    for nm in NOUN_ANCHOR.finditer(b.stream):',
+     '    at = {t.start: t for t in tokens(b.text)}\n    for nm in NOUN_ANCHOR.finditer(b.text):',
      ["(anchor) `` `Slice `C owns it ``: the row noun is inside a code span, so on the disposed "
       "stream there is no `Slice C` to anchor on -- 0 sites (the bare `C` is a declared miss)"]),
     ("R12-D witness: Phase 1's `link_label` calls are counted where Phase 1 makes them (re-bind the "
@@ -879,6 +891,39 @@ MUTANTS = [
       "never lexed -- no site",
       "(rc) an excess body cell of a non-schema table holding `[x](absent-file.md)` is ignored (GFM "
       "§4.10): no link, nothing walked, rc 0"]),
+    # -- PR #510 Codex R14: ONE id-token grammar for every reader
+    ("R14-1 seed: the raw-line seed reads the grammar (re-inject the seed's own boundary regex -- the "
+     "former `_BARE_TOKEN`, a second spelling that rejected a hyphen on either side)", CHECK,
+     'ids = sorted({t.id for t in tokens(line) if t.kind != "cite" and t.id in keep})',
+     'ids = sorted({t for t in __import__("re").findall(r"(?<![0-9A-Za-z-])(?:#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})'
+     '(?![0-9A-Za-z-])", line) if t in keep})',
+     ["(lex-seed) a raw HTML line `9z-owner`: a hyphen bounds the short id on the raw line as in "
+      "prose, so the line is seeded holding `9z`",
+      "PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"]),
+    ("R14-2 slug: bounded on its RIGHT side too (re-inject the left-only boundary)", IDS,
+     '        if not t.r and _glued(text, t.end, +1, t.kind, pos, hi):',
+     '        if not t.r and t.kind != "slug" and _glued(text, t.end, +1, t.kind, pos, hi):',
+     ["(slug) `#11-zz-alphaZZ` in prose is not the id `#11-zz-alpha`: the slug is bounded on its right "
+      "as on its left -- 0 sites",
+      "(slug) `` `tool #11-zz-alpha_extra` ``: the kept-slug exception inside a code span reads the "
+      "grammar's boundary, so nothing is excepted and the span stays code -- 0 sites"]),
+    ("R14-3 def: the orphan exemption is by the orphan's exact bracket (re-inject the line-number test)", MEMO,
+     'if exempt and (key not in orphans or site in orphans[key]):',
+     'if exempt and (key not in orphans or site[0] in {s[0] for s in orphans[key]}):',
+     ["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented "
+      "miss, rc 2, child.md not walked"]),
+    ("R14-4 cite: the citation label is either case, ONE predicate for the mask and the exemption "
+     "(re-inject upper-case only)", IDS,
+     'CITE_LABEL = r"[A-Za-z][0-9]+"', 'CITE_LABEL = r"[A-Z][0-9]+"',
+     ["(cite) `[c1]` beside a declared no-owner id `c1`: a lowercase citation is masked by the same "
+      "predicate the reference walk exempts it by -- 0 sites",
+      "(cite) adjacent lowercase citations `[c1][c2]` are not a full reference (the exemption is the "
+      "grammar's either-case predicate): rc 0"]),
+    ("R14 property: a second spelling of an id class outside the grammar module is red (re-inject one "
+     "in the row-noun anchor, behaviour unchanged)", ROLES,
+     'NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))',
+     'NOUN_ANCHOR = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_SEP)',
+     ["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"]),
 ]
 
 

@@ -26,6 +26,8 @@ OBLIGATION / CONSEQUENCE surfaces); a decision change over a memo is swept by
 hand.
 
 MODULES
+  plan_memo_ids.py        the id-token grammar: the three kinds, decoration, and
+                          the ONE boundary every reader consumes (`tokens`)
   plan_memo_lexer.py      Phase 2 (inline): code spans + links / images in one
                           pass, link grammar, `Lexed`
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
@@ -80,7 +82,6 @@ Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the po
         plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
-import re
 import sys
 import pathlib
 from collections import Counter, defaultdict, namedtuple
@@ -88,11 +89,12 @@ from collections import Counter, defaultdict, namedtuple
 HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
-from plan_memo_tables import SHORT_ID, SLUG_ID, balanced, stream  # noqa: E402
+from plan_memo_ids import tokens  # noqa: E402
+from plan_memo_tables import stream  # noqa: E402
 from plan_memo_memo import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
-    CELL_TOKEN, MENTION_PROSE, MENTION_SLOT, acceptance_vocab_seed,
-    assertion_a, assertion_b, assertion_cd_seed, classify, roles,
+    NOUN_ANCHOR, acceptance_vocab_seed, assertion_a, assertion_b, assertion_cd_seed, classify,
+    roles,
 )
 
 
@@ -162,15 +164,17 @@ class Block:
     where a raw-text scan read `` `Slice `C `` as `Slice C` with the row
     noun inside the code span; what a scanner may read out of a code span --
     an id-only run, a kept `#11-` slug -- was excepted by the disposition
-    step and stands in the stream), and the map back to reporting
-    coordinates.  Minted only after the `Population` has disposed the block
-    (`stream()` asserts it)."""
+    step and stands in the stream), the id tokens of that stream (`tokens`:
+    read ONCE by the grammar, `plan_memo_ids.tokens`; both passes consume
+    the same list), and the map back to reporting coordinates.  Minted only
+    after the `Population` has disposed the block (`stream()` asserts it)."""
 
-    __slots__ = ("memo", "text", "mask", "stream", "source", "self_id")
+    __slots__ = ("memo", "text", "mask", "stream", "tokens", "source", "self_id")
 
     def __init__(self, memo, lexed, source, self_id=None):
         self.memo, self.text, self.mask = memo, lexed.text, lexed.mask
         self.stream = stream(lexed)
+        self.tokens = list(tokens(self.stream))
         self.source, self.self_id = source, self_id
 
     @property
@@ -211,73 +215,50 @@ class ProseBlock(Block):
 
 
 def _anchored(b, keep, out):
-    """Row-noun-anchored ids (the anchored reading the licensing rule was
-    written against), then `#11-` slot ids (a slug is its own anchor)."""
-    for pat, anchored in ((MENTION_PROSE, True), (MENTION_SLOT, False)):
-        for mt in pat.finditer(b.stream):
-            rid = mt.group("id")
-            if rid not in keep or rid == b.self_id:
-                continue
-            out.append(classify(Mention(b, rid, mt.start(), mt.end(), mt.start("id"), anchored=anchored)))
-
-
-# What continues a SHORT id token: an id character, or a `.` with an id
-# character on its far side (a dotted number: `§6.2a` names no row `2a`).  A
-# hyphen BOUNDS a short id on both sides -- `after 1b-5` names `1b`,
-# `0b-family` names `0b` -- symmetrically; only the `#11-` slug grammar keeps
-# its internal hyphens, and a `.md` file name (`slice-9z-sib.md`) is a lexer
-# `file` token, masked before this scan reads it.  A bare id is bounded by
-# the COMPLEMENT of this class -- any other character, or the block edge --
-# not by a list of punctuation marks: a list left `9z?` / `9z!` / `"9z"` /
-# `“9z”` unreported while the report claimed "everything else is reported".
-# A side that carries decoration (`**9z**`, `` `9a` ``) is bounded by the
-# decoration itself: the mark closes the token, so `` `9a`-`9d` `` is two ids.
-_ID_CONTINUES = re.compile(r"[0-9A-Za-z]")
-
-
-def _glued(text, i, step):
-    """Whether the character at `text[i]` continues an id token that ends
-    just before it (`step` = +1) or starts just after it (`step` = -1)."""
-    if not (0 <= i < len(text)):
-        return False
-    if _ID_CONTINUES.match(text[i]):
-        return True
-    j = i + step
-    # the far side of the `.` is tested with the SAME ASCII class: `9z.次の`
-    # / `9z.é` bound the id (a dotted number is ASCII on both sides)
-    return text[i] == "." and 0 <= j < len(text) and bool(_ID_CONTINUES.match(text[j]))
+    """Row-noun-anchored short ids (the anchored reading the licensing rule
+    was written against): a `NOUN_ANCHOR` match followed, exactly at its
+    end, by one of the block's grammar tokens -- the same token the bare
+    pass reads, so the two readings can never disagree on where an id
+    starts or ends.  A row noun anchors a digit or a single letter too
+    (`Slice 9`, `Slice C`): the bare pass's declared misses do not apply."""
+    at = {t.start: t for t in b.tokens}
+    for nm in NOUN_ANCHOR.finditer(b.stream):
+        t = at.get(nm.end())
+        if t is None or t.kind != "short" or t.id not in keep or t.id == b.self_id:
+            continue
+        out.append(classify(Mention(b, t.id, nm.start(), t.end, t.idstart, anchored=True)))
 
 
 def _bare(b, keep, out):
-    """Bare (row-noun-free) ids.
+    """Bare (row-noun-free) ids: every short-id and `#11-` slug token of the
+    block's stream (`plan_memo_ids.tokens` -- the boundary is the grammar's:
+    a hyphen bounds a short id, a slug is bounded on both sides, a dotted
+    number is one token, a decorated side is bounded by its decoration).  A
+    slug is its own anchor and is reported however it is decorated.
 
-    Recognised only where the token cannot be confused with the other things
-    these documents write: pure digits are §-numbers, step numbers, file counts
-    and line numbers; an undecorated single letter is an English article or a
-    family name.  Both are DECLARED MISSES, carried as red controls in the
-    self-test rather than argued away.  Everything else bounded by a non-id
-    character (`_glued`) is reported, licensed or not.
+    A short id is recognised only where the token cannot be confused with
+    the other things these documents write: pure digits are §-numbers, step
+    numbers, file counts and line numbers; an undecorated single letter is
+    an English article or a family name.  Both are DECLARED MISSES, carried
+    as red controls in the self-test rather than argued away.  Everything
+    else the grammar bounds is reported, licensed or not.
     """
-    text = b.stream
-    for tok in CELL_TOKEN.finditer(text):
-        tid = tok.group("id")
-        if tid not in keep or tid == b.self_id:
+    for t in b.tokens:
+        tid = t.id
+        if t.kind == "cite" or tid not in keep or tid == b.self_id:
             continue
-        if tid.isdigit():       # `tid` is SHORT_ID, ASCII by grammar: this is `[0-9]+`
-            continue
-        # Unbalanced decoration means a bold RUN opened or closed nearby, not
-        # that this token is decorated: `**A call at the finalizer …**` and
-        # `**block-scope entry 10b**` are the two directions.  Treating it as
-        # undecorated handles both -- the single-letter guard still drops `A`,
-        # and a multi-character id inside a bold phrase is no longer invisible.
-        if len(tid) == 1 and tid.isalpha() and not balanced(tok):
-            continue
-        s, e = tok.start(), tok.end()
-        if not tok.group("l") and _glued(text, s - 1, -1):
-            continue
-        if not tok.group("r") and _glued(text, e, +1):
-            continue
-        out.append(classify(Mention(b, tid, s, e, tok.start("id"))))
+        if t.kind == "short":
+            if tid.isdigit():       # `tid` is SHORT_ID, ASCII by grammar: this is `[0-9]+`
+                continue
+            # Unbalanced decoration means a bold RUN opened or closed nearby,
+            # not that this token is decorated: `**A call at the finalizer …**`
+            # and `**block-scope entry 10b**` are the two directions.  Treating
+            # it as undecorated handles both -- the single-letter guard still
+            # drops `A`, and a multi-character id inside a bold phrase is no
+            # longer invisible.
+            if len(tid) == 1 and tid.isalpha() and not t.balanced:
+                continue
+        out.append(classify(Mention(b, tid, t.start, t.end, t.idstart)))
 
 
 def blocks(pop):
@@ -328,9 +309,6 @@ def collect_mentions(pop):
     return list(seen.values())
 
 
-_BARE_TOKEN = re.compile(r"(?<![0-9A-Za-z-])(?:%s|%s)(?![0-9A-Za-z-])" % (SLUG_ID, SHORT_ID))
-
-
 _READING = {
     "html": "raw HTML-block line (CommonMark §4.6) never inline-parsed",
     "indented": "indented-code line (CommonMark §4.4: raw, like a fence -- cmark-gfm agrees, an indented "
@@ -357,11 +335,14 @@ def lex_unsupported_seed(pop, findings, notes):
     A seed in the ORDER-PROSE? idiom: never gating, and no count here
     bounds the class (an HTML table row whose ids are undeclared is
     invisible to it).  Block quotes are not seeded (a container whose
-    content IS parsed, §5.1)."""
+    content IS parsed, §5.1).  The ids are read by the ONE grammar
+    (`plan_memo_ids.tokens`, the kinds the naming scan reads: a citation
+    id is masked everywhere else and is no seed here either), so a raw
+    line's `9z-owner` seeds `9z` exactly as prose would report it."""
     keep, n = pop.keep(), 0
     for memo in pop.memos:
         for lineno, line, reading in memo.raw:
-            ids = sorted({t for t in _BARE_TOKEN.findall(line) if t in keep})
+            ids = sorted({t.id for t in tokens(line) if t.kind != "cite" and t.id in keep})
             if "|" in line or ids:
                 n += 1
                 findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno, "%s; it holds %s" % (

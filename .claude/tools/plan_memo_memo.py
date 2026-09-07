@@ -34,6 +34,7 @@ from plan_memo_blocks import (
     one_line_block, quote_content, raw_extent, raw_opener, run_end, setext_underline, starts_block,
     table_header_at,
 )
+from plan_memo_ids import is_cite_label
 from plan_memo_lexer import Lexed, normalize_label
 from plan_memo_tables import (
     MARKER, POINTER, SCHEMAS, UNDETERMINED, admit_table, attributed_to_other, dispose,
@@ -97,7 +98,12 @@ class Memo:
         self.tables = []            # [Table], in document order
         self.sequence = []          # Phase 1's block sequence: [kind, first lineno, last lineno]
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
-        self.orphans = {}           # normalised label -> {1-based line numbers}
+        # normalised label -> {(1-based line number, column of the label's `[`)}:
+        # the orphan's OWN bracket, by exact position -- a line number alone
+        # exempted a second shortcut of the same label on the definition's line
+        # (`[sib]: child.md "[sib]"`: the title's `[sib]` is a shortcut whose
+        # label has an orphan definition, the documented miss; PR #510 R14)
+        self.orphans = {}
         # [(lineno, content line, reading)] every line of a raw extent that is
         # not a fence, in ONE list -- the LEX-UNSUPPORTED? seed's population,
         # under one seed rule; `reading` says which grammar hides the line:
@@ -285,8 +291,9 @@ class Memo:
                 i += k
                 continue
             if d is not None:
-                # a valid definition that cannot take effect: the orphan
-                self.orphans.setdefault(normalize_label(d[0]), set()).add(linenos[i])
+                # a valid definition that cannot take effect: the orphan, keyed
+                # on its label's `[` (§4.7: after <=3 columns of indentation)
+                self.orphans.setdefault(normalize_label(d[0]), set()).add((linenos[i], indentation(line)[1]))
             elif new_run and not (cur and setext_underline(line) is not None and not one_line_block(line)):
                 # a run start begins a paragraph -- unless it is the lazy
                 # `==` after a list item (Example 94), which is that
@@ -420,34 +427,36 @@ class Memo:
         sites where a population the author meant to link is lost."""
         orphans, out = self.orphans, []
 
-        def walk(lx, lineno_of):
+        def walk(lx, site_of):
             for off, label, form, is_image in lx.unresolved:
                 if is_image:
                     continue     # §6.4: literal image syntax; an image never links a memo
                 key = normalize_label(label)
-                # a `[C19]`-style citation id is never a memo reference, in ANY
-                # form -- shortcut, full (`[C19][C20]` adjacent citations) or
-                # collapsed (`[C19][]`); a plain shortcut of any other label is
-                # prose too.  An orphan definition of the label (one the grammar
-                # could not read) is still reported, citation or not, except at
-                # the definition's own bracket.
+                # a `[C19]`-style citation id (`is_cite_label`: the grammar's
+                # one predicate, the lexer's mask reads the same) is never a
+                # memo reference, in ANY form -- shortcut, full (`[C19][C20]`
+                # adjacent citations) or collapsed (`[C19][]`); a plain
+                # shortcut of any other label is prose too.  An orphan
+                # definition of the label (one the grammar could not read) is
+                # still reported, citation or not, except at the definition's
+                # own bracket -- by exact (line, column), never by line.
                 # the FORM comes from the lexer's one bracket parse (escapes
                 # honoured); a raw re-walk here once read `[foo\]][missing]`
                 # as a shortcut and exempted it.  Each site is recorded once
                 # there: the label bracket of a failed `[text][label]` is
                 # re-scanned (§6.3 Example 571) but not recorded again
-                exempt = _CITE_LABEL.fullmatch(key) is not None or form == "shortcut"
-                lineno = lineno_of(off)
-                if exempt and (key not in orphans or lineno in orphans[key]):
+                exempt = is_cite_label(key) or form == "shortcut"
+                site = site_of(off)
+                if exempt and (key not in orphans or site in orphans[key]):
                     continue
-                out.append((lineno, label))
+                out.append((site[0], label))
 
         for p in self.paragraphs:
-            walk(p.lexed, lambda off, p=p: p.locate(off)[0])
+            walk(p.lexed, lambda off, p=p: p.locate(off)[0::2])
         for t in self.tables:
             for row in [t.header] + t.rows:
                 for cell in row.cells:
-                    walk(cell.lexed, lambda off, row=row: row.lineno)
+                    walk(cell.lexed, lambda off, row=row, cell=cell: (row.lineno, cell.raw(off)))
         return out
 
     def schema_rows(self, name):
@@ -469,8 +478,6 @@ def _resolve(path):
     except (OSError, RuntimeError):
         return path
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-# `CITE_ID` without its brackets, over a NORMALISED (casefolded) label
-_CITE_LABEL = re.compile(r"[a-z][0-9]+")
 
 
 class Population:

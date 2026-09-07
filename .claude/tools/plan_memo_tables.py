@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Row grammar for `plan-memo-umbrella-check.py` -- the id grammar, the table
+"""Row grammar for `plan-memo-umbrella-check.py` -- how a row is named and
+keyed (the id-token grammar itself is `plan_memo_ids.py`'s), the table
 schemas, `Row` / `Table` and the ONE admission site `admit_table`, the kind
 markers, and the mask disposition every scanner reads through.
 
@@ -32,6 +33,7 @@ ONE text each predicate over a block reads.
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
+from plan_memo_ids import CITE_ID, DECOR, SHORT_ID, SLUG_ID, decorated_id, tokens
 from plan_memo_lexer import blank_spans
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -84,34 +86,10 @@ UNDETERMINED = re.compile(r"KIND\s*[—-]?\s*UNDETERMINED", re.IGNORECASE | re.A
 POINTER = re.compile(r"is a pointer rather than a slice")
 
 # --------------------------------------------------------------------------
-# Id grammar, spelled ONCE.  An id is a short alphanumeric token, a `#11-`
-# slug, or a `[C19]`-style citation id (the citation table's id column) --
-# nothing else -- and may be decorated with bold, backticks, or both, in
-# either order.  `decorated_id(core, tag)` is the one spelling every reader
-# uses (the id cell, the prose anchor, the bare cell token, the owner
-# reference); it binds groups `<tag>l` / `<tag>id` / `<tag>r`, and
-# `balanced(m, tag)` says whether the decoration closes what it opened.
+# Row identity.  The id grammar itself -- the three kinds, the decoration,
+# and the ONE boundary every reader consumes (`tokens`) -- is
+# `plan_memo_ids.py`'s; what is here is how a ROW is named and keyed.
 # --------------------------------------------------------------------------
-
-SHORT_ID = r"[0-9A-Za-z]{1,4}"
-SLUG_ID = r"#11-[a-z0-9-]+"
-CITE_ID = r"\[[A-Z][0-9]+\]"
-DECOR = r"(?:\*\*|`)*"
-
-
-def decorated_id(core, tag=""):
-    return r"(?P<%sl>%s)(?P<%sid>%s)(?P<%sr>%s)" % (tag, DECOR, tag, core, tag, DECOR)
-
-
-_DECOR_TOKENS = re.compile(r"\*\*|`")
-
-
-def balanced(m, tag=""):
-    """The decoration around `<tag>id` closes, in reverse order, exactly what
-    it opened -- `**x**`, `` `x` ``, `` **`x`** `` -- and is not empty."""
-    left = _DECOR_TOKENS.findall(m.group(tag + "l"))
-    return bool(left) and _DECOR_TOKENS.findall(m.group(tag + "r")) == left[::-1]
-
 
 ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"
 """How this document names a row when it refers to one.  Lives here because it
@@ -121,24 +99,17 @@ kind a marker declares."""
 # `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
 # left them invisible to both passes; measured, four of five such sites in this
 # memo are real violations.
-ROW_NOUN_ID = ROW_NOUN + r"[ \t\n-]+" + decorated_id(SHORT_ID)   # ASCII separators (`\s` is Unicode)
-
-# The id cell: the grammar at the cell's START, then a non-id character (so
-# `**7z** — MERGED` and `` `#11-x` (carved from #483) `` read `7z` / `#11-x`,
-# and `xxxxC` is not `C`).  A cell that does not start with an id is not an
-# id cell.
-_ID_CELL = re.compile("^" + decorated_id("(?:%s|%s|%s)" % (SLUG_ID, CITE_ID, SHORT_ID))
-                      + r"(?![0-9A-Za-z-])")
-_SLUG_IN_CODE = re.compile(r"(?<![0-9A-Za-z_-])" + SLUG_ID)     # an ASCII class, not `\w` (Unicode)
+ROW_NOUN_SEP = ROW_NOUN + r"[ \t\n-]+"       # ASCII separators (`\s` is Unicode)
+ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(SHORT_ID)
 
 # An id-only code span is tokenised by the declared-id GRAMMAR, longest
 # alternative first (a `#11-` slug is atomic -- its internal hyphens are not
 # separators), with the separators whitespace, list punctuation, `|` and `-`
 # (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`) between tokens.  A bare id in
 # a cell or in prose is NOT tokenised on a list -- it is bounded by the
-# complement of the id-continuation class (the checker's `_ID_CONTINUES`); a
-# hyphen bounds a short id, and `slice-9z-sib.md` is safe because a file
-# name is a lexer `file` token, masked before the scan.
+# grammar's continuation rule (`plan_memo_ids.tokens`); a hyphen bounds a
+# short id, and `slice-9z-sib.md` is safe because a file name is a lexer
+# `file` token, masked before the scan.
 _ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),
                            re.ASCII)
 
@@ -256,11 +227,14 @@ def admit_table(memo, lines, linenos, i, lazy):
 # --------------------------------------------------------------------------
 
 def bare_id(cell_text):
-    """The row id an id cell declares: the decorated-id grammar at the cell's
-    start, decoration stripped, trailing prose ignored -- or None when the
-    cell does not start with an id (then the row declares nothing)."""
-    g = _ID_CELL.match(cell_text.strip(" \t"))
-    return g.group("id") if g else None
+    """The row id an id cell declares: the grammar's first bounded token when
+    it stands at the cell's START (so `**7z** — MERGED` and `` `#11-x`
+    (carved from #483) `` read `7z` / `#11-x`, and `xxxxC` declares nothing
+    -- the boundary is the grammar's, `plan_memo_ids.tokens`), decoration
+    stripped, trailing prose ignored -- or None when the cell does not start
+    with an id (then the row declares nothing)."""
+    t = next(tokens(cell_text.strip(" \t")), None)
+    return t.id if t is not None and t.start == 0 else None
 
 
 _APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)
@@ -308,17 +282,19 @@ def id_only(inner, keep):
 def code_mask(lx, keep):
     """Code spans of `lx` minus the id-only ones, and minus the `#11-` slugs
     of `keep` INSIDE the remaining spans (a backticked slug, alone or in a
-    command line, is the document spelling an id: the same exception) -- the
-    spans a reader of prose must skip."""
+    command line, is the document spelling an id: the same exception; the
+    slug is read by the grammar's tokeniser inside the span, so
+    `#11-zz-alpha_extra` is not `#11-zz-alpha`) -- the spans a reader of
+    prose must skip."""
     out = []
     for a, b in lx.code:
         if id_only(lx.text[a:b].strip("`"), keep):    # whitespace is a separator token
             continue
         cut = a
-        for m in _SLUG_IN_CODE.finditer(lx.text, a, b):
-            if m.group(0) in keep:
-                out.append((cut, m.start()))
-                cut = m.end()
+        for t in tokens(lx.text, a, b):
+            if t.kind == "slug" and t.id in keep:
+                out.append((cut, t.idstart))
+                cut = t.idend
         out.append((cut, b))
     return out
 

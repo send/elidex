@@ -536,3 +536,40 @@ case("NEGATIVE", "(quote) a slot table inside a block quote whose DELIMITER row 
 case("NEGATIVE", "(html) `<!doctype` opens a type-4 block (§4.6 condition 4: `<!` + an ASCII letter, either "
                  "case) to the `>` line: raw, no site",
      build(), "<!doctype\n9z owns it\n>", 0)
+
+
+# ------------------------------------------------ PR #510 Codex R14 controls --
+# ONE id-token grammar (`plan_memo_ids.tokens`) for every reader; the boundary
+# is spelled once, and each reader below is a former second spelling of it.
+
+# #1: the raw-line seed reads the grammar -- a hyphen bounds a short id on a
+# raw line exactly as in prose (the seed's own regex rejected it on either side)
+case("POSITIVE-NOVEL", "(lex-seed) a raw HTML line `9z-owner`: a hyphen bounds the short id on the raw line as in "
+                       "prose, so the line is seeded holding `9z`",
+     build(), "<div>9z-owner</div>", 1, measure=("seed", "'9z'"))
+case("POSITIVE-NOVEL", "(lex-seed) a raw HTML line `owner-9z`: the hyphen bounds on the left too -- seeded holding `9z`",
+     build(), "<div>owner-9z</div>", 1, measure=("seed", "'9z'"))
+# #2: a slug is bounded on BOTH sides by the complement of its continuation
+# class (`_` and `-` included), in prose and inside a code span
+case("NEGATIVE", "(slug) `#11-zz-alphaZZ` in prose is not the id `#11-zz-alpha`: the slug is bounded on its right "
+                 "as on its left -- 0 sites",
+     build(), "The slot #11-zz-alphaZZ owns nothing here.", 0)
+case("NEGATIVE", "(slug) `` `tool #11-zz-alpha_extra` ``: the kept-slug exception inside a code span reads the "
+                 "grammar's boundary, so nothing is excepted and the span stays code -- 0 sites",
+     build(), "Run `tool #11-zz-alpha_extra` before anything else.", 0)
+case("POSITIVE", "(slug) `` `tool #11-zz-alpha` `` inside a code span IS the kept slug, bounded by the closing "
+                 "backtick -- 1 site (the exception the control above must not widen)",
+     build(), "Run `tool #11-zz-alpha` before anything else.", 1)
+# #4: the citation mask and the reference walk's citation exemption are ONE
+# predicate, either case: `[c1]` is `[C1]` under §6.3 label matching
+case("NEGATIVE", "(cite) `[c1]` beside a declared no-owner id `c1`: a lowercase citation is masked by the same "
+                 "predicate the reference walk exempts it by -- 0 sites",
+     build(i7z="**c1**", s7z="**UMBRELLA, not a terminal unit.** x"), "Per [c1] the probe must return 3.", 0)
+rcase("NEGATIVE", "(cite) adjacent lowercase citations `[c1][c2]` are not a full reference (the exemption is the "
+                  "grammar's either-case predicate): rc 0",
+      build(), "Per [c1][c2] step 1 the probe must return 3.", 0)
+# #3's negative half: the orphan's OWN bracket stays exempt (the positive half
+# is the runner's `orphan_offset_control`)
+rcase("NEGATIVE", "(def) `paragraph\\n[sib]: slice-9z-sib.md` alone: the orphan's own label bracket is exempt -- "
+                  "rc 0, nothing walked",
+      build(), "paragraph\n[sib]: slice-9z-sib.md", 0, **SIB)

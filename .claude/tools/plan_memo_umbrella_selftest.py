@@ -35,7 +35,7 @@ import pathlib
 import sys
 import tempfile
 
-from plan_memo_selftest_cases import CASES, build
+from plan_memo_selftest_cases import CASES, VIOLATION, build
 import plan_memo_selftest_cases_pr510  # noqa: F401 -- appends the review-round controls to CASES
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -43,6 +43,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 # Import name -> file, in dependency order.  The checker's file name is not an
 # import name, so it is loaded under a fixed one.
 MODULES = [
+    ("plan_memo_ids", "plan_memo_ids.py"),
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),
@@ -51,8 +52,15 @@ MODULES = [
     ("plan_memo_umbrella_check", "plan-memo-umbrella-check.py"),
 ]
 
+# The id grammar module: the ONE file that may spell an id character class;
+# the spelling sweep (`id_spelling_sweep_control`) reads every other module
+# of the set for a second spelling.
+GRAMMAR = "plan_memo_ids.py"
 
+
+_TEXT = {}      # file name -> the UNPATCHED source text (immutable)
 _CODE = {}      # file name -> code object of the UNPATCHED source (immutable)
+SOURCES = {}    # file name -> the source text the CURRENT module set was exec'd from
 
 
 def load(patches=None):
@@ -60,18 +68,24 @@ def load(patches=None):
     source} overrides), installed in `sys.modules` in dependency order so the
     checker's own imports resolve to the patched modules.  Returns the checker
     module.  `unload()` removes the set again.  Unpatched sources are compiled
-    once; every call still execs into fresh module dicts."""
+    once; every call still execs into fresh module dicts.  `SOURCES` records
+    the text each module of the set was exec'd from (patched or not), so a
+    control over the SOURCE (the spelling sweep) reads the same set a mutant
+    patched."""
     patches = patches or {}
     unload()
     mod = None
     for name, file in MODULES:
         src = patches.get(file)
+        if file not in _TEXT:
+            _TEXT[file] = (HERE / file).read_text()
+        SOURCES[file] = src if src is not None else _TEXT[file]
         if src is not None:
             code = compile(src, str(HERE / file), "exec")
         elif file in _CODE:
             code = _CODE[file]
         else:
-            code = _CODE[file] = compile((HERE / file).read_text(), str(HERE / file), "exec")
+            code = _CODE[file] = compile(_TEXT[file], str(HERE / file), "exec")
         spec = importlib.util.spec_from_loader(name, loader=None, origin=str(HERE / file))
         mod = importlib.util.module_from_spec(spec)
         mod.__file__ = str(HERE / file)
@@ -565,6 +579,89 @@ def scaling_quotes_control(M):
         quotes, c.calls)
 
 
+def orphan_offset_control(M):
+    """The orphan-definition exemption is by the orphan's exact BRACKET, not
+    its line.  `paragraph\\n[sib]: child.md "[sib]"` -- commonmark.js
+    0.31.2 renders it `<p>paragraph\\n[sib]: child.md &quot;[sib]&quot;</p>`:
+    a definition cannot interrupt a paragraph, so the line is literal text,
+    and both `[sib]` are shortcuts with no definition, literal too.  The
+    label bracket (line 2, column 0) is the orphan's own and exempt; the
+    `[sib]` inside the title is a shortcut whose label has an orphan
+    definition -- the documented unresolved-reference miss (rc 2), and
+    `child.md` is NOT walked (it is linked by nothing).  A line-number
+    exemption exempted the title's bracket too: rc 0, `child.md` silently
+    outside the population (PR #510 R14 #3)."""
+    res, _ = run_on(M, build(), 'paragraph\n[sib]: child.md "[sib]"', files={"child.md": VIOLATION + "\n"})
+    miss = sum(1 for f in res.findings if f[0] == "SCHEMA" and "unresolved reference 'sib'" in f[3])
+    walked = [m.path.name for m in res.population.memos]
+    ok = res.rc == 2 and miss == 1 and walked == ["fixture.md"]
+    return ok, "rc %d (must be 2), unresolved 'sib' x%d (must be 1), population %s (child.md must not be walked)" % (
+        res.rc, miss, walked)
+
+
+# The spellings the grammar module owns.  A SOURCE-TEXT sweep over string
+# constants: it reads these exact spellings and nothing about purpose.
+_ID_SPELLINGS = (
+    "[0-9A-Za-z",           # the ASCII alphanumeric class (`ALNUM`; `[0-9A-Za-z-]`, `[0-9A-Za-z_-]` too)
+    "[a-z0-9-]",            # the slug body
+    "[A-Za-z][0-9]",        # the citation label, and its two case-halves
+    "[A-Z][0-9]", "[a-z][0-9]",
+    "#11-",                 # the slug prefix as a literal (`startswith("#11-")` is a kind test)
+    "\\w", "\\d",           # Unicode classes in a str pattern: never an ASCII boundary
+)
+
+
+def _string_constants(src, file):
+    """(lineno, value) of every string constant of `src` that is not a
+    docstring (the first statement of a module / class / function body)."""
+    import ast
+    tree = ast.parse(src, filename=file)
+    docs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                docs.add(id(body[0].value))
+    return [(node.lineno, node.value) for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs]
+
+
+def id_spelling_sweep_control(M):
+    """PROPERTY: the id-token grammar is spelled ONCE.  Every string constant
+    (docstrings excepted; comments are not code) of every module of the set
+    other than `plan_memo_ids.py` is read for a second spelling of a class
+    the grammar owns (`_ID_SPELLINGS`); one hit is red.  Read over
+    `SOURCES` -- the text the CURRENT set was exec'd from -- so a mutant that
+    re-introduces a spelling is seen.
+
+    HONESTLY: this is a source-TEXT sweep.  What it cannot see: a class
+    spelled in another order or with other ranges (`[A-Za-z0-9-]` is the
+    HTML tag-name grammar in `plan_memo_blocks.py`, `[a-zA-Z0-9+.-]` the URL
+    scheme grammar in `plan_memo_memo.py` -- neither is an id class, and the
+    sweep reads no purpose, so it must not read those spellings either); a
+    class built by concatenation or escaped at runtime; a hand-written
+    character test (`ch.isalnum()`, `in string.ascii_letters`); `\\b`
+    (roles' vocabulary patterns use it under `re.ASCII`, which is not an
+    id boundary); and anything in a comment.  The R8 controls (`次のSlice
+    C`, `次は#11-zz-alpha`, `9z.次の`) are the BEHAVIOURAL half; this is the
+    textual half, and neither bounds the other."""
+    hits = []
+    for _, file in MODULES:
+        if file == GRAMMAR:
+            continue
+        src = SOURCES.get(file)
+        if src is None:
+            return False, "no loaded source for %s (load() before the sweep)" % file
+        for lineno, value in _string_constants(src, file):
+            for needle in _ID_SPELLINGS:
+                if needle in value:
+                    hits.append("%s:%d %r spells %r" % (file, lineno, value[:40], needle))
+    n = sum(len(_string_constants(SOURCES[f], f)) for _, f in MODULES if f != GRAMMAR)
+    return not hits, ("%d string constants in %d modules swept, %d second spelling(s)%s"
+                      % (n, len(MODULES) - 1, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -587,6 +684,8 @@ def registry():
     reg["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"] = ("CONTROL", scaling_linked_files_control)
     reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
     reg["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"] = ("CONTROL", scaling_split_row_control)
+    reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)
+    reg["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"] = ("CONTROL", id_spelling_sweep_control)
     return reg
 
 
