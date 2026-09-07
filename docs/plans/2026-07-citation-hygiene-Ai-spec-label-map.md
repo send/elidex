@@ -129,11 +129,15 @@ implementation — `git log --oneline origin/main..HEAD -- .claude/` → `b3a7d4
 cite-audit detector out of the citation sweep` (`git show --stat`: eight paths, +945 / −64). **It is dropped
 from A-i's lineage.**
 
-**The content is recoverable.** The pointer is *content plus a second location*, not a bare SHA (§14's lesson
-— a SHA in a rebasing branch has a half-life): branch `domform-submittable-category` (worktree
-`elidex-wt-submittable`) carries a byte-identical copy, and
+**The content is recoverable**, by §14's rule: `b3a7d469` is an ancestor of this PR's head, so
+`refs/pull/501/head` keeps it reachable after the squash merge deletes the branch. ⚠ **An earlier revision
+of this sentence offered a second location instead** — "branch `domform-submittable-category` (worktree
+`elidex-wt-submittable`) carries a byte-identical copy", witnessed by
 `git diff --stat HEAD domform-submittable-category -- .claude/tools/_webref/
-.claude/skills/elidex-plan-review/preflight.py` prints nothing. ⚠ Both paths are load-bearing — seven of the
+.claude/skills/elidex-plan-review/preflight.py` printing nothing. The diff is still empty, but the location
+is not one a reader of `main` can reach: `git ls-remote origin domform-submittable-category` prints **0
+refs** — that branch exists only on the authoring machine, which is a weaker pointer than the SHA it was
+introduced to shore up, not a stronger one. ⚠ Both paths are load-bearing — seven of the
 eight live under `_webref/` and `preflight.py` is the eighth — and widening to `-- .claude/` instead is *not*
 the fix: measured, that form prints six unrelated files.
 
@@ -668,9 +672,11 @@ owed re-derivation.
    (`grep -cE '^- \*\*K[0-9]'` → 4, `grep -cE '^\| K[0-9] × K[0-9]'` → 5) and which A-i's own §9 no longer
    claims; it now reasons from blast radius, as it always should have. Neither changes A-i's scope by a line.
    Also corrected there: `umbrella:64`'s claim that `ee2d0dc0` "no longer exists (`git cat-file -e` fails)" —
-   measured, `git cat-file -e` returns **0** and the blob still reads 1196 lines. The conclusion (prefer
-   `<commit-that-deleted-it>^`) is sound, but on the ground of **unreachability**
-   (`git branch -a --contains ee2d0dc0` → empty), not non-existence.
+   measured, `git cat-file -e` returns **0** and the blob still reads 1196 lines, so the ground is
+   **unreachability** (`git branch -a --contains ee2d0dc0` → empty), not non-existence. ⚠ **The conclusion
+   this round drew from that — prefer `<commit-that-deleted-it>^` — was itself falsified at R51** and is
+   restated correctly in §14: the `^` spelling confers no durability, and under squash merge the branch is
+   not a permanent ref at all.
 3. **Harness edits.** ✅ **Discharged**: `couplings`'s path filter was widened from
    `.claude/tools/_webref/` to `.claude/tools/` so S8 witnesses K2's second site (`webref`), then **redrawn at
    #501 R36 to exactly the generic core** (`_webref/` + `webref`) once the wider range measured as adding no
@@ -713,9 +719,28 @@ owed re-derivation.
 
 ## §14 Provenance
 
-Carved from `2026-07-citation-hygiene-A-enforcement-plumbing.md` (nine rounds; recoverable at
-`git show 707b69cc^:docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md` — the SHA an earlier
-umbrella revision named was destroyed by a rebase).
+Carved from `2026-07-citation-hygiene-A-enforcement-plumbing.md` (nine rounds). The merged memo is
+recoverable — 1196 lines, round-by-round index intact — but only through a ref that keeps `707b69cc`
+reachable, which after this PR lands is neither this branch nor `main`:
+
+```sh
+git fetch origin refs/pull/501/head
+git show 707b69cc^:docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md
+```
+
+⚠ **This is the single site of the rule that pointer has now failed three times to satisfy.** A SHA is
+durable exactly while some *permanent* ref keeps it reachable; no spelling of the SHA confers that. Revision
+1 named `ee2d0dc0`, orphaned by a rebase four commits later — `git branch -a --contains ee2d0dc0` prints
+nothing. (The object is dangling, not absent: `git cat-file -e` returns 0 and the blob still reads 1196
+lines. Unreachability is the operative fact, since it is what a fresh clone cannot resolve.) Revision 2
+named `707b69cc^` on the ground that `<commit-that-deleted-it>^` "survives rewriting" — true of a rebase
+*within* the branch, false of what actually happens to the branch: CLAUDE.md lands PRs by **squash merge**,
+so no commit of this branch ever enters `main`, and the branch is deleted afterwards. What survives both is
+GitHub's `refs/pull/<n>/head`. Measured against a PR that has already been through that path — #508,
+squash-merged, branch deleted (`git ls-remote origin layout-inline-seam3` → 0 refs): `refs/pull/508/head`
+still resolves to `803d35a0`, `git merge-base --is-ancestor 803d35a0 origin/main` **rejects** it, and both it
+and its parent `42936f4f` still answer `gh api repos/send/elidex/commits/<sha>` — while an all-zero SHA
+answers 422, so the probe discriminates rather than always succeeding.
 
 ## §15 Re-derivation
 

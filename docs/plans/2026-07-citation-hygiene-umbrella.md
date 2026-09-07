@@ -45,6 +45,16 @@ copies and A-ii the third; K1 completes across the pair. | A-ii's whole subject 
 | E | `is_submittable` category repair | `domform-submittable-category` → PR-A | Per `docs/plans/2026-07-form-submittable-category-repair.md`, **re-derived** — 17 of its anchors/counts are already falsified by PR-A0's own edits | Slice 1 regresses `<button type=submit>:valid` without it. |
 | F | Slice 1 keystone | `domform-slice1` | Delete the `ElementState` form-bit cache | — |
 
+⚠ **Two of those source branches — named across three rows — are not pushed, so the plan depends on
+artifacts only the authoring machine holds.** Measured: `git ls-remote origin domform-submittable-category` and
+`git ls-remote origin domform-slice1` each print **0 refs**, and neither branch ever had a PR
+(`gh pr list --state all --head <branch>` → `[]`), so neither has a `refs/pull/<n>/head` to fall back on
+either — this is A-i §14's rule applied to a branch instead of a SHA. Slice E is insulated: it derives from
+the tracked memo `docs/plans/2026-07-form-submittable-category-repair.md`. Slices **D** and **F** are not,
+and the same gap makes the first command under "Derivation" below unrunnable off this machine. Landing D or
+F therefore carries a prerequisite: push the branch (or re-derive its content from `main`) **before** the
+slice's plan-review, not at implementation time.
+
 Slices A–C are engine-wide tooling; D–F are the L3 form program. The join is real but one-directional: D's exit criterion is a command that B must make trustworthy.
 
 ### ⚠ Slice A re-sliced into A-i / A-ii / A-iii (2026-08-01, user-approved)
@@ -67,7 +77,7 @@ approval boundary, and each of the three is a terminal unit once it passes its o
 
 ### Slice memos (re-sliced 2026-07-28, Slice A further split 2026-08-01)
 
-The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance. ⚠ **An earlier revision of this line said the nine-round review history lives in `memory/project_citation-hygiene-program.md`; measured, that file stops at round 7 and mentions neither round 8, round 9, nor the A-i/A-ii/A-iii split.** It was written without checking — the defect the constraint above names. That file **has since been brought current** (R7-R9 roots, the three-slice table, A-i's round results), so the ⚠ above is itself now historical rather than live. ⚠⚠ **And the recovery pointer it gave was orphaned by a rebase four commits later**: `ee2d0dc0` is **unreachable** — `git branch -a --contains ee2d0dc0` prints nothing, so no ref leads to it and it is a `gc` away from being gone. ⚠ An earlier revision of this sentence said the object "no longer exists (`git cat-file -e` fails)"; measured, `git cat-file -e ee2d0dc0` returns **0** and `git show ee2d0dc0:…-A-enforcement-plumbing.md | wc -l` prints **1196** — dangling, not absent. The conclusion is unchanged, because unreachability is the operative fact and it is what a fresh clone cannot resolve; the evidence was simply false, in the document whose own constraints are *counts are commands* and *a derivation that cannot witness the claim's negation is not a check*. The 1196-line merged memo, including its round-by-round §14 index, is recoverable at **`git show 707b69cc^:docs/plans/2026-07-citation-hygiene-A-enforcement-plumbing.md`** — verified 1196 lines with the index intact. A deletion justified by a SHA pointer, in a branch that rebases, is a pointer with a half-life; prefer `<commit-that-deleted-it>^`, which survives rewriting. Nothing is
+The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance, and **A-i's §14 is the single site** both for the recovery pointer to the deleted memo and for the rule that governs such pointers: a SHA is durable only while a *permanent* ref keeps it reachable, and under CLAUDE.md's squash merge this branch is not one — `refs/pull/501/head` is. Three revisions of that pointer were stated here and each was wrong in a different way; they are corrected once, at that site, rather than re-narrated in this document. Nothing is
 summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
 
 > **Carved 2026-08-23 (Codex R47–R50 on #501):** the A-ii / A-iii / B / C memos and the harness parts that re-derive them (`-Aii.sh`, `-Aiii.sh`, `-B.sh`, the `_proto` graft) travel on branch **`citation-hygiene-slice-memos`**, stacked on this PR and opened as its own PR after #501 lands — 21 of 21 review findings over four rounds were on that plan-text and none on A-i's deliverable, and each slice memo passes `/elidex-plan-review` at its own slice (CLAUDE.md base case). This PR = A-i's deliverable, this umbrella, A-i's memo, and the harness parts A-i cites (`integrity`, `common`, `Ai`).
@@ -161,7 +171,8 @@ contract for the fall-through it introduces**, which is a constraint below.
 ## Derivation
 
 ```sh
-# diff composition that forced carve 1
+# diff composition that forced carve 1 — ⚠ requires the local `domform-submittable-category`
+# branch, which is unpushed (see the note under the slice table); it does not run from a fresh clone
 git diff --numstat origin/main...domform-submittable-category -- docs/plans/ '.claude/**' crates/
 # the CI hole that makes slice A first
 sed -n '/filters:/,/^  check:/p' .github/workflows/ci.yml
