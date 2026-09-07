@@ -99,16 +99,24 @@ Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container
   very note lives under `.claude/skills/**` and names both files, so the earlier wording was
   falsified by the file that carried it. Per
   `feedback_every-triggered-pr-must-be-on-the-loop`, a checker reachable only by remembering it is
-  the habit it was built to end. Two parts, one PR: (a) invoke both from Step 1.5 (or the ungated
-  `trip-wires` job) — `plan-xcheck.py` currently hard-codes one memo's PR labels and slot names, so
-  generalising is part of the work; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to **CSS-module
-  labels** — today a CSS plan reports `parsed citations: 0` / `unmapped-label rows: N`, i.e. the
-  §3 citation hard-gate is **vacuous** for every CSS-module plan-memo, which is silent, not loud.
-  ⚠ **Trigger** = **the tooling PR itself**, cut from `origin/main` and ordered before the
-  predicate prereq's plan-review of the umbrella that authored these files (earlier wordings keyed
-  the trigger to "the first PR that ships these two files" and named the seam-3 prereq PR, then
-  PR-1a — neither ships them, and that keying is satisfiable only by the tooling PR, so the PR is
-  named outright). An earlier wording made it "the next plan-review round that has to run
+  the habit it was built to end. One PR, the **tooling PR** of the umbrella that authored these
+  files: (a) invoke both from Step 1.5 (or the ungated `trip-wires` job — ⚠ open PR #510 registers
+  its own plan-memo checker wire in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and ships a
+  lexer/blocks/tables substrate, so the tooling PR's own plan-memo, under `/elidex-plan-review`,
+  decides build-on-vs-beside that substrate first) — `plan-xcheck.py` currently hard-codes one
+  memo's PR labels and slot names, so generalising is part of the work; (b) two-file awareness of
+  both checkers **if** it builds on #510's sibling-aware substrate (the umbrella's memo-split is
+  booked on it); (c) retire or rewrite this note, which describes the pre-state that PR ends.
+  ⚠ **Not this task's**: extending `preflight.py`'s `SPEC_LABEL_REVERSE` to CSS-module labels —
+  today a CSS plan reports `parsed citations: 0` / `unmapped-label rows: N`, i.e. the §3 citation
+  hard-gate is **vacuous** for every CSS-module plan-memo — is the registered SoT slot
+  `#11-preflight-css-module-labels` (citation-hygiene Slice B, after its A-ii migrates the dict);
+  an earlier wording of this note booked it here too, a second decision surface for one gap.
+  ⚠ **Trigger** = **#510's landing, or the authoring umbrella's TERMINAL — whichever comes
+  first**; discharger = the tooling PR, cut from `origin/main` (earlier wordings keyed the trigger
+  to "the first PR that ships these two files" and named the seam-3 prereq PR, then PR-1a, then
+  the tooling PR itself — none of those is an event that fires unfired, so the event is named
+  and the PR is the discharger). An earlier wording made it "the next plan-review round that has to run
   them by hand", which fires *every* round and can discharge nothing — it expired unheard six
   times. A trigger that recurs is not a trigger. **Re-eval date**: 2026-11-01.
 - Expect **2+ review passes** for this class — convergence = findings moving from "open design tension" to "fixed concrete mechanism (どの list / key / loop)"; further passes are impl-detail the tests catch.
