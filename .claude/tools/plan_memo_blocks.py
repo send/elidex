@@ -634,12 +634,6 @@ def reference_definitions(s, limit=None, start=0):
     return out, i
 
 
-def _next_line(s, off):
-    """Offset of the line after the one holding `s[off]` (or `len(s)`)."""
-    nl = s.find("\n", off)
-    return len(s) if nl < 0 else nl + 1
-
-
 def _line_end(s, k):
     """Offset just past the line ending after only spaces/tabs from `k`, or
     the end of `s`; None if anything else intervenes."""

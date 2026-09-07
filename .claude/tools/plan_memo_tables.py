@@ -518,7 +518,7 @@ class Memo:
                 if quote_content(line) is not None:
                     flush()
                     after_item = False
-                    i += self._quote(lines, linenos, lazy, i, out)
+                    i += self._quote(lines, linenos, i, out)
                     continue
                 if not starts_block(line) and table_header_at(lines, i, lazy):
                     flush()
@@ -566,7 +566,7 @@ class Memo:
         flush()
         return out, i
 
-    def _quote(self, lines, linenos, lazy, i, out):
+    def _quote(self, lines, linenos, i, out):
         """The block quote opening at content line `i` (a `>` line, §5.1)
         -> the number of lines it spans; its paragraphs are appended to
         `out`, its tables / definitions / raw lines / sequence entries to
