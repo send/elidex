@@ -3,22 +3,27 @@
 structure -- for `plan-memo-umbrella-check.py`: the line grammar of the
 block types -- the ONE indentation measure (§2.2 tab stops: `indentation` /
 `unindented` / `is_indented`, read by every block start), raw extents
-(fenced code blocks §4.5, HTML blocks §4.6: `raw_opener` / `raw_extent`),
-the block starts that interrupt a paragraph (§4.1 / §4.2 / §5.1 / §5.2), the
-setext underline that closes one (§4.3), the ONE block-boundary predicate
-`block_end` and the run it bounds (`run_end`), GFM §4.10 table rows, and
-link reference definitions (§4.7).  Driven line by line, in ONE forward
-pass, by `plan_memo_tables.py::Memo._phase1`, which owns the block state
-(what is open: a raw extent, a table, a run) -- this module holds no state
-and looks at no previous line.  The inline grammar a definition's label,
-destination and title reuse (`link_label`, `link_destination`,
-`link_title`, `_skip_ws`, `_escaped`) is Phase 2's, in
-`plan_memo_lexer.py`, which this module imports and never the reverse.
+(indented code blocks §4.4, fenced code blocks §4.5, HTML blocks §4.6: ONE
+opener rule `raw_opener`, ONE extent rule `raw_extent`), the block-quote
+marker of the §5.1 container (`quote_content`), the block starts that
+interrupt a paragraph (§4.1 / §4.2 / §5.1 / §5.2), the setext underline that
+closes one (§4.3), the ONE block-boundary predicate `block_end` -- with the
+§5.1 lazy-continuation arm every container reads through it -- and the run
+it bounds (`run_end`), GFM §4.10 table rows, and link reference definitions
+(§4.7).  Driven line by line, in ONE forward pass, by
+`plan_memo_tables.py::Memo._parse`, which owns the block state (what is
+open: a raw extent, a table, a run) and recurses into a block quote's
+content with the same pass -- this module holds no state and looks at no
+previous line.  The inline grammar a definition's label, destination and
+title reuse (`link_label`, `link_destination`, `link_title`, `_skip_ws`,
+`_escaped`) is Phase 2's, in `plan_memo_lexer.py`, which this module
+imports and never the reverse.
 
 Every block type of the spec's closed list (§4 leaf blocks, §5 container
-blocks, GFM tables) has a disposition in the plan's §3.0 table: LEXED here,
-or PROSE-AS-WRITTEN with a `[LEX-UNSUPPORTED?]` seed (`unsupported_block`).
-The falsifier of the LEXED rows is the spec's own example list, vendored in
+blocks, GFM tables) has a disposition in the plan's §3.0 table: LEXED (a
+leaf, a raw extent, or the §5.1 container) or LEXED-FLAT (§5.2 list items:
+a marker line starts a paragraph, nesting and laziness not modelled).  The
+falsifier of every row is the spec's own example list, vendored in
 `commonmark-0.31.2-block-examples.json` and run through this Phase 1 by
 `plan_memo_selftest_conformance.py` (every control run) -- a spec-table
 transcription error here turns that control red.
@@ -86,8 +91,8 @@ def fence_opener(line):
     backtick.  Closer: same character, at least as long, <=3 columns of
     indent, nothing but spaces and tabs after it (`fence_closes`).  An
     unclosed fence runs to "the end of the containing block (or document)"
-    (§4.5); this lexer has no container blocks (see the header), so that is
-    the end of the document (`raw_extent`)."""
+    (§4.5): the document, or the block quote holding it (`raw_extent` stops
+    at the quote's first lazy candidate)."""
     rest = unindented(line)
     m = _FENCE_OPEN.match(rest) if rest is not None else None
     if not m or (m.group(1)[0] == "`" and "`" in m.group(2)):
@@ -103,17 +108,63 @@ def fence_closes(closer, line):
 
 
 # --------------------------------------------------------------------------
+# CommonMark §5.1 block quotes -- the ONE container this Phase 1 models.
+# "A block quote marker, optionally preceded by up to three spaces of
+# indentation, consists of (a) the character > together with a following
+# space of indentation, or (b) a single character > not followed by a space
+# of indentation."  The content of a marker line is what follows the marker;
+# the driver (`Memo._quote`) strips every marker line, gathers the lazy
+# continuation lines between and after them, and runs the SAME Phase 1 over
+# the content, so a definition, a table, a raw extent or a paragraph inside
+# a quote is that block at its real line.
+# --------------------------------------------------------------------------
+
+
+def quote_content(line):
+    """The content of the block-quote line `line` -- what follows its §5.1
+    marker -- or None when the line carries no marker (four or more columns
+    before the `>` is §4.4 territory: `    > a` is indented code).  Block
+    structure inside the quote is measured in LINE columns (§2.2: tab stops
+    are the line's, not the content's), so the content's leading whitespace
+    is re-spelt in spaces from its true column: after `> ` at column 2 a
+    space and a tab reach column 4 -- two columns of content indentation, a
+    paragraph (`>  \\ta` is `<p>a</p>`); a tab right after the `>` gives one
+    column to the marker's space and the rest to the content (Example 6:
+    `>\\t\\tfoo` is indented code holding `  foo`; `>\\ta` a paragraph)."""
+    col, j = indentation(line)
+    if col >= 4 or j >= len(line) or line[j] != ">":
+        return None
+    j += 1
+    col += 1
+    c0 = col                    # where the content begins, in line columns
+    if j < len(line) and line[j] == " ":
+        j += 1
+        col += 1
+        c0 = col
+    elif j < len(line) and line[j] == "\t":
+        j += 1
+        c0 = col + 1            # one column of the tab is the marker's space
+        col += 4 - col % 4      # the rest of the tab is content indentation
+    while j < len(line) and line[j] in " \t":
+        col += 1 if line[j] == " " else 4 - col % 4
+        j += 1
+    return " " * (col - c0) + line[j:]
+
+
+# --------------------------------------------------------------------------
 # Block starts that end a paragraph or a table (GFM §4.10: "the table is
 # broken at the first empty line, or beginning of another block-level
 # structure").  ATX headings (CommonMark §4.2) and thematic breaks (§4.1) are
-# one-line leaf blocks; a list-item line (§5.2) or a block-quote line (§5.1)
-# starts a new paragraph.  ⚠ LOCAL POLICY, stricter than CommonMark: here ANY
-# list-item-shaped or `>` line interrupts a paragraph, whereas under §5.2 an
-# empty list item cannot interrupt a paragraph, an ordered list item can only
-# when its number is 1, and under §5.1 / §5.2 a line without the marker can
-# be lazy continuation text of the container.  The policy is the safe side
-# for a scanner: a span is never read across such a line, so a backtick
-# opened in one item and closed in the next is literal (control).
+# one-line leaf blocks; a block-quote line (§5.1) opens the container; a
+# list-item line (§5.2) starts a new paragraph.  ⚠ LOCAL POLICY, stricter
+# than CommonMark: here ANY list-item-shaped line interrupts a paragraph,
+# whereas under §5.2 an empty list item cannot interrupt a paragraph, an
+# ordered list item can only when its number is 1, and a line without the
+# marker can be lazy continuation text of the item.  The policy is the safe
+# side for a scanner: a span is never read across such a line, so a backtick
+# opened in one item and closed in the next is literal (control).  (A `>`
+# line interrupts a paragraph under §5.1 itself, and the quote's own lazy
+# continuation IS modelled -- `block_end`'s `lazy` argument.)
 # --------------------------------------------------------------------------
 
 # Every pattern here is matched against `unindented(line)` -- the line after
@@ -121,7 +172,6 @@ def fence_closes(closer, line):
 _ATX = re.compile(r"^#{1,6}(?:[ \t]|$)")
 _THEMATIC = re.compile(r"^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
 _LIST_ITEM = re.compile(r"^(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)")   # §5.2: ASCII digits
-_QUOTE = re.compile(r"^>")
 # §4.3 setext heading underline: `=` or `-` characters, <=3 columns of
 # indent, trailing spaces/tabs.  It is a block boundary ONLY where a
 # paragraph is open (`block_end`): "The setext heading underline cannot be a
@@ -140,17 +190,24 @@ _HTML_TAG_NAMES = (
 # §4.6 start conditions 1-7, each its own group so the END condition can be
 # chosen: 1 `</pre>` etc., 2 `-->`, 3 `?>`, 4 `>`, 5 `]]>`, 6 and 7 a blank
 # line.  "All types of HTML blocks except type 7 may interrupt a paragraph."
+# Case is PER CONDITION, as the spec states it: 1 and 6 name their tags
+# "(case-insensitive)" -- a scoped `(?i:…)`, ASCII-only under `re.ASCII` so a
+# long s never folds to `s`; 7's tag and attribute names are `[A-Za-z]`
+# classes by their own grammar; 4 is `<!` + an ASCII letter of either case
+# (0.30+); 2 `<!--`, 3 `<?` and 5 `<![CDATA[` are exact strings -- a global
+# IGNORECASE read `<![cdata[` as a CDATA opener where commonmark.js 0.31.2
+# reads a paragraph (PR #510 R13).
 _HTML_BLOCK = re.compile(
     r"^<(?:"
-    r"(?P<t1>(?:pre|script|style|textarea)(?:[ \t>]|$))"
+    r"(?P<t1>(?i:pre|script|style|textarea)(?:[ \t>]|$))"
     r"|(?P<t2>!--)"
     r"|(?P<t3>\?)"
     r"|(?P<t4>![A-Za-z])"
     r"|(?P<t5>!\[CDATA\[)"
-    r"|(?P<t6>/?(?:" + _HTML_TAG_NAMES + r")(?:[ \t>]|/>|$))"
+    r"|(?P<t6>/?(?i:" + _HTML_TAG_NAMES + r")(?:[ \t>]|/>|$))"
     r"|(?P<t7>(?:[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*"
     r"(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?>|/[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$)"
-    r")", re.IGNORECASE | re.ASCII)
+    r")", re.ASCII)
 _HTML_END = {
     "t1": re.compile(r"</(?:pre|script|style|textarea)>", re.IGNORECASE | re.ASCII),
     "t2": re.compile(r"-->"), "t3": re.compile(r"\?>"), "t4": re.compile(r">"),
@@ -174,23 +231,40 @@ def _match(pat, line):
 
 
 def one_line_block(line):
-    return _match(_ATX, line) or _match(_THEMATIC, line)
+    """The one-line leaf block `line` is -- `"h1"`..`"h6"` for an ATX
+    heading (§4.2, at its `#` count), `"hr"` for a thematic break (§4.1) --
+    or None."""
+    rest = unindented(line)
+    if rest is None:
+        return None
+    m = _ATX.match(rest)
+    if m:
+        return "h%d" % len(m.group(0).rstrip(" \t"))
+    return "hr" if _THEMATIC.match(rest) else None
 
 
 def is_setext_underline(line):
     """§4.3: a setext heading underline SHAPE; whether it closes anything is
-    `block_end`'s (a paragraph must be open) and the driver's (the paragraph
-    must not be `container_text`)."""
+    `block_end`'s (a paragraph must be open, and not on a lazy line) and the
+    driver's (the paragraph must not be `container_text`)."""
     return _match(_SETEXT, line)
+
+
+def list_item_line(line):
+    """§5.2: `line` opens a list item -- the ONE block type read LEXED-FLAT
+    (the marker line starts a paragraph; nesting and laziness are not
+    modelled), which is what the conformance control excludes by."""
+    return _match(_LIST_ITEM, line)
 
 
 def container_text(line):
     """A run headed by `line` is NOT a paragraph a setext underline can
-    close: a list-item or `>` line (§4.3 Examples 92-94: the text is the
-    container's and the underline "cannot be a lazy continuation line"), or
-    an indented-code line (§4.4: `    foo\\n---` is a code block and a
-    thematic break, Example 100 -- commonmark.js agrees on each)."""
-    return _match(_LIST_ITEM, line) or _match(_QUOTE, line) or is_indented(line)
+    close: a list-item line (§4.3 Example 94: the text is the item's and the
+    underline "cannot be a lazy continuation line" -- commonmark.js agrees).
+    A `>` line heads no run (the quote is a container, `Memo._quote`) and
+    neither does an indented line (§4.4: a raw extent at a block start, so
+    `    foo\\n---` is a code block and a thematic break, Example 100)."""
+    return list_item_line(line)
 
 
 def html_block_type(line):
@@ -208,136 +282,174 @@ def html_block_ends(kind, line):
     return pat is not None and pat.search(line) is not None
 
 
-def unsupported_block(line, at_block_start):
-    """The PROSE-AS-WRITTEN block type a paragraph line would open under
-    CommonMark §5.1 / §4.4 -- "quote" (§5.1), "indented-code" (§4.4, at a
-    block start only: it cannot interrupt a paragraph) -- or None.  Phase 1
-    reads such a line as paragraph text; the checker reports it as a
-    `[LEX-UNSUPPORTED?]` SEED when it holds a `|` or a declared id, so the
-    bound of the lexer is printed rather than assumed.  (HTML blocks are
-    RAW extents, `raw_opener` / `raw_extent`, seeded by the driver.)"""
-    if _match(_QUOTE, line):
-        return "quote"
-    if at_block_start and is_indented(line):
-        return "indented-code"
-    return None
-
-
 def starts_block(line):
     """The NON-RAW block starts that INTERRUPT a paragraph (and so end a run, a
     paragraph and a GFM table) -- CommonMark §4 / §5, each verified against
     commonmark.js 0.31.2: an ATX heading (§4.2), a thematic break (§4.1), a
     list item (§5.2; ⚠ local policy, stricter: any marker line, where the
     spec lets only a non-empty item, an ordered one starting at 1,
-    interrupt), a `>` line (§5.1).  The RAW block starts -- a fence (§4.5),
-    an HTML block opener (§4.6: types 1-6 interrupt, type 7 only where no
-    paragraph is open) -- are `raw_opener`'s, and a setext underline (§4.3:
-    the paragraph before it becomes a heading -- `[foo]:\n---` is a heading,
-    not a definition -- but with NO paragraph open there is nothing to
-    underline, so after a table's rows `===` is a one-cell row and `---` a
-    thematic break, GFM §4.10) is `block_end`'s third arm, the one gated on
-    its `para_open` bit.  NOT in the set, by the same oracle: an indented
-    line (§4.4 "cannot interrupt a paragraph": `[foo]:\n    code` is a
-    definition with destination `code`) and a reference definition (§4.7
-    "cannot interrupt a paragraph")."""
-    return one_line_block(line) or _match(_LIST_ITEM, line) or _match(_QUOTE, line)
+    interrupt), a `>` line (§5.1: the container opens).  The RAW block
+    starts -- an indented line (§4.4), a fence (§4.5), an HTML block opener
+    (§4.6: types 1-6 interrupt, type 7 only where no paragraph is open) --
+    are `raw_opener`'s, and a setext underline (§4.3: the paragraph before
+    it becomes a heading -- `[foo]:\n---` is a heading, not a definition --
+    but with NO paragraph open there is nothing to underline, so after a
+    table's rows `===` is a one-cell row and `---` a thematic break, GFM
+    §4.10) is `block_end`'s third arm, the one gated on its `para_open` bit.
+    NOT in the set, by the same oracle: an indented line (§4.4 "cannot
+    interrupt a paragraph": `[foo]:\n    code` is a definition with
+    destination `code`) and a reference definition (§4.7 "cannot interrupt
+    a paragraph")."""
+    return one_line_block(line) is not None or list_item_line(line) or quote_content(line) is not None
 
 
 def raw_opener(line, para_open):
     """THE one rule for where a RAW extent begins -- lines never
     inline-parsed, always a run / paragraph / table end: ("fence", closer)
     for a fenced code block opener (§4.5), ("html", type) for a line meeting
-    an HTML block start condition (§4.6), else None.  `para_open` is Phase
-    1's one context bit, the driver's block state: "all types of HTML blocks
-    except type 7 may interrupt a paragraph", so a type-7 opener counts only
-    where no paragraph is open -- the document start, after a blank line, a
-    raw extent, a TABLE, a one-line block or a setext heading (commonmark.js
-    0.31.2: `text\n<span>`, `[foo]: /url\n<span>` and `- item\n<span>` stay
-    one paragraph; `# h\n<span>` and `text\n===\n<span>` are a heading and
-    a raw block; GFM §4.10: a table "is broken at the first empty line, or
-    beginning of another block-level structure", and a table is not a
-    paragraph, so `<span>` right after a table's rows opens a block)."""
+    an HTML block start condition (§4.6), ("indented", None) for a line of
+    four or more columns (§4.4) where no paragraph is open, else None.
+    `para_open` is Phase 1's one context bit, the driver's block state:
+    "all types of HTML blocks except type 7 may interrupt a paragraph" and
+    "an indented code block cannot interrupt a paragraph", so a type-7
+    opener and an indented line count only where no paragraph is open --
+    the document start, after a blank line, a raw extent, a TABLE, a
+    one-line block or a setext heading (commonmark.js 0.31.2: `text\n<span>`,
+    `[foo]: /url\n<span>`, `- item\n<span>`, `a\n    b` and `[x]: /u\n
+    code` stay one paragraph; `# h\n<span>`, `text\n===\n<span>` and `# h\n
+    code` are a heading and a raw block; GFM §4.10: a table "is broken at
+    the first empty line, or beginning of another block-level structure",
+    and a table is not a paragraph, so `<span>` -- and, by the same bit, an
+    indented line -- right after a table's rows opens a block; ⚠ local
+    policy for the indented case: cmark-gfm's row continuation reads any
+    non-blank line as a row, and commonmark.js has no tables to arbitrate)."""
     closer = fence_opener(line)
     if closer is not None:
         return "fence", closer
     t = html_block_type(line)
-    if t is None or (t == "t7" and para_open):
-        return None
-    return "html", t
+    if t is not None and not (t == "t7" and para_open):
+        return "html", t
+    if not para_open and is_indented(line):
+        return "indented", None
+    return None
 
 
-def raw_extent(lines, i, opener):
+def _is_lazy(lazy, i):
+    """§5.1: whether content line `i` is a LAZY CONTINUATION CANDIDATE -- a
+    line of a block quote's content that carried no marker (`lazy` is the
+    driver's per-line list, None at the document level)."""
+    return lazy is not None and lazy[i]
+
+
+def raw_extent(lines, i, opener, lazy=None):
     """End (exclusive) of the raw extent `opener` (from `raw_opener`) opens
-    at `lines[i]`: a fence runs through its closer, or to the end of the
-    document; an HTML block from the opener to the line meeting its §4.6 end
-    condition (types 1-5 by content, possibly the opener itself) or, for
-    types 6 and 7, up to the next blank line (excluded) or the end."""
+    at `lines[i]`: an indented code block runs over its §4.4 chunk --
+    consecutive indented lines, a blank line staying inside when an indented
+    line follows it (Example 111 `chunk1 … chunk3` is one block), the
+    trailing blank lines not part of it; a fence runs through its closer,
+    or to the end of the containing block; an HTML block from the opener to
+    the line meeting its §4.6 end condition (types 1-5 by content, possibly
+    the opener itself) or, for types 6 and 7, up to the next blank line
+    (excluded) or the end.  A lazy candidate (`_is_lazy`) ends every raw
+    extent: a line without the marker is content only as paragraph
+    continuation text, and a raw extent is not a paragraph (`> ```\\nlazy`
+    is an unclosed fence in the quote and a paragraph after it;
+    `>     foo\\n    bar` two code blocks -- commonmark.js agrees)."""
     kind, arg = opener
     n = len(lines)
+    if kind == "indented":
+        j = end = i + 1
+        while j < n and not _is_lazy(lazy, j):
+            if is_indented(lines[j]):
+                end = j + 1
+            elif not is_blank(lines[j]):
+                break
+            j += 1
+        return end
     if kind == "fence":
         j = i + 1
-        while j < n and not fence_closes(arg, lines[j]):
+        while j < n and not _is_lazy(lazy, j):
+            if fence_closes(arg, lines[j]):
+                return j + 1
             j += 1
-        return min(j + 1, n)
+        return j
     if html_block_ends(arg, lines[i]):      # the opener may meet the end condition itself
         return i + 1
     j = i + 1
-    while j < n:
+    while j < n and not _is_lazy(lazy, j):
         if arg in ("t6", "t7") and is_blank(lines[j]):
             return j
         j += 1
         if html_block_ends(arg, lines[j - 1]):
             return j
-    return n
+    return j
 
 
-def table_header_at(lines, i):
+def table_header_at(lines, i, lazy=None):
     """GFM §4.10: `lines[i]` is a table header iff the next line is a
     delimiter row of the same width.  ⚠ Local policy over pure CommonMark
     (where a table is not a block): a header ends the run and the paragraph
     before it, so `[foo]:\n|9z|7z|\n|--|--|` is a paragraph `[foo]:` and a
     table, not a definition whose destination is the header row.  Both rows
     are read at <=3 columns of indentation, the same measure as every block
-    start (cmark-gfm opens neither a header nor a row on an indented line):
-    `\t| a | b |\n\t|---|---|` is indented code (§4.4), not a table."""
-    if i + 1 >= len(lines) or is_indented(lines[i]) or is_indented(lines[i + 1]):
+    start (cmark-gfm opens no header off an indented delimiter row):
+    `\t| a | b |\n\t|---|---|` is indented code (§4.4), not a table.  Neither
+    row may be a lazy candidate (§5.1): a line without the quote marker is
+    paragraph continuation text only, so `> | a |\n|---|` is one paragraph
+    (cmark-gfm: the delimiter row arrives in an unmatched container and
+    opens nothing)."""
+    if (i + 1 >= len(lines) or is_indented(lines[i]) or is_indented(lines[i + 1])
+            or _is_lazy(lazy, i) or _is_lazy(lazy, i + 1)):
         return False
     width = delimiter_width(lines[i + 1])
     return width is not None and len(split_row(lines[i])) == width
 
 
-def block_end(lines, i, para_open):
+def block_end(lines, i, para_open, lazy=None):
     """THE ONE block-boundary predicate (plan §2 I-A): whether line `i`
     begins a block, ending the run / paragraph / table before it -- a blank
-    line (§2.1), a raw-extent opener (`raw_opener`: a fenced code block §4.5
-    or an HTML block §4.6, where `para_open` -- the ONE context bit, the
-    driver's block state -- decides the type-7 case), a paragraph-
-    interrupting block start (`starts_block`), a setext underline where a
-    paragraph is open (§4.3: it closes that paragraph; with none open there
-    is nothing to underline -- after a table's rows `===` is a one-cell body
-    row, GFM §4.10 Example 202, and `---` the thematic break `starts_block`
-    already names), or a GFM table header (`table_header_at`).  `run_end` (a
-    run: paragraph text, `para_open` True) and `admit_table` (a table body:
-    no paragraph is open, False) read this and nothing else, and the driver
-    `Memo._phase1` classifies a line outside a run by the same arms; no
-    caller looks back at a previous line."""
+    line (§2.1), a raw-extent opener (`raw_opener`: an indented code block
+    §4.4, a fenced code block §4.5 or an HTML block §4.6, where `para_open`
+    -- the ONE context bit, the driver's block state -- decides the §4.4
+    and type-7 cases), a paragraph-interrupting block start
+    (`starts_block`), a setext underline where a paragraph is open (§4.3:
+    it closes that paragraph; with none open there is nothing to underline
+    -- after a table's rows `===` is a one-cell body row, GFM §4.10 Example
+    202, and `---` the thematic break `starts_block` already names), or a
+    GFM table header (`table_header_at`).  `lazy` (§5.1, `_is_lazy`) marks
+    a block quote's lines that carried no marker: such a line is content
+    only as paragraph continuation text, so with NO paragraph open it is a
+    boundary outright (the quote ends there: after a raw extent, a table, a
+    one-line block or a heading), and with one open it is a boundary by
+    every arm EXCEPT the setext underline -- "the setext heading underline
+    cannot be a lazy continuation line", so `> foo\\nbar\\n===` is one
+    paragraph (Example 93) while `> Foo\\n---` is a quote and a thematic
+    break (Example 92).  `run_end` (a run: paragraph text, `para_open`
+    True) and `admit_table` (a table body: no paragraph is open, False) read
+    this and nothing else, and the driver `Memo._parse` classifies a line
+    outside a run by the same arms; no caller looks back at a previous
+    line."""
+    if _is_lazy(lazy, i) and not para_open:
+        return True
     return (is_blank(lines[i]) or raw_opener(lines[i], para_open) is not None
-            or starts_block(lines[i]) or (para_open and is_setext_underline(lines[i]))
-            or table_header_at(lines, i))
+            or starts_block(lines[i])
+            or (para_open and not _is_lazy(lazy, i) and is_setext_underline(lines[i]))
+            or table_header_at(lines, i, lazy))
 
 
-def run_end(lines, i):
+def run_end(lines, i, lazy=None):
     """End (exclusive) of the RUN starting at `lines[i]` -- Phase 1's text
     unit, the lines a definition is parsed over and a paragraph is grouped
     from: the consecutive lines up to the next `block_end` WITH A PARAGRAPH
     OPEN (a run is paragraph text -- a reference definition included, §4.7
-    keeps the paragraph open -- so a type-7 HTML opener does not end it),
-    or the one line of a one-line block (§4.1 / §4.2).  A closing setext
-    underline is not a run (the driver drops it before asking)."""
+    keeps the paragraph open -- so a type-7 HTML opener or an indented line
+    does not end it, and a lazy candidate joins it), or the one line of a
+    one-line block (§4.1 / §4.2).  A closing setext underline is not a run
+    (the driver drops it before asking)."""
     if one_line_block(lines[i]):
         return i + 1
     j = i + 1
-    while j < len(lines) and not block_end(lines, j, True):
+    while j < len(lines) and not block_end(lines, j, True, lazy):
         j += 1
     return j
 

@@ -477,6 +477,74 @@ def spec_examples_control(M):
     return ok, detail.split("\n")[0]
 
 
+def sequence_control(M):
+    """Phase 1's block SEQUENCE (`Memo.sequence`) over the §4.4 chunk and
+    §5.1 container shapes the vendored spec examples do not reach -- which
+    block a line lands in, a fact no naming site can discriminate.  Every
+    expected sequence was read off commonmark.js 0.31.2 (`node cm.js`)
+    before being written, except the two table shapes (no tables there),
+    which follow cmark-gfm's rule that a lazy line is paragraph text and a
+    table is not a paragraph.  A crash on a shape is red."""
+    import plan_memo_tables       # the freshly loaded module
+    shapes = [
+        # a candidate where no paragraph is open ends the quote
+        ("> # h\nlazy", [["quote", 1, 1], ["h1", 1, 1], ["p", 2, 2]]),
+        ("> ```\nlazy", [["quote", 1, 1], ["fence", 1, 1], ["p", 2, 2]]),
+        (">     foo\n    bar", [["quote", 1, 1], ["indented", 1, 1], ["indented", 2, 2]]),
+        ("> | a |\n> |---|\n| 1 |", [["quote", 1, 2], ["table", 1, 2], ["p", 3, 3]]),
+        # lazy continuation, and the underline that cannot be lazy
+        ("> a\nb\n> ===", [["quote", 1, 3], ["h1", 1, 3]]),
+        ("> foo\nbar\n===", [["quote", 1, 3], ["p", 1, 3]]),
+        ("text\n> q\nlazy\n---", [["p", 1, 1], ["quote", 2, 3], ["p", 2, 3], ["hr", 4, 4]]),
+        ("> > a\nb\n> c", [["quote", 1, 3], ["quote", 1, 3], ["p", 1, 3]]),
+        ("> [a]: /u\nlazy", [["quote", 1, 2], ["def", 1, 1], ["p", 2, 2]]),
+        ("> | a |\n|---|", [["quote", 1, 2], ["p", 1, 2]]),
+        ("> a\n\n> b", [["quote", 1, 1], ["p", 1, 1], ["quote", 3, 3], ["p", 3, 3]]),
+        # the marker and §2.2 tab stops (Example 6 and its neighbours)
+        (">\t\ta", [["quote", 1, 1], ["indented", 1, 1]]),
+        (">\ta", [["quote", 1, 1], ["p", 1, 1]]),
+        (">  \ta", [["quote", 1, 1], ["p", 1, 1]]),
+        ("    > a", [["indented", 1, 1]]),
+        # the §4.4 chunk: blank lines inside stay, trailing ones do not
+        ("    a\n\n    b\n\nc", [["indented", 1, 3], ["p", 5, 5]]),
+        ("    a\n  \n    b", [["indented", 1, 3]]),
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "shape.md"
+        for md, want in shapes:
+            p.write_text(md + "\n")
+            try:
+                got = plan_memo_tables.Memo(p).sequence
+            except Exception as e:       # noqa: BLE001 -- the defect under test
+                return False, "%r raised %s: %s" % (md, type(e).__name__, str(e)[:60])
+            if got != want:
+                return False, "%r: sequence %s, expected %s" % (md, got, want)
+    return True, "%d shapes, each sequence as commonmark.js reads it" % len(shapes)
+
+
+def scaling_quotes_control(M):
+    """The linearity witness for §5.1: N one-line block quotes separated by
+    blank lines are read with at most 4N `quote_content` calls (counted at
+    the driver's binding, `plan_memo_tables`: the branch test, the marker
+    line, the blank candidate) and at least N (a counter watching nothing
+    is red).  A quote that gathers every remaining line as a candidate
+    (the bound dropped) makes N^2 calls and is stopped at the limit."""
+    import plan_memo_tables
+    n = 1000
+    text = "> q\n\n" * n
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "quotes.md"
+        p.write_text(text)
+        try:
+            with _count_calls(plan_memo_tables, "quote_content", limit=4 * n) as c:
+                memo = plan_memo_tables.Memo(p)
+        except _WorkExceeded:
+            return False, "%d quotes exceeded %d quote_content calls: not linear" % (n, 4 * n)
+    quotes = sum(1 for b in memo.sequence if b[0] == "quote")
+    return quotes == n and n <= c.calls <= 4 * n, "%d quotes, %d quote_content calls (N <= calls <= 4N)" % (
+        quotes, c.calls)
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -484,6 +552,8 @@ def registry():
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
+    reg["Phase 1's block sequence over the §4.4 chunk and §5.1 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
+    reg["block quotes are linear: N quotes cost <= 4N quote_content calls"] = ("CONTROL", scaling_quotes_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)

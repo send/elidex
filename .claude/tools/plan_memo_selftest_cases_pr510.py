@@ -5,7 +5,7 @@ The second half of the control registry, split from `plan_memo_selftest_cases.py
 at the review-round seam: that module holds the fixture builder, the record
 shape and the pre-converge controls (the four kinds, the assertion / lexing /
 exit-status / `/code-review high` / `/elidex-review` Stage 6 families); this one
-holds every control written against a PR #510 review round (Codex R1-R11 and
+holds every control written against a PR #510 review round (Codex R1-R13 and
 the design re-gate over R4-R9), indexed by round, and appends to the SAME
 `CASES` list through the same `case` / `acase` / `rcase` spellings -- one
 registry, one import site (the runner imports this module for its side
@@ -197,15 +197,13 @@ case("POSITIVE", "(setext) a `---` after paragraph text is the heading's underli
 case("NEGATIVE", "(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
                  "paragraph continues and a code span crosses it",
      build(), "- a `x\n==\n9z owns it` end", 0)
-# FAMILY 1 (c): the LEX-UNSUPPORTED? seed
-acase("POSITIVE", "(lex-seed) a block-quote line holding a declared id is a LEX-UNSUPPORTED? seed",
-      build(), "LEX-UNSUPPORTED?", 1, prose="> Slice 9z owns it, says the quote.")
-acase("POSITIVE", "(lex-seed) an indented-code line at a block start holding a `|` is a seed",
-      build(), "LEX-UNSUPPORTED?", 1, prose="    | a | b |")
+# FAMILY 1 (c): the LEX-UNSUPPORTED? seed -- since R13 the raw lines of an HTML
+# block only: a block quote is a container whose content is parsed (§5.1) and
+# indented code a raw extent like a fence (§4.4), neither seeded
 acase("POSITIVE", "(lex-seed) an HTML-block opener holding a declared id is a seed",
       build(), "LEX-UNSUPPORTED?", 1, prose="<div>9z owns it</div>")
-acase("NEGATIVE", "(lex-seed) a block-quote line with neither a `|` nor a declared id is no seed",
-      build(), "LEX-UNSUPPORTED?", 0, prose="> a quotation about nothing in particular.")
+acase("NEGATIVE", "(lex-seed) an HTML-block line with neither a `|` nor a declared id is no seed",
+      build(), "LEX-UNSUPPORTED?", 0, prose="<div>\na remark about nothing in particular\n</div>")
 
 # FAMILY 3: ASCII boundaries by property (the reviewer's cases)
 case("POSITIVE-NOVEL", "(ascii) `次のSlice Cが所有する` reaches the naming worklist: the row-noun anchor is "
@@ -386,13 +384,16 @@ case("POSITIVE", "(setext) a bare `===` IS a paragraph, so `===\\n---` is the he
      build(), "=== `open\n---\nSlice 9z owns it` here", 1)
 
 # B: §2.2 -- indentation is measured in columns, a tab to the next multiple of 4
-acase("POSITIVE", "(lex-seed) `\\tSlice 9z owns it`: a tab is four columns (§2.2), so the line is indented "
-                  "code at a block start -- seeded",
-      build(), "LEX-UNSUPPORTED?", 1, prose="\tSlice 9z owns it")
-acase("POSITIVE", "(lex-seed) ` \\tSlice 9z owns it`: a space then a tab is four columns (§2.2) -- seeded",
-      build(), "LEX-UNSUPPORTED?", 1, prose=" \tSlice 9z owns it")
-acase("NEGATIVE", "(lex-seed) `   Slice 9z owns it`: three spaces are three columns -- paragraph text, no seed",
-      build(), "LEX-UNSUPPORTED?", 0, prose="   Slice 9z owns it")
+# (since R13 an indented line at a block start is a RAW extent, so the measure
+# decides whether the site exists at all)
+case("NEGATIVE", "(indented) `\\tSlice 9z owns it`: a tab is four columns (§2.2), so the line is indented code at "
+                 "a block start -- a raw extent, no site",
+     build(), "\tSlice 9z owns it", 0)
+case("NEGATIVE", "(indented) ` \\tSlice 9z owns it`: a space then a tab is four columns (§2.2) -- raw, no site",
+     build(), " \tSlice 9z owns it", 0)
+case("POSITIVE", "(indented) `   Slice 9z owns it`: three spaces are three columns -- paragraph text, the site "
+                 "is reported",
+     build(), "   Slice 9z owns it", 1)
 rcase("NEGATIVE", "(table) `\\t| Slot | ... |` over `\\t|---|...|`: a tab-indented header and delimiter row "
                   "are indented code (§4.4, four columns), not a table -- the wide row under them is no "
                   "width miss: rc 0",
@@ -406,3 +407,85 @@ case("NEGATIVE", "(anchor) `` `Slice `C owns it ``: the row noun is inside a cod
 case("POSITIVE", "(anchor) `` Slice `C` owns it ``: an id-only code span stands in the stream, so the "
                  "anchored `Slice C` is still a site",
      build(), "Slice `C` owns it.", 1)
+
+
+# ------------------------------------------------ PR #510 Codex R13 controls --
+# Every block-structure expectation below was checked against commonmark.js
+# 0.31.2 (`node cm.js '["<md>"]'`) before being written; the shapes no site
+# can discriminate (which block a line lands in) are the runner's
+# block-sequence control.
+
+# THE ROOT: §4.4 indented code is a RAW extent (one opener / extent rule with
+# fences and HTML blocks), §5.1 block quotes are CONTAINERS (the same Phase 1
+# over the content).  The 27 conformance exclusions were exactly these.
+case("NEGATIVE", "(indented) `    Slice 9z owns it` at a block start is a raw extent (§4.4), like a fence: no site",
+     build(), "    Slice 9z owns it", 0)
+case("POSITIVE", "(indented) `text\\n    Slice 9z owns it`: an indented line cannot interrupt a paragraph (§4.4; "
+                 "commonmark.js: one paragraph) -- paragraph text, the site is reported",
+     build(), "text\n    Slice 9z owns it", 1)
+rcase("NEGATIVE", "(table) an indented line right after a schema table opens an indented code block (a block-level "
+                  "structure; no paragraph is open), not a one-cell row: rc 0",
+      build(extra=SLOT4 % "now" + "\n    Slice 9z owns it"), "", 0)
+case("POSITIVE-NOVEL", "(quote) `> [sib]: slice-9z-sib.md`: a definition inside a block quote registers (§5.1 "
+                       "container, Example 218) -- the sibling is walked and its violation reported",
+     build(), "> [sib]: slice-9z-sib.md\n\nSee [sib].", 1, **SIB)
+case("POSITIVE-NOVEL", "(quote) a slot table inside a block quote is a table: its row declares its id",
+     build(extra="\n".join("> " + l for l in (SLOT4 % "now").split("\n"))), "", 1,
+     measure=("id", "#11-zz-gamma"))
+case("POSITIVE", "(quote) `> Slice 9z owns it`: the quote's paragraph is scanned at its real line and the "
+                 "marker is not content -- the site is reported",
+     build(), "> Slice 9z owns it, says the quote.", 1)
+case("NEGATIVE", "(quote) `> open `here\\nSlice 9z owns it` there`: the marker-less line is lazy continuation "
+                 "text of the quote's paragraph (§5.1), so the span crosses it: no site",
+     build(), "> open `here\nSlice 9z owns it` there", 0)
+case("NEGATIVE", "(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote "
+                 "paragraph's text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the "
+                 "site",
+     build(), "> Heading `open\n===\nSlice 9z owns it` here", 0)
+case("POSITIVE", "(quote) `> open `x\\n# Slice 9z owns it` there`: an ATX heading is never lazy -- the quote "
+                 "ends, the heading is a block of its own and its site is reported",
+     build(), "> open `x\n# Slice 9z owns it` there", 1)
+
+# #3: GFM §4.10 "If greater, the excess is ignored" -- a non-schema row's
+# excess cells never enter the lexical population
+case("NEGATIVE", "(table) an excess body cell of a non-schema table is ignored (GFM §4.10): its `9z owns it` "
+                 "is never lexed -- no site",
+     build(extra="| a | b |\n|---|---|\n| 1 | 2 | 9z owns it |"), "", 0)
+rcase("NEGATIVE", "(rc) an excess body cell of a non-schema table holding `[x](absent-file.md)` is ignored (GFM "
+                  "§4.10): no link, nothing walked, rc 0",
+      build(extra="| a | b |\n|---|---|\n| 1 | 2 | [x](absent-file.md) |"), "", 0)
+case("POSITIVE", "(table) the cells within the header's width of a non-schema row are scanned: `9z owns it` in "
+                 "the second of three cells under a two-cell header is a site",
+     build(extra="| a | b |\n|---|---|\n| 1 | 9z owns it | extra |"), "", 1)
+
+# #4: §4.6 start conditions read case PER CONDITION
+case("POSITIVE", "(html) `<![cdata[` is no CDATA opener (§4.6 condition 5 is exact; commonmark.js: a paragraph): "
+                 "the next line is prose and the site is reported",
+     build(), "<![cdata[\n9z owns it\n]]>", 1)
+case("NEGATIVE", "(html) `<![CDATA[` opens a type-5 block to `]]>` (Example 190): raw, no site",
+     build(), "<![CDATA[\n9z owns it\n]]>", 0)
+# ⚠ the probes interrupt a PARAGRAPH: at a block start `<PRE>` / `<DIV>` are
+# type-7 openers too (an open tag alone on its line), which the case fold does
+# not decide -- the first R13 probes sat at a block start and their mutants
+# survived; types 1 and 6 interrupt, type 7 cannot (commonmark.js:
+# `text\n<PRE>\nx\n</pre>` and `text\n<DIV>\nx` are a paragraph and a raw block)
+case("NEGATIVE", "(html) `text\\n<PRE>\\n9z owns it\\n</pre>`: `<PRE>` opens a type-1 block (§4.6 condition 1 is "
+                 "case-insensitive), which interrupts the paragraph -- raw to `</pre>`, no site",
+     build(), "text\n<PRE>\n9z owns it\n</pre>", 0)
+case("NEGATIVE", "(html) `text\\n<DIV>\\n9z owns it`: `<DIV>` opens a type-6 block (§4.6 condition 6 is "
+                 "case-insensitive), which interrupts the paragraph -- raw to the blank line, no site",
+     build(), "text\n<DIV>\n9z owns it", 0)
+
+# LEXED-FLAT's one hidden-prose class is seeded: indented code right after a
+# list item's paragraph (§5.2 Example 108 -- CommonMark reads the item's
+# next paragraph; the umbrella memo's 2955 chunk is this shape)
+acase("POSITIVE", "(lex-seed) `- item\\n\\n    Slice 9z owns it`: an indented line after a list item's paragraph "
+                  "is the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- "
+                  "seeded",
+      build(), "LEX-UNSUPPORTED?", 1, prose="- item\n\n    Slice 9z owns it")
+acase("NEGATIVE", "(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is a code "
+                  "block under CommonMark too -- raw, no seed",
+      build(), "LEX-UNSUPPORTED?", 0, prose="para\n\n    Slice 9z owns it")
+case("NEGATIVE", "(html) `<!doctype` opens a type-4 block (§4.6 condition 4: `<!` + an ASCII letter, either "
+                 "case) to the `>` line: raw, no site",
+     build(), "<!doctype\n9z owns it\n>", 0)

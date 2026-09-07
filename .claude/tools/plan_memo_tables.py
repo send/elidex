@@ -36,8 +36,8 @@ from urllib.parse import unquote
 
 from plan_memo_blocks import (
     block_end, container_text, definition_block, delimiter_width, is_blank, is_setext_underline,
-    one_line_block, raw_extent, raw_opener, run_end, split_row, starts_block, table_header_at,
-    unsupported_block,
+    list_item_line, one_line_block, quote_content, raw_extent, raw_opener, run_end, split_row,
+    starts_block, table_header_at,
 )
 from plan_memo_lexer import Lexed, blank_spans, normalize_label
 
@@ -178,15 +178,18 @@ SCHEMAS = [
 
 
 class Row:
-    """One table row, minted once at admission: its cells, its schema (None for
-    a non-schema table or a header row), its own id (`self_id`, from the raw
-    id cell), and -- set by `Population` -- `field`, the masked declaring
-    field, and `kind` ("umbrella" / "undetermined" / "pointer" / "terminal")."""
+    """One table row, minted once at admission: its cells, the CONTENT line
+    they were split from (`line`: the raw line inside a block quote has the
+    marker in front, so a cell's raw column is a column of this text), its
+    schema (None for a non-schema table or a header row), its own id
+    (`self_id`, from the raw id cell), and -- set by `Population` -- `field`,
+    the masked declaring field, and `kind` ("umbrella" / "undetermined" /
+    "pointer" / "terminal")."""
 
-    __slots__ = ("memo", "lineno", "cells", "schema", "self_id", "field", "kind")
+    __slots__ = ("memo", "lineno", "line", "cells", "schema", "self_id", "field", "kind")
 
-    def __init__(self, memo, lineno, cells, schema):
-        self.memo, self.lineno, self.cells, self.schema = memo, lineno, cells, schema
+    def __init__(self, memo, lineno, line, cells, schema):
+        self.memo, self.lineno, self.line, self.cells, self.schema = memo, lineno, line, cells, schema
         self.self_id = bare_id(cells[schema.idc].text) if schema and schema.idc is not None else None
         self.field, self.kind = None, None
 
@@ -209,33 +212,47 @@ class Table:
         self.misses = []                # [(lineno, message)] width policy
 
 
-def admit_table(memo, i):
-    """Admit the GFM table whose header is `memo.lines[i]` -- the ONE
-    admission site; the driver (`Memo._phase1`) found `table_header_at`
-    there, off a raw line, a blank and a block start.  Returns (Table, end):
-    the table runs from the header to the first `block_end` with NO
-    PARAGRAPH OPEN -- a blank line or the beginning of another block-level
-    structure (GFM §4.10), a type-7 HTML opener included (a table is not a
-    paragraph, so `<span>` right after the rows opens an HTML block; the
-    lines after it are raw, not one-cell rows); every line in between is a
-    body row, pipes or not (GFM Example 202: a pipe-less line after the rows
-    is a row -- so a reference definition written right after a table is a
+def admit_table(memo, lines, linenos, i, lazy):
+    """Admit the GFM table whose header is content line `lines[i]` (raw line
+    `linenos[i]`; `lazy` = the container's lazy-candidate list, None at the
+    document level) -- the ONE admission site; the driver (`Memo._parse`)
+    found `table_header_at` there, off a raw line, a blank and a block
+    start.  Returns (Table, end): the table runs from the header to the
+    first `block_end` with NO PARAGRAPH OPEN -- a blank line or the
+    beginning of another block-level structure (GFM §4.10), a type-7 HTML
+    opener and an indented line included (a table is not a paragraph, so
+    `<span>` right after the rows opens an HTML block and `    x` an
+    indented code block; the lines after are raw, not one-cell rows), and a
+    lazy candidate of the enclosing quote (§5.1: continuation text only of
+    a paragraph, and a table is none); every line in between is a body
+    row, pipes or not (GFM Example 202: a pipe-less line after the rows is
+    a row -- so a reference definition written right after a table is a
     row of it, never a definition).
+
+    Width: GFM §4.10 "The remainder of the table's rows may vary in the
+    number of cells.  If a number of cells fewer than the number of cells in
+    the header row, empty cells are inserted.  If greater, the excess is
+    ignored" -- a NON-schema row is cut to the header's width here, before
+    its cells are lexed, so an ignored cell's `[x](absent.md)` is never a
+    link and its id never a site (PR #510 R13); a SCHEMA row of any other
+    width is the schema miss (local policy over "may vary": a shifted read
+    fabricates findings).  A short row is not padded: an empty cell would
+    hold nothing a scanner reads.
     """
-    lines, n = memo.lines, len(memo.lines)
+    n = len(lines)
     header, width = split_row(lines[i]), delimiter_width(lines[i + 1])
     hdr_text = [c.text for c in header]
     schema = next((s for s in SCHEMAS if hdr_text == s.header), None)
-    t = Table(schema, Row(memo, i + 1, header, None))
+    t = Table(schema, Row(memo, linenos[i], lines[i], header, None))
     j = i + 2
-    while j < n and not block_end(lines, j, False):
+    while j < n and not block_end(lines, j, False, lazy):
         body = split_row(lines[j])
         if schema is not None and len(body) != width:
-            t.misses.append((j + 1, "row has %d cell(s); the %r header has %d -- "
+            t.misses.append((linenos[j], "row has %d cell(s); the %r header has %d -- "
                              "a shifted read fabricates findings, so this row is "
                              "unscanned" % (len(body), schema.name, width)))
         else:
-            t.rows.append(Row(memo, j + 1, body, schema))
+            t.rows.append(Row(memo, linenos[j], lines[j], body[:width], schema))
         j += 1
     return t, j
 
@@ -339,7 +356,7 @@ def stream(lx):
 
 class Paragraph:
     """The lines of one run no definition consumed, grouped by the driver
-    (`Memo._phase1`) at the block boundaries; `lexed.text` is the inline
+    (`Memo._parse`) at the block boundaries; `lexed.text` is the inline
     content code spans are lexed over, and `offsets` maps each line to its
     start offset in it (a line is a reporting coordinate only)."""
 
@@ -366,53 +383,74 @@ class Paragraph:
 
 class Memo:
     """One memo, in the two phases of CommonMark's "Appendix: A parsing
-    strategy".  Phase 1 (block structure, over RAW lines, `_phase1`: ONE
+    strategy".  Phase 1 (block structure, over RAW lines, `_parse`: ONE
     forward pass, the way the Appendix reads a document line by line with
-    its open block in hand): the raw extents -- fenced blocks (§4.5) and
-    HTML blocks (§4.6), one opener rule and one extent rule, consumed in
-    place -- GFM tables (§4.10, ending at a blank line
-    or any block start), runs and their reference definitions (§4.7 -- a
-    block of its own, recognised only at a block start; a definition-shaped
-    line INSIDE a paragraph is an orphan, recorded in `orphans`),
-    paragraphs.  Phase 2 (inline structure, `Lexed.resolve` / `inline_pass`)
-    then runs over each paragraph's and cell's content only, with `defs`
-    from the Phase-1 definition blocks."""
+    its open block in hand, re-entered once per block quote over the quote's
+    content): the raw extents -- indented code (§4.4), fenced blocks (§4.5)
+    and HTML blocks (§4.6), one opener rule and one extent rule, consumed in
+    place -- block quotes (§5.1, the one container: marker lines stripped,
+    lazy continuation lines gathered, the same pass over the content), GFM
+    tables (§4.10, ending at a blank line or any block start), runs and
+    their reference definitions (§4.7 -- a block of its own, recognised
+    only at a block start; a definition-shaped line INSIDE a paragraph is an
+    orphan, recorded in `orphans`), paragraphs.  Phase 1 STATES its result
+    as a block sequence (`sequence`: `[kind, first raw line, last raw line]`
+    in document order, a quote before its content) -- the claim the
+    conformance control consumes against the spec's html.  Phase 2 (inline
+    structure, `Lexed.resolve` / `inline_pass`) then runs over each
+    paragraph's and cell's content only, with `defs` from the Phase-1
+    definition blocks."""
 
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
         self.lines = self.text.split("\n")
+        if len(self.lines) > 1 and self.lines[-1] == "":
+            self.lines.pop()        # a line ending ENDS the last line (§2.1); it begins no empty one
         self.tables = []            # [Table], in document order
-        self._run_text, self._run_off, self._defs_at = {}, {}, {}
+        self.sequence = []          # Phase 1's block sequence: [kind, first lineno, last lineno]
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
         self.orphans = {}           # normalised label -> {1-based line numbers}
-        self.unsupported = []       # [(lineno, kind, line)] PROSE-AS-WRITTEN / raw HTML lines
-        self.paragraphs = self._phase1()
+        self.raw_html = []          # [(lineno, content line)] every line of an HTML block (§4.6)
+        self.item_code = []         # [(lineno, line)] indented code right after a list item's paragraph
+        self.paragraphs, _ = self._parse(self.lines, list(range(1, len(self.lines) + 1)), None)
         for lx in self.lexed():
             lx.resolve(self.defs)
 
-    def _phase1(self):
-        """Phase 1 as ONE forward pass over the lines, the block STATE in
-        hand -- which of a raw extent, a table or a run is open -- and every
-        boundary decided by the ONE predicate `block_end` (a line inside a
-        run was already found not to be one, with a paragraph open; a line
-        outside a run is asked with none open, so a type-7 HTML opener after
-        a table, a one-line block or a setext heading opens a raw extent
-        there and stays paragraph text after a run line).  Each line is
+    def _parse(self, lines, linenos, lazy):
+        """Phase 1 as ONE forward pass over one container's content `lines`
+        (raw line numbers `linenos`; `lazy[i]`, None at the document level,
+        marks a block quote's line that carried no marker -- a §5.1 lazy
+        continuation candidate), the block STATE in hand -- which of a raw
+        extent, a table or a run is open -- and every boundary decided by
+        the ONE predicate `block_end` (a line inside a run was already found
+        not to be one, with a paragraph open; a line outside a run is asked
+        with none open, so a type-7 HTML opener or an indented line after a
+        table, a one-line block or a setext heading opens a raw extent there
+        and stays paragraph text after a run line).  Returns (paragraphs,
+        lines consumed): the pass STOPS at a lazy candidate where no
+        paragraph is open -- such a line is content only as paragraph
+        continuation text, so the quote ends there (`> # h\\nlazy` is a
+        heading in the quote and a paragraph after it).  Each line is
         classified once, in order:
 
-          * a raw-extent opener (`raw_opener`; fences and HTML blocks share
-            the one rule): its lines to `raw_extent` are never inline-parsed
-            and are consumed here -- no map of them outlives the pass; an
-            HTML block's lines are recorded in `unsupported` for the
-            LEX-UNSUPPORTED? seed, so their content is printed rather than
-            assumed;
+          * a raw-extent opener (`raw_opener`; indented code, fences and HTML
+            blocks share the one rule): its lines to `raw_extent` are never
+            inline-parsed and are consumed here; an HTML block's lines are
+            recorded in `raw_html` for the LEX-UNSUPPORTED? seed, so their
+            content is printed rather than assumed -- as are the lines of an
+            indented code block opened while a LIST ITEM's paragraph is the
+            last block (blank lines between; `item_code`): under §5.2 that
+            is the item's next paragraph (Example 108 `- foo\\n\\n    bar`),
+            under LEXED-FLAT a code block, the one place the flat reading
+            hides prose, so it is seeded rather than assumed;
           * a blank line ends the paragraph;
+          * a `>` line opens a block quote: `_quote`, the same pass over
+            its content;
           * a GFM table header off a block start: `admit_table`, the one
             admission site;
           * a setext underline after paragraph text (§4.3; not after a run
-            headed by a list-item / `>` line, Examples 92-94, or by an
-            indented-code line, §4.4 Example 100 -- `container_text`): the
+            headed by a list-item line, Example 94 -- `container_text`): the
             paragraph is the heading and the underline closes it, content of
             nothing; with no paragraph open the line is not an underline at
             all (`block_end`'s `para_open` arm) -- `---` is a thematic break
@@ -426,87 +464,153 @@ class Memo:
             ORPHAN -- exactly that class: a label-and-colon line that is not
             a valid definition is plain prose (commonmark.js: `[C1]:
             ECMA-262 §1 says so` is a paragraph), and a shortcut naming it is
-            exempt; a PROSE-AS-WRITTEN block opener (a `>` line, indented
-            code at a block start) is seeded; the rest is paragraph text,
-            grouped so that a run start begins a new paragraph (a lazy
-            setext-shaped line after a list item / `>` line is the item's
-            text) and a one-line block is a paragraph of its own.
+            exempt; the rest is paragraph text, grouped so that a run start
+            begins a new paragraph (a lazy setext-shaped line after a list
+            item is the item's text) and a one-line block is a paragraph of
+            its own.
 
         Linear: one lookahead per run, one parse per line."""
-        out, cur, lines, i, n = [], [], self.lines, 0, len(self.lines)
+        out, cur, i, n = [], [], 0, len(lines)
+        run_text, run_off, defs_at = {}, {}, {}
+        sequence = self.sequence
+        after_item = False      # the last block is a list item's paragraph (LEXED-FLAT)
 
-        def flush():
+        def flush(kind="p", last=None):
+            nonlocal after_item
             if cur:
+                sequence.append([kind, cur[0][0], cur[-1][0] if last is None else last])
                 out.append(Paragraph(list(cur)))
+                after_item = kind == "p" and list_item_line(cur[0][1])
                 cur.clear()
+
+        def definition_at(i):
+            # the reference definition starting at content line `i`, parsed
+            # over the rest of its run (`definition_block`; once per line)
+            if i not in defs_at:
+                defs_at[i] = definition_block(run_text[i], run_off[i])
+            return defs_at[i]
 
         while i < n:
             line = lines[i]
-            new_run = i not in self._run_text
+            new_run = i not in run_text
             if new_run:
+                if lazy is not None and lazy[i]:
+                    break       # §5.1: no paragraph is open, so the quote ends here
                 # outside a run no paragraph is open: the block state is the
                 # run map itself, not a look at the previous line
                 opener = raw_opener(line, False)
                 if opener is not None:
                     flush()
-                    end = raw_extent(lines, i, opener)
+                    end = raw_extent(lines, i, opener, lazy)
                     if opener[0] == "html":
-                        self.unsupported.extend((k + 1, "html", lines[k]) for k in range(i, end))
+                        self.raw_html.extend((linenos[k], lines[k]) for k in range(i, end))
+                    elif opener[0] == "indented" and after_item:
+                        self.item_code.extend((linenos[k], lines[k]) for k in range(i, end))
+                    else:
+                        after_item = False
+                    sequence.append([opener[0], linenos[i], linenos[end - 1]])
                     i = end
                     continue
                 if is_blank(line):
                     flush()
                     i += 1
                     continue
-                if not starts_block(line) and table_header_at(lines, i):
+                if quote_content(line) is not None:
                     flush()
-                    t, i = admit_table(self, i)
+                    after_item = False
+                    i += self._quote(lines, linenos, lazy, i, out)
+                    continue
+                if not starts_block(line) and table_header_at(lines, i, lazy):
+                    flush()
+                    after_item = False
+                    t, end = admit_table(self, lines, linenos, i, lazy)
                     self.tables.append(t)
+                    sequence.append(["table", linenos[i], linenos[end - 1]])
+                    i = end
                     continue
                 if cur and is_setext_underline(line) and not container_text(cur[0][1]):
                     # §4.3: the paragraph is a heading; the underline closes
                     # it and is not content
-                    flush()
+                    flush("h1" if line.strip(" \t").startswith("=") else "h2", linenos[i])
                     i += 1
                     continue
-                j = run_end(lines, i)
+                j = run_end(lines, i, lazy)
                 text, off = "\n".join(lines[i:j]), 0
                 for k in range(i, j):
-                    self._run_text[k], self._run_off[k] = text, off
+                    run_text[k], run_off[k] = text, off
                     off += len(lines[k]) + 1
-            kind = unsupported_block(line, not cur)
-            if kind is not None:
-                self.unsupported.append((i + 1, kind, line))
-            d = self.definition_at(i)
+            d = definition_at(i)
             if d is not None and not cur:
                 # a block start: the definition is a block of its own
                 raw, dest, stop = d
                 self.defs.setdefault(normalize_label(raw), dest)
-                consumed = self._run_text[i][self._run_off[i]:stop]
-                i += consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
+                consumed = run_text[i][run_off[i]:stop]
+                k = consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
+                sequence.append(["def", linenos[i], linenos[i + k - 1]])
+                after_item = False
+                i += k
                 continue
             if d is not None:
                 # a valid definition that cannot take effect: the orphan
-                self.orphans.setdefault(normalize_label(d[0]), set()).add(i + 1)
+                self.orphans.setdefault(normalize_label(d[0]), set()).add(linenos[i])
             elif new_run and not (cur and is_setext_underline(line) and not one_line_block(line)):
                 # a run start begins a paragraph -- unless it is the lazy
-                # `==` after a list item / `>` line (Examples 92-94), which
-                # is that paragraph's text
+                # `==` after a list item (Example 94), which is that
+                # paragraph's text
                 flush()
-            cur.append((i + 1, line))
-            if one_line_block(line):
-                flush()
+            cur.append((linenos[i], line))
+            kind = one_line_block(line)
+            if kind:
+                flush(kind)
             i += 1
         flush()
-        return out
+        return out, i
 
-    def definition_at(self, i):
-        """The reference definition starting at raw line `i`, parsed over the
-        rest of its run (`definition_block`; computed once per line) -> (label,
-        destination, end offset in the run text) or None."""
-        if i not in self._defs_at:
-            self._defs_at[i] = definition_block(self._run_text[i], self._run_off[i])
-        return self._defs_at[i]
+    def _quote(self, lines, linenos, lazy, i, out):
+        """The block quote opening at content line `i` (a `>` line, §5.1)
+        -> the number of lines it spans; its paragraphs are appended to
+        `out`, its tables / definitions / raw lines / sequence entries to
+        this memo's like every other block's.  The content: every marker
+        line stripped (`quote_content`) and, between and after the marker
+        lines, the lines without a marker as LAZY CONTINUATION CANDIDATES --
+        content only as paragraph continuation text ("the result of
+        deleting the initial block quote marker from one or more lines in
+        which the next character after the marker is paragraph continuation
+        text is a block quote with Bs as its content") -- run through the
+        SAME `_parse`, so a definition inside registers (Example 218), a
+        table inside is a table, a raw extent inside is raw, a paragraph
+        inside is a paragraph at its real line, and a nested quote is the
+        same again.  Where a candidate is a boundary even with a paragraph
+        open (`block_end`: a blank line, a fence, a heading, a list item --
+        never a setext underline, Example 93) no quote reaches it, so the
+        candidates gathered here stop there; `_parse` stops earlier at a
+        candidate where no paragraph is open (after a raw extent, a table, a
+        heading: Examples 128 / 174).  Linear: each line of the document is
+        gathered once per enclosing quote, never re-scanned across quotes."""
+        n = len(lines)
+        content, nos, inner_lazy, j = [], [], [], i
+        while j < n:
+            rest = quote_content(lines[j])
+            if rest is None:
+                content.append(lines[j])
+                nos.append(linenos[j])
+                inner_lazy.append(True)
+                if block_end(content, len(content) - 1, True, inner_lazy):
+                    content.pop()
+                    nos.pop()
+                    inner_lazy.pop()
+                    break
+            else:
+                content.append(rest)
+                nos.append(linenos[j])
+                inner_lazy.append(False)
+            j += 1
+        entry = ["quote", linenos[i], None]
+        self.sequence.append(entry)
+        paragraphs, used = self._parse(content, nos, inner_lazy)
+        out.extend(paragraphs)
+        entry[2] = nos[used - 1]
+        return used
 
     @property
     def key(self):
