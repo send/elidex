@@ -549,7 +549,7 @@ under B's reverse index it plausibly still returns `None` — it does not become
 either way; A-i does not assume which.
 
 **Owed to Slice B — the `partition` block is broken by A-i's own K3, and was failing silently.** *(Historical as of 2026-08-23: the block left this branch with B's memo — `citation-hygiene-slice-memos` — where it stays RED until B restores `_catalog`; kept because it records why `all` must propagate block status.)* Measured,
-`rederive partition` (a Slice-B block, in `…-A-rederive-B.sh`) calls `spec_labels._catalog()`, which A-i
+`rederive partition` (a Slice-B block, in `2026-07-citation-hygiene-A-rederive-B.sh`, which travels with B's memo and is not in this checkout) calls `spec_labels._catalog()`, which A-i
 removes from the generic tree because K3 forbids it. So the block has raised `AttributeError` since
 `6be73a82`, and `all` **swallowed it** — the same discarded-exit-status bug the Step 4.5 pass found in
 `couplings`, one level up. `all` now carries an anchored `FAILED BLOCKS:` roster and propagates, so
@@ -759,4 +759,18 @@ its exclusion notice named only `lanes staleclaims`, so a reviewer running `all`
 no notice of the sixth. They are now **one roster block, `readercensus`**, which runs the four and asserts
 §4.2's readings of each: `_SPEC_LABEL_MAP`, `COMMON_SHORTNAMES`, `SPEC_LABEL_REVERSE` populated at
 `origin/main`; `label_for` **empty** at `origin/main` (the module is new — the loud-empty guard firing *is*
-the reading) and populated at `HEAD`. A single `readers <symbol> [ref]` remains callable for ad-hoc censuses.
+the reading) and populated at `HEAD`. ⚠ **This sentence used to end "a single `readers <symbol> [ref]`
+remains callable for ad-hoc censuses", and it was false** (Codex R52): the dispatch guard admitted only
+`$BLOCKS + $AUTHOR_LOCAL + all`, so the very invocation §4.2 tells an author to run — the one `readers`'
+own usage string prints — exited 2 with `unknown block: readers`. The guard now admits a third set,
+`$PARAMETERIZED`, for commands that take arguments and therefore cannot sit on `all`'s zero-arg roster;
+`all`'s exclusion notice names that set alongside `$AUTHOR_LOCAL`, which is the same lesson R14 taught
+about the sixth block. `selfcheck` holds the property rather than the instance: every `rederive <name>`
+the memos document must either be admitted by the guard or be defined in no part on disk and cite the
+`-A-rederive-*.sh` file that holds it — the predicate is derived from the sets and the memos, not from a
+list of names, so the *next* unreachable name reddens too. Verified by mutation: dropping `readers` from
+`$PARAMETERIZED` reddens all three citing sites, adding it to `$BLOCKS` reddens the overlap, and eliding the part
+filename reddens the `rederive partition` citation in §11 (its home,
+`2026-07-citation-hygiene-A-rederive-B.sh`, travels with B's memo). ⚠ That third mutation was not
+hypothetical: this very paragraph tripped the check on its first draft, which named the invocation without
+naming the file.

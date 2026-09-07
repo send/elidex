@@ -235,11 +235,11 @@ for path in parts:
                 last = s
                 break
         if not RETURNS.search(uncomment(last).rstrip()):
-            bad.append((path.name, lineno, name, last[:64]))
+            bad.append((path.name, lineno, name, "ends on %r" % last[:64]))
 
 for name in roster:
     if name not in defined:
-        bad.append((DISPATCH.name, 0, name, "<dispatched by `all` but defined nowhere>"))
+        bad.append((DISPATCH.name, 0, name, "dispatched by `all` but defined nowhere"))
 
 # No `python3 -c '…'` payload may exist: the shell wraps `-c` in single quotes,
 # so one apostrophe inside ends the program mid-line (R15/R16), and the guard
@@ -262,14 +262,75 @@ for path in parts:
         if BARE_HEREDOC.search(line):
             bad.append((path.name, n, "<unquoted heredoc>", "quote the delimiter: <<'X'"))
 
-print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster")
-for fn, lineno, name, last in sorted(bad):
-    print(f"  !! {fn}:{lineno} {name}: ends on {last!r}")
+# EVERY `rederive <name>` THE MEMOS DOCUMENT MUST BE REACHABLE. Codex R52: the
+# guard admitted `$BLOCKS + $AUTHOR_LOCAL + all`, so `rederive readers <symbol>`
+# -- the workflow A-i §4.2 tells an author to run, whose own function prints that
+# usage string -- exited 2 as an unknown block. The population is not a word list
+# of block names (the next unreachable name would not be on it) but every
+# `rederive <name>` occurrence in the memos this checkout carries, split by a
+# DERIVED predicate: a name DEFINED in a part on disk must be admitted by the
+# dispatch guard, and a name defined in no part on disk belongs to a departed
+# slice and must cite the part file that holds it, so the reader is not left to
+# guess (`rederive partition`, A-i §11, names `…-A-rederive-B.sh`).
+_admit = {}
+for _set in ("BLOCKS", "AUTHOR_LOCAL", "PARAMETERIZED"):
+    _mm = re.search(r'^%s="(.*?)"' % _set, "\n".join(q.read_text(encoding="utf-8") for q in parts), re.S | re.M)
+    if _mm is None:
+        raise SystemExit("!! cannot read the `%s=` set; this check would range over a short "
+                         "admitted set and redden sound names." % _set)
+    _admit[_set] = _mm.group(1).replace("\\\n", " ").split()
+admitted = set(_admit["BLOCKS"]) | set(_admit["AUTHOR_LOCAL"]) | set(_admit["PARAMETERIZED"]) | {"all"}
+_overlap = set(_admit["BLOCKS"]) & set(_admit["PARAMETERIZED"])
+if _overlap:
+    bad.append((DISPATCH.name, 0, "<parameterized name on `all`'s roster>",
+                "`all` dispatches zero-arg: %s" % sorted(_overlap)))
+PART = re.compile(r"2026-07-citation-hygiene-A-rederive[-A-Za-z]*\.sh")
+_memos = sorted(D.glob("2026-07-citation-hygiene-*.md"))
+if not _memos:
+    raise SystemExit("!! no memo found under %s; the reachability check would range over nothing." % D)
+# ENUMERATE per line, JUDGE per paragraph. The citation is prose: a reader reads
+# the block of contiguous non-blank lines, and a filename that wraps onto the next
+# line is no less present for it. A per-line predicate reddened this memo's own
+# §15 for a sentence whose filename sat one line down -- it was testing line
+# adjacency, not whether the reader is told where the block lives. Every
+# occurrence is still counted; only the scope the predicate reads widens.
+_cited = 0
+for _memo in _memos:
+    _lines = _memo.read_text(encoding="utf-8").splitlines()
+    _para_of, _para_text, _start = {}, [], None
+    for i, line in enumerate(_lines, 1):                    # contiguous non-blank run = one paragraph
+        if line.strip():
+            if _start is None:
+                _start = i
+            _para_of[i] = _start
+        else:
+            _start = None
+    _para_body = {}
+    for i, line in enumerate(_lines, 1):
+        if i in _para_of:
+            _para_body[_para_of[i]] = _para_body.get(_para_of[i], "") + line + "\n"
+    for n, line in enumerate(_lines, 1):
+        for _name in re.findall(r"rederive ([a-z_][a-z0-9_]*)", line):
+            _cited += 1
+            if _name in defined:
+                if _name not in admitted:
+                    bad.append((_memo.name, n, _name,
+                                "defined in %s but the dispatch guard does not admit it" % defined[_name][0]))
+            elif not PART.search(_para_body.get(_para_of.get(n, n), line)):
+                bad.append((_memo.name, n, _name,
+                            "defined in no part on disk and its paragraph names no `-A-rederive-*.sh` file"))
+
+print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster, "
+      f"{len(admitted)} admitted names, {_cited} documented `rederive` invocations over {len(_memos)} memo(s)")
+for fn, lineno, name, why in sorted(bad):
+    print(f"  !! {fn}:{lineno} {name}: {why}")
 if bad:
-    print(f"  !! {len(bad)} block(s) whose exit status is their LAST LINE'S rather than")
-    print("  !! a statement about what they measured. End each in an explicit `return`.")
+    print(f"  !! {len(bad)} integrity defect(s). A block whose status is its LAST LINE'S rather")
+    print("  !! than a statement about what it measured must end in an explicit `return`; a")
+    print("  !! documented `rederive <name>` must be reachable or say where it lives.")
     sys.exit(1)
-print("  VERDICT: GREEN — every roster block states its own status")
+print("  VERDICT: GREEN — every roster block states its own status, and every documented")
+print("  invocation is reachable")
 SELFCHECKPY
   return $?
 }

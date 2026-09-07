@@ -98,6 +98,13 @@ cd "$REPO_ROOT" || { printf 'FATAL: cannot cd to %s\n' "$REPO_ROOT" >&2; exit 2;
 # `declare -F` alone ran it and handed back a silent exit 0 as "the
 # re-derivation" (Codex R32, measured: `… _measured` exited 0 with no output).
 BLOCKS="selfcheck citations keysets suites regions couplings readercensus budget"
+# PARAMETERIZED blocks take arguments, so `all` -- which dispatches its roster
+# zero-arg -- cannot run them, but the entry point must still admit them or the
+# invocation the memos document is unreachable (Codex R52: `rederive readers
+# label_for HEAD`, the workflow A-i §4.2 tells an author to run, exited 2 with
+# `unknown block: readers`). `readercensus` is the zero-arg batch of the four
+# invocations A-i pins; this is the ad-hoc form for any other symbol.
+PARAMETERIZED="readers"
 # The A-ii / A-iii / B blocks (column carvecolumn instruments remedies reloadstale armmatrix
 # anchors marker / suiteset filters floor ruleset / partition offline bmemo) left with their
 # memos: branch `citation-hygiene-slice-memos`, which stacks on this one.
@@ -108,19 +115,23 @@ all() { # shellcheck disable=SC2086  # word-splitting the roster IS the position
           say "$1"; "$1"; rc=$?
           [ "$rc" -eq 0 ] || failed="$failed $1(exit $rc)"
           shift; done
-        printf '\n(author-local, excluded from `all`: %s)\n' "$AUTHOR_LOCAL"
+        printf '\n(excluded from `all` -- author-local: %s; parameterized: %s)\n' "$AUTHOR_LOCAL" "$PARAMETERIZED"
         if [ -n "$failed" ]; then printf 'FAILED BLOCKS:%s\n' "$failed"; return 1; fi
         printf 'ALL BLOCKS EXITED 0\n'; }
 
 # Only a ROSTERED block is dispatchable: a shell builtin, an executable, a typo
 # (Codex R26) or a sourced helper (Codex R32) would otherwise run and hand back
 # its own status as "the re-derivation". The admitted set is `$BLOCKS` +
-# `$AUTHOR_LOCAL` + `all`, and the usage line prints that same set.
+# `$AUTHOR_LOCAL` + `$PARAMETERIZED` + `all`, and the usage line prints that same
+# set. Admitting `$PARAMETERIZED` keeps the closed-list property the guard exists
+# for -- the names are still written down here -- while making the argument-taking
+# form reachable; `selfcheck` holds the equality that keeps the two from drifting.
 _block=${1:-all}
-case " $BLOCKS $AUTHOR_LOCAL all " in
+case " $BLOCKS $AUTHOR_LOCAL $PARAMETERIZED all " in
   *" $_block "*) declare -F -- "$_block" >/dev/null || { printf 'rostered block not defined: %s\n' "$_block" >&2; exit 2; } ;;
   *) printf 'unknown block: %s\n' "$_block" >&2
      printf 'blocks: %s all\n' "$(printf '%s %s' "$BLOCKS" "$AUTHOR_LOCAL" | tr -s ' \n' ' ')" >&2
+     printf 'parameterized: %s\n' "$(for _p in $PARAMETERIZED; do printf '%s <symbol> [ref] ' "$_p"; done)" >&2
      exit 2 ;;
 esac
 "$_block" "$@"
