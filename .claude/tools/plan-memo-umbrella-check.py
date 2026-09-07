@@ -168,18 +168,16 @@ class Block:
     the same list), and the map back to reporting coordinates.  Minted only
     after the `Population` has disposed the block (`stream()` asserts it)."""
 
-    __slots__ = ("memo", "text", "mask", "stream", "tokens", "source", "self_id")
+    __slots__ = ("memo", "file", "text", "mask", "stream", "tokens", "source", "self_id")
 
-    def __init__(self, memo, lexed, source, self_id=None):
-        self.memo, self.text, self.mask = memo, lexed.text, lexed.mask
+    def __init__(self, memo, file, lexed, source, self_id=None):
+        # `file` = the population's ONE display name of the memo
+        # (`Population.display`: relative to the root memo's directory), for
+        # the report and the worklist; identity is `memo.key`
+        self.memo, self.file, self.text, self.mask = memo, file, lexed.text, lexed.mask
         self.stream = stream(lexed)
         self.tokens = list(tokens(self.stream))
         self.source, self.self_id = source, self_id
-
-    @property
-    def file(self):
-        """Basename, for display; identity is `memo.key`."""
-        return self.memo.path.name
 
     def window(self, start, end, w):
         return self.stream[max(0, start - w): end + w].replace("\n", " ")
@@ -188,8 +186,8 @@ class Block:
 class CellBlock(Block):
     __slots__ = ("lineno", "line", "cell")
 
-    def __init__(self, memo, lineno, line, cell, source, self_id):
-        super().__init__(memo, cell.lexed, source, self_id)
+    def __init__(self, memo, file, lineno, line, cell, source, self_id):
+        super().__init__(memo, file, cell.lexed, source, self_id)
         self.lineno, self.line, self.cell = lineno, line, cell
 
     def locate(self, i):
@@ -202,8 +200,8 @@ class CellBlock(Block):
 class ProseBlock(Block):
     __slots__ = ("para",)
 
-    def __init__(self, memo, para):
-        super().__init__(memo, para.lexed, "prose")
+    def __init__(self, memo, file, para):
+        super().__init__(memo, file, para.lexed, "prose")
         self.para = para
 
     def locate(self, i):
@@ -271,6 +269,7 @@ def blocks(pop):
     or `table:col<n>` for a non-schema table."""
     out = []
     for memo in pop.memos:
+        file = pop.display(memo.path)
         for t in memo.tables:
             for row in [t.header] + t.rows:
                 # the id cell is scanned too: its trailing prose (`**7z** —
@@ -282,9 +281,9 @@ def blocks(pop):
                 for col, cell in enumerate(row.cells):
                     src = ("%s:%s" % (t.schema.name, t.schema.header[col]) if t.schema is not None
                            else "table:col%d" % col)
-                    out.append(CellBlock(memo, row.lineno, row.line, cell, src, row.self_id))
+                    out.append(CellBlock(memo, file, row.lineno, row.line, cell, src, row.self_id))
         for para in memo.paragraphs:
-            out.append(ProseBlock(memo, para))
+            out.append(ProseBlock(memo, file, para))
     return out
 
 
@@ -345,7 +344,7 @@ def lex_unsupported_seed(pop, findings, notes):
             ids = sorted({t.id for t in tokens(line) if t.kind != "cite" and t.id in keep})
             if "|" in line or ids:
                 n += 1
-                findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno, "%s; it holds %s" % (
+                findings.append(("LEX-UNSUPPORTED?", pop.display(memo.path), lineno, "%s; it holds %s" % (
                     _READING[reading], ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
     notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, an "
                  "indented-code line, or an inline raw-HTML span) hold a `|` or a declared id; the bound is "
@@ -396,7 +395,7 @@ def check(path):
             "umbrella." % (len(undet), ", ".join(sorted(undet))))
         if len(pop.spellings) > 1:
             findings.append(
-                ("KIND-SPELLING", pop.main.path.name, 0,
+                ("KIND-SPELLING", pop.display(pop.main.path), 0,
                  "the undetermined kind is written %d ways (%s); a kind with more than one spelling "
                  "is a kind no program can enumerate"
                  % (len(pop.spellings), " / ".join(sorted(pop.spellings)))))
@@ -433,7 +432,7 @@ def main(argv):
     print("=" * 78)
     print("plan-memo-umbrella-check  --  %s" % pop.main.path)
     print("  population (transitive over the memo's links): %s"
-          % ", ".join(m.path.name for m in pop.memos[1:]) if len(pop.memos) > 1
+          % ", ".join(pop.display(m.path) for m in pop.memos[1:]) if len(pop.memos) > 1
           else "  population: the memo alone (it links no other memo)")
     print("=" * 78)
     for n in res.notes:

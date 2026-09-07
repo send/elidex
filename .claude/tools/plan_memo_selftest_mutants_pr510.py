@@ -73,8 +73,8 @@ MUTANTS += [
      '        if not active or inline_pass(s[pos + 1:i], defs)[3] is None:\n            i += 1',
      ["links() is linear: 30 nested brackets are one inline_pass call"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
-     '        if is_img:\n            images.append((i, end))',
-     '        if is_img:\n            images.append((i, end))\n            i += 1\n            continue',
+     '                unresolved.pop()\n            images.append((i, end))',
+     '                unresolved.pop()\n            images.append((i, end))\n            i += 1\n            continue',
      ["(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read as a "
       "shortcut, and the image destination is not a memo"]),
     ("R3-1 link: an escaped `[` is not an opener", LEXER,
@@ -82,8 +82,8 @@ MUTANTS += [
      '        if _is_escape(s, i) and s[i + 1] != "[":\n            i += 2',
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
-     "`%2Ftmp%2Fx.md` -- is not a sibling", MEMO,
-     '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
+     "`%2Ftmp%2Fx.md` -- is not a sibling (drop the anchor test)", MEMO,
+     '        if _CONTROL.search(name) or p.anchor:                        # (c)',
      '        if _CONTROL.search(name):                                    # (c)',
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
       "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
@@ -152,8 +152,8 @@ MUTANTS += [
       "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
       "NOT walked -- its violation is not reported"]),
     ("R7-2 population: a C0 control character in a decoded destination is rejected", MEMO,
-     '        if name.startswith("/") or _CONTROL.search(name):            # (c)',
-     '        if name.startswith("/"):                                     # (c)',
+     '        if _CONTROL.search(name) or p.anchor:                        # (c)',
+     '        if p.anchor:                                                 # (c)',
      ["a decoded destination with a C0 control character is rejected, never resolved"]),
     # -- PR #510 Codex R8
     ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", MEMO,
@@ -755,4 +755,75 @@ MUTANTS += [
      '    out += [(a, b, "html") for a, b in lx.html]\n', '',
      [R17_ATTR_ID,
       "(html) a cell's `<span title=\"Slice 9z owns it\">` is masked by the same inline pass: no site"]),
+]
+
+R19_REVIEWER = ("(image) the R19 reviewer's input `![alt [docs](absent-file.md)](image.png)`: the image resolves, so its "
+                "description is plain text (§6.4; commonmark.js: `<img alt=\"alt docs\">`) -- the link inside it is no "
+                "memo link, nothing is walked, rc 0")
+R19_NOT_WALKED = ("(image) `![alt [docs](child.md)](absent-image.md)`: neither the demoted link nor the image is a memo "
+                  "link -- `child.md` is not walked (its violation is unreported) and the image's `.md` destination is "
+                  "not probed")
+R19_UNRESOLVED_KEEPS = ("(image) `![alt [docs](child.md)][missing]`: the image does NOT resolve, so `![alt` is literal "
+                        "text and the link inside it IS a link (commonmark.js) -- `child.md` is walked and its "
+                        "violation reported")
+R19_NESTED = ("(image) a nested image in a resolved image `![a ![b [c](child.md)](i.png)](j.png)`: the inner image stays "
+              "masked and the link inside it is demoted -- `child.md` is not walked")
+R19_INNER_RESOLVES = ("(image) `![a ![b [c](child.md)](i.png)][missing]`: the OUTER image fails but the INNER one "
+                      "resolves, and the link inside the inner description is demoted (commonmark.js: `<img alt=\"b "
+                      "c\">`) -- `child.md` is not walked")
+R19_OUTSIDE = ("(image) `![a ![b](i.png) [c](child.md)][missing]`: the link stands OUTSIDE the inner image's description "
+               "and the outer image fails -- it is a link, `child.md` is walked")
+R19_DEACTIVATED = ("(link) `[a ![b [c](child.md)](i.png)](parent.md)`: the inner link deactivated the outer `[` as it "
+                   "closed, before the image demoted it (§6.3 \"links may not contain links\"; commonmark.js: `[a <img "
+                   "alt=\"b c\">](parent.md)`) -- neither `child.md` nor the absent `parent.md` is linked: 0 sites, not "
+                   "rc 2")
+R19_DISPLAY = ("diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two "
+               "files, and a memo outside that directory is named by its absolute path")
+
+MUTANTS += [
+    # -- PR #510 Codex R19
+    ("R19 #1 §6.4: a resolved image's description is plain text -- a link recorded inside it is demoted (re-inject the "
+     "immediate add: the link stays a link)", LEXER,
+     '            while out and out[-1][0] > pos:\n                images.append(out.pop()[:2])',
+     '            while False:\n                images.append(out.pop()[:2])',
+     [R19_REVIEWER, R19_NOT_WALKED, R19_NESTED, R19_INNER_RESOLVES, R19_DEACTIVATED]),
+    ("R19 #1 §6.4: the demoted link's tail stays masked (re-inject a plain drop: the tail is prose)", LEXER,
+     '                images.append(out.pop()[:2])', '                out.pop()',
+     ["(image) `![alt [b](9z)](i.png)`: the demoted link's tail stays masked -- the `9z` in its destination is not "
+      "prose, 0 sites"]),
+    ("R19 #1 §6.4: a failed reference inside a resolved image's description names no lost memo (drop the rule)", LEXER,
+     '            while unresolved and unresolved[-1][0] > pos:\n                unresolved.pop()',
+     '            while False:\n                unresolved.pop()',
+     ["(image) `![alt [x][missing]](img.png)`: a failed reference inside a resolved image's description names no lost "
+      "memo (resolved, it would have been demoted; commonmark.js: `alt=\"alt [x][missing]\"`) -- rc 0"]),
+    ("R19 #1 §6.4: demotion is the RESOLVED image's (re-inject it on the failed image too: `![alt` literal, yet the "
+     "link inside is stripped)", LEXER,
+     '                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed',
+     '                while out and out[-1][0] > pos:\n                    images.append(out.pop()[:2])\n                i += 1',
+     [R19_UNRESOLVED_KEEPS, R19_OUTSIDE]),
+    ("R19 #2 display: a memo is named by its path relative to the root memo's directory (re-inject the basename)", MEMO,
+     '            return str(path.relative_to(self.root))', '            return path.name',
+     [R19_DISPLAY]),
+    ("R19 #3 sibling: the decoded name must be relative under Windows path syntax on every platform (re-inject the "
+     "`/`-only test)", MEMO,
+     '        if _CONTROL.search(name) or p.anchor:                        # (c)',
+     '        if _CONTROL.search(name) or name.startswith("/"):            # (c)',
+     ["(rc) a percent-encoded Windows drive-absolute `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) is rejected after "
+      "decoding on every platform (stage c: a drive anchors): rc 0",
+      "(rc) a percent-encoded backslash-rooted `%5Cchild.md` (`\\child.md`) is rejected (stage c: a root anchors): rc 0",
+      "(rc) a percent-encoded UNC `%5C%5Cserver%5Cshare%5Cx.md` is rejected (stage c: a UNC prefix anchors): rc 0",
+      "(rc) a raw `\\\\server\\share\\x.md` destination decodes (§2.4: `\\\\` is one backslash, `\\s` is literal) to "
+      "the backslash-rooted `\\server\\share\\x.md` (commonmark.js: href `%5Cserver%5Cshare%5Cx.md`) and is rejected: "
+      "rc 0",
+      "(rc) drive-relative `C:child.md`: raw, it is a URL of scheme `c` (stage a); percent-encoded `C%3Achild.md` "
+      "decodes to a drive-anchored name (stage c) -- both rejected, rc 0",
+      "(rc) `n%3Achild.md`: a ONE-letter name before `:` is a Windows drive letter (URL `#path-state` step 1.4.1, "
+      "platform-independent) -- drive-relative, rejected, rc 0; the multi-letter `notes%3Achild.md` of R8 stays a "
+      "file name"]),
+    ("R19 #3 sibling: a backslash separates on every platform (re-inject the POSIX reading: `\\` a name character)", MEMO,
+     '        return _resolve(self.path.parent.joinpath(*p.parts))         # (e)',
+     '        return _resolve(self.path.parent / name)                     # (e)',
+     ["(link) `sub%5Cchild.md`: a backslash is a path separator on every platform (WHATWG URL `#path-state` step 1: for "
+      "a special scheme -- `file` is one -- `\\` ends a segment as `/` does; `PureWindowsPath` is that syntax) -- the "
+      "file `sub/child.md` is walked"]),
 ]

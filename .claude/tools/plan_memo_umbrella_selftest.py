@@ -750,6 +750,37 @@ def orphan_offset_control(M):
         res.rc, miss, walked)
 
 
+def display_path_control(M):
+    """PR #510 R19 #2: every printer names a memo by the population's ONE
+    display name (`Population.display`) -- its path RELATIVE to the root
+    memo's directory, or the resolved absolute path when it lies outside
+    that directory -- never the basename, under which `a/child.md:1` and
+    `b/child.md:1` were one `child.md:1` in the worklist, the findings and
+    the population summary.  Two same-named siblings each carry a naming
+    site and a raw `|` line (a LEX-UNSUPPORTED? seed): the sites' and the
+    seeds' file columns must both tell the two files apart; then a sibling
+    one directory UP from the root is named absolutely."""
+    twin = VIOLATION + "\n\n<div>|</div>\n"
+    res, reported = run_on(M, build(), "See [a](a/child.md) and [b](b/child.md).",
+                           files={"a/child.md": twin, "b/child.md": twin})
+    sites = sorted({m.file for m in reported if m.memo is not res.population.main})
+    seeds = sorted({f[1] for f in res.findings if f[0] == "LEX-UNSUPPORTED?"})
+    want = ["a/child.md", "b/child.md"]
+    if res.rc == 2 or sites != want or seeds != want:
+        return False, "rc %d, site files %s, seed files %s (each must be %s)" % (res.rc, sites, seeds, want)
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d) / "root"
+        root.mkdir()
+        (root / "fixture.md").write_text(build() + "\nSee [up](../child.md).\n")
+        (pathlib.Path(d) / "child.md").write_text(twin)
+        res = M.check(str(root / "fixture.md"))
+        outside = str((pathlib.Path(d) / "child.md").resolve())
+        seeds = sorted({f[1] for f in res.findings if f[0] == "LEX-UNSUPPORTED?"})
+    ok = res.rc != 2 and seeds == [outside]
+    return ok, "same-basename siblings named %s; a memo outside the root's directory named %s (must be its absolute path)" % (
+        want, seeds)
+
+
 # The spellings the grammar module owns.  A SOURCE-TEXT sweep over string
 # constants: it reads these exact spellings and nothing about purpose.
 _ID_SPELLINGS = (
@@ -841,6 +872,7 @@ def registry():
     reg["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"] = ("CONTROL", id_spelling_sweep_control)
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)
+    reg["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"] = ("CONTROL", display_path_control)
     return reg
 
 

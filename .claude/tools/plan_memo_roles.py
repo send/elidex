@@ -240,7 +240,7 @@ def assertion_a(pop, findings, notes):
             # conclude the row is terminal, and when a cell discusses
             # ANOTHER row's kind.  Deciding which is natural language.
             findings.append(
-                ("UMBRELLA-MARK?", row.memo.path.name, row.lineno,
+                ("UMBRELLA-MARK?", pop.display(row.memo.path), row.lineno,
                  "row %r uses the kind vocabulary in its declaring field without the "
                  "marker -- read it: a declaration, a quotation of the criterion, or "
                  "another row's kind?" % row.self_id))
@@ -248,7 +248,7 @@ def assertion_a(pop, findings, notes):
         if any(MARKER in stream(c.lexed)
                for i, c in enumerate(row.cells) if i != row.schema.decl):
             findings.append(
-                ("UMBRELLA-MARK", row.memo.path.name, row.lineno,
+                ("UMBRELLA-MARK", pop.display(row.memo.path), row.lineno,
                  "row %r carries the marker outside its declaring field" % row.self_id))
 
 
@@ -267,7 +267,7 @@ def assertion_b(pop, findings, notes):
         checked += 1
         deps = row.col("Deps").text
         if not is_empty(deps):
-            findings.append(("UMBRELLA-CELL", row.memo.path.name, row.lineno,
+            findings.append(("UMBRELLA-CELL", pop.display(row.memo.path), row.lineno,
                              "%s row %r carries a Deps edge: %s" % (kind, row.self_id, deps[:120])))
     notes.append(
         "[UMBRELLA-CELL] %d §5 no-owner rows (umbrella + kind-undetermined) checked for a Deps edge. "
@@ -323,7 +323,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         # A partially-filled cell is the harder case, not the settled one.
         if empty:
             n += 1
-            findings.append(("ORDER-PROSE?", row.memo.path.name, row.lineno,
+            findings.append(("ORDER-PROSE?", pop.display(row.memo.path), row.lineno,
                              "row %r states ordering vocabulary in prose while its Deps cell is %r"
                              % (rid, deps)))
             continue
@@ -339,7 +339,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         extra = sorted(prose_ids - cell_ids - {rid})
         if extra:
             n += 1
-            findings.append(("ORDER-PROSE?", row.memo.path.name, row.lineno,
+            findings.append(("ORDER-PROSE?", pop.display(row.memo.path), row.lineno,
                              "row %r states ordering vocabulary in prose naming %s, which its Deps "
                              "cell does not carry" % (rid, ", ".join(repr(e) for e in extra))))
     notes.append("[ORDER-PROSE?] SEED -- %d rows; the class is natural language and is not bounded by this figure" % n)
@@ -354,7 +354,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
             if a == b or not (_owner_ok(m, "a") and _owner_ok(m, "b")):
                 continue
             d += 1
-            findings.append(("TWO-OWNERS?", row.memo.path.name, row.lineno,
+            findings.append(("TWO-OWNERS?", pop.display(row.memo.path), row.lineno,
                              "row %r assigns one deliverable to %r and %r in one clause: %r"
                              % (row.self_id, a, b, m.group(0)[:110])))
     notes.append("[TWO-OWNERS?] SEED -- %d clause(s); ownership-vocabulary keyed, so a row that "
@@ -386,7 +386,7 @@ def acceptance_vocab_seed(pop, findings, notes):
             continue
         n += 1
         named.append(rid)
-        findings.append(("ACCEPT-VOCAB?", row.memo.path.name, row.lineno,
+        findings.append(("ACCEPT-VOCAB?", pop.display(row.memo.path), row.lineno,
                          "active-terminal row %r carries no acceptance vocabulary" % rid))
     notes.append(
         "[ACCEPT-VOCAB] SEED -- %d ACTIVE-TERMINAL §5 rows (not umbrella, not "

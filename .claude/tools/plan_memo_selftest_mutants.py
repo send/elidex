@@ -129,7 +129,7 @@ MUTANTS = [
       "is not a width miss"]),
     ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", MEMO,
      '                for lineno, msg in t.misses:\n'
-     '                    self.misses.append((memo.path.name, lineno, msg))',
+     '                    self.misses.append((self.display(memo.path), lineno, msg))',
      '                for lineno, msg in t.misses:\n'
      '                    pass',
      ["(rc) a schema body row whose width differs from its header is rc 2"]),

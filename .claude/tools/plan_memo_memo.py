@@ -555,7 +555,9 @@ class Memo:
         """The memo's identity for every per-memo map (mention identity, the
         seeds' row maps): the RESOLVED path.  Two memos in different
         directories may share a basename, and a map keyed on the basename
-        aliases their rows; the basename (`path.name`) is for display only."""
+        aliases their rows; the DISPLAY name every printer uses is the
+        population's `display` (the path relative to the root memo's
+        directory), never `path.name` (PR #510 R19)."""
         return str(self.path)
 
     def lexed(self):
@@ -611,27 +613,53 @@ class Memo:
               be the UTF-8 encoding of input. Return the percent-decoding of
               bytes"), the operation a consumer applies to a parsed path;
               `urllib.parse.unquote` is that operation;
-          (c) the DECODED name must not be absolute (`/x`, `//host/x` -- a
-              site URL joined to the memo's directory would probe the host's
-              filesystem root) nor hold a C0 control / DEL (`child%00.md`
-              would make `resolve()` raise);
+          (c) the DECODED name must be RELATIVE on every platform, and hold
+              no C0 control / DEL (`child%00.md` would make `resolve()`
+              raise).  ONE platform-independent reading of the name:
+              Windows path syntax (`pathlib.PureWindowsPath`), the superset
+              -- `/` and `\\` both separate, and a drive letter (`C:`), a UNC
+              prefix (`\\\\server\\share`) or a root (`/`, `\\`) ANCHORS.  It
+              is the URL standard's own reading of a special-scheme path
+              (`file` is a special scheme): *path state*
+              (https://url.spec.whatwg.org/#path-state) step 1 ends a
+              segment at "U+002F (/)" or, "url is special and c is U+005C
+              (\\)", at a backslash (with an invalid-reverse-solidus
+              validation error), and step 1.4.1's Windows drive letter rule
+              is, in the spec's words, "a (platform-independent) Windows
+              drive letter quirk".  So `PureWindowsPath(name).anchor` must
+              be empty: `/x`, `//host/x` (a site URL joined to the memo's
+              directory would probe the host's filesystem root), `\\x`,
+              `C:\\temp\\x`, `\\\\server\\share\\x` and the drive-relative
+              `C:x` (raw `C:x.md` is already a URL of scheme `c` at (a);
+              percent-encoded `C%3Ax.md` decodes to a drive anchor here --
+              so does the one-letter `n%3Ax.md`, where the multi-letter
+              `notes%3Ax.md` of (a) is a file name) are all rejected.  ⚠
+              Until PR #510 R19 this stage rejected a leading `/` only, so
+              `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) and
+              `%5Cchild.md` (`\\child.md`) passed, and on Windows `parent /
+              name` discarded the memo's directory;
           (d) the `.md` suffix;
-          (e) `resolve()` beside the memo (`_resolve`); an `OSError` or --
-              on Python 3.9-3.12, for a symlink loop -- a `RuntimeError`
-              there makes the sibling UNAVAILABLE: the joined, unresolved
-              path is returned and the population's one I/O chokepoint
-              reports it as an unavailable linked memo (exit 2), never a
-              crash, never a silent drop.
+          (e) the name's PARTS joined beside the memo -- the same Windows
+              syntax, so `sub%5Cchild.md` is the sibling `sub/child.md` on
+              POSIX as on Windows (never the POSIX file named `sub\\child.md`:
+              a backslash is a separator everywhere, never a name character)
+              -- then `resolve()` (`_resolve`); an `OSError` or -- on Python
+              3.9-3.12, for a symlink loop -- a `RuntimeError` there makes
+              the sibling UNAVAILABLE: the joined, unresolved path is
+              returned and the population's one I/O chokepoint reports it as
+              an unavailable linked memo (exit 2), never a crash, never a
+              silent drop.
         """
         raw = re.split(r"[#?]", dest, 1)[0]
         if _SCHEME.match(raw):                                       # (a)
             return None
         name = unquote(raw)                                          # (b)
-        if name.startswith("/") or _CONTROL.search(name):            # (c)
+        p = pathlib.PureWindowsPath(name)
+        if _CONTROL.search(name) or p.anchor:                        # (c)
             return None
         if not name.endswith(".md"):                                 # (d)
             return None
-        return _resolve(self.path.parent / name)                     # (e)
+        return _resolve(self.path.parent.joinpath(*p.parts))         # (e)
 
     def linked_files(self):
         """Every sibling this memo links (`sibling_path`) -- from any block,
@@ -734,6 +762,7 @@ class Population:
         self.attributed = []        # [(file, table, lineno, rid, other)]
         self.ids = {}
         queue, seen = [_resolve(pathlib.Path(main_path))], set()
+        self.root = queue[0].parent     # the root memo's directory: what `display` names relative to
         while queue:
             p = queue.pop(0)
             if p in seen:
@@ -751,15 +780,15 @@ class Population:
             try:
                 memo = Memo(p)
             except (OSError, UnicodeDecodeError) as e:
-                self.misses.append((p.name, 0, "linked memo unavailable (%s) -- its population is "
-                                    "unscanned" % type(e).__name__))
+                self.misses.append((self.display(p), 0, "linked memo unavailable (%s) -- its population "
+                                    "is unscanned" % type(e).__name__))
                 continue
             self.memos.append(memo)
             queue.extend(memo.linked_files())
             # a reference no definition answers is prose under §6.3, and the
             # memo it meant to link is NOT in the population: never a clean run
             for lineno, label in memo.unresolved_references():
-                self.misses.append((memo.path.name, lineno,
+                self.misses.append((self.display(memo.path), lineno,
                                     "unresolved reference %r -- no definition answers it, so a memo "
                                     "it meant to link is NOT in the population" % label))
         self.main = self.memos[0] if self.memos else None
@@ -767,12 +796,12 @@ class Population:
             matched = {t.schema.name for t in self.main.tables if t.schema is not None}
             for s in SCHEMAS:
                 if s.name not in matched:
-                    self.misses.append((self.main.path.name, 0,
+                    self.misses.append((self.display(self.main.path), 0,
                                         "no table matched schema %r -- its whole population is unscanned" % s.name))
         for memo in self.memos:
             for t in memo.tables:
                 for lineno, msg in t.misses:
-                    self.misses.append((memo.path.name, lineno, msg))
+                    self.misses.append((self.display(memo.path), lineno, msg))
         # ids first (the keep-set the disposition needs), then masks, then kinds
         for memo in self.memos:
             self._declare(memo)
@@ -784,6 +813,20 @@ class Population:
             row.field = stream(row.cells[row.schema.decl].lexed)
         for row in self.ids.values():
             row.kind = self._kind(row)
+
+    def display(self, path):
+        """The ONE display name of a memo, for every printer -- a finding's
+        file column, the worklist, the population summary: the memo's
+        resolved `path` RELATIVE to the root memo's directory (`root`), or
+        the resolved absolute path when it is not under that directory.
+        Identity is `Memo.key`; a basename is neither -- two memos in
+        different directories may share one, and `a/child.md:1` and
+        `b/child.md:1` printed as `child.md:1` named two sites as one (PR
+        #510 R19)."""
+        try:
+            return str(path.relative_to(self.root))
+        except ValueError:
+            return str(path)
 
     # -- declarations ------------------------------------------------------
 
@@ -799,17 +842,17 @@ class Population:
                     # from `ids`, so assertion (b) would never see its Deps
                     # edge -- the I-C silent-skip class, and a schema miss
                     if not is_blank_id_cell(row.id_cell()):
-                        self.misses.append((memo.path.name, row.lineno,
+                        self.misses.append((self.display(memo.path), row.lineno,
                                             "the %r row's id cell does not start with an id (%r); "
                                             "the row declares nothing and is unkeyed, so its cells "
                                             "would go unasserted" % (s.name, row.id_cell()[:60])))
                     continue
                 if rid in self.ids:
                     r2 = self.ids[rid]
-                    self.misses.append((memo.path.name, row.lineno,
+                    self.misses.append((self.display(memo.path), row.lineno,
                                         "row %r is declared twice (also %s:%d in %r); a population "
                                         "with two declarations of one id cannot be scanned"
-                                        % (rid, r2.memo.path.name, r2.lineno, r2.schema.name)))
+                                        % (rid, self.display(r2.memo.path), r2.lineno, r2.schema.name)))
                     continue
                 self.ids[rid] = row
 
@@ -828,7 +871,7 @@ class Population:
         if MARKER in row.field:
             other = attributed_to_other(row.field, row.self_id)
             if other:
-                self.attributed.append((row.memo.path.name, row.schema.name, row.lineno, row.self_id, other))
+                self.attributed.append((self.display(row.memo.path), row.schema.name, row.lineno, row.self_id, other))
                 return "pointer"
             return "umbrella"
         if m:

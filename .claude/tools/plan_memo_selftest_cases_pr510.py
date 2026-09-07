@@ -816,3 +816,83 @@ case("POSITIVE", "(lex-seed) … and that seed carries the `inline` reading",
      build(), 'See <span title="Slice 9z owns it">x</span>.', 1, measure=("seed", "inline raw HTML span"))
 acase("NEGATIVE", "(lex-seed) `a<br>b` / `<sub>2</sub>`: tags holding neither a `|` nor a declared id are no seed",
       build(), "LEX-UNSUPPORTED?", 0, prose="See a<br>b and <sub>2</sub>.")
+
+
+# ------------------------------------------------ PR #510 Codex R19 controls --
+# #1 (IMP): CommonMark §6.4 -- a RESOLVED image's description is plain text
+# (its alt), so every bracket construct recorded inside it is the
+# description's, in ONE rule at the point the image closes (`inline_pass`):
+# a link there is DEMOTED to a masked tail (never a memo link, never prose),
+# a nested image stays masked, a failed reference names no lost memo.  An
+# UNRESOLVED image is literal `![` text and keeps the link inside it.  Until
+# R19 the inner link joined the population as it closed, so the reviewer's
+# `![alt [docs](absent.md)](image.png)` was a false unavailable-memo miss,
+# rc 2.  Every expectation below was read off commonmark.js 0.31.2 (`node
+# cm.js '["<md>"]'`) before being written.  The link-in-link mirror
+# (`[a [b](x.md)](y.md)`: the inner link wins, `](y.md)` is literal) is the
+# R1-3 control "(link) nested inline links: the INNER link is the link…".
+rcase("NEGATIVE", "(image) the R19 reviewer's input `![alt [docs](absent-file.md)](image.png)`: the image resolves, so "
+                  "its description is plain text (§6.4; commonmark.js: `<img alt=\"alt docs\">`) -- the link inside it "
+                  "is no memo link, nothing is walked, rc 0",
+      build(), "See ![alt [docs](%s)](image.png)." % ABSENT, 0)
+case("NEGATIVE", "(image) `![alt [docs](child.md)](absent-image.md)`: neither the demoted link nor the image is a memo "
+                 "link -- `child.md` is not walked (its violation is unreported) and the image's `.md` destination is "
+                 "not probed",
+     build(), "See ![alt [docs](child.md)](absent-image.md).", 0, files=CHILD)
+case("POSITIVE-NOVEL", "(image) `![alt [docs](child.md)][missing]`: the image does NOT resolve, so `![alt` is literal text "
+                       "and the link inside it IS a link (commonmark.js) -- `child.md` is walked and its violation "
+                       "reported",
+     build(), "See ![alt [docs](child.md)][missing].", 1, files=CHILD)
+case("NEGATIVE", "(image) a nested image in a resolved image `![a ![b [c](child.md)](i.png)](j.png)`: the inner image "
+                 "stays masked and the link inside it is demoted -- `child.md` is not walked",
+     build(), "See ![a ![b [c](child.md)](i.png)](j.png).", 0, files=CHILD)
+case("NEGATIVE", "(image) `![a ![b [c](child.md)](i.png)][missing]`: the OUTER image fails but the INNER one resolves, and "
+                 "the link inside the inner description is demoted (commonmark.js: `<img alt=\"b c\">`) -- `child.md` is "
+                 "not walked",
+     build(), "See ![a ![b [c](child.md)](i.png)][missing].", 0, files=CHILD)
+case("POSITIVE-NOVEL", "(image) `![a ![b](i.png) [c](child.md)][missing]`: the link stands OUTSIDE the inner image's "
+                       "description and the outer image fails -- it is a link, `child.md` is walked",
+     build(), "See ![a ![b](i.png) [c](child.md)][missing].", 1, files=CHILD)
+case("NEGATIVE", "(link) `[a ![b [c](child.md)](i.png)](parent.md)`: the inner link deactivated the outer `[` as it closed, "
+                 "before the image demoted it (§6.3 \"links may not contain links\"; commonmark.js: `[a <img alt=\"b "
+                 "c\">](parent.md)`) -- neither `child.md` nor the absent `parent.md` is linked: 0 sites, not rc 2",
+     build(), "See [a ![b [c](child.md)](i.png)](parent.md).", 0, files=CHILD)
+rcase("NEGATIVE", "(image) `![alt [x][missing]](img.png)`: a failed reference inside a resolved image's description names "
+                  "no lost memo (resolved, it would have been demoted; commonmark.js: `alt=\"alt [x][missing]\"`) -- rc 0",
+      build(), "See ![alt [x][missing]](img.png).", 0)
+case("NEGATIVE", "(image) `![alt [b](9z)](i.png)`: the demoted link's tail stays masked -- the `9z` in its destination is "
+                 "not prose, 0 sites",
+     build(), "See ![alt [b](9z)](i.png).", 0)
+
+# #3 (IMP): `sibling_path` stage (c) is ONE platform-independent rule -- the
+# decoded name is read under Windows path syntax (`PureWindowsPath`, the
+# superset: `/` and `\` both separate, a drive / UNC / root prefix anchors)
+# on every platform, and an anchored name is rejected; stage (e) joins the
+# name's parts, so `\` is a separator everywhere, never a POSIX name
+# character.  WHATWG URL `#path-state` step 1 reads a special-scheme path
+# (`file` is special) the same way, and calls its drive-letter quirk
+# "platform-independent".  Until R19 (c) rejected a leading `/` only.
+rcase("NEGATIVE", "(rc) a percent-encoded Windows drive-absolute `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) is "
+                  "rejected after decoding on every platform (stage c: a drive anchors): rc 0",
+      build(), "See [x](C%3A%5Ctemp%5Cchild.md).", 0)
+rcase("NEGATIVE", "(rc) a percent-encoded backslash-rooted `%5Cchild.md` (`\\child.md`) is rejected (stage c: a root "
+                  "anchors): rc 0",
+      build(), "See [x](%5Cchild.md).", 0)
+rcase("NEGATIVE", "(rc) a percent-encoded UNC `%5C%5Cserver%5Cshare%5Cx.md` is rejected (stage c: a UNC prefix anchors): "
+                  "rc 0",
+      build(), "See [x](%5C%5Cserver%5Cshare%5Cx.md).", 0)
+rcase("NEGATIVE", "(rc) a raw `\\\\server\\share\\x.md` destination decodes (§2.4: `\\\\` is one backslash, `\\s` is "
+                  "literal) to the backslash-rooted `\\server\\share\\x.md` (commonmark.js: href "
+                  "`%5Cserver%5Cshare%5Cx.md`) and is rejected: rc 0",
+      build(), "See [x](\\\\server\\share\\x.md).", 0)
+rcase("NEGATIVE", "(rc) drive-relative `C:child.md`: raw, it is a URL of scheme `c` (stage a); percent-encoded "
+                  "`C%3Achild.md` decodes to a drive-anchored name (stage c) -- both rejected, rc 0",
+      build(), "See [a](C:child.md) and [b](C%3Achild.md).", 0)
+rcase("NEGATIVE", "(rc) `n%3Achild.md`: a ONE-letter name before `:` is a Windows drive letter (URL `#path-state` step "
+                  "1.4.1, platform-independent) -- drive-relative, rejected, rc 0; the multi-letter `notes%3Achild.md` "
+                  "of R8 stays a file name",
+      build(), "See [x](n%3Achild.md).", 0)
+case("POSITIVE-NOVEL", "(link) `sub%5Cchild.md`: a backslash is a path separator on every platform (WHATWG URL "
+                       "`#path-state` step 1: for a special scheme -- `file` is one -- `\\` ends a segment as `/` does; "
+                       "`PureWindowsPath` is that syntax) -- the file `sub/child.md` is walked",
+     build(), "See [x](sub%5Cchild.md).", 1, files={"sub/child.md": VIOLATION + "\n"})

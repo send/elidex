@@ -19,7 +19,9 @@ value or a comment is not a link delimiter, PR #510 R17), an inline-link
 tail is parsed by lookahead on the raw text -- there is no pre-mask of any
 kind.  An image's bracket structure is parsed so that it is not a link and
 a link may wrap it; its destination never joins the population, its alt
-text is prose, its tail is masked.  Inline constructs outside the lexed
+text is prose, its tail is masked, and when it RESOLVES its description is
+plain text (§6.4): a link recorded inside it is demoted to a masked tail,
+never a memo link (PR #510 R19).  Inline constructs outside the lexed
 clauses (§6.5 autolinks, §6.2 emphasis beyond the decoration the id grammar
 reads, §2.5 character references in PROSE) are read as written; a
 character reference in a link DESTINATION is decoded (§2.5 / §6.3,
@@ -506,14 +508,35 @@ def inline_pass(s, defs):
     delimiters before the opening delimiter to inactive.  (This will prevent
     us from getting links within links.)"
 
+    A RESOLVED image's description is plain text (§6.4: "the image
+    description" is rendered as the `alt` attribute's "plain string
+    content"), so in ONE rule at the point the image closes every bracket
+    construct recorded inside its description -- the entries whose offset
+    lies past the image's `[`; they are the trailing ones, since brackets
+    nest and each list is appended in closing order -- is the description's:
+    a link there is DEMOTED to a masked tail in `images` (not a link -- its
+    destination never joins the population -- and not prose either: the
+    alt text is the link's TEXT, `![alt [docs](x.md)](i.png)` renders `<img
+    alt="alt docs">`), a nested image stays masked, a failed reference there
+    names no lost memo (resolved, it would have been demoted).  An
+    UNRESOLVED image is the literal text `![…]` and the link inside it IS a
+    link: `![alt [docs](x.md)][missing]` renders `![alt <a href="x.md">docs
+    </a>][missing]` (commonmark.js 0.31.2, each shape measured; PR #510 R19
+    -- until then the inner link joined the population as it closed, and
+    `absent.md` inside a resolved image's description was a false rc-2
+    miss).  The mirror case needs no rule: a link inside a LINK deactivates
+    the outer opener as it closes (above), so `[a [b](x.md)](y.md)` links
+    `x.md` and leaves `](y.md)` literal, as commonmark.js does.
+
     Linear in the bracket structure: no substring is re-parsed.  `code` =
     [(start, end)] backticks included; `html` = [(start, end)] of every raw
     HTML span, `<` and `>` included; `links` = [(tail_start, end,
     destination)] with `tail_start` the `]` closing the link text, so a
     caller masking the tail leaves the visible text -- prose -- in the
-    scanned stream; `images` = [(tail_start, end)] (§6.4: an image's
-    destination never joins the population, its alt text is prose, its tail
-    is masked); `unresolved` = [(offset, label, form, is_image)], every
+    scanned stream; `images` = [(tail_start, end)], every tail that is NOT a
+    link's: a resolved image's (§6.4: its destination never joins the
+    population, its alt text is prose, its tail is masked) and a demoted
+    link's inside one; `unresolved` = [(offset, label, form, is_image)], every
     reference whose label `defs` does not define, with its FORM (`"full"` /
     `"collapsed"` / `"shortcut"`) decided by this one escape-honouring parse
     -- a caller never re-walks the raw text -- and whether the opener was an
@@ -588,6 +611,16 @@ def inline_pass(s, defs):
                 i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed
                 continue
         if is_img:
+            # §6.4: the description of a RESOLVED image is plain text, so
+            # every bracket construct recorded inside it (offsets past this
+            # image's `[`, the trailing entries) is the description's -- ONE
+            # rule, here, where the image closes: a link is demoted to a
+            # masked tail (never a memo link, never prose), a nested image
+            # stays masked, a failed reference names no lost memo
+            while out and out[-1][0] > pos:
+                images.append(out.pop()[:2])
+            while unresolved and unresolved[-1][0] > pos:
+                unresolved.pop()
             images.append((i, end))
         else:
             out.append((i, end, dest))
@@ -633,7 +666,9 @@ class Lexed:
     definition is never inline content.  `tokens` = [(start, end, "cite" |
     "file")] over the raw text.  `resolve(defs)` runs `inline_pass` and sets
     `code` = code spans, `html` = raw HTML spans (§6.6), `links` =
-    [(tail_start, end, destination)], `images` = [(tail_start, end)] and
+    [(tail_start, end, destination)], `images` = [(tail_start, end)] (every
+    tail that is not a link's: a resolved image's, and a link's demoted
+    inside a resolved image's description, §6.4) and
     `unresolved` = [(offset, label, form, is_image)] of the references no
     definition answers; `mask` is set by the disposition step in
     `plan_memo_tables.py` once the row ids are known."""
