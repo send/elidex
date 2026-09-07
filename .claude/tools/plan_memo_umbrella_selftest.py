@@ -256,7 +256,11 @@ class _count_calls:
     re-parse is counted), and stop the block the moment `limit` is passed --
     a non-timing linearity witness.  A host-speed wall-clock cutoff turned
     the registered trip-wire red on contended runners (81-107 ms measured
-    against a 50 ms bound); a work count does not depend on the host."""
+    against a 50 ms bound); a work count does not depend on the host.
+    `module` may be a class (`pathlib.PurePath`): a dunder set on it is
+    reached through the type slot, so `list.__contains__` and
+    `set.__contains__` count too.  `limit=None` counts without a stop (for
+    a LOWER bound: a counter watching nothing is red)."""
 
     def __init__(self, module, name, limit):
         self.module, self.name, self.limit, self.calls = module, name, limit, 0
@@ -266,7 +270,7 @@ class _count_calls:
 
         def counted(*a, **kw):
             self.calls += 1
-            if self.calls > self.limit:
+            if self.limit is not None and self.calls > self.limit:
                 raise _WorkExceeded()
             return orig(*a, **kw)
         self._orig = orig
@@ -276,6 +280,66 @@ class _count_calls:
     def __exit__(self, *exc):
         setattr(self.module, self.name, self._orig)
         return False
+
+
+class _count_lines:
+    """Count the source lines executed in ONE module's frames while the block
+    runs (`sys.settrace` on this thread; a frame of any other file is not
+    traced), and stop the block the moment `limit` is passed.  The work
+    witness where the work passes through no module binding `_count_calls`
+    could watch -- a comprehension or a `while` re-doing work inside one
+    function.  Every loop iteration is a line event (a backward jump reports
+    its line again -- measured on CPython 3.9 and 3.14: a 200 x 200 nested
+    comprehension is 80,403 / 80,603 lines), so a re-scan shows as lines,
+    deterministically, on any host."""
+
+    def __init__(self, module, limit):
+        self.file, self.limit, self.lines = module.__file__, limit, 0
+
+    def __enter__(self):
+        self._prev = sys.gettrace()
+
+        def tracer(frame, event, arg):
+            if frame.f_code.co_filename != self.file:
+                return None
+            if event == "line":
+                self.lines += 1
+                if self.lines > self.limit:
+                    raise _WorkExceeded()
+            return tracer
+        sys.settrace(tracer)
+        return self
+
+    def __exit__(self, *exc):
+        sys.settrace(self._prev)
+        return False
+
+
+class _CountedList(list):
+    """A list that counts its reads (`__getitem__` / `__len__`) and stops
+    past `limit`: the work witness for a table a production method searches.
+    `bisect` consults a list SUBCLASS through these (its exact-list fast
+    path does not apply), so a binary search shows ceil(log2(N+1)) reads per
+    lookup and a linear scan ~N/2."""
+
+    __slots__ = ("reads", "limit")
+
+    def __init__(self, items, limit):
+        super().__init__(items)
+        self.reads, self.limit = 0, limit
+
+    def _read(self):
+        self.reads += 1
+        if self.reads > self.limit:
+            raise _WorkExceeded()
+
+    def __getitem__(self, i):
+        self._read()
+        return list.__getitem__(self, i)
+
+    def __len__(self):
+        self._read()
+        return list.__len__(self)
 
 
 def linear_links_control(M):
@@ -309,70 +373,89 @@ def linear_orphans_control(M):
     48 s of wall clock, the whole of the trip-wire's runtime -- the exact
     count is what makes a mis-bound counter red: fewer than N calls means
     the counter is not watching the parser) -- and the counter stops the
-    block at 4 calls per line; AND the time scales -- t(4N)/t(N) < 8 over
-    N = 1000 / 4N = 4000, min of 3 runs (linear ~4, quadratic ~16), which is
-    what catches a per-line re-join of the rest of the run, a cost no call
-    count sees.  The per-line re-walk this replaced parsed every remaining
-    definition again per line (~4.5 million `link_label` calls, 7.95 s)."""
+    block at 4 calls per line, over N = 1000 and 4N = 4000.  The per-line
+    re-walk this replaced parsed every remaining definition again per line
+    (~4.5 million `link_label` calls, 7.95 s).  The wall-clock ratio
+    t(4N)/t(N) is printed for INFORMATION only: as a gate (`< 8`) it went
+    red on the PRODUCTION code under bursty host load (9.3-10.6 measured,
+    min of 3), and a host-dependent gate is a CI flake in both directions.
+    What the count does not see and the ratio would have: a per-line
+    re-JOIN of the rest of the run (`"\\n".join(lines[i:])` per line) that
+    parses nothing -- C-level work, no call, no Python line.  No mutant of
+    that class exists; if one is written it needs a witness of its own."""
     import time
     import plan_memo_blocks     # the freshly loaded module
     import plan_memo_memo
 
-    def best(n):
+    def run(n):
         text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(n - 1))
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "orphans.md"
             p.write_text(text)
-            t, calls, orphans = [], 0, 0
-            for _ in range(3):
-                t0 = time.perf_counter()
-                with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:
-                    memo = plan_memo_memo.Memo(p)
-                t.append(time.perf_counter() - t0)
-                calls = c.calls
-                orphans = sum(len(v) for v in memo.orphans.values())
-        return orphans, calls, min(t)
+            t0 = time.perf_counter()
+            with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:
+                memo = plan_memo_memo.Memo(p)
+            t = time.perf_counter() - t0
+            orphans = sum(len(v) for v in memo.orphans.values())
+        return orphans, c.calls, t
 
     try:
-        o1, c1, t1 = best(1000)
-        o4, c4, t4 = best(4000)
+        o1, c1, t1 = run(1000)
+        o4, c4, t4 = run(4000)
     except _WorkExceeded:
         return False, "Memo exceeded 4 link_label calls per line: not linear"
     ratio = t4 / t1 if t1 else float("inf")
-    ok = o1 == 999 and o4 == 3999 and c1 == 1000 and c4 == 4000 and ratio < 8
-    return ok, ("%d/%d orphans, %d/%d Phase-1 link_label calls (must be exactly 1000/4000), "
-                "t(1000)=%.1f ms t(4000)=%.1f ms ratio %.1f (< 8)" % (o1, o4, c1, c4, t1 * 1000, t4 * 1000, ratio))
+    ok = o1 == 999 and o4 == 3999 and c1 == 1000 and c4 == 4000
+    return ok, ("%d/%d orphans, %d/%d Phase-1 link_label calls (must be exactly 1000/4000); "
+                "t(1000)=%.1f ms t(4000)=%.1f ms ratio %.1f (informative)" % (o1, o4, c1, c4, t1 * 1000, t4 * 1000, ratio))
 
 
 def scaling_unresolved_control(M):
-    """The scaling witness for the unresolved-reference walk: N and 4N
-    reference lines in the same process, min of 3 runs each, and the ratio
-    t(4N)/t(N) must stay below 8 (linear gives ~4, quadratic ~16).  A ratio
-    is host-independent where an absolute cutoff is not.  The quadratic
-    terms this guards: `Paragraph.locate` (a linear scan per site) and the
-    `site not in out` membership test (now a set)."""
+    """The linearity witness for the unresolved-reference walk, deterministic:
+    N reference lines are ONE paragraph with N sites, and `Paragraph.locate`
+    reads the line-offset table at most N * (ceil(log2(N+1)) + 2) times --
+    a bisect probes ceil(log2(N+1)) entries per site (`N.bit_length()` IS
+    that number for N >= 1), plus one `len` and the final `offsets[k]` --
+    and at least N times (one read per site; a counter watching nothing is
+    red).  A linear scan per site (the R6-2 mutant, ~N^2/2 reads) is
+    stopped at the bound.  The table is wrapped in a counting list AFTER the
+    memo is parsed (`Paragraph.offsets` is a slot), so the walk is the
+    production walk over the production table; `bisect` consults a list
+    subclass through `__getitem__`.  Over N = 1000 and 4N = 4000.  The
+    wall-clock ratio t(4N)/t(N) is printed for information only: as a gate
+    (`< 8`) it depended on the host -- under bursty load the production
+    ratios of this control's siblings measured 8.4-10.6, red, and a
+    quadratic mutant's could fall under 8 the same way."""
     import time
     import plan_memo_memo
 
-    def best(n):
+    def bound(n):
+        return n * (n.bit_length() + 2)     # N * (ceil(log2(N+1)) + 2)
+
+    def run(n):
         text = "".join("[x][missing]\n" for _ in range(n))
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "u.md"
             p.write_text(text)
             memo = plan_memo_memo.Memo(p)
-            t = []
-            for _ in range(3):
-                t0 = time.perf_counter()
-                sites = len(memo.unresolved_references())
-                t.append(time.perf_counter() - t0)
-        return sites, min(t)
+            tables = [_CountedList(para.offsets, limit=bound(n)) for para in memo.paragraphs]
+            for para, table in zip(memo.paragraphs, tables):
+                para.offsets = table
+            t0 = time.perf_counter()
+            sites = len(memo.unresolved_references())
+            t = time.perf_counter() - t0
+        return sites, len(tables), sum(x.reads for x in tables), t
 
-    n1, t1 = best(1000)
-    n4, t4 = best(4000)
+    try:
+        n1, p1, r1, t1 = run(1000)
+        n4, p4, r4, t4 = run(4000)
+    except _WorkExceeded:
+        return False, "locate read the offset table more than N * (log2 N + 2) times: a scan per site, not a bisect"
     ratio = t4 / t1 if t1 else float("inf")
-    return n1 == 1000 and n4 == 4000 and ratio < 8, (
-        "t(1000)=%.2f ms, t(4000)=%.2f ms, ratio %.1f (must be < 8; linear ~4, quadratic ~16)"
-        % (t1 * 1000, t4 * 1000, ratio))
+    ok = (n1, p1, n4, p4) == (1000, 1, 4000, 1) and 1000 <= r1 <= bound(1000) and 4000 <= r4 <= bound(4000)
+    return ok, ("%d/%d sites in %d/%d paragraph(s), %d/%d offset-table reads (N <= reads <= N*(log2 N + 2) "
+                "= %d/%d); t(1000)=%.2f ms t(4000)=%.2f ms ratio %.1f (informative)"
+                % (n1, n4, p1, p4, r1, r4, bound(1000), bound(4000), t1 * 1000, t4 * 1000, ratio))
 
 
 def control_char_destination_control(M):
@@ -418,12 +501,25 @@ def unavailable_sibling_control(M):
 
 
 def scaling_linked_files_control(M):
-    """`linked_files` over N and 4N links, min of 3, t(4N)/t(N) < 8 (linear
-    ~4, quadratic ~16): the dedup is a set, not a list membership test."""
+    """The linearity witness for `linked_files`' dedup, deterministic: over
+    N links to N DISTINCT siblings the dedup makes at most N
+    `PurePath.__eq__` calls -- a set compares an entry only on a hash match,
+    so N distinct paths cost 0 comparisons -- and at least N
+    `PurePath.__hash__` calls (each candidate is hashed to be looked up; a
+    counter watching nothing is red).  A list membership test (the R8-5
+    mutant) compares each candidate against every earlier one, ~N^2/2
+    `__eq__` calls, and is stopped at the bound.  Both dunders are counted on
+    `pathlib.PurePath` itself: `Path` inherits them, and `list.__contains__`
+    / `set.__contains__` reach them through the type slot (`set` cannot be
+    hooked; the comparisons it does not make can be counted).  Over N = 1000
+    and 4N = 4000.  The wall-clock ratio t(4N)/t(N) is printed for
+    information only: as a gate (`< 8`) the production ratio measured 7.4-7.6
+    under bursty host load, and the mutant's 10.7 unloaded was the thinnest
+    kill of the suite -- a host-dependent gate flakes in both directions."""
     import time
     import plan_memo_memo
 
-    def best(n):
+    def run(n):
         # N DISTINCT siblings (none need exist: `linked_files` names, the
         # population checks), so the dedup structure actually grows
         text = "".join("See [x%d](slice-9z-sib-%d.md).\n" % (i, i) for i in range(n))
@@ -431,18 +527,23 @@ def scaling_linked_files_control(M):
             p = pathlib.Path(d) / "links.md"
             p.write_text(text)
             memo = plan_memo_memo.Memo(p)
-            t = []
-            for _ in range(3):
-                t0 = time.perf_counter()
+            t0 = time.perf_counter()
+            with _count_calls(pathlib.PurePath, "__hash__", limit=None) as h, \
+                    _count_calls(pathlib.PurePath, "__eq__", limit=n) as e:
                 k = len(memo.linked_files())
-                t.append(time.perf_counter() - t0)
-        return k, min(t)
+            t = time.perf_counter() - t0
+        return k, e.calls, h.calls, t
 
-    k1, t1 = best(1000)
-    k4, t4 = best(4000)
+    try:
+        k1, e1, h1, t1 = run(1000)
+        k4, e4, h4, t4 = run(4000)
+    except _WorkExceeded:
+        return False, "linked_files compared paths more than N times: a list membership test, not a set"
     ratio = t4 / t1 if t1 else float("inf")
-    return k1 == 1000 and k4 == 4000 and ratio < 8, "t(1000)=%.2f ms, t(4000)=%.2f ms, ratio %.1f (must be < 8)" % (
-        t1 * 1000, t4 * 1000, ratio)
+    ok = (k1, k4) == (1000, 4000) and e1 <= 1000 and e4 <= 4000 and h1 >= 1000 and h4 >= 4000
+    return ok, ("%d/%d siblings, %d/%d Path.__eq__ calls (<= N), %d/%d Path.__hash__ calls (>= N); "
+                "t(1000)=%.2f ms t(4000)=%.2f ms ratio %.1f (informative)"
+                % (k1, k4, e1, e4, h1, h4, t1 * 1000, t4 * 1000, ratio))
 
 
 def undecodable_sibling_control(M):
@@ -463,26 +564,46 @@ def undecodable_sibling_control(M):
 
 
 def scaling_split_row_control(M):
-    """`split_row` over N and 4N escaped-pipe cells, min of 3, t(4N)/t(N) < 8
-    (linear ~4, quadratic ~16): the break offsets are partitioned among the
-    cells in the one row scan, not filtered per cell from a row-wide list."""
+    """The linearity witness for `split_row`, deterministic: over N
+    escaped-pipe cells it executes at most 64 * (len(line) + N) source lines
+    of `plan_memo_blocks` -- the row scan, `_escaped`, the two trims, `_cell`
+    and `Cell.__init__` are 58 source lines together, and each of them runs
+    at most once per character (the scan step; `_escaped`'s backslash walk
+    and a trim visit a character once) or once per cell (the assembly step)
+    -- and at least len(line) (the scan visits every character; a tracer
+    watching nothing is red).  A per-cell filter over the row-wide break
+    list (the R9 #3 mutant) runs ~2 N^2 lines and is stopped at the bound.
+    Counted by `_count_lines`, a `sys.settrace` line counter over this ONE
+    module's frames: the work here passes through no module binding a
+    `_count_calls` could watch (a comprehension over a local list), so the
+    executed source lines ARE the count.  N = 500 and 4N = 2000.  The
+    wall-clock ratio t(4N)/t(N) is printed for information only: as a gate
+    (`< 8`) the production ratio measured 8.4 under bursty host load -- red
+    on correct code -- where the count is the same on every host."""
     import time
     import plan_memo_blocks
 
-    def best(n):
-        line = "|" + " a\\|b |" * n
-        t = []
-        for _ in range(3):
-            t0 = time.perf_counter()
-            k = len(plan_memo_blocks.split_row(line))
-            t.append(time.perf_counter() - t0)
-        return k, min(t)
+    def bound(length, n):
+        return 64 * (length + n)
 
-    k1, t1 = best(500)
-    k4, t4 = best(2000)
+    def run(n):
+        line = "|" + " a\\|b |" * n
+        t0 = time.perf_counter()
+        with _count_lines(plan_memo_blocks, limit=bound(len(line), n)) as c:
+            k = len(plan_memo_blocks.split_row(line))
+        t = time.perf_counter() - t0
+        return k, c.lines, len(line), t
+
+    try:
+        k1, l1, n1, t1 = run(500)
+        k4, l4, n4, t4 = run(2000)
+    except _WorkExceeded:
+        return False, "split_row ran more than 64 source lines per character and cell: a per-cell filter, not one scan"
     ratio = t4 / t1 if t1 else float("inf")
-    return k1 == 500 and k4 == 2000 and ratio < 8, "t(500)=%.2f ms, t(2000)=%.2f ms, ratio %.1f (must be < 8)" % (
-        t1 * 1000, t4 * 1000, ratio)
+    ok = (k1, k4) == (500, 2000) and n1 <= l1 <= bound(n1, 500) and n4 <= l4 <= bound(n4, 2000)
+    return ok, ("%d/%d cells, %d/%d source lines over %d/%d characters (len <= lines <= 64*(len+N), %.1f per "
+                "character+cell); t(500)=%.2f ms t(2000)=%.2f ms ratio %.1f (informative)"
+                % (k1, k4, l1, l4, n1, n4, l1 / (n1 + 500), t1 * 1000, t4 * 1000, ratio))
 
 
 def spec_examples_control(M):
@@ -861,13 +982,13 @@ def registry():
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
     reg["an empty control or mutant registry is a FAIL, never green"] = ("CONTROL", empty_registry_control)
     reg["links() is linear: 30 nested brackets are one inline_pass call"] = ("CONTROL", linear_links_control)
-    reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"] = ("CONTROL", linear_orphans_control)
-    reg["unresolved_references scales linearly: t(4N)/t(N) < 8"] = ("CONTROL", scaling_unresolved_control)
+    reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line"] = ("CONTROL", linear_orphans_control)
+    reg["unresolved_references is linear: <= N*(log2 N + 2) reads of the line-offset table (a bisect per site, not a scan)"] = ("CONTROL", scaling_unresolved_control)
     reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
     reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
-    reg["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"] = ("CONTROL", scaling_linked_files_control)
+    reg["linked_files is linear: <= N Path.__eq__ calls over N distinct siblings (a set dedup hashes, a list compares)"] = ("CONTROL", scaling_linked_files_control)
     reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
-    reg["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"] = ("CONTROL", scaling_split_row_control)
+    reg["split_row is linear: <= 64 source lines per character and per cell (breaks partitioned in the one scan)"] = ("CONTROL", scaling_split_row_control)
     reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)
     reg["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"] = ("CONTROL", id_spelling_sweep_control)
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)

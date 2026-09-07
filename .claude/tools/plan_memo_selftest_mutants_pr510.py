@@ -95,7 +95,7 @@ MUTANTS += [
      '                defs_at[i] = definition_block(run_text[i], run_off[i])',
      '                defs_at[i] = (__import__("plan_memo_blocks").reference_definitions('
      '"\\n".join(lines[i:]))[0] or [None])[0]',
-     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"]),
+     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line"]),
     ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
      "reads it from the opener", LEXER,
      '    raw, _ = link_label(s, opener)\n    if raw is None:', '    raw = s[opener + 1:close]\n    if False:',
@@ -138,7 +138,7 @@ MUTANTS += [
     ("R6-2 locate: a bisect over the line offsets, not a linear scan per site", MEMO,
      '        k = bisect.bisect_right(self.offsets, i) - 1',
      '        k = 0\n        while k + 1 < len(self.offsets) and self.offsets[k + 1] <= i:\n            k += 1',
-     ["unresolved_references scales linearly: t(4N)/t(N) < 8"]),
+     ["unresolved_references is linear: <= N*(log2 N + 2) reads of the line-offset table (a bisect per site, not a scan)"]),
     # -- PR #510 Codex R7
     ("R7-1 def: the definition is parsed over the rest of the block (re-inject a 3-line window)", MEMO,
      '                text, off = "\\n".join(lines[i:j]), 0',
@@ -169,7 +169,7 @@ MUTANTS += [
     ("R8-5 sibling: the dedup is a set (re-inject the list membership test)", MEMO,
      '                if f is not None and f not in seen:\n                    seen.add(f)',
      '                if f is not None and f not in out:\n                    pass',
-     ["linked_files scales linearly: t(4N)/t(N) < 8 (set dedup)"]),
+     ["linked_files is linear: <= N Path.__eq__ calls over N distinct siblings (a set dedup hashes, a list compares)"]),
     ("R8-3 bare id: the far side of a `.` is the ASCII id class, not `str.isalnum`", IDS,
      'bool(cont.match(text[j]))', 'text[j].isalnum()',
      ["(bare) `9z.次の工程` bounds the id: the far side of the `.` is not an ASCII id character, so "
@@ -221,7 +221,7 @@ MUTANTS += [
     ("R9 #3 row: breaks are partitioned in the one scan (re-inject the per-cell filter)", BLOCKS,
      '        out.append(_cell(line, a, b, cell_breaks))',
      '        out.append(_cell(line, a, b, [x for bs in breaks for x in bs if a <= x < b]))',
-     ["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"]),
+     ["split_row is linear: <= 64 source lines per character and per cell (breaks partitioned in the one scan)"]),
     # -- design re-gate R4-R9
     ("RG2 IMP-1: run_end reads the ONE predicate (re-inject raw/blank-only run ends)", BLOCKS,
      '    while j < len(lines) and not block_end(lines, j, True, lazy):\n        j += 1',
@@ -369,7 +369,7 @@ MUTANTS += [
      "counter to the lexer's binding, which sees only Phase 2)", SELFTEST,
      'with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:',
      'with _count_calls(__import__("plan_memo_lexer"), "link_label", limit=4 * n) as c:',
-     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"]),
+     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line"]),
     ("R12-E conformance: the type-6 tag list is the spec's (drop `div`; `search`, the brief's "
      "example, has no spec example to exercise it)", BLOCKS,
      'details|dialog|dir|div|dl|', 'details|dialog|dir|dl|',
