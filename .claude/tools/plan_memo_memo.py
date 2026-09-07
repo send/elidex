@@ -30,8 +30,9 @@ import re
 from urllib.parse import unquote
 
 from plan_memo_blocks import (
-    block_end, container_text, definition_block, is_blank, is_setext_underline, list_item_line,
-    one_line_block, quote_content, raw_extent, raw_opener, run_end, starts_block, table_header_at,
+    block_end, container_text, definition_block, indentation, is_blank, list_item_line,
+    one_line_block, quote_content, raw_extent, raw_opener, run_end, setext_underline, starts_block,
+    table_header_at,
 )
 from plan_memo_lexer import Lexed, normalize_label
 from plan_memo_tables import (
@@ -97,8 +98,15 @@ class Memo:
         self.sequence = []          # Phase 1's block sequence: [kind, first lineno, last lineno]
         self.defs = {}              # normalised label -> destination (§4.7: the first wins)
         self.orphans = {}           # normalised label -> {1-based line numbers}
-        self.raw_html = []          # [(lineno, content line)] every line of an HTML block (§4.6)
-        self.item_code = []         # [(lineno, line)] indented code right after a list item's paragraph
+        # [(lineno, content line, reading)] every line of a raw extent that is
+        # not a fence, in ONE list -- the LEX-UNSUPPORTED? seed's population,
+        # under one seed rule; `reading` says which grammar hides the line:
+        # "html" (an HTML block, §4.6), "indented" (indented code, §4.4), or
+        # "item" (indented code opened while a list item may still be open
+        # under LEXED-FLAT -- the item's content under CommonMark, §5.2
+        # Example 108).  A fence is not recorded: it is the author's explicit
+        # code marker, where an indented `| row |` is the I-C silent-skip class.
+        self.raw = []
         self.paragraphs, _ = self._parse(self.lines, list(range(1, len(self.lines) + 1)), None)
         for lx in self.lexed():
             lx.resolve(self.defs)
@@ -117,19 +125,52 @@ class Memo:
         lines consumed): the pass STOPS at a lazy candidate where no
         paragraph is open -- such a line is content only as paragraph
         continuation text, so the quote ends there (`> # h\\nlazy` is a
-        heading in the quote and a paragraph after it).  Each line is
-        classified once, in order:
+        heading in the quote and a paragraph after it; the spec's instance
+        is Example 237, `> ```\\nfoo\\n```` -- an unclosed fence in the quote,
+        then a paragraph and a fence outside it).  With a paragraph open
+        (`cur` holds its lines: the run ended AT this line) the ONE boundary
+        a lazy line can be is a GFM table header whose delimiter row carries
+        the marker -- the only `block_end` arm that needs the next line,
+        which `_quote`'s gather could not see -- and that line is CONTENT:
+        cmark-gfm reads the header out of the paragraph's last line
+        (`> a\\n| h |\\n> |---|\\n> | 1 |` is quote[p(a), table(h; 1)],
+        measured), so the table is admitted there instead of the quote
+        ending.  (Measured divergence, not modelled: after a reference
+        DEFINITION cmark-gfm still hands the lazy line to the table and
+        prints the definition as a paragraph, `> [a]: /u\\n| h |\\n> |---|`;
+        here a definition is a block of its own, so the quote ends.)  Each
+        line is classified once, in order:
 
           * a raw-extent opener (`raw_opener`; indented code, fences and HTML
             blocks share the one rule): its lines to `raw_extent` are never
-            inline-parsed and are consumed here; an HTML block's lines are
-            recorded in `raw_html` for the LEX-UNSUPPORTED? seed, so their
-            content is printed rather than assumed -- as are the lines of an
-            indented code block opened while a LIST ITEM's paragraph is the
-            last block (blank lines between; `item_code`): under §5.2 that
-            is the item's next paragraph (Example 108 `- foo\\n\\n    bar`),
-            under LEXED-FLAT a code block, the one place the flat reading
-            hides prose, so it is seeded rather than assumed;
+            inline-parsed and are consumed here; every line of an HTML block
+            (§4.6) or an indented code block (§4.4) is recorded in `raw`
+            with its READING for the LEX-UNSUPPORTED? seed (one seed rule
+            for raw lines: a line holding a `|` or a declared id is
+            printed, never assumed -- an indented schema row after a
+            table's rows is raw under cmark-gfm too, and the I-C
+            silent-skip class without the seed), the reading being "item"
+            where a LIST ITEM may still be open under LEXED-FLAT: under §5.2
+            that is the item's next paragraph (Example 108 `- foo\\n\\n
+            bar`), the one place the flat reading hides prose.  THE
+            ITEM-OPEN BIT (`item_open`, the flat reading's whole model of
+            §5.2 nesting): SET when a paragraph headed by a list-marker line
+            is flushed; CLEARED by a block start -- any line classified
+            outside a run, a blank line excepted -- whose indentation is
+            below 2 columns (the smallest content indent any marker gives,
+            `- `; the item's real content indent is not tracked, so a
+            paragraph at 2 columns after `1. ` keeps the bit and the seed
+            over-approximates -- a seed, never an inventory).  Verified
+            against commonmark.js 0.31.2: `- item\\n\\n  para\\n\\n    x`,
+            `- item\\n\\n  > q\\n\\n    x` and `1. item\\n\\n   para\\n\\n
+            x` are each a `<p>x</p>` inside the item (the bit survives the
+            2-column paragraph, the quote, the 3-column paragraph); `-
+            item\\n\\n para\\n\\n    x` and `- item\\n\\n  para\\n\\n# h\\n\\n
+            x` are a code block outside it (a 1-column paragraph, a
+            0-column heading, close the item).  A one-block memory ("the
+            last block is the item's paragraph") lost the bit at the
+            2-column paragraph and read the prose after it as raw, unseeded
+            (design re-gate 3, IMP-1);
           * a blank line ends the paragraph;
           * a `>` line opens a block quote: `_quote`, the same pass over
             its content;
@@ -137,10 +178,11 @@ class Memo:
             admission site;
           * a setext underline after paragraph text (§4.3; not after a run
             headed by a list-item line, Example 94 -- `container_text`): the
-            paragraph is the heading and the underline closes it, content of
-            nothing; with no paragraph open the line is not an underline at
-            all (`block_end`'s `para_open` arm) -- `---` is a thematic break
-            and `===` paragraph text;
+            paragraph is the heading, at the level `setext_underline` reads
+            (the one reading of the underline), and the underline closes
+            it, content of nothing; with no paragraph open the line is not
+            an underline at all (`block_end`'s `para_open` arm) -- `---` is
+            a thematic break and `===` paragraph text;
           * otherwise a RUN starts (`run_end`; joined once, each line mapped
             to its offset, the text a definition is parsed over) and its
             lines are read one by one: a definition at a block start is a
@@ -159,15 +201,25 @@ class Memo:
         out, cur, i, n = [], [], 0, len(lines)
         run_text, run_off, defs_at = {}, {}, {}
         sequence = self.sequence
-        after_item = False      # the last block is a list item's paragraph (LEXED-FLAT)
+        item_open = False       # LEXED-FLAT: a list item may still be open (the docstring's bit)
 
         def flush(kind="p", last=None):
-            nonlocal after_item
+            nonlocal item_open
             if cur:
                 sequence.append([kind, cur[0][0], cur[-1][0] if last is None else last])
                 out.append(Paragraph(list(cur)))
-                after_item = kind == "p" and list_item_line(cur[0][1])
+                if kind == "p" and list_item_line(cur[0][1]):
+                    item_open = True
                 cur.clear()
+
+        def close(line):
+            # a block start: the paragraph before it is closed, and -- at
+            # fewer than 2 columns of indentation -- so is the list item
+            # (the bit's CLEAR rule; a blank line closes neither)
+            nonlocal item_open
+            flush()
+            if not is_blank(line) and indentation(line)[0] < 2:
+                item_open = False
 
         def definition_at(i):
             # the reference definition starting at content line `i`, parsed
@@ -180,44 +232,40 @@ class Memo:
             line = lines[i]
             new_run = i not in run_text
             if new_run:
-                if lazy is not None and lazy[i]:
+                if lazy is not None and lazy[i] and not (cur and table_header_at(lines, i, lazy)):
                     break       # §5.1: no paragraph is open, so the quote ends here
                 # outside a run no paragraph is open: the block state is the
                 # run map itself, not a look at the previous line
                 opener = raw_opener(line, False)
                 if opener is not None:
-                    flush()
+                    close(line)
                     end = raw_extent(lines, i, opener, lazy)
-                    if opener[0] == "html":
-                        self.raw_html.extend((linenos[k], lines[k]) for k in range(i, end))
-                    elif opener[0] == "indented" and after_item:
-                        self.item_code.extend((linenos[k], lines[k]) for k in range(i, end))
-                    else:
-                        after_item = False
+                    if opener[0] != "fence":
+                        reading = "item" if opener[0] == "indented" and item_open else opener[0]
+                        self.raw.extend((linenos[k], lines[k], reading) for k in range(i, end))
                     sequence.append([opener[0], linenos[i], linenos[end - 1]])
                     i = end
                     continue
                 if is_blank(line):
-                    flush()
+                    close(line)
                     i += 1
                     continue
                 if quote_content(line) is not None:
-                    flush()
-                    after_item = False
+                    close(line)
                     i += self._quote(lines, linenos, i, out)
                     continue
                 if not starts_block(line) and table_header_at(lines, i, lazy):
-                    flush()
-                    after_item = False
+                    close(line)
                     t, end = admit_table(self, lines, linenos, i, lazy)
                     self.tables.append(t)
                     sequence.append(["table", linenos[i], linenos[end - 1]])
                     i = end
                     continue
-                if cur and is_setext_underline(line) and not container_text(cur[0][1]):
+                heading = setext_underline(line) if cur else None
+                if heading is not None and not container_text(cur[0][1]):
                     # §4.3: the paragraph is a heading; the underline closes
                     # it and is not content
-                    flush("h1" if line.strip(" \t").startswith("=") else "h2", linenos[i])
+                    flush(heading, linenos[i])
                     i += 1
                     continue
                 j = run_end(lines, i, lazy)
@@ -233,17 +281,17 @@ class Memo:
                 consumed = run_text[i][run_off[i]:stop]
                 k = consumed.count("\n") + (0 if consumed.endswith("\n") else 1)
                 sequence.append(["def", linenos[i], linenos[i + k - 1]])
-                after_item = False
+                close(line)
                 i += k
                 continue
             if d is not None:
                 # a valid definition that cannot take effect: the orphan
                 self.orphans.setdefault(normalize_label(d[0]), set()).add(linenos[i])
-            elif new_run and not (cur and is_setext_underline(line) and not one_line_block(line)):
+            elif new_run and not (cur and setext_underline(line) is not None and not one_line_block(line)):
                 # a run start begins a paragraph -- unless it is the lazy
                 # `==` after a list item (Example 94), which is that
                 # paragraph's text
-                flush()
+                close(line)
             cur.append((linenos[i], line))
             kind = one_line_block(line)
             if kind:
@@ -259,10 +307,11 @@ class Memo:
         this memo's like every other block's.  The content: every marker
         line stripped (`quote_content`) and, between and after the marker
         lines, the lines without a marker as LAZY CONTINUATION CANDIDATES --
-        content only as paragraph continuation text ("the result of
-        deleting the initial block quote marker from one or more lines in
-        which the next character after the marker is paragraph continuation
-        text is a block quote with Bs as its content") -- run through the
+        content only as paragraph continuation text (§5.1, verbatim: "the
+        result of deleting the initial block quote marker from one or more
+        lines in which the next character other than a space or tab after
+        the block quote marker is paragraph continuation text is a block
+        quote with Bs as its content") -- run through the
         SAME `_parse`, so a definition inside registers (Example 218), a
         table inside is a table, a raw extent inside is raw, a paragraph
         inside is a paragraph at its real line, and a nested quote is the
@@ -271,7 +320,10 @@ class Memo:
         never a setext underline, Example 93) no quote reaches it, so the
         candidates gathered here stop there; `_parse` stops earlier at a
         candidate where no paragraph is open (after a raw extent, a table, a
-        heading: Examples 128 / 174).  Linear: each line of the document is
+        heading: Example 237 `> ```\\nfoo\\n```` -- ⚠ an earlier docstring
+        cited Examples 128 / 174, which end their quotes at a BLANK line,
+        this gather's stop, not `_parse`'s) -- or hands it to a table when
+        it is the header the paragraph's last line becomes.  Linear: each line of the document is
         gathered once per enclosing quote, never re-scanned across quotes."""
         n = len(lines)
         content, nos, inner_lazy, j = [], [], [], i

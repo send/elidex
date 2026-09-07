@@ -223,9 +223,10 @@ def admit_table(memo, lines, linenos, i, lazy):
     row of it, never a definition).
 
     Width: GFM §4.10 "The remainder of the table's rows may vary in the
-    number of cells.  If a number of cells fewer than the number of cells in
-    the header row, empty cells are inserted.  If greater, the excess is
-    ignored" -- a NON-schema row is cut to the header's width here, before
+    number of cells.  If there are a number of cells fewer than the number
+    of cells in the header row, empty cells are inserted.  If there are
+    greater, the excess is ignored" (verbatim, GFM 0.29 §4.10 after Example
+    203) -- a NON-schema row is cut to the header's width here, before
     its cells are lexed, so an ignored cell's `[x](absent.md)` is never a
     link and its id never a site (PR #510 R13); a SCHEMA row of any other
     width is the schema miss (local policy over "may vary": a shifted read

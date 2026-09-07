@@ -10,7 +10,8 @@
   "HTML blocks",
   "Link reference definitions",
   "Paragraphs",
-  "Blank lines"
+  "Blank lines",
+  "Block quotes"
  ],
  "examples": [
   {
@@ -1188,6 +1189,156 @@
    "section": "Blank lines",
    "markdown": "  \n\naaa\n  \n\n# aaa\n\n  \n",
    "html": "<p>aaa</p>\n<h1>aaa</h1>\n"
+  },
+  {
+   "example": 228,
+   "section": "Block quotes",
+   "markdown": "> # Foo\n> bar\n> baz\n",
+   "html": "<blockquote>\n<h1>Foo</h1>\n<p>bar\nbaz</p>\n</blockquote>\n"
+  },
+  {
+   "example": 229,
+   "section": "Block quotes",
+   "markdown": "># Foo\n>bar\n> baz\n",
+   "html": "<blockquote>\n<h1>Foo</h1>\n<p>bar\nbaz</p>\n</blockquote>\n"
+  },
+  {
+   "example": 230,
+   "section": "Block quotes",
+   "markdown": "   > # Foo\n   > bar\n > baz\n",
+   "html": "<blockquote>\n<h1>Foo</h1>\n<p>bar\nbaz</p>\n</blockquote>\n"
+  },
+  {
+   "example": 231,
+   "section": "Block quotes",
+   "markdown": "    > # Foo\n    > bar\n    > baz\n",
+   "html": "<pre><code>&gt; # Foo\n&gt; bar\n&gt; baz\n</code></pre>\n"
+  },
+  {
+   "example": 232,
+   "section": "Block quotes",
+   "markdown": "> # Foo\n> bar\nbaz\n",
+   "html": "<blockquote>\n<h1>Foo</h1>\n<p>bar\nbaz</p>\n</blockquote>\n"
+  },
+  {
+   "example": 233,
+   "section": "Block quotes",
+   "markdown": "> bar\nbaz\n> foo\n",
+   "html": "<blockquote>\n<p>bar\nbaz\nfoo</p>\n</blockquote>\n"
+  },
+  {
+   "example": 234,
+   "section": "Block quotes",
+   "markdown": "> foo\n---\n",
+   "html": "<blockquote>\n<p>foo</p>\n</blockquote>\n<hr />\n"
+  },
+  {
+   "example": 235,
+   "section": "Block quotes",
+   "markdown": "> - foo\n- bar\n",
+   "html": "<blockquote>\n<ul>\n<li>foo</li>\n</ul>\n</blockquote>\n<ul>\n<li>bar</li>\n</ul>\n"
+  },
+  {
+   "example": 236,
+   "section": "Block quotes",
+   "markdown": ">     foo\n    bar\n",
+   "html": "<blockquote>\n<pre><code>foo\n</code></pre>\n</blockquote>\n<pre><code>bar\n</code></pre>\n"
+  },
+  {
+   "example": 237,
+   "section": "Block quotes",
+   "markdown": "> ```\nfoo\n```\n",
+   "html": "<blockquote>\n<pre><code></code></pre>\n</blockquote>\n<p>foo</p>\n<pre><code></code></pre>\n"
+  },
+  {
+   "example": 238,
+   "section": "Block quotes",
+   "markdown": "> foo\n    - bar\n",
+   "html": "<blockquote>\n<p>foo\n- bar</p>\n</blockquote>\n"
+  },
+  {
+   "example": 239,
+   "section": "Block quotes",
+   "markdown": ">\n",
+   "html": "<blockquote>\n</blockquote>\n"
+  },
+  {
+   "example": 240,
+   "section": "Block quotes",
+   "markdown": ">\n>  \n> \n",
+   "html": "<blockquote>\n</blockquote>\n"
+  },
+  {
+   "example": 241,
+   "section": "Block quotes",
+   "markdown": ">\n> foo\n>  \n",
+   "html": "<blockquote>\n<p>foo</p>\n</blockquote>\n"
+  },
+  {
+   "example": 242,
+   "section": "Block quotes",
+   "markdown": "> foo\n\n> bar\n",
+   "html": "<blockquote>\n<p>foo</p>\n</blockquote>\n<blockquote>\n<p>bar</p>\n</blockquote>\n"
+  },
+  {
+   "example": 243,
+   "section": "Block quotes",
+   "markdown": "> foo\n> bar\n",
+   "html": "<blockquote>\n<p>foo\nbar</p>\n</blockquote>\n"
+  },
+  {
+   "example": 244,
+   "section": "Block quotes",
+   "markdown": "> foo\n>\n> bar\n",
+   "html": "<blockquote>\n<p>foo</p>\n<p>bar</p>\n</blockquote>\n"
+  },
+  {
+   "example": 245,
+   "section": "Block quotes",
+   "markdown": "foo\n> bar\n",
+   "html": "<p>foo</p>\n<blockquote>\n<p>bar</p>\n</blockquote>\n"
+  },
+  {
+   "example": 246,
+   "section": "Block quotes",
+   "markdown": "> aaa\n***\n> bbb\n",
+   "html": "<blockquote>\n<p>aaa</p>\n</blockquote>\n<hr />\n<blockquote>\n<p>bbb</p>\n</blockquote>\n"
+  },
+  {
+   "example": 247,
+   "section": "Block quotes",
+   "markdown": "> bar\nbaz\n",
+   "html": "<blockquote>\n<p>bar\nbaz</p>\n</blockquote>\n"
+  },
+  {
+   "example": 248,
+   "section": "Block quotes",
+   "markdown": "> bar\n\nbaz\n",
+   "html": "<blockquote>\n<p>bar</p>\n</blockquote>\n<p>baz</p>\n"
+  },
+  {
+   "example": 249,
+   "section": "Block quotes",
+   "markdown": "> bar\n>\nbaz\n",
+   "html": "<blockquote>\n<p>bar</p>\n</blockquote>\n<p>baz</p>\n"
+  },
+  {
+   "example": 250,
+   "section": "Block quotes",
+   "markdown": "> > > foo\nbar\n",
+   "html": "<blockquote>\n<blockquote>\n<blockquote>\n<p>foo\nbar</p>\n</blockquote>\n</blockquote>\n</blockquote>\n"
+  },
+  {
+   "example": 251,
+   "section": "Block quotes",
+   "markdown": ">>> foo\n> bar\n>>baz\n",
+   "html": "<blockquote>\n<blockquote>\n<blockquote>\n<p>foo\nbar\nbaz</p>\n</blockquote>\n</blockquote>\n</blockquote>\n"
+  },
+  {
+   "example": 252,
+   "section": "Block quotes",
+   "markdown": ">     code\n\n>    not code\n",
+   "html": "<blockquote>\n<pre><code>code\n</code></pre>\n</blockquote>\n<blockquote>\n<p>not code</p>\n</blockquote>\n"
   }
  ]
 }

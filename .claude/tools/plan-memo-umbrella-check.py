@@ -52,10 +52,11 @@ FINDING CODES.  Mechanical (gate the exit status): UMBRELLA-MARK (a),
 UMBRELLA-CELL (b, the `Deps` half only -- the acceptance half has no cell and
 is not implementable here), KIND-SPELLING, SCHEMA.  Seeds (`?` suffix, never
 gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?,
-LEX-UNSUPPORTED? (a line never inline-parsed that a reader would read as
-content -- a raw HTML-block line, or indented code right after a list
-item's paragraph, which CommonMark reads as the item's content and the
-LEXED-FLAT list reading does not -- holding a `|` or a declared id).
+LEX-UNSUPPORTED? (a RAW line never inline-parsed -- an HTML-block line or
+an indented-code line, a fence excepted -- holding a `|` or a declared id:
+one seed rule, the line's READING printed with it, since indented code
+opened while a list item may be open is the item's content under
+CommonMark and raw only under the LEXED-FLAT list reading).
 NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
 stated beside its check in `plan_memo_roles.py` and in the report's notes.
@@ -330,36 +331,44 @@ def collect_mentions(pop):
 _BARE_TOKEN = re.compile(r"(?<![0-9A-Za-z-])(?:%s|%s)(?![0-9A-Za-z-])" % (SLUG_ID, SHORT_ID))
 
 
+_READING = {
+    "html": "raw HTML-block line (CommonMark §4.6) never inline-parsed",
+    "indented": "indented-code line (CommonMark §4.4: raw, like a fence -- cmark-gfm agrees, an indented "
+                "row after a table is `<pre><code>`) never inline-parsed",
+    "item": "indented line while a list item may be open, read as indented code (§5.2 LEXED-FLAT; "
+            "CommonMark: the item's content, Example 108)",
+}
+
+
 def lex_unsupported_seed(pop, findings, notes):
-    """`[LEX-UNSUPPORTED?]` SEED: a line this lexer never inline-parses that
-    a reader would read as content -- a RAW line of an HTML block
-    (CommonMark §4.6: raw like a fence, but markup a reader sees rendered),
-    or a line of an indented code block opened right after a LIST ITEM's
-    paragraph (§5.2 Example 108 `- foo\\n\\n    bar`: the item's next
-    paragraph under CommonMark, a code block under this lexer's LEXED-FLAT
-    reading of lists -- the one place the flat reading hides prose) -- when
-    it holds a `|` or a declared id: the content a table or a naming scan
-    would have read had the block been prose.  A seed in the ORDER-PROSE?
-    idiom: never gating, and no count here bounds the class (an HTML table
-    row whose ids are undeclared is invisible to it).  Block quotes are not
-    seeded (a container whose content IS parsed, §5.1) nor is indented code
-    elsewhere (a raw extent like a fence, §4.4, which is not seeded
-    either)."""
+    """`[LEX-UNSUPPORTED?]` SEED: a RAW line this lexer never inline-parses
+    (`Memo.raw`: every line of an HTML block, §4.6, or of an indented code
+    block, §4.4 -- a fence excepted, the author's explicit code marker)
+    that holds a `|` or a declared id: the content a table or a naming
+    scan would have read had the block been prose, printed with the
+    READING that makes it raw (`_READING`) rather than assumed.  ONE seed
+    rule for every raw line (design re-gate 3, IMP-2: an indented schema
+    row after a table's rows -- `    | id | ... |`, or a tab -- is raw
+    under cmark-gfm too, and left the census silently, the I-C class; it
+    is seeded exactly as a raw HTML line holding a `|` always was).  The
+    `item` reading is the one place the flat list reading HIDES prose:
+    indented code opened while a list item may still be open is the item's
+    next paragraph under CommonMark (§5.2 Example 108 `- foo\\n\\n    bar`).
+    A seed in the ORDER-PROSE? idiom: never gating, and no count here
+    bounds the class (an HTML table row whose ids are undeclared is
+    invisible to it).  Block quotes are not seeded (a container whose
+    content IS parsed, §5.1)."""
     keep, n = pop.keep(), 0
     for memo in pop.memos:
-        for kind, lines in (("html", memo.raw_html), ("item-code", memo.item_code)):
-            for lineno, line in lines:
-                ids = sorted({t for t in _BARE_TOKEN.findall(line) if t in keep})
-                if "|" in line or ids:
-                    n += 1
-                    findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno, "%s; it holds %s" % (
-                        {"html": "raw HTML-block line (CommonMark §4.6) never inline-parsed",
-                         "item-code": "indented line after a list item's paragraph read as indented code "
-                                      "(§5.2 LEXED-FLAT; CommonMark: the item's content, Example 108)"}[kind],
-                        ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
-    notes.append("[LEX-UNSUPPORTED?] SEED -- %d line(s) never inline-parsed (a raw HTML-block line, or "
-                 "indented code after a list item's paragraph) hold a `|` or a declared id; the bound is "
-                 "the plan's §3 table, not this figure" % n)
+        for lineno, line, reading in memo.raw:
+            ids = sorted({t for t in _BARE_TOKEN.findall(line) if t in keep})
+            if "|" in line or ids:
+                n += 1
+                findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno, "%s; it holds %s" % (
+                    _READING[reading], ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
+    notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, or an "
+                 "indented-code line -- after a list item's paragraph, the item's content under CommonMark) "
+                 "hold a `|` or a declared id; the bound is the plan's §3 table, not this figure" % n)
 
 
 # --------------------------------------------------------------------------

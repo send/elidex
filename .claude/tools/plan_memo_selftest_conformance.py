@@ -8,13 +8,15 @@ both directions (a type-6 tag name dropped; a `<!` rule cited from 0.29), and
 a hand-written control per clause is a transcription of the same reading.
 The spec ships its examples machine-readable (`spec.json`: markdown, html,
 example number, section); the ones for the block sections Phase 1 lexes are
-vendored in `commonmark-0.31.2-block-examples.json` (196 examples over
+vendored in `commonmark-0.31.2-block-examples.json` (221 examples over
 `Tabs` §2.2, `Thematic breaks` §4.1, `ATX headings` §4.2, `Setext headings`
 §4.3, `Indented code blocks` §4.4, `Fenced code blocks` §4.5, `HTML blocks`
 §4.6, `Link reference definitions` §4.7, `Paragraphs` §4.8, `Blank lines`
-§4.9 -- the §5.1 block quotes and §5.2 list items those sections' examples
-hold included), and this control runs every one through `Memo` and checks
-the html for what Phase 1 CLAIMED -- never a rendering.
+§4.9 and -- since design re-gate 3 -- `Block quotes` §5.1, Examples
+228-252, the §5.1 container's own falsifier (the §5.2 list items those
+sections' examples hold included), and this control runs every one
+through `Memo` and checks the html for what Phase 1 CLAIMED -- never a
+rendering.
 
 WHAT IS CHECKED (`align`).  Phase 1 STATES its output as a block sequence
 (`Memo.sequence`: `[kind, first line, last line]` in document order, a
@@ -22,7 +24,7 @@ block quote before its content -- the one place the pass says what it read,
 so nothing is re-derived here from dropped lines).  The sequence is CONSUMED
 against the expected html in order: a block quote `<blockquote>` … its
 content … `</blockquote>`, a raw HTML extent VERBATIM (an HTML block renders
-as written; its content lines are `Memo.raw_html`), an indented or fenced
+as written; its content lines are the `"html"` entries of `Memo.raw`), an indented or fenced
 extent `<pre><code` … `</code></pre>`, a thematic break `<hr />`, a heading
 `<hN>` … `</hN>` at its `#` count or 1 / 2 for a `=` / `-` underline, a
 paragraph `<p>` … `</p>`, a definition nothing; and the html must be
@@ -34,11 +36,16 @@ code chunk split at a blank line, all break the alignment.
 
 WHAT IS EXCLUDED, by predicate over Phase 1's own output (printed per run;
 the plan's §3.0 dispositions decide, not a hand list):
-  * §5.2 list items: a paragraph line that is a list-marker line
-    (`list_item_line`) -- LEXED-FLAT in §3.0, the html has a `<ul>` / `<ol>`
-    this lexer never claims.  ONLY that predicate: a `>` line in a paragraph
-    is not excluded, so a block quote read as prose is a FAIL here, not a
-    silent re-classification;
+  * §5.2 list items: a paragraph whose FIRST line is a list-marker line
+    (`list_item_line`) -- LEXED-FLAT in §3.0: the marker line starts a
+    paragraph, and the html has a `<ul>` / `<ol>` this lexer never claims.
+    ONLY that predicate, and only at the head of a paragraph: a marker line
+    LATER in a paragraph means `starts_block` failed to end the run before
+    it -- a Phase-1 defect -- so such an example is NOT excluded and fails
+    the alignment (design re-gate 3, MIN-4: the broader "any marker line in
+    a paragraph" predicate hid the `starts_block` list-item mutant); a `>`
+    line in a paragraph is not excluded either, so a block quote read as
+    prose is a FAIL here, not a silent re-classification;
   * a GFM table Phase 1 admitted (local policy over pure CommonMark; none of
     the vendored examples holds a `|`, so this arm is empty by construction).
 An aligned example is PASS; an example neither excluded nor aligned is a
@@ -56,13 +63,18 @@ EXAMPLES = HERE / "commonmark-0.31.2-block-examples.json"
 
 def excluded(memo, B):
     """The disposition that keeps `memo` out of the alignment, or None."""
+    why = None
     for para in memo.paragraphs:
-        for _, text in para.lines:
+        for k, (_, text) in enumerate(para.lines):
             # a marker line Phase 1 read as paragraph text; `- - -` is the
             # thematic break §4.1 names, not an item (Example 61's `- * * *`
             # IS an item holding one)
             if B.list_item_line(text) and not B.one_line_block(text):
-                return "§5.2 list item line: LEXED-FLAT"
+                if k > 0:
+                    return None     # a marker line INSIDE a paragraph: a Phase-1 defect, aligned (and failing)
+                why = "§5.2 list item line heads a paragraph: LEXED-FLAT"
+    if why is not None:
+        return why
     if any(b[0] == "table" for b in memo.sequence):
         return "a GFM table (local policy over pure CommonMark)"
     return None
@@ -72,7 +84,7 @@ def align(memo, html):
     """Consume `html` block by block against Phase 1's sequence; None when it
     aligns, else the first disagreement."""
     pos, k = 0, 0
-    sequence, raw_html = memo.sequence, dict(memo.raw_html)
+    sequence, raw_html = memo.sequence, {l: t for l, t, reading in memo.raw if reading == "html"}
 
     def expect(open_tag, close_tag=None):
         nonlocal pos

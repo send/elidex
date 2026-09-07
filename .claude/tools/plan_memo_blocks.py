@@ -243,11 +243,17 @@ def one_line_block(line):
     return "hr" if _THEMATIC.match(rest) else None
 
 
-def is_setext_underline(line):
-    """§4.3: a setext heading underline SHAPE; whether it closes anything is
-    `block_end`'s (a paragraph must be open, and not on a lazy line) and the
-    driver's (the paragraph must not be `container_text`)."""
-    return _match(_SETEXT, line)
+def setext_underline(line):
+    """§4.3: the heading a setext underline SHAPE makes -- `"h1"` for `=`,
+    `"h2"` for `-` -- or None; the ONE reading of the underline (the driver
+    takes the kind from here, never from a second look at the line).
+    Whether it closes anything is `block_end`'s (a paragraph must be open,
+    and not on a lazy line) and the driver's (the paragraph must not be
+    `container_text`)."""
+    rest = unindented(line)
+    if rest is None or not _SETEXT.match(rest):
+        return None
+    return "h1" if rest[0] == "=" else "h2"
 
 
 def list_item_line(line):
@@ -320,9 +326,14 @@ def raw_opener(line, para_open):
     code` are a heading and a raw block; GFM §4.10: a table "is broken at
     the first empty line, or beginning of another block-level structure",
     and a table is not a paragraph, so `<span>` -- and, by the same bit, an
-    indented line -- right after a table's rows opens a block; ⚠ local
-    policy for the indented case: cmark-gfm's row continuation reads any
-    non-blank line as a row, and commonmark.js has no tables to arbitrate)."""
+    indented line -- right after a table's rows opens a block.  Both ends
+    are cmark-gfm's reading, MEASURED (`gh api -X POST /markdown -f
+    mode=gfm -f text=...`, design re-gate 3): `<span>` after the rows is an
+    HTML block, and an indented line -- `    | a |` or `\t| a |` -- is the
+    table and then `<pre><code>`, never a row (an earlier docstring claimed
+    cmark-gfm's row continuation read it as a row; that was never
+    measured and is false).  The one LOCAL policy at a table's end is the
+    width miss on `===` (plan §2 I-C), not the boundary."""
     closer = fence_opener(line)
     if closer is not None:
         return "fence", closer
@@ -393,13 +404,19 @@ def table_header_at(lines, i, lazy=None):
     table, not a definition whose destination is the header row.  Both rows
     are read at <=3 columns of indentation, the same measure as every block
     start (cmark-gfm opens no header off an indented delimiter row):
-    `\t| a | b |\n\t|---|---|` is indented code (§4.4), not a table.  Neither
-    row may be a lazy candidate (§5.1): a line without the quote marker is
-    paragraph continuation text only, so `> | a |\n|---|` is one paragraph
-    (cmark-gfm: the delimiter row arrives in an unmatched container and
-    opens nothing)."""
+    `\t| a | b |\n\t|---|---|` is indented code (§4.4), not a table.  The
+    DELIMITER row may not be a lazy candidate (§5.1): a line without the
+    quote marker is paragraph continuation text only, so `> | a |\n|---|`
+    is one paragraph (cmark-gfm: the delimiter row arrives in an unmatched
+    container and opens nothing).  The HEADER row may be lazy: cmark-gfm
+    reads the header out of the open paragraph's last line when the
+    delimiter row carries the marker (`> a\n| h |\n> |---|\n> | 1 |` is
+    quote[p(a), table(h; 1)], measured, design re-gate 3), so the lazy
+    line is content here -- as a table header, the one boundary a lazy line
+    can be with a paragraph open (`Memo._parse` hands it to the table
+    instead of ending the quote)."""
     if (i + 1 >= len(lines) or is_indented(lines[i]) or is_indented(lines[i + 1])
-            or _is_lazy(lazy, i) or _is_lazy(lazy, i + 1)):
+            or _is_lazy(lazy, i + 1)):
         return False
     width = delimiter_width(lines[i + 1])
     return width is not None and len(split_row(lines[i])) == width
@@ -424,7 +441,9 @@ def block_end(lines, i, para_open, lazy=None):
     every arm EXCEPT the setext underline -- "the setext heading underline
     cannot be a lazy continuation line", so `> foo\\nbar\\n===` is one
     paragraph (Example 93) while `> Foo\\n---` is a quote and a thematic
-    break (Example 92).  `run_end` (a run: paragraph text, `para_open`
+    break (Example 92) -- and, by the table-header arm, the boundary is the
+    lazy line becoming the header of a table inside the quote (the driver
+    reads that case: `table_header_at`).  `run_end` (a run: paragraph text, `para_open`
     True) and `admit_table` (a table body: no paragraph is open, False) read
     this and nothing else, and the driver `Memo._parse` classifies a line
     outside a run by the same arms; no caller looks back at a previous
@@ -433,7 +452,7 @@ def block_end(lines, i, para_open, lazy=None):
         return True
     return (is_blank(lines[i]) or raw_opener(lines[i], para_open) is not None
             or starts_block(lines[i])
-            or (para_open and not _is_lazy(lazy, i) and is_setext_underline(lines[i]))
+            or (para_open and not _is_lazy(lazy, i) and setext_underline(lines[i]) is not None)
             or table_header_at(lines, i, lazy))
 
 

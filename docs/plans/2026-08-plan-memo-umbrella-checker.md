@@ -5,11 +5,11 @@
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
 `plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is nine
-`.py` files: `plan-memo-umbrella-check.py` 499 / `plan_memo_tables.py` 347 / `plan_memo_umbrella_selftest.py`
-611 (the three carried names, 1,457) + `plan_memo_lexer.py` 439 / `plan_memo_blocks.py` 647 / `plan_memo_memo.py` 565 /
-`plan_memo_roles.py` 398 / `plan_memo_selftest_cases.py` 611 / `plan_memo_selftest_cases_pr510.py` 491 /
-`plan_memo_selftest_conformance.py` 160 / `plan_memo_selftest_mutants.py` 884 — **5,652 total, measured on the tree of the
-`Memo` split commit (parent `8d08b333`; the touch-time split of `plan_memo_tables.py` 879 → 347 + `plan_memo_memo.py`, §7); re-run at landing** (`wc -l
+`.py` files: `plan-memo-umbrella-check.py` 508 / `plan_memo_tables.py` 348 / `plan_memo_umbrella_selftest.py`
+630 (the three carried names, 1,486) + `plan_memo_lexer.py` 439 / `plan_memo_blocks.py` 666 / `plan_memo_memo.py` 617 /
+`plan_memo_roles.py` 398 / `plan_memo_selftest_cases.py` 611 / `plan_memo_selftest_cases_pr510.py` 538 /
+`plan_memo_selftest_conformance.py` 172 / `plan_memo_selftest_mutants.py` 936 — **5,863 total, measured on the tree of the
+design re-gate 3 fix commit (parent = the `Memo` split commit `5c74cef7`, §7); re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
@@ -100,8 +100,14 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   oracle: an indented line while a paragraph is open (§4.4 cannot interrupt a paragraph) and a
   reference definition (§4.7 cannot interrupt a paragraph). **R13 — the §4.4 / §5.1 root**: an
   indented line where NO paragraph is open is the third RAW opener (`raw_opener` `("indented", None)`,
-  the same `para_open` bit as type 7 — so after a table's rows it opens a block, like `<span>`; ⚠ local
-  policy there: cmark-gfm's row continuation would read a row), and `raw_extent` runs it over the §4.4
+  the same `para_open` bit as type 7 — so after a table's rows it opens a block, like `<span>`; cmark-gfm
+  agrees, MEASURED at design re-gate 3 — `gh api -X POST /markdown -f mode=gfm -f text=$'<table>\n    | a | b | c | d |'`
+  renders the table and then `<pre><code>| a | b | c | d |</code></pre>`, a tab-indented row the same — ⚠ an
+  earlier draft of this sentence and of `raw_opener`'s docstring said "cmark-gfm's row continuation would
+  read a row"; that was never measured and is FALSE. **The four table ends, each cmark-gfm's reading by the
+  same command**: `<span>` → an HTML block; an indented or tab-indented line → `<pre><code>`; `===` → a
+  one-cell body row; `---` → `<hr>`. The ONLY local policy at a table's end is I-C's width miss on that
+  `===` row (exit 2 where cmark-gfm pads), never the boundary), and `raw_extent` runs it over the §4.4
   chunk (consecutive indented lines; a blank line stays inside when an indented line follows,
   Example 111; the trailing blank lines are not part of it), so `    foo\n---` is code + `<hr />`
   (Example 100) with no `container_text` arm for it. A block quote is a CONTAINER (`Memo._quote`):
@@ -115,8 +121,15 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   `>     foo\n    bar`, `> # h\nlazy`) and, with one open, by every arm EXCEPT the setext underline
   ("cannot be a lazy continuation line": `> foo\nbar\n===` is one paragraph, Example 93; `> Foo\n---`
   a quote and `<hr />`, Example 92); `raw_extent` and `table_header_at` read the same list (a
-  candidate ends a fence in the quote; neither table row may be lazy — `> | a |\n|---|` is a
-  paragraph, cmark-gfm's reading). Each expectation above was checked against commonmark.js 0.31.2,
+  candidate ends a fence in the quote; the DELIMITER row may not be lazy — `> | a |\n|---|` is a
+  paragraph — while a lazy HEADER row is the table's header where a paragraph is open: `> a\n| h |\n>
+  |---|\n> | 1 |` is quote[p(a), table(h; 1)] — cmark-gfm's reading, measured at design re-gate 3 (⚠
+  this sentence once said "neither table row may be lazy", half false); the driver hands that lazy line
+  to `admit_table` instead of ending the quote, the one boundary a lazy line can be with a paragraph
+  open, since it is the only `block_end` arm that needs the next line. Measured divergence, not modelled:
+  after a reference DEFINITION cmark-gfm still hands the lazy line to the table and prints the definition
+  as a paragraph — `> [a]: /u\n| h |\n> |---|`; here a definition is a block of its own and the quote
+  ends). Each expectation above was checked against commonmark.js 0.31.2,
   and the block-sequence control in the runner (`Memo.sequence`, the pass's own statement of what it
   read) holds the shapes the vendored examples do not reach. Every block start reads its "up to three spaces of indentation"
   through ONE measure, §2.2 tab stops (`indentation` / `unindented` / `is_indented`: a tab advances to
@@ -265,16 +278,21 @@ and each attribution spelling has a positive control and a mutant.
 CommonMark 0.31.2 enumerates its block types in §4 (leaf blocks) and §5 (container blocks); GFM 0.29
 adds §4.10 tables. Every type has a disposition here: **LEXED** (a Phase-1 clause with a control — a
 leaf, a RAW extent, or the §5.1 container) or **LEXED-FLAT** (§5.2 only: the marker line starts a
-paragraph; nesting and laziness are not modelled). A `[LEX-UNSUPPORTED?]` SEED names a line the lexer
-never inline-parses that a reader would read as content — a raw HTML-block line, or indented code
-right after a list item's paragraph (the one place the flat list reading hides prose) — when it holds a
-`|` or a declared id: a seed in the ORDER-PROSE? idiom, never an inventory. Section numbers
+paragraph; nesting and laziness are not modelled). A `[LEX-UNSUPPORTED?]` SEED names a RAW line the lexer
+never inline-parses — an HTML-block line (§4.6) or an indented-code line (§4.4; a fence excepted, the
+author's explicit code marker) — when it holds a `|` or a declared id, under ONE seed rule (design re-gate
+3 IMP-2: an indented schema row after a table's rows is raw under cmark-gfm too and left the census
+SILENTLY, rc 0 and no seed — the I-C class — while a raw HTML line holding a `|` was seeded), printed with
+its READING; indented code opened while a list item may still be open (the §5.2 row's item-open bit) is
+reported as the item's content under CommonMark, the one place the flat list reading hides prose: a seed
+in the ORDER-PROSE? idiom, never an inventory. Section numbers
 are the spec's own (`.claude/tools/webref specs commonmark` = no source: webref carries no CommonMark
 extract, so this list is cited from the 0.31.2 text directly, re-verified 2026-08-23).
 
 **The falsifier of every row is the spec's own example list** (R12): `spec.commonmark.org/0.31.2/spec.json`
-is official and machine-readable, and its examples for `Tabs` §2.2, §4.1–§4.9 (196 of the 652; fields
-`example` / `section` / `markdown` / `html`, 32 KB) are vendored in
+is official and machine-readable, and its examples for `Tabs` §2.2, §4.1–§4.9 and — since design re-gate 3
+(MIN-6) — `Block quotes` §5.1, Examples 228–252 (221 of the 652; fields `example` / `section` / `markdown` /
+`html`, 37 KB) are vendored in
 `.claude/tools/commonmark-0.31.2-block-examples.json`. The control `plan_memo_selftest_conformance.py`
 (every `--self-test` run) puts each through `Memo` and consumes the expected html against Phase 1's
 **block sequence** — since R13 the pass's OWN statement of what it read (`Memo.sequence`: `[kind, first
@@ -282,9 +300,13 @@ line, last line]`, a quote before its content), nothing re-derived from dropped 
 `<blockquote>` … content … `</blockquote>`, a raw HTML extent verbatim, an indented / fenced extent
 `<pre><code…</code></pre>`, `<hr />`, `<hN>` at the `#` count or 1/2 for `=`/`-`, `<p>…</p>`, a definition
 nothing, the html exhausted at the end — never a rendering (Phase 2 is skipped over). Excluded by
-predicate over Phase 1's own output, printed per run — ONLY a paragraph line that is a §5.2 list-marker
-line (a `>` line read as prose would be a FAIL, not a re-classification): 12 (4 5 7 9 57 60 61 94 99 108
-109 175): **184 aligned / 12 excluded / 0 FAIL**. Before R13 the count was 169 / 27 / 0, and the 27 were
+predicate over Phase 1's own output, printed per run — ONLY a paragraph whose FIRST line is a §5.2
+list-marker line (design re-gate 3 MIN-4: a marker line LATER in a paragraph means `starts_block` failed to
+end the run before it, a Phase-1 defect, so such an example is aligned and FAILS — the broader "any marker
+line in a paragraph" predicate had hidden the `starts_block` list-item mutant, which now reds this control
+at 4 examples; a `>` line read as prose would be a FAIL, not a re-classification): 13 (4 5 7 9 57 60 61 94
+99 108 109 175 235): **208 aligned / 13 excluded / 0 FAIL** (184 / 12 / 0 over the 196 before §5.1 was
+vendored). Before R13 the count was 169 / 27 / 0, and the 27 were
 exactly where R13 landed: 8 block-quote examples (6 92 93 101 128 174 214 218) and 7 §4.4 chunk shapes
 (85 110 111 112 114 115 225) under the old PROSE-AS-WRITTEN dispositions, plus the 12 list examples;
 the two dispositions were replaced by the grammar (§4.4 RAW, §5.1 container) and the exclusions went to
@@ -301,15 +323,15 @@ errors in both directions preceded this control.
 | §4.1 | Thematic break | LEXED — one-line block, ends a paragraph / table; `---` after paragraph text is a §4.3 underline instead (Example 59); after a table's rows it is the thematic break (no paragraph is open) | `one_line_block` (`_THEMATIC`) | "(span) a paragraph ends at an ATX heading" family; "(setext) a `---` after paragraph text…"; "(table) `---` right after a schema table is a thematic break…"; spec examples |
 | §4.2 | ATX heading | LEXED — one-line block; its text is inline content | `one_line_block` (`_ATX`) | "(span) a paragraph ends at an ATX heading"; spec examples |
 | §4.3 | Setext heading | LEXED — paragraph text + `=`/`-` underline; the underline ends the paragraph and is not content; a boundary ONLY where a paragraph is open (`block_end`'s `para_open` arm: after a table's rows `===` is a body row) and never on a lazy line of a block quote (Example 93, the `lazy` arm); not after a run headed by a list-item line (Example 94) — `container_text` (a `>` line heads no run and neither does an indented line: the container / the raw extent, so Examples 92–93 and 100 hold by the grammar) | `block_end` (`is_setext_underline`), `Memo._parse` (`container_text`) | "(setext) `Heading\n===`…", "(setext) `==` after a list item is NOT an underline…", "(table) `===` right after a schema table is a one-cell body row…", "(setext) a bare `===` IS a paragraph…", "(quote) `> Heading `open\n===\nSlice 9z owns it` here`…"; spec examples |
-| §4.4 | Indented code block | LEXED — a RAW extent (R13), exactly like a fence: opened by a line of four or more columns where NO paragraph is open ("cannot interrupt a paragraph": `[foo]:\n    code` is a definition, `text\n    x` a paragraph; after a table's rows, a one-line block, a heading or a blank line it IS a block start — the same `para_open` bit as type 7), running over the §4.4 chunk (consecutive indented lines; a blank line stays inside when an indented line follows it, Example 111; the trailing blank lines are not part of it), never inline-parsed, not seeded (a fence is not either) | `raw_opener` (`("indented", None)`, `is_indented`) / `raw_extent` | "(indented) `    Slice 9z owns it` at a block start is a raw extent…", "(indented) `text\n    Slice 9z owns it`…", "(indented) `\tSlice 9z owns it`…" (×3), "(table) an indented line right after a schema table opens an indented code block…"; block-sequence control (chunk shapes); spec examples 85 107–118 225 aligned, 100 with `---` |
+| §4.4 | Indented code block | LEXED — a RAW extent (R13), exactly like a fence: opened by a line of four or more columns where NO paragraph is open ("cannot interrupt a paragraph": `[foo]:\n    code` is a definition, `text\n    x` a paragraph; after a table's rows, a one-line block, a heading or a blank line it IS a block start — the same `para_open` bit as type 7), running over the §4.4 chunk (consecutive indented lines; a blank line stays inside when an indented line follows it, Example 111; the trailing blank lines are not part of it), never inline-parsed; SEEDED under the one raw-line rule when a line holds a `\|` or a declared id (design re-gate 3 IMP-2; a fence is not — the author's explicit code marker), with the reading `item` while a list item may be open (§5.2 row) — cmark-gfm agrees that an indented row after a table is `<pre><code>` (measured) | `raw_opener` (`("indented", None)`, `is_indented`) / `raw_extent`, `Memo._parse` (`raw`) | "(indented) `    Slice 9z owns it` at a block start is a raw extent…", "(indented) `text\n    Slice 9z owns it`…", "(indented) `\tSlice 9z owns it`…" (×3), "(table) an indented line right after a schema table opens an indented code block…", "(lex-seed) `para\n\n    Slice 9z owns it`: … seeded by the one raw-line rule", "(lex-seed) a 4-space-indented slot row after a table's rows … is SEEDED", "(lex-seed) a tab-indented slot row …", "(lex-seed) an indented-code line with neither a `\|` nor a declared id is no seed"; block-sequence control (chunk shapes, raw content asserted); spec examples 85 107–118 225 aligned, 100 with `---` |
 | §4.5 | Fenced code block | LEXED — a RAW extent: never inline-parsed, always a run / paragraph / table end; one opener rule (`raw_opener`) and one extent rule (`raw_extent`) shared with indented code and HTML blocks, consumed in place by the driver; an unclosed fence runs to the end of its containing block (the document, or the quote's first lazy line) | `plan_memo_blocks.py::fence_opener` / `raw_opener` / `raw_extent` | "(fence) …" family (10 controls); block-sequence control (`> ```\nlazy`) |
-| §4.6 | HTML block | RAW (+ SEED) — a leaf block "treated as raw HTML", exactly like a fence: its lines from the opener to the §4.6 end condition (types 1–5 by content, possibly the opener itself; 6–7 at the next blank line) are a RAW extent under the same opener / extent rules as fences (`raw_opener` / `raw_extent`), never inline-parsed, always a run / paragraph / table end; a type-7 opener only where no paragraph is open — the driver's block state, so after a table, a one-line block or a setext heading it IS a block start (R11) — type 1–6 openers interrupt; **case per condition** (R13): conditions 1 and 6 name their tags "(case-insensitive)" (a scoped `(?i:…)`, ASCII-only), 7's names are `[A-Za-z]` classes by grammar, 4 is `<!` + an ASCII letter of either case, 2 `<!--` / 3 `<?` / 5 `<![CDATA[` are exact — a global IGNORECASE read `<![cdata[` as CDATA where commonmark.js reads a paragraph; every raw HTML line holding a `\|` or a declared id is a `[LEX-UNSUPPORTED?]` seed (commonmark.js: `<pre>\n`\n</pre>` is raw, `text\n<span>` is a paragraph, `# h\n<span>` a heading and a raw block, `<div>\nx\n</div>\ny` runs to the blank, `text\n<PRE>` / `text\n<DIV>` a paragraph and a raw block — ⚠ the case probes must interrupt a paragraph, since at a block start `<PRE>` is a type-7 opener too) | `plan_memo_blocks.py::raw_opener` / `raw_extent` / `html_block_type` / `html_block_ends`, `Memo._parse` (seed) | "(lex-seed) an HTML-block opener holding a declared id is a seed", "(html) …" family incl. the four R13 case controls, "(table) a type-7 HTML opener right after a schema table ENDS it…"; spec examples 151 (`<DIV CLASS>`), 190 (`<![CDATA[`) |
+| §4.6 | HTML block | RAW (+ SEED) — a leaf block "treated as raw HTML", exactly like a fence: its lines from the opener to the §4.6 end condition (types 1–5 by content, possibly the opener itself; 6–7 at the next blank line) are a RAW extent under the same opener / extent rules as fences (`raw_opener` / `raw_extent`), never inline-parsed, always a run / paragraph / table end; a type-7 opener only where no paragraph is open — the driver's block state, so after a table, a one-line block or a setext heading it IS a block start (R11) — type 1–6 openers interrupt; **case per condition** (R13): conditions 1 and 6 name their tags "(case-insensitive)" (a scoped `(?i:…)`, ASCII-only), 7's names are `[A-Za-z]` classes by grammar, 4 is `<!` + an ASCII letter of either case, 2 `<!--` / 3 `<?` / 5 `<![CDATA[` are exact — a global IGNORECASE read `<![cdata[` as CDATA where commonmark.js reads a paragraph; every raw HTML line holding a `\|` or a declared id is a `[LEX-UNSUPPORTED?]` seed (commonmark.js: `<pre>\n`\n</pre>` is raw, `text\n<span>` is a paragraph, `# h\n<span>` a heading and a raw block, `<div>\nx\n</div>\ny` runs to the blank, `text\n<PRE>` / `text\n<DIV>` a paragraph and a raw block — ⚠ the case probes must interrupt a paragraph, since at a block start `<PRE>` is a type-7 opener too) | `plan_memo_blocks.py::raw_opener` / `raw_extent` / `html_block_type` / `html_block_ends`, `Memo._parse` (seed) | "(lex-seed) an HTML-block opener holding a declared id is a seed", "(html) …" family incl. the four R13 case controls, "(table) a type-7 HTML opener right after a schema table ENDS it…"; spec examples 152 (`<DIV CLASS="foo">`), 182 (`<![CDATA[`) — ⚠ this cell once cited 151 / 190, which are `</div>\n*foo*` and `<table>` (design re-gate 3 MIN-7, verified against `spec.json`) |
 | §4.7 | Link reference definition | LEXED — a block of its own at a block start, parsed over the rest of its run; elsewhere an orphan; inside a block quote it registers (Example 218) | `Memo._parse` / `definition_block` (`run_end`) | "(def) …" family, "(quote) `> [sib]: slice-9z-sib.md`…" |
 | §4.8 | Paragraph | LEXED — the inline unit Phase 2 scans; inside a block quote, at its real line | `Memo._parse` / `Paragraph` | every prose control |
 | §2.1 / §4.9 | Blank line | LEXED — "A line containing no characters, or a line containing only spaces (U+0020) or tabs (U+0009), is called a blank line" (§2.1); ends every block (inside a §4.4 chunk it stays when an indented line follows) | `is_blank` | "(span) an NBSP-only line is NOT blank…" |
-| §5.1 | Block quote | LEXED — a CONTAINER (R13): the marker (`quote_content`: ≤3 columns, `>`, one optional space of indentation — a tab gives one column to the marker and the rest to the content, in LINE columns, Example 6) stripped from every marker line, the lines without a marker gathered as lazy continuation candidates, and the SAME Phase 1 run over the content (`Memo._quote` → `_parse`), so a definition / table / raw extent / paragraph / nested quote inside is that block at its real line; laziness through the ONE predicate's `lazy` arm (a candidate is a boundary where no paragraph is open, and with one open by every arm but the setext underline, Examples 92–93); a `>` line interrupts a paragraph (§5.1 itself); no seed (the content is parsed) | `quote_content`, `block_end` / `raw_extent` / `table_header_at` (`lazy`), `Memo._quote` | "(quote) …" family (6 controls), "(span) a paragraph ends at a `>` line", "(block) `[Slice 9z owns it]:\n>`…"; block-sequence control (11 quote shapes); spec examples 6 92 93 101 128 174 214 218 aligned; "block quotes are linear…" |
-| §5.2 / §5.3 | List item / list | LEXED-FLAT (+ SEED) — a list-item line starts a paragraph and its content is inline content; nesting, laziness and the §5.2 interruption rules (empty item, ordered-from-1) are not modelled (local policy, stricter: any marker line interrupts); ASCII digits only. The one place the flat reading HIDES prose is seeded: an indented code block opened while a list item's paragraph is the last block (blank lines between) is the item's next paragraph under CommonMark (Example 108 `- foo\n\n    bar`) and a raw extent here — every such line holding a `\|` or a declared id is a `[LEX-UNSUPPORTED?]` seed (`Memo.item_code`) | `list_item_line`, `Memo._parse` (`after_item`) | "(span) a paragraph ends at a list item…", "(ascii) `١.` is not a list marker", "(lex-seed) `- item\n\n    Slice 9z owns it`…", "(lex-seed) `para\n\n    Slice 9z owns it`… no seed"; the 12 excluded spec examples |
-| GFM §4.10 | Table | LEXED — see the §3 rows above; the id cell of a schema row is scanned too, with the row's own id suppressed (`**7z** — Slice 9z lands first` names `9z`); a NON-schema row's excess cells are ignored before lexing (GFM "If greater, the excess is ignored"; R13 — an ignored cell's `[x](absent.md)` is no link), a schema row's width miss unchanged; inside a block quote a table is a table, and neither row of a header may be lazy | `Memo._parse` (`table_header_at`) / `admit_table` / `split_row`, checker `blocks()` (`Row.line`, the content line) | "(row)" / "(table)" families; "(id) the id cell's trailing prose is scanned…"; "(table) an excess body cell of a non-schema table is ignored…" (×3); "(quote) a slot table inside a block quote is a table…" |
+| §5.1 | Block quote | LEXED — a CONTAINER (R13): the marker (`quote_content`: ≤3 columns, `>`, one optional space of indentation — a tab gives one column to the marker and the rest to the content, in LINE columns, Example 6) stripped from every marker line, the lines without a marker gathered as lazy continuation candidates, and the SAME Phase 1 run over the content (`Memo._quote` → `_parse`), so a definition / table / raw extent / paragraph / nested quote inside is that block at its real line; laziness through the ONE predicate's `lazy` arm (a candidate is a boundary where no paragraph is open, and with one open by every arm but the setext underline, Examples 92–93; a lazy line that is a GFM table header with a paragraph open is that table's header — cmark-gfm, measured, design re-gate 3 MIN-9); a `>` line interrupts a paragraph (§5.1 itself); no seed (the content is parsed) | `quote_content`, `block_end` / `raw_extent` / `table_header_at` (`lazy`), `Memo._quote` | "(quote) …" family (8 controls, the lazy-header / lazy-delimiter slot tables included), "(span) a paragraph ends at a `>` line", "(block) `[Slice 9z owns it]:\n>`…"; block-sequence control (13 quote shapes, Example 6's raw content asserted); **falsifier = the section's own list, `Block quotes` Examples 228–252: 24 aligned, 235 excluded (a list item), 0 FAIL — 237 `> ```\nfoo\n```` is the driver's stop at a lazy candidate where no paragraph is open** (⚠ `Memo._quote`'s docstring once cited Examples 128 / 174 for that stop; both end their quotes at a BLANK line, the gather's stop); 6 92 93 101 128 174 214 218 from the other sections aligned; "block quotes are linear…" |
+| §5.2 / §5.3 | List item / list | LEXED-FLAT (+ SEED) — a list-item line starts a paragraph and its content is inline content; nesting, laziness and the §5.2 interruption rules (empty item, ordered-from-1) are not modelled (local policy, stricter: any marker line interrupts); ASCII digits only. The one place the flat reading HIDES prose is seeded: an indented code block opened while a list item MAY STILL BE OPEN is the item's next paragraph under CommonMark (Example 108 `- foo\n\n    bar`) and a raw extent here — every such line holding a `\|` or a declared id is a `[LEX-UNSUPPORTED?]` seed with the reading `item` (`Memo.raw`). **The item-open bit** (design re-gate 3 IMP-1, the flat reading's whole model of §5.2 nesting): SET when a paragraph headed by a marker line is flushed; CLEARED by a block start (any line classified outside a run, a blank line excepted) below 2 columns of indentation — the smallest content indent a marker gives; the real content indent is not tracked, so the seed over-approximates (`-   item\n\n        x` is code under CommonMark and still seeded; a seed, never an inventory). Verified against commonmark.js 0.31.2: `- item\n\n  para\n\n    x`, `- item\n\n  > q\n\n    x`, `1. item\n\n   para\n\n     x` are each `<p>x</p>` in the item; `- item\n\n para\n\n    x` and `- item\n\n  para\n\n# h\n\n    x` a code block outside it. ⚠ Before re-gate 3 the bit was a ONE-BLOCK memory ("the last block is the item's paragraph"), lost at the item's second paragraph, at a quote inside it and at an ordered item's 3-column paragraph — the prose after was raw and unseeded (rc 0, no seed) | `list_item_line`, `Memo._parse` (`item_open`, `close`) | "(span) a paragraph ends at a list item…", "(ascii) `١.` is not a list marker", "(lex-seed) `- item\n\n    Slice 9z owns it`…", "(lex-seed) `- item\n\n  para\n\n    Slice 9z owns it`: the item's SECOND paragraph keeps it open…", "… `> q` inside the item keeps it open…", "… `1. item` … 3-column paragraph keeps it open…", "… a 1-column paragraph CLOSES the item…", "… a 0-column heading CLOSES the item…", "(lex-seed) `para\n\n    Slice 9z owns it`: its reading is §4.4 raw code, not the item's content"; the 13 excluded spec examples |
+| GFM §4.10 | Table | LEXED — see the §3 rows above; the id cell of a schema row is scanned too, with the row's own id suppressed (`**7z** — Slice 9z lands first` names `9z`); a NON-schema row's excess cells are ignored before lexing (GFM §4.10, verbatim: "If there are a number of cells fewer than the number of cells in the header row, empty cells are inserted. If there are greater, the excess is ignored" — ⚠ misquoted as "If greater, the excess is ignored" before design re-gate 3 MIN-8; R13 — an ignored cell's `[x](absent.md)` is no link), a schema row's width miss unchanged; inside a block quote a table is a table; its delimiter row may not be lazy, while a lazy header row IS the header where a paragraph is open (cmark-gfm, measured; MIN-9) | `Memo._parse` (`table_header_at`) / `admit_table` / `split_row`, checker `blocks()` (`Row.line`, the content line) | "(row)" / "(table)" families; "(id) the id cell's trailing prose is scanned…"; "(table) an excess body cell of a non-schema table is ignored…" (×3); "(quote) a slot table inside a block quote is a table…" |
 
 Inline constructs outside the lexed rows (§6.5 autolinks, §2.5 entity references, §6.2 emphasis
 beyond the `**` / `` ` `` decoration the id grammar reads) are read as written; the umbrella memo's
@@ -318,6 +340,13 @@ start — all `sed`/shell examples holding a `|` or a digit-shaped id) and is **
 line (1013) is parsed content, the three shell examples (1047 / 2336 / 2342) are raw code unseeded
 like a fence, and the chunk at 2955–2960 — indented prose after list item `10.`'s paragraph, the
 Example 108 shape — is seeded on its four id-holding lines under the §5.2 row; reported, not gating.
+**10 since design re-gate 3** (IMP-2, one seed rule for raw lines): the same four `item` lines
+(2955 / 2958 / 2959 / 2960 — the item-open bit changes nothing on this memo, 2955 follows item `10.`'s
+paragraph directly) plus SIX indented-code lines holding a `|`, printed with the §4.4 reading: the shell
+examples at 1047–1048 (`sed -n … | grep -v '^    ' | grep -c`), 2336 (`grep -o -E … | wc -l`) and
+2342–2344 (a `grep | grep -o | sort | uniq | tr` pipeline) — ⚠ the re-gate brief counted three (1047 /
+2336 / 2342): each example's continuation lines hold a `|` as well. Reported, not gating; census 48, 717
+sites and 36 ORDER-PROSE? rows unchanged.
 
 **Breadth**: K=2 (CommonMark 0.31.2, GFM 0.29), M=9
 **Split decision**: by the edge-dense rule (not K/M): umbrella + **2 slices** (§7). Each slice is a
@@ -443,6 +472,18 @@ ground for either option; it is not cited.
   `quote_content` calls), while laziness itself has its own mutant. The harness's exclusion predicate
   was narrowed from "any block-start line in a paragraph" to list-marker lines, so a quote read as
   prose is a FAIL rather than a silent LEXED-FLAT re-classification.
+  ⚠ **Design re-gate 3 (2026-09-07, 3 IMP + 7 MIN, applied on top of the `Memo` split, §7)**: IMP-1 the
+  §5.2 item-open bit replaces the one-block memory (`Memo._parse` `item_open` / `close`); IMP-2 ONE seed rule
+  for raw lines (`Memo.raw` with a reading; an indented schema row after a table is seeded, never a silent
+  skip); IMP-3 the false "cmark-gfm's row continuation" attribution rewritten to the measured table ends
+  (§2 I-A); MIN-4 the conformance exclusion is "marker line FIRST in the paragraph"; MIN-5 the block-sequence
+  control asserts the raw extents' CONTENT (Example 6 exactly); MIN-6 `Block quotes` §5.1 Examples 228–252
+  vendored, Example 237 cited for the driver's lazy stop; MIN-7 §4.6 examples 152 / 182; MIN-8 the GFM
+  §4.10 and CommonMark §5.1 quotes verbatim; MIN-9 a lazy HEADER row is the table's header (cmark-gfm,
+  measured), the delimiter arm kept; MIN-10 `setext_underline` returns the heading kind, the second spelling
+  deleted. **297 controls, 170 mutants / 0 / 0**, conformance **208 / 13 / 0 over 221**, census `48 = 33 +
+  15`, rc 0, 36 ORDER-PROSE? rows unchanged, **717 sites, the same 717** (`--worklist` file/line/id/source
+  set identical to `8d08b333`'s), `[LEX-UNSUPPORTED?]` **4 → 10** (§3.0), `mise run trip-wires` rc 0.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.

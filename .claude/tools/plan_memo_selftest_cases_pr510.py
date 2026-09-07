@@ -446,7 +446,7 @@ case("POSITIVE", "(quote) `> open `x\\n# Slice 9z owns it` there`: an ATX headin
                  "ends, the heading is a block of its own and its site is reported",
      build(), "> open `x\n# Slice 9z owns it` there", 1)
 
-# #3: GFM §4.10 "If greater, the excess is ignored" -- a non-schema row's
+# #3: GFM §4.10 "If there are greater, the excess is ignored" -- a non-schema row's
 # excess cells never enter the lexical population
 case("NEGATIVE", "(table) an excess body cell of a non-schema table is ignored (GFM §4.10): its `9z owns it` "
                  "is never lexed -- no site",
@@ -462,7 +462,7 @@ case("POSITIVE", "(table) the cells within the header's width of a non-schema ro
 case("POSITIVE", "(html) `<![cdata[` is no CDATA opener (§4.6 condition 5 is exact; commonmark.js: a paragraph): "
                  "the next line is prose and the site is reported",
      build(), "<![cdata[\n9z owns it\n]]>", 1)
-case("NEGATIVE", "(html) `<![CDATA[` opens a type-5 block to `]]>` (Example 190): raw, no site",
+case("NEGATIVE", "(html) `<![CDATA[` opens a type-5 block to `]]>` (Example 182): raw, no site",
      build(), "<![CDATA[\n9z owns it\n]]>", 0)
 # ⚠ the probes interrupt a PARAGRAPH: at a block start `<PRE>` / `<DIV>` are
 # type-7 openers too (an open tag alone on its line), which the case fold does
@@ -483,9 +483,56 @@ acase("POSITIVE", "(lex-seed) `- item\\n\\n    Slice 9z owns it`: an indented li
                   "is the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- "
                   "seeded",
       build(), "LEX-UNSUPPORTED?", 1, prose="- item\n\n    Slice 9z owns it")
-acase("NEGATIVE", "(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is a code "
-                  "block under CommonMark too -- raw, no seed",
-      build(), "LEX-UNSUPPORTED?", 0, prose="para\n\n    Slice 9z owns it")
+# design re-gate 3 IMP-2: ONE seed rule for raw lines -- an indented-code line
+# holding a `|` or a declared id is seeded like a raw HTML line, with its reading
+acase("POSITIVE", "(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is raw under "
+                  "CommonMark too, but holds a declared id -- seeded by the one raw-line rule",
+      build(), "LEX-UNSUPPORTED?", 1, prose="para\n\n    Slice 9z owns it")
+case("NEGATIVE", "(lex-seed) `para\\n\\n    Slice 9z owns it`: its reading is §4.4 raw code, not the item's "
+                 "content (Example 108) -- no list item is open",
+     build(), "para\n\n    Slice 9z owns it", 0, measure=("seed", "Example 108"))
+acase("NEGATIVE", "(lex-seed) an indented-code line with neither a `|` nor a declared id is no seed",
+      build(), "LEX-UNSUPPORTED?", 0, prose="para\n\n    a remark about nothing in particular")
+acase("POSITIVE", "(lex-seed) a 4-space-indented slot row after a table's rows is raw (cmark-gfm: `<pre><code>`) "
+                  "and is SEEDED -- it holds a `|` -- never a silent skip (I-C)",
+      build(extra=SLOT4 % "now" + "\n    | `#11-zz-delta` | Terminal. Acceptance: must. | now | 2026-12-31 |"),
+      "LEX-UNSUPPORTED?", 1)
+acase("POSITIVE", "(lex-seed) a tab-indented slot row after a table's rows is raw (§2.2: four columns) and is SEEDED",
+      build(extra=SLOT4 % "now" + "\n\t| `#11-zz-delta` | Terminal. Acceptance: must. | now | 2026-12-31 |"),
+      "LEX-UNSUPPORTED?", 1)
+rcase("NEGATIVE", "(rc) an indented slot row after a table's rows is raw, so its id is not declared and the run is "
+                  "rc 0 (the seed, not the census, carries it)",
+      build(extra=SLOT4 % "now" + "\n    | `#11-zz-delta` | Terminal. Acceptance: must. | now | 2026-12-31 |"), "", 0)
+# design re-gate 3 IMP-1: the item-open bit (set by a marker-headed paragraph,
+# cleared by a block start below 2 columns) -- each shape checked against
+# commonmark.js 0.31.2: the indented line is a `<p>` of the item in the first
+# three, a code block outside it in the last two
+case("POSITIVE", "(lex-seed) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's SECOND paragraph keeps it "
+                 "open (commonmark.js: `<p>` in the item), so the indented line is seeded as the item's content",
+     build(), "- item\n\n  para\n\n    Slice 9z owns it", 1, measure=("seed", "Example 108"))
+case("POSITIVE", "(lex-seed) `- item\\n\\n  > q\\n\\n    Slice 9z owns it`: a block quote inside the item keeps it "
+                 "open (commonmark.js: `<p>` in the item) -- seeded as the item's content",
+     build(), "- item\n\n  > q\n\n    Slice 9z owns it", 1, measure=("seed", "Example 108"))
+case("POSITIVE", "(lex-seed) `1. item\\n\\n   para\\n\\n     Slice 9z owns it`: an ordered item's 3-column paragraph "
+                 "keeps it open (commonmark.js: `<p>` in the item) -- seeded as the item's content",
+     build(), "1. item\n\n   para\n\n     Slice 9z owns it", 1, measure=("seed", "Example 108"))
+case("NEGATIVE", "(lex-seed) `- item\\n\\n para\\n\\n    Slice 9z owns it`: a 1-column paragraph CLOSES the item "
+                 "(commonmark.js: a code block outside it), so the reading is §4.4, not the item's content",
+     build(), "- item\n\n para\n\n    Slice 9z owns it", 0, measure=("seed", "Example 108"))
+case("NEGATIVE", "(lex-seed) `- item\\n\\n  para\\n\\n# h\\n\\n    Slice 9z owns it`: a 0-column heading CLOSES the "
+                 "item (commonmark.js: a heading and a code block outside it) -- the reading is §4.4",
+     build(), "- item\n\n  para\n\n# h\n\n    Slice 9z owns it", 0, measure=("seed", "Example 108"))
+# design re-gate 3 MIN-9: a lazy HEADER row is the table's header where a
+# paragraph is open (cmark-gfm reads it out of the paragraph's last line);
+# a lazy DELIMITER row opens nothing
+case("POSITIVE-NOVEL", "(quote) a slot table inside a block quote whose HEADER row is lazy is a table (cmark-gfm: "
+                       "the header is read out of the quote paragraph's last line): its row declares its id",
+     build(extra="> para\n" + "\n".join(("> " if k else "") + l for k, l in enumerate((SLOT4 % "now").split("\n")))),
+     "", 1, measure=("id", "#11-zz-gamma"))
+case("NEGATIVE", "(quote) a slot table inside a block quote whose DELIMITER row is lazy is one paragraph (cmark-gfm: "
+                 "the delimiter arrives in an unmatched container): no id declared",
+     build(extra="\n".join(("" if k == 1 else "> ") + l for k, l in enumerate((SLOT4 % "now").split("\n")))),
+     "", 0, measure=("id", "#11-zz-gamma"))
 case("NEGATIVE", "(html) `<!doctype` opens a type-4 block (§4.6 condition 4: `<!` + an ASCII letter, either "
                  "case) to the `>` line: raw, no site",
      build(), "<!doctype\n9z owns it\n>", 0)

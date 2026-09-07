@@ -29,7 +29,7 @@ LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, SELFTEST = (
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
-SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9): Phase 1's block sequence aligns with the html"
+SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1): Phase 1's block sequence aligns with the html"
 # The block-sequence control over the §4.4 / §5.1 shapes the vendored examples
 # do not reach (each expected sequence read off commonmark.js 0.31.2).
 SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and §5.1 container shapes matches commonmark.js"
@@ -74,7 +74,8 @@ MUTANTS = [
      ["(span) a code span may cross a line ending"]),
     ("span: a list item starts a block", BLOCKS,
      'one_line_block(line) is not None or list_item_line(line) or ', 'one_line_block(line) is not None or ',
-     ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal"]),
+     ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal",
+      SPEC_EXAMPLES]),
     ("span: a `>` line starts a block", BLOCKS,
      '    return one_line_block(line) is not None or list_item_line(line) or quote_content(line) is not None',
      '    return one_line_block(line) is not None or list_item_line(line)',
@@ -457,18 +458,17 @@ MUTANTS = [
       "paragraph and the code span crosses it"]),
     # -- PR #510 Codex R9
     ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", MEMO,
-     '                if cur and is_setext_underline(line) and not container_text(cur[0][1]):',
+     '                if heading is not None and not container_text(cur[0][1]):',
      '                if False:',
      ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
       "span opened in the heading does not reach the next paragraph's site"]),
     ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", MEMO,
-     '                if cur and is_setext_underline(line) and not container_text(cur[0][1]):',
-     '                if cur and is_setext_underline(line):',
+     '                if heading is not None and not container_text(cur[0][1]):',
+     '                if heading is not None:',
      ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
       "paragraph continues and a code span crosses it"]),
-    ("R9 F1 / R13 seed: every raw HTML-block line is recorded for the seed", MEMO,
-     '                        self.raw_html.extend((linenos[k], lines[k]) for k in range(i, end))',
-     '                        pass',
+    ("R9 F1 / R13 seed: every raw HTML-block line is recorded for the seed (re-inject 'indented only')", MEMO,
+     '                    if opener[0] != "fence":', '                    if opener[0] == "indented":',
      ["(lex-seed) an HTML-block opener holding a declared id is a seed",
       "(lex-seed) `<pre>\\nSlice 9z owns it\\n</pre>`: the inner line holding the id is seeded (type 1 "
       "ends at `</pre>`)"]),
@@ -690,8 +690,8 @@ MUTANTS = [
     # -- PR #510 Codex R12
     ("R12-A setext: an underline is a boundary only where a paragraph is open (re-inject the "
      "unconditional arm)", BLOCKS,
-     'or (para_open and not _is_lazy(lazy, i) and is_setext_underline(lines[i]))',
-     'or is_setext_underline(lines[i])',
+     'or (para_open and not _is_lazy(lazy, i) and setext_underline(lines[i]) is not None)',
+     'or setext_underline(lines[i]) is not None',
      ["(table) `===` right after a schema table is a one-cell body row (§4.3: no paragraph to "
       "underline; GFM §4.10 Example 202: a pipe-less line is a row): width miss, rc 2"]),
     # ⚠ The former row "R12-A setext: a run headed by an indented-code line is not a paragraph an
@@ -742,8 +742,8 @@ MUTANTS = [
      '        return end\n    if kind == "fence":', '        return j\n    if kind == "fence":',
      [SEQUENCE]),
     ("R13 §5.1: a `>` line opens the container (drop the branch: the marker line heads a paragraph)", MEMO,
-     '                if quote_content(line) is not None:\n                    flush()',
-     '                if False:\n                    flush()',
+     '                if quote_content(line) is not None:\n                    close(line)',
+     '                if False:\n                    close(line)',
      ["(quote) `> [sib]: slice-9z-sib.md`: a definition inside a block quote registers (§5.1 container, "
       "Example 218) -- the sibling is walked and its violation reported",
       "(quote) a slot table inside a block quote is a table: its row declares its id",
@@ -754,16 +754,17 @@ MUTANTS = [
      [SEQUENCE, SPEC_EXAMPLES]),
     ("R13 §5.1: a setext underline is never a lazy continuation line -- but a lazy `===` is paragraph "
      "text, Example 93 (re-inject the underline on a lazy line)", BLOCKS,
-     'or (para_open and not _is_lazy(lazy, i) and is_setext_underline(lines[i]))',
-     'or (para_open and is_setext_underline(lines[i]))',
+     'or (para_open and not _is_lazy(lazy, i) and setext_underline(lines[i]) is not None)',
+     'or (para_open and setext_underline(lines[i]) is not None)',
      ["(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote paragraph's "
       "text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site",
       SPEC_EXAMPLES]),
     ("R13 §5.1: a lazy candidate where no paragraph is open ends the quote (drop the stop: it is "
-     "parsed inside)", MEMO,
-     '                if lazy is not None and lazy[i]:\n                    break',
+     "parsed inside; Example 237 is the spec's instance)", MEMO,
+     '                if lazy is not None and lazy[i] and not (cur and table_header_at(lines, i, lazy)):\n'
+     '                    break',
      '                if False:\n                    break',
-     [SEQUENCE]),
+     [SEQUENCE, SPEC_EXAMPLES]),
     ("R13 §5.1: a lazy candidate is a boundary wherever no paragraph is open (drop the arm: a table's "
      "or a raw extent's next line)", BLOCKS,
      '    if _is_lazy(lazy, i) and not para_open:\n        return True',
@@ -773,8 +774,29 @@ MUTANTS = [
      '        while j < n and not _is_lazy(lazy, j):\n            if fence_closes(arg, lines[j]):',
      '        while j < n:\n            if fence_closes(arg, lines[j]):',
      [SEQUENCE]),
-    ("R13 §5.1: neither table row may be lazy (re-inject a lazy header / delimiter row)", BLOCKS,
-     '            or _is_lazy(lazy, i) or _is_lazy(lazy, i + 1)):', '            or False):',
+    ("R13 §5.1 / RG3 MIN-9: a lazy DELIMITER row opens no table (re-inject it)", BLOCKS,
+     '            or _is_lazy(lazy, i + 1)):', '            or False):',
+     [SEQUENCE,
+      "(quote) a slot table inside a block quote whose DELIMITER row is lazy is one paragraph (cmark-gfm: "
+      "the delimiter arrives in an unmatched container): no id declared"]),
+    ("RG3 MIN-9: a lazy HEADER row is the table's header where a paragraph is open (re-inject the header "
+     "arm: 'neither row may be lazy')", BLOCKS,
+     '            or _is_lazy(lazy, i + 1)):', '            or _is_lazy(lazy, i) or _is_lazy(lazy, i + 1)):',
+     [SEQUENCE,
+      "(quote) a slot table inside a block quote whose HEADER row is lazy is a table (cmark-gfm: the header "
+      "is read out of the quote paragraph's last line): its row declares its id"]),
+    ("RG3 MIN-9: the driver hands a lazy header to the table instead of ending the quote (re-inject the "
+     "unconditional stop)", MEMO,
+     '                if lazy is not None and lazy[i] and not (cur and table_header_at(lines, i, lazy)):\n'
+     '                    break',
+     '                if lazy is not None and lazy[i]:\n                    break',
+     [SEQUENCE,
+      "(quote) a slot table inside a block quote whose HEADER row is lazy is a table (cmark-gfm: the header "
+      "is read out of the quote paragraph's last line): its row declares its id"]),
+    ("RG3 MIN-5: the tab after the marker gives ONE column to the marker's space (re-inject none: Example 6 "
+     "would hold seven spaces)", BLOCKS,
+     "        c0 = col + 1            # one column of the tab is the marker's space",
+     "        c0 = col",
      [SEQUENCE]),
     ("R13 §5.1: a quote's lazy candidates are gathered once, up to the first boundary (drop the "
      "bound: every quote re-scans the rest of the document, quadratic -- the result is the same, the "
@@ -788,16 +810,46 @@ MUTANTS = [
      ["(quote) `> open `here\\nSlice 9z owns it` there`: the marker-less line is lazy continuation text "
       "of the quote's paragraph (§5.1), so the span crosses it: no site",
       SEQUENCE, SPEC_EXAMPLES]),
-    ("R13 §5.2 seed: indented code after a list item's paragraph is recorded for the seed", MEMO,
-     '                        self.item_code.extend((linenos[k], lines[k]) for k in range(i, end))',
-     '                        pass',
+    ("RG3 IMP-2: every indented-code line is recorded for the seed (re-inject 'HTML lines only')", MEMO,
+     '                    if opener[0] != "fence":', '                    if opener[0] == "html":',
      ["(lex-seed) `- item\\n\\n    Slice 9z owns it`: an indented line after a list item's paragraph is "
-      "the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- seeded"]),
-    ("R13 §5.2 seed: only after a LIST ITEM's paragraph (re-inject 'after any paragraph')", MEMO,
-     '                after_item = kind == "p" and list_item_line(cur[0][1])',
-     '                after_item = kind == "p"',
-     ["(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is a code block "
-      "under CommonMark too -- raw, no seed"]),
+      "the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- seeded",
+      "(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is raw under "
+      "CommonMark too, but holds a declared id -- seeded by the one raw-line rule",
+      "(lex-seed) a 4-space-indented slot row after a table's rows is raw (cmark-gfm: `<pre><code>`) "
+      "and is SEEDED -- it holds a `|` -- never a silent skip (I-C)",
+      "(lex-seed) a tab-indented slot row after a table's rows is raw (§2.2: four columns) and is SEEDED"]),
+    ("RG3 IMP-1: the item reading is printed for indented code while the item is open (drop it)", MEMO,
+     '                        reading = "item" if opener[0] == "indented" and item_open else opener[0]',
+     '                        reading = opener[0]',
+     ["(lex-seed) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's SECOND paragraph keeps it "
+      "open (commonmark.js: `<p>` in the item), so the indented line is seeded as the item's content"]),
+    ("RG3 IMP-1: the bit is SET by a marker-headed paragraph only (re-inject 'any paragraph')", MEMO,
+     '                if kind == "p" and list_item_line(cur[0][1]):\n                    item_open = True',
+     '                if kind == "p":\n                    item_open = True',
+     ["(lex-seed) `para\\n\\n    Slice 9z owns it`: its reading is §4.4 raw code, not the item's "
+      "content (Example 108) -- no list item is open"]),
+    ("RG3 IMP-1: the bit is not a one-block memory (re-inject the reset on every flushed paragraph: "
+     "`after_item = kind == \"p\" and list_item_line(...)`)", MEMO,
+     '                if kind == "p" and list_item_line(cur[0][1]):\n                    item_open = True',
+     '                item_open = kind == "p" and list_item_line(cur[0][1])',
+     ["(lex-seed) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's SECOND paragraph keeps it "
+      "open (commonmark.js: `<p>` in the item), so the indented line is seeded as the item's content",
+      "(lex-seed) `1. item\\n\\n   para\\n\\n     Slice 9z owns it`: an ordered item's 3-column paragraph "
+      "keeps it open (commonmark.js: `<p>` in the item) -- seeded as the item's content"]),
+    ("RG3 IMP-1: a `>` line inside the item does not close it (re-inject the clear at the quote)", MEMO,
+     '                    close(line)\n                    i += self._quote(lines, linenos, i, out)',
+     '                    close(line)\n                    item_open = False\n'
+     '                    i += self._quote(lines, linenos, i, out)',
+     ["(lex-seed) `- item\\n\\n  > q\\n\\n    Slice 9z owns it`: a block quote inside the item keeps it "
+      "open (commonmark.js: `<p>` in the item) -- seeded as the item's content"]),
+    ("RG3 IMP-1: a block start below 2 columns CLOSES the item (drop the clear)", MEMO,
+     '            if not is_blank(line) and indentation(line)[0] < 2:\n                item_open = False',
+     '            if False:\n                item_open = False',
+     ["(lex-seed) `- item\\n\\n para\\n\\n    Slice 9z owns it`: a 1-column paragraph CLOSES the item "
+      "(commonmark.js: a code block outside it), so the reading is §4.4, not the item's content",
+      "(lex-seed) `- item\\n\\n  para\\n\\n# h\\n\\n    Slice 9z owns it`: a 0-column heading CLOSES the "
+      "item (commonmark.js: a heading and a code block outside it) -- the reading is §4.4"]),
     # -- PR #510 Codex R13: §4.6 case per condition, GFM §4.10 excess cells
     ("R13 §4.6: condition 5 `<![CDATA[` is exact (re-inject case folding)", BLOCKS,
      r'(?P<t5>!\[CDATA\[)', r'(?P<t5>(?i:!\[CDATA\[))',

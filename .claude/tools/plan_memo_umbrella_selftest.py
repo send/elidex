@@ -139,6 +139,10 @@ def measure(res, reported, m):
                 "SCHEMA %r (rc must be 2 iff any)" % arg)
     if what == "id":
         return int(arg in res.population.ids), "id %r declared" % arg
+    if what == "seed":
+        # the one measure that reads a seed's READING: LEX-UNSUPPORTED? findings carrying `arg`
+        return (sum(1 for f in res.findings if f[0] == "LEX-UNSUPPORTED?" and arg in f[3]),
+                "LEX-UNSUPPORTED? carrying %r" % arg)
     raise ValueError(m)
 
 
@@ -481,17 +485,25 @@ def spec_examples_control(M):
 def sequence_control(M):
     """Phase 1's block SEQUENCE (`Memo.sequence`) over the §4.4 chunk and
     §5.1 container shapes the vendored spec examples do not reach -- which
-    block a line lands in, a fact no naming site can discriminate.  Every
-    expected sequence was read off commonmark.js 0.31.2 (`node cm.js`)
-    before being written, except the two table shapes (no tables there),
-    which follow cmark-gfm's rule that a lazy line is paragraph text and a
-    table is not a paragraph.  A crash on a shape is red."""
+    block a line lands in, a fact no naming site can discriminate -- and,
+    for the raw shapes, the CONTENT of the raw extent (`Memo.raw`: the
+    lines after the marker, re-spelt in line columns), since the sequence
+    alone never read it: `c0 = col` in `quote_content` survived 285
+    controls with `>\\t\\tfoo` holding seven spaces (design re-gate 3,
+    MIN-5).  Every expected sequence was read off commonmark.js 0.31.2
+    (`node cm.js`) before being written, except the table shapes (no
+    tables there), which are cmark-gfm's (measured, `gh api -X POST
+    /markdown -f mode=gfm`): a lazy delimiter row or body row is paragraph
+    text and a table is not a paragraph, while a lazy HEADER row is the
+    header when the delimiter carries the marker.  A crash on a shape is
+    red."""
     import plan_memo_memo         # the freshly loaded module
     shapes = [
+        # (markdown, expected sequence[, expected raw content lines])
         # a candidate where no paragraph is open ends the quote
         ("> # h\nlazy", [["quote", 1, 1], ["h1", 1, 1], ["p", 2, 2]]),
         ("> ```\nlazy", [["quote", 1, 1], ["fence", 1, 1], ["p", 2, 2]]),
-        (">     foo\n    bar", [["quote", 1, 1], ["indented", 1, 1], ["indented", 2, 2]]),
+        (">     foo\n    bar", [["quote", 1, 1], ["indented", 1, 1], ["indented", 2, 2]], ["    foo", "    bar"]),
         ("> | a |\n> |---|\n| 1 |", [["quote", 1, 2], ["table", 1, 2], ["p", 3, 3]]),
         # lazy continuation, and the underline that cannot be lazy
         ("> a\nb\n> ===", [["quote", 1, 3], ["h1", 1, 3]]),
@@ -500,27 +512,34 @@ def sequence_control(M):
         ("> > a\nb\n> c", [["quote", 1, 3], ["quote", 1, 3], ["p", 1, 3]]),
         ("> [a]: /u\nlazy", [["quote", 1, 2], ["def", 1, 1], ["p", 2, 2]]),
         ("> | a |\n|---|", [["quote", 1, 2], ["p", 1, 2]]),
+        # a lazy HEADER is the table's header where a paragraph is open (cmark-gfm); after a heading it is not
+        ("> a\n| h |\n> |---|\n> | 1 |", [["quote", 1, 4], ["p", 1, 1], ["table", 2, 4]]),
+        ("> # h\n| h |\n> |---|", [["quote", 1, 1], ["h1", 1, 1], ["p", 2, 2], ["quote", 3, 3], ["p", 3, 3]]),
         ("> a\n\n> b", [["quote", 1, 1], ["p", 1, 1], ["quote", 3, 3], ["p", 3, 3]]),
-        # the marker and §2.2 tab stops (Example 6 and its neighbours)
-        (">\t\ta", [["quote", 1, 1], ["indented", 1, 1]]),
+        # the marker and §2.2 tab stops (Example 6 exactly, and its neighbours)
+        (">\t\tfoo", [["quote", 1, 1], ["indented", 1, 1]], ["      foo"]),
+        (">\t\ta", [["quote", 1, 1], ["indented", 1, 1]], ["      a"]),
         (">\ta", [["quote", 1, 1], ["p", 1, 1]]),
         (">  \ta", [["quote", 1, 1], ["p", 1, 1]]),
-        ("    > a", [["indented", 1, 1]]),
+        ("    > a", [["indented", 1, 1]], ["    > a"]),
         # the §4.4 chunk: blank lines inside stay, trailing ones do not
-        ("    a\n\n    b\n\nc", [["indented", 1, 3], ["p", 5, 5]]),
-        ("    a\n  \n    b", [["indented", 1, 3]]),
+        ("    a\n\n    b\n\nc", [["indented", 1, 3], ["p", 5, 5]], ["    a", "", "    b"]),
+        ("    a\n  \n    b", [["indented", 1, 3]], ["    a", "  ", "    b"]),
     ]
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "shape.md"
-        for md, want in shapes:
+        for md, want, *raw in shapes:
             p.write_text(md + "\n")
             try:
-                got = plan_memo_memo.Memo(p).sequence
+                memo = plan_memo_memo.Memo(p)
             except Exception as e:       # noqa: BLE001 -- the defect under test
                 return False, "%r raised %s: %s" % (md, type(e).__name__, str(e)[:60])
-            if got != want:
-                return False, "%r: sequence %s, expected %s" % (md, got, want)
-    return True, "%d shapes, each sequence as commonmark.js reads it" % len(shapes)
+            if memo.sequence != want:
+                return False, "%r: sequence %s, expected %s" % (md, memo.sequence, want)
+            got = [t for _, t, _ in memo.raw]
+            if raw and got != raw[0]:
+                return False, "%r: raw content %s, expected %s" % (md, got, raw[0])
+    return True, "%d shapes, each sequence (and each raw extent's content) as commonmark.js reads it" % len(shapes)
 
 
 def scaling_quotes_control(M):
@@ -552,7 +571,7 @@ def registry():
     for c in CASES:
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
-    reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
+    reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and §5.1 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
     reg["block quotes are linear: N quotes cost <= 4N quote_content calls"] = ("CONTROL", scaling_quotes_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
