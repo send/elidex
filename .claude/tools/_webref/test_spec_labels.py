@@ -262,7 +262,26 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
 
 
 class TestSliceBoundary(unittest.TestCase):
-    """This package names neither a Slice-B artifact nor an elidex path.
+    """This package names no elidex path, and none of the three Slice-B
+    artifacts named below.
+
+    ⚠ Read that second clause at the width the predicate has. It is NOT
+    "names no Slice-B artifact" — an earlier revision of this docstring said
+    so, and the needles are a SEED, not an inventory: three hard-coded
+    spellings taken from the two symptoms already known. Positive controls
+    from outside that vocabulary, drawn from Slice B's own memo, do not
+    redden it (`AuditResult` and `census_underreport.py` are both `_scan`
+    clean at this head). The authoritative statement of the property is the
+    needle list itself; widening a regex is the wrong repair, because the
+    next Slice-B artifact would not be on any list either. The check that
+    ranges over the property rather than the vocabulary is B's own
+    `/elidex-plan-review`, which reads B's artifact set.
+
+    ⚠ `_B_ARTIFACT` matches Slice B's own detector module by
+    construction (its module is `cite` + `_audit.py`), so S7's first clause must
+    be RETIRED, not extended, in the
+    commit that lands B — and unlike the memo hand-offs, this pin lives in a
+    permanent tool-tree file that no plan-review round will read.
 
     Both are greps over prose occurrences, not over file assignments — a
     name in a docstring is the thing being forbidden, so a check that only

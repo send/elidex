@@ -7,11 +7,18 @@ enumeration:
   - `cli.py`'s `COMMON_SHORTNAMES` help blurb
 
 Adding a spec to one did not reach the other, so the two drifted apart by
-construction. Both now derive from `SPECS` below, so a spec is added in
-exactly one place.
+construction. Both now derive from `SPECS` below, which is the single
+SOURCE site: neither consumer carries an enumeration any more.
 
-The plan-review gate keeps a reversed copy of its own. That one lives
-outside this tree, behind its own failure semantics.
+⚠ That is not the same as "a spec is added in exactly one place", which an
+earlier revision of this docstring claimed. Measured, adding one row to
+`SPECS` reddens three unit tests here, three `rederive keysets` claims, and
+leaves the plan-review gate unable to resolve the new label. Those are
+deliberate — the tests and `keysets` PIN the vendored `origin/main` baseline
+(the slice's K4), so they are supposed to redden when the map moves, and the
+gate's own reversed copy is Slice A-ii's to migrate. The honest reading is:
+one source, plus pins that must be re-derived with it, plus one copy that
+lives outside this tree behind its own failure semantics until A-ii.
 """
 from __future__ import annotations
 

@@ -10,7 +10,17 @@ from ..spec_labels import label_for
 # Human-readable spec label for the first column of §3 table rows. The
 # enumeration is canonical in `_webref.spec_labels` — see that module for why
 # it is not inlined here. Falls back to UPPER(shortname-with-dashes-as-spaces)
-# for unmapped shortnames (cosmetic only, not load-bearing for verification).
+# for unmapped shortnames; extend the map when a new spec becomes frequently
+# cited.
+#
+# ⚠ This comment used to end "(cosmetic only, not load-bearing for
+# verification)", and that is false for the verifier this command feeds. The
+# label is what the plan-review gate parses to decide whether it checks the
+# row at all, so a generated `CSS TEXT 3 §4.1.3 …` row reaches the gate as an
+# unrecognised label and its §-number is never verified — a fabricated one
+# passes green. The hole is registered as `#11-preflight-css-module-labels`;
+# closing it is not this slice's (the last resort is kept `origin/main`
+# verbatim under K4, and the gate's own reverse map migrates in Slice A-ii).
 
 
 def _spec_label(shortname: str) -> str:

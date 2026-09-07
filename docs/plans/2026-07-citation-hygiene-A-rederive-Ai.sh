@@ -28,6 +28,22 @@ print("superset:", all(a.get(k) == v for k, v in mk.items()),
 print("added spellings:", sorted(set(a) - set(mk)))
 print("value sets equal:", set(a.values()) == set(mk.values()),
       f"({len(set(a.values()))} specs)")
+# THE UNGUARDED DIRECTION. Everything above compares `SPECS` with the FROZEN
+# `origin/main` baseline, which is the K4 pin. Nothing compared it with the gate
+# that is live in this checkout, so adding a spec to `SPECS` without adding it to
+# `preflight.SPEC_LABEL_REVERSE` left memos citing the new canonical label
+# degrading to verify-skip + exit 0, with no test red. Measured: planting one row
+# reddens three unit tests and three claims above, and the live gate still cannot
+# resolve the label. That is the direction with teeth, so it is asserted here.
+_live = open(".claude/skills/elidex-plan-review/preflight.py", encoding="utf-8").read()
+_lb = _live[_live.index("SPEC_LABEL_REVERSE = {"):]
+_lb = _lb[:_lb.index("}") + 1]
+live = {k.lower(): v for k, v in re.findall(r'"([^"]+)":\s*"([^"]+)"', _lb)}
+if not live:
+    raise SystemExit("!! the live gate's SPEC_LABEL_REVERSE parsed EMPTY; this arm would "
+                     "then pass for a reason that is not 'the sets agree'.")
+unreachable = sorted(l for _, l, *_ in s.SPECS if l.lower() not in live)
+print("labels the LIVE gate cannot resolve:", unreachable or "none")
 alias_free = {k.lower(): e[0] for e in s.SPECS for k in (e[0], e[1])}
 print("parse aliases:", [x for e in s.SPECS for x in e[3:]])
 print("deleting every alias changes the map?", alias_free != a,
@@ -44,6 +60,7 @@ bad = [name for name, ok in (
     ("equal value sets",   set(a.values()) == set(mk.values())),
     ("9 added spellings",  len(set(a) - set(mk)) == 9),
     ("alias-free map",     alias_free == a and not [x for e in s.SPECS for x in e[3:]]),
+    ("live gate resolves every canonical label", not unreachable),
 ) if not ok]
 if bad:
     print("!! keysets: the memo's claim(s) do not hold:", ", ".join(bad))
