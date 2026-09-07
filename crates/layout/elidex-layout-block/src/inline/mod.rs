@@ -212,40 +212,22 @@ pub fn layout_inline_context_fragmented(
         }
     }
 
-    // InlineFlow persistence gate. There is NO cross-cutting legacy route left: the
-    // three text-feature gates that once forced render's legacy collect/collapse/emit
-    // path — text-transform, bidi, and **justify** — have all converged into the
-    // packer (text-transform applied in-place before packing; RTL runs persisted in
-    // logical order and reordered at paint, UAX #9 L2; justify positions baked here,
-    // `flush_line`/`bake_justify`, like the other three alignments — CSS Text 3 §6).
-    // Member-kind divergences are likewise gone (slice 3p-a static-atomic / 3p-b
-    // relpos/sticky inline / 3p-b-2 relative/sticky atomic). The ONLY remaining gate is
-    // fragmentation: persist when non-fragmented, **paged** (slice 4 / I-paged: the
-    // per-page slice + continuation rebase below model the per-page geometry, fragment
-    // stamped with the page generation), or **multicol whole-in-column** (slice 4 /
-    // I-multicol — refined post-pack, see `persist_flow` below). A multicol IFC split
-    // mid-column is the last legacy route (→ Z).
-    //
-    // `persist_candidate` (here, pre-pack) drives only `flow_align` and is OPTIMISTIC for
-    // `Column`: the real multicol persist needs `break_after_line`/`skip_lines` (computed
-    // after packing) to require whole-in-column. Including `Column` here is safe because
-    // `flow_align` gates ONLY `flow_lines`/`relpos_atomic_placements` (discarded if the run
-    // does not ultimately persist), NOT `entity_bounds`/`static_positions`/`line_boxes`/the
-    // break computation (the packer commits those unconditionally) — so an optimistic
-    // candidate that resolves mid-break perturbs no box geometry. (Vertical writing modes
-    // persist too — the packer is axis-agnostic, the origin fold swaps axes.)
-    let frag_is_paged =
-        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
-    let frag_is_column =
-        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
-    let persist_candidate = frag_constraint.is_none() || frag_is_paged || frag_is_column;
-    let flow_align = persist_candidate.then_some(pack::FlowAlign {
+    // The packer records `flow_lines`/`relpos_atomic_placements` unconditionally and
+    // OPTIMISTICALLY: whether a multicol run persists needs `break_after_line`/
+    // `skip_lines` (computed after packing), so the routing is `persist_flow`'s below —
+    // a run that resolves mid-break is not persisted; its recorded lines leave via the
+    // `ColumnFlowSlice` carrier instead (only a probe's are discarded).
+    // Recording never perturbs box geometry — `entity_bounds`/`static_positions`/
+    // `line_boxes`/the break computation are committed independently of it. (Vertical
+    // writing modes persist too — the packer is axis-agnostic, the origin fold swaps
+    // axes.)
+    let flow_align = pack::FlowAlign {
         text_align: parent_style.text_align,
         direction: parent_style.direction,
         containing_inline_size,
         top_level_key,
         is_vertical,
-    });
+    };
 
     let pack_items = pack::build_pack_items(&items);
 
@@ -308,28 +290,44 @@ pub fn layout_inline_context_fragmented(
     let effective_line_count = break_after_line.unwrap_or(line_count);
     let skip_lines = frag_constraint.map_or(0, |c| c.skip_lines);
 
-    // Refined persistence gate (slice 4 / I-multicol). `persist_flow` is the pre-pack
-    // `persist_candidate` with its optimistic `Column` term narrowed to WHOLE-in-column:
-    // the run starts at line 0 (not a continuation carried from a prior column) AND is
-    // not truncated by a fragment break. A continuation (`skip_lines > 0`) would render
-    // only the tail (the prior column's lines were gated out → lost); a truncation
-    // (`break_after_line.is_some()`) drops its tail to a column the column shift won't
-    // reach. Either ⇒ legacy, so no lines are lost. Mid-IFC column break converges with
-    // box fragments at Z (G11: one LayoutBox/InlineFlow per entity; the column shift
-    // moves a run-start's whole subtree by one delta, so a two-fragment run-start cannot
-    // split across columns). A column run that resolves mid-break here just isn't
-    // persisted — its optimistically-built `flow_lines` are discarded (box geometry is
-    // `flow_align`-independent, see `persist_candidate`).
+    // Persistence gate — the ONLY gate left; there is NO cross-cutting legacy route:
+    // the three text-feature gates that once forced render's legacy
+    // collect/collapse/emit path — text-transform, bidi, and **justify** — have all
+    // converged into the packer (text-transform applied in-place before packing; RTL
+    // runs persisted in logical order and reordered at paint, UAX #9 L2; justify
+    // positions baked in `flush_line`/`bake_justify`, like the other three alignments
+    // — CSS Text 3 §6), and member-kind divergences are likewise gone (slice 3p-a
+    // static-atomic / 3p-b relpos/sticky inline / 3p-b-2 relative/sticky atomic).
+    // Every run persists — non-fragmented, **paged** (slice 4 / I-paged: the per-page
+    // slice + continuation rebase below model the per-page geometry, fragment stamped
+    // with the page generation), **multicol whole-in-column** (slice 4 / I-multicol) —
+    // except a multicol run that is NOT whole in its column, the last legacy route
+    // (→ Z). Whole = the run starts at line 0 (not a continuation carried from a
+    // prior column) AND is not truncated by a fragment break.
+    // A continuation (`skip_lines > 0`) would render only the tail (the prior
+    // column's lines were gated out → lost); a truncation (`break_after_line.is_some()`)
+    // drops its tail to a column the column shift won't reach. Either ⇒ legacy, so no
+    // lines are lost. Mid-IFC column break converges with box fragments at Z (G11: one
+    // LayoutBox/InlineFlow per entity; the column shift moves a run-start's whole
+    // subtree by one delta, so a two-fragment run-start cannot split across columns).
+    // A column run that resolves mid-break here isn't persisted — its recorded lines
+    // leave via the `ColumnFlowSlice` carrier (next paragraph); box geometry is
+    // recording-independent — the packer commits it unconditionally.
+    let frag_is_paged =
+        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Page);
+    let frag_is_column =
+        frag_constraint.is_some_and(|c| c.fragmentation_type == crate::FragmentationType::Column);
     let column_is_whole = skip_lines == 0 && break_after_line.is_none();
-    let persist_flow = persist_candidate && (!frag_is_column || column_is_whole);
+    let persist_flow = !frag_is_column || column_is_whole;
     // Multicol mid-break (the last non-persisted column route): the per-column line
     // slice does not go to an `InlineFlow` here (the IFC runs per column at column-0
     // base and does not know the column inline offset). It is captured into the
     // transient `ColumnFlowSlice` carrier on `parent_entity`, drained by multicol
     // fill, and folded into the run-start's `InlineFlow` (offset per column) by
-    // `position_column_fragments` (Z-1b, Option D). Mutually exclusive with
-    // `persist_flow`: `do_carrier` ⟹ `frag_is_column && !column_is_whole` ⟹
-    // `persist_flow == false`.
+    // `position_column_fragments` (Z-1b, Option D). The dichotomy is definitional:
+    // `do_carrier = !persist_flow` (by De Morgan, exactly the mid-break condition
+    // `frag_is_column && !column_is_whole`), so persist-vs-carry is one bit and no
+    // both-true or neither state exists.
     //
     // A mid-break IFC whose own block clips overflow ALSO carries now (terminal-Z
     // C-1, retiring the #316 `midbreak_clips` legacy-fallback): render's
@@ -342,7 +340,7 @@ pub fn layout_inline_context_fragmented(
     // for the clipping case is the chain that fixes the col-0-clipped-away regression
     // #316 deferred (§2.6 hard invariant: this term and the C-1 render consume land
     // together).
-    let do_carrier = frag_is_column && !column_is_whole;
+    let do_carrier = !persist_flow;
     let total_block: f32 = packer
         .line_boxes
         .iter()
@@ -419,7 +417,6 @@ pub fn layout_inline_context_fragmented(
         env,
         is_vertical,
         persist_flow,
-        do_carrier,
         &candidate_keys,
         &unoffset_origins,
         packer.flow_lines,
