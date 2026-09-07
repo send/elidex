@@ -19,8 +19,10 @@ The runner patches the source TEXT, exec's a fresh module set from it (plan
     (an exception is not the control going red) and is a FAIL.
 
 Row shape: (name, file, find, replace, [control names]).  A row whose file is
-the RUNNER itself (`plan_memo_umbrella_selftest.py`) patches the runner, not
-the checker set, and takes its controls from the patched runner's registry.
+the CONTROLS module (`plan_memo_selftest_controls.py`) patches the self-test,
+not the checker set: the module is exec'd from the patched text
+(`plan_memo_selftest_harness.patched_module`) and the row's controls are taken
+from the PATCHED module's registry.
 
 The registry is split at the review-round seam, like the controls: this
 module holds the row shape, `run`, and every PRE-converge mutant (the lexing
@@ -31,10 +33,10 @@ same `MUTANTS` -- one list, filled by two modules, read at one import site
 (the runner).
 """
 
-IDS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, SELFTEST = (
+IDS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, CONTROLS = (
     "plan_memo_ids.py", "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py",
     "plan_memo_memo.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
-    "plan_memo_umbrella_selftest.py")
+    "plan_memo_selftest_controls.py")
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
@@ -404,13 +406,13 @@ MUTANTS = [
 def run(reg):
     """Apply each mutant to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
-    import plan_memo_umbrella_selftest as st
+    import plan_memo_selftest_harness as h
 
     fails = []
     print()
     print("mutants (each must turn its control red):")
     for name, file, find, replace, controls in MUTANTS:
-        src = (st.HERE / file).read_text()
+        src = (h.HERE / file).read_text()
         n = src.count(find)
         if n != 1:
             fails.append("MUTANT %r: substring occurs %d times in %s (must be exactly 1) -- the "
@@ -423,12 +425,12 @@ def run(reg):
             print("  FAIL [MUTANT] %s (unknown control)" % name)
             continue
         patched = src.replace(find, replace)
-        if file == SELFTEST:
-            # a mutant against the runner: the checker set is unpatched, the
-            # controls come from the PATCHED runner's registry
-            M, table = st.load(), st.patched_runner(patched).registry()
+        if file == CONTROLS:
+            # a mutant against the self-test: the checker set is unpatched, the
+            # controls come from the PATCHED controls module's registry
+            M, table = h.load(), h.patched_module(file, patched).registry()
         else:
-            M, table = st.load({file: patched}), reg
+            M, table = h.load({file: patched}), reg
         survived, crash = [], None
         try:
             for c in controls:
@@ -442,7 +444,7 @@ def run(reg):
                 if ok:
                     survived.append(c)
         finally:
-            st.unload()
+            h.unload()
         if crash:
             fails.append("MUTANT %r crash: %s" % (name, crash))
         elif survived:

@@ -10,16 +10,17 @@ report notes carrying TEXT), `("id", RID)` (1 if RID is declared, else 0),
 that reads an rc-2 run, and requires rc 2 exactly when it counts one).
 `case` / `acase` / `rcase` are spellings of the same record for the three
 common measures.  The control kinds (POSITIVE / POSITIVE-NOVEL / NEGATIVE /
-KNOWN-MISS) are defined in `plan_memo_umbrella_selftest.py`, which runs these
-through the one factory `control`.  The fixture builder lives beside the cases
-because the cases are its only parameterisation.
+KNOWN-MISS) are defined in the runner (`plan_memo_umbrella_selftest.py`); the
+registry (`plan_memo_selftest_controls.py`) runs these through the one factory
+`control` (`plan_memo_selftest_harness.py`).  The fixture builder lives beside
+the cases because the cases are its only parameterisation.
 
 The registry is split at the review-round seam: this module holds the builder,
 the record shape and every PRE-converge control; the controls written against
 PR #510's review rounds (Codex R1-R11, the design re-gate) live in
 `plan_memo_selftest_cases_pr510.py`, which imports the spellings from here and
 appends to this same `CASES` -- one list, filled by two modules, read at one
-import site (the runner).
+import site (the controls module, `plan_memo_selftest_controls.py`).
 """
 
 from collections import namedtuple

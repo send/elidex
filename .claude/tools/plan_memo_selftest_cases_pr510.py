@@ -8,8 +8,8 @@ exit-status / `/code-review high` / `/elidex-review` Stage 6 families); this one
 holds every control written against a PR #510 review round (Codex R1-R16 and
 the design re-gates over R4-R9), indexed by round, and appends to the SAME
 `CASES` list through the same `case` / `acase` / `rcase` spellings -- one
-registry, one import site (the runner imports this module for its side
-effect).  A control's mutant lives in `plan_memo_selftest_mutants.py` under the
+registry, one import site (the controls module imports this module for its
+side effect).  A control's mutant lives in `plan_memo_selftest_mutants.py` under the
 same round label.
 """
 
@@ -414,7 +414,7 @@ case("POSITIVE", "(anchor) `` Slice `C` owns it ``: an id-only code span stands 
 # ------------------------------------------------ PR #510 Codex R13 controls --
 # Every block-structure expectation below was checked against commonmark.js
 # 0.31.2 (`node cm.js '["<md>"]'`) before being written; the shapes no site
-# can discriminate (which block a line lands in) are the runner's
+# can discriminate (which block a line lands in) are the controls module's
 # block-sequence control.
 
 # THE ROOT: §4.4 indented code is a RAW extent (one opener / extent rule with
@@ -542,7 +542,7 @@ rcase("NEGATIVE", "(cite) adjacent lowercase citations `[c1][c2]` are not a full
                   "grammar's either-case predicate): rc 0",
       build(), "Per [c1][c2] step 1 the probe must return 3.", 0)
 # #3's negative half: the orphan's OWN bracket stays exempt (the positive half
-# is the runner's `orphan_offset_control`)
+# is the controls module's `orphan_offset_control`)
 rcase("NEGATIVE", "(def) `paragraph\\n[sib]: slice-9z-sib.md` alone: the orphan's own label bracket is exempt -- "
                   "rc 0, nothing walked",
       build(), "paragraph\n[sib]: slice-9z-sib.md", 0, **SIB)
@@ -554,7 +554,7 @@ rcase("NEGATIVE", "(def) `paragraph\\n[sib]: slice-9z-sib.md` alone: the orphan'
 # gone.  Every block-structure expectation below was checked against
 # commonmark.js 0.31.2 (`node cm.js '["<md>"]'`) before being written; the
 # shapes no site can discriminate (which block a line lands in, a list's
-# tightness) are the runner's block-sequence control, and the spec's own
+# tightness) are the controls module's block-sequence control, and the spec's own
 # `List items` / `Lists` examples (253-326) are the conformance control's.
 CHILD = {"child.md": VIOLATION + "\n"}
 case("POSITIVE-NOVEL", "(item) the reviewer's input `- item\\n\\n    [child](child.md)`: the indented line is the "
@@ -702,7 +702,7 @@ case("NEGATIVE", "(label) `[foo&auml;]: child.md` then `[fooä]`: §6.3 label ma
 # #1 (IMP): a reference definition keeps the RUN open, so a lazy table header
 # right after it is the table's header inside the container (cmark-gfm,
 # measured shape by shape -- `Memo._parse`'s docstring is the table).  The
-# shapes no id can discriminate are the runner's block-sequence control; the
+# shapes no id can discriminate are the controls module's block-sequence control; the
 # reviewer's consequence (a linked memo's schema table dropped, rc 0) is its
 # `lazy_header_after_definition_control`.
 
@@ -735,7 +735,7 @@ case("NEGATIVE", "(quote) a fenced block then the lazy schema header: no run is 
 # a raw HTML-block line (the plan's disposition for the same kind of text).
 # Every grammar arm and every negative below was read off commonmark.js
 # 0.31.2 (`node cm.js`) at an INLINE position (`a <…>`) before being written;
-# the spec's own §6.6 examples are the runner's inline conformance control.
+# the spec's own §6.6 examples are the controls module's inline conformance control.
 ABSENT = "absent-file.md"
 rcase("NEGATIVE", "(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\">text</span>`: a bracket inside a "
                   "double-quoted attribute value is no link -- nothing is walked, rc 0",
@@ -924,7 +924,7 @@ case("POSITIVE-NOVEL", "(link) `[x](.md)` links the sibling file named `.md`: `s
 # was built on `SHORT_ID` alone: the reviewer's declaring field below did not
 # match, the row was read as an umbrella, no attribution finding, a corrupted
 # census, exit 0.  The R14 spelling sweep reads spellings, not kind coverage;
-# the runner's `row_kind_coverage_control` is the kind half.
+# the controls module's `row_kind_coverage_control` is the kind half.
 SLUG_PTR = "Slice %s — **UMBRELLA, not a terminal unit** — points into §8."
 acase("POSITIVE", "(a) the R20 reviewer's declaring field `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributes the marker "
                   "to a SLUG row: the row is a pointer and the UMBRELLA-MARK attribution finding is emitted",

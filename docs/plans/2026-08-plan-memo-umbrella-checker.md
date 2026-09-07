@@ -4,13 +4,13 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is thirteen
-`.py` files: `plan-memo-umbrella-check.py` 485 / `plan_memo_tables.py` 329 / `plan_memo_umbrella_selftest.py`
-825 (the three carried names, 1,639) + `plan_memo_ids.py` 164 / `plan_memo_lexer.py` 538 / `plan_memo_blocks.py` 740 /
-`plan_memo_memo.py` 796 / `plan_memo_roles.py` 395 / `plan_memo_selftest_cases.py` 611 /
-`plan_memo_selftest_cases_pr510.py` 696 / `plan_memo_selftest_conformance.py` 197 / `plan_memo_selftest_mutants.py` 452 /
-`plan_memo_selftest_mutants_pr510.py` 684
-— **6,912 total, measured on the tree of the Codex R16 fix commit (parent `1ad7e523`); re-run at landing** (`wc -l
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is fifteen
+`.py` files: `plan-memo-umbrella-check.py` 498 / `plan_memo_tables.py` 344 / `plan_memo_umbrella_selftest.py`
+89 (the three carried names, 931) + `plan_memo_ids.py` 184 / `plan_memo_lexer.py` 699 / `plan_memo_blocks.py` 746 /
+`plan_memo_memo.py` 913 / `plan_memo_roles.py` 399 / `plan_memo_selftest_cases.py` 612 /
+`plan_memo_selftest_cases_pr510.py` 949 / `plan_memo_selftest_conformance.py` 279 / `plan_memo_selftest_controls.py` 799 /
+`plan_memo_selftest_harness.py` 266 / `plan_memo_selftest_mutants.py` 457 / `plan_memo_selftest_mutants_pr510.py` 867
+— **8,101 total, measured at `git add` of the self-test touch-time split commit (parent `883b89d3`); re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
@@ -728,7 +728,18 @@ ground for either option; it is not cited.
   in dependency order and the MUTANTS rows whose substring moved (45 of the 59 `TABLES` rows) target
   `MEMO`; two re-injections (`is_empty`, `is_blank`) are qualified with `__import__` because the name
   is no longer imported where the row patches (a crash is a FAIL, not a kill). Behaviour-preserving:
-  285 controls / 163 mutants 0 / 0, census and the 717-site worklist identical to `8d08b333`'s.
+  285 controls / 163 mutants 0 / 0, census and the 717-site worklist identical to `8d08b333`'s. ⚠ Touch-time
+  split after Codex R20 (`plan_memo_umbrella_selftest.py` had reached 1,083 lines): seam = harness vs
+  controls — `plan_memo_selftest_harness.py` (the module loader `load` / `unload` / `patched_module`, the
+  fixture runner `run_on`, the `Case` factory `measure` / `control`, the work witnesses `_count_calls` /
+  `_count_lines` / `_CountedList`) and `plan_memo_selftest_controls.py` (every function-shaped control,
+  `empty_registry_fails` beside its proof `empty_registry_control`, and `registry()`, the one name → (kind,
+  control) table); the runner keeps `run()` only. One import direction: runner → controls → harness (the
+  controls import the cases modules; the mutant runner imports the harness, not the runner). The two
+  MUTANTS rows whose file was the runner (R1-2 the emptiness guard, R12-D the `link_label` counter's
+  binding) target `CONTROLS`, exec'd from patched text by `patched_module` and read through the patched
+  module's `registry()`. Behaviour-preserving: 409 controls / 214 mutants 0 / 0, census 48 / 717 / 37 / 6
+  identical to `883b89d3`'s.
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,

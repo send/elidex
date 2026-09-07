@@ -16,7 +16,7 @@ under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, ROLES, SELFTEST, SEQUENCE, SPEC_EXAMPLES,
+    BLOCKS, CHECK, CONTROLS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, ROLES, SEQUENCE, SPEC_EXAMPLES,
     TABLES,
 )
 
@@ -31,7 +31,7 @@ MUTANTS += [
      'if stripped.endswith("|") and bounds and not _escaped(stripped, len(stripped) - 1):',
      'if stripped.endswith("|") and bounds and not stripped.endswith("\\\\|"):',
      ["(row) a trailing `\\\\|` is a literal backslash then the trailing pipe: rc 0"]),
-    ("R1-2 runner: the emptiness guard fires on zero controls / zero mutants", SELFTEST,
+    ("R1-2 runner: the emptiness guard fires on zero controls / zero mutants", CONTROLS,
      '    if n_controls == 0:\n        out.append(', '    if False:\n        out.append(',
      ["an empty control or mutant registry is a FAIL, never green"]),
     ("R1-3 link: a link deactivates every `[` opener before it (links may not contain links)", LEXER,
@@ -366,7 +366,7 @@ MUTANTS += [
      ["(anchor) `` `Slice `C owns it ``: the row noun is inside a code span, so on the disposed "
       "stream there is no `Slice C` to anchor on -- 0 sites (the bare `C` is a declared miss)"]),
     ("R12-D witness: Phase 1's `link_label` calls are counted where Phase 1 makes them (re-bind the "
-     "counter to the lexer's binding, which sees only Phase 2)", SELFTEST,
+     "counter to the lexer's binding, which sees only Phase 2)", CONTROLS,
      'with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:',
      'with _count_calls(__import__("plan_memo_lexer"), "link_label", limit=4 * n) as c:',
      ["Phase-1 orphan detection is linear: <= 4 link_label calls per line"]),

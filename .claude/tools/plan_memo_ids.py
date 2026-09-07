@@ -41,7 +41,7 @@ Every class here is ASCII by spelling (`\\b` / `\\w` / `\\d` are Unicode in
 a str pattern): `次のSlice C` has no Unicode word boundary before `Slice`,
 and both naming sites went unreported under `\\b` (PR #510 R9).
 
-The self-test's spelling sweep (`plan_memo_umbrella_selftest.py::
+The self-test's spelling sweep (`plan_memo_selftest_controls.py::
 id_spelling_sweep_control`) reads every other module's string constants
 for a second spelling of these classes; a reader that needs an ASCII
 alphanumeric boundary composes `ALNUM` rather than writing it.
