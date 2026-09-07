@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """webref CLI — see _webref/ package for implementation.
 
-Backs the Axis 4 (Spec citation discipline) verification recipe in elidex's
-pre-push design-review skill, which owns the axis definitions. Resolves
+Backs the Axis 4 (Spec citation discipline) verification recipe owned by
+elidex's pre-push design-review skill, invoked as `/elidex-review`; that name
+is the resolvable pointer, because the skill's own path is an elidex file path
+and this tree may not name one. Resolves
 section numbers, anchor IDs, WebIDL fragments, concept dfn anchors,
 element-to-interface mappings, CSS property metadata, and section prose
 against w3c/webref + tc39 biblio.

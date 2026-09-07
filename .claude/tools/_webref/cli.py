@@ -71,8 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog=".claude/tools/webref",
         description=(
             "webref lookup helper — spec citation verification for elidex. "
-            "Backs the Axis 4 (Spec citation discipline) recipe in elidex's "
-            "pre-push design-review skill, which owns the axis definitions."
+            "Backs the Axis 4 (Spec citation discipline) recipe owned by "
+            "elidex's pre-push design-review skill, invoked as `/elidex-review` "
+            "-- the name, not the path, because this tree may not name one."
         ),
         epilog=COMMON_SHORTNAMES,
         formatter_class=argparse.RawDescriptionHelpFormatter,

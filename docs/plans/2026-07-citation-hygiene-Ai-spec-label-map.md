@@ -333,6 +333,13 @@ not range. The containment stays: the scope is §2's generic core, decided at #5
 **The harness split is A-i's, and it is done.** ⚠ **The self-audit's dating was wrong and is corrected here.**
 Measured per-commit (`git show <c>:…-A-rederive.sh | wc -l`): `b37d2ba3` **291** → `e5e73755` **634** →
 `e0930ffb` **686** → `38f40eac` **799** → `261bfaa6` **840** → `58338dd5`, **the A-i carve**, **840** →
+⚠ **This memo is itself in that band and the third design re-gate asked whether it should split: no.**
+Measured at this head, `wc -l` is **795**. CLAUDE.md's touch-time split discipline is scoped to files
+**over 1000 lines** with a real cohesion seam; the 700-800 figure below is this program's tighter
+*authoring* convention for the harness parts, not a split trigger for a slice memo. Splitting a memo
+whose slice is one review round from landing would also re-create, across two documents, exactly the
+figure-with-two-homes defect the re-gate just removed from the slice table.
+
 `788825ab` **898** → `6be9c564` **901**. So the file *entered* the 700-800 authoring band at `38f40eac` and
 *left* it at `261bfaa6` — **both before the carve**. A-i did not carry it past the band; A-i **inherited it
 already past** and added 61 lines across two post-carve commits, both serving §4.1 (`readers`) and §4.2
@@ -548,6 +555,21 @@ in the two rows as provenance, not as a coordinate.
 
 | **B** | `:11` *"Slice A lands first and B rebases onto it"*; `:13` *"Branch: new, cut from Slice A's landed head"*; `:18-21` describing the carve as having moved `cite_audit.py`, `spec_labels.py` and the rest "onto this branch **unchanged**"; `:578` / `:580` baselining 289 and 410 lines; **17** line-anchored `<file>.py:<n>` edits — 11 into `cite_audit.py`, 6 into `spec_labels.py` (`grep -coE '(cite_audit\|spec_labels)\.py:[0-9]'`) — concentrated in its §4.1's nine under-report paths; plus `:374` (§4.1) and `:618` / `:637` (below). ⚠ **And two sites where A-i's own work is what is at risk**, located by content (the coordinates moved twice while this row was frozen — Codex R12 — so none are carried): **the `test_spec_labels.py` row of B's size table**, reading `\| — \| ~110 \| new (S1-S5) \|`; and **B's `**test_spec_labels.py** (new):` heading** followed by B's **own S1–S5**, which mean different things than A-i's S1–S8 (B's S1 is a round-trip over 948 catalog entries, B's own figure under that heading; A-i's S1 is `shortname_for` over `SPECS`). B `:470-471` cite the same file under the same numbering | measured, `git cat-file -e origin/main:.claude/tools/_webref/commands/cite_audit.py` **fails**, as does the same test for `spec_labels.py`. B does not *repair* those files at its base; it **creates** them. For those two sites the consequence is sharper than staleness: an author working from B authors a fresh ~110-line file under a **colliding pin numbering** and drops A-i's S3, S3b, S4, S5, S6, S7, S8 and T-net — the only mechanical enforcement of K2 and K3 in the tree. Measured, A-i ships that file with **15 tests** (`grep -c 'def test_'`), not `—`; its line count is `rederive budget`'s to state (§8) — an earlier revision carried a literal here that the review rounds outgrew (Codex R30). ✅ **Both sites discharged in this PR (Codex R14)**: B's heading now reads *A-i's file — B appends, does not create*, its pins are S9–S14 (continuing A-i's S1–S8), and the size-table row baselines on A-i's landed size |
 | **A-ii** (578 L) | `:148`, a routing row handing A-i *"`spec_labels.py`, the three consumers, `DESIGN.md`"* marked **landed** — which double-books `preflight.py`, claimed by its own next row; `:174` and `:504-505`, both premised on *"the asymmetry / the in-process reach is **created by A-i** moving the map"* | A-i has not moved `preflight.py`'s map since draft 3, and §12(1) now forbids it. A-i's `preflight.py` touch is one comment and adds no `_webref` import, so the asymmetry — and the deferral `:504-505` classes as **own** — are created by **A-ii** |
+
+⚠ **Two owed obligations whose receiving site is a FILE, not a memo — §13's forcing function does not
+reach them.** Everything else in this section is discharged by B's or A-ii's own `/elidex-plan-review`,
+which reads a memo. These two do not, and they are **not** registered as ledger slots: A-i already carries
+two (`#11-preflight-css-module-labels`, `#11-webidl-label-spelling-sweep`) and the per-PR deferral cap is
+three, so the durable record is the artifact that carries the obligation plus this row.
+
+1. **S7's first clause must be RETIRED when B lands, not extended.** `_B_ARTIFACT` matches B's own detector
+   module by construction, so the commit that adds it turns the pin red for the reason the pin exists.
+   Recorded in `TestSliceBoundary`'s own docstring, which is the file B's author edits.
+2. **K2/K3's entry-script half is enforced from `docs/plans/`, and Slice C retires that.** The assertions
+   about `.claude/tools/webref` live in `rederive couplings`, deliberately — assertions outside the package
+   belong in the harness, and `DESIGN.md` says the package should stay extractable. But the harness is
+   Slice C's subject ("Policy retirement"), so retiring it removes the only enforcement of that limb. C must
+   re-home the assertion or say why the limb no longer needs one.
 
 **Owed to Slice B — three assertions that pin the round-trip defect GREEN.** `test_spec_labels.py`'s S6 test
 carries, at `:235-237` of the shipped file, `_spec_label("css-text-3") == "CSS TEXT 3"`,
