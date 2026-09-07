@@ -72,6 +72,13 @@ the state — otherwise every landing would cost a round.
 | 19-gate (Step 4.5 on rev 23) | no | **yes** (6c fixture, 6f, 24) | 0 |
 | rev 25 (landings + bookkeeping; four Step 4.5 gates; not a round) | no (byte-identical) | no (byte-identical) | — |
 | 20 (0 CRIT / 8 IMP / 15 MIN; all applied in rev 26 — routing/ordering, §5.2/§8/§9/§10 only) | no (byte-identical) | no (byte-identical) | **1** |
+| 21 (0 CRIT / 2 IMP / 12 MIN; all applied in rev 27 — §3/§3.1/§5.2/§5.3/§5.4 index/§8/§9/§10 + memory) | no (byte-identical) | no (byte-identical) | **2 → TERMINAL** |
+
+**TERMINAL reached at round 21 (2026-09-07).** Per the rule above the plan is approved and
+implementation starts: the approval PR (§8) lands this memo; the tooling PR proceeds on its own
+trigger and the predicate prereq is approval-independent (neither waits on the approval PR);
+PR-1a branches after the approval PR and the predicate prereq have landed. Later revisions of
+this file are landing records, not design rounds.
 
 **Review history — including which revision decided what, and why each earlier reading failed —
 lives in `project_line-box-decorated-inline-content.md`, not here.** A past-tense ledger restates
@@ -255,7 +262,7 @@ the answer.
 | CSS Inline 3 §2.3 Phantom Line Boxes | clause 5 | forced line break | `force_break` (`inline/pack/mod.rs:781`) — untouched | ✓ (pre-existing) | yes |
 | CSS Inline 3 §2.3 Phantom Line Boxes | consequence | line box *and its in-flow content* do not exist | commit/discard seam (`inline/pack/mod.rs:210` vs `:423`) — **PR-1d** | ✓ | yes |
 | CSSOM View 1 §6 Extensions to the `Element` Interface | `getClientRects()` step 3, the **one-line** case | one `DOMRect` "describing its **border area**" — padding + border, never margin | the `border_box()` fallback (`element/layout_query.rs:237`), correct once M4's edges are real — **PR-1c** | ✓ for a box with **one fragment on one line**; the residue is the row below | yes |
-| CSSOM View 1 §6 Extensions to the `Element` Interface | `getClientRects()` step 3, one `DOMRect` **per box fragment** in content order | ⚠ **the engine has no fragment unit at all.** `commit_aligned_entity_rects` folds to one entry per entity per **line** (`pack/mod.rs:479-487`) and `boxes.rs:102` gates on `line_rects.len() > 1`, so *line* is the only partition it can express; and runs persist in **logical** order, the UAX #9 L2 reorder being render's, not layout's (`inline/mod.rs:215-217`, `collect.rs:303-305`). So a **multi-line** box answers one content span per line (edges missing), and a box the spec fragments **within one line** — css-inline-3 §2.1's Note, "Inline boxes can also be split into several fragments within the same line box due to bidirectional text processing" — answers with *one* rect where the step requires one per fragment | **`#11-inline-box-decoration-splits`**, which owns css-break-3 §5.4 whole, and §5.4 names this case itself ("bidi-imposed breaks — i.e. when bidi reordering causes an inline to split into non-contiguous fragments"). Both halves are **pre-existing**: the count is already wrong on `154bac3f` and no PR here changes it. §6 cell 17d pins the multi-line half; `pack/mod.rs:445`'s "one border-box fragment per line" docstring — which recurs at `boxes.rs:91` and four further sites — is `#11-inline-spec-cite-misattribution`'s (§9) | ✗ (deliberate, §5.3) | yes |
+| CSSOM View 1 §6 Extensions to the `Element` Interface | `getClientRects()` step 3, one `DOMRect` **per box fragment** in content order | ⚠ **the engine has no fragment unit at all.** `commit_aligned_entity_rects` folds to one entry per entity per **line** (`pack/mod.rs:479-487`) and `boxes.rs:102` gates on `line_rects.len() > 1`, so *line* is the only partition it can express; and runs persist in **logical** order, the UAX #9 L2 reorder being render's, not layout's (`inline/mod.rs:215-217`, `collect.rs:303-305`). So a **multi-line** box answers one content span per line (edges missing), and a box the spec fragments **within one line** — css-inline-3 §2.1's Note, "Inline boxes can also be split into several fragments within the same line box due to bidirectional text processing" — answers with *one* rect where the step requires one per fragment | **`#11-inline-box-decoration-splits`**, which owns css-break-3 §5.4 whole, and §5.4 names this case itself ("bidi-imposed breaks — i.e. when bidi reordering causes an inline to split into non-contiguous fragments"). Both halves are **pre-existing**: the count is already wrong on `154bac3f` and no PR here changes it. §6 cell 17d pins the multi-line half; `pack/mod.rs:445-446`'s "one border-box fragment per line" docstring — which recurs at `boxes.rs:91` and four further sites — is `#11-inline-spec-cite-misattribution`'s (§9) | ✗ (deliberate, §5.3) | yes |
 | CSSOM View 1 §6 Extensions to the `Element` Interface | *get the bounding box* (`#element-get-the-bounding-box`), which `getBoundingClientRect()` returns the result of | step 1 invokes `getClientRects()`; step 4 returns "the smallest rectangle that includes all of the rectangles in list **of which the height or width is not zero**" (step 2 = zeros for an empty list, step 3 = **the first** rect when all are zero-area) | ⚠ elidex derives it from `LayoutBox.border_box()` and **never invokes `getClientRects()`** (`element/layout_query.rs:29-32` → `get_border_box`), so the two derivations are independent — pre-existing. PR-1c makes them *disagree*, at the broken edges only; §6 cell 17f pins it — **`#11-inline-box-decoration-splits`** | ✗ (deliberate, §5.3) | yes |
 | CSSOM View 1 §6 Extensions to the `Element` Interface | `clientTop` / `clientLeft` / `clientWidth` / `clientHeight`, step 1 | "If the element has no associated box **or if the box is inline, return zero**" — verbatim, and **identical across all four members** (`body cssom-view-1 dom-element-clienttop`) | ⚠ **step 1 is unimplemented for all four.** `clientTop` / `clientLeft` (`element/layout_query.rs:133-151`) read `lb.border.top` / `lb.border.left` as **direct field reads** and return zero today only because `inline/pack/boxes.rs:82-84` hard-codes `EdgeSizes::default()` — the lines M4 replaces — so PR-1c would turn an accidental correctness into a violation. `clientWidth` / `clientHeight` (`:120-132`) read `get_padding_box` (`:346`) and therefore **already violate step 1 today**, before this program. **Carved out of this umbrella into the predicate prereq PR** (§9), which must land **before PR-1a** — its predicate has two consumers, these four members and M1's emit test (§6 cell 6c). Why it is not a cell here: the predicate is css-display-3 §A Glossary's *inline box* — "A non-replaced inline-level box whose inner display type is flow" — i.e. **two** inputs, and elidex answers only one (`is_atomic_inline`, `inline/collect.rs:14`, matches `InlineBlock`/`InlineFlex`/`InlineGrid`/`InlineTable` and **not** the replaced half of css-display-3's *atomic inline*). A guard keyed on `Display::Inline` alone would be a second, wrong answer to a question `collect.rs` already answers | ✗ (deliberate, §9) | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | glyphless / fallback-only box | strut with first-available-font metrics | tentative baseline — **PR-1d** | ✓ | yes |
@@ -349,7 +356,7 @@ Adjacent pre-existing laxity:
   `#11-inline-spec-cite-misattribution` owns it (§9): `grep -rn "9\.2\.2\.1" crates/` returns nine
   hits and at least `pack/mod.rs:107`, `:200`, `:553` and three `text_height` test comments carry
   the same misattribution, so a coordinate list is not the class.
-* **`pack/mod.rs:445` says `getClientRects()` "returns one border-box fragment per line"** — a
+* **`pack/mod.rs:445-446` says `getClientRects()` "returns one border-box fragment per line"** — a
   restatement of cssom-view-1 §6 step 3 that swaps *fragment* for *line*. That is the engine's own
   fold (one entry per entity per line), not the spec's partition; §3's two CSSOM rows now say so.
   `#11-inline-spec-cite-misattribution` (§9) owns it.
@@ -433,7 +440,7 @@ whether any line is phantom.
 | `crates/layout/elidex-layout-block/src/inline/collect.rs` | Emits `InlineItem`, incl. the marker pair, with the payload M1 specifies, using the `parent_style` already in scope. Gains **one** new parameter: `containing_inline_size` on `collect_inline_items` (`:136`) / `collect_inline_items_inner` (`:194`). `root_horizontal` (`:211`) is unchanged. Every `collect_inline_items` caller — enumerated by `grep -rn 'collect_inline_items(' crates/` minus the definition — takes the new argument: `inline/mod.rs:154` (has the value), `inline/measure.rs:22` and `:51` (the intrinsic passes, where a containing inline size is definitionally unavailable — see §9), and the test helper `inline/tests/mod.rs:17`. |
 | `crates/layout/elidex-layout-block/src/inline/pack/items.rs` | `PackItem` (`:18`) and `FlowMember` (`:49`). Markers get `PackItem` forms carrying `item_index` only (M1); they never become `FlowMember`s. |
 | `crates/layout/elidex-layout-block/src/inline/pack/mod.rs` | `LinePacker` line state. **M3's `note_line_occupancy` lives here**, beside `place_item` (`:679`), its first caller. `flush_line` (`:209`) **calls** the open-box hook that `pack/inline_box.rs` owns (M4, **PR-1c**), promotes M7's tentative baseline inside its `:210` arm (**PR-1d**), and grows its per-line reset block (M3's `line_occupancy` in **PR-1b**, M7's tentative in **PR-1d**). The fabricated shaping citation at `:726` is rewritten by **PR-1b** — the one cite this program corrects, because PR-1b changes what that comment documents (§9). |
-| `crates/layout/elidex-layout-block/src/inline/mod.rs` | The IFC entry point. Sites this program writes, by PR: `collect_inline_items`'s call (`:154`, PR-1a, one argument); `items.is_empty()` (`:161`, held in PR-1a, flipped in PR-1d); the `any_font` closure's exhaustiveness arm (`:192-199`, PR-1a, behaviour-neutral); the **outer early-return condition** (`:200`, PR-1d, gains an escape for markers **that satisfy `has_inline_axis_edge`** (M5), beside the existing `Atomic` one); `assign_inline_layout_boxes`'s call (`:380` — ⚠ **whether this call site changes at all depends on the carrier PR-1c's memo picks** (M4): unchanged if the edges ride a widened `EntityBounds`, one added argument if they ride a second entity-keyed map **or** the `&[InlineItem]` slice (M4's three options). This memo does not decide it, so it does not promise the call is untouched either); and — ⚠ **not a write but a path-selection consequence** of the `:161`/`:200` flips (`154bac3f`; `:162`/`:202` at `22de3078`) — §7's `clear_inline_flows` gating (`:637` in the `154bac3f` frame; `inline/reconcile.rs:417-418` at `22de3078`, already `!env.is_probe`-gated: no PR of this program edits that file). The dead-arm prereq PR (#511, landed) wrote further sites here; they have their own row below. |
+| `crates/layout/elidex-layout-block/src/inline/mod.rs` | The IFC entry point. Sites this program writes, by PR: `collect_inline_items`'s call (`:154`, PR-1a, one argument); `items.is_empty()` (`:161`, held in PR-1a, flipped in PR-1d); the `any_font` closure's exhaustiveness arm (`:192-199`, PR-1a, behaviour-neutral); the **outer early-return condition** (`:200`, PR-1d, gains an escape for markers **that satisfy `has_inline_axis_edge`** (M5), beside the existing `Atomic` one); `assign_inline_layout_boxes`'s call (`:380` — ⚠ **whether this call site changes at all depends on the carrier PR-1c's memo picks** (M4): unchanged if the edges ride a widened `EntityBounds`, one added argument if they ride a second entity-keyed map **or** the `&[InlineItem]` slice (M4's three options). This memo does not decide it, so it does not promise the call is untouched either); and — ⚠ **not a write but a path-selection consequence** of the `:161`/`:200` flips (`154bac3f`; `:162`/`:202` at `22de3078`) — §7's `clear_inline_flows` gating (`:637` in the `154bac3f` frame; `inline/reconcile.rs:417-418` at `22de3078`, already `!env.is_probe`-gated: none of PR-1a–1d edits that file; the prereq #511 did, see the dead-arm row). The dead-arm prereq PR (#511, landed) wrote further sites here; they have their own row below. |
 | the dead-arm prereq PR's surface | `flush_line`'s `else` arm and its unmerged rect loop (`pack/mod.rs:393-421`) **and** the `inline/mod.rs` half the reachability argument kills: `persist_candidate` (`:239`), `flow_align`'s `Option` construction (`:240-251`), `persist_flow`'s now-redundant conjunct (`:322`) and the comments that explain the two-path model (`:227-230`, `:309-320`, `:329-330`). Listed as a layer of its own because the PR spans two files, which no other row does, and because every one of its six `inline/mod.rs` items lies **above** seam 3 — the fact §8 uses to conclude the two **`elidex-layout-block`** prereqs are independent rather than ordered (the third, the predicate prereq, is a different question — §9 hands over its touch set, so this memo concludes nothing about it). **Landed as #511 (`22de3078`, 2026-09-07).** ⚠ **What landed exceeds this enumeration** (recorded as the delta, per [[feedback_plan-ratified-surface-is-a-design-change]]): the pre-push gate found the same class one level down — with the pre-gate gone, `do_carrier` is definitionally `!persist_flow`, so `reconcile_flows`'s two-`bool` interface re-encoded the deleted third state and its `persist_flow \|\| do_carrier` guard was a tautology — and #511 collapsed it to **one bit**: `reconcile_flows` takes `persist_flow` alone, the caller derives `do_carrier = !persist_flow`, the guard and the redundant `do_carrier` conjuncts are gone. That edit lives in `inline/reconcile.rs`, the seam-3 module, so this row's "two files" is superseded — the landed set is whatever `git show --stat 22de3078` lists (no figure carried here), and the "above seam 3" independence argument held for the *planned* surface only. ⚠ Whether the landed delta disturbs a later obligation is **round 20's question, not this row's** ([[feedback_plan-ratified-surface-is-a-design-change]]: the collapse was applied at #511's pre-push gate and documented after — the class that rule exists to route back through plan-review). What this row can measure: the obligation sweep `grep -n 'do_carrier\|eleven' <memo>` returns landing-record sites only (this row and §8's ordering record — two lines) and no DoD; and the delta **fired the successor slot's disjunct 3** (its trigger exempts no prereq there — disposition in the slot memo and §10's last row). The successor slot's own half (`reconcile_flows`' signature, SoT) counts **ten** parameters and **two** adjacent `bool`s from `22de3078` on. PR-1a re-anchors against its actual base, which includes `22de3078`. |
 | `crates/layout/elidex-layout-block/src/inline/whitespace.rs` | `collapse_inline_whitespace` (`:41`) — M2's transparent arm. |
 | `crates/layout/elidex-layout-block/src/inline/measure.rs` | `max_content_inline_size` (`:44`) — M8's contribution. `min_content_inline_size`'s **accumulator** — `max_word` at `:23`/`:31` — is not touched (see `#11-inline-min-content-box-edges`); the function itself (`:15-37`) is, because its `collect_inline_items` call (`:22`) takes the new argument like every other caller. |
@@ -446,7 +453,7 @@ whether any line is phantom.
 | `inline/tests/decorated_inline/{stream,advance,geometry,existence}.rs` (NEW) | The four per-PR test modules §6 routes cells to. |
 | `elidex-render` tests | PR-1c's paint assertions for cell 13(c) — the background-colour and border rects that `paint/mod.rs:68`/`:382` derive from `border_box()`. The crate depends on `elidex-layout-block` (`crates/core/elidex-render/Cargo.toml`), so a cell there can run layout. §7 lists the family; §8 makes dispositioning it a PR-1c DoD item. |
 | `elidex-layout-block/src/inline/tests/` — **not `elidex-dom-api`** | Cells 17b/17c/17d. ⚠ `elidex-dom-api` has **no** dependency on any layout crate and no `[dev-dependencies]` at all, so a cell there cannot run inline layout — its existing `layout_query.rs` tests hand-insert `LayoutBox` literals, which would assert the marshalling and nothing about M4's producer. Every existing `InlineClientRects` assertion already lives under `elidex-layout-block/src/inline/tests/inline_flow/`, and that is where M4's two channels are jointly observable. §8's PR-1c `getBoundingClientRect` obligation is discharged the same way — against the `LayoutBox` border box the DOM API reads — not by a cell in `elidex-dom-api`. |
-| the seam-3 module — `inline/reconcile.rs`, created by #508 (`7e256029`) | `layout_inline_context_fragmented`'s reconcile block, moved out of `inline/mod.rs`. §7's `clear_inline_flows` gating lives here (`:417-418` at `22de3078`, already `!env.is_probe`-gated) — a **path-selection consequence** of PR-1d's flips in `inline/mod.rs`, **not an edit: no PR of this program writes this file** (`awk '/^## §6\./,/^## §7\./' <memo> \| grep -c reconcile` → 0; §8's PR-1d DoD → 0), so `:637` is a pre-move coordinate and the successor slot's disjunct 3 is **not** fired by any umbrella PR (§10's last row; an earlier drafting of this row said the opposite). |
+| the seam-3 module — `inline/reconcile.rs`, created by #508 (`7e256029`) | `layout_inline_context_fragmented`'s reconcile block, moved out of `inline/mod.rs`. §7's `clear_inline_flows` gating lives here (`:417-418` at `22de3078`, already `!env.is_probe`-gated) — a **path-selection consequence** of PR-1d's flips in `inline/mod.rs`, **not an edit: none of PR-1a–1d writes this file** (`awk '/^## §6\./,/^## §7\./' <memo> \| grep -c reconcile` → 0; §8's PR-1d DoD → 0; the prereq #511 *did*, this table's dead-arm row), so `:637` is a pre-move coordinate and the successor slot's disjunct 3 is fired by **no PR after #511** (§10's last row; earlier draftings of this row said "PR-1d fires it" and then "no umbrella PR fired it" — #511 did). |
 | `elidex-shell` tests — **the only site where a layout producer and a DOM-API reader are jointly observable** | §8's PR-1c end-to-end clause. Ground: `elidex-shell` depends on **both** `elidex-dom-api` and `elidex-layout` (→ `elidex-layout-block`), so it reaches the producer and the reader at one hop — the reachability an earlier revision denied by measuring adjacency instead. `build_pipeline_interactive` (`crates/shell/elidex-shell/src/pipeline.rs:563`) returns a `PipelineResult` carrying **`dom: EcsDom`** (`lib.rs:199-204`), so the test reads the span's real `LayoutBox` from the post-layout world **and** exercises `clientTop` — either by invoking the registered handler (`clientTop.get`, `crates/dom/elidex-dom-api/src/registry.rs:168`) or through a `<script>`, which that suite already does (`src/tests.rs:52` mutates the DOM from JS). ⚠ This row exists because §8 took on an obligation no other §5.2 row covers; the memo's other cross-crate rows (`elidex-render` paint, and the `— **not** elidex-dom-api` negative row) answer narrower questions. |
 | `elidex-text` (facade over `elidex-shaping`) | `FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60`) + `font_metrics` (`:101`) — M7's strut A/D, taken without shaping a string. |
 
@@ -569,11 +576,11 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   **or any work needing font-fallback provenance** (css-inline-3 §5.3's "only glyphs from fallback
   fonts" strut condition folds here, §8). Re-eval: 2026-11-01.
 
-Own deferrals **per PR** (the policy's unit), for all **seven** code PRs of the program (§8's two
-bookkeeping PRs sit outside check 9's roll-call: the docs-only **approval PR** opens none by
-construction; the **tooling PR** is a code PR — checker generalisation, wiring and conditional
-two-file awareness, §9 — whose
-own-deferral count is its own memo's call, the treatment the predicate prereq gets
+Own deferrals **per PR** (the policy's unit), for all **seven crate PRs** of the program (§8's two
+bookkeeping PRs — neither touches `crates/` — sit outside check 9's roll-call: the docs-only
+**approval PR** opens none by construction; the **tooling PR** ships skill infra — checker
+generalisation, wiring and two-file awareness, §9 — and its own-deferral count is its own memo's
+call, the treatment the predicate prereq gets
 below): PR-1a opens none,
 PR-1b opens 1, PR-1c opens 1, PR-1d opens none, the seam-3 prereq opens 1, the dead-arm prereq
 opens none, and the predicate prereq opens none **here** — what it opens is its own memo's call,
@@ -585,8 +592,9 @@ makes it #508's one own slot (≤3 ✓). An earlier drafting wrote "opens none" 
 pre-existing half alone; #508's memo recorded the contradiction and this revision resolves it in
 the SoT's favour. The dead-arm prereq's "none" is verified at #511's landing (it registered nothing).
 ⚠ `plan-xcheck.py`'s check 9 — **as the checker stands at this branch's HEAD; the tooling PR
-widens the alternation, so this paragraph is re-derived at approval-PR cut, after the merge §8
-requires** — reads **five** of this program's seven `opens` statements, not
+widens the alternation, so this paragraph is re-derived when the tooling PR lands — the approval
+PR is cut from `origin/main` and needs no merge, and the checker on this branch is unchanged
+until then** — reads **five** of this program's seven `opens` statements, not
 seven — and the two it misses fail for **different** reasons, which an earlier drafting of this
 very sentence got wrong by asserting only the first. (a) Its alternation is closed
 (`PR-1[a-z]|seam-3 prereq|dead-arm prereq`), so `predicate prereq` is unmatched by name.
@@ -616,6 +624,19 @@ measurement type; N copies for an N-segment span; reaches neither shape per §4.
 `run.entity`'s `ComputedStyle` at pack time (reaches neither shape, same reason). Neither is
 rejected on component-lookup cost — `collect.rs:36` uses borrowed component reads in the same
 per-child loop, a normal idiom here.
+
+### §5.4 ECS-native check (index)
+
+The OO→ECS mapping this design makes is stated where each decision lives; this subsection only
+indexes it (round 21, Axis 2 `[plan]` schema entry): **M1** — an index into the pass-local item
+stream, not a copied box object; **M3** — `LineOccupancy`, a three-state enum that encodes the state once, instead of a bool
+pair whose implicit `content_on_line ⇒ on_line` invariant would have to be maintained across
+three write sites; **M4** (Grounds) — the side-store→component rule is
+answered at the `HashMap<Entity, _>` *shape*: an intra-pass scratch map on a stack-local packer
+whose destination is the `LayoutBox` component is the audit's "clean" class, so no entity-keyed
+registry is introduced by any carrier option; **§9 FragmentTree bullet** — this program adds no
+new persisted carrier; `LayoutBox` (a component) is the destination and terminal-Z C-4 retires it
+on its own schedule.
 
 ## §6. Edge matrix
 
@@ -1208,19 +1229,20 @@ divergence and pointing at `#11-inline-root-inline-box`; M7's promotion carries 
 citations to their §3 rows; slot closes.
 
 **This memo ships as the umbrella's approval artefact** — a docs-only **approval PR**, cut from
-this branch (`layout-decorated-inline`, the worktree that authored it, per
-[[feedback_plan-memo-author-in-worktree]]) at TERMINAL; the precedent is #416 (`12ebc052`) and
+`origin/main` at TERMINAL and carrying the memo checked out from this branch
+(`layout-decorated-inline`, the worktree that authored it, per
+[[feedback_plan-memo-author-in-worktree]]); the precedent is #416 (`12ebc052`) and
 #470 (`283bcc0d`), one-file docs-only landings of an umbrella memo (`git show --stat`; ⚠ #434 is
 *not* one — it landed code beside its memo, `git show --stat deb6eaf6`). It carries the memo and the **program bookkeeping**
 rows §10 tags `approval PR` — the rows made true by the umbrella's *approval*, which no code
 PR's change makes true. **The two plan-checker tools and the SKILL.md standing note ship in their
 own tooling PR** (§9's task — skill infra by §9's own classification, approval-independent, cut
-from `origin/main`; **scope = the checkers' wiring, generalisation and — if it builds on #510's
-sibling-aware substrate — two-file awareness (§9's memo-split booking), and nothing else** — the
+from `origin/main`; **scope = the checkers' wiring, generalisation and two-file awareness as its
+memo decides (§9's memo-split booking), and nothing else** — the
 `SPEC_LABEL_REVERSE` CSS-label gap is **owned elsewhere**, by the SoT slot
 `#11-preflight-css-module-labels` (citation-hygiene Slice B, after its A-ii migrates that dict),
 so this program cites the owner and hand-verifies citations meanwhile, as §3 records; ordered
-**on its §9 trigger — #510's landing or this umbrella's TERMINAL, whichever comes first** —
+**on its §9 trigger — #510's resolution (landing or closure) or this umbrella's TERMINAL, whichever comes first** —
 because #510 puts a generic plan-memo checker and a selftest wire on the same
 `trip-wires` registry and the tooling PR's own plan-memo must decide build-on-vs-beside that
 substrate under `/elidex-plan-review` (#506 shipped checker tooling without one and paid a tooling-only IMP tail across several external rounds (the SoT's #506
@@ -1229,27 +1251,29 @@ describes the pre-state it ends), tagged `tooling PR` in §10. It gates nothing 
 program — not the predicate prereq's plan-review, which hand-verifies its citations as every CSS
 plan does today. **How the two PRs relate to this branch**: today `git diff --name-only
 origin/main...HEAD` on this branch lists the memo *and* the three tooling files (`SKILL.md`,
-`plan-sweep.py`, `plan-xcheck.py`). The tooling PR is cut from `origin/main` and takes those three
-files from this branch (`git checkout layout-decorated-inline -- <the three paths>`, then the
-generalisation work §9 names); once it lands, this branch takes `git merge origin/main` (the
-two checkers are new on both sides — add/add — and `SKILL.md` is modify/modify; all three resolve
-to `origin/main`'s versions), after which the same command lists the memo alone — and *that* is
-the approval PR's DoD: **its diff against `origin/main` is exactly one file.** Order: tooling PR
-on its trigger (§9: #510's landing **or TERMINAL, whichever comes first** — #510 is another lane's
-open PR, paused at its user's instruction, so this program does not wait on it past its own
-terminal); the approval PR at TERMINAL (the tooling PR precedes it, by the DoD); PR-1a branches
-off `main` only after the approval PR and the predicate prereq have landed (topology below).
-⚠ **Consequence stated**: the approval PR is cut at TERMINAL by construction, so nothing waits on
-#510 *before* TERMINAL; what the order costs is this — if #510 has not landed by TERMINAL, the
-tooling PR's whole latency (its own memo, its `/elidex-plan-review`, its landing) sits on the
-critical path **after** TERMINAL, and the approval PR (DoD = one file) and through it PR-1a wait
-on the *tooling PR*, not on #510. The predicate prereq and round 21 are ordered against neither.
-If #510 closes unmerged, the tooling PR's memo decides the substrate question against whatever
-`origin/main` then carries. No later PR re-ships any of them — the shipper is defined by
+`plan-sweep.py`, `plan-xcheck.py`). **Both PRs are cut from `origin/main` and take their files
+from this branch** with `git checkout layout-decorated-inline -- <paths>` — the approval PR the
+memo alone, the tooling PR the three tooling files (then the generalisation work §9 names) — so
+the approval PR's DoD, **its diff against `origin/main` is exactly one file**, holds by
+construction and **neither PR waits on the other** (a first draft had the approval PR wait for the
+tooling PR to land and merge back — a schedule pressure with no design ground, the shape under
+which #506 shipped tooling without a plan-review). This branch is retired after both land (`git
+merge origin/main` folds the landed copies back: the two checkers add/add, `SKILL.md`
+modify/modify, all resolved to `origin/main`'s versions). Order: approval PR at TERMINAL; tooling
+PR on its §9 trigger (#510's resolution — landing or closure — or TERMINAL, whichever first; #510 is
+another lane's open PR, so this program does not wait on it past its own terminal); PR-1a
+branches off `main` only after the approval PR and the predicate prereq have landed (topology
+below).
+⚠ **Consequence stated**: nothing in this program waits on the tooling PR except the tooling task
+itself; #510's state affects only the tooling PR's substrate decision. The predicate prereq is
+ordered against neither (nor was round 21, now complete). If #510 closes unmerged, that resolution fires the trigger
+and the tooling PR's memo decides the substrate question against whatever `origin/main` then
+carries. No later PR re-ships any of them — the shipper is defined by
 the *event* that makes the row true (approval; the tooling task), not by a PR letter.
 ⚠ Earlier revisions routed all of this to the seam-3 prereq PR, and rev 25's first draft to
 PR-1a. #508 shipped only its own plan-memo, on the user-ratified rule (2026-08-16, recorded in
-`docs/plans/2026-08-inline-seam3-reconcile-split.md`): *a PR carries the bookkeeping its own
+`docs/plans/2026-08-inline-seam3-reconcile-split.md` — whose preamble also says the tooling would
+"travel with the umbrella", a binary framing the tooling-PR model supersedes): *a PR carries the bookkeeping its own
 change makes true and hands the program's bookkeeping to the program* — and the same rule rejects
 PR-1a: its change makes none of these rows true either, and "the first PR after approval" is a
 temporal accident, not a truth-maker (this memo does not fix which PR lands first after TERMINAL;
@@ -1387,8 +1411,8 @@ whichever lands second takes `git merge origin/main` (⚠ **not** `rebase` — a
 cannot be rebased without a force-push, which `~/.claude/hooks/` denies; #511 needed no merge —
 it was cut from `origin/main` after #508 landed). **Branch topology**: the
 **three** prereqs branch off `main`, as does the **tooling PR** (approval-independent, ordered on
-its §9 trigger — #510's landing or TERMINAL — and against nothing else here); the **approval PR** is cut from *this* branch
-at TERMINAL (docs-only by then, §8 above); PR-1a branches off `main` after **all three** prereqs
+its §9 trigger — #510's resolution or TERMINAL — and against nothing else here); the **approval PR**
+is cut from `origin/main` at TERMINAL carrying the memo alone (§8 above); PR-1a branches off `main` after **all three** prereqs
 *and the approval PR* have *landed* — the two `elidex-layout-block` ones (**both landed**) because they move code PR-1a edits, and
 the predicate PR (**pending**) because PR-1a's M1 consumes what it establishes. ⚠ Whether the
 predicate prereq is ordered against the other two depended on its touch set, which §9 hands over;
@@ -1462,7 +1486,7 @@ explicitly so the fold can surface.
     (`git diff origin/main...origin/vm-p4-plan-memo-checker -- scripts/trip-wires.sh`) and the
     driver fails an unregistered wire in both directions. `preflight.py` is **not** in the set,
     which is also what removes the #501 overlap on that file (`gh pr view 501 --json files`; #514
-    touches `docs/plans` only). Order: on the task's trigger (§9 — #510's landing or TERMINAL).
+    touches `docs/plans` only). Order: on the task's trigger (§9 — #510's resolution or TERMINAL).
   * **Unmerged local branches**: thirteen touch the widened set (the count is the output of the
     loop in this bullet, not a figure carried in prose). None reaches an edit site this program
     holds. ⚠ An earlier revision recorded `layout-text-height-split` as a "genuine overlap"
@@ -1512,17 +1536,16 @@ explicitly so the fold can surface.
   either; and checks 11b/11c scan **the whole file** for cited paths and cell references, so moving
   §1/§4 out would silently shrink the checked surface — a split that weakens the checker is the
   wrong trade for a program whose last six rounds were saved by it. **Booked to the plan-checker
-  tooling task (below), on that task's trigger** (#510's landing or TERMINAL): making the checkers
+  tooling task (below), on that task's trigger** (#510's resolution or TERMINAL): making the checkers
   two-file aware is now in that task's scope statement (an earlier revision booked it here without
   ever adding it to the task's scope — a booking to a trigger nothing reached; rev 26 first tried
   to *decline* the split on that same ground, which its own tooling bullet refuted by naming a
-  reachable event). The split follows if the tooling PR builds on #510's sibling-aware substrate;
-  if it builds beside, the tooling PR's memo records the split as declined **with its cost stated**
-  — that is the decision's home, not this bullet. Until then the umbrella carries its length
-  knowingly, and the reader cost is stated without a bound: at least one review round remains
-  (ledger 1/2, and the Terminator resets the count on any M-row/§6 touch, so no upper bound
-  follows from the rule), and the remaining per-PR plan-reviews (five code PRs and the tooling PR)
-  read §8/§10, which a split would not shrink.
+  reachable event). The tooling memo decides two-file awareness **on its merits**, under its own
+  plan-review and whichever substrate it builds on; the split follows two-file awareness — that
+  memo is the decision's home, not this bullet (a first draft pre-scripted "beside ⇒ decline",
+  a scope-cut authorised before the deciding memo existed). Until then the umbrella carries its length
+  knowingly; the reader cost that remains after TERMINAL (round 21) is the per-PR plan-reviews
+  (five crate PRs and the tooling PR), which read §8/§10 — a surface a split would not shrink.
 * **File growth**: measure with `wc -l` at each PR rather than against a number written here, which
   this program's own prereq PRs invalidate. Per §5.2 the **open-box stack** goes to a new
   `pack/inline_box.rs`; M3's line-state core and M7's promotion stay in `pack/mod.rs`; new tests to
@@ -1836,28 +1859,30 @@ explicitly so the fold can surface.
   checkers on a loop (`elidex-plan-review`'s Step 1.5 or the ungated `trip-wires` job — ⚠ #510
   registers its own plan-memo checker wire in `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, the same
   hunk, and ships a lexer/blocks/tables substrate; this task lands **on its trigger below** —
-  #510's landing or TERMINAL — and its memo
+  #510's resolution or TERMINAL — and its memo
   decides build-on-vs-beside that substrate), generalise `plan-xcheck.py` off this memo's labels,
-  make both checkers **two-file aware if it builds on #510's sibling-aware substrate** (the
-  memo-split question §9 books to this task, below), and retire or rewrite the SKILL.md note that
+  decide — on its merits, whichever substrate — and if adopted implement **two-file awareness**
+  for both checkers (the memo-split question §9 books to this task, below), and retire or rewrite the SKILL.md note that
   describes the pre-state. ⚠ The `SPEC_LABEL_REVERSE`
   CSS-label gap is **not** this task's: it is `#11-preflight-css-module-labels` in the SoT
   (citation-hygiene Slice B, after A-ii migrates the dict) — an earlier revision booked it here
   too, a second decision surface for one gap, in the direction that lane's open slice deletes;
   until that slot lands every CSS plan hand-verifies its citations (§3). ⚠ Until the wiring is
-  done, **this memo's own
-  remaining rounds depend on running the checkers by hand** — the habit the task exists to end.
-  ⚠ **Trigger: #510's landing, or this umbrella's TERMINAL — whichever comes first** (the sibling
-  checker substrate this task must decide against; if #510 has not landed by TERMINAL the memo
-  decides against `origin/main` as it then stands, since the approval PR's DoD needs this task done
-  and another lane's paused PR must not hold this program past its own terminal);
+  done, **the per-PR plan-reviews under this umbrella (and this memo's landing-record revisions)
+  depend on running the checkers by hand** — the habit the task exists to end.
+  ⚠ **Trigger: #510's resolution — landing or closure — or this umbrella's TERMINAL, whichever
+  comes first** (the sibling checker substrate this task must decide against; if #510 is still
+  open at TERMINAL the memo decides against `origin/main` as it then stands — another lane's PR
+  must not hold this task past this program's terminal; the approval PR itself waits on nothing,
+  §8);
   **discharger: the tooling PR**, cut from `origin/main` (approval-independent skill infra, by this
   bullet's own classification), under `/elidex-plan-review` — not because it is edge-dense but
   because #506 shipped checker tooling without one and paid a tooling-only IMP tail across several external rounds (the SoT's #506
 record; no count carried here) before being carved into #510. Earlier revisions keyed the trigger to "the PR that ships
   these files" and named the seam-3 prereq PR (which shipped neither), then PR-1a (which would
   land the checkers unconnected — dead code by CLAUDE.md's rule), then the tooling PR itself (a
-  trigger that is the work cannot fire unfired); the event is #510, the PR is the discharger.
+  trigger that is the work cannot fire unfired); the event is "#510's resolution or TERMINAL" —
+  TERMINAL is the disjunct that fired, 2026-09-07 — and the PR is the discharger.
   Before all that, a revision wrote "this memo's next plan-review round", which fires *every*
   round and can discharge nothing, so it expired unheard six times running; a trigger that recurs
   is not a trigger.
@@ -1868,7 +1893,7 @@ record; no count carried here) before being carved into #510. Earlier revisions 
 | Action | PR |
 |---|---|
 | ✅ **Done 2026-09-07 (memory bookkeeping — no landing gate)**: this umbrella's slot and `#11-css2-spec-label-normalisation` (a #497 carve, **pre-existing** class; its Why/trigger are in `project_css2-spec-label-normalisation.md`, not restated here) are registered in `project_open-defer-slots.md` (the SoT per MEMORY.md), each with **its own recorded date rather than a fresh one** — `#11-css2-spec-label-normalisation` **2026-10-31** from its slot memo; this umbrella's own slot, which has none, takes 2026-11-01. This umbrella's own slot is **pre-existing** class: Codex opened it on #497, not this program. `#11-inline-fragmented-fn-decomposition` (carved from #495, pre-existing, **2026-10-28**) is **no longer part of this row** — #508 registered *and* partially closed it (next row); an earlier drafting of this row would have re-registered a closed slot with its pre-close date. ⚠ A registration is made true by the slot's *existence*, so routing it to a PR (the seam-3 prereq, then PR-1a, in earlier revisions) was deferral dressed as routing; the SoT's "they land with the umbrella" note is struck accordingly. | done (memory) |
-| ✅ **Landed with #508 (`7e256029`)** — the one row #508 carried, as the bookkeeping its own change made true. Register **and** close `#11-inline-fragmented-fn-decomposition` in one row — it is registered as closed-on-landing, not registered then closed — **as a partial close**, naming the seams §9 measures as still open, in the successor slot `#11-inline-fragmented-fn-seams-1-2` (**mixed** class per the SoT's landing record — the seams predate this umbrella, but `reconcile_flows`' extracted signature is created by #508, which makes it that PR's one **(own)** deferral, §5.3; an earlier drafting said "pre-existing" on the seams alone; Why: the prereq PR discharges seam 3 only; **trigger: canonical in the slot memo's Trigger section — the disjuncts the slot memo carries, no count here (a count goes stale each time the slot adds one; the per-program memory says so) — and this row no longer restates it**: disjuncts 1–2 are the two this row originally prescribed (their text, the six-PR exemption and its two grounds, and the predicate carve-out now live in the slot memo, not here), and the slot added further disjuncts for the items 1–2 cannot reach. A verbatim restore of this row's old text would drop the disjuncts the slot added (🔴 per-program memory). ⚠ **Disjunct 3 (slot memo) exempts no umbrella PR**: it fired at #511, and no umbrella PR re-fires it — none edits `inline/reconcile.rs` (last row); re-eval 2026-11-01). | seam-3 prereq PR |
+| ✅ **Landed with #508 (`7e256029`)** — the one row #508 carried, as the bookkeeping its own change made true. Register **and** close `#11-inline-fragmented-fn-decomposition` in one row — it is registered as closed-on-landing, not registered then closed — **as a partial close**, naming the seams §9 measures as still open, in the successor slot `#11-inline-fragmented-fn-seams-1-2` (**mixed** class per the SoT's landing record — the seams predate this umbrella, but `reconcile_flows`' extracted signature is created by #508, which makes it that PR's one **(own)** deferral, §5.3; an earlier drafting said "pre-existing" on the seams alone; Why: the prereq PR discharges seam 3 only; **trigger: canonical in the slot memo's Trigger section — the disjuncts the slot memo carries, no count here (a count goes stale each time the slot adds one; the per-program memory says so) — and this row no longer restates it**: disjuncts 1–2 are the two this row originally prescribed (their text, the six-PR exemption and its two grounds, and the predicate carve-out now live in the slot memo, not here), and the slot added further disjuncts for the items 1–2 cannot reach. A verbatim restore of this row's old text would drop the disjuncts the slot added (🔴 per-program memory). ⚠ **Disjunct 3 (slot memo) exempts no umbrella PR**: it fired at #511, and no later umbrella PR re-fires it — none of PR-1a–1d edits `inline/reconcile.rs` (last row); re-eval 2026-11-01). | seam-3 prereq PR |
 | Open `#11-inline-spec-cite-misattribution` (**pre-existing** class) with its six classes — four concept greps and two pattern-less hand-offs — Why, trigger and date in §9 | PR-1a |
 | Open `#11-inline-box-decoration-splits` (own) with the Why / trigger / date in §5.3, **and the §9 note that its carrier choice (`FragmentTree` vs a widened `InlineClientRects`) belongs to terminal-Z C-3/C-4, not to the slot alone** | PR-1c |
 | Open `#11-inline-min-content-box-edges` (own) with the Why / trigger / date in M8 | PR-1b |
@@ -1877,8 +1902,8 @@ record; no count carried here) before being carved into #510. Earlier revisions 
 | Correct `#11-layoutbox-trip-wire-not-in-ci` **at every live site carrying the falsified premise, not at one** — the class, per [[feedback_semantic-sibling-selfseed-and-regate-breadth]], is whatever `grep -rln 'layoutbox-trip-wire-not-in-ci\|D4 gate runs only in local' <memory-dir>` returns, **and the row states no count** — the command's output is the class, and the sites' *dispositions* differ, so any figure here would be a classification dressed as a measurement ([[feedback_convention-dependent-figures-are-argument]]; an earlier drafting of this row said "three" and the grep returns more). Verified to carry the falsified premise and needing correction: `project_open-defer-slots.md:25` (open + the premise), `active-lane-detail.md:140` (lists it as the Layout lane's **NEXT TASK**, user-approved) and `project_inline-mod-split-owed.md:49`/`:98` (still OPEN + the premise verbatim). Verified **already** correct and needing none: `project_layoutbox-trip-wire-in-ci-next.md` (CLOSED). The remaining hits are triaged at landing by re-running the grep, not from this list. ⚠ That the sweep is *partial* rather than uniformly pending is the whole reason a one-site row would leave a future Layout-lane session picking up a task #496 landed. ⚠ §10's separate `active-lane-detail.md` rewrite row is scoped to *this slot's* framing and does not reach line 140. The premise: "the D4 gate runs only in local `mise run ci`" — PR #496 (`da958ace`) made the `trip-wires` job ungated and unconditional, so the slot is resolved and the premise is false. Found because §8's PR-1c DoD now cites that job's wire #5 instead of restating a grep, i.e. this program **depends on** the fix; a dependency left asserting the opposite in the SoT is the class §10 exists to close. ✅ **Done 2026-09-07 (memory, no landing gate)** — the grep returned seven files; the live falsified-premise sites were corrected (SoT `:30` → CLOSED #496, `active-lane-detail.md:140`, `project_inline-mod-split-owed.md` — the queue line `:49` and section B's heading, `:99` today and `:98` when this row was first written, the same site renumbered — and `project_c3a-impl-pr-ready.md:29`) and the dated historical mentions left as records. ⚠ Routed to the seam-3 prereq PR, then PR-1a, by earlier revisions; its truth-maker (#496) had landed on 2026-08-02, so tying it to a program PR only lengthened the window in which `active-lane-detail.md:140` advertised a landed task as the lane's NEXT TASK. | done (memory) |
 | Open `#11-inline-root-inline-box` (pre-existing) with the Why / trigger / date in §5.3 | PR-1d |
 | **Close `#11-line-box-decorated-inline-content`** — §5.3 and §8 both assert it, and until now no ledger row carried it | PR-1d |
-| The plan-checker standing maintenance note is **already written** into `.claude/skills/elidex-plan-review/SKILL.md` on this branch, not booked for landing — an earlier trigger, "the next plan-review round that runs them by hand", fired every round and discharged nothing, and a landing-scoped row would have left it unowned in exactly the window it matters (its trigger is now #510's landing or TERMINAL, §9). **Not a `#11-` slot** — skill infra, per that file's own slot-fit precedent. This row records it; the **tooling PR** ships it with the two checkers (§8, §9) — the note lives in SKILL.md, a tooling file. ⚠ Routed to the seam-3 prereq PR, then PR-1a, by earlier revisions; #508 shipped neither the note nor the tools, and PR-1a would have landed them unconnected — the shipper is the §9 task's own PR, on its §9 trigger (#510's landing or TERMINAL) and under its own plan-review; that PR retires or rewrites this note. | tooling PR |
+| The plan-checker standing maintenance note is **already written** into `.claude/skills/elidex-plan-review/SKILL.md` on this branch, not booked for landing — an earlier trigger, "the next plan-review round that runs them by hand", fired every round and discharged nothing, and a landing-scoped row would have left it unowned in exactly the window it matters (its trigger is now #510's resolution or TERMINAL, §9). **Not a `#11-` slot** — skill infra, per that file's own slot-fit precedent. This row records it; the **tooling PR** ships it with the two checkers (§8, §9) — the note lives in SKILL.md, a tooling file. ⚠ Routed to the seam-3 prereq PR, then PR-1a, by earlier revisions; #508 shipped neither the note nor the tools, and PR-1a would have landed them unconnected — the shipper is the §9 task's own PR, on its §9 trigger (#510's resolution or TERMINAL) and under its own plan-review; that PR retires or rewrites this note. | tooling PR |
 | Split the joint "fold into terminal-Z C-3/C-4" parenthetical shared by `#11-inline-align-clientrects-nonpersist-path` and `#11-inline-relayout-box-staleness` — this PR closes the first, so the pairing stops holding **here**, and leaving it to a later PR would strand the SoT asserting a fold against a closed slot — ✅ **landed with #511 (2026-09-07)** | dead-arm prereq PR |
 | Enrich `#11-inline-relayout-box-staleness`'s SoT entry with M4's write-path statement (§9), and note that `#11-inline-box-decoration-splits`'s work is first-layout-only until this slot lands — an **ordering** note, not a blocking dependency (§5.3) | PR-1c |
 | Rewrite `project_line-box-decorated-inline-content.md`, `MEMORY.md`'s Layout-lane entry and `active-lane-detail.md`, all of which still carry a superseded framing of this slot. ⚠ Re-tagged from `seam-3 prereq PR` under the 2026-08-16 narrowing (§8); the per-program memory file is maintained round by round meanwhile, so what remains for the approval PR is the framing in `MEMORY.md` / `active-lane-detail.md` and the final state of the per-program file | approval PR |
-| Record the successor program the close hands off to: `#11-inline-box-decoration-splits` and `#11-inline-min-content-box-edges` **arm at PR-1d landing** (the splits slot on the first disjunct of its trigger; §5.3 gives C-3b as the other), and `#11-inline-fragmented-fn-seams-1-2` **does not arm at the close** — no PR of this program edits `inline/reconcile.rs` (PR-1d's `clear_inline_flows` item is a path consequence, §5.2/§7) and disjunct 1 is self-exempted. ⚠ It is **already armed**, independently of this program: its disjunct 3 fired at #511 (2026-09-07), the program's only `reconcile.rs` touch, so the reshape is unblocked now and ordered against nothing here — a Layout-lane task in its own right with its own plan-review (the signature's ECS question), re-eval 2026-11-01. Two earlier dispositions are withdrawn on the record: "neither of its disjuncts fires" (counted the disjuncts this memo prescribed, not the ones the slot carries) and "scheduled after PR-1d" (anchored to a `reconcile.rs` write PR-1d does not make — round 20, Axes 2/3). The Layout lane's next-task choice is therefore among **three**: the two slots that arm here and the already-armed successor | PR-1d |
+| Record the successor program the close hands off to: `#11-inline-box-decoration-splits` and `#11-inline-min-content-box-edges` **arm at PR-1d landing** (the splits slot on the first disjunct of its trigger; §5.3 gives C-3b as the other), and `#11-inline-fragmented-fn-seams-1-2` **does not arm at the close** — none of PR-1a–1d edits `inline/reconcile.rs` (PR-1d's `clear_inline_flows` item is a path consequence, §5.2/§7) and disjunct 1 is self-exempted. ⚠ It is **already armed**, independently of this program: its disjunct 3 fired at #511 (2026-09-07), the program's only `reconcile.rs` touch, so the reshape is unblocked now and ordered against nothing here — a Layout-lane task in its own right with its own plan-review (the signature's ECS question), re-eval 2026-11-01. Two earlier dispositions are withdrawn on the record: "neither of its disjuncts fires" (counted the disjuncts this memo prescribed, not the ones the slot carries) and "scheduled after PR-1d" (anchored to a `reconcile.rs` write PR-1d does not make — round 20, Axes 2/3). The Layout lane's next-task choice is therefore among **three**: the two slots that arm here and the already-armed successor | PR-1d |
