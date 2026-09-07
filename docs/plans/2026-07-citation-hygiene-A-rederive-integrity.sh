@@ -226,7 +226,10 @@ def blocks(path):
             depth += _brace_delta(line)
             if depth <= 0:
                 if line.strip() != "}":
-                    body.append(line)
+                    # Drop the closing brace so the last STATEMENT is what the
+                    # status check reads: `return 0; }` is a return, and reading
+                    # the brace as part of it hid that.
+                    body.append(line.rstrip().rsplit("}", 1)[0].rstrip())
                 out.append((name, start, body))
                 name = None
                 continue
@@ -253,20 +256,19 @@ def uncomment(s):
     return s
 
 
-defined, bad = {}, []
+# Walk first, judge later: the DISPATCHABLE set is read from the roster
+# assignments below, so the status audit cannot run inside this loop.
+defined, last_stmt, bad = {}, {}, []
 for path in parts:
     for name, lineno, body in blocks(path):
         defined[name] = (path.name, lineno)
-        if name not in roster:
-            continue
         last = ""
         for raw in reversed(body):
             s = raw.strip()
             if s and not s.startswith("#"):
                 last = s
                 break
-        if not RETURNS.search(uncomment(last).rstrip()):
-            bad.append((path.name, lineno, name, "ends on %r" % last[:64]))
+        last_stmt[name] = last
 
 for name in roster:
     if name not in defined:
@@ -322,9 +324,14 @@ for path in parts:
 #     must name a `-A-rederive-*.sh` file THIS CHECKOUT DOES NOT CARRY. A part
 #     that is present and does not define the name is the wrong pointer, and a
 #     present part is exactly what the reader can check for themselves.
-_admit = {}
-for _set in ("BLOCKS", "AUTHOR_LOCAL", "PARAMETERIZED"):
-    _mm = re.search(r'^%s="(.*?)"' % _set, "\n".join(q.read_text(encoding="utf-8") for q in parts), re.S | re.M)
+# `BLOCKS` is NOT re-parsed here: `roster` above already read it from the
+# dispatcher, and deriving the same set a second time from a different source
+# (the concatenation of every part) lets the two disagree silently -- the check
+# would then judge across two different rosters. One derivation, reused.
+_admit = {"BLOCKS": roster}
+_all_parts = "\n".join(q.read_text(encoding="utf-8") for q in parts)
+for _set in ("AUTHOR_LOCAL", "PARAMETERIZED"):
+    _mm = re.search(r'^%s="(.*?)"' % _set, _all_parts, re.S | re.M)
     if _mm is None:
         raise SystemExit("!! cannot read the `%s=` set; this check would range over a short "
                          "admitted set and redden sound names." % _set)
@@ -341,6 +348,14 @@ for _a, _b in (("BLOCKS", "PARAMETERIZED"), ("BLOCKS", "AUTHOR_LOCAL"), ("AUTHOR
 # The complement of "defined but not admitted": admitted but defined nowhere. The
 # guard prints these names in its usage line, so an undefined one is an advertised
 # invocation that exits 2 -- R52's defect, in the direction R52 did not check.
+# Every DISPATCHABLE name owes the status discipline, not just `all`'s roster:
+# R52 widened what the guard admits and left this audit on `$BLOCKS`, so
+# `readers` and `all` themselves went unchecked and both ended on an
+# accidental status.
+for _name in sorted(admitted):
+    if _name in last_stmt and not RETURNS.search(uncomment(last_stmt[_name]).rstrip()):
+        bad.append((defined[_name][0], defined[_name][1], _name,
+                    "ends on %r" % last_stmt[_name][:64]))
 for _name in sorted(admitted - {"all"} - set(defined)):
     bad.append((DISPATCH.name, 0, _name, "admitted by the dispatch guard but defined in no part on disk"))
 PART = re.compile(r"2026-07-citation-hygiene-A-rederive[-A-Za-z]*\.sh")

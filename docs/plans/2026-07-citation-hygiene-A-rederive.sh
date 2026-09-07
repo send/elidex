@@ -125,7 +125,8 @@ all() { # shellcheck disable=SC2086  # word-splitting the roster IS the position
           shift; done
         printf '\n(excluded from `all` -- author-local: %s; parameterized: %s)\n' "$AUTHOR_LOCAL" "$PARAMETERIZED"
         if [ -n "$failed" ]; then printf 'FAILED BLOCKS:%s\n' "$failed"; return 1; fi
-        printf 'ALL BLOCKS EXITED 0\n'; }
+        printf 'ALL BLOCKS EXITED 0\n'
+        return 0; }
 
 # Only a ROSTERED block is dispatchable: a shell builtin, an executable, a typo
 # (Codex R26) or a sourced helper (Codex R32) would otherwise run and hand back

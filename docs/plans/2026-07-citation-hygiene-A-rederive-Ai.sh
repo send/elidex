@@ -218,6 +218,7 @@ elif [(p, n) for p, n, _, _ in code] == [(p, n) for p, n, _, _ in prose]:
     rc = 1
 sys.exit(rc)
 READERSPY
+  return $?   # the heredoc'd census IS the measurement; say so
 }
 
 readercensus() {  # §15 — the four reader censuses A-i cites, as ONE roster entry
