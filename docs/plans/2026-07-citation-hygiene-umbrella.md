@@ -49,11 +49,17 @@ copies and A-ii the third; K1 completes across the pair. | A-ii's whole subject 
 artifacts only the authoring machine holds.** Measured: `git ls-remote origin domform-submittable-category` and
 `git ls-remote origin domform-slice1` each print **0 refs**, and neither branch ever had a PR
 (`gh pr list --state all --head <branch>` → `[]`), so neither has a `refs/pull/<n>/head` to fall back on
-either — this is A-i §14's rule applied to a branch instead of a SHA. Slice E is insulated: it derives from
-the tracked memo `docs/plans/2026-07-form-submittable-category-repair.md`. Slices **D** and **F** are not,
-and the same gap makes the first command under "Derivation" below unrunnable off this machine. Landing D or
-F therefore carries a prerequisite: push the branch (or re-derive its content from `main`) **before** the
-slice's plan-review, not at implementation time.
+either — this is A-i §14's rule applied to a branch instead of a SHA. ⚠ **An earlier revision of this note exempted Slice E** — "it derives from the tracked memo
+`docs/plans/2026-07-form-submittable-category-repair.md`" — and granted that exemption without measuring it,
+in a paragraph whose other four figures are commands. Measured: `git ls-files` and
+`git ls-tree -r origin/main` both return **0** for that path, and
+`git for-each-ref --contains $(git log -1 --format=%H -- …)` names only `domform-submittable-category`. The
+memo is tracked *on the unpushed branch*, so E carries exactly the gap it was exempted from. **All three
+rows depend on unpushed artifacts**, and the same gap makes the first command under "Derivation" below
+unrunnable off this machine. Landing D, E or F therefore carries a prerequisite: push the branch (or
+re-derive its content from `main`) **before** the slice's plan-review, not at implementation time. The
+remedy is one `git push` per branch and it is deliberately *not* taken here — pushing another lane's branch
+is that lane's call, not this PR's.
 
 Slices A–C are engine-wide tooling; D–F are the L3 form program. The join is real but one-directional: D's exit criterion is a command that B must make trustworthy.
 
@@ -80,15 +86,42 @@ approval boundary, and each of the three is a terminal unit once it passes its o
 The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance, and **A-i's §14 is the single site** both for the recovery pointer to the deleted memo and for the rule that governs such pointers: a SHA is durable only while a *permanent* ref keeps it reachable, and under CLAUDE.md's squash merge this branch is not one — `refs/pull/501/head` is. Three revisions of that pointer were stated here and each was wrong in a different way; they are corrected once, at that site, rather than re-narrated in this document. Nothing is
 summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
 
-> **Carved 2026-08-23 (Codex R47–R50 on #501):** the A-ii / A-iii / B / C memos and the harness parts that re-derive them (`-Aii.sh`, `-Aiii.sh`, `-B.sh`, the `_proto` graft) travel on branch **`citation-hygiene-slice-memos`**, stacked on this PR and opened as its own PR after #501 lands — 21 of 21 review findings over four rounds were on that plan-text and none on A-i's deliverable, and each slice memo passes `/elidex-plan-review` at its own slice (CLAUDE.md base case). This PR = A-i's deliverable, this umbrella, A-i's memo, and the harness parts A-i cites (`integrity`, `common`, `Ai`).
+> **Carved 2026-08-23 (Codex R47–R50 on #501):** the A-ii / A-iii / B / C memos and the harness parts that
+> re-derive them (`-Aii.sh`, `-Aiii.sh`, `-B.sh`; the `_proto` graft stays in `-common.sh` on that branch and
+> its call site is in `-Aii.sh`) travel on branch **`citation-hygiene-slice-memos`**, which is **PR #514, open
+> and stacked on this one**. Each slice memo passes `/elidex-plan-review` at its own slice (CLAUDE.md base
+> case). This PR = A-i's deliverable, this umbrella, A-i's memo, and the harness parts A-i cites
+> (`integrity`, `common`, `Ai`).
+>
+> ⚠ **#514 must be rebased onto landed `main` before it is reviewed, and this note used to prescribe the
+> opposite** ("opened as its own PR after #501 lands", written while it was already open). Its tip
+> `cfcb4ae6` is cut from `ca946571` and therefore predates R51/R52: it carries the dispatcher without
+> `$PARAMETERIZED`, `-integrity.sh` without the reachability check, and the pre-R51 A-i memo and umbrella.
+> If #501 squash-merges and GitHub retargets #514 to `main`, the merge base drops and **#514's diff reverts
+> R51 and R52 wholesale**.
+>
+> ⚠ **The carve's justification carried a bare count, in the document whose own rule below is "Counts are
+> commands".** Derivable from the artifact: `git log -1 --format=%s` over `6b6c0534` / `b7a65335` /
+> `0015d13a` records R47 **5**, R48 **4**, R49 **6** = **15**; R50's **6** were transferred rather than fixed
+> here, so no commit carries them and they are enumerated instead in #514's body. The deliverable half IS
+> derivable and holds: `git show --stat` over those commits lists only `docs/plans/` paths, **no `.claude/`
+> path in any of the four rounds**. What is *not* the partition the earlier wording implied — "all on that
+> plan-text" — is where the fixes landed: R48 and R49 also edited `-common.sh`, and R48 edited this
+> umbrella, both of which stay.
+
+⚠ **The four carved rows below used to carry live measurements** (`preflight` EXIT codes, `K=2`) of memos
+this branch no longer holds. No commit on either branch can update such a cell, and no gate can read both
+sides — the *figure with two homes* this document diagnoses below at "Duplicated decision surface",
+re-introduced one level up, at a branch boundary instead of a paragraph. They are pointers now. A-i's row
+stays measured because A-i's memo is in this checkout.
 
 | Slice | Memo | Status |
 |---|---|---|
 | A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), **0 hard / 1 soft** grep-pass — the soft is `948 catalog entries`, quoted at `:537` as *B's own figure* under B's S1 heading and not asserted by A-i, so the artifact that would clear it is B's to supply. ⚠ This cell read `0 soft` from the carve until R51 measured it; the gate had been reporting 1 the whole time |
-| A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | draft; `preflight` EXIT 0, K=2 |
-| A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | draft; `preflight` EXIT **1 by design** — A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet. A-iii is the first real consumer of that declaration, and its plan-review therefore follows A-ii, which the ordering already requires |
-| B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | draft; `preflight` EXIT 0. §4.0-§4.1 / §4.6 / §5 carried verbatim; §0-§2 and §7-§13 rewritten to the slice boundary |
-| C | `2026-07-citation-hygiene-C-policy-retirement.md` | draft; `preflight` EXIT **1** by design — C declares **no spec surface** (A-ii §4.2.5), as A-iii does, and that declaration is not landed until A-ii; the row used to say "no `§3` table until C's kickoff" |
+| A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | on **#514** — status is stated in that memo's own §0, which is the only site that can measure it |
+| A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | on **#514** — status in that memo's §0. Its `preflight` EXIT **1 is by design**: A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet |
+| B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | on **#514** — status in that memo's §0 |
+| C | `2026-07-citation-hygiene-C-policy-retirement.md` | on **#514** — status in that memo's §0. Its `preflight` EXIT **1 is by design**, the same no-spec-surface declaration A-iii makes |
 
 **Two corrections the re-slice produced**, both by executing rather than reading, and both recorded at
 their site: the fail-closed tri-state does **not** work where the pre-slice memo sited it (a memo whose

@@ -18,7 +18,7 @@
 # the memos cite block names by THIS path, so the invocation surface above is
 # fixed and every block name resolves here regardless of which part defines it.
 # Since 2026-08-23 this branch carries the `integrity`, `common` and `Ai` parts;
-# `Aii`, `Aiii`, `B` (and `_proto`) travel with their memos on
+# `Aii`, `Aiii` and `B` travel with their memos on
 # `citation-hygiene-slice-memos`, stacked on this branch — the seam map below is
 # kept as the routing record for the whole harness.
 #
@@ -42,14 +42,22 @@
 #                                 WHOLE -- that every block below states its own
 #                                 exit status -- so it belongs to no slice)
 # Helpers are placed with their callers: `_runner` (4 A-ii blocks) -> A-ii;
-# `fixtures` has callers in two files -> common (`_proto` left with the A-ii part).
+# `fixtures` has callers in two files -> common. (`_proto` is NOT a part: it is
+# defined in `-common.sh` ON THE MEMO BRANCH and only CALLED from `-Aii.sh`.
+# The routing record said it 'left with the A-ii part'; measured on
+# `citation-hygiene-slice-memos`, `-common.sh` has the 1 definition and
+# `-Aii.sh` has 4 mentions and 0 definitions.)
 #
 # `-integrity.sh` is the ONE PART THAT IS NOT ON THE SLICE SEAM, and it is
 # sourced FIRST because everything else reads it: `$REPO_ROOT`, settled at SOURCE
 # time and required by the `cd` below, plus `_measure`/`_measured` and
-# `selfcheck`. Call sites, MEASURED (`grep -cE '(^|[^_A-Za-z])_measure(d)? '`):
-# `-common` 15, `-Aiii` 7, `-Aii` 1, `-B` 1 -- every part but `-Ai`, which has
-# none. A-i §8 names this seam and is the only site carrying the layout figures.
+# `selfcheck`. Call sites, MEASURED at this head with the command that states
+# them (`grep -cE '(^|[^_A-Za-z])_measure(d)? ' <part>`): `-common` 22,
+# `-integrity` 1, `-Ai` 0, dispatcher 0. ⚠ This line read `-common` 15, `-Aiii` 7,
+# `-Aii` 1, `-B` 1 until the third design re-gate re-ran it: the first figure was
+# stale by 7 and the other three name parts that left with their memos, so the
+# line could not be re-derived in this checkout at all. A-i §8 names this seam and
+# is the only site carrying the layout figures.
 set -uo pipefail
 _HARNESS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The Aii / Aiii / B parts travel with their memos (branch `citation-hygiene-slice-memos`).
@@ -101,7 +109,7 @@ BLOCKS="selfcheck citations keysets suites regions couplings readercensus budget
 # PARAMETERIZED blocks take arguments, so `all` -- which dispatches its roster
 # zero-arg -- cannot run them, but the entry point must still admit them or the
 # invocation the memos document is unreachable (Codex R52: `rederive readers
-# label_for HEAD`, the workflow A-i §4.2 tells an author to run, exited 2 with
+# label_for HEAD`, the workflow A-i §4.1 tells an author to run, exited 2 with
 # `unknown block: readers`). `readercensus` is the zero-arg batch of the four
 # invocations A-i pins; this is the ad-hoc form for any other symbol.
 PARAMETERIZED="readers"

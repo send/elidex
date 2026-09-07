@@ -208,10 +208,10 @@ readercensus() {  # §15 — the four reader censuses A-i cites, as ONE roster e
   # sit in `all`; A-i §15 therefore listed the four invocations as prose, and
   # `all`'s exclusion notice named only `lanes staleclaims` (Codex R14). A census
   # the roster never runs is the "authoring step that was never a command" this
-  # block's parent exists to end. The expected readings are §4.2's: the three
+  # block's parent exists to end. The expected readings are §4.1's: the three
   # symbols that exist at $MAIN have readers there; `label_for` is NEW in A-i, so
   # at $MAIN its census is EMPTY -- the loud-empty guard firing IS the reading
-  # (A-i §4.2 row) -- and at HEAD it is not.
+  # (A-i §4.1 row) -- and at HEAD it is not.
   local rc=0 s
   for s in _SPEC_LABEL_MAP COMMON_SHORTNAMES SPEC_LABEL_REVERSE; do
     readers readers "$s" "$MAIN" || { echo "!! \`readers $s $MAIN\` did not produce a populated, partitioned census"; rc=1; }
@@ -222,9 +222,9 @@ readercensus() {  # §15 — the four reader censuses A-i cites, as ONE roster e
   # the reading this arm is named for.
   local lf; lf=$(readers readers label_for "$MAIN" 2>&1); local lfrc=$?
   if [ "$lfrc" -eq 0 ]; then
-    echo "!! \`readers label_for $MAIN\` found readers — §4.2's 'none at origin/main' no longer holds"; rc=1
+    echo "!! \`readers label_for $MAIN\` found readers — §4.1's 'none at origin/main' no longer holds"; rc=1
   elif printf '%s\n' "$lf" | grep -q '^!! EMPTY CENSUS'; then
-    echo "(readers label_for $MAIN: empty, as §4.2 states — the module is new in A-i)"
+    echo "(readers label_for $MAIN: empty, as §4.1 states — the module is new in A-i)"
   else
     echo "!! \`readers label_for $MAIN\` exited $lfrc WITHOUT the EMPTY CENSUS reading — not a census:"
     printf '%s\n' "$lf" | tail -3 | sed 's/^/   /'; rc=1

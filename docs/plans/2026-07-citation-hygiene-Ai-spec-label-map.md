@@ -300,8 +300,11 @@ generic-tree file to do so — measured, the three pre-existing generic suites a
 closing rule in code, in the slice whose subject is removing elidex paths from the generic core; and (b) put
 five elidex trip-wire artifacts owned by other lanes inside a webref unit test's blast radius. Measured, those
 five clear S8's predicate only by **path depth** (`.claude/tools/layout-box-reader-allowlist.tsv` is one
-further segment, not two), so the Layout lane's next task — `#11-layoutbox-trip-wire-not-in-ci` — could turn
-this package's suite red for a reason with no webref content. K2's and K3's entry-script assertions therefore
+further segment, not two), so any Layout-lane change to that wiring could turn this package's suite red for
+a reason with no webref content. ⚠ **This sentence named `#11-layoutbox-trip-wire-not-in-ci` as "the Layout
+lane's next task"; that slot is CLOSED** — landed by #496 `da958ace` on 2026-08-02 and recorded in
+`memory/project_open-defer-slots.md`. The scoping decision does not rest on it: the five artifacts are
+other-lane-owned whether or not any particular slot is open, which is the ground the decision now states. K2's and K3's entry-script assertions therefore
 live in `couplings`, which is where assertions outside the package belong.
 
 ⚠ **The two ranges are nested, not a partition** — an earlier draft of this section said the trees were
@@ -534,6 +537,15 @@ which can pass on a memo whose base is wrong.
 
 | memo | sites | why it is false at the new base |
 |---|---|---|
+⚠ **The line anchors in the two rows below no longer locate anything, and the carve is why.** Those memos
+now live on `citation-hygiene-slice-memos` (#514), so a line number recorded here indexes a file this
+checkout does not carry — and measured against that branch, A-ii `:148` and `:174` are **blank** (the
+routing row moved to `:151`) and the `(578 L)` size is **654**. B's anchors were already stale at the
+pre-carve head, so they are not the carve's doing, but the carve removed the last vantage from which a
+#501 reviewer could see it. **Locate these by content, as §13.1's own rule below says** — the quoted
+sentences are reproduced in each cell precisely so the line numbers are not load-bearing; treat every `:N`
+in the two rows as provenance, not as a coordinate.
+
 | **B** | `:11` *"Slice A lands first and B rebases onto it"*; `:13` *"Branch: new, cut from Slice A's landed head"*; `:18-21` describing the carve as having moved `cite_audit.py`, `spec_labels.py` and the rest "onto this branch **unchanged**"; `:578` / `:580` baselining 289 and 410 lines; **17** line-anchored `<file>.py:<n>` edits — 11 into `cite_audit.py`, 6 into `spec_labels.py` (`grep -coE '(cite_audit\|spec_labels)\.py:[0-9]'`) — concentrated in its §4.1's nine under-report paths; plus `:374` (§4.1) and `:618` / `:637` (below). ⚠ **And two sites where A-i's own work is what is at risk**, located by content (the coordinates moved twice while this row was frozen — Codex R12 — so none are carried): **the `test_spec_labels.py` row of B's size table**, reading `\| — \| ~110 \| new (S1-S5) \|`; and **B's `**test_spec_labels.py** (new):` heading** followed by B's **own S1–S5**, which mean different things than A-i's S1–S8 (B's S1 is a round-trip over 948 catalog entries, B's own figure under that heading; A-i's S1 is `shortname_for` over `SPECS`). B `:470-471` cite the same file under the same numbering | measured, `git cat-file -e origin/main:.claude/tools/_webref/commands/cite_audit.py` **fails**, as does the same test for `spec_labels.py`. B does not *repair* those files at its base; it **creates** them. For those two sites the consequence is sharper than staleness: an author working from B authors a fresh ~110-line file under a **colliding pin numbering** and drops A-i's S3, S3b, S4, S5, S6, S7, S8 and T-net — the only mechanical enforcement of K2 and K3 in the tree. Measured, A-i ships that file with **15 tests** (`grep -c 'def test_'`), not `—`; its line count is `rederive budget`'s to state (§8) — an earlier revision carried a literal here that the review rounds outgrew (Codex R30). ✅ **Both sites discharged in this PR (Codex R14)**: B's heading now reads *A-i's file — B appends, does not create*, its pins are S9–S14 (continuing A-i's S1–S8), and the size-table row baselines on A-i's landed size |
 | **A-ii** (578 L) | `:148`, a routing row handing A-i *"`spec_labels.py`, the three consumers, `DESIGN.md`"* marked **landed** — which double-books `preflight.py`, claimed by its own next row; `:174` and `:504-505`, both premised on *"the asymmetry / the in-process reach is **created by A-i** moving the map"* | A-i has not moved `preflight.py`'s map since draft 3, and §12(1) now forbids it. A-i's `preflight.py` touch is one comment and adds no `_webref` import, so the asymmetry — and the deferral `:504-505` classes as **own** — are created by **A-ii** |
 
@@ -548,39 +560,25 @@ under B's reverse index it plausibly still returns `None` — it does not become
 **vestigial**, because the output it was pinning as unreadable is no longer the output. B disposes of it
 either way; A-i does not assume which.
 
-**Owed to Slice B — the `partition` block is broken by A-i's own K3, and was failing silently.** *(Historical as of 2026-08-23: the block left this branch with B's memo — `citation-hygiene-slice-memos` — where it stays RED until B restores `_catalog`; kept because it records why `all` must propagate block status.)* Measured,
-`rederive partition` (a Slice-B block, in `2026-07-citation-hygiene-A-rederive-B.sh`, which travels with B's memo and is not in this checkout) calls `spec_labels._catalog()`, which A-i
-removes from the generic tree because K3 forbids it. So the block has raised `AttributeError` since
-`6be73a82`, and `all` **swallowed it** — the same discarded-exit-status bug the Step 4.5 pass found in
-`couplings`, one level up. `all` now carries an anchored `FAILED BLOCKS:` roster and propagates, so
-`bash …-A-rederive.sh all` exits **1** on this branch, reporting `partition(exit 1)` — derived, and
-reproduced across two runs, by
+**Owed to Slice B — `partition`: its block, its `_catalog`, and the narrative this passage used to carry.**
+*(Collapsed 2026-09-07, third design re-gate.)* The block, the `AttributeError` it had raised since
+`6be73a82`, and the eight-entry remote-less roster all travel with
+`2026-07-citation-hygiene-A-rederive-B.sh` on `citation-hygiene-slice-memos`. ⚠ **The carve marked only this
+paragraph's opening sentence historical and left the rest in the present tense**, so the memo went on
+asserting that `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh all` exits **1** reporting
+`partition(exit 1)` and that "`all`'s exit status cannot be a green gate on this branch until B lands".
+Measured at this head it exits **0** with `ALL BLOCKS EXITED 0` — which §8 states four hundred lines
+earlier, so the memo contradicted itself. That is *sweep obligations, not only statements*, failing on the
+document that records the rule.
 
-    bash docs/plans/2026-07-citation-hygiene-A-rederive.sh all 2>/dev/null | grep '^FAILED BLOCKS:'
-    #   FAILED BLOCKS: partition(exit 1)
+Two properties the passage established are A-i's, and both still measure true at this head:
 
-That is correct reporting, not a regression: **`all`'s exit status cannot be a green gate on this branch
-until B lands**, and B is the slice that restores `_catalog`. ⚠ Do not "fix" it by reverting the roster —
-silence is what let it run broken for four commits.
-
-⚠ **That roster is `partition` alone ONLY where `origin/main` resolves — and the claim has now been read as
-wrong three times for exactly that reason, so it is stated with its precondition here.** Every part of the
-harness passes `$MAIN` (`=origin/main`) to `git show` / `git grep` / `git worktree add`; in a checkout with no
-`origin` remote the roster is **eight** entries, seven of which are that one unresolvable ref rather than a
-defect in the block. Measured at this head, twice, in a throwaway clone stripped of its remote:
-
-    FAILED BLOCKS: partition(exit 1) keysets(exit 1) column(exit 1) suites(exit 1) anchors(exit 1)
-                   couplings(exit 1) budget(exit 1) filters(exit 128)
-
-and at `07b8e7d8`, **five** of those same eight (`partition keysets suites anchors filters`). **The three
-that join in between — `column`, `couplings`, `budget` — were not broken by `_measure`; they are what it
-CAUGHT**: each exited **0 while measuring nothing** against an unresolvable ref, which is the failure mode
-`_measure` exists to make unrepresentable. No memo quantity is affected, checked block by block: every §15
-block re-derives its stated value in a resolvable checkout (`keysets` → 12 specs, 9 added spellings, 0
-changed, 0 lost; `couplings` → GREEN and the same **2** pre-existing sites §13.1 argues from below; `budget`
-→ §8's figures). `filters(exit 128)` in that roster was the block's pre-`_measure` shape *at that head*; it
-has since been routed through `_measure` like the others, and the block — not this paragraph — states its
-current behaviour (Codex R5 found the superseded description here still in the present tense).
+- **`all` propagates.** It carries an anchored `FAILED BLOCKS:` roster and returns non-zero when any block
+  does, rather than handing back its last line's status. ⚠ Do not "fix" a red roster by reverting it —
+  silence is what let a broken block run for four commits.
+- **`_measure` makes a failed measurement unrepresentable at the call sites that use it.** Three blocks
+  (`column`, `couplings`, `budget`) that exited **0 while measuring nothing** against an unresolvable ref
+  were *caught* by it, not broken by it. `selfcheck` states plainly the complement it does not catch.
 
 ⚠ **Reproduce a remote-less checkout in a throwaway CLONE, never in a worktree.** `git remote remove origin`
 writes to the **shared** `$GIT_COMMON_DIR/config`, and `git update-ref -d refs/remotes/origin/main` deletes a
@@ -757,20 +755,41 @@ reads the machine's worktree list), which does not bar a memo from citing it.
 itself. Until Codex R14 the four invocations A-i needs were listed here as prose and `all` ran none of them —
 its exclusion notice named only `lanes staleclaims`, so a reviewer running `all` got 5 of A-i's 6 blocks and
 no notice of the sixth. They are now **one roster block, `readercensus`**, which runs the four and asserts
-§4.2's readings of each: `_SPEC_LABEL_MAP`, `COMMON_SHORTNAMES`, `SPEC_LABEL_REVERSE` populated at
+§4.1's readings of each: `_SPEC_LABEL_MAP`, `COMMON_SHORTNAMES`, `SPEC_LABEL_REVERSE` populated at
 `origin/main`; `label_for` **empty** at `origin/main` (the module is new — the loud-empty guard firing *is*
 the reading) and populated at `HEAD`. ⚠ **This sentence used to end "a single `readers <symbol> [ref]`
 remains callable for ad-hoc censuses", and it was false** (Codex R52): the dispatch guard admitted only
-`$BLOCKS + $AUTHOR_LOCAL + all`, so the very invocation §4.2 tells an author to run — the one `readers`'
+`$BLOCKS + $AUTHOR_LOCAL + all`, so the very invocation §4.1 tells an author to run — the one `readers`'
 own usage string prints — exited 2 with `unknown block: readers`. The guard now admits a third set,
 `$PARAMETERIZED`, for commands that take arguments and therefore cannot sit on `all`'s zero-arg roster;
 `all`'s exclusion notice names that set alongside `$AUTHOR_LOCAL`, which is the same lesson R14 taught
-about the sixth block. `selfcheck` holds the property rather than the instance: every `rederive <name>`
-the memos document must either be admitted by the guard or be defined in no part on disk and cite the
-`-A-rederive-*.sh` file that holds it — the predicate is derived from the sets and the memos, not from a
-list of names, so the *next* unreachable name reddens too. Verified by mutation: dropping `readers` from
-`$PARAMETERIZED` reddens all three citing sites, adding it to `$BLOCKS` reddens the overlap, and eliding the part
-filename reddens the `rederive partition` citation in §11 (its home,
-`2026-07-citation-hygiene-A-rederive-B.sh`, travels with B's memo). ⚠ That third mutation was not
-hypothetical: this very paragraph tripped the check on its first draft, which named the invocation without
-naming the file.
+about the sixth block. `selfcheck` holds the property rather than the instance.
+
+⚠ **Its first draft defined that property three times by the wrong thing, and the third design re-gate
+found all three by mutation — the claim this paragraph made for it was a universal it had not measured.**
+It read: *"the predicate is derived from the sets and the memos, not from a list of names, so the next
+unreachable name reddens too."* Measured, the next unreachable name reddened only if it was written in one
+of the two spellings the enumerator happened to know, in a `.md` file, with the right kind of pointer:
+
+1. **one spelling.** `rederive <name>` was enumerated; `bash docs/plans/…-A-rederive.sh <name>` — five live
+   sites, including two the memo itself uses — was not. R52's own defect would have escaped had §4.1 been
+   written in the path form.
+2. **file extension.** The population was `*.md`, so the harness's own comments were exempt from the check
+   the harness implements — including the comment explaining the check.
+3. **proximity.** `PART.search(paragraph)` certified that *a* part filename was nearby, not the right one.
+   Its `[-A-Za-z]*` matched the empty string, so the dispatcher's own name passed, and naming `-common.sh`
+   — a file that does not hold `partition` — stayed GREEN.
+
+The population is now every site that documents an invocation, in either spelling, across every memo **and**
+harness part; the pointer arm requires a part file **this checkout does not carry** (a present part that
+does not define the name is the wrong pointer, and presence is what a reader can check); and the admitted
+sets are checked in the complementary direction as well — admitted-but-defined-nowhere, which is how
+`staleclaims` surfaced, and pairwise disjointness across all three sets rather than the one pair R52 added.
+
+Six mutations, each restored from a copy with the files byte-identical afterwards and the control GREEN in
+between: an unknown name in the **path** spelling (the case that previously escaped) → red; the same in the
+bare spelling → red; `partition` cited against the present `-common.sh` → red at both citing sites; an
+invocation planted in a **`.sh` comment** → red; `readers` on two admitted sets → red; `staleclaims` put
+back in `$AUTHOR_LOCAL` → red. ⚠ Two of the six were not hypothetical — this paragraph's earlier draft
+tripped the check by naming an invocation without naming its file, and an earlier predicate was per-*line*
+so a filename that wrapped reddened a sound paragraph.

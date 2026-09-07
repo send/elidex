@@ -147,7 +147,7 @@ if len(parts) < 2:
                      % (len(parts), D))
 # The part SET is derived from the dispatcher's own `for _part in …` line and
 # compared with what is on disk: a part on disk the dispatcher does not source,
-# or a sourced part missing from disk, is RED. A-i §13.1's harness-part count is
+# or a sourced part missing from disk, is RED. A-i §8's harness-part count is
 # then a reading of this equality, not a number this check was asked to believe
 # (`len(parts) >= 2` was all it asserted -- the block-audit of 2026-08-22).
 _src = DISPATCH.read_text(encoding="utf-8")
@@ -175,6 +175,24 @@ HEREDOC = re.compile(r"<<-?'([A-Za-z_][A-Za-z0-9_]*)'")
 RETURNS = re.compile(r"(?:^|[;&|]\s*)(?:return|exit)\b[^;]*;?\s*$")
 
 
+def _brace_delta(s):
+    """`{` minus `}` outside quotes and outside a trailing comment. Quote-aware
+    because every grep ERE in this harness carries braces inside a quoted
+    pattern, and those are text, not structure."""
+    s, q, d = uncomment(s), None, 0
+    for ch in s:
+        if q is not None:
+            if ch == q:
+                q = None
+        elif ch in "'\"":
+            q = ch
+        elif ch == "{":
+            d += 1
+        elif ch == "}":
+            d -= 1
+    return d
+
+
 def blocks(path):
     """(name, lineno, body) for column-0 definitions, with heredoc BODIES dropped
     so a python payload is never parsed as shell."""
@@ -190,12 +208,25 @@ def blocks(path):
                 out.append((d.group(1), i, [line[line.index("{") + 1:].rsplit("}", 1)[0]]))
             else:
                 name, start, body = d.group(1), i, []
+                depth = _brace_delta(line)
                 h = HEREDOC.search(line)
                 if h:
                     term = h.group(1)
             continue
         if name is not None:
-            if line == "}":
+            # The block closes where its brace DEPTH returns to zero, not at a
+            # line that happens to read `}`. Testing only `line == "}"` lost every
+            # block whose closing brace shares its last line -- `all()` ends
+            # `printf '...'; }` and was therefore absent from `defined`, so the
+            # roster check would have passed a roster block spelled that way. A
+            # `;\s*\}$` test is the other error: it closes at the first inline
+            # `|| { echo ...; }` group, which is how four sound blocks reddened.
+            # Depth handles both, and handles `${3:-$MAIN}` for free -- a
+            # parameter expansion contributes +1 and -1.
+            depth += _brace_delta(line)
+            if depth <= 0:
+                if line.strip() != "}":
+                    body.append(line)
                 out.append((name, start, body))
                 name = None
                 continue
@@ -262,16 +293,35 @@ for path in parts:
         if BARE_HEREDOC.search(line):
             bad.append((path.name, n, "<unquoted heredoc>", "quote the delimiter: <<'X'"))
 
-# EVERY `rederive <name>` THE MEMOS DOCUMENT MUST BE REACHABLE. Codex R52: the
-# guard admitted `$BLOCKS + $AUTHOR_LOCAL + all`, so `rederive readers <symbol>`
-# -- the workflow A-i §4.2 tells an author to run, whose own function prints that
-# usage string -- exited 2 as an unknown block. The population is not a word list
-# of block names (the next unreachable name would not be on it) but every
-# `rederive <name>` occurrence in the memos this checkout carries, split by a
-# DERIVED predicate: a name DEFINED in a part on disk must be admitted by the
-# dispatch guard, and a name defined in no part on disk belongs to a departed
-# slice and must cite the part file that holds it, so the reader is not left to
-# guess (`rederive partition`, A-i §11, names `…-A-rederive-B.sh`).
+# EVERY DOCUMENTED INVOCATION MUST BE REACHABLE. Codex R52: the guard admitted
+# `$BLOCKS + $AUTHOR_LOCAL + all`, so `rederive readers <symbol>` -- the workflow
+# A-i §4.1 tells an author to run, whose own function prints that usage string --
+# exited 2 as an unknown block.
+#
+# ⚠ THE FIRST DRAFT OF THIS CHECK DEFINED ITS POPULATION THREE TIMES BY THE WRONG
+# THING, and the third design re-gate found all three by mutation:
+#   (1) by ONE SPELLING -- `rederive <name>`. The memos also invoke through the
+#       path (`bash docs/plans/…-A-rederive.sh lanes`, five live sites), so
+#       planting an unknown name in that spelling stayed GREEN. R52's own defect
+#       would have escaped had A-i §4.1 been written in the path form.
+#   (2) by FILE EXTENSION -- `*.md` only. The harness's own comments document
+#       invocations too, including this comment; the check exempted itself.
+#   (3) by PROXIMITY -- `PART.search(paragraph)` certified that *a* part filename
+#       is nearby, not the right one. Its `[-A-Za-z]*` also matched the empty
+#       string, so the dispatcher's own name passed, and naming `-common.sh` (a
+#       file that does not hold `partition`) stayed GREEN.
+# The population is now every site that documents an invocation, in either
+# spelling, in every memo AND harness part; and the predicates are derived:
+#   - a name DEFINED in a part on disk must be admitted by the dispatch guard;
+#   - a name ADMITTED by the guard must be defined somewhere on disk (the
+#     complement -- `AUTHOR_LOCAL` named `staleclaims`, and the guard advertised
+#     it while `rederive staleclaims` exited 2. That block travels with
+#     `2026-07-citation-hygiene-A-rederive-B.sh`, which this checkout does not
+#     carry, so the name is gone from `$AUTHOR_LOCAL` rather than re-homed);
+#   - a name defined NOWHERE on disk belongs to a departed part, so its paragraph
+#     must name a `-A-rederive-*.sh` file THIS CHECKOUT DOES NOT CARRY. A part
+#     that is present and does not define the name is the wrong pointer, and a
+#     present part is exactly what the reader can check for themselves.
 _admit = {}
 for _set in ("BLOCKS", "AUTHOR_LOCAL", "PARAMETERIZED"):
     _mm = re.search(r'^%s="(.*?)"' % _set, "\n".join(q.read_text(encoding="utf-8") for q in parts), re.S | re.M)
@@ -280,14 +330,28 @@ for _set in ("BLOCKS", "AUTHOR_LOCAL", "PARAMETERIZED"):
                          "admitted set and redden sound names." % _set)
     _admit[_set] = _mm.group(1).replace("\\\n", " ").split()
 admitted = set(_admit["BLOCKS"]) | set(_admit["AUTHOR_LOCAL"]) | set(_admit["PARAMETERIZED"]) | {"all"}
-_overlap = set(_admit["BLOCKS"]) & set(_admit["PARAMETERIZED"])
-if _overlap:
-    bad.append((DISPATCH.name, 0, "<parameterized name on `all`'s roster>",
-                "`all` dispatches zero-arg: %s" % sorted(_overlap)))
+# Pairwise disjointness over all three sets, not the one pair R52 happened to add:
+# a name on two sets is a contradiction whichever pair it is (`all` dispatches its
+# roster zero-arg; the exclusion notice claims the other two are NOT on it).
+for _a, _b in (("BLOCKS", "PARAMETERIZED"), ("BLOCKS", "AUTHOR_LOCAL"), ("AUTHOR_LOCAL", "PARAMETERIZED")):
+    _overlap = set(_admit[_a]) & set(_admit[_b])
+    if _overlap:
+        bad.append((DISPATCH.name, 0, "<name on two admitted sets>",
+                    "$%s and $%s both claim %s" % (_a, _b, sorted(_overlap))))
+# The complement of "defined but not admitted": admitted but defined nowhere. The
+# guard prints these names in its usage line, so an undefined one is an advertised
+# invocation that exits 2 -- R52's defect, in the direction R52 did not check.
+for _name in sorted(admitted - {"all"} - set(defined)):
+    bad.append((DISPATCH.name, 0, _name, "admitted by the dispatch guard but defined in no part on disk"))
 PART = re.compile(r"2026-07-citation-hygiene-A-rederive[-A-Za-z]*\.sh")
-_memos = sorted(D.glob("2026-07-citation-hygiene-*.md"))
-if not _memos:
-    raise SystemExit("!! no memo found under %s; the reachability check would range over nothing." % D)
+# Both spellings of an invocation. The path form is `<script>.sh <name>`; a bare
+# filename reference closes its code span right after `.sh`, so requiring literal
+# whitespace before the name is what separates the two without a word list.
+INVOKE = re.compile(r"(?:rederive|A-rederive[-A-Za-z]*\.sh)[ \t]+([a-z_][a-z0-9_]*)")
+_ON_DISK = {q.name for q in parts}
+_sites = sorted(D.glob("2026-07-citation-hygiene-*.md")) + list(parts)
+if not _sites:
+    raise SystemExit("!! no memo or harness part under %s; the reachability check would range over nothing." % D)
 # ENUMERATE per line, JUDGE per paragraph. The citation is prose: a reader reads
 # the block of contiguous non-blank lines, and a filename that wraps onto the next
 # line is no less present for it. A per-line predicate reddened this memo's own
@@ -295,7 +359,7 @@ if not _memos:
 # adjacency, not whether the reader is told where the block lives. Every
 # occurrence is still counted; only the scope the predicate reads widens.
 _cited = 0
-for _memo in _memos:
+for _memo in _sites:
     _lines = _memo.read_text(encoding="utf-8").splitlines()
     _para_of, _para_text, _start = {}, [], None
     for i, line in enumerate(_lines, 1):                    # contiguous non-blank run = one paragraph
@@ -310,18 +374,25 @@ for _memo in _memos:
         if i in _para_of:
             _para_body[_para_of[i]] = _para_body.get(_para_of[i], "") + line + "\n"
     for n, line in enumerate(_lines, 1):
-        for _name in re.findall(r"rederive ([a-z_][a-z0-9_]*)", line):
+        for _name in INVOKE.findall(line):
             _cited += 1
             if _name in defined:
                 if _name not in admitted:
                     bad.append((_memo.name, n, _name,
                                 "defined in %s but the dispatch guard does not admit it" % defined[_name][0]))
-            elif not PART.search(_para_body.get(_para_of.get(n, n), line)):
+                continue
+            _para = _para_body.get(_para_of.get(n, n), line)
+            _cites = [c for c in PART.findall(_para) if c not in _ON_DISK]
+            if not _cites:
+                _present = sorted(set(PART.findall(_para)) & _ON_DISK)
                 bad.append((_memo.name, n, _name,
-                            "defined in no part on disk and its paragraph names no `-A-rederive-*.sh` file"))
+                            "defined in no part on disk; its paragraph names %s"
+                            % ("no `-A-rederive-*.sh` file" if not _present
+                               else "%s, which this checkout DOES carry and which does not define it"
+                                    % ", ".join(_present))))
 
 print(f"  {len(parts)} harness parts, {len(defined)} blocks, {len(roster)} on `all`'s roster, "
-      f"{len(admitted)} admitted names, {_cited} documented `rederive` invocations over {len(_memos)} memo(s)")
+      f"{len(admitted)} admitted names, {_cited} documented invocations over {len(_sites)} site(s)")
 for fn, lineno, name, why in sorted(bad):
     print(f"  !! {fn}:{lineno} {name}: {why}")
 if bad:

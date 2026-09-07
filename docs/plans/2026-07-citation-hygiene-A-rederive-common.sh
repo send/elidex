@@ -533,4 +533,4 @@ SUITESPY
 
 # AUTHOR-LOCAL: these reach a per-user memory directory and sibling worktrees, so
 # they cannot run for a second reader. `all` excludes them; run them by name.
-AUTHOR_LOCAL="lanes staleclaims"
+AUTHOR_LOCAL="lanes"
