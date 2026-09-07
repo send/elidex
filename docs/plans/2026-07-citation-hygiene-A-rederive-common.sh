@@ -10,7 +10,21 @@
 # A-iii), `lanes` (A-ii, A-iii, umbrella; author-local). The harness's integrity
 # machinery is `-integrity.sh`.
 
-MAIN=origin/main
+# THE BASELINE IS PINNED, NOT TRACKED. Every `$MAIN` assertion in this harness is
+# of the form "what the tree looked like BEFORE this slice": `readercensus` wants
+# `label_for` to have no readers there, `couplings` wants exactly the two
+# pre-existing path hits, `suites` wants the four pre-A-ii suite files. A
+# remote-tracking branch is not that -- the moment this PR lands, `origin/main`
+# CONTAINS the slice and every one of those flips, so `all` would go red on the
+# landed tree and on every slice rebased onto it. The harness would stop being
+# able to reproduce its own checks at exactly the moment it became the record of
+# them. (Codex R55.)
+#
+# The pin is this branch's merge-base with `main`, and it is durable for the same
+# reason A-i §14 gives: it is an ANCESTOR of `origin/main`, so no ref deletion or
+# squash can orphan it -- unlike a branch SHA. Verify with
+# `git merge-base --is-ancestor 44cd165db2f039b772acdd5dcf42c3c739bbfaf6 origin/main`.
+MAIN=44cd165db2f039b772acdd5dcf42c3c739bbfaf6
 PF=.claude/skills/elidex-plan-review/preflight.py
 say() { printf '\n=== %s ===\n' "$1"; }
 
@@ -104,7 +118,8 @@ citations() {  # §0.5 / §3 — EVERY label-§ pair the fixture set carries
   # silently). A cell with no `§` is `malformed`'s by design and is reported as
   # such, not verified. Zero parsed cells is a failure of this block.
   local rc=0
-  local F; F=$(mktemp -d); fixtures "$F" >/dev/null || rc=1
+  local F; F=$(mktemp -d) || { echo "!! cannot allocate the fixture directory"; return 1; }
+  fixtures "$F" >/dev/null || rc=1
   python3 - "$F" <<'CITPY' || rc=1
 import re, subprocess, sys, pathlib
 sys.path.insert(0, ".claude/tools")
@@ -269,13 +284,13 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   # `| wc -l` masked it for the counts: with the ref unresolvable the listing came
   # back EMPTY and the block read that as "no couplings". Routed through
   # `_measure`, the listing and its status arrive together.
-  echo "-- concept, origin/main baseline (PKG — the by-role prose A-i rewrites) --"
+  echo "-- concept, $MAIN baseline (PKG — the by-role prose A-i rewrites) --"
   _measure --nomatch 1 _n git grep -nE "$CONCEPT" "$MAIN" -- "$PKG" || failed=1
   _measured
   echo "-- concept, HEAD (PKG; A's files and B's together) --"
   _measure --nomatch 1 _n git grep -nE "$CONCEPT" -- "$PKG" || failed=1
   _measured
-  echo "-- FILE PATHS only, origin/main, GENERIC (the baseline §7 argues from) --"
+  echo "-- FILE PATHS only, $MAIN, GENERIC (the baseline §7 argues from) --"
   # ONE run, printed AND counted. This used to be two `git grep` invocations of
   # the same needle over the same ref -- a shape in which the listing and the
   # count can disagree and neither one's status is read.
@@ -295,12 +310,29 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   # FILE root and in a DIRECTORY root must both be seen -- `os.walk` on a file
   # yields nothing, which left the entry script unscanned while this block
   # printed GREEN. Temporary roots under the repo, removed after.
-  local ctl; ctl=$(mktemp -d "$REPO_ROOT/.wtscan-control.XXXXXX"); ctl=${ctl#"$REPO_ROOT"/}
+  # ⚠ The cleanup below is `rm -rf` on a path built from this allocation, so the
+  # allocation is checked BEFORE anything derives from it. Unchecked, a failing
+  # `mktemp` (read-only checkout, full filesystem, changed permissions) left
+  # `ctl` EMPTY and `rm -rf "$REPO_ROOT/$ctl"` expanded to the repository root
+  # itself -- the harness deleting the checkout it is auditing. `set -e` is not
+  # on (`-uo pipefail` only), so nothing else would have stopped it. The `case`
+  # keeps the invariant by construction rather than by the reader's care: the
+  # removal takes the ABSOLUTE path `mktemp` returned, and that path must be a
+  # proper subdirectory of `$REPO_ROOT` (`?*` = at least one character after the
+  # slash) or the block returns before creating anything.
+  local ctl_abs ctl
+  ctl_abs=$(mktemp -d "$REPO_ROOT/.wtscan-control.XXXXXX") || {
+    echo "!! cannot allocate the _wtscan control directory under $REPO_ROOT"; return 1; }
+  case "$ctl_abs" in
+    "$REPO_ROOT"/?*) ;;
+    *) echo "!! control directory '$ctl_abs' is not a proper subdirectory of $REPO_ROOT"; return 1 ;;
+  esac
+  ctl=${ctl_abs#"$REPO_ROOT"/}
   mkdir -p "$ctl/d"; printf 'x .claude/skills/elidex-review/axes.md\n' > "$ctl/f"; cp "$ctl/f" "$ctl/d/g"
   local n_ctl_f n_ctl_d
   _measure n_ctl_f _wtscan "$PATHRE" "$ctl/f" || failed=1
   _measure n_ctl_d _wtscan "$PATHRE" "$ctl/d" || failed=1
-  rm -rf "$REPO_ROOT/$ctl"
+  rm -rf "$ctl_abs"
   [ "$n_ctl_f" = 1 ] && [ "$n_ctl_d" = 1 ] || { echo "!! _wtscan control: file root saw $n_ctl_f, dir root saw $n_ctl_d (both must be 1)"; failed=1; }
   local n_head n_ahalf
   _measure n_head _wtscan "$PATHRE" "${GENERIC[@]}" || failed=1
@@ -315,13 +347,13 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   fi
   echo "   elidex file paths at HEAD (K2 / S8 — MUST BE 0) : $n_head"
   echo "   of which in A's half                            : $n_ahalf"
-  echo "   pre-existing on origin/main (A-i discharges it)  : $n_base"
+  echo "   pre-existing at the pinned base (A-i discharges it): $n_base"
   # A-i §4.2 S8 and §13.1 argue from "origin/main has TWO" (`_webref/cli.py:78`,
   # `.claude/tools/webref:5`); the count was printed and never compared (the
   # block-audit of 2026-08-22). The claim has a lifetime -- A-i landing makes it
   # 0 -- and when it moves, this line says so and the two memo sentences get
   # rewritten, rather than staying true-looking beside a green block.
-  [ "$n_base" = 2 ] || { echo "!! origin/main baseline is $n_base, not the 2 A-i §4.2 S8 / §13.1 argue from"; failed=1; }
+  [ "$n_base" = 2 ] || { echo "!! $MAIN baseline is $n_base, not the 2 A-i §4.2 S8 / §13.1 argue from"; failed=1; }
   # K3's entry-script half. The unit suite scans PKG, so a Slice-B artifact name
   # re-imported into the entry script is invisible to it. Unlike the suite, this block spells the needles plainly:
   # it lives in `docs/plans/`, which is in NEITHER scope, so it cannot match
@@ -338,7 +370,7 @@ couplings() {  # §7 / §12(2) / §12(3) — K2 and K3 over the whole generic co
   _measure --nomatch 1 n_base_art \
     git grep -oE -e "$B_ART" -e "$B_FT" "$MAIN" -- "${GENERIC[@]}" || failed=1
   echo "   Slice-B artifact names at HEAD (K3 / S7 — MUST BE 0) : $n_art"
-  echo "   pre-existing on origin/main (must also be 0)         : $n_base_art"
+  echo "   pre-existing at the pinned base (must also be 0)   : $n_base_art"
   # THE VERDICT IS A RETURN STATUS, not only a printed line. §12(3) names this
   # block as an exit criterion, and an exit criterion that cannot fail a process
   # is a report: measured, with a violation planted this block printed
@@ -376,7 +408,7 @@ budget() {
   # exist on the ref -- a size claim for a file nobody measured, in the block §8
   # cites for its size claims.
   local failed=0 n
-  echo "-- origin/main base, the touch set --"
+  echo "-- pinned base ($MAIN), the touch set --"
   for f in "$PF" .claude/tools/_webref/commands/coverage_map.py .claude/tools/_webref/cli.py \
            .claude/tools/_webref/DESIGN.md mise.toml .github/workflows/ci.yml; do
     _measure n git show "$MAIN:$f" || failed=1

@@ -5,23 +5,27 @@
 # `couplings`, `budget` -- are in `-common.sh`.
 
 keysets() {  # §0.1 item 1 / §3.1 — 15 -> 24, the 9 added spellings, equal value sets
-  python3 - <<'PY'
+  python3 - "$MAIN" <<'PY'
 import sys, re, subprocess
 sys.path.insert(0, ".claude/tools")
 from _webref import spec_labels as s
-_r = subprocess.run(["git","show","origin/main:.claude/skills/elidex-plan-review/preflight.py"],
+# The baseline ref comes from `$MAIN`, which is PINNED (see `-common.sh`): reading
+# a moving `origin/main` here would compare A-i's map against a main that already
+# contains it once this lands.
+_base = sys.argv[1]
+_r = subprocess.run(["git","show",_base + ":.claude/skills/elidex-plan-review/preflight.py"],
                     capture_output=True, text=True)
 if _r.returncode != 0:
     sys.stderr.write(_r.stderr)
-    raise SystemExit("!! `git show origin/main:…preflight.py` failed (rc=%d); there is no "
-                     "baseline key set to compare against." % _r.returncode)
+    raise SystemExit("!! `git show %s:…preflight.py` failed (rc=%d); there is no "
+                     "baseline key set to compare against." % (_base, _r.returncode))
 src = _r.stdout
 body = src[src.index("SPEC_LABEL_REVERSE = {"):]
 body = body[:body.index("}")+1]
 main = dict(re.findall(r'"([^"]+)":\s*"([^"]+)"', body))
 mk = {k.lower(): v for k, v in main.items()}
 a = s.LABEL_TO_SHORTNAME
-print(f"origin/main keys={len(main)}  A keys={len(a)}")
+print(f"{_base} keys={len(main)}  A keys={len(a)}")
 print("superset:", all(a.get(k) == v for k, v in mk.items()),
       " changed:", [k for k, v in mk.items() if a.get(k) not in (None, v)],
       " lost:", [k for k in mk if k not in a])
@@ -240,7 +244,7 @@ readercensus() {  # §15 — the four reader censuses A-i cites, as ONE roster e
   # the reading this arm is named for.
   local lf; lf=$(readers readers label_for "$MAIN" 2>&1); local lfrc=$?
   if [ "$lfrc" -eq 0 ]; then
-    echo "!! \`readers label_for $MAIN\` found readers — §4.1's 'none at origin/main' no longer holds"; rc=1
+    echo "!! \`readers label_for $MAIN\` found readers — §4.1's 'none at the pinned base' no longer holds"; rc=1
   elif printf '%s\n' "$lf" | grep -q '^!! EMPTY CENSUS'; then
     echo "(readers label_for $MAIN: empty, as §4.1 states — the module is new in A-i)"
   else

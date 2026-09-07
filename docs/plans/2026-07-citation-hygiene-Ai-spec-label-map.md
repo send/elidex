@@ -201,7 +201,7 @@ The A/B region boundaries the `spec_labels.py` rows rest on → `rederive region
 | `coverage_map.py` — `_spec_label` | delegate to `label_for`; keep `origin/main`'s last-resort `.upper().replace("-", " ")` **verbatim** |
 | `DESIGN.md` — the `spec_labels.py` bullet | new bullet, verbatim below |
 | `DESIGN.md` — the `cite_audit.py` adapter paragraph + its 3 `cite-audit` example lines + the attribution-buckets paragraph | **absent in A-i**; they describe a command A-i does not ship. **B** authors them with the detector |
-| `test_spec_labels.py` | **new** — **15 tests**, derived and re-counted, not inherited. **11 carry a §6 pin**: one each for S1, S2, S3, S3b, S4, S5, S6, S8 and T-net, and **two for S7** (the artifact-name scan and the `webref_data` clause are separate tests). **4 carry no pin**, one per claim A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and **both directions composing into a round trip** — the fourth was *claimed by drafts 1-5 and absent from the suite*, so it is added here rather than dropped from the derivation (measured: it holds over all 12 rows, both ways). ⚠ Drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only; draft 5 said 10 pins + 4 extras = 14, which matched the file only because S7's double-count offset the missing round-trip. Under §4's lineage the suite is **authored**, so §6 governs and the arithmetic is 11 + 4 = 15. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`, and no test asserts over parse aliases, since A-i ships none |
+| `test_spec_labels.py` | **new** — **13 tests**, derived and re-counted, not inherited (⚠ **15 until the third design re-gate**, which moved S7's first clause and S8 out of the generic suite — see §7). **9 carry a §6 pin**: one each for S1, S2, S3, S3b, S4, S5, S6 and T-net, and **one for S7** (its third clause; the artifact-name scan and the `webref_data` clause are separate tests). **4 carry no pin**, one per claim A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and **both directions composing into a round trip** — the fourth was *claimed by drafts 1-5 and absent from the suite*, so it is added here rather than dropped from the derivation (measured: it holds over all 12 rows, both ways). ⚠ Drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only; draft 5 said 10 pins + 4 extras = 14, which matched the file only because S7's double-count offset the missing round-trip. Under §4's lineage the suite is **authored**, so §6 governs and the arithmetic is 11 + 4 = 15. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`, and no test asserts over parse aliases, since A-i ships none |
 
 Each row is scoped to **every occurrence** in the named artifact, not to a bullet list inside it.
 
@@ -269,9 +269,9 @@ which **T-net** pins.
 | **S4** | `LABEL_TO_SHORTNAME` is byte-identical with the 8 aliases omitted | **yes** |
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct precisely because the point is to freeze the *old* table (K4) | no |
 | **S6** | `_spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the last-resort | no |
-| **S7** | K3 by scan: `cite.?audit` and `_catalog` absent, and `webref_data` absent from `spec_labels.py`. ⚠ **The two ranges are NESTED, not split by tree** — an earlier draft of this row said "split", and there is no partition. Measured, walking each tree under the rule both scanners use: the unit suite ranges over `.claude/tools/_webref/`, **33** files (verified 2026-08-02); `rederive couplings` ranges over the generic core, **34** files — the same 33 **plus** the `webref` entry script (redrawn at #501 R36 from 39 + 10; re-verified at the second design re-gate, which also found the entry script was a *file* root `os.walk` silently skipped — fixed, with a file-root control in the block). The package is a **strict subset**, and the two scanners use the same regexes, so the suite's two tree-scanning tests have **zero discriminating power** over `couplings`: every plant the suite catches, `couplings` catches. What only `couplings` witnesses is the entry script. The exception is S7's **third** clause — `webref_data` in `spec_labels.py` — which the suite checks and `couplings` does not | no — `origin/main` satisfies it at both ranges (measured 0), which is the point |
-| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). **Nested**: `couplings` covers the package **and** the entry script; the suite the package only. ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
-| **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 15 test methods (`grep -n 'def test_' …/test_spec_labels.py | wc -l` → 15), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
+| **S7** | K3 by scan. ⚠ **Only the third clause is a suite pin now** — the artifact-name scan moved to `couplings` at the third design re-gate (§7); what the suite pins is `webref_data` absent from `spec_labels.py`. ⚠ **The two ranges were NESTED, not split by tree** — an earlier draft of this row said "split", and there is no partition. Measured, walking each tree under the rule both scanners use: the unit suite ranges over `.claude/tools/_webref/`, **33** files (verified 2026-08-02); `rederive couplings` ranges over the generic core, **34** files — the same 33 **plus** the `webref` entry script (redrawn at #501 R36 from 39 + 10; re-verified at the second design re-gate, which also found the entry script was a *file* root `os.walk` silently skipped — fixed, with a file-root control in the block). The package is a **strict subset**, and the two scanners use the same regexes, so the suite's two tree-scanning tests have **zero discriminating power** over `couplings`: every plant the suite catches, `couplings` catches. What only `couplings` witnesses is the entry script. The exception is S7's **third** clause — `webref_data` in `spec_labels.py` — which the suite checks and `couplings` does not | no — `origin/main` satisfies it at both ranges (measured 0), which is the point |
+| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `couplings` alone since the third design re-gate** — it always covered the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
+| **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 13 test methods (`grep -c 'def test_' …/test_spec_labels.py` → 13), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
 
 **UNCHECKED, marked not omitted**: that `shortname_for` and `origin/main`'s `shortname_from_label` are
 equivalent *functions* (`shortname_for` calls `.strip()`; unreachable through the gate, and the gate is
@@ -315,12 +315,23 @@ files; `couplings` ranges over the generic core — **34**, the same 33 plus the
 earlier revision ranged over all of `.claude/tools/` — 39, adding five other-lane trip-wire artifacts — plus
 `.claude/skills/` — 10; redrawn at #501 R36). The package range is a **strict subset** of the harness's.
 Verified by planting a violation in each range: a package plant turns the
-suite red **and** `couplings` RED, so the suite's two tree-scanning tests discriminate **nothing** that
+suite red **and** `couplings` RED, so the suite's two tree-scanning tests discriminated **nothing** that
 `couplings` would miss; an entry-script plant is caught by `couplings` alone (re-measured after the second
 design re-gate fixed `_wtscan`'s file-root blind spot; a `.claude/skills/` plant is, by design, nobody's —
-the adapter is outside K2/K3). What the suite adds over `couplings` is S7's third
-clause (`webref_data` in `spec_labels.py`, which `couplings` does not check) and the schedule it runs on —
-not range. The containment stays: the scope is §2's generic core, decided at #501 R36.
+the adapter is outside K2/K3).
+
+⚠ **At the third design re-gate those two tests were DELETED from the generic suite** (Codex R55). Having
+measured them as discriminating nothing, keeping them was two homes for one decision — and the copy in the
+package additionally had to be *removed by Slice B* in order for B to add `cite_audit.py`, i.e. a passing
+unit test that a downstream slice must delete to add functionality. `DESIGN.md:3-5,33-37` puts review/plan
+workflow policy in the elidex adapter, not in a package meant to be extractable. `couplings` is now the
+single home; its expressions are character-for-character the ones the suite carried (`PATHRE` = the old
+`_ELIDEX_PATH`, `B_ART`/`B_FT` = the old needles), and §13 records that Slice C — which retires the harness
+— must re-home the assertion rather than drop it. **What the suite still adds is S7's third clause**
+(`webref_data` in `spec_labels.py`, which `couplings` does not check — its `BFILES` is an exclusion list,
+not a scan) and the schedule it runs on — not range. That clause is not slice policy: a literal label map
+has no business importing the upstream fetcher whichever slice is landing, so it moved to a class named for
+the module's own shape. The containment stays: the scope is §2's generic core, decided at #501 R36.
 
 **One-issue-one-way**: the label enumeration goes three sites → one, two of the three in this slice.
 
@@ -457,7 +468,7 @@ the re-derivations B and A-ii owe.
 
 Every diff check names an explicit ref.
 
-1. **Green**: `test_spec_labels.py` passes (**15 tests**, and the whole `_webref` suite is 27);
+1. **Green**: `test_spec_labels.py` passes (**13 tests**, and the whole `_webref` suite is **25** — both re-measured after the third design re-gate removed the two duplicated slice-boundary tests);
    `git diff origin/main...HEAD -- crates/` **empty** (measured **0** lines);
    `git diff origin/main...HEAD -- .claude/skills/` is **exactly the one `preflight.py:47-49` comment** of
    §4.1 — not empty, and any other hunk under `.claude/skills/` fails this check. Measured at head: **17**
@@ -562,9 +573,10 @@ which reads a memo. These two do not, and they are **not** registered as ledger 
 two (`#11-preflight-css-module-labels`, `#11-webidl-label-spelling-sweep`) and the per-PR deferral cap is
 three, so the durable record is the artifact that carries the obligation plus this row.
 
-1. **S7's first clause must be RETIRED when B lands, not extended.** `_B_ARTIFACT` matches B's own detector
-   module by construction, so the commit that adds it turns the pin red for the reason the pin exists.
-   Recorded in `TestSliceBoundary`'s own docstring, which is the file B's author edits.
+1. ✅ **DISCHARGED at the third design re-gate, not deferred.** This row read "S7's first clause must be
+   RETIRED when B lands, not extended" — an obligation on a permanent tool-tree file that no plan-review
+   round reads. The clause is **gone from the suite**: it was a second copy of `couplings`' own scan, so
+   deleting it removes the obligation instead of scheduling it. Nothing is owed to B here any more.
 2. **K2/K3's entry-script half is enforced from `docs/plans/`, and Slice C retires that.** The assertions
    about `.claude/tools/webref` live in `rederive couplings`, deliberately — assertions outside the package
    belong in the harness, and `DESIGN.md` says the package should stay extractable. But the harness is
@@ -770,12 +782,14 @@ sources the parts, so every block name still resolves through that one path whic
 carried a stale `87-line dispatcher` / `five parts` pair until the integrity split re-derived it. Verified by
 running each block A-i cites: **`citations keysets readers regions couplings budget`**, plus `lanes` in §13.
 `regions` is cited in §4.2; `lanes`
-is author-local in the harness's sense (`AUTHOR_LOCAL="lanes staleclaims"`, excluded from `all` because it
+is author-local in the harness's sense (`AUTHOR_LOCAL="lanes"`, excluded from `all` because it
 reads the machine's worktree list), which does not bar a memo from citing it.
 
 ⚠ **`readers` takes a required `<symbol>` argument and has no zero-arg form**, so it cannot sit in `all`
 itself. Until Codex R14 the four invocations A-i needs were listed here as prose and `all` ran none of them —
-its exclusion notice named only `lanes staleclaims`, so a reviewer running `all` got 5 of A-i's 6 blocks and
+its exclusion notice named only `lanes staleclaims` (the value at that time — `staleclaims` has since left
+with `2026-07-citation-hygiene-A-rederive-B.sh` and is out of `$AUTHOR_LOCAL`), so a reviewer running `all`
+got 5 of A-i's 6 blocks and
 no notice of the sixth. They are now **one roster block, `readercensus`**, which runs the four and asserts
 §4.1's readings of each: `_SPEC_LABEL_MAP`, `COMMON_SHORTNAMES`, `SPEC_LABEL_REVERSE` populated at
 `origin/main`; `label_for` **empty** at `origin/main` (the module is new — the loud-empty guard firing *is*

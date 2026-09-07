@@ -25,12 +25,6 @@ from _webref.commands import coverage_map  # noqa: E402
 # suites here all stop at `parents[1]`; reaching further (`parents[3]`, which
 # on `origin/main` existed only in the elidex adapter) would make a package
 # test depend on where the package is checked out, and would put unrelated
-# elidex artifacts under `.claude/tools/` inside a webref unit test's blast
-# radius. K2's and K3's other half — the entry script `.claude/tools/webref`,
-# outside the package — is checked by `rederive couplings`, where cross-tree
-# assertions belong.
-WEBREF_PKG = Path(__file__).resolve().parent
-
 # The reverse map the plan-review gate carried before this module existed,
 # vendored as a literal. FROZEN: it is a snapshot taken once, and refreshing
 # it would turn a pin into a mirror — the point is to hold the shared map to
@@ -84,30 +78,6 @@ _OMITTED_PARSE_ALIASES = {
     "XHR": "xhr",
     "WebIDL": "webidl",
 }
-
-
-def _text_files(root: Path):
-    """Every readable text file under `root`, caches and binaries skipped."""
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or "__pycache__" in path.parts:
-            continue
-        try:
-            yield path, path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue          # non-text: nothing to scan, legitimately
-        # An unreadable file is NOT a non-match: skipping it let S7/S8 certify
-        # a boundary census over files they never read (Codex R20). OSError
-        # propagates and fails the test.
-
-
-def _scan(root: Path, pattern: re.Pattern) -> list[str]:
-    """`path:lineno:line` for every match of `pattern` under `root`."""
-    hits = []
-    for path, body in _text_files(root):
-        for lineno, line in enumerate(body.splitlines(), 1):
-            if pattern.search(line):
-                hits.append(f"{path.relative_to(root)}:{lineno}:{line.strip()}")
-    return hits
 
 
 class TestSharedSpecLabelMap(unittest.TestCase):
@@ -261,65 +231,37 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
         self.assertEqual(cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
 
 
-class TestSliceBoundary(unittest.TestCase):
-    """This package names no elidex path, and none of the three Slice-B
-    artifacts named below.
+class TestModuleShape(unittest.TestCase):
+    """The pinned map reaches no upstream source.
 
-    ⚠ Read that second clause at the width the predicate has. It is NOT
-    "names no Slice-B artifact" — an earlier revision of this docstring said
-    so, and the needles are a SEED, not an inventory: three hard-coded
-    spellings taken from the two symptoms already known. Positive controls
-    from outside that vocabulary, drawn from Slice B's own memo, do not
-    redden it (`AuditResult` and `census_underreport.py` are both `_scan`
-    clean at this head). The authoritative statement of the property is the
-    needle list itself; widening a regex is the wrong repair, because the
-    next Slice-B artifact would not be on any list either. The check that
-    ranges over the property rather than the vocabulary is B's own
-    `/elidex-plan-review`, which reads B's artifact set.
+    ⚠ **This class used to also pin the slice boundary — that policy has moved
+    out of the generic suite entirely** (Codex R55). `DESIGN.md:3-5,33-37`
+    assigns review/plan workflow policy to the elidex adapter, and the two
+    tests that lived here were a second copy of what `rederive couplings`
+    already asserts over the same tree with the same expressions: an elidex
+    file path (`couplings`' `PATHRE` is character-for-character `_ELIDEX_PATH`)
+    and a Slice-B artifact name (`couplings` carries both needles verbatim;
+    they are not repeated here, because `couplings` scans this file and a
+    needle written whole would redden it — measured, twice). Two homes for one
+    decision is what this program exists to remove, and the copy that lived
+    HERE additionally had to be DELETED by the slice that adds B's detector
+    module — a passing unit test that a downstream slice must remove in order
+    to add functionality. `couplings` is the single
+    home; §13 records that Slice C, which retires the harness, must re-home the
+    assertion rather than drop it.
 
-    ⚠ `_B_ARTIFACT` matches Slice B's own detector module by
-    construction (its module is `cite` + `_audit.py`), so S7's first clause must
-    be RETIRED, not extended, in the
-    commit that lands B — and unlike the memo hand-offs, this pin lives in a
-    permanent tool-tree file that no plan-review round will read.
-
-    Both are greps over prose occurrences, not over file assignments — a
-    name in a docstring is the thing being forbidden, so a check that only
-    looked at which files exist would pass on the failure it exists for.
-
-    Scoped to `WEBREF_PKG`, which is the tree these pins are actually about.
-    K2 and K3 also cover the entry script `.claude/tools/webref`, outside the
-    package; that half is `rederive couplings`', so a violation planted there
-    turns the harness red and leaves this suite green — verified by planting
-    one.
+    What remains is not slice policy: a module whose job is a literal label map
+    has no business importing the upstream fetcher, whichever slice is landing.
+    The needle is assembled from fragments because, written whole, it would
+    match this file.
     """
 
-    # Assembled from fragments on purpose: written whole, the needles would
-    # match this file and the pins could never be green.
-    _B_ARTIFACT = re.compile("cite" + ".?" + "audit")
-    _B_FALLTHROUGH = re.compile(re.escape("_cat" + "alog"))
     _UPSTREAM_SOURCE = re.compile(re.escape("webref" + "_data"))
-    # An elidex file path is `.claude/skills/` or `.claude/tools/` followed
-    # by TWO further segments. The tool's own one-segment invocation path is
-    # excluded deliberately: an install path is not a path into elidex's tree.
-    _ELIDEX_PATH = re.compile(
-        r"\.claude/(skills|tools)/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+"
-    )
-
-    def test_no_slice_b_artifact_is_named(self):
-        """S7: the detector and its fall-through are not named here yet."""
-        self.assertEqual(_scan(WEBREF_PKG, self._B_ARTIFACT), [])
-        self.assertEqual(_scan(WEBREF_PKG, self._B_FALLTHROUGH), [])
 
     def test_the_shared_map_does_not_reach_upstream(self):
-        """S7, third clause: the pinned map imports no upstream source."""
+        """S7, third clause — the only one `couplings` does not also make."""
         body = Path(spec_labels.__file__).read_text(encoding="utf-8")
         self.assertIsNone(self._UPSTREAM_SOURCE.search(body))
-
-    def test_no_elidex_file_path_in_this_package(self):
-        """S8, package half: an absolute over the package, not a delta."""
-        self.assertEqual(_scan(WEBREF_PKG, self._ELIDEX_PATH), [])
-
 
 class TestNoNetworkOrCliSubprocess(unittest.TestCase):
     def test_import_and_lookup_reach_neither(self):
