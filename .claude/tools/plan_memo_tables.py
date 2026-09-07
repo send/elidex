@@ -35,8 +35,9 @@ import re
 from urllib.parse import unquote
 
 from plan_memo_blocks import (
-    block_end, definition_block, delimiter_width, is_blank, is_setext_underline, one_line_block,
-    raw_extent, raw_opener, run_end, split_row, starts_block, table_header_at, unsupported_block,
+    block_end, container_text, definition_block, delimiter_width, is_blank, is_setext_underline,
+    one_line_block, raw_extent, raw_opener, run_end, split_row, starts_block, table_header_at,
+    unsupported_block,
 )
 from plan_memo_lexer import Lexed, blank_spans, normalize_label
 
@@ -409,9 +410,13 @@ class Memo:
           * a blank line ends the paragraph;
           * a GFM table header off a block start: `admit_table`, the one
             admission site;
-          * a setext underline after paragraph text (§4.3, not after a list
-            item or `>` first line, Examples 92-94): the paragraph is the
-            heading and the underline closes it, content of nothing;
+          * a setext underline after paragraph text (§4.3; not after a run
+            headed by a list-item / `>` line, Examples 92-94, or by an
+            indented-code line, §4.4 Example 100 -- `container_text`): the
+            paragraph is the heading and the underline closes it, content of
+            nothing; with no paragraph open the line is not an underline at
+            all (`block_end`'s `para_open` arm) -- `---` is a thematic break
+            and `===` paragraph text;
           * otherwise a RUN starts (`run_end`; joined once, each line mapped
             to its offset, the text a definition is parsed over) and its
             lines are read one by one: a definition at a block start is a
@@ -458,7 +463,7 @@ class Memo:
                     t, i = admit_table(self, i)
                     self.tables.append(t)
                     continue
-                if cur and is_setext_underline(line) and not starts_block(cur[0][1]):
+                if cur and is_setext_underline(line) and not container_text(cur[0][1]):
                     # §4.3: the paragraph is a heading; the underline closes
                     # it and is not content
                     flush()

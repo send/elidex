@@ -280,14 +280,21 @@ def linear_links_control(M):
 def linear_orphans_control(M):
     """The linearity witness for Phase-1 orphan detection, two-fold: a
     paragraph of N definition-shaped lines (all orphans -- `text` heads the
-    paragraph) is read by `Memo` with at most 4 `link_label` calls per line
-    (one shape parse per line), AND the time scales -- t(4N)/t(N) < 8 over
+    paragraph) is read by `Memo` with EXACTLY one `link_label` call per line
+    -- one shape parse per line, counted where Phase 1 calls it: the
+    `plan_memo_blocks` binding `reference_definitions` reads (⚠ counting the
+    lexer's own binding saw Phase 2's bracket parse, one call per `[l..]`,
+    and nothing of Phase 1: the quadratic mutant RG-1 was then killed only by
+    48 s of wall clock, the whole of the trip-wire's runtime -- the exact
+    count is what makes a mis-bound counter red: fewer than N calls means
+    the counter is not watching the parser) -- and the counter stops the
+    block at 4 calls per line; AND the time scales -- t(4N)/t(N) < 8 over
     N = 1000 / 4N = 4000, min of 3 runs (linear ~4, quadratic ~16), which is
     what catches a per-line re-join of the rest of the run, a cost no call
     count sees.  The per-line re-walk this replaced parsed every remaining
     definition again per line (~4.5 million `link_label` calls, 7.95 s)."""
     import time
-    import plan_memo_lexer      # the freshly loaded module
+    import plan_memo_blocks     # the freshly loaded module
     import plan_memo_tables
 
     def best(n):
@@ -298,7 +305,7 @@ def linear_orphans_control(M):
             t, calls, orphans = [], 0, 0
             for _ in range(3):
                 t0 = time.perf_counter()
-                with _count_calls(plan_memo_lexer, "link_label", limit=4 * n) as c:
+                with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:
                     memo = plan_memo_tables.Memo(p)
                 t.append(time.perf_counter() - t0)
                 calls = c.calls
@@ -311,9 +318,9 @@ def linear_orphans_control(M):
     except _WorkExceeded:
         return False, "Memo exceeded 4 link_label calls per line: not linear"
     ratio = t4 / t1 if t1 else float("inf")
-    ok = o1 == 999 and o4 == 3999 and ratio < 8
-    return ok, "%d/%d orphans, %d/%d link_label calls, t(1000)=%.1f ms t(4000)=%.1f ms ratio %.1f (< 8)" % (
-        o1, o4, c1, c4, t1 * 1000, t4 * 1000, ratio)
+    ok = o1 == 999 and o4 == 3999 and c1 == 1000 and c4 == 4000 and ratio < 8
+    return ok, ("%d/%d orphans, %d/%d Phase-1 link_label calls (must be exactly 1000/4000), "
+                "t(1000)=%.1f ms t(4000)=%.1f ms ratio %.1f (< 8)" % (o1, o4, c1, c4, t1 * 1000, t4 * 1000, ratio))
 
 
 def scaling_unresolved_control(M):
@@ -457,12 +464,26 @@ def scaling_split_row_control(M):
         t1 * 1000, t4 * 1000, ratio)
 
 
+def spec_examples_control(M):
+    """The CommonMark 0.31.2 spec's own block examples through Phase 1
+    (`plan_memo_selftest_conformance`): every vendored example aligned with
+    its expected html or excluded by a stated §3.0 disposition; the multi-
+    line detail is printed whole because the exclusion list IS the report."""
+    import plan_memo_blocks     # the freshly loaded modules
+    import plan_memo_tables
+    import plan_memo_selftest_conformance as conf
+    ok, detail = conf.run(plan_memo_blocks, plan_memo_tables)
+    print("       " + detail.replace("\n", "\n       "))
+    return ok, detail.split("\n")[0]
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
     for c in CASES:
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
+    reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)

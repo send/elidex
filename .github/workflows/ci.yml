@@ -127,9 +127,14 @@ jobs:
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
   # are filtered because each pays for a Rust toolchain; the wires need none (the layering
-  # wires ~1s; the self-test wire's mutant run ~1-2 min of plain python3, measured at
-  # 0310f618 -- no Rust toolchain, no cache; the self-test wire needs only the
-  # `python3` already on `ubuntu-latest`), so a filter would buy nothing and cost the
+  # wires ~1s; the self-test wire's mutant run is plain python3 -- measured at
+  # 29dc1eb7: local 49 s / Codex's runner 211 s, all of it ONE mutant whose call
+  # counter watched the wrong module and was killed only by a quadratic wall-clock
+  # ratio; after the PR #510 R12 fix (this commit) `--self-test --mutants` is 4.2 s
+  # locally and the whole `scripts/trip-wires.sh` 5.8 s, so the same 4.3x-slower
+  # runner is ~25 s and `timeout-minutes` below is 5, ten times that -- no Rust
+  # toolchain, no cache; the self-test wire needs only the `python3` already on
+  # `ubuntu-latest`), so a filter would buy nothing and cost the
   # one property the wires exist for. Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
@@ -145,7 +150,9 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    timeout-minutes: 2
+    # 5 = ~10x the extrapolated worst case (measurement in the comment above); the
+    # 2 it replaced cancelled an otherwise-green job at 211 s on a slower runner.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

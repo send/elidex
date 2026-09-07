@@ -363,3 +363,46 @@ case("POSITIVE-NOVEL", "(image) `![alt][missing][Slice 9z]` with `[Slice 9z]` de
                        "label is re-scanned and `[missing][Slice 9z]` is a link (§6.3 Example 571; "
                        "commonmark.js) -- its tail is masked, the sibling is walked: 1 site, not 2",
      build(), "See ![alt][missing][Slice 9z] here.\n\n[Slice 9z]: slice-9z-sib.md", 1, **SIB)
+
+
+# ------------------------------------------------ PR #510 Codex R12 controls --
+
+# A: a setext underline is a boundary only where a paragraph is open.  After
+# a table's rows no paragraph is open (a table is not a paragraph), so `===`
+# is nothing to underline with -- GFM §4.10 reads a pipe-less line as a row
+# (Example 202) -- while `---` is the beginning of a thematic break, "another
+# block-level structure", which ends the table.  commonmark.js cannot decide
+# this (no tables: it reads the rows as a paragraph and both lines as its
+# underline); cmark-gfm continues a table on `===` and finalises it before a
+# thematic break, and that is the local policy stated here.
+rcase("POSITIVE", "(table) `===` right after a schema table is a one-cell body row (§4.3: no paragraph to "
+                  "underline; GFM §4.10 Example 202: a pipe-less line is a row): width miss, rc 2",
+      build(extra=SLOT4 % "now" + "\n==="), "", 2)
+rcase("NEGATIVE", "(table) `---` right after a schema table is a thematic break (§4.1: no paragraph is open "
+                  "so §4.3 does not apply; GFM §4.10: another block-level structure ends the table): rc 0",
+      build(extra=SLOT4 % "now" + "\n---"), "", 0)
+case("POSITIVE", "(setext) a bare `===` IS a paragraph, so `===\\n---` is the heading `<h2>===</h2>` "
+                 "(commonmark.js) and the code span opened in it does not reach the next site",
+     build(), "=== `open\n---\nSlice 9z owns it` here", 1)
+
+# B: §2.2 -- indentation is measured in columns, a tab to the next multiple of 4
+acase("POSITIVE", "(lex-seed) `\\tSlice 9z owns it`: a tab is four columns (§2.2), so the line is indented "
+                  "code at a block start -- seeded",
+      build(), "LEX-UNSUPPORTED?", 1, prose="\tSlice 9z owns it")
+acase("POSITIVE", "(lex-seed) ` \\tSlice 9z owns it`: a space then a tab is four columns (§2.2) -- seeded",
+      build(), "LEX-UNSUPPORTED?", 1, prose=" \tSlice 9z owns it")
+acase("NEGATIVE", "(lex-seed) `   Slice 9z owns it`: three spaces are three columns -- paragraph text, no seed",
+      build(), "LEX-UNSUPPORTED?", 0, prose="   Slice 9z owns it")
+rcase("NEGATIVE", "(table) `\\t| Slot | ... |` over `\\t|---|...|`: a tab-indented header and delimiter row "
+                  "are indented code (§4.4, four columns), not a table -- the wide row under them is no "
+                  "width miss: rc 0",
+      build(extra="\n".join("\t" + l for l in (SLOT4 % "now").split("\n")) + "\n| a | b | c | d | e |"), "", 0)
+
+# C: the anchored pass reads the disposed stream, so a match never straddles a
+# mask boundary
+case("NEGATIVE", "(anchor) `` `Slice `C owns it ``: the row noun is inside a code span, so on the disposed "
+                 "stream there is no `Slice C` to anchor on -- 0 sites (the bare `C` is a declared miss)",
+     build(), "The `Slice `C owns it.", 0)
+case("POSITIVE", "(anchor) `` Slice `C` owns it ``: an id-only code span stands in the stream, so the "
+                 "anchored `Slice C` is still a site",
+     build(), "Slice `C` owns it.", 1)

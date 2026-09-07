@@ -27,6 +27,10 @@ LEXER, BLOCKS, TABLES, ROLES, CHECK, SELFTEST = (
     "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py", "plan_memo_roles.py",
     "plan-memo-umbrella-check.py", "plan_memo_umbrella_selftest.py")
 
+# The spec-example conformance control (`plan_memo_selftest_conformance.py`):
+# the one control a spec-table transcription error turns red.
+SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9): Phase 1's block sequence aligns with the html"
+
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks
     ("fence: opener needs >=3 fence characters", BLOCKS,
@@ -34,9 +38,9 @@ MUTANTS = [
      # the tilde control: three literal backtick lines would pair as a code
      # span and mask the site anyway, so only the tilde form can go red
      ["(fence) a tilde fence masks too"]),
-    ("fence: opener indent <=3 spaces", BLOCKS,
-     '_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")',
-     '_FENCE_OPEN = re.compile(r"^ *(`{3,}|~{3,})(.*)$")',
+    ("fence: opener indent <=3 columns (re-inject any indent)", BLOCKS,
+     '    rest = unindented(line)\n    m = _FENCE_OPEN.match(rest)',
+     '    rest = line.lstrip(" \\t")\n    m = _FENCE_OPEN.match(rest)',
      ["(fence) four spaces of indent is not a fence"]),
     ("fence: backtick info string may not hold a backtick", BLOCKS,
      '(m.group(1)[0] == "`" and "`" in m.group(2))', 'False',
@@ -66,13 +70,14 @@ MUTANTS = [
      '            if one_line_block(line):\n                flush()', '            flush()',
      ["(span) a code span may cross a line ending"]),
     ("span: a list item starts a block", BLOCKS,
-     '_LIST_ITEM.match(line) or ', '',
+     'one_line_block(line) or _match(_LIST_ITEM, line) or ', 'one_line_block(line) or ',
      ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal"]),
     ("span: a `>` line starts a block", BLOCKS,
-     ' or _QUOTE.match(line) or _SETEXT.match(line))', ' or _SETEXT.match(line))',
+     '    return one_line_block(line) or _match(_LIST_ITEM, line) or _match(_QUOTE, line)',
+     '    return one_line_block(line) or _match(_LIST_ITEM, line)',
      ["(span) a paragraph ends at a `>` line"]),
     ("span: an ATX heading is a block", BLOCKS,
-     '_ATX.match(line) or _THEMATIC', '_THEMATIC',
+     '_match(_ATX, line) or _match(_THEMATIC, line)', '_match(_THEMATIC, line)',
      ["(span) a paragraph ends at an ATX heading"]),
     ("A x E: kind markers are read from the MASKED declaring field", TABLES,
      'row.field = stream(row.cells[row.schema.decl].lexed)',
@@ -449,12 +454,12 @@ MUTANTS = [
       "paragraph and the code span crosses it"]),
     # -- PR #510 Codex R9
     ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", TABLES,
-     '                if cur and is_setext_underline(line) and not starts_block(cur[0][1]):',
+     '                if cur and is_setext_underline(line) and not container_text(cur[0][1]):',
      '                if False:',
      ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
       "span opened in the heading does not reach the next paragraph's site"]),
     ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", TABLES,
-     '                if cur and is_setext_underline(line) and not starts_block(cur[0][1]):',
+     '                if cur and is_setext_underline(line) and not container_text(cur[0][1]):',
      '                if cur and is_setext_underline(line):',
      ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
       "paragraph continues and a code span crosses it"]),
@@ -477,8 +482,8 @@ MUTANTS = [
      ["(ascii) `次は#11-zz-alphaが所有する` reaches the naming worklist: the slug anchor is an ASCII "
       "class, not `\\w`"]),
     ("R9 F3 ascii: list markers are ASCII digits (re-inject `\\d`)", BLOCKS,
-     '_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?:[ \\t]|$)")',
-     '_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\\d{1,9}[.)])(?:[ \\t]|$)")',
+     '_LIST_ITEM = re.compile(r"^(?:[-+*]|[0-9]{1,9}[.)])(?:[ \\t]|$)")',
+     '_LIST_ITEM = re.compile(r"^(?:[-+*]|\\d{1,9}[.)])(?:[ \\t]|$)")',
      ["(ascii) `١.` (an Arabic-Indic digit) is not a list marker (§5.2: ASCII digits)"]),
     ("R9 #3 row: breaks are partitioned in the one scan (re-inject the per-cell filter)", BLOCKS,
      '        out.append(_cell(line, a, b, cell_breaks))',
@@ -494,8 +499,8 @@ MUTANTS = [
       "(block) `[Slice 9z owns it]:\\n>` is a paragraph and a block quote, not a definition",
       "(block) `[Slice 9z owns it]:\\n***` is a paragraph and a thematic break, not a definition"]),
     ("RG2 IMP-1: a table header is a block end (local policy; re-inject the pure-CommonMark reading)", BLOCKS,
-     '            or starts_block(lines[i]) or table_header_at(lines, i))',
-     '            or starts_block(lines[i]) or False)',
+     '            or table_header_at(lines, i))',
+     '            or False)',
      ["(block) `[Slice 9z owns it]:\\n|a|b|\\n|--|--|` -- the table header ends the run (local policy "
       "over pure CommonMark, which has no tables): a paragraph and a table, not a definition with the "
       "header row as its destination"]),
@@ -505,8 +510,8 @@ MUTANTS = [
      ["(table) a list item right after a schema table ends it (a block start), so it is not a 1-cell "
       "body row: rc 0"]),
     ("RG2 IMP-1: indented code does not interrupt (re-inject it as a block start)", BLOCKS,
-     '    return bool(one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line))',
-     '    return bool(one_line_block(line) or _LIST_ITEM.match(line) or _QUOTE.match(line) or _SETEXT.match(line) or _INDENTED.match(line))',
+     '    return one_line_block(line) or _match(_LIST_ITEM, line) or _match(_QUOTE, line)',
+     '    return one_line_block(line) or _match(_LIST_ITEM, line) or _match(_QUOTE, line) or is_indented(line)',
      ["(block) `[Slice 9z owns it]:\\n    code` IS a definition (§4.4: indented code cannot interrupt "
       "a paragraph; commonmark.js: destination `code`): a block of its own, not scanned"]),
     ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", TABLES,
@@ -655,10 +660,16 @@ MUTANTS = [
     ("#8 stream: the (d) seed reads the disposed stream", ROLES,
      'for m in OWNS_TWO.finditer(_stream(row, "Slice")):', 'for m in OWNS_TWO.finditer(row.col("Slice").text):',
      ["(d) an ownership clause inside a code span is code, not a two-owner claim"]),
-    ("#8 stream: the licensing rule reads the disposed stream", CHECK,
-     '        return self.block.stream\n\n    @property\n    def key',
-     '        return self.block.text\n\n    @property\n    def key',
-     ["(licence) a licensing phrase inside a code span licenses nothing"]),
+    # ⚠ The former row "#8 stream: the licensing rule reads the disposed stream"
+    # (`Mention.text` -> `block.text`) is DELETED as an EQUIVALENT mutant, not
+    # kept as a survivor: since R12-C the scanners match on the stream, so a
+    # mention's `start` / `end` never absorb a masked span's delimiter, and
+    # both licensing grammars are anchored at the mention (`LICENSE_BEFORE`
+    # `…$`, `LICENSE_AFTER` `^…`) while every masked span is delimited by a
+    # character they reject (`` ` `` / `[` / `]` / `(` / `)` / `.md`) -- the
+    # raw text and the stream read the same at that site for every fixture.
+    # Its control stays (the property holds); the clause it tested is now
+    # enforced one step upstream, by R12-C's mutant.
     ("#8 stream: every span of the mask is blanked, not only code", TABLES,
      'return blank_spans(lx.text, [(a, b) for a, b, _ in lx.mask])',
      'return blank_spans(lx.text, [(a, b) for a, b, k in lx.mask if k == "code"])',
@@ -667,6 +678,43 @@ MUTANTS = [
      '        return str(self.path)', '        return self.path.name',
      ["(c-seed) a sibling of the SAME basename in another directory, whose Deps cell at the "
       "same line names the party, does not discharge the main memo's row"]),
+    # -- PR #510 Codex R12
+    ("R12-A setext: an underline is a boundary only where a paragraph is open (re-inject the "
+     "unconditional arm)", BLOCKS,
+     'or (para_open and is_setext_underline(lines[i]))', 'or is_setext_underline(lines[i])',
+     ["(table) `===` right after a schema table is a one-cell body row (§4.3: no paragraph to "
+      "underline; GFM §4.10 Example 202: a pipe-less line is a row): width miss, rc 2"]),
+    ("R12-A setext: a run headed by an indented-code line is not a paragraph an underline closes "
+     "(drop §4.4 from `container_text`)", BLOCKS,
+     'return _match(_LIST_ITEM, line) or _match(_QUOTE, line) or is_indented(line)',
+     'return _match(_LIST_ITEM, line) or _match(_QUOTE, line)',
+     [SPEC_EXAMPLES]),
+    ("R12-B tabs: indentation is measured in columns, a tab to the next multiple of 4 (re-inject "
+     "the four-space literal)", BLOCKS,
+     '    return indentation(line)[0] >= 4 and not is_blank(line)',
+     '    return line.startswith("    ") and not is_blank(line)',
+     ["(lex-seed) `\\tSlice 9z owns it`: a tab is four columns (§2.2), so the line is indented code "
+      "at a block start -- seeded",
+      "(lex-seed) ` \\tSlice 9z owns it`: a space then a tab is four columns (§2.2) -- seeded",
+      SPEC_EXAMPLES]),
+    ("R12-B tabs: a block start allows at most three columns through the one measure (re-inject "
+     "'any number of spaces')", BLOCKS,
+     '    rest = unindented(line)\n    return rest is not None and pat.match(rest) is not None',
+     '    rest = line.lstrip(" ")\n    return pat.match(rest) is not None',
+     [SPEC_EXAMPLES]),
+    ("R12-C anchors: the anchored pass reads the disposed stream (re-inject the raw text)", CHECK,
+     '        for mt in pat.finditer(b.stream):', '        for mt in pat.finditer(b.text):',
+     ["(anchor) `` `Slice `C owns it ``: the row noun is inside a code span, so on the disposed "
+      "stream there is no `Slice C` to anchor on -- 0 sites (the bare `C` is a declared miss)"]),
+    ("R12-D witness: Phase 1's `link_label` calls are counted where Phase 1 makes them (re-bind the "
+     "counter to the lexer's binding, which sees only Phase 2)", SELFTEST,
+     'with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:',
+     'with _count_calls(__import__("plan_memo_lexer"), "link_label", limit=4 * n) as c:',
+     ["Phase-1 orphan detection is linear: <= 4 link_label calls per line, t(4N)/t(N) < 8"]),
+    ("R12-E conformance: the type-6 tag list is the spec's (drop `div`; `search`, the brief's "
+     "example, has no spec example to exercise it)", BLOCKS,
+     'details|dialog|dir|div|dl|', 'details|dialog|dir|dl|',
+     [SPEC_EXAMPLES]),
 ]
 
 

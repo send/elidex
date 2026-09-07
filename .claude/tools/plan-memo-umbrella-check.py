@@ -34,7 +34,10 @@ MODULES
                           the mask disposition
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
   (this file)             mention scanners, `check()`, the report
-  plan_memo_umbrella_selftest.py / _selftest_cases.py / _selftest_mutants.py
+  plan_memo_umbrella_selftest.py / _selftest_cases.py / _selftest_cases_pr510.py /
+                          _selftest_mutants.py / _selftest_conformance.py (the
+                          CommonMark 0.31.2 spec examples, vendored in
+                          commonmark-0.31.2-block-examples.json, through Phase 1)
 
 WHERE THIS RUNS.  By hand on a memo: `SCHEMAS` matches one document family's
 exact header rows, so against any other plan memo it prints `FATAL: no table
@@ -147,17 +150,22 @@ class Mention:
 class Block:
     """One scanned unit of text -- a cell or a paragraph -- with its tagged
     mask (spans in `text` coordinates the scanners must not read an id out of,
-    each with its kind), its disposed `stream` (the one text every predicate
-    reads), and the map back to reporting coordinates.  Minted only after the
-    `Population` has disposed the block (`stream()` asserts it)."""
+    each with its kind), its disposed `stream` (the ONE text every predicate
+    reads -- the scanners included: `stream()` blanks every masked span in
+    place, offsets preserved, so a match can never straddle a mask boundary,
+    where a raw-text scan read `` `Slice `C `` as `Slice C` with the row
+    noun inside the code span; what a scanner may read out of a code span --
+    an id-only run, a kept `#11-` slug -- was excepted by the disposition
+    step and stands in the stream), and the map back to reporting
+    coordinates.  Minted only after the `Population` has disposed the block
+    (`stream()` asserts it)."""
 
-    __slots__ = ("memo", "text", "mask", "stream", "source", "self_id", "_map")
+    __slots__ = ("memo", "text", "mask", "stream", "source", "self_id")
 
     def __init__(self, memo, lexed, source, self_id=None):
         self.memo, self.text, self.mask = memo, lexed.text, lexed.mask
         self.stream = stream(lexed)
         self.source, self.self_id = source, self_id
-        self._map = None
 
     @property
     def file(self):
@@ -166,16 +174,6 @@ class Block:
 
     def window(self, start, end, w):
         return self.stream[max(0, start - w): end + w].replace("\n", " ")
-
-    def masked(self, i):
-        """Whether `i` is under the mask (every kind masks; what a scanner may
-        read out of a code span -- an id-only run, a kept `#11-` slug -- was
-        already excepted by the disposition step)."""
-        if self._map is None:
-            self._map = bytearray(len(self.text))
-            for a, b, _ in self.mask:
-                self._map[a:b] = b"\x01" * (b - a)
-        return i < len(self._map) and self._map[i] != 0
 
 
 class CellBlock(Block):
@@ -210,9 +208,9 @@ def _anchored(b, keep, out):
     """Row-noun-anchored ids (the anchored reading the licensing rule was
     written against), then `#11-` slot ids (a slug is its own anchor)."""
     for pat, anchored in ((MENTION_PROSE, True), (MENTION_SLOT, False)):
-        for mt in pat.finditer(b.text):
+        for mt in pat.finditer(b.stream):
             rid = mt.group("id")
-            if rid not in keep or rid == b.self_id or b.masked(mt.start("id")):
+            if rid not in keep or rid == b.self_id:
                 continue
             out.append(classify(Mention(b, rid, mt.start(), mt.end(), mt.start("id"), anchored=anchored)))
 
@@ -254,12 +252,10 @@ def _bare(b, keep, out):
     self-test rather than argued away.  Everything else bounded by a non-id
     character (`_glued`) is reported, licensed or not.
     """
-    text = b.text
+    text = b.stream
     for tok in CELL_TOKEN.finditer(text):
         tid = tok.group("id")
         if tid not in keep or tid == b.self_id:
-            continue
-        if b.masked(tok.start("id")):
             continue
         if tid.isdigit():       # `tid` is SHORT_ID, ASCII by grammar: this is `[0-9]+`
             continue
