@@ -143,16 +143,19 @@ pub(super) fn compile_nested_function(
             .get(&(root_scope_idx, args_atom))
         {
             if matches!(info.kind, BindingKind::Implicit) {
-                // Emit: CreateArguments → SetLocal → Pop → PushUndefined → Pop
-                // The extra PushUndefined → Pop resets the completion_value
-                // to Undefined, preventing the arguments object from being
-                // returned as the constructor's result (§10.2.5 MakeConstructor).
+                // Emit: CreateArguments → SetLocal → InitLocal → Pop.
+                //
+                // A trailing `PushUndefined; Pop` used to follow, to "reset
+                // completion_value so the arguments object is not returned as
+                // the constructor's result".  `Op::Pop` no longer writes
+                // `completion_value` at all — only `Op::PopCompletion` does, and
+                // only from an `Eval`-kind entry frame — so the pair was two
+                // no-op instructions in every function that mentions
+                // `arguments`.  Dropped rather than left as dead ballast.
                 child_fc.needs_arguments = true;
                 child_fc.emit(Op::CreateArguments);
                 child_fc.emit_u16(Op::SetLocal, info.slot);
                 child_fc.emit_u16(Op::InitLocal, info.slot);
-                child_fc.emit(Op::Pop);
-                child_fc.emit(Op::PushUndefined);
                 child_fc.emit(Op::Pop);
             }
         }

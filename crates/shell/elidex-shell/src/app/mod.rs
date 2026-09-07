@@ -40,6 +40,10 @@ mod history_drain_tests;
 #[path = "../app_history_phase_sep_tests.rs"]
 mod history_phase_sep_tests;
 
+#[cfg(test)]
+#[path = "../app_turn_completion_tests.rs"]
+mod turn_completion_tests;
+
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -237,7 +241,7 @@ pub(super) struct InteractiveState {
     /// §7.3.1.1 *Traversable navigables*) — the deferred Phase-2 traversal-apply
     /// queue the [`DrainCoordinator`](elidex_navigation::DrainCoordinator) drives
     /// through [`App`]'s [`DrainHost`](elidex_navigation::DrainHost) impl
-    /// (`app/drain_host.rs`). Homed here beside `nav_controller` (Q-OWNER —
+    /// (`app/drain_host/host.rs`). Homed here beside `nav_controller` (Q-OWNER —
     /// engine-agnostic traversable proxy state, and both survive a pipeline
     /// rebuild), exactly as content mode homes it beside its own controller.
     ///
@@ -246,7 +250,10 @@ pub(super) struct InteractiveState {
     /// Phase 1 — the *degenerate* two-phase that still realizes §7.4.6.1
     /// *Updating the traversable* step 12's ordering ("This set of steps are split
     /// into two parts to allow synchronous navigations to be processed before
-    /// documents unload"). CLAUDE.md side-store exception (b)
+    /// documents unload"). That pair is the **iteration unit** of the drive site's
+    /// bounded turn-completion loop (`app/drain_host/mod.rs`), which repeats it until
+    /// the turn is quiescent — so this queue is emptied by EVERY iteration's Phase
+    /// 2, not merely once per turn. CLAUDE.md side-store exception (b)
     /// (browsing-context/session-level state, not a per-entity ECS component).
     pub(super) traversal_queue: TraversalQueue,
     /// The §7.4.2 own-context navigation that Phase 1c **drained but HELD** under
@@ -257,21 +264,27 @@ pub(super) struct InteractiveState {
     /// the Phase-1c document URL (so a reinstatement navigates to exactly the URL
     /// the unsuppressed leg would have).
     ///
-    /// Lives for the span of ONE [`App::process_pending_navigation`] drive and
-    /// **never across turns**: Phase 2's
+    /// Lives for the span of ONE **iteration** of [`App::process_pending_navigation`]'s
+    /// turn-completion loop — so a fortiori for one drive, and **never across
+    /// turns**: Phase 2's
     /// [`DrainHost::apply_traversal`](elidex_navigation::DrainHost::apply_traversal)
     /// clears it the moment a traversal MOVES THE CURSOR (the §7.4.2 leg of the
     /// coordinator's Resolution-D cancel), and whatever survives that is reinstated
-    /// — and `take`n — by the drive site's tail. So the "a suppressed `location.*`
-    /// can never re-fire a turn late" contract holds by construction: the slot is
-    /// drained in Phase 1c, and the held request is either applied or dropped
-    /// before the same drive returns.
+    /// — and `take`n — by that iteration's tail, which runs BEFORE the next
+    /// iteration partitions fresh intents. So the "a suppressed `location.*`
+    /// can never re-fire a turn late" contract holds by construction, and there is
+    /// no cross-iteration overwrite case to define: the slot is drained in Phase
+    /// 1c, and the held request is either applied or dropped before the same
+    /// iteration ends — it is provably `None` at every iteration boundary.
     pub(super) deferred_navigation: Option<(url::Url, NavigationType)>,
     /// Re-entry guard for [`App::process_pending_navigation`] — `true` for exactly
-    /// the span of one app-mode drive. Plan §4.4 premise 5 forbids **any** body the
+    /// the span of one app-mode drive, **the whole turn-completion loop included**.
+    /// Plan §4.4 premise 5 forbids **any** body the
     /// drive runs (a `DrainHost` seam, a Phase-2 apply body, the reinstatement
     /// tail) from synchronously re-driving the coordinator; this is the flag that
-    /// drive's entry `debug_assert` reads.
+    /// drive's entry `debug_assert` reads. The loop is NOT such a re-drive — it is
+    /// site-driven and sequential, so it lives inside the bracket by design
+    /// (`app/drain_host/mod.rs` module doc, premise 5).
     ///
     /// Host-side **because it must bracket the WHOLE drive**:
     /// [`TraversalQueue::is_applying`] brackets only
@@ -318,7 +331,7 @@ pub struct App {
     /// Legacy inline interactive state.
     ///
     /// **Never-cleared invariant** (relied on by every `DrainHost` seam in
-    /// `app/drain_host.rs`): the ONLY writes to this field are at construction —
+    /// `app/drain_host/`): the ONLY writes to this field are at construction —
     /// `None` in [`Self::from_tab_manager`] (threaded mode), `Some(..)` in
     /// [`Self::new_interactive_with_url`] (inline mode, the sole inline
     /// constructor). Nothing clears it afterwards: the navigation bodies
@@ -387,7 +400,7 @@ impl App {
     /// The single enforcement point of the [`interactive`](Self::interactive)
     /// never-cleared invariant for shared borrows: panics with
     /// [`INTERACTIVE_DRIVE_ONLY`] (unreachable — see its docs). Every
-    /// [`DrainHost`](elidex_navigation::DrainHost) seam in `app/drain_host.rs`
+    /// [`DrainHost`](elidex_navigation::DrainHost) seam in `app/drain_host/host.rs`
     /// reaches through this instead of open-coding the `expect`.
     pub(super) fn inline_state(&self) -> &InteractiveState {
         self.interactive.as_ref().expect(INTERACTIVE_DRIVE_ONLY)

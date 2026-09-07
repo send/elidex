@@ -676,7 +676,7 @@ pub(crate) fn to_index_u64(
 // ToObject (ECMA-262 §7.1.19)
 // ---------------------------------------------------------------------------
 
-/// §6.2.4.5 RequireObjectCoercible: throws TypeError for null/undefined
+/// §7.2.1 RequireObjectCoercible: throws TypeError for null/undefined
 /// (including the internal `Empty` sentinel, which should not leak out of
 /// firewalled paths but is defensively rejected here), otherwise returns
 /// `Ok(())`.  Used by property access/assignment/delete paths that must

@@ -186,7 +186,7 @@ pub enum ObjectKind {
         on_finally: ObjectId,
         is_reject: bool,
     },
-    /// An ECMA-262 §27.5 Generator object.  Created by a generator function
+    /// An ECMA-262 §27.8 Generator object.  Created by a generator function
     /// call (the function body never runs on the initial call — instead,
     /// the Generator holds the initial suspended frame).  `.next()` /
     /// `.return()` / `.throw()` drive execution.

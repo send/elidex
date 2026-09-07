@@ -226,15 +226,15 @@ pub(crate) struct VmInner {
     /// The global object (`globalThis`). Used for `this` coercion in
     /// non-strict functions (§10.2.1.2).
     pub(crate) global_object: ObjectId,
-    /// Completion value for eval: the last value popped by a Pop opcode
-    /// at the script (entry) frame level.
+    /// Completion value for eval: the last value popped by a PopCompletion
+    /// opcode at the script (entry) frame level.
     pub(crate) completion_value: JsValue,
     /// Stack of saved `completion_value`s pushed by
     /// [`VmInner::with_call_mode`] on entry and popped on cleanup.
     /// Kept on `VmInner` (rather than in a Rust local) so
     /// [`super::gc::roots::mark_roots`] can walk it as a GC root —
     /// otherwise an outer-scope heap Object displaced from
-    /// `completion_value` by an inner Eval body's `Op::Pop` would
+    /// `completion_value` by an inner Eval body's `Op::PopCompletion` would
     /// have no live reference for the duration of the closure and
     /// could be swept mid-flight, leaving a dangling ObjectId for
     /// the cleanup restore to write back. Pre-D-17b-r2 the analogous

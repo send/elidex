@@ -281,6 +281,9 @@ fn validate_pair_entry(
             "Failed to construct 'URLSearchParams': Sequence init must contain iterables of length 2",
         ));
     };
+    // ⚠ Same inner-pair dense-Array read as `headers::parse_init`, with the
+    // same §3.2.21 step 2 divergence. Slot:
+    // `#11-webidl-sequence-dense-array-fast-path`.
     if let ObjectKind::Array { elements } = &ctx.vm.get_object(pair_id).kind {
         if elements.len() != 2 {
             return Err(VmError::type_error(

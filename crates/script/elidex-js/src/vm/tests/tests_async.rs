@@ -1,4 +1,4 @@
-//! Async function tests (ECMA-262 §15.8 / §27.7).
+//! Async function tests (ECMA-262 §15.8 / §27.10).
 //!
 //! Commit 5 of PR2 lands async function + `await` on top of the generator
 //! infrastructure: an async function call compiles like a generator body

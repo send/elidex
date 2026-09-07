@@ -21,7 +21,10 @@
 //! route today**: the coordinator is its only caller, and content-mode's interim
 //! guard buffers a reentrant message shell-side instead
 //! (`content/drain_host.rs::dispatch_or_buffer_reentrant`), while app-mode is
-//! structurally reentrancy-free. Routing every nav-mutating step through this queue
+//! structurally reentrancy-free — its turn-completion loop is **site-driven and
+//! sequential** (iterations begin only after the previous one's bodies return), not
+//! a reentrant drive, so it neither needs this seam nor weakens that property.
+//! Routing every nav-mutating step through this queue
 //! is Slice 4 (`#11-session-history-task-queue-model`). What the shells actually
 //! call today is [`new`](TraversalQueue::new) (both construct one — `app/mod.rs`,
 //! `content/mod.rs`) plus [`is_applying`](TraversalQueue::is_applying) and

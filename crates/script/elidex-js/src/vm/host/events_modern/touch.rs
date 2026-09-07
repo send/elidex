@@ -545,17 +545,12 @@ fn native_touch_event_constructor(
 
 /// Parse a `sequence<Touch>` member from a TouchEventInit.  Each
 /// sequence entry must be Touch-brand; anything else throws
-/// TypeError per WebIDL §3.10.21.  Missing key → empty Vec
+/// TypeError per WebIDL §3.2.15.  Missing key → empty Vec
 /// (matches WebIDL default).
 ///
-/// Fast-path on `ObjectKind::Array` reads the dense `elements` Vec
-/// directly (`get_property_value` with a stringified index does
-/// NOT hit Array dense storage in this VM — only the bytecode
-/// `LoadElement` opcode does).  Anything else falls back to the
-/// iterator protocol per WebIDL §3.2.27 so
-/// `new TouchEvent('t', { touches: customIterable })` behaves per
-/// spec — mirrors `url_search_params.rs` /
-/// `headers::resolve_headers_init`.
+/// Conversion goes through the shared `webidl_sequence_to_vec` helper
+/// unconditionally — see its module docs for why there is no
+/// dense-`ObjectKind::Array` fast path.
 fn parse_touch_sequence(
     ctx: &mut NativeContext<'_>,
     opts_id: ObjectId,
@@ -573,7 +568,7 @@ fn parse_touch_sequence(
              sequence<Touch> member is null.",
         ));
     }
-    // sequence<Touch> via the shared WebIDL §3.10.16 helper. Overridden
+    // sequence<Touch> via the shared WebIDL §3.2.21 helper. Overridden
     // `arr[Symbol.iterator]` must be honoured — see
     // `touch_event_sequence_honours_array_iterator_override`.
     let msgs = SeqMessages {

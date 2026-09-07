@@ -141,7 +141,7 @@ impl App {
             //
             // ⚠ TRAJECTORY — the safety argued above is coupled to a value that is
             // deliberately being changed. `handle_navigation` returns `true`
-            // UNCONDITIONALLY today (`app/drain_host.rs`), and that `true` is what
+            // UNCONDITIONALLY today (`app/drain_host/host.rs`), and that `true` is what
             // feeds `own_context_action` → `suppress_default` on the Phase-1c leg;
             // `#11-nav-applied-shipped-decouple` is scheduled to stop it. Any change
             // that lets a drain rebuild WITHOUT setting `suppress_default` — that slot
