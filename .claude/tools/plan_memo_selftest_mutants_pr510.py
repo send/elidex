@@ -7,7 +7,7 @@ at the review-round seam the control registry is split at
 module holds the row shape, the runner `run` and every PRE-converge mutant (the
 lexing clauses, the gating stages, the `/code-review high` and `/elidex-review`
 Stage-6 fixes); this one holds every mutant written against a PR #510 review
-round (Codex R1-R14 and the design re-gates over R4-R9), indexed by round, and
+round (Codex R1-R16 and the design re-gates over R4-R9), indexed by round, and
 appends to the SAME `MUTANTS` list -- one registry, one import site (the runner
 imports this module for its side effect).  The rules are that module's: the
 substring must occur EXACTLY ONCE in its file, every named control must go red,
@@ -202,7 +202,7 @@ MUTANTS += [
      '            if "|" in line or ids:', '            if True:',
      ["(lex-seed) an HTML-block line with neither a `|` nor a declared id is no seed"]),
     ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", MEMO,
-     '            except (OSError, RuntimeError, UnicodeDecodeError) as e:', '            except (OSError, RuntimeError) as e:',
+     '            except (OSError, UnicodeDecodeError) as e:', '            except OSError as e:',
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
      'NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))',
@@ -625,4 +625,60 @@ MUTANTS += [
       "single-letter miss, so only the anchor can reach it)",
       "(noun) `ROW 9 lands first` names the row (a bare `9` is the declared numeric miss)",
       "(noun) `UMBRELLA C owns it` names the row"]),
+]
+
+MUTANTS += [
+    # -- PR #510 Codex R16
+    ("R16 #2 §2.5: character references in a destination are decoded (re-inject backslash-only unescaping: "
+     "no reference is ever matched)", LEXER,
+     '        m = _CHAR_REF.match(s, i)', '        m = None',
+     ["(link) `[child](child&#46;md)`: a decimal character reference in the destination is decoded (§2.5 / "
+      "§6.3) -- `child.md` is walked and its violation reported",
+      "(link) `[child](<child&#46;md>)`: the angle-bracket destination decodes by the same rule",
+      "(link) `[child](child&period;md)`: a named entity reference (HTML5 `&period;`) decodes",
+      "(link) `[child](child&#x2E;md)`: a hexadecimal character reference decodes",
+      "(def) `[sib]: child&#46;md`: a reference definition's destination is decoded by the SAME normalisation "
+      "-- the sibling is walked",
+      "(link) `[x](slice&#37;20sib.md)`: §2.5 decodes `&#37;` to `%`, then `sibling_path` percent-decodes "
+      "`%20` (stage b) -- the two decoders run in spec order, `slice sib.md` is walked"]),
+    ("R16 #2 §2.5: the decoder is ONE pass of the spec's grammar, not `html.unescape` (re-inject it as a "
+     "second pass: HTML's legacy semicolon-less `&copy`, and a decoded `&` / an escaped `&` re-read as a "
+     "reference)", LEXER,
+     '        out.append(s[i])\n        i += 1\n    return "".join(out)',
+     '        out.append(s[i])\n        i += 1\n    return __import__("html").unescape("".join(out))',
+     ["(link) `[x](child&copy.md)`: HTML's legacy semicolon-less `&copy` is NOT a reference in CommonMark "
+      "(§2.5 Example 29) -- the destination is the literal `child&copy.md`, and THAT file is walked "
+      "(`html.unescape` would have named `child©.md`)",
+      "(link) `[x](child\\&#46;md)`: a backslash-escaped `&` opens no reference (ONE pass: §2.4 and §2.5 "
+      "meet at the character once) -- literal `child&#46;md`, no memo, 0 sites",
+      "(link) `[x](child&#x26;#46;md)`: a decoded `&` is a character, never the start of a second reference "
+      "(one pass, no re-scan) -- literal `child&#46;md`, 0 sites"]),
+    ("R16 #2 §2.5: U+0000 is replaced by U+FFFD (drop the rule: `&#0;` yields a C0 control the resolver "
+     "rejects)", LEXER,
+     '    if n == 0 or n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:', '    if n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:',
+     ["(link) `[x](child&#0;.md)`: U+0000 is replaced by U+FFFD (§2.5, \"for security reasons\") -- the memo "
+      "named `child\\ufffd.md` is walked (a raw U+0000 would be rejected as a C0 control)"]),
+    ("R16 #2 §2.5: a reference needs its `;` (re-inject an optional semicolon)", LEXER,
+     '[A-Za-z][A-Za-z0-9]{1,31});")', '[A-Za-z][A-Za-z0-9]{1,31});?")',
+     ["(link) `[x](child&#46md)`: `&#46` without `;` is no reference -- the destination is the literal "
+      "`child&#46md`, which names no memo: 0 sites, `child.md` not walked"]),
+    ("R16 #2 §6.3: label matching is on the RAW label (re-inject character-reference decoding in "
+     "`normalize_label`)", LEXER,
+     '    return _LABEL_WS.sub(" ", label.strip(" \\t\\r\\n")).casefold()',
+     '    return _LABEL_WS.sub(" ", normalize_destination(label).strip(" \\t\\r\\n")).casefold()',
+     ["(label) `[foo&auml;]: child.md` then `[fooä]`: §6.3 label matching is on the RAW label (case fold, "
+      "strip, collapse -- no character-reference decoding; commonmark.js: no link) -- the shortcut is prose, "
+      "0 sites, `child.md` not walked"]),
+    # #3 (IMP): container nesting off the call stack, and the I/O chokepoint narrowed to I/O
+    ("R16 #3 nesting: the frame stack has no depth cap (re-inject one of 200 -- a `RecursionError` at the "
+     "201st nested container, as the call stack gave at ~500)", MEMO,
+     '                frames.append(child)\n                value = None',
+     '                if len(frames) >= 200:\n                    raise RecursionError("nesting deeper than 200")\n'
+     '                frames.append(child)\n                value = None',
+     ["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"]),
+    ("R16 #3 chokepoint: only I/O is the unavailable-memo miss (re-inject `RuntimeError` in the chokepoint's "
+     "except: a parser exception becomes rc 2)", MEMO,
+     '            except (OSError, UnicodeDecodeError) as e:',
+     '            except (OSError, RuntimeError, UnicodeDecodeError) as e:',
+     ["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"]),
 ]

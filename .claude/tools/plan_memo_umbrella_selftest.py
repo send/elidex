@@ -607,6 +607,71 @@ def scaling_quotes_control(M):
         quotes, c.calls)
 
 
+def deep_nesting_control(M):
+    """Container nesting is off the call stack (PR #510 R16): 1,000 nested
+    block quotes and 1,000 nested list items -- commonmark.js 0.31.2 renders
+    1,000 `<blockquote>` / 1,000 `<ul>` for them (measured) -- parse to the
+    sequence a container per marker gives (each nested container is stated
+    before its content, then the one paragraph), and `check()` over a
+    1,000-deep quote around a site reports that site.  With the Phase-1
+    passes as plain calls, ~500 markers raised `RecursionError` inside
+    `_parse` and the population's chokepoint reported the memo as
+    "unavailable" (rc 2, no census); an exception here -- from `Memo` or from
+    `check()` -- is red, never a harness accident: it is the defect."""
+    import plan_memo_memo
+    n = 1000
+    shapes = [
+        ("> " * n + "a", [["quote", 1, 1]] * n + [["p", 1, 1]]),
+        ("- " * n + "a", [b for _ in range(n) for b in (["list", 1, 1, "-", True], ["item", 1, 1])] + [["p", 1, 1]]),
+    ]
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "deep.md"
+        for md, want in shapes:
+            p.write_text(md + "\n")
+            try:
+                got = plan_memo_memo.Memo(p).sequence
+            except Exception as e:       # noqa: BLE001 -- the defect under test
+                return False, "%d nested `%s` raised %s: %s" % (n, md[0], type(e).__name__, str(e)[:60])
+            if got != want:
+                return False, "%d nested `%s`: %d sequence entries, expected %d" % (n, md[0], len(got), len(want))
+    try:
+        res, reported = run_on(M, build(), "> " * n + "Slice 9z owns it")
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() over a %d-deep quote raised %s: %s" % (n, type(e).__name__, str(e)[:60])
+    ok = res.rc != 2 and len(reported) == 1
+    return ok, "%d nested quotes / items: %d + %d sequence entries as commonmark.js nests them; check() rc %d, %d site" % (
+        n, n + 1, 2 * n + 1, res.rc, len(reported))
+
+
+def parse_runtime_error_control(M):
+    """The I/O chokepoint is I/O ONLY: a `RuntimeError` raised while PARSING a
+    memo (injected: `quote_content` raises on a sentinel line) is a crash out
+    of `check()` -- crash = FAIL -- never the "linked memo unavailable" miss.
+    `RecursionError` is a `RuntimeError`, and until PR #510 R16 the chokepoint
+    caught `RuntimeError` (for the py<=3.12 symlink-loop case `_resolve`
+    alone guards), so a parser defect was reported as an unavailable memo,
+    rc 2, with no census.  Red when `check()` returns instead of raising."""
+    import plan_memo_memo
+    orig = plan_memo_memo.quote_content
+
+    def injected(line):
+        if line.startswith("> BOOM"):
+            raise RuntimeError("injected parser defect")
+        return orig(line)
+    plan_memo_memo.quote_content = injected
+    try:
+        try:
+            res, _ = run_on(M, build(), "> BOOM")
+        except RuntimeError as e:
+            return "injected parser defect" in str(e), "RuntimeError propagated out of check(): %s" % e
+        except Exception as e:       # noqa: BLE001 -- not the injected exception: red, not a harness crash
+            return False, "check() raised %s, not the injected RuntimeError: %s" % (type(e).__name__, str(e)[:60])
+    finally:
+        plan_memo_memo.quote_content = orig
+    miss = [f[3][:50] for f in res.findings if f[0] == "SCHEMA" and "linked memo unavailable" in f[3]]
+    return False, "check() returned rc %d with %s -- a parser exception was swallowed as an I/O miss" % (res.rc, miss)
+
+
 def orphan_offset_control(M):
     """The orphan-definition exemption is by the orphan's exact BRACKET, not
     its line.  `paragraph\\n[sib]: child.md "[sib]"` -- commonmark.js
@@ -714,6 +779,8 @@ def registry():
     reg["split_row scales linearly: t(4N)/t(N) < 8 (breaks partitioned in the scan)"] = ("CONTROL", scaling_split_row_control)
     reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)
     reg["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"] = ("CONTROL", id_spelling_sweep_control)
+    reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
+    reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)
     return reg
 
 

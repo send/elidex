@@ -5,7 +5,8 @@
 `Memo` is the Phase-1 driver of CommonMark's "Appendix: A parsing strategy"
 (`_parse` / `_quote` / `_list` / `_item`: ONE forward pass over raw lines
 with the open block in hand, re-entered once per container -- a block quote,
-a list item), the Phase-2 resolution of its
+a list item -- through an EXPLICIT frame stack, `_run`, never the
+interpreter's call stack), the Phase-2 resolution of its
 paragraphs and cells (`Lexed.resolve` with the Phase-1 definitions), the
 file I/O (`read_text(encoding="utf-8")`), and the ONE destination -> sibling
 resolver (`sibling_path` / `_resolve` / `linked_files` /
@@ -19,7 +20,13 @@ reverse; the block grammar is `plan_memo_blocks.py`'s.
 Two rules decided here, once:
   * a memo that cannot be opened, read or decoded is an UNAVAILABLE linked
     memo -- the documented exit-2 miss at the population's one I/O
-    chokepoint, never an exception out of the population;
+    chokepoint, never an exception out of the population; an exception
+    from PARSING it is a crash out of the population (crash = FAIL), never
+    that miss -- the chokepoint catches `OSError` and `UnicodeDecodeError`
+    and nothing else (⚠ until PR #510 R16 it caught `RuntimeError` too,
+    for the py<=3.12 symlink-loop case that `_resolve` alone guards, and a
+    `RecursionError` -- a `RuntimeError` -- out of ~500 nested `>` markers
+    was reported as "linked memo unavailable", rc 2, no census);
   * the population is transitive over the memos a memo links; the same id
     declared twice, and a reference no definition answers (the memo it meant
     to link is outside the population), are schema misses.
@@ -75,7 +82,11 @@ class Memo:
     strategy".  Phase 1 (block structure, over RAW lines, `_parse`: ONE
     forward pass, the way the Appendix reads a document line by line with
     its open block in hand, re-entered once per container over the
-    container's content): the raw extents -- indented code (§4.4), fenced
+    container's content -- each pass a generator FRAME, a container's pass
+    yielded to `_run`'s explicit stack and its result sent back, so the
+    nesting depth is bounded by memory, not by the interpreter's recursion
+    limit: 1,000 nested quotes or items parse, as commonmark.js 0.31.2
+    parses them, measured; PR #510 R16): the raw extents -- indented code (§4.4), fenced
     blocks (§4.5) and HTML blocks (§4.6), one opener rule and one extent
     rule, consumed in place -- the two containers, block quotes (§5.1:
     marker lines stripped, lazy continuation lines gathered, the same pass
@@ -123,9 +134,36 @@ class Memo:
         # A fence is not recorded: it is the author's explicit code marker,
         # where an indented `| row |` is the I-C silent-skip class.
         self.raw = []
-        self.paragraphs, _, _, _ = self._parse(self.lines, list(range(1, len(self.lines) + 1)), None)
+        self.paragraphs, _, _, _ = self._run(self._parse(self.lines, list(range(1, len(self.lines) + 1)), None))
         for lx in self.lexed():
             lx.resolve(self.defs)
+
+    @staticmethod
+    def _run(frame):
+        """Drive the Phase-1 passes off an EXPLICIT stack.  `_parse`, `_quote`,
+        `_list` and `_item` are generators: where one re-enters the pass over
+        a container's content it YIELDS the inner frame and receives its
+        return value back (`x = yield self._quote(...)` reads as the call it
+        replaces).  The stack here is a list of suspended frames -- a nested
+        container pushes one, a finished frame pops and hands its value to
+        the frame below -- so the depth of container nesting a memo may have
+        is bounded by memory, never by `sys.getrecursionlimit()`: with the
+        passes as plain calls, ~500 nested `>` markers raised
+        `RecursionError` inside `_parse` (PR #510 R16), which the population's
+        chokepoint then mis-read as an unavailable memo.  commonmark.js
+        0.31.2 parses 1,000 nested quotes and 1,000 nested items (measured);
+        so does this.  Returns the outermost frame's value."""
+        frames, value = [frame], None
+        while frames:
+            try:
+                child = frames[-1].send(value)
+            except StopIteration as done:
+                value = done.value
+                frames.pop()
+            else:
+                frames.append(child)
+                value = None
+        return value
 
     def _parse(self, lines, linenos, lazy):
         """Phase 1 as ONE forward pass over one container's content `lines`
@@ -219,7 +257,9 @@ class Memo:
             item is the item's text) and a one-line block is a paragraph of
             its own.
 
-        Linear: one lookahead per run, one parse per line."""
+        Linear: one lookahead per run, one parse per line.  A generator
+        frame under `_run` (the container branches `yield` the inner pass and
+        receive its result); `return` hands the tuple to the frame below."""
         out, cur, i, n = [], [], 0, len(lines)
         run_text, run_off, defs_at = {}, {}, {}
         sequence, seq0 = self.sequence, len(self.sequence)
@@ -277,7 +317,7 @@ class Memo:
                     continue
                 if quote_content(line) is not None:
                     open_block()
-                    i += self._quote(lines, linenos, i, out)
+                    i += yield self._quote(lines, linenos, i, out)
                     continue
                 heading = setext_underline(line) if cur else None
                 if heading is not None:
@@ -288,7 +328,7 @@ class Memo:
                     continue
                 if item_marker(line) is not None:
                     open_block()
-                    used, gap = self._list(lines, linenos, i, out, lazy)
+                    used, gap = yield self._list(lines, linenos, i, out, lazy)
                     i += used
                     continue
                 if not starts_block(line) and table_header_at(lines, i, lazy):
@@ -356,7 +396,7 @@ class Memo:
         self.sequence.append(entry)
         loose, j = False, i
         while True:
-            used, ends_blank, inner_loose = self._item(lines, linenos, j, out, lazy)
+            used, ends_blank, inner_loose = yield self._item(lines, linenos, j, out, lazy)
             loose = loose or inner_loose
             j += used
             k = j
@@ -415,7 +455,7 @@ class Memo:
                 j += 1
         entry = ["item", linenos[i], None]
         self.sequence.append(entry)
-        paragraphs, used, ends_blank, loose = self._parse(content, nos, inner_lazy)
+        paragraphs, used, ends_blank, loose = yield self._parse(content, nos, inner_lazy)
         out.extend(paragraphs)
         entry[2] = nos[used - 1]
         return used, ends_blank, loose
@@ -467,7 +507,7 @@ class Memo:
         self.sequence.append(entry)
         # a quote's gaps are its own: a blank content line of a quote inside
         # an item (`- > a\n  >\n- b`) loosens no list (measured)
-        paragraphs, used, _, _ = self._parse(content, nos, inner_lazy)
+        paragraphs, used, _, _ = yield self._parse(content, nos, inner_lazy)
         out.extend(paragraphs)
         entry[2] = nos[used - 1]
         return used
@@ -631,10 +671,15 @@ class Population:
             # the ONE I/O chokepoint: a memo that cannot be opened, read or
             # decoded (absent, a directory, over-long, invalid UTF-8) is an
             # UNAVAILABLE linked memo -- the documented exit-2 miss, never an
-            # exception out of the population
+            # exception out of the population.  I/O ONLY: `Memo(p)` also
+            # PARSES, and a parser exception must surface as a crash (crash =
+            # FAIL), never as this miss -- so no `RuntimeError` here (its one
+            # legitimate source, the py<=3.12 symlink-loop `resolve()`, is
+            # guarded at `_resolve`; a `RecursionError` IS a `RuntimeError`,
+            # and PR #510 R16 found ~500 nested `>` reported as "unavailable")
             try:
                 memo = Memo(p)
-            except (OSError, RuntimeError, UnicodeDecodeError) as e:
+            except (OSError, UnicodeDecodeError) as e:
                 self.misses.append((p.name, 0, "linked memo unavailable (%s) -- its population is "
                                     "unscanned" % type(e).__name__))
                 continue

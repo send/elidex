@@ -14,9 +14,12 @@ as met, an inline-link tail is parsed by lookahead on the raw text -- there
 is no code pre-mask.  An image's bracket structure is parsed so that it is
 not a link and a link may wrap it; its destination never joins the
 population, its alt text is prose, its tail is masked.  Inline constructs
-outside the lexed clauses (§6.5 autolinks, §2.5 entity references, §6.2
-emphasis beyond the decoration the id grammar reads) are read as written;
-the block types not modelled are the plan's §3.0 table.
+outside the lexed clauses (§6.5 autolinks, §6.2 emphasis beyond the
+decoration the id grammar reads, §2.5 character references in PROSE) are
+read as written; a character reference in a link DESTINATION is decoded
+(§2.5 / §6.3, `normalize_destination` -- the one place a destination's text
+is read, PR #510 R16); the block types not modelled are the plan's §3.0
+table.
 
 `Lexed` is the one Phase-2 value per block: code spans, links, images, and
 the two bare tokens the scanners must not read an id out of (`[C19]`-style
@@ -30,6 +33,7 @@ is applied over a `Lexed` by `plan_memo_tables.py`.
 import bisect
 import re
 import string
+from html.entities import html5
 
 from plan_memo_ids import ALNUM, CITE_ID
 
@@ -91,17 +95,103 @@ def _skip_ws(s, i, newlines=1):
     return i
 
 
-def _unescape(s):
-    """Backslash escapes (CommonMark §2.4): a backslash before an ASCII
-    punctuation character is removed; any other backslash is literal."""
+# §2.5, the reference grammar: "Entity references consist of `&` + any of the
+# valid HTML5 entity names + `;`" -- "Decimal numeric character references
+# consist of `&#` + a string of 1–7 arabic digits + `;`" -- "Hexadecimal
+# numeric character references consist of `&#` + either `X` or `x` + a string
+# of 1-6 hexadecimal digits + `;`".  The name arm is a SHAPE (a letter, then
+# letters and digits; the longest HTML5 name is 31 characters); whether the
+# shape names an entity is the HTML5 list's to say (`html5`, `_reference`).
+_CHAR_REF = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
+
+# "The document https://html.spec.whatwg.org/entities.json is used as an
+# authoritative source for the valid entity references and their
+# corresponding code points" -- the stdlib ships that list as
+# `html.entities.html5` (imported above), keyed WITH the `;` for the names
+# CommonMark recognises and without it for HTML's legacy semicolon-less
+# forms (`copy`), which §2.5 excludes: "Although HTML5 does accept some entity
+# references without a trailing semicolon (such as `&copy`), these are not
+# recognized here, because it makes the grammar too ambiguous" (Example
+# 29).  Looked up with the `;`, so the legacy forms are never found.  NOT
+# `html.unescape`: it decodes the legacy forms, and it is a second pass over
+# text this module has already read once.
+
+
+def _codepoint(n):
+    """§2.5: "A numeric character reference is parsed as the corresponding
+    Unicode character.  Invalid Unicode code points will be replaced by the
+    REPLACEMENT CHARACTER (U+FFFD).  For security reasons, the code point
+    U+0000 will also be replaced by U+FFFD."  Invalid = above U+10FFFF or a
+    surrogate (commonmark.js 0.31.2: `&#xD800;` renders U+FFFD, measured)."""
+    if n == 0 or n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:
+        return "\ufffd"
+    return chr(n)
+
+
+def _reference(m):
+    """The character a `_CHAR_REF` match stands for, or None when its name is
+    not an HTML5 entity (§2.5 Example 30: `&MadeUpEntity;` "not recognized as
+    entity references either" -- literal text)."""
+    body = m.group(1)
+    if body[0] != "#":
+        return html5.get(body + ";")
+    return _codepoint(int(body[2:], 16) if body[1] in "xX" else int(body[1:]))
+
+
+def normalize_destination(s):
+    """The ONE normalisation of a link destination's raw text -- the inline
+    link's (§6.3) and the reference definition's (§4.7), bare or in angle
+    brackets -- in ONE left-to-right pass: a backslash escape (§2.4: a
+    backslash before an ASCII punctuation character is removed; any other
+    backslash is literal) yields its character, a character reference (§2.5)
+    yields the character it stands for, anything else is read as written.
+
+    §2.5, verbatim: "Valid HTML entity references and numeric character
+    references can be used in place of the corresponding Unicode character,
+    with the following exceptions: Entity and character references are not
+    recognized in code blocks and code spans.  Entity and character
+    references cannot stand in place of special characters that define
+    structural elements in CommonMark." -- and, on where they ARE read:
+    "Entity and numeric character references are recognized in any context
+    besides code spans or code blocks, including URLs, link titles, and
+    fenced code block info strings" (Examples 31-34).  §6.3 on the
+    destination: "Entity and numerical character references in the
+    destination will be parsed into the corresponding Unicode code points,
+    as usual."  So `[child](child&#46;md)` and `[sib]: child&#46;md` both
+    name `child.md` (commonmark.js 0.31.2, measured), and until PR #510 R16
+    the destination was backslash-unescaped ONLY: `sibling_path` saw the
+    literal `child&#46;md`, no `.md` suffix, and the sibling was silently
+    outside the population (rc 0).
+
+    ONE pass, so the two grammars meet at a character exactly once: a
+    backslash-escaped `&` (`\\&#46;`) is a literal `&` and opens no
+    reference; a decoded `&` (`&#x26;#46;`) is a character, never re-read as
+    the start of a second reference -- commonmark.js renders `a\\&#46;b.md`
+    and `a&#x26;#46;b.md` both as `a&#46;b.md` (measured).  What this does
+    NOT touch: a link LABEL (§6.3 label matching normalises case and
+    whitespace only -- `[foo&auml;]` and `[fooä]` are different labels in
+    commonmark.js, measured -- `normalize_label` reads the raw label); a
+    link TITLE (§2.5 decodes titles too, but `link_title` reads a title for
+    its SHAPE only -- the end offset -- and never its text, so there is
+    nothing to decode); a code span (§2.5's first exception; `inline_pass`
+    jumps past a span and this function never sees one).  The decoded
+    destination is then a URL for `sibling_path`, whose stages (scheme,
+    percent-decoding) run over the CHARACTERS this pass produced: `&#37;20`
+    is `%20` here and a space there, in spec order."""
     out, i = [], 0
     while i < len(s):
         if _is_escape(s, i):
             out.append(s[i + 1])
             i += 2
-        else:
-            out.append(s[i])
-            i += 1
+            continue
+        m = _CHAR_REF.match(s, i)
+        ch = _reference(m) if m else None
+        if ch is not None:
+            out.append(ch)
+            i = m.end()
+            continue
+        out.append(s[i])
+        i += 1
     return "".join(out)
 
 
@@ -114,7 +204,10 @@ def link_destination(s, i):
     `<...>`: no line ending, no unescaped `<` or `>`.  Bare: nonempty, no ASCII
     control character (§2.1: U+0000-1F or U+007F) or space, does not start
     with `<`, parentheses only backslash-escaped or in balanced unescaped
-    pairs.
+    pairs.  Both forms return the text through `normalize_destination` (§2.4
+    escapes and §2.5 character references, one pass) -- the ONE site, so the
+    reference definition (`plan_memo_blocks.reference_definitions` calls
+    this) decodes by the same rule.
     """
     if i < len(s) and s[i] == "<":
         j = i + 1
@@ -126,7 +219,7 @@ def link_destination(s, i):
             else:
                 j += 1
         if j < len(s) and s[j] == ">":
-            return _unescape(s[i + 1:j]), j + 1
+            return normalize_destination(s[i + 1:j]), j + 1
         return None, i
     j, depth = i, 0
     while j < len(s):
@@ -144,7 +237,7 @@ def link_destination(s, i):
             depth -= 1
         j += 1
     if j > i and depth == 0:
-        return _unescape(s[i:j]), j
+        return normalize_destination(s[i:j]), j
     return None, i
 
 

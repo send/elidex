@@ -5,8 +5,8 @@ The second half of the control registry, split from `plan_memo_selftest_cases.py
 at the review-round seam: that module holds the fixture builder, the record
 shape and the pre-converge controls (the four kinds, the assertion / lexing /
 exit-status / `/code-review high` / `/elidex-review` Stage 6 families); this one
-holds every control written against a PR #510 review round (Codex R1-R13 and
-the design re-gate over R4-R9), indexed by round, and appends to the SAME
+holds every control written against a PR #510 review round (Codex R1-R16 and
+the design re-gates over R4-R9), indexed by round, and appends to the SAME
 `CASES` list through the same `case` / `acase` / `rcase` spellings -- one
 registry, one import site (the runner imports this module for its side
 effect).  A control's mutant lives in `plan_memo_selftest_mutants.py` under the
@@ -635,3 +635,62 @@ case("POSITIVE-NOVEL", "(noun) `ROW 9 lands first` names the row (a bare `9` is 
      build(), "ROW 9 lands first.", 1)
 case("POSITIVE-NOVEL", "(noun) `UMBRELLA C owns it` names the row",
      build(), "UMBRELLA C owns it.", 1)
+
+
+# ------------------------------------------------ PR #510 Codex R16 controls --
+# #2 (IMP): §2.5 character references in a link DESTINATION are decoded by the
+# ONE destination normalisation (`normalize_destination`: §2.4 escapes and §2.5
+# references in one pass), at every destination site -- the inline link, bare
+# and in angle brackets, and the reference definition, which reads its
+# destination through the same `link_destination`.  Until R16 the destination
+# was backslash-unescaped only, so `[child](child&#46;md)` reached
+# `sibling_path` as the literal `child&#46;md`: no `.md` suffix, the sibling
+# silently outside the population, rc 0.  Every expectation below was read off
+# commonmark.js 0.31.2 (`node cm.js '["<md>"]'`) before being written.  The
+# NEGATIVE half measures SITES (0 = `child.md` not walked), not rc: a NAMING
+# site is a seed and never moves rc, so an `rc 0` expectation stays green
+# whether the sibling is walked or not -- three R16 mutants survived it.
+case("POSITIVE-NOVEL", "(link) `[child](child&#46;md)`: a decimal character reference in the destination is "
+                       "decoded (§2.5 / §6.3) -- `child.md` is walked and its violation reported",
+     build(), "See [child](child&#46;md).", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(link) `[child](<child&#46;md>)`: the angle-bracket destination decodes by the same rule",
+     build(), "See [child](<child&#46;md>).", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(link) `[child](child&period;md)`: a named entity reference (HTML5 `&period;`) decodes",
+     build(), "See [child](child&period;md).", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(link) `[child](child&#x2E;md)`: a hexadecimal character reference decodes",
+     build(), "See [child](child&#x2E;md).", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(def) `[sib]: child&#46;md`: a reference definition's destination is decoded by the SAME "
+                       "normalisation -- the sibling is walked",
+     build(), "[sib]: child&#46;md\n\nSee [sib].", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(link) `[x](slice&#37;20sib.md)`: §2.5 decodes `&#37;` to `%`, then `sibling_path` "
+                       "percent-decodes `%20` (stage b) -- the two decoders run in spec order, `slice sib.md` is walked",
+     build(), "See [x](slice&#37;20sib.md).", 1, files={"slice sib.md": VIOLATION + "\n"})
+case("POSITIVE-NOVEL", "(link) `[x](child&#0;.md)`: U+0000 is replaced by U+FFFD (§2.5, \"for security reasons\") -- "
+                       "the memo named `child\\ufffd.md` is walked (a raw U+0000 would be rejected as a C0 control)",
+     build(), "See [x](child&#0;.md).", 1, files={"child�.md": VIOLATION + "\n"})
+case("POSITIVE-NOVEL", "(link) `[x](child&#x110000;.md)`: an invalid code point is U+FFFD (§2.5) -- `child\\ufffd.md` "
+                       "is walked",
+     build(), "See [x](child&#x110000;.md).", 1, files={"child�.md": VIOLATION + "\n"})
+case("POSITIVE-NOVEL", "(link) `[x](child&copy.md)`: HTML's legacy semicolon-less `&copy` is NOT a reference in "
+                       "CommonMark (§2.5 Example 29) -- the destination is the literal `child&copy.md`, and THAT "
+                       "file is walked (`html.unescape` would have named `child©.md`)",
+     build(), "See [x](child&copy.md).", 1, files={"child&copy.md": VIOLATION + "\n"})
+case("NEGATIVE", "(link) `[x](child&#46md)`: `&#46` without `;` is no reference -- the destination is the literal "
+                  "`child&#46md`, which names no memo: 0 sites, `child.md` not walked",
+      build(), "See [x](child&#46md).", 0, files=CHILD)
+case("NEGATIVE", "(link) `[x](child\\&#46;md)`: a backslash-escaped `&` opens no reference (ONE pass: §2.4 and §2.5 "
+                  "meet at the character once) -- literal `child&#46;md`, no memo, 0 sites",
+      build(), "See [x](child\\&#46;md).", 0, files=CHILD)
+case("NEGATIVE", "(link) `[x](child&#x26;#46;md)`: a decoded `&` is a character, never the start of a second "
+                  "reference (one pass, no re-scan) -- literal `child&#46;md`, 0 sites",
+      build(), "See [x](child&#x26;#46;md).", 0, files=CHILD)
+case("NEGATIVE", "(link) `[x](child&MadeUpEntity;md)`: a name not on the HTML5 list is literal text (§2.5 Example "
+                  "30) -- no memo, 0 sites",
+      build(), "See [x](child&MadeUpEntity;md).", 0, files=CHILD)
+case("NEGATIVE", "(span) `` `[c](child&#46;md)` `` is a code span: §2.5's first exception -- nothing in it is a "
+                  "destination and nothing is decoded; 0 sites, `child.md` not walked",
+      build(), "See `[c](child&#46;md)` here.", 0, files=CHILD)
+case("NEGATIVE", "(label) `[foo&auml;]: child.md` then `[fooä]`: §6.3 label matching is on the RAW label (case fold, "
+                  "strip, collapse -- no character-reference decoding; commonmark.js: no link) -- the shortcut is "
+                  "prose, 0 sites, `child.md` not walked",
+      build(), "[foo&auml;]: child.md\n\nSee [fooä].", 0, files=CHILD)
