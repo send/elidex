@@ -896,3 +896,54 @@ case("POSITIVE-NOVEL", "(link) `sub%5Cchild.md`: a backslash is a path separator
                        "`#path-state` step 1: for a special scheme -- `file` is one -- `\\` ends a segment as `/` does; "
                        "`PureWindowsPath` is that syntax) -- the file `sub/child.md` is walked",
      build(), "See [x](sub%5Cchild.md).", 1, files={"sub/child.md": VIOLATION + "\n"})
+
+
+# ------------------------------------------------ PR #510 Codex R20 controls --
+
+# #1 (MIN): a file name is anything ending in the lexer's `FILE_SUFFIX` -- the
+# stem may be EMPTY, exactly as `sibling_path` stage (d) reads a destination
+# (the one constant, defined in the lexer, consumed by the memo).  Until R20
+# the token arm required a stem of one character or more, so beside a
+# declared id `md` the prose `Read .md for details` reported `md` as a site.
+MD = dict(i7z="**md**", s7z="**UMBRELLA, not a terminal unit.** x")
+case("NEGATIVE", "(file) `.md` alone is a file name (the suffix-only name `sibling_path` accepts): beside a declared "
+                 "no-owner id `md`, `Read .md for details` reports 0 sites",
+     build(**MD), "Read .md for details.", 0)
+case("NEGATIVE", "(file) `notes.md` beside a declared no-owner id `md` is still one file name: 0 sites",
+     build(**MD), "Read notes.md for details.", 0)
+case("POSITIVE", "(file) bare `md` (no suffix) beside a declared no-owner id `md` IS a site -- the subject of the two "
+                 "controls above is live",
+     build(**MD), "Read md for details.", 1)
+case("POSITIVE-NOVEL", "(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the lexer's "
+                       "file token read the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides",
+     build(), "See [x](.md).", 1, files={".md": VIOLATION + "\n"})
+
+# #2 (IMP): every composer that reads "a row id in this position" composes the
+# grammar's `ROW_ID` (slug | short) -- the marker's appositive subject, the
+# two-owner clause, the row-noun-anchored reading.  Until R20 the appositive
+# was built on `SHORT_ID` alone: the reviewer's declaring field below did not
+# match, the row was read as an umbrella, no attribution finding, a corrupted
+# census, exit 0.  The R14 spelling sweep reads spellings, not kind coverage;
+# the runner's `row_kind_coverage_control` is the kind half.
+SLUG_PTR = "Slice %s — **UMBRELLA, not a terminal unit** — points into §8."
+acase("POSITIVE", "(a) the R20 reviewer's declaring field `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributes the marker "
+                  "to a SLUG row: the row is a pointer and the UMBRELLA-MARK attribution finding is emitted",
+      build(wb=SLUG_PTR % "`#11-zz-alpha`"), "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(a) the bold slug form `Slice **#11-zz-alpha** — **UMBRELLA, …**` attributes the marker too",
+      build(wb=SLUG_PTR % "**#11-zz-alpha**"), "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(a) the short form `Slice **9z** — **UMBRELLA, …**` in the same position still attributes (the "
+                  "alternation lost nothing)",
+      build(wb=SLUG_PTR % "**9z**"), "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(d) `owned by `#11-zz-alpha` and **Qx**`: a SLUG owner and a short owner are a two-owner clause "
+                  "(`OWNS_TWO` composes `ROW_ID`)",
+      build(s9z="charter.  The drain is owned by `#11-zz-alpha` and **Qx**."), "TWO-OWNERS?", 1)
+acase("POSITIVE", "(c-seed) `Lands after Slice `#11-zz-alpha`` in a Slice cell whose Deps cell names only **9z**: the "
+                  "anchored reading admits the slug, so the prose names a party the cell does not carry -- "
+                  "ORDER-PROSE? 1",
+      build(s7z="Terminal.  Acceptance: the probe must return 3.  Lands after Slice `#11-zz-alpha`.", d7z="**9z**"),
+      "ORDER-PROSE?", 1)
+acase("NEGATIVE", "(c-seed) the same prose with `#11-zz-alpha` in the Deps cell too: the cell carries the party, "
+                  "ORDER-PROSE? 0",
+      build(s7z="Terminal.  Acceptance: the probe must return 3.  Lands after Slice `#11-zz-alpha`.",
+            d7z="**9z**, `#11-zz-alpha`"),
+      "ORDER-PROSE?", 0)

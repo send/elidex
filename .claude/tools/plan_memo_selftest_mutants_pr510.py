@@ -298,8 +298,8 @@ MUTANTS += [
      ["(id) the id cell's trailing prose is scanned: `**7z** — Slice 9z lands first` reports `9z` "
       "(the row's own `7z` is suppressed)"]),
     ("R10-3 file: a bare `.md` name is a path-syntax run (re-inject the narrow class)", LEXER,
-     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+\\.md(?!%s))',
-     '|(?P<file>[\\w./-]+\\.md(?!%s))',
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))*%s(?!%s))',
+     '|(?P<file>[\\w./-]*%s(?!%s))',
      ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",
       "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
     # -- PR #510 Codex R11
@@ -826,4 +826,42 @@ MUTANTS += [
      ["(link) `sub%5Cchild.md`: a backslash is a path separator on every platform (WHATWG URL `#path-state` step 1: for "
       "a special scheme -- `file` is one -- `\\` ends a segment as `/` does; `PureWindowsPath` is that syntax) -- the "
       "file `sub/child.md` is walked"]),
+    # -- PR #510 Codex R20: row-id composers cover every row kind; the suffix-only file name
+    ("R20 #1 file: the stem of a bare `.md` file name may be EMPTY (re-inject the >=1-character stem)", LEXER,
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))*%s(?!%s))',
+     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+%s(?!%s))',
+     ["(file) `.md` alone is a file name (the suffix-only name `sibling_path` accepts): beside a declared no-owner id "
+      "`md`, `Read .md for details` reports 0 sites"]),
+    ("R20 #1 sibling: stage (d) is the lexer's FILE_SUFFIX test alone (re-inject a stem requirement on the memo side)",
+     MEMO,
+     '        if not name.endswith(FILE_SUFFIX):                           # (d)',
+     '        if not name.endswith(FILE_SUFFIX) or name == FILE_SUFFIX:    # (d)',
+     ["(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the lexer's file token read "
+      "the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides"]),
+    ("R20 #2 grammar: ROW_ID is every row kind (re-inject SHORT_ID only -- the appositive, OWNS_TWO and the anchored "
+     "reading all lose the slug at once, since they compose the one alternation)", IDS,
+     'ROW_ID = "(?:%s)" % "|".join(dict(KINDS)[k] for k in ROW_KINDS)',
+     'ROW_ID = SHORT_ID',
+     ["(a) the R20 reviewer's declaring field `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributes the marker to a "
+      "SLUG row: the row is a pointer and the UMBRELLA-MARK attribution finding is emitted",
+      "(a) the bold slug form `Slice **#11-zz-alpha** — **UMBRELLA, …**` attributes the marker too",
+      "(d) `owned by `#11-zz-alpha` and **Qx**`: a SLUG owner and a short owner are a two-owner clause (`OWNS_TWO` "
+      "composes `ROW_ID`)",
+      "a marker naming another row does not enter the count",
+      "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the "
+      "spelling sweep)"]),
+    ("R20 #2 appositive: ROW_NOUN_ID composes ROW_ID (re-inject decorated_id(SHORT_ID) at the one composer)", TABLES,
+     'ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(ROW_ID)',
+     'ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(SHORT_ID)',
+     ["(a) the R20 reviewer's declaring field `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributes the marker to a "
+      "SLUG row: the row is a pointer and the UMBRELLA-MARK attribution finding is emitted",
+      "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the "
+      "spelling sweep)"]),
+    ("R20 #2 anchored: the anchored reading admits every row kind (re-inject the short-only test)", CHECK,
+     'if t is None or t.kind not in ROW_KINDS or t.id not in keep or t.id == b.self_id:',
+     'if t is None or t.kind != "short" or t.id not in keep or t.id == b.self_id:',
+     ["(c-seed) `Lands after Slice `#11-zz-alpha`` in a Slice cell whose Deps cell names only **9z**: the anchored "
+      "reading admits the slug, so the prose names a party the cell does not carry -- ORDER-PROSE? 1",
+      "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the "
+      "spelling sweep)"]),
 ]

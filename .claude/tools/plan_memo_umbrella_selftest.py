@@ -183,13 +183,57 @@ def control(c):
 
 
 def attribution_control(M):
-    """A pointer slot whose cell opens `Slice **9z** -- **UMBRELLA, ...**` is
-    declaring 9z's kind, not its own.  §5: a pointer slot "carries no marker of
-    its own".  The count must not move when such a row is added."""
-    base = build()
-    ptr = build(wb="**(carved at PR-B)** Slice **9z** — **UMBRELLA, not a terminal unit** — points into §5.")
-    n = [len(run_on(M, t)[0].population.no_owner_ids()) for t in (base, ptr)]
-    return n[0] == n[1], "a marker naming another row does not enter the count (%d -> %d)" % tuple(n)
+    """A pointer slot whose cell opens `Slice **9z** -- **UMBRELLA, ...**`, or
+    `Slice `#11-zz-alpha` -- **UMBRELLA, ...**` (PR #510 R20: the slug form
+    of the same position), is declaring the NAMED row's kind, not its own.
+    §5: a pointer slot "carries no marker of its own".  The count must not
+    move when such a row is added, and the row's kind is `pointer`."""
+    base = len(run_on(M, build())[0].population.no_owner_ids())
+    out = []
+    for d in ("**9z**", "`#11-zz-alpha`"):
+        pop = run_on(M, build(wb="**(carved at PR-B)** Slice %s — **UMBRELLA, not a terminal unit** — "
+                                 "points into §5." % d))[0].population
+        out.append((d, len(pop.no_owner_ids()), pop.ids["#11-zz-beta"].kind))
+    ok = all(n == base and kind == "pointer" for _, n, kind in out)
+    return ok, "a marker naming another row does not enter the count (%d -> %s)" % (
+        base, ", ".join("%s: %d %s" % x for x in out))
+
+
+def row_kind_coverage_control(M):
+    """PROPERTY, the KIND half of the R14 spelling sweep: every composer that
+    reads "a row id in this position" admits EVERY row kind the grammar
+    enumerates (`plan_memo_ids.ROW_KINDS`) -- the marker's appositive
+    subject (`attributed_to_other`, over `ROW_NOUN_ID`), the two-owner clause
+    (`OWNS_TWO`) and the row-noun-anchored reading (`_anchored`, through
+    `check()`: the mention is `anchored`).  The kinds are the GRAMMAR's
+    tuple; the sample id per kind is looked up here, and a kind without a
+    sample is red, so a fourth row kind added to the grammar reaches this
+    control before it reaches any composer.  The spelling sweep cannot see
+    this class: a composer built on `SHORT_ID` alone spells nothing twice,
+    and passed it while `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributed
+    nothing (PR #510 R20)."""
+    import plan_memo_ids as ids          # the FRESHLY loaded set, not the import-time one
+    import plan_memo_roles as roles
+    import plan_memo_tables as tables
+    samples = {"short": "9z", "slug": "#11-zz-alpha"}
+    missing = [k for k in ids.ROW_KINDS if k not in samples]
+    if missing:
+        return False, "no sample id for row kind(s) %s -- add one before any composer reads the kind" % missing
+    fails, probes = [], 0
+    for kind in ids.ROW_KINDS:
+        rid = samples[kind]
+        for d in ("**%s**" % rid, "`%s`" % rid):
+            probes += 3
+            if tables.attributed_to_other("Slice %s — **%s**" % (d, tables.MARKER), "7z") != rid:
+                fails.append("appositive/%s %r" % (kind, d))
+            m = roles.OWNS_TWO.search("owned by %s and **Qx**" % d)
+            if m is None or m.group("aid") != rid:
+                fails.append("OWNS_TWO/%s %r" % (kind, d))
+            res, _ = run_on(M, build(), "Slice %s lands first." % d)
+            if not any(x.id == rid and x.anchored for x in res.mentions):
+                fails.append("anchored/%s %r" % (kind, d))
+    return not fails, "%d probes over row kinds %s%s" % (
+        probes, list(ids.ROW_KINDS), (": FAIL " + ", ".join(fails)) if fails else ", every composer admits every kind")
 
 
 def degenerate_control(M):
@@ -991,6 +1035,7 @@ def registry():
     reg["split_row is linear: <= 64 source lines per character and per cell (breaks partitioned in the one scan)"] = ("CONTROL", scaling_split_row_control)
     reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)
     reg["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"] = ("CONTROL", id_spelling_sweep_control)
+    reg["PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the spelling sweep)"] = ("CONTROL", row_kind_coverage_control)
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)
     reg["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"] = ("CONTROL", display_path_control)

@@ -14,7 +14,7 @@ memo is asserted exactly like a row of the main memo.  Findings are
 import re
 from collections import Counter
 
-from plan_memo_ids import ALNUM, DECOR, SHORT_ID, SLUG_ID, balanced, decorated_id, kind_of
+from plan_memo_ids import ALNUM, DECOR, ROW_ID, balanced, decorated_id, kind_of
 from plan_memo_tables import MARKER, ROW_NOUN_SEP, is_empty, stream
 
 
@@ -88,7 +88,9 @@ NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))
 
 
 # A row noun standing between the licensing phrase and the id ("the child of
-# umbrella **3**") must not hide the phrase from the backward look.
+# umbrella **3**") must not hide the phrase from the backward look.  It
+# composes NO id: it ends where the mention's token starts, whatever the
+# token's kind, so the slug and the short form are the one case here.
 _TRAILING_NOUN = re.compile(NOUN_ANCHOR.pattern + DECOR + "$")
 
 # The backward look reads the 40 characters before the mention (after a
@@ -165,12 +167,14 @@ def _row_key(x):
 # garbage is worse than one that reports nothing, because a reader cannot tell
 # them apart.  One decorated-id group per owner (`a` / `b`); `_two_owners`
 # checks the balance, so `**id**` and `` `id` `` match and `**id`` ` does not.
-_OWNER_CORE = "(?:" + SLUG_ID + "|" + SHORT_ID + ")"
+# An owner is a row of any row kind: the grammar's `ROW_ID` (slug | short),
+# the same alternation the appositive and the anchored reading compose --
+# a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
 OWNS_TWO = re.compile(
     r"\b(?:owns?|owned by|owner is|carries|carried by)\s+"
-    + decorated_id(_OWNER_CORE, "a")
+    + decorated_id(ROW_ID, "a")
     + r"\s*(?:,\s*|\s+and\s+|\s+or\s+|\s*/\s*)"
-    + decorated_id(_OWNER_CORE, "b"),
+    + decorated_id(ROW_ID, "b"),
     re.IGNORECASE | re.ASCII)
 
 

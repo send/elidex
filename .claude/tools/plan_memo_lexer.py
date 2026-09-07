@@ -639,23 +639,34 @@ def inline_pass(s, defs):
 # file name inside a code span is a token too.
 # --------------------------------------------------------------------------
 
+# WHAT A FILE NAME IS, decided here, once: a name is anything that ENDS IN
+# `FILE_SUFFIX` -- the stem is unconstrained, so the suffix alone (`.md`) is
+# a file name.  `plan_memo_memo.Memo.sibling_path` stage (d) CONSUMES this
+# constant for the same test on a link destination (a link to `.md` names
+# the sibling file `.md`); the lexer defines it because the lexer sits below
+# the memo and reads it first.  Until PR #510 R20 the token arm required a
+# stem of one character or more while `sibling_path` accepted the bare
+# suffix, so beside a declared id `md` the prose `Read .md for details`
+# reported `md` as a naming site.
+FILE_SUFFIX = ".md"
+
 # A bare `.md` file name is read by PATH SYNTAX, not a character class: the
-# maximal run of non-whitespace characters ending in `.md`, bounded by
-# spaces / tabs / line ends or the cell edge (`9z+notes.md`, `9z@notes.md`,
-# `計画.md` are file names -- what `sibling_path` would accept), with the
-# inline delimiters `[` `]` `<` `>` `` ` `` `|` excluded so a link's visible
-# text (`[Slice 9z](slice-9z-sib.md)`) and a code span are not swallowed,
-# and parentheses admitted only as a balanced pair (`(9z).md`).  Trailing
-# closing punctuation (`)` `,` `.` `;`) needs no autolink-style stripping
-# rule: the token ENDS at `.md`, so anything after it is outside by
-# construction (the GFM §6.9 extended-autolink trailing-punctuation rule is
-# moot here, and is why none is picked).  The end boundary is the grammar's
-# ASCII class (`ALNUM`), so `x.mdの` still ends the token; the citation
-# shape is the grammar's `CITE_ID` (either case -- `[c1]` is `[C1]` under
-# §6.3 label matching, and the unresolved-reference walk exempts it by the
-# same predicate).
-_TOKEN = re.compile(r"(?P<cite>%s)|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))+\.md(?!%s))"
-                    % (CITE_ID, ALNUM))
+# maximal run (possibly EMPTY -- the rule above) of non-whitespace characters
+# ending in `FILE_SUFFIX`, bounded by spaces / tabs / line ends or the cell
+# edge (`9z+notes.md`, `9z@notes.md`, `計画.md`, `.md` are file names --
+# what `sibling_path` accepts), with the inline delimiters `[` `]` `<` `>`
+# `` ` `` `|` excluded so a link's visible text (`[Slice 9z](slice-9z-sib.md)`)
+# and a code span are not swallowed, and parentheses admitted only as a
+# balanced pair (`(9z).md`).  Trailing closing punctuation (`)` `,` `.` `;`)
+# needs no autolink-style stripping rule: the token ENDS at the suffix, so
+# anything after it is outside by construction (the GFM §6.9
+# extended-autolink trailing-punctuation rule is moot here, and is why none
+# is picked).  The end boundary is the grammar's ASCII class (`ALNUM`), so
+# `x.mdの` still ends the token; the citation shape is the grammar's
+# `CITE_ID` (either case -- `[c1]` is `[C1]` under §6.3 label matching, and
+# the unresolved-reference walk exempts it by the same predicate).
+_TOKEN = re.compile(r"(?P<cite>%s)|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))*%s(?!%s))"
+                    % (CITE_ID, re.escape(FILE_SUFFIX), ALNUM))
 
 
 class Lexed:

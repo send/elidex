@@ -70,6 +70,26 @@ KINDS = (("slug", SLUG_ID), ("cite", CITE_ID), ("short", SHORT_ID))
 """Longest alternative first: a `#11-` slug is atomic (its internal hyphens
 are not separators) and `[C1]` is one token, never `C1` between brackets."""
 
+ROW_KINDS = ("slug", "short")
+"""The kinds a row WITH A DECLARING FIELD is keyed by -- a §5 slice (`9z`,
+`2ab`, `C`) or a slot (`#11-vm-foo`) -- and so the kinds that can stand in
+a ROW position: after a row noun (`Slice #11-zz-alpha`), as the marker's
+appositive subject (`Slice `#11-zz-alpha` — **UMBRELLA, …**`), as an owner
+(`owned by **9z** and `#11-zz-alpha``).  A citation id (`[C19]`) keys a row
+of the citation table -- declared, in the keep-set, so a code span may
+spell it -- but declares no kind, is never named `Slice [C1]`, never owns
+and never carries the marker: it is NOT a row in this sense and is not in
+this alternation.  Every composer that reads "a row id here" composes
+`ROW_ID`; a composer built on `SHORT_ID` alone read the slug form of the
+same position as prose -- the marker attributed to a slug row made that
+row an umbrella, no attribution finding, a wrong census, exit 0 (PR #510
+R20; the R14 spelling sweep reads spellings, not kind coverage -- the
+self-test's `row_kind_coverage_control` is the kind half)."""
+
+ROW_ID = "(?:%s)" % "|".join(dict(KINDS)[k] for k in ROW_KINDS)
+"""The ONE "a row id" alternation, in `KINDS` order (slug before short: the
+longest kind first, as `_TOKEN` reads it)."""
+
 
 def decorated_id(core, tag=""):
     """The ONE decorated-id spelling: groups `<tag>l` / `<tag>id` / `<tag>r`."""

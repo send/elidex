@@ -43,7 +43,7 @@ from plan_memo_blocks import (
     strip_columns, table_header_at,
 )
 from plan_memo_ids import is_cite_label
-from plan_memo_lexer import Lexed, normalize_label
+from plan_memo_lexer import FILE_SUFFIX, Lexed, normalize_label
 from plan_memo_tables import (
     MARKER, POINTER, SCHEMAS, UNDETERMINED, admit_table, attributed_to_other, dispose,
     is_blank_id_cell, stream,
@@ -638,7 +638,10 @@ class Memo:
               `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) and
               `%5Cchild.md` (`\\child.md`) passed, and on Windows `parent /
               name` discarded the memo's directory;
-          (d) the `.md` suffix;
+          (d) the `.md` suffix -- the lexer's `FILE_SUFFIX`, the ONE
+              spelling of "is a file name" (the lexer's bare file token
+              reads the same constant over prose); the stem is unconstrained
+              on both sides, so `.md` alone is a sibling file (PR #510 R20);
           (e) the name's PARTS joined beside the memo -- the same Windows
               syntax, so `sub%5Cchild.md` is the sibling `sub/child.md` on
               POSIX as on Windows (never the POSIX file named `sub\\child.md`:
@@ -657,7 +660,7 @@ class Memo:
         p = pathlib.PureWindowsPath(name)
         if _CONTROL.search(name) or p.anchor:                        # (c)
             return None
-        if not name.endswith(".md"):                                 # (d)
+        if not name.endswith(FILE_SUFFIX):                           # (d)
             return None
         return _resolve(self.path.parent.joinpath(*p.parts))         # (e)
 

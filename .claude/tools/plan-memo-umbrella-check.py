@@ -88,7 +88,7 @@ from collections import Counter, defaultdict, namedtuple
 HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
-from plan_memo_ids import tokens  # noqa: E402
+from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
 from plan_memo_tables import stream  # noqa: E402
 from plan_memo_memo import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
@@ -212,16 +212,22 @@ class ProseBlock(Block):
 
 
 def _anchored(b, keep, out):
-    """Row-noun-anchored short ids (the anchored reading the licensing rule
+    """Row-noun-anchored row ids (the anchored reading the licensing rule
     was written against): a `NOUN_ANCHOR` match followed, exactly at its
-    end, by one of the block's grammar tokens -- the same token the bare
-    pass reads, so the two readings can never disagree on where an id
-    starts or ends.  A row noun anchors a digit or a single letter too
-    (`Slice 9`, `Slice C`): the bare pass's declared misses do not apply."""
+    end, by one of the block's grammar tokens of a ROW kind (`ROW_KINDS`:
+    slug or short; a citation is no row) -- the same token the bare pass
+    reads, so the two readings can never disagree on where an id starts or
+    ends.  A row noun anchors a digit or a single letter too (`Slice 9`,
+    `Slice C`): the bare pass's declared misses do not apply.  A slug after
+    a row noun (`Slice `#11-zz-alpha``) is the anchored reading of that
+    site too (until PR #510 R20 only the short kind was: the bare pass
+    still reported the slug, but the site was never `anchored`, so the (c)
+    seed's prose-vs-`Deps` comparison never saw a slug named in a Slice
+    cell)."""
     at = {t.start: t for t in b.tokens}
     for nm in NOUN_ANCHOR.finditer(b.stream):
         t = at.get(nm.end())
-        if t is None or t.kind != "short" or t.id not in keep or t.id == b.self_id:
+        if t is None or t.kind not in ROW_KINDS or t.id not in keep or t.id == b.self_id:
             continue
         out.append(classify(Mention(b, t.id, nm.start(), t.end, t.idstart, anchored=True)))
 

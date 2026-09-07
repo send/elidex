@@ -33,7 +33,7 @@ ONE text each predicate over a block reads.
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
-from plan_memo_ids import CITE_ID, DECOR, SHORT_ID, SLUG_ID, decorated_id, tokens
+from plan_memo_ids import CITE_ID, DECOR, ROW_ID, SHORT_ID, SLUG_ID, decorated_id, tokens
 from plan_memo_lexer import blank_spans
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -105,13 +105,20 @@ naming no row (PR #510 R15)."""
 # left them invisible to both passes; measured, four of five such sites in this
 # memo are real violations.
 ROW_NOUN_SEP = ROW_NOUN + r"[ \t\n-]+"       # ASCII separators (`\s` is Unicode)
-ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(SHORT_ID)
+# A row noun then a row id of EVERY row kind (`ROW_ID`: slug or short, the
+# grammar's alternation) -- `Slice **E**`, `Slice `#11-zz-alpha``.  Built on
+# `SHORT_ID` alone until PR #510 R20, so a marker attributed to a slug row
+# (`Slice `#11-zz-alpha` — **UMBRELLA, …**`) named nobody and the pointer row
+# was counted as an umbrella.
+ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(ROW_ID)
 
 # An id-only code span is tokenised by the declared-id GRAMMAR, longest
 # alternative first (a `#11-` slug is atomic -- its internal hyphens are not
 # separators), with the separators whitespace, list punctuation, `|` and `-`
-# (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`) between tokens.  A bare id in
-# a cell or in prose is NOT tokenised on a list -- it is bounded by the
+# (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`) between tokens.  ALL THREE
+# kinds, not `ROW_ID`: a citation id is declared (the citation table keys
+# its rows by it) and `` `[C1]` `` is the document spelling one.  A bare id
+# in a cell or in prose is NOT tokenised on a list -- it is bounded by the
 # grammar's continuation rule (`plan_memo_ids.tokens`); a hyphen bounds a
 # short id, and `slice-9z-sib.md` is safe because a file name is a lexer
 # `file` token, masked before the scan.
@@ -247,8 +254,12 @@ _APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.
 
 def attributed_to_other(field, rid):
     """The row id a marker names, when it is not this row's own: the marker's
-    APPOSITIVE subject -- `Slice **E** — **UMBRELLA, …**` -- with nothing
-    between them but dash punctuation and emphasis.  A proximity window
+    APPOSITIVE subject -- `Slice **E** — **UMBRELLA, …**`, or the slug form
+    `Slice `#11-zz-alpha` — **UMBRELLA, …**` (`ROW_NOUN_ID` reads every row
+    kind) -- with nothing between them but dash punctuation and emphasis.
+    Until PR #510 R20 the slug form did not match, so the field was read as
+    the row's OWN declaration: kind umbrella, no `UMBRELLA-MARK` attribution
+    finding, a pointer row inside the census, exit 0.  A proximity window
     instead excluded a genuine self-declaration that merely MENTIONED a sibling
     ("Unlike Slice 7z, **UMBRELLA, not a terminal unit.**"); the self-test
     carries both directions.  The FIRST marker occurrence decides: a field
