@@ -750,7 +750,16 @@ ground for either option; it is not cited.
   MUTANTS rows whose file was the runner (R1-2 the emptiness guard, R12-D the `link_label` counter's
   binding) target `CONTROLS`, exec'd from patched text by `patched_module` and read through the patched
   module's `registry()`. Behaviour-preserving: 409 controls / 214 mutants 0 / 0, census 48 / 717 / 37 / 6
-  identical to `883b89d3`'s.
+  identical to `883b89d3`'s. ⚠ Touch-time split before Codex R21 (`plan_memo_selftest_cases_pr510.py` had
+  reached 949 lines): the control registry is split at the SAME review-round seam a third time, and the
+  seam is where the converge turned from Phase 1 to Phase 2 — `_cases_pr510.py` keeps Codex R1–R16 and the
+  design re-gates (the lexical substrate, the block grammar, the one pipeline);
+  `plan_memo_selftest_cases_inline.py` holds every round from R17 on, which closed the INLINE construct
+  family (R17 §6.6 raw HTML, R19 §6.4 images, R21 §6.5 autolinks and the closed §6.1–§6.9 list of §3.1)
+  together with what landed beside them (R19's display name and path syntax, R20's row-kind grammar and
+  file token, R21's out-of-field marker / KIND-SPELLING / schema id kinds). Three modules, one `CASES`
+  list, one import site (the controls module). Behaviour-preserving: 410 controls / 215 mutants 0 / 0,
+  census 48 / 717 / 37 / 6 identical to `e76f2335`'s.
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,

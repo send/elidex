@@ -17,10 +17,12 @@ the cases because the cases are its only parameterisation.
 
 The registry is split at the review-round seam: this module holds the builder,
 the record shape and every PRE-converge control; the controls written against
-PR #510's review rounds (Codex R1-R11, the design re-gate) live in
-`plan_memo_selftest_cases_pr510.py`, which imports the spellings from here and
-appends to this same `CASES` -- one list, filled by two modules, read at one
-import site (the controls module, `plan_memo_selftest_controls.py`).
+PR #510's review rounds live in `plan_memo_selftest_cases_pr510.py` (Codex
+R1-R16 and the design re-gates -- the lexical substrate and the block grammar)
+and `plan_memo_selftest_cases_inline.py` (R17 on -- the Phase-2 inline
+construct family), each importing the spellings from here and appending to this
+same `CASES` -- one list, filled by three modules, read at one import site (the
+controls module, `plan_memo_selftest_controls.py`).
 """
 
 from collections import namedtuple

@@ -3,7 +3,8 @@
 and the registry that names every control.
 
 The record-shaped controls (`Case`: one fixture, one measure, one exact
-value) live in `plan_memo_selftest_cases.py` / `_cases_pr510.py`; this module
+value) live in `plan_memo_selftest_cases.py` / `_cases_pr510.py` / `_cases_inline.py`;
+this module
 holds the controls a record cannot express -- a property over the module set
 (the spelling sweep, the row-kind coverage), a linearity witness (a counted
 call, a counted line, a counted read), an injected fault (a raising
@@ -30,6 +31,7 @@ import tempfile
 
 from plan_memo_selftest_cases import CASES, VIOLATION, build
 import plan_memo_selftest_cases_pr510  # noqa: F401 -- appends the review-round controls to CASES
+import plan_memo_selftest_cases_inline  # noqa: F401 -- appends the Phase-2 inline rounds to the same CASES
 from plan_memo_selftest_harness import (
     GRAMMAR, MODULES, SOURCES, _count_calls, _count_lines, _CountedList, _WorkExceeded, control, run_on,
 )

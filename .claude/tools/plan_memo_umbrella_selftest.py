@@ -31,8 +31,10 @@ it.  The self-test is four modules with one import direction:
                                     `registry()`, the one name -> (kind,
                                     control) table;
   plan_memo_selftest_cases.py /     the record-shaped controls (`Case`), the
-  plan_memo_selftest_cases_pr510.py fixture builder; one `CASES` list filled
-                                    by two modules at the review-round seam;
+  _selftest_cases_pr510.py /        fixture builder; one `CASES` list filled
+  _selftest_cases_inline.py         by three modules at the review-round seam
+                                    (pre-converge / R1-R16 / R17 on, the
+                                    Phase-2 inline construct family);
   plan_memo_selftest_harness.py     the module loader, the fixture runner,
                                     the control factory, the work witnesses.
 

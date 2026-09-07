@@ -3,7 +3,7 @@
 
 The second half of the mutant registry, split from `plan_memo_selftest_mutants.py`
 at the review-round seam the control registry is split at
-(`plan_memo_selftest_cases.py` / `plan_memo_selftest_cases_pr510.py`): that
+(`plan_memo_selftest_cases.py` / `_cases_pr510.py` / `_cases_inline.py`): that
 module holds the row shape, the runner `run` and every PRE-converge mutant (the
 lexing clauses, the gating stages, the `/code-review high` and `/elidex-review`
 Stage-6 fixes); this one holds every mutant written against a PR #510 review
@@ -12,7 +12,8 @@ appends to the SAME `MUTANTS` list -- one registry, one import site (the runner
 imports this module for its side effect).  The rules are that module's: the
 substring must occur EXACTLY ONCE in its file, every named control must go red,
 a crash is a FAIL.  A mutant's control lives in `plan_memo_selftest_cases_pr510.py`
-under the same round label.
+or, from R17 on, `plan_memo_selftest_cases_inline.py`, under the same round
+label.
 """
 
 from plan_memo_selftest_mutants import (

@@ -44,6 +44,7 @@ MODULES
                           _selftest_harness.py (loader, fixture runner,
                           work witnesses) / _selftest_cases.py /
                           _selftest_cases_pr510.py /
+                          _selftest_cases_inline.py /
                           _selftest_mutants.py / _selftest_mutants_pr510.py /
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
