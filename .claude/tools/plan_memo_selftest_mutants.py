@@ -38,10 +38,10 @@ IDS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, SELFTEST = (
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
-SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1): Phase 1's block sequence aligns with the html"
-# The block-sequence control over the §4.4 / §5.1 shapes the vendored examples
-# do not reach (each expected sequence read off commonmark.js 0.31.2).
-SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and §5.1 container shapes matches commonmark.js"
+SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"
+# The block-sequence control over the §4.4 / §5.1 / §5.2 shapes the vendored
+# examples do not reach (each expected sequence read off commonmark.js 0.31.2).
+SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"
 
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks
@@ -81,13 +81,15 @@ MUTANTS = [
     ("span: lexed over the paragraph, not the line", MEMO,
      '            if kind:\n                flush(kind)', '            flush()',
      ["(span) a code span may cross a line ending"]),
-    ("span: a list item starts a block", BLOCKS,
-     'one_line_block(line) is not None or list_item_line(line) or ', 'one_line_block(line) is not None or ',
+    ("span: a list item starts a block (drop the arm: a marker line never ends a run, nor a sibling item's "
+     "lazy gather)", BLOCKS,
+     '    m = item_marker(line)\n    if m is None:\n        return False',
+     '    m = item_marker(line)\n    if True:\n        return False',
      ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal",
       SPEC_EXAMPLES]),
     ("span: a `>` line starts a block", BLOCKS,
-     '    return one_line_block(line) is not None or list_item_line(line) or quote_content(line) is not None',
-     '    return one_line_block(line) is not None or list_item_line(line)',
+     '    if one_line_block(line) is not None or quote_content(line) is not None:\n        return True',
+     '    if one_line_block(line) is not None:\n        return True',
      ["(span) a paragraph ends at a `>` line"]),
     ("span: an ATX heading is a block", BLOCKS,
      '    m = _ATX.match(rest)\n    if m:', '    m = None\n    if m:',

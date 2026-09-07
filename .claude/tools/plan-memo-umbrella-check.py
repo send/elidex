@@ -57,9 +57,7 @@ is not implementable here), KIND-SPELLING, SCHEMA.  Seeds (`?` suffix, never
 gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?,
 LEX-UNSUPPORTED? (a RAW line never inline-parsed -- an HTML-block line or
 an indented-code line, a fence excepted -- holding a `|` or a declared id:
-one seed rule, the line's READING printed with it, since indented code
-opened while a list item may be open is the item's content under
-CommonMark and raw only under the LEXED-FLAT list reading).
+one seed rule, the line's READING printed with it).
 NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
 stated beside its check in `plan_memo_roles.py` and in the report's notes.
@@ -314,8 +312,6 @@ _READING = {
     "html": "raw HTML-block line (CommonMark §4.6) never inline-parsed",
     "indented": "indented-code line (CommonMark §4.4: raw, like a fence -- cmark-gfm agrees, an indented "
                 "row after a table is `<pre><code>`) never inline-parsed",
-    "item": "indented line while a list item may be open, read as indented code (§5.2 LEXED-FLAT; "
-            "CommonMark: the item's content, Example 108)",
 }
 
 
@@ -329,14 +325,13 @@ def lex_unsupported_seed(pop, findings, notes):
     rule for every raw line (design re-gate 3, IMP-2: an indented schema
     row after a table's rows -- `    | id | ... |`, or a tab -- is raw
     under cmark-gfm too, and left the census silently, the I-C class; it
-    is seeded exactly as a raw HTML line holding a `|` always was).  The
-    `item` reading is the one place the flat list reading HIDES prose:
-    indented code opened while a list item may still be open is the item's
-    next paragraph under CommonMark (§5.2 Example 108 `- foo\\n\\n    bar`).
-    A seed in the ORDER-PROSE? idiom: never gating, and no count here
-    bounds the class (an HTML table row whose ids are undeclared is
-    invisible to it).  Block quotes are not seeded (a container whose
-    content IS parsed, §5.1).  The ids are read by the ONE grammar
+    is seeded exactly as a raw HTML line holding a `|` always was).  A
+    seed in the ORDER-PROSE? idiom: never gating, and no count here bounds
+    the class (an HTML table row whose ids are undeclared is invisible to
+    it).  Containers are not seeded -- a block quote's or a list item's
+    content IS parsed (§5.1 / §5.2; until PR #510 R15 an item's indented
+    second paragraph was raw here, seeded with an `item` reading, and the
+    memo it linked was never walked).  The ids are read by the ONE grammar
     (`plan_memo_ids.tokens`, the kinds the naming scan reads: a citation
     id is masked everywhere else and is no seed here either), so a raw
     line's `9z-owner` seeds `9z` exactly as prose would report it."""
@@ -349,8 +344,8 @@ def lex_unsupported_seed(pop, findings, notes):
                 findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno, "%s; it holds %s" % (
                     _READING[reading], ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
     notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, or an "
-                 "indented-code line -- after a list item's paragraph, the item's content under CommonMark) "
-                 "hold a `|` or a declared id; the bound is the plan's §3 table, not this figure" % n)
+                 "indented-code line) hold a `|` or a declared id; the bound is the plan's §3 table, not "
+                 "this figure" % n)
 
 
 # --------------------------------------------------------------------------

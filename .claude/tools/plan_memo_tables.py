@@ -91,10 +91,15 @@ POINTER = re.compile(r"is a pointer rather than a slice")
 # `plan_memo_ids.py`'s; what is here is how a ROW is named and keyed.
 # --------------------------------------------------------------------------
 
-ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"
+ROW_NOUN = r"(?ai:slices?|rows?|umbrellas?)"
 """How this document names a row when it refers to one.  Lives here because it
 is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
-kind a marker declares."""
+kind a marker declares.  ASCII case-insensitive, in ONE place (the scoped
+`(?ai:…)`: `SLICE C`, `ROW 9`, `UMBRELLA C` name a row as `Slice C` does, and
+under `a` a long s never folds to `s`) -- every composer (`ROW_NOUN_SEP`,
+`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR` / `_TRAILING_NOUN`) inherits it; an
+enumeration of Title-case and lower-case spellings left `SLICE C owns it`
+naming no row (PR #510 R15)."""
 
 # `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
 # left them invisible to both passes; measured, four of five such sites in this

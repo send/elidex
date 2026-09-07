@@ -476,21 +476,11 @@ case("NEGATIVE", "(html) `text\\n<DIV>\\n9z owns it`: `<DIV>` opens a type-6 blo
                  "case-insensitive), which interrupts the paragraph -- raw to the blank line, no site",
      build(), "text\n<DIV>\n9z owns it", 0)
 
-# LEXED-FLAT's one hidden-prose class is seeded: indented code right after a
-# list item's paragraph (§5.2 Example 108 -- CommonMark reads the item's
-# next paragraph; the umbrella memo's 2955 chunk is this shape)
-acase("POSITIVE", "(lex-seed) `- item\\n\\n    Slice 9z owns it`: an indented line after a list item's paragraph "
-                  "is the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- "
-                  "seeded",
-      build(), "LEX-UNSUPPORTED?", 1, prose="- item\n\n    Slice 9z owns it")
 # design re-gate 3 IMP-2: ONE seed rule for raw lines -- an indented-code line
 # holding a `|` or a declared id is seeded like a raw HTML line, with its reading
 acase("POSITIVE", "(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is raw under "
                   "CommonMark too, but holds a declared id -- seeded by the one raw-line rule",
       build(), "LEX-UNSUPPORTED?", 1, prose="para\n\n    Slice 9z owns it")
-case("NEGATIVE", "(lex-seed) `para\\n\\n    Slice 9z owns it`: its reading is §4.4 raw code, not the item's "
-                 "content (Example 108) -- no list item is open",
-     build(), "para\n\n    Slice 9z owns it", 0, measure=("seed", "Example 108"))
 acase("NEGATIVE", "(lex-seed) an indented-code line with neither a `|` nor a declared id is no seed",
       build(), "LEX-UNSUPPORTED?", 0, prose="para\n\n    a remark about nothing in particular")
 acase("POSITIVE", "(lex-seed) a 4-space-indented slot row after a table's rows is raw (cmark-gfm: `<pre><code>`) "
@@ -503,25 +493,6 @@ acase("POSITIVE", "(lex-seed) a tab-indented slot row after a table's rows is ra
 rcase("NEGATIVE", "(rc) an indented slot row after a table's rows is raw, so its id is not declared and the run is "
                   "rc 0 (the seed, not the census, carries it)",
       build(extra=SLOT4 % "now" + "\n    | `#11-zz-delta` | Terminal. Acceptance: must. | now | 2026-12-31 |"), "", 0)
-# design re-gate 3 IMP-1: the item-open bit (set by a marker-headed paragraph,
-# cleared by a block start below 2 columns) -- each shape checked against
-# commonmark.js 0.31.2: the indented line is a `<p>` of the item in the first
-# three, a code block outside it in the last two
-case("POSITIVE", "(lex-seed) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's SECOND paragraph keeps it "
-                 "open (commonmark.js: `<p>` in the item), so the indented line is seeded as the item's content",
-     build(), "- item\n\n  para\n\n    Slice 9z owns it", 1, measure=("seed", "Example 108"))
-case("POSITIVE", "(lex-seed) `- item\\n\\n  > q\\n\\n    Slice 9z owns it`: a block quote inside the item keeps it "
-                 "open (commonmark.js: `<p>` in the item) -- seeded as the item's content",
-     build(), "- item\n\n  > q\n\n    Slice 9z owns it", 1, measure=("seed", "Example 108"))
-case("POSITIVE", "(lex-seed) `1. item\\n\\n   para\\n\\n     Slice 9z owns it`: an ordered item's 3-column paragraph "
-                 "keeps it open (commonmark.js: `<p>` in the item) -- seeded as the item's content",
-     build(), "1. item\n\n   para\n\n     Slice 9z owns it", 1, measure=("seed", "Example 108"))
-case("NEGATIVE", "(lex-seed) `- item\\n\\n para\\n\\n    Slice 9z owns it`: a 1-column paragraph CLOSES the item "
-                 "(commonmark.js: a code block outside it), so the reading is §4.4, not the item's content",
-     build(), "- item\n\n para\n\n    Slice 9z owns it", 0, measure=("seed", "Example 108"))
-case("NEGATIVE", "(lex-seed) `- item\\n\\n  para\\n\\n# h\\n\\n    Slice 9z owns it`: a 0-column heading CLOSES the "
-                 "item (commonmark.js: a heading and a code block outside it) -- the reading is §4.4",
-     build(), "- item\n\n  para\n\n# h\n\n    Slice 9z owns it", 0, measure=("seed", "Example 108"))
 # design re-gate 3 MIN-9: a lazy HEADER row is the table's header where a
 # paragraph is open (cmark-gfm reads it out of the paragraph's last line);
 # a lazy DELIMITER row opens nothing
@@ -573,3 +544,94 @@ rcase("NEGATIVE", "(cite) adjacent lowercase citations `[c1][c2]` are not a full
 rcase("NEGATIVE", "(def) `paragraph\\n[sib]: slice-9z-sib.md` alone: the orphan's own label bracket is exempt -- "
                   "rc 0, nothing walked",
       build(), "paragraph\n[sib]: slice-9z-sib.md", 0, **SIB)
+
+
+# ------------------------------------------------ PR #510 Codex R15 controls --
+# THE ROOT (#1): §5.2 list items are CONTAINERS, exactly like block quotes --
+# the LEXED-FLAT reading, its item-open bit and the `item` seed reading are
+# gone.  Every block-structure expectation below was checked against
+# commonmark.js 0.31.2 (`node cm.js '["<md>"]'`) before being written; the
+# shapes no site can discriminate (which block a line lands in, a list's
+# tightness) are the runner's block-sequence control, and the spec's own
+# `List items` / `Lists` examples (253-326) are the conformance control's.
+CHILD = {"child.md": VIOLATION + "\n"}
+case("POSITIVE-NOVEL", "(item) the reviewer's input `- item\\n\\n    [child](child.md)`: the indented line is the "
+                       "item's SECOND paragraph (§5.2, Example 108: the content indentation is 2), not indented "
+                       "code -- the link is found, `child.md` is walked and its violation reported",
+     build(), "- item\n\n    [child](child.md)", 1, files=CHILD)
+case("POSITIVE", "(item) `- item\\n\\n    Slice 9z owns it`: the item's second paragraph is prose -- the site is "
+                 "reported (until R15 the line was indented code, seeded and never scanned)",
+     build(), "- item\n\n    Slice 9z owns it", 1)
+acase("NEGATIVE", "(item) `- item\\n\\n    Slice 9z owns it` is no raw line: the `item` seed reading is gone with "
+                  "the flat reading -- 0 seeds",
+      build(), "LEX-UNSUPPORTED?", 0, prose="- item\n\n    Slice 9z owns it")
+case("POSITIVE", "(item) `1. item\\n\\n     Slice 9z owns it`: an ordered item's content indentation is 3 (`1. `), "
+                 "so five columns are two inside it -- the item's second paragraph, the site is reported",
+     build(), "1. item\n\n     Slice 9z owns it", 1)
+case("POSITIVE", "(item) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's THIRD paragraph (its second, "
+                 "at the content indentation, keeps it open) -- the site is reported",
+     build(), "- item\n\n  para\n\n    Slice 9z owns it", 1)
+case("POSITIVE", "(item) `- item\\n\\n  > q\\n\\n    Slice 9z owns it`: a block quote inside the item, then the "
+                 "item's paragraph -- the site is reported",
+     build(), "- item\n\n  > q\n\n    Slice 9z owns it", 1)
+case("NEGATIVE", "(item) `- item\\n\\n para\\n\\n    Slice 9z owns it`: a 1-column line after a blank is short of "
+                 "the content indentation with no paragraph open, so the item ENDS before it (commonmark.js: a "
+                 "paragraph and a code block outside the list) -- the indented line is §4.4 raw, no site",
+     build(), "- item\n\n para\n\n    Slice 9z owns it", 0)
+acase("POSITIVE", "(item) … and that raw line is seeded under the one raw-line rule, with the §4.4 reading",
+      build(), "LEX-UNSUPPORTED?", 1, prose="- item\n\n para\n\n    Slice 9z owns it")
+case("NEGATIVE", "(item) `- item\\n\\n  para\\n\\n# h\\n\\n    Slice 9z owns it`: a 0-column heading is a lazy "
+                 "candidate that is a block start -- the item ends, the heading and the code block are outside "
+                 "it: no site",
+     build(), "- item\n\n  para\n\n# h\n\n    Slice 9z owns it", 0)
+case("NEGATIVE", "(item) `- item\\n\\n      Slice 9z owns it`: six columns are four inside the item -- indented "
+                 "code IN the item (commonmark.js), raw: no site",
+     build(), "- item\n\n      Slice 9z owns it", 0)
+acase("POSITIVE", "(item) … and that raw line inside the item is seeded (the one raw-line rule reaches into a "
+                  "container)",
+      build(), "LEX-UNSUPPORTED?", 1, prose="- item\n\n      Slice 9z owns it")
+# laziness: §5.2 rule 5 through the SAME mechanism as §5.1
+case("NEGATIVE", "(item) `- open `x\\nSlice 9z owns it` end`: the line short of the content indentation is the "
+                 "item paragraph's lazy continuation text (§5.2 rule 5), so the span crosses it: no site",
+     build(), "- open `x\nSlice 9z owns it` end", 0)
+# the §5.2 interruption rule, where a paragraph is open (commonmark.js: each shape)
+case("NEGATIVE", "(item) `open `x\\n2. 9z owns it` end`: an ordered item not starting at 1 cannot interrupt a "
+                 "paragraph (§5.2) -- one paragraph, the span masks the site",
+     build(), "open `x\n2. 9z owns it` end", 0)
+case("POSITIVE", "(item) `open `x\\n1. 9z owns it` end`: an ordered item starting at 1 interrupts -- the item's "
+                 "paragraph holds one literal backtick and the site",
+     build(), "open `x\n1. 9z owns it` end", 1)
+case("NEGATIVE", "(item) `open `x\\n*\\n9z owns it` end`: an EMPTY item cannot interrupt a paragraph (§5.2; `*`, "
+                 "not `-`, which would be a setext underline) -- one paragraph, the span masks the site",
+     build(), "open `x\n*\n9z owns it` end", 0)
+# nested containers compose: the same `_parse` in an item in a quote, a quote in an item
+case("POSITIVE-NOVEL", "(item) `> - [sib]: slice-9z-sib.md`: a definition inside an item inside a block quote "
+                       "registers -- the sibling is walked and its violation reported",
+     build(), "> - [sib]: slice-9z-sib.md\n\nSee [sib].", 1, **SIB)
+case("POSITIVE-NOVEL", "(item) `- > [sib]: slice-9z-sib.md`: a definition inside a block quote inside an item "
+                       "registers -- the sibling is walked",
+     build(), "- > [sib]: slice-9z-sib.md\n\nSee [sib].", 1, **SIB)
+case("POSITIVE-NOVEL", "(item) a slot table inside a list item is a table (cmark-gfm, measured): its row declares "
+                       "its id",
+     build(extra="- " + "\n  ".join((SLOT4 % "now").split("\n"))), "", 1, measure=("id", "#11-zz-gamma"))
+
+# #2: an orphan definition keeps its DESTINATION; the population miss is
+# raised only where `sibling_path` maps it to a sibling on disk (ONE resolver)
+rcase("NEGATIVE", "(def) `paragraph\\n[x]: #section\\n[x]`: the orphan names a section, never a memo -- the "
+                  "shortcut is prose, rc 0",
+      build(), "paragraph\n[x]: #section\n[x]", 0)
+rcase("NEGATIVE", "(def) `paragraph\\n[x]: https://example.com/a\\n[x]`: the orphan names an external URL, never "
+                  "a memo -- rc 0",
+      build(), "paragraph\n[x]: https://example.com/a\n[x]", 0)
+case("POSITIVE", "(def) `paragraph\\n[x]: child.md\\n[x]`: the orphan names a sibling on disk -- the documented "
+                 "miss, rc 2 (unchanged)",
+     build(), "paragraph\n[x]: child.md\n[x]", 1, measure=("schema", "unresolved reference 'x'"))
+
+# #3: the row noun is ASCII case-insensitive, in ONE place (`ROW_NOUN`)
+case("POSITIVE-NOVEL", "(noun) `SLICE C owns it` names the row: the row noun folds case (a bare `C` is the "
+                       "declared single-letter miss, so only the anchor can reach it)",
+     build(), "SLICE C owns it.", 1)
+case("POSITIVE-NOVEL", "(noun) `ROW 9 lands first` names the row (a bare `9` is the declared numeric miss)",
+     build(), "ROW 9 lands first.", 1)
+case("POSITIVE-NOVEL", "(noun) `UMBRELLA C owns it` names the row",
+     build(), "UMBRELLA C owns it.", 1)

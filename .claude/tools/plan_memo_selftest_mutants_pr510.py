@@ -183,16 +183,16 @@ MUTANTS += [
      ["(span) an NBSP-only line is NOT blank (§4.9: spaces or tabs only), so it does not end the "
       "paragraph and the code span crosses it"]),
     # -- PR #510 Codex R9
-    ("R9 F1 setext: the underline closes the paragraph (re-inject the join)", MEMO,
-     '                if heading is not None and not container_text(cur[0][1]):',
-     '                if False:',
+    ("R9 F1 setext: the underline closes the paragraph (re-inject the join: drop the `block_end` arm, so "
+     "the run reads on through `===`)", BLOCKS,
+     'or (para_open and not _is_lazy(lazy, i) and setext_underline(lines[i]) is not None)',
+     'or False',
      ["(setext) `Heading\\n===` is a heading; the `===` underline ends the paragraph, so a code "
       "span opened in the heading does not reach the next paragraph's site"]),
-    ("R9 F1 setext: not after a list item or `>` line (Examples 92-94)", MEMO,
-     '                if heading is not None and not container_text(cur[0][1]):',
-     '                if heading is not None:',
-     ["(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
-      "paragraph continues and a code span crosses it"]),
+    # ⚠ The former row "R9 F1 setext: not after a list item or `>` line (Examples 92-94)" (drop
+    # `container_text`) is DELETED with that predicate: since R15 a list item is a container, so
+    # `- a `x\n==` is the item's paragraph and its lazy candidate `==`, and the underline is
+    # refused by `block_end`'s lazy arm -- the R13 §5.1 lazy-setext mutant below names the control.
     ("R9 F1 / R13 seed: every raw HTML-block line is recorded for the seed (re-inject 'indented only')", MEMO,
      '                    if opener[0] != "fence":', '                    if opener[0] == "indented":',
      ["(lex-seed) an HTML-block opener holding a declared id is a seed",
@@ -214,8 +214,7 @@ MUTANTS += [
      ["(ascii) `次は#11-zz-alphaが所有する` reaches the naming worklist: the slug anchor is an ASCII "
       "class, not `\\w`"]),
     ("R9 F3 ascii: list markers are ASCII digits (re-inject `\\d`)", BLOCKS,
-     '_LIST_ITEM = re.compile(r"^(?:[-+*]|[0-9]{1,9}[.)])(?:[ \\t]|$)")',
-     '_LIST_ITEM = re.compile(r"^(?:[-+*]|\\d{1,9}[.)])(?:[ \\t]|$)")',
+     '(?P<num>[0-9]{1,9})', '(?P<num>\\d{1,9})',
      ["(ascii) `١.` (an Arabic-Indic digit) is not a list marker (§5.2: ASCII digits)"]),
     ("R9 #3 row: breaks are partitioned in the one scan (re-inject the per-cell filter)", BLOCKS,
      '        out.append(_cell(line, a, b, cell_breaks))',
@@ -250,12 +249,14 @@ MUTANTS += [
       "(indented) `text\\n    Slice 9z owns it`: an indented line cannot interrupt a paragraph (§4.4; "
       "commonmark.js: one paragraph) -- paragraph text, the site is reported",
       SPEC_EXAMPLES]),
-    ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape)", MEMO,
+    ("RG2 IMP-2: an orphan is a VALID definition off a block start (re-inject the label-colon shape, "
+     "which blocked the shortcut by shape alone -- as if it named a sibling)", MEMO,
      '            if d is not None:\n                # a valid definition that cannot take effect: the orphan, keyed\n'
-     '                # on its label\'s `[` (§4.7: after <=3 columns of indentation)\n'
-     '                self.orphans.setdefault(normalize_label(d[0]), set()).add((linenos[i], indentation(line)[1]))',
+     '                # on its label\'s `[` (§4.7: after <=3 columns of indentation),\n'
+     '                # its destination kept\n'
+     '                self.orphans.setdefault(normalize_label(d[0]), []).append((linenos[i], indentation(line)[1], d[1]))',
      '            if d is not None or (line.lstrip(" ").startswith("[") and "]:" in line):\n'
-     '                self.orphans.setdefault(normalize_label(d[0] if d else line.split("]:")[0].lstrip(" [")), set()).add((linenos[i], indentation(line)[1]))',
+     '                self.orphans.setdefault(normalize_label(d[0] if d else line.split("]:")[0].lstrip(" [")), []).append((linenos[i], indentation(line)[1], d[1] if d else "orphan.md"))',
      ["(cite) `[C1]: ECMA-262 §1 says so, and the table cites it.` at a block start is prose "
       "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
       "(def) a label-and-colon line that is NOT a valid definition (junk after the destination) at a "
@@ -353,9 +354,8 @@ MUTANTS += [
       "(indented) ` \\tSlice 9z owns it`: a space then a tab is four columns (§2.2) -- raw, no site",
       SPEC_EXAMPLES]),
     ("R12-B tabs: a block start allows at most three columns through the one measure (re-inject "
-     "'any number of spaces')", BLOCKS,
-     '    rest = unindented(line)\n    return rest is not None and pat.match(rest) is not None',
-     '    rest = line.lstrip(" ")\n    return pat.match(rest) is not None',
+     "'any number of spaces' in `unindented`, which every block start reads)", BLOCKS,
+     '    return line[j:] if col < 4 else None', '    return line[j:]',
      [SPEC_EXAMPLES]),
     ("R12-C anchors: the anchored pass reads the disposed stream (re-inject the raw text, for the anchor "
      "and the token map alike)", CHECK,
@@ -389,8 +389,8 @@ MUTANTS += [
      '        return end\n    if kind == "fence":', '        return j\n    if kind == "fence":',
      [SEQUENCE]),
     ("R13 §5.1: a `>` line opens the container (drop the branch: the marker line heads a paragraph)", MEMO,
-     '                if quote_content(line) is not None:\n                    close(line)',
-     '                if False:\n                    close(line)',
+     '                if quote_content(line) is not None:\n                    open_block()',
+     '                if False:\n                    open_block()',
      ["(quote) `> [sib]: slice-9z-sib.md`: a definition inside a block quote registers (§5.1 container, "
       "Example 218) -- the sibling is walked and its violation reported",
       "(quote) a slot table inside a block quote is a table: its row declares its id",
@@ -405,6 +405,8 @@ MUTANTS += [
      'or (para_open and setext_underline(lines[i]) is not None)',
      ["(quote) `> Heading `open\\n===\\nSlice 9z owns it` here`: a lazy `===` is the quote paragraph's "
       "text, not an underline (§5.1, Example 93) -- one paragraph, the span masks the site",
+      "(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
+      "paragraph continues and a code span crosses it",
       SPEC_EXAMPLES]),
     ("R13 §5.1: a lazy candidate where no paragraph is open ends the quote (drop the stop: it is "
      "parsed inside; Example 237 is the spec's instance)", MEMO,
@@ -445,58 +447,32 @@ MUTANTS += [
      "        c0 = col + 1            # one column of the tab is the marker's space",
      "        c0 = col",
      [SEQUENCE]),
+    # ⚠ the gather line is the same in `_quote` and `_item` (one laziness mechanism), so each
+    # mutant of it carries the line before it at its own indentation: 16 columns is the quote's
     ("R13 §5.1: a quote's lazy candidates are gathered once, up to the first boundary (drop the "
      "bound: every quote re-scans the rest of the document, quadratic -- the result is the same, the "
      "cost is not)", MEMO,
-     '                if block_end(content, len(content) - 1, True, inner_lazy):',
-     '                if False:',
+     '                inner_lazy.append(True)\n                if block_end(content, len(content) - 1, True, inner_lazy):',
+     '                inner_lazy.append(True)\n                if False:',
      ["block quotes are linear: N quotes cost <= 4N quote_content calls"]),
     ("R13 §5.1: lazy continuation (drop it: a marker-less line never joins the quote)", MEMO,
-     '                if block_end(content, len(content) - 1, True, inner_lazy):',
-     '                if True:',
+     '                inner_lazy.append(True)\n                if block_end(content, len(content) - 1, True, inner_lazy):',
+     '                inner_lazy.append(True)\n                if True:',
      ["(quote) `> open `here\\nSlice 9z owns it` there`: the marker-less line is lazy continuation text "
       "of the quote's paragraph (§5.1), so the span crosses it: no site",
       SEQUENCE, SPEC_EXAMPLES]),
     ("RG3 IMP-2: every indented-code line is recorded for the seed (re-inject 'HTML lines only')", MEMO,
      '                    if opener[0] != "fence":', '                    if opener[0] == "html":',
-     ["(lex-seed) `- item\\n\\n    Slice 9z owns it`: an indented line after a list item's paragraph is "
-      "the item's content under CommonMark (Example 108) and indented code under LEXED-FLAT -- seeded",
-      "(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is raw under "
+     ["(lex-seed) `para\\n\\n    Slice 9z owns it`: indented code after a plain paragraph is raw under "
       "CommonMark too, but holds a declared id -- seeded by the one raw-line rule",
       "(lex-seed) a 4-space-indented slot row after a table's rows is raw (cmark-gfm: `<pre><code>`) "
       "and is SEEDED -- it holds a `|` -- never a silent skip (I-C)",
-      "(lex-seed) a tab-indented slot row after a table's rows is raw (§2.2: four columns) and is SEEDED"]),
-    ("RG3 IMP-1: the item reading is printed for indented code while the item is open (drop it)", MEMO,
-     '                        reading = "item" if opener[0] == "indented" and item_open else opener[0]',
-     '                        reading = opener[0]',
-     ["(lex-seed) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's SECOND paragraph keeps it "
-      "open (commonmark.js: `<p>` in the item), so the indented line is seeded as the item's content"]),
-    ("RG3 IMP-1: the bit is SET by a marker-headed paragraph only (re-inject 'any paragraph')", MEMO,
-     '                if kind == "p" and list_item_line(cur[0][1]):\n                    item_open = True',
-     '                if kind == "p":\n                    item_open = True',
-     ["(lex-seed) `para\\n\\n    Slice 9z owns it`: its reading is §4.4 raw code, not the item's "
-      "content (Example 108) -- no list item is open"]),
-    ("RG3 IMP-1: the bit is not a one-block memory (re-inject the reset on every flushed paragraph: "
-     "`after_item = kind == \"p\" and list_item_line(...)`)", MEMO,
-     '                if kind == "p" and list_item_line(cur[0][1]):\n                    item_open = True',
-     '                item_open = kind == "p" and list_item_line(cur[0][1])',
-     ["(lex-seed) `- item\\n\\n  para\\n\\n    Slice 9z owns it`: the item's SECOND paragraph keeps it "
-      "open (commonmark.js: `<p>` in the item), so the indented line is seeded as the item's content",
-      "(lex-seed) `1. item\\n\\n   para\\n\\n     Slice 9z owns it`: an ordered item's 3-column paragraph "
-      "keeps it open (commonmark.js: `<p>` in the item) -- seeded as the item's content"]),
-    ("RG3 IMP-1: a `>` line inside the item does not close it (re-inject the clear at the quote)", MEMO,
-     '                    close(line)\n                    i += self._quote(lines, linenos, i, out)',
-     '                    close(line)\n                    item_open = False\n'
-     '                    i += self._quote(lines, linenos, i, out)',
-     ["(lex-seed) `- item\\n\\n  > q\\n\\n    Slice 9z owns it`: a block quote inside the item keeps it "
-      "open (commonmark.js: `<p>` in the item) -- seeded as the item's content"]),
-    ("RG3 IMP-1: a block start below 2 columns CLOSES the item (drop the clear)", MEMO,
-     '            if not is_blank(line) and indentation(line)[0] < 2:\n                item_open = False',
-     '            if False:\n                item_open = False',
-     ["(lex-seed) `- item\\n\\n para\\n\\n    Slice 9z owns it`: a 1-column paragraph CLOSES the item "
-      "(commonmark.js: a code block outside it), so the reading is §4.4, not the item's content",
-      "(lex-seed) `- item\\n\\n  para\\n\\n# h\\n\\n    Slice 9z owns it`: a 0-column heading CLOSES the "
-      "item (commonmark.js: a heading and a code block outside it) -- the reading is §4.4"]),
+      "(lex-seed) a tab-indented slot row after a table's rows is raw (§2.2: four columns) and is SEEDED",
+      "(item) … and that raw line inside the item is seeded (the one raw-line rule reaches into a "
+      "container)"]),
+    # ⚠ The five "RG3 IMP-1" rows (the item-open bit: its reading, its SET rule, its one-block
+    # memory, the quote inside the item, the CLEAR rule) are DELETED with the bit: since R15 a list
+    # item is a container, and the shapes they guarded are the R15 controls below.
     # -- PR #510 Codex R13: §4.6 case per condition, GFM §4.10 excess cells
     ("R13 §4.6: condition 5 `<![CDATA[` is exact (re-inject case folding)", BLOCKS,
      r'(?P<t5>!\[CDATA\[)', r'(?P<t5>(?i:!\[CDATA\[))',
@@ -559,4 +535,94 @@ MUTANTS += [
      'NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))',
      'NOUN_ANCHOR = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_SEP)',
      ["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"]),
+    # -- PR #510 Codex R15: §5.2 list items are containers; orphans keep their destination; the
+    # row noun folds case
+    ("R15 §5.2: a list item is a container (re-inject the flat reading: the marker line heads a "
+     "paragraph, its content indentation tracked by nothing)", MEMO,
+     '                if item_marker(line) is not None:\n                    open_block()',
+     '                if False:\n                    open_block()',
+     ["(item) the reviewer's input `- item\\n\\n    [child](child.md)`: the indented line is the item's "
+      "SECOND paragraph (§5.2, Example 108: the content indentation is 2), not indented code -- the link "
+      "is found, `child.md` is walked and its violation reported",
+      "(item) a slot table inside a list item is a table (cmark-gfm, measured): its row declares its id",
+      "(item) `> - [sib]: slice-9z-sib.md`: a definition inside an item inside a block quote registers -- "
+      "the sibling is walked and its violation reported",
+      SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 §5.2: the content indentation is stripped from every continuation line (drop the strip: the "
+     "item's second paragraph is indented code again)", MEMO,
+     '                    content.append(strip_columns(line, min(offset, indentation(line)[0])))',
+     '                    content.append(line)',
+     ["(item) the reviewer's input `- item\\n\\n    [child](child.md)`: the indented line is the item's "
+      "SECOND paragraph (§5.2, Example 108: the content indentation is 2), not indented code -- the link "
+      "is found, `child.md` is walked and its violation reported",
+      "(item) `1. item\\n\\n     Slice 9z owns it`: an ordered item's content indentation is 3 (`1. `), so "
+      "five columns are two inside it -- the item's second paragraph, the site is reported",
+      SPEC_EXAMPLES]),
+    ("R15 §5.2: the content indentation is W + N in LINE columns -- a tab past it leaves its remaining "
+     "columns (re-inject 'a tab is one column' in the strip)", BLOCKS,
+     '        col += 4 - col % 4 if line[j] == "\\t" else 1',
+     '        col += 1',
+     [SEQUENCE]),
+    ("R15 §5.2: lazy continuation (drop it: a line short of the content indentation never joins the "
+     "item; 20 columns is the item gather's line)", MEMO,
+     '                    inner_lazy.append(True)\n                    if block_end(content, len(content) - 1, True, inner_lazy):',
+     '                    inner_lazy.append(True)\n                    if True:',
+     ["(item) `- open `x\\nSlice 9z owns it` end`: the line short of the content indentation is the item "
+      "paragraph's lazy continuation text (§5.2 rule 5), so the span crosses it: no site",
+      SPEC_EXAMPLES]),
+    ("R15 §5.2: the enclosing container's lazy candidate stays lazy and whole inside the item (re-inject "
+     "'strip it when indented enough')", MEMO,
+     '                if _is_lazy(lazy, j) or (not is_blank(line) and indentation(line)[0] < offset):',
+     '                if not is_blank(line) and indentation(line)[0] < offset:',
+     [SEQUENCE]),
+    ("R15 §5.2: the interruption rule -- an EMPTY item cannot interrupt a paragraph, nor an ordered item "
+     "not starting at 1 (re-inject 'any marker line interrupts', the pre-R15 local policy)", BLOCKS,
+     '    return not para_open or (not is_blank(content) and (marker in "-+*" or int(marker[:-1]) == 1))',
+     '    return True',
+     ["(item) `open `x\\n2. 9z owns it` end`: an ordered item not starting at 1 cannot interrupt a "
+      "paragraph (§5.2) -- one paragraph, the span masks the site",
+      "(item) `open `x\\n*\\n9z owns it` end`: an EMPTY item cannot interrupt a paragraph (§5.2; `*`, not "
+      "`-`, which would be a setext underline) -- one paragraph, the span masks the site",
+      SPEC_EXAMPLES]),
+    ("R15 §5.2: an ordered item interrupts only when it starts at 1 (re-inject 'any number')", BLOCKS,
+     'int(marker[:-1]) == 1))', 'True))',
+     ["(item) `open `x\\n2. 9z owns it` end`: an ordered item not starting at 1 cannot interrupt a "
+      "paragraph (§5.2) -- one paragraph, the span masks the site",
+      SPEC_EXAMPLES]),
+    ("R15 §4.1: a thematic break takes precedence over a list marker (drop it: `* * *` is an item)", BLOCKS,
+     '    if m is None or _THEMATIC.match(line[j:]):', '    if m is None:',
+     [SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 §5.2: an item can begin with at most one blank line (drop the rule: Example 280's `foo` joins "
+     "the empty item)", MEMO,
+     '        if not (is_blank(first) and j < n and is_blank(lines[j])):', '        if True:',
+     [SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 §5.3: sibling items form one list only when of the same type (re-inject 'any marker continues "
+     "the list')", BLOCKS,
+     '    return a == b if a in "-+*" else b not in "-+*" and a[-1] == b[-1]', '    return True',
+     [SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 §5.3: a list is loose when a non-final item ends with a blank line (drop the arm)", MEMO,
+     '            loose = loose or ends_blank or k > j', '            loose = loose or k > j',
+     [SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 §5.3: a list is loose when an item opens a block across a gap (drop the arm)", MEMO,
+     '            loose = loose or gap', '            loose = loose or False',
+     [SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 §5.3: a gap opens only after a block at its level (re-inject 'any blank line': an item's blank "
+     "first line would loosen its list)", MEMO,
+     '            gap = gap or len(sequence) > seq0', '            gap = True',
+     [SEQUENCE, SPEC_EXAMPLES]),
+    ("R15 #2 def: an orphan's destination decides the miss (re-inject the drop: every orphan blocks the "
+     "shortcut)", MEMO,
+     '            if any(self.sibling_path(dest) is not None for _, _, dest in entries):',
+     '            if True:',
+     ["(def) `paragraph\\n[x]: #section\\n[x]`: the orphan names a section, never a memo -- the shortcut "
+      "is prose, rc 0",
+      "(def) `paragraph\\n[x]: https://example.com/a\\n[x]`: the orphan names an external URL, never a "
+      "memo -- rc 0"]),
+    ("R15 #3 noun: the row noun folds ASCII case in ONE place (re-inject the Title/lower enumeration)", TABLES,
+     'ROW_NOUN = r"(?ai:slices?|rows?|umbrellas?)"',
+     'ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"',
+     ["(noun) `SLICE C owns it` names the row: the row noun folds case (a bare `C` is the declared "
+      "single-letter miss, so only the anchor can reach it)",
+      "(noun) `ROW 9 lands first` names the row (a bare `9` is the declared numeric miss)",
+      "(noun) `UMBRELLA C owns it` names the row"]),
 ]

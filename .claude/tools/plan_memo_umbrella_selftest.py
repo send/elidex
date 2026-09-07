@@ -490,18 +490,19 @@ def spec_examples_control(M):
     (`plan_memo_selftest_conformance`): every vendored example aligned with
     its expected html or excluded by a stated §3.0 disposition; the multi-
     line detail is printed whole because the exclusion list IS the report."""
-    import plan_memo_blocks     # the freshly loaded modules
-    import plan_memo_memo
+    import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
-    ok, detail = conf.run(plan_memo_blocks, plan_memo_memo)
+    ok, detail = conf.run(plan_memo_memo)
     print("       " + detail.replace("\n", "\n       "))
     return ok, detail.split("\n")[0]
 
 
 def sequence_control(M):
     """Phase 1's block SEQUENCE (`Memo.sequence`) over the §4.4 chunk and
-    §5.1 container shapes the vendored spec examples do not reach -- which
-    block a line lands in, a fact no naming site can discriminate -- and,
+    the §5.1 / §5.2 container shapes the vendored spec examples do not reach
+    -- which block a line lands in, and (a list entry's last two fields) a
+    list's first marker and tightness, facts no naming site can discriminate
+    -- and,
     for the raw shapes, the CONTENT of the raw extent (`Memo.raw`: the
     lines after the marker, re-spelt in line columns), since the sequence
     alone never read it: `c0 = col` in `quote_content` survived 285
@@ -541,6 +542,31 @@ def sequence_control(M):
         # the §4.4 chunk: blank lines inside stay, trailing ones do not
         ("    a\n\n    b\n\nc", [["indented", 1, 3], ["p", 5, 5]], ["    a", "", "    b"]),
         ("    a\n  \n    b", [["indented", 1, 3]], ["    a", "  ", "    b"]),
+        # §5.2 / §5.3 (PR #510 R15): the item's content indentation, its lazy candidates, the
+        # §5.2 interruption rule on a lazy line, sibling types, tightness, the tab rule
+        ("- item\n\n    [child](child.md)", [["list", 1, 3, "-", False], ["item", 1, 3], ["p", 1, 1], ["p", 3, 3]]),
+        ("- item\n para", [["list", 1, 2, "-", True], ["item", 1, 2], ["p", 1, 2]]),
+        ("- a\n2. b", [["list", 1, 1, "-", True], ["item", 1, 1], ["p", 1, 1],
+                       ["list", 2, 2, "2.", True], ["item", 2, 2], ["p", 2, 2]]),
+        ("> a\n2. b", [["quote", 1, 1], ["p", 1, 1], ["list", 2, 2, "2.", True], ["item", 2, 2], ["p", 2, 2]]),
+        ("foo\n-", [["h2", 1, 2]]),
+        ("- a\n  -", [["list", 1, 2, "-", True], ["item", 1, 2], ["h2", 1, 2]]),
+        ("* a\n* * *\n* b", [["list", 1, 1, "*", True], ["item", 1, 1], ["p", 1, 1], ["hr", 2, 2],
+                             ["list", 3, 3, "*", True], ["item", 3, 3], ["p", 3, 3]]),
+        ("-\n\n  foo", [["list", 1, 1, "-", True], ["item", 1, 1], ["p", 3, 3]]),
+        ("-\n  foo\n- b", [["list", 1, 3, "-", True], ["item", 1, 2], ["p", 2, 2], ["item", 3, 3], ["p", 3, 3]]),
+        ("- a\n\n- b", [["list", 1, 3, "-", False], ["item", 1, 2], ["p", 1, 1], ["item", 3, 3], ["p", 3, 3]]),
+        ("- a\n-\n\n- b", [["list", 1, 4, "-", False], ["item", 1, 1], ["p", 1, 1], ["item", 2, 2],
+                           ["item", 4, 4], ["p", 4, 4]]),
+        ("- a\n  - b\n\n    c\n- d", [["list", 1, 5, "-", True], ["item", 1, 4], ["p", 1, 1],
+                                      ["list", 2, 4, "-", False], ["item", 2, 4], ["p", 2, 2], ["p", 4, 4],
+                                      ["item", 5, 5], ["p", 5, 5]]),
+        ("- > a\n  >\n- b", [["list", 1, 3, "-", True], ["item", 1, 2], ["quote", 1, 2], ["p", 1, 1],
+                             ["item", 3, 3], ["p", 3, 3]]),
+        ("> - a\n    ---", [["quote", 1, 2], ["list", 1, 2, "-", True], ["item", 1, 2], ["p", 1, 2]]),
+        ("- a\n\n\t  b", [["list", 1, 3, "-", False], ["item", 1, 3], ["p", 1, 1], ["indented", 3, 3]], ["    b"]),
+        ("-\t\tfoo", [["list", 1, 1, "-", True], ["item", 1, 1], ["indented", 1, 1]], ["      foo"]),
+        ("1. a\n\n   b\n\n   c", [["list", 1, 5, "1.", False], ["item", 1, 5], ["p", 1, 1], ["p", 3, 3], ["p", 5, 5]]),
     ]
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "shape.md"
@@ -670,8 +696,8 @@ def registry():
     for c in CASES:
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
-    reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
-    reg["Phase 1's block sequence over the §4.4 chunk and §5.1 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
+    reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
+    reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
     reg["block quotes are linear: N quotes cost <= 4N quote_content calls"] = ("CONTROL", scaling_quotes_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
