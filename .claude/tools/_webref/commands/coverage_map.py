@@ -5,30 +5,27 @@ import argparse
 import sys
 
 from ..resolver import lookup_section
+from ..spec_labels import label_for
 
-# Human-readable spec label for the first column of §3 table rows. Falls back
-# to UPPER(shortname-with-dashes-as-spaces) for unmapped shortnames — extend
-# the map when a new spec becomes frequently cited (cosmetic only, not load-
-# bearing for verification).
-_SPEC_LABEL_MAP = {
-    "ecma262": "ECMA-262",
-    "ecma402": "ECMA-402",
-    "html": "WHATWG HTML",
-    "dom": "WHATWG DOM",
-    "url": "WHATWG URL",
-    "fetch": "WHATWG Fetch",
-    "streams": "WHATWG Streams",
-    "xhr": "WHATWG XHR",
-    "webcrypto": "Web Cryptography API",
-    "webidl": "Web IDL",
-    "selectors-4": "CSS Selectors L4",
-    "geometry-1": "Geometry Interfaces L1",
-}
+# Human-readable spec label for the first column of §3 table rows. The
+# enumeration is canonical in `_webref.spec_labels` — see that module for why
+# it is not inlined here. Falls back to UPPER(shortname-with-dashes-as-spaces)
+# for unmapped shortnames; extend the map when a new spec becomes frequently
+# cited.
+#
+# ⚠ This comment used to end "(cosmetic only, not load-bearing for
+# verification)", and that is false for any verifier that resolves a row BY
+# ITS LABEL. A generated `CSS TEXT 3 §4.1.3 …` row carries a label no reverse
+# map knows, so such a verifier cannot look the row up and skips it silently —
+# a fabricated §-number passes. Extending `SPECS` is what closes that for a
+# given spec; the fall-back stays as it is so the map remains the only place
+# the enumeration lives.
 
 
 def _spec_label(shortname: str) -> str:
-    if shortname in _SPEC_LABEL_MAP:
-        return _SPEC_LABEL_MAP[shortname]
+    label = label_for(shortname)
+    if label is not None:
+        return label
     return shortname.upper().replace("-", " ")
 
 

@@ -1,0 +1,216 @@
+# Citation hygiene — umbrella plan
+
+**Status**: umbrella. Governs the slices below; each slice carries its own plan-memo and its own `/elidex-plan-review`.
+**Owner lane**: L3 (DOM/form) — but slices A–C are engine-wide tooling and are *not* L3-specific.
+
+## Why this program exists
+
+Two carves, both forced by the same rule, both discovered by a gate rather than at authoring time.
+
+1. **PR-A0** (`domform-submittable-category`) bundled a WHATWG-HTML constraint-validation citation sweep with a general-purpose detector (`webref cite-audit`), a shared spec-label refactor, and a behaviour change to `preflight.py` — the hard gate every plan review runs. `/code-review max` returned 15 confirmed findings and `/elidex-review` 0 CRIT / 26 IMP / 20 MIN; the decisive one was the shape, not any single defect. Tooling is 41% of that diff, the sweep 14%, and the dependency runs one way only.
+2. **The carve** (`webref-cite-audit-tool`) then produced a plan-memo whose own §9 concedes the edge-dense trigger fires on both counts and that the base case does not apply — and proceeded as a single PR anyway. `/elidex-plan-review` returned 0 CRIT / 22 IMP / 19 MIN.
+
+CLAUDE.md § "Design discipline": *"Edge-dense work = multi-PR program + 実装前 plan-review 必須 … (judgment でなく rule)"*. Its **base case** — *"承認済 umbrella 配下で plan-review を通った narrowly-scoped per-PR slice は terminal 単位"* — is what terminates the recursion. What was missing at recurrence 2 was not more slicing; it was this document.
+
+**This umbrella is the approval boundary.** A slice below that passes `/elidex-plan-review` is a terminal unit and is not re-split for touching the same subsystem.
+
+## Slices — the ordering is forced, not preferred
+
+| # | Slice | Branch | Scope | Why it must precede the next |
+|---|---|---|---|---|
+| A-i | The shared spec-label map | `webref-cite-audit-tool` (current) | **Generic tree, plus one comment in the adapter.** Create `.claude/tools/_webref/spec_labels.py`
+**pinned-map-only**; point `coverage_map` and `cli` at it; the `DESIGN.md` bullet; author the generic-tree
+`test_spec_labels.py`; rewrite every consumer list and rationale naming an elidex file path (by role) or a
+Slice-B artifact, and author the copy-count claim at the five sites that carry it. ⚠ **Amended at landing
+per A-i §13 item 2 (the four scope-grant clauses), measured against the `origin/main` base** — this row used
+to say *touches no adapter file* (A-i §4.1 rewrites one three-line comment in `preflight.py`, nothing else),
+*delete the 8 inert parse aliases* (`origin/main` has none; A-i **omits** them), *move the 8 label-map tests*
+(`git grep -lI '_SPEC_LABEL_MAP\|COMMON_SHORTNAMES' origin/main -- '*test*'` → empty; A-i **authors** them)
+and *correct the copy-count claim at five sites* (`origin/main` carries none under `.claude/`; all five are
+**authored**). §9 barred A-i from amending its own approval boundary mid-review; the amendment narrows and
+relabels, it grants nothing (Codex R10).
+
+⚠ **`preflight.py`'s copy migrates in A-ii, not here** (revised 2026-08-01 after A-i round 2). Two drafts
+tried to land it in A-i and both regressed the gate, in opposite directions — measured against `origin/main`
+with the tools tree absent: a **guarded** import takes default mode `exit 1 → exit 0` (fail-open), and a
+**hard** import takes `--no-verify` `exit 0 → traceback`. Preserving both requires a capability check at the
+verification stage suppressed by `--no-verify`, which *is* A-ii's act-site 1. **The gate's copy is not
+separable from the gate's failure semantics**, so it goes with them. A-i therefore collapses two of the three
+copies and A-ii the third; K1 completes across the pair. | A-ii's whole subject is the failure mode this import *creates*. If A-ii landed first there would be nothing to fail closed; if B landed the import, `main` would carry a fail-open plan-review gate for the duration of B. |
+| A-ii | The gate's copy **and** its failure semantics | new, stacked on A-i | Migrate `preflight.SPEC_LABEL_REVERSE` onto `spec_labels.py` **together with** the fail-closed capability verdict, both act-sites, the three remedy strings, the no-spec-surface declaration, `SKILL.md`'s contract of record, the two gate-output strings that name the deleted symbol, the shared fence tracker — new `fences.py`, `grep_pass.py` moved onto it, `test_grep_pass.py` P11g (A-ii §4.2.5/§4.3) — and `verify_citation` collapsed onto the in-process resolver, `WEBREF` + the subprocess deleted (A-ii §4.2.6) | Every lane runs this gate. It must be correct before anything downstream relies on its verdict. |
+| A-iii | The suite scheduler | new, stacked on A-ii | `scripts/python-suites.sh` (A-iii §4.2's Location paragraph; this row said `.claude/tools/`); `[tasks.tools-test]` in `[tasks.ci].depends`; an **ungated** `tools` job in `ci.yml`; the interpreter floor | Nothing downstream is guarded until the suites actually run. `.claude/**` is in **neither** `ci.yml` path filter today, so a tooling-only PR triggers zero *validation* jobs (`Detect changes` and, since #496, `trip-wires` run) — verified. Landing it means B and C are enforced from their first commit. |
+| B | Detector correctness | new | The catalog fall-through (population derived from `_data_index()` at run time, B §4.1.8 — never a literal) and its lookup semantics; the nine under-report paths; the gate-bucket and grammar findings from A's plan-review; `AuditResult`; one section-number grammar | C retires a discovery method on a supersession claim. That claim is only admissible once B has **measured** the detector's precision and reach. D re-derives a sweep against B's output — running it against today's detector means redoing it. |
+| C | Policy retirement | new | `.claude/skills/elidex-review/axes.md` requirement (2)/(4); `CLAUDE.md` § "Spec citation"; `DESIGN.md` | Retiring the alternative method while the replacement's reach is unproven converts a visible gap into an invisible one. Blocked on B's reach measurement. |
+| D | Constraint-validation sweep | `domform-submittable-category` (rebase) | The existing `crates/**` comment repairs, **re-derived** on the fixed detector; the 8 newly-authored wrong citations found by `/elidex-review` | PR-A's blast-radius map is expressed in line anchors and grep counts that D moves. |
+| E | `is_submittable` category repair | `domform-submittable-category` → PR-A | Per `docs/plans/2026-07-form-submittable-category-repair.md`, **re-derived** — 17 of its anchors/counts are already falsified by PR-A0's own edits | Slice 1 regresses `<button type=submit>:valid` without it. |
+| F | Slice 1 keystone | `domform-slice1` | Delete the `ElementState` form-bit cache | — |
+
+⚠ **Two of those source branches — named across three rows — are not pushed, so the plan depends on
+artifacts only the authoring machine holds.** Measured: `git ls-remote origin domform-submittable-category` and
+`git ls-remote origin domform-slice1` each print **0 refs**, and neither branch ever had a PR
+(`gh pr list --state all --head <branch>` → `[]`), so neither has a `refs/pull/<n>/head` to fall back on
+either — this is A-i §14's rule applied to a branch instead of a SHA. ⚠ **An earlier revision of this note exempted Slice E** — "it derives from the tracked memo
+`docs/plans/2026-07-form-submittable-category-repair.md`" — and granted that exemption without measuring it,
+in a paragraph whose other four figures are commands. Measured: `git ls-files` and
+`git ls-tree -r origin/main` both return **0** for that path, and
+`git for-each-ref --contains $(git log -1 --format=%H -- …)` names only `domform-submittable-category`. The
+memo is tracked *on the unpushed branch*, so E carries exactly the gap it was exempted from. **All three
+rows depend on unpushed artifacts**, and the same gap makes the first command under "Derivation" below
+unrunnable off this machine. Landing D, E or F therefore carries a prerequisite: push the branch (or
+re-derive its content from `main`) **before** the slice's plan-review, not at implementation time. The
+remedy is one `git push` per branch and it is deliberately *not* taken here — pushing another lane's branch
+is that lane's call, not this PR's.
+
+Slices A–C are engine-wide tooling; D–F are the L3 form program. The join is real but one-directional: D's exit criterion is a command that B must make trustworthy.
+
+### ⚠ Slice A re-sliced into A-i / A-ii / A-iii (2026-08-01, user-approved)
+
+**Why**: nine `/elidex-plan-review` rounds on a single Slice-A memo, and round 9 was **worse than round 8**
+(3 CRIT / 33 IMP vs 0 CRIT / 30 IMP). Four consecutive rounds produced the same root at ascending levels —
+executable-described-in-prose (R6), the fix inverting the predicate (R7), the harness not covering its own
+claims (R8), the discharge written in the memo but not executed in the artifact (R9). A loop whose severity
+rises is not approaching real-gap exhaustion; per `feedback_defer-accumulation-signals-mis-drawn-slice` the
+boundary is the defect.
+
+**Where the seam actually is**: round 9's findings separate by axis almost perfectly — every Axis 1
+(layering) finding lives in the map extraction, and every Axis 2 finding, including both CRITs, lives in the
+gate's failure semantics. Those two had been sharing one memo because one *enables* the other, which is an
+ordering relation, not a cohesion one. The earlier candidate seam (J1-J3 vs J4/J5) was tested and rejected
+for the wrong reason — it measured where findings landed rather than whether the slices separate.
+
+**What does not change**: the ordering is still forced (A-i → A-ii → A-iii), the umbrella is still the
+approval boundary, and each of the three is a terminal unit once it passes its own plan-review.
+
+### Slice memos (re-sliced 2026-07-28, Slice A further split 2026-08-01)
+
+The 785-line single-PR memo `2026-07-webref-cite-audit-detector.md` was partitioned into A/B/C; the 1196-line Slice-A memo `2026-07-citation-hygiene-A-enforcement-plumbing.md` was then partitioned into A-i/A-ii/A-iii and **deleted** — keeping it would be a second statement of every decision the three now own, which is the duplication this program exists to remove. Each carved memo's §14 carries its provenance, and **A-i's §14 is the single site** both for the recovery pointer to the deleted memo and for the rule that governs such pointers: a SHA is durable only while a *permanent* ref keeps it reachable, and under CLAUDE.md's squash merge this branch is not one — `refs/pull/501/head` is. Three revisions of that pointer were stated here and each was wrong in a different way; they are corrected once, at that site, rather than re-narrated in this document. Nothing is
+summarised across memos — each concern is stated once, in one slice's memo, and the others link to it.
+
+> **Carved 2026-08-23 (Codex R47–R50 on #501):** the A-ii / A-iii / B / C memos and the harness parts that
+> re-derive them (`-Aii.sh`, `-Aiii.sh`, `-B.sh`; the `_proto` graft stays in `-common.sh` on that branch and
+> its call site is in `-Aii.sh`) travel on branch **`citation-hygiene-slice-memos`**, which is **PR #514, open
+> and stacked on this one**. Each slice memo passes `/elidex-plan-review` at its own slice (CLAUDE.md base
+> case). This PR = A-i's deliverable, this umbrella, A-i's memo, and the harness parts A-i cites
+> (`integrity`, `common`, `Ai`).
+>
+> ⚠ **#514 must be rebased onto landed `main` before it is reviewed, and this note used to prescribe the
+> opposite** ("opened as its own PR after #501 lands", written while it was already open). Its tip
+> `cfcb4ae6` is cut from `ca946571` and therefore predates R51/R52: it carries the dispatcher without
+> `$PARAMETERIZED`, `-integrity.sh` without the reachability check, and the pre-R51 A-i memo and umbrella.
+> If #501 squash-merges and GitHub retargets #514 to `main`, the merge base drops and **#514's diff reverts
+> R51 and R52 wholesale**.
+>
+> ⚠ **The carve's justification carried a bare count, in the document whose own rule below is "Counts are
+> commands".** Derivable from the artifact: `git log -1 --format=%s` over `6b6c0534` / `b7a65335` /
+> `0015d13a` records R47 **5**, R48 **4**, R49 **6** = **15**; R50's **6** were transferred rather than fixed
+> here, so no commit carries them and they are enumerated instead in #514's body. The deliverable half IS
+> derivable and holds: `git show --stat` over those commits lists only `docs/plans/` paths, **no `.claude/`
+> path in any of the four rounds**. What is *not* the partition the earlier wording implied — "all on that
+> plan-text" — is where the fixes landed: R48 and R49 also edited `-common.sh`, and R48 edited this
+> umbrella, both of which stay.
+
+⚠ **The four carved rows below used to carry live measurements** (`preflight` EXIT codes, `K=2`) of memos
+this branch no longer holds. No commit on either branch can update such a cell, and no gate can read both
+sides — the *figure with two homes* this document diagnoses below at "Duplicated decision surface",
+re-introduced one level up, at a branch boundary instead of a paragraph. They are pointers now. A-i's row
+stays measured because A-i's memo is in this checkout.
+
+| Slice | Memo | Status |
+|---|---|---|
+| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), **0 hard / 1 soft** grep-pass — the soft is `948 catalog entries`, quoted at `:537` as *B's own figure* under B's S1 heading and not asserted by A-i, so the artifact that would clear it is B's to supply. ⚠ This cell read `0 soft` from the carve until R51 measured it; the gate had been reporting 1 the whole time |
+| A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | on **#514** — status is stated in that memo's own §0, which is the only site that can measure it |
+| A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | on **#514** — status in that memo's §0. Its `preflight` EXIT **1 is by design**: A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet |
+| B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | on **#514** — status in that memo's §0 |
+| C | `2026-07-citation-hygiene-C-policy-retirement.md` | on **#514** — status in that memo's §0. Its `preflight` EXIT **1 is by design**, the same no-spec-surface declaration A-iii makes |
+
+**Two corrections the re-slice produced**, both by executing rather than reading, and both recorded at
+their site: the fail-closed tri-state does **not** work where the pre-slice memo sited it (a memo whose
+`§3` rows carry no spec label still exits 0 — measured against the proposed patch), and the suites' network
+behaviour is not what the pre-slice memo assumed.
+
+⚠ **The second correction was itself wrong and is corrected here.** This document said wiring the suites
+into CI takes a **live-network dependency** ("the 48-test `_webref` suite fetches 2 URLs"). Measured
+(`rederive suites`): **0 `urlopen` calls** across the `origin/main` suites. The figure came from a
+branch-measured run, and the branch's catalog fall-through — which the re-slice moved to **B** — was the
+thing fetching. A-i ships a pinned-map-only resolver and adds no network requirement; **B owns the offline
+contract for the fall-through it introduces**, which is a constraint below.
+
+## Constraints each slice inherits
+
+- **A slice may not carry another slice's concern.** Specifically: A may not change detector semantics; B may not edit review policy; C may not repair citations.
+- **Per-PR ≤3 own deferrals** (`feedback_defer_cap_policy`). Gate-uncovered pre-existing defects are a separate category.
+- **Counts are commands.** No slice memo carries a quantity it did not derive; every quantity ships its derivation.
+- **A claim is admissible only if something mechanically checks it.** A slice memo's "claims vs checks" table must mark unchecked rows UNCHECKED rather than omitting them.
+- **A slice memo may only cite spec labels that slice's own resolver maps.** Round 9 found the merged
+  Slice-A memo citing `CSSOM View §4.2` in its own coverage map — a label resolving only through the catalog
+  fall-through this program routes to Slice B, so the memo was certified by machinery its own slice removes
+  and would have soft-warned against itself after landing. ⚠ The rule ranges over **every citation surface**
+  (§0.5, §3, prose), not §3 alone — the defect appeared at two surfaces, and a §3-only rule under-covers the
+  case it came from. A label the slice does not map may appear only as *fixture content*, where being
+  unmapped is the property under test, and must be marked as such.
+- **A check must derive its own coverage, not only its values.** Round 8 and round 9 of Slice A's review both found blocks that printed a correct number while their stated derivation ranged over the wrong set — a grep that discarded the lines the memo cited it for, instrumentation sited in the branch where the defect was already fixed. A derivation that cannot witness the claim's negation is not a check.
+- **No slice may make label resolution require the network without shipping its offline degradation in the same slice.** Slice B introduces the catalog fall-through and therefore owns the offline contract for it.
+- **The plan-review gate reaches its shared library one way.** **A-ii**, which rewrites the gate's
+  resolution path, collapses `verify_citation`'s subprocess onto the in-process resolver **in its own
+  slice**. ⚠ Revised at #501 R36: this bullet assigned the collapse to B while A-ii registered it as a defer
+  slot, so both slices declined it and two resolution paths with different offline semantics would have
+  survived B's landing. A-ii's in-process resolver is pinned-only (K3 holds until B), and B's
+  catalog-unavailable branch is then pinned **through that single path** (P4, P-CSS). No
+  `#11-webref-preflight-inprocess-resolution` slot exists or is to be registered.
+- **Review cost tracks blast radius.** ⚠ Added after A-i's round 2 returned 38 IMP of which **one** was a
+  defect in the change and the rest were defects in its description. A slice memo is a record of decisions,
+  not a second specification: where the diff and the tests are the canonical statement of what the code does,
+  the memo links to them rather than restating them. ⚠ **This does not turn on the edge-dense trigger, and an
+  earlier revision of this bullet said it did** — it reasoned from "A-i has one invariant", which A-i's own
+  §9 does not claim and the memo falsifies (measured: `grep -cE '^- \*\*K[0-9]'` → **4** coupled invariants,
+  `grep -cE '^\| K[0-9] × K[0-9]'` → **5** pairwise intersections). The trigger **fires** on A-i's text, and
+  CLAUDE.md's prescribed remedy — *umbrella plan + PR ごとの plan に分割し各 PR を個別に full review* — has
+  been applied twice over, to the 785-line memo and then to Slice A, which is clause (c)'s base case. What
+  this constraint turns on is **blast radius** (zero `crates/**`, two consumers, a dict lookup), which is a
+  separate axis: a terminal slice under an approved umbrella does not inherit the review apparatus of the
+  slice it was carved from.
+- **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` was shared and owed a split. ✅ DISCHARGED by A-i**
+  (`06e50b41`, with `3987bfbc` and `4121b667`), before A-i's implementation. It is now a dispatcher — still
+  the only entry point, so every memo's `<block>` citation resolves through the same path — sourcing one part
+  per slice, a shared part, and an integrity part. ⚠ **Which parts, and how many, is A-i §8's to state, not
+  this bullet's**: the list that used to sit here was falsified the moment the integrity split landed.
+  ⚠ **The layout figures are deliberately not restated here.** They are derived in **A-i §8**
+  (`wc -l …-A-rederive*.sh`), whose `rederive budget` block prints them; that is the one site that states
+  them. This bullet carried its own copy through four revisions and each was falsified by the next commit to
+  the harness — and Codex round 2 found the fifth, where the commit that corrected §8 updated §8 and missed
+  this paragraph, **inside the paragraph describing that exact failure**. Four of those were read as
+  *"a count derived once and not re-derived after the next edit"*; the fifth showed the actual root, which is
+  one level up: **the figure had two homes**, so every fix could only ever update one of them. The remedy for
+  that is a canonical site, not a fifth manual sync
+  (`memory/feedback_duplicated-decision-surface-blocks-converge.md`). ⚠ §8 also records `-common`'s 700-800
+  band overrun and its discharge — the standalone split commit that carved the integrity part out; whichever
+  slice next touches the harness reads §8 rather than this line. ⚠ This bullet is a **status register**, not
+  a scope grant, which is why A-i corrected it in its own commit set rather than deferring it to landing (§9's
+  self-ratification rule covers the four scope-grant clauses in the A-i row, not this) — and *removing* a
+  stale duplicated figure from a status register falls on the same non-grant side, by the distinction
+  `89cc4051` already drew and applied.
+
+## Cross-lane coordination
+
+- **Slice A-ii changes `preflight.py`'s failure semantics** from silent-exit-0 to fail-closed. Every lane runs that gate. A-ii's landing checklist must re-run preflight on every worktree that authors a plan-memo and record the result. ⚠ **The worktree set is derived, not listed** — `bash docs/plans/2026-07-citation-hygiene-A-rederive.sh lanes`. The list this bullet used to carry named `elidex-wt-c4fix`, which does not exist, and omitted `elidex-wt-submittable` and `elidex-wt-tripwire-ci`, which do.
+- **Slice B re-points spec labels to their current level** (`CSSOM`→`cssom-1`, `Selectors`→`selectors-4`, `Pointer Events`→`pointerevents4`, and the pinned `Web Cryptography API`→`webcrypto-2` — A-i §13's level-free hole, B §6 S15). ⚠ **This bullet said "10 in-flight memos in `elidex-wt-c3-plan`"; measured, it is 1** (carrying `CSSOM VIEW` ×14, `RESIZE OBSERVER` ×3, `INTERSECTION OBSERVER` ×1 — all of which the widening resolves *correctly*). B's landing checklist must re-verify it.
+- **CI topology is decided across two lanes, not one.** The Layout lane's [PR #496](https://github.com/send/elidex/pull/496) lands an **ungated** trip-wire job and argues in-file that gating `.claude/tools/**` behind a path filter makes the tamper path of an allowlist gate itself an allowlist entry. Slice A-iii **adopts that shape** rather than adding a competing filter — one question, one answer. Whichever lands second is a textual merge, not a decision.
+- **Slice B moves the numbers slice D's exit criterion reads** (UNATTRIBUTED and per-spec counts). D re-baselines rather than carrying A/B-era figures.
+
+## Records this program owns
+
+`MEMORY.md` L3 lane bullet and `memory/project_slice1-elementstate-cache-deletion-state.md` both record a 3-PR chain (PR-A0 → PR-A → Slice 1). That shape is superseded by the table above and is updated at the same time as this document, not at landing — the fourth branch already exists, so the stale form is stale now.
+
+## Derivation
+
+```sh
+# diff composition that forced carve 1 — ⚠ requires the local `domform-submittable-category`
+# branch, which is unpushed (see the note under the slice table); it does not run from a fresh clone
+git diff --numstat origin/main...domform-submittable-category -- docs/plans/ '.claude/**' crates/
+# the CI hole that makes slice A first
+sed -n '/filters:/,/^  check:/p' .github/workflows/ci.yml
+# detector state — POST-B only: the `cite-audit` subcommand is carved out of A-i and
+# absent through A-i / A-ii / A-iii (the catalog fall-through and the detector are B's);
+# before B lands this exits with an invalid-subcommand error, which is the expected reading
+.claude/tools/webref cite-audit html --summary
+```
