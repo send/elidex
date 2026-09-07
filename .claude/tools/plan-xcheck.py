@@ -43,7 +43,9 @@ def rows(table_text):
     """Data rows of a markdown table: no separator, no header."""
     out=[]
     for l in table_text.split("\n"):
-        if not l.startswith("| ") or set(l) <= set("| -:"): continue
+        # `|x` (no space after the pipe) is valid markdown too; requiring `| ` let a row
+        # written that way escape every table check (gate #3 on rev 25, E4).
+        if not l.startswith("|") or set(l) <= set("| -:"): continue
         out.append([x.strip() for x in l.strip("|").split("|")])
     return out
 
@@ -297,6 +299,62 @@ def main(path):
         for ln in s.split("\n"):
             if old in ln and not any(m in ln for m in MARK):
                 bad("RANGE", f"{old} (superseded) restated alongside {new}: {ln.strip()[:60]}")
+
+    # 13. bookkeeping routing (rev 25, Step 4.5 root re-derivation): a §10 row tagged to
+    #     a prereq PR that §8 records as LANDED must carry a ✅ discharge — otherwise the
+    #     memo books work to a PR that can no longer carry it, which is exactly how the
+    #     seam-3 narrowing (#508) went unnoticed by checks 1-12. Rows tagged to the
+    #     umbrella's own EVENTS (approval / tooling) must use a label §8 defines, so a
+    #     row cannot be routed to a PR letter whose change does not make it true.
+    # A landing record is a ✅ inside a BOLD span in §8 (`**Seam-3 prereq PR — ✅ landed …**`),
+    # the discharge-heading form this memo uses — not any one spelling of "landed" (gate #3
+    # on rev 25 showed a reworded landing silently emptied a spelling-keyed set), and not a
+    # bare ✅ in prose (§8 also *talks about* the glyph). Every such bold span must name the
+    # prereq it discharges; one that names none is the positive control failing.
+    # The heading is a bold span that OPENS A LINE (`^**…`); it may wrap across lines (the
+    # memo hard-wraps at 100 and a heading already exceeds it), so `[^*]` spans newlines —
+    # and anchoring at line start is what keeps a mid-line `**a** ✅ **b**` from reading as
+    # a heading (gate #4 on rev 25).
+    landed_prereqs=set()
+    for m in re.finditer(r"^\*\*([^*]*✅[^*]*)\*\*", s8, re.M):
+        span=m.group(1)
+        if re.search(r"~~[^~]*✅[^~]*~~", span): continue
+        named=re.findall(r"(?i)(seam-3|dead-arm|predicate) prereq PR", span)
+        if not named:
+            bad("LANDED", f"§8 landing heading names no prereq — check 13 cannot attribute it: {span.strip()[:60]}")
+        landed_prereqs.update(n.lower() for n in named)
+    def discharged(text):
+        # a struck-through ✅ (~~✅ …~~) is a retraction, and a backticked `✅` is a mention
+        return "✅" in re.sub(r"~~[^~]*~~|`[^`]*`", "", text)
+    EVENT_TAGS=("approval PR", "tooling PR")
+    # closed world: a PR column value is a defined PR-1x, a named prereq PR, an event
+    # label §8 defines, or the memory-bookkeeping discharge. Anything else (a typo, a
+    # renamed event, a PR letter §5.3 never defined) is a routing to nowhere.
+    for c in rows(s10):
+        if len(c)<2 or c[0].startswith("Action"): continue
+        tag=c[-1].strip("* `")
+        # the action text is everything but the PR column: `rows()` splits on every `|`,
+        # and a backticked `grep 'a\|b'` inside a row would otherwise hide its ✅ in c[1]
+        act="|".join(c[:-1])
+        m=re.fullmatch(r"(seam-3|dead-arm|predicate) prereq PR", tag)
+        if m and m.group(1) in landed_prereqs and not discharged(act):
+            bad("LANDED", f"§10 row tagged to the landed {tag} is not discharged (no ✅): {act[:60]}")
+        elif m and m.group(1) not in landed_prereqs and discharged(act):
+            # the reverse direction: a discharged row for a prereq §8 does not record as
+            # landed -- either the landing heading was lost (a wrap, a rename) or the row
+            # claims a landing that never happened; both must be loud
+            bad("LANDED", f"§10 row tagged to {tag} is ✅-discharged but §8 records no landing for it: {act[:60]}")
+        elif tag=="done (memory)":
+            # a memory discharge must say it was done, and WHEN: the date must sit with the
+            # ✅ (within the discharge phrase), not anywhere in a row that also carries
+            # re-eval dates and landing dates of other things
+            if not discharged(act) or not re.search(r"✅[^|]{0,40}\b20\d\d-\d\d-\d\d\b", re.sub(r"`[^`]*`", "", act)):
+                bad("DONE", f"§10 row tagged 'done (memory)' without a ✅ carrying its own date: {act[:60]}")
+        elif not m and tag not in defined:
+            if tag not in EVENT_TAGS:
+                bad("TAG", f"§10 row routed to {tag!r}, which is no defined PR, prereq, or §8 event: {c[0][:60]}")
+            elif not re.search(rf"tag(?:s|ged)\s+`{re.escape(tag)}`", s8):
+                bad("EVENT", f"§10 uses event tag {tag!r} but §8 does not define it (needs 'tags `{tag}`' / 'tagged `{tag}`')")
 
     print(f"cross-check: {len(fails)} contradiction(s)  [cells {len(cells)} defined / "
           f"{len(routed)} routed by §6, {len(m_rows)} M-rows, {len(defined)} PRs, "

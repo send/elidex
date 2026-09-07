@@ -104,8 +104,11 @@ Per `feedback_coupled-invariant-design-corner.md` (D-19 PR-3 SW-client container
   generalising is part of the work; (b) extend `preflight.py`'s `SPEC_LABEL_REVERSE` to **CSS-module
   labels** — today a CSS plan reports `parsed citations: 0` / `unmapped-label rows: N`, i.e. the
   §3 citation hard-gate is **vacuous** for every CSS-module plan-memo, which is silent, not loud.
-  ⚠ **Trigger** = the first PR that ships these two files (for the umbrella that authored them,
-  the seam-3 prereq PR). An earlier wording made it "the next plan-review round that has to run
+  ⚠ **Trigger** = **the tooling PR itself**, cut from `origin/main` and ordered before the
+  predicate prereq's plan-review of the umbrella that authored these files (earlier wordings keyed
+  the trigger to "the first PR that ships these two files" and named the seam-3 prereq PR, then
+  PR-1a — neither ships them, and that keying is satisfiable only by the tooling PR, so the PR is
+  named outright). An earlier wording made it "the next plan-review round that has to run
   them by hand", which fires *every* round and can discharge nothing — it expired unheard six
   times. A trigger that recurs is not a trigger. **Re-eval date**: 2026-11-01.
 - Expect **2+ review passes** for this class — convergence = findings moving from "open design tension" to "fixed concrete mechanism (どの list / key / loop)"; further passes are impl-detail the tests catch.
