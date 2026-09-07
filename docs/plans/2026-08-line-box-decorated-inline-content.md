@@ -79,16 +79,22 @@ the state — otherwise every landing would cost a round.
 | 21 (0 CRIT / 2 IMP / 12 MIN; all applied in rev 27 — §3/§3.1/§5.2/§5.3/§5.4 index/§8/§9/§10 + memory) | no (byte-identical) | no (byte-identical) | **2 → TERMINAL** |
 | Codex on #515 (external-reviewer pass on the approval PR, same day; applied in rev 28) | **yes** (M1: pseudo routing; the non-zero-edge conjunct restated as a slice boundary) | **yes** (cell 15 rewritten; cell 6g added) | **0** |
 | 22 (0 CRIT / 10 IMP / 13 MIN; applied in rev 30) | **yes** (M1: emission independent of the `Text` push; §8 requirement 7's domain) | **yes** (cell 15 rewritten again; 6g's fixture; cells 6h and 15c added) | **0** |
+| 23 (0 CRIT / 3 IMP / 11 MIN; applied in rev 31 — §3/§5.3/§8/§9/§10 + memory, and two wording fixes inside cell 15) | no (byte-identical) | **yes** (cell 15: the false "today" baseline; the §5 vs §5.5 attribution) | **0** |
 
 **TERMINAL reached at round 21 (2026-09-07) was reset the same day.** The approval PR #515
 drew three real P2 findings from the external reviewer — the model diversity the front matter's
 `/external-converge` rule exists for — all three of which change M-row / §6 content (M1 now routes
 decorated pseudo-elements and restates the non-zero-edge conjunct as a slice boundary; cell 15 no longer pins a §5.5
 divergence; cell 6g is new), so by the rule above the count is **0** again and two consecutive
-clean rounds are required before approval — round 22 was **not** one (its row above), so **rounds
-23–24** are owed. #515 stays a **draft** until then and is reviewed under
-`/external-converge` (rev 27 ran it single-pass — wrong, corrected). Later revisions after a
-renewed TERMINAL are landing records, not design rounds.
+clean rounds are required before approval — round 22 was **not** one (its row above), and neither
+was round 23: two of its findings were wording inside cell 15 (a "today" baseline that described a
+`b` run today's packer never produces, and a §5 rule attributed to §5.5), and applying them is a
+§6-cell change by the conventions above. ⚠ An earlier drafting of rev 31 *carried* both to the
+landing record to hold the count at 1 — no convention exempts wording, and a real finding held
+back to protect a counter is the "diminishing-returns bucket" the review discipline forbids; a
+gate on rev 31 refused it. So **rounds 24–25** decide. #515 stays a **draft** until then and is
+reviewed under `/external-converge` (rev 27 ran it single-pass — wrong, corrected). Later
+revisions after a renewed TERMINAL are landing records, not design rounds.
 
 **Review history — including which revision decided what, and why each earlier reading failed —
 lives in `project_line-box-decorated-inline-content.md`, not here.** A past-tense ledger restates
@@ -295,11 +301,12 @@ the answer.
 | CSS Writing Modes 4 §3.2 Block Flow Direction: the writing-mode property | box whose `writing-mode` differs from its **parent box** | an otherwise-`inline` box's display computes to `inline-block` | M1's emit test — such a box is an atomic and gets no marker; §6 cell 12c — **PR-1b** | ✓ | yes |
 | CSS Writing Modes 4 §6.4 Abstract-to-Physical Mappings | side mapping | "based on the **used** `direction` and `writing-mode`" of the box being mapped | M1's `WritingModeContext` source; §6 cells 12b/12e — **PR-1b** | ✓ | yes |
 | CSS Display 3 §A Glossary | *inline box* vs *atomic inline* | "A non-replaced inline-level box whose inner display type is flow" vs "An inline-level box that is **replaced** (such as an image) **or** that establishes a new formatting context" (`webref dfn css-display-3 "inline box"` → `§A Glossary #inline-box`; `body css-display-3 inline-box`) | the **canonical predicate** the prereq PR establishes (§9), consumed by M1's emit test — **PR-1a**, §6 cell 6c — and by the four `client*` members. ⚠ elidex today answers only the formatting-context half (`is_atomic_inline`, `inline/collect.rs:14`; and the `pub` `is_block_level`, `block/mod.rs:46`, is a second partition of the same enum), so the replaced half is unimplemented on the inline path and this program **consumes** the predicate rather than re-deriving one | ✓ | yes |
-| CSS Pseudo-Elements 4 §4.1 Generated Content Pseudo-elements: ::before and ::after | `content` ≠ `none` | "generate boxes as if they were immediate children of their originating element"; since the initial `display` is `inline` the box is an inline box in the originating element's IFC (`webref heading css-pseudo-4 4.1` → `§4.1 … #generated-content`) | M1's pseudo routing (the `:265` branch at `22de3078` re-routed through the marker emission) — **PR-1a**; §6 cells 6g, 6h | ✓ | yes |
+| CSS Pseudo-Elements 4 §4.1 Generated Content Pseudo-elements: ::before and ::after | `content` computes to anything but `none` — a `<content-list>`, `""` included | "generate boxes as if they were immediate children of their originating element"; since the initial `display` is `inline` the box is an inline box in the originating element's IFC (`webref heading css-pseudo-4 4.1` → `§4.1 … #generated-content`) | M1's pseudo routing (the `:265` branch at `22de3078` re-routed through the marker emission) — **PR-1a**; §6 cells 6g, 6h | ✓ | yes |
+| CSS Content 3 §1 Inserting and Replacing Content: the `content` property | `<content-replacement>` vs `<content-list>` | the pseudo (or element) is a replaced element only under the former — a single `<image>`, which "Makes the element or pseudo-element a replaced element"; an `<image>` inside a list "is an inline anonymous replaced element", a replaced **child**, and the pseudo stays an inline box (`webref heading css-content-3 1` → `§1 … #content-property`; `body css-content-3 content-property`). ⚠ §1's issue note: a bare `<image>` "has historically been treated as `<content-list>` on ::before and ::after … [Issue #2889]" — the operative reading for elidex's only `content` consumer today, so the flip is element-side (§8 requirement 7) | the prereq PR's predicate — §8 requirement 7 (replacedness of generated content decided from the `content` model, total over `ContentItem`); §6 cells 6g, 6h | ✓ | yes |
 | CSS Backgrounds 3 §3.2 Line Patterns: the `border-style` properties | `none` / `hidden` | width ignored ⇒ 0 | already zeroed at computed-value time — the loop at `crates/css/elidex-style/src/resolve/box_model/mod.rs:261-275` sets the width to `0.0` for `BorderStyle::None \| Hidden`, and that crate's own `border_width_zero_when_style_none` (`resolve/box_model/tests.rs:22`) asserts it, so this program adds no cell. ⚠ The row vouches for the **behaviour**, not for the site's comments: `:262` says only "CSS spec:" with no module or section, and `:270` cites "CSS Backgrounds §4.3" for the non-negative rule, which is *Corner Clipping* — the rule is css-backgrounds-3 **§3.3** *Line Thickness: the `border-width` properties*. Both are pre-existing and outside all three of §3.1's concept greps, so `#11-inline-spec-cite-misattribution` owns them by an explicit hand-off rather than by a grep. The §3.2 anchor here is this memo's, established by lookup | ✓ | yes |
 
-**Breadth**: K=11 specs (CSS Inline 3, CSS Text 3, CSS 2, CSS Break 3, CSS Box Model 3,
-CSS Sizing 3, CSS Writing Modes 4, CSS Display 3, CSS Pseudo-Elements 4, CSS Backgrounds 3, CSSOM View 1), M=37 entries (`Split decision` below restates K; both are recomputed). Both figures are recomputed
+**Breadth**: K=12 specs (CSS Inline 3, CSS Text 3, CSS 2, CSS Break 3, CSS Box Model 3,
+CSS Sizing 3, CSS Writing Modes 4, CSS Display 3, CSS Pseudo-Elements 4, CSS Content 3, CSS Backgrounds 3, CSSOM View 1), M=38 entries (`Split decision` below restates K; both are recomputed). Both figures are recomputed
 from the table above by `python3 .claude/tools/plan-xcheck.py <memo>`, which prints them and fails
 on drift — that command is the verification artifact, and it is re-runnable rather than dated.
 ⚠ `preflight.py` reports `parsed citations: 0` here: its `SPEC_LABEL_REVERSE` carries no label
@@ -312,7 +319,7 @@ verified by hand with `.claude/tools/webref` instead. Closing that gap is
 after its A-ii migrates the dict) — not this umbrella's, and **not its plan-checker tooling
 task's** either (an earlier revision booked it there, a second decision surface for one gap).
 
-**Split decision**: K=11 ⇒ SPLIT-DEFAULT. The plan **is** split into four shipping PRs, each
+**Split decision**: K=12 ⇒ SPLIT-DEFAULT. The plan **is** split into four shipping PRs, each
 behaviour-scoped, with one owning PR per coupling (§2, §5.3); the breadth verdict and the
 invariant-axis verdict agree.
 
@@ -604,12 +611,17 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   carries the boundary: the conjunct is what this program's cell surface — **6b** (all edges zero
   ⇒ no marker), **14**'s contrast (its no-marker clause only; coalescing holds either way, M3 keys
   on `has_inline_axis_edge`), **21** and §7's "a box with all edges zero gains nothing" — is
-  written against, and widening changes `LayoutBox` presence for every empty undecorated inline,
-  a presence change §7 disposes for decorated inlines and for the co-residents of a formerly
-  phantom line, not for undecorated empty inlines on lines that already exist; the breadth ("every empty
-  `<span>`/`<a>`/`<b>`") is a claim about documents, not a measurement. It is sliced out rather
-  than scheduled as PR-1e because none of its cells is constructible before PR-1c/PR-1d land (box
-  presence needs M4, line-height influence needs M6), which is why it arms at PR-1d landing. Those
+  written against, and widening changes `LayoutBox` presence for every empty undecorated inline;
+  the breadth ("every empty `<span>`/`<a>`/`<b>`") is a claim about documents, not a measurement. It is sliced out rather
+  than scheduled as PR-1e on a **scope** ground, not a constructibility one: the presence change
+  it carries is over **undecorated** empty inlines, outside this program's subject ("decorated
+  inline content") and outside §7's reader audit, which disposes presence for decorated inlines
+  and for the co-residents of a formerly phantom line only; it arms at PR-1d landing because that
+  is when the program's own presence change has landed and the wider one can be measured against
+  it. ⚠ An earlier drafting gave constructibility before PR-1c/PR-1d as the ground; 6b's flipped
+  form is constructible at PR-1a through the item-stream helper, and constructibility would not
+  distinguish a slot from a PR-1e — a PR-1e after PR-1d would find every one of the cells above
+  constructible (round 23, Axis 3). Those
   cells **flip** when this slot lands (14c is *not* one of them — a decorated empty inline
   keeps its box either way; an earlier drafting listed it). How: drop the conjunct from M1's emit
   test — the edges are already derived downstream (M3's sums, M5's disjunction; the PR-1a-only
@@ -637,7 +649,13 @@ booked slots. Each PR gets its own plan-memo and `/elidex-plan-review`.
   the cross-item opportunity is `elidex-linebreak`'s — UAX #14 over one string today,
   `find_break_opportunities(text)` (`crates/text/elidex-linebreak/src/lib.rs:26` at `22de3078`) —
   so the fix is an API there over the concatenated paragraph (or a stateful one) that the packer
-  consumes; packer-side state would re-derive UAX #14 in layout. Trigger: any line-breaking correctness work, a
+  consumes; packer-side state would re-derive UAX #14 in layout. **The consumption edge** is the
+  `elidex-text` facade, not `elidex-linebreak`: `pack/items.rs:66` at `22de3078` is `use
+  elidex_text::find_break_opportunities`, re-exported at `crates/text/elidex-text/src/lib.rs:10`
+  (`pub use elidex_linebreak::{find_break_opportunities, BreakOpportunity}`), and
+  `elidex-layout-block`'s Cargo.toml has `elidex-text` and no `elidex-linebreak` edge — so
+  ownership is `elidex-linebreak`'s and the new API is consumed through the facade, re-exported
+  like today's, else the fix adds a crate edge (round 23, Axis 1). Trigger: any line-breaking correctness work, a
   compat-survey hit, or `#11-inline-box-decoration-splits` picking up §5.5's margin-edge bullet
   (the same rule's other half). Re-eval: 2026-11-01. Found by Codex on #515.
 
@@ -882,10 +900,15 @@ on its own schedule.
 15. **The boundary is not a wrap opportunity — the advance** (§1.3):
     `<p style="width:300px">aaaa<span style="padding:20px"></span>b</p>` — nothing wraps
     (`lines.len() == 1` before and after PR-1b), and `b`'s run `inline_start` is
-    `measure_width("aaaa") + 40` after PR-1b vs `measure_width("aaaa")` today — expectations
-    computed with the harness's `measure_width` (`tests/mod.rs:31`), as the crate's justify
-    tests do. ⚠ What this cell does **not** assert: any wrap. This markup has no soft wrap
-    opportunity (css-text-3 §5.5: letters, no spaces; the boundary adds none), and needs none —
+    `measure_width("aaaa") + 40` after PR-1b — expectations computed with the harness's
+    `measure_width` (`tests/mod.rs:31`), as the crate's justify tests do. Today there is no `b`
+    run at all: `aaaa` and `b` are same-entity text runs (`collect.rs:314` `parent_entity`, both
+    the `<p>`) that `place_item` coalesces into one `"aaaab"` run at `inline_start` 0
+    (`pack/mod.rs:713-717` at `22de3078`: `coalesce = self.last_placed_entity == Some(entity)`);
+    the marker's inline-axis edge is what ends the coalescing (cell 14), and the separate `b` run
+    is the cell's second assertion. ⚠ What this cell does **not** assert: any wrap. This markup
+    has no soft wrap opportunity (letters, no spaces — css-text-3 §5 puts them at word
+    boundaries; §5.5: the boundary adds none), and needs none —
     the width is chosen so no item reaches the wrap guard, because the guard is `place_item`'s
     per-item flush (`pack/mod.rs:658` at `22de3078`) which wraps at every item boundary — the
     pre-existing divergence `#11-inline-item-boundary-soft-wrap` (§5.3) records and this program
@@ -1520,7 +1543,41 @@ are requirements, and PR-1a's DoD inherits them because M1 consumes the result:
    M1 evaluates the predicate on it (§6 cells 6g/6h). Its replacedness is decided from the
    `content` model — `ContentItem` (`elidex-plugin/src/computed_style/box_model.rs:35-56`) has
    `String`/`Attr`/`Counter`/`Counters` and no `url()` variant, so generated content is
-   non-replaced today, and the predicate must say so **from that fact, not from tag presence**. A
+   non-replaced today, and the predicate must say so **from that fact, not from tag presence**.
+   Three things about that read, all the prereq PR's to keep: (a) **the spec rule the predicate
+   tracks** is css-content-3 §1 *Inserting and Replacing Content: the `content` property*: a
+   `<content-replacement>` (a single `<image>`) "Makes the element or pseudo-element a replaced
+   element", whereas an `<image>` inside a `<content-list>` "is an inline anonymous replaced
+   element" — a replaced **child** — and the pseudo itself stays an inline box (`webref heading
+   css-content-3 1`; `body css-content-3 content-property`). ⚠ **But §1's own issue note, on the
+   one class this predicate actually evaluates**: "This value has historically been treated as
+   `<content-list>` on ::before and ::after. Presumably there's a Web-compat requirement on this,
+   so these pseudo-elements might need an exception. [Issue #2889]" — and the pseudo is elidex's
+   only `content` consumer today (`pseudo.rs`; the element-side resolve in `elidex-css-box` has no
+   consumer). So for a pseudo the operative reading is `<content-list>`: an `<image>` — bare or in
+   a list — is an anonymous replaced **child**, and the pseudo stays an inline box; the
+   `<content-replacement>` flip is an **element-side** condition, reached only when elements
+   consume `content`, and the predicate must not flip a pseudo to replaced on §1's un-excepted
+   text. The rule reaches elements too, so the read is not pseudo-only; the pseudo/element
+   distinction enters only that `<content-replacement>` reading. (b) **Which crate owns the
+   read**: `ContentValue`/`ContentItem` live in `elidex-plugin`'s `computed_style` beside `Display`
+   (`computed_style/display.rs:7`, re-exported at `computed_style/mod.rs:91`), so this is a
+   `ComputedStyle` read from `elidex-plugin` — the read the predicate already makes for `display`;
+   whichever half of the split the carved PR assigns it to (§9 leaves the split open), it adds no
+   crate edge (`elidex-form-core`, the replacedness half's candidate home, already depends on
+   `elidex-plugin`, `crates/dom/elidex-form-core/Cargo.toml:14` at `22de3078`).
+   (c) **Totality**: the replacedness answer is derived by a match **total over `ContentItem`**, so
+   a new variant fails to compile at the classification site rather than silently staying
+   non-replaced. "Today" is a fact about the model, not a deferral: `content: url()` never reaches
+   the model — `parse_content` (`elidex-css/src/declaration/misc.rs:441` at `22de3078`) accepts
+   `none`/`normal`/strings/`attr()`/`counter()`/`counters()` and rejects every other token
+   (`_ => Err(())`, `:516`), so the declaration is dropped before resolve; `CssValue::Url`
+   (`elidex-plugin/src/values.rs:71`) exists but is produced by the background parsers and the
+   presentational `background=` mapping (`elidex-dom-compat/src/presentational.rs:130`), never by
+   `parse_content`, and were
+   one to arrive at `content`, `resolve/box_model/mod.rs:444` `_ => ContentValue::Normal` (bare)
+   and `:435` `_ => None` (inside a list) would still yield no image item — such a pseudo
+   generates no entity. A
    tag-gated predicate (natural for the four `client*` Element members) would put the production
    pseudo silently outside the class while an element-kind fixture passes — requirement 5's
    fixture-defeat shape; cell 6g's fixture therefore builds the production node kind. The tag
@@ -1796,7 +1853,7 @@ explicitly so the fold can surface.
   not block on C-3 (they add no carrier and no consumer), but the splits slot does — its trigger is
   amended to name C-3b alongside PR-1d landing.
 * **`#11-inline-spec-cite-misattribution`** (new slot, **pre-existing** class): the wrong-section
-  citations §3.1 records, which this program *found* but did not create. Four classes each defined by a concept grep (three in §3.1, the fourth given below) plus two pattern-less hand-offs — six in all; the first three, each
+  citations §3.1 records, which this program *found* but did not create. Four classes each defined by a concept grep (three in §3.1, the fourth given below) plus three pattern-less hand-offs — seven in all; the first three, each
   defined by a concept grep because round 16 measured that a coordinate list under-covers every one
   of them: `grep -rEn "Box Model (L3|Level 3)[^a-z]*(§)?5\.3" crates/` (7 hits / 5 files →
   css-box-3 §3.1/§4.1); `grep -rEn "CSSOM[ -]?View[^)|]{0,15}§?\s*5\b" crates/` (4 hits / 3 crates
@@ -1807,10 +1864,17 @@ explicitly so the fold can surface.
   membership must be derived, not assumed). Also the "one border-box fragment per line"
   restatement of cssom-view-1 §6 step 3 at `boxes.rs:91` and four further sites — defined by
   the command, not this list: `grep -rn 'fragment per line' crates/` → 6 hits / 3 files on
-  `154bac3f` (so the slot receives **six classes: four with a concept grep** — Box Model,
-  CSSOM View §5, `9.2.2.1` from §3.1, and `fragment per line` from here — **and two pattern-less
-  hand-offs**: the css-backgrounds `:262`/`:270` pair and the `layout_query.rs:355` §6→§7 outlier
-  §3.1 names beside its CSSOM grep).
+  `154bac3f` (so the slot receives **seven classes: four with a concept grep** — Box Model,
+  CSSOM View §5, `9.2.2.1` from §3.1, and `fragment per line` from here — **and three pattern-less
+  hand-offs**: the css-backgrounds `:262`/`:270` pair, the `layout_query.rs:355` §6→§7 outlier
+  §3.1 names beside its CSSOM grep, and `crates/css/elidex-style/src/pseudo.rs:45` at `22de3078`,
+  whose comment attributes "on pseudo-elements, `content: normal` computes to `none`" to "CSS
+  Generated Content §2" — the rule is css-content-3 **§1**, the `content` property definition
+  ("For ::before and ::after, this computes to none"), and §2 is *Generated Content Values: the
+  `<content-list>` type* (`webref heading css-content-3 1` / `2`). It is a hand-off rather than a
+  grep because the wrong label is "CSS Generated Content §2", a name outside §3.1's concept greps;
+  and it is not PR-1a's touch set — PR-1a re-routes `collect.rs:265`, not `pseudo.rs` (round 23,
+  Axis 4)).
   **Why deferred, and why not folded in**: none of these is self-seeded — the citations were wrong
   before this program and stay wrong after it, so correcting them here would bundle a sweep with
   mechanism work, the shape `docs/plans/2026-07-citation-hygiene-umbrella.md` records as
@@ -1819,7 +1883,7 @@ explicitly so the fold can surface.
   open PR #501, so it is read as recorded experience, not ratified fact). The one cite this program
   *does* correct is `pack/mod.rs:726`, in PR-1b, because PR-1b changes what that comment documents.
   Trigger: any lane already sweeping citations in `elidex-layout-block`, `elidex-plugin`,
-  `elidex-shell` or `elidex-dom-api`, or the citation-hygiene program reaching its `crates/**`
+  `elidex-style` (two of the three hand-offs live there), `elidex-shell` or `elidex-dom-api`, or the citation-hygiene program reaching its `crates/**`
   re-derivation slice. Re-eval: 2026-11-01.
 * **The canonical *inline box* predicate, with the `client*` guard as its first consumer — carved
   to a third standalone prereq PR, ordered before PR-1a.** ⚠ **Deliberately larger than "add a guard
@@ -2053,7 +2117,7 @@ record; no count carried here) before being carved into #510. Earlier revisions 
 |---|---|
 | ✅ **Done 2026-09-07 (memory bookkeeping — no landing gate)**: this umbrella's slot and `#11-css2-spec-label-normalisation` (a #497 carve, **pre-existing** class; its Why/trigger are in `project_css2-spec-label-normalisation.md`, not restated here) are registered in `project_open-defer-slots.md` (the SoT per MEMORY.md), each with **its own recorded date rather than a fresh one** — `#11-css2-spec-label-normalisation` **2026-10-31** from its slot memo; this umbrella's own slot, which has none, takes 2026-11-01. This umbrella's own slot is **pre-existing** class: Codex opened it on #497, not this program. `#11-inline-fragmented-fn-decomposition` (carved from #495, pre-existing, **2026-10-28**) is **no longer part of this row** — #508 registered *and* partially closed it (next row); an earlier drafting of this row would have re-registered a closed slot with its pre-close date. ⚠ A registration is made true by the slot's *existence*, so routing it to a PR (the seam-3 prereq, then PR-1a, in earlier revisions) was deferral dressed as routing; the SoT's "they land with the umbrella" note is struck accordingly. | done (memory) |
 | ✅ **Landed with #508 (`7e256029`)** — the one row #508 carried, as the bookkeeping its own change made true. Register **and** close `#11-inline-fragmented-fn-decomposition` in one row — it is registered as closed-on-landing, not registered then closed — **as a partial close**, naming the seams §9 measures as still open, in the successor slot `#11-inline-fragmented-fn-seams-1-2` (**mixed** class per the SoT's landing record — the seams predate this umbrella, but `reconcile_flows`' extracted signature is created by #508, which makes it that PR's one **(own)** deferral, §5.3; an earlier drafting said "pre-existing" on the seams alone; Why: the prereq PR discharges seam 3 only; **trigger: canonical in the slot memo's Trigger section — the disjuncts the slot memo carries, no count here (a count goes stale each time the slot adds one; the per-program memory says so) — and this row no longer restates it**: disjuncts 1–2 are the two this row originally prescribed (their text, the six-PR exemption and its two grounds, and the predicate carve-out now live in the slot memo, not here), and the slot added further disjuncts for the items 1–2 cannot reach. A verbatim restore of this row's old text would drop the disjuncts the slot added (🔴 per-program memory). ⚠ **Disjunct 3 (slot memo) exempts no umbrella PR**: it fired at #511, and no later umbrella PR re-fires it — none of PR-1a–1d edits `inline/reconcile.rs` (last row); re-eval 2026-11-01). | seam-3 prereq PR |
-| Open `#11-inline-spec-cite-misattribution` (**pre-existing** class) with its six classes — four concept greps and two pattern-less hand-offs — Why, trigger and date in §9 | PR-1a |
+| Open `#11-inline-spec-cite-misattribution` (**pre-existing** class) with its seven classes — four concept greps and three pattern-less hand-offs — Why, trigger and date in §9 (re-tagged under the rule the `#11-inline-root-inline-box` row below states; an earlier drafting left this third pre-existing row at PR-1a — the rule was added and not swept, round 23, Axis 3) | approval PR |
 | Open `#11-inline-box-decoration-splits` (own) with the Why / trigger / date in §5.3, **and the §9 note that its carrier choice (`FragmentTree` vs a widened `InlineClientRects`) belongs to terminal-Z C-3/C-4, not to the slot alone** | PR-1c |
 | Open `#11-inline-min-content-box-edges` (own) with the Why / trigger / date in M8 | PR-1b |
 | ✅ **Landed with #511 (`22de3078`, 2026-09-07)** — Close `#11-inline-align-clientrects-nonpersist-path` — the arm it books work against is deleted | dead-arm prereq PR |
