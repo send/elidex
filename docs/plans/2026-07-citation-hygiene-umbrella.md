@@ -84,7 +84,7 @@ summarised across memos — each concern is stated once, in one slice's memo, an
 
 | Slice | Memo | Status |
 |---|---|---|
-| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), 0 hard / 0 soft grep-pass |
+| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), **0 hard / 1 soft** grep-pass — the soft is `948 catalog entries`, quoted at `:537` as *B's own figure* under B's S1 heading and not asserted by A-i, so the artifact that would clear it is B's to supply. ⚠ This cell read `0 soft` from the carve until R51 measured it; the gate had been reporting 1 the whole time |
 | A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | draft; `preflight` EXIT 0, K=2 |
 | A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | draft; `preflight` EXIT **1 by design** — A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet. A-iii is the first real consumer of that declaration, and its plan-review therefore follows A-ii, which the ordering already requires |
 | B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | draft; `preflight` EXIT 0. §4.0-§4.1 / §4.6 / §5 carried verbatim; §0-§2 and §7-§13 rewritten to the slice boundary |
