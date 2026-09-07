@@ -52,6 +52,30 @@ line: LEXED-FLAT", 13 examples at R14) is gone with the flat reading.  An
 aligned example is PASS; an example neither excluded nor aligned is a FAIL,
 and a FAIL here is a defect in Phase 1 or a disposition the plan does not
 state -- never a reason to rewrite the property.
+
+THE INLINE HALF (`run_inline`, PR #510 R17).  The spec's `Raw HTML` §6.6
+examples (613-632) are vendored in `commonmark-0.31.2-inline-html-examples.json`
+and run through `Memo` -- Phase 1 and Phase 2 -- against ONE property over
+the expected html: the raw HTML spans Phase 2 masks (`Lexed.html`) are
+EXACTLY the text the html emits verbatim.  A raw HTML span renders as
+written, an unescaped `<` and all; every other `<` of the paragraph's text
+renders as `&lt;`; so (i) each masked span must appear verbatim, in order,
+in its paragraph's `<p>…</p>` body, and (ii) the body's count of `<` --
+minus the two the rendering of each code span adds (`<code>` / `</code>`;
+inside one every `<` is `&lt;`) -- must equal the count of `<` inside the
+masked spans.  A span masked where the html escapes (`<33>`, `< a>`, `<a
+href='bar'title=title>`, `</a href="foo">`, `<a href="\\"">`) fails (ii); a
+tag, comment, instruction, declaration or CDATA section left unmasked
+where the html emits it fails (ii) too; a mis-bounded span fails (i).
+Inline content the html renders as a TAG of its own (a code span's `<code>`)
+is accounted for by Phase 2's own claim, never by a grammar over the html.
+NOTHING is excluded: the html of every §6.6 example is paragraphs only, so
+an example Phase 1 reads as anything else FAILS on the paragraph count --
+⚠ a first draft excluded "a non-paragraph block" by predicate, and under
+the mutant that makes whitespace before an attribute optional Example 622
+(`<a href='bar'title=title>`) became a type-7 HTML BLOCK (condition 7 reads
+the same tag grammar), was excluded, and the mutant survived: an exclusion
+arm over a set that is empty by construction is a hole, not a disposition.
 """
 
 import json
@@ -61,6 +85,10 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 EXAMPLES = HERE / "commonmark-0.31.2-block-examples.json"
+INLINE_EXAMPLES = HERE / "commonmark-0.31.2-inline-html-examples.json"
+
+# the html of a paragraphs-only example: one `<p>` body per paragraph
+_PARAGRAPHS = re.compile(r"<p>(.*?)</p>\n", re.DOTALL)
 
 # where a tight item's bare paragraph text ends: the item's close, or the
 # next block's tag on its own line (the renderer starts every block tag on a
@@ -188,6 +216,10 @@ def run(M):
                 passed += 1
             else:
                 fails.append((no, ex["section"], err))
+    return _report(data, passed, fails, skips)
+
+
+def _report(data, passed, fails, skips):
     n_skip = sum(len(v) for v in skips.values())
     lines = ["%d examples: %d aligned, %d excluded, %d FAIL" % (len(data["examples"]), passed, n_skip, len(fails))]
     for why, nos in sorted(skips.items()):
@@ -195,3 +227,53 @@ def run(M):
     for no, section, err in fails:
         lines.append("  FAIL Example %d (%s): %s" % (no, section, err))
     return not fails and passed > 0, "\n".join(lines)
+
+
+def align_inline(memo, html):
+    """The masked raw HTML spans against the html, paragraph by paragraph
+    (the module docstring's (i) and (ii)); None when they align, else the
+    first disagreement.  The html must be paragraphs only and Phase 1 must
+    have read exactly that many paragraphs and nothing else (a block of
+    another kind -- an HTML block a widened tag grammar opens -- is a FAIL,
+    never an exclusion)."""
+    bodies = _PARAGRAPHS.findall(html)
+    if "".join("<p>%s</p>\n" % b for b in bodies) != html:
+        return "the html is not a sequence of paragraphs: %r" % html[:60]
+    kinds = [b[0] for b in memo.sequence]
+    if kinds != ["p"] * len(bodies):
+        return "Phase 1 read %s where the html has %d paragraph(s)" % (kinds, len(bodies))
+    for para, body in zip(memo.paragraphs, bodies):
+        lx = para.lexed
+        spans, pos = [lx.text[a:b] for a, b in lx.html], 0
+        for sp in spans:
+            k = body.find(sp, pos)
+            if k < 0:
+                return "span %r masked but not verbatim in the html after [%d:] (%r)" % (sp, pos, body[pos:pos + 40])
+            pos = k + len(sp)
+        want, got = sum(sp.count("<") for sp in spans), body.count("<") - 2 * len(lx.code)
+        if got != want:
+            return "the html emits %d verbatim `<` outside <code>, the masked spans %r hold %d" % (got, spans, want)
+    return None
+
+
+def run_inline(M):
+    """(ok, detail): every vendored §6.6 example through `M.Memo`, aligned
+    by `align_inline` (nothing is excluded; the "excluded" figure is printed
+    as 0 so the two halves report alike); a crash on any example is a FAIL
+    of that example."""
+    data = json.loads(INLINE_EXAMPLES.read_text(encoding="utf-8"))
+    passed, fails, skips = 0, [], {}
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "example.md"
+        for ex in data["examples"]:
+            no = ex["example"]
+            p.write_text(ex["markdown"], encoding="utf-8")
+            try:
+                err = align_inline(M.Memo(p), ex["html"])
+            except Exception as e:      # noqa: BLE001 -- a crash is the defect
+                err = "crash %s: %s" % (type(e).__name__, str(e)[:60])
+            if err is None:
+                passed += 1
+            else:
+                fails.append((no, ex["section"], err))
+    return _report(data, passed, fails, skips)

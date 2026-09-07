@@ -127,16 +127,21 @@ class Memo:
         # `[x]` later is prose, not the population miss; `sibling_path` is the
         # one resolver that says so, in `unresolved_references`)
         self.orphans = {}
-        # [(lineno, content line, reading)] every line of a raw extent that is
-        # not a fence, in ONE list -- the LEX-UNSUPPORTED? seed's population,
-        # under one seed rule; `reading` says which grammar hides the line:
-        # "html" (an HTML block, §4.6) or "indented" (indented code, §4.4).
+        # [(lineno, raw text, reading)] every line of a raw extent that is not
+        # a fence, and every inline raw HTML span (§6.6, keyed on the line it
+        # starts on -- a comment may span lines), in ONE list -- the
+        # LEX-UNSUPPORTED? seed's population, under one seed rule; `reading`
+        # says which grammar hides the text: "html" (an HTML block, §4.6),
+        # "indented" (indented code, §4.4) or "inline" (a §6.6 span inside a
+        # paragraph or a cell; PR #510 R17 -- the same disposition as the
+        # block form, "raw, seeded": an id inside an attribute is no site).
         # A fence is not recorded: it is the author's explicit code marker,
         # where an indented `| row |` is the I-C silent-skip class.
         self.raw = []
         self.paragraphs, _, _, _ = self._run(self._parse(self.lines, list(range(1, len(self.lines) + 1)), None))
         for lx in self.lexed():
             lx.resolve(self.defs)
+        self.raw.extend((lineno, text, "inline") for lineno, text in self._inline_raw())
 
     @staticmethod
     def _run(frame):
@@ -193,19 +198,47 @@ class Memo:
         across a gap (§5.3: an item that "directly contain[s] two block-level
         elements with a blank line between them"; a nested list's own gaps
         are its own, a quote's are discarded, commonmark.js's `lastLineBlank`
-        exceptions).  With a paragraph open
-        (`cur` holds its lines: the run ended AT this line) the ONE boundary
-        a lazy line can be is a GFM table header whose delimiter row carries
-        the marker -- the only `block_end` arm that needs the next line,
-        which `_quote`'s gather could not see -- and that line is CONTENT:
-        cmark-gfm reads the header out of the paragraph's last line
-        (`> a\\n| h |\\n> |---|\\n> | 1 |` is quote[p(a), table(h; 1)],
-        measured), so the table is admitted there instead of the quote
-        ending.  (Measured divergence, not modelled: after a reference
-        DEFINITION cmark-gfm still hands the lazy line to the table and
-        prints the definition as a paragraph, `> [a]: /u\\n| h |\\n> |---|`;
-        here a definition is a block of its own, so the quote ends.)  Each
-        line is classified once, in order:
+        exceptions).  With a RUN open the ONE boundary a lazy line can be is
+        a GFM table header whose delimiter row carries the marker -- the
+        only `block_end` arm that needs the next line, which `_quote`'s
+        gather could not see -- and that line is CONTENT: cmark-gfm's table
+        extension reads the header out of the open paragraph's last line,
+        and a reference definition is paragraph text until the paragraph
+        ends (§4.7 is parsed out of it at finalisation), so a definition
+        keeps the run open exactly as paragraph text does.  ONE rule (PR
+        #510 R17): a lazy candidate `table_header_at` accepts is a table
+        header iff a run is open -- `cur` holds paragraph lines, or the
+        line before was the last line of a definition consumed at this
+        level (`def_end`) -- and is handed to `admit_table` instead of
+        ending the quote.  cmark-gfm, MEASURED (`gh api -X POST /markdown
+        -f mode=gfm -f text=…`, 2026-09-08) on `<X>\\n| h |\\n> |---|\\n> | 1
+        |` for each X, the lazy `| h |` between:
+          * `> a` (a paragraph): quote[p, table] -- design re-gate 3;
+          * `> [a]: /u` (a definition): quote[table]; `> [a]: /u\\n> [b]:
+            /v` (two): quote[table]; `- [a]: /u` with `  |---|` (an item):
+            item[table] -- the R17 fix, and the reviewer's shape with a
+            schema table (`> [a]: /u\\n| # | Slice | … |\\n> |---|…`) is
+            that table inside the quote;
+          * `> a\\n>` (a blank quote line), `> ```\\n> x\\n> ```` (a fence),
+            `> # h` (a heading), `>     code` (indented code), `> <div>` (an
+            HTML block), `> ***` (a thematic break), `> | a |\\n> |---|` (a
+            table): the quote ENDS before `| h |`, which is a paragraph
+            outside it, and `|---|` / `| 1 |` a second quote's paragraph --
+            no run is open, so the lazy line is a boundary, as before;
+          * `> [a]: /u\\n>` (a blank line after the definition): the same
+            quote end -- the blank closes the run;
+          * a lazy DELIMITER (`> [a]: /u\\n| h |\\n|---|`) or a lazy BODY row
+            (`…> |---|\\n| 1 |`): paragraph text / the quote's end,
+            unchanged (`table_header_at` / `admit_table`'s lazy arms).
+        ⚠ One divergence stays, stated: cmark-gfm PRINTS the definition as
+        a paragraph and registers nothing (`[a]: /u\\n| h |\\n|---|\\n\\n[a]`
+        renders `[a]` literally, at the top level and in the quote alike --
+        its table extension re-creates the residual paragraph without the
+        §4.7 reference parse); here the definition registers (§4.7: a valid
+        definition at a block start is a block; a sibling it names is
+        walked -- the polarity that loses no memo) and the header forms
+        the table.  The lazy rule models WHERE the header lands, not the
+        fate of the definition.  Each line is classified once, in order:
 
           * a raw-extent opener (`raw_opener`; indented code, fences and HTML
             blocks share the one rule): its lines to `raw_extent` are never
@@ -264,6 +297,7 @@ class Memo:
         run_text, run_off, defs_at = {}, {}, {}
         sequence, seq0 = self.sequence, len(self.sequence)
         gap, loose = False, False      # §5.3 (the docstring): a gap is open / a block opened across one
+        def_end = -1                   # the content index just past the last definition consumed here
 
         def flush(kind="p", last=None):
             if cur:
@@ -298,8 +332,11 @@ class Memo:
             line = lines[i]
             new_run = i not in run_text
             if new_run:
-                if lazy is not None and lazy[i] and not (cur and table_header_at(lines, i, lazy)):
-                    break       # §5.1: no paragraph is open, so the quote ends here
+                # §5.1: a lazy candidate is content only with a RUN open
+                # (paragraph text, or the definition just consumed), and
+                # then only as the table header cmark-gfm reads out of it
+                if lazy is not None and lazy[i] and not ((cur or i == def_end) and table_header_at(lines, i, lazy)):
+                    break       # no run is open, so the container ends here
                 # outside a run no paragraph is open: the block state is the
                 # run map itself, not a look at the previous line
                 opener = raw_opener(line, False)
@@ -353,6 +390,7 @@ class Memo:
                 sequence.append(["def", linenos[i], linenos[i + k - 1]])
                 open_block()
                 i += k
+                def_end = i     # the run stays open through the definition (the lazy-header rule)
                 continue
             if d is not None:
                 # a valid definition that cannot take effect: the orphan, keyed
@@ -530,16 +568,49 @@ class Memo:
         for p in self.paragraphs:
             yield p.lexed
 
+    def _inline_raw(self):
+        """(lineno, text) of every §6.6 raw HTML span Phase 2 found (`Lexed.html`),
+        in the order `lexed` yields the blocks -- a cell's span at its row's
+        line, a paragraph's at the line the span STARTS on (`Paragraph.locate`;
+        a comment may cross a line ending).  Read once, after `resolve`, into
+        `raw` for the LEX-UNSUPPORTED? seed."""
+        for t in self.tables:
+            for row in [t.header] + t.rows:
+                for cell in row.cells:
+                    for a, b in cell.lexed.html:
+                        yield row.lineno, cell.lexed.text[a:b]
+        for p in self.paragraphs:
+            for a, b in p.lexed.html:
+                yield p.locate(a)[0], p.lexed.text[a:b]
+
     def sibling_path(self, dest):
         """The ONE destination -> sibling mapping: the memo on disk a link
         destination names, or None when it names none.  POLICY (CommonMark
         §6.3 / GFM say nothing about siblings on disk): a sibling is a
         RELATIVE `.md` path beside this memo.  Stages, in spec order:
-          (a) the scheme test on the RAW path component -- per WHATWG URL a
-              scheme is read before percent-decoding, so `notes%3Achild.md`
-              has no scheme: it is the local file `notes:child.md`;
+          (a) the scheme test on the RAW path component -- WHATWG URL §4.4
+              "URL parsing", the basic URL parser's *scheme start state*
+              (https://url.spec.whatwg.org/#scheme-start-state, step 1: "If
+              c is an ASCII alpha, append c, lowercased, to buffer, and set
+              state to scheme state") and *scheme state*
+              (https://url.spec.whatwg.org/#scheme-state, step 1: "If c is
+              an ASCII alphanumeric, U+002B (+), U+002D (-), or U+002E (.),
+              append c, lowercased, to buffer"; step 2: "Otherwise, if c is
+              U+003A (:)" -- the scheme is set) read the input's code points
+              AS WRITTEN; `%` is in neither class, so at `%` the parser
+              leaves for the *no scheme state* and `notes%3Achild.md` has no
+              scheme (`_SCHEME` is that class and that terminator) -- it is
+              the local file `notes:child.md`.  Percent-decoding is no step
+              of the parser at all: the *path state*
+              (https://url.spec.whatwg.org/#path-state) percent-ENCODES and
+              keeps `%xx` as written;
           (b) percent-decode (`slice%20sib.md` is `slice sib.md`, as
-              `<slice sib.md>` is);
+              `<slice sib.md>` is) -- WHATWG URL §1.3 "Percent-encoded
+              bytes", *percent-decode* on a string
+              (https://url.spec.whatwg.org/#string-percent-decode: "Let bytes
+              be the UTF-8 encoding of input. Return the percent-decoding of
+              bytes"), the operation a consumer applies to a parsed path;
+              `urllib.parse.unquote` is that operation;
           (c) the DECODED name must not be absolute (`/x`, `//host/x` -- a
               site URL joined to the memo's directory would probe the host's
               filesystem root) nor hold a C0 control / DEL (`child%00.md`

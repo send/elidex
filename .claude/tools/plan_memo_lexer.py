@@ -8,20 +8,26 @@ table rows, reference definitions) is `plan_memo_blocks.py`, which imports
 this module's inline grammar; the order is plan §2 "Lexing order".
 
 Per block inline content (a paragraph or a cell): code spans (CommonMark
-§6.1, backtick strings of equal length) and links / images (§6.3 / §6.4)
-are lexed by ONE left-to-right pass (`inline_pass`): a code span is skipped
-as met, an inline-link tail is parsed by lookahead on the raw text -- there
-is no code pre-mask.  An image's bracket structure is parsed so that it is
-not a link and a link may wrap it; its destination never joins the
-population, its alt text is prose, its tail is masked.  Inline constructs
-outside the lexed clauses (§6.5 autolinks, §6.2 emphasis beyond the
-decoration the id grammar reads, §2.5 character references in PROSE) are
-read as written; a character reference in a link DESTINATION is decoded
-(§2.5 / §6.3, `normalize_destination` -- the one place a destination's text
-is read, PR #510 R16); the block types not modelled are the plan's §3.0
-table.
+§6.1, backtick strings of equal length), raw HTML (§6.6: an open tag, a
+closing tag, an HTML comment, a processing instruction, a declaration or a
+CDATA section -- ONE tag grammar, `_HTML_TAG`, whose open / closing tag
+bodies `OPEN_TAG` / `CLOSING_TAG` are also §4.6 start condition 7's, read by
+`plan_memo_blocks.py`) and links / images (§6.3 / §6.4) are lexed by ONE
+left-to-right pass (`inline_pass`): a code span or a raw HTML span is
+skipped as met (neither is inline-parsed: a bracket inside an attribute
+value or a comment is not a link delimiter, PR #510 R17), an inline-link
+tail is parsed by lookahead on the raw text -- there is no pre-mask of any
+kind.  An image's bracket structure is parsed so that it is not a link and
+a link may wrap it; its destination never joins the population, its alt
+text is prose, its tail is masked.  Inline constructs outside the lexed
+clauses (§6.5 autolinks, §6.2 emphasis beyond the decoration the id grammar
+reads, §2.5 character references in PROSE) are read as written; a
+character reference in a link DESTINATION is decoded (§2.5 / §6.3,
+`normalize_destination` -- the one place a destination's text is read, PR
+#510 R16); the block types not modelled are the plan's §3.0 table.
 
-`Lexed` is the one Phase-2 value per block: code spans, links, images, and
+`Lexed` is the one Phase-2 value per block: code spans, raw HTML spans,
+links, images, and
 the two bare tokens the scanners must not read an id out of (`[C19]`-style
 citation ids, `.md` file names).  Nothing in this module knows what a ROW
 id is: the citation shape and the ASCII boundary it composes are the id
@@ -358,6 +364,88 @@ def _reference_tail(s, opener, close, defs):
     return end, defs.get(normalize_label(raw)), form, raw
 
 
+# --------------------------------------------------------------------------
+# CommonMark §6.6 raw HTML -- THE one tag grammar, spelled once.  "Text
+# between < and > that looks like an HTML tag is parsed as a raw HTML tag and
+# will be rendered in HTML without escaping."  Each production below is the
+# spec's, verbatim in its docstring-comment; every arm was checked against
+# commonmark.js 0.31.2 (`node cm.js`, PR #510 R17) at an INLINE position
+# (`a <…>`: at a line start most of these shapes are §4.6 HTML BLOCKS, a
+# Phase-1 matter).  §4.6 start condition 7 ("a complete open tag ... or a
+# complete closing tag") reads `OPEN_TAG` / `CLOSING_TAG` from here, so the
+# tag grammar has no second spelling in `plan_memo_blocks.py`.
+# --------------------------------------------------------------------------
+
+# "spaces, tabs, and up to one line ending" -- the separator BEFORE an
+# attribute (at least one character: `<a href='bar'title=title>` is not a
+# tag, Example 622 "Missing whitespace") ...
+_WS = r"(?:[ \t]*\n[ \t]*|[ \t]+)"
+# ... and its optional form, around an attribute's `=` and before the `/?>`
+# (`<a b = "c">`, `<a b= c>`, `<b c="d" />` are tags; two line endings never
+# meet the grammar, since a blank line ends the paragraph first).
+_WS0 = r"(?:[ \t]*(?:\n[ \t]*)?)"
+# "A tag name consists of an ASCII letter followed by zero or more ASCII
+# letters, digits, or hyphens (-)": `<a-1>`, `<a1>` are tags; `<3 …>`,
+# `<a:b>`, `<a_ b>`, `< span>` are not (Example 618 `<33> <__>`).
+TAG_NAME = r"[A-Za-z][A-Za-z0-9-]*"
+# "An attribute name consists of an ASCII letter, _, or :, followed by zero
+# or more ASCII letters, digits, _, ., :, or -": `<a b:c=d>`, `<a b.c=d>`,
+# `<a _boolean>` are tags; `<a 1b=d>`, `<a h*#ref="hi">` (Example 619) are not.
+_ATTR_NAME = r"[A-Za-z_:][A-Za-z0-9_.:-]*"
+# "An unquoted attribute value is a nonempty string of characters not
+# including spaces, tabs, line endings, ", ', =, <, >, or `" -- so brackets
+# and parentheses ARE value characters: `<span title=[x](y.md)>` is a tag
+# (measured; ⚠ the R17 brief presumed otherwise) -- "A single-quoted
+# attribute value consists of ', zero or more characters not including ',
+# and a final '" -- "A double-quoted attribute value consists of ", zero or
+# more characters not including ", and a final "" (`<a href="hi'>` is no
+# tag, Example 620; `<a href="\"">` is no tag, Example 632: the `\` does not
+# escape inside a tag, and `"` may not follow the value).
+_ATTR_VALUE = r"(?:[^ \t\n\"'=<>`]+|'[^']*'|\"[^\"]*\")"
+# "An attribute consists of spaces, tabs, and up to one line ending, an
+# attribute name, and an optional attribute value specification" -- "An
+# attribute value specification consists of optional spaces, tabs, and up
+# to one line ending, a = character, optional spaces, tabs, and up to one
+# line ending, and an attribute value."
+_ATTRIBUTE = _WS + _ATTR_NAME + "(?:" + _WS0 + "=" + _WS0 + _ATTR_VALUE + ")?"
+# "An open tag consists of a < character, a tag name, zero or more
+# attributes, optional spaces, tabs, and up to one line ending, an optional
+# / character, and a > character" -- the body after the `<`.  `<a / >`
+# (Example 621) and `<a b=c<d>` are not tags; `<a b=c>d>` is the tag `<a
+# b=c>` and the text `d>`.
+OPEN_TAG = TAG_NAME + "(?:" + _ATTRIBUTE + ")*" + _WS0 + "/?>"
+# "A closing tag consists of the string </, a tag name, optional spaces,
+# tabs, and up to one line ending, and the character >" -- the body after
+# the `<`.  `</a >` is one; `</ span>` and `</a b>` (Example 624) are not.
+CLOSING_TAG = "/" + TAG_NAME + _WS0 + ">"
+# "An HTML comment consists of <!-->, <!--->, or <!--, a string of
+# characters not including the string -->, and -->" -- the 0.31 grammar
+# (0.30 forbade `--` inside and a `-` at the end): `<!-- a -- b -->`, `<!--
+# x --->`, `<!---->` are comments, `<!-->` / `<!--->` are the two short
+# ones (Example 626: `foo <!--> foo -->` is the comment `<!-->` and text),
+# `<!-- x --` is not closed.  Bodies after the `<`.
+_COMMENT = r"!-->|!--->|!--.*?-->"
+# "A processing instruction consists of the string <?, a string of
+# characters not including the string ?>, and the string ?>" (Example 627;
+# `<? ?>` is one).
+_PI = r"\?.*?\?>"
+# "A declaration consists of the string <!, an ASCII letter, zero or more
+# characters not including the character >, and the character >" -- either
+# case since 0.30 (`<!x>`, `<!ELEMENT br EMPTY>` Example 628); `<!>` and
+# `<!ǅ x>` (not an ASCII letter) are not.
+_DECLARATION = r"![A-Za-z][^>]*>"
+# "A CDATA section consists of the string <![CDATA[, a string of characters
+# not including the string ]]>, and the string ]]>" -- exact case, as §4.6
+# condition 5 is (`<![cdata[ x ]]>` is text); Example 629.
+_CDATA = r"!\[CDATA\[.*?\]\]>"
+# "An HTML tag consists of an open tag, a closing tag, an HTML comment, a
+# processing instruction, a declaration, or a CDATA section."  DOTALL: a
+# comment, an instruction or a CDATA section may span the paragraph's line
+# endings (Example 625, `foo <!-- this is a --\ncomment - with hyphens -->`).
+_HTML_TAG = re.compile("<(?:%s|%s|%s|%s|%s|%s)" % (OPEN_TAG, CLOSING_TAG, _COMMENT, _PI, _DECLARATION, _CDATA),
+                       re.DOTALL)
+
+
 def _code_closer(runs, a1, k):
     """The end offset of the first backtick string of length `k` starting at
     or after `a1` (§6.1: a code span "ends with a backtick string of equal
@@ -374,9 +462,9 @@ def _code_closer(runs, a1, k):
 def inline_pass(s, defs):
     """ONE left-to-right pass over a block's inline content -- CommonMark
     0.31.2 "Appendix: A parsing strategy", Phase 2 "inline structure" --
-    recognising backtick strings (§6.1) and brackets (§6.3 / §6.4) together,
-    and resolving references through `defs` (normalised label ->
-    destination).  Returns (code, links, images, unresolved).
+    recognising backtick strings (§6.1), raw HTML (§6.6) and brackets (§6.3
+    / §6.4) together, and resolving references through `defs` (normalised
+    label -> destination).  Returns (code, links, images, unresolved, html).
 
     Backtick strings: a run opens a code span closed by the next run of
     equal length; the scan jumps past the span (brackets inside it are never
@@ -385,6 +473,22 @@ def inline_pass(s, defs):
     "backslash escapes do not work in code spans"), so a closer is read raw.
     An escaped backtick (`\\` + `` ` ``, §2.4) is a literal character and
     opens nothing.
+
+    Raw HTML (§6.6, PR #510 R17): at a `<` the ONE tag grammar `_HTML_TAG`
+    is tried; a match is a span the scan jumps past -- its text is never
+    inline-parsed, so a bracket inside an attribute value or a comment is
+    not a link delimiter (`<span title="[x](y.md)">` links nothing and a
+    `]` inside it closes nothing; the tail `[x](absent.md)` there once made
+    a false unavailable-memo miss, rc 2) and its content is not prose (an
+    id inside an attribute is no naming site; the memo records the span
+    for the LEX-UNSUPPORTED? seed, the disposition the plan's §3.0 gives
+    every raw line); a `<` the grammar refuses is literal text and the
+    brackets after it are read (`<3 [x](y.md)` and `<a href="x"
+    [x](y.md)>` link `y.md`; `\\<span …>` is an escaped `<`).  The three
+    delimiters are read left to right as met, commonmark.js's order:
+    `<a href="`">b` c` is a tag and then a literal backtick, `` `x <span
+    title="`">b `` a code span and then text; `[<span>](y.md)` is a link
+    wrapping a tag (each measured).
 
     Brackets, per the Appendix's "look for link or image": a stack of `[` /
     `![` openers, each "active"; on `]` the nearest opener is popped -- "if
@@ -403,7 +507,8 @@ def inline_pass(s, defs):
     us from getting links within links.)"
 
     Linear in the bracket structure: no substring is re-parsed.  `code` =
-    [(start, end)] backticks included; `links` = [(tail_start, end,
+    [(start, end)] backticks included; `html` = [(start, end)] of every raw
+    HTML span, `<` and `>` included; `links` = [(tail_start, end,
     destination)] with `tail_start` the `]` closing the link text, so a
     caller masking the tail leaves the visible text -- prose -- in the
     scanned stream; `images` = [(tail_start, end)] (§6.4: an image's
@@ -431,12 +536,20 @@ def inline_pass(s, defs):
     meant to link).
     """
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
-    code, out, images, unresolved, stack, i, n = [], [], [], [], [], 0, len(s)
+    code, out, images, unresolved, html, stack, i, n = [], [], [], [], [], [], 0, len(s)
     relabel = -1        # the `[` of the label of the last failed full reference
     while i < n:
         c = s[i]
         if _is_escape(s, i):
             i += 2                      # §2.4: `\[` / `\]` / `\`` are literal
+            continue
+        if c == "<":
+            m = _HTML_TAG.match(s, i)
+            if m is None:
+                i += 1                  # §6.6: not a tag, so a literal `<`
+            else:
+                html.append((i, m.end()))
+                i = m.end()             # a raw HTML span is never inline-parsed
             continue
         if c == "`":
             a1 = i
@@ -482,7 +595,7 @@ def inline_pass(s, defs):
                 if not opener[1]:
                     opener[2] = False
         i = end
-    return code, out, images, unresolved
+    return code, out, images, unresolved, html
 
 
 
@@ -519,20 +632,22 @@ class Lexed:
     over raw lines by `plan_memo_memo.py::Memo`, and a reference
     definition is never inline content.  `tokens` = [(start, end, "cite" |
     "file")] over the raw text.  `resolve(defs)` runs `inline_pass` and sets
-    `code` = code spans, `links` = [(tail_start, end, destination)],
-    `images` = [(tail_start, end)] and `unresolved` = [(offset, label, form,
-    is_image)] of the references no definition answers; `mask` is set by the
-    disposition step in `plan_memo_tables.py` once the row ids are known."""
+    `code` = code spans, `html` = raw HTML spans (§6.6), `links` =
+    [(tail_start, end, destination)], `images` = [(tail_start, end)] and
+    `unresolved` = [(offset, label, form, is_image)] of the references no
+    definition answers; `mask` is set by the disposition step in
+    `plan_memo_tables.py` once the row ids are known."""
 
-    __slots__ = ("text", "code", "tokens", "links", "images", "unresolved", "mask")
+    __slots__ = ("text", "code", "html", "tokens", "links", "images", "unresolved", "mask")
 
     def __init__(self, text):
         self.text = text
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
-        self.code, self.links, self.images, self.unresolved = [], [], [], []
+        self.code, self.html, self.links, self.images, self.unresolved = [], [], [], [], []
         self.mask = None
 
     def resolve(self, defs):
-        """The inline pass over the RAW text (code spans and brackets
-        together; no pre-mask), with `defs` = normalised label -> destination."""
-        self.code, self.links, self.images, self.unresolved = inline_pass(self.text, defs)
+        """The inline pass over the RAW text (code spans, raw HTML and
+        brackets together; no pre-mask), with `defs` = normalised label ->
+        destination."""
+        self.code, self.links, self.images, self.unresolved, self.html = inline_pass(self.text, defs)

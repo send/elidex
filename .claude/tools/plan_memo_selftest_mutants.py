@@ -42,6 +42,9 @@ SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3
 # The block-sequence control over the §4.4 / §5.1 / §5.2 shapes the vendored
 # examples do not reach (each expected sequence read off commonmark.js 0.31.2).
 SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"
+# The inline half of the conformance control: the spec's §6.6 Raw HTML
+# examples against the spans Phase 2 masks (PR #510 R17).
+INLINE_EXAMPLES = "CommonMark 0.31.2 spec examples (§6.6 Raw HTML): the spans Phase 2 masks are the html's verbatim `<` text"
 
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks

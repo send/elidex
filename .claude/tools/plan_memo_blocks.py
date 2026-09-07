@@ -36,7 +36,7 @@ import bisect
 import re
 
 from plan_memo_lexer import (
-    Lexed, _escaped, _skip_ws, link_destination, link_label, link_title,
+    CLOSING_TAG, OPEN_TAG, Lexed, _escaped, _skip_ws, link_destination, link_label, link_title,
 )
 
 # --------------------------------------------------------------------------
@@ -217,11 +217,15 @@ _HTML_TAG_NAMES = (
 # line.  "All types of HTML blocks except type 7 may interrupt a paragraph."
 # Case is PER CONDITION, as the spec states it: 1 and 6 name their tags
 # "(case-insensitive)" -- a scoped `(?i:…)`, ASCII-only under `re.ASCII` so a
-# long s never folds to `s`; 7's tag and attribute names are `[A-Za-z]`
-# classes by their own grammar; 4 is `<!` + an ASCII letter of either case
-# (0.30+); 2 `<!--`, 3 `<?` and 5 `<![CDATA[` are exact strings -- a global
-# IGNORECASE read `<![cdata[` as a CDATA opener where commonmark.js 0.31.2
-# reads a paragraph (PR #510 R13).
+# long s never folds to `s`; 7 is "a complete open tag ... or a complete
+# closing tag, followed by zero or more spaces and tabs, followed by the end
+# of the line" -- §6.6's open / closing tag, the lexer's ONE tag grammar
+# (`OPEN_TAG` / `CLOSING_TAG`, imported; on one line its "up to one line
+# ending" arm never fires, so nothing is widened -- ⚠ until PR #510 R17 the
+# tag grammar was spelled a second time here); 4 is `<!` + an ASCII letter
+# of either case (0.30+); 2 `<!--`, 3 `<?` and 5 `<![CDATA[` are exact
+# strings -- a global IGNORECASE read `<![cdata[` as a CDATA opener where
+# commonmark.js 0.31.2 reads a paragraph (PR #510 R13).
 _HTML_BLOCK = re.compile(
     r"^<(?:"
     r"(?P<t1>(?i:pre|script|style|textarea)(?:[ \t>]|$))"
@@ -230,8 +234,7 @@ _HTML_BLOCK = re.compile(
     r"|(?P<t4>![A-Za-z])"
     r"|(?P<t5>!\[CDATA\[)"
     r"|(?P<t6>/?(?i:" + _HTML_TAG_NAMES + r")(?:[ \t>]|/>|$))"
-    r"|(?P<t7>(?:[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*"
-    r"(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?>|/[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$)"
+    r"|(?P<t7>(?:" + OPEN_TAG + "|" + CLOSING_TAG + r")[ \t]*$)"
     r")", re.ASCII)
 _HTML_END = {
     "t1": re.compile(r"</(?:pre|script|style|textarea)>", re.IGNORECASE | re.ASCII),
@@ -481,10 +484,13 @@ def table_header_at(lines, i, lazy=None):
     container and opens nothing).  The HEADER row may be lazy: cmark-gfm
     reads the header out of the open paragraph's last line when the
     delimiter row carries the marker (`> a\n| h |\n> |---|\n> | 1 |` is
-    quote[p(a), table(h; 1)], measured, design re-gate 3), so the lazy
+    quote[p(a), table(h; 1)], measured, design re-gate 3), and out of the
+    line after a reference definition the same way (`> [a]: /u\n| h |\n>
+    |---|` is a table in the quote too, measured, PR #510 R17: the
+    definition is paragraph text until the paragraph ends), so the lazy
     line is content here -- as a table header, the one boundary a lazy line
-    can be with a paragraph open (`Memo._parse` hands it to the table
-    instead of ending the quote)."""
+    can be with a RUN open (`Memo._parse` hands it to the table instead of
+    ending the quote)."""
     if (i + 1 >= len(lines) or is_indented(lines[i]) or is_indented(lines[i + 1])
             or _is_lazy(lazy, i + 1)):
         return False

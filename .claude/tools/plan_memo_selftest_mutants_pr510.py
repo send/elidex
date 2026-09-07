@@ -16,7 +16,8 @@ under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, IDS, LEXER, MEMO, MUTANTS, ROLES, SELFTEST, SEQUENCE, SPEC_EXAMPLES, TABLES,
+    BLOCKS, CHECK, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, ROLES, SELFTEST, SEQUENCE, SPEC_EXAMPLES,
+    TABLES,
 )
 
 MUTANTS += [
@@ -158,8 +159,9 @@ MUTANTS += [
     ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", MEMO,
      '        if _SCHEME.match(raw):                                       # (a)',
      '        if _SCHEME.match(unquote(raw)):                              # (a)',
-     ["(link) `notes%3Achild.md` has no scheme (WHATWG URL: a scheme is read BEFORE decoding): it is "
-      "the local file `notes:child.md`, and it is scanned"]),
+     ["(link) `notes%3Achild.md` has no scheme (WHATWG URL §4.4 #scheme-start-state / #scheme-state read the "
+      "input as written and `%` is in neither class; #string-percent-decode is a later, separate operation): "
+      "it is the local file `notes:child.md`, and it is scanned"]),
     ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", MEMO,
      '    try:\n        return path.resolve()\n    except (OSError, RuntimeError):\n        return path',
      '    return path.resolve()',
@@ -410,7 +412,7 @@ MUTANTS += [
       SPEC_EXAMPLES]),
     ("R13 §5.1: a lazy candidate where no paragraph is open ends the quote (drop the stop: it is "
      "parsed inside; Example 237 is the spec's instance)", MEMO,
-     '                if lazy is not None and lazy[i] and not (cur and table_header_at(lines, i, lazy)):\n'
+     '                if lazy is not None and lazy[i] and not ((cur or i == def_end) and table_header_at(lines, i, lazy)):\n'
      '                    break',
      '                if False:\n                    break',
      [SEQUENCE, SPEC_EXAMPLES]),
@@ -436,7 +438,7 @@ MUTANTS += [
       "is read out of the quote paragraph's last line): its row declares its id"]),
     ("RG3 MIN-9: the driver hands a lazy header to the table instead of ending the quote (re-inject the "
      "unconditional stop)", MEMO,
-     '                if lazy is not None and lazy[i] and not (cur and table_header_at(lines, i, lazy)):\n'
+     '                if lazy is not None and lazy[i] and not ((cur or i == def_end) and table_header_at(lines, i, lazy)):\n'
      '                    break',
      '                if lazy is not None and lazy[i]:\n                    break',
      [SEQUENCE,
@@ -681,4 +683,76 @@ MUTANTS += [
      '            except (OSError, UnicodeDecodeError) as e:',
      '            except (OSError, RuntimeError, UnicodeDecodeError) as e:',
      ["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"]),
+]
+
+R17_LAZY = "a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"
+R17_REVIEWER = ("(quote) the R17 reviewer's shape: `> [a]: /u` then an UNQUOTED schema header over a QUOTED delimiter row "
+                "is a table in the quote (cmark-gfm: a definition is paragraph text until the paragraph ends, and the "
+                "header is read out of its last line) -- the row declares its id")
+R17_SPAN = ("(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\">text</span>`: a bracket inside a "
+            "double-quoted attribute value is no link -- nothing is walked, rc 0")
+R17_ATTR_ID = ("(html) `<span title=\"Slice 9z owns it\">x</span>`: an id inside an attribute value is no naming site -- "
+               "the span is masked whole (kind `html`), as a raw HTML-block line is raw")
+
+MUTANTS += [
+    # -- PR #510 Codex R17
+    ("R17 #1 lazy header: a definition keeps the run open (re-inject the paragraph-only rule -- `cur` alone -- so "
+     "the quote ends before the header is asked)", MEMO,
+     'not ((cur or i == def_end) and table_header_at(lines, i, lazy))',
+     'not (cur and table_header_at(lines, i, lazy))',
+     # ⚠ not the item control: under this mutant the item ends before the header and the header opens a
+     # table at the DOCUMENT level (its indented delimiter row is a delimiter there), so the id is declared
+     # either way -- the item shape is discriminated by the block-sequence control alone
+     [R17_LAZY, R17_REVIEWER, SEQUENCE]),
+    ("R17 #2 §6.6: raw HTML is a span of the one inline pass (drop the `<` arm: a tag is text and its brackets "
+     "are delimiters)", LEXER,
+     '        if c == "<":\n            m = _HTML_TAG.match(s, i)',
+     '        if False:\n            m = _HTML_TAG.match(s, i)',
+     [R17_SPAN, R17_ATTR_ID, INLINE_EXAMPLES,
+      "(lex-seed) `<span title=\"Slice 9z owns it\">`: an inline span holding a declared id is seeded under the one "
+      "raw-line rule"]),
+    ("R17 #2 §6.6: an attribute value may be single- or double-quoted (drop the quoted arms: unquoted only)", LEXER,
+     '_ATTR_VALUE = r"(?:[^ \\t\\n\\"\'=<>`]+|\'[^\']*\'|\\"[^\\"]*\\")"',
+     '_ATTR_VALUE = r"(?:[^ \\t\\n\\"\'=<>`]+)"',
+     [R17_SPAN, R17_ATTR_ID, INLINE_EXAMPLES,
+      "(html) a single-quoted attribute value `<span title='[x](absent.md)'>` is a tag: rc 0"]),
+    ("R17 #2 §6.6: an HTML comment is a raw span (drop the comment arm)", LEXER,
+     '_COMMENT = r"!-->|!--->|!--.*?-->"', '_COMMENT = r"(?!)"',
+     ["(html) an HTML comment `<!-- [x](absent.md) -->` is raw: rc 0",
+      "(html) `<!-- Slice 9z -- owns it -->`: `--` inside a comment is allowed since 0.31 (§6.6: \"a string of "
+      "characters not including the string -->\") -- the whole comment is masked",
+      INLINE_EXAMPLES]),
+    ("R17 #2 §6.6: the 0.31 comment grammar admits `--` inside (re-inject 0.30's exclusion)", LEXER,
+     '!--.*?-->', '!--(?:(?!--).)*-->',
+     ["(html) `<!-- Slice 9z -- owns it -->`: `--` inside a comment is allowed since 0.31 (§6.6: \"a string of "
+      "characters not including the string -->\") -- the whole comment is masked",
+      INLINE_EXAMPLES]),
+    ("R17 #2 §6.6: a processing instruction is a raw span (drop the arm)", LEXER,
+     '_PI = r"\\?.*?\\?>"', '_PI = r"(?!)"',
+     ["(html) a processing instruction `<? [x](absent.md) ?>` is raw: rc 0",
+      "(html) `<? Slice 9z owns it ?>`: a processing instruction is masked", INLINE_EXAMPLES]),
+    ("R17 #2 §6.6: a declaration needs an ASCII letter after `<!` (re-inject `<!` + anything)", LEXER,
+     '_DECLARATION = r"![A-Za-z][^>]*>"', '_DECLARATION = r"![^>]*>"',
+     ["(html) `<! Slice 9z owns it>`: no ASCII letter after `<!`, no declaration -- the site is reported",
+      "(html) `<! [x](absent.md)>`: a declaration needs an ASCII letter right after `<!` -- literal, rc 2"]),
+    ("R17 #2 §6.6: a CDATA section is a raw span (drop the arm)", LEXER,
+     '_CDATA = r"!\\[CDATA\\[.*?\\]\\]>"', '_CDATA = r"(?!)"',
+     ["(html) a CDATA section `<![CDATA[ [x](absent.md) ]]>` is raw: rc 0",
+      "(html) `<![CDATA[ Slice 9z owns it ]]>`: a CDATA section is masked", INLINE_EXAMPLES]),
+    ("R17 #2 §6.6: an attribute is preceded by at least one space, tab or line ending (re-inject optional whitespace: "
+     "Example 622's `<a href='bar'title=title>` becomes a tag)", LEXER,
+     '_WS = r"(?:[ \\t]*\\n[ \\t]*|[ \\t]+)"', '_WS = r"(?:[ \\t]*\\n[ \\t]*|[ \\t]*)"',
+     ["(html) `<a b=\"c\"d=9z>x</a>`: no whitespace before `d` (Example 622), no tag -- `9z` is prose",
+      "(html) `<a b=\"c\"d=\"[x](absent.md)\">`: an attribute needs whitespace before it (Example 622) -- literal, "
+      "the link is read, rc 2", INLINE_EXAMPLES]),
+    ("R17 #2 seed: an inline raw HTML span is recorded for the LEX-UNSUPPORTED? seed (drop the record)", MEMO,
+     '        self.raw.extend((lineno, text, "inline") for lineno, text in self._inline_raw())',
+     '        pass',
+     ["(lex-seed) `<span title=\"Slice 9z owns it\">`: an inline span holding a declared id is seeded under the one "
+      "raw-line rule",
+      "(lex-seed) … and that seed carries the `inline` reading"]),
+    ("R17 #2 disposition: the raw HTML span is masked (drop the `html` kind from the disposition)", TABLES,
+     '    out += [(a, b, "html") for a, b in lx.html]\n', '',
+     [R17_ATTR_ID,
+      "(html) a cell's `<span title=\"Slice 9z owns it\">` is masked by the same inline pass: no site"]),
 ]

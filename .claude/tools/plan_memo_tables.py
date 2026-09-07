@@ -306,11 +306,15 @@ def code_mask(lx, keep):
 
 def dispose(lx, keep):
     """Tag `lx.mask`: every span the scanners must not read an id out of, as
-    (start, end, kind) -- `code` (minus id-only spans and kept slugs), `link`
-    (the tail; the visible text stays, it is prose), `image` (the same, for
-    an image), `cite`, `file`.  A reference definition is a Phase-1 block of
-    its own, never inline content, so no block holds one to mask."""
+    (start, end, kind) -- `code` (minus id-only spans and kept slugs), `html`
+    (a §6.6 raw HTML span, whole: an id inside an attribute or a comment is
+    no naming site, exactly as on a raw HTML-block line -- the memo seeds
+    it instead; PR #510 R17), `link` (the tail; the visible text stays, it
+    is prose), `image` (the same, for an image), `cite`, `file`.  A
+    reference definition is a Phase-1 block of its own, never inline
+    content, so no block holds one to mask."""
     out = [(a, b, "code") for a, b in code_mask(lx, keep)]
+    out += [(a, b, "html") for a, b in lx.html]
     out += [(a, b, "link") for a, b, _ in lx.links]
     out += [(a, b, "image") for a, b in lx.images]
     out += lx.tokens
@@ -319,8 +323,8 @@ def dispose(lx, keep):
 
 def stream(lx):
     """`lx.text` with EVERY span of its disposed mask blanked -- code spans
-    (id-only spans and kept slugs were excepted there), link tails, citation
-    ids, file names.  This is the ONE stream every predicate
+    (id-only spans and kept slugs were excepted there), raw HTML spans, link
+    tails, citation ids, file names.  This is the ONE stream every predicate
     over a block reads: the kind-marker reader (a quoted marker is not a
     declaration), the seeds' vocabularies (a `gates` inside a code span is not
     ordering prose; a `MERGED` inside one is not a retirement), the licensing

@@ -55,9 +55,9 @@ FINDING CODES.  Mechanical (gate the exit status): UMBRELLA-MARK (a),
 UMBRELLA-CELL (b, the `Deps` half only -- the acceptance half has no cell and
 is not implementable here), KIND-SPELLING, SCHEMA.  Seeds (`?` suffix, never
 gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?,
-LEX-UNSUPPORTED? (a RAW line never inline-parsed -- an HTML-block line or
-an indented-code line, a fence excepted -- holding a `|` or a declared id:
-one seed rule, the line's READING printed with it).
+LEX-UNSUPPORTED? (a RAW line never inline-parsed -- an HTML-block line, an
+indented-code line, a fence excepted, or an inline raw-HTML span (§6.6) --
+holding a `|` or a declared id: one seed rule, the READING printed with it).
 NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
 stated beside its check in `plan_memo_roles.py` and in the report's notes.
@@ -312,15 +312,19 @@ _READING = {
     "html": "raw HTML-block line (CommonMark §4.6) never inline-parsed",
     "indented": "indented-code line (CommonMark §4.4: raw, like a fence -- cmark-gfm agrees, an indented "
                 "row after a table is `<pre><code>`) never inline-parsed",
+    "inline": "inline raw HTML span (CommonMark §6.6: a tag, comment, processing instruction, declaration "
+              "or CDATA section inside a paragraph or a cell) never inline-parsed",
 }
 
 
 def lex_unsupported_seed(pop, findings, notes):
     """`[LEX-UNSUPPORTED?]` SEED: a RAW line this lexer never inline-parses
     (`Memo.raw`: every line of an HTML block, §4.6, or of an indented code
-    block, §4.4 -- a fence excepted, the author's explicit code marker)
-    that holds a `|` or a declared id: the content a table or a naming
-    scan would have read had the block been prose, printed with the
+    block, §4.4 -- a fence excepted, the author's explicit code marker --
+    and, since PR #510 R17, every INLINE raw HTML span, §6.6, keyed on its
+    first line: the same disposition for the same kind of text, "raw,
+    seeded") that holds a `|` or a declared id: the content a table or a
+    naming scan would have read had the text been prose, printed with the
     READING that makes it raw (`_READING`) rather than assumed.  ONE seed
     rule for every raw line (design re-gate 3, IMP-2: an indented schema
     row after a table's rows -- `    | id | ... |`, or a tab -- is raw
@@ -343,9 +347,9 @@ def lex_unsupported_seed(pop, findings, notes):
                 n += 1
                 findings.append(("LEX-UNSUPPORTED?", memo.path.name, lineno, "%s; it holds %s" % (
                     _READING[reading], ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
-    notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, or an "
-                 "indented-code line) hold a `|` or a declared id; the bound is the plan's §3 table, not "
-                 "this figure" % n)
+    notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, an "
+                 "indented-code line, or an inline raw-HTML span) hold a `|` or a declared id; the bound is "
+                 "the plan's §3 table, not this figure" % n)
 
 
 # --------------------------------------------------------------------------

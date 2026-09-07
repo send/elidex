@@ -160,8 +160,10 @@ case("NEGATIVE", "(def) `[sib]: child.md \"title` whose title crosses a BLANK li
 # ------------------------------------------------- PR #510 Codex R8 controls --
 
 # R8 root: one sibling-path resolver, stages in spec order
-case("POSITIVE-NOVEL", "(link) `notes%3Achild.md` has no scheme (WHATWG URL: a scheme is read BEFORE "
-                       "decoding): it is the local file `notes:child.md`, and it is scanned",
+case("POSITIVE-NOVEL", "(link) `notes%3Achild.md` has no scheme (WHATWG URL §4.4 #scheme-start-state / "
+                       "#scheme-state read the input as written and `%` is in neither class; "
+                       "#string-percent-decode is a later, separate operation): it is the local file "
+                       "`notes:child.md`, and it is scanned",
      build(), "See [the walk](notes%3Achild.md).", 1, files={"notes:child.md": VIOLATION + "\n"})
 
 # R8-3: the far side of a `.` after a bare id is the ASCII id class
@@ -694,3 +696,123 @@ case("NEGATIVE", "(label) `[foo&auml;]: child.md` then `[fooä]`: §6.3 label ma
                   "strip, collapse -- no character-reference decoding; commonmark.js: no link) -- the shortcut is "
                   "prose, 0 sites, `child.md` not walked",
       build(), "[foo&auml;]: child.md\n\nSee [fooä].", 0, files=CHILD)
+
+
+# ------------------------------------------------ PR #510 Codex R17 controls --
+# #1 (IMP): a reference definition keeps the RUN open, so a lazy table header
+# right after it is the table's header inside the container (cmark-gfm,
+# measured shape by shape -- `Memo._parse`'s docstring is the table).  The
+# shapes no id can discriminate are the runner's block-sequence control; the
+# reviewer's consequence (a linked memo's schema table dropped, rc 0) is its
+# `lazy_header_after_definition_control`.
+
+def _lazy_header(head, table):
+    """`head` (marker lines, ending in a line ending) then `table` with its
+    HEADER line unquoted -- the quote's lazy candidate -- and every other
+    line quoted."""
+    return head + "\n".join(("> " if k else "") + l for k, l in enumerate(table.split("\n")))
+
+
+case("POSITIVE-NOVEL", "(quote) the R17 reviewer's shape: `> [a]: /u` then an UNQUOTED schema header over a QUOTED "
+                       "delimiter row is a table in the quote (cmark-gfm: a definition is paragraph text until the "
+                       "paragraph ends, and the header is read out of its last line) -- the row declares its id",
+     build(extra=_lazy_header("> [a]: /u\n", SLOT4 % "now")), "", 1, measure=("id", "#11-zz-gamma"))
+case("POSITIVE-NOVEL", "(quote) two definitions then the lazy schema header: still the table's header, the id declared",
+     build(extra=_lazy_header("> [a]: /u\n> [b]: /v\n", SLOT4 % "now")), "", 1, measure=("id", "#11-zz-gamma"))
+case("POSITIVE-NOVEL", "(item) `- [a]: /u` then the lazy schema header over an indented delimiter row: the table is the "
+                       "item's (cmark-gfm, measured) -- the id declared",
+     build(extra="- [a]: /u\n" + "\n".join(("  " if k else "") + l for k, l in enumerate((SLOT4 % "now").split("\n")))),
+     "", 1, measure=("id", "#11-zz-gamma"))
+case("NEGATIVE", "(quote) `> [a]: /u\\n>` then the lazy schema header: the blank quote line closes the run, so the quote "
+                 "ENDS and the header is a paragraph outside it (cmark-gfm) -- no id declared",
+     build(extra=_lazy_header("> [a]: /u\n>\n", SLOT4 % "now")), "", 0, measure=("id", "#11-zz-gamma"))
+case("NEGATIVE", "(quote) a fenced block then the lazy schema header: no run is open, the quote ends (cmark-gfm) -- no id "
+                 "declared",
+     build(extra=_lazy_header("> ```\n> x\n> ```\n", SLOT4 % "now")), "", 0, measure=("id", "#11-zz-gamma"))
+
+# #2 (IMP): CommonMark §6.6 raw HTML is a span of the ONE inline pass -- masked
+# like a code span (never inline-parsed, never a naming site) and seeded like
+# a raw HTML-block line (the plan's disposition for the same kind of text).
+# Every grammar arm and every negative below was read off commonmark.js
+# 0.31.2 (`node cm.js`) at an INLINE position (`a <…>`) before being written;
+# the spec's own §6.6 examples are the runner's inline conformance control.
+ABSENT = "absent-file.md"
+rcase("NEGATIVE", "(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\">text</span>`: a bracket inside a "
+                  "double-quoted attribute value is no link -- nothing is walked, rc 0",
+      build(), 'See <span title="[child](%s)">text</span>.' % ABSENT, 0)
+rcase("NEGATIVE", "(html) a single-quoted attribute value `<span title='[x](absent.md)'>` is a tag: rc 0",
+      build(), "See <span title='[x](%s)'>t</span>." % ABSENT, 0)
+rcase("NEGATIVE", "(html) an UNQUOTED attribute value holding brackets `<span title=[x](absent.md)>` IS an open tag (§6.6: "
+                  "an unquoted value excludes only spaces, tabs, line endings, `\"`, `'`, `=`, `<`, `>` and a backtick; "
+                  "commonmark.js agrees -- ⚠ the R17 brief listed this shape as a negative): rc 0",
+      build(), "See <span title=[x](%s)>t</span>." % ABSENT, 0)
+rcase("NEGATIVE", "(html) an HTML comment `<!-- [x](absent.md) -->` is raw: rc 0",
+      build(), "See <!-- [x](%s) --> here." % ABSENT, 0)
+rcase("NEGATIVE", "(html) a comment may cross the paragraph's line ending (`<!--\\n[x](absent.md)\\n-->`, Example 625's "
+                  "shape): rc 0",
+      build(), "See <!--\n[x](%s)\n--> here." % ABSENT, 0)
+rcase("NEGATIVE", "(html) a processing instruction `<? [x](absent.md) ?>` is raw: rc 0",
+      build(), "See <? [x](%s) ?> here." % ABSENT, 0)
+rcase("NEGATIVE", "(html) a declaration `<!X [x](absent.md)>` is raw: rc 0",
+      build(), "See <!X [x](%s)> here." % ABSENT, 0)
+rcase("NEGATIVE", "(html) a CDATA section `<![CDATA[ [x](absent.md) ]]>` is raw: rc 0",
+      build(), "See <![CDATA[ [x](%s) ]]> here." % ABSENT, 0)
+rcase("POSITIVE", "(html) `<3 [x](absent.md)`: a tag name begins with an ASCII letter, so the `<` is literal and the link "
+                  "is read -- the absent memo is the rc-2 miss",
+      build(), "See <3 [x](%s)." % ABSENT, 2)
+rcase("POSITIVE", "(html) `< span title=\"[x](absent.md)\">`: nothing may stand between `<` and the tag name -- literal, "
+                  "the link is read, rc 2",
+      build(), 'See < span title="[x](%s)">.' % ABSENT, 2)
+rcase("POSITIVE", "(html) `</ span [x](absent.md)>`: a closing tag's name follows `</` directly -- literal, rc 2",
+      build(), "See </ span [x](%s)>." % ABSENT, 2)
+rcase("POSITIVE", "(html) `<a href=\"x\" [x](absent.md)>`: `[x](…)` is no attribute, so the `<` is literal and the link "
+                  "is read, rc 2",
+      build(), 'See <a href="x" [x](%s)>.' % ABSENT, 2)
+rcase("POSITIVE", "(html) `<a b=\"c\"d=\"[x](absent.md)\">`: an attribute needs whitespace before it (Example 622) -- "
+                  "literal, the link is read, rc 2",
+      build(), 'See <a b="c"d="[x](%s)">.' % ABSENT, 2)
+rcase("POSITIVE", "(html) `<!-- [x](absent.md) --` is not closed: no comment, the link is read, rc 2",
+      build(), "See <!-- [x](%s) --" % ABSENT, 2)
+rcase("POSITIVE", "(html) `<! [x](absent.md)>`: a declaration needs an ASCII letter right after `<!` -- literal, rc 2",
+      build(), "See <! [x](%s)>." % ABSENT, 2)
+rcase("POSITIVE", "(html) `<![cdata[ [x](absent.md) ]]>`: `<![CDATA[` is exact case -- literal, rc 2",
+      build(), "See <![cdata[ [x](%s) ]]>." % ABSENT, 2)
+rcase("POSITIVE", "(html) `\\<span title=\"[x](absent.md)\">`: an escaped `<` opens no tag (§2.4), the link is read, rc 2",
+      build(), 'See \\<span title="[x](%s)">.' % ABSENT, 2)
+case("NEGATIVE", "(html) `<span title=\"Slice 9z owns it\">x</span>`: an id inside an attribute value is no naming site -- "
+                 "the span is masked whole (kind `html`), as a raw HTML-block line is raw",
+     build(), 'See <span title="Slice 9z owns it">x</span>.', 0)
+case("NEGATIVE", "(html) `<a title=9z-owns>x</a>`: an unquoted attribute value is masked too",
+     build(), "See <a title=9z-owns>x</a>.", 0)
+case("NEGATIVE", "(html) a cell's `<span title=\"Slice 9z owns it\">` is masked by the same inline pass: no site",
+     build(c1='<span title="Slice 9z owns it">x</span>'), "", 0)
+case("NEGATIVE", "(html) `<!-- Slice 9z -- owns it -->`: `--` inside a comment is allowed since 0.31 (§6.6: \"a string of "
+                 "characters not including the string -->\") -- the whole comment is masked",
+     build(), "See <!-- Slice 9z -- owns it --> here.", 0)
+case("NEGATIVE", "(html) `<? Slice 9z owns it ?>`: a processing instruction is masked",
+     build(), "See <? Slice 9z owns it ?> here.", 0)
+case("NEGATIVE", "(html) `<!X Slice 9z owns it>`: a declaration is masked",
+     build(), "See <!X Slice 9z owns it> here.", 0)
+case("NEGATIVE", "(html) `<![CDATA[ Slice 9z owns it ]]>`: a CDATA section is masked",
+     build(), "See <![CDATA[ Slice 9z owns it ]]> here.", 0)
+case("POSITIVE", "(html) `<!-- Slice 9z owns it --` is not closed: prose, the site is reported",
+     build(), "See <!-- Slice 9z owns it --", 1)
+case("POSITIVE", "(html) `<! Slice 9z owns it>`: no ASCII letter after `<!`, no declaration -- the site is reported",
+     build(), "See <! Slice 9z owns it>.", 1)
+case("POSITIVE", "(html) `<a b=\"c\"d=9z>x</a>`: no whitespace before `d` (Example 622), no tag -- `9z` is prose",
+     build(), 'See <a b="c"d=9z>x</a>.', 1)
+case("POSITIVE", "(html) `<span title=\"`\">Slice 9z owns it` x`: the tag is read first, left to right, so the backtick "
+                 "inside it opens no code span -- the site is reported (commonmark.js)",
+     build(), 'See <span title="`">Slice 9z owns it` x.', 1)
+case("POSITIVE", "(html) `` `x <span title=\"`9z\">y ``: the code span is read first and swallows the `<`, so no tag masks "
+                 "`9z` -- the site is reported (commonmark.js)",
+     build(), 'See `x <span title="`9z">y.', 1)
+case("POSITIVE", "(html) `[<span>x</span>](slice-9z-sib.md)`: a link may wrap a tag -- the sibling is walked",
+     build(), "See [<span>x</span>](slice-9z-sib.md).", 1, **SIB)
+acase("POSITIVE", "(lex-seed) `<span title=\"Slice 9z owns it\">`: an inline span holding a declared id is seeded under "
+                  "the one raw-line rule",
+      build(), "LEX-UNSUPPORTED?", 1, prose='See <span title="Slice 9z owns it">x</span>.')
+case("POSITIVE", "(lex-seed) … and that seed carries the `inline` reading",
+     build(), 'See <span title="Slice 9z owns it">x</span>.', 1, measure=("seed", "inline raw HTML span"))
+acase("NEGATIVE", "(lex-seed) `a<br>b` / `<sub>2</sub>`: tags holding neither a `|` nor a declared id are no seed",
+      build(), "LEX-UNSUPPORTED?", 0, prose="See a<br>b and <sub>2</sub>.")

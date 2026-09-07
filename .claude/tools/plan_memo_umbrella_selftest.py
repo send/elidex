@@ -497,6 +497,49 @@ def spec_examples_control(M):
     return ok, detail.split("\n")[0]
 
 
+def inline_examples_control(M):
+    """The CommonMark 0.31.2 spec's own `Raw HTML` §6.6 examples (613-632)
+    through Phase 1 and Phase 2 (`plan_memo_selftest_conformance.run_inline`):
+    the raw HTML spans the one inline pass masks are exactly the text the
+    expected html emits verbatim, paragraph by paragraph; the detail is
+    printed whole, like the block half's."""
+    import plan_memo_memo       # the freshly loaded module
+    import plan_memo_selftest_conformance as conf
+    ok, detail = conf.run_inline(plan_memo_memo)
+    print("       " + detail.replace("\n", "\n       "))
+    return ok, detail.split("\n")[0]
+
+
+# the slot table whose one row is an UMBRELLA, for the linked-memo controls
+UMBRELLA_SLOT = ("| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+                 "| `#11-zz-gamma` | **UMBRELLA, not a terminal unit.** carved. | now | 2026-12-31 |")
+
+
+def lazy_header_after_definition_control(M):
+    """PR #510 R17 #1, the reviewer's consequence end to end: a LINKED memo
+    holds a block quote whose first line is a reference definition and
+    whose next line is an UNQUOTED schema-table header over a QUOTED
+    delimiter row (`> [a]: /u\\n| Slot | … |\\n> |---|…|\\n> | row |`).
+    cmark-gfm forms the table inside the quote (measured: the definition is
+    paragraph text until the paragraph ends, and the table extension reads
+    the header out of the paragraph's last line), so the checker must admit
+    it: the row's id is declared, its kind is `umbrella`, the no-owner
+    census is one larger than without the sibling's table, and rc is not 2.
+    Until R17 the consumed definition left `cur` empty and the quote ended
+    before `table_header_at` was asked: the table was dropped, the id never
+    declared and -- schema presence being required of the MAIN memo only --
+    rc 0, the silent class."""
+    link = "See [the walk](slice-9z-sib.md)."
+    quoted = "> [a]: /u\n" + "\n".join(("> " if k else "") + l for k, l in enumerate(UMBRELLA_SLOT.split("\n")))
+    base, _ = run_on(M, build(), link, sibling="nothing here.")
+    res, _ = run_on(M, build(), link, sibling=quoted)
+    row = res.population.ids.get("#11-zz-gamma")
+    n0, n1 = len(base.population.no_owner_ids()), len(res.population.no_owner_ids())
+    ok = row is not None and row.kind == "umbrella" and n1 == n0 + 1 and res.rc != 2
+    return ok, "id declared %s, kind %s, no-owner census %d -> %d (must be +1), rc %d (must not be 2)" % (
+        row is not None, row.kind if row else None, n0, n1, res.rc)
+
+
 def sequence_control(M):
     """Phase 1's block SEQUENCE (`Memo.sequence`) over the §4.4 chunk and
     the §5.1 / §5.2 container shapes the vendored spec examples do not reach
@@ -512,7 +555,8 @@ def sequence_control(M):
     tables there), which are cmark-gfm's (measured, `gh api -X POST
     /markdown -f mode=gfm`): a lazy delimiter row or body row is paragraph
     text and a table is not a paragraph, while a lazy HEADER row is the
-    header when the delimiter carries the marker.  A crash on a shape is
+    header when the delimiter carries the marker and a RUN is open --
+    paragraph text or a definition (PR #510 R17).  A crash on a shape is
     red."""
     import plan_memo_memo         # the freshly loaded module
     shapes = [
@@ -533,6 +577,20 @@ def sequence_control(M):
         ("> a\n| h |\n> |---|\n> | 1 |", [["quote", 1, 4], ["p", 1, 1], ["table", 2, 4]]),
         ("> # h\n| h |\n> |---|", [["quote", 1, 1], ["h1", 1, 1], ["p", 2, 2], ["quote", 3, 3], ["p", 3, 3]]),
         ("> a\n\n> b", [["quote", 1, 1], ["p", 1, 1], ["quote", 3, 3], ["p", 3, 3]]),
+        # PR #510 R17: a definition keeps the run open, so the lazy header after it is the table's (cmark-gfm,
+        # measured on each shape -- `Memo._parse`'s docstring is the table); after a blank quote line, a
+        # fence or a table no run is open and the quote ends; a lazy delimiter / body row is unchanged
+        ("> [a]: /u\n| h |\n> |---|\n> | 1 |", [["quote", 1, 4], ["def", 1, 1], ["table", 2, 4]]),
+        ("> [a]: /u\n> [b]: /v\n| h |\n> |---|", [["quote", 1, 4], ["def", 1, 1], ["def", 2, 2], ["table", 3, 4]]),
+        ("> a\n> [b]: /v\n| h |\n> |---|", [["quote", 1, 4], ["p", 1, 2], ["table", 3, 4]]),
+        ("- [a]: /u\n| h |\n  |---|\n  | 1 |", [["list", 1, 4, "-", True], ["item", 1, 4], ["def", 1, 1], ["table", 2, 4]]),
+        ("> [a]: /u\n| h |\n> |---|\n| 1 |", [["quote", 1, 3], ["def", 1, 1], ["table", 2, 3], ["p", 4, 4]]),
+        ("> [a]: /u\n| h |\n|---|", [["quote", 1, 3], ["def", 1, 1], ["p", 2, 3]]),
+        ("> [a]: /u\n>\n| h |\n> |---|", [["quote", 1, 2], ["def", 1, 1], ["p", 3, 3], ["quote", 4, 4], ["p", 4, 4]]),
+        ("> a\n>\n| h |\n> |---|", [["quote", 1, 2], ["p", 1, 1], ["p", 3, 3], ["quote", 4, 4], ["p", 4, 4]]),
+        ("> ```\n> x\n> ```\n| h |\n> |---|", [["quote", 1, 3], ["fence", 1, 3], ["p", 4, 4], ["quote", 5, 5], ["p", 5, 5]]),
+        ("> | a |\n> |---|\n| h |\n> |---|", [["quote", 1, 2], ["table", 1, 2], ["p", 3, 3], ["quote", 4, 4], ["p", 4, 4]]),
+        ("> > [a]: /u\n| h |\n> |---|\n> | 1 |", [["quote", 1, 4], ["quote", 1, 4], ["def", 1, 1], ["p", 2, 4]]),
         # the marker and §2.2 tab stops (Example 6 exactly, and its neighbours)
         (">\t\tfoo", [["quote", 1, 1], ["indented", 1, 1]], ["      foo"]),
         (">\t\ta", [["quote", 1, 1], ["indented", 1, 1]], ["      a"]),
@@ -762,7 +820,9 @@ def registry():
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
+    reg["CommonMark 0.31.2 spec examples (§6.6 Raw HTML): the spans Phase 2 masks are the html's verbatim `<` text"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
+    reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["block quotes are linear: N quotes cost <= 4N quote_content calls"] = ("CONTROL", scaling_quotes_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
