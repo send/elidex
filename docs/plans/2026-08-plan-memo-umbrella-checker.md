@@ -931,6 +931,86 @@ ground for either option; it is not cited.
   ⚠ Every device control's destination names a file that EXISTS in the fixture directory (the shared
   `DEVICE` set writes all six), so a green NEGATIVE means "not read", never "not found" — the
   distinction this whole class turns on, and the one a fixture-free control could not make.
+  ⚠ **PR #510 Codex R23 (2026-09-08)** — five findings, four real, and **one already fixed**: the
+  reviewer asked for a right boundary on the licensed possessive nouns (`9z's memoized` and
+  `9z's chartered` were licensed), which is exactly what R22 #3's SWEEP had closed a commit earlier.
+  Measured at that head: both are REPORTED (1 site each) while `9z's memo` / `9z's charter` stay
+  licensed. That is external confirmation of the sweep's premise — the matcher the review did NOT
+  name was the one the review would have named next.
+  #1 (P2) a §2.5 reference whose character is `*` or a backtick was excluded from substitution (so a
+  decoded `*` could not become live markup) and then left STANDING AS WRITTEN, which is a FOURTH
+  disposition beside drop / substitute / blank, and the only one that puts characters into the stream
+  the document does not render: with a no-owner row `ast` declared, `The &ast; marks it.` reported a
+  site `ast` that no reader can see (`The * marks it.` reports none). The re-gate-4 defect in the
+  fabricating direction. Disposition chosen: **BLANK** — the span renders TEXT the checker refuses to
+  read, which is what `RENDERS_TEXT` means; not a DROP, because `9&ast;z` renders `9*z` and dropping
+  would join the sides into a `9z` no reader sees. `[LEX-SPLIT?]` interaction, settled by class and
+  not by luck: an id can never straddle such a blank, since the reader-side fill is a `*` or a
+  backtick and neither is in any id token's character class — a PHRASE can, and should, so
+  `KIND&ast;UNDETERMINED` is rc 2.
+  #2 (P2) the residue gate covered the marker and nothing else, so `` KIND UNDETER`MINED` `` — which a
+  reader reads as `KIND UNDETERMINED` — reclassified the row as terminal, dropped its no-owner
+  mentions and exited **0**. ⚠ **This was a defect in re-gate 4's own fix**: I gated the phrase I was
+  looking at and left every other phrase that decides a row's kind authoritative by default, which is
+  the enumerated-exemption class this program keeps meeting. The fix is the construction, not the
+  addition: `KIND_PHRASES` is now the ONE enumeration, `_kind` builds its hits from it and matches
+  nothing directly, the gate and the seed iterate the same tuple, and a PROPERTY control reads
+  `_kind.__code__.co_names` (nested code objects included) and fails on any name that resolves to a
+  `re.Pattern` outside the tuple — so the next phrase is covered by default AND cannot slip past.
+  ⚠ The same class in the OPPOSITE direction was found while fixing it and is not in any review:
+  `` KIND `x` UNDETERMINED `` classified the row *undetermined* at rc 1, because a blank stands as
+  spaces and `UNDETERMINED`'s `\s*` reads across it a kind the reader (`KIND x UNDETERMINED`) does
+  not. Gating only the reader side would have left that authoritative, so the gate asks per phrase and
+  keeps two conjuncts: the two readings must DISAGREE (a phrase spelled cleanly somewhere is not in
+  doubt), and the disagreement must come from a STRADDLE (a phrase quoted WHOLE is I-A's deliberate
+  disposition and stays no miss).
+  #3 (P2) an initial BOM was not stripped, so a linked memo whose first block is a schema table lost
+  that table, its rows never entered `Population.ids`, and the run exited 0 with no miss. One U+FEFF
+  is stripped at the single place the text becomes lines. ⚠ Honest about the citation: `webref` has no
+  CommonMark source and no spec prose is vendored here (only the two example corpora), so §2.1 is
+  cited BY SECTION NUMBER WITHOUT a machine-readable source, and the code says so; the corpora cannot
+  cover it either (0 of 630 examples holds a U+FEFF). What IS verified in-tree is that `utf-8` decodes
+  the BOM to a character — `utf-8-sig` is the codec that consumes it — which is why it landed inside
+  line 1. The control that carries the rule is the TWO-BOM one: one is stripped, two are not, which is
+  what pins "exactly one" and kills an `lstrip` mutant.
+  #4 (P2) nested-image demotion was quadratic against a docstring that claims linear. ⚠ The review
+  reported one loop; the second was measured while fixing it and had the identical shape (`pairs`, the
+  emphasis half: 0.004 / 0.015 / 0.057 / 0.223 s at n=250 / 500 / 1000 / 2000, also 4× per doubling).
+  Root: the range a close must demote was SEARCHED for by walking back over entries an inner close had
+  already tagged, so each descendant was tagged once per ancestor — but the range is an O(1) fact of
+  the stack, recorded at the `[` exactly as `delim_bottom` already was, and applied once as a union
+  via a difference array. Re-measured after: images 0.0013 / 0.0024 / 0.0049 s at n=1000 / 2000 / 4000
+  and pairs 0.0017 / 0.0033 / 0.0070 s at n=500 / 1000 / 2000 — linear in both. The work claim is a
+  deterministic `_count_lines` witness with a 4×-input / ≤4×-work bound, never wall-clock; the
+  correctness half needs no new control, since the 335 inline conformance examples were green on both
+  sides of the change.
+  **534 controls, 278 mutants / 0 survived / 0 crashed**, 0 `(unknown control)`; conformance 295 / 0 /
+  0 + 335 / 0 / 0; `scripts/trip-wires.sh` rc 0; census rc 0 with 51 seeds, 1,205 mentions, 491
+  licensed, 714 REPORTED and 8 `[UMBRELLA-MARK?]` unchanged, the `--worklist` differing on exactly one
+  line and that line WORDING ONLY (the `[LEX-SPLIT?]` seed's own sentence, since the residue is
+  symmetric now and covers every kind phrase, so "the reader reads" and "the marker" were both false
+  as written). Cost: the census run 1.46 s → 1.85 s, because `split_units` now builds both renderings
+  of every block instead of one.
+  ⚠ A PRE-EXISTING mutant (`R21 #1`) survived its first run here, for the R21 reason once more: the
+  new `_demote` range covered the demoted-link entries and overwrote the mutation, so the control's
+  subject had left the mutated span. The `dem_img.append` moved back before the `out`-pop loop so the
+  link conversion stays the ONE site saying a demoted link is not an image. Five other mutants whose
+  anchors this round moved failed LOUDLY (`substring occurs 0 times`), never silently — which is the
+  difference between an anchor that moved and the `(unknown control)` class R22 collapsed.
+  ⚠ **Not yet a control**: the AST check that no constant is declared by both derived mutant
+  registries (R22) is still an ad-hoc script. Nothing in `--self-test` enforces it.
+  ⚠ **Step-4 PAUSE assessment (2026-09-08, after R23)** — `plan_memo_memo.py` and `plan_memo_tables.py`
+  had each drawn a finding in THREE consecutive rounds (R22, R23, R24), which is the signal to stop
+  patching and ask whether the mechanism is the problem. Sorting R22–R24's findings by ORIGIN rather
+  than by symptom gives **three families**, each still generating: (1) *which text does this reader
+  read* — R23 #1, R23 #2 and R24 #4 are all incomplete application of re-gate 4's DECLARED rule, whose
+  weakness is that the rule is prose rather than a control; (2) *the boundary where bytes become a
+  document* — R22 #2 (device names), R23 #3 (BOM) and R24 #1 (literal NUL), which want §2.1's
+  preprocessing as a unit at one site rather than one strip per report; (3) *a matcher's context
+  boundary is a magic constant or absent* — R22 #3 (unbounded phrases), R24 #2 (a 70-character
+  backward window) and the 40-character slice in `classify` recorded above, which want the boundary
+  derived from the grammar. Option A (collapse) is taken for all three, each with a structural guard,
+  rather than four symptom fixes — the entry for that round records what each guard cannot see.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
