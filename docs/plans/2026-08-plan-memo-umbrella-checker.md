@@ -1241,6 +1241,69 @@ ground for either option; it is not cited.
   `--worklist` **byte-identical for the fourth consecutive round**. Three more touch-time splits
   landed as standalone pure moves (`plan_memo_html.py`, `plan_memo_tokens.py`, and the R26 case /
   mutant modules).
+  ⚠ **PR #510 Codex R27 (2026-09-08) — "is it linear?" stops being a list of shapes.** Three
+  findings, all real. Two are non-linear scans and, counted properly, they are the **eighth and
+  ninth** across four rounds: R23 fixed 2, R26 fixed 4 (one reported, three found only because the
+  subject was "is `inline_pass` linear?" and not "is this loop linear?"), R27 brings 2 more — and one
+  of them is not in `inline_pass` at all (`_straddles`, on the ALWAYS-RUN seed path), which is the
+  evidence that the family is "this program's scans", not "that function". Every round had added a
+  work control for the shape that was reported, and every round the next shape had none: **a
+  hand-written adversarial string is a population defined by the symptom vocabulary**, the class this
+  program keeps failing on ([[feedback_checks-must-not-be-defined-by-the-symptom-vocabulary]], where
+  this is now recorded as the sixth form — the first one about a COST contract rather than a
+  correctness claim).
+  So the deliverable is `plan_memo_selftest_growth.py`, a property whose corpus is **generated from
+  the grammar**: every one-character literal any checker module COMPARES AGAINST (an `ast.Compare`
+  walk over the loaded sources, so a mutant's patched text is what is read), the emphasis delimiters,
+  every raw-HTML opener with its own declared closer, one document spelling per id kind (a kind added
+  without a spelling turns it red), and the bracket constructs — 49 atoms, each repeated and every
+  unordered pair interleaved, **1,225 probes**. The witness is executions PER SOURCE LINE, not their
+  total: a total is dominated by the linear pass and hides a two-line rescan until the input is
+  thousands of characters, so both of this round's defects are invisible to it at 200 characters; per
+  line the constants cancel, linear doubles and a rescan quadruples. Two stages (nominate at 6/12,
+  confirm at 96/192) because the §6.3 destination scan is bounded at 32 and has not plateaued at 6/12,
+  so it LOOKS quadratic there — a mutant proves the two stages are two sizes and not one.
+  **Verified independently of the author**: re-injecting each defect turns the property red AND names
+  the source line — `'![' + '[x](a.md)'` :: `plan_memo_lexer.py:824`, 4656 → 18528 (1.59× the bound);
+  `'![x](a.md)' + '9z '` :: `plan_memo_tables.py:785`, 18816 → 74496 (1.58×). Neither shape was written
+  for the defect it caught. What it cannot see is stated IN the control rather than discovered a round
+  later: work inside the C `re` engine (no Python line runs — which is why the §6.6 cost needs a
+  counted seam), anything outside a block's inline reading, a cost superlinear in nesting DEPTH rather
+  than in the repeated unit, and constant factors.
+  #1 the Appendix's "set all `[` delimiters before the opening delimiter to inactive" was WRITTEN into
+  every entry at every close; since every opener still on the stack precedes the opening delimiter and
+  none is ever reactivated, it is a COUNTER — the entry records how many links had closed when it was
+  pushed and is active while that figure is current. O(1), and the stack entry becomes immutable.
+  #3 `_straddles` summed the whole blank list per token and per phrase; `Stream.blanks` is ordered and
+  non-overlapping by construction, so the window is a `bisect` away. Its second control checks the
+  DEFINITION read one character at a time (23,040 questions over every blank layout in two adjacency
+  regimes) rather than the retired code, so it cannot bless a shared misreading.
+  #2 (P2) `ROW_NOUN` omitted `Slot`, so a slot row attributing the marker with its own schema noun
+  went silent: `Slice` / `Row` / `Umbrella` give `pointer` at rc 1 with `UMBRELLA-MARK`, `Slot` gave
+  **`umbrella` at rc 0 with no finding** — the class §1 forbids. Fixed by construction: the nouns are
+  the two generic ones plus the `name` of every ROW-KEYED schema, so the next schema's noun is covered
+  by default. The kind filter matters and its control sweeps BOTH directions, since deriving from
+  every schema would make `` Citation `#11-zz-alpha` — … `` attribute, a category error the positive
+  half cannot see. ⚠ **This moved the census for the first time in five rounds, in the right
+  direction**: exactly one row added (`…umbrella-review-rounds.md:149`, where `**Slot P registered**`
+  genuinely names row `P`), four rows printing a 5-6 character wider left context because those
+  mentions are now ANCHORED (the span starts at the noun; dedup is on the id position, so they are the
+  same sites through a wider span). 1,205 → 1,206 mentions, 714 → 715 REPORTED, licensed unchanged.
+  ⚠ **The cost, and the stale figure it exposed.** The sweep runs once in `--self-test` and once per
+  mutant naming it, so `scripts/trip-wires.sh` goes 5.8 s → **26.2 / 27.2 s** locally (two runs,
+  `/usr/bin/time -p`). On the 4.3×-slower runner the earlier measurement used that is ~115 s against
+  `timeout-minutes: 5` — headroom of **2.6×, not the 10×** the workflow comment claimed. CLAUDE.md's
+  copy was updated with the sweep; `ci.yml`'s comment was NOT — and CLAUDE.md names that comment as
+  the canonical reason, so the pointer was current while the canon was stale. Both say 2.6× now, with
+  the instruction that the next growth re-derives the timeout instead of assuming it. Same class as
+  the module map three consecutive splits failed to update: **a change's blast radius includes every
+  site that STATES the figure, not only the site that caused it.**
+  **592 controls, 318 mutants / 0 survived / 0 crashed**, 0 `unknown control`; conformance 295 / 0 / 0
+  + 335 / 0 / 0, unchanged by both linearity fixes as they must be; `scripts/trip-wires.sh` rc 0;
+  `PYTHONUTF8=0 LC_ALL=C --self-test` rc 0.
+  ⚠ One re-anchored mutant SURVIVED and the subject was moved rather than the mutant weakened —
+  a shape worth naming: **converting a written FLAG into a read-time PREDICATE silently moves where a
+  mutant's subject lives.**
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
