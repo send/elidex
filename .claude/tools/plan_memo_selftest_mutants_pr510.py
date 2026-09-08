@@ -423,7 +423,7 @@ MUTANTS += [
      '        return end\n    if kind == "fence":', '        return j\n    if kind == "fence":',
      [SEQUENCE]),
     ("R13 §5.1: a `>` line opens the container (drop the branch: the marker line heads a paragraph)", MEMO,
-     '                if quote_content(line) is not None:\n                    open_block()',
+     '                if quote_marker(line) is not None:\n                    open_block()',
      '                if False:\n                    open_block()',
      ["(quote) `> [sib]: slice-9z-sib.md`: a definition inside a block quote registers (§5.1 container, "
       "Example 218) -- the sibling is walked and its violation reported",

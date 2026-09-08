@@ -131,17 +131,34 @@ def fence_closes(closer, line):
 # --------------------------------------------------------------------------
 
 
-def quote_content(line):
-    """The content of the block-quote line `line` -- what follows its §5.1
-    marker -- or None when the line carries no marker (four or more columns
-    before the `>` is §4.4 territory: `    > a` is indented code).  Block
-    structure inside the quote is measured in LINE columns (§2.2: tab stops
-    are the line's, not the content's), so the content's leading whitespace
-    is re-spelt in spaces from its true column: after `> ` at column 2 a
-    space and a tab reach column 4 -- two columns of content indentation, a
-    paragraph (`>  \\ta` is `<p>a</p>`); a tab right after the `>` gives one
-    column to the marker's space and the rest to the content (Example 6:
-    `>\\t\\tfoo` is indented code holding `  foo`; `>\\ta` a paragraph)."""
+def quote_marker(line):
+    """Where the §5.1 block-quote marker of `line` ENDS -- (the columns of
+    content indentation that follow it, the index just past them) -- or None
+    when the line carries no marker (four or more columns before the `>` is
+    §4.4 territory: `    > a` is indented code).  Block structure inside the
+    quote is measured in LINE columns (§2.2: tab stops are the line's, not the
+    content's), so the content's leading whitespace is re-spelt in spaces from
+    its true column: after `> ` at column 2 a space and a tab reach column 4 --
+    two columns of content indentation, a paragraph (`>  \\ta` is `<p>a</p>`);
+    a tab right after the `>` gives one column to the marker's space and the
+    rest to the content (Example 6: `>\\t\\tfoo` is indented code holding
+    `  foo`; `>\\ta` a paragraph).
+
+    THE TEST IS SEPARATE FROM THE BUILD, and that is a cost claim (PR #510
+    R29-1).  Two of this function's three callers only ask WHETHER the line
+    carries a marker -- `starts_block` below, and the `_parse` arm that opens
+    the container -- and `quote_content`'s answer is a fresh copy of the rest
+    of the line.  Inside N nested quotes the same suffix was copied twice per
+    level and the second copy was thrown away after a comparison against
+    `None`.  Those two callers read this function instead;
+    `plan_memo_selftest_work.quote_build_once_control` is the count that keeps
+    them here.  ⚠ What this does NOT fix is the copy the gather still makes
+    once per line per enclosing quote: Phase 1 hands each container's content
+    to itself as a list of STRINGS, so the characters it materialises are the
+    sum of the content lengths over the nesting levels, which is quadratic in
+    the depth whatever this function does.  Removing that needs the line
+    representation to carry an offset rather than be a copy, which is a change
+    to every `blocks.py` predicate and is not this round's."""
     col, j = indentation(line)
     if col >= 4 or j >= len(line) or line[j] != ">":
         return None
@@ -159,7 +176,20 @@ def quote_content(line):
     while j < len(line) and line[j] in " \t":
         col += 1 if line[j] == " " else 4 - col % 4
         j += 1
-    return " " * (col - c0) + line[j:]
+    return col - c0, j
+
+
+def quote_content(line):
+    """The content of the block-quote line `line` -- what follows its §5.1
+    marker (`quote_marker`), with the leading whitespace re-spelt in spaces
+    from its true column -- or None when the line carries no marker.  The ONE
+    site that BUILDS it is the driver's gather (`Memo._quote`), which is the
+    one site that keeps it."""
+    m = quote_marker(line)
+    if m is None:
+        return None
+    pad, j = m
+    return " " * pad + line[j:]
 
 
 # --------------------------------------------------------------------------
@@ -378,7 +408,7 @@ def starts_block(line, para_open=False):
     interrupt a paragraph": `[foo]:\n    code` is a definition with
     destination `code`) and a reference definition (§4.7 "cannot interrupt
     a paragraph")."""
-    if one_line_block(line) is not None or quote_content(line) is not None:
+    if one_line_block(line) is not None or quote_marker(line) is not None:
         return True
     m = item_marker(line)
     if m is None:

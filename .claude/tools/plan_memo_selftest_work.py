@@ -638,6 +638,94 @@ def linear_id_scan_control(M):
                    list(_SCAN_WIDTHS), steps, (": FAIL " + "; ".join(bad)) if bad else ""))
 
 
+# The three quote shapes and the number of lines ONE quote's gather examines in
+# each: its own marker line; that plus the blank line that ends it; that plus a
+# lazy continuation candidate between them.  The numbers are read off the
+# fixtures, not off the driver.
+_QUOTE_SHAPES = (("nested", lambda n: ">" * n + " x\n", 1),
+                 ("blank-ended", lambda n: "> q\n\n" * n, 2),
+                 ("lazy candidate", lambda n: "> a\nb\n\n" * n, 3))
+_QUOTE_N = 400
+
+
+def quote_build_once_control(M):
+    """The §5.1 marker's cost claim, stated EXACTLY: `quote_content` builds a
+    line's content once per line a quote's gather examines, and never to answer
+    WHETHER a line carries a marker.
+
+    WHAT WAS WRONG (PR #510 R29-1).  `quote_content` was the marker test as
+    well as the content build, and its content is a fresh copy of the rest of
+    the line.  Two of its three callers wanted only the test -- `starts_block`,
+    and the `_parse` arm that opens the container -- so inside N nested quotes
+    the same suffix was copied twice per level and one copy was thrown away
+    after a comparison against `None`.  Measured over `">"*2000 + " x"` before
+    the split: 4,002 calls copying 4,005,998 characters, against 2,000 quotes.
+    After it: 2,000 calls copying 2,002,999.
+
+    WHAT IS STILL TRUE, AND THIS CONTROL DOES NOT SAY OTHERWISE.  The
+    remaining copy is one per line per ENCLOSING quote, and Phase 1 hands each
+    container's content to itself as a list of STRINGS, so the characters it
+    materialises are the sum of the content lengths over the nesting levels --
+    quadratic in the depth, and not removable without giving a "line" an
+    OFFSET instead of being a copy, which is a change to every `blocks.py`
+    predicate.  This control therefore counts BUILDS and never characters: a
+    control that asserted the character total would be asserting that
+    quadratic is correct.
+
+    AND THE COPY IS NOT WHAT THAT SHAPE COSTS, measured rather than assumed.
+    Over `">"*n + " x"` the Python lines executed in `plan_memo_memo` and
+    `plan_memo_blocks` are EXACTLY linear (572,256 -> 1,144,256 for n = 4,000
+    -> 8,000, 2.00x), so every superlinear term is C-level; and `gc.disable()`
+    takes n = 64,000 from 0.581 s to 0.224 s and its growth from 2.9x to 2.2x
+    per doubling, which makes the cyclic collector -- walking the N suspended
+    frames and their content lists at every collection -- the larger share, not
+    the memcpy.  Holding a tail of 128,000 characters at a fixed depth of 8,000
+    multiplies the copied volume 16-fold and the time by 2.4.
+
+    THE THREE PROBES are the three ways a gather ends, because the rule is
+    about the lines a gather EXAMINES and each shape gives it a different
+    number: the nested shape (its own marker line, and nothing after it), the
+    blank-ended shape (the marker line and the blank that closes the quote) and
+    the lazy shape (a continuation candidate between the two).  A control on
+    the nested shape alone would leave `starts_block`'s test -- which only runs
+    where a gather reaches a candidate -- unwatched (measured: reverting it is
+    401 builds against 400 on that shape, and 1,200 against 600 on this one).
+    The marker test is required to have been called as well, since a driver
+    that asked nothing at all would report the same equality."""
+    import plan_memo_blocks     # the freshly loaded modules
+    import plan_memo_memo
+
+    bad, detail = [], []
+    for label, make, per in _QUOTE_SHAPES:
+        text = make(_QUOTE_N)
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "quotes.md"
+            p.write_text(text, encoding="utf-8")
+            # BOTH bindings of each name, because `Memo` imports them at
+            # import time and `starts_block` calls its own module's: a counter
+            # on the driver's binding alone leaves the `blocks.py` caller
+            # unwatched, and its mutant SURVIVED against exactly that (PR #510
+            # R29-1) -- the probe had a different subject from the claim.
+            with _count_calls(plan_memo_memo, "quote_content", limit=None) as b1, \
+                    _count_calls(plan_memo_blocks, "quote_content", limit=None) as b2, \
+                    _count_calls(plan_memo_memo, "quote_marker", limit=None) as t1, \
+                    _count_calls(plan_memo_blocks, "quote_marker", limit=None) as t2:
+                memo = plan_memo_memo.Memo(p)
+        quotes = sum(1 for b in memo.sequence if b[0] == "quote")
+        builds, tests = b1.calls + b2.calls, t1.calls + t2.calls
+        detail.append("%s: %d quote(s), %d build(s), %d test(s)" % (label, quotes, builds, tests))
+        if quotes != _QUOTE_N:
+            bad.append("%s parsed %d quotes, not %d" % (label, quotes, _QUOTE_N))
+        elif builds != per * quotes:
+            bad.append("%s built %d contents over %d quotes examining %d line(s) each (must be %d)"
+                       % (label, builds, quotes, per, per * quotes))
+        if tests <= builds:
+            bad.append("%s asked the marker test %d time(s) against %d build(s): the callers that "
+                       "want only the test are building again" % (label, tests, builds))
+    return not bad, ("; ".join(detail) + ("; FAIL " + "; ".join(bad) if bad else
+                                          " -- one build per line examined, never one per question"))
+
+
 def registry():
     """name -> (kind, control), the WORK fragment of the one table: this
     module's per-shape witnesses merged with the growth module's generated
@@ -668,6 +756,8 @@ def registry():
             ("CONTROL", scaling_split_row_control),
         "block quotes are linear: N quotes cost <= 4N quote_content calls":
             ("CONTROL", scaling_quotes_control),
+        "the §5.1 marker test builds no content: quote_content is called once per line a quote's gather examines and never to answer whether a line carries a marker":
+            ("CONTROL", quote_build_once_control),
         "the id scan walks a decoration run ONCE per id and never at all where no id follows it (an exact count, not a ratio -- the half of R29-2 a Python witness can see)":
             ("CONTROL", linear_id_scan_control),
         "a resolved image's demotion is linear: N nested images demote their descendants once, not once per enclosing image":

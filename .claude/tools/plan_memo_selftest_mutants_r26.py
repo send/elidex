@@ -21,8 +21,8 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, SIBLING,
-    TABLES, TOKENS,
+    BLOCKS, CHECK, CONTROLS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
+    SIBLING, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -451,4 +451,33 @@ MUTANTS += [
      "        _decor_end(text, i, hi)\n"
      "    for m in _CORE.finditer(text, pos, hi):",
      [R29_SCAN_WORK]),
+]
+
+
+R29_QUOTE_BUILD = ("the \u00a75.1 marker test builds no content: quote_content is called once per line a "
+                   "quote's gather examines and never to answer whether a line carries a marker")
+
+MUTANTS += [
+    # -- R29-1: the block-quote marker.  TWO rows, one per caller that wanted
+    # only the TEST, because the two are reached on different shapes and a row
+    # for either alone leaves the other's clause unwitnessed: the `_parse` arm
+    # runs wherever a quote opens, and `starts_block` only where a gather
+    # reaches a lazy candidate.
+    #
+    # ⚠ WHAT THESE ROWS DO NOT CLAIM.  Restoring `quote_content` here restores
+    # the wasted copy, not the quadratic: the remaining build is one per line
+    # per enclosing quote and stays quadratic in the depth, because Phase 1
+    # hands a container's content to itself as strings.  The control counts
+    # builds for that reason -- a control over the character total would be a
+    # control asserting that the quadratic is right.
+    ("R29-1 quote: the `_parse` arm that OPENS a quote asks the marker test, not the content build "
+     "(restore the build: the same answer, a copy of the rest of the line thrown away)", MEMO,
+     "                if quote_marker(line) is not None:\n                    open_block()",
+     "                if quote_content(line) is not None:\n                    open_block()",
+     [R29_QUOTE_BUILD]),
+    ("R29-1 quote: `starts_block` asks the marker test, not the content build (restore the build: the "
+     "arm a gather reaches only at a lazy candidate, which the nested shape never has)", BLOCKS,
+     "    if one_line_block(line) is not None or quote_marker(line) is not None:\n        return True",
+     "    if one_line_block(line) is not None or quote_content(line) is not None:\n        return True",
+     [R29_QUOTE_BUILD]),
 ]

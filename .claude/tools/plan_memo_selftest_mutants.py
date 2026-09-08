@@ -129,7 +129,7 @@ MUTANTS = [
      ["(span) a paragraph ends at a list item: a backtick open in one item and closed in the next is literal",
       SPEC_EXAMPLES]),
     ("span: a `>` line starts a block", BLOCKS,
-     '    if one_line_block(line) is not None or quote_content(line) is not None:\n        return True',
+     '    if one_line_block(line) is not None or quote_marker(line) is not None:\n        return True',
      '    if one_line_block(line) is not None:\n        return True',
      ["(span) a paragraph ends at a `>` line"]),
     ("span: an ATX heading is a block", BLOCKS,

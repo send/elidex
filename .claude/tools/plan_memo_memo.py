@@ -27,8 +27,8 @@ import re
 
 from plan_memo_blocks import (
     _is_lazy, _same_list, block_end, definition_block, indentation, is_blank, item_marker,
-    one_line_block, quote_content, raw_extent, raw_opener, run_end, setext_underline, starts_block,
-    strip_columns, table_header_at,
+    one_line_block, quote_content, quote_marker, raw_extent, raw_opener, run_end, setext_underline,
+    starts_block, strip_columns, table_header_at,
 )
 from plan_memo_ids import is_cite_label
 from plan_memo_lexer import Lexed, normalize_label
@@ -433,7 +433,7 @@ class Memo:
                     blank_line()
                     i += 1
                     continue
-                if quote_content(line) is not None:
+                if quote_marker(line) is not None:
                     open_block()
                     i += yield self._quote(lines, linenos, i, out)
                     continue
