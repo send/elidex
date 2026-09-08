@@ -21,9 +21,13 @@ kind.  An image's bracket structure is parsed so that it is not a link and
 a link may wrap it; its destination never joins the population, its alt
 text is prose, its tail is masked, and when it RESOLVES its description is
 plain text (§6.4): a link recorded inside it is demoted to a masked tail,
-never a memo link (PR #510 R19).  Inline constructs outside the lexed
-clauses (§6.5 autolinks, §6.2 emphasis beyond the decoration the id grammar
-reads, §2.5 character references in PROSE) are read as written; a
+never a memo link (PR #510 R19).  A §6.5 autolink is ONE masked token, tried
+at a `<` before the tag grammar (R21): its contents are not inline syntax and
+its text is its own URL, so nothing inside it is a link, a naming site or a
+sibling.  The inline constructs outside the lexed clauses -- §6.2 emphasis
+beyond the decoration the id grammar reads, §6.7 hard and §6.8 soft line
+breaks, §6.9 textual content, §2.5 character references in PROSE -- are read
+as written, each with its cost stated in the plan's §3.0b CLOSED list; a
 character reference in a link DESTINATION is decoded (§2.5 / §6.3,
 `normalize_destination` -- the one place a destination's text is read, PR
 #510 R16); the block types not modelled are the plan's §3.0 table.
@@ -367,6 +371,47 @@ def _reference_tail(s, opener, close, defs):
 
 
 # --------------------------------------------------------------------------
+# CommonMark §6.5 autolinks -- "Autolinks are absolute URIs and email
+# addresses inside < and >.  They are parsed as links, with the URL or email
+# address as the link label."  The disposition is the plan's §3.1: MASKED, the
+# whole span -- an autolink is ONE token whose contents are not inline syntax
+# (`<https://example.com/[child](absent.md)>` is one autolink, commonmark.js
+# 0.31.2 measured: `<a href="https://example.com/%5Bchild%5D(absent.md)">`),
+# and its text IS its destination, so an id inside it is no more a naming site
+# than an id in a link's destination is.  Tried at a `<` BEFORE the §6.6 tag
+# grammar, the spec's order; the two are disjoint by construction (an autolink
+# needs a `:` or an `@` where a tag name may hold neither, and a tag's `<!` /
+# `</` / `<?` opener is not an ASCII letter), so the order is stated, not
+# load-bearing -- the §6.5 and §6.6 example lists are the falsifier.
+# --------------------------------------------------------------------------
+
+# "A URI autolink consists of <, followed by an absolute URI followed by >" --
+# "An absolute URI, for these purposes, consists of a scheme followed by a
+# colon (:) followed by zero or more characters other than ASCII control
+# characters, space, <, and >" (so U+0000-1F, U+0020 and U+007F end it:
+# `< https://foo.bar >` is not an autolink, Example 608) -- "a scheme is any
+# sequence of 2-32 characters beginning with an ASCII letter and followed by
+# any combination of ASCII letters, digits, or the symbols plus ("+"), period
+# ("."), or hyphen ("-")" (`<m:abc>` is a 1-character scheme and no autolink,
+# Example 609; `<a+b+c:d>`, `<made-up-scheme://foo,bar>`, `<MAILTO:FOO@BAR.BAZ>`
+# are).  "Backslash-escapes do not work inside autolinks" (Example 603,
+# `<https://example.com/\[\>`), so the span is matched raw and never
+# unescaped.
+_URI_AUTOLINK = r"[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\x00-\x20\x7f<>]*>"
+# "An email autolink consists of <, followed by an email address, followed by
+# >" -- "An email address, for these purposes, is anything that matches the
+# non-normative regex from the HTML5 spec:
+#   /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?
+#    (?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/"
+# -- transcribed verbatim, with the spec's `$` replaced by the closing `>`
+# (`<foo.bar.baz>` has no `@` and is no autolink, Example 610; `<foo\+@bar.
+# example.com>` is none either, Example 606, since the class holds no `\`).
+_EMAIL_AUTOLINK = (r"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+                   r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*>")
+_AUTOLINK = re.compile("<(?:%s|%s)" % (_URI_AUTOLINK, _EMAIL_AUTOLINK))
+
+
+# --------------------------------------------------------------------------
 # CommonMark §6.6 raw HTML -- THE one tag grammar, spelled once.  "Text
 # between < and > that looks like an HTML tag is parsed as a raw HTML tag and
 # will be rendered in HTML without escaping."  Each production below is the
@@ -464,9 +509,18 @@ def _code_closer(runs, a1, k):
 def inline_pass(s, defs):
     """ONE left-to-right pass over a block's inline content -- CommonMark
     0.31.2 "Appendix: A parsing strategy", Phase 2 "inline structure" --
-    recognising backtick strings (§6.1), raw HTML (§6.6) and brackets (§6.3
-    / §6.4) together, and resolving references through `defs` (normalised
-    label -> destination).  Returns (code, links, images, unresolved, html).
+    recognising backtick strings (§6.1), autolinks (§6.5), raw HTML (§6.6)
+    and brackets (§6.3 / §6.4) together, and resolving references through
+    `defs` (normalised label -> destination).  Returns (code, links, images,
+    unresolved, html, autolinks).
+
+    Autolinks (§6.5, PR #510 R21): at a `<` the autolink grammar is tried
+    first (the spec's order; `_AUTOLINK`), and a match is ONE token the scan
+    jumps past -- its contents are not inline syntax, so
+    `<https://example.com/[child](absent.md)>` is one autolink and `absent.md`
+    is no memo link (commonmark.js 0.31.2 measured; until R21 the brackets
+    were scanned and the missing sibling was a false rc-2 miss).  Backslash
+    escapes do not work inside one, so the span is matched raw.
 
     Backtick strings: a run opens a code span closed by the next run of
     equal length; the scan jumps past the span (brackets inside it are never
@@ -559,7 +613,8 @@ def inline_pass(s, defs):
     meant to link).
     """
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
-    code, out, images, unresolved, html, stack, i, n = [], [], [], [], [], [], 0, len(s)
+    code, out, images, unresolved, html, auto = [], [], [], [], [], []
+    stack, i, n = [], 0, len(s)
     relabel = -1        # the `[` of the label of the last failed full reference
     while i < n:
         c = s[i]
@@ -567,9 +622,14 @@ def inline_pass(s, defs):
             i += 2                      # §2.4: `\[` / `\]` / `\`` are literal
             continue
         if c == "<":
+            m = _AUTOLINK.match(s, i)   # §6.5 before §6.6, the spec's order
+            if m is not None:
+                auto.append((i, m.end()))
+                i = m.end()             # an autolink is one token, never inline-parsed
+                continue
             m = _HTML_TAG.match(s, i)
             if m is None:
-                i += 1                  # §6.6: not a tag, so a literal `<`
+                i += 1                  # neither §6.5 nor §6.6, so a literal `<`
             else:
                 html.append((i, m.end()))
                 i = m.end()             # a raw HTML span is never inline-parsed
@@ -616,19 +676,25 @@ def inline_pass(s, defs):
             # image's `[`, the trailing entries) is the description's -- ONE
             # rule, here, where the image closes: a link is demoted to a
             # masked tail (never a memo link, never prose), a nested image
-            # stays masked, a failed reference names no lost memo
+            # is demoted with it (it renders no `<img>` of its own -- its
+            # alt text is folded into this one's), a failed reference names
+            # no lost memo
+            for j in range(len(images) - 1, -1, -1):
+                if images[j][0] <= pos:
+                    break
+                images[j] = images[j][:2] + ("demoted",)
             while out and out[-1][0] > pos:
-                images.append(out.pop()[:2])
+                images.append(out.pop()[:2] + ("demoted",))
             while unresolved and unresolved[-1][0] > pos:
                 unresolved.pop()
-            images.append((i, end))
+            images.append((i, end, "image"))
         else:
             out.append((i, end, dest))
             for opener in stack:        # links may not contain links
                 if not opener[1]:
                     opener[2] = False
         i = end
-    return code, out, images, unresolved, html
+    return code, out, images, unresolved, html, auto
 
 
 
@@ -676,24 +742,31 @@ class Lexed:
     over raw lines by `plan_memo_memo.py::Memo`, and a reference
     definition is never inline content.  `tokens` = [(start, end, "cite" |
     "file")] over the raw text.  `resolve(defs)` runs `inline_pass` and sets
-    `code` = code spans, `html` = raw HTML spans (§6.6), `links` =
-    [(tail_start, end, destination)], `images` = [(tail_start, end)] (every
-    tail that is not a link's: a resolved image's, and a link's demoted
+    `code` = code spans, `html` = raw HTML spans (§6.6), `autolinks` =
+    [(start, end)] of every §6.5 autolink span (`<` and `>` included; masked
+    whole, its destination never joining the population -- an autolink's URL
+    carries a scheme or is a `mailto:`, so it is never a sibling on disk),
+    `links` =
+    [(tail_start, end, destination)], `images` = [(tail_start, end, kind)]
+    (every tail that is not a link's, `kind` = "image" for a resolved
+    image's own tail and "demoted" for a link or a nested image demoted
     inside a resolved image's description, §6.4) and
     `unresolved` = [(offset, label, form, is_image)] of the references no
     definition answers; `mask` is set by the disposition step in
     `plan_memo_tables.py` once the row ids are known."""
 
-    __slots__ = ("text", "code", "html", "tokens", "links", "images", "unresolved", "mask")
+    __slots__ = ("text", "code", "html", "autolinks", "tokens", "links", "images", "unresolved", "mask")
 
     def __init__(self, text):
         self.text = text
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
-        self.code, self.html, self.links, self.images, self.unresolved = [], [], [], [], []
+        self.code, self.html, self.autolinks = [], [], []
+        self.links, self.images, self.unresolved = [], [], []
         self.mask = None
 
     def resolve(self, defs):
-        """The inline pass over the RAW text (code spans, raw HTML and
-        brackets together; no pre-mask), with `defs` = normalised label ->
+        """The inline pass over the RAW text (code spans, autolinks, raw HTML
+        and brackets together; no pre-mask), with `defs` = normalised label ->
         destination."""
-        self.code, self.links, self.images, self.unresolved, self.html = inline_pass(self.text, defs)
+        (self.code, self.links, self.images, self.unresolved,
+         self.html, self.autolinks) = inline_pass(self.text, defs)

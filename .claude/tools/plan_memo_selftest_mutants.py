@@ -44,9 +44,11 @@ SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3
 # The block-sequence control over the §4.4 / §5.1 / §5.2 shapes the vendored
 # examples do not reach (each expected sequence read off commonmark.js 0.31.2).
 SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"
-# The inline half of the conformance control: the spec's §6.6 Raw HTML
+# The inline half of the conformance control: the spec's §2.4 / §2.5 / §6.1 /
+# §6.3 / §6.4 / §6.5 / §6.6
 # examples against the spans Phase 2 masks (PR #510 R17).
-INLINE_EXAMPLES = "CommonMark 0.31.2 spec examples (§6.6 Raw HTML): the spans Phase 2 masks are the html's verbatim `<` text"
+INLINE_EXAMPLES = ("CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1, §6.3-§6.6): Phase 2's inline claim aligns "
+                   "with the html")
 
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks
@@ -236,20 +238,20 @@ MUTANTS = [
      '                if rid in self.ids:', '                if False:',
      ["(rc) the same id declared in two memos is rc 2"]),
     ("gate: KIND-SPELLING is a mechanical finding", CHECK,
-     '        if len(pop.spellings) > 1:', '        if False:',
+     '    if len(pop.spellings) > 1:', '    if False:',
      ["(rc) the undetermined kind written two ways is KIND-SPELLING, rc 1"]),
     ("gate: a mechanical finding is exit 1", CHECK,
      'rc = 1 if mechanical else 0', 'rc = 0',
      ["(rc) the undetermined kind written two ways is KIND-SPELLING, rc 1"]),
     # -- /code-review high: one mutant per fix
     ("F1 id cell: the id is followed by a non-id character, not the cell end", TABLES,
-     'return t.id if t is not None and t.start == 0 else None',
-     'return t.id if t is not None and t.start == 0 and t.end == len(cell_text.strip(" \\t")) else None',
+     'return t.id if t is not None and t.start == 0 and t.kind in kinds else None',
+     'return t.id if t is not None and t.start == 0 and t.kind in kinds and t.end == len(cell_text.strip(" \\t")) else None',
      ["(id) an id cell with trailing prose declares the id at its start",
       "(id) a backticked slug with trailing prose declares the slug"]),
     ("F1 id cell: a cell not starting with an id declares nothing (no fallback to the cell)", TABLES,
-     'return t.id if t is not None and t.start == 0 else None',
-     'return t.id if t is not None and t.start == 0 else cell_text.strip()',
+     'return t.id if t is not None and t.start == 0 and t.kind in kinds else None',
+     'return t.id if t is not None and t.start == 0 and t.kind in kinds else cell_text.strip()',
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
     ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", MEMO,

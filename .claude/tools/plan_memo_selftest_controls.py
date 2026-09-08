@@ -422,11 +422,14 @@ def spec_examples_control(M):
 
 
 def inline_examples_control(M):
-    """The CommonMark 0.31.2 spec's own `Raw HTML` §6.6 examples (613-632)
-    through Phase 1 and Phase 2 (`plan_memo_selftest_conformance.run_inline`):
-    the raw HTML spans the one inline pass masks are exactly the text the
-    expected html emits verbatim, paragraph by paragraph; the detail is
-    printed whole, like the block half's."""
+    """The CommonMark 0.31.2 spec's own example lists for every INLINE section
+    the plan's §3.1 calls LEXED or MASKED-RAW -- §2.4 backslash escapes, §2.5
+    character references, §6.1 code spans, §6.3 links, §6.4 images, §6.5
+    autolinks, §6.6 raw HTML -- through Phase 1 and Phase 2
+    (`plan_memo_selftest_conformance.run_inline`, the SAME aligner the block
+    half runs): each masked raw HTML span verbatim, then one `<a href=` per
+    link and autolink, one `<code>` per code span, one `<img src=` per
+    resolved image.  The detail is printed whole, like the block half's."""
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
     ok, detail = conf.run_inline(plan_memo_memo)
@@ -803,7 +806,8 @@ def registry():
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
-    reg["CommonMark 0.31.2 spec examples (§6.6 Raw HTML): the spans Phase 2 masks are the html's verbatim `<` text"] = ("CONTROL", inline_examples_control)
+    reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1, §6.3-§6.6): Phase 2's inline claim aligns "
+        "with the html"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["block quotes are linear: N quotes cost <= 4N quote_content calls"] = ("CONTROL", scaling_quotes_control)

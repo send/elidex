@@ -404,12 +404,22 @@ def check(path):
             "[KIND-UNDETERMINED] %d row(s) declare an unsettled kind (%s) and are IN the naming "
             "population, because §5 gives them the same no-owner/no-ordering obligation as an "
             "umbrella." % (len(undet), ", ".join(sorted(undet))))
-        if len(pop.spellings) > 1:
-            findings.append(
-                ("KIND-SPELLING", pop.display(pop.main.path), 0,
-                 "the undetermined kind is written %d ways (%s); a kind with more than one spelling "
-                 "is a kind no program can enumerate"
-                 % (len(pop.spellings), " / ".join(sorted(pop.spellings)))))
+    # Gated on the SPELLINGS, never on the winning kind: `Population._kind`
+    # collects the spelling of every row whose declaring field says the
+    # undetermined kind, deliberately independent of the marker (a row can
+    # carry both -- its kind stays umbrella, its spelling still joins the
+    # set), so nesting this under a non-empty `undetermined` set asked a
+    # different question of a set collected to answer this one.  Until PR
+    # #510 R21 it WAS nested: a memo whose every spelling-carrying row is
+    # also marked has an empty `undet`, and two rows writing `KIND
+    # UNDETERMINED` and `KIND — UNDETERMINED` exited 0 with both spellings
+    # sitting in `pop.spellings`.
+    if len(pop.spellings) > 1:
+        findings.append(
+            ("KIND-SPELLING", pop.display(pop.main.path), 0,
+             "the undetermined kind is written %d ways (%s); a kind with more than one spelling "
+             "is a kind no program can enumerate"
+             % (len(pop.spellings), " / ".join(sorted(pop.spellings)))))
     lex_unsupported_seed(pop, findings, notes)
     all_mentions = collect_mentions(pop)
     assertion_a(pop, findings, notes)

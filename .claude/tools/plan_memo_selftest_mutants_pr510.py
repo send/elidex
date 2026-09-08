@@ -21,6 +21,41 @@ from plan_memo_selftest_mutants import (
     TABLES,
 )
 
+# -- PR #510 Codex R21 control names, spelled once (the §6.5 autolink family,
+# the double marker, the spelling gate, the schema id kinds)
+R21_REVIEWER = ("(autolink) the R21 reviewer's input `<https://example.com/[child](absent.md)>` is ONE §6.5 "
+                "autolink: the brackets inside it are not link syntax, `absent.md` is no memo, rc 0")
+R21_URI_ID = ("(autolink) a declared id inside a URI autolink is no naming site: the span is masked whole, "
+              "exactly as a link's destination is -- 0 sites")
+R21_EMAIL_ID = (
+    '(autolink) a declared id inside an EMAIL autolink is no naming site either (the second §6.5 arm,'
+    ' `mailto:` at the renderer) -- 0 sites.  The id is the whole local part: dropping the arm leaves'
+    ' `9z` bounded by `<` and `@`, so the mutant HAS a site to report (an id glued to a domain label '
+    '-- `ops@9z.example.com` -- is no site either way and proves nothing)')
+R21_BACKTICK = ("(autolink) a backtick inside an autolink is consumed by it, not by a code span (the three "
+                "delimiters are read left to right as met; commonmark.js agrees) -- 0 sites")
+R21_SCHEME = (
+    '(autolink) `<m:abc…>` is a ONE-character scheme and no autolink (§6.5 Example 609, 2-32 '
+    'characters): the `<` is literal and the link INSIDE the would-be span is read (commonmark.js: '
+    '`&lt;m:abc<a href="child.md">x</a>&gt;`).  The link sits inside the span so that widening the '
+    'scheme to one character masks it and the control goes red')
+R21_SPACE = (
+    '(autolink) a SPACE inside the absolute URI ends it (§6.5 Example 608), so `<https://foo.bar/ …>`'
+    ' is no autolink and no tag either -- the `<` is literal and the link INSIDE the would-be span is'
+    ' read (commonmark.js: `&lt;https://foo.bar/ <a href="child.md">x</a>&gt;`).  The space sits in '
+    'the URI TAIL, which is the class the grammar excludes it from: a space right after `<` fails at '
+    'the SCHEME instead, so that shape leaves the tail-widening mutant alive and proves nothing')
+R21_DOUBLE_MARK = ("(a) a row carrying the marker in its declaring field AND again in another cell is the "
+                   "double marker the assertion forbids: UMBRELLA-MARK 1")
+R21_SPELLING = ("(rc) two MARKED rows spelling the undetermined kind two ways is KIND-SPELLING: the "
+                "undetermined set is empty and the divergence is still real")
+R21_CITE_IN_SLICE = ("(schema) a citation-shaped id in the §5 SLICE table keys no slice row (the schema keys "
+                     "short + slug): the row is unkeyed, so its cells would go unasserted -- rc 2")
+R21_CITE_IN_SLOT = "(schema) a citation-shaped id in the §8 SLOT table is the same miss -- rc 2"
+R21_SHORT_IN_CITE = ("(schema) a SHORT id in the citation table keys no citation row (the schema keys cite): "
+                     "rc 2 -- the inverse direction, which would otherwise pollute the keep-set")
+R21_SLUG_IN_CITE = "(schema) a `#11-` SLUG in the citation table is the same miss -- rc 2"
+
 MUTANTS += [
     # -- PR #510 Codex R1
     ("R1-1 row: only an ODD backslash run escapes `|` (even run = literal backslash + pipe)", BLOCKS,
@@ -74,8 +109,8 @@ MUTANTS += [
      '        if not active or inline_pass(s[pos + 1:i], defs)[3] is None:\n            i += 1',
      ["links() is linear: 30 nested brackets are one inline_pass call"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
-     '                unresolved.pop()\n            images.append((i, end))',
-     '                unresolved.pop()\n            images.append((i, end))\n            i += 1\n            continue',
+     '                unresolved.pop()\n            images.append((i, end, "image"))',
+     '                unresolved.pop()\n            images.append((i, end, "image"))\n            i += 1\n            continue',
      ["(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read as a "
       "shortcut, and the image destination is not a memo"]),
     ("R3-1 link: an escaped `[` is not an opener", LEXER,
@@ -707,8 +742,8 @@ MUTANTS += [
      [R17_LAZY, R17_REVIEWER, SEQUENCE]),
     ("R17 #2 §6.6: raw HTML is a span of the one inline pass (drop the `<` arm: a tag is text and its brackets "
      "are delimiters)", LEXER,
-     '        if c == "<":\n            m = _HTML_TAG.match(s, i)',
-     '        if False:\n            m = _HTML_TAG.match(s, i)',
+     '            m = _HTML_TAG.match(s, i)\n            if m is None:',
+     '            m = None\n            if m is None:',
      [R17_SPAN, R17_ATTR_ID, INLINE_EXAMPLES,
       "(lex-seed) `<span title=\"Slice 9z owns it\">`: an inline span holding a declared id is seeded under the one "
       "raw-line rule"]),
@@ -785,11 +820,11 @@ MUTANTS += [
     # -- PR #510 Codex R19
     ("R19 #1 §6.4: a resolved image's description is plain text -- a link recorded inside it is demoted (re-inject the "
      "immediate add: the link stays a link)", LEXER,
-     '            while out and out[-1][0] > pos:\n                images.append(out.pop()[:2])',
-     '            while False:\n                images.append(out.pop()[:2])',
+     '            while out and out[-1][0] > pos:\n                images.append(out.pop()[:2] + ("demoted",))',
+     '            while False:\n                images.append(out.pop()[:2] + ("demoted",))',
      [R19_REVIEWER, R19_NOT_WALKED, R19_NESTED, R19_INNER_RESOLVES, R19_DEACTIVATED]),
     ("R19 #1 §6.4: the demoted link's tail stays masked (re-inject a plain drop: the tail is prose)", LEXER,
-     '                images.append(out.pop()[:2])', '                out.pop()',
+     '                images.append(out.pop()[:2] + ("demoted",))', '                out.pop()',
      ["(image) `![alt [b](9z)](i.png)`: the demoted link's tail stays masked -- the `9z` in its destination is not "
       "prose, 0 sites"]),
     ("R19 #1 §6.4: a failed reference inside a resolved image's description names no lost memo (drop the rule)", LEXER,
@@ -800,7 +835,7 @@ MUTANTS += [
     ("R19 #1 §6.4: demotion is the RESOLVED image's (re-inject it on the failed image too: `![alt` literal, yet the "
      "link inside is stripped)", LEXER,
      '                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed',
-     '                while out and out[-1][0] > pos:\n                    images.append(out.pop()[:2])\n                i += 1',
+     '                while out and out[-1][0] > pos:\n                    images.append(out.pop()[:2] + ("demoted",))\n                i += 1',
      [R19_UNRESOLVED_KEEPS, R19_OUTSIDE]),
     ("R19 #2 display: a memo is named by its path relative to the root memo's directory (re-inject the basename)", MEMO,
      '            return str(path.relative_to(self.root))', '            return path.name',
@@ -871,4 +906,49 @@ MUTANTS += [
      '        if True:\n            return repr(self.self_id)',
      ["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never "
       "`row None`"]),
+    ("R21 #1 §6.5: an autolink is one masked token of the inline pass (drop the arm: its brackets are "
+     "delimiters again)", LEXER,
+     '            m = _AUTOLINK.match(s, i)   # §6.5 before §6.6, the spec\'s order',
+     '            m = None',
+     [R21_REVIEWER, R21_URI_ID, R21_EMAIL_ID, R21_BACKTICK, INLINE_EXAMPLES]),
+    ("R21 #1 §6.5: the email arm is an autolink too (drop it: the URI arm alone)", LEXER,
+     '_AUTOLINK = re.compile("<(?:%s|%s)" % (_URI_AUTOLINK, _EMAIL_AUTOLINK))',
+     '_AUTOLINK = re.compile("<(?:%s)" % (_URI_AUTOLINK,))',
+     [R21_EMAIL_ID, INLINE_EXAMPLES]),
+    ("R21 #1 §6.5: a scheme is 2-32 characters (widen to 1: `<m:abc>` becomes an autolink)", LEXER,
+     '_URI_AUTOLINK = r"[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\\x00-\\x20\\x7f<>]*>"',
+     '_URI_AUTOLINK = r"[A-Za-z][A-Za-z0-9+.-]{0,31}:[^\\x00-\\x20\\x7f<>]*>"',
+     [R21_SCHEME, INLINE_EXAMPLES]),
+    ("R21 #1 §6.5: a space ends the absolute URI (admit it: `< https://foo.bar >` becomes an autolink)", LEXER,
+     '[^\\x00-\\x20\\x7f<>]*>"',
+     '[^\\x00-\\x1f\\x7f<>]*>"',
+     [R21_SPACE, INLINE_EXAMPLES]),
+    ("R21 #1 §6.5: the autolink span is MASKED (drop the disposition: its text is prose again)", TABLES,
+     '    out += [(a, b, "autolink") for a, b in lx.autolinks]\n', '',
+     [R21_URI_ID, R21_EMAIL_ID, R21_BACKTICK]),
+    ("R21 #1 §6.4: a construct demoted into a resolved image's description renders no tag of its own "
+     "(re-tag it `image`: the resolved-image count over-claims)", LEXER,
+     '                images.append(out.pop()[:2] + ("demoted",))',
+     '                images.append(out.pop()[:2] + ("image",))',
+     [INLINE_EXAMPLES]),
+    ("R21 #2 (a): the marker in the declaring field short-circuits the SEED only (re-inject the `continue` "
+     "that skipped the out-of-field scan)", ROLES,
+     '        if MARKER not in row.field and DECLARES.search(row.field):',
+     '        if MARKER in row.field:\n            continue\n        if DECLARES.search(row.field):',
+     [R21_DOUBLE_MARK]),
+    ("R21 #3: KIND-SPELLING is gated on the spellings, not on the winning kind (re-nest it under a "
+     "non-empty undetermined set)", CHECK,
+     '    if len(pop.spellings) > 1:', '    if undet and len(pop.spellings) > 1:',
+     [R21_SPELLING, "(rc) that divergence is a mechanical finding: rc 1"]),
+    ("R21 #4: an id cell declares an id of a kind ITS schema keys (drop the kind test)", TABLES,
+     'return t.id if t is not None and t.start == 0 and t.kind in kinds else None',
+     'return t.id if t is not None and t.start == 0 else None',
+     [R21_CITE_IN_SLICE, R21_CITE_IN_SLOT, R21_SHORT_IN_CITE, R21_SLUG_IN_CITE]),
+    ("R21 #4: the §5 slice table keys short + slug (widen it to every kind)", TABLES,
+     'decl="Slice", idc="#", kinds=ROW_KINDS)',
+     'decl="Slice", idc="#", kinds=ROW_KINDS + ("cite",))',
+     [R21_CITE_IN_SLICE]),
+    ("R21 #4: the citation table keys citation ids (widen it to every kind)", TABLES,
+     'idc="ID", kinds=("cite",))', 'idc="ID", kinds=("cite", "short", "slug"))',
+     [R21_SHORT_IN_CITE, R21_SLUG_IN_CITE]),
 ]

@@ -272,3 +272,141 @@ acase("NEGATIVE", "(c-seed) the same prose with `#11-zz-alpha` in the Deps cell 
       build(s7z="Terminal.  Acceptance: the probe must return 3.  Lands after Slice `#11-zz-alpha`.",
             d7z="**9z**, `#11-zz-alpha`"),
       "ORDER-PROSE?", 0)
+
+
+# ------------------------------------------------ PR #510 Codex R21 controls --
+
+# #1 (IMP): CommonMark §6.5 autolinks.  `<https://example.com/[child](absent.md)>`
+# is ONE autolink -- its contents are not link syntax (commonmark.js 0.31.2:
+# `<a href="https://example.com/%5Bchild%5D(absent.md)">`) -- and until R21 the
+# brackets inside it were scanned, `absent.md` entered the population, and the
+# unavailable-memo miss was a false rc 2.  The disposition (plan §3.1) is
+# MASKED: the span is one token, its text IS its destination, so nothing
+# inside it is a link, a naming site or a sibling, and -- unlike a §6.6 raw
+# HTML span -- it is NOT seeded, because the construct is fully lexed.
+rcase("NEGATIVE", "(autolink) the R21 reviewer's input `<https://example.com/[child](absent.md)>` is ONE §6.5 "
+                  "autolink: the brackets inside it are not link syntax, `absent.md` is no memo, rc 0",
+      build(), "See <https://example.com/[child](absent.md)> here.", 0)
+rcase("POSITIVE", "(autolink) the same brackets OUTSIDE an autolink are a link to a memo that is not there: "
+                  "rc 2 -- the control above has a live subject",
+      build(), "See [child](absent-file.md) here.", 2)
+rcase("NEGATIVE", "(autolink) an autolink's URL is never a sibling on disk (§6.5 admits an absolute URI or an "
+                  "email address only, and `sibling_path` stage (a) rejects a scheme): rc 0",
+      build(), "See <https://example.com/absent-file.md> here.", 0)
+case("NEGATIVE", "(autolink) a declared id inside a URI autolink is no naming site: the span is masked whole, "
+                 "exactly as a link's destination is -- 0 sites",
+     build(), "See <https://example.com/9z> here.", 0)
+case("POSITIVE", "(autolink) the same URL WITHOUT the angle brackets is prose (§6.5 Example 611: a bare URL is "
+                 "no autolink), so the id in it IS a site -- the control above has a live subject",
+     build(), "See https://example.com/9z here.", 1)
+case("NEGATIVE", "(autolink) a declared id inside an EMAIL autolink is no naming site either (the second §6.5 "
+                 "arm, `mailto:` at the renderer) -- 0 sites.  The id is the whole local part: dropping the arm "
+                 "leaves `9z` bounded by `<` and `@`, so the mutant HAS a site to report (an id glued to a "
+                 "domain label -- `ops@9z.example.com` -- is no site either way and proves nothing)",
+     build(), "See <9z@example.com> here.", 0)
+case("NEGATIVE", "(autolink) backslash escapes do not work inside an autolink (§6.5 Example 603, "
+                 "`<https://example.com/\\[\\>`): the span is matched raw, so the `\\[` opens nothing and the id "
+                 "in it is masked -- 0 sites",
+     build(), "See <https://example.com/\\[9z\\> here.", 0)
+case("NEGATIVE", "(autolink) a backtick inside an autolink is consumed by it, not by a code span (the three "
+                 "delimiters are read left to right as met; commonmark.js agrees) -- 0 sites",
+     build(), "See `a` <https://e.example/9z-`b`> `c` here.", 0)
+case("POSITIVE-NOVEL", "(autolink) `<m:abc…>` is a ONE-character scheme and no autolink (§6.5 Example 609, "
+                       "2-32 characters): the `<` is literal and the link INSIDE the would-be span is read "
+                       "(commonmark.js: `&lt;m:abc<a href=\"child.md\">x</a>&gt;`).  The link sits inside the "
+                       "span so that widening the scheme to one character masks it and the control goes red",
+     build(), "See <m:abc[x](child.md)> here.", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(autolink) a SPACE inside the absolute URI ends it (§6.5 Example 608), so "
+                       "`<https://foo.bar/ …>` is no autolink and no tag either -- the `<` is literal and the "
+                       "link INSIDE the would-be span is read (commonmark.js: `&lt;https://foo.bar/ "
+                       "<a href=\"child.md\">x</a>&gt;`).  The space sits in the URI TAIL, which is the class "
+                       "the grammar excludes it from: a space right after `<` fails at the SCHEME instead, so "
+                       "that shape leaves the tail-widening mutant alive and proves nothing",
+     build(), "See <https://foo.bar/ [x](child.md)> here.", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(autolink) `<foo.bar.baz>` has neither a scheme nor an `@` (§6.5 Example 610) and is no "
+                       "tag: the `<` is literal and the link after it is read",
+     build(), "See <foo.bar.baz> [x](child.md) here.", 1, files=CHILD)
+case("POSITIVE-NOVEL", "(autolink) an autolink inside a LINK's text: the autolink is masked, the link is still "
+                       "the memo link (commonmark.js nests the two `<a>`s)",
+     build(), "See [<https://a.example/b>](child.md) here.", 1, files=CHILD)
+acase("NEGATIVE", "(autolink) an autolink holding a declared id and a `|` is NOT a `[LEX-UNSUPPORTED?]` seed: "
+                  "the construct is fully lexed and hides nothing, unlike a raw HTML span",
+      build(), "LEX-UNSUPPORTED?", 0, prose="See <https://e.example/9z|x> here.")
+acase("POSITIVE", "(autolink) the same id in a raw HTML SPAN is a seed -- the two dispositions differ, and the "
+                  "control above has a live subject",
+      build(), "LEX-UNSUPPORTED?", 1, prose="See <span title=\"9z\">x</span> here.")
+
+# #2 (IMP): the marker outside the declaring field certifies nothing, and that
+# is true of a row that ALSO carries it where it belongs.  The seed for the
+# kind said in words is the only thing a marker in the declaring field
+# short-circuits; until R21 one `continue` gated the out-of-field scan too, so
+# a row marked twice was reported only when the second marker was its only one.
+MARK = "**UMBRELLA, not a terminal unit.**"
+acase("POSITIVE", "(a) a row carrying the marker in its declaring field AND again in another cell is the "
+                  "double marker the assertion forbids: UMBRELLA-MARK 1",
+      build(d9z=MARK), "UMBRELLA-MARK", 1)
+acase("NEGATIVE", "(a) the same row with the marker in its declaring field ONLY: UMBRELLA-MARK 0 -- the scan "
+                  "reads the other cells, it does not report them",
+      build(), "UMBRELLA-MARK", 0)
+acase("POSITIVE", "(a) a row carrying the marker in another cell and NOT in its declaring field is the same "
+                  "finding (the arm that already worked)",
+      build(sqx="Terminal.  Acceptance: the probe must return 4.", duz=MARK), "UMBRELLA-MARK", 1)
+
+# #3 (IMP): KIND-SPELLING is gated on the SPELLINGS, never on the winning
+# kind.  `Population._kind` collects a spelling whether or not the row also
+# carries the marker; nesting the finding under a non-empty `undetermined` set
+# suppressed it exactly when every spelling-carrying row is also marked.
+acase("POSITIVE", "(rc) two MARKED rows spelling the undetermined kind two ways is KIND-SPELLING: the "
+                  "undetermined set is empty and the divergence is still real",
+      build(s9z="charter.  KIND UNDETERMINED for now.", wa="why.  KIND — UNDETERMINED for now."),
+      "KIND-SPELLING", 1)
+rcase("POSITIVE", "(rc) that divergence is a mechanical finding: rc 1",
+      build(s9z="charter.  KIND UNDETERMINED for now.", wa="why.  KIND — UNDETERMINED for now."), "", 1)
+acase("NEGATIVE", "(rc) two MARKED rows spelling it the SAME way: KIND-SPELLING 0",
+      build(s9z="charter.  KIND UNDETERMINED for now.", wa="why.  KIND UNDETERMINED for now."),
+      "KIND-SPELLING", 0)
+
+# #4 (IMP): a table's id column is keyed by the kinds its schema declares
+# (`Schema.kinds`, applied in the ONE place `bare_id`).  A citation-shaped id
+# in a slice or slot table entered `ids` as an umbrella while both mention
+# passes ignored it (a citation id is masked in prose and exempt from the
+# reference walk), so its ownership text could never be checked and the run
+# exited 0; a short id in the citation table polluted the keep-set.
+CITE_TABLE = ("## §0.6 more citations\n\n| ID | Citation | Anchor | Used by |\n|---|---|---|---|\n"
+              "| %s | ECMA-262 §2 Y | `#b` | — |\n")
+rcase("POSITIVE", "(schema) a citation-shaped id in the §5 SLICE table keys no slice row (the schema keys "
+                  "short + slug): the row is unkeyed, so its cells would go unasserted -- rc 2",
+      build(i7z="**[C99]**"), "", 2)
+rcase("POSITIVE", "(schema) a citation-shaped id in the §8 SLOT table is the same miss -- rc 2",
+      build(extra="## §8 more slots\n\n| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+                  "| **[C98]** | Terminal.  why. | now | 2026-12-31 |\n"), "", 2)
+rcase("POSITIVE", "(schema) a SHORT id in the citation table keys no citation row (the schema keys cite): "
+                  "rc 2 -- the inverse direction, which would otherwise pollute the keep-set",
+      build(extra=CITE_TABLE % "**9y**"), "", 2)
+rcase("POSITIVE", "(schema) a `#11-` SLUG in the citation table is the same miss -- rc 2",
+      build(extra=CITE_TABLE % "`#11-zz-gamma`"), "", 2)
+rcase("NEGATIVE", "(schema) a citation id in the citation table is admitted: rc 0 -- the three controls above "
+                  "have a live subject",
+      build(extra=CITE_TABLE % "[C9]"), "", 0)
+
+# -- the §3.0b CLOSED list's PROSE-AS-WRITTEN rows: each one's COST, measured.
+# A construct the inline pass does not lex is not thereby unexamined -- its text
+# is read by the scanners exactly as written, and these say what that buys and
+# what it costs.  Without them the table's "read as written" column would be an
+# assertion; with them a change of disposition turns a control red.
+case("POSITIVE", "(§6.2) emphasis is PROSE, not a mask: a declared id inside `*...*` IS a naming site -- the "
+                 "delimiters are characters the scanners read past, and the `**9z**` DECORATION a row id may "
+                 "carry is the id grammar's business (`plan_memo_ids.DECOR`), not this pass's",
+     build(), "See *Slice 9z* here.", 1)
+case("POSITIVE", "(§6.2) a link WRAPPED in emphasis is still the memo link: emphasis-as-prose costs the "
+                 "population nothing (commonmark.js: `<em><a href=\"child.md\">x</a></em>`)",
+     build(), "See *[x](child.md)* here.", 1, files=CHILD)
+case("POSITIVE", "(§6.7) a HARD line break inside a link's text does not break the link: the inline pass reads "
+                 "the block's joined text, so a construct may span the lines of its paragraph (§6.8 soft breaks "
+                 "likewise)",
+     build(), "See [x  \ny](child.md) here.", 1, files=CHILD)
+case("KNOWN-MISS", "(§2.5) a character reference in PROSE is read as written, so an id SPELLED as one "
+                   "(`Slice &#57;z` renders `Slice 9z`) is no naming site -- the declared cost of the §3.0b "
+                   "row: §2.5 is decoded in a link DESTINATION only (`normalize_destination`, R16), because "
+                   "that is the one text whose value must equal a file name",
+     build(), "See Slice &#57;z here.", 0)

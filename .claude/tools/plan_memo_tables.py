@@ -33,7 +33,7 @@ ONE text each predicate over a block reads.
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
-from plan_memo_ids import CITE_ID, DECOR, ROW_ID, SHORT_ID, SLUG_ID, decorated_id, tokens
+from plan_memo_ids import CITE_ID, DECOR, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, decorated_id, tokens
 from plan_memo_lexer import blank_spans
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -134,22 +134,41 @@ _ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG
 
 class Schema:
     """A table family: its exact header cells (trimmed, in order), the column
-    whose text DECLARES the row's kind, and the column holding the row id --
-    both named by header cell and resolved to body-column indexes here."""
+    whose text DECLARES the row's kind, the column holding the row id (both
+    named by header cell and resolved to body-column indexes here), and
+    `kinds` -- the id KINDS that column may declare.
 
-    __slots__ = ("name", "header", "decl", "idc")
+    A table's id column is keyed by one kind set, not by "whatever the id
+    grammar reads": a §5 slice or a §8 slot is keyed by a `ROW_KINDS` id
+    (short or `#11-` slug) and a citation table by a `[C19]` citation id, and
+    the two sets are disjoint by the grammar.  The set is the schema's, and
+    `bare_id` is the ONE place it is applied, so an id of a foreign kind is
+    not admitted anywhere: before PR #510 R21 the column read the grammar
+    bare, and a citation-shaped id in a slice or slot table entered `ids` and
+    the census as an umbrella while BOTH mention passes ignored it (a
+    citation id is masked in prose and exempt from the reference walk), so
+    its ownership text could never be checked and the run still exited 0 --
+    while a short id in the citation table polluted the keep-set, un-masking
+    a `[C1]`-shaped span nothing declares."""
 
-    def __init__(self, name, header, decl=None, idc=None):
+    __slots__ = ("name", "header", "decl", "idc", "kinds")
+
+    def __init__(self, name, header, decl=None, idc=None, kinds=()):
         self.name, self.header = name, header
         self.decl = header.index(decl) if decl is not None else None
         self.idc = header.index(idc) if idc is not None else None
+        self.kinds = tuple(kinds)
+        assert (self.idc is None) == (not self.kinds), \
+            "a schema with an id column declares the kinds that column may key, and only such a schema does"
 
 
 SCHEMAS = [
-    Schema("citation", ["ID", "Citation", "Anchor", "Used by"], idc="ID"),
+    Schema("citation", ["ID", "Citation", "Anchor", "Used by"], idc="ID", kinds=("cite",)),
     Schema("stub", ["Site", "Syntax", "Emits", "Observable", "Tier", "Slice"]),
-    Schema("slice", ["#", "Slice", "Primary module(s)", "Slot", "Tier", "Deps"], decl="Slice", idc="#"),
-    Schema("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"], decl="Why deferred", idc="Slot"),
+    Schema("slice", ["#", "Slice", "Primary module(s)", "Slot", "Tier", "Deps"],
+           decl="Slice", idc="#", kinds=ROW_KINDS),
+    Schema("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"],
+           decl="Why deferred", idc="Slot", kinds=ROW_KINDS),
 ]
 
 
@@ -166,7 +185,8 @@ class Row:
 
     def __init__(self, memo, lineno, line, cells, schema):
         self.memo, self.lineno, self.line, self.cells, self.schema = memo, lineno, line, cells, schema
-        self.self_id = bare_id(cells[schema.idc].text) if schema and schema.idc is not None else None
+        self.self_id = (bare_id(cells[schema.idc].text, schema.kinds)
+                        if schema and schema.idc is not None else None)
         self.field, self.kind = None, None
 
     def id_cell(self):
@@ -258,15 +278,22 @@ def admit_table(memo, lines, linenos, i, lazy):
 # Row identity
 # --------------------------------------------------------------------------
 
-def bare_id(cell_text):
+def bare_id(cell_text, kinds):
     """The row id an id cell declares: the grammar's first bounded token when
     it stands at the cell's START (so `**7z** — MERGED` and `` `#11-x`
     (carved from #483) `` read `7z` / `#11-x`, and `xxxxC` declares nothing
     -- the boundary is the grammar's, `plan_memo_ids.tokens`), decoration
-    stripped, trailing prose ignored -- or None when the cell does not start
-    with an id (then the row declares nothing)."""
+    stripped, trailing prose ignored, AND of a kind the schema's id column
+    keys (`Schema.kinds`) -- or None when the cell does not start with such
+    an id (then the row declares nothing and, unless the cell is a literal
+    blank, is the unkeyed-row schema miss).
+
+    The kind test is HERE and nowhere else: it is the same question as "does
+    this cell start with an id" -- an id of a foreign kind is no id of this
+    table's -- so there is one predicate, not a caller-side re-test that the
+    next reader of the column can forget (PR #510 R21)."""
     t = next(tokens(cell_text.strip(" \t")), None)
-    return t.id if t is not None and t.start == 0 else None
+    return t.id if t is not None and t.start == 0 and t.kind in kinds else None
 
 
 _APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)
@@ -340,21 +367,28 @@ def dispose(lx, keep):
     (start, end, kind) -- `code` (minus id-only spans and kept slugs), `html`
     (a §6.6 raw HTML span, whole: an id inside an attribute or a comment is
     no naming site, exactly as on a raw HTML-block line -- the memo seeds
-    it instead; PR #510 R17), `link` (the tail; the visible text stays, it
-    is prose), `image` (the same, for an image), `cite`, `file`.  A
+    it instead; PR #510 R17), `autolink` (a §6.5 autolink, whole: its text
+    IS its destination, so an id inside it is no more a naming site than an
+    id in a link's destination is -- and unlike a raw HTML span it is NOT
+    seeded, because the construct is fully lexed and hides nothing; PR #510
+    R21), `link` (the tail; the visible text stays, it
+    is prose), `image` (the same, for an image -- its own tail and every
+    construct demoted into its description), `cite`, `file`.  A
     reference definition is a Phase-1 block of its own, never inline
     content, so no block holds one to mask."""
     out = [(a, b, "code") for a, b in code_mask(lx, keep)]
     out += [(a, b, "html") for a, b in lx.html]
+    out += [(a, b, "autolink") for a, b in lx.autolinks]
     out += [(a, b, "link") for a, b, _ in lx.links]
-    out += [(a, b, "image") for a, b in lx.images]
+    out += [(a, b, "image") for a, b, _ in lx.images]
     out += lx.tokens
     lx.mask = out
 
 
 def stream(lx):
     """`lx.text` with EVERY span of its disposed mask blanked -- code spans
-    (id-only spans and kept slugs were excepted there), raw HTML spans, link
+    (id-only spans and kept slugs were excepted there), raw HTML spans,
+    autolinks, link
     tails, citation ids, file names.  This is the ONE stream every predicate
     over a block reads: the kind-marker reader (a quoted marker is not a
     declaration), the seeds' vocabularies (a `gates` inside a code span is not

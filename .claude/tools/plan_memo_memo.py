@@ -841,14 +841,20 @@ class Population:
                 rid = row.self_id
                 if rid is None:
                     # a LITERAL blank id cell is a deliberate non-row; anything
-                    # else that is not an id is an UNKEYED row: it would be dropped
-                    # from `ids`, so assertion (b) would never see its Deps
-                    # edge -- the I-C silent-skip class, and a schema miss
+                    # else that is not an id THIS TABLE KEYS (`Schema.kinds`,
+                    # applied in `bare_id`) is an UNKEYED row: it would be
+                    # dropped from `ids`, so assertion (b) would never see its
+                    # Deps edge -- the I-C silent-skip class, and a schema
+                    # miss.  ONE message for both shapes, since they are one
+                    # question: a citation-shaped id in a slice table keys no
+                    # slice row, and both mention passes ignore it, so its
+                    # ownership text could never be checked (PR #510 R21)
                     if not is_blank_id_cell(row.id_cell()):
                         self.misses.append((self.display(memo.path), row.lineno,
-                                            "the %r row's id cell does not start with an id (%r); "
-                                            "the row declares nothing and is unkeyed, so its cells "
-                                            "would go unasserted" % (s.name, row.id_cell()[:60])))
+                                            "the %r row's id cell does not start with an id of a kind this "
+                                            "table keys (%s): %r; the row declares nothing and is unkeyed, "
+                                            "so its cells would go unasserted"
+                                            % (s.name, " / ".join(s.kinds), row.id_cell()[:60])))
                     continue
                 if rid in self.ids:
                     r2 = self.ids[rid]

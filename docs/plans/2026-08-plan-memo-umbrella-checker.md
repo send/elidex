@@ -404,6 +404,41 @@ sites and 36 ORDER-PROSE? rows unchanged. **6 since R15**: the four `item` lines
 are the item's own paragraphs now — parsed, not seeded — and only the six `|`-holding shell lines remain,
 each with the `indented` reading; census 48, 717 sites, 36 ORDER-PROSE? rows unchanged.
 
+### §3.0b Inline grammar — the spec's CLOSED list (the bound IS this table)
+
+CommonMark 0.31.2 enumerates its inline constructs in §6 (plus §2.4 backslash escapes and §2.5
+character references, which inline parsing reads); this table gives every one a disposition, exactly
+as §3.0 does for block types. It exists because the inline pass was **grown one construct at a time
+as the reviewer found them** — R17 §6.6 raw HTML, R19 §6.4 image descriptions, R20 the file token,
+R21 §6.5 autolinks — the same shape the block phase had before R13's closed list ended it. Four
+consecutive rounds of `plan_memo_lexer.py` findings is the PAUSE this table answers: after it, a
+missing construct is a row that says so, not a round.
+
+**Disposition vocabulary** — LEXED: a Phase-2 clause with a control. MASKED: lexed and then skipped
+whole, so nothing inside it is a link, a naming site or a sibling. PROSE-AS-WRITTEN: not lexed; its
+text is read by the scanners exactly as written, and the row states what that costs.
+
+| § | Inline construct | Disposition | Phase-2 site | Control / corpus |
+|---|---|---|---|---|
+| §2.4 | Backslash escapes | LEXED — one parity helper; an ODD run escapes, and the same helper answers the row splitter (`\|`) and the inline pass | `plan_memo_lexer.py::_is_escape` | spec examples (13); "(row) `a\\|b` holds an UNESCAPED pipe" |
+| §2.5 | Entity and character references | LEXED **in a link destination only** — `normalize_destination` is the one place a destination's text is read, because that text must equal a file name (R16). In PROSE: read as written | `plan_memo_lexer.py::normalize_destination` | spec examples (17); KNOWN-MISS "(§2.5) a character reference in PROSE … is no naming site" — **the cost**: `Slice &#57;z` renders `Slice 9z` and is measured as 0 sites |
+| §6.1 | Code spans | LEXED → MASKED (backtick strings of equal length). Disposition exception: an id-only span is the document SPELLING an id, not code (`plan_memo_tables.py`) | `inline_pass` / `_code_closer` | spec examples (22); the code-span family |
+| §6.2 | Emphasis and strong emphasis | PROSE-AS-WRITTEN — the delimiters are characters the scanners read past. **Cost: none measured.** A declared id inside `*…*` IS a site; a link wrapped in emphasis IS still the memo link. The `**9z**` DECORATION a row id carries is the id grammar's (`plan_memo_ids.DECOR`), not this pass's | — | "(§6.2) emphasis is PROSE, not a mask…" (1 site); "(§6.2) a link WRAPPED in emphasis is still the memo link" |
+| §6.3 | Links | LEXED — the Appendix bracket stack; inline / full / collapsed / shortcut; a link deactivates every earlier `[` | `inline_pass` | spec examples (90); the link family |
+| §6.4 | Images | LEXED — not a link; destination never a sibling; a RESOLVED description is plain text, so a link inside it is demoted (R19) | `inline_pass` (the `is_img` arm) | spec examples (22); the R19 image family |
+| §6.5 | Autolinks | LEXED → MASKED whole (R21) — ONE token tried at a `<` **before** the tag grammar (the spec's order); its contents are not inline syntax, so a bracket inside it opens nothing and an id inside it is no site | `inline_pass` / `_AUTOLINK` | spec examples (19); the R21 autolink family (12 controls, 5 mutants) |
+| §6.6 | Raw HTML | LEXED → MASKED whole (R17) — one tag grammar (open / closing tag, comment, PI, declaration, CDATA) whose tag bodies are also §4.6 condition 7's. Seeded (`[LEX-UNSUPPORTED?]`) when it holds a `\|` or a declared id | `inline_pass` / `_HTML_TAG` | spec examples (20); the R17 raw-HTML family |
+| §6.7 | Hard line breaks | PROSE-AS-WRITTEN. **Cost: none measured** — the inline pass reads the block's JOINED text, so a construct may span the lines of its paragraph | — | "(§6.7) a HARD line break inside a link's text does not break the link" (1 site) |
+| §6.8 | Soft line breaks | PROSE-AS-WRITTEN — same reading as §6.7 (the joined block text) | — | covered by the §6.7 control: both are line endings inside one block |
+| §6.9 | Textual content | PROSE-AS-WRITTEN — the base case: every character not claimed above is text the scanners read (this is where ids and row nouns are found at all) | — | every naming control in the suite |
+
+**Inline conformance corpus** (`commonmark-0.31.2-inline-examples.json`, the §3.0 corpus's sibling):
+the spec's own examples for every LEXED row — Backslash escapes 13, Entity and numeric character
+references 17, Code spans 22, Links 90, Images 22, Autolinks 19, Raw HTML 20 = **203 examples, 203
+aligned, 0 excluded, 0 FAIL**. The four PROSE-AS-WRITTEN rows are not vendored because they make no
+structural claim to falsify — their cost is the named control instead, which is why each such row
+carries one.
+
 **Breadth**: K=2 (CommonMark 0.31.2, GFM 0.29), M=9
 **Split decision**: by the edge-dense rule (not K/M): umbrella + **2 slices** (§7). Each slice is a
 terminal unit under this umbrella. The memo split `#11-vm-p4-memo-section-seam-split` is a separate

@@ -236,9 +236,16 @@ def assertion_a(pop, findings, notes):
         % (len(umb), ", ".join("%s=%d" % kv for kv in sorted(by_table.items())))
     )
     for row in pop.declaring_rows():
-        if MARKER in row.field:
-            continue
-        if DECLARES.search(row.field):
+        # The short-circuit is the SEED's alone: a row that carries the marker
+        # in its declaring field needs no seed for the kind said in words.  It
+        # is NOT the out-of-field scan's -- that scan says every marker
+        # outside the declaring field is mechanically invalid, and a row
+        # marked in its own field and marked AGAIN in another cell (`Primary
+        # module(s)`, `Deps`) is exactly the double-marker this assertion
+        # forbids.  Until PR #510 R21 one `continue` gated both, so the
+        # repeated marker was reported only on rows that had none where it
+        # belongs.
+        if MARKER not in row.field and DECLARES.search(row.field):
             # SEED, with a measured false-positive mechanism: this
             # vocabulary also appears when a cell QUOTES the criterion to
             # conclude the row is terminal, and when a cell discusses
