@@ -616,8 +616,8 @@ def _census(res):
     source, anchored, licensed).  A re-spelling moves columns and changes the
     excerpts a report quotes, and neither is a claim about the document."""
     return (res.rc,
-            sorted((f[0], f[1], f[2]) for f in res.findings),
-            sorted((m.id, m.lineno, m.source, m.anchored, m.licensed) for m in res.mentions))
+            tuple(sorted((f[0], f[1], f[2]) for f in res.findings)),
+            tuple(sorted((m.id, m.lineno, m.source, m.anchored, m.licensed) for m in res.mentions)))
 
 
 def render_equivalence_control(M):
@@ -680,6 +680,43 @@ def render_equivalence_control(M):
                 "branches on them: %s), %d disagreement(s)%s"
                 % (swept, len(_RENDER_PROSE), "".join(sorted(active)), len(bad),
                    (": " + "; ".join(bad[:2])) if bad else ""))
+
+
+def line_ending_control(M):
+    """PROPERTY: one document written with each of the three line endings §2.1
+    recognises -- LF, CRLF, and a CR not followed by an LF -- yields the SAME
+    census.  §2.1 defines all three, so a checker that reads one of them is
+    reading a different set of documents from the one the spec describes.
+
+    The three fixtures are written with `write_bytes`, not `write_text`: a text
+    write translates `\\n` to the platform's own ending, so on Windows the CRLF
+    fixture would reach disk as `\\r\\r\\n` and the claim would be about the
+    host rather than about the checker.  Bytes are what a file holds.
+
+    This is the half a `Case` cannot state: a record writes its fixture through
+    the harness, and the harness writes text.  The record-shaped CR control
+    beside it (`plan_memo_selftest_cases_inline.py`, R24 §2.1) is the same
+    claim from the fixture side, and covers the arm that survives translation.
+
+    HONESTLY, what it cannot see: the census it compares is `_census`'s -- rc,
+    finding codes with their memo and line, and the naming sites -- so a
+    difference confined to a REPORT's quoted excerpt (which holds raw text and
+    would legitimately differ) is invisible to it, as is any difference in a
+    memo this fixture does not link."""
+    text = build() + "\n9z owns it.\n"
+    out = {}
+    with tempfile.TemporaryDirectory() as d:
+        (pathlib.Path(d) / "slice-9z-sib.md").write_bytes(b"\n")
+        for name, ending in (("LF", "\n"), ("CRLF", "\r\n"), ("CR", "\r")):
+            p = pathlib.Path(d) / ("m-%s.md" % name)
+            p.write_bytes(text.replace("\n", ending).encode("utf-8"))
+            res = M.check(str(p))
+            out[name] = (_census(res), len(res.population.ids))
+    same = len({c for c, _ in out.values()}) == 1
+    ok = same and out["LF"][0][0] == 0 and out["LF"][1] > 1
+    return ok, ("rc/ids per ending: %s; the three censuses %s"
+                % (", ".join("%s rc %d %d id(s)" % (k, c[0], n) for k, (c, n) in out.items()),
+                   "agree" if same else "DIFFER: " + _first_difference(out["LF"][0], out["CR"][0])))
 
 
 def _first_difference(want, got):
@@ -761,4 +798,5 @@ def registry():
     reg["PROPERTY: Population._kind reads every kind phrase from plan_memo_tables.KIND_PHRASES, the tuple the residue gate iterates (a fourth phrase cannot decide a kind without being gated)"] = ("CONTROL", kind_phrase_gate_control)
     reg["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never `row None`"] = ("CONTROL", empty_id_row_name_control)
     reg["PROPERTY: the verdict is invariant under a §2.5 re-spelling of any prose character the document renders the same (the rendered-text rule, swept position by position)"] = ("CONTROL", render_equivalence_control)
+    reg["PROPERTY: the census is the same under each of the three line endings CommonMark §2.1 recognises (LF, CRLF, a bare CR), written as bytes"] = ("CONTROL", line_ending_control)
     return reg

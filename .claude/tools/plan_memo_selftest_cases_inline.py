@@ -826,3 +826,39 @@ case("NEGATIVE", "(R24 render) ``**`x` 9z**7z owns it`` names nobody: a READER s
                  "the checker's own disposed stream would show `9z` beside blanks, whitespace-separate "
                  "into an id-only run, and keep a decoration the document does not have",
      build(), "**`x` 9z**7z owns it.", 0)
+
+
+# FAMILY 2, the boundary where bytes become a document.  R23 stripped the BOM;
+# the NUL arrived one round later, because an enumeration of the symptom that
+# was reported leaves the next member of the class authoritative.  §2's
+# preprocessing is now ONE unit (`plan_memo_memo._preprocess`), enumerated from
+# the section, and these are its members -- the substitution, its discriminating
+# half, and the line endings the same section defines (the third ending, and
+# the invariance across all three, is `line_ending_control`, which writes bytes
+# so that no platform's newline translation stands between the fixture and the
+# claim).
+NUL_CHILD = ("| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|---|---|---|---|---|\n"
+             "| **9zy** | **UMBRELLA, not a terminal unit.** carved. | `v.rs` | — | T1 | — |\n")
+case("POSITIVE", "(R24 §2.1) a link destination holding a literal U+0000 names the file the document "
+                 "renders: §2 replaces the NUL with U+FFFD before parsing, so `[x](child\0.md)` links "
+                 "`child<U+FFFD>.md`, that memo is walked and its rows are declared.  Left in, the NUL "
+                 "is an ASCII control, `link_destination` (§6.3) refuses the destination, and the memo "
+                 "-- with every violation in it -- left the census while the run could still exit 0",
+     build(), "See [the child](child\0.md).", 1, files={"child�.md": NUL_CHILD},
+     measure=("id", "9zy"))
+case("POSITIVE", "(R24 §2.1) the same link with the REPLACEMENT CHARACTER written out is walked -- the "
+                 "discriminating half: the file, the table and the link are the control's constants, "
+                 "and only the SPELLING of the destination's one character differs",
+     build(), "See [the child](child�.md).", 1, files={"child�.md": NUL_CHILD},
+     measure=("id", "9zy"))
+case("POSITIVE", "(R24 §2.1) a memo whose lines end with a bare CARRIAGE RETURN is one document of many "
+                 "lines: §2.1's line ending is `\\n`, `\\r\\n`, or `\\r` not followed by `\\n`, so the "
+                 "tables parse and the rows are declared.  Read without that rule the whole file is one "
+                 "line, no table is admitted, and no schema miss says so",
+     # the trailing "\n" is part of the FIXTURE (it is what separates the last table row from the
+     # prose `run_on` appends); replacing it too keeps the blank line a blank line under CR
+     (build() + "\n").replace("\n", "\r"), "9z owns it.", 1, measure=("id", "9z"))
+case("POSITIVE", "(R24 §2.1) the same memo with LINE FEED endings declares the same row -- the "
+                 "discriminating half, and the reason the CR case is a claim about the ENDING rather "
+                 "than about the fixture",
+     build(), "9z owns it.", 1, measure=("id", "9z"))

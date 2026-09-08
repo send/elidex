@@ -700,13 +700,13 @@ MUTANTS += [
      [R23_GATE_PROPERTY]),
     ("R23 #3 memo: a leading U+FEFF is dropped where the text becomes lines (keep it: the first "
      "block's header row is not a header row, and the table nobody saw is no schema miss)", MEMO,
-     '        if self.text[:1] == "\\ufeff":      # spelled as an escape: it is invisible\n'
-     '            self.text = self.text[1:]',
-     '        pass',
+     '    if text[:1] == "\\ufeff":        # spelled as an escape: it is invisible\n'
+     '        text = text[1:]',
+     '    pass',
      [R23_BOM]),
     ("R23 #3 memo: exactly ONE is dropped (strip every leading one: a second U+FEFF is an ordinary "
      "character of the document and stripping it rewrites the document)", MEMO,
-     '            self.text = self.text[1:]', '            self.text = self.text.lstrip("\\ufeff")',
+     '        text = text[1:]', '        text = text.lstrip("\\ufeff")',
      [R23_TWO_BOMS]),
     ("R23 #4 lexer: the demotion ranges are applied as a UNION, once (re-inject the per-close walk: "
      "N nested images re-tag one descendant N times -- the same OUTPUT, quadratic work, which is "
@@ -755,4 +755,47 @@ MUTANTS += [
      "stream: a code span's blanks whitespace-separate into an id-only run)", TABLES,
      '    rd = stream(lx, reader=True)', '    rd = stream(lx)',
      [R24_DECOR_READING]),
+]
+
+# -- PR #510 Codex R24 FAMILY 2 control names, spelled once.
+R24_NUL = ("(R24 §2.1) a link destination holding a literal U+0000 names the file the document "
+           "renders: §2 replaces the NUL with U+FFFD before parsing, so `[x](child\0.md)` links "
+           "`child<U+FFFD>.md`, that memo is walked and its rows are declared.  Left in, the NUL "
+           "is an ASCII control, `link_destination` (§6.3) refuses the destination, and the memo "
+           "-- with every violation in it -- left the census while the run could still exit 0")
+R24_CR = ("(R24 §2.1) a memo whose lines end with a bare CARRIAGE RETURN is one document of many "
+          "lines: §2.1's line ending is `\\n`, `\\r\\n`, or `\\r` not followed by `\\n`, so the "
+          "tables parse and the rows are declared.  Read without that rule the whole file is one "
+          "line, no table is admitted, and no schema miss says so")
+R24_ENDINGS = ("PROPERTY: the census is the same under each of the three line endings CommonMark §2.1 "
+               "recognises (LF, CRLF, a bare CR), written as bytes")
+R24_BOM = ("(R23 memo) a linked memo whose FIRST block is a slice table still declares its rows "
+           "when the file opens with a BOM: the signature is dropped where the text becomes "
+           "lines, or the header row is not a header row and the census silently shrinks at rc 0")
+R24_C0 = "a decoded destination with a C0 control character is rejected, never resolved"
+
+MUTANTS += [
+    # -- PR #510 Codex R24, FAMILY 2: §2's input preprocessing, as a unit
+    ("R24 F2 memo: §2 replaces U+0000 with U+FFFD before parsing (drop it: the NUL is an ASCII "
+     "control, the link destination is refused, and the memo it named leaves the census)", MEMO,
+     'text.replace("\\0", "\\ufffd")', 'text',
+     [R24_NUL]),
+    ("R24 F2 memo: §2.1's OTHER two line endings become U+000A (drop the normalisation: with the "
+     "reader's own translation switched off, a CR-ended memo is one line and holds no table)", MEMO,
+     '    return _LINE_ENDING.sub("\\n", text.replace("\\0", "\\ufffd"))',
+     '    return text.replace("\\0", "\\ufffd")',
+     [R24_CR, R24_ENDINGS]),
+    ("R24 F2 memo: a CR NOT followed by an LF is its own ending (drop that arm: `\\r\\n` folds and a "
+     "bare `\\r` does not)", MEMO,
+     '_LINE_ENDING = re.compile(r"\\r\\n|\\r")', '_LINE_ENDING = re.compile(r"\\r\\n")',
+     [R24_CR, R24_ENDINGS]),
+    # ⚠ NO MUTANT FOR `newline=""` ITSELF, and the reason is a measurement, not
+    # an omission: restoring the reader's universal-newline translation while
+    # KEEPING `_preprocess`'s normalisation changes nothing a control can see
+    # (written and run at R24: the mutant survived both R24_CR and
+    # R24_ENDINGS, because the two mechanisms do the same job).  `newline=""`
+    # is not a behaviour of its own -- it is what makes the §2.1 rule THIS
+    # unit's to state, and the proof of that is the pair above: with the
+    # reader translating, "drop the normalisation" would survive too, and the
+    # requirement would again be one nothing proves.
 ]

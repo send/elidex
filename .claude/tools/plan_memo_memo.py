@@ -7,7 +7,10 @@ with the open block in hand, re-entered once per container -- a block quote,
 a list item -- through an EXPLICIT frame stack, `_run`, never the
 interpreter's call stack), the Phase-2 resolution of its
 paragraphs and cells (`Lexed.resolve` with the Phase-1 definitions), the
-file I/O (`read_text(encoding="utf-8")`), and the ONE destination -> sibling
+file I/O and CommonMark §2's input preprocessing (`_preprocess`: `utf-8`,
+the reader's own newline translation switched OFF, and every transformation
+between the bytes and the document stated with the sentence it implements),
+and the ONE destination -> sibling
 resolver (`sibling_path` / `_resolve` / `linked_files` /
 `unresolved_references`).  The memo SET reachable from one memo through its
 links is `plan_memo_population.py`'s `Population`, which imports this module
@@ -59,6 +62,96 @@ class Paragraph:
         return lineno, text, i - self.offsets[k]
 
 
+# --------------------------------------------------------------------------
+# CommonMark 0.31.2 §2 (Preliminaries): INPUT PREPROCESSING, as one unit
+# --------------------------------------------------------------------------
+
+# The line endings §2.1 recognises, longest first so `\r\n` is one ending and
+# not two: "A line ending is a line feed (U+000A), a carriage return (U+000D)
+# not followed by a line feed, or a carriage return and a following line feed."
+_LINE_ENDING = re.compile(r"\r\n|\r")
+
+
+def _preprocess(text):
+    """The decoded file -> the DOCUMENT, under CommonMark 0.31.2 §2's input
+    preprocessing.  ONE unit at the one place the bytes become a text every
+    reader below shares, and its members are enumerated FROM the section
+    rather than from the defects that were reported against it -- an
+    enumeration of symptoms leaves the next member of the class authoritative,
+    which is exactly how the second one arrived (R23 stripped the BOM; R24
+    reported the embedded NUL one round later).
+
+    ⚠ CITED BY SECTION NUMBER, WITHOUT A MACHINE-READABLE SOURCE.  CommonMark
+    is not in `.claude/tools/webref` and no CommonMark prose is vendored in
+    this tree -- only the two example corpora, and they carry section NAMES,
+    not numbers.  Neither corpus holds an example from the sections quoted
+    below (the block corpus's first section is "Tabs"), so they can neither
+    confirm nor contradict any of it, and the SUBSECTION number for the
+    insecure-character rule in particular is not determinable here: what is
+    certain from this tree's own citations is that §2.1 / §2.2 / §2.4 / §2.5
+    are subsections of §2, and that the rule is one of §2's.  Every sentence
+    quoted below is quoted from memory and is UNVERIFIED here; each
+    transformation is named with the sentence it implements so a reader can
+    check the pair against the spec rather than trust this docstring.
+
+    WHAT IS TRANSFORMED, in order:
+
+      1. §2, insecure characters -- "the Unicode character U+0000 must be
+         replaced with the REPLACEMENT CHARACTER (U+FFFD)".  A literal NUL is
+         not a character of the document, and leaving it in one is not
+         cosmetic: it is an ASCII control, so `link_destination` (§6.3: a bare
+         destination holds no control character) refuses the link, and
+         `[x](child\0.md)` never joined the population at all -- the memo, and
+         every violation in it, left the census while the run could still exit
+         0.  Under this rule the link names the file `child<U+FFFD>.md`
+         (PR #510 R24-1).
+         ⚠ WHAT `_CONTROL` IS STILL FOR, since a literal NUL can no longer
+         reach it: `sibling_path` stage (c) tests the PERCENT-DECODED name,
+         where `%00` -- six ordinary characters in the document, untouched
+         here -- decodes to a NUL again, and `%01`-`%1f` and `%7f` with it.
+         The guard is exactly as reachable as it was; its control
+         (`child%00.md`, `control_char_destination_control`) is unaffected by
+         this rule and stays green, which is the measurement that says so.
+      2. §2.1, line endings -- "A line ending is a line feed (U+000A), a
+         carriage return (U+000D) not followed by a line feed, or a carriage
+         return and a following line feed."  All three become U+000A, so the
+         one split below reads every line of every document.
+         ⚠ THIS WAS ALREADY TRUE, and by accident: the reader's universal-
+         newline default translated both forms before this unit existed, so
+         nothing here changes what a CR-ended memo parses to (measured: the
+         census of the same fixture written with LF, CRLF and CR is identical
+         at `3a9f61a0` and after).  It is stated and owned here because a
+         requirement satisfied by an I/O default is a requirement nothing
+         proves: the file is now opened with `newline=""` and this line is
+         what implements §2.1, so a control can turn red on it.
+
+    WHAT IS NOT, and why -- the omissions are visible rather than absent:
+
+      3. §2.2, tabs -- "Tabs in lines are not expanded to spaces."  A tab is
+         carried through as written; the block grammar reads indentation in
+         COLUMNS where it matters (`plan_memo_blocks.indentation` /
+         `strip_columns`), which is what the section asks for.  Not a miss:
+         a deliberate non-transformation, named here so that the absence of a
+         tab clause is a decision and not an oversight.
+      4. THE BYTE ORDER MARK is not in the enumeration above, because no
+         sentence of the spec is being claimed for it.  One leading U+FEFF is
+         an encoding SIGNATURE, not the document's first character: the
+         `utf-8` codec decodes it to a character (`utf-8-sig` is the codec
+         that consumes it) and it is not whitespace, so it sat INSIDE the
+         first line -- a memo whose first block was a slice table lost that
+         table's header row to it, the table was never admitted, its rows were
+         never declared, and there is no schema miss for a table nobody saw,
+         so the census silently shrank at exit 0 (PR #510 R23).  Exactly ONE
+         is dropped: a second U+FEFF is an ordinary character of the document
+         and stripping it would rewrite the document.  It is stated as this
+         program's own rule about ENCODING, which is where it belongs whether
+         or not the spec also says it.
+    """
+    if text[:1] == "\ufeff":        # spelled as an escape: it is invisible
+        text = text[1:]
+    return _LINE_ENDING.sub("\n", text.replace("\0", "\ufffd"))
+
+
 class Memo:
     """One memo, in the two phases of CommonMark's "Appendix: A parsing
     strategy".  Phase 1 (block structure, over RAW lines, `_parse`: ONE
@@ -91,25 +184,12 @@ class Memo:
 
     def __init__(self, path):
         self.path = pathlib.Path(path)
-        self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
-        # ONE leading U+FEFF is an encoding SIGNATURE, not the document's
-        # first character, and is dropped here -- at the one place the text
-        # becomes lines, so every reader below sees one document.  The
-        # `utf-8` codec decodes it to a character (`utf-8-sig` is the codec
-        # that consumes it) and it is not whitespace, so it sat INSIDE the
-        # first line: a memo whose first block was a slice table lost that
-        # table's header row to it, the table was never admitted, its rows
-        # were never declared -- and there is no schema miss for a table
-        # nobody saw, so the census silently shrank at exit 0 (PR #510 R23).
-        # ⚠ CITED BY SECTION NUMBER, WITHOUT A MACHINE-READABLE SOURCE:
-        # CommonMark 0.31.2 §2.1 (Characters and lines) is said to require a
-        # parser to remove an initial BOM.  CommonMark is not in
-        # `.claude/tools/webref` and its prose is not vendored here, so that
-        # sentence is UNVERIFIED in this tree.  What IS verified here: none
-        # of the 630 vendored conformance examples carries a BOM, so the
-        # corpora neither cover nor contradict this.
-        if self.text[:1] == "\ufeff":      # spelled as an escape: it is invisible
-            self.text = self.text[1:]
+        # `newline=""` DISABLES the reader's own line-ending translation, so
+        # the text arrives as written and `_preprocess` -- not an I/O default
+        # -- owns every transformation between the file and the document.
+        # `utf-8`, never the locale's codec.
+        with open(self.path, encoding="utf-8", newline="") as fh:
+            self.text = _preprocess(fh.read())
         self.lines = self.text.split("\n")
         if len(self.lines) > 1 and self.lines[-1] == "":
             self.lines.pop()        # a line ending ENDS the last line (§2.1); it begins no empty one
