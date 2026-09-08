@@ -24,7 +24,7 @@ import pathlib
 import re
 from urllib.parse import unquote
 
-from plan_memo_lexer import FILE_SUFFIX
+from plan_memo_tokens import FILE_SUFFIX
 
 
 def sibling_path(directory, dest):

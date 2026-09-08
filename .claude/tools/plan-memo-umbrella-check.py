@@ -30,6 +30,9 @@ MODULES
                           the ONE boundary every reader consumes (`tokens`)
   plan_memo_emphasis.py   §6.2 emphasis + GFM strikethrough: which delimiter
                           runs PAIR, and so which characters render as nothing
+  plan_memo_tokens.py     the BARE tokens of this document family (a citation
+                          id, a `.md` file name): the one reading no CommonMark
+                          grammar owns, and the ONE `FILE_SUFFIX`
   plan_memo_html.py       the two grammars that open at a `<` -- §6.5
                           autolinks and §6.6 raw HTML -- read by BOTH phases
                           (§4.6 start condition 7 is the same tag bodies)
@@ -122,7 +125,7 @@ HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
 from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
-from plan_memo_lexer import file_and_cite_spans  # noqa: E402
+from plan_memo_tokens import file_and_cite_spans  # noqa: E402
 from plan_memo_tables import split_units, stream  # noqa: E402
 from plan_memo_population import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402

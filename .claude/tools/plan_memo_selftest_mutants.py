@@ -40,8 +40,9 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, HTML, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
-    "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_html.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
+IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
+    "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
+    "plan_memo_lexer.py", "plan_memo_blocks.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py", "plan_memo_population.py",
     "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
     "plan_memo_selftest_properties.py", "plan_memo_selftest_work.py")
@@ -414,7 +415,7 @@ MUTANTS = [
       "prose, so the line is seeded holding `9z`",
       "(lex-seed) a raw HTML line `owner-9z`: the hyphen bounds on the left too -- seeded holding `9z`"]),
     ("#3 file token: a bare `.md` file name is masked before the bare scan (drop the arm: no run "
-     "ending in the suffix is ever a token)", LEXER,
+     "ending in the suffix is ever a token)", TOKENS,
      '        if text[e - k:e] == FILE_SUFFIX and (e == n or not _ALNUM_AT.match(text, e)):',
      '        if False:',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),

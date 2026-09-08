@@ -349,7 +349,7 @@ def linear_file_token_control(M):
 
     Counted by `_count_lines`: the work is a `for` inside one function and
     passes through no module binding `_count_calls` could watch."""
-    import plan_memo_lexer     # the freshly loaded module
+    import plan_memo_tokens     # the freshly loaded module
 
     ok, detail = True, []
     for label, mk, per in (("(a) groups", lambda n: "(a)" * n, 40),
@@ -357,8 +357,8 @@ def linear_file_token_control(M):
         seen = {}
         for n in (100, 400):
             try:
-                with _count_lines(plan_memo_lexer, limit=per * n) as c:
-                    plan_memo_lexer.file_and_cite_spans(mk(n))
+                with _count_lines(plan_memo_tokens, limit=per * n) as c:
+                    plan_memo_tokens.file_and_cite_spans(mk(n))
             except _WorkExceeded:
                 return False, ("%d %s cost more than %d source lines: not linear"
                                % (n, label, per * n))

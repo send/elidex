@@ -233,7 +233,7 @@ def render_equivalence_control(M):
     not equivalent); a raw reading that no shape in `_RENDER_PROSE` reaches;
     and anything about a raw line the inline parser never enters (the
     LEX-UNSUPPORTED? seed reads such a line AS WRITTEN, on purpose --
-    `plan_memo_lexer.file_and_cite_spans` states that reading and its declared
+    `plan_memo_tokens.file_and_cite_spans` states that reading and its declared
     miss)."""
     import plan_memo_emphasis, plan_memo_lexer
     active = set(plan_memo_emphasis.DELIMS) | {"\\", "!", "\n"}
@@ -613,7 +613,8 @@ def _paren_shapes(depth):
 def file_token_resolver_agreement_control(M):
     """PROPERTY: a name the SIBLING RESOLVER accepts, standing alone in prose, is
     ONE file token to the LEXER -- the correspondence `plan_memo_lexer`'s
-    `FILE_SUFFIX` comment asserts, and the one PR #510 R26-2 falsified.
+    `plan_memo_tokens`' `FILE_SUFFIX` comment asserts, and the one PR #510 R26-2
+    falsified.
 
     That comment says `sibling_path` stage (d) "CONSUMES this constant for the
     same test on a link destination", i.e. that the two readers decide "is this
@@ -640,18 +641,18 @@ def file_token_resolver_agreement_control(M):
     a string the resolver would follow to a file, which the lexer breaks into
     pieces and reads an id out of."""
     import pathlib as _p
-    import plan_memo_lexer, plan_memo_sibling      # the freshly loaded set
+    import plan_memo_sibling, plan_memo_tokens     # the freshly loaded set
 
     names, deep = [], 0
     for pre, post in _paren_shapes(3):
         for stem in ("9z", "m9z", "9z.notes", "a" + pre + "9z" + post + "b"):
-            name = pre + stem + post + plan_memo_lexer.FILE_SUFFIX
+            name = pre + stem + post + plan_memo_tokens.FILE_SUFFIX
             if plan_memo_sibling.sibling_path(_p.Path("/nonexistent-fixture-root"), name) is None:
                 continue
             names.append(name)
             deep = max(deep, max(_depth_profile(name)))
     hits = [n for n in names
-            if plan_memo_lexer.file_and_cite_spans(n) != [(0, len(n), "file")]]
+            if plan_memo_tokens.file_and_cite_spans(n) != [(0, len(n), "file")]]
     return (not hits and len(names) >= 20 and deep >= 2,
             "%d resolver-accepted name(s) swept, deepest nesting %d, %d not read as one token%s"
             % (len(names), deep, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))

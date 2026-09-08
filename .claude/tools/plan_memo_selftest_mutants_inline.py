@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
     CHECK, CONTROLS, EMPHASIS, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
-    ROLES, SEQUENCE, SIBLING, STAGE_C, TABLES,
+    ROLES, SEQUENCE, SIBLING, STAGE_C, TABLES, TOKENS,
 )
 
 # The R25-1 control names are COMPOSED by the cases module (one per member of
@@ -211,7 +211,7 @@ MUTANTS += [
       "a special scheme -- `file` is one -- `\\` ends a segment as `/` does; `PureWindowsPath` is that syntax) -- the "
       "file `sub/child.md` is walked"]),
     # -- PR #510 Codex R20: row-id composers cover every row kind; the suffix-only file name
-    ("R20 #1 file: the stem of a bare `.md` file name may be EMPTY (re-inject the >=1-character stem)", LEXER,
+    ("R20 #1 file: the stem of a bare `.md` file name may be EMPTY (re-inject the >=1-character stem)", TOKENS,
      '            if s <= e - k:      # the suffix itself must lie inside the run',
      '            if s < e - k:',
      ["(file) `.md` alone is a file name (the suffix-only name `sibling_path` accepts): beside a declared no-owner id "

@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SIBLING, SPEC_EXAMPLES, STAGE_C, TABLES, WORK,
+    SIBLING, SPEC_EXAMPLES, STAGE_C, TABLES, TOKENS, WORK,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -318,7 +318,7 @@ MUTANTS += [
      ["(id) the id cell's trailing prose is scanned: `**7z** — Slice 9z lands first` reports `9z` "
       "(the row's own `7z` is suppressed)"]),
     ("R10-3 file: a bare `.md` name is a path-syntax run (re-inject a narrow class: `+`, `@` and `(` "
-     "bound the run, so a path character becomes a boundary)", LEXER,
+     "bound the run, so a path character becomes a boundary)", TOKENS,
      '        if c in _NAME_BOUNDARY or c.isspace():',
      '        if c in _NAME_BOUNDARY or c.isspace() or c in "+@(":',
      ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",

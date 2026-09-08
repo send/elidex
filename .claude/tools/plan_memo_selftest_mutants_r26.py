@@ -20,7 +20,9 @@ lex?".
 runner reads the one list at one import site.
 """
 
-from plan_memo_selftest_mutants import CHECK, CONTROLS, LEXER, MEMO, MUTANTS, SIBLING
+from plan_memo_selftest_mutants import (
+    CHECK, CONTROLS, LEXER, MEMO, MUTANTS, SIBLING, TOKENS,
+)
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
                 "(the checker set and the self-test both, globbed)")
@@ -101,20 +103,20 @@ MUTANTS += [
     # alone would let a defect through: what an open parenthesis does, what an
     # unmatchable close does, where a run may start, and which end wins.
     ("R26-2 file token: a parenthesis NESTS (drop the push: the stack never deepens, so a nested pair "
-     "reads as an unmatchable close and cuts the run -- the flat arm's own defect, re-injected)", LEXER,
+     "reads as an unmatchable close and cuts the run -- the flat arm's own defect, re-injected)", TOKENS,
      '        if c == "(":\n            stack.append(i)', '        if c == "(":\n            pass',
      [R26_NESTED, R26_ACROSS, R26_AGREE]),
     ("R26-2 file token: an unmatchable `)` ends the segment (drop it: a run holds a close that opens "
-     "nothing, and the id before it is swallowed)", LEXER,
+     "nothing, and the id before it is swallowed)", TOKENS,
      '                seg = i + 1     # an unmatchable `)`: no run holds it, none crosses it',
      '                pass',
      [R26_UNMATCHED]),
     ("R26-2 file token: a run starts one past the INNERMOST parenthesis still open (re-inject the "
-     "segment start: the token holds an unclosed `(` and everything before it)", LEXER,
+     "segment start: the token holds an unclosed `(` and everything before it)", TOKENS,
      '            s = stack[-1] + 1 if stack else seg', '            s = seg',
      [R26_OPEN]),
     ("R26-2 file token: leftmost-LONGEST (keep the first end per start instead of the last: the token "
-     "stops at the first suffix and leaves the rest of the name standing)", LEXER,
+     "stops at the first suffix and leaves the rest of the name standing)", TOKENS,
      '            if s <= e - k:      # the suffix itself must lie inside the run\n                longest[s] = e',
      '            if s <= e - k:      # the suffix itself must lie inside the run\n                longest.setdefault(s, e)',
      [R26_LONGEST]),
@@ -125,7 +127,7 @@ MUTANTS += [
     # one substring here, and a mutant that also changed the answer would let a
     # behaviour control take the credit for killing it.)
     ("R26-2 work: the token scan is ONE pass (re-inject a walk back to the segment start at every "
-     "candidate -- the same answer, quadratically)", LEXER,
+     "candidate -- the same answer, quadratically)", TOKENS,
      '            s = stack[-1] + 1 if stack else seg',
      '            s = stack[-1] + 1 if stack else [seg for _ in range(i + 1)][-1]',
      [R26_TOKEN_LINEAR]),

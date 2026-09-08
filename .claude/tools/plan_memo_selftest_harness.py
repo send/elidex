@@ -52,6 +52,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 MODULES = [
     ("plan_memo_ids", "plan_memo_ids.py"),
     ("plan_memo_emphasis", "plan_memo_emphasis.py"),
+    ("plan_memo_tokens", "plan_memo_tokens.py"),
     ("plan_memo_html", "plan_memo_html.py"),
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),

@@ -38,7 +38,7 @@ import bisect
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
-from plan_memo_lexer import file_and_cite_spans
+from plan_memo_tokens import file_and_cite_spans
 from plan_memo_ids import (
     CITE_ID, DECOR, DECOR_CHARS, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, bounded, decorated_id,
     tokens,
