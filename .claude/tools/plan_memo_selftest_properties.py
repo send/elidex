@@ -110,14 +110,27 @@ def row_kind_coverage_control(M):
     reads "a row id in this position" admits EVERY row kind the grammar
     enumerates (`plan_memo_ids.ROW_KINDS`) -- the marker's appositive
     subject (`attributed_to_other`, over `ROW_NOUN_ID`), the two-owner clause
-    (`OWNS_TWO`) and the row-noun-anchored reading (`_anchored`, through
-    `check()`: the mention is `anchored`).  The kinds are the GRAMMAR's
+    (`OWNS_TWO`), the row-noun-anchored reading (`_anchored`, through
+    `check()`: the mention is `anchored`) and -- since PR #510 R24 -- the BARE
+    reading (`_bare`: the same id with NO row noun before it, so the mention
+    comes back not `anchored`).  The kinds are the GRAMMAR's
     tuple; the sample id per kind is looked up here, and a kind without a
     sample is red, so a fourth row kind added to the grammar reaches this
     control before it reaches any composer.  The spelling sweep cannot see
     this class: a composer built on `SHORT_ID` alone spells nothing twice,
     and passed it while `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributed
-    nothing (PR #510 R20)."""
+    nothing (PR #510 R20).
+
+    ⚠ The bare pass was NOT probed here before R24, and could not honestly
+    have been: it asked the COMPLEMENT (`t.kind == "cite"`) where `_anchored`
+    asked `ROW_KINDS`, so a kind added to `KINDS` and not to `ROW_KINDS` would
+    have been admitted by one pass and refused by the other -- and this
+    control, which asks only "does every composer ADMIT every row kind", would
+    have stayed green straight through that disagreement, because admitting is
+    all the complement ever does.  Collapsing the two spellings is what made
+    the bare reading answerable by this question at all; the control grew to
+    cover it in the same round, since a collapse whose result nothing probes is
+    an assertion."""
     import plan_memo_ids as ids          # the FRESHLY loaded set, not the import-time one
     import plan_memo_roles as roles
     import plan_memo_tables as tables
@@ -129,7 +142,7 @@ def row_kind_coverage_control(M):
     for kind in ids.ROW_KINDS:
         rid = samples[kind]
         for d in ("**%s**" % rid, "`%s`" % rid):
-            probes += 3
+            probes += 4
             if tables.attributed_to_other("Slice %s — **%s**" % (d, tables.MARKER), "7z") != rid:
                 fails.append("appositive/%s %r" % (kind, d))
             m = roles.OWNS_TWO.search("owned by %s and **Qx**" % d)
@@ -138,6 +151,11 @@ def row_kind_coverage_control(M):
             res, _ = run_on(M, build(), "Slice %s lands first." % d)
             if not any(x.id == rid and x.anchored for x in res.mentions):
                 fails.append("anchored/%s %r" % (kind, d))
+            # The BARE reading: no row noun, so the mention must come back
+            # UNanchored -- the half `_anchored` cannot answer for.
+            res, _ = run_on(M, build(), "%s lands first." % d)
+            if not any(x.id == rid and not x.anchored for x in res.mentions):
+                fails.append("bare/%s %r" % (kind, d))
     return not fails, "%d probes over row kinds %s%s" % (
         probes, list(ids.ROW_KINDS), (": FAIL " + ", ".join(fails)) if fails else ", every composer admits every kind")
 

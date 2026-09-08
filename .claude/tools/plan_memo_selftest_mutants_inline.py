@@ -864,6 +864,20 @@ MUTANTS += [
      "phrase separated from the id by a row noun no longer stands immediately before the mention)", CHECK,
      '        if prev is None or m.start < prev.start:', '        if prev is None or m.start > prev.start:',
      [R24_TRAILING_NOUN]),
+    # The BARE pass reads the grammar's closed set, exactly as the anchored one
+    # does (R24 collapsed the complement spelling `t.kind == "cite"` into it).
+    # The mutation narrows the bare pass to ONE kind and leaves `_anchored`
+    # untouched, which is precisely the divergence the complement made possible
+    # and nothing could see: measured, only the `bare/slug` probes go red, so
+    # the coverage control's new half has its own subject rather than riding on
+    # the anchored one.
+    ("R24 check: the BARE pass admits every ROW_KINDS kind, not one of them (narrow it to `short`: a "
+     "slug named with no row noun before it stops being a naming site, while the anchored reading "
+     "still reports it)", CHECK,
+     'if t.kind not in ROW_KINDS or tid not in keep or tid == b.self_id:',
+     'if t.kind != "short" or tid not in keep or tid == b.self_id:',
+     ["PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half "
+      "of the spelling sweep)"]),
 ]
 
 # -- PR #510 Codex R24-3, the one finding of the round that is in no family.
