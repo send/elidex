@@ -18,8 +18,8 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
-    CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SIBLING, STAGE_C, TABLES,
+    CHECK, CONTROLS, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, ROLES,
+    SEQUENCE, SIBLING, STAGE_C, TABLES,
 )
 
 # The R25-1 control names are COMPOSED by the cases module (one per member of
@@ -935,4 +935,53 @@ MUTANTS += [
      "(swallow the ending too: the break stops separating and the two lines become one word)", LEXER,
      "            marks.append((i, i + 1))", "            marks.append((i, i + 2))",
      [R25_HARD, R25_BREAK_PROPERTY]),
+]
+
+# PR #510 R26.
+R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
+                "(the checker set and the self-test both, globbed)")
+
+MUTANTS += [
+    # TWO rows, one per HALF of the swept population, because the two halves
+    # reach the sweep by different routes: a checker module's text comes from
+    # `load()`'s `SOURCES`, a self-test module's from `patched_module`'s entry
+    # in the same dict (added at R26-4 for exactly this proof).  One row would
+    # leave the other route unwitnessed -- and it was the SELF-TEST half that
+    # held all fifteen defects.
+    ("R26-4 encoding: the production memo read names its encoding (drop it -- the checker set half of "
+     "the sweep's population)", MEMO,
+     '        with open(self.path, encoding="utf-8", newline="") as fh:',
+     '        with open(self.path, newline="") as fh:',
+     [R26_ENCODING]),
+    ("R26-4 encoding: a self-test fixture write names its encoding (drop it -- the SELF-TEST half of "
+     "the sweep's population, which `load()` alone would not show)", CONTROLS,
+     '(pathlib.Path(d) / "child.md").write_text(twin, encoding="utf-8")',
+     '(pathlib.Path(d) / "child.md").write_text(twin)',
+     [R26_ENCODING]),
+]
+
+R26_STREAMS = ("PROPERTY: the entry point sets BOTH output streams to UTF-8 -- the absence a "
+               "call-site sweep cannot report")
+
+MUTANTS += [
+    # The STREAM half.  Two rows, because the two streams are two claims: a
+    # loop that reconfigures only `sys.stdout` leaves every diagnostic the
+    # checker writes to stderr on the locale's encoding, and one control that
+    # read either stream alone would call that fixed.
+    ("R26-4 encoding: the entry point reconfigures its output streams (drop the encoding -- a "
+     "`reconfigure` naming none leaves the locale's in place)", CHECK,
+     # the call STAYS and loses only its encoding, so this row witnesses BOTH
+     # halves at once: the stream control sees the wrong request, and the sweep
+     # sees a `reconfigure` naming no encoding (which is why `reconfigure` is in
+     # `_ENCODED_IO`).  Replacing the call with `pass` instead let the sweep
+     # SURVIVE -- correctly: an ABSENCE is exactly what a call-site sweep cannot
+     # see -- so the subject moved to the argument rather than the mutant being
+     # softened; the absence itself is what the next row and the control's own
+     # docstring answer for
+     '            reconfigure(encoding="utf-8")', "            reconfigure(newline=None)",
+     [R26_STREAMS, R26_ENCODING]),
+    ("R26-4 encoding: BOTH streams, not just stdout (reconfigure stdout alone -- stderr keeps the "
+     "locale's encoding and every diagnostic written there dies on a non-ASCII host)", CHECK,
+     "    for stream in (sys.stdout, sys.stderr):", "    for stream in (sys.stdout,):",
+     [R26_STREAMS]),
 ]

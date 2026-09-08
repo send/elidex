@@ -21,6 +21,20 @@ MECHANISM the controls share:
     witnesses for the linearity controls (a wall-clock bound flaked on
     contended hosts in both directions; a work count does not).
 
+EVERY TEXT I/O CALL HERE NAMES ITS ENCODING (PR #510 R26-4).  The checker
+advertises "Python 3.9+, standard library only" and reads production memos as
+explicit UTF-8 (`plan_memo_memo.Memo.read`); the self-test read its own module
+sources and wrote its fixtures with the LOCALE default instead, so on a host
+whose preferred encoding is not UTF-8 the suite raised `UnicodeDecodeError` in
+`load()` -- before a single control ran -- because these sources hold non-ASCII
+text (`PYTHONUTF8=0 LC_ALL=C python3 plan-memo-umbrella-check.py --self-test`
+reproduced it).  A proof that cannot start is worse than a red one: it is
+indistinguishable from a broken interpreter.  The rule is a CLASS, not these
+four call sites, and `plan_memo_selftest_properties.encoding_sweep_control`
+enforces it over every module of this checker -- the checker set and the
+self-test both -- so the next module's first `write_text` arrives already
+covered.
+
 Import direction, one way: the runner (`plan_memo_umbrella_selftest.py`)
 imports the controls, the controls import this module, and this module
 imports nothing of either.
@@ -67,14 +81,21 @@ def load(patches=None):
     once; every call still execs into fresh module dicts.  `SOURCES` records
     the text each module of the set was exec'd from (patched or not), so a
     control over the SOURCE (the spelling sweep) reads the same set a mutant
-    patched."""
+    patched.
+
+    `SOURCES` is CLEARED first, not merely overwritten: `patched_module` records
+    a patched SELF-TEST module's text there too (PR #510 R26-4) and that file is
+    not one of `MODULES`, so without the clear a previous mutant's patched
+    self-test source would still be standing when the next row's sweep read
+    it."""
     patches = patches or {}
     unload()
+    SOURCES.clear()
     mod = None
     for name, file in MODULES:
         src = patches.get(file)
         if file not in _TEXT:
-            _TEXT[file] = (HERE / file).read_text()
+            _TEXT[file] = (HERE / file).read_text(encoding="utf-8")
         SOURCES[file] = src if src is not None else _TEXT[file]
         if src is not None:
             code = compile(src, str(HERE / file), "exec")
@@ -102,11 +123,18 @@ def patched_module(file, src):
     runner's emptiness guard, which lives beside its proof -- takes its
     controls from the PATCHED module's `registry()` while the checker set
     stays unpatched.  The patched module's own imports (this harness, the
-    case registry) resolve to the installed, unpatched modules."""
+    case registry) resolve to the installed, unpatched modules.
+
+    The patched text is recorded in `SOURCES` (PR #510 R26-4) for the same
+    reason `load` records the checker set's: a control that sweeps SOURCE TEXT
+    must see what a mutant did, and a mutant against a self-test module is the
+    only way to prove such a sweep covers the self-test half at all.  `load`
+    clears `SOURCES`, so the entry lasts exactly one mutant row."""
     spec = importlib.util.spec_from_loader(pathlib.Path(file).stem + "_patched", loader=None,
                                            origin=str(HERE / file))
     mod = importlib.util.module_from_spec(spec)
     mod.__file__ = str(HERE / file)
+    SOURCES[file] = src
     exec(compile(src, mod.__file__, "exec"), mod.__dict__)
     return mod
 
@@ -116,15 +144,15 @@ def run_on(M, text, prose="", sibling=None, files=None):
     Returns (Result, unlicensed mentions)."""
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "fixture.md"
-        p.write_text(text + "\n" + prose + "\n")
+        p.write_text(text + "\n" + prose + "\n", encoding="utf-8")
         # Every fixture link resolves to this file (an absent target is rc 2);
         # its name carries an id so the destination-masking control keeps its
         # subject.
-        (pathlib.Path(d) / "slice-9z-sib.md").write_text((sibling or "") + "\n")
+        (pathlib.Path(d) / "slice-9z-sib.md").write_text((sibling or "") + "\n", encoding="utf-8")
         for name, content in (files or {}).items():
             f = pathlib.Path(d) / name
             f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(content)
+            f.write_text(content, encoding="utf-8")
         res = M.check(str(p))
         return res, [m for m in res.mentions if not m.licensed]
 

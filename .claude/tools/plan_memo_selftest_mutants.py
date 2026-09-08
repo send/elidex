@@ -463,7 +463,7 @@ def run(reg):
     print()
     print("mutants (each must turn its control red):")
     for name, file, find, replace, controls in MUTANTS:
-        src = (h.HERE / file).read_text()
+        src = (h.HERE / file).read_text(encoding="utf-8")
         n = src.count(find)
         if n != 1:
             fails.append("MUTANT %r: substring occurs %d times in %s (must be exactly 1) -- the "

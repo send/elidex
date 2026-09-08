@@ -110,7 +110,7 @@ def linear_orphans_control(M):
         text = "text\n" + "".join("[l%d]: f%d.md\n" % (i, i) for i in range(n - 1))
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "orphans.md"
-            p.write_text(text)
+            p.write_text(text, encoding="utf-8")
             t0 = time.perf_counter()
             with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:
                 memo = plan_memo_memo.Memo(p)
@@ -155,7 +155,7 @@ def scaling_unresolved_control(M):
         text = "".join("[x][missing]\n" for _ in range(n))
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "u.md"
-            p.write_text(text)
+            p.write_text(text, encoding="utf-8")
             memo = plan_memo_memo.Memo(p)
             tables = [_CountedList(para.offsets, limit=bound(n)) for para in memo.paragraphs]
             for para, table in zip(memo.paragraphs, tables):
@@ -202,7 +202,7 @@ def scaling_linked_files_control(M):
         text = "".join("See [x%d](slice-9z-sib-%d.md).\n" % (i, i) for i in range(n))
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "links.md"
-            p.write_text(text)
+            p.write_text(text, encoding="utf-8")
             memo = plan_memo_memo.Memo(p)
             t0 = time.perf_counter()
             with _count_calls(pathlib.PurePath, "__hash__", limit=None) as h, \
@@ -278,7 +278,7 @@ def scaling_quotes_control(M):
     text = "> q\n\n" * n
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "quotes.md"
-        p.write_text(text)
+        p.write_text(text, encoding="utf-8")
         try:
             with _count_calls(plan_memo_memo, "quote_content", limit=4 * n) as c:
                 memo = plan_memo_memo.Memo(p)

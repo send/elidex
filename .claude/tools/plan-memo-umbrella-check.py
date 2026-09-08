@@ -535,7 +535,32 @@ def check(path):
 # --------------------------------------------------------------------------
 
 
+def _utf8_streams():
+    """The checker's OUTPUT is UTF-8, said once, here (PR #510 R26-4).
+
+    Every line this tool prints can carry `§`, `⚠`, a spec quotation or a memo's
+    own Japanese, so its streams name UTF-8 for the same reason its files do:
+    what it emits is a property of the DOCUMENT, never of the host it runs on.
+    Left to the locale, `--self-test` under `LC_ALL=C` died with a
+    `UnicodeEncodeError` part-way down the control list -- a proof that stops
+    halfway is not a red one, it is an unreadable one.  This is the half of the
+    encoding rule that `plan_memo_selftest_properties.encoding_sweep_control`
+    structurally CANNOT see: that sweep reads call sites for a missing argument,
+    and a stream nobody configured is an absence with no call site to read.
+    `stream_encoding_control` is its partner and reads this function instead.
+
+    `getattr` rather than a version test: `reconfigure` is a `TextIOWrapper`
+    method from Python 3.7 (below the 3.9 floor this checker advertises), but a
+    caller that has replaced `sys.stdout` with something else need not provide
+    it, and a checker must not die for want of an output setting."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
 def main(argv):
+    _utf8_streams()
     if "--self-test" in argv:
         import plan_memo_umbrella_selftest as st  # noqa
         return st.run(mutants="--mutants" in argv)

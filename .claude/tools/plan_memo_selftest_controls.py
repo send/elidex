@@ -188,7 +188,7 @@ def undecodable_sibling_control(M):
     try:
         with tempfile.TemporaryDirectory() as d:
             p = pathlib.Path(d) / "fixture.md"
-            p.write_text(build() + "\nSee [bad](bad.md).\n")
+            p.write_text(build() + "\nSee [bad](bad.md).\n", encoding="utf-8")
             (pathlib.Path(d) / "bad.md").write_bytes(b"\xff\xfe not utf-8 \x80\n")
             res = M.check(str(p))
     except Exception as e:       # noqa: BLE001 -- the defect under test
@@ -345,7 +345,7 @@ def sequence_control(M):
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "shape.md"
         for md, want, *raw in shapes:
-            p.write_text(md + "\n")
+            p.write_text(md + "\n", encoding="utf-8")
             try:
                 memo = plan_memo_memo.Memo(p)
             except Exception as e:       # noqa: BLE001 -- the defect under test
@@ -378,7 +378,7 @@ def deep_nesting_control(M):
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "deep.md"
         for md, want in shapes:
-            p.write_text(md + "\n")
+            p.write_text(md + "\n", encoding="utf-8")
             try:
                 got = plan_memo_memo.Memo(p).sequence
             except Exception as e:       # noqa: BLE001 -- the defect under test
@@ -464,8 +464,8 @@ def display_path_control(M):
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d) / "root"
         root.mkdir()
-        (root / "fixture.md").write_text(build() + "\nSee [up](../child.md).\n")
-        (pathlib.Path(d) / "child.md").write_text(twin)
+        (root / "fixture.md").write_text(build() + "\nSee [up](../child.md).\n", encoding="utf-8")
+        (pathlib.Path(d) / "child.md").write_text(twin, encoding="utf-8")
         res = M.check(str(root / "fixture.md"))
         outside = str((pathlib.Path(d) / "child.md").resolve())
         seeds = sorted({f[1] for f in res.findings if f[0] == "LEX-UNSUPPORTED?"})

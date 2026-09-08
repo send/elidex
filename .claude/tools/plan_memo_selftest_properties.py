@@ -7,7 +7,7 @@ every control this module contributes is named `PROPERTY: ...` and every
 `PROPERTY: ...` entry of the one table comes from here, so "is this a
 property?" is answered by the name a reader already sees.  In the imports:
 this module is the ONLY importer of `ast` and of the harness's module-set
-handles (`MODULES` / `SOURCES` / `GRAMMAR`) -- reading the checker's own source
+handles (`MODULES` / `SOURCES` / `GRAMMAR` / `HERE`) -- reading the checker's own source
 text, AST or code objects is what a sweep does and what a fixture control never
 does -- exactly as `plan_memo_selftest_work.py` is the only importer of the
 three work witnesses.
@@ -20,8 +20,11 @@ render-equivalence sweep (every position of one prose, re-spelled as a §2.5
 reference), the break-equivalence sweep (every line break of one prose, in
 each of CommonMark's three spellings of one), the line-ending property (§2.1's
 three endings, written as bytes),
-and the anchored-matcher width sweep (every pattern-method call site of the
-module set).  What is NOT: a control that runs one fixture and reads the
+the anchored-matcher width sweep (every pattern-method call site of the
+module set), and the encoding sweep (every text-I/O call site of every source
+of this checker, the self-test's own included -- the one sweep whose population
+is GLOBBED rather than taken from `MODULES`, because the defect it was written
+against was in the self-test).  What is NOT: a control that runs one fixture and reads the
 verdict, which is `plan_memo_selftest_controls.py`'s, and a control whose
 measure is WORK, which is `plan_memo_selftest_work.py`'s.
 
@@ -40,7 +43,7 @@ import pathlib
 import tempfile
 
 from plan_memo_selftest_cases import build
-from plan_memo_selftest_harness import GRAMMAR, MODULES, SOURCES, run_on
+from plan_memo_selftest_harness import GRAMMAR, HERE, MODULES, SOURCES, run_on
 
 
 # The spellings the grammar module owns.  A SOURCE-TEXT sweep over string
@@ -511,6 +514,139 @@ def anchored_matcher_width_control(M):
                 "number-bounded subject%s" % (calls, anchored_calls, len(hits),
                                               (": " + "; ".join(sorted(set(hits))[:3])) if hits else ""))
 
+
+# The standard-library calls that OPEN OR MOVE TEXT and take an `encoding`
+# argument which, left out, is the LOCALE's.  Read as the class it is: every
+# spelling below defaults to `locale.getencoding()`, so leaving the argument
+# out makes what the call reads or writes a property of the HOST rather than of
+# the file.  `open` covers the builtin and `io` / `codecs` / `gzip` / `bz2` /
+# `lzma` / `pathlib.Path`'s methods of that name at once, because the sweep
+# reads the CALLEE NAME and not what it is bound to.
+#
+# ⚠ WHAT IS NOT HERE, and why neither is a hole: `read_bytes` / `write_bytes`
+# and any `"rb"` / `"wb"` call move BYTES and have no encoding to name
+# (`line_ending_control` above writes its three fixtures that way ON PURPOSE, so
+# that the endings under test survive); `json.load` / `json.dump` take a file
+# object somebody else opened, and that opener is in this list.
+_ENCODED_IO = frozenset((
+    "open",             # builtin / io / codecs / gzip / bz2 / lzma / Path.open
+    "read_text", "write_text",
+    "fdopen",           # os.fdopen
+    "NamedTemporaryFile", "TemporaryFile", "SpooledTemporaryFile",
+    "reconfigure",      # TextIOWrapper.reconfigure: one that names no encoding
+))                      # leaves the locale's in place, which IS the defect
+
+
+def encoding_sweep_control(M):
+    """PROPERTY: no source of this checker performs TEXT I/O without naming its
+    encoding.  Every call whose callee NAME is one of `_ENCODED_IO` must pass
+    `encoding=`; one that does not is red.
+
+    WHY IT IS A PROPERTY AND NOT TWO FIXES (PR #510 R26-4).  The checker
+    advertises Python 3.9+ with only the standard library and reads production
+    memos as explicit UTF-8 (`plan_memo_memo.Memo.read`), while the SELF-TEST
+    read its own module sources and wrote its fixtures with the locale default.
+    On a host whose preferred encoding is not UTF-8 that raised
+    `UnicodeDecodeError` inside `load()` before a single control ran --
+    `PYTHONUTF8=0 LC_ALL=C python3 plan-memo-umbrella-check.py --self-test`
+    reproduces it, because these sources hold non-ASCII text.  The reviewer
+    named two sites (the source read and the fixture writes); the class was
+    FIFTEEN, in four modules, and the three it did not name
+    (`plan_memo_selftest_mutants.run`'s source read and the fixture writes of
+    the work and controls modules) are exactly what an enumerated fix would
+    have left standing.  So the fix is the predicate, not the list.
+
+    THE POPULATION IS DISCOVERED, NOT LISTED: every `plan_memo*.py` beside this
+    file plus the entry point, globbed -- the checker set and the self-test
+    both, so a module a later touch-time split carves out is swept the day it
+    lands and not the day somebody remembers it.  Text comes from `SOURCES`
+    when the current set holds it (`load` records the checker set,
+    `patched_module` a patched self-test module) and from disk otherwise, so a
+    MUTANT is seen on either half.
+
+    A LOWER BOUND IS PART OF THE VERDICT: a sweep that finds no call at all is
+    red, because "no site without an encoding" is also what a broken walk, an
+    empty population or a renamed callee reports.
+
+    HONESTLY, what it cannot see.  The predicate is the callee's NAME in an
+    `ast.Call`, so a call reached through an alias (`w = p.write_text; w(t)`),
+    through `getattr`, or inside a library helper that opens a file itself is
+    invisible; so is an encoding that is named but wrong.  The list is an
+    INCLUSION list, which is the safe direction -- a standard-library spelling
+    nobody here has used yet is MISSED, never blessed -- and the environment
+    half of this finding is checked outside the suite by the command above,
+    because a control cannot change the preferred encoding of the interpreter
+    it is already running in."""
+    hits, calls = [], 0
+    files = sorted(p.name for p in HERE.glob("plan_memo*.py")) + ["plan-memo-umbrella-check.py"]
+    for file in files:
+        src = SOURCES.get(file)
+        if src is None:
+            src = (HERE / file).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(src, filename=file)):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = (f.attr if isinstance(f, ast.Attribute)
+                    else f.id if isinstance(f, ast.Name) else None)
+            if name not in _ENCODED_IO:
+                continue
+            calls += 1
+            if not any(k.arg == "encoding" for k in node.keywords):
+                hits.append("%s:%d %s() names no encoding" % (file, node.lineno, name))
+    return (not hits and calls > 0,
+            "%d text-I/O call site(s) in %d source(s) swept, %d naming no encoding%s"
+            % (calls, len(files), len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
+
+
+class _RecordingStream:
+    """A stand-in for `sys.stdout` that records what `reconfigure` was asked
+    for.  Not a mock of a stream: `stream_encoding_control` never writes to
+    it."""
+
+    def __init__(self):
+        self.asked = []
+
+    def reconfigure(self, **kw):
+        self.asked.append(kw)
+
+
+def stream_encoding_control(M):
+    """PROPERTY, the ABSENCE half of the encoding rule: the entry point sets BOTH
+    of its output streams to UTF-8 (`plan-memo-umbrella-check._utf8_streams`).
+
+    WHY THIS EXISTS BESIDE THE SWEEP (PR #510 R26-4).  Fixing the fifteen text-I/O
+    call sites made `PYTHONUTF8=0 LC_ALL=C ... --self-test` get further and then
+    die anyway, with a `UnicodeEncodeError` on the `§` in a control's name: the
+    OUTPUT stream had the same locale dependence, and the sweep beside this
+    control cannot ever report it, because a sweep of call sites looks for a
+    missing ARGUMENT and this defect was a missing CALL.  A check whose
+    population is "the places that already do I/O" is defined by the symptom's
+    vocabulary; this one is defined by the property (the streams the checker
+    prints on) and so has the absence in range.
+
+    The subject is the function, exercised: both streams are replaced by
+    recorders, `_utf8_streams()` is called, and each must have been asked for
+    `encoding="utf-8"` exactly once.  `getattr`-guarded in production, so the
+    recorders need only offer `reconfigure`.
+
+    HONESTLY: this says the entry point configures the streams, not that every
+    `print` in the tool then survives; a caller who replaces `sys.stdout` after
+    `main` has run is outside it, and so is a stream with no `reconfigure`,
+    which the function deliberately tolerates rather than dies on."""
+    import sys as _sys
+    out, err = _RecordingStream(), _RecordingStream()
+    keep = _sys.stdout, _sys.stderr
+    try:
+        _sys.stdout, _sys.stderr = out, err
+        M._utf8_streams()
+    finally:
+        _sys.stdout, _sys.stderr = keep
+    want = [{"encoding": "utf-8"}]
+    return (out.asked == want and err.asked == want,
+            "stdout asked %s, stderr asked %s (each must be exactly %s)" % (out.asked, err.asked, want))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
@@ -528,4 +664,8 @@ def registry():
             ("CONTROL", break_equivalence_control),
         "PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)":
             ("CONTROL", anchored_matcher_width_control),
+        "PROPERTY: no source of this checker performs text I/O without naming its encoding (the checker set and the self-test both, globbed)":
+            ("CONTROL", encoding_sweep_control),
+        "PROPERTY: the entry point sets BOTH output streams to UTF-8 -- the absence a call-site sweep cannot report":
+            ("CONTROL", stream_encoding_control),
     }
