@@ -21,8 +21,8 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, GROWTH, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, SIBLING, TABLES,
-    TOKENS,
+    CHECK, CONTROLS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, SIBLING,
+    TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -397,4 +397,58 @@ MUTANTS += [
      "  (this file)             mention scanners, `check()`, the report\n"
      "  plan_memo_ghost.py      a module that does not exist\n",
      [R28_MAP_EXISTS]),
+]
+
+
+R29_LEADING_RUN = ("PROPERTY: no SCANNING pattern-method call in the module set applies a pattern that "
+                   "BEGINS with an unbounded repeat (a run the engine re-enters at every position "
+                   "inside it -- a cost no witness in this suite can count)")
+R29_SCAN_GRAMMAR = ("PROPERTY: plan_memo_ids.tokens reads exactly the language plan_memo_ids.decorated_id "
+                    "spells, over an EXHAUSTIVE corpus of decoration and id characters (the core-first "
+                    "scan against the grammar's own composition)")
+R29_SCAN_WORK = ("the id scan walks a decoration run ONCE per id and never at all where no id follows "
+                 "it (an exact count, not a ratio -- the half of R29-2 a Python witness can see)")
+
+MUTANTS += [
+    # -- R29-2: the id scan.  THREE rows, because the finding is three claims
+    # and no one instrument reaches two of them.
+    #
+    # The SHAPE row, and it is the retired code VERBATIM: `_CORE` becomes
+    # `decorated_id`'s composition again, which is exactly what `finditer` was
+    # given before this round.  The row proves the sweep reports the real
+    # defect and not a caricature of it -- and no other kind of row could
+    # report it at all: the cost is inside the C `re` engine, and with the
+    # defect in place (this branch's parent commit) all 596 controls of the
+    # suite were green, `generated_growth_control` among them.  That is the
+    # reason the claim is a source claim.
+    ("R29-2 id scan: the scan searches for the id CORE, not for a pattern that opens with an unbounded "
+     "decoration run (restore the retired `decorated_id` composition at the same `finditer`)", IDS,
+     '_CORE = re.compile("|".join("(?P<%s>%s)" % kv for kv in KINDS))',
+     '_CORE = re.compile(decorated_id("|".join("(?P<%s>%s)" % kv for kv in KINDS)))',
+     [R29_LEADING_RUN]),
+    # The LANGUAGE row.  Moving the reading out of one pattern into a pattern
+    # plus two walks put the non-overlap rule in the walk's hands: `lo` is the
+    # end of the token before this one, and a `finditer` match may not overlap
+    # its predecessor.  Widening it to `pos` lets a token's left decoration
+    # reach back into the marks the token before it already carries as its
+    # right -- `` `9z`9z `` reads its middle backtick twice -- which is a
+    # LANGUAGE change and not a cost, so the exhaustive corpus is what reports
+    # it.
+    ("R29-2 id scan: a token's left decoration stops at the previous token's end (widen the clamp to "
+     "`pos`: the marks a token already carries as its right decoration become the next one's left)", IDS,
+     "        start = _decor_start(text, m.start(), lo)",
+     "        start = _decor_start(text, m.start(), pos)",
+     [R29_SCAN_GRAMMAR]),
+    # The COST row, and it re-injects the defect WHERE A WITNESS CAN SEE IT.
+    # R29-2's own re-entry ran in C; written in Python it is a walk started at
+    # every position rather than at every id, and that is precisely what the
+    # exact counts refuse: the walks fire where no id follows the run, and the
+    # source lines a run costs stop being the same at 1,000 marks and at 8,000.
+    ("R29-2 id scan: the decoration is walked from an ID, not from every position (re-inject the "
+     "per-position walk -- the retired re-entry, in Python where a witness can count it)", IDS,
+     "    for m in _CORE.finditer(text, pos, hi):",
+     "    for i in range(pos, hi + 1):\n"
+     "        _decor_end(text, i, hi)\n"
+     "    for m in _CORE.finditer(text, pos, hi):",
+     [R29_SCAN_WORK]),
 ]

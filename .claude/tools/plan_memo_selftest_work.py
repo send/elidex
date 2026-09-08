@@ -548,6 +548,96 @@ def linear_code_closer_control(M):
             % (w1, w2, l1, l2, w2 / w1, l2 / l1))
 
 
+# The id-scan witness's shapes (PR #510 R29-2).  `K` ids, each wrapped in `d`
+# decoration marks a side; `d` runs over `_SCAN_WIDTHS` so the cost of ONE more
+# mark can be read off as a difference rather than compared against a constant
+# somebody chose.  Three widths, because two give one difference and one
+# difference cannot be shown to be constant.
+_SCAN_IDS, _SCAN_WIDTHS = 50, (1, 2, 3)
+# The run with no id after it: the shape the retired pattern re-entered at
+# every position.  Two lengths, eight times apart, and the claim is EQUALITY.
+_SCAN_RUN, _SCAN_RUN_LONG = 1000, 8000
+
+
+def linear_id_scan_control(M):
+    """The linearity witness for the id scan, stated EXACTLY rather than as a
+    ratio: the decoration around an id is walked ONCE per id, and a run of
+    decoration marks that no id follows is not walked at all.
+
+    THE HALF THIS CAN SEE, AND THE HALF IT CANNOT (PR #510 R29-2).  The defect
+    was `finditer` over a pattern beginning with `DECOR`, so the engine consumed
+    a decoration run at every position inside it and unwound -- 0.016 / 0.063 /
+    0.259 s over `!` + N backticks for N = 1000 / 2000 / 4000.  That cost was
+    inside the C `re` engine: no Python line ran and no module binding was
+    called, so NO witness in this suite could have gone red on it, and the sweep
+    that states it instead is
+    `plan_memo_selftest_properties.leading_run_scan_control`.  What this control
+    holds is the fix's OWN clause.  The scan now finds the id core with a
+    pattern and walks the decoration outward in PYTHON, which is countable --
+    and which is a re-scan waiting to be written, since the two walks are the
+    only place a run can be crossed twice.
+
+    THREE CLAIMS, EACH AN EQUALITY OR AN EXACT COUNT, so none of them needs a
+    doubling family or a bound anybody tuned:
+
+      * a run of marks with NO id after it costs the scan the same number of
+        source lines at 1,000 marks and at 8,000 -- the walks are never entered,
+        because there is no core to enter them from;
+      * `_decor_start` and `_decor_end` are called EXACTLY once per id the scan
+        yields, at every decoration width: one walk each side, per id, never per
+        position;
+      * one more mark per side costs the SAME number of source lines at every
+        width, so a mark is walked a constant number of times rather than a
+        number that grows with the run it sits in.  A walk that re-crossed the
+        marks it had already crossed would make that difference grow.
+
+    The counts are also required to be non-zero where the claim is about
+    something happening (the ids are found, the walks are entered), since a
+    counter watching nothing reports what a clean run reports."""
+    import plan_memo_ids as ids     # the freshly loaded module
+
+    def lines(text):
+        with _count_lines(ids, limit=10 ** 9) as c:
+            list(ids.tokens(text))
+        return c.lines
+
+    def calls(text):
+        with _count_calls(ids, "_decor_start", limit=None) as a, \
+                _count_calls(ids, "_decor_end", limit=None) as b:
+            found = len(list(ids.tokens(text)))
+        return found, a.calls, b.calls
+
+    run, long_run = "!" + "`" * _SCAN_RUN, "!" + "`" * _SCAN_RUN_LONG
+    short_lines, long_lines = lines(run), lines(long_run)
+    _found, run_starts, run_ends = calls(long_run)
+    bad = []
+    if short_lines != long_lines:
+        bad.append("a run of %d marks costs %d source lines and one of %d costs %d: the scan is "
+                   "entering the run" % (_SCAN_RUN, short_lines, _SCAN_RUN_LONG, long_lines))
+    if run_starts or run_ends:
+        bad.append("a run with no id after it walked the decoration %d + %d time(s)"
+                   % (run_starts, run_ends))
+    seen, widths = {}, []
+    for d in _SCAN_WIDTHS:
+        text = ("`" * d + "9z" + "`" * d) * _SCAN_IDS
+        found, starts, ends = calls(text)
+        widths.append((d, found, starts, ends))
+        if (found, starts, ends) != (_SCAN_IDS, _SCAN_IDS, _SCAN_IDS):
+            bad.append("width %d: %d id(s), %d left and %d right walk(s) (each must be %d)"
+                       % (d, found, starts, ends, _SCAN_IDS))
+        seen[d] = lines(text)
+    steps = [seen[b] - seen[a] for a, b in zip(_SCAN_WIDTHS, _SCAN_WIDTHS[1:])]
+    if len(set(steps)) != 1 or steps[0] <= 0:
+        bad.append("one more mark a side costs %s source lines at the successive widths: not constant"
+                   % steps)
+    ok = not bad and short_lines > 0
+    return ok, ("%d source lines over a run of %d and of %d marks with no id (equal, and the walks "
+                "entered %d + %d times); %d id(s) and one walk a side each at widths %s; %s source "
+                "lines more per extra mark%s"
+                % (short_lines, _SCAN_RUN, _SCAN_RUN_LONG, run_starts, run_ends, _SCAN_IDS,
+                   list(_SCAN_WIDTHS), steps, (": FAIL " + "; ".join(bad)) if bad else ""))
+
+
 def registry():
     """name -> (kind, control), the WORK fragment of the one table: this
     module's per-shape witnesses merged with the growth module's generated
@@ -578,6 +668,8 @@ def registry():
             ("CONTROL", scaling_split_row_control),
         "block quotes are linear: N quotes cost <= 4N quote_content calls":
             ("CONTROL", scaling_quotes_control),
+        "the id scan walks a decoration run ONCE per id and never at all where no id follows it (an exact count, not a ratio -- the half of R29-2 a Python witness can see)":
+            ("CONTROL", linear_id_scan_control),
         "a resolved image's demotion is linear: N nested images demote their descendants once, not once per enclosing image":
             ("CONTROL", linear_image_demotion_control),
     })

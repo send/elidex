@@ -12,8 +12,8 @@ below the lexer (which needs the citation shape) and imports nothing of the
 checker's, because the grammar is a fact of these documents, not of
 CommonMark.
 
-THE BOUNDARY, decided here and nowhere else.  A token is read at every
-position by `_TOKEN` (decoration, the longest kind first, decoration) and
+THE BOUNDARY, decided here and nowhere else.  A token is the id CORE (`_CORE`,
+the longest kind first) with its decoration walked outward from it, and it is
 kept iff each side is BOUNDED:
   * a side that carries decoration (`**9z**`, `` `9a` ``) is bounded by the
     decoration itself: the mark closes the token, so `` `9a`-`9d` `` is two
@@ -128,7 +128,7 @@ self-test's `row_kind_coverage_control` is the kind half)."""
 
 ROW_ID = "(?:%s)" % "|".join(dict(KINDS)[k] for k in ROW_KINDS)
 """The ONE "a row id" alternation, in `KINDS` order (slug before short: the
-longest kind first, as `_TOKEN` reads it)."""
+longest kind first, as `_CORE` reads it)."""
 
 
 def decorated_id(core, tag=""):
@@ -146,7 +146,22 @@ def balanced(m, tag=""):
     return bool(left) and _DECOR_TOKENS.findall(m.group(tag + "r")) == left[::-1]
 
 
-_TOKEN = re.compile(decorated_id("|".join("(?P<%s>%s)" % kv for kv in KINDS)))
+# THE CORE ALONE, without the decoration `decorated_id` wraps round it -- the
+# alternation the scan below searches for, and the reason it is linear.
+#
+# The retired spelling was `decorated_id(<this>)` handed straight to
+# `finditer` (PR #510 R29-2).  Its first element is `DECOR`, an UNBOUNDED
+# repeat, so at every position inside a run of decoration marks the engine
+# consumed the rest of the run, failed to find an id after it, and unwound --
+# and then did it again one character later: `!` followed by N backticks
+# measured 0.016 / 0.063 / 0.259 s for N = 1000 / 2000 / 4000, four times the
+# work for twice the input.  Anchoring the scan on the CORE, whose alternatives
+# each begin with a fixed character (`#`, `[`, an ASCII alphanumeric), makes
+# every position the engine rejects cost O(1); the decoration is then WALKED
+# outward from the core it belongs to, once (`_decor_start` / `_decor_end`).
+# `plan_memo_selftest_properties.leading_run_scan_control` is the sweep that
+# reports the retired shape wherever it is written next.
+_CORE = re.compile("|".join("(?P<%s>%s)" % kv for kv in KINDS))
 _KIND = {kind: re.compile(core) for kind, core in KINDS}
 
 # The continuation class per kind (the docstring's rule); a citation id is
@@ -165,11 +180,11 @@ class Token:
 
     __slots__ = ("kind", "id", "start", "end", "idstart", "idend", "l", "r")
 
-    def __init__(self, m):
+    def __init__(self, m, text, start, end):
         self.kind = next(k for k, _ in KINDS if m.group(k) is not None)
-        self.id, self.start, self.end = m.group("id"), m.start(), m.end()
-        self.idstart, self.idend = m.start("id"), m.end("id")
-        self.l, self.r = m.group("l"), m.group("r")
+        self.id, self.start, self.end = m.group(), start, end
+        self.idstart, self.idend = m.start(), m.end()
+        self.l, self.r = text[start:self.idstart], text[self.idend:end]
 
     @property
     def balanced(self):
@@ -192,16 +207,74 @@ def _glued(text, i, step, kind, lo, hi):
     return kind == "short" and text[i] == "." and lo <= j < hi and bool(cont.match(text[j]))
 
 
+def _decor_start(text, k, lo):
+    """Where the decoration run ENDING at `k` begins, never before `lo`:
+    `DECOR` read right to left, one mark at a time.
+
+    It is the leftmost position `DECOR` can start from and still arrive
+    exactly at `k`, which is the start `finditer` over `decorated_id` would
+    have chosen -- the marks have distinct first characters and distinct last
+    ones, so the run's division into marks is the same read from either end,
+    and greedy `DECOR` from the position returned here stops exactly at `k`
+    because `text[k]` opens an id and no id character opens a mark.  `lo` is
+    the end of the token before this one: a mark that token already carries as
+    its own `r` is not available to this one's `l`, exactly as a match may not
+    overlap the one before it."""
+    while k > lo:
+        for mark in DECOR_MARKS:
+            j = k - len(mark)
+            if j >= lo and text[j:k] == mark:
+                k = j
+                break
+        else:
+            return k
+    return k
+
+
+def _decor_end(text, k, hi):
+    """Where the decoration run BEGINNING at `k` ends, never past `hi`:
+    `DECOR` read left to right, one mark at a time (greedy, which is what
+    `decorated_id`'s trailing `DECOR` is)."""
+    while k < hi:
+        for mark in DECOR_MARKS:
+            if text[k:k + len(mark)] == mark and k + len(mark) <= hi:
+                k += len(mark)
+                break
+        else:
+            return k
+    return k
+
+
 def tokens(text, pos=0, endpos=None):
     """Every bounded id token of `text[pos:endpos]`, left to right, non-
-    overlapping (a candidate is read at each position by the longest kind
-    first; a glued candidate is dropped and the scan resumes after it, so
-    `xxxxC` yields neither `xxxx` nor `C`).  The boundary is tested inside
-    `[pos, endpos)` only: the delimiters of a code span bound what is read
-    out of it."""
+    overlapping (the id CORE is found by the longest kind first and its
+    decoration walked outward from it; a glued candidate is dropped and the
+    scan resumes after it, so `xxxxC` yields neither `xxxx` nor `C`).  The
+    boundary is tested inside `[pos, endpos)` only: the delimiters of a code
+    span bound what is read out of it.
+
+    THE SCAN IS CORE-FIRST, and that is the whole of its cost claim (PR #510
+    R29-2; the comment on `_CORE` carries the measurement).  A search for
+    `decorated_id`'s spelling starts with `DECOR`, so the engine re-entered a
+    run of decoration marks at every one of its own positions; a search for
+    the core rejects a mark in O(1) and the decoration is walked once, from
+    the core outward, bounded on the left by the previous token's end and on
+    the right by `endpos`.  Those two bounds are what make the walks disjoint:
+    a character of the text is walked by at most one of them, so the scan is
+    linear in the text and not in the runs inside it.
+
+    IT READS THE SAME LANGUAGE, which is a claim and not a hope: the
+    self-test's `id_scan_grammar_agreement_control` runs this scan and
+    `decorated_id`'s own composition over an exhaustively generated corpus of
+    decoration and id characters and requires every token -- kind, id, both
+    extents and both decorations -- to be identical."""
     hi = len(text) if endpos is None else endpos
-    for m in _TOKEN.finditer(text, pos, hi):
-        t = Token(m)
+    lo = pos
+    for m in _CORE.finditer(text, pos, hi):
+        start = _decor_start(text, m.start(), lo)
+        end = _decor_end(text, m.end(), hi)
+        lo = end
+        t = Token(m, text, start, end)
         if not t.l and _glued(text, t.start - 1, -1, t.kind, pos, hi):
             continue
         if not t.r and _glued(text, t.end, +1, t.kind, pos, hi):

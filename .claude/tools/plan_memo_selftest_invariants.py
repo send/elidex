@@ -42,11 +42,134 @@ Import direction, one way: the properties module imports this one; this one
 imports the harness and the fixture builder, and nothing of the controls.
 """
 
+import itertools
 import pathlib
+import re
 import tempfile
 
 from plan_memo_selftest_cases import build
 from plan_memo_selftest_harness import run_on
+
+
+# One document SPELLING per id kind `plan_memo_ids.KINDS` declares, for the
+# atom half of the id-scan corpus below.  Checked against `KINDS` and against
+# `kind_of` when the control runs, so a kind added to the grammar without a
+# spelling here turns the control RED instead of quietly leaving that kind out
+# of the sweep -- the same guard `plan_memo_selftest_growth.ID_SPELLINGS`
+# carries, for the same reason.
+_SCAN_SAMPLES = {"short": "9z", "slug": "#11-a", "cite": "[C1]"}
+
+# The two corpora, both EXHAUSTIVE up to their length.  The first is over
+# characters, because the class this control was written for lives BETWEEN
+# characters of a decoration run; the second is over ATOMS, because a slug and
+# a citation id are five and four characters long and no character-level corpus
+# of a workable size reaches one with decoration on both sides.  `.` is an atom
+# because the short kind's boundary has a dotted-number clause; the decoration
+# marks and the id spellings are read off the grammar rather than typed.
+_SCAN_CHAR_LEN, _SCAN_ATOM_LEN = 6, 5
+# The windows: the whole text, one that starts inside it (so a token's left
+# decoration is cut by `pos`) and one that ends inside it (so its right
+# decoration is cut by `endpos`) -- the two clamps a code span's delimiters
+# impose, and the two the walks read.
+_SCAN_WINDOWS = 3
+
+
+def _scan_corpus(ids):
+    """(units, length) -> every string over `units` of at most that length,
+    both corpora, or (None, why) when the grammar has outgrown the samples."""
+    kinds = {k for k, _ in ids.KINDS}
+    if set(_SCAN_SAMPLES) != kinds:
+        return None, "_SCAN_SAMPLES covers %s; plan_memo_ids.KINDS declares %s" % (
+            sorted(_SCAN_SAMPLES), sorted(kinds))
+    for kind, sample in sorted(_SCAN_SAMPLES.items()):
+        if ids.kind_of(sample) != kind:
+            return None, "the %r sample %r is a %r id" % (kind, sample, ids.kind_of(sample))
+    chars = tuple(sorted(ids.DECOR_CHARS)) + ("9", "z")
+    if ids.kind_of("9z") != "short":
+        return None, "the character corpus's id characters do not spell a short id"
+    atoms = tuple(ids.DECOR_MARKS) + tuple(v for _k, v in sorted(_SCAN_SAMPLES.items())) + (".",)
+    out = []
+    for units, length in ((chars, _SCAN_CHAR_LEN), (atoms, _SCAN_ATOM_LEN)):
+        for k in range(length + 1):
+            out += ["".join(t) for t in itertools.product(units, repeat=k)]
+    return out, ""
+
+
+def _reference_scan(ids, rx, text, pos, hi):
+    """The token stream `decorated_id`'s OWN composition yields over
+    `text[pos:hi]` -- the grammar searched for as one pattern, which is what
+    the scan did until PR #510 R29-2 -- with the same boundary clause applied
+    (`_glued`, which that round did not touch)."""
+    out = []
+    for m in rx.finditer(text, pos, hi):
+        kind = next(k for k, _rx in ids.KINDS if m.group(k) is not None)
+        l, r = m.group("l"), m.group("r")
+        if not l and ids._glued(text, m.start() - 1, -1, kind, pos, hi):
+            continue
+        if not r and ids._glued(text, m.end(), +1, kind, pos, hi):
+            continue
+        out.append((kind, m.group("id"), m.start(), m.end(),
+                    m.start("id"), m.end("id"), l, r))
+    return out
+
+
+def id_scan_grammar_agreement_control(M):
+    """PROPERTY: `plan_memo_ids.tokens` reads exactly the language
+    `plan_memo_ids.decorated_id` spells -- over an EXHAUSTIVE corpus of
+    decoration and id characters, every token identical in kind, id text, both
+    extents and both decorations.
+
+    WHY THE CLAIM HAD TO BE STATED (PR #510 R29-2).  The scan used to search
+    for `decorated_id`'s composition directly, and that pattern begins with
+    `DECOR`, an unbounded repeat: inside a run of decoration marks the engine
+    consumed the rest of the run at EVERY position, failed to find an id after
+    it and unwound, so `!` followed by N backticks cost 0.016 / 0.063 / 0.259 s
+    for N = 1000 / 2000 / 4000 -- quadratic.  The scan now searches for the id
+    CORE, whose alternatives each begin with a fixed character, and WALKS the
+    decoration outward from it.  That moves the reading out of one pattern into
+    a pattern plus two walks, so "does it still read the same documents?" stops
+    being obvious, and this control is the answer: exhaustively, not by sample.
+
+    THE ORACLE IS THE GRAMMAR, NOT THE RETIRED CODE.  `decorated_id` is still
+    live -- `plan_memo_roles` and `plan_memo_tables` compose their own matchers
+    from it -- so the reference here is the module's own spelling of "a
+    decorated id", composed over the module's own `KINDS`, with the module's
+    own `_glued` for the boundary clause that round did not touch.  What it
+    therefore CANNOT say: that the grammar is right.  A mutant that changes
+    `DECOR_MARKS` or a kind's pattern changes the reference too and this
+    control stays green -- the id-grammar controls elsewhere in the suite are
+    what hold that, and this one holds only that the two readings agree.
+
+    THE POPULATION IS EXHAUSTIVE, in two corpora and three windows each
+    (`_scan_corpus`): every string of at most six characters over the
+    decoration characters and two short-id characters, and every string of at
+    most five ATOMS over the decoration marks, one spelling per id kind and a
+    `.`.  Both are required to be non-empty and the sweep is required to have
+    found tokens carrying decoration on both sides, since a corpus that yields
+    no decorated token would report the same agreement a broken scan does."""
+    import plan_memo_ids as ids       # the FRESHLY loaded set
+
+    corpus, why = _scan_corpus(ids)
+    if corpus is None:
+        return False, "the corpus could not be generated: %s" % why
+    rx = re.compile(ids.decorated_id("|".join("(?P<%s>%s)" % kv for kv in ids.KINDS)))
+    bad, probes, decorated = [], 0, 0
+    for text in corpus:
+        for pos, endpos in ((0, None), (1, None), (0, max(0, len(text) - 1))):
+            hi = len(text) if endpos is None else endpos
+            probes += 1
+            want = _reference_scan(ids, rx, text, pos, hi)
+            got = [(t.kind, t.id, t.start, t.end, t.idstart, t.idend, t.l, t.r)
+                   for t in ids.tokens(text, pos, endpos)]
+            decorated += sum(1 for t in want if t[6] and t[7])
+            if got != want and len(bad) < 3:
+                bad.append("%r [%d:%d]: the grammar reads %s, the scan reads %s" % (text, pos, hi, want, got))
+    ok = not bad and len(corpus) > 0 and probes == _SCAN_WINDOWS * len(corpus) and decorated > 0
+    return ok, ("%d strings x %d windows = %d probes, %d of them yielding a token decorated on both "
+                "sides, %d disagreement(s)%s"
+                % (len(corpus), _SCAN_WINDOWS, probes, decorated, len(bad),
+                   (": " + "; ".join(bad)) if bad else ""))
+
 
 def row_kind_coverage_control(M):
     """PROPERTY, the KIND half of the R14 spelling sweep: every composer that
@@ -532,6 +655,8 @@ def straddle_definition_control(M):
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
+        "PROPERTY: plan_memo_ids.tokens reads exactly the language plan_memo_ids.decorated_id spells, over an EXHAUSTIVE corpus of decoration and id characters (the core-first scan against the grammar's own composition)":
+            ("CONTROL", id_scan_grammar_agreement_control),
         "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the spelling sweep)":
             ("CONTROL", row_kind_coverage_control),
         "PROPERTY: the verdict is invariant under a §2.5 re-spelling of any prose character the document renders the same (the rendered-text rule, swept position by position)":

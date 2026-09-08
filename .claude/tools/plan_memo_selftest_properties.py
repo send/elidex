@@ -269,6 +269,135 @@ def anchored_matcher_width_control(M):
                                               (": " + "; ".join(sorted(set(hits))[:3])) if hits else ""))
 
 
+# The pattern methods that try the pattern at EVERY position of their subject.
+# `match` and `fullmatch` are deliberately absent: they are applied at one
+# position, so what the pattern costs there is paid once and not once per
+# character.
+_SCANNING_METHODS = frozenset(("finditer", "search", "findall", "sub", "subn", "split"))
+
+
+def _leading_unbounded_repeat(rx):
+    """Whether `rx` BEGINS with an unbounded repeat that something else
+    follows -- the shape a scanning method pays for at every position -> (bool,
+    "") or (None, why the question could not be asked).
+
+    The predicate is `re`'s OWN parser, not a reading of the pattern's text: a
+    pattern is a program, and "what does it try first" is a question about the
+    parse rather than about the spelling (`(?P<l>(?:\\*\\*|`)*)` and
+    `(?:\\*\\*|`)*` are the same first move under different text).  The module is
+    private and was renamed in 3.11, so both names are tried and a version that
+    has neither makes the control RED rather than silently green -- a predicate
+    that cannot run is not a predicate that passed.
+
+    "SOMETHING ELSE FOLLOWS" is the whole of the difference between a cost and
+    a shape.  `re.compile("`+").finditer` also starts with an unbounded repeat
+    and is linear, because a repeat that IS the pattern either matches where it
+    starts or fails there in one step; the cost appears when the repeat is
+    consumed and the match then fails AFTER it, because the engine unwinds the
+    run and re-enters it one character along.  So the flag needs both: a
+    leading unbounded repeat, and a sibling after it at some enclosing level.
+    Measured over the module set: dropping that second half reports two linear
+    sites and nothing else -- `plan_memo_lexer.py:365 _LABEL_WS.sub` over
+    `[ \\t\\r\\n]+`, and `:535 _BACKTICKS.finditer` over `` `+ ``."""
+    try:
+        try:
+            from re import _parser as parser        # CPython 3.11+
+        except ImportError:
+            import sre_parse as parser              # CPython 3.9 / 3.10
+        sub = parser.parse(rx.pattern, rx.flags)
+        maxrepeat = parser.MAXREPEAT
+    except Exception as exc:                        # any failure is "cannot ask", which is red
+        return None, "re's own parser is not reachable (%s: %s)" % (type(exc).__name__, exc)
+    more = False
+    while True:
+        if not len(sub):
+            return False, ""
+        more = more or len(sub) > 1
+        op, av = sub[0]
+        name = str(op)
+        if name.endswith("SUBPATTERN"):             # a group: its body is what runs first
+            sub = av[-1]
+            continue
+        if name.endswith("ATOMIC_GROUP"):
+            sub = av
+            continue
+        if name.endswith("MAX_REPEAT") or name.endswith("MIN_REPEAT"):
+            return more and av[1] is maxrepeat, ""
+        return False, ""
+
+
+def leading_run_scan_control(M):
+    """PROPERTY: no SCANNING pattern-method call in the module set applies a
+    pattern that begins with an unbounded repeat -- the shape whose cost is
+    quadratic in a run its subject happens to hold.
+
+    WHY A SWEEP AND NOT A WITNESS (PR #510 R29-2).  `plan_memo_ids._TOKEN` was
+    `decorated_id`'s composition handed to `finditer`, and that composition
+    begins with `DECOR`.  Over `!` followed by N backticks the engine consumed
+    the run at every position inside it, failed to find an id after it and
+    unwound: 0.016 / 0.063 / 0.259 s for N = 1000 / 2000 / 4000, four times the
+    work for twice the input.  NOTHING in this suite could have measured that.
+    The work is inside the C `re` engine -- no Python line runs, so
+    `_count_lines` sees nothing and `generated_growth_control` declares exactly
+    this blind spot -- and it passes through no module binding, so
+    `_count_calls` sees one `finditer` call whatever it costs.  That is the
+    position `front_drain_sweep_control` was written from and it has the same
+    answer: what cannot be counted can be STATED, over every call site rather
+    than at the one a reviewer named.  Run against the module set as it stood
+    before the fix, this sweep reports that site and no other: 39 pattern-method
+    calls, 23 of them scanning, one hit, at `plan_memo_ids.py`'s
+    `_CORE.finditer` (measured; the same set after the fix reports 39, 23 and
+    none).
+
+    THE POPULATION IS THE ONE `anchored_matcher_width_control` ALREADY WALKS --
+    every call whose receiver is a module-global name bound to a compiled
+    pattern, read over `SOURCES` so a mutant is seen -- because the two ask
+    different questions of one set of sites: that one asks what the pattern is
+    GIVEN, this one asks what the pattern IS.  A lower bound is part of the
+    verdict: a sweep that finds no scanning call at all reports what a broken
+    walk reports.
+
+    HONESTLY, what it cannot see.  It reads the FIRST element only, so a
+    pattern that scans a run in the MIDDLE (`x[ab]*y` over
+    `xaaaa...xaaaa...`) is the same class and is invisible here; the cost of
+    the leading repeat's own body is not read either, so a repeat over an
+    expensive alternation counts the same as one over a character.  A receiver
+    that is not a module-global name -- a pattern held in a list, passed in as
+    an argument, or reached through another module -- is not resolved, exactly
+    as in the width sweep beside it.  And it says nothing about a pattern
+    applied by `match` / `fullmatch`: those run at one position, and the walk
+    that chooses the position is then the caller's own and countable in
+    Python."""
+    import re as _re
+    hits, scanning, calls = [], 0, 0
+    for name, file in MODULES:
+        src = SOURCES.get(file)
+        if src is None:
+            return False, "no loaded source for %s (load() before the sweep)" % file
+        mod = __import__(name)
+        for node in ast.walk(ast.parse(src, filename=file)):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)):
+                continue
+            rx = getattr(mod, node.func.value.id, None)
+            if not isinstance(rx, _re.Pattern):
+                continue
+            calls += 1
+            if node.func.attr not in _SCANNING_METHODS:
+                continue
+            scanning += 1
+            leading, why = _leading_unbounded_repeat(rx)
+            if leading is None:
+                return False, why
+            if leading:
+                hits.append("%s:%d %s.%s applies %r, which starts with an unbounded repeat"
+                            % (file, node.lineno, node.func.value.id, node.func.attr, rx.pattern[:44]))
+    ok = not hits and scanning >= 10
+    return ok, ("%d pattern-method call site(s) swept, %d of them scanning, %d applying a pattern "
+                "that starts with an unbounded repeat%s"
+                % (calls, scanning, len(hits), (": " + "; ".join(sorted(set(hits))[:3])) if hits else ""))
+
+
 # The standard-library calls that OPEN OR MOVE TEXT and take an `encoding`
 # argument which, left out, is the LOCALE's.  Read as the class it is: every
 # spelling below defaults to `locale.getencoding()`, so leaving the argument
@@ -488,6 +617,8 @@ def registry():
             ("CONTROL", kind_phrase_gate_control),
         "PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)":
             ("CONTROL", anchored_matcher_width_control),
+        "PROPERTY: no SCANNING pattern-method call in the module set applies a pattern that BEGINS with an unbounded repeat (a run the engine re-enters at every position inside it -- a cost no witness in this suite can count)":
+            ("CONTROL", leading_run_scan_control),
         "PROPERTY: no source of this checker performs text I/O without naming its encoding (the checker set and the self-test both, globbed)":
             ("CONTROL", encoding_sweep_control),
         "PROPERTY: no source of this checker removes an element from the FRONT of a list (the O(1) half of the population walk's drain, which no work witness here can measure)":
