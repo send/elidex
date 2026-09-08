@@ -19,10 +19,14 @@ The runner patches the source TEXT, exec's a fresh module set from it (plan
     (an exception is not the control going red) and is a FAIL.
 
 Row shape: (name, file, find, replace, [control names]).  A row whose file is
-the CONTROLS module (`plan_memo_selftest_controls.py`) patches the self-test,
-not the checker set: the module is exec'd from the patched text
-(`plan_memo_selftest_harness.patched_module`) and the row's controls are taken
-from the PATCHED module's registry.
+a SELF-TEST module (`SELFTEST` below -- the CONTROLS module or the WORK
+module) patches the self-test, not the checker set: the module is exec'd from
+the patched text (`plan_memo_selftest_harness.patched_module`) and the row's
+controls are taken from the PATCHED module's registry, MERGED over the
+unpatched rest.  The merge is what makes the set extensible: a mutant against
+a control that lives in the work module takes that control from the patched
+text while every other control stays as loaded, and `SELFTEST` -- not a
+comparison against one file name -- is the predicate.
 
 The registry is split at the review-round seam, like the controls: this
 module holds the row shape, `run`, and every PRE-converge mutant (the lexing
@@ -34,10 +38,17 @@ modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
 by three modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, POPULATION, ROLES, CHECK, CONTROLS = (
+IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, POPULATION, ROLES, CHECK, CONTROLS, WORK = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
     "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_population.py", "plan_memo_roles.py",
-    "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py")
+    "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py", "plan_memo_selftest_work.py")
+
+# The SELF-TEST modules: a mutant row naming one of these patches the proof,
+# not the checker set.  A SET, not a comparison against `CONTROLS`, so the
+# next self-test module a touch-time split carves out arrives here rather
+# than silently falling into the checker branch (where `load()` would refuse
+# a file that is not in the module set).
+SELFTEST = frozenset((CONTROLS, WORK))
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
@@ -448,10 +459,13 @@ def run(reg):
             print("  FAIL [MUTANT] %s (unknown control)" % name)
             continue
         patched = src.replace(find, replace)
-        if file == CONTROLS:
-            # a mutant against the self-test: the checker set is unpatched, the
-            # controls come from the PATCHED controls module's registry
-            M, table = h.load(), h.patched_module(file, patched).registry()
+        if file in SELFTEST:
+            # a mutant against the self-test: the checker set is unpatched, and
+            # the PATCHED module's registry fragment is merged over the loaded
+            # one, so the row's controls come from the patched text whichever
+            # self-test module they live in
+            M, table = h.load(), dict(reg)
+            table.update(h.patched_module(file, patched).registry())
         else:
             M, table = h.load({file: patched}), reg
         survived, crash = [], None

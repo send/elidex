@@ -30,6 +30,10 @@ it.  The self-test is four modules with one import direction:
   plan_memo_selftest_controls.py    the function-shaped controls and
                                     `registry()`, the one name -> (kind,
                                     control) table;
+  plan_memo_selftest_work.py        the controls whose measure is WORK rather
+                                    than text (the linearity witnesses); its
+                                    `registry()` fragment is merged into that
+                                    one table;
   plan_memo_selftest_cases.py /     the record-shaped controls (`Case`), the
   _selftest_cases_pr510.py /        fixture builder; one `CASES` list filled
   _selftest_cases_inline.py         by three modules at the review-round seam

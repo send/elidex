@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SPEC_EXAMPLES, STAGE_C, TABLES,
+    SPEC_EXAMPLES, STAGE_C, TABLES, WORK,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -381,7 +381,7 @@ MUTANTS += [
      ["(anchor) `` `Slice `C owns it ``: the row noun is inside a code span, so on the disposed "
       "stream there is no `Slice C` to anchor on -- 0 sites (the bare `C` is a declared miss)"]),
     ("R12-D witness: Phase 1's `link_label` calls are counted where Phase 1 makes them (re-bind the "
-     "counter to the lexer's binding, which sees only Phase 2)", CONTROLS,
+     "counter to the lexer's binding, which sees only Phase 2)", WORK,
      'with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:',
      'with _count_calls(__import__("plan_memo_lexer"), "link_label", limit=4 * n) as c:',
      ["Phase-1 orphan detection is linear: <= 4 link_label calls per line"]),
