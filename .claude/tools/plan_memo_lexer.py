@@ -819,10 +819,10 @@ def _demote(entries, ranges, width):
 
 # WHAT A FILE NAME IS, decided here, once: a name is anything that ENDS IN
 # `FILE_SUFFIX` -- the stem is unconstrained, so the suffix alone (`.md`) is
-# a file name.  `plan_memo_memo.Memo.sibling_path` stage (d) CONSUMES this
+# a file name.  `plan_memo_sibling.sibling_path` stage (d) CONSUMES this
 # constant for the same test on a link destination (a link to `.md` names
 # the sibling file `.md`); the lexer defines it because the lexer sits below
-# the memo and reads it first.  Until PR #510 R20 the token arm required a
+# the resolver and reads it first.  Until PR #510 R20 the token arm required a
 # stem of one character or more while `sibling_path` accepted the bare
 # suffix, so beside a declared id `md` the prose `Read .md for details`
 # reported `md` as a naming site.

@@ -81,7 +81,7 @@ def id_spelling_sweep_control(M):
     HONESTLY: this is a source-TEXT sweep.  What it cannot see: a class
     spelled in another order or with other ranges (`[A-Za-z0-9-]` is the
     HTML tag-name grammar in `plan_memo_blocks.py`, `[a-zA-Z0-9+.-]` the URL
-    scheme grammar in `plan_memo_memo.py` -- neither is an id class, and the
+    scheme grammar in `plan_memo_sibling.py` -- neither is an id class, and the
     sweep reads no purpose, so it must not read those spellings either); a
     class built by concatenation or escaped at runtime; a hand-written
     character test (`ch.isalnum()`, `in string.ascii_letters`); `\\b`

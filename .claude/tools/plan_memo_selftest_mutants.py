@@ -38,10 +38,10 @@ modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
 by three modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
+IDS, EMPHASIS, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
-    "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_population.py", "plan_memo_roles.py",
-    "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
+    "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py", "plan_memo_population.py",
+    "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
     "plan_memo_selftest_properties.py", "plan_memo_selftest_work.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
@@ -65,7 +65,7 @@ SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 
 INLINE_EXAMPLES = ("CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
                    "with the html")
 
-# `Memo.sibling_path` stage (c) AS IT STANDS: three clauses in one `if` (a C0
+# `plan_memo_sibling.sibling_path` stage (c) AS IT STANDS: three clauses in one `if` (a C0
 # control, a Windows anchor, a reserved component -- PR #510 R22).  Mutants in
 # BOTH derived registries drop one clause each and keep the others, so the
 # source text is spelled ONCE, here, beside the file names they already share.
@@ -74,8 +74,8 @@ INLINE_EXAMPLES = ("CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6):
 # to move in lockstep with nothing enforcing it, and a missed one does not fail
 # loudly: the runner reports `(unknown control)` and continues.  An anchor two
 # rounds share is shared state and lives with the other shared state.
-STAGE_C = ('        if (_CONTROL.search(name) or p.anchor                        # (c)\n'
-           '                or any(_is_reserved_component(s) for s in p.parts)):')
+STAGE_C = ('    if (_CONTROL.search(name) or p.anchor                        # (c)\n'
+           '            or any(_is_reserved_component(s) for s in p.parts)):')
 
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks

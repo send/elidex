@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
     CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    STAGE_C, TABLES,
+    SIBLING, STAGE_C, TABLES,
 )
 
 # The R25-1 control names are COMPOSED by the cases module (one per member of
@@ -182,13 +182,13 @@ MUTANTS += [
      '            return str(path.relative_to(self.root))', '            return path.name',
      [R19_DISPLAY]),
     ("R19 #3 sibling: the decoded name must be relative under Windows path syntax on every platform (re-inject the "
-     "`/`-only test)", MEMO,
+     "`/`-only test)", SIBLING,
      # PR #510 R22 added the reserved-component clause to the same `if`; the
      # MUTATION is untouched -- stage (c) back to a leading-`/` test, which
      # also drops the reserved clause, so both this mutant's controls and
      # R22's device controls go red on it.
      STAGE_C,
-     '        if _CONTROL.search(name) or name.startswith("/"):            # (c)',
+     '    if _CONTROL.search(name) or name.startswith("/"):            # (c)',
      ["(rc) a percent-encoded Windows drive-absolute `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) is rejected after "
       "decoding on every platform (stage c: a drive anchors): rc 0",
       "(rc) a percent-encoded backslash-rooted `%5Cchild.md` (`\\child.md`) is rejected (stage c: a root anchors): rc 0",
@@ -203,9 +203,10 @@ MUTANTS += [
       "multi-letter `notes%3Achild.md` is refused at the same stage by the CHARACTER rule, so this no longer "
       "discriminates one-letter from multi-letter; what it still says is that the drive reading is applied on "
       "every platform"]),
-    ("R19 #3 sibling: a backslash separates on every platform (re-inject the POSIX reading: `\\` a name character)", MEMO,
-     '        return _resolve(self.path.parent.joinpath(*p.parts))         # (e)',
-     '        return _resolve(self.path.parent / name)                     # (e)',
+    ("R19 #3 sibling: a backslash separates on every platform (re-inject the POSIX reading: `\\` a name character)",
+     SIBLING,
+     '    return _resolve(directory.joinpath(*p.parts))                # (e)',
+     '    return _resolve(directory / name)                            # (e)',
      ["(link) `sub%5Cchild.md`: a backslash is a path separator on every platform (WHATWG URL `#path-state` step 1: for "
       "a special scheme -- `file` is one -- `\\` ends a segment as `/` does; `PureWindowsPath` is that syntax) -- the "
       "file `sub/child.md` is walked"]),
@@ -215,10 +216,11 @@ MUTANTS += [
      '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+%s(?!%s))',
      ["(file) `.md` alone is a file name (the suffix-only name `sibling_path` accepts): beside a declared no-owner id "
       "`md`, `Read .md for details` reports 0 sites"]),
-    ("R20 #1 sibling: stage (d) is the lexer's FILE_SUFFIX test alone (re-inject a stem requirement on the memo side)",
-     MEMO,
-     '        if not name.endswith(FILE_SUFFIX):                           # (d)',
-     '        if not name.endswith(FILE_SUFFIX) or name == FILE_SUFFIX:    # (d)',
+    ("R20 #1 sibling: stage (d) is the lexer's FILE_SUFFIX test alone (re-inject a stem requirement on the resolver "
+     "side)",
+     SIBLING,
+     '    if not name.endswith(FILE_SUFFIX):                           # (d)',
+     '    if not name.endswith(FILE_SUFFIX) or name == FILE_SUFFIX:    # (d)',
      ["(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the lexer's file token read "
       "the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides"]),
     ("R20 #2 grammar: ROW_ID is every row kind (re-inject SHORT_ID only -- the appositive, OWNS_TWO and the anchored "
@@ -599,28 +601,28 @@ MUTANTS += [
      '            spans = [s for s in file_and_cite_spans(line) if s[2] == "file"]',
      [R22_SEED_CITE]),
     ("R22 #2 sibling: stage (c) rejects a reserved COMPONENT (drop the clause -- an empty anchor was the "
-     "whole test until R22)", MEMO,
-     STAGE_C, "        if _CONTROL.search(name) or p.anchor:                        # (c)",
+     "whole test until R22)", SIBLING,
+     STAGE_C, "    if _CONTROL.search(name) or p.anchor:                        # (c)",
      [R22_NUL, R22_DIR_NUL, R22_COM1, R22_TRAILING_SPACE, R22_PRN]),
-    ("R22 #2 sibling: EVERY part, not just the last (re-inject a final-component-only reading)", MEMO,
-     "                or any(_is_reserved_component(s) for s in p.parts)):",
-     "                or any(_is_reserved_component(s) for s in p.parts[-1:])):",
+    ("R22 #2 sibling: EVERY part, not just the last (re-inject a final-component-only reading)", SIBLING,
+     "            or any(_is_reserved_component(s) for s in p.parts)):",
+     "            or any(_is_reserved_component(s) for s in p.parts[-1:])):",
      # R25-1 put a second clause under the same per-part reading, so its
      # non-final probe belongs to this mutant too: the CHARACTER half must
      # be read per part exactly as the device half is
      [R22_DIR_NUL, R22_TRAILING_SPACE, R25_PER_PART]),
     ("R22 #2 sibling: the device is the STEM before the first dot, case-folded, trailing spaces stripped "
-     "(re-inject the whole component)", MEMO,
+     "(re-inject the whole component)", SIBLING,
      '    return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES',
      '    return part.upper() in _DEVICE_NAMES',
      # ⚠ not R22_DIR_NUL: its device component carries no `.md`, so the whole
      # component IS the stem there and the mutant leaves that control green
      [R22_NUL, R22_COM1, R22_PRN]),
-    ("R22 #2 sibling: the stem's case is folded (drop the fold)", MEMO,
+    ("R22 #2 sibling: the stem's case is folded (drop the fold)", SIBLING,
      '    return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES',
      '    return part.partition(".")[0].rstrip(" ") in _DEVICE_NAMES',
      [R22_COM1, R22_PRN]),
-    ("R22 #2 sibling: a component ending in a dot or a space is reserved as well (drop that half)", MEMO,
+    ("R22 #2 sibling: a component ending in a dot or a space is reserved as well (drop that half)", SIBLING,
      '    if part[-1:] in (".", " "):\n        return part not in (".", "..")',
      '    if False:\n        return part not in (".", "..")',
      [R22_TRAILING_SPACE]),
@@ -904,7 +906,7 @@ R25_REVERSED = ("(link) `notes%3Achild.md` is NOT a sibling.  It has no scheme -
 MUTANTS += [
     ("R25-1 sibling: stage (c) refuses a component holding a character Windows does not read as a "
      "letter of a name (drop the clause -- the reading that let an NTFS alternate data stream through)",
-     MEMO,
+     SIBLING,
      "    if _RESERVED_CHARS.intersection(part):\n        return True",
      "    if False:\n        return True",
      # every member of the class, not just the one R25 reported: an enumerated

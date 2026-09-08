@@ -2,7 +2,7 @@
 """The SIBLING-RESOLVER controls for `plan-memo-umbrella-check.py --self-test`.
 
 The fourth `Case` module, and the first carved on a SUBJECT rather than on a
-review round: every control here is about `plan_memo_memo.Memo.sibling_path`
+review round: every control here is about `plan_memo_sibling.sibling_path`
 -- the ONE destination -> file-on-disk mapping, and the only place this checker
 decides that a link names a memo it must go and scan.  Its stages are that
 function's docstring, in spec order, and each has its controls here: (a) the

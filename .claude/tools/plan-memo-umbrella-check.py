@@ -38,8 +38,12 @@ MODULES
   plan_memo_tables.py     id grammar, schemas, `Row`, `admit_table`, the mask
                           disposition and the ONE `stream` every predicate reads
                           (the block as the document renders it)
-  plan_memo_memo.py       `Memo` (the Phase-1 driver, file I/O, the sibling
-                          resolver): ONE memo
+  plan_memo_sibling.py    the ONE destination -> sibling resolver
+                          (`sibling_path` and the path machinery it reads):
+                          does a link destination name a memo on disk beside
+                          this one?
+  plan_memo_memo.py       `Memo` (the Phase-1 driver, file I/O, the two
+                          consumers of that resolver): ONE memo
   plan_memo_population.py the transitive `Population`: the memo SET one memo
                           reaches through its links, and the ONE `ids` map
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)

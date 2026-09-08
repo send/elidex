@@ -41,6 +41,7 @@ MODULES = [
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),
+    ("plan_memo_sibling", "plan_memo_sibling.py"),
     ("plan_memo_memo", "plan_memo_memo.py"),
     ("plan_memo_population", "plan_memo_population.py"),
     ("plan_memo_roles", "plan_memo_roles.py"),

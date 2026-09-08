@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SPEC_EXAMPLES, STAGE_C, TABLES, WORK,
+    SIBLING, SPEC_EXAMPLES, STAGE_C, TABLES, WORK,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -94,10 +94,10 @@ MUTANTS += [
      '        if _is_escape(s, i) and s[i + 1] != "[":\n            subst.append((i, i + 2, s[i + 1]))',
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
-     "`%2Ftmp%2Fx.md` -- is not a sibling (drop the anchor test)", MEMO,
+     "`%2Ftmp%2Fx.md` -- is not a sibling (drop the anchor test)", SIBLING,
      STAGE_C,
-     ('        if (_CONTROL.search(name)                                    # (c)\n'
-      '                or any(_is_reserved_component(s) for s in p.parts)):'),
+     ('    if (_CONTROL.search(name)                                    # (c)\n'
+      '            or any(_is_reserved_component(s) for s in p.parts)):'),
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
       "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
       "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after decoding "
@@ -119,9 +119,9 @@ MUTANTS += [
      '                if is_image:\n                    continue', '                if False:\n                    continue',
      ["(image) an undefined reference image `![diagram][missing-image]` is literal syntax, not an "
       "unresolved memo reference: rc 0"]),
-    ("R4-2 population: the destination path is percent-decoded", MEMO,
-     '        name = unquote(raw)                                          # (b)',
-     '        name = raw                                                   # (b)',
+    ("R4-2 population: the destination path is percent-decoded", SIBLING,
+     '    name = unquote(raw)                                          # (b)',
+     '    name = raw                                                   # (b)',
      ["(link) a percent-encoded destination `slice%20sib.md` links the file `slice sib.md`, as "
       "`<slice sib.md>` does"]),
     ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,
@@ -164,10 +164,10 @@ MUTANTS += [
      ["(def) `[sib]: child.md \"title` whose title crosses a BLANK line is not a definition "
       "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
       "NOT walked -- its violation is not reported"]),
-    ("R7-2 population: a C0 control character in a decoded destination is rejected", MEMO,
+    ("R7-2 population: a C0 control character in a decoded destination is rejected", SIBLING,
      STAGE_C,
-     ('        if (p.anchor                                                 # (c)\n'
-      '                or any(_is_reserved_component(s) for s in p.parts)):'),
+     ('    if (p.anchor                                                 # (c)\n'
+      '            or any(_is_reserved_component(s) for s in p.parts)):'),
      ["a decoded destination with a C0 control character is rejected, never resolved"]),
     # -- PR #510 Codex R8
     # ⚠ The former row "R8-1 sibling: the scheme is read on the RAW path, before
@@ -181,7 +181,7 @@ MUTANTS += [
     # stage (a); it is simply no longer observable through the census, since
     # stage (c) refuses that name either way.  Its control stays, carrying the
     # reversal (`plan_memo_selftest_cases_sibling.py`).
-    ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", MEMO,
+    ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", SIBLING,
      '    try:\n        return path.resolve()\n    except (OSError, RuntimeError):\n        return path',
      '    return path.resolve()',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
@@ -283,7 +283,7 @@ MUTANTS += [
       "(commonmark.js: a paragraph), and the citation shortcut stays exempt: rc 0",
       "(def) a label-and-colon line that is NOT a valid definition (junk after the destination) at a "
       "block start is prose, not an orphan: `[sib]` later is exempt, rc 0"]),
-    ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", MEMO,
+    ("RG2 IMP-3: RuntimeError from resolve() is guarded with OSError", SIBLING,
      '    except (OSError, RuntimeError):\n        return path', '    except OSError:\n        return path',
      ["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"]),
     ("RG2 MIN-1: every line of an HTML block is seeded to its end condition", BLOCKS,
@@ -640,7 +640,7 @@ MUTANTS += [
      [SEQUENCE, SPEC_EXAMPLES]),
     ("R15 #2 def: an orphan's destination decides the miss (re-inject the drop: every orphan blocks the "
      "shortcut)", MEMO,
-     '            if any(self.sibling_path(dest) is not None for _, _, dest in entries):',
+     '            if any(sibling_path(self.path.parent, dest) is not None for _, _, dest in entries):',
      '            if True:',
      ["(def) `paragraph\\n[x]: #section\\n[x]`: the orphan names a section, never a memo -- the shortcut "
       "is prose, rc 0",

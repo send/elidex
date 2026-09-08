@@ -3,10 +3,11 @@
 
 `Population` is the transitive closure over the memos a memo links (a visited
 set, so a cycle is not an error) and the ONE map `ids` every scan and
-assertion reads.  ONE memo -- its block structure, its lexing and its sibling
-resolution -- is `plan_memo_memo.py`'s `Memo`, imported here and never the
-reverse; the row grammar, the table schemas and the mask disposition are
-`plan_memo_tables.py`'s.
+assertion reads.  ONE memo -- its block structure and its lexing -- is
+`plan_memo_memo.py`'s `Memo`, imported here and never the reverse; the
+destination -> sibling resolver a memo's links are walked through is
+`plan_memo_sibling.py`'s; the row grammar, the table schemas and the mask
+disposition are `plan_memo_tables.py`'s.
 
 Two rules decided here, once:
   * a memo that cannot be opened, read or decoded is an UNAVAILABLE linked
@@ -15,7 +16,7 @@ Two rules decided here, once:
     from PARSING it is a crash out of the population (crash = FAIL), never
     that miss -- the chokepoint catches `OSError` and `UnicodeDecodeError`
     and nothing else (⚠ until PR #510 R16 it caught `RuntimeError` too,
-    for the py<=3.12 symlink-loop case that `plan_memo_memo._resolve` alone
+    for the py<=3.12 symlink-loop case that `plan_memo_sibling._resolve` alone
     guards, and a `RecursionError` -- a `RuntimeError` -- out of ~500 nested
     `>` markers was reported as "linked memo unavailable", rc 2, no census);
   * the population is transitive over the memos a memo links; the same id
@@ -25,7 +26,8 @@ Two rules decided here, once:
 
 import pathlib
 
-from plan_memo_memo import Memo, _resolve
+from plan_memo_memo import Memo
+from plan_memo_sibling import _resolve
 from plan_memo_tables import (
     KIND_PHRASES, SCHEMAS, attributed_to_other, dispose, is_blank_id_cell,
     kind_disagreements, stream,
