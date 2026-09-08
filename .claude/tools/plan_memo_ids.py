@@ -96,10 +96,13 @@ CITE_ID = r"\[" + CITE_LABEL + r"\]"
 DECOR_MARKS = ("**", "`")
 """How this document DECORATES an id, spelled once: bold, backticks, or
 both, in either order.  `DECOR_CHARS` is the same fact as a character set,
-which the lexer reads to keep the stream honest -- an escaped `\\*` or a
+which the stream builder reads to keep itself honest -- an escaped `\\*` or a
 `&#42;` renders an asterisk that is TEXT, and substituting it would spell a
-decoration the document does not have, so those two substitutions stand as
-written (`plan_memo_tables.stream`)."""
+decoration the document does not have, so those two substitutions are
+BLANKED instead of substituted (`plan_memo_tables.stream`).  Blanked, not
+left standing as written: the source spelling holds letters and digits, and
+a `&ast;` standing in the stream named a row `ast` no reader can see (PR
+#510 R23)."""
 DECOR_CHARS = frozenset("".join(DECOR_MARKS))
 DECOR = r"(?:%s)*" % "|".join(re.escape(m) for m in DECOR_MARKS)
 

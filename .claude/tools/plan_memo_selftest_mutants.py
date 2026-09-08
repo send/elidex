@@ -290,12 +290,14 @@ MUTANTS = [
      '    m = list(MARKER_RE.finditer(field))[-1]',
      ["(a) a self-declaring field that later says a sibling 'is not it' stays self-declaring"]),
     ("F5 kind: the undetermined spelling is collected beside the marker", POPULATION,
-     '        if m:\n            self.spellings.add(m.group(0))',
-     # `MARKER_RE` since PR #510 R22 (`MARKER` is no longer imported into
-     # plan_memo_population.py, so the old spelling crashed with a NameError under
-     # the mutant -- a crash is a FAIL); the MUTATION is untouched -- the
-     # spelling collected only where the marker is absent
-     '        if m and not MARKER_RE.search(row.field):\n            self.spellings.add(m.group(0))',
+     '        if hit["undetermined"]:\n            self.spellings.add(hit["undetermined"].group(0))',
+     # both sides read out of `hit` since PR #510 R23, when the three kind phrases
+     # became one tuple: a mutant may name only what the mutated file has (spelling
+     # this as `MARKER.search` crashed with a NameError at R22 -- a crash is a
+     # FAIL); the MUTATION is untouched -- the spelling collected only where the
+     # marker is absent
+     '        if hit["undetermined"] and not hit["marker"]:\n'
+     '            self.spellings.add(hit["undetermined"].group(0))',
      ["(rc) a row carrying the marker AND one undetermined spelling, beside another row's other "
       "spelling, is KIND-SPELLING rc 1"]),
     ("F6 (c): the Deps cell's ids are the population's mentions, not a raw tokenisation", ROLES,

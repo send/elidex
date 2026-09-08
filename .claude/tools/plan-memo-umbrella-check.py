@@ -407,15 +407,15 @@ def lex_split_seed(pop, all_blocks, findings, notes):
     (`plan_memo_tables.split_units`, PR #510 design re-gate 4).
 
     Every construct that renders NOTHING is dropped from the stream, so an id
-    or the kind marker split by one -- `Slice 9**z**`, `UMBRELLA, not a
+    or a kind phrase split by one -- `Slice 9**z**`, `UMBRELLA, not a
     *terminal* unit`, `<!-- c -->`, `&#44;` -- is read as the one unit the
     document renders.  What is left is the constructs that DO render text the
     checker refuses to read as prose (a code span, an autolink, a citation id,
     a file name): there the stream is deliberately not the rendered text
     (I-A), and a unit that straddles such a span has two readings, neither of
     them this program's to pick.  So it is printed -- §1 forbids a clean exit
-    for a could-not-scan -- and where it would decide the CENSUS, the marker
-    in a row's declaring field, it is a schema miss instead
+    for a could-not-scan -- and where it would decide the CENSUS, a kind
+    phrase in a row's declaring field, it is a schema miss instead
     (`Population._kind_residue`), not a seed.  Never gating, and no count here
     bounds anything: an id no table declares is invisible to it."""
     n, keep = 0, pop.keep()
@@ -427,10 +427,11 @@ def lex_split_seed(pop, all_blocks, findings, notes):
                              "the %s %r is read at column %d ACROSS a span this checker does not read "
                              "as prose (a code span, an autolink, a citation id or a file name): a "
                              "reader reads one %s, the block's stream reads two"
-                             % ("kind marker" if kind == "marker" else "id", text, col,
-                                "phrase" if kind == "marker" else "token")))
-    notes.append("[LEX-SPLIT?] SEED -- %d unit(s) the reader reads across a span the disposition blanks; "
-                 "the marker in a DECLARING field is the schema miss instead, never this seed" % n)
+                             % ("id" if kind == "id" else "%s kind phrase" % kind, text, col,
+                                "token" if kind == "id" else "phrase")))
+    notes.append("[LEX-SPLIT?] SEED -- %d unit(s) the two readings of a block disagree about across a span "
+                 "the disposition blanks; a kind phrase in a DECLARING field is the schema miss instead, "
+                 "never this seed" % n)
 
 
 # --------------------------------------------------------------------------

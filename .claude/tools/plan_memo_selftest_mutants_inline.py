@@ -360,6 +360,56 @@ RG4_QUOTED = ("(kind) the marker QUOTED WHOLE in a code span declares nothing (I
 RG4_DEPS = ("(cell) a `Deps` cell holding only an HTML comment is EMPTY: it renders nothing, so the "
             "umbrella row carries no Deps edge (`is_empty` reads the cell's stream, not its raw text)")
 
+
+# -- PR #510 Codex R23 control names, spelled once (the rendered-decoration
+# disposition, the kind-phrase gate in both directions, the BOM, the linear
+# demotion).  They are used by THIS registry only, so they are declared here
+# and not in the base registry the two derived ones share.
+R23_AST_NO = ('(R23 render) `The &ast; marks it` names NO row `ast`: the reference renders `*`, '
+              'so the letters `a` `s` `t` are nowhere in the document a reader reads -- leaving '
+              "the entity's SOURCE spelling in the stream fabricated the site")
+R23_AST_YES = ('(R23 render) `The ast marks it` IS the site -- the discriminating half: the row '
+               'is declared, the scan reaches that prose, and only the SPELLING differs')
+R23_QX_NO = ('(R23 render) `Slice Q&ast;x owns it` names NO row `Qx`: the reference renders a '
+             'character, so the span is a BLANK and bounds the two sides -- dropping it (the '
+             'disposition for a construct that renders nothing) would join them into an id the '
+             'document does not spell')
+R23_UNDET = ('(R23 kind) `KIND UNDETER`MINED`` in a declaring field is the schema miss: a reader '
+             'reads the undetermined kind (§6.1 -- the code span contributes `MINED` as plain '
+             'text), the disposed stream reads none, and the row silently left the census as an '
+             'active terminal at rc 0 -- the marker was gated, every OTHER kind phrase was not')
+R23_STREAM = ('(R23 kind) `KIND `x` UNDETERMINED` is the SAME miss from the other side: the blank '
+              'stands as spaces, so the STREAM reads the undetermined kind and a reader (`KIND x '
+              'UNDETERMINED`) reads none -- a gate stated over one direction leaves the other '
+              'authoritative')
+R23_DECOR_KIND = ('(R23 kind) `KIND&ast;UNDETERMINED` is that same stream-side miss through a '
+                  'BLANKED decoration spelling: the reader sees `KIND*UNDETERMINED` and no kind '
+                  'at all.  It is the one control over what a reader SEES where such a span is '
+                  'blanked -- render it as spaces and the two readings agree on a kind neither '
+                  'should read')
+R23_POINTER = ('(R23 kind) the POINTER phrase straddling a code span is the miss too -- the third '
+               'member, gated by arriving in `KIND_PHRASES` and not by being named here')
+R23_QUOTED = ('(R23 kind) a kind phrase QUOTED WHOLE is no miss: the two readings differ about '
+              "it, and that difference is I-A's disposition (a quoted phrase declares nothing), "
+              'not a could-not-scan -- the STRADDLE is the conjunct that tells them apart')
+R23_CLEAN = ('(R23 kind) a field that spells the phrase CLEANLY and straddles a blank elsewhere '
+             'is no miss: both readings say undetermined, so the census is not in doubt -- the '
+             'DISAGREEMENT is the other conjunct')
+R23_SEED = ('(R23 seed) the `[LEX-SPLIT?]` residue seed reads every kind phrase too, not only the '
+            'marker: `KIND UNDETER`MINED`` in PROSE (no declaring field, so no census to gate) is '
+            'the reported disagreement')
+R23_BOM = ('(R23 memo) a linked memo whose FIRST block is a slice table still declares its rows '
+           'when the file opens with a BOM: the signature is dropped where the text becomes '
+           'lines, or the header row is not a header row and the census silently shrinks at rc 0')
+R23_TWO_BOMS = ('(R23 memo) exactly ONE U+FEFF is dropped: a second is an ordinary character of '
+                'the document and the table is lost to it again -- a strip that is a `lstrip` '
+                'rewrites the document instead of reading its encoding')
+R23_GATE_PROPERTY = ('PROPERTY: Population._kind reads every kind phrase from '
+                     'plan_memo_tables.KIND_PHRASES, the tuple the residue gate iterates (a '
+                     'fourth phrase cannot decide a kind without being gated)')
+R23_LINEAR = ("a resolved image's demotion is linear: N nested images demote their descendants "
+              'once, not once per enclosing image')
+
 MUTANTS += [
     # -- PR #510 design re-gate 4
     ("RG4 stream: a matched §6.2 / GFM delimiter run renders NOTHING (drop the marks: the delimiters stand "
@@ -397,11 +447,11 @@ MUTANTS += [
      [RG4_DROPWINS]),
     ("RG4 stream: a §2.4 escape and a §2.5 reference SUBSTITUTE their character (drop both: the reference "
      "and the backslash are read as written again)", TABLES,
-     '    subst = {a: (b, ch) for a, b, ch in lx.subst if ch not in DECOR_CHARS}', '    subst = {}',
+     '        (decor if ch in DECOR_CHARS else subst)[a] = (b, ch)', '        pass',
      [RG4_REF, RG4_MARK_REF, RG4_MARK_ESC]),
-    ("RG4 stream: a substitution that would spell a DECORATION stands as written (drop the carve: "
+    ("RG4 stream: a substitution that would spell a DECORATION does not substitute (drop the carve: "
      "`\\*\\*C\\*\\*` becomes the bold `**C**` no reader sees)", TABLES,
-     'if ch not in DECOR_CHARS}', '}',
+     '        (decor if ch in DECOR_CHARS else subst)[a] = (b, ch)', '        subst[a] = (b, ch)',
      [RG4_ESCAPED_DECOR, RG4_REF_DECOR]),
     ("RG4 lexer: the §2.4 escape is a substitution (re-inject the bare skip: the backslash stands in the "
      "stream)", LEXER,
@@ -442,24 +492,25 @@ MUTANTS += [
      [RG4_LINEAR]),
     ("RG4 §6.4: emphasis inside a RESOLVED image's description is demoted -- plain string content, no "
      "`<em>` (drop the demotion: the tag count over-claims)", LEXER,
-     '        pairs += [p[:6] + ("demoted",) for p in new] if is_img else new', '        pairs += new',
+     '            dem_pair.append((pair_bottom, len(pairs)))', '            pass',
      [INLINE_EXAMPLES]),
     ("RG4 seed: the `[LEX-SPLIT?]` residue is reported (drop the loop: a unit read across a blanked span "
      "is silent again)", CHECK,
      '        for kind, text, off in split_units(b.lexed, keep):',
      '        for kind, text, off in []:',
      [RG4_SEED]),
-    ("RG4 gate: the marker straddling a blanked span in a DECLARING field is a schema miss (drop it: the "
-     "row leaves the census at rc 0 -- §1's clean exit for a could-not-scan)", POPULATION,
-     '        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):', '        if False:',
-     [RG4_GATE]),
+    ("RG4 gate: a kind phrase straddling a blanked span in a DECLARING field is a schema miss (drop it: "
+     "the row leaves the census at rc 0 -- §1's clean exit for a could-not-scan)", POPULATION,
+     '        for name in kind_disagreements(row.cells[row.schema.decl].lexed):', '        for name in ():',
+     [RG4_GATE, R23_UNDET, R23_STREAM]),
     ("RG4 residue: a unit WHOLLY inside a blanked span is no straddle (widen the predicate: a quoted "
      "marker becomes the schema miss I-A exists to prevent)", TABLES,
      '    return 0 < inside < b - a', '    return inside > 0',
      [RG4_QUOTED]),
     ("RG4 gate: the miss is the STRADDLE, not the presence of a span (re-inject the coarse test: any "
      "declaring field holding a code span becomes a schema miss)", POPULATION,
-     '        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):', '        if lx.code:',
+     '        for name in kind_disagreements(row.cells[row.schema.decl].lexed):',
+     '        for name in ["marker"] if row.cells[row.schema.decl].lexed.code else []:',
      [RG4_NOT_GATE]),
     ("RG4 cell: `is_empty` reads the cell's disposed stream (re-inject the raw text: an HTML comment fills "
      "the cell)", ROLES,
@@ -578,4 +629,86 @@ MUTANTS += [
     ("R22 #3 phrase: the FORWARD licensing look is bounded on its right (drop the edge)", ROLES,
      '    r")" + AFTER,', '    r")",',
      [R22_MEMORANDUM]),
+]
+
+MUTANTS += [
+    # -- PR #510 Codex R23
+    ("R23 #1 stream: a §2.5 / §2.4 spelling of a DECORATION character is BLANKED (leave it standing "
+     "as written: the entity's SOURCE letters are back where the id scanner reads them)", TABLES,
+     '        if disp[a] == 0:                # inside a dropped or blanked span, that span wins\n'
+     '            for k in range(a, b):\n                disp[k] = 1',
+     '        pass',
+     # ⚠ NOT the `Q&ast;x` control: standing as written keeps the two sides apart just as a blank
+     # does, so only the FABRICATED-id half of the pair can see this mutation
+     [R23_AST_NO]),
+    ("R23 #1 stream: it is a BLANK and not a DROP (the character IS rendered, so its two sides are "
+     "not one word: dropping it joins them into an id no reader reads)", TABLES,
+     '                disp[k] = 1', '                disp[k] = 2',
+     # ⚠ NOT the `&ast;` control: a drop removes the source letters too, so only the JOINING half
+     # of the pair can see this mutation -- the two mutants partition the two ways to be wrong
+     [R23_QX_NO]),
+    ("R23 #1 stream: what a READER sees where a decoration spelling is blanked is the character it "
+     "renders (leave it as spaces: the two readings agree on a kind neither of them should read)",
+     TABLES,
+     '            blank_at[a] = (b, ch)', '            pass',
+     [R23_DECOR_KIND]),
+    ("R23 #2 gate: the residue gate iterates EVERY member of KIND_PHRASES (truncate it to the "
+     "first: the marker stays gated and every other phrase decides a kind unwatched again -- the "
+     "R23 defect exactly)", TABLES,
+     '    for name, rx in KIND_PHRASES:\n        hit = [(rd.blanks, m) for m in rx.finditer(rd)]',
+     '    for name, rx in KIND_PHRASES[:1]:\n        hit = [(rd.blanks, m) for m in rx.finditer(rd)]',
+     [R23_UNDET, R23_STREAM, R23_POINTER]),
+    ("R23 #2 seed: the residue SEED reads every member too (truncate it to the first: a kind phrase "
+     "read across a blank outside a declaring field is silent again)", TABLES,
+     '    for name, rx in KIND_PHRASES:\n        out += [(name, m.group(0), st.at(m.start()))',
+     '    for name, rx in KIND_PHRASES[:1]:\n        out += [(name, m.group(0), st.at(m.start()))',
+     [R23_SEED]),
+    ("R23 #2 gate: the two readings must DISAGREE about the phrase (drop the conjunct: a field that "
+     "spells the phrase cleanly and straddles a blank elsewhere becomes a miss)", TABLES,
+     '        if bool(hit) == bool(other):\n            continue', '        if False:\n            continue',
+     [R23_CLEAN]),
+    ("R23 #2 gate: the disagreement must come from a STRADDLE (drop the conjunct: a phrase quoted "
+     "WHOLE becomes the miss I-A exists to prevent)", TABLES,
+     '        if any(_straddles(blanks, m.start(), m.end()) for blanks, m in hit):', '        if True:',
+     [R23_QUOTED]),
+    ("R23 #2 gate: the READER's rendering is consulted (drop it: a phrase the reader reads across a "
+     "blank is no longer a miss)", TABLES,
+     '        hit = [(rd.blanks, m) for m in rx.finditer(rd)]', '        hit = []',
+     # ⚠ the stream-side controls stay GREEN under this one, and must: they are the other direction
+     [RG4_GATE, R23_UNDET]),
+    ("R23 #2 gate: the STREAM's rendering is consulted too (drop it: a phrase only the stream reads "
+     "-- a blank standing as spaces -- is no longer a miss)", TABLES,
+     '        hit = hit or [(st.blanks, m) for m in other]', '        hit = hit or []',
+     # ⚠ the reader-side controls stay GREEN under this one, and must
+     [R23_STREAM, R23_DECOR_KIND]),
+    ("R23 #2 _kind: every phrase it reads comes from KIND_PHRASES (re-inject a direct read: a "
+     "phrase decides a kind without the tuple -- and so without the gate -- ever seeing it)",
+     POPULATION,
+     '        hit = {name: rx.search(row.field) for name, rx in KIND_PHRASES}',
+     '        import plan_memo_tables\n'
+     '        hit = {name: rx.search(row.field) for name, rx in KIND_PHRASES}\n'
+     '        hit["pointer"] = hit["pointer"] or plan_memo_tables._APPOSITIVE.search(row.field)',
+     [R23_GATE_PROPERTY]),
+    ("R23 #3 memo: a leading U+FEFF is dropped where the text becomes lines (keep it: the first "
+     "block's header row is not a header row, and the table nobody saw is no schema miss)", MEMO,
+     '        if self.text[:1] == "\\ufeff":      # spelled as an escape: it is invisible\n'
+     '            self.text = self.text[1:]',
+     '        pass',
+     [R23_BOM]),
+    ("R23 #3 memo: exactly ONE is dropped (strip every leading one: a second U+FEFF is an ordinary "
+     "character of the document and stripping it rewrites the document)", MEMO,
+     '            self.text = self.text[1:]', '            self.text = self.text.lstrip("\\ufeff")',
+     [R23_TWO_BOMS]),
+    ("R23 #4 lexer: the demotion ranges are applied as a UNION, once (re-inject the per-close walk: "
+     "N nested images re-tag one descendant N times -- the same OUTPUT, quadratic work, which is "
+     "why only a work witness can see it)", LEXER,
+     '    if not ranges:\n        return entries\n    edge = [0] * (len(entries) + 1)',
+     '    for a, b in ranges:\n        for j in range(a, b):\n'
+     '            entries[j] = entries[j][:width] + ("demoted",)\n    return entries\n'
+     '    edge = [0] * (len(entries) + 1)',
+     [R23_LINEAR]),
+    ("R23 #4 lexer: the image range is recorded at the close (drop it: a nested image is a resolved "
+     "image of its own and the tag count over-claims)", LEXER,
+     '            dem_img.append((img_bottom, len(images)))', '            pass',
+     [INLINE_EXAMPLES]),
 ]

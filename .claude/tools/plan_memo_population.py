@@ -27,8 +27,8 @@ import pathlib
 
 from plan_memo_memo import Memo, _resolve
 from plan_memo_tables import (
-    MARKER_RE, POINTER, SCHEMAS, UNDETERMINED, attributed_to_other, dispose, is_blank_id_cell,
-    split_units, stream,
+    KIND_PHRASES, SCHEMAS, attributed_to_other, dispose, is_blank_id_cell,
+    kind_disagreements, stream,
 )
 
 
@@ -155,45 +155,59 @@ class Population:
         can carry both; its kind stays umbrella, its spelling still joins
         `spellings`).  A row whose marker is attributed to another row is a
         POINTER (§5: a pointer slot carries no marker of its own -- assertion
-        (a) reports it), as is a row that says so in words."""
+        (a) reports it), as is a row that says so in words.
+
+        Every phrase read here comes from `KIND_PHRASES` and none is matched
+        directly, so a phrase that decides a kind is necessarily a member --
+        and so is necessarily gated by `_kind_residue`, which iterates the
+        same tuple.  The ORDER between the members is this function's (the
+        marker outranks the undetermined spelling, which outranks the pointer
+        phrase); their MEMBERSHIP is not."""
         if row.field is None:
             return "terminal"
-        m = UNDETERMINED.search(row.field)
-        if m:
-            self.spellings.add(m.group(0))
-        if MARKER_RE.search(row.field):
+        hit = {name: rx.search(row.field) for name, rx in KIND_PHRASES}
+        if hit["undetermined"]:
+            self.spellings.add(hit["undetermined"].group(0))
+        if hit["marker"]:
             other = attributed_to_other(row.field, row.self_id)
             if other:
                 self.attributed.append((self.display(row.memo.path), row.schema.name, row.lineno, row.name(), other))
                 return "pointer"
             return "umbrella"
-        if m:
+        if hit["undetermined"]:
             return "undetermined"
-        if POINTER.search(row.field):
+        if hit["pointer"]:
             return "pointer"
         return "terminal"
 
     def _kind_residue(self, row):
-        """The one place the residue GATES (`plan_memo_tables.split_units`).
-        A declaring field that spells the marker ACROSS a span the checker
-        does not read as prose -- `**UMBRELLA, not a `terminal` unit.**` --
-        is read here as no declaration at all, so the row would leave the
-        umbrella census as an active terminal, silently, at rc 0: §1's "never
-        a clean exit for could not scan" over the census this program exists
-        to take.  The row is a schema miss instead, and a reader decides
-        whether the code span is a quotation or a typo (the quoted marker
-        WHOLE stays what I-A says it is: not a declaration, not a straddle,
-        no miss)."""
-        if row.field is None or MARKER_RE.search(row.field):
+        """The one place the residue GATES (`plan_memo_tables.split_units`),
+        for EVERY member of `KIND_PHRASES` and not for the one member that
+        was in front of me when I wrote it.  A declaring field that spells a
+        kind phrase ACROSS a span the checker does not read as prose --
+        `**UMBRELLA, not a `terminal` unit.**`, `KIND UNDETER`MINED`` -- is
+        read here as no such declaration, so the row would leave the umbrella
+        census as an active terminal, silently, at rc 0: §1's "never a clean
+        exit for could not scan" over the census this program exists to take.
+        The row is a schema miss instead, and a reader decides whether the
+        code span is a quotation or a typo (a kind phrase QUOTED WHOLE stays
+        what I-A says it is: not a declaration, not a straddle, no miss).
+
+        The other direction is the same miss and is gated by the same call:
+        `KIND `x` UNDETERMINED` is the undetermined kind to the STREAM only
+        because a blank stands as spaces, and no kind at all to a reader --
+        the kind this row was just assigned is then the one nobody reads.
+        `kind_disagreements` asks both directions per phrase, so neither the
+        phrase nor the direction is enumerated here."""
+        if row.field is None:
             return
-        lx = row.cells[row.schema.decl].lexed
-        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):
+        for name in kind_disagreements(row.cells[row.schema.decl].lexed):
             self.misses.append((self.display(row.memo.path), row.lineno,
-                                "row %s spells the kind marker in its declaring field ACROSS a span "
-                                "this checker does not read as prose (a code span, an autolink, a "
-                                "citation id or a file name): a reader reads the marker, the field's "
-                                "disposed stream does not, so the row's kind cannot be decided"
-                                % row.name()))
+                                "row %s spells the %s kind phrase in its declaring field ACROSS a "
+                                "span this checker does not read as prose (a code span, an autolink, "
+                                "a citation id or a file name): the two readings of the field "
+                                "disagree about the phrase, so the row's kind cannot be decided"
+                                % (row.name(), name)))
 
     # -- inventories -------------------------------------------------------
 

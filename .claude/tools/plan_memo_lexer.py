@@ -559,9 +559,10 @@ def inline_pass(s, defs):
     A RESOLVED image's description is plain text (§6.4: "the image
     description" is rendered as the `alt` attribute's "plain string
     content"), so in ONE rule at the point the image closes every bracket
-    construct recorded inside its description -- the entries whose offset
-    lies past the image's `[`; they are the trailing ones, since brackets
-    nest and each list is appended in closing order -- is the description's:
+    construct recorded inside its description -- the entries appended since
+    the image's `[`, an index range the stack carries (`img_bottom` /
+    `pair_bottom`) rather than one the close searches for -- is the
+    description's:
     a link there is DEMOTED to a masked tail in `images` (not a link -- its
     destination never joins the population -- and not prose either: the
     alt text is the link's TEXT, `![alt [docs](x.md)](i.png)` renders `<img
@@ -576,7 +577,11 @@ def inline_pass(s, defs):
     the outer opener as it closes (above), so `[a [b](x.md)](y.md)` links
     `x.md` and leaves `](y.md)` literal, as commonmark.js does.
 
-    Linear in the bracket structure: no substring is re-parsed.  `code` =
+    Linear in the bracket structure: no substring is re-parsed, and no entry
+    is re-visited either -- a close records its demotion as an index RANGE
+    and `_demote` applies the union of them once, because nested images cover
+    one descendant N deep N times and writing the tag at each close is
+    quadratic in the nesting depth (PR #510 R23).  `code` =
     [(start, end)] backticks included; `html` = [(start, end)] of every raw
     HTML span, `<` and `>` included; `links` = [(tail_start, end,
     destination)] with `tail_start` the `]` closing the link text, so a
@@ -609,6 +614,9 @@ def inline_pass(s, defs):
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
     code, out, images, unresolved, html, auto = [], [], [], [], [], []
     marks, subst, delims, opens, pairs = [], [], [], [], []
+    # the demotion RANGES, as index slices of `images` / `pairs` -- one per
+    # resolved image, recorded in O(1) and applied once at the end (`_demote`)
+    dem_img, dem_pair = [], []
     stack, i, n = [], 0, len(s)
     relabel = -1        # the `[` of the label of the last failed full reference
     while i < n:
@@ -656,13 +664,17 @@ def inline_pass(s, defs):
                 i = close
             continue
         if c == "[":
-            stack.append([i, _is_image(s, i), True, len(delims)])
+            # the BOTTOMS of every list a resolved image demotes, recorded at
+            # the `[` exactly as the Appendix's `delim_bottom` is: what this
+            # bracket encloses is what is appended after it, which is an O(1)
+            # fact of the stack and not something to search the lists for
+            stack.append([i, _is_image(s, i), True, len(delims), len(images), len(pairs)])
             i += 1
             continue
         if c != "]" or not stack:
             i += 1
             continue
-        pos, is_img, active, delim_bottom = stack.pop()
+        pos, is_img, active, delim_bottom, img_bottom, pair_bottom = stack.pop()
         if not active:
             i += 1                      # literal `]`; the opener is gone
             continue
@@ -682,26 +694,23 @@ def inline_pass(s, defs):
                 continue
         if is_img:
             # §6.4: the description of a RESOLVED image is plain text, so
-            # every bracket construct recorded inside it (offsets past this
-            # image's `[`, the trailing entries) is the description's -- ONE
+            # every bracket construct recorded inside it (the entries
+            # appended since this image's `[`) is the description's -- ONE
             # rule, here, where the image closes: a link is demoted to a
             # masked tail (never a memo link, never prose), a nested image
             # is demoted with it (it renders no `<img>` of its own -- its
             # alt text is folded into this one's), a failed reference names
-            # no lost memo
-            for j in range(len(images) - 1, -1, -1):
-                if images[j][0] <= pos:
-                    break
-                images[j] = images[j][:2] + ("demoted",)
+            # no lost memo.  The nested IMAGES are demoted by index RANGE
+            # (`_demote`, once, at the end); a link is CONVERTED here rather
+            # than re-tagged, and is appended AFTER the range, so that
+            # conversion stays the one site saying a demoted link is not an
+            # image of its own
+            dem_img.append((img_bottom, len(images)))
             while out and out[-1][0] > pos:
                 images.append(out.pop()[:2] + ("demoted",))
                 opens.pop()             # the demoted link's `[` is inside the description
             while unresolved and unresolved[-1][0] > pos:
                 unresolved.pop()
-            for j in range(len(pairs) - 1, -1, -1):    # emphasis is demoted the same way
-                if pairs[j][0] <= pos:
-                    break
-                pairs[j] = pairs[j][:6] + ("demoted",)
             images.append((i, end, "image"))
         else:
             out.append((i, end, dest))
@@ -716,12 +725,43 @@ def inline_pass(s, defs):
         del delims[delim_bottom:]
         # §6.4 again: the description of a RESOLVED image is plain string
         # content, so emphasis inside it renders its characters away and no
-        # `<em>` at all -- demoted, as a link inside one is
-        pairs += [p[:6] + ("demoted",) for p in new] if is_img else new
+        # `<em>` at all -- demoted, as a link inside one is; the pairs the
+        # description's own nested constructs already appended are demoted by
+        # the SAME range, which is why it is closed after this append
+        pairs += new
+        if is_img:
+            dem_pair.append((pair_bottom, len(pairs)))
         i = end
     pairs += emphasis.process(delims)
     marks += opens
-    return code, out, images, unresolved, html, auto, marks, subst, pairs
+    return (code, out, _demote(images, dem_img, 2), unresolved, html, auto, marks, subst,
+            _demote(pairs, dem_pair, 6))
+
+
+def _demote(entries, ranges, width):
+    """`entries` with every index in the UNION of `ranges` re-tagged
+    "demoted" (its first `width` fields kept), in O(len(entries) +
+    len(ranges)) -- a difference array, never a re-walk.
+
+    The demotion is deferred to here rather than written at each image's
+    close because the ranges NEST: `![![![x](i)](i)](i)` closes three images
+    over the same descendant, and re-tagging it at each close is quadratic in
+    the nesting depth (measured at PR #510 R23: 24 KB of `![`-nesting took
+    0.4 s, four times the 12 KB figure, against this function's stated linear
+    contract).  Nothing inside `inline_pass` reads an entry's tag, so the
+    tag's only observer is the caller and deferring it is not observable."""
+    if not ranges:
+        return entries
+    edge = [0] * (len(entries) + 1)
+    for a, b in ranges:
+        edge[a] += 1
+        edge[b] -= 1
+    depth = 0
+    for j, e in enumerate(entries):
+        depth += edge[j]
+        if depth:
+            entries[j] = e[:width] + ("demoted",)
+    return entries
 
 
 

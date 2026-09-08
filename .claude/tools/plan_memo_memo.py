@@ -92,6 +92,24 @@ class Memo:
     def __init__(self, path):
         self.path = pathlib.Path(path)
         self.text = self.path.read_text(encoding="utf-8")   # not the locale's codec
+        # ONE leading U+FEFF is an encoding SIGNATURE, not the document's
+        # first character, and is dropped here -- at the one place the text
+        # becomes lines, so every reader below sees one document.  The
+        # `utf-8` codec decodes it to a character (`utf-8-sig` is the codec
+        # that consumes it) and it is not whitespace, so it sat INSIDE the
+        # first line: a memo whose first block was a slice table lost that
+        # table's header row to it, the table was never admitted, its rows
+        # were never declared -- and there is no schema miss for a table
+        # nobody saw, so the census silently shrank at exit 0 (PR #510 R23).
+        # ⚠ CITED BY SECTION NUMBER, WITHOUT A MACHINE-READABLE SOURCE:
+        # CommonMark 0.31.2 §2.1 (Characters and lines) is said to require a
+        # parser to remove an initial BOM.  CommonMark is not in
+        # `.claude/tools/webref` and its prose is not vendored here, so that
+        # sentence is UNVERIFIED in this tree.  What IS verified here: none
+        # of the 630 vendored conformance examples carries a BOM, so the
+        # corpora neither cover nor contradict this.
+        if self.text[:1] == "\ufeff":      # spelled as an escape: it is invisible
+            self.text = self.text[1:]
         self.lines = self.text.split("\n")
         if len(self.lines) > 1 and self.lines[-1] == "":
             self.lines.pop()        # a line ending ENDS the last line (§2.1); it begins no empty one

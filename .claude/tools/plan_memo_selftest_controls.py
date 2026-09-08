@@ -844,6 +844,84 @@ def id_spelling_sweep_control(M):
                       % (n, len(MODULES) - 1, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
 
 
+# ------------------------------------------------ PR #510 Codex R23 controls --
+
+
+def kind_phrase_gate_control(M):
+    """PROPERTY: `Population._kind` reads NO phrase matcher of its own -- every
+    one of them comes from `plan_memo_tables.KIND_PHRASES`, which is also the
+    tuple the residue gate (`_kind_residue` / `kind_disagreements`) iterates.
+
+    This is the construction R23 #2 asked for and the behavioural controls
+    cannot state.  Those controls say the gate covers the three phrases that
+    exist today; this one says a FOURTH cannot decide a row's kind without
+    arriving in the tuple that gates it -- the failure mode was not "the
+    undetermined phrase was forgotten" but "the phrase I was looking at was
+    gated and every other one stayed authoritative by default".
+
+    The subject is `_kind`'s own code object, not its source text: every
+    global and attribute name it reads is in `co_names` (a nested
+    comprehension's too), so a phrase read through an import inside the
+    function, or through the tables module, is seen as well.  A name that
+    resolves -- in either module's globals -- to a compiled pattern outside
+    `KIND_PHRASES` is the finding."""
+    import plan_memo_population, plan_memo_tables
+    import re as _re
+
+    code = plan_memo_population.Population._kind.__code__
+    names = set(code.co_names)
+    for const in code.co_consts:            # a comprehension is its own code object
+        names |= set(getattr(const, "co_names", ()))
+    member = {id(rx) for _, rx in plan_memo_tables.KIND_PHRASES}
+    scopes = (vars(plan_memo_population), vars(plan_memo_tables))
+    stray = sorted(n for n in names
+                   for g in scopes
+                   if isinstance(g.get(n), _re.Pattern) and id(g[n]) not in member)
+    return not stray, ("%d name(s) read by _kind, %d phrase(s) in KIND_PHRASES, %d read outside it%s"
+                       % (len(names), len(member), len(stray),
+                          (": " + ", ".join(sorted(set(stray)))) if stray else ""))
+
+
+def linear_image_demotion_control(M):
+    """The linearity witness for §6.4's demotion: N nested resolved images
+    demote their descendants ONCE, not once per enclosing image.
+
+    `![`x N is properly nested, so every enclosing image covers every image
+    that closed inside it; re-tagging them where it closes costs 1+2+...+N.
+    Measured at PR #510 R23 before the fix: 24 KB of that shape took 0.4 s
+    against 0.1 s for 12 KB -- four times the work for twice the input, on
+    input a plan memo could plausibly hold.  The fix records each demotion as
+    an index RANGE and applies the union once (`plan_memo_lexer._demote`).
+
+    Counted by `_count_lines`, not by the clock: a wall-clock ratio is not
+    admissible here (a contended host has turned one red in both directions),
+    and the demotion passes through no module binding `_count_calls` could
+    watch.  Two probes, because the ranges are two: `images` (the nested
+    images themselves) and `pairs` (the emphasis inside their descriptions),
+    and a per-close walk over EITHER is the same defect.  The correctness
+    half needs no control here -- the 335 inline conformance examples were
+    green before this fix and are green after it, so what this control adds
+    is only the work."""
+    import plan_memo_lexer     # the freshly loaded module
+
+    ok, detail = True, []
+    for label, mk, per in (("images", lambda n: "![" * n + "x" + "](i)" * n, 160),
+                           ("images + emphasis", lambda n: "![*" * n + "x" + "*](i)" * n, 200)):
+        seen = {}
+        for n in (100, 400):
+            try:
+                with _count_lines(plan_memo_lexer, limit=per * n) as c:
+                    plan_memo_lexer.inline_pass(mk(n), {})
+            except _WorkExceeded:
+                return False, ("%d nested %s cost more than %d source lines: not linear"
+                               % (n, label, per * n))
+            seen[n] = c.lines
+        ok = ok and seen[400] <= 4 * seen[100] + 400
+        detail.append("%s %d / %d (<= %dN)" % (label, seen[100], seen[400], per))
+    return ok, ("source lines for 100 / 400 nested, at most 4x the work for 4x the input: %s"
+                % "; ".join(detail))
+
+
 def registry():
     """name -> (kind, control)."""
     reg = {}
@@ -877,5 +955,7 @@ def registry():
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)
     reg["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"] = ("CONTROL", display_path_control)
+    reg["PROPERTY: Population._kind reads every kind phrase from plan_memo_tables.KIND_PHRASES, the tuple the residue gate iterates (a fourth phrase cannot decide a kind without being gated)"] = ("CONTROL", kind_phrase_gate_control)
+    reg["a resolved image's demotion is linear: N nested images demote their descendants once, not once per enclosing image"] = ("CONTROL", linear_image_demotion_control)
     reg["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never `row None`"] = ("CONTROL", empty_id_row_name_control)
     return reg

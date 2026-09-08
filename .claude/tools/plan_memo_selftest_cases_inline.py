@@ -697,3 +697,93 @@ case("POSITIVE", "(licence) `9z's memorandum` is not the licensed possession `me
      build(), "That is what 9z's memorandum says.", 1)
 case("NEGATIVE", "(licence) `9z's memo` IS it and is licensed -- the discriminating half",
      build(), "That is what 9z's memo says.", 0)
+
+
+# ------------------------------------------------ PR #510 Codex R23 controls --
+# The four R23 findings are one sentence apart: what stands in the stream must
+# be what the document RENDERS (#1), the gate must cover every phrase that
+# decides a kind and not the one in front of me (#2), the document begins
+# where a reader sees it begin (#3), and the demotion is linear (#4, a work
+# witness in `plan_memo_selftest_controls.py` -- it measures work, not text).
+
+# -- #1: a §2.5 / §2.4 spelling of a DECORATION character is BLANKED.  It may
+# not stand as written (its source letters are readable as an id) and it may
+# not be dropped (its two sides would join into an id no reader reads); the
+# two controls below are those two failures, one each, and neither can go red
+# for the other's reason.
+AST = dict(i7z="**ast**", s7z="**UMBRELLA, not a terminal unit.**", d7z="—")
+case("NEGATIVE", "(R23 render) `The &ast; marks it` names NO row `ast`: the reference renders `*`, so "
+                 "the letters `a` `s` `t` are nowhere in the document a reader reads -- leaving the "
+                 "entity's SOURCE spelling in the stream fabricated the site",
+     build(**AST), "The &ast; marks it.", 0)
+case("POSITIVE", "(R23 render) `The ast marks it` IS the site -- the discriminating half: the row is "
+                 "declared, the scan reaches that prose, and only the SPELLING differs",
+     build(**AST), "The ast marks it.", 1)
+UMBQX = dict(sqx="**UMBRELLA, not a terminal unit.**")
+case("NEGATIVE", "(R23 render) `Slice Q&ast;x owns it` names NO row `Qx`: the reference renders a "
+                 "character, so the span is a BLANK and bounds the two sides -- dropping it (the "
+                 "disposition for a construct that renders nothing) would join them into an id the "
+                 "document does not spell",
+     build(**UMBQX), "Slice Q&ast;x owns it.", 0)
+case("POSITIVE", "(R23 render) `Slice Qx owns it` IS the site -- the discriminating half of the blank: "
+                 "the row is an umbrella and the joined spelling is what would be reported",
+     build(**UMBQX), "Slice Qx owns it.", 1)
+
+# -- #2: the residue gate covers EVERY member of `KIND_PHRASES`, in BOTH
+# directions.  `MISS` is the message's own words, so a control cannot pass by
+# counting some other schema miss.
+MISS = "kind phrase in its declaring field ACROSS a span"
+case("POSITIVE", "(R23 kind) `KIND UNDETER`MINED`` in a declaring field is the schema miss: a reader "
+                 "reads the undetermined kind (§6.1 -- the code span contributes `MINED` as plain "
+                 "text), the disposed stream reads none, and the row silently left the census as an "
+                 "active terminal at rc 0 -- the marker was gated, every OTHER kind phrase was not",
+     build(suz="KIND UNDETER`MINED`", duz="**9z**"), "", 1, measure=("schema", MISS))
+case("POSITIVE", "(R23 kind) `KIND `x` UNDETERMINED` is the SAME miss from the other side: the blank "
+                 "stands as spaces, so the STREAM reads the undetermined kind and a reader (`KIND x "
+                 "UNDETERMINED`) reads none -- a gate stated over one direction leaves the other "
+                 "authoritative",
+     build(suz="KIND `x` UNDETERMINED", duz="**9z**"), "", 1, measure=("schema", MISS))
+case("POSITIVE", "(R23 kind) `KIND&ast;UNDETERMINED` is that same stream-side miss through a BLANKED "
+                 "decoration spelling: the reader sees `KIND*UNDETERMINED` and no kind at all.  It is "
+                 "the one control over what a reader SEES where such a span is blanked -- render it as "
+                 "spaces and the two readings agree on a kind neither should read",
+     build(suz="KIND&ast;UNDETERMINED", duz="**9z**"), "", 1, measure=("schema", MISS))
+case("POSITIVE", "(R23 kind) the POINTER phrase straddling a code span is the miss too -- the third "
+                 "member, gated by arriving in `KIND_PHRASES` and not by being named here",
+     build(suz="This row is a pointer rather than a `slice`."), "", 1, measure=("schema", MISS))
+case("NEGATIVE", "(R23 kind) a kind phrase QUOTED WHOLE is no miss: the two readings differ about it, "
+                 "and that difference is I-A's disposition (a quoted phrase declares nothing), not a "
+                 "could-not-scan -- the STRADDLE is the conjunct that tells them apart",
+     build(suz="`KIND UNDETERMINED` is what the row says."), "", 0, measure=("schema", MISS))
+case("NEGATIVE", "(R23 kind) a field that spells the phrase CLEANLY and straddles a blank elsewhere is "
+                 "no miss: both readings say undetermined, so the census is not in doubt -- the "
+                 "DISAGREEMENT is the other conjunct",
+     build(suz="KIND UNDETERMINED.  Also KIND UNDETER`MINED`.", duz="**9z**"), "", 0,
+     measure=("schema", MISS))
+
+# -- #3: ONE leading U+FEFF is an encoding signature, not the document's first
+# character.  The sibling's first block is the slice table, so the BOM lands on
+# its header row and the whole table -- and every row it declares -- disappears
+# with no schema miss to say so.
+BOM_SIB = ("| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|---|---|---|---|---|\n"
+           "| **9zz** | **UMBRELLA, not a terminal unit.** carved. | `w.rs` | — | T1 | — |\n")
+case("POSITIVE", "(R23 memo) a linked memo whose FIRST block is a slice table still declares its rows "
+                 "when the file opens with a BOM: the signature is dropped where the text becomes "
+                 "lines, or the header row is not a header row and the census silently shrinks at rc 0",
+     build(), "See [the walk](slice-9z-sib.md).", 1, sibling="﻿" + BOM_SIB,
+     measure=("id", "9zz"))
+case("POSITIVE", "(R23 memo) the same sibling WITHOUT a BOM declares the row -- the discriminating "
+                 "half: the table, the schema and the link are the control's constants",
+     build(), "See [the walk](slice-9z-sib.md).", 1, sibling=BOM_SIB, measure=("id", "9zz"))
+case("NEGATIVE", "(R23 memo) exactly ONE U+FEFF is dropped: a second is an ordinary character of the "
+                 "document and the table is lost to it again -- a strip that is a `lstrip` rewrites "
+                 "the document instead of reading its encoding",
+     build(), "See [the walk](slice-9z-sib.md).", 0, sibling="﻿﻿" + BOM_SIB,
+     measure=("id", "9zz"))
+acase("POSITIVE", "(R23 seed) the `[LEX-SPLIT?]` residue seed reads every kind phrase too, not only the "
+                  "marker: `KIND UNDETER`MINED`` in PROSE (no declaring field, so no census to gate) is "
+                  "the reported disagreement",
+      build(), "LEX-SPLIT?", 1, prose="The row was KIND UNDETER`MINED` at the time.")
+acase("NEGATIVE", "(R23 seed) the same phrase spelled CLEANLY in prose seeds nothing -- the "
+                  "discriminating half: the residue is the disagreement, never the phrase",
+      build(), "LEX-SPLIT?", 0, prose="The row was KIND UNDETERMINED at the time.")
