@@ -714,6 +714,52 @@ def stream_encoding_control(M):
             "stdout asked %s, stderr asked %s (each must be exactly %s)" % (out.asked, err.asked, want))
 
 
+def row_noun_schema_control(M):
+    """PROPERTY: the row nouns are DERIVED from the schemas -- every row-keyed
+    schema's name reads as a row noun, and no other schema's does.
+
+    The population is `plan_memo_tables.SCHEMAS`, walked here rather than
+    transcribed, so the next schema arrives in this control with itself.  What
+    R27-2 reported was one missing spelling (`Slot`, the §8 table's own id
+    column header, absent from a hand-written `slices?|rows?|umbrellas?` since
+    the alternation was written): a slot row attributing a marker to another
+    row read as declaring ITSELF an umbrella -- no `UMBRELLA-MARK`, a pointer
+    inside the census, exit 0.  A control that only added `Slot` would state
+    the same closed list one entry longer, which is the shape
+    `feedback_checks-must-not-be-defined-by-the-symptom-vocabulary` names.
+
+    BOTH DIRECTIONS, because the derivation has to be a FILTER and not just a
+    union: a schema whose id column keys `ROW_KINDS` names rows, and one that
+    does not (the citation table, keyed by `cite`; the stub table, keyed by
+    nothing) names none -- ``Citation `#11-zz-alpha` — **UMBRELLA, …**`` is a
+    category error, not an attribution.  Deriving from every schema would pass
+    the first half and fail the second.
+
+    The two GENERIC nouns are swept as well: they belong to no schema (a row
+    of any table is a `row`; an umbrella row is an `umbrella`), so nothing but
+    this half says the derivation kept them.  Three spellings each, because
+    `ROW_NOUN`'s case-insensitivity is scoped rather than global (PR #510
+    R15)."""
+    import plan_memo_ids
+    import plan_memo_tables
+
+    field = "%s `#11-zz-alpha` — **UMBRELLA, not a terminal unit.**"
+    row_kinds = set(plan_memo_ids.ROW_KINDS)
+    want = {s.name: bool(s.kinds) and set(s.kinds) <= row_kinds for s in plan_memo_tables.SCHEMAS}
+    want.update({n: True for n in plan_memo_tables.GENERIC_ROW_NOUNS})
+    bad = []
+    for noun, names_a_row in sorted(want.items()):
+        for spelling in (noun, noun.capitalize(), noun.upper()):
+            got = plan_memo_tables.attributed_to_other(field % spelling, "9z")
+            if (got == "#11-zz-alpha") != names_a_row:
+                bad.append("%r -> %r (must %sname a row)"
+                           % (spelling, got, "" if names_a_row else "NOT "))
+    return not bad, ("%d schema name(s) + %d generic noun(s), three spellings each: %s"
+                     % (len(plan_memo_tables.SCHEMAS), len(plan_memo_tables.GENERIC_ROW_NOUNS),
+                        "; ".join(bad) if bad
+                        else "every row-keyed schema's name names a row and no other schema's does"))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
@@ -737,4 +783,6 @@ def registry():
             ("CONTROL", encoding_sweep_control),
         "PROPERTY: the entry point sets BOTH output streams to UTF-8 -- the absence a call-site sweep cannot report":
             ("CONTROL", stream_encoding_control),
+        "PROPERTY: every row-keyed schema's NAME is a row noun and no other schema's is (the nouns are derived from SCHEMAS, so the next schema's is covered by default)":
+            ("CONTROL", row_noun_schema_control),
     }

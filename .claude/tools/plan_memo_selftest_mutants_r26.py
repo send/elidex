@@ -21,7 +21,7 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, SIBLING, TOKENS,
+    CHECK, CONTROLS, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, SIBLING, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -217,4 +217,45 @@ MUTANTS += [
      '        j += 1\n'
      '    return None',
      [R26_CODE_CLOSER]),
+]
+
+
+# ------------------------------------------------------ PR #510 Codex R27 --
+
+R27_NOUN_PROPERTY = ("PROPERTY: every row-keyed schema's NAME is a row noun and no other schema's is "
+                     "(the nouns are derived from SCHEMAS, so the next schema's is covered by default)")
+R27_SLOT_ATTRIBUTES = ("(R27 noun) ``Slot `#11-zz-alpha` — **UMBRELLA, …**`` attributes the marker to "
+                       "the named row: the containing row is a POINTER and the attribution finding is "
+                       "emitted. The schema noun the §8 table's own id column is headed with, and the "
+                       "one spelling the hand-written alternation left out")
+
+MUTANTS += [
+    # THE DEFECT AS REPORTED, put back: the alternation that stood before R27-2,
+    # which is also what any "add the missing word" fix would leave behind one
+    # schema later.  Both halves go red -- the swept derivation because `slot`
+    # is gone from it, the fixture because the reviewer's field stops
+    # attributing -- and that pairing is the point: the property is what makes
+    # the fixture's spelling one CASE of a rule rather than the rule.
+    ("R27-2: the row nouns are derived from SCHEMAS (re-inject the hand-written alternation: `Slot` "
+     "names no row again, and a slot row that attributes a marker declares itself an umbrella)", TABLES,
+     '    nouns = set(GENERIC_ROW_NOUNS)\n'
+     '    row_kinds = set(ROW_KINDS)\n'
+     '    nouns |= {s.name for s in SCHEMAS if s.kinds and set(s.kinds) <= row_kinds}\n'
+     '    return "(?ai:%s)" % "|".join(re.escape(n) + "s?" for n in sorted(nouns, key=lambda n: (-len(n), n)))',
+     '    return r"(?ai:slices?|rows?|umbrellas?)"',
+     [R27_NOUN_PROPERTY, R27_SLOT_ATTRIBUTES]),
+    # The derivation is a FILTER, not a union.  Dropping the kind test admits
+    # `citation` and `stub`, and `Citation `#11-zz-alpha` — **UMBRELLA, …**`
+    # starts attributing -- a category error the positive half cannot see.
+    ("R27-2: only ROW-KEYED schemas name rows (drop the kind filter: a citation table's name becomes "
+     "a row noun)", TABLES,
+     '    nouns |= {s.name for s in SCHEMAS if s.kinds and set(s.kinds) <= row_kinds}',
+     '    nouns |= {s.name for s in SCHEMAS}',
+     [R27_NOUN_PROPERTY]),
+    # The two GENERIC nouns are no schema's, so nothing but the sweep's own
+    # generic half says the derivation still carries them.
+    ("R27-2: the generic nouns survive the derivation (drop them: `row` and `umbrella` belong to no "
+     "schema and would leave with the literal)", TABLES,
+     '    nouns = set(GENERIC_ROW_NOUNS)', '    nouns = set()',
+     [R27_NOUN_PROPERTY]),
 ]

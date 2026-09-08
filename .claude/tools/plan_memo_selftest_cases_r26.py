@@ -13,9 +13,13 @@ host, what it costs) and the places where one reading of a text disagreed with
 another; the two findings with fixture-shaped controls are here, while the
 work-shaped ones are `plan_memo_selftest_work.py`'s and the swept ones are
 `plan_memo_selftest_properties.py`'s, by those modules' own seams.
+
+This is the TAIL module of the four, so R26 ON lands here -- exactly as its
+mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
+("R26 on").  R27's fixture-shaped control is below.
 """
 
-from plan_memo_selftest_cases import build, case, rcase
+from plan_memo_selftest_cases import acase, build, case, rcase
 
 # ------------------------------------------------ PR #510 Codex R26 controls --
 # R26-2: the bare file-name token and `plan_memo_sibling.sibling_path`
@@ -86,3 +90,27 @@ rcase("NEGATIVE", "(R26 §6.3) a destination nested 33 deep is NOT a link, so `[
                   "the vendored corpus reaches depth 2, so nothing but this control says where the "
                   "boundary is",
       build(), _deep(33), 0)
+
+
+# ------------------------------------------------ PR #510 Codex R27 controls --
+# R27-2: `ROW_NOUN` was a hand-written `slices?|rows?|umbrellas?` and omitted
+# `Slot` -- the name of a schema in `SCHEMAS` since before the checker was
+# reviewed.  So a slot row that attributed a marker with its own schema's noun
+# declared, to the checker, ITSELF: kind umbrella, no `UMBRELLA-MARK`, a
+# pointer row inside the census, exit 0.  These two are the END-TO-END half
+# (the reviewer's shape, and its mention-only partner); the derivation itself
+# is swept over `SCHEMAS` by `plan_memo_selftest_properties`'
+# `row_noun_schema_control`, which is what makes the NEXT schema's noun a
+# covered case rather than the next round's finding.
+
+SLOT_PTR = "Slot %s — **UMBRELLA, not a terminal unit** — points into §8."
+acase("POSITIVE", "(R27 noun) ``Slot `#11-zz-alpha` — **UMBRELLA, …**`` attributes the marker to the "
+                  "named row: the containing row is a POINTER and the attribution finding is emitted. "
+                  "The schema noun the §8 table's own id column is headed with, and the one spelling "
+                  "the hand-written alternation left out",
+      build(wb=SLOT_PTR % "`#11-zz-alpha`"), "UMBRELLA-MARK", 1)
+acase("NEGATIVE", "(R27 noun) `Unlike Slot `#11-zz-alpha`, **UMBRELLA, …**` does NOT attribute -- the "
+                  "new noun inherits the DASH discrimination rather than widening what a mention is. "
+                  "The discriminating partner: a fix that anchored on the noun alone would pass the "
+                  "row above and fail this one",
+      build(wb="Unlike Slot `#11-zz-alpha`, **UMBRELLA, not a terminal unit.**"), "UMBRELLA-MARK", 0)

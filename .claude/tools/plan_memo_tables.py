@@ -145,32 +145,12 @@ member of the class authoritative.  A phrase added below is gated by
 arriving in this tuple, and cannot decide a kind without arriving here."""
 
 # --------------------------------------------------------------------------
-# Row identity.  The id grammar itself -- the three kinds, the decoration,
-# and the ONE boundary every reader consumes (`tokens`) -- is
-# `plan_memo_ids.py`'s; what is here is how a ROW is named and keyed.
+# Row identity, part one: the id RUN.  The id grammar itself -- the three
+# kinds, the decoration, and the ONE boundary every reader consumes
+# (`tokens`) -- is `plan_memo_ids.py`'s.  How a row is NAMED (`ROW_NOUN` and
+# its composers) is part two, below `SCHEMAS`, because the nouns are derived
+# from the schemas and cannot be spelled before them.
 # --------------------------------------------------------------------------
-
-ROW_NOUN = r"(?ai:slices?|rows?|umbrellas?)"
-"""How this document names a row when it refers to one.  Lives here because it
-is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
-kind a marker declares.  ASCII case-insensitive, in ONE place (the scoped
-`(?ai:…)`: `SLICE C`, `ROW 9`, `UMBRELLA C` name a row as `Slice C` does, and
-under `a` a long s never folds to `s`) -- every composer (`ROW_NOUN_SEP`,
-`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR` and `LICENSE_BEFORE`'s trailing-noun
-clause) inherits it; an
-enumeration of Title-case and lower-case spellings left `SLICE C owns it`
-naming no row (PR #510 R15)."""
-
-# `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
-# left them invisible to both passes; measured, four of five such sites in this
-# memo are real violations.
-ROW_NOUN_SEP = ROW_NOUN + r"[ \t\n-]+"       # ASCII separators (`\s` is Unicode)
-# A row noun then a row id of EVERY row kind (`ROW_ID`: slug or short, the
-# grammar's alternation) -- `Slice **E**`, `Slice `#11-zz-alpha``.  Built on
-# `SHORT_ID` alone until PR #510 R20, so a marker attributed to a slug row
-# (`Slice `#11-zz-alpha` — **UMBRELLA, …**`) named nobody and the pointer row
-# was counted as an umbrella.
-ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(ROW_ID)
 
 # An id-only code span is tokenised by the declared-id GRAMMAR, longest
 # alternative first (a `#11-` slug is atomic -- its internal hyphens are not
@@ -230,6 +210,70 @@ SCHEMAS = [
     Schema("slot", ["Slot", "Why deferred", "Trigger", "Re-eval"],
            decl="Why deferred", idc="Slot", kinds=ROW_KINDS),
 ]
+
+
+# --------------------------------------------------------------------------
+# Row identity, part two: how a row is NAMED.
+# --------------------------------------------------------------------------
+
+# The nouns that name a row without naming its table: a row of ANY schema is a
+# `row`, and one whose kind is umbrella is an `umbrella`.  Closed, and closed
+# for a reason -- neither is a schema's name, so no schema can supply them.
+GENERIC_ROW_NOUNS = ("row", "umbrella")
+
+
+def _row_nouns():
+    """The nouns this document names a row with: the two generic ones and the
+    NAME OF EVERY ROW-KEYED SCHEMA.
+
+    DERIVED, not enumerated (PR #510 R27-2).  `ROW_NOUN` was a hand-written
+    `slices?|rows?|umbrellas?`, and the §8 slot table -- a schema of this very
+    list since before the checker was reviewed -- was not in it, so
+    ``Slot `#11-zz-alpha` — **UMBRELLA, not a terminal unit.**`` matched no
+    appositive, the marker was read as the containing row's OWN declaration,
+    no `UMBRELLA-MARK` was emitted and the census carried a pointer row as an
+    umbrella at rc 0.  Adding `slots?` to the literal would have fixed that
+    sentence and left the next schema's noun in the same place, which is the
+    mistake `KIND_PHRASES`' comment names one screen up: gating the phrase in
+    front of you leaves every other member of the class authoritative.
+
+    A schema's `name` IS the noun: it is what the schema-miss finding already
+    calls its rows (`the %r header`), and the row-keyed ones -- the schemas
+    whose id column keys `ROW_KINDS` ids, which is exactly the set whose rows
+    `ROW_NOUN_ID` can name -- are `slice` and `slot` today.  A citation table
+    is excluded by the same test that excludes it from `ids`: its column keys
+    `cite`, and `Citation `[C1]` — …` names no row.  The plural is `s?` on
+    each, and the alternation is longest-first so no noun is read as a prefix
+    of another.
+    """
+    nouns = set(GENERIC_ROW_NOUNS)
+    row_kinds = set(ROW_KINDS)
+    nouns |= {s.name for s in SCHEMAS if s.kinds and set(s.kinds) <= row_kinds}
+    return "(?ai:%s)" % "|".join(re.escape(n) + "s?" for n in sorted(nouns, key=lambda n: (-len(n), n)))
+
+
+ROW_NOUN = _row_nouns()
+"""How this document names a row when it refers to one.  Lives here because it
+is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
+kind a marker declares -- and BELOW `SCHEMAS` because it is derived from them
+(`_row_nouns`).  ASCII case-insensitive, in ONE place (the scoped
+`(?ai:…)`: `SLICE C`, `ROW 9`, `UMBRELLA C` name a row as `Slice C` does, and
+under `a` a long s never folds to `s`) -- every composer (`ROW_NOUN_SEP`,
+`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR` and `LICENSE_BEFORE`'s trailing-noun
+clause) inherits it; an
+enumeration of Title-case and lower-case spellings left `SLICE C owns it`
+naming no row (PR #510 R15)."""
+
+# `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
+# left them invisible to both passes; measured, four of five such sites in this
+# memo are real violations.
+ROW_NOUN_SEP = ROW_NOUN + r"[ \t\n-]+"       # ASCII separators (`\s` is Unicode)
+# A row noun then a row id of EVERY row kind (`ROW_ID`: slug or short, the
+# grammar's alternation) -- `Slice **E**`, `Slice `#11-zz-alpha``.  Built on
+# `SHORT_ID` alone until PR #510 R20, so a marker attributed to a slug row
+# (`Slice `#11-zz-alpha` — **UMBRELLA, …**`) named nobody and the pointer row
+# was counted as an umbrella.
+ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(ROW_ID)
 
 
 class Row:

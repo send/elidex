@@ -647,9 +647,16 @@ MUTANTS += [
       "is prose, rc 0",
       "(def) `paragraph\\n[x]: https://example.com/a\\n[x]`: the orphan names an external URL, never a "
       "memo -- rc 0"]),
+    # ⚠ The anchor MOVED at R27-2, when the alternation stopped being a literal
+    # and became `_row_nouns()`'s join over `SCHEMAS`.  The claim did not: the
+    # scoped `(?ai:…)` is still the ONE place the case folds, so the mutant
+    # re-injects the enumeration into the DERIVED spelling instead of the
+    # retired one.  It failed loudly (`substring occurs 0 times`) rather than
+    # printing `(unknown control)`, which is why the row is here and not stale.
     ("R15 #3 noun: the row noun folds ASCII case in ONE place (re-inject the Title/lower enumeration)", TABLES,
-     'ROW_NOUN = r"(?ai:slices?|rows?|umbrellas?)"',
-     'ROW_NOUN = r"(?:Slices?|slices?|Rows?|rows?|Umbrellas?|umbrellas?)"',
+     '    return "(?ai:%s)" % "|".join(re.escape(n) + "s?" for n in sorted(nouns, key=lambda n: (-len(n), n)))',
+     '    return "(?:%s)" % "|".join(re.escape(n).capitalize() + "s?|" + re.escape(n) + "s?"\n'
+     '                               for n in sorted(nouns, key=lambda n: (-len(n), n)))',
      ["(noun) `SLICE C owns it` names the row: the row noun folds case (a bare `C` is the declared "
       "single-letter miss, so only the anchor can reach it)",
       "(noun) `ROW 9 lands first` names the row (a bare `9` is the declared numeric miss)",
