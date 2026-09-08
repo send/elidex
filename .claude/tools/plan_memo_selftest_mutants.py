@@ -38,17 +38,20 @@ modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
 by three modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, POPULATION, ROLES, CHECK, CONTROLS, WORK = (
+IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
     "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_population.py", "plan_memo_roles.py",
-    "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py", "plan_memo_selftest_work.py")
+    "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
+    "plan_memo_selftest_properties.py", "plan_memo_selftest_work.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
 # next self-test module a touch-time split carves out arrives here rather
 # than silently falling into the checker branch (where `load()` would refuse
-# a file that is not in the module set).
-SELFTEST = frozenset((CONTROLS, WORK))
+# a file that is not in the module set).  `PROPERTIES` is that next module
+# (PR #510 R25), and it arrives here with the split rather than with the
+# first mutant that needs it.
+SELFTEST = frozenset((CONTROLS, PROPERTIES, WORK))
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
