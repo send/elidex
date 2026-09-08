@@ -1304,6 +1304,57 @@ ground for either option; it is not cited.
   ⚠ One re-anchored mutant SURVIVED and the subject was moved rather than the mutant weakened —
   a shape worth naming: **converting a written FLAG into a read-time PREDICATE silently moves where a
   mutant's subject lives.**
+  ⚠ **PR #510 Codex R28 (2026-09-08)** — two findings, both real, and the round corrected how we had
+  been framing the whole blind-spot pattern.
+  #1 (P2) the memo walk drained its queue quadratically (`queue.pop(0)` shifts the whole list; and
+  duplicate paths accumulated). Fixed with a `deque` and `seen` consulted at SCHEDULE time.
+  ⚠ **Our framing was half wrong, and that is the useful part.** We expected this to sit in the limit
+  R27's generated property declares — "work outside the block-level reading (Phase 1, the memo walk,
+  the population)" — i.e. a CORPUS problem, fixable by generating memo graphs as R27 generates
+  strings. Measured, no: the corpus extends, but the property stays **green** on the defective walk.
+  Over a fan of N memos each linking the same 8, the lines executed in `plan_memo_population` go
+  1592 / 2872 / 5432 at N = 20 / 40 / 80 — a ratio of ~1.9 against a 2.5 bound, GREEN — while the
+  entries the drain shifts go 14611 / 58421 / 233641, ratio exactly 4.0. Two independent reasons a
+  RATIO witness is blind: `pop(0)` is a C memmove, so no Python line runs and no line grows; and the
+  duplicate pending entries ARE Python lines but are linear in the input (N·K links is N·K of input),
+  so no doubling bound can flag them. **The limit that actually bit was the FIRST item on that list —
+  "work that runs no Python line" — not the subject-shaped one we named.**
+  So the corpus generator carried over and **the instrument changed**: the claim is EXACT rather than
+  asymptotic — *no path is taken off the queue twice* — over a corpus generated from the definition of
+  a memo family (every digraph on three memos, each also with one memo absent; 192 probes), of which
+  **77 are red against the pre-R28 walk**. Three nodes is a BOUND, not a budget (a second scheduling
+  needs two edges into one memo from two the root reaches); four nodes was verified green at 16,384
+  probes, so the stop is cost (6.53 s vs 0.054 s), not coverage. The O(1) half is a SOURCE claim, over
+  every source rather than the one site named, because nothing in this suite can measure a C memmove.
+  ⇒ **The generalisation, and the correction to [[feedback_declared-blind-spots-are-where-the-next-finding-lands]]:
+  a declared limit is an inventory of INSTRUMENTS, not of SUBJECTS.** When the limit is the witness,
+  ask whether the claim can be made EXACT instead of asymptotic — an exact invariant needs no doubling
+  family and goes red at the minimum size.
+  #2 (P3) the module map omitted `plan_memo_selftest_growth.py`. ⚠ The reviewer's second clause is the
+  one that mattered — "include the module OR replace the hand-maintained inventory with a
+  non-duplicated source" — because two rounds earlier the same map was found missing three modules and
+  the response was to add them **and a prose warning that it drifts**. A sentence asking the author to
+  be careful, where a mechanism was needed; one round later it drifted again, exactly as the warning
+  predicted and did not prevent ([[feedback_prose-rules-cannot-fix-unexecuted-claims]]). The map is
+  kept — it records what each module OWNS, which `ls` cannot — and CHECKED in both directions over a
+  globbed population: completeness (red at the previous head) and existence (green there: the
+  discriminating half, and the one that catches a rename). What they cannot catch, stated: whether a
+  description is TRUE — a stale one, or one on the wrong module, reads like a fresh one.
+  ⚠ **A figure of MINE that was wrong, caught while checking this round.** R27's entry above said
+  `scripts/trip-wires.sh` costs 26.2 / 27.2 s and reasoned "2.6× headroom". On a `git clone --local`
+  of the very commit that comment describes, with nothing else of this project running, it is
+  **11.83 / 11.83 / 11.85 s** — 2.2× less. The earlier figure was taken in a busy worktree and the
+  CONDITION WAS NOT STATED, which is exactly what made it unreproducible — and I introduced it in the
+  same commit where I corrected someone else's stale figure, for the same reason
+  ([[feedback_convention-dependent-figures-are-argument]]). Both sites now carry the number AND its
+  condition, with the instruction to re-measure on a clean clone; headroom is ~5.9×, and the current
+  head measures 12.32 / 12.14 s the same way (R28's property costs ~0.4 s).
+  **596 controls, 322 mutants / 0 survived / 0 crashed**, 0 `unknown control`; conformance 295 / 0 / 0
+  + 335 / 0 / 0; census `--worklist` byte-identical. Each of the four new mutants turns exactly its own
+  control red and leaves the other three green, verified individually.
+  ⚠ `plan_memo_selftest_properties.py` is at **998** lines — the next addition crosses the touch-time
+  bound. The seam is already stated in its own docstring: controls that read SOURCE TEXT or AST and
+  never run the checker, versus those that run it over a GENERATED document (roughly 500/500).
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
