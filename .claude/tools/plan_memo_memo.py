@@ -706,11 +706,36 @@ class Memo:
               U+003A (:)" -- the scheme is set) read the input's code points
               AS WRITTEN; `%` is in neither class, so at `%` the parser
               leaves for the *no scheme state* and `notes%3Achild.md` has no
-              scheme (`_SCHEME` is that class and that terminator) -- it is
-              the local file `notes:child.md`.  Percent-decoding is no step
-              of the parser at all: the *path state*
-              (https://url.spec.whatwg.org/#path-state) percent-ENCODES and
-              keeps `%xx` as written;
+              scheme (`_SCHEME` is that class and that terminator).
+              Percent-decoding is no step of the parser at all: the *path
+              state* (https://url.spec.whatwg.org/#path-state)
+              percent-ENCODES and keeps `%xx` as written.
+              ⚠ SINCE PR #510 R25-1 this stage decides nothing (c) would not
+              also decide: every scheme ends in a `:`, decoding never removes
+              one, and a `:` anywhere in a decoded COMPONENT is refused at
+              (c) -- so `https://guide.md` is no sibling by BOTH readings,
+              and no destination separates them.  MEASURED, and the PROBE is
+              stated rather than a stored number: run `sibling_path` under
+              the three readings -- as written, `if False` here, and
+              `_SCHEME.match(unquote(raw))` here -- over `<scheme>:<body>`
+              for the schemes `http` / `https` / `file` / `mailto` /
+              `a+b-c.d` / `x1` / `HTTPS` / `c` / `n` and the bodies
+              `//host/x.md`, `///x.md`, `/x.md`, `x.md`, `sub/x.md`,
+              `sub\\x.md`, the empty one and `x.md?q#f`, each in five
+              encodings (raw, `quote`d, the colon percent-encoded, the scheme
+              percent-encoded, both) plus the relative controls, from ONE
+              fixture directory so a temporary path is not the difference; at
+              R25-1 that was 367 destinations and the three readings agreed
+              on all of them.  The stage is KEPT because it is the URL
+              standard's own question, asked before the path question and
+              answering it for the right reason, not because a case
+              exercises it; the two mutants that used to witness it (the
+              stage dropped, and the scheme read after decoding) are DELETED
+              as equivalent in `plan_memo_selftest_mutants.py` /
+              `_mutants_pr510.py`, each with that reasoning where the row
+              stood.  If you find a destination the scheme test refuses and
+              stage (c) admits, it belongs beside this stage as a control and
+              those rows come back with it;
           (b) percent-decode (`slice%20sib.md` is `slice sib.md`, as
               `<slice sib.md>` is) -- WHATWG URL §1.3 "Percent-encoded
               bytes", *percent-decode* on a string
@@ -743,19 +768,25 @@ class Memo:
               `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) and
               `%5Cchild.md` (`\\child.md`) passed, and on Windows `parent /
               name` discarded the memo's directory.  An empty anchor is not
-              enough: a RELATIVE name whose component is a DOS device or
+              enough: a RELATIVE name whose component is a DOS device, holds
+              a character Windows does not read as a letter of a name, or
               ends in a dot or a space is no file beside the memo either
               (`_is_reserved_component`, per PART, so `dir/NUL.md` and
-              `NUL/child.md` go too).  ⚠ Until PR #510 R22 they passed,
-              and both halves fail SILENTLY where an anchor does not: on
+              `NUL/child.md` go too).  ⚠ Until PR #510 R22 the device and
+              trailing-run halves passed, and until R25-1 the CHARACTER half
+              did; all three fail SILENTLY where an anchor does not: on
               Windows reading `NUL.md` SUCCEEDS and yields an empty
               stream, so the population counted an empty linked memo and
-              could exit 0 having omitted the sibling the author linked,
+              could exit 0 having omitted the sibling the author linked;
+              `notes:child.md` names an NTFS alternate data stream, and
+              where one exists reading it succeeds and yields ANOTHER file's
+              content, so the population would scan text no memo holds;
               and `dir /child.md` reads a different directory there than
               here.  The cost, named: a POSIX memo genuinely called
-              `NUL.md` is now not a sibling either -- dropped without a
-              report, exactly as `/abs/x.md` and `C:\\x.md` already are,
-              which is this stage's standing polarity;
+              `NUL.md` or `notes:child.md` is now not a sibling either --
+              dropped without a report, exactly as `/abs/x.md` and
+              `C:\\x.md` already are, which is this stage's standing
+              polarity;
           (d) the `.md` suffix -- the lexer's `FILE_SUFFIX`, the ONE
               spelling of "is a file name" (the lexer's bare file token
               reads the same constant over prose); the stem is unconstrained
@@ -883,35 +914,72 @@ _DEVICE_NAMES = frozenset(
     | {p + n for p in ("COM", "LPT") for n in "123456789¹²³"})
 
 
+# The characters Windows does not read as letters of a name -- Microsoft,
+# "Naming Files, Paths, and Namespaces" (the source `_DEVICE_NAMES` above
+# cites), "Use any character in the current code page for a name, except:"
+# `< > : " / \ | ? *` -- MINUS what the stages above already own: the ASCII
+# controls are stage (c)'s `_CONTROL` (wider: it holds DEL too), and `/` and
+# `\` are SEPARATORS to the `PureWindowsPath` parse that produced these parts,
+# so neither can stand inside a component.  CPython spells the same list as
+# `ntpath._reserved_chars`.  What each one DOES there is a different question,
+# and only one of them is settled from here: `:` opens an NTFS ALTERNATE DATA
+# STREAM (`notes:child.md` is the stream `child.md` of the file `notes`), which
+# is why R25 found it; for the other six, see `_is_reserved_component`.
+_RESERVED_CHARS = frozenset('*?"<>:|')
+
+
 def _is_reserved_component(part):
     """Whether one already-parsed `PureWindowsPath` component is a name
     Windows does NOT resolve to a file of that name beside its parent --
     pure string logic, so it is decided identically on POSIX and testable
-    there.  Two halves, CPython `ntpath._isreservedname`'s reading:
+    there.  The WHOLE of CPython `ntpath._isreservedname`'s reading, minus
+    the two halves other stages own (`_RESERVED_CHARS` above), in its order:
 
       * a component ending in `.` or ` ` (the components `.` and `..`
         excepted): Windows strips the trailing run, so `dir /child.md`
         reads `dir\\child.md` there and a different directory here;
+      * a component holding a `_RESERVED_CHARS` character;
       * otherwise the stem before the first `.`, its trailing spaces
         stripped, upper-cased, is a DOS device (`_DEVICE_NAMES`): `NUL.md`,
         `dir/NUL.md`, `nul.md` and `prn .md` all resolve to a device.
 
-    WHICH STAGE OWNS WHAT, so the reading is spelled once.
-    `_isreservedname`'s CHARACTER half -- `*?"<>/\\:|` and the ASCII
-    controls -- is NOT repeated here: the controls (and DEL, wider)
-    are `sibling_path` stage (c)'s `_CONTROL`, and `/` and `\\` are
-    SEPARATORS to the `PureWindowsPath` parse that produced these parts, so
-    neither can stand inside a component.  The rest (`*?"<>:|`) is
-    deliberately left to stage (e): they are ordinary POSIX name characters,
-    the population resolves siblings on the RUNNING platform, and on Windows
-    a name holding one raises `OSError` there -- reported as an unavailable
-    linked memo, exit 2.  That is the discriminator this predicate is drawn
-    on: a device name is the class that opens SUCCESSFULLY and returns an
-    empty stream, so the population would count a memo it never scanned and
-    exit 0 -- the "clean exit for content that could not be scanned" the
-    plan's §1 forbids.  Rejecting `*?"<>:|` as well would also contradict
-    the decided reading of `notes%3Achild.md` as the local file
-    `notes:child.md` (PR #510 R8)."""
+    THE PREDICATE IS DRAWN ON STAGE (c)'s POLICY, NOT ON A FAILURE MODE (PR
+    #510 R25-1).  Stage (c) asks for ONE platform-independent reading of the
+    name: a sibling is a relative `.md` file beside this memo, decided
+    identically on every platform.  A component holding one of these seven is
+    not that, and the two reasons are different -- `:` is Windows path SYNTAX
+    (`PureWindowsPath` models its drive meaning and not its stream meaning, so
+    `notes:child.md` comes back with an empty anchor and one part), while the
+    other six are characters that platform's API will not put in a name at all
+    -- but the POLICY answers both at once: whether the name denotes a file
+    beside the memo must not depend on where the checker runs.
+
+    ⚠ THIS REVERSES the reading of `notes%3Achild.md` as the local file
+    `notes:child.md` (PR #510 R8), and the cost is the standing polarity of
+    this stage: a POSIX memo genuinely named `notes:child.md` -- or holding
+    any of the other six -- is no longer a sibling, dropped without a report,
+    exactly as `/abs/x.md`, `C:\\x.md`, `sub\\child.md` and `NUL.md` already
+    are.  What R8 decided about stage (a) STANDS: the scheme test still reads
+    the RAW component, `%` is in neither of the URL parser's classes, and
+    `notes%3Achild.md` still has no scheme.  It is stage (c) that now refuses
+    it, and for the path reason rather than the URL one.
+
+    ⚠ AND THE ARGUMENT R25 FALSIFIED, named so it is not written again: until
+    R25 this docstring left `*?"<>:|` to stage (e) "because on Windows a name
+    holding one raises `OSError` there -- reported as an unavailable linked
+    memo, exit 2".  That is FALSE for `:`: on Windows `notes:child.md` names
+    an alternate data stream, and where that stream exists opening it
+    SUCCEEDS, so the population would scan the contents of an unrelated file's
+    stream and could exit 0 -- the same "clean exit for content that could not
+    be scanned" §1 forbids, which is the class the device names were rejected
+    for.  For the other six the honest position is that THIS TREE CANNOT
+    DETERMINE IT: the checker runs on POSIX, no Windows is reachable from
+    here, and the claim that they raise is the same unverified claim about a
+    platform that has just been falsified once.  So they are decided by the
+    policy above and not by their failure mode -- and as a class, because an
+    enumerated exemption leaves its next member authoritative by default."""
     if part[-1:] in (".", " "):
         return part not in (".", "..")
+    if _RESERVED_CHARS.intersection(part):
+        return True
     return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES

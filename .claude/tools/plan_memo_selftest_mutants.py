@@ -293,10 +293,24 @@ MUTANTS = [
      '        for lx in (p.lexed for p in self.paragraphs):\n            for _, _, dest in lx.links:',
      ["(rc) a link to an absent memo inside a table CELL is rc 2",
       "(population) a violation in a sibling linked ONLY from a cell is reported"]),
-    ("F3 population: a destination with a scheme or `//` is not a sibling", MEMO,
-     '        if _SCHEME.match(raw):                                       # (a)',
-     '        if False:                                                    # (a)',
-     ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0"]),
+    # ⚠ The former row "F3 population: a destination with a scheme or `//` is
+    # not a sibling" (`if _SCHEME.match(raw)` -> `if False`) is DELETED as an
+    # EQUIVALENT mutant at PR #510 R25-1, not kept as a survivor.  Since R25-1
+    # stage (c) refuses a `:` anywhere in a decoded component; every URL scheme
+    # ends in one and percent-decoding never removes one, so a scheme-ful
+    # destination is refused whether or not stage (a) looks at it, and dropping
+    # the stage changes no verdict.  MEASURED, and re-runnable: `sibling_path`
+    # under the three readings -- as written, stage (a) dropped, and stage (a)
+    # applied to `unquote(raw)` (the R8-1 mutant, deleted for the same reason in
+    # `plan_memo_selftest_mutants_pr510.py`) -- agrees on every one of a
+    # generated corpus of 367 destinations (9 schemes x 8 bodies x 5 encodings,
+    # plus 7 relative controls), compared inside ONE fixture directory so the
+    # temporary path is not the difference.  The CLAIM the row made is not lost:
+    # its control ("(rc) an absolute URL ending in `.md` is not a sibling on
+    # disk: rc 0") stays and stays green -- what is gone is the proof that stage
+    # (a) is what makes it true, because nothing can prove that any more.  If a
+    # destination is ever found that the scheme test refuses and stage (c)
+    # admits, this row comes back with it.
     ("F4 attribution: the FIRST marker occurrence decides", TABLES,
      # the match goes through `MARKER_RE` (bounded) since PR #510 R22; the
      # MUTATION is untouched -- the LAST occurrence decides instead of the first

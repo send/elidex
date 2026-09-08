@@ -170,12 +170,17 @@ MUTANTS += [
       '                or any(_is_reserved_component(s) for s in p.parts)):'),
      ["a decoded destination with a C0 control character is rejected, never resolved"]),
     # -- PR #510 Codex R8
-    ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", MEMO,
-     '        if _SCHEME.match(raw):                                       # (a)',
-     '        if _SCHEME.match(unquote(raw)):                              # (a)',
-     ["(link) `notes%3Achild.md` has no scheme (WHATWG URL §4.4 #scheme-start-state / #scheme-state read the "
-      "input as written and `%` is in neither class; #string-percent-decode is a later, separate operation): "
-      "it is the local file `notes:child.md`, and it is scanned"]),
+    # ⚠ The former row "R8-1 sibling: the scheme is read on the RAW path, before
+    # decoding" (`_SCHEME.match(raw)` -> `_SCHEME.match(unquote(raw))`) is
+    # DELETED as an EQUIVALENT mutant at PR #510 R25-1, with the same reasoning
+    # and the same measurement as the F3 row in `plan_memo_selftest_mutants.py`:
+    # decoding can only ADD a `:` to the name, never remove one, and since
+    # R25-1 stage (c) refuses a `:` in any component -- so reading the scheme
+    # before or after decoding gives the same verdict on every input.  R8's
+    # reading of `notes%3Achild.md` as a scheme-less destination still STANDS at
+    # stage (a); it is simply no longer observable through the census, since
+    # stage (c) refuses that name either way.  Its control stays, carrying the
+    # reversal (`plan_memo_selftest_cases_sibling.py`).
     ("R8-2 sibling: an OSError from resolve() is the unavailable-sibling miss (unguard it)", MEMO,
      '    try:\n        return path.resolve()\n    except (OSError, RuntimeError):\n        return path',
      '    return path.resolve()',

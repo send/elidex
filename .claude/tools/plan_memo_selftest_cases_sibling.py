@@ -30,7 +30,7 @@ module imports each for its side effect).  A control's mutant lives in
 NAME, so a control moving between modules moves nothing else.
 """
 
-from plan_memo_selftest_cases import VIOLATION, build, case, rcase
+from plan_memo_selftest_cases import CASES, VIOLATION, build, case, rcase
 
 
 # R3-2: a root-relative destination is a site URL, never a sibling on disk
@@ -50,12 +50,40 @@ rcase("NEGATIVE", "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.m
       build(), "See [x](%2Ftmp%2Fchild.md).", 0)
 
 
-# R8 root: one sibling-path resolver, stages in spec order
-case("POSITIVE-NOVEL", "(link) `notes%3Achild.md` has no scheme (WHATWG URL §4.4 #scheme-start-state / "
-                       "#scheme-state read the input as written and `%` is in neither class; "
-                       "#string-percent-decode is a later, separate operation): it is the local file "
-                       "`notes:child.md`, and it is scanned",
-     build(), "See [the walk](notes%3Achild.md).", 1, files={"notes:child.md": VIOLATION + "\n"})
+# R8 root: one sibling-path resolver, stages in spec order.
+#
+# ⚠⚠ REVERSED AT PR #510 R25-1, AND THE REVERSAL IS THE CONTROL'S OWN TEXT.
+# This case read "`notes%3Achild.md` ... is the local file `notes:child.md`, and
+# it is scanned" and expected 1 site.  It now expects 0, and that is a DECISION,
+# not the repair of a red control: R25-1 found that on Windows `notes:child.md`
+# names an NTFS ALTERNATE DATA STREAM (the stream `child.md` of the file
+# `notes`), which where it exists OPENS successfully and yields another file's
+# content -- so the destination is read differently on different platforms,
+# which is what stage (c)'s policy ("ONE platform-independent reading of the
+# name") refuses.  Under that policy R8's reading was the odd one out: since
+# R19 `sub\child.md` is not the POSIX file of that name, `C:x.md` and
+# `n%3Ax.md` are drive-relative, and since R22 a DOS device is no file beside
+# the memo.
+# WHAT IT COSTS, named: a POSIX memo genuinely called `notes:child.md` is no
+# longer a sibling -- dropped without a report, the standing polarity of this
+# stage.
+# WHAT SURVIVES OF R8: stage (a) still reads the RAW component, so
+# `notes%3Achild.md` still has NO scheme; it is stage (c) that refuses it, for
+# the path reason and not the URL one.  That half is no longer OBSERVABLE,
+# though -- every scheme ends in a `:`, decoding never removes one, and a `:`
+# is now refused at (c) -- which is why the two mutants that witnessed it are
+# deleted as EQUIVALENT rather than left to survive
+# (`plan_memo_selftest_mutants.py` / `_mutants_pr510.py`, each with the
+# reasoning where the row stood).
+case("NEGATIVE", "(link) `notes%3Achild.md` is NOT a sibling.  It has no scheme -- WHATWG URL §4.4 "
+                 "#scheme-start-state / #scheme-state read the input as written and `%` is in neither "
+                 "class, #string-percent-decode being a later, separate operation -- so stage (a) admits "
+                 "it; stage (c) then refuses it, because the decoded `notes:child.md` is an NTFS "
+                 "alternate data stream on Windows and a plain file name on POSIX, which is two readings "
+                 "where that stage allows one.  ⚠ THIS EXPECTATION IS A REVERSAL of PR #510 R8, decided "
+                 "at R25-1, and it costs a POSIX memo genuinely named `notes:child.md` -- dropped "
+                 "without a report, as `sub\\child.md` and `NUL.md` already are",
+     build(), "See [the walk](notes%3Achild.md).", 0, files={"notes:child.md": VIOLATION + "\n"})
 
 
 # #3 (IMP): `sibling_path` stage (c) is ONE platform-independent rule -- the
@@ -83,8 +111,10 @@ rcase("NEGATIVE", "(rc) drive-relative `C:child.md`: raw, it is a URL of scheme 
                   "`C%3Achild.md` decodes to a drive-anchored name (stage c) -- both rejected, rc 0",
       build(), "See [a](C:child.md) and [b](C%3Achild.md).", 0)
 rcase("NEGATIVE", "(rc) `n%3Achild.md`: a ONE-letter name before `:` is a Windows drive letter (URL `#path-state` step "
-                  "1.4.1, platform-independent) -- drive-relative, rejected, rc 0; the multi-letter `notes%3Achild.md` "
-                  "of R8 stays a file name",
+                  "1.4.1, platform-independent) -- drive-relative, rejected at stage (c) by the ANCHOR, rc 0.  "
+                  "⚠ Since R25-1 the multi-letter `notes%3Achild.md` is refused at the same stage by the CHARACTER "
+                  "rule, so this no longer discriminates one-letter from multi-letter; what it still says is that "
+                  "the drive reading is applied on every platform",
       build(), "See [x](n%3Achild.md).", 0)
 case("POSITIVE-NOVEL", "(link) `sub%5Cchild.md`: a backslash is a path separator on every platform (WHATWG URL "
                        "`#path-state` step 1: for a special scheme -- `file` is one -- `\\` ends a segment as `/` does; "
@@ -125,3 +155,69 @@ case("POSITIVE", "(sibling) `NULX.md` is an ordinary sibling and IS walked -- th
                  "device is the STEM of a component, never a prefix of one, and a guard that rejected "
                  "every name holding `NUL` would drop a memo the author linked",
      build(), "See [x](NULX.md).", 1, files=DEVICE)
+
+
+# ---------------------------------------------- PR #510 Codex R25-1 controls --
+
+# The CHARACTER half of `_is_reserved_component`.  ONE case per member of
+# `_RESERVED_CHARS`, because the previous reading kept the whole set out of the
+# predicate on ONE argument -- "on Windows a name holding one raises `OSError`
+# there, reported as an unavailable linked memo" -- and that argument is FALSE
+# for `:` (an alternate data stream opens) and unverifiable from this tree for
+# the other six, so it is not the discriminator anything should rest on.  The
+# discriminator is stage (c)'s policy: the name must denote the same thing on
+# every platform.  Enumerating only the member that was reported would leave
+# the other six authoritative by default, which is the trap this PR hit at R22
+# (the kind phrases), R23 (the kind gate) and R24 (§2's preprocessing).  Each
+# destination is NOVEL -- no such spelling appears in the umbrella memo -- and
+# each names a file that DOES exist in the fixture directory, so a green
+# control means "not read", never "not found".
+# ⚠ THE STEM IS TWO CHARACTERS, and that is load-bearing: a ONE-letter name
+# before a `:` is a Windows DRIVE letter, so `a:notes.md` is refused by stage
+# (c)'s ANCHOR clause and a probe built on it measures that clause instead of
+# this one -- the R25-1 mutant SURVIVED against `a%3Anotes.md` and said so.
+# The other six take the same stem so the seven differ in one character only.
+RESERVED = {"ax:notes.md": VIOLATION + "\n", "ax*notes.md": VIOLATION + "\n",
+            "ax?notes.md": VIOLATION + "\n", 'ax"notes.md': VIOLATION + "\n",
+            "ax<notes.md": VIOLATION + "\n", "ax>notes.md": VIOLATION + "\n",
+            "ax|notes.md": VIOLATION + "\n", "ax+notes.md": VIOLATION + "\n"}
+
+# The seven control NAMES, collected as they are minted: they are composed
+# here, so the mutant that must turn them red reads them from here rather than
+# transcribing seven long strings a `%` away from these (`unknown control` is a
+# FAIL, so a transcription would fail loudly -- but it would still be the
+# grammar of a control name spelled twice).
+R25_RESERVED_NAMES = []
+
+for _ch, _enc, _why in [
+        (":", "%3A", "opens an NTFS ALTERNATE DATA STREAM there -- `notes:child.md` is the stream "
+                     "`child.md` of the file `notes` -- so where the stream exists reading it SUCCEEDS "
+                     "and yields another file's content, the very class the DOS devices were rejected "
+                     "for.  This is the member R25 reported, and the one that falsified the `OSError` "
+                     "argument the other six rested on"),
+        ("*", "%2A", "holds a character Microsoft's \"Naming Files, Paths, and Namespaces\" lists "
+                     "among those a file name may not use"),
+        ("?", "%3F", "holds a character that same list excludes"),
+        ('"', "%22", "holds a character that same list excludes"),
+        ("<", "%3C", "holds a character that same list excludes"),
+        (">", "%3E", "holds a character that same list excludes"),
+        ("|", "%7C", "holds a character that same list excludes")]:
+    case("NEGATIVE", "(R25 sibling) `ax%snotes.md` is no sibling: the decoded `ax%snotes.md` %s.  ⚠ Whether "
+                     "that platform RAISES is NOT the test and was not determined here (no Windows is "
+                     "reachable from this tree); the test is stage (c)'s policy -- the name must denote "
+                     "a file beside this memo on every platform, and this one does not"
+                     % (_enc, _ch, _why),
+         build(), "See [x](ax%snotes.md)." % _enc, 0, files=RESERVED)
+    R25_RESERVED_NAMES.append(CASES[-1].name)
+case("POSITIVE-NOVEL", "(R25 sibling) `ax%2Bnotes.md` (`ax+notes.md`) IS a sibling and IS walked -- the "
+                       "discriminating half of the seven above: `+` is an ordinary name character on "
+                       "every platform and outside `_RESERVED_CHARS`, so a fix that refused ASCII "
+                       "punctuation wholesale would pass all seven and fail this one",
+     build(), "See [x](ax%2Bnotes.md).", 1, files=RESERVED)
+R25_PER_PART = ("(R25 sibling) the character rule is read per PART, as the device rule is: "
+                "`ax%3Ab%2Fchild.md` (`ax:b/child.md`) puts the colon in a NON-FINAL component -- with "
+                "a final-component-only reading it passes while `ax:b.md` is refused.  ⚠ The colon must "
+                "sit in the DIRECTORY: `sub/ax:b.md` puts it in the last part, where that reading "
+                "refuses it too and R22's per-part mutant SURVIVES (measured)")
+case("NEGATIVE", R25_PER_PART,
+     build(), "See [x](ax%3Ab%2Fchild.md).", 0, files={"ax:b/child.md": VIOLATION + "\n"})

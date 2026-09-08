@@ -16,10 +16,16 @@ file, every named control must go red, a crash is a FAIL.  A mutant's control
 lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 """
 
+from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
     CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
     STAGE_C, TABLES,
 )
+
+# The R25-1 control names are COMPOSED by the cases module (one per member of
+# `_RESERVED_CHARS`, from one format string), so they are read from there
+# rather than transcribed: a transcription would fail loudly (`unknown control`
+# is a FAIL) but would still be the grammar of a name spelled twice.
 
 # -- PR #510 Codex R21 control names, spelled once (the §6.5 autolink family,
 # the double marker, the spelling gate, the schema id kinds)
@@ -193,8 +199,10 @@ MUTANTS += [
       "(rc) drive-relative `C:child.md`: raw, it is a URL of scheme `c` (stage a); percent-encoded `C%3Achild.md` "
       "decodes to a drive-anchored name (stage c) -- both rejected, rc 0",
       "(rc) `n%3Achild.md`: a ONE-letter name before `:` is a Windows drive letter (URL `#path-state` step 1.4.1, "
-      "platform-independent) -- drive-relative, rejected, rc 0; the multi-letter `notes%3Achild.md` of R8 stays a "
-      "file name"]),
+      "platform-independent) -- drive-relative, rejected at stage (c) by the ANCHOR, rc 0.  ⚠ Since R25-1 the "
+      "multi-letter `notes%3Achild.md` is refused at the same stage by the CHARACTER rule, so this no longer "
+      "discriminates one-letter from multi-letter; what it still says is that the drive reading is applied on "
+      "every platform"]),
     ("R19 #3 sibling: a backslash separates on every platform (re-inject the POSIX reading: `\\` a name character)", MEMO,
      '        return _resolve(self.path.parent.joinpath(*p.parts))         # (e)',
      '        return _resolve(self.path.parent / name)                     # (e)',
@@ -597,7 +605,10 @@ MUTANTS += [
     ("R22 #2 sibling: EVERY part, not just the last (re-inject a final-component-only reading)", MEMO,
      "                or any(_is_reserved_component(s) for s in p.parts)):",
      "                or any(_is_reserved_component(s) for s in p.parts[-1:])):",
-     [R22_DIR_NUL, R22_TRAILING_SPACE]),
+     # R25-1 put a second clause under the same per-part reading, so its
+     # non-final probe belongs to this mutant too: the CHARACTER half must
+     # be read per part exactly as the device half is
+     [R22_DIR_NUL, R22_TRAILING_SPACE, R25_PER_PART]),
     ("R22 #2 sibling: the device is the STEM before the first dot, case-folded, trailing spaces stripped "
      "(re-inject the whole component)", MEMO,
      '    return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES',
@@ -881,7 +892,25 @@ R25_BREAK_PROPERTY = ("PROPERTY: the verdict is invariant under re-spelling any 
                       "breaks) -- the render-equivalence family's second guard, for the class its first "
                       "one excludes by construction")
 
+R25_REVERSED = ("(link) `notes%3Achild.md` is NOT a sibling.  It has no scheme -- WHATWG URL §4.4 "
+                "#scheme-start-state / #scheme-state read the input as written and `%` is in neither "
+                "class, #string-percent-decode being a later, separate operation -- so stage (a) admits "
+                "it; stage (c) then refuses it, because the decoded `notes:child.md` is an NTFS "
+                "alternate data stream on Windows and a plain file name on POSIX, which is two readings "
+                "where that stage allows one.  ⚠ THIS EXPECTATION IS A REVERSAL of PR #510 R8, decided "
+                "at R25-1, and it costs a POSIX memo genuinely named `notes:child.md` -- dropped "
+                "without a report, as `sub\\child.md` and `NUL.md` already are")
+
 MUTANTS += [
+    ("R25-1 sibling: stage (c) refuses a component holding a character Windows does not read as a "
+     "letter of a name (drop the clause -- the reading that let an NTFS alternate data stream through)",
+     MEMO,
+     "    if _RESERVED_CHARS.intersection(part):\n        return True",
+     "    if False:\n        return True",
+     # every member of the class, not just the one R25 reported: an enumerated
+     # fix leaves the next member authoritative, and so would an enumerated
+     # PROOF of one
+     list(R25_RESERVED_NAMES) + [R25_REVERSED]),
     ("R25-2 lexer: a §6.7 hard line break's backslash renders NOTHING (drop the clause -- the literal "
      "backslash that stood in the stream until R25)", LEXER,
      '    return s[j] == "\\\\" and j + 1 < len(s) and s[j + 1] == "\\n"', "    return False",
