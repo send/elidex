@@ -4,19 +4,24 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 20
-`.py` files: `plan-memo-umbrella-check.py` 583 / `plan_memo_tables.py` 814 / `plan_memo_umbrella_selftest.py`
-97 (the three carried names, 1,494) + `plan_memo_ids.py` 224 / `plan_memo_emphasis.py` 216 / `plan_memo_lexer.py` 887 /
-`plan_memo_blocks.py` 746 / `plan_memo_memo.py` 917 / `plan_memo_population.py` 239 / `plan_memo_roles.py` 463 /
-`plan_memo_selftest_cases.py` 614 /
-`plan_memo_selftest_cases_pr510.py` 701 / `plan_memo_selftest_cases_inline.py` 922 /
-`plan_memo_selftest_conformance.py` 377 / `plan_memo_selftest_controls.py` 939 / `plan_memo_selftest_harness.py` 268 /
-`plan_memo_selftest_work.py` 350 /
-`plan_memo_selftest_mutants.py` 494 / `plan_memo_selftest_mutants_pr510.py` 709 / `plan_memo_selftest_mutants_inline.py` 867
-— **11,427 total, measured on the tree of the R24 collapse round (`d420b632`); re-run at landing** (`wc -l
-.claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched).  Every file
-is under the 1000-line bound, the largest being `plan_memo_selftest_controls.py` at 939 — ⚠ 61 lines of headroom, and
-`plan_memo_selftest_cases_inline.py` 78: the next round that adds controls splits one of them first.  No `crates/` change.
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). Those three are a fact about the CARRY
+commit and do not move.
+
+⚠ **The per-file inventory of the CURRENT tree used to be enumerated here and has been REMOVED, at
+Codex R26's P3.** It went stale three times — every touch-time split adds a module and moves two
+counts, and the split commits land between the moment the paragraph is written and the moment it is
+pushed, so it was wrong for the very tree it named (it claimed 20 files / 11,427 lines against a tree
+holding 22 / 11,981, and named the wrong largest file, which is the figure a reader would use to pick
+a split target). A number that must be re-derived before every push, and that has been wrong every
+time it was not, is an argument rather than a measurement, so what stands here is the INVARIANT and
+the command that decides it:
+
+- **every `.claude/tools/plan*.py` is under the 1000-line touch-time bound** — `wc -l
+  .claude/tools/plan*.py | sort -n | tail -5` names the file closest to it, which is the split target;
+- the only files over 1000 lines in that directory are the two vendored CommonMark corpora
+  (`commonmark-0.31.2-{block,inline}-examples.json`), which are generated data and outside the
+  cohesion test;
+- no `crates/` change, in any round.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
 this PR lands (4,771 on the tree of the commit after `1840251b`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
