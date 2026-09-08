@@ -788,6 +788,35 @@ def anchored_matcher_width_control(M):
                                               (": " + "; ".join(sorted(set(hits))[:3])) if hits else ""))
 
 
+def multiline_span_locator_control(M):
+    """A §6.6 raw HTML span that CROSSES a line ending seeds each of its lines
+    at the line it is on, not all of them at the line the span opened on.
+
+    The seed is the only diagnostic there is for the content of such a span --
+    the ordinary naming scan masks it deliberately (an id inside an attribute
+    or a comment is no naming site) -- so its line number is the whole of what
+    it hands the reader.  `foo <!-- begin` / `Slice 9z owns it` / `end -->`
+    named `9z` against the FIRST of those lines (PR #510 R24-3).
+
+    The expected line is COMPUTED from the fixture, never written here as a
+    number: the fixture's own text says which line holds the id, and a
+    constant would be a claim about `HEADER`'s current length rather than
+    about the locator.  The opener's line is asserted to carry no seed of its
+    own, so the control cannot pass by reporting both lines."""
+    prose = "foo <!-- begin\nSlice 9z owns it\nend -->"
+    text = build() + "\n" + prose + "\n"
+    lines = text.split("\n")
+    want = lines.index("Slice 9z owns it") + 1          # 1-based, as a finding's is
+    opener = lines.index("foo <!-- begin") + 1
+    res, _ = run_on(M, build(), prose)
+    seeds = [(f[2], f[3]) for f in res.findings if f[0] == "LEX-UNSUPPORTED?"]
+    naming = [ln for ln, msg in seeds if "'9z'" in msg]
+    ok = naming == [want] and not any(ln == opener for ln, _ in seeds) and res.rc != 2
+    return ok, ("the id `9z` is seeded at line(s) %s (want [%d], the line it is ON; the span opens on "
+                "%d, which carries no seed of its own); %d seed(s) in all, rc %d"
+                % (naming, want, opener, len(seeds), res.rc))
+
+
 def line_ending_control(M):
     """PROPERTY: one document written with each of the three line endings §2.1
     recognises -- LF, CRLF, and a CR not followed by an LF -- yields the SAME
@@ -906,4 +935,5 @@ def registry():
     reg["PROPERTY: the verdict is invariant under a §2.5 re-spelling of any prose character the document renders the same (the rendered-text rule, swept position by position)"] = ("CONTROL", render_equivalence_control)
     reg["PROPERTY: the census is the same under each of the three line endings CommonMark §2.1 recognises (LF, CRLF, a bare CR), written as bytes"] = ("CONTROL", line_ending_control)
     reg["PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)"] = ("CONTROL", anchored_matcher_width_control)
+    reg["a §6.6 span crossing a line ending seeds each of its lines at ITS line, not all of them at the opener's"] = ("CONTROL", multiline_span_locator_control)
     return reg

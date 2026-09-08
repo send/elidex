@@ -849,3 +849,16 @@ MUTANTS += [
      '        if prev is None or m.start < prev.start:', '        if prev is None or m.start > prev.start:',
      [R24_TRAILING_NOUN]),
 ]
+
+# -- PR #510 Codex R24-3, the one finding of the round that is in no family.
+R24_SPAN_LOCATOR = ("a §6.6 span crossing a line ending seeds each of its lines at ITS line, not all of "
+                    "them at the opener's")
+
+MUTANTS += [
+    ("R24 memo: a multiline §6.6 span's pieces are located at their OWN offsets (key them on the "
+     "span's start instead: the seed sends the reader to the line the comment opened on, where the "
+     "id it names is not)", MEMO,
+     '                for off, piece in pieces(p.lexed, a, b):\n                    yield p.locate(off)[0], piece',
+     '                for _off, piece in pieces(p.lexed, a, b):\n                    yield p.locate(a)[0], piece',
+     [R24_SPAN_LOCATOR]),
+]

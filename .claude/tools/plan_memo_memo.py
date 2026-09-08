@@ -651,19 +651,44 @@ class Memo:
             yield p.lexed
 
     def _inline_raw(self):
-        """(lineno, text) of every §6.6 raw HTML span Phase 2 found (`Lexed.html`),
-        in the order `lexed` yields the blocks -- a cell's span at its row's
-        line, a paragraph's at the line the span STARTS on (`Paragraph.locate`;
-        a comment may cross a line ending).  Read once, after `resolve`, into
-        `raw` for the LEX-UNSUPPORTED? seed."""
+        """(lineno, text) of every §6.6 raw HTML span Phase 2 found
+        (`Lexed.html`), ONE ENTRY PER LINE of the span, in the order `lexed`
+        yields the blocks.  Read once, after `resolve`, into `raw` for the
+        LEX-UNSUPPORTED? seed.
+
+        Per LINE, because that is the shape the seed's other population already
+        has (a raw extent contributes each of its lines, `raw_extent`) and
+        because the seed's whole job is to send a reader to the text a scanner
+        could not read.  A §6.6 comment may cross a line ending, and the span
+        was keyed on the line it STARTS on: `foo <!-- begin` / `Slice 9z owns
+        it` / `end -->` emitted its one finding against the first of those
+        three, while the id it names -- the only diagnostic there is for
+        content the ordinary naming scan deliberately masks -- is on the
+        second (PR #510 R24-3).  Each piece is located through
+        `Paragraph.locate` at its own offset, so the line number is the line
+        the reader must open.  A piece holding neither a `|` nor a declared id
+        contributes no finding, so the split adds entries and never findings.
+
+        A table row is ONE line, so a cell's span holds no line ending and the
+        same rule leaves it a single piece at the row's line: one rule, not a
+        cell rule and a paragraph rule."""
+        def pieces(lx, a, b):
+            """(offset in `lx.text`, text) per line of the span `[a, b)`."""
+            off = a
+            for piece in lx.text[a:b].split("\n"):
+                yield off, piece
+                off += len(piece) + 1
+
         for t in self.tables:
             for row in [t.header] + t.rows:
                 for cell in row.cells:
                     for a, b in cell.lexed.html:
-                        yield row.lineno, cell.lexed.text[a:b]
+                        for _off, piece in pieces(cell.lexed, a, b):
+                            yield row.lineno, piece
         for p in self.paragraphs:
             for a, b in p.lexed.html:
-                yield p.locate(a)[0], p.lexed.text[a:b]
+                for off, piece in pieces(p.lexed, a, b):
+                    yield p.locate(off)[0], piece
 
     def sibling_path(self, dest):
         """The ONE destination -> sibling mapping: the memo on disk a link
