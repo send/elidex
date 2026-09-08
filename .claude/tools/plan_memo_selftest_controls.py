@@ -21,8 +21,9 @@ whose measure is WORK rather than text -- the linearity witnesses, every one
 of them written against `_count_calls` / `_count_lines` / `_CountedList` --
 are `plan_memo_selftest_work.py` (PR #510 R24); the PROPERTY controls, every
 one of which enumerates its own population and sweeps it, are
-`plan_memo_selftest_properties.py` (PR #510 R25), and they are exactly the
-entries named `PROPERTY: ...`.  This module imports no work witness and reads
+`plan_memo_selftest_properties.py` (PR #510 R25) and the
+`plan_memo_selftest_invariants.py` it merges (R29) -- the checker as written and
+the checker run -- and they are exactly the entries named `PROPERTY: ...`.  This module imports no work witness and reads
 no module source, AST or code object -- it imports neither `ast` nor the
 harness's `MODULES` / `SOURCES` / `GRAMMAR` -- and those two import lists are
 the two seams' statement.

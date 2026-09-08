@@ -30,13 +30,17 @@ it.  The self-test is four modules with one import direction:
   plan_memo_selftest_controls.py    the function-shaped controls and
                                     `registry()`, the one name -> (kind,
                                     control) table;
-  plan_memo_selftest_properties.py  the PROPERTY controls -- every control that
-                                    enumerates its own population and sweeps it
-                                    (the source-text, AST, code-object,
-                                    re-spelling and line-ending sweeps); its
-                                    `registry()` fragment is merged into that
-                                    one table, and its entries are exactly the
-                                    `PROPERTY: ...` names;
+  plan_memo_selftest_properties.py  the PROPERTY controls whose subject is the
+                                    checker AS WRITTEN -- the source-text, AST,
+                                    code-object and docstring sweeps, which call
+                                    nothing of it;
+  plan_memo_selftest_invariants.py  the PROPERTY controls whose subject is the
+                                    checker RUN -- the re-spelling and
+                                    line-ending equivalences, and the readers
+                                    made to answer their own definition; merged
+                                    by the properties module.  Between them the
+                                    two contribute exactly the `PROPERTY: ...`
+                                    entries of that one table;
   plan_memo_selftest_work.py        the controls whose measure is WORK rather
                                     than text (the per-shape linearity
                                     witnesses); its `registry()` fragment is

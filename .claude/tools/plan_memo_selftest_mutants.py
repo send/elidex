@@ -40,22 +40,23 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK, GROWTH = (
+IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
     "plan_memo_lexer.py", "plan_memo_blocks.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py", "plan_memo_population.py",
     "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
-    "plan_memo_selftest_properties.py", "plan_memo_selftest_work.py",
-    "plan_memo_selftest_growth.py")
+    "plan_memo_selftest_properties.py", "plan_memo_selftest_invariants.py",
+    "plan_memo_selftest_work.py", "plan_memo_selftest_growth.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
 # next self-test module a touch-time split carves out arrives here rather
 # than silently falling into the checker branch (where `load()` would refuse
 # a file that is not in the module set).  `PROPERTIES` was that next module
-# (PR #510 R25) and `GROWTH` the one after it (R27); each arrived here with
-# its split rather than with the first mutant that needs it.
-SELFTEST = frozenset((CONTROLS, PROPERTIES, WORK, GROWTH))
+# (PR #510 R25), `GROWTH` the one after it (R27) and `INVARIANTS` the one after
+# that (R29); each arrived here with its split rather than with the first mutant
+# that needs it.
+SELFTEST = frozenset((CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH))
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.

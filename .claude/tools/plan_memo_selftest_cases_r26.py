@@ -12,7 +12,9 @@ R26's subject is the checker's OPERATING ENVELOPE (what it assumes about its
 host, what it costs) and the places where one reading of a text disagreed with
 another; the two findings with fixture-shaped controls are here, while the
 work-shaped ones are `plan_memo_selftest_work.py`'s and the swept ones are
-`plan_memo_selftest_properties.py`'s, by those modules' own seams.
+`plan_memo_selftest_properties.py`'s (the checker as written) and
+`plan_memo_selftest_invariants.py`'s (the checker run), by those modules' own
+seams.
 
 This is the TAIL module of the four, so R26 ON lands here -- exactly as its
 mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
@@ -99,7 +101,7 @@ rcase("NEGATIVE", "(R26 §6.3) a destination nested 33 deep is NOT a link, so `[
 # declared, to the checker, ITSELF: kind umbrella, no `UMBRELLA-MARK`, a
 # pointer row inside the census, exit 0.  These two are the END-TO-END half
 # (the reviewer's shape, and its mention-only partner); the derivation itself
-# is swept over `SCHEMAS` by `plan_memo_selftest_properties`'
+# is swept over `SCHEMAS` by `plan_memo_selftest_invariants`'
 # `row_noun_schema_control`, which is what makes the NEXT schema's noun a
 # covered case rather than the next round's finding.
 

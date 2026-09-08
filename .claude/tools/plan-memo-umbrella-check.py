@@ -56,8 +56,14 @@ MODULES
   (this file)             mention scanners, `check()`, the report
   plan_memo_umbrella_selftest.py (the runner) / _selftest_controls.py (the
                           function-shaped controls + `registry()`) /
-                          _selftest_properties.py (the PROPERTY controls: the
-                          source-text sweeps and the rendering invariants) /
+                          _selftest_properties.py (the PROPERTY controls whose
+                          subject is this checker AS WRITTEN: the source-text,
+                          AST, code-object and docstring sweeps, which call
+                          nothing of it) /
+                          _selftest_invariants.py (the PROPERTY controls whose
+                          subject is this checker RUN: one document written two
+                          ways that render the same must get one verdict, and a
+                          reader must answer its own definition) /
                           _selftest_work.py (the controls that state a COST and
                           count it -- the only importer of the deterministic
                           work witnesses) /

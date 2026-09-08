@@ -41,7 +41,7 @@ Every class here is ASCII by spelling (`\\b` / `\\w` / `\\d` are Unicode in
 a str pattern): `次のSlice C` has no Unicode word boundary before `Slice`,
 and both naming sites went unreported under `\\b` (PR #510 R9).
 
-The self-test's spelling sweep (`plan_memo_selftest_controls.py::
+The self-test's spelling sweep (`plan_memo_selftest_properties.py::
 id_spelling_sweep_control`) reads every other module's string constants
 for a second spelling of these classes; a reader that needs an ASCII
 alphanumeric boundary composes `ALNUM` rather than writing it.
@@ -59,7 +59,7 @@ BEFORE = "(?<!%s)" % ALNUM
 AFTER = "(?!%s)" % ALNUM
 """The ASCII word boundary, as the two lookarounds that spell it -- the ONE
 composition every reader outside this module uses, so no other module writes
-the class (`plan_memo_selftest_controls.id_spelling_sweep_control` sweeps for
+the class (`plan_memo_selftest_properties.id_spelling_sweep_control` sweeps for
 exactly that).  `\\b` is NOT it: it is Unicode in a str pattern (`次のSlice C`
 has no boundary before `Slice`), and under `re.ASCII` it still counts `_` as a
 word character where this grammar does not."""
