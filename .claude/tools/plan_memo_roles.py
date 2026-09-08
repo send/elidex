@@ -60,11 +60,13 @@ LICENSE_BEFORE = re.compile(
     # start.  The anchored pass is a superset of the bare pass at exactly
     # those positions -- it admits a digit and a single letter the bare pass
     # declines, and takes the same token otherwise -- so the case is not rare,
-    # it is empty.  Measured both ways before deleting: dropping it moves 0 of
-    # 554 controls and leaves the #506 census byte-identical, and so does
-    # dropping the `_TRAILING_NOUN` substitution at `3a9f61a0`, which means it
-    # was already dead there.  It is deleted rather than ported because a
-    # clause nothing can reach reports coverage this rule does not have.
+    # it is empty.  Measured both ways before deleting, and RE-RUNNABLE rather
+    # than a count that goes stale: drop this clause and run `--self-test`
+    # plus the #506 `--worklist` -- NO control turns red and the census is
+    # byte-identical -- and do the same to the `_TRAILING_NOUN` substitution
+    # at `3a9f61a0`, which was already dead there.  It is deleted rather than
+    # ported because a clause nothing can reach reports coverage this rule
+    # does not have.
     r")(?:the\s+)?$",
     re.IGNORECASE | re.ASCII,
 )

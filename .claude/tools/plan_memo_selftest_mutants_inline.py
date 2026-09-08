@@ -446,9 +446,12 @@ MUTANTS += [
     # tail rather than blanking it apart.  R24 moved the file/cite reading onto
     # the block's RENDERING (`dispose` stage 2), where a link's tail is already
     # gone, so no token is ever found inside one and that overlap cannot arise.
-    # Measured before retiring it, at the R24 head: with blank-wins re-injected,
-    # 0 of 540 controls turn red and the #506 census `--worklist` is
-    # byte-identical -- the ordering has become a statement with no witness.
+    # Measured before retiring it, and RE-RUNNABLE rather than a count that
+    # goes stale: re-inject blank-wins (`if v > disp[k]` ->
+    # `if v > disp[k] or (v == 1 and disp[k] == 2)`) and run `--self-test`
+    # plus the #506 `--worklist`.  At R24 NO control turned red and the census
+    # was byte-identical -- the ordering has become a statement with no
+    # witness.
     # The LINE stays (it is the spec's own statement, and the next mask kind
     # will need it); the mutant does not, because a mutant its control cannot
     # kill reports coverage this suite does not have.  The control stays too:
