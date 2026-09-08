@@ -37,6 +37,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 # import name, so it is loaded under a fixed one.
 MODULES = [
     ("plan_memo_ids", "plan_memo_ids.py"),
+    ("plan_memo_emphasis", "plan_memo_emphasis.py"),
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),

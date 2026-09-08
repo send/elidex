@@ -394,9 +394,9 @@ rcase("NEGATIVE", "(schema) a citation id in the citation table is admitted: rc 
 # is read by the scanners exactly as written, and these say what that buys and
 # what it costs.  Without them the table's "read as written" column would be an
 # assertion; with them a change of disposition turns a control red.
-case("POSITIVE", "(§6.2) emphasis is PROSE, not a mask: a declared id inside `*...*` IS a naming site -- the "
-                 "delimiters are characters the scanners read past, and the `**9z**` DECORATION a row id may "
-                 "carry is the id grammar's business (`plan_memo_ids.DECOR`), not this pass's",
+case("POSITIVE", "(§6.2) emphasis is LEXED (design re-gate 4): a declared id inside `*...*` IS a naming "
+                 "site, because the delimiters render no character at all -- the `**9z**` DECORATION a row "
+                 "id may carry is the exception `dispose` makes for it, not this pass's",
      build(), "See *Slice 9z* here.", 1)
 case("POSITIVE", "(§6.2) a link WRAPPED in emphasis is still the memo link: emphasis-as-prose costs the "
                  "population nothing (commonmark.js: `<em><a href=\"child.md\">x</a></em>`)",
@@ -405,8 +405,178 @@ case("POSITIVE", "(§6.7) a HARD line break inside a link's text does not break 
                  "the block's joined text, so a construct may span the lines of its paragraph (§6.8 soft breaks "
                  "likewise)",
      build(), "See [x  \ny](child.md) here.", 1, files=CHILD)
-case("KNOWN-MISS", "(§2.5) a character reference in PROSE is read as written, so an id SPELLED as one "
-                   "(`Slice &#57;z` renders `Slice 9z`) is no naming site -- the declared cost of the §3.0b "
-                   "row: §2.5 is decoded in a link DESTINATION only (`normalize_destination`, R16), because "
-                   "that is the one text whose value must equal a file name",
-     build(), "See Slice &#57;z here.", 0)
+case("POSITIVE", "(§2.5) a character reference in PROSE renders its character, so an id SPELLED as one "
+                 "(`Slice &#57;z` renders `Slice 9z`) IS a naming site: the reference and the §2.4 escape "
+                 "are the two spellings of one substitution, at the one site the stream builds (design "
+                 "re-gate 4; until then §2.5 was decoded in a link DESTINATION only and this measured 0)",
+     build(), "See Slice &#57;z here.", 1)
+
+# ------------------------------- PR #510 design re-gate 4: the RENDERED text --
+# The stream IS what the document renders (`plan_memo_tables.stream`), so an id
+# or the kind marker split by a construct that renders NOTHING is read as the
+# one unit a reader reads.  Two probe rows make the reading falsifiable: an
+# UMBRELLA `Wz` and a TERMINAL `W`, so the wrong reading of `W**z**` reports
+# nothing where the right one reports a site (the LOST-SITE axis), and the
+# mirror table -- terminal `Wz`, umbrella `W` -- reports a site where the right
+# reading reports none (the FABRICATED-SITE axis).  Each shape below is a
+# construct of the §3.0b list that contributes no character, measured against
+# commonmark.js 0.31.2 (`~~` against GitHub's GFM pipeline).
+SPLIT = ("## §5 split probe\n\n| # | Slice | Primary module(s) | Slot | Tier | Deps |\n"
+         "|---|---|---|---|---|---|\n"
+         "| **Wz** | **%s** charter. | `w.rs` | — | T1 | — |\n"
+         "| **W** | **%s** Acceptance: must. | `x.rs` | — | T1 | — |")
+UMB = "UMBRELLA, not a terminal unit."
+LOST = SPLIT % (UMB, "Terminal.")        # `Wz` is the umbrella: a split id LOSES the site
+FAB = SPLIT % ("Terminal.", UMB)         # `W` is the umbrella: a split id FABRICATES one
+
+for name, prose in [
+        ("§6.2 strong emphasis `W**z**`", "Slice W**z** owns it."),
+        ("§6.2 emphasis `W*z*`", "Slice W*z* owns it."),
+        ("GFM strikethrough `W~~z~~`", "Slice W~~z~~ owns it."),
+        ("§6.6 a raw HTML tag pair `W<b>z</b>`", "Slice W<b>z</b> owns it."),
+        ("§6.6 an HTML comment `W<!-- c -->z`", "Slice W<!-- c -->z owns it."),
+        ("§6.3 a link's brackets `W[z](slice-9z-sib.md)`", "Slice W[z](slice-9z-sib.md) owns it."),
+        ("§2.5 a character reference `W&#122;`", "Slice W&#122; owns it."),
+]:
+    case("POSITIVE", "(render) %s renders `Wz` and names the UMBRELLA row `Wz`: a construct that "
+                     "contributes no character does not split a token" % name,
+         build(extra=LOST), prose, 1)
+    case("NEGATIVE", "(render) %s names no row on the mirror table, where `W` is the umbrella and `Wz` "
+                     "terminal: the old reading fabricated a site on `W`" % name,
+         build(extra=FAB), prose, 0)
+
+case("NEGATIVE", "(render) `Slice W*z owns it`: an UNMATCHED `*` run is literal text (§6.2 -- commonmark.js "
+                 "renders `9*z` verbatim), so it BOUNDS the token and `Wz` is not named -- dropping a run "
+                 "that pairs with nothing would fabricate the row",
+     build(extra=LOST), "Slice W*z owns it.", 0)
+case("NEGATIVE", "(render) `Slice W_z_ owns it`: an intraword `_` run can neither open nor close (§6.2 "
+                 "rules 5-6, the `snake_case` rule), so it is literal and bounds the token",
+     build(extra=LOST), "Slice W_z_ owns it.", 0)
+case("NEGATIVE", "(render) `Slice W~~~z~~~ owns it`: three tildes are no strikethrough (GFM: a matching "
+                 "pair of ONE OR TWO), so the run is literal text and bounds the token",
+     build(extra=LOST), "Slice W~~~z~~~ owns it.", 0)
+case("POSITIVE", "(render) `Slice [W](slice-9z-sib.md)z owns it` names `Wz`: the link's tail renders "
+                 "nothing, and the `.md` file token INSIDE it is dropped with it -- where a drop and a "
+                 "blank overlap the drop wins, or the tail's two sides stay apart",
+     build(extra=LOST), "Slice [W](slice-9z-sib.md)z owns it.", 1)
+case("NEGATIVE", "(render) `Slice W`z` owns it`: a code span RENDERS TEXT this checker refuses to read "
+                 "(I-A), so it blanks and bounds the token -- the residue the `[LEX-SPLIT?]` seed reports "
+                 "rather than decides",
+     build(extra=LOST), "Slice W`z` owns it.", 0)
+acase("POSITIVE", "(render) that same code span IS the `[LEX-SPLIT?]` residue seed: the reader reads `Wz` "
+                  "across a span the disposition blanks, and the seed says so",
+      build(extra=LOST), "LEX-SPLIT?", 1, prose="Slice W`z` owns it.")
+acase("NEGATIVE", "(render) `Slice W**z** owns it` seeds NOTHING: the construct renders no character, so "
+                  "the two readings agree and there is no residue to report",
+      build(extra=LOST), "LEX-SPLIT?", 0, prose="Slice W**z** owns it.")
+
+# The DECORATION exception: `**id**` where the id is declared is the document
+# decorating it (the same `id_only` predicate the code-span disposition uses),
+# so its delimiters STAND and bound the token.
+case("POSITIVE", "(render) `**9z**7z` still names `9z`: a `**` pair whose content is only declared ids is "
+                 "the document DECORATING an id, so the delimiters stand and bound it -- dropping them "
+                 "would leave the single token `9z7z`, which no row declares",
+     build(), "**9z**7z owns it.", 1)
+case("NEGATIVE", "(render) `*9z*7z` names nothing: a SINGLE `*` is not this document's decoration "
+                 "(`plan_memo_ids.DECOR` is `**` and a backtick), so the pair renders away and `9z7z` is "
+                 "one token -- the exception is the decoration's, not emphasis's",
+     build(), "*9z*7z owns it.", 0)
+case("POSITIVE", "(render) an id-only code span is still the document SPELLING an id: `` `9z` `` is a "
+                 "naming site, decoration and all",
+     build(), "See `9z` here.", 1)
+case("NEGATIVE", "(render) `\\*\\*C\\*\\* is how the row is written`: an ESCAPED decoration character "
+                 "stands as written -- substituting it would spell a `**C**` bold the document does not "
+                 "have, and the undecorated single letter is the declared miss",
+     build(), "\\*\\*C\\*\\* is how the row is written.", 0)
+case("NEGATIVE", "(render) `&#42;&#42;C&#42;&#42;` is the same rule for §2.5: a reference that would "
+                 "spell a decoration stands as written",
+     build(), "&#42;&#42;C&#42;&#42; is how the row is written.", 0)
+
+# The licensing rule, the seeds' vocabularies and the kind reader all read that
+# one stream, so a phrase split by emphasis is the phrase (three sites of the
+# #506 memo moved from REPORTED to LICENSED for exactly this reason).
+case("NEGATIVE", "(render) `each of *9z's* children`: the licensing phrase is read as the document "
+                 "renders it, so the emphasis no longer hides a licensed construction",
+     build(), "That is what makes each of *9z's* children a permissible PR.", 0)
+case("NEGATIVE", "(render) `9z's **charter**`: the licensed noun carries the decoration, and the phrase "
+                 "is licensed all the same",
+     build(), "The obligation is stated against 9z's **charter**.", 0)
+case("NEGATIVE", "(render) `9z is an *umbrella* row`: same, for the kind-statement arm of the licence",
+     build(), "§5 row 9z is an *umbrella* row whose derivation mints its children.", 0)
+
+# The KIND readers read the same stream: the marker, the `DECLARES` near-miss,
+# the undetermined and pointer spellings, the acceptance and ownership
+# vocabularies.  A row whose declaring field spells the marker across emphasis,
+# a comment, a character reference or an escape DECLARES it -- the rendered
+# document says umbrella -- and a prose mention of that row is a site exactly
+# while the row is in the census, which is what these measure.
+SPLIT_SLOT = ("## §8 split probe\n\n| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+              "| `#11-zz-gamma` | **%s** why. | now | 2026-12-31 |")
+GAMMA = "Slot #11-zz-gamma lands before Slice 7z."
+
+for name, phrase in [
+        ("plain", UMB),
+        ("§6.2 emphasis inside it (`not a *terminal* unit`)", "UMBRELLA, not a *terminal* unit."),
+        ("GFM strikethrough inside it", "UMBRELLA, not a ~~terminal~~ unit."),
+        ("§6.6 a tag pair inside it", "UMBRELLA, not a <b>terminal</b> unit."),
+        ("§6.6 a comment inside it", "UMBRELLA, not a<!-- sic --> terminal unit."),
+        ("§2.5 a character reference for the comma", "UMBRELLA&#44; not a terminal unit."),
+        ("§2.4 an escaped comma", "UMBRELLA\\, not a terminal unit."),
+]:
+    case("POSITIVE", "(kind) a declaring field spelling the marker with %s DECLARES the umbrella: the row "
+                     "is in the census, so a prose mention of it is a site" % name,
+         build(extra=SPLIT_SLOT % phrase), GAMMA, 1)
+case("NEGATIVE", "(kind) the marker QUOTED WHOLE in a code span declares nothing (I-A: a quoted marker is "
+                 "not a declaration) -- the row is terminal and its mention is no site",
+     build(extra=SPLIT_SLOT % ("Terminal.  Not `%s` at all." % UMB)), GAMMA, 0)
+rcase("POSITIVE", "(kind) a declaring field spelling the marker ACROSS a code span is the schema miss, rc 2: "
+                  "a reader reads the marker, the disposed stream does not, and §1 forbids a clean exit for "
+                  "a could-not-scan over the census",
+      build(extra=SPLIT_SLOT % "UMBRELLA, not a `terminal` unit."), GAMMA, 2)
+rcase("NEGATIVE", "(kind) a declaring field holding a code span and NO marker is no miss: rc 0 -- the "
+                  "residue is a marker the reader reads ACROSS a blanked span, never the presence of one",
+      build(extra=SPLIT_SLOT % "Terminal.  See `terminal` above."), GAMMA, 0)
+rcase("NEGATIVE", "(kind) nor is a field carrying the marker WHOLE beside a code span: rc 0",
+      build(extra=SPLIT_SLOT % ("%s  See `terminal` above." % UMB)), GAMMA, 0)
+
+acase("POSITIVE", "(kind) the appositive attribution reads the rendered field too: `Slice **9z** — "
+                  "**UMBRELLA, not a *terminal* unit.**` is the UMBRELLA-MARK finding, so the pointer row "
+                  "stays out of the census",
+      build(sqx="Slice **9z** — **UMBRELLA, not a *terminal* unit.**"), "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(kind) the `DECLARES` near-miss backstop is the same reading: `is an *umbrella*` in a "
+                  "declaring field without the marker is the seed",
+      build(sqx="Terminal-ish.  This row is an *umbrella* by the derivation.  Acceptance: must."),
+      "UMBRELLA-MARK?", 1)
+case("POSITIVE", "(kind) the UNDETERMINED spelling read across emphasis: `KIND — UNDE*TER*MINED` puts the "
+                 "row in the no-owner census, so its mention is a site",
+     build(sqx="KIND — UNDE*TER*MINED until the probe runs."), "Slice Qx lands before Slice 7z.", 1)
+acase("NEGATIVE", "(kind) the POINTER spelling read across a comment: the row is a POINTER, and a pointer "
+                  "row owes no acceptance condition -- so the ACCEPT-VOCAB? seed stays silent where reading "
+                  "the comment as text would have made the row an active terminal owing one",
+      build(sqx="This row is a pointer<!-- sic --> rather than a slice."), "ACCEPT-VOCAB?", 0)
+acase("NEGATIVE", "(vocab) acceptance vocabulary split by emphasis is acceptance vocabulary: a terminal row "
+                  "writing `m*us*t` owes no ACCEPT-VOCAB? seed",
+      build(s7z="Terminal.  The probe m*us*t return 3."), "ACCEPT-VOCAB?", 0)
+acase("POSITIVE", "(vocab) the ownership connective is read the same way: `own*ed by* **9z** and **Qx**` is "
+                  "the TWO-OWNERS? clause",
+      build(s9z="charter.  The surface is own*ed by* **9z** and **Qx**."), "TWO-OWNERS?", 1)
+acase("NEGATIVE", "(cell) a `Deps` cell holding only an HTML comment is EMPTY: it renders nothing, so the "
+                  "umbrella row carries no Deps edge (`is_empty` reads the cell's stream, not its raw text)",
+      build(d9z="<!-- none yet -->"), "UMBRELLA-CELL", 0)
+acase("POSITIVE", "(cell) a `Deps` cell naming a row is still an edge: the control above has a live subject",
+      build(d9z="**7z**"), "UMBRELLA-CELL", 1)
+
+# The two line-break rows of §3.0b, whose cost is measured against the same probe
+# table: a break renders a line ending, and a line ending bounds every unit.
+case("POSITIVE", "(§6.7) a hard line break's own markup stands in the stream -- `\\` before a line ending "
+                 "escapes nothing (§2.4 is ASCII punctuation, and a line ending is none) -- and costs "
+                 "nothing: the break renders a line ending, which bounds every unit the scanners read, so "
+                 "`Slice W\\` + `z` names no `Wz` on the probe table where `Wz` is the umbrella",
+     build(extra=LOST), "Slice W\\\nz owns it.", 0)
+case("POSITIVE", "(§6.8) a SOFT line break is the same measurement: `Slice W` then `z` on the next line "
+                 "renders two words and names no `Wz`",
+     build(extra=LOST), "Slice W\nz owns it.", 0)
+case("NEGATIVE", "(render) `**9z**'s children`: the licensing rule needs no decoration spelling of its "
+                 "own -- the mention's token consumes the `**` it carries, so the licensed noun is what "
+                 "follows it",
+     build(), "That is what **9z**'s children are for.", 0)

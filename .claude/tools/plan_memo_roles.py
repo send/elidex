@@ -53,8 +53,15 @@ LICENSE_BEFORE = re.compile(
 
 # What may stand immediately AFTER the mention: the mention possesses one of
 # the things §5 says an umbrella carries, or the sentence is about its kind.
+# ⚠ No `(?:\*\*)?` prefix: the mention's own token consumes the decoration it
+# carries (`plan_memo_ids.DECOR`), and since design re-gate 4 the only `**`
+# left in the stream is a KEPT id decoration -- whose content is an id, never a
+# licensed noun -- so a decoration spelled here would be a second spelling of
+# the id grammar's that nothing can reach.  Measured: removing it moves no
+# control and no site of the #506 memo (1,205 mentions, 491 licensed, both
+# before and after).
 LICENSE_AFTER = re.compile(
-    r"^(?:\*\*)?(?:"
+    r"^(?:"
     r"(?:'s|’s)\s+(?:own\s+)?(?:derivation|children|charter|memo|split|plan-memo|sub-slices)"
     r"|,?\s+whose\s+(?:derivation|charter|children)"
     r"|\s+is\s+an?\s+umbrella"
@@ -277,7 +284,7 @@ def assertion_b(pop, findings, notes):
         kind = "umbrella" if no_owner[row.self_id].kind == "umbrella" else "kind-undetermined"
         checked += 1
         deps = row.col("Deps").text
-        if not is_empty(deps):
+        if not is_empty(_stream(row, "Deps")):
             findings.append(("UMBRELLA-CELL", pop.display(row.memo.path), row.lineno,
                              "%s row %s carries a Deps edge: %s" % (kind, row.name(), deps[:120])))
     notes.append(
@@ -323,7 +330,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         rid = row.self_id
         deps = row.col("Deps").text
         body = _stream(row, "Slice")
-        empty = is_empty(deps)
+        empty = is_empty(_stream(row, "Deps"))
         if not ORDER_WORDS.search(body):
             continue
         # ⚠ A NON-EMPTY `Deps` cell does not discharge this.  The seed used to

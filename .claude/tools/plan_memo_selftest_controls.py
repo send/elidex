@@ -123,6 +123,51 @@ def raw_offset_control(M):
     return ok, "col lands on %r" % (reported[0].line[reported[0].col:reported[0].col + 2] if reported else None)
 
 
+def split_locator_control(M):
+    """A site read ACROSS a construct that renders nothing is reported at its
+    RAW column (design re-gate 4).  The stream is no longer the raw text --
+    `Slice 9**z** owns it` renders `Slice 9z`, four characters shorter -- so
+    every reporting coordinate goes through `Stream.at` first.  Without that
+    map the column is off by the dropped delimiters and points into the middle
+    of the token, which is `raw_offset_control`'s failure mode for the other
+    direction (an escaped pipe).  The probe drops four characters BEFORE the
+    site (`**Note.**`): a site with nothing dropped in front of it sits at the
+    same offset in both texts and cannot tell the readings apart."""
+    _, reported = run_on(M, build(), "**Note.**  Slice 9**z** owns it.")
+    ok = len(reported) == 1 and reported[0].line[reported[0].col:reported[0].col + 5] == "9**z*"
+    at = reported[0].line[reported[0].col:reported[0].col + 5] if reported else None
+    return ok, "one site, col lands on %r (the raw `9`, not the stream's)" % at
+
+
+def linear_emphasis_control(M):
+    """The linearity witness for §6.2's delimiter walk: N delimiter runs that
+    pair with NOTHING cost O(N) work, not O(N^2).  `process_emphasis` searches
+    back from each closer for an opener, and the Appendix's `openers_bottom`
+    memo is what keeps a failed search from being repeated by every later
+    closer of the same key; without it a paragraph of `*` runs re-walks the
+    whole stack each time.  Source lines executed in the emphasis module are
+    counted (the work passes through no module binding a call counter could
+    watch), with the bound stated per run: quadratic growth blows it long
+    before the wall clock would say so on any host.  The probe is `a* ` x N --
+    runs that can only CLOSE (preceded by a letter, followed by a space), so
+    every one of them searches back and finds nothing; a probe of runs that
+    can only OPEN never enters the search at all and leaves the mutant
+    alive (measured)."""
+    import plan_memo_emphasis     # the freshly loaded module
+    out = {}
+    for n in (100, 400):
+        runs = [plan_memo_emphasis.run_at("a* " * n, 3 * k + 1) for k in range(n)]
+        try:
+            with _count_lines(plan_memo_emphasis, limit=60 * n) as c:
+                plan_memo_emphasis.process(runs)
+        except _WorkExceeded:
+            return False, "%d unmatched delimiter runs cost more than %d source lines: not linear" % (n, 60 * n)
+        out[n] = c.lines
+    ok = out[400] <= 4 * out[100] + 200
+    return ok, "%d / %d source lines for 100 / 400 unmatched runs (<= 60N, and 4x the work for 4x the input)" % (
+        out[100], out[400])
+
+
 def empty_registry_fails(n_controls, n_mutants):
     """The emptiness guard: a run over ZERO controls or (when mutants are
     requested) ZERO mutants proves nothing and must be a FAIL, not a green
@@ -806,7 +851,7 @@ def registry():
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
-    reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1, §6.3-§6.6): Phase 2's inline claim aligns "
+    reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
         "with the html"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
@@ -815,6 +860,8 @@ def registry():
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)
+    reg["a site read across a construct that renders nothing is reported at its raw column (the stream map)"] = ("CONTROL", split_locator_control)
+    reg["emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the Appendix's openers_bottom)"] = ("CONTROL", linear_emphasis_control)
     reg["an empty control or mutant registry is a FAIL, never green"] = ("CONTROL", empty_registry_control)
     reg["links() is linear: 30 nested brackets are one inline_pass call"] = ("CONTROL", linear_links_control)
     reg["Phase-1 orphan detection is linear: <= 4 link_label calls per line"] = ("CONTROL", linear_orphans_control)

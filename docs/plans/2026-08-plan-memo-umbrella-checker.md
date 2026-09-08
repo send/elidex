@@ -4,14 +4,16 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 16
-`.py` files: `plan-memo-umbrella-check.py` 498 / `plan_memo_tables.py` 364 / `plan_memo_umbrella_selftest.py`
-89 (the three carried names, 951) + `plan_memo_ids.py` 184 / `plan_memo_lexer.py` 699 / `plan_memo_blocks.py` 746 /
-`plan_memo_memo.py` 913 / `plan_memo_roles.py` 399 / `plan_memo_selftest_cases.py` 612 /
-`plan_memo_selftest_cases_pr510.py` 949 / `plan_memo_selftest_conformance.py` 279 / `plan_memo_selftest_controls.py` 828 /
-`plan_memo_selftest_harness.py` 266 / `plan_memo_selftest_mutants.py` 457 / `plan_memo_selftest_mutants_pr510.py` 873
-— **8,156 total, measured at `git add` of the R20 `Row.name` fix commit (parent `9e0c37a0`); re-run at landing** (`wc -l
-.claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched). No `crates/` change.
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 18
+`.py` files: `plan-memo-umbrella-check.py` 561 / `plan_memo_tables.py` 596 / `plan_memo_umbrella_selftest.py`
+93 (the three carried names, 1,250) + `plan_memo_ids.py` 192 / `plan_memo_emphasis.py` 216 / `plan_memo_lexer.py` 809 /
+`plan_memo_blocks.py` 746 / `plan_memo_memo.py` 942 / `plan_memo_roles.py` 413 / `plan_memo_selftest_cases.py` 614 /
+`plan_memo_selftest_cases_pr510.py` 701 / `plan_memo_selftest_cases_inline.py` 582 /
+`plan_memo_selftest_conformance.py` 377 / `plan_memo_selftest_controls.py` 881 / `plan_memo_selftest_harness.py` 267 /
+`plan_memo_selftest_mutants.py` 460 / `plan_memo_selftest_mutants_pr510.py` 701 / `plan_memo_selftest_mutants_inline.py` 466
+— **9,617 total, measured at `git add` of the design re-gate 4 commit (parent `18c65884`); re-run at landing** (`wc -l
+.claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched).  Every file
+is under the 1000-line bound, the largest being `plan_memo_memo.py` at 942.  No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
 this PR lands (4,771 on the tree of the commit after `1840251b`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
@@ -66,7 +68,29 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
 
 ## §2 Coupled invariants (edge-dense)
 
-- **I-A Lexical masking** — text inside fenced blocks and inline code spans is never read as a
+- **I-A Lexical masking, and the RENDERED text** (design re-gate 4) — the ONE text every predicate
+  over a block reads is the block **as the document renders it** (`plan_memo_tables.stream`): a
+  construct that contributes NO character (a §6.2 / GFM delimiter pair, a raw HTML tag or comment, a
+  link's `[` and its tail) is dropped, so the text on both sides of it is one run; a §2.4 escape and a
+  §2.5 character reference substitute their character; and a construct that renders text this checker
+  refuses to read (a code span, an autolink, an image's tail, a citation id, a file name) is BLANKED
+  in place — still unreadable, but still a boundary, because a reader does not read across it either.
+  The disposition table is `RENDERS_TEXT`, mirrored in §3.0b's `Renders` column, and the stream
+  carries the map back to source offsets (`Stream.at`) so every reported line and column is the raw
+  one. Two EXCEPTIONS, each the same rule twice: a code span whose content is only declared ids, and
+  a `**` pair whose content is only declared ids, are the document SPELLING or DECORATING an id and
+  stand in the stream, delimiters and all (`id_only`, one predicate, both constructs — so
+  `` `9a`-`9d` `` is two ids and `**9z**7z` is `9z` then `7z`); and a substitution that would spell a
+  decoration character stands as written, since the stream carries exactly one kind of markup and
+  `\*\*C\*\*` is not a bold `C`. **The residue is reported, never decided**: where a unit the
+  reader reads STRADDLES a blanked span the two readings disagree, and `split_units` says so — as the
+  `[LEX-SPLIT?]` seed, and, for the kind marker in a row's DECLARING FIELD, as a schema miss (rc 2),
+  because §1 forbids a clean exit for a could-not-scan over the census this program exists to take.
+  ⚠ Until that re-gate the stream was the source text with the masks blanked: `Slice 9**z**`, which
+  renders `Slice 9z`, was read as the row `9` (a fabricated site on one row, a lost site on another),
+  and `**UMBRELLA, not a *terminal* unit.**` — or `&#44;` for the comma, or `~~terminal~~`, or
+  `<b>terminal</b>`, or an escaped `\,` — declared nothing at all, so the row left the umbrella
+  census silently at rc 0. Text inside fenced blocks and inline code spans is never read as a
   link, as prose, **or as a kind marker** (today `umbrella_ids` / `_attributed_to_other` read the
   declaring field raw, so a *quoted* `` `UMBRELLA, not a terminal unit` `` contaminates the census —
   probe: fixture row 7z quoting the phrase joins `umbrella_ids()`); code spans are lexed over the
@@ -311,6 +335,8 @@ and each attribution spelling has a positive control and a mutant.
 | WHATWG URL §4.4 "URL parsing" — the basic URL parser's *scheme start state* (`#scheme-start-state`) and *scheme state* (`#scheme-state`), then §1.3 "Percent-encoded bytes" *percent-decode* on a string (`#string-percent-decode`) — + **local policy** (CommonMark §6.3 / GFM say nothing about siblings on disk) | ONE destination → sibling resolver | `Memo.sibling_path`, stages in spec order: (a) scheme on the RAW path — `#scheme-start-state` step 1 ("If c is an ASCII alpha, append c, lowercased, to buffer, and set state to scheme state") and `#scheme-state` step 1 ("If c is an ASCII alphanumeric, U+002B (+), U+002D (-), or U+002E (.), append c, lowercased, to buffer") / step 2 ("Otherwise, if c is U+003A (:)" → the scheme) read the input's code points AS WRITTEN; `%` is in neither class, so at `%` the parser leaves for the *no scheme state* and `notes%3Achild.md` has no scheme — it is the file `notes:child.md`; percent-decoding is no step of the parser (the *path state*, `#path-state`, percent-ENCODES and keeps `%xx`), (b) percent-decode — `#string-percent-decode` ("Let bytes be the UTF-8 encoding of input. Return the percent-decoding of bytes"; `urllib.parse.unquote`), a consumer's operation on the parsed path (`slice%20sib.md` = `slice sib.md`) — ⚠ until R17 this row and the docstring cited "WHATWG URL" bare, (c) the DECODED name must be RELATIVE on every platform, and hold no C0 control / DEL (`child%00.md` would make `resolve()` raise) — **R19**: ONE platform-independent reading, Windows path syntax (`pathlib.PureWindowsPath`, the superset: `/` and `\` both separate, a drive letter / UNC prefix / root ANCHORS), which is the URL standard's own reading of a special-scheme path (`file` is a special scheme): `#path-state` step 1 ends a segment at `/` or, "url is special and c is U+005C (\)", at a backslash (invalid-reverse-solidus validation error), and step 1.4.1's drive-letter rule is, in the spec's words, "a (platform-independent) Windows drive letter quirk" — so `PureWindowsPath(name).anchor` must be empty: `/x`, `//host/x` (a site URL joined to the memo's directory would probe the host's filesystem root), `\x`, `C:\temp\x`, `\\server\share\x` and the drive-relative `C:x` (raw `C:x.md` is already scheme `c` at (a); percent-encoded `C%3Ax.md` decodes to a drive anchor here, as does the one-letter `n%3Ax.md`, where the multi-letter `notes%3Ax.md` of (a) is a file name) are rejected; ⚠ until R19 (c) rejected a leading `/` only, so `C%3A%5Ctemp%5Cchild.md` and `%5Cchild.md` passed and on Windows `parent / name` discarded the memo's directory, (d) `.md`, (e) the name's PARTS joined beside the memo under the same syntax — `\` is a separator everywhere, never a POSIX name character: `sub%5Cchild.md` is the sibling `sub/child.md` on every platform (R19) — then `_resolve` = `resolve()` with `OSError` or (Python 3.9–3.12 symlink loop) `RuntimeError` read as an UNAVAILABLE sibling, reported by the population's one I/O chokepoint (`Memo()` under `OSError | UnicodeDecodeError` — I/O ONLY, `read_text(encoding="utf-8")`; ⚠ until R16 `RuntimeError` too, which read a parser `RecursionError` — a `RuntimeError` — as an unavailable memo, rc 2, no census; a parser exception is a crash, crash = FAIL) as the exit-2 unavailable-memo miss; `linked_files` dedups with a set | `plan_memo_memo.py::Memo.sibling_path` / `_resolve` / `linked_files`, `Population.__init__` | ✓ controls "(link) `notes%3Achild.md` has no scheme…", "(link) a percent-encoded destination…", "(rc) a percent-encoded ABSOLUTE destination…", "a decoded destination with a C0 control character is rejected…", "an OSError from resolve() is the unavailable-sibling schema miss…" (OSError and RuntimeError injected), "an undecodable sibling is the unavailable-linked-memo schema miss…", "linked_files is linear: <= N Path.__eq__ calls over N distinct siblings…", "a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss" (R16; mutant re-injects the broad except), the R19 "(rc) …" family (`C%3A%5Ctemp%5Cchild.md`, `%5Cchild.md`, the percent-encoded UNC, the raw `\\server\share\x.md` — §2.4 decodes it to the `\`-rooted `\server\share\x.md`, commonmark.js's href `%5Cserver%5Cshare%5Cx.md` — drive-relative `C:child.md` raw and encoded, the one-letter `n%3Achild.md`) and "(link) `sub%5Cchild.md`…" (walks `sub/child.md`); mutants R19 #3 (the `/`-only test re-injected; the POSIX reading `parent / name` re-injected) | no |
 | CommonMark §2.5 Entity and numeric character references + §6.3 (destination) — **R16** | ONE destination normalisation | `normalize_destination`: ONE left-to-right pass over the destination's raw text at the ONE site both forms and both grammars return through (`link_destination`, bare and `<…>`; the inline link and the §4.7 definition both call it) — a §2.4 escape yields its character; a §2.5 reference — `&` + an HTML5 entity name + `;` (`html.entities.html5`, looked up WITH the `;`, so HTML's legacy semicolon-less `&copy` is literal, Example 29, and `&MadeUpEntity;` is literal, Example 30), `&#` + 1–7 digits + `;`, `&#x` / `&#X` + 1–6 hex digits + `;` — yields its character, with U+0000, code points above U+10FFFF and surrogates → U+FFFD; the two grammars meet at a character exactly once (`\&#46;` is a literal `&#46;`; a decoded `&`, `&#x26;#46;`, is never re-read as a reference). NOT decoded: a label (§6.3 matching is on the raw label — `[foo&auml;]` ≠ `[fooä]`, commonmark.js measured), a title (`link_title` reads shape only, never text), a code span (`inline_pass` jumps past it). ⚠ Until R16 backslash-only: `[child](child&#46;md)` / `[sib]: child&#46;md` reached `sibling_path` as the literal, no `.md` suffix, the sibling silently outside the population, rc 0 | `plan_memo_lexer.py::normalize_destination` / `_CHAR_REF` / `_reference` / `_codepoint`, `link_destination` (both returns) | ✓ controls "(link) `[child](child&#46;md)`…", "(link) `[child](<child&#46;md>)`…", "(link) `[child](child&period;md)`…", "(link) `[child](child&#x2E;md)`…", "(def) `[sib]: child&#46;md`…", "(link) `[x](slice&#37;20sib.md)`…" (§2.5 then `sibling_path` stage b, spec order), "(link) `[x](child&#0;.md)`…", "(link) `[x](child&#x110000;.md)`…", "(link) `[x](child&copy.md)`…", "(link) `[x](child&#46md)`…", "(link) `[x](child\&#46;md)`…", "(link) `[x](child&#x26;#46;md)`…", "(link) `[x](child&MadeUpEntity;md)`…", "(span) `` `[c](child&#46;md)` ``…", "(label) `[foo&auml;]: child.md` then `[fooä]`…"; mutants R16 #2 (backslash-only re-injected; `html.unescape` re-injected; the U+0000 rule dropped; `;` optional; decoding re-injected in `normalize_label`) | no |
 | CommonMark §6.6 Raw HTML — **R17** | ONE tag grammar, a span of the one inline pass | `_HTML_TAG` in `inline_pass`, tried at every `<` the scan meets (left to right with backtick strings and brackets, commonmark.js's order: `<a href="`">b` c` is a tag then a literal backtick, `` `x <span title="`">b `` a code span then text): an **open tag** (`<` + a tag name — an ASCII letter then ASCII letters / digits / `-` — + attributes + optional spaces / tabs / one line ending + optional `/` + `>`; an **attribute** = at least one space / tab / line ending (≤1 line ending), an attribute name — ASCII letter / `_` / `:` then letters / digits / `_` / `.` / `:` / `-` — and an optional value spec `=` with optional whitespace around it and a value: **unquoted** = a nonempty string without spaces, tabs, line endings, `"`, `'`, `=`, `<`, `>`, `` ` `` — so `<span title=[x](y.md)>` IS a tag (⚠ the R17 brief presumed a negative), **single-quoted**, **double-quoted**), a **closing tag** (`</` + name + optional whitespace + `>`), an **HTML comment** (0.31's `<!-->`, `<!--->`, or `<!--` + a string not containing `-->` + `-->`: `<!-- a -- b -->` is one, 0.30 forbade it), a **processing instruction** (`<?` … `?>`), a **declaration** (`<!` + an ASCII letter + no `>` + `>`, either case) or a **CDATA section** (`<![CDATA[` … `]]>`, exact case). The span is RAW + SEEDED, the §3.0 disposition of a §4.6 block line applied to the same kind of text: never inline-parsed (a bracket inside an attribute value or a comment is no link delimiter — `<span title="[child](absent.md)">` once made a false unavailable-memo miss, rc 2), never a naming site (an id inside an attribute is masked, kind `html`), recorded in `Memo.raw` with the `inline` reading and seeded under the one raw-line rule when it holds a `\|` or a declared id; a `<` the grammar refuses is text and the brackets after it are read (`<3 [x](y.md)`, `<a href="x" [x](y.md)>`, `< span>`, `</ span>`, `<a b="c"d>` Example 622, `<! …>`, `<![cdata[`, `\<span …>`). §4.6 start condition 7 ("a complete open tag … or a complete closing tag") reads the same `OPEN_TAG` / `CLOSING_TAG` — ⚠ until R17 the tag grammar was spelled a second time in `plan_memo_blocks.py` | `plan_memo_lexer.py::_HTML_TAG` / `OPEN_TAG` / `CLOSING_TAG` / `inline_pass` (`html`), `Lexed.html`, `plan_memo_tables.py::dispose` (`html`), `plan_memo_memo.py::Memo._inline_raw` (seed), `plan_memo_blocks.py::_HTML_BLOCK` (t7) | ✓ controls "(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\">text</span>`…" and the "(html) …" R17 family (each arm positive, each negative rc 2 or a reported site, the two left-to-right probes, the cell, `[<span>x</span>](…)`), "(lex-seed) `<span title=\"Slice 9z owns it\">`…" (+ the `inline` reading); **falsifier = the section's own list, `Raw HTML` Examples 613–632, vendored in `commonmark-0.31.2-inline-html-examples.json`** — the runner's inline conformance control: the spans Phase 2 masks are exactly the text the html emits verbatim (each span verbatim in order in its `<p>` body, and the body's unescaped `<` count — minus two per code span — equals the spans'); mutants R17 #2 (the `<` arm dropped; quoted values dropped; the comment arm dropped; 0.30's comment exclusion re-injected; the PI / CDATA arms dropped; `<!` + anything; optional whitespace before an attribute; the seed record dropped; the `html` disposition dropped) | no |
+| CommonMark §6.2 Emphasis and strong emphasis (+ GFM 0.29 Strikethrough) — **design re-gate 4** | which delimiter runs PAIR | a delimiter run is a maximal run of `*` / `_` (CommonMark) or one-or-two `~` (GFM: "a matching pair of one or two tildes", so three or more is literal — `a~~~b~~~c` renders verbatim, measured on GitHub's pipeline); LEFT-FLANKING = not followed by Unicode whitespace and either not followed by Unicode punctuation or preceded by whitespace or punctuation (right-flanking mirrors it; the classes are Unicode by the spec's own words — P* or S* for punctuation, 0.31's definition — never ASCII, since the surrounding text of these memos is Japanese as often as not); `*` opens iff left-flanking and closes iff right-flanking, `_` adds §6.2 rules 5–6 (`snake_case` stays intact), `~` reads the `*` conditions and pairs EQUAL lengths only; then the Appendix's `process_emphasis` — each closer matched to the nearest live opener at or above the bracket's bottom, the RULE OF THREE on the ORIGINAL run lengths, `openers_bottom` so a failed search is never repeated, the delimiters between a matched pair removed — run where the Appendix runs it: when a link or an image closes (over the delimiters inside it) and once at the block's end, so emphasis never crosses a link's text boundary. A pair inside a RESOLVED image's description is DEMOTED (§6.4: plain string content, no `<em>` — the R19 rule, one more construct). What the caller wants is not a tree but the CHARACTER SPANS the delimiters occupy, since those are what the stream drops | `plan_memo_emphasis.py::run_at` / `_matches` / `process`, pushed by `plan_memo_lexer.py::inline_pass`, disposed by `plan_memo_tables.py::dispose` | ✓ | no |
+| (no spec clause — this checker's disposition, over CommonMark's rendering) — **design re-gate 4** | ONE stream: the block as the document renders it | each construct contributes text, nothing, or its character (`RENDERS_TEXT` + the §2.4 / §2.5 substitution, §3.0b's `Renders` column); a DROP beats a BLANK where they overlap (the fact of the spec beats this checker's policy — a link tail holding a `.md` file token settles it); the two id-decoration exceptions (`id_only` over a code span and over a `**` pair); the offset map back to raw coordinates; and the residue where a unit straddles a blanked span, reported as `[LEX-SPLIT?]` and, in a declaring field, as a schema miss | `plan_memo_tables.py::stream` / `Stream` / `dispose` / `split_units`, `plan_memo_memo.py::Population._kind_residue`, `plan-memo-umbrella-check.py::lex_split_seed` / `Block.at_raw` | ✓ | no |
 
 ### §3.0 Block grammar — the spec's CLOSED list (the bound IS this table)
 
@@ -412,32 +438,56 @@ as §3.0 does for block types. It exists because the inline pass was **grown one
 as the reviewer found them** — R17 §6.6 raw HTML, R19 §6.4 image descriptions, R20 the file token,
 R21 §6.5 autolinks — the same shape the block phase had before R13's closed list ended it. Four
 consecutive rounds of `plan_memo_lexer.py` findings is the PAUSE this table answers: after it, a
-missing construct is a row that says so, not a round.
+missing construct is a row that says so, not a round. ⚠ **Design re-gate 4 measured how far that
+goes**: no construct was missing from the list, and the defect was in a row's own words — §6.2 read
+PROSE-AS-WRITTEN with "Cost: none measured", an assertion where the column promised a measurement,
+and the cost was in fact a fabricated site on one row, a lost site on another and, through the same
+split, a lost kind. A closed list bounds what can be FORGOTTEN; only a measured cost bounds what can
+be WRONG about what is on it, which is why every PROSE row now carries a control that measures its
+cost.
 
 **Disposition vocabulary** — LEXED: a Phase-2 clause with a control. MASKED: lexed and then skipped
 whole, so nothing inside it is a link, a naming site or a sibling. PROSE-AS-WRITTEN: not lexed; its
 text is read by the scanners exactly as written, and the row states what that costs.
 
-| § | Inline construct | Disposition | Phase-2 site | Control / corpus |
-|---|---|---|---|---|
-| §2.4 | Backslash escapes | LEXED — one parity helper; an ODD run escapes, and the same helper answers the row splitter (`\|`) and the inline pass | `plan_memo_lexer.py::_is_escape` | spec examples (13); "(row) `a\\|b` holds an UNESCAPED pipe" |
-| §2.5 | Entity and numeric character references | LEXED **in a link destination only** — `normalize_destination` is the one place a destination's text is read, because that text must equal a file name (R16). In PROSE: read as written | `plan_memo_lexer.py::normalize_destination` | spec examples (17); KNOWN-MISS "(§2.5) a character reference in PROSE … is no naming site" — **the cost**: `Slice &#57;z` renders `Slice 9z` and is measured as 0 sites |
-| §6.1 | Code spans | LEXED → MASKED (backtick strings of equal length). Disposition exception: an id-only span is the document SPELLING an id, not code (`plan_memo_tables.py`) | `inline_pass` / `_code_closer` | spec examples (22); the code-span family |
-| §6.2 | Emphasis and strong emphasis | PROSE-AS-WRITTEN — the delimiters are characters the scanners read past. **Cost: none measured.** A declared id inside `*…*` IS a site; a link wrapped in emphasis IS still the memo link. The `**9z**` DECORATION a row id carries is the id grammar's (`plan_memo_ids.DECOR`), not this pass's | — | "(§6.2) emphasis is PROSE, not a mask…" (1 site); "(§6.2) a link WRAPPED in emphasis is still the memo link" |
-| §6.3 | Links | LEXED — the Appendix bracket stack; inline / full / collapsed / shortcut; a link deactivates every earlier `[` | `inline_pass` | spec examples (90); the link family |
-| §6.4 | Images | LEXED — not a link; destination never a sibling; a RESOLVED description is plain text, so a link inside it is demoted (R19) | `inline_pass` (the `is_img` arm) | spec examples (22); the R19 image family |
-| §6.5 | Autolinks | LEXED → MASKED whole (R21) — ONE token tried at a `<` **before** the tag grammar (the spec's order); its contents are not inline syntax, so a bracket inside it opens nothing and an id inside it is no site | `inline_pass` / `_AUTOLINK` | spec examples (19); the R21 autolink family (12 controls, 5 mutants) |
-| §6.6 | Raw HTML | LEXED → MASKED whole (R17) — one tag grammar (open / closing tag, comment, PI, declaration, CDATA) whose tag bodies are also §4.6 condition 7's. Seeded (`[LEX-UNSUPPORTED?]`) when it holds a `\|` or a declared id | `inline_pass` / `_HTML_TAG` | spec examples (20); the R17 raw-HTML family |
-| §6.7 | Hard line breaks | PROSE-AS-WRITTEN. **Cost: none measured** — the inline pass reads the block's JOINED text, so a construct may span the lines of its paragraph | — | "(§6.7) a HARD line break inside a link's text does not break the link" (1 site) |
-| §6.8 | Soft line breaks | PROSE-AS-WRITTEN — same reading as §6.7 (the joined block text) | — | covered by the §6.7 control: both are line endings inside one block |
-| §6.9 | Textual content | PROSE-AS-WRITTEN — the base case: every character not claimed above is text the scanners read (this is where ids and row nouns are found at all) | — | every naming control in the suite |
+**Renders** is the column design re-gate 4 added, and it is what the scanners actually consume: the
+stream is the block AS THE DOCUMENT RENDERS IT (`plan_memo_tables.stream`), so each construct
+contributes to it either **text** (its own characters, or — for a MASKED one — the same count of
+blanks, since the checker refuses to read them but a reader does not read across them either),
+**nothing** (the span is dropped and the text on both sides of it is ONE run), or **its character**
+(a substitution). The column is not commentary: `RENDERS_TEXT` in `plan_memo_tables.py` is the same
+table, read by the one stream builder, and a mutant per row turns it red. Before that re-gate the
+stream was the source text with the masks blanked, which read `Slice 9**z**` — a document that
+renders `Slice 9z` — as the row `9`, and `**UMBRELLA, not a *terminal* unit.**` as no declaration
+at all: a fabricated site on one row, a lost site on another, and a row silently out of the umbrella
+census at rc 0.
+
+| § | Inline construct | Disposition | Renders | Phase-2 site | Control / corpus |
+|---|---|---|---|---|---|
+| §2.4 | Backslash escapes | LEXED — one parity helper; an ODD run escapes, and the same helper answers the row splitter (`\|`) and the inline pass | **its character** — the escape and the §2.5 reference are the two spellings of one substitution, at the one site the stream builds; the backslash renders nothing. EXCEPT a `*` or a `` ` ``, which stands as written: the stream carries exactly one kind of markup (a kept id decoration), and substituting `\*\*C\*\*` would spell a bold `**C**` the document does not have (measured — the umbrella memo quotes a `grep` pattern in that shape) | `plan_memo_lexer.py::_is_escape` / `inline_pass`, `plan_memo_tables.py::stream` | spec examples (13); "(row) `a\\|b` holds an UNESCAPED pipe"; "(kind) …§2.4 an escaped comma DECLARES the umbrella…"; "(render) `\*\*C\*\*`…" |
+| §2.5 | Entity and numeric character references | LEXED **everywhere** (design re-gate 4) — in a link DESTINATION by `normalize_destination`, because that text must equal a file name (R16), and in PROSE by the same grammar in the one inline pass | **its character**, under the §2.4 row's one rule and its one exception | `plan_memo_lexer.py::normalize_destination` / `_CHAR_REF` in `inline_pass` | spec examples (17); "(§2.5) a character reference in PROSE renders its character…" (`Slice &#57;z` IS a site: 1, where the row above measured 0 — **the re-measured cost of the old reading was never `0 sites`, it was a lost site**); "(kind) …§2.5 a character reference for the comma…"; "(render) `&#42;&#42;C&#42;&#42;`…" |
+| §6.1 | Code spans | LEXED → MASKED (backtick strings of equal length). Disposition exception: an id-only span is the document SPELLING an id, not code (`plan_memo_tables.py`) | **text** (blanked) — the one construct that renders characters this checker refuses to read (I-A), so it bounds what it sits between and a unit read ACROSS it is the `[LEX-SPLIT?]` residue, not a decision | `inline_pass` / `_code_closer` | spec examples (22); the code-span family; "(render) `Slice W`z` owns it`…" + its seed |
+| §6.2 | Emphasis and strong emphasis (+ GFM 0.29 strikethrough, the same delimiter machinery) | LEXED (design re-gate 4) — the spec's delimiter runs, flanking rules, rule of three and `process_emphasis`; a `~` run of one or two is the GFM extension's, three or more is literal. Disposition exception, the code span's own: a `**` pair whose content is only declared ids is the document DECORATING an id, so its delimiters STAND and bound it (`**9z**7z` is `9z` then `7z`, never the token `9z7z`) | **nothing** for a matched pair; an UNMATCHED run is literal **text** and bounds what it sits between | `plan_memo_emphasis.py` (`run_at` / `process`), pushed by `inline_pass`, disposed in `plan_memo_tables.py::dispose` | spec examples (132, `Emphasis and strong emphasis` 350-481); the "(render)" family (the LOST-SITE and FABRICATED-SITE probes over `W**z**` / `W*z*` / `W~~z~~`, the literal `W*z`, the intraword `W_z_`, `W~~~z~~~`, `**9z**7z`, `*9z*7z`); 8 mutants. **The old row's "Cost: none measured" was false**: the cost was a fabricated site on one row and a lost site on another, and, through the same split, a lost kind |
+| §6.3 | Links | LEXED — the Appendix bracket stack; inline / full / collapsed / shortcut; a link deactivates every earlier `[` | **nothing** for the `[` and the tail (`](dest)` prints no character); the link TEXT is the document's text there and stays prose (B×D) | `inline_pass` | spec examples (90); the link family; "(render) §6.3 a link's brackets `W[z](…)`…" |
+| §6.4 | Images | LEXED — not a link; destination never a sibling; a RESOLVED description is plain text, so a link inside it — and, since design re-gate 4, an emphasis pair inside it — is demoted (R19: no tag of its own) | **text** (blanked) for the tail: an image puts a picture in the flow, not the letters of its alt text, so its two sides are not one word — while the description is scanned as prose, the stated deviation | `inline_pass` (the `is_img` arm) | spec examples (22); the R19 image family; the demotion is what makes Examples 573 / 576 / 577 / 585 / 589 align (`alt="foo bar"` emits no `<em>`) |
+| §6.5 | Autolinks | LEXED → MASKED whole (R21) — ONE token tried at a `<` **before** the tag grammar (the spec's order); its contents are not inline syntax, so a bracket inside it opens nothing and an id inside it is no site | **text** (blanked) — its text IS its URL, which a reader reads | `inline_pass` / `_AUTOLINK` | spec examples (19); the R21 autolink family (12 controls, 5 mutants) |
+| §6.6 | Raw HTML | LEXED → **DROPPED** whole (R17 masked it; design re-gate 4 made the mask a drop) — one tag grammar (open / closing tag, comment, PI, declaration, CDATA) whose tag bodies are also §4.6 condition 7's. Seeded (`[LEX-UNSUPPORTED?]`) when it holds a `\|` or a declared id | **nothing** — a tag or a comment is markup, not text: `W<b>z</b>` and `W<!-- c -->z` render `Wz`, and a `Deps` cell holding only a comment is EMPTY | `inline_pass` / `_HTML_TAG` | spec examples (20); the R17 raw-HTML family; "(render) §6.6 …`W<b>z</b>` / `W<!-- c -->z`…"; "(cell) a `Deps` cell holding only an HTML comment is EMPTY…" |
+| §6.7 | Hard line breaks | PROSE-AS-WRITTEN | **text** — the break's own markup stands in the stream (a `\` before a line ending escapes nothing: §2.4 is ASCII punctuation and a line ending is none; two trailing spaces are two spaces). **Cost, measured**: none, and for a stated reason rather than an unexamined one — the break renders a LINE ENDING, and a line ending bounds every unit the scanners read, so no reading of the markup can join what the break separates | — | "(§6.7) a hard line break's own markup stands in the stream … and costs nothing" (`Slice W\` + `z` names no `Wz`, on the probe table where `Wz` IS the umbrella); "(§6.7) a HARD line break inside a link's text does not break the link" (1 site) |
+| §6.8 | Soft line breaks | PROSE-AS-WRITTEN — same reading as §6.7 (the joined block text) | **text** — the line ending itself, the same bound. **Cost, measured**: none, by the same argument and its own control | — | "(§6.8) a SOFT line break is the same measurement: `Slice W` then `z` on the next line renders two words and names no `Wz`"; and the §6.7 control for the link case |
+| §6.9 | Textual content | PROSE-AS-WRITTEN — the base case: every character not claimed above is text the scanners read (this is where ids and row nouns are found at all) | **text**, itself | — | every naming control in the suite |
 
 **Inline conformance corpus** (`commonmark-0.31.2-inline-examples.json`, the §3.0 corpus's sibling):
 the spec's own examples for every LEXED row — Backslash escapes 13, Entity and numeric character
-references 17, Code spans 22, Links 90, Images 22, Autolinks 19, Raw HTML 20 = **203 examples, 203
-aligned, 0 excluded, 0 FAIL**. The four PROSE-AS-WRITTEN rows are not vendored because they make no
-structural claim to falsify — their cost is the named control instead, which is why each such row
-carries one.
+references 17, Code spans 22, **Emphasis and strong emphasis 132** (Examples 350–481, vendored at
+design re-gate 4), Links 90, Images 22, Autolinks 19, Raw HTML 20 = **335 examples, 335 aligned, 0
+excluded, 0 FAIL**. The §6.2 claim the aligner checks is one `<em>` per matched pair of one delimiter
+character a side and one `<strong>` per pair of two, `_` and `*` alike, and a `<del>` for none of
+them — pure CommonMark has no strikethrough, so the GFM half of that row is **empty by construction
+on this corpus**, the same shape §3.0's GFM-table exclusion has (measured: the alignment would fail on
+any example where a `~` run paired, and none does). The three PROSE-AS-WRITTEN rows are not vendored
+because they make no structural claim to falsify — their cost is the named control instead, which is
+why each such row carries one. "Cost: none measured" is written in this table only where the §6.2
+row NAMES what it replaced: a cost is a measurement or it is a guess.
 
 **Breadth**: K=2 (CommonMark 0.31.2, GFM 0.29), M=9
 **Split decision**: by the edge-dense rule (not K/M): umbrella + **2 slices** (§7). Each slice is a
@@ -478,7 +528,9 @@ in `.claude/tools/` needs a parser, or (a behaviour that CAN fire) if a LEXED ro
 made to pass by hand under the one predicate (§5.1 block quotes with lazy continuation and §4.6
 HTML blocks were, R10–R13, in ~150 lines; §5.2 list items with §5.3 lists, the last container, in ~130
 more at R15 — the trigger did not fire for any of them, and the spec's closed block list is now
-exhausted) or if the `[LEX-UNSUPPORTED?]` seed on the umbrella memo reports a line holding a `|`
+exhausted; §6.2 emphasis with GFM strikethrough, the LAST inline construct, in 216 more at design
+re-gate 4, where the falsifier is the spec's own 132 Emphasis examples — the trigger did not fire
+there either, and the closed INLINE list is now exhausted too) or if the `[LEX-UNSUPPORTED?]` seed on the umbrella memo reports a line holding a `|`
 inside an HTML block (a table the lexer would read that CommonMark would not). Therefore
 **A**: the constructs in §3 are lexed by construction from the spec clauses listed there, each clause
 with a control; constructs outside §3 are read as prose and are listed there as not detected. The
@@ -754,6 +806,65 @@ ground for either option; it is not cited.
   inside it; a space after `<`, which fails at the SCHEME rather than in the tail class the mutation
   widens). Each subject was moved inside the mutated span and each control now records why it is shaped so
   — the `feedback_surviving-mutation-means-the-probe-has-another-subject` class, third sighting on this PR.
+  ⚠ **PR #510 design re-gate 4 (2026-09-08) — the stream IS the rendered text**: the re-gate over
+  R14–R21 measured two live defects of ONE class, an id or a phrase **split by an inline construct**
+  where the RENDERED document reads one token: (i) with rows `9z` and `9` both declared, every one of
+  `Slice 9**z**` / `Slice 9<b>z</b>` / `Slice 9<!-- c -->z` / `Slice 9~~z~~` renders `Slice 9z` and was
+  reported on row **`9`** — a fabricated site on one row and a lost site on another, rc 0; (ii)
+  `**UMBRELLA, not a *terminal* unit.**` in a declaring field (or `&#44;` for the comma, or
+  `~~terminal~~`, or `<b>terminal</b>`, or an escaped `\,`) made the literal `MARKER` test — and the
+  near-miss backstop `DECLARES`, which carries the same literal — miss, so the row left the umbrella
+  census as an ACTIVE TERMINAL, silently, at rc 0: **the "clean exit for a could-not-scan" §1
+  forbids**, and the more serious half. Both are the same defect and take ONE fix, which is reading
+  (a) of the three the re-gate put: **the scanners consume the text a reader sees**. §2 I-A now states
+  it, §3.0b carries the per-construct `Renders` column that decides it, and the id scanners, the
+  marker, `DECLARES`, the undetermined and pointer spellings, `EMPTY_WORDS` / `is_empty`, the
+  acceptance and ordering vocabularies, the ownership connectives and the licensing rule all read that
+  ONE stream — the sweep is re-runnable and its result is an enumeration, not a sample: `grep -n` for
+  `MARKER` / `DECLARES` / `UNDETERMINED` / `POINTER` / `EMPTY_WORDS` / `ACCEPT_WORDS` / `ORDER_WORDS` /
+  `RETIRED` / `OWNS_TWO` / `ROLE_PATTERNS` / `LICENSE_BEFORE` / `LICENSE_AFTER` / `NOUN_ANCHOR` /
+  `_APPOSITIVE` over `plan_memo_roles.py plan_memo_tables.py plan_memo_memo.py
+  plan-memo-umbrella-check.py`, kept to the lines that TEST one (`search` / `match` / `finditer` /
+  `in` / `.sub(` — `grep -E '\.search\(|\.match\(|\.finditer\(| in |\.sub\('`), returns **18** sites, and every one of them reads `b.stream`, `m.text`,
+  `m.window()`, `row.field`, `stream(c.lexed)` or `_stream(row, …)`. `is_blank_id_cell` / `bare_id`
+  are the stated exception, since the id cell's decoration IS part of the id grammar and the two readings of that
+  cell agree by being the same reading. Readings (b) and (c) were rejected on §1, not on cost: (b)
+  "join across the invisible spans" needs the same §6.2 machinery (a `*` is invisible only when it
+  PAIRS — `9*z` renders verbatim), and still cannot read `&#44;` or `\,`, which are not invisible but
+  SUBSTITUTED; (c) "seed the class" leaves the wrong row named in the report and leaves the census
+  wrong at rc 0, which is the very exit §1 forbids. Where the answer IS mixed, the boundary is stated
+  and is not arbitrary: reading (a) covers every construct that renders no character; where a
+  construct renders text the checker refuses to read (§6.1 code spans, §6.5 autolinks, an image tail,
+  a citation id, a file name) the stream is deliberately NOT the rendered text (I-A), the two readings
+  disagree, and neither is this program's to pick — so that residue is (c), reported by `split_units`
+  as `[LEX-SPLIT?]`, and where it decides the census (the marker in a DECLARING field) it is a schema
+  miss, rc 2. New: `plan_memo_emphasis.py` (§6.2 + GFM strikethrough, 216 lines), `Stream` with its
+  offset map, `RENDERS_TEXT`, `split_units` / `_straddles`, `Population._kind_residue`,
+  `lex_split_seed`; `Emphasis and strong emphasis` Examples 350–481 vendored (inline corpus 203 →
+  **335 / 335 / 0**, block 295 / 295 / 0), the aligner claiming one `<em>` per 1-character pair and
+  one `<strong>` per 2-character pair, which is what caught the missing §6.4 demotion of emphasis
+  inside a resolved image's description (5 examples). Two second spellings of decoration are gone with
+  it: `is_empty`'s own `.strip("*`")` (it reads the cell's stream now) and `LICENSE_AFTER`'s
+  `(?:\*\*)?` prefix (measured: removing it moves no control and no site). **492 controls, 250
+  mutants / 0 survived / 0 crashed** (+53 controls, +24 mutants; 8 of the 24 SURVIVED their first run,
+  every one the R21 class — a named control whose subject sat outside the mutated span: a comment
+  blanked in a `Deps` cell is still an empty cell, a link tail that FOLLOWS both halves of a token
+  splits nothing, an unmatched `*` is unmatched under both flanking readings, and a probe of runs that
+  can only OPEN never enters the search `openers_bottom` guards. Each subject was moved inside the
+  mutated span and each mutant re-run); conformance **295 / 0 / 0** + **335 / 0 / 0**; census `48 = 33
+  + 15`, rc 0, 37 ORDER-PROSE? rows unchanged, `[LEX-UNSUPPORTED?]` 6 unchanged, `[LEX-SPLIT?]` **0**
+  (the memo holds no straddle; the seed's controls are the fixtures), memo run **0.80 s → 1.41 s**
+  (the residue detector renders each block a second way, which is what the seed costs; measured twice
+  each, `/usr/bin/time -p`, `c6be7995`'s tools against this commit's on the same memo),
+  `--self-test --mutants` **3.5 s**. **Sites 717 → 714, and the three that moved are the fix working**
+  (`--worklist` against `c6be7995`'s tools on the same memo: file / line / id / source identical but
+  for these; nothing gained, 1,205 mentions unchanged, 488 → 491 licensed): main:1944 `4a` in `each of
+  *4a's* children`, detail:199 `1b` in `1b's **charter**` and main:2551 `A` in `row **A** is an
+  *umbrella* row` are each REPORTED → LICENSED, because the licensing phrase the emphasis used to
+  break — `'s children`, `'s charter`, `is an umbrella` — is now read as the document renders it. The
+  context and role columns shift on other lines (a role window of 110 characters of the stream reaches
+  further when the delimiters are gone): a RANKING over the reported set, never a filter on it.
+  `scripts/trip-wires.sh` rc 0.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.

@@ -46,7 +46,7 @@ from plan_memo_ids import is_cite_label
 from plan_memo_lexer import FILE_SUFFIX, Lexed, normalize_label
 from plan_memo_tables import (
     MARKER, POINTER, SCHEMAS, UNDETERMINED, admit_table, attributed_to_other, dispose,
-    is_blank_id_cell, stream,
+    is_blank_id_cell, split_units, stream,
 )
 
 
@@ -816,6 +816,7 @@ class Population:
             row.field = stream(row.cells[row.schema.decl].lexed)
         for row in self.ids.values():
             row.kind = self._kind(row)
+            self._kind_residue(row)
 
     def display(self, path):
         """The ONE display name of a memo, for every printer -- a finding's
@@ -888,6 +889,28 @@ class Population:
         if POINTER.search(row.field):
             return "pointer"
         return "terminal"
+
+    def _kind_residue(self, row):
+        """The one place the residue GATES (`plan_memo_tables.split_units`).
+        A declaring field that spells the marker ACROSS a span the checker
+        does not read as prose -- `**UMBRELLA, not a `terminal` unit.**` --
+        is read here as no declaration at all, so the row would leave the
+        umbrella census as an active terminal, silently, at rc 0: §1's "never
+        a clean exit for could not scan" over the census this program exists
+        to take.  The row is a schema miss instead, and a reader decides
+        whether the code span is a quotation or a typo (the quoted marker
+        WHOLE stays what I-A says it is: not a declaration, not a straddle,
+        no miss)."""
+        if row.field is None or MARKER in row.field:
+            return
+        lx = row.cells[row.schema.decl].lexed
+        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):
+            self.misses.append((self.display(row.memo.path), row.lineno,
+                                "row %s spells the kind marker in its declaring field ACROSS a span "
+                                "this checker does not read as prose (a code span, an autolink, a "
+                                "citation id or a file name): a reader reads the marker, the field's "
+                                "disposed stream does not, so the row's kind cannot be decided"
+                                % row.name()))
 
     # -- inventories -------------------------------------------------------
 

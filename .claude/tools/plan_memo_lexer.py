@@ -24,13 +24,19 @@ plain text (§6.4): a link recorded inside it is demoted to a masked tail,
 never a memo link (PR #510 R19).  A §6.5 autolink is ONE masked token, tried
 at a `<` before the tag grammar (R21): its contents are not inline syntax and
 its text is its own URL, so nothing inside it is a link, a naming site or a
-sibling.  The inline constructs outside the lexed clauses -- §6.2 emphasis
-beyond the decoration the id grammar reads, §6.7 hard and §6.8 soft line
-breaks, §6.9 textual content, §2.5 character references in PROSE -- are read
-as written, each with its cost stated in the plan's §3.0b CLOSED list; a
-character reference in a link DESTINATION is decoded (§2.5 / §6.3,
-`normalize_destination` -- the one place a destination's text is read, PR
-#510 R16); the block types not modelled are the plan's §3.0 table.
+sibling.  §6.2 emphasis and GFM strikethrough are LEXED too (design re-gate
+4): the runs are pushed as the pass meets them and paired by
+`plan_memo_emphasis.py` where the Appendix pairs them -- when a link or an
+image closes, over the delimiters inside it, and once at the block's end --
+because a matched delimiter renders no character at all and an unmatched one
+renders itself, and only §6.2's own rules tell them apart.  A §2.4 escape and
+a §2.5 character reference are recorded as SUBSTITUTIONS (`subst`), the two
+spellings of "this text renders as that character", in PROSE as in a link
+DESTINATION (where `normalize_destination` reads the same grammar over the
+destination's own text, PR #510 R16).  What is left outside the lexed clauses
+-- §6.7 hard and §6.8 soft line breaks, §6.9 textual content -- is read as
+written, each with its cost MEASURED by a control named in the plan's §3.0b
+CLOSED list; the block types not modelled are the plan's §3.0 table.
 
 `Lexed` is the one Phase-2 value per block: code spans, raw HTML spans,
 links, images, and
@@ -47,6 +53,7 @@ import re
 import string
 from html.entities import html5
 
+import plan_memo_emphasis as emphasis
 from plan_memo_ids import ALNUM, CITE_ID
 
 ASCII_PUNCT = frozenset(string.punctuation)
@@ -71,19 +78,6 @@ def _escaped(s, i):
     while k > 0 and s[k - 1] == "\\":
         k -= 1
     return (i - k) % 2 == 1
-
-
-def blank_spans(s, spans):
-    """`s` with every span replaced by spaces (line endings kept), so offsets
-    survive and a later grammar cannot see inside a masked construct."""
-    if not spans:
-        return s
-    buf = list(s)
-    for a, b in spans:
-        for k in range(a, b):
-            if buf[k] != "\n":
-                buf[k] = " "
-    return "".join(buf)
 
 
 # --------------------------------------------------------------------------
@@ -614,12 +608,28 @@ def inline_pass(s, defs):
     """
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
     code, out, images, unresolved, html, auto = [], [], [], [], [], []
+    marks, subst, delims, opens, pairs = [], [], [], [], []
     stack, i, n = [], 0, len(s)
     relabel = -1        # the `[` of the label of the last failed full reference
     while i < n:
         c = s[i]
         if _is_escape(s, i):
-            i += 2                      # §2.4: `\[` / `\]` / `\`` are literal
+            subst.append((i, i + 2, s[i + 1]))  # §2.4: `\[` renders the character alone
+            i += 2
+            continue
+        if c == "&":
+            m = _CHAR_REF.match(s, i)
+            r = _reference(m) if m is not None else None
+            if r is not None:
+                subst.append((i, m.end(), r))   # §2.5: the reference renders its character
+                i = m.end()
+            else:
+                i += 1                  # no reference: a literal `&` (§2.5 Examples 29-30)
+            continue
+        if c in emphasis.DELIMS:
+            d = emphasis.run_at(s, i)   # §6.2 / GFM strikethrough: one run, read whole
+            delims.append(d)
+            i = d.end
             continue
         if c == "<":
             m = _AUTOLINK.match(s, i)   # §6.5 before §6.6, the spec's order
@@ -646,13 +656,13 @@ def inline_pass(s, defs):
                 i = close
             continue
         if c == "[":
-            stack.append([i, _is_image(s, i), True])
+            stack.append([i, _is_image(s, i), True, len(delims)])
             i += 1
             continue
         if c != "]" or not stack:
             i += 1
             continue
-        pos, is_img, active = stack.pop()
+        pos, is_img, active, delim_bottom = stack.pop()
         if not active:
             i += 1                      # literal `]`; the opener is gone
             continue
@@ -685,16 +695,33 @@ def inline_pass(s, defs):
                 images[j] = images[j][:2] + ("demoted",)
             while out and out[-1][0] > pos:
                 images.append(out.pop()[:2] + ("demoted",))
+                opens.pop()             # the demoted link's `[` is inside the description
             while unresolved and unresolved[-1][0] > pos:
                 unresolved.pop()
+            for j in range(len(pairs) - 1, -1, -1):    # emphasis is demoted the same way
+                if pairs[j][0] <= pos:
+                    break
+                pairs[j] = pairs[j][:6] + ("demoted",)
             images.append((i, end, "image"))
         else:
             out.append((i, end, dest))
+            opens.append((pos, pos + 1))    # a link's `[` renders as nothing
             for opener in stack:        # links may not contain links
                 if not opener[1]:
                     opener[2] = False
+        # the Appendix processes the emphasis inside the construct that just
+        # closed, over the delimiters pushed since its `[`, and drops them:
+        # emphasis never crosses a link's or an image's text boundary
+        new = emphasis.process(delims, delim_bottom)
+        del delims[delim_bottom:]
+        # §6.4 again: the description of a RESOLVED image is plain string
+        # content, so emphasis inside it renders its characters away and no
+        # `<em>` at all -- demoted, as a link inside one is
+        pairs += [p[:6] + ("demoted",) for p in new] if is_img else new
         i = end
-    return code, out, images, unresolved, html, auto
+    pairs += emphasis.process(delims)
+    marks += opens
+    return code, out, images, unresolved, html, auto, marks, subst, pairs
 
 
 
@@ -751,22 +778,32 @@ class Lexed:
     (every tail that is not a link's, `kind` = "image" for a resolved
     image's own tail and "demoted" for a link or a nested image demoted
     inside a resolved image's description, §6.4) and
+    `marks` = [(start, end)] of every span that renders NO character (a §2.4
+    backslash is not one -- an escape SUBSTITUTES, below -- but a link's `[`
+    is); `subst` = [(start, end, text)], the two spellings of "this renders
+    as that character": a §2.4 escape and a §2.5 character reference;
+    `emphasis` = [(open_start, open_end, close_start, close_end, char, use,
+    kind)] of every §6.2 / GFM delimiter pair, `kind` = "em" or, inside a
+    resolved image's description, "demoted" (§6.4: plain string content, no
+    tag -- the R19 rule, one more construct);
     `unresolved` = [(offset, label, form, is_image)] of the references no
     definition answers; `mask` is set by the disposition step in
     `plan_memo_tables.py` once the row ids are known."""
 
-    __slots__ = ("text", "code", "html", "autolinks", "tokens", "links", "images", "unresolved", "mask")
+    __slots__ = ("text", "code", "html", "autolinks", "tokens", "links", "images", "unresolved",
+                 "marks", "subst", "emphasis", "mask")
 
     def __init__(self, text):
         self.text = text
         self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
         self.code, self.html, self.autolinks = [], [], []
         self.links, self.images, self.unresolved = [], [], []
+        self.marks, self.subst, self.emphasis = [], [], []
         self.mask = None
 
     def resolve(self, defs):
         """The inline pass over the RAW text (code spans, autolinks, raw HTML
         and brackets together; no pre-mask), with `defs` = normalised label ->
         destination."""
-        (self.code, self.links, self.images, self.unresolved,
-         self.html, self.autolinks) = inline_pass(self.text, defs)
+        (self.code, self.links, self.images, self.unresolved, self.html, self.autolinks,
+         self.marks, self.subst, self.emphasis) = inline_pass(self.text, defs)

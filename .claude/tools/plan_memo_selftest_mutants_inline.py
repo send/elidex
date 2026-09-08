@@ -17,7 +17,7 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, ROLES, SEQUENCE, TABLES,
+    CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, ROLES, SEQUENCE, TABLES,
 )
 
 # -- PR #510 Codex R21 control names, spelled once (the §6.5 autolink family,
@@ -285,4 +285,182 @@ MUTANTS += [
     ("R21 #4: the citation table keys citation ids (widen it to every kind)", TABLES,
      'idc="ID", kinds=("cite",))', 'idc="ID", kinds=("cite", "short", "slug"))',
      [R21_SHORT_IN_CITE, R21_SLUG_IN_CITE]),
+]
+# -- PR #510 design re-gate 4: the stream IS the rendered text.  The control
+# names are spelled once here; each mutant's named control has its SUBJECT
+# inside the span the mutation changes (the R21 class of survivor).
+RG4_STRONG = ("(render) §6.2 strong emphasis `W**z**` renders `Wz` and names the UMBRELLA row `Wz`: a "
+              "construct that contributes no character does not split a token")
+RG4_EM = ("(render) §6.2 emphasis `W*z*` renders `Wz` and names the UMBRELLA row `Wz`: a construct that "
+          "contributes no character does not split a token")
+RG4_STRIKE = ("(render) GFM strikethrough `W~~z~~` renders `Wz` and names the UMBRELLA row `Wz`: a "
+              "construct that contributes no character does not split a token")
+RG4_TAG = ("(render) §6.6 a raw HTML tag pair `W<b>z</b>` renders `Wz` and names the UMBRELLA row `Wz`: a "
+           "construct that contributes no character does not split a token")
+RG4_COMMENT = ("(render) §6.6 an HTML comment `W<!-- c -->z` renders `Wz` and names the UMBRELLA row `Wz`: "
+               "a construct that contributes no character does not split a token")
+RG4_LINK = ("(render) §6.3 a link's brackets `W[z](slice-9z-sib.md)` renders `Wz` and names the UMBRELLA "
+            "row `Wz`: a construct that contributes no character does not split a token")
+RG4_REF = ("(render) §2.5 a character reference `W&#122;` renders `Wz` and names the UMBRELLA row `Wz`: a "
+           "construct that contributes no character does not split a token")
+RG4_MIRROR = ("(render) §6.2 strong emphasis `W**z**` names no row on the mirror table, where `W` is the "
+              "umbrella and `Wz` terminal: the old reading fabricated a site on `W`")
+RG4_DECOR = ("(render) `**9z**7z` still names `9z`: a `**` pair whose content is only declared ids is the "
+             "document DECORATING an id, so the delimiters stand and bound it -- dropping them would leave "
+             "the single token `9z7z`, which no row declares")
+RG4_SINGLE = ("(render) `*9z*7z` names nothing: a SINGLE `*` is not this document's decoration "
+              "(`plan_memo_ids.DECOR` is `**` and a backtick), so the pair renders away and `9z7z` is one "
+              "token -- the exception is the decoration's, not emphasis's")
+RG4_UNMATCHED = ("(render) `Slice W*z owns it`: an UNMATCHED `*` run is literal text (§6.2 -- commonmark.js "
+                 "renders `9*z` verbatim), so it BOUNDS the token and `Wz` is not named -- dropping a run "
+                 "that pairs with nothing would fabricate the row")
+RG4_INTRAWORD = ("(render) `Slice W_z_ owns it`: an intraword `_` run can neither open nor close (§6.2 "
+                 "rules 5-6, the `snake_case` rule), so it is literal and bounds the token")
+RG4_TILDE3 = ("(render) `Slice W~~~z~~~ owns it`: three tildes are no strikethrough (GFM: a matching pair "
+              "of ONE OR TWO), so the run is literal text and bounds the token")
+RG4_DROPWINS = ("(render) `Slice [W](slice-9z-sib.md)z owns it` names `Wz`: the link's tail renders "
+                "nothing, and the `.md` file token INSIDE it is dropped with it -- where a drop and a blank "
+                "overlap the drop wins, or the tail's two sides stay apart")
+RG4_ESCAPED_DECOR = ("(render) `\\*\\*C\\*\\* is how the row is written`: an ESCAPED decoration character "
+                     "stands as written -- substituting it would spell a `**C**` bold the document does not "
+                     "have, and the undecorated single letter is the declared miss")
+RG4_REF_DECOR = ("(render) `&#42;&#42;C&#42;&#42;` is the same rule for §2.5: a reference that would spell "
+                 "a decoration stands as written")
+RG4_SEED = ("(render) that same code span IS the `[LEX-SPLIT?]` residue seed: the reader reads `Wz` across "
+            "a span the disposition blanks, and the seed says so")
+RG4_QUIET = ("(render) `Slice W**z** owns it` seeds NOTHING: the construct renders no character, so the two "
+             "readings agree and there is no residue to report")
+RG4_LOCATOR = ("a site read across a construct that renders nothing is reported at its raw column (the "
+               "stream map)")
+RG4_LINEAR = ("emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the Appendix's "
+              "openers_bottom)")
+RG4_MARK_EM = ("(kind) a declaring field spelling the marker with §6.2 emphasis inside it (`not a "
+               "*terminal* unit`) DECLARES the umbrella: the row is in the census, so a prose mention of it "
+               "is a site")
+RG4_MARK_COMMENT = ("(kind) a declaring field spelling the marker with §6.6 a comment inside it DECLARES "
+                    "the umbrella: the row is in the census, so a prose mention of it is a site")
+RG4_MARK_REF = ("(kind) a declaring field spelling the marker with §2.5 a character reference for the comma "
+                "DECLARES the umbrella: the row is in the census, so a prose mention of it is a site")
+RG4_MARK_ESC = ("(kind) a declaring field spelling the marker with §2.4 an escaped comma DECLARES the "
+                "umbrella: the row is in the census, so a prose mention of it is a site")
+RG4_GATE = ("(kind) a declaring field spelling the marker ACROSS a code span is the schema miss, rc 2: a "
+            "reader reads the marker, the disposed stream does not, and §1 forbids a clean exit for a "
+            "could-not-scan over the census")
+RG4_NOT_GATE = ("(kind) a declaring field holding a code span and NO marker is no miss: rc 0 -- the "
+                "residue is a marker the reader reads ACROSS a blanked span, never the presence of one")
+RG4_QUOTED = ("(kind) the marker QUOTED WHOLE in a code span declares nothing (I-A: a quoted marker is not "
+              "a declaration) -- the row is terminal and its mention is no site")
+RG4_DEPS = ("(cell) a `Deps` cell holding only an HTML comment is EMPTY: it renders nothing, so the "
+            "umbrella row carries no Deps edge (`is_empty` reads the cell's stream, not its raw text)")
+
+MUTANTS += [
+    # -- PR #510 design re-gate 4
+    ("RG4 stream: a matched §6.2 / GFM delimiter run renders NOTHING (drop the marks: the delimiters stand "
+     "in the stream and split the token again -- the defect this round fixed)", TABLES,
+     '        out += [(oa, ob, "mark"), (ca, cb, "mark")]', '        pass',
+     [RG4_STRONG, RG4_EM, RG4_STRIKE, RG4_MIRROR, RG4_MARK_EM]),
+    ("RG4 stream: the DECORATION exception -- a `**` pair whose content is only declared ids stands "
+     "(drop it: `**9z**` renders away and `**9z**7z` is one token)", TABLES,
+     '        if ch == "*" and use == 2 and id_only(lx.text[ob:ca], keep):', '        if False:',
+     [RG4_DECOR]),
+    ("RG4 stream: the exception is the DECORATION's, not emphasis's (widen it to a single `*`: `*9z*7z` "
+     "names `9z`)", TABLES,
+     '        if ch == "*" and use == 2 and id_only', '        if ch == "*" and use >= 1 and id_only',
+     [RG4_SINGLE]),
+    ("RG4 stream: the exception is `id_only`'s (widen it to every `**` pair: `W**z**` is decorated again "
+     "and the split id comes back)", TABLES,
+     'and use == 2 and id_only(lx.text[ob:ca], keep):', 'and use == 2 and True:',
+     [RG4_STRONG, RG4_MIRROR]),
+    ("RG4 stream: a raw HTML span renders no character (re-inject it as text the checker refuses to read: "
+     "it blanks and splits the token again)", TABLES,
+     '"html": False, "link": False, "mark": False}', '"html": True, "link": False, "mark": False}',
+     # ⚠ NOT the `Deps` control: a blanked comment is spaces, and a cell of spaces is as empty as
+     # a cell of nothing -- the subject must be a TOKEN the blank would split
+     [RG4_TAG, RG4_COMMENT, RG4_MARK_COMMENT]),
+    ("RG4 stream: a link's TAIL renders no character (re-inject it as blanks)", TABLES,
+     '"html": False, "link": False,', '"html": False, "link": True,',
+     # ⚠ the tail must sit BETWEEN the token's halves: in `W[z](sib.md)` it follows them both and
+     # blanking it splits nothing (measured -- that shape leaves this mutant alive)
+     [RG4_DROPWINS]),
+    ("RG4 stream: where a drop and a blank overlap the DROP wins (re-inject blank-wins: the `.md` token "
+     "inside a link's tail keeps the tail's two sides apart)", TABLES,
+     '            if v > disp[k]:', '            if v > disp[k] or (v == 1 and disp[k] == 2):',
+     # ⚠ the mask is walked in ONE order, drops before the `file` tokens, so a mutation that merely
+     # declines to raise a blank to a drop changes nothing: the blank must OVERRIDE the drop
+     [RG4_DROPWINS]),
+    ("RG4 stream: a §2.4 escape and a §2.5 reference SUBSTITUTE their character (drop both: the reference "
+     "and the backslash are read as written again)", TABLES,
+     '    subst = {a: (b, ch) for a, b, ch in lx.subst if ch not in DECOR_CHARS}', '    subst = {}',
+     [RG4_REF, RG4_MARK_REF, RG4_MARK_ESC]),
+    ("RG4 stream: a substitution that would spell a DECORATION stands as written (drop the carve: "
+     "`\\*\\*C\\*\\*` becomes the bold `**C**` no reader sees)", TABLES,
+     'if ch not in DECOR_CHARS}', '}',
+     [RG4_ESCAPED_DECOR, RG4_REF_DECOR]),
+    ("RG4 lexer: the §2.4 escape is a substitution (re-inject the bare skip: the backslash stands in the "
+     "stream)", LEXER,
+     '            subst.append((i, i + 2, s[i + 1]))  # §2.4: `\\[` renders the character alone',
+     '            pass',
+     [RG4_MARK_ESC]),
+    ("RG4 lexer: a §2.5 reference in PROSE is a substitution (drop the record: only a destination decodes, "
+     "as before R16's sibling rule was generalised)", LEXER,
+     '                subst.append((i, m.end(), r))   # §2.5: the reference renders its character',
+     '                pass',
+     [RG4_REF, RG4_MARK_REF]),
+    ("RG4 lexer: a link's `[` renders nothing (drop the mark: the opener splits the token)", LEXER,
+     "            opens.append((pos, pos + 1))    # a link's `[` renders as nothing", '            pass',
+     # the `[` is what sits between `W` and `z` in `W[z](sib.md)`; in `[W](sib.md)z` it precedes both
+     [RG4_LINK]),
+    ("RG4 §6.2: a `~` run of three or more is no delimiter (drop the GFM bound: `W~~~z~~~` strikes)",
+     EMPHASIS, '_MAX_RUN = {"~": 2}', '_MAX_RUN = {}',
+     [RG4_TILDE3]),
+    ("RG4 §6.2: `_` opens only where §6.2 rules 5-6 allow (drop the arm: intraword `_` becomes emphasis "
+     "and `snake_case` breaks)", EMPHASIS,
+     '''    if ch == "_":
+        return Delimiter(i, j, ch, left and (not right or _is_punct(prev)),
+                         right and (not left or _is_punct(nxt)))''',
+     '    if ch == "_":\n        pass',
+     [RG4_INTRAWORD, INLINE_EXAMPLES]),
+    ("RG4 §6.2: the rule of three (drop it: a `can_open` closer takes an opener the spec forbids it)",
+     EMPHASIS,
+     '    if (closer.can_open or opener.can_close) and closer.orig % 3 and (opener.orig + closer.orig) % 3 == 0:',
+     '    if False:',
+     [INLINE_EXAMPLES]),
+    ("RG4 §6.2: the flanking rules read the character BEFORE the run (drop it: every run reads a line "
+     "start)", EMPHASIS, '    prev = s[i - 1] if i else None', '    prev = None',
+     # ⚠ not the UNMATCHED probe: a `*` that opens and never closes is unmatched under both readings
+     # (measured) -- the subject must be a run whose CLOSING depends on what precedes it
+     [RG4_EM, INLINE_EXAMPLES]),
+    ("RG4 §6.2: `openers_bottom` memoises a failed search (drop it: a paragraph of unmatched runs is "
+     "quadratic)", EMPHASIS, '            openers_bottom[key] = closer', '            pass',
+     [RG4_LINEAR]),
+    ("RG4 §6.4: emphasis inside a RESOLVED image's description is demoted -- plain string content, no "
+     "`<em>` (drop the demotion: the tag count over-claims)", LEXER,
+     '        pairs += [p[:6] + ("demoted",) for p in new] if is_img else new', '        pairs += new',
+     [INLINE_EXAMPLES]),
+    ("RG4 seed: the `[LEX-SPLIT?]` residue is reported (drop the loop: a unit read across a blanked span "
+     "is silent again)", CHECK,
+     '        for kind, text, off in split_units(b.lexed, keep):',
+     '        for kind, text, off in []:',
+     [RG4_SEED]),
+    ("RG4 gate: the marker straddling a blanked span in a DECLARING field is a schema miss (drop it: the "
+     "row leaves the census at rc 0 -- §1's clean exit for a could-not-scan)", MEMO,
+     '        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):', '        if False:',
+     [RG4_GATE]),
+    ("RG4 residue: a unit WHOLLY inside a blanked span is no straddle (widen the predicate: a quoted "
+     "marker becomes the schema miss I-A exists to prevent)", TABLES,
+     '    return 0 < inside < b - a', '    return inside > 0',
+     [RG4_QUOTED]),
+    ("RG4 gate: the miss is the STRADDLE, not the presence of a span (re-inject the coarse test: any "
+     "declaring field holding a code span becomes a schema miss)", MEMO,
+     '        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):', '        if lx.code:',
+     [RG4_NOT_GATE]),
+    ("RG4 cell: `is_empty` reads the cell's disposed stream (re-inject the raw text: an HTML comment fills "
+     "the cell)", ROLES,
+     '        if not is_empty(_stream(row, "Deps")):', '        if not is_empty(row.col("Deps").text):',
+     [RG4_DEPS]),
+    ("RG4 report: a reporting coordinate goes through the stream map (drop it: the column is off by the "
+     "characters the stream dropped)", CHECK,
+     '        return self.at_raw(self.stream.at(i))\n\n    def at_raw(self, i):\n        return self.para.locate(i)',
+     '        return self.at_raw(i)\n\n    def at_raw(self, i):\n        return self.para.locate(i)',
+     [RG4_LOCATOR]),
 ]

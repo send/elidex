@@ -64,7 +64,15 @@ lexer's mask and the unresolved-reference exemption read one predicate
 (`is_cite_label`) -- an uppercase-only mask once left `[c1]` visible to the
 bare scan as a naming site of a declared short id `c1` (PR #510 R14)."""
 CITE_ID = r"\[" + CITE_LABEL + r"\]"
-DECOR = r"(?:\*\*|`)*"
+DECOR_MARKS = ("**", "`")
+"""How this document DECORATES an id, spelled once: bold, backticks, or
+both, in either order.  `DECOR_CHARS` is the same fact as a character set,
+which the lexer reads to keep the stream honest -- an escaped `\\*` or a
+`&#42;` renders an asterisk that is TEXT, and substituting it would spell a
+decoration the document does not have, so those two substitutions stand as
+written (`plan_memo_tables.stream`)."""
+DECOR_CHARS = frozenset("".join(DECOR_MARKS))
+DECOR = r"(?:%s)*" % "|".join(re.escape(m) for m in DECOR_MARKS)
 
 KINDS = (("slug", SLUG_ID), ("cite", CITE_ID), ("short", SHORT_ID))
 """Longest alternative first: a `#11-` slug is atomic (its internal hyphens
@@ -96,7 +104,7 @@ def decorated_id(core, tag=""):
     return r"(?P<%sl>%s)(?P<%sid>%s)(?P<%sr>%s)" % (tag, DECOR, tag, core, tag, DECOR)
 
 
-_DECOR_TOKENS = re.compile(r"\*\*|`")
+_DECOR_TOKENS = re.compile("|".join(re.escape(m) for m in DECOR_MARKS))
 
 
 def balanced(m, tag=""):

@@ -22,6 +22,16 @@ from plan_memo_selftest_mutants import (
     TABLES,
 )
 
+# The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
+# registry, because the checker has no such function any more: since design
+# re-gate 4 `stream` RENDERS a block (dropping, blanking or substituting each
+# span as §3.0b's `Renders` column says) instead of blanking one, and a
+# blank-everything helper left in the lexer for these two rows alone would be
+# production dead code -- exactly what the plan forbids.  A mutant may spell
+# the defect it re-injects; the subject may not keep it around.
+BLANK = ('lambda t, sp: "".join(" " if any(a <= k < b for a, b in sp) and c != "\\n" else c '
+         'for k, c in enumerate(t))')
+
 
 MUTANTS += [
     # -- PR #510 Codex R1
@@ -76,13 +86,13 @@ MUTANTS += [
      '        if not active or inline_pass(s[pos + 1:i], defs)[3] is None:\n            i += 1',
      ["links() is linear: 30 nested brackets are one inline_pass call"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
-     '                unresolved.pop()\n            images.append((i, end, "image"))',
-     '                unresolved.pop()\n            images.append((i, end, "image"))\n            i += 1\n            continue',
+     '            images.append((i, end, "image"))',
+     '            images.append((i, end, "image"))\n            i += 1\n            continue',
      ["(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read as a "
       "shortcut, and the image destination is not a memo"]),
     ("R3-1 link: an escaped `[` is not an opener", LEXER,
-     '        if _is_escape(s, i):\n            i += 2                      # §2.4: `\\[` / `\\]` / `\\`` are literal',
-     '        if _is_escape(s, i) and s[i + 1] != "[":\n            i += 2',
+     '        if _is_escape(s, i):\n            subst.append((i, i + 2, s[i + 1]))  # §2.4: `\\[` renders the character alone',
+     '        if _is_escape(s, i) and s[i + 1] != "[":\n            subst.append((i, i + 2, s[i + 1]))',
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
      "`%2Ftmp%2Fx.md` -- is not a sibling (drop the anchor test)", MEMO,
@@ -116,8 +126,8 @@ MUTANTS += [
       "`<slice sib.md>` does"]),
     ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,
      '= inline_pass(self.text, defs)',
-     '= inline_pass(blank_spans(self.text, [(m.start(), m.end()) '
-     'for m in re.finditer(r"`[^`]*`", self.text)]), defs)',
+     '= inline_pass((%s)(self.text, [(m.start(), m.end()) '
+     'for m in re.finditer(r"`[^`]*`", self.text)]), defs)' % BLANK,
      ["(span) a backtick inside a link DESTINATION is consumed by the link, not a code span: "
       "`[sib](slice`x`.md)` links the sibling"]),
     ("R4-3 pass: a code span swallows a `]` (brackets inside it are not delimiters)", LEXER,
@@ -130,7 +140,7 @@ MUTANTS += [
     # -- PR #510 Codex R5: Phase 1 / Phase 2
     ("R5-1 phase 1: definitions are read from RAW lines (re-inject the inline pre-mask)", BLOCKS,
      '    defs, _ = reference_definitions(block, limit=1, start=off)',
-     '    defs, _ = reference_definitions(__import__("plan_memo_lexer").blank_spans(block, __import__("plan_memo_lexer").inline_pass(block, {})[0]), limit=1, start=off)',
+     '    defs, _ = reference_definitions((%s)(block, __import__("plan_memo_lexer").inline_pass(block, {})[0]), limit=1, start=off)' % BLANK,
      ["(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` keeps its "
       "backticks in the destination and the sibling is scanned"]),
     ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", TABLES,
@@ -636,7 +646,8 @@ MUTANTS += [
     # -- PR #510 Codex R16
     ("R16 #2 §2.5: character references in a destination are decoded (re-inject backslash-only unescaping: "
      "no reference is ever matched)", LEXER,
-     '        m = _CHAR_REF.match(s, i)', '        m = None',
+     '        m = _CHAR_REF.match(s, i)\n        ch = _reference(m) if m else None',
+     '        m = None\n        ch = _reference(m) if m else None',
      ["(link) `[child](child&#46;md)`: a decimal character reference in the destination is decoded (§2.5 / "
       "§6.3) -- `child.md` is walked and its violation reported",
       "(link) `[child](<child&#46;md>)`: the angle-bracket destination decodes by the same rule",

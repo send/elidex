@@ -118,8 +118,10 @@ def excluded(memo):
 
 def _blank(s, spans):
     """`s` with every span replaced by spaces, so a later count cannot see
-    inside it (the lexer's `blank_spans`, spelled here over the HTML rather
-    than the source: this module must not import the subject to check it)."""
+    inside it -- spelled here over the HTML rather than over the source, since
+    this module must not import the subject to check it (the checker itself no
+    longer blanks anything wholesale: `stream` renders each span as §3.0b's
+    `Renders` column says)."""
     buf = list(s)
     for a, b in spans:
         for k in range(a, b):
@@ -131,11 +133,12 @@ def _blank(s, spans):
 _A = re.compile(r"<a href=")
 _IMG = re.compile(r"<img src=")
 # The tags the renderer emits for the §3.0b PROSE-AS-WRITTEN constructs, which
-# Phase 2 claims nothing about: §6.2 emphasis and strong emphasis, §6.7 hard
-# line breaks.  Measured over both corpora: no other tag stands in a `<p>`
-# body outside a raw HTML span (`<del>`, `<responsive-image>`, `<?php`,
-# `<!ELEMENT` and the rest are §6.6 spans, blanked before this is read).
-_PROSE_TAGS = re.compile(r"</?(?:em|strong)>|<br />")
+# Phase 2 claims nothing about: since PR #510 design re-gate 4 that is §6.7
+# hard line breaks alone -- §6.2 emphasis is LEXED and claimed below.
+# Measured over both corpora: no other tag stands in a `<p>` body outside a
+# raw HTML span (`<responsive-image>`, `<?php`, `<!ELEMENT` and the rest are
+# §6.6 spans, blanked before this is read).
+_PROSE_TAGS = re.compile(r"<br />")
 
 
 def inline_claim(lx, body):
@@ -159,10 +162,18 @@ def inline_claim(lx, body):
       * §6.4 images -- one `<img src=` per image that RESOLVED (the tails
         Phase 2 records as kind `image`; a demoted link or a nested image
         inside a description renders no tag of its own, which is why the
-        kind is recorded).
-    §6.2 emphasis, §6.7 / §6.8 line breaks and §6.9 textual content are
-    PROSE-AS-WRITTEN (§3.0b) and emit tags Phase 2 makes no claim about
-    (`<em>` / `<strong>` / `<br />`), so nothing here counts a bare `<`."""
+        kind is recorded);
+      * §6.2 emphasis (PR #510 design re-gate 4) -- one `<em>` per pair
+        Phase 2 matched with one delimiter character a side and one
+        `<strong>` per pair with two, `_` and `*` alike, and a GFM
+        strikethrough pair (`<del>`) for none of them, since pure
+        CommonMark has no such extension: a run paired where the spec
+        leaves it literal, or left literal where the spec pairs it, moves
+        one of these counts, and the `Emphasis and strong emphasis`
+        examples 350-481 are vendored for exactly this.
+    §6.7 / §6.8 line breaks and §6.9 textual content are PROSE-AS-WRITTEN
+    (§3.0b) and emit a tag Phase 2 makes no claim about (`<br />`), so
+    nothing here counts a bare `<`."""
     spans, pos, cut = [lx.text[a:b] for a, b in lx.html], 0, []
     for sp in spans:
         k = body.find(sp, pos)
@@ -181,6 +192,15 @@ def inline_claim(lx, body):
     got, want = len(_IMG.findall(rest)), sum(1 for e in lx.images if e[2] == "image")
     if got != want:
         return "the html emits %d `<img src=`, Phase 2 claims %d resolved image(s)" % (got, want)
+    img = want
+    em = [p for p in lx.emphasis if p[4] != "~" and p[6] == "em"]
+    for tag, use in (("em", 1), ("strong", 2)):
+        got, want = rest.count("<%s>" % tag), sum(1 for p in em if p[5] == use)
+        if got != want:
+            return "the html emits %d `<%s>`, Phase 2 claims %d such pair(s)" % (got, tag, want)
+    got, want = rest.count("<del>"), sum(1 for p in lx.emphasis if p[4] == "~" and p[6] == "em")
+    if got != want:
+        return "the html emits %d `<del>`, Phase 2 claims %d GFM strikethrough pair(s)" % (got, want)
     # ... and NOTHING is left over: every `<` still standing outside the
     # masked spans must belong to a tag one of the three claims above
     # accounts for (2 per link / autolink, 2 per code span, 1 per image --
@@ -190,7 +210,8 @@ def inline_claim(lx, body):
     # unmasked, the html emits it verbatim, and no count above moves (⚠ the
     # R17 property's `<` conservation had this direction; four of its mutants
     # survived the first R21 draft, which had counts only).
-    left = rest.count("<") - 2 * (len(lx.links) + len(lx.autolinks)) - 2 * len(lx.code) - want
+    left = rest.count("<") - 2 * (len(lx.links) + len(lx.autolinks)) - 2 * len(lx.code) - img
+    left -= 2 * (len(em) + sum(1 for p in lx.emphasis if p[4] == "~" and p[6] == "em"))
     left -= len(_PROSE_TAGS.findall(rest))
     if left:
         return ("%d `<` of the html belong to no tag Phase 2 accounts for (a construct the html emits "

@@ -28,13 +28,16 @@ hand.
 MODULES
   plan_memo_ids.py        the id-token grammar: the three kinds, decoration, and
                           the ONE boundary every reader consumes (`tokens`)
-  plan_memo_lexer.py      Phase 2 (inline): code spans + links / images in one
-                          pass, link grammar, `Lexed`
+  plan_memo_emphasis.py   §6.2 emphasis + GFM strikethrough: which delimiter
+                          runs PAIR, and so which characters render as nothing
+  plan_memo_lexer.py      Phase 2 (inline): code spans + links / images +
+                          delimiter runs in one pass, link grammar, `Lexed`
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
                           HTML blocks), the block-quote marker, block starts, the
                           one `block_end` predicate, GFM rows, reference definitions
   plan_memo_tables.py     id grammar, schemas, `Row`, `admit_table`, the mask
-                          disposition
+                          disposition and the ONE `stream` every predicate reads
+                          (the block as the document renders it)
   plan_memo_memo.py       `Memo` (the Phase-1 driver, file I/O, the sibling
                           resolver) and the transitive `Population`
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
@@ -46,6 +49,7 @@ MODULES
                           _selftest_cases_pr510.py /
                           _selftest_cases_inline.py /
                           _selftest_mutants.py / _selftest_mutants_pr510.py /
+                          _selftest_mutants_inline.py /
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)
@@ -94,7 +98,7 @@ HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
 from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
-from plan_memo_tables import stream  # noqa: E402
+from plan_memo_tables import split_units, stream  # noqa: E402
 from plan_memo_memo import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     NOUN_ANCHOR, acceptance_vocab_seed, assertion_a, assertion_b, assertion_cd_seed, classify,
@@ -163,23 +167,27 @@ class Block:
     """One scanned unit of text -- a cell or a paragraph -- with its tagged
     mask (spans in `text` coordinates the scanners must not read an id out of,
     each with its kind), its disposed `stream` (the ONE text every predicate
-    reads -- the scanners included: `stream()` blanks every masked span in
-    place, offsets preserved, so a match can never straddle a mask boundary,
-    where a raw-text scan read `` `Slice `C `` as `Slice C` with the row
-    noun inside the code span; what a scanner may read out of a code span --
-    an id-only run, a kept `#11-` slug -- was excepted by the disposition
-    step and stands in the stream), the id tokens of that stream (`tokens`:
-    read ONCE by the grammar, `plan_memo_ids.tokens`; both passes consume
-    the same list), and the map back to reporting coordinates.  Minted only
-    after the `Population` has disposed the block (`stream()` asserts it)."""
+    reads -- the scanners included: the block AS THE DOCUMENT RENDERS IT,
+    where a span that renders text the checker refuses to read is blanked in
+    place, so a match can never straddle it -- a raw-text scan read
+    `` `Slice `C `` as `Slice C` with the row noun inside the code span --
+    and a span that renders NOTHING is dropped, so `Slice 9**z**` is the one
+    token a reader reads; what a scanner may read out of a code span -- an
+    id-only run, a kept `#11-` slug -- was excepted by the disposition step
+    and stands in the stream), the id tokens of that stream (`tokens`: read
+    ONCE by the grammar, `plan_memo_ids.tokens`; both passes consume the same
+    list), and the map back to reporting coordinates -- `stream.at` first,
+    since a stream offset is no longer a raw offset.  Minted only after the
+    `Population` has disposed the block (`stream()` asserts it)."""
 
-    __slots__ = ("memo", "file", "text", "mask", "stream", "tokens", "source", "self_id")
+    __slots__ = ("memo", "file", "text", "mask", "lexed", "stream", "tokens", "source", "self_id")
 
     def __init__(self, memo, file, lexed, source, self_id=None):
         # `file` = the population's ONE display name of the memo
         # (`Population.display`: relative to the root memo's directory), for
         # the report and the worklist; identity is `memo.key`
         self.memo, self.file, self.text, self.mask = memo, file, lexed.text, lexed.mask
+        self.lexed = lexed
         self.stream = stream(lexed)
         self.tokens = list(tokens(self.stream))
         self.source, self.self_id = source, self_id
@@ -196,10 +204,14 @@ class CellBlock(Block):
         self.lineno, self.line, self.cell = lineno, line, cell
 
     def locate(self, i):
+        return self.at_raw(self.stream.at(i))
+
+    def at_raw(self, i):
         return self.lineno, self.line, self.cell.raw(i)
 
     def context(self, start, end, w):
-        return self.line[max(0, self.cell.raw(start) - w): self.cell.raw(end) + w].strip()
+        a, b = self.cell.raw(self.stream.at(start)), self.cell.raw(self.stream.at(end))
+        return self.line[max(0, a - w): b + w].strip()
 
 
 class ProseBlock(Block):
@@ -210,10 +222,14 @@ class ProseBlock(Block):
         self.para = para
 
     def locate(self, i):
+        return self.at_raw(self.stream.at(i))
+
+    def at_raw(self, i):
         return self.para.locate(i)
 
     def context(self, start, end, w):
-        return self.text[max(0, start - w): end + w].replace("\n", " ").strip()
+        a, b = self.stream.at(start), self.stream.at(end)
+        return self.text[max(0, a - w): b + w].replace("\n", " ").strip()
 
 
 def _anchored(b, keep, out):
@@ -298,13 +314,16 @@ def blocks(pop):
     return out
 
 
-def collect_mentions(pop):
+def collect_mentions(pop, all_blocks):
     """The whole naming pipeline, in ONE place, over the whole population and
     over EVERY declared id (the naming report keeps the no-owner ones; the
-    ordering seed reads the rest)."""
+    ordering seed reads the rest).  `all_blocks` is minted ONCE by `check()`
+    and shared with the residue seed: a block's stream is built as the block
+    is, and building it twice would cost the memo run a second render of every
+    cell and paragraph."""
     mentions = []
     keep = pop.keep()
-    for b in blocks(pop):
+    for b in all_blocks:
         _anchored(b, keep, mentions)
         _bare(b, keep, mentions)
     # The anchored pass and the bare pass see the same site through different
@@ -360,6 +379,37 @@ def lex_unsupported_seed(pop, findings, notes):
     notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, an "
                  "indented-code line, or an inline raw-HTML span) hold a `|` or a declared id; the bound is "
                  "the plan's §3 table, not this figure" % n)
+
+
+def lex_split_seed(pop, all_blocks, findings, notes):
+    """`[LEX-SPLIT?]` SEED: the RESIDUE of the rendered-text reading
+    (`plan_memo_tables.split_units`, PR #510 design re-gate 4).
+
+    Every construct that renders NOTHING is dropped from the stream, so an id
+    or the kind marker split by one -- `Slice 9**z**`, `UMBRELLA, not a
+    *terminal* unit`, `<!-- c -->`, `&#44;` -- is read as the one unit the
+    document renders.  What is left is the constructs that DO render text the
+    checker refuses to read as prose (a code span, an autolink, a citation id,
+    a file name): there the stream is deliberately not the rendered text
+    (I-A), and a unit that straddles such a span has two readings, neither of
+    them this program's to pick.  So it is printed -- §1 forbids a clean exit
+    for a could-not-scan -- and where it would decide the CENSUS, the marker
+    in a row's declaring field, it is a schema miss instead
+    (`Population._kind_residue`), not a seed.  Never gating, and no count here
+    bounds anything: an id no table declares is invisible to it."""
+    n, keep = 0, pop.keep()
+    for b in all_blocks:
+        for kind, text, off in split_units(b.lexed, keep):
+            n += 1
+            lineno, _line, col = b.at_raw(off)
+            findings.append(("LEX-SPLIT?", b.file, lineno,
+                             "the %s %r is read at column %d ACROSS a span this checker does not read "
+                             "as prose (a code span, an autolink, a citation id or a file name): a "
+                             "reader reads one %s, the block's stream reads two"
+                             % ("kind marker" if kind == "marker" else "id", text, col,
+                                "phrase" if kind == "marker" else "token")))
+    notes.append("[LEX-SPLIT?] SEED -- %d unit(s) the reader reads across a span the disposition blanks; "
+                 "the marker in a DECLARING field is the schema miss instead, never this seed" % n)
 
 
 # --------------------------------------------------------------------------
@@ -421,7 +471,9 @@ def check(path):
              "is a kind no program can enumerate"
              % (len(pop.spellings), " / ".join(sorted(pop.spellings)))))
     lex_unsupported_seed(pop, findings, notes)
-    all_mentions = collect_mentions(pop)
+    all_blocks = blocks(pop)
+    lex_split_seed(pop, all_blocks, findings, notes)
+    all_mentions = collect_mentions(pop, all_blocks)
     assertion_a(pop, findings, notes)
     assertion_b(pop, findings, notes)
     assertion_cd_seed(pop, all_mentions, findings, notes)

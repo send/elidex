@@ -25,16 +25,20 @@ Two rules decided here, once:
 Every block is lexed ONCE, where it is minted (a cell in `split_row`, a
 paragraph in `plan_memo_memo.Paragraph`); the disposition step (`dispose`,
 run by `Population` once the ids are known) tags each block's mask with the
-kind of every span -- `code` / `def` / `link` / `cite` / `file` -- minus the
-id-only code spans, and `stream(lexed)` (every masked span blanked) is the
-ONE text each predicate over a block reads.
+kind of every span -- `code` / `html` / `autolink` / `link` / `image` /
+`cite` / `file` / `mark` -- minus the id-only code spans and the `**` pairs
+that decorate one, and `stream(lexed)` -- the block AS THE DOCUMENT RENDERS
+IT: the spans that render nothing dropped, the spans that render text the
+checker refuses to read blanked in place, the §2.5 references substituted --
+is the ONE text each predicate over a block reads.
 """
 
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
-from plan_memo_ids import CITE_ID, DECOR, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, decorated_id, tokens
-from plan_memo_lexer import blank_spans
+from plan_memo_ids import (
+    CITE_ID, DECOR, DECOR_CHARS, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, decorated_id, tokens,
+)
 
 # A cell that carries nothing: the one predicate every reader of an optional
 # cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
@@ -49,9 +53,15 @@ from plan_memo_lexer import blank_spans
 EMPTY_WORDS = frozenset({"n/a", "none"})
 
 
-def is_empty(cell_text):
-    """Decoration does not fill a cell: `**—**` is as empty as `—`."""
-    bare = cell_text.strip(" \t").strip("*`").strip(" \t")
+def is_empty(cell_stream):
+    """Whether a cell carries nothing, read from the cell's disposed STREAM
+    (`stream`): decoration does not fill a cell -- `**—**` renders `—` and is
+    as empty as it -- and neither does an HTML comment, which renders nothing
+    at all.  Reading the raw text here spelled the decoration strip a second
+    time (`.strip("*`")`), and that spelling knew about `**` and backticks
+    only; the stream knows every construct, because it is what the reader
+    reads (PR #510 design re-gate 4)."""
+    bare = cell_stream.strip(" \t")
     # `isalnum` is DELIBERATELY Unicode: a letter in any script fills a cell
     # (`—あ` is not empty); the shape rule is "no letter or digit at all"
     return not any(ch.isalnum() for ch in bare) or bare.casefold() in EMPTY_WORDS
@@ -66,7 +76,10 @@ ID_CELL_BLANKS = frozenset({"", "\u2014", "-", "\u2013"})
 
 def is_blank_id_cell(cell_text):
     """Whether an id cell is a deliberate non-row (a literal blank), as
-    opposed to unkeyed content."""
+    opposed to unkeyed content.  The RAW cell, not its stream: the id cell is
+    the one text `bare_id` reads raw as well, because the decoration IS part
+    of the id grammar there (`**9z**`), so the two readings of that cell agree
+    by being the same reading."""
     return cell_text.strip(" \t").strip("*`").strip(" \t") in ID_CELL_BLANKS
 
 
@@ -362,6 +375,26 @@ def code_mask(lx, keep):
     return out
 
 
+# WHAT A DISPOSED SPAN CONTRIBUTES TO THE STREAM, per kind -- the column
+# §3.0b's table carries, read off the spec's rendering of each construct and
+# nothing else:
+#   True  = the construct renders TEXT the checker refuses to read, so its
+#           span stands as blanks: it can hide an id but never JOIN what sits
+#           on either side of it, because a reader does not read across it;
+#   False = the construct renders NOTHING at all -- a raw HTML tag or comment
+#           (§6.6: markup, not text), a link's tail (§6.3: `](dest)` prints
+#           nothing) or a `mark` (a §2.4 backslash, a link's `[`, a matched
+#           §6.2 / GFM delimiter run) -- so its span contributes no character
+#           and the text on either side of it is ONE run, exactly as the
+#           rendered document reads it.
+# An image renders no text either, but its own tail is BLANK: `![alt](i.png)`
+# puts a picture in the flow, not the letters of `alt`, so the two sides of
+# it are not one word (the description is scanned as prose all the same --
+# the stated deviation, §2 B×D).
+RENDERS_TEXT = {"code": True, "autolink": True, "image": True, "cite": True, "file": True,
+                "html": False, "link": False, "mark": False}
+
+
 def dispose(lx, keep):
     """Tag `lx.mask`: every span the scanners must not read an id out of, as
     (start, end, kind) -- `code` (minus id-only spans and kept slugs), `html`
@@ -373,26 +406,191 @@ def dispose(lx, keep):
     seeded, because the construct is fully lexed and hides nothing; PR #510
     R21), `link` (the tail; the visible text stays, it
     is prose), `image` (the same, for an image -- its own tail and every
-    construct demoted into its description), `cite`, `file`.  A
+    construct demoted into its description), `cite`, `file`, and `mark`
+    (every span that renders no character: a §2.4 backslash, a link's `[`,
+    a matched §6.2 emphasis or GFM strikethrough delimiter run).  A
     reference definition is a Phase-1 block of its own, never inline
-    content, so no block holds one to mask."""
+    content, so no block holds one to mask.
+
+    THE DECORATION EXCEPTION (PR #510 design re-gate 4).  A `**`-pair whose
+    content is only declared ids is not markup around prose: it is the
+    document DECORATING an id, the way `` `9a` `` spells one, so its
+    delimiters STAND in the stream and the id grammar reads them as the
+    boundary they are (`plan_memo_ids`: "a decorated side is bounded by the
+    decoration itself") -- `**9z**7z` is the id `9z` and then the id `7z`,
+    not the token `9z7z`.  It is `id_only`, the SAME predicate the code-span
+    disposition has always used for `` `9z` ``, asked of the emphasis span:
+    one exception, spelled once, over both constructs.  Everywhere else the
+    delimiters render nothing and are dropped, so `Slice 9**z**` names the
+    row `9z` a reader sees, not the row `9` the asterisks used to bound
+    (`*9z*` is not decoration -- `DECOR` is `**` and a backtick -- so a
+    single-`*` pair around an id is dropped like any other emphasis)."""
     out = [(a, b, "code") for a, b in code_mask(lx, keep)]
     out += [(a, b, "html") for a, b in lx.html]
     out += [(a, b, "autolink") for a, b in lx.autolinks]
     out += [(a, b, "link") for a, b, _ in lx.links]
     out += [(a, b, "image") for a, b, _ in lx.images]
+    out += [(a, b, "mark") for a, b in lx.marks]
+    for oa, ob, ca, cb, ch, use, _kind in lx.emphasis:
+        if ch == "*" and use == 2 and id_only(lx.text[ob:ca], keep):
+            continue
+        out += [(oa, ob, "mark"), (ca, cb, "mark")]
     out += lx.tokens
     lx.mask = out
 
 
-def stream(lx):
-    """`lx.text` with EVERY span of its disposed mask blanked -- code spans
-    (id-only spans and kept slugs were excepted there), raw HTML spans,
-    autolinks, link
-    tails, citation ids, file names.  This is the ONE stream every predicate
-    over a block reads: the kind-marker reader (a quoted marker is not a
-    declaration), the seeds' vocabularies (a `gates` inside a code span is not
-    ordering prose; a `MERGED` inside one is not a retirement), the licensing
-    rule's context.  `dispose` first -- the mask is None before it."""
+def _inner(kind, text):
+    """The text a READER sees where this checker blanks: a code span's content
+    without its backtick strings (§6.1, minus the one space each side the spec
+    strips when both are there and the content is not all spaces), an
+    autolink's URL without its angle brackets, and -- for the spans that are
+    already their own text -- the span as written."""
+    if kind == "code":
+        k = len(text) - len(text.lstrip("`"))
+        body = text[k:len(text) - k]
+        if len(body) > 1 and body[0] == " " and body[-1] == " " and body.strip(" "):
+            body = body[1:-1]
+        return body
+    if kind == "autolink":
+        return text[1:-1]
+    return text
+
+
+class Stream(str):
+    """A block's rendered text, carrying the map back to the source offsets
+    the report and the id grammar are written in (`at`) and, in this stream's
+    OWN coordinates, the spans of it the checker refuses to read as prose
+    (`blanks`).  A `str`, so every predicate reads it as before; the map
+    exists because a stream character no longer sits at its own source offset
+    once a construct that renders nothing has been dropped."""
+
+    def __new__(cls, text, src, blanks):
+        o = str.__new__(cls, text)
+        o.src, o.blanks = src, blanks
+        return o
+
+    def at(self, i):
+        """The offset in the block's raw text that stream offset `i` came
+        from (the end sentinel for `i` at or past the stream's end, so a
+        match's `end` maps as its `start` does)."""
+        return self.src[min(i, len(self.src) - 1)]
+
+
+def stream(lx, reader=False):
+    """`lx.text` AS THE DOCUMENT RENDERS IT, under the disposition above:
+    every §2.5 character reference substituted by the character it stands for,
+    every span that renders no character dropped, and every span that renders
+    text the checker refuses to read blanked in place (code spans -- id-only
+    spans and kept slugs were excepted in `dispose` -- autolinks, image tails,
+    citation ids, file names).  This is the ONE text every predicate over a
+    block reads: the id scanners (`plan_memo_ids.tokens` over this stream),
+    the kind-marker reader (a quoted marker is not a declaration; a marker
+    split by `*terminal*` or `&#44;` still IS one, since the reader reads
+    one phrase), the seeds' vocabularies (a `gates` inside a code span is not
+    ordering prose), the licensing rule's context.  `dispose` first -- the
+    mask is None before it.
+
+    Blanks keep their length and their line endings, so a masked construct
+    stays a boundary and a report coordinate stays findable; a drop does not,
+    which is why the result carries `Stream.at`.  Where a span of each kind
+    overlaps, the DROP wins: that a construct renders nothing is a fact of
+    the spec, while a blank is this checker's policy about text that IS
+    rendered (a link tail holding a `.md` file token is the case that
+    settles it -- blanking the token inside the dropped tail would leave the
+    tail's two sides apart, where the document reads them as one).
+
+    `reader=True` is the SAME rendering with the blanks filled in by what a
+    reader sees there (`_inner`): not a text any predicate reads -- I-A is
+    the disposition, and a quoted marker declares nothing -- but the one the
+    residue detector compares against, since the difference between the two
+    IS everything this checker refuses to read (`split_units`)."""
     assert lx.mask is not None, "stream() before dispose(): the Population has not run yet"
-    return blank_spans(lx.text, [(a, b) for a, b, _ in lx.mask])
+    text = lx.text
+    disp = bytearray(len(text))         # 0 = text, 1 = blank, 2 = drop
+    for a, b, kind in lx.mask:
+        v = 1 if RENDERS_TEXT[kind] else 2
+        for k in range(a, b):
+            if v > disp[k]:
+                disp[k] = v
+    # A §2.4 escape and a §2.5 reference are the two spellings of "this text
+    # renders as that character", and both substitute -- EXCEPT where the
+    # character would spell a decoration the document does not have: the
+    # stream carries exactly one kind of markup, the id decoration a kept
+    # span stands for (`dispose`), so `\*\*C\*\*` and `&#42;&#42;C&#42;&#42;`
+    # stand as written rather than becoming the bold `**C**` no reader sees
+    # (measured: the umbrella memo quotes a `grep` pattern in that shape).
+    subst = {a: (b, ch) for a, b, ch in lx.subst if ch not in DECOR_CHARS}
+    # the outermost blank span at each start, for the reader's rendering: an
+    # inner span of a blanked one is inside its text, not beside it
+    blank_at = {}
+    for a, b, kind in lx.mask:
+        if RENDERS_TEXT[kind] and disp[a] == 1 and (a not in blank_at or blank_at[a][0] < b):
+            blank_at[a] = (b, kind)
+    buf, src, blanks, i, n = [], [], [], 0, len(text)
+    while i < n:
+        if disp[i] == 0 and i in subst:
+            end, ch = subst[i]
+            buf.append(ch)
+            src.extend([i] * len(ch))
+            i = end
+            continue
+        if disp[i] == 0:
+            buf.append(text[i])
+            src.append(i)
+        elif disp[i] == 1:
+            if reader and i in blank_at:
+                end, kind = blank_at[i]
+                body = _inner(kind, text[i:end])
+                blanks.append((len(buf), len(buf) + len(body)))
+                buf.extend(body)
+                src.extend([i] * len(body))
+                i = end
+                continue
+            if not reader and (not blanks or blanks[-1][1] != len(buf)):
+                blanks.append((len(buf), len(buf) + 1))
+            elif not reader:
+                blanks[-1] = (blanks[-1][0], len(buf) + 1)
+            buf.append("\n" if text[i] == "\n" else " ")
+            src.append(i)
+        i += 1
+    src.append(n)
+    return Stream("".join(buf), src, blanks)
+
+
+def _straddles(blanks, a, b):
+    """Whether `[a, b)` holds a character inside one of the `blanks` AND one
+    outside every one of them -- the unit is read ACROSS a span, as opposed
+    to sitting wholly inside one (a quoted marker: I-A's disposition, on
+    purpose) or wholly outside every one (the ordinary reading)."""
+    inside = sum(max(0, min(b, y) - max(a, x)) for x, y in blanks)
+    return 0 < inside < b - a
+
+
+def split_units(lx, keep):
+    """THE RESIDUE, reported rather than decided (the plan's §3.0b): every
+    lexical unit the READER reads across a span this checker refuses to read
+    as prose, as (kind, text, offset in the block's RAW text) -- an id token
+    of `keep`, or the kind marker.
+
+    The mechanism that fixes the rest of this class -- the stream IS the
+    rendered text -- cannot reach here by construction: inside a code span,
+    an autolink, a citation id or a file name the checker does not read the
+    rendered text, deliberately (I-A: a quoted marker declares nothing, a
+    `9z` in a shell command names no row), so where a unit STRADDLES such a
+    span the two readings disagree and neither is the checker's to pick.
+    §1 forbids a clean exit for a could-not-scan, so the disagreement is
+    printed; and where it decides a gating census -- the marker in a row's
+    declaring field -- `Population._kind` raises it as a schema miss instead
+    (`plan_memo_memo.py`).
+
+    The comparison is exact and needs no threshold: both readings come from
+    the ONE builder, and a unit is in the residue exactly when its extent
+    covers characters on both sides of a blank's edge."""
+    rd = stream(lx, reader=True)
+    if not rd.blanks:
+        return []
+    out = [("id", t.id, rd.at(t.idstart)) for t in tokens(rd)
+           if t.id in keep and t.kind != "cite" and _straddles(rd.blanks, t.idstart, t.idend)]
+    out += [("marker", MARKER, rd.at(m.start())) for m in re.finditer(re.escape(MARKER), rd)
+            if _straddles(rd.blanks, m.start(), m.end())]
+    return out

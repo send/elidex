@@ -34,9 +34,9 @@ modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
 by three modules, read at one import site (the runner).
 """
 
-IDS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, CONTROLS = (
-    "plan_memo_ids.py", "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_tables.py",
-    "plan_memo_memo.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
+IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, CONTROLS = (
+    "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
+    "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
     "plan_memo_selftest_controls.py")
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
@@ -48,7 +48,7 @@ SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 
 # The inline half of the conformance control: the spec's §2.4 / §2.5 / §6.1 /
 # §6.3 / §6.4 / §6.5 / §6.6
 # examples against the spans Phase 2 masks (PR #510 R17).
-INLINE_EXAMPLES = ("CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1, §6.3-§6.6): Phase 2's inline claim aligns "
+INLINE_EXAMPLES = ("CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
                    "with the html")
 
 MUTANTS = [
@@ -320,8 +320,8 @@ MUTANTS = [
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "
       "stated polarity is a reported edge (false rc 1), never a silent skip"]),
     ("F9 span: an escaped backtick opens no span", LEXER,
-     '        if _is_escape(s, i):\n            i += 2                      # §2.4: `\\[` / `\\]` / `\\`` are literal',
-     '        if _is_escape(s, i) and s[i + 1] != "`":\n            i += 2',
+     '        if _is_escape(s, i):\n            subst.append((i, i + 2, s[i + 1]))  # §2.4: `\\[` renders the character alone',
+     '        if _is_escape(s, i) and s[i + 1] != "`":\n            subst.append((i, i + 2, s[i + 1]))',
      ["(span) a backtick behind a backslash is literal and opens no span"]),
     ("F12 link: the link tail masks a slug", TABLES,
      '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
@@ -375,8 +375,8 @@ MUTANTS = [
      '        if _glued(text, t.end, +1, t.kind, pos, hi):',
      ["(bare) the decoration closes the token even against an id character: `**9z**7z`"]),
     ("#8 stream: the (c) seed reads the Slice cell's disposed stream", ROLES,
-     '        body = _stream(row, "Slice")\n        empty = is_empty(deps)',
-     '        body = row.col("Slice").text\n        empty = is_empty(deps)',
+     '        body = _stream(row, "Slice")\n        empty = is_empty(_stream(row, "Deps"))',
+     '        body = row.col("Slice").text\n        empty = is_empty(_stream(row, "Deps"))',
      ["(c-seed) ordering vocabulary inside a code span is code, not prose"]),
     ("#8 stream: the acceptance seed and RETIRED read the disposed stream", ROLES,
      '        body = _stream(row, "Slice")\n        # the population decided',
@@ -396,8 +396,8 @@ MUTANTS = [
     # Its control stays (the property holds); the clause it tested is now
     # enforced one step upstream, by R12-C's mutant.
     ("#8 stream: every span of the mask is blanked, not only code", TABLES,
-     'return blank_spans(lx.text, [(a, b) for a, b, _ in lx.mask])',
-     'return blank_spans(lx.text, [(a, b) for a, b, k in lx.mask if k == "code"])',
+     '        v = 1 if RENDERS_TEXT[kind] else 2',
+     '        v = (1 if RENDERS_TEXT[kind] else 2) if kind == "code" else 0',
      ["(stream) ordering vocabulary in a link TITLE is the link's tail, not prose"]),
     ("#11 identity: per-memo maps are keyed on the resolved path, not the basename", MEMO,
      '        return str(self.path)', '        return self.path.name',
