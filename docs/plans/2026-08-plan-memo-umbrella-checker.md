@@ -811,7 +811,16 @@ ground for either option; it is not cited.
   together with what landed beside them (R19's display name and path syntax, R20's row-kind grammar and
   file token, R21's out-of-field marker / KIND-SPELLING / schema id kinds). Three modules, one `CASES`
   list, one import site (the controls module). Behaviour-preserving: 410 controls / 215 mutants 0 / 0,
-  census 48 / 717 / 37 / 6 identical to `e76f2335`'s.
+  census 48 / 717 / 37 / 6 identical to `e76f2335`'s. ⚠ Touch-time split before design re-gate 4
+  (`plan_memo_selftest_mutants_pr510.py` had reached 953 lines and the round adds mutants to it): the
+  MUTANT registry is split at **the same R17 seam the cases modules use**, so the two registries are
+  split alike and a round's control and its mutant sit in modules of the same name —
+  `plan_memo_selftest_mutants_pr510.py` keeps R1–R16 and the design re-gates (the lexical substrate,
+  the block grammar), `plan_memo_selftest_mutants_inline.py` holds R17 on (the Phase-2 inline construct
+  family). Neither half names anything the other defines (measured: 0 cross-references), so the seam
+  needs no shared helper; three modules, one `MUTANTS` list, one import site (the runner).
+  Behaviour-preserving: 439 controls / 226 mutants 0 / 0, `scripts/trip-wires.sh` rc 0, and the
+  census worklist byte-identical to `c6be7995`'s (`diff` clean).
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,

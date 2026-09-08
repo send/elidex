@@ -27,10 +27,11 @@ from the PATCHED module's registry.
 The registry is split at the review-round seam, like the controls: this
 module holds the row shape, `run`, and every PRE-converge mutant (the lexing
 clauses, the gating stages, the `/code-review high` and `/elidex-review`
-Stage-6 fixes); `plan_memo_selftest_mutants_pr510.py` holds the PR #510
-review-round mutants (Codex R1-R14, the design re-gates) and appends to this
-same `MUTANTS` -- one list, filled by two modules, read at one import site
-(the runner).
+Stage-6 fixes); `plan_memo_selftest_mutants_pr510.py` holds PR #510's review
+rounds R1-R16 and the design re-gates, and `plan_memo_selftest_mutants_inline.py`
+every round from R17 on (the Phase-2 inline construct family) -- the cases
+modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
+by three modules, read at one import site (the runner).
 """
 
 IDS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, CONTROLS = (
