@@ -135,11 +135,17 @@ jobs:
   # ~25 s. ⚠ PR #510 R27 raised it, because R27 answered "is this program
   # linear?" with a corpus GENERATED from the grammar instead of another
   # hand-written shape, and that sweep runs once in `--self-test` plus once per
-  # mutant naming it. MEASURED, WITH THE CONDITION STATED, because the first R27
-  # figure here was neither: **11.8 s** (three runs, 11.83 / 11.83 / 11.85,
-  # `/usr/bin/time -p`, on a `git clone --local` of the commit being described,
-  # nothing else of this project running). The same 4.3x runner is therefore
-  # ~51 s against the `timeout-minutes: 5` below -- ~5.9x headroom.
+  # mutant naming it. PR #510 R29 raised it again, by
+  # about a second, for the exhaustive id-scan corpus and two new sweeps.
+  # MEASURED, WITH THE CONDITION STATED, because the first R27 figure here was
+  # neither: **~13.7 s** (three runs, 13.68 / 14.36 / 14.42, `/usr/bin/time -p`,
+  # on a `git clone --local` of the commit being described, nothing else of this
+  # project running). ⚠ THE BASE WAS RE-MEASURED IN THE SAME SESSION, on the
+  # same clone, minutes apart: the branch's parent ran 12.23 / 12.89 / 13.21
+  # against the 11.8 s recorded for it at R27, so ~0.4 s of the difference above
+  # is the host and not this branch. Quote the pair, never the later number
+  # alone. The same 4.3x runner is therefore ~59 s against the
+  # `timeout-minutes: 5` below -- ~5.1x headroom.
   # ⚠ THE CONDITION IS PART OF THE NUMBER: the same script measured 26.2 / 27.2 s
   # in a busy worktree minutes earlier, 2.2x this, and that inflated figure was
   # committed here for one round as "2.6x headroom". A timing in this comment
