@@ -32,14 +32,16 @@ The registry is split at the review-round seam, like the controls: this
 module holds the row shape, `run`, and every PRE-converge mutant (the lexing
 clauses, the gating stages, the `/code-review high` and `/elidex-review`
 Stage-6 fixes); `plan_memo_selftest_mutants_pr510.py` holds PR #510's review
-rounds R1-R16 and the design re-gates, and `plan_memo_selftest_mutants_inline.py`
-every round from R17 on (the Phase-2 inline construct family) -- the cases
-modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
-by three modules, read at one import site (the runner).
+rounds R1-R16 and the design re-gates, `plan_memo_selftest_mutants_inline.py`
+rounds R17-R25 (the Phase-2 inline construct family) and
+`plan_memo_selftest_mutants_r26.py` R26 on (the checker's operating envelope:
+what it assumes about its host, and what it costs) -- the cases modules' own
+seams.  All four append to this same `MUTANTS` -- one list, filled by four
+modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
-    "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
+IDS, EMPHASIS, HTML, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, WORK = (
+    "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_html.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py", "plan_memo_population.py",
     "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
     "plan_memo_selftest_properties.py", "plan_memo_selftest_work.py")

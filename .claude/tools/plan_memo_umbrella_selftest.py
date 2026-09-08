@@ -51,8 +51,9 @@ it.  The self-test is four modules with one import direction:
 
 The mutants (a re-executable proof that each control can go red) are
 `plan_memo_selftest_mutants.py` (the pre-converge rows + the runner),
-`plan_memo_selftest_mutants_pr510.py` (PR #510 rounds R1-R16) and
-`plan_memo_selftest_mutants_inline.py` (R17 on), all appending to the same
+`plan_memo_selftest_mutants_pr510.py` (PR #510 rounds R1-R16),
+`plan_memo_selftest_mutants_inline.py` (R17-R25) and
+`plan_memo_selftest_mutants_r26.py` (R26 on), all appending to the same
 `MUTANTS`, split at the cases modules' seams.
 
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
@@ -91,7 +92,8 @@ def run(mutants=False):
     if mutants:
         import plan_memo_selftest_mutants as mm
         import plan_memo_selftest_mutants_pr510  # noqa: F401 -- appends R1-R16's mutants to MUTANTS
-        import plan_memo_selftest_mutants_inline  # noqa: F401 -- appends R17-on's mutants to MUTANTS
+        import plan_memo_selftest_mutants_inline  # noqa: F401 -- appends R17-R25's mutants to MUTANTS
+        import plan_memo_selftest_mutants_r26  # noqa: F401 -- appends R26-on's mutants to MUTANTS
         fails += mm.run(reg)
         n_mutants = len(mm.MUTANTS)
     fails += empty_registry_fails(len(reg), n_mutants)

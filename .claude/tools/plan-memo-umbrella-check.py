@@ -30,6 +30,9 @@ MODULES
                           the ONE boundary every reader consumes (`tokens`)
   plan_memo_emphasis.py   §6.2 emphasis + GFM strikethrough: which delimiter
                           runs PAIR, and so which characters render as nothing
+  plan_memo_html.py       the two grammars that open at a `<` -- §6.5
+                          autolinks and §6.6 raw HTML -- read by BOTH phases
+                          (§4.6 start condition 7 is the same tag bodies)
   plan_memo_lexer.py      Phase 2 (inline): code spans + links / images +
                           delimiter runs in one pass, link grammar, `Lexed`
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
@@ -64,6 +67,7 @@ MODULES
                           review round) /
                           _selftest_mutants.py / _selftest_mutants_pr510.py /
                           _selftest_mutants_inline.py /
+                          _selftest_mutants_r26.py /
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)

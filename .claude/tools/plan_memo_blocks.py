@@ -20,7 +20,11 @@ open: a raw extent, a table, a run) and recurses into a container's content
 no state and looks at no previous line.  The inline grammar a definition's
 label, destination and title reuse (`link_label`, `link_destination`,
 `link_title`, `_skip_ws`, `_escaped`) is Phase 2's, in
-`plan_memo_lexer.py`, which this module imports and never the reverse.
+`plan_memo_lexer.py`, which this module imports and never the reverse.  §4.6
+start condition 7's tag bodies (`OPEN_TAG` / `CLOSING_TAG`) come from
+`plan_memo_html.py`, which belongs to NEITHER phase: both read it (PR #510
+R26; until then Phase 1 imported its own grammar back out of the Phase-2
+module).
 
 Every block type of the spec's closed list (§4 leaf blocks, §5 container
 blocks, GFM tables) has a disposition in the plan's §3.0 table, and every
@@ -35,8 +39,9 @@ transcription error here turns that control red.
 import bisect
 import re
 
+from plan_memo_html import CLOSING_TAG, OPEN_TAG
 from plan_memo_lexer import (
-    CLOSING_TAG, OPEN_TAG, Lexed, _escaped, _skip_ws, link_destination, link_label, link_title,
+    Lexed, _escaped, _skip_ws, link_destination, link_label, link_title,
 )
 
 # --------------------------------------------------------------------------
