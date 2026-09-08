@@ -130,9 +130,17 @@ jobs:
   # wires ~1s; the self-test wire's mutant run is plain python3 -- measured at
   # 29dc1eb7: local 49 s / Codex's runner 211 s, all of it ONE mutant whose call
   # counter watched the wrong module and was killed only by a quadratic wall-clock
-  # ratio; after the PR #510 R12 fix (this commit) `--self-test --mutants` is 4.2 s
-  # locally and the whole `scripts/trip-wires.sh` 5.8 s, so the same 4.3x-slower
-  # runner is ~25 s and `timeout-minutes` below is 5, ten times that -- no Rust
+  # ratio; after the PR #510 R12 fix `--self-test --mutants` was 4.2 s locally and
+  # the whole `scripts/trip-wires.sh` 5.8 s, so the same 4.3x-slower runner was
+  # ~25 s. ⚠ PR #510 R27 raised it: the script is 26.2 s / 27.2 s locally (two
+  # runs, `/usr/bin/time -p`), because R27 answered "is this program linear?" with
+  # a corpus GENERATED from the grammar instead of another hand-written shape, and
+  # that sweep runs once in `--self-test` plus once per mutant naming it, ~4.5 s
+  # each. The same 4.3x runner is therefore ~115 s against the
+  # `timeout-minutes: 5` below -- still 2.6x headroom, not the 10x it used to be,
+  # so the NEXT growth of this sweep re-derives the timeout rather than assuming
+  # it. That sweep is what caught two defects this round before the reviewer's
+  # shapes were written, so the cost buys the property; no Rust
   # toolchain, no cache; the self-test wire needs only the `python3` already on
   # `ubuntu-latest`), so a filter would buy nothing and cost the
   # one property the wires exist for. Gating them would mean listing BOTH
@@ -150,7 +158,8 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    # 5 = ~10x the extrapolated worst case (measurement in the comment above); the
+    # 5 = ~2.6x the extrapolated worst case since PR #510 R27 (it was ~10x before
+    # that round's generated growth sweep; measurement in the comment above); the
     # 2 it replaced cancelled an otherwise-green job at 211 s on a slower runner.
     timeout-minutes: 5
     runs-on: ubuntu-latest
