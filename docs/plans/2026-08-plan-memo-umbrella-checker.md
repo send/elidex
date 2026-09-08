@@ -4,7 +4,7 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is fifteen
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 16
 `.py` files: `plan-memo-umbrella-check.py` 498 / `plan_memo_tables.py` 364 / `plan_memo_umbrella_selftest.py`
 89 (the three carried names, 951) + `plan_memo_ids.py` 184 / `plan_memo_lexer.py` 699 / `plan_memo_blocks.py` 746 /
 `plan_memo_memo.py` 913 / `plan_memo_roles.py` 399 / `plan_memo_selftest_cases.py` 612 /
@@ -421,7 +421,7 @@ text is read by the scanners exactly as written, and the row states what that co
 | § | Inline construct | Disposition | Phase-2 site | Control / corpus |
 |---|---|---|---|---|
 | §2.4 | Backslash escapes | LEXED — one parity helper; an ODD run escapes, and the same helper answers the row splitter (`\|`) and the inline pass | `plan_memo_lexer.py::_is_escape` | spec examples (13); "(row) `a\\|b` holds an UNESCAPED pipe" |
-| §2.5 | Entity and character references | LEXED **in a link destination only** — `normalize_destination` is the one place a destination's text is read, because that text must equal a file name (R16). In PROSE: read as written | `plan_memo_lexer.py::normalize_destination` | spec examples (17); KNOWN-MISS "(§2.5) a character reference in PROSE … is no naming site" — **the cost**: `Slice &#57;z` renders `Slice 9z` and is measured as 0 sites |
+| §2.5 | Entity and numeric character references | LEXED **in a link destination only** — `normalize_destination` is the one place a destination's text is read, because that text must equal a file name (R16). In PROSE: read as written | `plan_memo_lexer.py::normalize_destination` | spec examples (17); KNOWN-MISS "(§2.5) a character reference in PROSE … is no naming site" — **the cost**: `Slice &#57;z` renders `Slice 9z` and is measured as 0 sites |
 | §6.1 | Code spans | LEXED → MASKED (backtick strings of equal length). Disposition exception: an id-only span is the document SPELLING an id, not code (`plan_memo_tables.py`) | `inline_pass` / `_code_closer` | spec examples (22); the code-span family |
 | §6.2 | Emphasis and strong emphasis | PROSE-AS-WRITTEN — the delimiters are characters the scanners read past. **Cost: none measured.** A declared id inside `*…*` IS a site; a link wrapped in emphasis IS still the memo link. The `**9z**` DECORATION a row id carries is the id grammar's (`plan_memo_ids.DECOR`), not this pass's | — | "(§6.2) emphasis is PROSE, not a mask…" (1 site); "(§6.2) a link WRAPPED in emphasis is still the memo link" |
 | §6.3 | Links | LEXED — the Appendix bracket stack; inline / full / collapsed / shortcut; a link deactivates every earlier `[` | `inline_pass` | spec examples (90); the link family |
@@ -737,6 +737,23 @@ ground for either option; it is not cited.
   a slug its Deps cell lacks — ORDER-PROSE? x1 on that line carrying the locator, no finding of the run spelling
   `row None`; mutant `R20 #3` re-injects the unconditional `repr(self.self_id)`. 410 controls / 215 mutants 0 / 0;
   census 48 / 717 / 37 / 6 unchanged.
+  ⚠ **PR #510 Codex R21 (2026-09-08)** — the round that closed the INLINE family, and a **Step-4 PAUSE**:
+  `plan_memo_lexer.py` had drawn an IMP in four consecutive rounds (R17 §6.6, R19 §6.4, R20 the file token,
+  R21 §6.5), the shape the block phase had before R13. Option A: **§3.0b**, the spec's CLOSED list of inline
+  constructs (§2.4, §2.5, §6.1–§6.9) with a disposition each — LEXED / MASKED / PROSE-AS-WRITTEN — and a
+  control MEASURING each PROSE row's cost. #1 (IMP) §6.5 autolinks are ONE masked token tried at a `<`
+  before the tag grammar, so `<https://example.com/[child](absent.md)>` walks nothing (the false rc 2 is
+  gone); 14 `(autolink)` controls, 5 mutants. #2 (IMP) the marker short-circuit is the SEED's alone, so a
+  row marked in its declaring field AND again elsewhere is reported. #3 (IMP) KIND-SPELLING gates on
+  `pop.spellings`, never on a non-empty undetermined set. #4 (IMP) each `Schema` declares the id KINDS its
+  id column may key, applied in the one `bare_id`. Inline corpus 20 → **203 examples, 203 aligned, 0
+  excluded, 0 FAIL** (block 295 / 295 / 0). **439 controls / 226 mutants 0 / 0**; census 48 / 717 / 37 / 6
+  unchanged, finding-kind counts identical to R20's head.
+  ⚠ Five R21 mutants first SURVIVED, all one class: each named a control whose SUBJECT sat outside the span
+  the mutation changes (an id glued to a domain label; a link placed after the would-be autolink instead of
+  inside it; a space after `<`, which fails at the SCHEME rather than in the tail class the mutation
+  widens). Each subject was moved inside the mutated span and each control now records why it is shaped so
+  — the `feedback_surviving-mutation-means-the-probe-has-another-subject` class, third sighting on this PR.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
@@ -790,7 +807,7 @@ ground for either option; it is not cited.
   seam is where the converge turned from Phase 1 to Phase 2 — `_cases_pr510.py` keeps Codex R1–R16 and the
   design re-gates (the lexical substrate, the block grammar, the one pipeline);
   `plan_memo_selftest_cases_inline.py` holds every round from R17 on, which closed the INLINE construct
-  family (R17 §6.6 raw HTML, R19 §6.4 images, R21 §6.5 autolinks and the closed §6.1–§6.9 list of §3.1)
+  family (R17 §6.6 raw HTML, R19 §6.4 images, R21 §6.5 autolinks and the closed §6.1–§6.9 list of §3.0b)
   together with what landed beside them (R19's display name and path syntax, R20's row-kind grammar and
   file token, R21's out-of-field marker / KIND-SPELLING / schema id kinds). Three modules, one `CASES`
   list, one import site (the controls module). Behaviour-preserving: 410 controls / 215 mutants 0 / 0,

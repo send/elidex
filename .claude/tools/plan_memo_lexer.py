@@ -373,7 +373,7 @@ def _reference_tail(s, opener, close, defs):
 # --------------------------------------------------------------------------
 # CommonMark §6.5 autolinks -- "Autolinks are absolute URIs and email
 # addresses inside < and >.  They are parsed as links, with the URL or email
-# address as the link label."  The disposition is the plan's §3.1: MASKED, the
+# address as the link label."  The disposition is the plan's §3.0b: MASKED, the
 # whole span -- an autolink is ONE token whose contents are not inline syntax
 # (`<https://example.com/[child](absent.md)>` is one autolink, commonmark.js
 # 0.31.2 measured: `<a href="https://example.com/%5Bchild%5D(absent.md)">`),

@@ -423,7 +423,7 @@ def spec_examples_control(M):
 
 def inline_examples_control(M):
     """The CommonMark 0.31.2 spec's own example lists for every INLINE section
-    the plan's §3.1 calls LEXED or MASKED-RAW -- §2.4 backslash escapes, §2.5
+    the plan's §3.0b calls LEXED or MASKED -- §2.4 backslash escapes, §2.5
     character references, §6.1 code spans, §6.3 links, §6.4 images, §6.5
     autolinks, §6.6 raw HTML -- through Phase 1 and Phase 2
     (`plan_memo_selftest_conformance.run_inline`, the SAME aligner the block

@@ -53,9 +53,9 @@ aligned example is PASS; an example neither excluded nor aligned is a FAIL,
 and a FAIL here is a defect in Phase 1 or a disposition the plan does not
 state -- never a reason to rewrite the property.
 
-THE INLINE HALF (`run_inline`; §6.6 since PR #510 R17, the whole §3.1 closed
+THE INLINE HALF (`run_inline`; §6.6 since PR #510 R17, the whole §3.0b closed
 list since R21).  The spec's example lists for every inline section the plan's
-§3.1 calls LEXED or MASKED-RAW -- `Backslash escapes` §2.4 (12-24), `Entity
+§3.0b calls LEXED or MASKED -- `Backslash escapes` §2.4 (12-24), `Entity
 and numeric character references` §2.5 (25-41), `Code spans` §6.1 (328-349),
 `Links` §6.3 (482-571), `Images` §6.4 (572-593), `Autolinks` §6.5 (594-612),
 `Raw HTML` §6.6 (613-632): 203 examples -- are vendored in
@@ -78,7 +78,7 @@ left unmasked where the html emits it takes an `<a href=` with it; a link read
 where the spec has none, a link lost inside an autolink or inside a resolved
 image's description, an autolink read as a raw tag, a code span mis-closed, an
 image read as a link, all move a count.  §6.2 emphasis, §6.7 / §6.8 line
-breaks and §6.9 textual content are PROSE-AS-WRITTEN (§3.1) and the tags they
+breaks and §6.9 textual content are PROSE-AS-WRITTEN (§3.0b) and the tags they
 emit (`<em>`, `<strong>`, `<br />`) are counted by nothing here -- which is
 why the R17 property's bare `<` count, correct over §6.6 alone, could not
 survive the corpus reaching §6.3.
@@ -130,7 +130,7 @@ def _blank(s, spans):
 
 _A = re.compile(r"<a href=")
 _IMG = re.compile(r"<img src=")
-# The tags the renderer emits for the §3.1 PROSE-AS-WRITTEN constructs, which
+# The tags the renderer emits for the §3.0b PROSE-AS-WRITTEN constructs, which
 # Phase 2 claims nothing about: §6.2 emphasis and strong emphasis, §6.7 hard
 # line breaks.  Measured over both corpora: no other tag stands in a `<p>`
 # body outside a raw HTML span (`<del>`, `<responsive-image>`, `<?php`,
@@ -140,9 +140,9 @@ _PROSE_TAGS = re.compile(r"</?(?:em|strong)>|<br />")
 
 def inline_claim(lx, body):
     """Phase 2's claim about ONE paragraph against the `<p>` body the spec
-    renders for it (the plan's §3.1 falsifier); None when they agree.
+    renders for it (the plan's §3.0b falsifier); None when they agree.
 
-    Four properties, one per LEXED / MASKED-RAW disposition, each read off
+    Four properties, one per LEXED / MASKED disposition, each read off
     the html's own tags rather than off a re-rendering:
       * §6.6 raw HTML -- "rendered in HTML without escaping", so each masked
         span must stand VERBATIM, in order, in the body (a mis-bounded span
@@ -161,7 +161,7 @@ def inline_claim(lx, body):
         inside a description renders no tag of its own, which is why the
         kind is recorded).
     §6.2 emphasis, §6.7 / §6.8 line breaks and §6.9 textual content are
-    PROSE-AS-WRITTEN (§3.1) and emit tags Phase 2 makes no claim about
+    PROSE-AS-WRITTEN (§3.0b) and emit tags Phase 2 makes no claim about
     (`<em>` / `<strong>` / `<br />`), so nothing here counts a bare `<`."""
     spans, pos, cut = [lx.text[a:b] for a, b in lx.html], 0, []
     for sp in spans:
@@ -311,7 +311,7 @@ def run(M):
 
 def run_inline(M):
     """The INLINE corpus: the spec's §2.4 / §2.5 / §6.1 / §6.3 / §6.4 / §6.5
-    / §6.6 example lists (the plan's §3.1 closed list).  The SAME aligner:
+    / §6.6 example lists (the plan's §3.0b closed list).  The SAME aligner:
     an inline example's block structure is checked exactly as a block
     example's is, and a block example's inline claim exactly as an inline
     example's -- one property, two corpora, so neither half can be green

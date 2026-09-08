@@ -280,7 +280,7 @@ acase("NEGATIVE", "(c-seed) the same prose with `#11-zz-alpha` in the Deps cell 
 # is ONE autolink -- its contents are not link syntax (commonmark.js 0.31.2:
 # `<a href="https://example.com/%5Bchild%5D(absent.md)">`) -- and until R21 the
 # brackets inside it were scanned, `absent.md` entered the population, and the
-# unavailable-memo miss was a false rc 2.  The disposition (plan §3.1) is
+# unavailable-memo miss was a false rc 2.  The disposition (plan §3.0b) is
 # MASKED: the span is one token, its text IS its destination, so nothing
 # inside it is a link, a naming site or a sibling, and -- unlike a §6.6 raw
 # HTML span -- it is NOT seeded, because the construct is fully lexed.
