@@ -862,3 +862,61 @@ case("POSITIVE", "(R24 §2.1) the same memo with LINE FEED endings declares the 
                  "discriminating half, and the reason the CR case is a claim about the ENDING rather "
                  "than about the fixture",
      build(), "9z owns it.", 1, measure=("id", "9z"))
+
+
+# FAMILY 3, a matcher's context boundary as a magic constant.  Both members are
+# an ANCHORED pattern handed a subject a NUMBER truncated, which is a second
+# and disagreeing statement of what the anchor already says; the property
+# control beside them (`anchored_matcher_width_control`) is the structural
+# guard, and it sees the shape rather than these two sites.
+
+# A declared `#11-` slug of 76 characters: the `ROW_ID` grammar puts no length
+# bound on one, so the appositive's own text can be longer than any window.
+_LONG_SLUG = "#11-" + "z" * 72
+_LONG_SLOTS = ("| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+               "| `%s` | **UMBRELLA, not a terminal unit.** why. | now | 2026-12-31 |\n"
+               "| `#11-zz-delta` | **(carved)** Slice `%s` — **UMBRELLA, not a terminal unit.** points "
+               "into §8. | now | 2026-12-31 |" % (_LONG_SLUG, _LONG_SLUG))
+_SHORT_SLOTS = ("| Slot | Why deferred | Trigger | Re-eval |\n|---|---|---|---|\n"
+                "| `#11-zz-gamma` | **UMBRELLA, not a terminal unit.** why. | now | 2026-12-31 |\n"
+                "| `#11-zz-delta` | **(carved)** Slice `#11-zz-gamma` — **UMBRELLA, not a terminal "
+                "unit.** points into §8. | now | 2026-12-31 |")
+acase("POSITIVE", "(R24 width) a pointer row whose appositive names a 76-character slug attributes the "
+                  "marker to that row: the appositive ends where the marker begins, which is a GRAMMAR "
+                  "fact and not a character count.  Read through a 70-character window the appositive "
+                  "fell outside it, the field was taken as the row's OWN declaration, no UMBRELLA-MARK "
+                  "was emitted, and the census carried a pointer row as an umbrella at rc 0",
+      build(extra=_LONG_SLOTS), "UMBRELLA-MARK", 1)
+acase("POSITIVE", "(R24 width) the same shape with a SHORT slug attributes too -- the discriminating "
+                  "half: the row, the marker and the appositive are the control's constants, and only "
+                  "the length of the named id differs",
+      build(extra=_SHORT_SLOTS), "UMBRELLA-MARK", 1)
+acase("NEGATIVE", "(R24 width) a field that merely MENTIONS a sibling and then declares itself "
+                  "attributes nothing: the discrimination is the DASH between the id and the marker, "
+                  "never the distance -- so removing the window does not widen the attribution",
+      build(wb="Unlike Slice 9z, **UMBRELLA, not a terminal unit.**"), "UMBRELLA-MARK", 0)
+
+# The licensing rule's backward look.  `LICENSE_BEFORE` opens with a lookbehind
+# (`BEFORE`), and a lookbehind at index 0 of a SLICE succeeds against nothing:
+# a licensing phrase exactly as long as the slice began at index 0 and licensed
+# a mention the document does not license.  40 characters, which is what the
+# slice was.
+_VACUOUS = "derivation" + " " * 21 + "that the "
+case("POSITIVE", "(R24 width) `xderivation … that the 9z` is REPORTED: the licensing phrase is 40 "
+                  "characters, exactly the width of the slice the backward look was given, so its "
+                  "lookbehind fell off the start of that slice and succeeded against nothing -- the "
+                  "document says `xderivation`, which is not the licensed phrase",
+     build(), "x" + _VACUOUS + "9z lands first.", 1)
+case("NEGATIVE", "(R24 width) the same sentence with the phrase actually AT a word boundary is "
+                  "licensed -- the discriminating half: only the character in front of `derivation` "
+                  "differs, and it is the one the lookbehind exists to read",
+     build(), " " + _VACUOUS + "9z lands first.", 0)
+case("NEGATIVE", "(R24 width) a row noun standing between the licensing phrase and the id does not "
+                 "hide the phrase (`the child of Slice 9z`), and NOT because the rule has a clause for "
+                 "one: the ANCHORED reading of that site starts AT the noun and wins the dedup, so the "
+                 "text before the mention is `the child of` either way.  This is the control the "
+                 "deleted `_TRAILING_NOUN` substitution was believed to be needed for",
+     build(), "the child of Slice 9z is terminal.", 0)
+case("POSITIVE", "(R24 width) `the grandchild of 9z` is still REPORTED -- the left edge the trailing "
+                  "noun clause must not loosen",
+     build(), "the grandchild of 9z is terminal.", 1)

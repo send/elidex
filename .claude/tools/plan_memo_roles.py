@@ -14,7 +14,7 @@ memo is asserted exactly like a row of the main memo.  Findings are
 import re
 from collections import Counter
 
-from plan_memo_ids import AFTER, BEFORE, DECOR, ROW_ID, balanced, bounded, decorated_id, kind_of
+from plan_memo_ids import AFTER, BEFORE, ROW_ID, balanced, bounded, decorated_id, kind_of
 from plan_memo_tables import MARKER_RE, ROW_NOUN_SEP, is_empty, stream
 
 
@@ -48,6 +48,23 @@ LICENSE_BEFORE = re.compile(
     r"|derivation\s+(?:that\s+)?"           # the derivation Slice B runs at its own start
     r"|naming\s+"                           # naming X itself would name nobody
     r"|mint(?:s|ed|ing)?\s+(?:onto\s+)?"    # ... mints / minted / minting X
+    # ⚠ NO TRAILING-ROW-NOUN CLAUSE, and that is a deletion rather than an
+    # omission (PR #510 R24).  A `_TRAILING_NOUN` substitution stood here --
+    # "a row noun between the licensing phrase and the id (`the child of
+    # umbrella **3**`) must not hide the phrase" -- and it was UNREACHABLE:
+    # wherever a row noun stands immediately before a declared id, the
+    # ANCHORED pass reads that site too, its span STARTS at the noun, and it
+    # wins the dedup (`collect_mentions`: "the anchored reading wins because
+    # its span is what the licensing rule was written against"), so no mention
+    # this rule is ever asked about has a row noun between the phrase and its
+    # start.  The anchored pass is a superset of the bare pass at exactly
+    # those positions -- it admits a digit and a single letter the bare pass
+    # declines, and takes the same token otherwise -- so the case is not rare,
+    # it is empty.  Measured both ways before deleting: dropping it moves 0 of
+    # 554 controls and leaves the #506 census byte-identical, and so does
+    # dropping the `_TRAILING_NOUN` substitution at `3a9f61a0`, which means it
+    # was already dead there.  It is deleted rather than ported because a
+    # clause nothing can reach reports coverage this rule does not have.
     r")(?:the\s+)?$",
     re.IGNORECASE | re.ASCII,
 )
@@ -84,13 +101,18 @@ LICENSE_AFTER = re.compile(
 # rule, and widening the nouns to `s?` would license `9z's memos` and
 # `9z's splits` on a list this seed does not name.  Measured on the #506
 # memo: 1,205 mentions, 491 licensed, unchanged by both edges.
-# ⚠ HONESTLY, what the left edge cannot see: the backward look is given a
-# 40-character SLICE of the window (`classify`), so a phrase whose match
-# starts at index 0 of that slice has nothing behind it and the lookbehind
-# succeeds vacuously.  Reachable only by a 40-character licensing phrase --
-# measured, `"derivation" + " " * 21 + "that the "` is exactly one -- because
-# the match must end at `$`.  Widening the slice moves the edge, it does not
-# remove it; the residue is named here rather than claimed away.
+# ⚠ THE LEFT EDGE WAS ALSO GIVEN A SLICE, and that was the same defect one
+# level down (PR #510 R24).  `classify` handed the backward look the 40
+# characters before the mention, so a licensing phrase 40 characters long began
+# at index 0 of that slice with nothing behind it and `BEFORE`'s lookbehind
+# succeeded VACUOUSLY -- measured reachable with `"derivation" + " " * 21 +
+# "that the "`, licensing a mention the document says `xderivation … that the`
+# about.  Widening the slice moves the edge; only removing it removes the edge,
+# and it is removable because "immediately before" is a GRAMMAR fact: the
+# pattern is anchored at `$`, so the search is bounded by `endpos` at the
+# mention's start and reads the block's whole preceding text.  There is no
+# width constant in the backward look at all now, and no slice for a
+# lookbehind to fall off the start of.
 
 # The mention shapes.  Every id token -- a short id or a `#11-` slug, in a
 # cell or in prose, decorated or bare -- is read by the ONE grammar
@@ -115,24 +137,27 @@ LICENSE_AFTER = re.compile(
 NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)
 
 
-# A row noun standing between the licensing phrase and the id ("the child of
-# umbrella **3**") must not hide the phrase from the backward look.  It
-# composes NO id: it ends where the mention's token starts, whatever the
-# token's kind, so the slug and the short form are the one case here.
-_TRAILING_NOUN = re.compile(NOUN_ANCHOR.pattern + DECOR + "$")
-
-# The backward look reads the 40 characters before the mention (after a
-# trailing row noun is dropped); a row noun + its decoration is shorter than
-# 40, so an 80-character window is the same read without a block-length copy.
-_BEFORE = 80
-
-
 def classify(m):
     """Set `m.licensed` from what stands around the match in its block's
     DISPOSED stream (`m.text`): a licensing phrase inside a code span is
-    code, not a licence."""
-    before = _TRAILING_NOUN.sub("", m.text[max(0, m.start - _BEFORE): m.start])
-    m.licensed = bool(LICENSE_BEFORE.search(before[-40:])
+    code, not a licence.
+
+    NEITHER SIDE IS GIVEN A SLICE.  Both patterns are anchored against the
+    mention -- `LICENSE_BEFORE` at `$`, `LICENSE_AFTER` at `^` -- and the
+    mention's own extent is the id grammar's, so "immediately before" and
+    "immediately after" are stated by the grammar and need no width.  The
+    backward search is bounded by `endpos`, which is where `$` matches and
+    where a slice's end would have been, and costs no copy of the block.  A
+    slice is not a cheaper spelling of an anchor: it truncates the MATCH, and
+    a lookbehind at index 0 of a slice succeeds against nothing (PR #510 R24,
+    the note above `NOUN_ANCHOR`).
+
+    The forward side keeps its slice, and it is not the same thing: it runs to
+    the END of the block, so it truncates nothing and there is no width in it.
+    `.match(m.text, m.end)` would NOT be the same expression -- `^` matches at
+    the string's real beginning, not at `pos` -- so the tail is the text the
+    pattern is written against."""
+    m.licensed = bool(LICENSE_BEFORE.search(m.text, 0, m.start)
                       or LICENSE_AFTER.match(m.text[m.end:]))
     return m
 

@@ -799,3 +799,53 @@ MUTANTS += [
     # reader translating, "drop the normalisation" would survive too, and the
     # requirement would again be one nothing proves.
 ]
+
+# -- PR #510 Codex R24 FAMILY 3 control names, spelled once.
+R24_LONG_SLUG = ("(R24 width) a pointer row whose appositive names a 76-character slug attributes the "
+                 "marker to that row: the appositive ends where the marker begins, which is a GRAMMAR "
+                 "fact and not a character count.  Read through a 70-character window the appositive "
+                 "fell outside it, the field was taken as the row's OWN declaration, no UMBRELLA-MARK "
+                 "was emitted, and the census carried a pointer row as an umbrella at rc 0")
+R24_MENTION_ONLY = ("(R24 width) a field that merely MENTIONS a sibling and then declares itself "
+                    "attributes nothing: the discrimination is the DASH between the id and the marker, "
+                    "never the distance -- so removing the window does not widen the attribution")
+R24_VACUOUS = ("(R24 width) `xderivation … that the 9z` is REPORTED: the licensing phrase is 40 "
+               "characters, exactly the width of the slice the backward look was given, so its "
+               "lookbehind fell off the start of that slice and succeeded against nothing -- the "
+               "document says `xderivation`, which is not the licensed phrase")
+R24_TRAILING_NOUN = ("(R24 width) a row noun standing between the licensing phrase and the id does not "
+                     "hide the phrase (`the child of Slice 9z`), and NOT because the rule has a clause for "
+                     "one: the ANCHORED reading of that site starts AT the noun and wins the dedup, so the "
+                     "text before the mention is `the child of` either way.  This is the control the "
+                     "deleted `_TRAILING_NOUN` substitution was believed to be needed for")
+R24_WIDTH_PROPERTY = ("PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by "
+                      "a number (a width window is a second statement of what the anchor already says)")
+
+MUTANTS += [
+    # -- PR #510 Codex R24, FAMILY 3: a matcher's context boundary is the grammar's
+    ("R24 F3 tables: the appositive is bounded by where the MARKER begins, not by a width (re-inject "
+     "the 70-character slice: a longer declared slug pushes the appositive out of the window)", TABLES,
+     '_APPOSITIVE.search(field, 0, m.start())', '_APPOSITIVE.search(field[max(0, m.start() - 70): m.start()])',
+     [R24_LONG_SLUG, R24_WIDTH_PROPERTY]),
+    ("R24 F3 tables: the appositive still requires the DASH (drop it: a field that merely mentions a "
+     "sibling attributes to it, which is what the window was believed to prevent)", TABLES,
+     r'_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)',
+     r'_APPOSITIVE = re.compile(ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + r"\s*$", re.ASCII)',
+     [R24_MENTION_ONLY]),
+    ("R24 F3 roles: the backward look reads the whole preceding text, bounded by `endpos` where `$` "
+     "matches (re-inject the 40-character slice: a phrase that long starts at index 0 and the "
+     "lookbehind succeeds against nothing)", ROLES,
+     'LICENSE_BEFORE.search(m.text, 0, m.start)', 'LICENSE_BEFORE.search(m.text[max(0, m.start - 40):m.start])',
+     [R24_VACUOUS, R24_WIDTH_PROPERTY]),
+    # ⚠ THE SUBJECT OF THIS CONTROL IS THE DEDUP, not a clause of the licensing
+    # pattern.  A mutant that dropped a trailing-row-noun clause SURVIVED it --
+    # which is what said the clause was unreachable and got it deleted rather
+    # than ported (see `LICENSE_BEFORE`).  What the control actually rests on
+    # is that the ANCHORED reading wins, so the mutation is here: let the BARE
+    # reading win, and `the child of Slice 9z` is read from `9z` with the row
+    # noun in front of the phrase.
+    ("R24 F3 check: the ANCHORED reading wins the mention dedup (let the bare one win: a licensing "
+     "phrase separated from the id by a row noun no longer stands immediately before the mention)", CHECK,
+     '        if prev is None or m.start < prev.start:', '        if prev is None or m.start > prev.start:',
+     [R24_TRAILING_NOUN]),
+]

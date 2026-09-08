@@ -156,7 +156,8 @@ is a fact about row IDENTITY -- `attributed_to_other` needs it to decide whose
 kind a marker declares.  ASCII case-insensitive, in ONE place (the scoped
 `(?ai:…)`: `SLICE C`, `ROW 9`, `UMBRELLA C` name a row as `Slice C` does, and
 under `a` a long s never folds to `s`) -- every composer (`ROW_NOUN_SEP`,
-`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR` / `_TRAILING_NOUN`) inherits it; an
+`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR` and `LICENSE_BEFORE`'s trailing-noun
+clause) inherits it; an
 enumeration of Title-case and lower-case spellings left `SLICE C owns it`
 naming no row (PR #510 R15)."""
 
@@ -365,16 +366,30 @@ def attributed_to_other(field, rid):
     kind) -- with nothing between them but dash punctuation and emphasis.
     Until PR #510 R20 the slug form did not match, so the field was read as
     the row's OWN declaration: kind umbrella, no `UMBRELLA-MARK` attribution
-    finding, a pointer row inside the census, exit 0.  A proximity window
-    instead excluded a genuine self-declaration that merely MENTIONED a sibling
-    ("Unlike Slice 7z, **UMBRELLA, not a terminal unit.**"); the self-test
-    carries both directions.  The FIRST marker occurrence decides: a field
-    that declares itself and then says a sibling "is not it" is
-    self-declaring, and a later occurrence never overrides the first."""
+    finding, a pointer row inside the census, exit 0.  The self-test carries
+    both directions -- a field that merely MENTIONS a sibling ("Unlike Slice
+    7z, **UMBRELLA, not a terminal unit.**") is self-declaring and must not
+    attribute.  The FIRST marker occurrence decides: a field that declares
+    itself and then says a sibling "is not it" is self-declaring, and a later
+    occurrence never overrides the first.
+
+    "IMMEDIATELY BEFORE" IS A GRAMMAR FACT, NOT A CHARACTER COUNT (PR #510
+    R24).  `_APPOSITIVE` ends in `\\s*$`, so it already says "ending where the
+    marker begins" -- the search is bounded by `endpos`, which is where `$`
+    matches, and the appositive is read over the whole field before that.  It
+    was a 70-character SLICE, and a slice that starts mid-phrase truncates the
+    match rather than the context: a declared 76-character `#11-…` slug (the
+    `ROW_ID` grammar puts no length bound on one) followed by ``Slice `<slug>`
+    — **UMBRELLA, not a terminal unit.**`` fell outside the window, the field
+    was read as the row's own declaration, no `UMBRELLA-MARK` was emitted, and
+    the census carried a corrupted row at rc 0.  The mention-only direction
+    was never the window's to hold: the discrimination is the DASH -- `\\s*[—–-]\\s*`
+    between the id and the marker -- and "Unlike Slice 7z, **UMBRELLA, …**"
+    fails on the comma, at any width."""
     m = MARKER_RE.search(field)
     if m is None:
         return None
-    g = _APPOSITIVE.search(field[max(0, m.start() - 70): m.start()])
+    g = _APPOSITIVE.search(field, 0, m.start())
     if g and g.group("id") != rid:
         return g.group("id")
     return None

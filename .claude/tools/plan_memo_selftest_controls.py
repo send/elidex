@@ -35,6 +35,7 @@ imports the harness (`plan_memo_selftest_harness.py`), the case registry and
 the work registry.
 """
 
+import ast
 import pathlib
 import tempfile
 
@@ -547,7 +548,6 @@ _ID_SPELLINGS = (
 def _string_constants(src, file):
     """(lineno, value) of every string constant of `src` that is not a
     docstring (the first statement of a module / class / function body)."""
-    import ast
     tree = ast.parse(src, filename=file)
     docs = set()
     for node in ast.walk(tree):
@@ -682,6 +682,112 @@ def render_equivalence_control(M):
                    (": " + "; ".join(bad[:2])) if bad else ""))
 
 
+def _slice_bounds(node, ints):
+    """Every SLICE bound in `node`'s subtree that is fixed by a NUMBER: an
+    integer literal, or a module-global name bound to one (`ints`).  A bound
+    computed from a match position (`m.start`, `len(x)`) is not one -- that is
+    a position in the text, not a width."""
+    out = []
+    for sub in ast.walk(node):
+        if not (isinstance(sub, ast.Subscript) and isinstance(sub.slice, ast.Slice)):
+            continue
+        for bound in (sub.slice.lower, sub.slice.upper):
+            if bound is None:
+                continue
+            for leaf in ast.walk(bound):
+                if isinstance(leaf, ast.Constant) and isinstance(leaf.value, int):
+                    out.append(str(leaf.value))
+                elif isinstance(leaf, ast.Name) and isinstance(ints.get(leaf.id), int):
+                    out.append("%s=%d" % (leaf.id, ints[leaf.id]))
+    return out
+
+
+_EDGE_ANCHORS = ("^", "\\A", "(?<", "$", "\\Z", "(?=", "(?!")
+
+
+def anchored_matcher_width_control(M):
+    """PROPERTY, the STRUCTURAL guard for R24's third family: an ANCHORED
+    pattern is never handed a subject that a NUMBER truncated.
+
+    A width window in a matcher's input is a second, silent statement of what
+    "immediately before" means, and it disagrees with the pattern: `$` then
+    matches where the slice ended rather than where the marker began, and a
+    lookbehind at index 0 of a slice succeeds against nothing at all.  Both
+    R24 members are that: `_APPOSITIVE` (`\\s*$`) read a 70-character slice, so
+    a 76-character slug pushed the appositive out of the window and a pointer
+    row was counted as an umbrella at rc 0; `LICENSE_BEFORE` (a lookbehind and
+    `$`) read a 40-character one, so a 40-character licensing phrase licensed
+    a mention the document does not license.  Neither number was a claim about
+    the document; both were about the copy.
+
+    THE SWEEP, over `SOURCES` -- the text the CURRENT set was exec'd from, so
+    a mutant is seen.  Every call whose receiver is a module-global name bound
+    to a compiled pattern is a pattern-method call; if that pattern's text
+    carries an EDGE anchor and any argument's expression holds a slice whose
+    bound is fixed by a number (an integer literal, or a global bound to one),
+    that is the finding.  A local name assigned from such a slice in the same
+    function counts as the slice, so hiding the width in a variable does not
+    hide it here.  Neither the method names nor the argument positions are
+    enumerated -- the receiver being a compiled pattern is the predicate -- so
+    a pattern method this suite has never used is in scope too.
+
+    HONESTLY, what it cannot see.  The anchor test is TEXTUAL, over
+    `rx.pattern`.  A receiver that is not a module-global name -- a pattern
+    passed in as an argument, held in a list, or reached through another
+    module's attribute -- is not resolved.  The taint is one level and
+    intra-function.  And a truncation performed INSIDE a helper is invisible:
+    `Block.window` slices `self.stream` by a numeric `w`, and
+    `plan_memo_roles.roles` hands that window to `ROLE_PATTERNS`.  That is not
+    a finding, and would not be one if it were seen: those patterns carry no
+    edge anchor, and they are a RANKING over the reported set, never a filter
+    on it, so a narrower window ranks differently and reports the same sites.
+    This control says nothing about such a window; what it says is that no
+    ANCHORED pattern is given one."""
+    import re as _re
+    hits, anchored_calls, calls = [], 0, 0
+    for name, file in MODULES:
+        src = SOURCES.get(file)
+        if src is None:
+            return False, "no loaded source for %s (load() before the sweep)" % file
+        mod = __import__(name)
+        ints = {k: v for k, v in vars(mod).items() if isinstance(v, int)}
+        tree = ast.parse(src, filename=file)
+        # name -> the scopes it is width-tainted in, unioned over every
+        # ENCLOSING scope of a node (an inner function sees the outer's names)
+        tainted = {}
+        for scope in ast.walk(tree):
+            if not isinstance(scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            names = {t.id for node in ast.walk(scope) if isinstance(node, ast.Assign)
+                     for t in node.targets if isinstance(t, ast.Name)
+                     and _slice_bounds(node.value, ints)}
+            if names:
+                for node in ast.walk(scope):
+                    tainted.setdefault(id(node), set()).update(names)
+        for node in ast.walk(tree):          # ONE walk: a call is counted once
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)):
+                continue
+            rx = getattr(mod, node.func.value.id, None)
+            if not isinstance(rx, _re.Pattern):
+                continue
+            calls += 1
+            if not any(a in rx.pattern for a in _EDGE_ANCHORS):
+                continue
+            anchored_calls += 1
+            for arg in node.args:
+                widths = _slice_bounds(arg, ints)
+                if isinstance(arg, ast.Name) and arg.id in tainted.get(id(arg), ()):
+                    widths = widths or ["via " + arg.id]
+                if widths:
+                    hits.append("%s:%d %s.%s given %s" % (file, node.lineno, node.func.value.id,
+                                                          node.func.attr, ",".join(sorted(set(widths)))))
+    ok = not hits and anchored_calls >= 10
+    return ok, ("%d pattern-method call site(s) swept, %d on an anchored pattern, %d given a "
+                "number-bounded subject%s" % (calls, anchored_calls, len(hits),
+                                              (": " + "; ".join(sorted(set(hits))[:3])) if hits else ""))
+
+
 def line_ending_control(M):
     """PROPERTY: one document written with each of the three line endings §2.1
     recognises -- LF, CRLF, and a CR not followed by an LF -- yields the SAME
@@ -799,4 +905,5 @@ def registry():
     reg["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never `row None`"] = ("CONTROL", empty_id_row_name_control)
     reg["PROPERTY: the verdict is invariant under a §2.5 re-spelling of any prose character the document renders the same (the rendered-text rule, swept position by position)"] = ("CONTROL", render_equivalence_control)
     reg["PROPERTY: the census is the same under each of the three line endings CommonMark §2.1 recognises (LF, CRLF, a bare CR), written as bytes"] = ("CONTROL", line_ending_control)
+    reg["PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)"] = ("CONTROL", anchored_matcher_width_control)
     return reg
