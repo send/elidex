@@ -1355,6 +1355,60 @@ ground for either option; it is not cited.
   ⚠ `plan_memo_selftest_properties.py` is at **998** lines — the next addition crosses the touch-time
   bound. The seam is already stated in its own docstring: controls that read SOURCE TEXT or AST and
   never run the checker, versus those that run it over a GENERATED document (roughly 500/500).
+  ⚠ **PR #510 Codex R29 (2026-09-08)** — three findings: two real (the tenth and eleventh non-linear
+  sites) and **one REJECTED on a false spec citation, falsified two independent ways**.
+  #3 asked for `hgroup` in the §4.6 type-6 tag list, citing 0.31.2. **0.31.2 contains zero occurrences
+  of `hgroup`** (case-insensitive, over `spec.txt`, sha256 `bfef4ddc…`); its list runs `header`, `hr`,
+  `html`, `iframe` and DOES contain `search` — the 0.31 change that added `search` and removed
+  `hgroup`. Diffed programmatically, the code's `_HTML_TAG_NAMES` matches the spec at **62 names, both
+  directions, no difference** (the only textual difference is `h[1-6]` for `h1`–`h6`). And the
+  behavioural half is false too, through the oracle that governs these memos: `text\n<hgroup>\n[x](absent.md)`
+  renders `<a href="absent.md">x</a>` on GitHub — a LINK — while the same input with `<header>` leaves
+  it literal, so `<hgroup>` starts no HTML block there either and the checker's rc 2 is right. Adding
+  it would be a conformance REGRESSION. ⚠ **Second false spec citation from this reviewer in four
+  rounds** (R26-1 claimed §6.3 caps paren nesting at 32), each costing a round of verification a gate
+  could answer in one command — so the list is now VENDORED as data with provenance
+  (`commonmark-0.31.2-html-block-tags.json`: source URL, version, section, the sha256 of the file it
+  was read from, and the derivation) beside the two example corpora, with a control holding the code's
+  alternation against it in both directions and requiring the alternation to actually stand inside the
+  compiled `_HTML_BLOCK`. The requested change now arrives at a red gate rather than an argument.
+  Provenance verified here end-to-end: the artefact's sha256 equals that of the `spec.txt` fetched
+  independently.
+  #2 (P2) the id scan backtracked across a decoration run (`"!" + "`"*n`: 0.016 / 0.063 / 0.259 s at
+  n = 1000 / 2000 / 4000, ×3.9 then ×4.1). ⚠ **The reviewer's remedy would not have fixed it** —
+  making `DECOR` atomic removes backtracking but is a constant factor, since `finditer` still restarts
+  the greedy run scan at every position inside the run. The anchor had to move: `_CORE` is the id
+  alternation alone (each kind opens with a fixed character) and decoration is walked OUTWARD from the
+  core, clamped by the previous token's end and by `endpos`, so the walks are disjoint. Three
+  invariants, because no one instrument reaches two of them: an exhaustive LANGUAGE agreement (44,376
+  probes against `decorated_id`'s own composition), exact COST equalities this suite can count (a run
+  with no id costs the same 3 source lines at 1,000 and 8,000 marks), and — the one that would have
+  caught the original — a SOURCE sweep, because the defect ran in the C `re` engine where every one of
+  the 596 controls was green on it. Predicate is `re`'s own parser: a leading unbounded repeat with a
+  sibling after it.
+  #1 (P2) `quote_content` was the marker TEST and the BUILD in one function; two of three callers
+  wanted only the test, so `quote_marker` is that test and the builds go 4,002 → 2,000 over 2,000
+  quotes. ⚠ **PARTLY DISCHARGED, and my diagnosis mis-attributed the cost** — see §8, which now
+  carries the residual: the Python lines are exactly linear, `gc.disable()` takes n = 64,000 from
+  0.681 s to 0.274 s (the collector walking N suspended frames), and what survives that is
+  architectural — Phase 1 hands a container's content to itself as a LIST OF STRINGS, so the
+  characters materialised are Σ(content length) over the nesting levels. The guarding control counts
+  BUILDS, never characters, because a control over the character total would assert the residual is
+  correct.
+  ⚠ **A defect the round introduced and its own gate caught**: the R29-2 cost mutant made the
+  trip-wire ~60 s (32M traced line events). The work control now carries two ceilings — stops, not
+  claims, two orders above the correct scan — and catches the overflow so a red run stays red rather
+  than crashing.
+  **601 controls, 329 mutants / 0 survived / 0 crashed**, 0 `unknown control`; conformance 295 / 0 / 0
+  + 335 / 0 / 0; census `--worklist` byte-identical; `PYTHONUTF8=0 LC_ALL=C` rc 0. Trip-wire re-measured
+  the stated way: head 13.68 / 14.36 / 14.42 s — ⚠ **and the BASE was re-measured on the same clone
+  minutes apart at 12.23 / 12.89 / 13.21 against the 11.8 s recorded for it**, so ~0.4 s of the
+  difference is the host, not this branch. Quote the pair, never the later number alone.
+  ⚠ A prereq split landed first (the property controls part at the SUBJECT: controls that read the
+  checker AS WRITTEN and call nothing of it, versus controls whose question needs it RUN). ⚠ My brief
+  said that seam was already in the module's docstring; it was not — that docstring states the seam
+  BETWEEN modules, and its "what is here" paragraph named 8 of 15 controls, stale by seven since R26.
+  ⚠ Next split candidate: `plan_memo_selftest_work.py` at 790 lines.
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
@@ -1483,6 +1537,24 @@ ground for either option; it is not cited.
   landing, not here; the headers cite that origin rather than presenting the slot as registered.
 - Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
+- **Phase 1 hands a container's content to itself as a LIST OF STRINGS, so the characters
+  materialised are Σ(content length) over the nesting levels — superlinear in DEPTH by construction**
+  (PR #510 R29-1, partly discharged). What R29-1 fixed is real and reported: `quote_content` was the
+  marker TEST and the BUILD in one function, and two of its three callers wanted only the test, so
+  `quote_marker` is that test and the builds over `">"*2000 + " x"` go 4,002 → 2,000 against 2,000
+  quotes. ⚠ **What it did NOT fix, stated because the reviewer's timing curve is mostly something
+  else**: over `">"*n + " x"` the Python lines executed in `plan_memo_memo` + `plan_memo_blocks` are
+  EXACTLY linear (572,256 → 1,144,256 at n = 4,000 → 8,000, ×2.00), so every superlinear term is
+  C-level — and `gc.disable()` takes n = 64,000 from **0.681 s to 0.274 s** (measured here, twice),
+  because the cyclic collector walks the N suspended `_run` frames and their content lists. A residual
+  superlinear term survives that (×2.10 / ×2.76 per doubling with GC off), and it is the Σ above.
+  Removing it means a "line" that carries an OFFSET rather than a string, i.e. every `blocks.py`
+  predicate plus both container passes — its own PR under CLAUDE.md's edge-dense rule, not a patch
+  inside this one. Trigger = a memo whose quote nesting is deep enough to matter (nothing in the
+  population is: the deepest real nesting is 1), or the next finding on this seam. No slot minted:
+  the depth that would make it bite does not occur in this document family, and minting a platform
+  slot for it would fail the slot-fit audit. ⚠ The control that guards the fixed half counts BUILDS,
+  never characters — a control over the character total would assert the residual is correct.
 - GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - Markdown library dependency (§5) — trigger-only (see §5); no slot; no date.
