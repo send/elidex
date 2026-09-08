@@ -602,9 +602,23 @@ def stream(lx, reader=False):
     which is why the result carries `Stream.at`.  Where a span of each kind
     overlaps, the DROP wins: that a construct renders nothing is a fact of
     the spec, while a blank is this checker's policy about text that IS
-    rendered (a link tail holding a `.md` file token is the case that
-    settles it -- blanking the token inside the dropped tail would leave the
-    tail's two sides apart, where the document reads them as one).
+    rendered.  ⚠ The case that USED to settle it -- a link tail holding a
+    `.md` file token, where blanking the token inside the dropped tail would
+    leave the tail's two sides apart though the document reads them as one --
+    CAN NO LONGER ARISE: since R24 the file and citation tokens are read off
+    the RENDERING, where the tail is already gone, so no `file` span is
+    emitted inside one.  The ordering therefore stands with no witness, and
+    the mutant that proved it is retired (that row in
+    `plan_memo_selftest_mutants_inline.py` carries the re-runnable
+    measurement).  It is kept because `disp` is a max over 0 < 1 < 2 and the
+    ordering is what makes that max total -- not because a case exercises it.
+    If you find a shape where a blank span overlaps a drop span it belongs
+    here as a control; the probe is `lx = Lexed(t); lx.resolve({});
+    dispose(lx, keep)`, then intersect the positions of the spans whose
+    `RENDERS_TEXT[kind]` is true with those of the rest.  Four shapes were
+    tried when this was written -- a link with a `.md` destination, a numeric
+    reference inside a destination, a code span in link text, an image with a
+    `.md` destination -- and none overlapped.  Four is a sample, not a proof.
 
     `reader=True` is the SAME rendering with the blanks filled in by what a
     reader sees there (`_inner`): not a text any predicate reads -- I-A is
