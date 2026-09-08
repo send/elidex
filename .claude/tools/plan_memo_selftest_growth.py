@@ -304,8 +304,12 @@ def generated_growth_control(M):
 # worst the root, one other memo, and the shared target: three.  A fourth
 # memo multiplies the violation (that is what makes the drain quadratic) but
 # cannot create one where three could not.  The cost is the reason not to go
-# further anyway: four nodes is 4096 edge sets against 64, ~4 s against ~50 ms,
-# against a trip-wire whose whole budget is ~27 s.
+# further anyway: four nodes is 4096 edge sets against 64 and 16384 probes
+# against 192, measured at 6.53 s against 0.054 s -- 120x, for a corpus that
+# reports the same verdict (run with `GRAPH_NODES = 4`: green, 16384 probes,
+# 15360 of them a confluence).  The wire runs this control once in
+# `--self-test` plus once per mutant naming it, so four nodes would add ~13 s
+# to a script measured at 12.7 s.
 #
 # Self-edges are left out because they are not edges of this walk at all:
 # `Memo.linked_files` excludes the memo itself, so `i -> i` is
