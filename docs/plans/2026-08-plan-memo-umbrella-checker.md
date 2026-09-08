@@ -162,8 +162,13 @@ CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
   commonmark.js's `endsWithBlankLine` does; a quote's gaps are its own; the blank first line of an item
   opens no gap; every shape measured). ⚠ Until R15 the item was LEXED-FLAT — the marker line headed a
   paragraph and nothing tracked the content indentation — so the item's next paragraph at that
-  indentation (Example 108) was consumed as INDENTED CODE: `- item\n\n    [child](child.md)` never found
-  its link and never walked `child.md`, rc 0 (the reviewer's input); an item-open bit only seeded it. The
+  indentation (Example 108) was consumed as INDENTED CODE — a list item, a blank line, then an indented
+  link to `child.md` — so it never found
+  its link and never walked `child.md`, rc 0 (the reviewer's input); an item-open bit only seeded it. ⚠ That
+  shape is described in words rather than spelled, because spelled inside this long paragraph its backticks
+  paired elsewhere and the example became a LIVE link to a memo that does not exist: it was this document's
+  fifth FATAL, and the checker could not run cleanly on its own plan. Code spans are lexed over the
+  PARAGRAPH, not the line. The
   bit, the `item` seed reading and `container_text` are deleted. A block quote is a CONTAINER (`Memo._quote`):
   every marker line stripped by `quote_content` (§5.1's marker, incl. the §2.2 tab rule in LINE
   columns — `>\t\tfoo` is code holding `  foo`, Example 6; `>  \ta` a paragraph) and the lines
@@ -1164,6 +1169,18 @@ ground for either option; it is not cited.
   consecutive round**. Two more touch-time splits landed as standalone pure moves: the PROPERTY
   controls, and the sibling-resolver controls — the first `Case` module carved on a **subject** rather
   than a review round, since that resolver had been reported at R3, R4, R5, R8, R19, R22 and R25.
+  ⚠ **This document's own checker run, settled.** Running the checker on THIS plan exits 2 with four
+  `no table matched schema` FATALs, and that is BY DESIGN, not a defect: `SCHEMAS` matches one
+  document family's exact header rows (#506's memo), so any other plan memo is a schema miss — which
+  is exactly why the MEMO run is not a trip-wire and only `--self-test --mutants` is (the checker's
+  own module docstring says so under WHERE THIS RUNS). What WAS a defect is now fixed: a fifth FATAL,
+  an unavailable `child.md`, came from a prose EXAMPLE whose backticks paired elsewhere in a long
+  paragraph, making it a live link to a memo that does not exist. Second sighting of that shape in one
+  day — the other was in this very ledger — so the rule is written where an author will hit it: code
+  spans are lexed over the PARAGRAPH, not the line, and an example spelled as a link inside a long
+  paragraph is a live link until proven otherwise. Re-check with
+  `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-08-plan-memo-umbrella-checker.md`:
+  four FATALs is the floor, five means someone spelled a link.
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
