@@ -187,9 +187,17 @@ def render_equivalence_control(M):
     position holding a character the inline pass BRANCHES on is not a
     rendering-equivalent re-spelling and is excluded.  The excluded set is read
     off `inline_pass`'s own code object (its one-character constants) and
-    `plan_memo_emphasis.DELIMS`, plus the two the branch table cannot yield
+    `plan_memo_emphasis.DELIMS`, plus the THREE the branch table cannot yield
     because they are tested inside a helper, each named with its reason:
-    `\\` (`_is_escape`) and `!` (`_is_image`).  It is reported with the run.
+    `\\` (`_is_escape`, `_is_hard_break`), `!` (`_is_image`) and, since PR #510
+    R25-2 made a line break a lexed construct, the line ending itself
+    (`_is_hard_break`: `&#10;` renders a line ending but opens no §6.7 break,
+    so `x\\` + `&#10;` and `x\\` + a real ending do NOT render the same).  The
+    last one excludes no position `_RENDER_PROSE` holds today -- that prose is
+    one line -- and is listed because the hand-added set is the sweep's one
+    unmechanical part, so a helper added below `inline_pass` has to arrive
+    here rather than be noticed when a newline is first written into the
+    prose.  The set is reported with the run.
 
     HONESTLY, the two directions of that edge are NOT symmetric, and only one
     of them is safe.  A character wrongly LEFT IN the excluded set is a
@@ -207,7 +215,7 @@ def render_equivalence_control(M):
     `plan_memo_lexer.file_and_cite_spans` states that reading and its declared
     miss)."""
     import plan_memo_emphasis, plan_memo_lexer
-    active = set(plan_memo_emphasis.DELIMS) | {"\\", "!"}
+    active = set(plan_memo_emphasis.DELIMS) | {"\\", "!", "\n"}
     active |= {c for c in plan_memo_lexer.inline_pass.__code__.co_consts
                if isinstance(c, str) and len(c) == 1}
     want = _census(run_on(M, build(), _RENDER_PROSE)[0])
@@ -223,7 +231,7 @@ def render_equivalence_control(M):
     ok = not bad and swept >= 40
     return ok, ("%d of %d positions re-spelled as a §2.5 reference (excluded, the inline pass "
                 "branches on them: %s), %d disagreement(s)%s"
-                % (swept, len(_RENDER_PROSE), "".join(sorted(active)), len(bad),
+                % (swept, len(_RENDER_PROSE), "".join(repr(c)[1:-1] for c in sorted(active)), len(bad),
                    (": " + "; ".join(bad[:2])) if bad else ""))
 
 
