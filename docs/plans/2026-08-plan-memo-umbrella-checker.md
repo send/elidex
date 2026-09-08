@@ -853,7 +853,11 @@ ground for either option; it is not cited.
   can only OPEN never enters the search `openers_bottom` guards. Each subject was moved inside the
   mutated span and each mutant re-run); conformance **295 / 0 / 0** + **335 / 0 / 0**; census `48 = 33
   + 15`, rc 0, 37 ORDER-PROSE? rows unchanged, `[LEX-UNSUPPORTED?]` 6 unchanged, `[LEX-SPLIT?]` **0**
-  (the memo holds no straddle; the seed's controls are the fixtures), memo run **0.80 s → 1.41 s**
+  (the memo holds no straddle; the seed's controls are the fixtures), and — the one finding kind that
+  DID move, so this list is a delta and not a sample — `[UMBRELLA-MARK?]` **6 → 8**: main:2671 `an
+  **umbrella**` and main:2672 `**"Terminal under §5's criterion…` each state the kind vocabulary in a
+  declaring field with the word INSIDE emphasis, which is precisely the text this reading now sees;
+  both are gains, and rc is 0 either way because the class is a seed. Memo run **0.80 s → 1.41 s**
   (the residue detector renders each block a second way, which is what the seed costs; measured twice
   each, `/usr/bin/time -p`, `c6be7995`'s tools against this commit's on the same memo),
   `--self-test --mutants` **3.5 s**. **Sites 717 → 714, and the three that moved are the fix working**
@@ -863,8 +867,69 @@ ground for either option; it is not cited.
   *umbrella* row` are each REPORTED → LICENSED, because the licensing phrase the emphasis used to
   break — `'s children`, `'s charter`, `is an umbrella` — is now read as the document renders it. The
   context and role columns shift on other lines (a role window of 110 characters of the stream reaches
-  further when the delimiters are gone): a RANKING over the reported set, never a filter on it.
+  further when the delimiters are gone): a RANKING over the reported set, never a filter on it —
+  measured, 8 sites gain a role vocabulary they always rendered (`(no role vocabulary)` 246 → 238).
   `scripts/trip-wires.sh` rc 0.
+  ⚠ **PR #510 Codex R22 (2026-09-08)** — three P2s, each a reading that disagreed with itself.
+  #1 (P2) the raw-line seed read ids with the id grammar ALONE, so a declared id inside a `.md` file
+  name (`slice-9z-sib.md` on an HTML-block or indented-code line) seeded `9z` where the same name in
+  prose seeds nothing — a seed whose contract is "what a naming scan would have read had this been
+  prose" reporting what no naming scan would read. The root is that "a bare `.md` file name or a
+  citation id, over RAW text" had no name: `Lexed.__init__` spelled it and the seed compensated with a
+  hand-written `t.kind != "cite"` covering only the citation half. `plan_memo_lexer.file_and_cite_spans`
+  is now that ONE reading, consumed by both, and the hand filter is REMOVED rather than kept beside it.
+  Subsumption measured, with its denominator: over the vm-p4 memo's **7** raw lines the hand filter and
+  the `cite` spans agree on **7 / 7**, and the `file` spans then remove ids on **1** further line —
+  which is main:2343, the defect. Seven lines is a sample, not a sweep, so the argument that carries the
+  removal is the CONSTRUCTION rather than the count: the hand filter dropped a token whose KIND was
+  `cite`, the spans drop a token that OVERLAPS a `cite` or `file` span, and the second is the weaker
+  test on the citation half except where a citation escapes its own `cite` span — `([C1]).md`, where
+  the balanced-paren arm swallows it, and the `file` span covers it there.
+  #2 (P2) `sibling_path` stage (c) took an empty `PureWindowsPath.anchor` as sufficient, so the
+  relative `NUL.md` / `dir/NUL.md` passed; on Windows that OPENS and yields an empty stream, so the
+  population counted a linked memo it never scanned and could exit 0 having dropped the sibling — §1's
+  forbidden clean exit again, and the same class design re-gate 4 closed. `_is_reserved_component`
+  applies CPython `ntpath._isreservedname`'s DEVICE reading (cited to Microsoft "Naming Files, Paths,
+  and Namespaces") per PART, in pure string logic so it decides identically on POSIX and is testable
+  there; neither `PureWindowsPath.is_reserved()` (deprecated 3.13, removed 3.15) nor
+  `os.path.isreserved` (3.13+, `ntpath`-only) is callable by a checker that must decide this the same
+  way everywhere. The CHARACTER half is deliberately NOT repeated, and the boundary is drawn on a
+  discriminator rather than on taste: a device opens successfully and returns empty (silent, rc 0),
+  whereas a reserved character raises `OSError` on Windows and is ALREADY an unavailable linked memo at
+  rc 2 — and rejecting `*?"<>:|` here would contradict R8's decided reading of `notes%3Achild.md` as
+  the local file `notes:child.md`. Cost named, not hidden: a POSIX memo genuinely called `NUL.md` is no
+  sibling now either, dropped without a report exactly as `/abs/x.md` and (since R19) the POSIX file
+  named `sub\child.md` are — this stage's standing polarity, one platform-independent reading.
+  #3 (P2) the undetermined-kind marker matched inside a longer word (`MANKIND UNDETERMINED`,
+  `KIND UNDETERMINEDNESS`, even `unkind undetermined`), which with a non-empty `Deps` cell emits
+  `UMBRELLA-CELL` and moves rc to 1. Fixed as a SWEEP, not as the reported spelling: there was no
+  spelling of "a phrase boundary" to compose, so `plan_memo_ids` now owns `BEFORE` / `AFTER` /
+  `bounded(phrase)` (the module that already owns `ALNUM` and is the only one the spelling sweep lets
+  spell a character class; `NOUN_ANCHOR` composes `BEFORE` instead of re-spelling the lookbehind), and
+  every phrase matcher the census reads was audited. Six are now bounded — `MARKER_RE` (a bare `in`
+  test at 6 call sites; `SUBUMBRELLA, not a terminal unit` matched), `UNDETERMINED`, `POINTER`, and
+  **three the review did not name and the sweep found**: `DECLARES` (unbounded both sides),
+  `LICENSE_BEFORE` (unbounded left — `grandchild of 9z` licensed) and `LICENSE_AFTER` (unbounded right
+  — `9z's memorandum` licensed). `LICENSE_*` is the dangerous polarity, since a match SUPPRESSES a
+  report, so tightening is the safe direction. The matchers left alone (`ROLE_PATTERNS`, `ORDER_WORDS`,
+  `ACCEPT_WORDS`, `RETIRED`, `OWNS_TWO`, `EMPTY_WORDS`, `ID_CELL_BLANKS`) each carry the reason now —
+  `\b` under `re.ASCII` IS a boundary, differing from `ALNUM` only on `_`. Residual named rather than
+  claimed away: `classify` hands the backward look a 40-character slice, so a 40-character licensing
+  phrase begins at index 0 and the lookbehind succeeds vacuously (measured reachable).
+  **517 controls, 264 mutants / 0 survived / 0 crashed**; conformance 295 / 0 / 0 + 335 / 0 / 0;
+  `scripts/trip-wires.sh` rc 0; census rc 0 with `51 seed(s)`, 1,205 mentions, 491 licensed, 714
+  REPORTED and 8 `[UMBRELLA-MARK?]` all unchanged, and the `--worklist` differing on **exactly one**
+  line: main:2343 `        docs/plans/2026-07-vm-p4-slice-1a-1b-call-spread-detail.md |` loses `'1a'`
+  and `'1b'` — both came out of the FILE NAME, which is #1 working — while the line still seeds,
+  because it holds a `|`.
+  ⚠ One R22 mutant SURVIVED its first run — the R21 class, **fourth sighting on this PR**: reading
+  `p.parts[-1:]` instead of every part left the `dir/NUL.md` control green, because there the device IS
+  the final component and the probe's subject sat outside the mutated span. The control's subject moved
+  into the span (`NUL/child.md`, the device as a DIRECTORY) rather than the mutant being weakened, and
+  the control records why it is shaped so.
+  ⚠ Every device control's destination names a file that EXISTS in the fixture directory (the shared
+  `DEVICE` set writes all six), so a green NEGATIVE means "not read", never "not found" — the
+  distinction this whole class turns on, and the one a fixture-free control could not make.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
