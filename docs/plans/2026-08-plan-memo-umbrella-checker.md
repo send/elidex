@@ -4,16 +4,17 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 18
-`.py` files: `plan-memo-umbrella-check.py` 561 / `plan_memo_tables.py` 596 / `plan_memo_umbrella_selftest.py`
-93 (the three carried names, 1,250) + `plan_memo_ids.py` 192 / `plan_memo_emphasis.py` 216 / `plan_memo_lexer.py` 809 /
-`plan_memo_blocks.py` 746 / `plan_memo_memo.py` 942 / `plan_memo_roles.py` 413 / `plan_memo_selftest_cases.py` 614 /
-`plan_memo_selftest_cases_pr510.py` 701 / `plan_memo_selftest_cases_inline.py` 582 /
-`plan_memo_selftest_conformance.py` 377 / `plan_memo_selftest_controls.py` 881 / `plan_memo_selftest_harness.py` 267 /
-`plan_memo_selftest_mutants.py` 460 / `plan_memo_selftest_mutants_pr510.py` 701 / `plan_memo_selftest_mutants_inline.py` 466
-— **9,617 total, measured at `git add` of the design re-gate 4 commit (parent `18c65884`); re-run at landing** (`wc -l
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 19
+`.py` files: `plan-memo-umbrella-check.py` 582 / `plan_memo_tables.py` 619 / `plan_memo_umbrella_selftest.py`
+93 (the three carried names, 1,294) + `plan_memo_ids.py` 221 / `plan_memo_emphasis.py` 216 / `plan_memo_lexer.py` 829 /
+`plan_memo_blocks.py` 746 / `plan_memo_memo.py` 794 / `plan_memo_population.py` 225 / `plan_memo_roles.py` 436 /
+`plan_memo_selftest_cases.py` 614 /
+`plan_memo_selftest_cases_pr510.py` 701 / `plan_memo_selftest_cases_inline.py` 699 /
+`plan_memo_selftest_conformance.py` 377 / `plan_memo_selftest_controls.py` 881 / `plan_memo_selftest_harness.py` 268 /
+`plan_memo_selftest_mutants.py` 466 / `plan_memo_selftest_mutants_pr510.py` 718 / `plan_memo_selftest_mutants_inline.py` 587
+— **10,072 total, measured on the tree of the touch-time split commit `5285c1b0`; re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched).  Every file
-is under the 1000-line bound, the largest being `plan_memo_memo.py` at 942.  No `crates/` change.
+is under the 1000-line bound, the largest being `plan_memo_selftest_controls.py` at 881.  No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
 this PR lands (4,771 on the tree of the commit after `1840251b`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
@@ -962,8 +963,9 @@ ground for either option; it is not cited.
   resolver) AND `Population` move to `plan_memo_memo.py` — `Population` cannot stay behind, since
   `Population → Memo → admit_table` would then be an import cycle (`admit_table` stays with the
   schemas in `plan_memo_tables.py`); seam = row grammar / schemas / disposition vs the document driver
-  and the memo set. One import site per consumer (`plan-memo-umbrella-check.py` imports `Population`
-  from `plan_memo_memo`, the row grammar from `plan_memo_tables`); the runner's loader gains the module
+  and the memo set. One import site per consumer (`plan-memo-umbrella-check.py` imported `Population`
+  from `plan_memo_memo` — ⚠ superseded after R22, when `Population` moved to a module of its own, the
+  last entry below; the row grammar from `plan_memo_tables`); the runner's loader gains the module
   in dependency order and the MUTANTS rows whose substring moved (45 of the 59 `TABLES` rows) target
   `MEMO`; two re-injections (`is_empty`, `is_blank`) are qualified with `__import__` because the name
   is no longer imported where the row patches (a crash is a FAIL, not a kill). Behaviour-preserving:
@@ -996,7 +998,33 @@ ground for either option; it is not cited.
   family). Neither half names anything the other defines (measured: 0 cross-references), so the seam
   needs no shared helper; three modules, one `MUTANTS` list, one import site (the runner).
   Behaviour-preserving: 439 controls / 226 mutants 0 / 0, `scripts/trip-wires.sh` rc 0, and the
-  census worklist byte-identical to `c6be7995`'s (`diff` clean).
+  census worklist byte-identical to `c6be7995`'s (`diff` clean). ⚠ Touch-time split after Codex R22
+  (`plan_memo_memo.py` had reached 1,005 lines, having stood at exactly 1,000 before that round):
+  `Population` leaves for `plan_memo_population.py`, undoing the re-gate-3 bundling above now that the
+  cycle argument no longer holds — the cycle was `Population → Memo → admit_table` back into
+  `plan_memo_tables.py`, and a module of its own has no such edge (it imports `Memo` and
+  `plan_memo_tables`, and nothing imports it but the checker). Seam = ONE memo (block structure,
+  lexing, the sibling resolver, and the path helpers only `sibling_path` calls) vs the memo SET (the
+  transitive walk, the single I/O chokepoint, the `ids` map every scan reads). The halves share no
+  imported name, and the check is the import lines themselves rather than a word count: what
+  `plan_memo_memo.py` takes from `plan_memo_tables.py` is now `admit_table` ALONE, while `Population`
+  takes `MARKER_RE` / `POINTER` / `SCHEMAS` / `UNDETERMINED` / `attributed_to_other` / `dispose` /
+  `is_blank_id_cell` / `split_units` / `stream` and no `admit_table` (the two `stream` hits left in
+  `plan_memo_memo.py` are the English word inside two docstrings, which is why the count is not the
+  test). 1,005 → **794 + 225**. The 18 MUTANTS rows whose substring moved target a new `POPULATION`
+  constant (13 in `_mutants.py`, 2 in `_mutants_pr510.py`, 3 in `_mutants_inline.py`); the `MEMO`
+  rows keyed on the shared `STAGE_C` anchor stay, since stage (c) stayed. ⚠ `STAGE_C` was itself a
+  defect this split surfaced, and it was MINE: the R17 registry split had left it as two
+  byte-identical declarations, one per derived registry, and R22 changed that very source line — so
+  both copies had to move in lockstep with nothing enforcing it, and a missed one degrades to
+  `(unknown control)`, which the runner prints and walks past. It is declared once now, in the base
+  registry beside the file-name constants both registries already import, and an AST check reports
+  **no** remaining constant declared by both derived registries. Behaviour-preserving, and
+  the class is byte-checked rather than reviewed: `class Population` is identical between the two
+  files (10,437 characters, 191 lines, compared programmatically against `89e65c8d`), the only other
+  edits to `plan_memo_memo.py` are its docstring and the narrowed `from plan_memo_tables import
+  admit_table`, 517 controls / 264 mutants 0 / 0 with **0** `(unknown control)`, `scripts/trip-wires.sh`
+  rc 0, and the census worklist byte-identical to `89e65c8d`'s (`cmp` clean).
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,

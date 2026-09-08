@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SPEC_EXAMPLES, TABLES,
+    SPEC_EXAMPLES, STAGE_C, TABLES,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -31,15 +31,6 @@ from plan_memo_selftest_mutants import (
 # the defect it re-injects; the subject may not keep it around.
 BLANK = ('lambda t, sp: "".join(" " if any(a <= k < b for a, b in sp) and c != "\\n" else c '
          'for k, c in enumerate(t))')
-
-# `Memo.sibling_path` stage (c) AS IT STANDS: three clauses in one `if` (a C0
-# control, a Windows anchor, a reserved component -- PR #510 R22).  Two mutants
-# below drop ONE clause each and keep the other two, so the source text is
-# spelled once here rather than transcribed twice; the mutations are the
-# clause-drops they always were.
-STAGE_C = ('        if (_CONTROL.search(name) or p.anchor                        # (c)\n'
-           '                or any(_is_reserved_component(s) for s in p.parts)):')
-
 
 MUTANTS += [
     # -- PR #510 Codex R1

@@ -51,6 +51,18 @@ SEQUENCE = "Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 
 INLINE_EXAMPLES = ("CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
                    "with the html")
 
+# `Memo.sibling_path` stage (c) AS IT STANDS: three clauses in one `if` (a C0
+# control, a Windows anchor, a reserved component -- PR #510 R22).  Mutants in
+# BOTH derived registries drop one clause each and keep the others, so the
+# source text is spelled ONCE, here, beside the file names they already share.
+# ⚠ It stood as two byte-identical copies, one per derived registry, from the
+# R17 registry split until R22 -- and R22 changed this very line, so both had
+# to move in lockstep with nothing enforcing it, and a missed one does not fail
+# loudly: the runner reports `(unknown control)` and continues.  An anchor two
+# rounds share is shared state and lives with the other shared state.
+STAGE_C = ('        if (_CONTROL.search(name) or p.anchor                        # (c)\n'
+           '                or any(_is_reserved_component(s) for s in p.parts)):')
+
 MUTANTS = [
     # -- CommonMark §4.5 fenced code blocks
     ("fence: opener needs >=3 fence characters", BLOCKS,

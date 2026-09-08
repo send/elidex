@@ -18,7 +18,7 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 
 from plan_memo_selftest_mutants import (
     CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    TABLES,
+    STAGE_C, TABLES,
 )
 
 # -- PR #510 Codex R21 control names, spelled once (the §6.5 autolink family,
@@ -64,12 +64,6 @@ R17_SPAN = ("(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\"
             "double-quoted attribute value is no link -- nothing is walked, rc 0")
 R17_ATTR_ID = ("(html) `<span title=\"Slice 9z owns it\">x</span>`: an id inside an attribute value is no naming site -- "
                "the span is masked whole (kind `html`), as a raw HTML-block line is raw")
-
-# `Memo.sibling_path` stage (c) AS IT STANDS: a C0 control, a Windows anchor,
-# and -- since PR #510 R22 -- a reserved component, in one `if`.  Two mutants
-# below patch it, so the source text is spelled here once.
-STAGE_C = ('        if (_CONTROL.search(name) or p.anchor                        # (c)\n'
-           '                or any(_is_reserved_component(s) for s in p.parts)):')
 
 MUTANTS += [
     # -- PR #510 Codex R17
