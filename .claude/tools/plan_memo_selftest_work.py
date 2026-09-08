@@ -557,6 +557,9 @@ _SCAN_IDS, _SCAN_WIDTHS = 50, (1, 2, 3)
 # The run with no id after it: the shape the retired pattern re-entered at
 # every position.  Two lengths, eight times apart, and the claim is EQUALITY.
 _SCAN_RUN, _SCAN_RUN_LONG = 1000, 8000
+# The stops for those two: the correct scan spends three source lines and no
+# walk at all on a run with no id after it, whatever its length.
+_SCAN_RUN_LINES, _SCAN_RUN_WALKS = 1000, 8
 
 
 def linear_id_scan_control(M):
@@ -596,21 +599,38 @@ def linear_id_scan_control(M):
     counter watching nothing reports what a clean run reports."""
     import plan_memo_ids as ids     # the freshly loaded module
 
-    def lines(text):
-        with _count_lines(ids, limit=10 ** 9) as c:
-            list(ids.tokens(text))
+    # The two ceilings are STOPS, not the claim -- every claim below is an
+    # equality or an exact count, and a bound nobody tuned.  They are here so
+    # that a run which is going to be red is red QUICKLY: the per-position
+    # mutant this control is written against walks the whole run at every
+    # position, which is 32 million traced line events over the long run and
+    # 23 s of wall clock before the equality can even be compared (measured).
+    # Both are two orders of magnitude above what the correct scan spends.
+    def lines(text, limit):
+        try:
+            with _count_lines(ids, limit=limit) as c:
+                list(ids.tokens(text))
+        except _WorkExceeded:
+            return None
         return c.lines
 
-    def calls(text):
-        with _count_calls(ids, "_decor_start", limit=None) as a, \
-                _count_calls(ids, "_decor_end", limit=None) as b:
-            found = len(list(ids.tokens(text)))
+    def calls(text, limit):
+        try:
+            with _count_calls(ids, "_decor_start", limit=limit) as a, \
+                    _count_calls(ids, "_decor_end", limit=limit) as b:
+                found = len(list(ids.tokens(text)))
+        except _WorkExceeded:
+            return None, limit + 1, limit + 1
         return found, a.calls, b.calls
 
     run, long_run = "!" + "`" * _SCAN_RUN, "!" + "`" * _SCAN_RUN_LONG
-    short_lines, long_lines = lines(run), lines(long_run)
-    _found, run_starts, run_ends = calls(long_run)
     bad = []
+    short_lines, long_lines = lines(run, _SCAN_RUN_LINES), lines(long_run, _SCAN_RUN_LINES)
+    if short_lines is None or long_lines is None:
+        bad.append("a run of marks with no id after it ran more than %d source lines: the scan is "
+                   "entering the run" % _SCAN_RUN_LINES)
+        short_lines = long_lines = _SCAN_RUN_LINES + 1
+    _found, run_starts, run_ends = calls(long_run, _SCAN_RUN_WALKS)
     if short_lines != long_lines:
         bad.append("a run of %d marks costs %d source lines and one of %d costs %d: the scan is "
                    "entering the run" % (_SCAN_RUN, short_lines, _SCAN_RUN_LONG, long_lines))
@@ -620,12 +640,16 @@ def linear_id_scan_control(M):
     seen, widths = {}, []
     for d in _SCAN_WIDTHS:
         text = ("`" * d + "9z" + "`" * d) * _SCAN_IDS
-        found, starts, ends = calls(text)
+        found, starts, ends = calls(text, _SCAN_IDS + 1)
         widths.append((d, found, starts, ends))
         if (found, starts, ends) != (_SCAN_IDS, _SCAN_IDS, _SCAN_IDS):
-            bad.append("width %d: %d id(s), %d left and %d right walk(s) (each must be %d)"
+            bad.append("width %d: %s id(s), %d left and %d right walk(s) (each must be %d)"
                        % (d, found, starts, ends, _SCAN_IDS))
-        seen[d] = lines(text)
+        seen[d] = lines(text, 100 * len(text))
+        if seen[d] is None:
+            bad.append("width %d ran more than %d source lines over %d characters"
+                       % (d, 100 * len(text), len(text)))
+            seen[d] = 100 * len(text) + d
     steps = [seen[b] - seen[a] for a, b in zip(_SCAN_WIDTHS, _SCAN_WIDTHS[1:])]
     if len(set(steps)) != 1 or steps[0] <= 0:
         bad.append("one more mark a side costs %s source lines at the successive widths: not constant"
