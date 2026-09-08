@@ -172,10 +172,17 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    # 5 = ~5.9x the extrapolated worst case since PR #510 R27's generated growth
-    # sweep (it was ~10x before it; measurement AND its condition in the comment
-    # above -- a figure here without the condition drifted 2.2x once already); the
-    # 2 it replaced cancelled an otherwise-green job at 211 s on a slower runner.
+    # 5 minutes. The headroom multiple and the measurement behind it live in the
+    # comment above and are NOT restated here: this line carried its own copy and
+    # went stale the moment that block was re-measured -- the same two-live-copies
+    # defect PR #510 R30 removed from CLAUDE.md, repeated inside the file that is
+    # supposed to be the single home. One home for a number that moves.
+    # ⚠ And it moves one way: ~10x (R12) -> 5.9x (R27) -> 5.1x (R29) -> 4.4x
+    # (R30), because every round's new controls and mutants land in an
+    # always-run job. That is a budget, not a constant. When it nears 2x, split
+    # the wire or re-derive the timeout deliberately -- do not discover it when a
+    # runner cancels a green job, which is exactly what the 2 this 5 replaced did
+    # at 211 s.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
