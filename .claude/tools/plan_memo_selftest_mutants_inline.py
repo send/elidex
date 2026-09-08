@@ -123,7 +123,7 @@ MUTANTS += [
       "raw-line rule",
       "(lex-seed) … and that seed carries the `inline` reading"]),
     ("R17 #2 disposition: the raw HTML span is masked (drop the `html` kind from the disposition)", TABLES,
-     '    out += [(a, b, "html") for a, b in lx.html]\n', '',
+     '    base += [(a, b, "html") for a, b in lx.html]\n', '',
      [R17_ATTR_ID,
       "(html) a cell's `<span title=\"Slice 9z owns it\">` is masked by the same inline pass: no site"]),
 ]
@@ -263,7 +263,7 @@ MUTANTS += [
      '[^\\x00-\\x1f\\x7f<>]*>"',
      [R21_SPACE, INLINE_EXAMPLES]),
     ("R21 #1 §6.5: the autolink span is MASKED (drop the disposition: its text is prose again)", TABLES,
-     '    out += [(a, b, "autolink") for a, b in lx.autolinks]\n', '',
+     '    base += [(a, b, "autolink") for a, b in lx.autolinks]\n', '',
      [R21_URI_ID, R21_EMAIL_ID, R21_BACKTICK]),
     ("R21 #1 §6.4: a construct demoted into a resolved image's description renders no tag of its own "
      "(re-tag it `image`: the resolved-image count over-claims)", LEXER,
@@ -414,19 +414,19 @@ MUTANTS += [
     # -- PR #510 design re-gate 4
     ("RG4 stream: a matched §6.2 / GFM delimiter run renders NOTHING (drop the marks: the delimiters stand "
      "in the stream and split the token again -- the defect this round fixed)", TABLES,
-     '        out += [(oa, ob, "mark"), (ca, cb, "mark")]', '        pass',
+     '                      for a, b in (op, cl)]', '                      for a, b in ()]',
      [RG4_STRONG, RG4_EM, RG4_STRIKE, RG4_MIRROR, RG4_MARK_EM]),
     ("RG4 stream: the DECORATION exception -- a `**` pair whose content is only declared ids stands "
      "(drop it: `**9z**` renders away and `**9z**7z` is one token)", TABLES,
-     '        if ch == "*" and use == 2 and id_only(lx.text[ob:ca], keep):', '        if False:',
+     'if not (ch == "*" and use == 2 and id_only(_reading(rd, ob, ca), keep))', 'if True',
      [RG4_DECOR]),
     ("RG4 stream: the exception is the DECORATION's, not emphasis's (widen it to a single `*`: `*9z*7z` "
      "names `9z`)", TABLES,
-     '        if ch == "*" and use == 2 and id_only', '        if ch == "*" and use >= 1 and id_only',
+     'ch == "*" and use == 2 and id_only(_reading', 'ch == "*" and use >= 1 and id_only(_reading',
      [RG4_SINGLE]),
     ("RG4 stream: the exception is `id_only`'s (widen it to every `**` pair: `W**z**` is decorated again "
      "and the split id comes back)", TABLES,
-     'and use == 2 and id_only(lx.text[ob:ca], keep):', 'and use == 2 and True:',
+     'and use == 2 and id_only(_reading(rd, ob, ca), keep)', 'and use == 2 and True',
      [RG4_STRONG, RG4_MIRROR]),
     ("RG4 stream: a raw HTML span renders no character (re-inject it as text the checker refuses to read: "
      "it blanks and splits the token again)", TABLES,
@@ -439,12 +439,21 @@ MUTANTS += [
      # ⚠ the tail must sit BETWEEN the token's halves: in `W[z](sib.md)` it follows them both and
      # blanking it splits nothing (measured -- that shape leaves this mutant alive)
      [RG4_DROPWINS]),
-    ("RG4 stream: where a drop and a blank overlap the DROP wins (re-inject blank-wins: the `.md` token "
-     "inside a link's tail keeps the tail's two sides apart)", TABLES,
-     '            if v > disp[k]:', '            if v > disp[k] or (v == 1 and disp[k] == 2):',
-     # ⚠ the mask is walked in ONE order, drops before the `file` tokens, so a mutation that merely
-     # declines to raise a blank to a drop changes nothing: the blank must OVERRIDE the drop
-     [RG4_DROPWINS]),
+    # ⚠ RETIRED AT R24, and NOT because it was weakened: the mutant here was
+    # "re-inject blank-wins" against `stream`'s `if v > disp[k]`, and its
+    # control was RG4_DROPWINS -- `Slice [W](slice-9z-sib.md)z owns it` names
+    # `Wz`, because the `.md` token INSIDE the link's tail was dropped with the
+    # tail rather than blanking it apart.  R24 moved the file/cite reading onto
+    # the block's RENDERING (`dispose` stage 2), where a link's tail is already
+    # gone, so no token is ever found inside one and that overlap cannot arise.
+    # Measured before retiring it, at the R24 head: with blank-wins re-injected,
+    # 0 of 540 controls turn red and the #506 census `--worklist` is
+    # byte-identical -- the ordering has become a statement with no witness.
+    # The LINE stays (it is the spec's own statement, and the next mask kind
+    # will need it); the mutant does not, because a mutant its control cannot
+    # kill reports coverage this suite does not have.  The control stays too:
+    # it still asserts a true and reachable thing, now for the structural
+    # reason rather than the ordering one.
     ("RG4 stream: a §2.4 escape and a §2.5 reference SUBSTITUTE their character (drop both: the reference "
      "and the backslash are read as written again)", TABLES,
      '        (decor if ch in DECOR_CHARS else subst)[a] = (b, ch)', '        pass',
@@ -711,4 +720,39 @@ MUTANTS += [
      "image of its own and the tag count over-claims)", LEXER,
      '            dem_img.append((img_bottom, len(images)))', '            pass',
      [INLINE_EXAMPLES]),
+]
+
+# -- PR #510 Codex R24 control names, spelled once.
+R24_RENDER_SWEEP = ("PROPERTY: the verdict is invariant under a §2.5 re-spelling of any prose character "
+                    "the document renders the same (the rendered-text rule, swept position by position)")
+R24_FILE_RENDERED = ("(R24 render) `9z&#32;notes.md owns it` names `9z`: §2.5 renders the reference as a "
+                     "SPACE, so the file name begins at `notes` and the id stands beside it -- the raw "
+                     "reading saw one unbroken run ending in `.md`, masked the whole of it, and the "
+                     "ownership claim left the census at rc 0")
+R24_DECOR_RENDERED = ("(R24 render) `**&#57;z**7z owns it` names `9z`: the pair's content RENDERS `9z`, so "
+                      "the `**` decorate an id and stand as the boundary they are.  Asked of the source, "
+                      "`id_only` read `&#57;z`, dropped the delimiters, and joined the two sides into the "
+                      "token `9z7z` a reader never sees -- the mirror of the fabrication design re-gate 4 "
+                      "closed, one spelling further out")
+R24_DECOR_READING = ("(R24 render) ``**`x` 9z**7z owns it`` names nobody: a READER sees the document "
+                     "bolding `x 9z`, which is prose and no decorated id, so the delimiters drop and the "
+                     "sides join.  This is the control over WHICH rendering the exception is asked of -- "
+                     "the checker's own disposed stream would show `9z` beside blanks, whitespace-separate "
+                     "into an id-only run, and keep a decoration the document does not have")
+
+MUTANTS += [
+    # -- PR #510 Codex R24, FAMILY 1: the disposition's two stage-2 questions
+    ("R24 F1 tables: the file/cite reading is taken over the block's RENDERING (re-inject the raw "
+     "reading: a §2.5 reference that renders whitespace no longer bounds the file name)", TABLES,
+     'lx.tokens = [(rd.at(a), rd.at(b), kind) for a, b, kind in file_and_cite_spans(rd)]',
+     'lx.tokens = file_and_cite_spans(lx.text)',
+     [R24_FILE_RENDERED, R24_RENDER_SWEEP]),
+    ("R24 F1 tables: the decoration exception is asked of the RENDERED content (re-inject the raw "
+     "content: `**&#57;z**` decorates an id the source does not spell)", TABLES,
+     'id_only(_reading(rd, ob, ca), keep)', 'id_only(lx.text[ob:ca], keep)',
+     [R24_DECOR_RENDERED, R24_RENDER_SWEEP]),
+    ("R24 F1 tables: the exception reads what a READER sees, not the disposed stream (hand it the "
+     "stream: a code span's blanks whitespace-separate into an id-only run)", TABLES,
+     '    rd = stream(lx, reader=True)', '    rd = stream(lx)',
+     [R24_DECOR_READING]),
 ]

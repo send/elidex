@@ -34,9 +34,11 @@ checker refuses to read blanked in place, the §2.5 references substituted --
 is the ONE text each predicate over a block reads.
 """
 
+import bisect
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
+from plan_memo_lexer import file_and_cite_spans
 from plan_memo_ids import (
     CITE_ID, DECOR, DECOR_CHARS, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, bounded, decorated_id,
     tokens,
@@ -468,19 +470,65 @@ def dispose(lx, keep):
     delimiters render nothing and are dropped, so `Slice 9**z**` names the
     row `9z` a reader sees, not the row `9` the asterisks used to bound
     (`*9z*` is not decoration -- `DECOR` is `**` and a backtick -- so a
-    single-`*` pair around an id is dropped like any other emphasis)."""
-    out = [(a, b, "code") for a, b in code_mask(lx, keep)]
-    out += [(a, b, "html") for a, b in lx.html]
-    out += [(a, b, "autolink") for a, b in lx.autolinks]
-    out += [(a, b, "link") for a, b, _ in lx.links]
-    out += [(a, b, "image") for a, b, _ in lx.images]
-    out += [(a, b, "mark") for a, b in lx.marks]
-    for oa, ob, ca, cb, ch, use, _kind in lx.emphasis:
-        if ch == "*" and use == 2 and id_only(lx.text[ob:ca], keep):
-            continue
-        out += [(oa, ob, "mark"), (ca, cb, "mark")]
-    out += lx.tokens
-    lx.mask = out
+    single-`*` pair around an id is dropped like any other emphasis).
+
+    TWO STAGES, and the boundary is which TEXT the question is asked of (PR
+    #510 R24).  Stage 1 is LEXICAL: the spans the inline parse alone decides
+    (a code span, a raw HTML span, an autolink, a link's or an image's tail,
+    a §2.4 backslash, a link's `[`, every §6.2 / GFM delimiter run) -- no
+    rendered text is needed to place any of them.  Stage 2 asks the two
+    questions that are about what the document RENDERS, and asks both of ONE
+    text, `rd` (the stage-1 disposition with each blank filled in by what a
+    reader sees there -- `stream(reader=True)`, the same rendering the residue
+    detector compares against):
+
+      * is a bare `.md` file name or a `[C19]` citation id standing here?
+        A file name's boundaries are WHITESPACE boundaries and §2.5 can put
+        whitespace where the source has none, so the source is the wrong text
+        to ask: `9z&#32;notes.md owns it` renders `9z notes.md owns it`, where
+        `9z` is a naming site, and a raw-text scan masked the whole run and
+        lost the ownership claim (PR #510 R24 -- the reading introduced at R22
+        was the last raw one left).
+      * is a `**` pair's content only declared ids -- the decoration exception
+        above?  `**&#57;z**7z` renders exactly what `**9z**7z` renders, and a
+        raw-text `id_only` said no to the first and yes to the second, so the
+        two documents disagreed about a site a reader cannot tell apart (found
+        by enumerating the class, not reported).  The question is asked of the
+        READER's text and not of the disposed stream, because ``**`x` 9z**7z``
+        is the document bolding prose: a reader sees `x 9z`, while the disposed
+        stream would show `9z` beside blanks, which whitespace-separates into
+        an id-only run.
+
+    The two answers are independent -- a `**` pair's content decides nothing
+    about where a file name stands, and the reverse -- so ONE reading serves
+    both and there is no third stage.  The file/cite spans are recorded in
+    SOURCE coordinates (`Stream.at`), which is what a mask is in."""
+    base = [(a, b, "code") for a, b in code_mask(lx, keep)]
+    base += [(a, b, "html") for a, b in lx.html]
+    base += [(a, b, "autolink") for a, b in lx.autolinks]
+    base += [(a, b, "link") for a, b, _ in lx.links]
+    base += [(a, b, "image") for a, b, _ in lx.images]
+    base += [(a, b, "mark") for a, b in lx.marks]
+    delims = [((oa, ob), (ca, cb), ch, use, ob, ca) for oa, ob, ca, cb, ch, use, _k in lx.emphasis]
+    lx.mask = base + [(a, b, "mark") for pair in delims for a, b in pair[:2]]
+    rd = stream(lx, reader=True)
+    lx.mask = base + [(a, b, "mark") for op, cl, ch, use, ob, ca in delims
+                      if not (ch == "*" and use == 2 and id_only(_reading(rd, ob, ca), keep))
+                      for a, b in (op, cl)]
+    lx.tokens = [(rd.at(a), rd.at(b), kind) for a, b, kind in file_and_cite_spans(rd)]
+    lx.mask += lx.tokens
+
+
+def _reading(rd, a, b):
+    """The reader's text (`stream(reader=True)`) of the SOURCE range `[a, b)`.
+
+    `Stream.src` maps a stream offset to the source offset it came from and is
+    non-decreasing (a drop skips source offsets, a substitution repeats one),
+    so the first stream offset whose source is at or past `a` is where that
+    source range begins to render -- a bisect, the inverse of `Stream.at`.  A
+    source range that renders nothing gives an empty reading, which is what it
+    reads as."""
+    return rd[bisect.bisect_left(rd.src, a):bisect.bisect_left(rd.src, b)]
 
 
 def _inner(kind, text):

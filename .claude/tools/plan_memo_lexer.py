@@ -803,22 +803,37 @@ _TOKEN = re.compile(r"(?P<cite>%s)|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))*%s(
 
 
 def file_and_cite_spans(text):
-    """[(start, end, "cite" | "file")] over RAW text: the ONE reading of "a
+    """[(start, end, "cite" | "file")] over `text`: the ONE reading of "a
     bare `.md` file name / a citation id stands here" (`_TOKEN`), given a
     name so that reading has exactly one caller-visible spelling.
 
-    Two readers consume it and they must AGREE.  The disposition masks these
-    spans out of every block a scanner reads (`Lexed.tokens` below, then
-    `plan_memo_tables.dispose`).  The RAW-LINE seed
-    (`plan-memo-umbrella-check.py::lex_unsupported_seed`) has no `Lexed` to
-    read -- the line was never inline-parsed, which is what it is seeding
-    about -- and reports "the content a naming scan would have read HAD THE
-    TEXT BEEN PROSE"; so a token prose would never have read must not seed
-    it, and the seed masks by these same spans.  Until PR #510 R22 the seed
-    scanned the raw line directly: `<div data-note="slice-9z-sib.md">`
-    reported a `9z` naming site that the identical file name in a paragraph
-    does not, and the file-name disposition had two spellings -- one
-    honoured, one bypassed."""
+    WHICH TEXT is the caller's to say, and the two callers say different
+    things because they hold different texts (PR #510 R24; until then both
+    read raw source and one of them was wrong about it):
+
+      * the DISPOSITION (`plan_memo_tables.dispose`, stage 2) hands it the
+        block AS A READER SEES IT and maps the spans back to source offsets.
+        It must: a file name's boundaries are whitespace boundaries, and §2.5
+        can put whitespace where the source has none, so over the source
+        `9z&#32;notes.md owns it` the maximal run is the whole of
+        `9z&#32;notes.md` while the document reads `9z notes.md owns it`,
+        where `9z` is a naming site the raw reading masked away.
+      * the RAW-LINE seed (`plan-memo-umbrella-check.py::lex_unsupported_seed`)
+        hands it the line AS WRITTEN, because for that line raw text IS the
+        rendered text: the line belongs to a raw extent or a §6.6 span the
+        inline parser never enters, so no §2.4 escape and no §2.5 reference
+        is ever applied to it -- and the seed's own id scan reads that same
+        raw line, so its two halves agree by construction.  ⚠ DECLARED MISS:
+        that makes the seed's "had the text been prose" counterfactual a
+        BLOCK-level one, not an inline one -- a `&#32;` on a raw HTML line
+        seeds as the six characters it is written as, exactly as the seed's
+        id scan reads them.  A seed never gates, and the alternative (inline-
+        parsing a line whose whole point is that it is not inline-parsed)
+        would be a second rendering of a text that has none.
+        Until PR #510 R22 the seed scanned the raw line with a hand-written
+        half of this predicate (the citation arm only), so
+        `<div data-note="slice-9z-sib.md">` reported a `9z` naming site that
+        the identical file name in a paragraph does not."""
     return [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
 
 
@@ -828,7 +843,10 @@ class Lexed:
     (fences, reference definitions, tables, paragraphs) is Phase 1, decided
     over raw lines by `plan_memo_memo.py::Memo`, and a reference
     definition is never inline content.  `tokens` = [(start, end, "cite" |
-    "file")] over the raw text.  `resolve(defs)` runs `inline_pass` and sets
+    "file")] in SOURCE coordinates, read off the block's rendering and set by
+    the disposition's stage 2 (`plan_memo_tables.dispose`), never here: the
+    reading needs a rendering, and a `Lexed` has none until it is disposed.
+    `resolve(defs)` runs `inline_pass` and sets
     `code` = code spans, `html` = raw HTML spans (§6.6), `autolinks` =
     [(start, end)] of every §6.5 autolink span (`<` and `>` included; masked
     whole, its destination never joining the population -- an autolink's URL
@@ -855,7 +873,7 @@ class Lexed:
 
     def __init__(self, text):
         self.text = text
-        self.tokens = file_and_cite_spans(text)
+        self.tokens = []
         self.code, self.html, self.autolinks = [], [], []
         self.links, self.images, self.unresolved = [], [], []
         self.marks, self.subst, self.emphasis = [], [], []

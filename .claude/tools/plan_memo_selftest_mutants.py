@@ -355,7 +355,7 @@ MUTANTS = [
      '        if _is_escape(s, i) and s[i + 1] != "`":\n            subst.append((i, i + 2, s[i + 1]))',
      ["(span) a backtick behind a backslash is literal and opens no span"]),
     ("F12 link: the link tail masks a slug", TABLES,
-     '    out += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
+     '    base += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
     ("F13 link: an unanswered full reference is reported", LEXER,
      '                if form is not None and not (form == "shortcut" and pos == relabel):',

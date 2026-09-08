@@ -595,7 +595,103 @@ def id_spelling_sweep_control(M):
                       % (n, len(MODULES) - 1, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
 
 
-# ------------------------------------------------ PR #510 Codex R23 controls --
+# ------------------------------------------------ PR #510 Codex R24 controls --
+
+# The prose the render-equivalence sweep re-spells, one character at a time.
+# It carries, in one paragraph, every shape a stage-2 disposition question is
+# asked about, and each in the ADJACENCY that makes the answer observable: a
+# `**`-decorated id against a second id (so keeping or dropping the delimiters
+# is the difference between two ids and one token), a bare id against a `.md`
+# file name (so where the name BEGINS is the difference between a site and
+# none), a row noun, a licensing phrase and a role word.  A shape whose two
+# answers agree is no probe: `**9z** owns` reads `9z` either way, and the sweep
+# stayed green over both R24 defects until the adjacencies were written in.
+_RENDER_PROSE = "Slice **9z**7z owns it and 9z notes.md lands, the child of Qx."
+
+
+def _census(res):
+    """The checker's verdict on one run, with every RAW coordinate and every
+    quoted excerpt dropped: the exit status, the finding CODES with the memo
+    and line they were reported against, and each naming site as (id, line,
+    source, anchored, licensed).  A re-spelling moves columns and changes the
+    excerpts a report quotes, and neither is a claim about the document."""
+    return (res.rc,
+            sorted((f[0], f[1], f[2]) for f in res.findings),
+            sorted((m.id, m.lineno, m.source, m.anchored, m.licensed) for m in res.mentions))
+
+
+def render_equivalence_control(M):
+    """PROPERTY, the STRUCTURAL guard for design re-gate 4's rule ("the stream
+    IS the rendered text"): the checker's verdict is INVARIANT under a
+    re-spelling of the source that the document renders identically.
+
+    The re-spelling is mechanical and covers every position, so the control is
+    not defined by the vocabulary of the defects that produced it: for each
+    character of `_RENDER_PROSE` in turn, that ONE character is replaced by its
+    §2.5 numeric character reference (`z` -> `&#122;`), which renders the same
+    character and nothing else, and the census of the two runs must be equal.
+    A reader that consults `lx.text` or the raw source where the pipeline
+    declares the rendered stream disagrees with itself at whichever position
+    it reads, and the sweep visits them all -- it is how the two R24 members
+    of this family were separated from each other (`file_and_cite_spans` over
+    raw text; the decoration exception's `id_only` over raw content), and the
+    next member needs no new control.
+
+    THE POPULATION, and its edge.  A numeric reference renders a character but
+    creates no STRUCTURE: `&#42;` opens no emphasis and `&#91;` no link, so a
+    position holding a character the inline pass BRANCHES on is not a
+    rendering-equivalent re-spelling and is excluded.  The excluded set is read
+    off `inline_pass`'s own code object (its one-character constants) and
+    `plan_memo_emphasis.DELIMS`, plus the two the branch table cannot yield
+    because they are tested inside a helper, each named with its reason:
+    `\\` (`_is_escape`) and `!` (`_is_image`).  It is reported with the run.
+
+    HONESTLY, the two directions of that edge are NOT symmetric, and only one
+    of them is safe.  A character wrongly LEFT IN the excluded set is a
+    position not swept -- the sweep is weaker and says nothing about it, which
+    is why the set and the swept count are printed rather than assumed.  A
+    character wrongly LEFT OUT is re-spelled although it is active, the two
+    documents then really do render differently, and the control goes RED: a
+    false alarm, never a silent pass.  What the sweep cannot see at all: a
+    disagreement that needs TWO positions re-spelled at once; a raw reading in
+    a CELL (the sweep re-spells prose, where a `|` is an ordinary character --
+    in a cell it is the row grammar's separator and its numeric spelling is
+    not equivalent); a raw reading that no shape in `_RENDER_PROSE` reaches;
+    and anything about a raw line the inline parser never enters (the
+    LEX-UNSUPPORTED? seed reads such a line AS WRITTEN, on purpose --
+    `plan_memo_lexer.file_and_cite_spans` states that reading and its declared
+    miss)."""
+    import plan_memo_emphasis, plan_memo_lexer
+    active = set(plan_memo_emphasis.DELIMS) | {"\\", "!"}
+    active |= {c for c in plan_memo_lexer.inline_pass.__code__.co_consts
+               if isinstance(c, str) and len(c) == 1}
+    want = _census(run_on(M, build(), _RENDER_PROSE)[0])
+    swept, bad = 0, []
+    for i, ch in enumerate(_RENDER_PROSE):
+        if ch in active:
+            continue
+        swept += 1
+        variant = _RENDER_PROSE[:i] + "&#%d;" % ord(ch) + _RENDER_PROSE[i + 1:]
+        got = _census(run_on(M, build(), variant)[0])
+        if got != want:
+            bad.append("position %d (%r): %s" % (i, ch, _first_difference(want, got)))
+    ok = not bad and swept >= 40
+    return ok, ("%d of %d positions re-spelled as a §2.5 reference (excluded, the inline pass "
+                "branches on them: %s), %d disagreement(s)%s"
+                % (swept, len(_RENDER_PROSE), "".join(sorted(active)), len(bad),
+                   (": " + "; ".join(bad[:2])) if bad else ""))
+
+
+def _first_difference(want, got):
+    """The first field of two censuses that differs, as a short string -- the
+    sweep reports WHICH claim moved, not two whole censuses."""
+    for name, a, b in zip(("rc", "findings", "sites"), want, got):
+        if a != b:
+            if name == "rc":
+                return "rc %s -> %s" % (a, b)
+            gone, new = sorted(set(map(str, a)) - set(map(str, b))), sorted(set(map(str, b)) - set(map(str, a)))
+            return "%s -%s +%s" % (name, gone, new)
+    return "equal"
 
 
 def kind_phrase_gate_control(M):
@@ -664,4 +760,5 @@ def registry():
     reg["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"] = ("CONTROL", display_path_control)
     reg["PROPERTY: Population._kind reads every kind phrase from plan_memo_tables.KIND_PHRASES, the tuple the residue gate iterates (a fourth phrase cannot decide a kind without being gated)"] = ("CONTROL", kind_phrase_gate_control)
     reg["a row whose id cell declares no id is named by its declaring locator (`row <no id> at :LINE (token)`), never `row None`"] = ("CONTROL", empty_id_row_name_control)
+    reg["PROPERTY: the verdict is invariant under a §2.5 re-spelling of any prose character the document renders the same (the rendered-text rule, swept position by position)"] = ("CONTROL", render_equivalence_control)
     return reg

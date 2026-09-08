@@ -787,3 +787,42 @@ acase("POSITIVE", "(R23 seed) the `[LEX-SPLIT?]` residue seed reads every kind p
 acase("NEGATIVE", "(R23 seed) the same phrase spelled CLEANLY in prose seeds nothing -- the "
                   "discriminating half: the residue is the disagreement, never the phrase",
       build(), "LEX-SPLIT?", 0, prose="The row was KIND UNDETERMINED at the time.")
+
+
+# ------------------------------------------------ PR #510 Codex R24 controls --
+# FAMILY 1, "which text does this reader read: the source, or what the document
+# renders?".  Design re-gate 4 declared the rule and converted the scanners;
+# what was left was the DISPOSITION's own two questions, both still asked of
+# the raw source.  The four cases below are the two questions, each with the
+# discriminating half that was green before the fix too -- and the property
+# control (`render_equivalence_control`) is the structural guard that makes the
+# next member of the family a red run rather than a review round.
+
+case("POSITIVE", "(R24 render) `9z&#32;notes.md owns it` names `9z`: §2.5 renders the reference as a "
+                 "SPACE, so the file name begins at `notes` and the id stands beside it -- the raw "
+                 "reading saw one unbroken run ending in `.md`, masked the whole of it, and the "
+                 "ownership claim left the census at rc 0",
+     build(), "9z&#32;notes.md owns it.", 1)
+case("POSITIVE", "(R24 render) `9z notes.md owns it` names `9z` -- the discriminating half: the same "
+                 "document with the space spelled as a space, green before the fix and after it, so "
+                 "the pair differs only in the SPELLING of a character both render",
+     build(), "9z notes.md owns it.", 1)
+case("NEGATIVE", "(R24 render) `9z-notes.md owns it` names nobody: no whitespace renders anywhere in "
+                 "the run, so both readings agree that the file name swallows the id -- the file-name "
+                 "disposition is not weakened by moving it onto the rendered text",
+     build(), "9z-notes.md owns it.", 0)
+case("POSITIVE", "(R24 render) `**&#57;z**7z owns it` names `9z`: the pair's content RENDERS `9z`, so "
+                 "the `**` decorate an id and stand as the boundary they are.  Asked of the source, "
+                 "`id_only` read `&#57;z`, dropped the delimiters, and joined the two sides into the "
+                 "token `9z7z` a reader never sees -- the mirror of the fabrication design re-gate 4 "
+                 "closed, one spelling further out",
+     build(), "**&#57;z**7z owns it.", 1)
+case("POSITIVE", "(R24 render) `**9z**7z owns it` names `9z` -- the discriminating half of the "
+                 "decoration exception, green on both sides of the fix",
+     build(), "**9z**7z owns it.", 1)
+case("NEGATIVE", "(R24 render) ``**`x` 9z**7z owns it`` names nobody: a READER sees the document "
+                 "bolding `x 9z`, which is prose and no decorated id, so the delimiters drop and the "
+                 "sides join.  This is the control over WHICH rendering the exception is asked of -- "
+                 "the checker's own disposed stream would show `9z` beside blanks, whitespace-separate "
+                 "into an id-only run, and keep a decoration the document does not have",
+     build(), "**`x` 9z**7z owns it.", 0)
