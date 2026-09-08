@@ -21,7 +21,7 @@ mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
 ("R26 on").  R27's fixture-shaped control is below.
 """
 
-from plan_memo_selftest_cases import acase, build, case, rcase
+from plan_memo_selftest_cases import CASES, acase, build, case, rcase
 
 # ------------------------------------------------ PR #510 Codex R26 controls --
 # R26-2: the bare file-name token and `plan_memo_sibling.sibling_path`
@@ -116,3 +116,96 @@ acase("NEGATIVE", "(R27 noun) `Unlike Slot `#11-zz-alpha`, **UMBRELLA, …**` do
                   "The discriminating partner: a fix that anchored on the noun alone would pass the "
                   "row above and fail this one",
       build(wb="Unlike Slot `#11-zz-alpha`, **UMBRELLA, not a terminal unit.**"), "UMBRELLA-MARK", 0)
+
+
+# ------------------------------------------------ PR #510 Codex R30 controls --
+# R30: `is_blank_id_cell` stripped `*` and backticks off the RAW id cell
+# unconditionally, so every decoration run the inline grammar pairs NOTHING
+# with -- `**`, `*`, `` ` ``, ``` `` ```, `***` -- became the empty-string
+# blank and its row left the census as a deliberate non-row, at rc 0, with its
+# declaring field and its `Deps` edge unasserted.  The predicate now reads WHAT
+# A READER SEES in the cell (`stream(reader=True)`), which is the one text that
+# knows which decoration pairs; the miss moved after the disposition, where
+# that reading exists, because it gates a finding and no declaration.
+#
+# The fixture is the reported shape end to end: the umbrella marker in the
+# declaring field and a nonempty `Deps` edge, so a row that leaves the census
+# takes real ownership data with it.  Each control measures the SCHEMA miss
+# (the factory requires rc 2 exactly when it counts one), never rc alone.
+#
+# The names the R30 mutants must turn red are collected as the controls are
+# registered (`CASES[-1].name`, the R25 idiom), so each is spelled ONCE.
+_MISS = ("schema", "id cell does not start with an id")
+
+R30_UNPAIRED = []
+"""The cells whose decoration pairs NOTHING and which the strip blanked: the
+reported class, red under the mutant that re-injects that strip."""
+
+
+def _idcell(cell):
+    return build(i7z=cell, s7z="**UMBRELLA, not a terminal unit.**", d7z="**9z**")
+
+
+case("POSITIVE", "(R30 id) an id cell `**` is an unmatched strong-emphasis run: §6.2 pairs nothing "
+                 "with it and a reader sees `**`, so the row is UNKEYED -- a schema miss, rc 2.  The "
+                 "reported shape: before R30 the unconditional strip made it the empty-string blank "
+                 "and this row -- marker in its declaring field, a `Deps` edge -- exited 0",
+     _idcell("**"), "", 1, measure=_MISS)
+R30_UNPAIRED.append(CASES[-1].name)
+case("POSITIVE", "(R30 id) an id cell `*` is a single unmatched delimiter: the same run one character "
+                 "short, and not a `DECOR_MARK` at all -- unkeyed, rc 2",
+     _idcell("*"), "", 1, measure=_MISS)
+R30_UNPAIRED.append(CASES[-1].name)
+case("POSITIVE", "(R30 id) an id cell `` ` `` is one backtick that opens no code span (§6.1 wants a "
+                 "closing backtick string): a reader sees the backtick, so the row is unkeyed, rc 2",
+     _idcell("`"), "", 1, measure=_MISS)
+R30_UNPAIRED.append(CASES[-1].name)
+case("POSITIVE", "(R30 id) an id cell ``` `` ``` is ONE backtick string of length 2 that closes "
+                 "nothing (§6.1: the closer must be of EQUAL length), so it renders literally.  The "
+                 "case that says the pairing authority is the inline LEXER and not the id grammar's "
+                 "decoration walk: that walk reads two `DECOR_MARKS`, so a hand-rolled peel of matched "
+                 "pairs -- the other shape offered for this fix -- strips it to nothing and calls the "
+                 "row a blank",
+     _idcell("``"), "", 1, measure=_MISS)
+R30_UNPAIRED.append(CASES[-1].name)
+case("POSITIVE", "(R30 id) an id cell `***` renders literally too: the strip took the whole run "
+                 "whatever its length, so a longer run was as blank as a shorter one -- unkeyed, rc 2",
+     _idcell("***"), "", 1, measure=_MISS)
+R30_UNPAIRED.append(CASES[-1].name)
+case("POSITIVE", "(R30 id) an id cell `` `?` `` is unkeyed: a code span RENDERS its content (§6.1) and "
+                 "a reader sees `?`.  The discriminating case for WHICH rendering: the disposed stream "
+                 "-- what every other predicate over a block reads -- blanks a code span, so under it "
+                 "this cell is empty and the row is a blank, which is the silent-skip class re-opened",
+     _idcell("`?`"), "", 1, measure=_MISS)
+R30_CODE_SPAN_READING = CASES[-1].name
+"""The one control that separates the READER's rendering from the disposed
+stream: red under the mutant that asks the blank question of the stream."""
+
+R30_PAIRED = []
+"""The cells a reader sees a blank in, through a construct that RENDERS: red
+under the mutant that goes back to reading the raw cell."""
+
+case("NEGATIVE", "(R30 id) an id cell `**—**` is STILL a deliberate blank: here the `**` pair closes "
+                 "(§6.2), and paired decoration around a blank is what the strip was right about.  The "
+                 "partner that bounds the fix's reach: refusing decoration outright would pass all six "
+                 "above and fail this one",
+     _idcell("**—**"), "", 0, measure=_MISS)
+R30_PAIRED.append(CASES[-1].name)
+case("NEGATIVE", "(R30 id) an id cell `` `—` `` is a deliberate blank: the code span renders its "
+                 "content and a reader sees the em dash -- the same partner for the other `DECOR_MARK`",
+     _idcell("`—`"), "", 0, measure=_MISS)
+R30_PAIRED.append(CASES[-1].name)
+case("POSITIVE-NOVEL", "(R30 id) an id cell `&#8212;` is a deliberate blank: §2.5 renders the em dash, "
+                       "which the RAW reading could not see -- this cell was a schema miss before R30 "
+                       "and is a non-row after it, the one verdict the fix reverses in the other "
+                       "direction",
+     _idcell("&#8212;"), "", 0, measure=_MISS)
+R30_PAIRED.append(CASES[-1].name)
+acase("POSITIVE", "(R30 id) the keyed partner, end to end: `**7z**` keys the row, so the marker and "
+                  "the `Deps` edge ARE asserted -- UMBRELLA-CELL, rc 1.  This is the run the six "
+                  "unkeyed cells above silently left, and it must not be reached by asking the blank "
+                  "question of a row that declared an id",
+      _idcell("**7z**"), "UMBRELLA-CELL", 1)
+R30_KEYED = CASES[-1].name
+"""The keyed partner: red under the mutant that asks the blank question of
+EVERY row rather than of the rows that declared nothing."""

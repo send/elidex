@@ -19,8 +19,11 @@ Two rules decided here, once:
     "may vary" clause -- a body row of a SCHEMA table whose width differs from
     the header is a schema miss (exit 2), never a silent skip or a shifted read;
   * row ids are read from the raw id cell (`bare_id` reads the one decorated-id
-    grammar at the cell's START; a non-empty cell that does not start with an
-    id is an UNKEYED row and a schema miss), kind markers from the disposed
+    grammar at the cell's START -- raw because it runs before the keep-set it
+    declares exists); a cell that starts with no such id is a deliberate blank
+    or an UNKEYED row and a schema miss, and THAT half is decided over what a
+    reader sees in the cell (`is_blank_id_cell`), because it declares nothing
+    and so waits for the disposition; kind markers come from the disposed
     declaring field (a quoted marker declares nothing).
 
 Every block is lexed ONCE, where it is minted (a cell in `split_row`, a
@@ -74,17 +77,53 @@ def is_empty(cell_stream):
 # The ID cell is the one place the shape rule is WRONG: an id cell is either
 # an id or a deliberate blank, and anything else (`?`, `…`, `**?**`, `--`) is
 # an UNKEYED row -- the silent-skip class the schema miss exists for.  So the
-# blanks are LITERAL here: exactly these four after decoration strip.
+# blanks are LITERAL here: exactly these four, as a READER sees the cell.
 ID_CELL_BLANKS = frozenset({"", "\u2014", "-", "\u2013"})
 
 
-def is_blank_id_cell(cell_text):
+def is_blank_id_cell(cell_reading):
     """Whether an id cell is a deliberate non-row (a literal blank), as
-    opposed to unkeyed content.  The RAW cell, not its stream: the id cell is
-    the one text `bare_id` reads raw as well, because the decoration IS part
-    of the id grammar there (`**9z**`), so the two readings of that cell agree
-    by being the same reading."""
-    return cell_text.strip(" \t").strip("*`").strip(" \t") in ID_CELL_BLANKS
+    opposed to unkeyed content -- decided over WHAT A READER SEES in the cell
+    (`stream(reader=True)`), which is the reading its one caller composes
+    (`plan_memo_population.Population._unkeyed`), exactly as `is_empty`'s
+    caller composes the disposed stream.
+
+    THE READING, and why it is neither of the other two (PR #510 R30).
+
+      * NOT THE RAW CELL.  This predicate used to strip `*` and backticks off
+        the raw text UNCONDITIONALLY, justified by "the id cell is the one text
+        `bare_id` reads raw as well, because the decoration IS part of the id
+        grammar there (`**9z**`), so the two readings of that cell agree by
+        being the same reading".  That is true of `**9z**` and false of a
+        decoration run the inline grammar pairs NOTHING with: `**`, `*`,
+        `` ` ``, ``` `` ``` and `***` each render literally (§6.1 wants a
+        closing backtick string of EQUAL length, §6.2 a closing delimiter
+        run), so each is a cell carrying content -- and the strip turned every
+        one of them into the empty-string blank.  Measured: a slice row whose
+        id cell is `**`, with the umbrella marker in its declaring field and a
+        nonempty `Deps` edge, exited 0 -- the row entered neither `ids` nor
+        assertion (b), which is §1's forbidden clean exit for content that was
+        not scanned.  A hand-rolled "peel matched pairs" is the same mistake
+        one layer down: ``` `` ``` peels to nothing under the ID grammar's
+        decoration walk (two marks, `plan_memo_ids.DECOR_MARKS`) and renders
+        literally under CommonMark (one backtick string that closes nothing),
+        so the authority for "does this decoration pair" must be the inline
+        lexer and not that walk.
+      * NOT THE DISPOSED STREAM either, though every other predicate over a
+        block reads that one: the stream BLANKS a code span, so `` `?` `` would
+        come out empty and read as a deliberate blank -- the silent-skip class
+        above, re-opened by the other reading.  A reader sees `?` there, and
+        `?` is content.
+
+    `bare_id` still reads the cell RAW, and must: it runs before the keep-set
+    exists, because the keep-set is what it declares.  The two never read one
+    cell -- this predicate is asked ONLY of a cell `bare_id` found no id at the
+    START of -- so what survives of the agreement claim is one direction, and
+    it holds: a cell the raw grammar keys never arrives here, and a cell whose
+    RENDERING exposes an id the raw grammar could not see (`&#57;z` renders
+    `9z`) is reported as unkeyed rather than skipped, which is the polarity §1
+    asks for."""
+    return cell_reading.strip(" \t") in ID_CELL_BLANKS
 
 
 # THE KIND PHRASES, and the ONE rule the three share: each is bounded on both

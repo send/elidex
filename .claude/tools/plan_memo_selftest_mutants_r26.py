@@ -20,6 +20,9 @@ lex?".
 runner reads the one list at one import site.
 """
 
+from plan_memo_selftest_cases_r26 import (
+    R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED,
+)
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
     SIBLING, TABLES, TOKENS,
@@ -508,4 +511,37 @@ MUTANTS += [
      '    "option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")',
      '    "option|p|param|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")',
      [R29_HTML_TAGS]),
+]
+
+# -- R30: the id cell's blank test.  FOUR rows, because the fix has four
+# separable clauses and each one alone is a different silent skip:
+#   (a) the decoration is not stripped off the raw text any more,
+#   (b) the text asked is a RENDERING and not the raw cell,
+#   (c) the rendering asked is the READER's and not the disposed stream,
+#   (d) the question is asked only of the rows that declared nothing.
+# (a) and (b) look like one clause and are not: (a) alone still calls `**` a
+# blank if the reading goes back to the raw cell, and (b) alone still calls
+# `**—**` unkeyed if the strip is re-injected on top of the reading.  Each
+# row below names only the controls it actually reddens.
+MUTANTS += [
+    ("R30 id cell: the decoration strip is GONE (re-inject it on the reading -- the reported defect, "
+     "which the reading alone does not fix)", TABLES,
+     '    return cell_reading.strip(" \\t") in ID_CELL_BLANKS',
+     '    return cell_reading.strip(" \\t").strip("*`").strip(" \\t") in ID_CELL_BLANKS',
+     list(R30_UNPAIRED)),
+    ("R30 id cell: the blank question is asked of a RENDERING, not of the raw cell (the direction the "
+     "strip hid: a construct that RENDERS a blank)", POPULATION,
+     '                if not is_blank_id_cell(stream(row.cells[s.idc].lexed, reader=True)):',
+     '                if not is_blank_id_cell(row.cells[s.idc].text):',
+     list(R30_PAIRED)),
+    ("R30 id cell: the rendering is the READER's, not the disposed stream (which blanks a code span, "
+     "so `` `?` `` would read as empty)", POPULATION,
+     'is_blank_id_cell(stream(row.cells[s.idc].lexed, reader=True))',
+     'is_blank_id_cell(stream(row.cells[s.idc].lexed))',
+     [R30_CODE_SPAN_READING]),
+    ("R30 id cell: `_unkeyed` judges only the rows that declared nothing (drop the guard: every keyed "
+     "row is asked the blank question too)", POPULATION,
+     '                if row.self_id is not None:\n                    continue',
+     '                if False:\n                    continue',
+     [R30_KEYED]),
 ]

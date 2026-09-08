@@ -289,10 +289,10 @@ MUTANTS = [
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
     ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", POPULATION,
-     '                    if not is_blank_id_cell(row.id_cell()):\n'
-     '                        self.misses.append(',
-     '                    if False:\n'
-     '                        self.misses.append(',
+     '                if not is_blank_id_cell(stream(row.cells[s.idc].lexed, reader=True)):\n'
+     '                    self.misses.append(',
+     '                if False:\n'
+     '                    self.misses.append(',
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
     ("F2 population: links in CELLS join the population", MEMO,
@@ -356,8 +356,9 @@ MUTANTS = [
      ["(c-seed) a Deps cell `–` (en dash) is empty by shape: no alphanumeric",
       "(c-seed) a Deps cell `--` is empty by shape"]),
     ("4.5 id cell: blanks are LITERAL, not the shape rule (re-inject `is_empty`)", POPULATION,
-     '                    if not is_blank_id_cell(row.id_cell()):',
-     '                    if not __import__("plan_memo_tables").is_empty(row.id_cell()):',
+     '                if not is_blank_id_cell(stream(row.cells[s.idc].lexed, reader=True)):',
+     '                if not __import__("plan_memo_tables").is_empty('
+     'stream(row.cells[s.idc].lexed, reader=True)):',
      ["(id) an id cell `?` is not a blank: unkeyed, rc 2",
       "(id) an id cell `…` is not a blank: unkeyed, rc 2 (the shape rule would skip it)",
       "(id) an id cell `**?**` is not a blank: decoration does not blank it, rc 2"]),

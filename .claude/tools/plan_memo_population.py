@@ -108,13 +108,17 @@ class Population:
             for t in memo.tables:
                 for lineno, msg in t.misses:
                     self.misses.append((self.display(memo.path), lineno, msg))
-        # ids first (the keep-set the disposition needs), then masks, then kinds
+        # ids first (the keep-set the disposition needs), then masks, then the
+        # readings: the unkeyed-row miss and the kinds both read a RENDERING,
+        # so both come after `dispose` and neither can move before it
         for memo in self.memos:
             self._declare(memo)
         keep = self.keep()
         for memo in self.memos:
             for lx in memo.lexed():
                 dispose(lx, keep)
+        for memo in self.memos:
+            self._unkeyed(memo)
         for row in self.declaring_rows():
             row.field = stream(row.cells[row.schema.decl].lexed)
         for row in self.ids.values():
@@ -138,27 +142,17 @@ class Population:
     # -- declarations ------------------------------------------------------
 
     def _declare(self, memo):
+        """The declarations: `ids`, and the duplicate-declaration miss.  A row
+        whose id cell declares nothing is passed over HERE and judged in
+        `_unkeyed` -- it enters `ids` under neither verdict, so the blank
+        question decides no declaration, gates no keep-set, and can wait for
+        the disposition the reading it is asked of needs."""
         for s in SCHEMAS:
             if s.idc is None:
                 continue
             for row in memo.schema_rows(s.name):
                 rid = row.self_id
                 if rid is None:
-                    # a LITERAL blank id cell is a deliberate non-row; anything
-                    # else that is not an id THIS TABLE KEYS (`Schema.kinds`,
-                    # applied in `bare_id`) is an UNKEYED row: it would be
-                    # dropped from `ids`, so assertion (b) would never see its
-                    # Deps edge -- the I-C silent-skip class, and a schema
-                    # miss.  ONE message for both shapes, since they are one
-                    # question: a citation-shaped id in a slice table keys no
-                    # slice row, and both mention passes ignore it, so its
-                    # ownership text could never be checked (PR #510 R21)
-                    if not is_blank_id_cell(row.id_cell()):
-                        self.misses.append((self.display(memo.path), row.lineno,
-                                            "the %r row's id cell does not start with an id of a kind this "
-                                            "table keys (%s): %r; the row declares nothing and is unkeyed, "
-                                            "so its cells would go unasserted"
-                                            % (s.name, " / ".join(s.kinds), row.id_cell()[:60])))
                     continue
                 if rid in self.ids:
                     r2 = self.ids[rid]
@@ -168,6 +162,34 @@ class Population:
                                         % (row.name(), self.display(r2.memo.path), r2.lineno, r2.schema.name)))
                     continue
                 self.ids[rid] = row
+
+    def _unkeyed(self, memo):
+        """The rows that declared nothing, sorted into the two verdicts -- run
+        AFTER the disposition, because the question is about what the cell
+        RENDERS (`plan_memo_tables.is_blank_id_cell`, which carries the
+        reading and why it is that one).
+
+        A LITERAL blank id cell is a deliberate non-row; anything else that is
+        not an id THIS TABLE KEYS (`Schema.kinds`, applied in `bare_id`) is an
+        UNKEYED row: it was dropped from `ids`, so assertion (b) would never
+        see its Deps edge -- the I-C silent-skip class, and a schema miss.  ONE
+        message for both shapes, since they are one question: a
+        citation-shaped id in a slice table keys no slice row, and both mention
+        passes ignore it, so its ownership text could never be checked (PR
+        #510 R21).  The unmatched decoration run `**` was in the first class
+        and belongs to the second (PR #510 R30)."""
+        for s in SCHEMAS:
+            if s.idc is None:
+                continue
+            for row in memo.schema_rows(s.name):
+                if row.self_id is not None:
+                    continue
+                if not is_blank_id_cell(stream(row.cells[s.idc].lexed, reader=True)):
+                    self.misses.append((self.display(memo.path), row.lineno,
+                                        "the %r row's id cell does not start with an id of a kind this "
+                                        "table keys (%s): %r; the row declares nothing and is unkeyed, "
+                                        "so its cells would go unasserted"
+                                        % (s.name, " / ".join(s.kinds), row.id_cell()[:60])))
 
     def _kind(self, row):
         """The kind the row's masked declaring field declares.  The
