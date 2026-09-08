@@ -50,15 +50,28 @@ MODULES
   (this file)             mention scanners, `check()`, the report
   plan_memo_umbrella_selftest.py (the runner) / _selftest_controls.py (the
                           function-shaped controls + `registry()`) /
+                          _selftest_properties.py (the PROPERTY controls: the
+                          source-text sweeps and the rendering invariants) /
+                          _selftest_work.py (the controls that state a COST and
+                          count it -- the only importer of the deterministic
+                          work witnesses) /
                           _selftest_harness.py (loader, fixture runner,
                           work witnesses) / _selftest_cases.py /
                           _selftest_cases_pr510.py /
                           _selftest_cases_inline.py /
+                          _selftest_cases_sibling.py (the resolver's controls,
+                          the one Case module carved on a SUBJECT rather than a
+                          review round) /
                           _selftest_mutants.py / _selftest_mutants_pr510.py /
                           _selftest_mutants_inline.py /
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)
+  ⚠ This map is prose and nothing enforces it: three modules (`_selftest_work`,
+  `_selftest_properties`, `_cases_sibling`) were missing from it for three
+  rounds, each added by a touch-time split that updated the references its OWN
+  move broke and not the map. Re-check it with
+  `ls .claude/tools/plan_memo_*.py` against the names listed here.
 
 WHERE THIS RUNS.  By hand on a memo: `SCHEMAS` matches one document family's
 exact header rows, so against any other plan memo it prints `FATAL: no table
