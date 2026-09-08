@@ -14,8 +14,8 @@ memo is asserted exactly like a row of the main memo.  Findings are
 import re
 from collections import Counter
 
-from plan_memo_ids import ALNUM, DECOR, ROW_ID, balanced, decorated_id, kind_of
-from plan_memo_tables import MARKER, ROW_NOUN_SEP, is_empty, stream
+from plan_memo_ids import AFTER, BEFORE, DECOR, ROW_ID, balanced, bounded, decorated_id, kind_of
+from plan_memo_tables import MARKER_RE, ROW_NOUN_SEP, is_empty, stream
 
 
 # --------------------------------------------------------------------------
@@ -42,6 +42,7 @@ from plan_memo_tables import MARKER, ROW_NOUN_SEP, is_empty, stream
 # What may stand immediately BEFORE the mention: the mention is the thing a
 # child is "of", or the runner of a derivation.
 LICENSE_BEFORE = re.compile(
+    BEFORE +                                  # PR #510 R22, see LICENSE_AFTER
     r"(?:"
     r"child(?:ren)?\s+(?:of\s+)?"          # the child of X / any child of X / children of X
     r"|derivation\s+(?:that\s+)?"           # the derivation Slice B runs at its own start
@@ -67,9 +68,29 @@ LICENSE_AFTER = re.compile(
     r"|\s+is\s+an?\s+umbrella"
     r"|\s+runs\s+at\s+its\s+own\s+start"
     r"|\s+became\s+an\s+umbrella"
-    r")",
+    r")" + AFTER,
     re.IGNORECASE | re.ASCII,
 )
+# ⚠ THE OUTER EDGES, PR #510 R22.  These two are the licensing rule -- a match
+# SUPPRESSES a report -- so an unbounded edge is the dangerous polarity: it
+# licenses a mention on a phrase the document does not contain.  `LICENSE_
+# BEFORE` was unbounded on the left (`grandchild of 9z`, `renaming 9z`,
+# `remints 9z` all read as the licensed phrase) and `LICENSE_AFTER` on the
+# right (`9z's memorandum`, `9z is an umbrellaless slot`).  The inner edges
+# need nothing: each pattern is anchored (`$` / `^`) against the MENTION,
+# whose own extent the id grammar already bounded (`plan_memo_ids.tokens`).
+# The plural (`9z's derivations`) is now REPORTED rather than licensed --
+# tightening a licence is the safe direction under a reported-by-default
+# rule, and widening the nouns to `s?` would license `9z's memos` and
+# `9z's splits` on a list this seed does not name.  Measured on the #506
+# memo: 1,205 mentions, 491 licensed, unchanged by both edges.
+# ⚠ HONESTLY, what the left edge cannot see: the backward look is given a
+# 40-character SLICE of the window (`classify`), so a phrase whose match
+# starts at index 0 of that slice has nothing behind it and the lookbehind
+# succeeds vacuously.  Reachable only by a 40-character licensing phrase --
+# measured, `"derivation" + " " * 21 + "that the "` is exactly one -- because
+# the match must end at `$`.  Widening the slice moves the edge, it does not
+# remove it; the residue is named here rather than claimed away.
 
 # The mention shapes.  Every id token -- a short id or a `#11-` slug, in a
 # cell or in prose, decorated or bare -- is read by the ONE grammar
@@ -91,7 +112,7 @@ LICENSE_AFTER = re.compile(
 # grammar's `ALNUM`, never `\b` / `\w` in Unicode mode -- there `次のSlice C`
 # has no word boundary before `Slice` and `次は#11-zz-alpha` none before `#`,
 # and both naming sites went unreported.
-NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))
+NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)
 
 
 # A row noun standing between the licensing phrase and the id ("the child of
@@ -212,10 +233,12 @@ ACCEPT_WORDS = re.compile(r"\b(?:acceptance|must)\b", re.IGNORECASE | re.ASCII)
 # A row that has already landed states no acceptance condition it still owes.
 RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b", re.ASCII)
 
-# The kind said in WORDS, for assertion (a)'s seed half.
+# The kind said in WORDS, for assertion (a)'s seed half.  BOUNDED, from the
+# grammar's one spelling (PR #510 R22): unbounded, `not a terminal unitary
+# claim` and `edge-densely` seeded a finding this vocabulary does not name.
 DECLARES = re.compile(
-    r"(?:is an umbrella|not a terminal unit|≥3 intersecting|three intersecting|"
-    r"no canonical algorithm|edge-dense)",
+    bounded(r"is an umbrella|not a terminal unit|≥3 intersecting|three intersecting|"
+            r"no canonical algorithm|edge-dense"),
     re.IGNORECASE | re.ASCII,
 )
 
@@ -252,7 +275,7 @@ def assertion_a(pop, findings, notes):
         # forbids.  Until PR #510 R21 one `continue` gated both, so the
         # repeated marker was reported only on rows that had none where it
         # belongs.
-        if MARKER not in row.field and DECLARES.search(row.field):
+        if not MARKER_RE.search(row.field) and DECLARES.search(row.field):
             # SEED, with a measured false-positive mechanism: this
             # vocabulary also appears when a cell QUOTES the criterion to
             # conclude the row is terminal, and when a cell discusses
@@ -263,7 +286,7 @@ def assertion_a(pop, findings, notes):
                  "marker -- read it: a declaration, a quotation of the criterion, or "
                  "another row's kind?" % row.name()))
         # the marker outside the declaring field certifies nothing
-        if any(MARKER in stream(c.lexed)
+        if any(MARKER_RE.search(stream(c.lexed))
                for i, c in enumerate(row.cells) if i != row.schema.decl):
             findings.append(
                 ("UMBRELLA-MARK", pop.display(row.memo.path), row.lineno,

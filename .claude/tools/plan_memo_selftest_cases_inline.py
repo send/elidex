@@ -16,8 +16,11 @@ out-of-field marker / KIND-SPELLING / schema id kinds).
 
 Same spellings (`case` / `acase` / `rcase`), same `CASES` list, one import
 site: the controls module imports this module for its side effect.  A
-control's mutant lives in `plan_memo_selftest_mutants_pr510.py` under the same
-round label.
+control's mutant lives in `plan_memo_selftest_mutants_inline.py` under the
+same round label -- the mutant registry is split at THIS module's seam, so
+`_mutants_pr510.py` is the R1-R16 half and holds no mutant of a control here.
+(The pointer read `_mutants_pr510.py` until PR #510 R22: it was written before
+the R17-on mutants were split out of that file at `18c65884`.)
 """
 
 from plan_memo_selftest_cases import SIB, VIOLATION, acase, build, case, rcase
@@ -580,3 +583,117 @@ case("NEGATIVE", "(render) `**9z**'s children`: the licensing rule needs no deco
                  "own -- the mention's token consumes the `**` it carries, so the licensed noun is what "
                  "follows it",
      build(), "That is what **9z**'s children are for.", 0)
+
+# ------------------------------------------------ PR #510 Codex R22 controls --
+# Three findings, one shape between them: a reading spelled TWICE, and the
+# second spelling weaker than the first.  Each fix gets a control whose
+# subject is the changed code AND a control that was green before it too, so
+# the pair discriminates a fix from a mute.
+
+# #1 (P2) seed: the raw-line seed reports "what a naming scan would have read
+# HAD THE TEXT BEEN PROSE", so the file-name / citation disposition applies to
+# it -- from `plan_memo_lexer.file_and_cite_spans`, the ONE reading the
+# disposition itself consumes.  It scanned the raw line directly until R22,
+# and the seed's own `t.kind != "cite"` was a second spelling of half of it.
+RAW_FILE = '\n<div data-note="%s">\n</div>\n'
+
+case("NEGATIVE", "(seed) a raw HTML-block line whose only declared id sits INSIDE a `.md` file name seeds "
+                 "nothing: the same name in prose is masked and reports nothing, and a seed that fires "
+                 "where prose would not is reporting a reading the document has no way to hold",
+     build() + RAW_FILE % "slice-9z-sib.md", "", 0, measure=("finding", "LEX-UNSUPPORTED?"))
+case("NEGATIVE", "(seed) the same for an INDENTED-CODE line: one disposition, both readings",
+     build() + "\npara.\n\n    slice-9z-sib.md\n", "", 0, measure=("finding", "LEX-UNSUPPORTED?"))
+case("POSITIVE", "(seed) a raw HTML-block line holding a BARE declared id still seeds it -- the "
+                 "discriminating half of the pair above: a fix that stopped reading ids off raw lines "
+                 "at all would pass that control and fail this one",
+     build() + RAW_FILE % "9z-owner", "", 1, measure=("seed", "it holds '9z'"))
+case("POSITIVE", "(seed) `| 9z | notes.md |` on a raw line seeds a `|` AND `9z`: a file run is bounded by "
+                 "whitespace, so the id beside the name is outside every masked span",
+     build() + '\n<div>\n| 9z | notes.md |\n</div>\n', "", 1,
+     measure=("seed", "it holds a `|`, '9z'"))
+case("NEGATIVE", "(seed) a raw line whose only declared id is a CITATION seeds nothing -- the shared spans "
+                 "SUBSUME the seed's former hand-written `kind != cite` filter, so the citation half has "
+                 "one spelling and not two",
+     build() + RAW_FILE % "[C1] see", "", 0, measure=("finding", "LEX-UNSUPPORTED?"))
+
+# #2 (P2) sibling: a relative destination whose COMPONENT is a Windows DOS
+# device (`NUL.md`) or ends in a dot or a space has an empty
+# `PureWindowsPath.anchor` and passed stage (c) until R22.  On Windows reading
+# it SUCCEEDS and yields an empty stream, so the population would count a
+# linked memo it never scanned and exit 0 -- §1's could-not-scan class.  The
+# predicate is pure string logic (`_is_reserved_component`), so every control
+# here decides the same way on POSIX; each names a file that DOES exist in the
+# fixture directory, so a green control means "not read", never "not found".
+DEVICE = {"NUL.md": VIOLATION + "\n", "NUL/child.md": VIOLATION + "\n", "com1.md": VIOLATION + "\n",
+          "dir /child.md": VIOLATION + "\n", "prn .md": VIOLATION + "\n",
+          "NULX.md": VIOLATION + "\n"}
+
+case("NEGATIVE", "(sibling) `NUL.md` is a DOS device, not a memo beside this one: the destination is no "
+                 "sibling even though a file of that name is there to read",
+     build(), "See [x](NUL.md).", 0, files=DEVICE)
+case("NEGATIVE", "(sibling) `NUL/child.md`: the device is read per PART of the parsed path -- a device "
+                 "DIRECTORY rejects the destination too.  The device sits in a NON-FINAL component on "
+                 "purpose: with it in the last one, a final-component-only reading passes this control "
+                 "and the mutant survives (measured -- the probe would have had another subject)",
+     build(), "See [x](NUL/child.md).", 0, files=DEVICE)
+case("NEGATIVE", "(sibling) `com1.md`: the device names fold case (`ntpath._isreservedname` upper-cases "
+                 "the stem), so the lower-case spelling is the same device",
+     build(), "See [x](com1.md).", 0, files=DEVICE)
+case("NEGATIVE", "(sibling) `dir%20/child.md`: a component ending in a SPACE is reserved too -- Windows "
+                 "strips the trailing run, so that component names a different directory there than here",
+     build(), "See [x](dir%20/child.md).", 0, files=DEVICE)
+case("NEGATIVE", "(sibling) `prn%20.md`: the stem's trailing spaces are stripped before the device "
+                 "lookup, so `prn .md` is `PRN` (Microsoft, \"Naming Files, Paths, and Namespaces\")",
+     build(), "See [x](prn%20.md).", 0, files=DEVICE)
+case("POSITIVE", "(sibling) `NULX.md` is an ordinary sibling and IS walked -- the discriminating half: a "
+                 "device is the STEM of a component, never a prefix of one, and a guard that rejected "
+                 "every name holding `NUL` would drop a memo the author linked",
+     build(), "See [x](NULX.md).", 1, files=DEVICE)
+
+# #3 (P2) phrase boundaries: every marker phrase the census reads matched
+# INSIDE a longer word until R22.  Fixed together, from the grammar's one
+# spelling (`plan_memo_ids.bounded`), because an enumerated fix leaves the
+# next member of the class authoritative -- so each phrase gets its pair.
+rcase("NEGATIVE", "(kind) `The KIND UNDETERMINEDNESS metric must be recorded` declares no unsettled kind: "
+                  "with a nonempty `Deps` cell the unbounded reading made the row no-owner and forced "
+                  "`UMBRELLA-CELL`, rc 1",
+      build(suz="The KIND UNDETERMINEDNESS metric must be recorded.", duz="**7z**"), "", 0)
+rcase("NEGATIVE", "(kind) nor does `MANKIND UNDETERMINED by the probe` -- the boundary is on BOTH sides, "
+                  "and the left one is the half a right-only fix would leave authoritative",
+      build(suz="MANKIND UNDETERMINED by the probe; must be recorded.", duz="**7z**"), "", 0)
+rcase("POSITIVE", "(kind) `KIND — UNDETERMINED` still declares it, and the same nonempty `Deps` cell is "
+                  "still `UMBRELLA-CELL`, rc 1 -- the discriminating half: the boundary must not have "
+                  "silenced the phrase it bounds",
+      build(suz="KIND — UNDETERMINED until the probe runs.", duz="**7z**"), "", 1)
+case("NEGATIVE", "(kind) `SUBUMBRELLA, not a terminal unit.` carries no marker: the row is terminal, out "
+                 "of the no-owner census, and a prose mention of it is no site",
+     build(sqx="SUBUMBRELLA, not a terminal unit."), "Slice Qx lands before Slice 7z.", 0)
+case("NEGATIVE", "(kind) nor does `UMBRELLA, not a terminal unitary claim.` -- the right-hand edge",
+     build(sqx="UMBRELLA, not a terminal unitary claim."), "Slice Qx lands before Slice 7z.", 0)
+case("POSITIVE", "(kind) the marker itself still declares the umbrella and the mention IS a site -- the "
+                 "discriminating half of both controls above",
+     build(sqx="UMBRELLA, not a terminal unit."), "Slice Qx lands before Slice 7z.", 1)
+acase("POSITIVE", "(kind) `is a pointer rather than a slicer of work` is no pointer row: it is an active "
+                  "terminal, and a terminal row stating no acceptance condition owes the ACCEPT-VOCAB? "
+                  "seed -- which the unbounded reading suppressed",
+      build(sqx="This row is a pointer rather than a slicer of work."), "ACCEPT-VOCAB?", 1)
+acase("NEGATIVE", "(kind) `is a pointer rather than a slice` still IS one, and a pointer row owes no "
+                  "acceptance condition -- the discriminating half",
+      build(sqx="This row is a pointer rather than a slice."), "ACCEPT-VOCAB?", 0)
+acase("NEGATIVE", "(kind) `not a terminal unitary claim` is not the kind vocabulary either: the seed half "
+                  "of assertion (a) reads the same bounded phrases the marker does",
+      build(sqx="Terminal.  It is not a terminal unitary claim.  Acceptance: must."), "UMBRELLA-MARK?", 0)
+acase("POSITIVE", "(kind) `is an umbrella` in a declaring field without the marker still seeds it -- the "
+                  "discriminating half",
+      build(sqx="Terminal.  This row is an umbrella by derivation.  Acceptance: must."), "UMBRELLA-MARK?", 1)
+case("POSITIVE", "(licence) `The grandchild of 9z` is not the licensing phrase `child of`: a licence "
+                  "SUPPRESSES a report, so an unbounded edge there is the dangerous polarity -- the "
+                  "mention is reported",
+     build(), "The grandchild of 9z carries the obligation.", 1)
+case("NEGATIVE", "(licence) `The child of 9z` IS the phrase and is licensed -- the discriminating half",
+     build(), "The child of 9z carries the obligation.", 0)
+case("POSITIVE", "(licence) `9z's memorandum` is not the licensed possession `memo`: the right-hand edge "
+                 "of the forward look, reported",
+     build(), "That is what 9z's memorandum says.", 1)
+case("NEGATIVE", "(licence) `9z's memo` IS it and is licensed -- the discriminating half",
+     build(), "That is what 9z's memo says.", 0)

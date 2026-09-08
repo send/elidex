@@ -98,6 +98,7 @@ HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
 from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
+from plan_memo_lexer import file_and_cite_spans  # noqa: E402
 from plan_memo_tables import split_units, stream  # noqa: E402
 from plan_memo_memo import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
@@ -367,11 +368,29 @@ def lex_unsupported_seed(pop, findings, notes):
     memo it linked was never walked).  The ids are read by the ONE grammar
     (`plan_memo_ids.tokens`, the kinds the naming scan reads: a citation
     id is masked everywhere else and is no seed here either), so a raw
-    line's `9z-owner` seeds `9z` exactly as prose would report it."""
+    line's `9z-owner` seeds `9z` exactly as prose would report it.
+
+    HAD THE TEXT BEEN PROSE is the whole rule, so the FILE-NAME and
+    CITATION disposition applies here too, from the same reading the
+    disposition itself consumes (`plan_memo_lexer.file_and_cite_spans`): an
+    id token overlapping one of those spans is one prose would never have
+    read, and seeds nothing.  Until PR #510 R22 this scan read the raw line
+    directly and the disposition had a second, hand-written spelling here
+    (`t.kind != "cite"`, the citation half only): a raw line holding
+    `slice-9z-sib.md` seeded `9z` where the same file name in a paragraph
+    is masked and reports nothing.  The shared spans SUBSUME that hand
+    filter -- both grammars read a citation by `plan_memo_ids.CITE_ID`, so
+    a cite token is covered by a `cite` span, or, where a file run swallows
+    the brackets as a balanced parenthesis (`([C1]).md`), by that `file`
+    span; measured over both -- so there is one spelling, not two.  A `|`
+    outside every span still seeds (`| 9z | notes.md |` seeds `9z`: a file
+    run is bounded by whitespace, so the id beside the name is outside it)."""
     keep, n = pop.keep(), 0
     for memo in pop.memos:
         for lineno, line, reading in memo.raw:
-            ids = sorted({t.id for t in tokens(line) if t.kind != "cite" and t.id in keep})
+            spans = file_and_cite_spans(line)
+            ids = sorted({t.id for t in tokens(line) if t.id in keep
+                          and not any(a < t.idend and t.idstart < b for a, b, _ in spans)})
             if "|" in line or ids:
                 n += 1
                 findings.append(("LEX-UNSUPPORTED?", pop.display(memo.path), lineno, "%s; it holds %s" % (

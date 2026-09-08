@@ -32,6 +32,14 @@ from plan_memo_selftest_mutants import (
 BLANK = ('lambda t, sp: "".join(" " if any(a <= k < b for a, b in sp) and c != "\\n" else c '
          'for k, c in enumerate(t))')
 
+# `Memo.sibling_path` stage (c) AS IT STANDS: three clauses in one `if` (a C0
+# control, a Windows anchor, a reserved component -- PR #510 R22).  Two mutants
+# below drop ONE clause each and keep the other two, so the source text is
+# spelled once here rather than transcribed twice; the mutations are the
+# clause-drops they always were.
+STAGE_C = ('        if (_CONTROL.search(name) or p.anchor                        # (c)\n'
+           '                or any(_is_reserved_component(s) for s in p.parts)):')
+
 
 MUTANTS += [
     # -- PR #510 Codex R1
@@ -96,8 +104,9 @@ MUTANTS += [
      ["(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0"]),
     ("R3-2 / R5-2 population: a `/`-leading path -- raw `/x.md`, `//host/x.md`, or DECODED "
      "`%2Ftmp%2Fx.md` -- is not a sibling (drop the anchor test)", MEMO,
-     '        if _CONTROL.search(name) or p.anchor:                        # (c)',
-     '        if _CONTROL.search(name):                                    # (c)',
+     STAGE_C,
+     ('        if (_CONTROL.search(name)                                    # (c)\n'
+      '                or any(_is_reserved_component(s) for s in p.parts)):'),
      ["(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
       "(rc) a protocol-relative `//host/x.md` is not a sibling on disk: rc 0",
       "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after decoding "
@@ -165,8 +174,9 @@ MUTANTS += [
       "(commonmark.js: a paragraph): `[sib]` later is an exempt shortcut, rc 0, and the sibling is "
       "NOT walked -- its violation is not reported"]),
     ("R7-2 population: a C0 control character in a decoded destination is rejected", MEMO,
-     '        if _CONTROL.search(name) or p.anchor:                        # (c)',
-     '        if p.anchor:                                                 # (c)',
+     STAGE_C,
+     ('        if (p.anchor                                                 # (c)\n'
+      '                or any(_is_reserved_component(s) for s in p.parts)):'),
      ["a decoded destination with a C0 control character is rejected, never resolved"]),
     # -- PR #510 Codex R8
     ("R8-1 sibling: the scheme is read on the RAW path, before decoding (re-inject scheme-after-decode)", MEMO,
@@ -220,7 +230,8 @@ MUTANTS += [
      '            except (OSError, UnicodeDecodeError) as e:', '            except OSError as e:',
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
-     'NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))',
+     # `BEFORE` since PR #510 R22; the MUTATION is untouched -- `\b`, Unicode
+     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)',
      'NOUN_ANCHOR = re.compile(r"\\b%s" % ROW_NOUN_SEP)',
      ["(ascii) `次のSlice Cが所有する` reaches the naming worklist: the row-noun anchor is not `\\b` "
       "(no Unicode word boundary before `Slice`)"]),
@@ -520,7 +531,10 @@ MUTANTS += [
     # -- PR #510 Codex R14: ONE id-token grammar for every reader
     ("R14-1 seed: the raw-line seed reads the grammar (re-inject the seed's own boundary regex -- the "
      "former `_BARE_TOKEN`, a second spelling that rejected a hyphen on either side)", CHECK,
-     'ids = sorted({t.id for t in tokens(line) if t.kind != "cite" and t.id in keep})',
+     # the seed also masks the file/cite spans since PR #510 R22; the MUTATION
+     # is untouched -- the seed re-grows its OWN boundary spelling
+     ('ids = sorted({t.id for t in tokens(line) if t.id in keep\n'
+      '                          and not any(a < t.idend and t.idstart < b for a, b, _ in spans)})'),
      'ids = sorted({t for t in __import__("re").findall(r"(?<![0-9A-Za-z-])(?:#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})'
      '(?![0-9A-Za-z-])", line) if t in keep})',
      ["(lex-seed) a raw HTML line `9z-owner`: a hyphen bounds the short id on the raw line as in "
@@ -547,7 +561,10 @@ MUTANTS += [
       "grammar's either-case predicate): rc 0"]),
     ("R14 property: a second spelling of an id class outside the grammar module is red (re-inject one "
      "in the row-noun anchor, behaviour unchanged)", ROLES,
-     'NOUN_ANCHOR = re.compile(r"(?<!%s)%s" % (ALNUM, ROW_NOUN_SEP))',
+     # Since PR #510 R22 the anchor composes `plan_memo_ids.BEFORE`, the ONE
+     # spelling of the boundary the marker phrases compose too; the MUTATION
+     # is untouched -- a literal id class, written in roles.py.
+     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)',
      'NOUN_ANCHOR = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_SEP)',
      ["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"]),
     # -- PR #510 Codex R15: §5.2 list items are containers; orphans keep their destination; the

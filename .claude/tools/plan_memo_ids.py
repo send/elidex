@@ -55,6 +55,35 @@ ALNUM = "[%s]" % ALNUM_CHARS
 word boundary every anchor in these modules reads (the row-noun anchor, the
 end of a bare `.md` file name)."""
 
+BEFORE = "(?<!%s)" % ALNUM
+AFTER = "(?!%s)" % ALNUM
+"""The ASCII word boundary, as the two lookarounds that spell it -- the ONE
+composition every reader outside this module uses, so no other module writes
+the class (`plan_memo_selftest_controls.id_spelling_sweep_control` sweeps for
+exactly that).  `\\b` is NOT it: it is Unicode in a str pattern (`次のSlice C`
+has no boundary before `Slice`), and under `re.ASCII` it still counts `_` as a
+word character where this grammar does not."""
+
+
+def bounded(phrase):
+    """`phrase`, bounded by `BEFORE` / `AFTER` on BOTH sides: an ASCII
+    alphanumeric may not abut it on either end.
+
+    The marker phrases the census reads (`plan_memo_tables.MARKER_RE`,
+    `UNDETERMINED`, `POINTER`, `plan_memo_roles.DECLARES`,
+    `LICENSE_BEFORE` / `LICENSE_AFTER`) all compose this rather than each
+    growing its own edge: a phrase matcher that is a bare substring test or
+    an unanchored regex matches INSIDE a longer word, and the class of
+    "next unbounded phrase" is closed only by having one spelling of the
+    boundary to compose.  Measured at PR #510 R22: `KIND UNDETERMINEDNESS`
+    and `MANKIND UNDETERMINED` both classified a row kind-undetermined and
+    forced exit 1, and `SUBUMBRELLA, not a terminal unit` /
+    `UMBRELLA, not a terminal unitary claim` both read as the kind marker.
+    A hyphen is not alphanumeric and so does not abut -- the same boundary
+    a short id takes (`9z-owner` names `9z`), spelled once."""
+    return "%s(?:%s)%s" % (BEFORE, phrase, AFTER)
+
+
 SHORT_ID = ALNUM + "{1,4}"
 SLUG_ID = r"#11-[a-z0-9-]+"
 CITE_LABEL = r"[A-Za-z][0-9]+"

@@ -37,7 +37,8 @@ import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
 from plan_memo_ids import (
-    CITE_ID, DECOR, DECOR_CHARS, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, decorated_id, tokens,
+    CITE_ID, DECOR, DECOR_CHARS, ROW_ID, ROW_KINDS, SHORT_ID, SLUG_ID, bounded, decorated_id,
+    tokens,
 )
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -83,20 +84,41 @@ def is_blank_id_cell(cell_text):
     return cell_text.strip(" \t").strip("*`").strip(" \t") in ID_CELL_BLANKS
 
 
+# THE KIND PHRASES, and the ONE rule the three share: each is bounded on both
+# sides by the grammar's ASCII alphanumeric class (`plan_memo_ids.bounded`),
+# because a phrase matcher with no edges matches INSIDE a longer word.
+# Measured at PR #510 R22, when none of the three had them: `SUBUMBRELLA, not
+# a terminal unit` and `UMBRELLA, not a terminal unitary claim` both read as
+# the marker (a bare `in` test); `KIND UNDETERMINEDNESS` and `MANKIND
+# UNDETERMINED` both made a row kind-undetermined, which with a nonempty
+# `Deps` cell is an `UMBRELLA-CELL` finding and exit 1; `is a pointer rather
+# than a slicer` made a row a pointer.  Fixed together and from one spelling,
+# because an enumerated fix leaves the next member of the class authoritative.
 MARKER = "UMBRELLA, not a terminal unit"
+"""The marker's PHRASE, for reporting it (`split_units` names it in a
+finding) and for composing the matcher.  Every match goes through
+`MARKER_RE`; a bare `MARKER in text` is the unbounded reading R22 removed."""
+
+MARKER_RE = re.compile(bounded(re.escape(MARKER)))
+"""The ONE matcher for the marker, read over a block's disposed STREAM (a
+declaring field is one).  It must still read a marker the document SPLITS
+with a construct that renders nothing -- `**UMBRELLA, not a *terminal*
+unit.**` is the marker then a `.` once the emphasis delimiters are dropped
+(design re-gate 4) -- so the boundary is a lookaround AROUND the phrase and
+never a change to the phrase."""
 
 # §5's fifth row kind.  A kind-undetermined row carries the split and NOTHING
 # else -- no ordering, no owner, no acceptance -- which is the same obligation
 # the naming rule enforces against umbrellas.  Two spellings are in use; both
 # are tolerated and the divergence is reported (a kind with two spellings is a
 # kind no program can enumerate).
-UNDETERMINED = re.compile(r"KIND\s*[—-]?\s*UNDETERMINED", re.IGNORECASE | re.ASCII)
+UNDETERMINED = re.compile(bounded(r"KIND\s*[—-]?\s*UNDETERMINED"), re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
 # "SCHEDULED FROM ITS OWN SLOT" rows).  ⚠ Keyed on one spelling, and the safe
 # polarity: a differently-spelled pointer row is terminal, and so REPORTED by
 # the acceptance seed, never missed.
-POINTER = re.compile(r"is a pointer rather than a slice")
+POINTER = re.compile(bounded(r"is a pointer rather than a slice"))
 
 # --------------------------------------------------------------------------
 # Row identity.  The id grammar itself -- the three kinds, the decoration,
@@ -325,7 +347,7 @@ def attributed_to_other(field, rid):
     carries both directions.  The FIRST marker occurrence decides: a field
     that declares itself and then says a sibling "is not it" is
     self-declaring, and a later occurrence never overrides the first."""
-    m = re.search(re.escape(MARKER), field)
+    m = MARKER_RE.search(field)
     if m is None:
         return None
     g = _APPOSITIVE.search(field[max(0, m.start() - 70): m.start()])
@@ -591,6 +613,6 @@ def split_units(lx, keep):
         return []
     out = [("id", t.id, rd.at(t.idstart)) for t in tokens(rd)
            if t.id in keep and t.kind != "cite" and _straddles(rd.blanks, t.idstart, t.idend)]
-    out += [("marker", MARKER, rd.at(m.start())) for m in re.finditer(re.escape(MARKER), rd)
+    out += [("marker", MARKER, rd.at(m.start())) for m in MARKER_RE.finditer(rd)
             if _straddles(rd.blanks, m.start(), m.end())]
     return out

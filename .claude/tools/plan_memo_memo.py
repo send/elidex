@@ -45,7 +45,7 @@ from plan_memo_blocks import (
 from plan_memo_ids import is_cite_label
 from plan_memo_lexer import FILE_SUFFIX, Lexed, normalize_label
 from plan_memo_tables import (
-    MARKER, POINTER, SCHEMAS, UNDETERMINED, admit_table, attributed_to_other, dispose,
+    MARKER_RE, POINTER, SCHEMAS, UNDETERMINED, admit_table, attributed_to_other, dispose,
     is_blank_id_cell, split_units, stream,
 )
 
@@ -637,7 +637,20 @@ class Memo:
               Until PR #510 R19 this stage rejected a leading `/` only, so
               `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) and
               `%5Cchild.md` (`\\child.md`) passed, and on Windows `parent /
-              name` discarded the memo's directory;
+              name` discarded the memo's directory.  An empty anchor is not
+              enough: a RELATIVE name whose component is a DOS device or
+              ends in a dot or a space is no file beside the memo either
+              (`_is_reserved_component`, per PART, so `dir/NUL.md` and
+              `NUL/child.md` go too).  ⚠ Until PR #510 R22 they passed,
+              and both halves fail SILENTLY where an anchor does not: on
+              Windows reading `NUL.md` SUCCEEDS and yields an empty
+              stream, so the population counted an empty linked memo and
+              could exit 0 having omitted the sibling the author linked,
+              and `dir /child.md` reads a different directory there than
+              here.  The cost, named: a POSIX memo genuinely called
+              `NUL.md` is now not a sibling either -- dropped without a
+              report, exactly as `/abs/x.md` and `C:\\x.md` already are,
+              which is this stage's standing polarity;
           (d) the `.md` suffix -- the lexer's `FILE_SUFFIX`, the ONE
               spelling of "is a file name" (the lexer's bare file token
               reads the same constant over prose); the stem is unconstrained
@@ -658,7 +671,8 @@ class Memo:
             return None
         name = unquote(raw)                                          # (b)
         p = pathlib.PureWindowsPath(name)
-        if _CONTROL.search(name) or p.anchor:                        # (c)
+        if (_CONTROL.search(name) or p.anchor                        # (c)
+                or any(_is_reserved_component(s) for s in p.parts)):
             return None
         if not name.endswith(FILE_SUFFIX):                           # (d)
             return None
@@ -747,6 +761,55 @@ def _resolve(path):
     except (OSError, RuntimeError):
         return path
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+# The DOS DEVICE names -- Microsoft, "Naming Files, Paths, and Namespaces"
+# (https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file):
+# "Do not use the following reserved names for the name of a file", and the
+# rule holds "regardless of the file extension" and in any directory.  The
+# set is CPython `ntpath._reserved_names`' reading of that paragraph, spelled
+# here as data rather than called: `PureWindowsPath.is_reserved()` is
+# deprecated in 3.13 and removed in 3.15 (it raises a DeprecationWarning on
+# the 3.14 this runs on), and `os.path.isreserved` exists only on 3.13+ and
+# only in `ntpath` -- on POSIX `os.path` IS `posixpath` and has no such
+# function, so neither is available to a checker that must decide this the
+# same way on every platform.
+_DEVICE_NAMES = frozenset(
+    {"AUX", "CON", "CONIN$", "CONOUT$", "NUL", "PRN"}
+    | {p + n for p in ("COM", "LPT") for n in "123456789¹²³"})
+
+
+def _is_reserved_component(part):
+    """Whether one already-parsed `PureWindowsPath` component is a name
+    Windows does NOT resolve to a file of that name beside its parent --
+    pure string logic, so it is decided identically on POSIX and testable
+    there.  Two halves, CPython `ntpath._isreservedname`'s reading:
+
+      * a component ending in `.` or ` ` (the components `.` and `..`
+        excepted): Windows strips the trailing run, so `dir /child.md`
+        reads `dir\\child.md` there and a different directory here;
+      * otherwise the stem before the first `.`, its trailing spaces
+        stripped, upper-cased, is a DOS device (`_DEVICE_NAMES`): `NUL.md`,
+        `dir/NUL.md`, `nul.md` and `prn .md` all resolve to a device.
+
+    WHICH STAGE OWNS WHAT, so the reading is spelled once.
+    `_isreservedname`'s CHARACTER half -- `*?"<>/\\:|` and the ASCII
+    controls -- is NOT repeated here: the controls (and DEL, wider)
+    are `sibling_path` stage (c)'s `_CONTROL`, and `/` and `\\` are
+    SEPARATORS to the `PureWindowsPath` parse that produced these parts, so
+    neither can stand inside a component.  The rest (`*?"<>:|`) is
+    deliberately left to stage (e): they are ordinary POSIX name characters,
+    the population resolves siblings on the RUNNING platform, and on Windows
+    a name holding one raises `OSError` there -- reported as an unavailable
+    linked memo, exit 2.  That is the discriminator this predicate is drawn
+    on: a device name is the class that opens SUCCESSFULLY and returns an
+    empty stream, so the population would count a memo it never scanned and
+    exit 0 -- the "clean exit for content that could not be scanned" the
+    plan's §1 forbids.  Rejecting `*?"<>:|` as well would also contradict
+    the decided reading of `notes%3Achild.md` as the local file
+    `notes:child.md` (PR #510 R8)."""
+    if part[-1:] in (".", " "):
+        return part not in (".", "..")
+    return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES
 
 
 class Population:
@@ -878,7 +941,7 @@ class Population:
         m = UNDETERMINED.search(row.field)
         if m:
             self.spellings.add(m.group(0))
-        if MARKER in row.field:
+        if MARKER_RE.search(row.field):
             other = attributed_to_other(row.field, row.self_id)
             if other:
                 self.attributed.append((self.display(row.memo.path), row.schema.name, row.lineno, row.name(), other))
@@ -901,7 +964,7 @@ class Population:
         whether the code span is a quotation or a typo (the quoted marker
         WHOLE stays what I-A says it is: not a declaration, not a straddle,
         no miss)."""
-        if row.field is None or MARKER in row.field:
+        if row.field is None or MARKER_RE.search(row.field):
             return
         lx = row.cells[row.schema.decl].lexed
         if any(kind == "marker" for kind, _, _ in split_units(lx, ())):

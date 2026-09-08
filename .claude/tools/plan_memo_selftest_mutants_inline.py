@@ -64,6 +64,12 @@ R17_SPAN = ("(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\"
 R17_ATTR_ID = ("(html) `<span title=\"Slice 9z owns it\">x</span>`: an id inside an attribute value is no naming site -- "
                "the span is masked whole (kind `html`), as a raw HTML-block line is raw")
 
+# `Memo.sibling_path` stage (c) AS IT STANDS: a C0 control, a Windows anchor,
+# and -- since PR #510 R22 -- a reserved component, in one `if`.  Two mutants
+# below patch it, so the source text is spelled here once.
+STAGE_C = ('        if (_CONTROL.search(name) or p.anchor                        # (c)\n'
+           '                or any(_is_reserved_component(s) for s in p.parts)):')
+
 MUTANTS += [
     # -- PR #510 Codex R17
     ("R17 #1 lazy header: a definition keeps the run open (re-inject the paragraph-only rule -- `cur` alone -- so "
@@ -176,7 +182,11 @@ MUTANTS += [
      [R19_DISPLAY]),
     ("R19 #3 sibling: the decoded name must be relative under Windows path syntax on every platform (re-inject the "
      "`/`-only test)", MEMO,
-     '        if _CONTROL.search(name) or p.anchor:                        # (c)',
+     # PR #510 R22 added the reserved-component clause to the same `if`; the
+     # MUTATION is untouched -- stage (c) back to a leading-`/` test, which
+     # also drops the reserved clause, so both this mutant's controls and
+     # R22's device controls go red on it.
+     STAGE_C,
      '        if _CONTROL.search(name) or name.startswith("/"):            # (c)',
      ["(rc) a percent-encoded Windows drive-absolute `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) is rejected after "
       "decoding on every platform (stage c: a drive anchors): rc 0",
@@ -267,8 +277,10 @@ MUTANTS += [
      [INLINE_EXAMPLES]),
     ("R21 #2 (a): the marker in the declaring field short-circuits the SEED only (re-inject the `continue` "
      "that skipped the out-of-field scan)", ROLES,
-     '        if MARKER not in row.field and DECLARES.search(row.field):',
-     '        if MARKER in row.field:\n            continue\n        if DECLARES.search(row.field):',
+     # the marker match goes through `MARKER_RE` since PR #510 R22 (bounded);
+     # the MUTATION is untouched -- one `continue` gating both halves.
+     '        if not MARKER_RE.search(row.field) and DECLARES.search(row.field):',
+     '        if MARKER_RE.search(row.field):\n            continue\n        if DECLARES.search(row.field):',
      [R21_DOUBLE_MARK]),
     ("R21 #3: KIND-SPELLING is gated on the spellings, not on the winning kind (re-nest it under a "
      "non-empty undetermined set)", CHECK,
@@ -463,4 +475,112 @@ MUTANTS += [
      '        return self.at_raw(self.stream.at(i))\n\n    def at_raw(self, i):\n        return self.para.locate(i)',
      '        return self.at_raw(i)\n\n    def at_raw(self, i):\n        return self.para.locate(i)',
      [RG4_LOCATOR]),
+]
+# -- PR #510 Codex R22 control names, spelled once (the raw-line seed's file /
+# citation disposition, the Windows device components, the phrase boundaries)
+R22_SEED_FILE = ("(seed) a raw HTML-block line whose only declared id sits INSIDE a `.md` file name seeds "
+                 "nothing: the same name in prose is masked and reports nothing, and a seed that fires "
+                 "where prose would not is reporting a reading the document has no way to hold")
+R22_SEED_INDENT = "(seed) the same for an INDENTED-CODE line: one disposition, both readings"
+R22_SEED_CITE = ("(seed) a raw line whose only declared id is a CITATION seeds nothing -- the shared spans "
+                 "SUBSUME the seed's former hand-written `kind != cite` filter, so the citation half has "
+                 "one spelling and not two")
+R22_NUL = ("(sibling) `NUL.md` is a DOS device, not a memo beside this one: the destination is no "
+           "sibling even though a file of that name is there to read")
+R22_DIR_NUL = ("(sibling) `NUL/child.md`: the device is read per PART of the parsed path -- a device "
+               "DIRECTORY rejects the destination too.  The device sits in a NON-FINAL component on "
+               "purpose: with it in the last one, a final-component-only reading passes this control "
+               "and the mutant survives (measured -- the probe would have had another subject)")
+R22_COM1 = ("(sibling) `com1.md`: the device names fold case (`ntpath._isreservedname` upper-cases "
+            "the stem), so the lower-case spelling is the same device")
+R22_TRAILING_SPACE = ("(sibling) `dir%20/child.md`: a component ending in a SPACE is reserved too -- Windows "
+                      "strips the trailing run, so that component names a different directory there than here")
+R22_PRN = ("(sibling) `prn%20.md`: the stem's trailing spaces are stripped before the device "
+           "lookup, so `prn .md` is `PRN` (Microsoft, \"Naming Files, Paths, and Namespaces\")")
+R22_UNDET_NESS = ("(kind) `The KIND UNDETERMINEDNESS metric must be recorded` declares no unsettled kind: "
+                  "with a nonempty `Deps` cell the unbounded reading made the row no-owner and forced "
+                  "`UMBRELLA-CELL`, rc 1")
+R22_MANKIND = ("(kind) nor does `MANKIND UNDETERMINED by the probe` -- the boundary is on BOTH sides, "
+               "and the left one is the half a right-only fix would leave authoritative")
+R22_SUBUMBRELLA = ("(kind) `SUBUMBRELLA, not a terminal unit.` carries no marker: the row is terminal, out "
+                   "of the no-owner census, and a prose mention of it is no site")
+R22_UNITARY = "(kind) nor does `UMBRELLA, not a terminal unitary claim.` -- the right-hand edge"
+R22_SLICER = ("(kind) `is a pointer rather than a slicer of work` is no pointer row: it is an active "
+              "terminal, and a terminal row stating no acceptance condition owes the ACCEPT-VOCAB? "
+              "seed -- which the unbounded reading suppressed")
+R22_DECLARES = ("(kind) `not a terminal unitary claim` is not the kind vocabulary either: the seed half "
+                "of assertion (a) reads the same bounded phrases the marker does")
+R22_GRANDCHILD = ("(licence) `The grandchild of 9z` is not the licensing phrase `child of`: a licence "
+                  "SUPPRESSES a report, so an unbounded edge there is the dangerous polarity -- the "
+                  "mention is reported")
+R22_MEMORANDUM = ("(licence) `9z's memorandum` is not the licensed possession `memo`: the right-hand edge "
+                  "of the forward look, reported")
+
+# The R22 seed's span mask, spelled once: two mutants patch the same clause.
+R22_SEED_MASK = ("ids = sorted({t.id for t in tokens(line) if t.id in keep\n"
+                 "                          and not any(a < t.idend and t.idstart < b for a, b, _ in spans)})")
+
+MUTANTS += [
+    # -- PR #510 Codex R22: one reading, one spelling -- the raw-line seed's
+    # disposition, the reserved Windows component, the phrase boundaries
+    ("R22 #1 seed: the raw line is masked by the file / citation spans the DISPOSITION reads (drop the "
+     "mask: the seed reads the raw line again)", CHECK,
+     R22_SEED_MASK, "ids = sorted({t.id for t in tokens(line) if t.id in keep})",
+     [R22_SEED_FILE, R22_SEED_INDENT, R22_SEED_CITE]),
+    ("R22 #1 seed: the mask is BOTH kinds (drop the citation half -- the hand-written filter the shared "
+     "spans subsume)", CHECK,
+     "            spans = file_and_cite_spans(line)",
+     '            spans = [s for s in file_and_cite_spans(line) if s[2] == "file"]',
+     [R22_SEED_CITE]),
+    ("R22 #2 sibling: stage (c) rejects a reserved COMPONENT (drop the clause -- an empty anchor was the "
+     "whole test until R22)", MEMO,
+     STAGE_C, "        if _CONTROL.search(name) or p.anchor:                        # (c)",
+     [R22_NUL, R22_DIR_NUL, R22_COM1, R22_TRAILING_SPACE, R22_PRN]),
+    ("R22 #2 sibling: EVERY part, not just the last (re-inject a final-component-only reading)", MEMO,
+     "                or any(_is_reserved_component(s) for s in p.parts)):",
+     "                or any(_is_reserved_component(s) for s in p.parts[-1:])):",
+     [R22_DIR_NUL, R22_TRAILING_SPACE]),
+    ("R22 #2 sibling: the device is the STEM before the first dot, case-folded, trailing spaces stripped "
+     "(re-inject the whole component)", MEMO,
+     '    return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES',
+     '    return part.upper() in _DEVICE_NAMES',
+     # ⚠ not R22_DIR_NUL: its device component carries no `.md`, so the whole
+     # component IS the stem there and the mutant leaves that control green
+     [R22_NUL, R22_COM1, R22_PRN]),
+    ("R22 #2 sibling: the stem's case is folded (drop the fold)", MEMO,
+     '    return part.partition(".")[0].rstrip(" ").upper() in _DEVICE_NAMES',
+     '    return part.partition(".")[0].rstrip(" ") in _DEVICE_NAMES',
+     [R22_COM1, R22_PRN]),
+    ("R22 #2 sibling: a component ending in a dot or a space is reserved as well (drop that half)", MEMO,
+     '    if part[-1:] in (".", " "):\n        return part not in (".", "..")',
+     '    if False:\n        return part not in (".", "..")',
+     [R22_TRAILING_SPACE]),
+    ("R22 #3 phrase: the shared boundary composer is load-bearing (drop both lookarounds from `bounded`)",
+     IDS,
+     '    return "%s(?:%s)%s" % (BEFORE, phrase, AFTER)', '    return "(?:%s)" % phrase',
+     [R22_UNDET_NESS, R22_MANKIND, R22_SUBUMBRELLA, R22_UNITARY, R22_SLICER, R22_DECLARES]),
+    ("R22 #3 phrase: the MARKER is bounded (re-inject the bare phrase)", TABLES,
+     "MARKER_RE = re.compile(bounded(re.escape(MARKER)))", "MARKER_RE = re.compile(re.escape(MARKER))",
+     [R22_SUBUMBRELLA, R22_UNITARY]),
+    ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", TABLES,
+     'UNDETERMINED = re.compile(bounded(r"KIND\\s*[\u2014-]?\\s*UNDETERMINED"), re.IGNORECASE | re.ASCII)',
+     'UNDETERMINED = re.compile(r"KIND\\s*[\u2014-]?\\s*UNDETERMINED", re.IGNORECASE | re.ASCII)',
+     [R22_UNDET_NESS, R22_MANKIND]),
+    ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", TABLES,
+     'POINTER = re.compile(bounded(r"is a pointer rather than a slice"))',
+     'POINTER = re.compile(r"is a pointer rather than a slice")',
+     [R22_SLICER]),
+    ("R22 #3 phrase: the DECLARES vocabulary is bounded (re-inject the bare alternation)", ROLES,
+     '    bounded(r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
+     '            r"no canonical algorithm|edge-dense"),',
+     '    (r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
+     '     r"no canonical algorithm|edge-dense"),',
+     [R22_DECLARES]),
+    ("R22 #3 phrase: the BACKWARD licensing look is bounded on its left (drop the edge)", ROLES,
+     "    BEFORE +                                  # PR #510 R22, see LICENSE_AFTER",
+     '    "" +                                      # PR #510 R22, see LICENSE_AFTER',
+     [R22_GRANDCHILD]),
+    ("R22 #3 phrase: the FORWARD licensing look is bounded on its right (drop the edge)", ROLES,
+     '    r")" + AFTER,', '    r")",',
+     [R22_MEMORANDUM]),
 ]

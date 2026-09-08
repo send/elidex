@@ -272,12 +272,18 @@ MUTANTS = [
      '        if False:                                                    # (a)',
      ["(rc) an absolute URL ending in `.md` is not a sibling on disk: rc 0"]),
     ("F4 attribution: the FIRST marker occurrence decides", TABLES,
-     '    m = re.search(re.escape(MARKER), field)',
-     '    m = list(re.finditer(re.escape(MARKER), field))[-1]',
+     # the match goes through `MARKER_RE` (bounded) since PR #510 R22; the
+     # MUTATION is untouched -- the LAST occurrence decides instead of the first
+     '    m = MARKER_RE.search(field)',
+     '    m = list(MARKER_RE.finditer(field))[-1]',
      ["(a) a self-declaring field that later says a sibling 'is not it' stays self-declaring"]),
     ("F5 kind: the undetermined spelling is collected beside the marker", MEMO,
      '        if m:\n            self.spellings.add(m.group(0))',
-     '        if m and MARKER not in row.field:\n            self.spellings.add(m.group(0))',
+     # `MARKER_RE` since PR #510 R22 (`MARKER` is no longer imported into
+     # plan_memo_memo.py, so the old spelling crashed with a NameError under
+     # the mutant -- a crash is a FAIL); the MUTATION is untouched -- the
+     # spelling collected only where the marker is absent
+     '        if m and not MARKER_RE.search(row.field):\n            self.spellings.add(m.group(0))',
      ["(rc) a row carrying the marker AND one undetermined spelling, beside another row's other "
       "spelling, is KIND-SPELLING rc 1"]),
     ("F6 (c): the Deps cell's ids are the population's mentions, not a raw tokenisation", ROLES,

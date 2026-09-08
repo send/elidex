@@ -762,6 +762,26 @@ _TOKEN = re.compile(r"(?P<cite>%s)|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))*%s(
                     % (CITE_ID, re.escape(FILE_SUFFIX), ALNUM))
 
 
+def file_and_cite_spans(text):
+    """[(start, end, "cite" | "file")] over RAW text: the ONE reading of "a
+    bare `.md` file name / a citation id stands here" (`_TOKEN`), given a
+    name so that reading has exactly one caller-visible spelling.
+
+    Two readers consume it and they must AGREE.  The disposition masks these
+    spans out of every block a scanner reads (`Lexed.tokens` below, then
+    `plan_memo_tables.dispose`).  The RAW-LINE seed
+    (`plan-memo-umbrella-check.py::lex_unsupported_seed`) has no `Lexed` to
+    read -- the line was never inline-parsed, which is what it is seeding
+    about -- and reports "the content a naming scan would have read HAD THE
+    TEXT BEEN PROSE"; so a token prose would never have read must not seed
+    it, and the seed masks by these same spans.  Until PR #510 R22 the seed
+    scanned the raw line directly: `<div data-note="slice-9z-sib.md">`
+    reported a `9z` naming site that the identical file name in a paragraph
+    does not, and the file-name disposition had two spellings -- one
+    honoured, one bypassed."""
+    return [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
+
+
 class Lexed:
     """The lexical facts of one block's INLINE content (a paragraph or a
     cell) -- Phase 2 of "Appendix: A parsing strategy"; block structure
@@ -795,7 +815,7 @@ class Lexed:
 
     def __init__(self, text):
         self.text = text
-        self.tokens = [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
+        self.tokens = file_and_cite_spans(text)
         self.code, self.html, self.autolinks = [], [], []
         self.links, self.images, self.unresolved = [], [], []
         self.marks, self.subst, self.emphasis = [], [], []
