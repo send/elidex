@@ -145,3 +145,45 @@ _CDATA = r"!\[CDATA\[.*?\]\]>"
 # endings (Example 625, `foo <!-- this is a --\ncomment - with hyphens -->`).
 _HTML_TAG = re.compile("<(?:%s|%s|%s|%s|%s|%s)" % (OPEN_TAG, CLOSING_TAG, _COMMENT, _PI, _DECLARATION, _CDATA),
                        re.DOTALL)
+
+
+# --------------------------------------------------------------------------
+# What a `<` must be able to REACH for `_HTML_TAG` to match at all (PR #510
+# R26-3).  Every one of the six alternatives ends in a literal, and four of
+# them reach it by an unbounded scan (the comment, the
+# instruction, the CDATA section and the declaration -- their four patterns
+# stand above).  When that literal is nowhere
+# ahead, the scan runs to the end of the text and the match fails, and
+# `inline_pass` then advances ONE character, so `<!--`xN cost the C regex
+# engine quadratic time (measured 3.46x / 3.30x / 3.93x / 3.91x per doubling
+# for a comment, a declaration, an instruction and a CDATA section) where the
+# Python-level linearity witnesses could see nothing at all, the work being
+# inside `re`.
+#
+# So the grammar answers the question the scan needs: given a `<` at `i`, which
+# literal must stand at or after which offset for ANY alternative to match?
+# The answer lives here, with the alternatives, because it is a fact ABOUT them
+# -- the caller holds the index and does the looking.  The offsets are the
+# earliest an alternative could use its own closer: `<!-->` is the shortest
+# comment (`-->` at i+2), `<??>` the shortest instruction, `<![CDATA[]]>` the
+# shortest CDATA section, and a declaration or a tag needs `>` no earlier than
+# i+2.
+#
+# The gate is CONSERVATIVE in one direction only: a `<` whose literal IS
+# reachable may still fail to match (`<?>` has a `?>` but no instruction), and
+# that costs one bounded regex attempt.  A `<` whose literal is NOT reachable
+# cannot match under any alternative, and that is the only case skipped.
+_CLOSERS = (("<!--", "-->", 2), ("<![CDATA[", "]]>", 9), ("<?", "?>", 2))
+
+
+def required_closer(s, i):
+    """(literal, earliest offset) that `_HTML_TAG` must find for a `<` at `s[i]`
+    to match anything.  `<!--` needs a `-->`, `<![CDATA[` a `]]>`, `<?` a `?>`;
+    every other opener -- a declaration, an open tag, a closing tag -- needs a
+    `>`.  Order matters exactly once: `<![CDATA[` is tested before the bare
+    `<!` of a declaration, and `<!--` before both, since a comment's `--` is no
+    ASCII letter and a declaration cannot claim it."""
+    for opener, closer, off in _CLOSERS:
+        if s.startswith(opener, i):
+            return closer, i + off
+    return ">", i + 2

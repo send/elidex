@@ -369,11 +369,181 @@ def linear_file_token_control(M):
                 % "; ".join(detail))
 
 
+def linear_inline_tail_control(M):
+    """The linearity witness for the §6.3 inline-link tail: `[`xN followed by
+    `](`xN costs O(N), not O(N^2).
+
+    THE SECOND FALSIFICATION OF `inline_pass`'s LINEAR CONTRACT (PR #510
+    R26-3; R23 fixed the first, in the image demotion, and the docstring went
+    on claiming linearity through both).  Every active `]` whose next character
+    is `(` runs `_inline_tail`, whose destination scan walks the remaining
+    suffix -- `]` is an ordinary destination character and each `](` deepens
+    the parentheses -- and on failure the pass advances ONE character.
+    Measured before the fix: 3.95x per doubling of the input.
+
+    What bounds it is `link_destination`'s nesting limit, which §6.3's own
+    parenthetical exists to permit ("Implementations may impose limits on
+    parentheses nesting to avoid performance issues") -- the scan can only run
+    long by opening parentheses it never closes, because a close that would
+    take the run below its start ENDS it and any group with a net close
+    RESOLVES the link instead of failing it.
+
+    Two probes: the reported shape, and the same with a trailing `)` -- the
+    obvious "fix" of refusing the tail when no `)` stands anywhere ahead passes
+    the first and fails the second."""
+    import plan_memo_lexer     # the freshly loaded module
+
+    ok, detail = True, []
+    for label, mk in (("[^N ](^N", lambda n: "[" * n + "](" * n),
+                       ("[^N ](^N )", lambda n: "[" * n + "](" * n + ")")):
+        seen = {}
+        for n in (100, 400):
+            try:
+                with _count_lines(plan_memo_lexer, limit=1200 * n) as c:
+                    plan_memo_lexer.inline_pass(mk(n), {})
+            except _WorkExceeded:
+                return False, "%d of %s cost more than %d source lines: not linear" % (n, label, 1200 * n)
+            seen[n] = c.lines
+        # 6x, not 4x, and the number is argued rather than tuned: the cost is
+        # N brackets plus at most `DESTINATION_NESTING_LIMIT` scanned characters
+        # per `]`, and the second term's constant is still settling at these
+        # sizes (2.17x, then 2.08x, then 2.04x per doubling, measured).  What
+        # the bound has to separate is LINEAR from QUADRATIC, and quadratic
+        # growth over 4x the input is 16x.
+        ok = ok and seen[400] <= 6 * seen[100]
+        detail.append("%s %d / %d" % (label, seen[100], seen[400]))
+    return ok, ("source lines for 100 / 400 -- linear is ~4x, quadratic would be ~16x: %s"
+                % "; ".join(detail))
+
+
+def linear_html_attempts_control(M):
+    """The linearity witness for §6.6: a `<` whose closer stands nowhere ahead
+    does not RUN the tag grammar.
+
+    THE THIRD FALSIFICATION, and the one no existing witness could have seen
+    (PR #510 R26-3).  Four of `_HTML_TAG`'s six alternatives reach their closer
+    by an unbounded lazy scan, so over `<!--`xN every `<` scanned to the end of
+    the text and failed, and the pass advanced one character: 3.46x / 3.30x /
+    3.93x / 3.91x per doubling for a comment, a declaration, an instruction and
+    a CDATA section -- all inside the C `re` engine, where `_count_lines`
+    traces nothing and no binding the lexer holds is called.
+
+    So the measure is ATTEMPTS, which is what the fix claims: `_match_tag` is
+    the one site that runs the grammar, and it must be entered at most once per
+    text here, not once per opener.  Every shape has the opener repeated N
+    times with NO closer of its kind anywhere.  The last two are the
+    DISCRIMINATING half: they end in a bare `>`, so a gate that asked only "is
+    there a `>` ahead" -- the one closer every alternative shares, and the
+    tempting way to write this in one line -- would pass them and re-run the
+    lazy scan N times.  (`<!--`xN + `>` is NOT such a shape and is deliberately
+    absent: its last four characters spell a real `-->`, so the comment arm
+    MATCHES, consumes the text and makes progress, and it would witness
+    nothing.)"""
+    import plan_memo_lexer     # the freshly loaded module
+
+    detail = []
+    for label, mk in (("<!--", lambda n: "<!--" * n), ("<?x", lambda n: "<?x" * n),
+                      ("<![CDATA[", lambda n: "<![CDATA[" * n), ("<!a", lambda n: "<!a" * n),
+                      ("<?x + a bare >", lambda n: "<?x" * n + ">"),
+                      ("<![CDATA[ + a bare >", lambda n: "<![CDATA[" * n + ">")):
+        n = 200
+        try:
+            with _count_calls(plan_memo_lexer, "_match_tag", limit=1) as c:
+                plan_memo_lexer.inline_pass(mk(n), {})
+        except _WorkExceeded:
+            return False, ("%d x %r ran the §6.6 grammar more than once: the closer index is not "
+                           "gating the attempt" % (n, label))
+        detail.append("%s %d" % (label, c.calls))
+    # AND THE LOWER BOUND, which the mutation proof demanded: an index that
+    # answers "no" to everything makes all six counts 0 and is the cheapest
+    # possible gate, so a control with only the upper bound reports a refusal
+    # of every §6.6 span as a success (measured -- the `return False` mutant
+    # SURVIVED this control until this probe was added).
+    with _count_calls(plan_memo_lexer, "_match_tag", limit=None) as c:
+        plan_memo_lexer.inline_pass("a <b>x</b> b", {})
+    if c.calls < 2:
+        return False, ("a text holding two real tags ran the §6.6 grammar %d time(s): the closer index "
+                       "is refusing what it should admit" % c.calls)
+    return True, ("grammar attempts over 200 openers with no closer of their kind: %s; two real tags "
+                  "%d" % ("; ".join(detail), c.calls))
+
+
+def linear_closer_index_control(M):
+    """The linearity witness for the closer index ITSELF: over a text with N
+    openers and no closer of any kind, at most one search per literal is
+    STARTED, not one per opener.
+
+    The gate above would still be a quadratic if it asked its question
+    quadratically -- `str.find` from an opener scans forward to the end of the
+    text, so re-asking at every `<` costs exactly what the regex used to.
+    `_Closers` carries a CURSOR for that reason; the two are one fix and two
+    claims, so they are two controls.  The search runs in C, so what is
+    countable is how many are STARTED (`_find_from`), which is the claim.
+
+    The bound is four, one per distinct literal (`-->`, `?>`, `]]>`, `>`), over
+    600 openers of the three lazy kinds -- where a per-opener search is 600.
+    A count of ZERO is red too: it would mean the index was never asked."""
+    import plan_memo_lexer     # the freshly loaded module
+
+    text = "<!--" * 200 + "<?x" * 200 + "<![CDATA[" * 200
+    try:
+        with _count_calls(plan_memo_lexer, "_find_from", limit=4) as c:
+            plan_memo_lexer.inline_pass(text, {})
+    except _WorkExceeded:
+        return False, ("600 openers with no closer started more than 4 searches: the closer index is "
+                       "re-asking `find` per opener rather than carrying a cursor")
+    return c.calls > 0, ("%d search(es) started over 600 openers (<= 4, one per literal; 0 would mean "
+                         "the index is never consulted)" % c.calls)
+
+
+def linear_code_closer_control(M):
+    """The linearity witness for §6.1: the closer of a backtick string is found
+    by an INDEX, not by walking the runs.
+
+    THE FOURTH member of R26-3's class, reported by nobody and measured twice
+    (`plan_memo_lexer.backtick_runs` carries the arithmetic).  The walk is
+    superlinear rather than quadratic -- 0.27 x L^1.5, flat over a 60x range of
+    lengths -- and the witness is NOT the obvious one: runs of lengths 1, 2,
+    3, ... measure 3.9x per doubling of the run count and 1.0x per doubling of
+    the LENGTH, because that shape's text grows quadratically with its own
+    parameter.  This probe is the shape that does degrade: D unclosable runs
+    first, D^2/2 short runs after them for the walks to cross.
+
+    Counted by `_count_lines`: the walk was a `while` inside one function."""
+    import plan_memo_lexer     # the freshly loaded module
+
+    def shape(d):
+        return "".join("`" * (k + 2) + "x" for k in range(d)) + "`x" * (d * d // 2)
+
+    seen = {}
+    for d in (20, 80):
+        text = shape(d)
+        try:
+            with _count_lines(plan_memo_lexer, limit=12 * len(text)) as c:
+                plan_memo_lexer.inline_pass(text, {})
+        except _WorkExceeded:
+            return False, ("%d characters of unclosable backtick runs cost more than %d source "
+                           "lines: the closer is being walked to, not indexed" % (len(text), 12 * len(text)))
+        seen[len(text)] = c.lines
+    (l1, w1), (l2, w2) = sorted(seen.items())
+    return (w2 <= (l2 / l1) * w1 * 1.5,
+            "source lines %d / %d for %d / %d characters (%.1fx the work for %.1fx the length)"
+            % (w1, w2, l1, l2, w2 / w1, l2 / l1))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
         "file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every start position":
             ("CONTROL", linear_file_token_control),
+        "inline_pass is linear over a malformed inline-link tail: `[`xN + `](`xN is O(N), bounded by §6.3's permitted nesting limit":
+            ("CONTROL", linear_inline_tail_control),
+        "inline_pass does not RUN the §6.6 grammar at a `<` whose closer stands nowhere ahead (the one cost the Python-level witnesses cannot see)":
+            ("CONTROL", linear_html_attempts_control),
+        "the closer index carries a cursor: 600 openers with no closer start at most one search per literal, not one per opener":
+            ("CONTROL", linear_closer_index_control),
+        "a §6.1 code span's closer is found by an index of the runs BY LENGTH, not by walking them (0.27 x L^1.5 before)":
+            ("CONTROL", linear_code_closer_control),
         "emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the Appendix's openers_bottom)":
             ("CONTROL", linear_emphasis_control),
         "links() is linear: 30 nested brackets are one inline_pass call":

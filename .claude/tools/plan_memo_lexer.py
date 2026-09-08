@@ -59,7 +59,7 @@ import string
 from html.entities import html5
 
 import plan_memo_emphasis as emphasis
-from plan_memo_html import _AUTOLINK, _HTML_TAG
+from plan_memo_html import _AUTOLINK, _HTML_TAG, required_closer
 
 ASCII_PUNCT = frozenset(string.punctuation)
 
@@ -238,15 +238,50 @@ def _is_hard_break(s, j):
     return s[j] == "\\" and j + 1 < len(s) and s[j + 1] == "\n"
 
 
+# The nesting limit on a BARE destination's parentheses -- CommonMark 0.31.2
+# §6.3, the parenthetical the destination grammar carries: "Implementations may
+# impose limits on parentheses nesting to avoid performance issues, but at least
+# three levels of nesting should be supported."  So the spec REQUIRES no limit,
+# permits one, and the two reference implementations differ: commonmark.js
+# 0.31.2 counts `openparens` without a bound, cmark 0.31.1 `manual_scan_link_url`
+# has `if (++nb_p > 32) return -1`.  32 is cmark's number, taken here for the
+# reason the spec's own parenthetical gives -- the SCAN, not conformance.
+#
+# ⚠ WHAT THIS IS NOT (PR #510 R26-1).  It is not a conformance fix, and the
+# report that asked for it was wrong about the spec: 33 levels are not "literal
+# Markdown", they are a destination every conforming implementation MAY read
+# and commonmark.js DOES read.  The vendored corpus cannot decide it either --
+# the deepest destination in all 630 examples is Example 496's
+# `[link](foo(and(bar)))`, depth 2, measured -- so this is a choice made
+# knowingly, in a region the spec leaves open, and it is a divergence from the
+# implementation the rest of this file cites as its oracle.
+#
+# WHY IT IS TAKEN ANYWAY: `inline_pass` states a linearity contract, which
+# commonmark.js does not, and this scan is what breaks it.  A `]` followed by
+# `(` runs the destination scan and, on failure, the pass advances ONE
+# character, so `[`xN + `](`xN made every `]` scan nearly the whole remaining
+# suffix.  Every such shape needs the depth to keep RISING -- a `)` that would
+# take the run below its start ends the scan, and any group with a net close
+# resolves the link instead of failing it -- so bounding the depth bounds the
+# scan.  Measured over six adversarial shapes (`[`xN + `](`xN, that with a
+# trailing `)`, with `\)` groups, with `](a` groups, fully nested, and with a
+# long tail): all six cost 3.95x-3.97x per doubling uncapped and 2.01x-2.06x
+# capped.
+DESTINATION_NESTING_LIMIT = 32
+
+
 def link_destination(s, i):
     """Link destination at `i` -> (destination, end) or (None, i).  §6.3:
     `<...>`: no line ending, no unescaped `<` or `>`.  Bare: nonempty, no ASCII
     control character (§2.1: U+0000-1F or U+007F) or space, does not start
     with `<`, parentheses only backslash-escaped or in balanced unescaped
-    pairs.  Both forms return the text through `normalize_destination` (§2.4
-    escapes and §2.5 character references, one pass) -- the ONE site, so the
-    reference definition (`plan_memo_blocks.reference_definitions` calls
-    this) decodes by the same rule.
+    pairs, nested no deeper than `DESTINATION_NESTING_LIMIT` (the comment
+    above: the spec permits the limit, cmark takes it, and here it is what
+    bounds the scan).  Both forms return the text through
+    `normalize_destination` (§2.4 escapes and §2.5 character references, one
+    pass) -- the ONE site, so the reference definition
+    (`plan_memo_blocks.reference_definitions` calls this) decodes by the same
+    rule.
     """
     if i < len(s) and s[i] == "<":
         j = i + 1
@@ -270,6 +305,8 @@ def link_destination(s, i):
             continue
         if c == "(":
             depth += 1
+            if depth > DESTINATION_NESTING_LIMIT:
+                return None, i          # §6.3's permitted limit; the scan's bound
         elif c == ")":
             if depth == 0:
                 break
@@ -397,17 +434,104 @@ def _reference_tail(s, opener, close, defs):
     return end, defs.get(normalize_label(raw)), form, raw
 
 
-def _code_closer(runs, a1, k):
+def _match_tag(s, i):
+    """The ONE site that runs the §6.6 grammar, named so that the number of
+    ATTEMPTS is a thing a control can count (PR #510 R26-3).
+
+    The cost this round bounded is invisible to the two deterministic work
+    witnesses: four of `_HTML_TAG`'s six alternatives reach their closer by an
+    unbounded lazy scan, and that scan runs inside the C `re` engine, where
+    neither `_count_lines` (which traces Python frames) nor `_count_calls` on
+    anything the lexer binds can see it.  What IS countable, and is exactly
+    what the fix claims, is that an attempt which cannot succeed is not MADE:
+    over `<!--`xN the grammar is tried once, not N times.  A wall clock would
+    have measured the other half and is not admissible here."""
+    return _HTML_TAG.match(s, i)
+
+
+class _Closers:
+    """THE index of "does this literal stand at or after this offset", one per
+    `inline_pass` call over one block (PR #510 R26-3).
+
+    ONE mechanism, because the two lookaheads that can scan away the whole
+    remaining text on their way to failing need the same answer about different
+    literals: §6.6's four closers (`-->`, `?>`, `]]>`, `>` --
+    `plan_memo_html.required_closer` says which), and, in the same spirit,
+    §6.1's backtick runs, which are indexed by LENGTH instead because their
+    question carries one (`backtick_runs`).
+
+    A CURSOR, not a sorted list, and that is the whole trick: `inline_pass`
+    scans left to right and never goes back, so the queries for one literal
+    arrive at non-decreasing offsets.  `str.find` from the offset therefore
+    scans forward only, each search resuming no earlier than the last one
+    found, so the searches for one literal are at most one per OCCURRENCE of
+    it, plus one.  A miss is recorded as -1 and never searched for again --
+    there is none ahead of a later offset either.
+
+    The search goes through `_find_from` so that a control can count it: like
+    the regex attempt, the scan itself happens in C and no deterministic
+    witness can see inside it, but how MANY times it is started is exactly the
+    claim the cursor makes."""
+
+    __slots__ = ("s", "_at")
+
+    def __init__(self, s):
+        self.s, self._at = s, {}
+
+    def reachable(self, lit, i):
+        j = self._at.get(lit)
+        if j is None or 0 <= j < i:
+            j = self._at[lit] = _find_from(self.s, lit, i)
+        return j >= 0
+
+
+def _find_from(s, lit, i):
+    """The ONE site that searches for a closer, named so the number of SEARCHES
+    is countable (`_Closers`, PR #510 R26-3)."""
+    return s.find(lit, i)
+
+
+def backtick_runs(s):
+    """Every §6.1 backtick string of `s`, indexed BY LENGTH: {k: [(start, end)]},
+    each list in order.  Built once per block by `inline_pass`, read by
+    `_code_closer`.
+
+    By length and not in one list, because "the first backtick string of length
+    k at or after `a1`" is the only question ever asked of it (PR #510 R26-3).
+    A single ordered list answered it by bisecting to `a1` and then WALKING for
+    a run of the right length, and a run with no closer walked to the end.
+
+    THE COST OF THAT WALK IS SUPERLINEAR, and stating the exponent honestly
+    took two measurements.  A run may fail at most once per LENGTH (a second
+    run of length k would close the first), so at most D distinct lengths fail,
+    each walking over as many as R runs; successful walks are disjoint in the
+    run index, since the scan jumps past the span it closed.  D is bounded by
+    the text, because D distinct lengths cost at least 1+2+...+D characters --
+    which is why the obvious witness (runs of lengths 1, 2, 3, ... , none
+    closing any other) measures 3.9x per doubling of the RUN COUNT and yet
+    1.0x per doubling of the LENGTH: that shape's text grows quadratically
+    with its own parameter, so it is linear and the first reading of it was an
+    artifact of the parameter, not a defect.  The witness that does degrade
+    puts D unclosable runs FIRST and D^2/2 short runs after them for the walks
+    to cross: measured at 650 / 2,500 / 9,800 / 38,800 characters, the walk
+    takes 4,290 / 33,180 / 260,760 / 2,067,120 steps -- 7.9x per 3.9x of
+    length, a flat 0.27 x L^1.5 across a 60x range.  Indexed by length, the
+    same four shapes cost 120 / 440 / 1,680 / 6,560: one bisect per lookup."""
+    by_len = {}
+    for m in _BACKTICKS.finditer(s):
+        by_len.setdefault(m.end() - m.start(), []).append((m.start(), m.end()))
+    return by_len
+
+
+def _code_closer(by_len, a1, k):
     """The end offset of the first backtick string of length `k` starting at
     or after `a1` (§6.1: a code span "ends with a backtick string of equal
-    length"), or None.  `runs` = every backtick string of `s`, in order."""
-    j = bisect.bisect_left(runs, (a1, 0))
-    while j < len(runs):
-        ra, rb = runs[j]
-        if rb - ra == k:
-            return rb
-        j += 1
-    return None
+    length"), or None.  `by_len` = `backtick_runs(s)`."""
+    same = by_len.get(k)
+    if not same:
+        return None
+    j = bisect.bisect_left(same, (a1, 0))
+    return same[j][1] if j < len(same) else None
 
 
 def inline_pass(s, defs):
@@ -487,11 +611,29 @@ def inline_pass(s, defs):
     the outer opener as it closes (above), so `[a [b](x.md)](y.md)` links
     `x.md` and leaves `](y.md)` literal, as commonmark.js does.
 
-    Linear in the bracket structure: no substring is re-parsed, and no entry
-    is re-visited either -- a close records its demotion as an index RANGE
-    and `_demote` applies the union of them once, because nested images cover
-    one descendant N deep N times and writing the tag at each close is
-    quadratic in the nesting depth (PR #510 R23).  `code` =
+    LINEAR, and the claim has been falsified four times, so it is now made
+    clause by clause with a control on each rather than as a sentence.  No
+    substring is re-parsed and no entry re-visited: a close records its
+    demotion as an index RANGE and `_demote` applies the union once, because
+    nested images cover one descendant N deep N times and writing the tag at
+    each close is quadratic in the depth (PR #510 R23).  And no LOOKAHEAD may
+    scan away the text it is going to fail on (R26-3, three more members of the
+    same class, of which the reviewer reported one):
+
+      * a §6.3 inline tail at a `]` -- bounded by `link_destination`'s
+        `DESTINATION_NESTING_LIMIT`, which is what §6.3's own parenthetical
+        exists to permit;
+      * a §6.6 tag at a `<` -- four of the six alternatives reach their closer
+        by an unbounded lazy scan, so the grammar is not RUN unless the closer
+        that alternative needs stands ahead of it (`plan_memo_html`'s
+        `required_closer` says which, `_Closers` answers whether);
+      * a §6.1 code closer -- found in an index of the runs BY LENGTH
+        (`backtick_runs`) rather than by walking them.
+
+    The three are one shape and one rule (a lookahead that cannot succeed is
+    not attempted, and one that can is bounded), and the reason R23 fixing one
+    left the sentence standing is that the sentence was about substrings while
+    the cost was in the lookaheads.  `code` =
     [(start, end)] backticks included; `html` = [(start, end)] of every raw
     HTML span, `<` and `>` included; `links` = [(tail_start, end,
     destination)] with `tail_start` the `]` closing the link text, so a
@@ -521,7 +663,7 @@ def inline_pass(s, defs):
     undefined image reference is literal text, never a memo the author
     meant to link).
     """
-    runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(s)]
+    runs, closers = backtick_runs(s), _Closers(s)
     code, out, images, unresolved, html, auto = [], [], [], [], [], []
     marks, subst, delims, opens, pairs = [], [], [], [], []
     # the demotion RANGES, as index slices of `images` / `pairs` -- one per
@@ -568,7 +710,11 @@ def inline_pass(s, defs):
                 auto.append((i, m.end()))
                 i = m.end()             # an autolink is one token, never inline-parsed
                 continue
-            m = _HTML_TAG.match(s, i)
+            lit, at = required_closer(s, i)
+            # §6.6 cannot match without its own closer ahead of it, and asking
+            # the index is O(1) amortised where letting the grammar find out
+            # costs a scan to the end of the text (PR #510 R26-3)
+            m = _match_tag(s, i) if closers.reachable(lit, at) else None
             if m is None:
                 i += 1                  # neither §6.5 nor §6.6, so a literal `<`
             else:

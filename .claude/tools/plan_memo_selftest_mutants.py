@@ -108,8 +108,10 @@ MUTANTS = [
      '    closer = None\n    if closer is not None:\n        return "fence", closer',
      ["(fence) a link inside a fence is not a link (A x B)"]),
     # -- CommonMark §6.1 code spans
-    ("span: opener and closer are backtick strings of EQUAL length", LEXER,
-     '        if rb - ra == k:\n            return rb', '        if True:\n            return rb',
+    ("span: opener and closer are backtick strings of EQUAL length (index every run under ONE key, "
+     "so the closer is whichever run comes next)", LEXER,
+     '        by_len.setdefault(m.end() - m.start(), []).append((m.start(), m.end()))',
+     '        by_len.setdefault(0, []).append((m.start(), m.end()))',
      ["(span) backtick strings pair by EQUAL length"]),
     ("span: an unmatched backtick string is literal", LEXER,
      '            if close is None:\n                i = a1                  # an unmatched backtick string is literal',

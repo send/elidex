@@ -15,7 +15,7 @@ work-shaped ones are `plan_memo_selftest_work.py`'s and the swept ones are
 `plan_memo_selftest_properties.py`'s, by those modules' own seams.
 """
 
-from plan_memo_selftest_cases import build, case
+from plan_memo_selftest_cases import build, case, rcase
 
 # ------------------------------------------------ PR #510 Codex R26 controls --
 # R26-2: the bare file-name token and `plan_memo_sibling.sibling_path`
@@ -61,3 +61,28 @@ case("POSITIVE", "(R26 file) `9z)foo.md` still reports `9z`: a `)` that closes n
                  "-- the second discriminating half, against a scan that balanced parentheses by "
                  "IGNORING the ones it could not match",
      build(), "Read 9z)foo.md for the walk.", 1)
+
+
+# R26-3 / R26-1: `link_destination` bounds its parenthesis nesting at
+# `DESTINATION_NESTING_LIMIT`.  §6.3 REQUIRES no such limit and permits one
+# ("Implementations may impose limits on parentheses nesting to avoid
+# performance issues, but at least three levels of nesting should be
+# supported"); commonmark.js 0.31.2 imposes none, cmark 0.31.1 stops at 32, and
+# the deepest destination in all 630 vendored examples is Example 496's depth 2.
+# So the limit is taken for the reason the spec's parenthetical gives -- the
+# SCAN -- and these two controls fix where the boundary now falls, since no
+# conformance example can.
+
+def _deep(depth):
+    return "See [x](a" + "(" * depth + "z" + ")" * depth + ".md) for the walk."
+
+rcase("POSITIVE", "(R26 §6.3) a destination nested 32 deep IS a link, so the memo it names is a "
+                  "sibling this run could not read: rc 2.  Green before the limit as after it -- the "
+                  "half that says the limit is a LIMIT and not a refusal of nested destinations",
+      build(), _deep(32), 2)
+rcase("NEGATIVE", "(R26 §6.3) a destination nested 33 deep is NOT a link, so `[x](...)` is literal "
+                  "text and no memo is looked up: rc 0.  ⚠ This is a DIVERGENCE from commonmark.js, "
+                  "which reads it as a link, and an agreement with cmark; the spec permits both and "
+                  "the vendored corpus reaches depth 2, so nothing but this control says where the "
+                  "boundary is",
+      build(), _deep(33), 0)

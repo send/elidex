@@ -83,8 +83,8 @@ MUTANTS += [
      [R17_LAZY, R17_REVIEWER, SEQUENCE]),
     ("R17 #2 §6.6: raw HTML is a span of the one inline pass (drop the `<` arm: a tag is text and its brackets "
      "are delimiters)", LEXER,
-     '            m = _HTML_TAG.match(s, i)\n            if m is None:',
-     '            m = None\n            if m is None:',
+     '            m = _match_tag(s, i) if closers.reachable(lit, at) else None',
+     '            m = None',
      [R17_SPAN, R17_ATTR_ID, INLINE_EXAMPLES,
       "(lex-seed) `<span title=\"Slice 9z owns it\">`: an inline span holding a declared id is seeded under the one "
       "raw-line rule"]),

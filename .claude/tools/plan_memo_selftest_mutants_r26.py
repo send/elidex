@@ -21,7 +21,7 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, LEXER, MEMO, MUTANTS, SIBLING, TOKENS,
+    CHECK, CONTROLS, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, SIBLING, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -141,4 +141,80 @@ MUTANTS += [
      '    if not name.endswith(FILE_SUFFIX):                           # (d)',
      '    if not name.endswith(FILE_SUFFIX) or "(" in name:            # (d)',
      [R26_AGREE]),
+]
+
+# -- R26-3 (and R26-1): `inline_pass`'s linear contract, falsified in three
+# more places and bounded in all three.  R23 fixed the first (the image
+# demotion) and the docstring went on claiming linearity through both; the
+# question this round asked was "is `inline_pass` linear", not "is this loop".
+R26_TAIL_LINEAR = ("inline_pass is linear over a malformed inline-link tail: `[`xN + `](`xN is O(N), "
+                   "bounded by §6.3's permitted nesting limit")
+R26_HTML_ATTEMPTS = ("inline_pass does not RUN the §6.6 grammar at a `<` whose closer stands nowhere "
+                     "ahead (the one cost the Python-level witnesses cannot see)")
+R26_INDEX_CURSOR = ("the closer index carries a cursor: 600 openers with no closer start at most one "
+                    "search per literal, not one per opener")
+R26_CODE_CLOSER = ("a §6.1 code span's closer is found by an index of the runs BY LENGTH, not by "
+                   "walking them (0.27 x L^1.5 before)")
+R26_DEEP_LINK = ("(R26 §6.3) a destination nested 32 deep IS a link, so the memo it names is a "
+                 "sibling this run could not read: rc 2.  Green before the limit as after it -- the "
+                 "half that says the limit is a LIMIT and not a refusal of nested destinations")
+R26_DEEP_LITERAL = ("(R26 §6.3) a destination nested 33 deep is NOT a link, so `[x](...)` is literal "
+                    "text and no memo is looked up: rc 0.  ⚠ This is a DIVERGENCE from commonmark.js, "
+                    "which reads it as a link, and an agreement with cmark; the spec permits both and "
+                    "the vendored corpus reaches depth 2, so nothing but this control says where the "
+                    "boundary is")
+
+MUTANTS += [
+    ("R26-3 §6.3: the destination's parenthesis nesting is BOUNDED (lift the bound: 33 levels are a "
+     "link again, which is both the reported false rc-2 miss and the quadratic tail scan)", LEXER,
+     "            if depth > DESTINATION_NESTING_LIMIT:", "            if depth > 10 ** 9:",
+     [R26_DEEP_LITERAL, R26_TAIL_LINEAR]),
+    # The bound in the OTHER direction, and it is the one that keeps the limit
+    # honest: §6.3 requires "at least three levels of nesting", and Example 496
+    # (`[link](foo(and(bar)))`) is the corpus's deepest at 2.  A limit chosen
+    # low enough to be cheap would pass every control above.
+    ("R26-3 §6.3: the bound is above what the spec requires and the corpus uses (drop it to 1: "
+     "Example 496's two levels stop being a link)", LEXER,
+     "DESTINATION_NESTING_LIMIT = 32", "DESTINATION_NESTING_LIMIT = 1",
+     [INLINE_EXAMPLES, R26_DEEP_LINK]),
+    ("R26-3 §6.6: the tag grammar is not RUN at a `<` whose closer stands nowhere ahead (drop the "
+     "gate: every opener re-scans to the end of the text, as it did before)", LEXER,
+     "            m = _match_tag(s, i) if closers.reachable(lit, at) else None",
+     "            m = _match_tag(s, i)",
+     [R26_HTML_ATTEMPTS]),
+    # The gate must be per-ALTERNATIVE.  `>` is the closer every alternative
+    # shares, so a gate written in one line -- ask for `>` and be done -- passes
+    # a text that ends in a bare `>` and re-scans it N times.  Two rows, one per
+    # lazy alternative that would fall through to it.
+    ("R26-3 §6.6: a processing instruction needs a `?>`, not merely a `>` (drop its row: a text of "
+     "`<?x` openers ending in a bare `>` re-runs the lazy scan at every one)", HTML,
+     '_CLOSERS = (("<!--", "-->", 2), ("<![CDATA[", "]]>", 9), ("<?", "?>", 2))',
+     '_CLOSERS = (("<!--", "-->", 2), ("<![CDATA[", "]]>", 9))',
+     [R26_HTML_ATTEMPTS]),
+    ("R26-3 §6.6: a CDATA section needs a `]]>`, not merely a `>` (drop its row: the same defect one "
+     "alternative over)", HTML,
+     '    for opener, closer, off in _CLOSERS:\n        if s.startswith(opener, i):\n            return closer, i + off',
+     '    for opener, closer, off in _CLOSERS[:1]:\n        if s.startswith(opener, i):\n            return closer, i + off',
+     [R26_HTML_ATTEMPTS]),
+    # The gate must also be TRUE sometimes: a gate that refuses everything is
+    # linear and useless, and no cost control can tell the two apart.
+    ("R26-3 §6.6: the closer index answers YES when the closer is there (refuse always: no raw HTML "
+     "span is ever recognised)", LEXER,
+     "        return j >= 0", "        return False",
+     [INLINE_EXAMPLES, R26_HTML_ATTEMPTS]),
+    ("R26-3 §6.6: the closer index carries a CURSOR (re-search at every query: the same answers, one "
+     "scan of the text per opener)", LEXER,
+     "        if j is None or 0 <= j < i:", "        if True:",
+     [R26_INDEX_CURSOR]),
+    ("R26-3 §6.1: a code span's closer is found by the index BY LENGTH (re-inject the walk over every "
+     "run: the same answer, 0.27 x L^1.5)", LEXER,
+     '    same = by_len.get(k)\n    if not same:\n        return None\n    j = bisect.bisect_left(same, (a1, 0))\n    return same[j][1] if j < len(same) else None',
+     '    same = sorted(r for lst in by_len.values() for r in lst)\n'
+     '    j = bisect.bisect_left(same, (a1, 0))\n'
+     '    while j < len(same):\n'
+     '        if same[j][1] - same[j][0] == k:\n'
+     '            return same[j][1]\n'
+     '        j += 1\n'
+     '    return None',
+     [R26_CODE_CLOSER]),
 ]
