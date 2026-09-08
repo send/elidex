@@ -108,10 +108,6 @@ case("POSITIVE", "(link) …and its discriminating half: the UNESCAPED `[x](abse
                  "control above cannot tell a working escape from a needle that never matches",
      build(), "See [x](absent-file.md) here.", 1, measure=("schema", "linked memo unavailable"))
 
-# R3-2: a root-relative destination is a site URL, never a sibling on disk
-rcase("NEGATIVE", "(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
-      build(), "See [site docs](/guide.md).", 0)
-
 # re-gate MIN-3: one label grammar (`link_label`) decides what a shortcut label is
 rcase("NEGATIVE", "(link) bracket text holding unescaped brackets is not a label (§6.3), so "
                   "`[the [x] walk][]` is no collapsed reference: rc 0",
@@ -124,11 +120,6 @@ rcase("NEGATIVE", "(link) bracket text holding unescaped brackets is not a label
 rcase("NEGATIVE", "(image) an undefined reference image `![diagram][missing-image]` is literal syntax, "
                   "not an unresolved memo reference: rc 0",
       build(), "See ![diagram][missing-image] here.", 0)
-
-# R4-2: a percent-encoded destination names the decoded file
-case("POSITIVE-NOVEL", "(link) a percent-encoded destination `slice%20sib.md` links the file "
-                       "`slice sib.md`, as `<slice sib.md>` does",
-     build(), "See [the walk](slice%20sib.md).", 1, files={"slice sib.md": VIOLATION + "\n"})
 
 # R4-3: code spans and brackets are ONE inline pass (Appendix A); the inline
 # tail is parsed by lookahead on the raw text
@@ -150,11 +141,6 @@ rcase("POSITIVE", "(table) a reference definition right after a schema table is 
                   "Example 202: a pipe-less line after the rows is a row; §4.7: a definition cannot "
                   "interrupt a block) -- one cell under a 4-cell header, width miss rc 2",
       build(extra=SLOT4 % "now" + "\n[sib]: slice-9z-sib.md"), "See [sib].", 2, **SIB)
-
-# R5-2: the decoded path is re-validated
-rcase("NEGATIVE", "(rc) a percent-encoded ABSOLUTE destination `%2Ftmp%2Fchild.md` is rejected after "
-                  "decoding (never probes `/tmp/child.md`): rc 0",
-      build(), "See [x](%2Ftmp%2Fchild.md).", 0)
 
 # R5-3: declared ids are atomic tokens in an id-only run
 case("POSITIVE", "(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the "
@@ -184,13 +170,6 @@ case("NEGATIVE", "(def) `[sib]: child.md \"title` whose title crosses a BLANK li
 
 
 # ------------------------------------------------- PR #510 Codex R8 controls --
-
-# R8 root: one sibling-path resolver, stages in spec order
-case("POSITIVE-NOVEL", "(link) `notes%3Achild.md` has no scheme (WHATWG URL §4.4 #scheme-start-state / "
-                       "#scheme-state read the input as written and `%` is in neither class; "
-                       "#string-percent-decode is a later, separate operation): it is the local file "
-                       "`notes:child.md`, and it is scanned",
-     build(), "See [the walk](notes%3Achild.md).", 1, files={"notes:child.md": VIOLATION + "\n"})
 
 # R8-3: the far side of a `.` after a bare id is the ASCII id class
 case("POSITIVE-NOVEL", "(bare) `9z.次の工程` bounds the id: the far side of the `.` is not an ASCII id "

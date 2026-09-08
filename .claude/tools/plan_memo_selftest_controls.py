@@ -3,7 +3,8 @@
 and the registry that names every control.
 
 The record-shaped controls (`Case`: one fixture, one measure, one exact
-value) live in `plan_memo_selftest_cases.py` / `_cases_pr510.py` / `_cases_inline.py`;
+value) live in `plan_memo_selftest_cases.py` / `_cases_pr510.py` /
+`_cases_inline.py` / `_cases_sibling.py`;
 this module
 holds the controls a record cannot express -- an injected fault (a raising
 `resolve()`, a parser `RuntimeError`), a comparison of two runs (the pipe
@@ -45,6 +46,7 @@ import tempfile
 from plan_memo_selftest_cases import CASES, VIOLATION, build
 import plan_memo_selftest_cases_pr510  # noqa: F401 -- appends the review-round controls to CASES
 import plan_memo_selftest_cases_inline  # noqa: F401 -- appends the Phase-2 inline rounds to the same CASES
+import plan_memo_selftest_cases_sibling  # noqa: F401 -- appends the sibling-resolver family to the same CASES
 from plan_memo_selftest_harness import control, run_on
 from plan_memo_selftest_properties import registry as property_registry
 from plan_memo_selftest_work import registry as work_registry

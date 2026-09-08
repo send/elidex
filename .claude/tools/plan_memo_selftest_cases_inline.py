@@ -192,40 +192,6 @@ case("NEGATIVE", "(image) `![alt [b](9z)](i.png)`: the demoted link's tail stays
                  "not prose, 0 sites",
      build(), "See ![alt [b](9z)](i.png).", 0)
 
-# #3 (IMP): `sibling_path` stage (c) is ONE platform-independent rule -- the
-# decoded name is read under Windows path syntax (`PureWindowsPath`, the
-# superset: `/` and `\` both separate, a drive / UNC / root prefix anchors)
-# on every platform, and an anchored name is rejected; stage (e) joins the
-# name's parts, so `\` is a separator everywhere, never a POSIX name
-# character.  WHATWG URL `#path-state` step 1 reads a special-scheme path
-# (`file` is special) the same way, and calls its drive-letter quirk
-# "platform-independent".  Until R19 (c) rejected a leading `/` only.
-rcase("NEGATIVE", "(rc) a percent-encoded Windows drive-absolute `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) is "
-                  "rejected after decoding on every platform (stage c: a drive anchors): rc 0",
-      build(), "See [x](C%3A%5Ctemp%5Cchild.md).", 0)
-rcase("NEGATIVE", "(rc) a percent-encoded backslash-rooted `%5Cchild.md` (`\\child.md`) is rejected (stage c: a root "
-                  "anchors): rc 0",
-      build(), "See [x](%5Cchild.md).", 0)
-rcase("NEGATIVE", "(rc) a percent-encoded UNC `%5C%5Cserver%5Cshare%5Cx.md` is rejected (stage c: a UNC prefix anchors): "
-                  "rc 0",
-      build(), "See [x](%5C%5Cserver%5Cshare%5Cx.md).", 0)
-rcase("NEGATIVE", "(rc) a raw `\\\\server\\share\\x.md` destination decodes (§2.4: `\\\\` is one backslash, `\\s` is "
-                  "literal) to the backslash-rooted `\\server\\share\\x.md` (commonmark.js: href "
-                  "`%5Cserver%5Cshare%5Cx.md`) and is rejected: rc 0",
-      build(), "See [x](\\\\server\\share\\x.md).", 0)
-rcase("NEGATIVE", "(rc) drive-relative `C:child.md`: raw, it is a URL of scheme `c` (stage a); percent-encoded "
-                  "`C%3Achild.md` decodes to a drive-anchored name (stage c) -- both rejected, rc 0",
-      build(), "See [a](C:child.md) and [b](C%3Achild.md).", 0)
-rcase("NEGATIVE", "(rc) `n%3Achild.md`: a ONE-letter name before `:` is a Windows drive letter (URL `#path-state` step "
-                  "1.4.1, platform-independent) -- drive-relative, rejected, rc 0; the multi-letter `notes%3Achild.md` "
-                  "of R8 stays a file name",
-      build(), "See [x](n%3Achild.md).", 0)
-case("POSITIVE-NOVEL", "(link) `sub%5Cchild.md`: a backslash is a path separator on every platform (WHATWG URL "
-                       "`#path-state` step 1: for a special scheme -- `file` is one -- `\\` ends a segment as `/` does; "
-                       "`PureWindowsPath` is that syntax) -- the file `sub/child.md` is walked",
-     build(), "See [x](sub%5Cchild.md).", 1, files={"sub/child.md": VIOLATION + "\n"})
-
-
 # ------------------------------------------------ PR #510 Codex R20 controls --
 
 # #1 (MIN): a file name is anything ending in the lexer's `FILE_SUFFIX` -- the
@@ -618,40 +584,6 @@ case("NEGATIVE", "(seed) a raw line whose only declared id is a CITATION seeds n
                  "SUBSUME the seed's former hand-written `kind != cite` filter, so the citation half has "
                  "one spelling and not two",
      build() + RAW_FILE % "[C1] see", "", 0, measure=("finding", "LEX-UNSUPPORTED?"))
-
-# #2 (P2) sibling: a relative destination whose COMPONENT is a Windows DOS
-# device (`NUL.md`) or ends in a dot or a space has an empty
-# `PureWindowsPath.anchor` and passed stage (c) until R22.  On Windows reading
-# it SUCCEEDS and yields an empty stream, so the population would count a
-# linked memo it never scanned and exit 0 -- §1's could-not-scan class.  The
-# predicate is pure string logic (`_is_reserved_component`), so every control
-# here decides the same way on POSIX; each names a file that DOES exist in the
-# fixture directory, so a green control means "not read", never "not found".
-DEVICE = {"NUL.md": VIOLATION + "\n", "NUL/child.md": VIOLATION + "\n", "com1.md": VIOLATION + "\n",
-          "dir /child.md": VIOLATION + "\n", "prn .md": VIOLATION + "\n",
-          "NULX.md": VIOLATION + "\n"}
-
-case("NEGATIVE", "(sibling) `NUL.md` is a DOS device, not a memo beside this one: the destination is no "
-                 "sibling even though a file of that name is there to read",
-     build(), "See [x](NUL.md).", 0, files=DEVICE)
-case("NEGATIVE", "(sibling) `NUL/child.md`: the device is read per PART of the parsed path -- a device "
-                 "DIRECTORY rejects the destination too.  The device sits in a NON-FINAL component on "
-                 "purpose: with it in the last one, a final-component-only reading passes this control "
-                 "and the mutant survives (measured -- the probe would have had another subject)",
-     build(), "See [x](NUL/child.md).", 0, files=DEVICE)
-case("NEGATIVE", "(sibling) `com1.md`: the device names fold case (`ntpath._isreservedname` upper-cases "
-                 "the stem), so the lower-case spelling is the same device",
-     build(), "See [x](com1.md).", 0, files=DEVICE)
-case("NEGATIVE", "(sibling) `dir%20/child.md`: a component ending in a SPACE is reserved too -- Windows "
-                 "strips the trailing run, so that component names a different directory there than here",
-     build(), "See [x](dir%20/child.md).", 0, files=DEVICE)
-case("NEGATIVE", "(sibling) `prn%20.md`: the stem's trailing spaces are stripped before the device "
-                 "lookup, so `prn .md` is `PRN` (Microsoft, \"Naming Files, Paths, and Namespaces\")",
-     build(), "See [x](prn%20.md).", 0, files=DEVICE)
-case("POSITIVE", "(sibling) `NULX.md` is an ordinary sibling and IS walked -- the discriminating half: a "
-                 "device is the STEM of a component, never a prefix of one, and a guard that rejected "
-                 "every name holding `NUL` would drop a memo the author linked",
-     build(), "See [x](NULX.md).", 1, files=DEVICE)
 
 # #3 (P2) phrase boundaries: every marker phrase the census reads matched
 # INSIDE a longer word until R22.  Fixed together, from the grammar's one
