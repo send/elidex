@@ -46,9 +46,13 @@ MUTANTS += [
     ("R1-2 runner: the emptiness guard fires on zero controls / zero mutants", CONTROLS,
      '    if n_controls == 0:\n        out.append(', '    if False:\n        out.append(',
      ["an empty control or mutant registry is a FAIL, never green"]),
+    # ⚠ The anchor MOVED at R27-1, when the per-opener flag became a counter on
+    # the entry (`closed`).  The claim is the same one -- a closing link
+    # deactivates the openers below it -- so the mutant stops the COUNT instead
+    # of the write.
     ("R1-3 link: a link deactivates every `[` opener before it (links may not contain links)", LEXER,
-     '                if not opener[1]:\n                    opener[2] = False',
-     '                if False:\n                    opener[2] = False',
+     '            closed += 1                 # links may not contain links: every',
+     '            closed += 0                 # links may not contain links: every',
      ["(link) nested inline links: the INNER link is the link, the outer tail is text -- "
       "`child.md` joins the population, absent `parent.md` is not linked",
       "(link) a reference link nested in inline brackets: the inner reference is the link, the "
@@ -73,16 +77,23 @@ MUTANTS += [
      ["(link) `[foo\\]][missing]` is a FULL reference (the `]` is escaped): a schema miss, not an "
       "exempt shortcut"]),
     # -- PR #510 Codex R3: "Appendix: A parsing strategy" bracket stack
+    # ⚠ Also moved at R27-1: an image's exemption used to be the walk skipping
+    # the image entries, and is now the COUNT not happening where an image
+    # closes -- so "deactivate on image" is that count, put back.
+    # ⚠⚠ The first re-anchoring SURVIVED: it widened the pop-side test
+    # (`was_closed != closed or (is_img and closed)`), which cannot fire for
+    # the image itself, since nothing had incremented the counter yet.  The
+    # subject is the increment, not the test that reads it.
     ("R3-1 link: an IMAGE does not deactivate the openers before it (deactivate on image)", LEXER,
-     '            for opener in stack:        # links may not contain links\n                if not opener[1]:',
-     '        if True:\n            for opener in stack:\n                if not opener[1]:',
+     '            dem_img.append((img_bottom, len(images)))',
+     '            dem_img.append((img_bottom, len(images)))\n            closed += 1',
      ["(link) a link wrapping a REFERENCE image `[![alt][img]](child.md)`: the image does not "
       "deactivate the outer opener, so `child.md` is scanned",
       "(link) a link wrapping an IMAGE `[![alt](img.png)](sib.md)` links the sibling; `img.png` is "
       "never a memo"]),
     ("R3-1 link: one pass, no recursive inner re-parse (re-inject one: exponential)", LEXER,
-     '        if not active:\n            i += 1                      # literal `]`; the opener is gone',
-     '        if not active or inline_pass(s[pos + 1:i], defs)[3] is None:\n            i += 1',
+     '        if not is_img and was_closed != closed:\n            i += 1                      # literal `]`; the opener is gone',
+     '        if inline_pass(s[pos + 1:i], defs)[3] is None or (not is_img and was_closed != closed):\n            i += 1',
      ["links() is linear: 30 nested brackets are one inline_pass call"]),
     ("R3-1 link: a consumed image tail is masked and not re-read", LEXER,
      '            images.append((i, end, "image"))',

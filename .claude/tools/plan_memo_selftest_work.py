@@ -4,31 +4,48 @@ control whose measure is a COST, not a text.
 
 The seam is mechanical, not a taste: a control here states how much work a
 clause is allowed to do and measures it with one of the harness's
-deterministic witnesses (`_count_calls`, `_count_lines`, `_CountedList` --
-never a wall clock, which has turned a control red in both directions on a
-contended host).  This module is the ONLY importer of those three, so
-"is this a work control?" is answered by the import list rather than by a
-reader's judgement.  Everything a control can say about the checker's OUTPUT
--- what it reports, what it refuses to read, what it declares -- stays in
-`plan_memo_selftest_controls.py`; `deep_nesting_control` stays there too,
-because a depth of 1,000 that parses is a correctness claim about the
-frame stack, not a cost bound.
+deterministic witnesses (`_count_calls`, `_count_lines`, `_count_line_sites`,
+`_CountedList` -- never a wall clock, which has turned a control red in both
+directions on a contended host).  The WORK MODULES -- this one and
+`plan_memo_selftest_growth.py`, which it imports -- are the only importers of
+those four, so "is this a work control?" is answered by the import graph
+rather than by a reader's judgement.  Everything a control can say about the
+checker's OUTPUT -- what it reports, what it refuses to read, what it
+declares -- stays in `plan_memo_selftest_controls.py`; `deep_nesting_control`
+stays there too, because a depth of 1,000 that parses is a correctness claim
+about the frame stack, not a cost bound.
 
-`registry()` returns this module's fragment of the one name -> (kind,
-control) table; `plan_memo_selftest_controls.registry()` merges it, so the
-runner and the mutation proof still read ONE table.  A mutant row whose file
-is THIS module patches the self-test, not the checker set: the module is
-exec'd from the patched text (`plan_memo_selftest_harness.patched_module`)
-and the row's controls are taken from the patched module's `registry()`
-merged over the unpatched rest (`plan_memo_selftest_mutants.SELFTEST`).
+EVERY CONTROL HERE IS WRITTEN AGAINST A SHAPE, and that is the module's
+limit as well as its point.  Each names a construct, a bound and a
+discriminating partner, and each was written after a review round reported
+that construct -- which is a population defined by the symptoms already seen,
+and it had been wrong nine times in five rounds (R23 two non-linear sites,
+R26 four, R27 two more, one of them not even in `inline_pass`).  The tenth
+per-shape control was not the fix.  `plan_memo_selftest_growth.py` is: one
+rule over a corpus GENERATED from the grammar.  These stay because each says
+something sharper about its own clause than a growth bound can, and because
+three of them measure costs the generated sweep cannot see at all (work
+inside the C `re` engine, and Phase 1, which a block-level probe never
+reaches).
 
-Import direction, one way: the controls module imports this one; this one
-imports the harness and nothing of the controls.
+`registry()` returns the WORK fragment of the one name -> (kind, control)
+table -- this module's controls merged with the growth module's, exactly as
+`plan_memo_selftest_controls.registry()` then merges that, so the runner and
+the mutation proof still read ONE table.  A mutant row whose file is a work
+module patches the self-test, not the checker set: the module is exec'd from
+the patched text (`plan_memo_selftest_harness.patched_module`) and the row's
+controls are taken from the patched module's `registry()` merged over the
+unpatched rest (`plan_memo_selftest_mutants.SELFTEST`).
+
+Import direction, one way: the controls module imports this one, this one
+imports the growth module, and both import the harness and nothing of the
+controls.
 """
 
 import pathlib
 import tempfile
 
+from plan_memo_selftest_growth import registry as growth_registry
 from plan_memo_selftest_harness import _CountedList, _WorkExceeded, _count_calls, _count_lines
 
 
@@ -532,8 +549,11 @@ def linear_code_closer_control(M):
 
 
 def registry():
-    """name -> (kind, control), this module's fragment of the one table."""
-    return {
+    """name -> (kind, control), the WORK fragment of the one table: this
+    module's per-shape witnesses merged with the growth module's generated
+    sweep."""
+    reg = dict(growth_registry())
+    reg.update({
         "file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every start position":
             ("CONTROL", linear_file_token_control),
         "inline_pass is linear over a malformed inline-link tail: `[`xN + `](`xN is O(N), bounded by §6.3's permitted nesting limit":
@@ -560,4 +580,5 @@ def registry():
             ("CONTROL", scaling_quotes_control),
         "a resolved image's demotion is linear: N nested images demote their descendants once, not once per enclosing image":
             ("CONTROL", linear_image_demotion_control),
-    }
+    })
+    return reg

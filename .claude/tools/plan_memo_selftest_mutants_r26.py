@@ -21,7 +21,7 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, SIBLING, TABLES, TOKENS,
+    CHECK, CONTROLS, GROWTH, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, SIBLING, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -258,4 +258,75 @@ MUTANTS += [
      "schema and would leave with the literal)", TABLES,
      '    nouns = set(GENERIC_ROW_NOUNS)', '    nouns = set()',
      [R27_NOUN_PROPERTY]),
+]
+
+
+R27_GROWTH = ("the scans are linear over a corpus GENERATED from the grammar: every branch character, "
+              "delimiter, HTML opener, bracket construct and id kind, each repeated and each PAIR of "
+              "them interleaved, and no source line grows worse than its input")
+R27_STRADDLE = ("PROPERTY: _straddles answers its own definition (a character inside a blank and a "
+                "character outside every blank), over every blank layout of eight positions and every "
+                "extent inside it")
+
+MUTANTS += [
+    # -- R27-1: the Appendix's deactivation is a COUNTER, not a walk.
+    #
+    # The COST row first, and it is the one the generated sweep exists for: a
+    # no-op walk over the stack at every link close gives every one of the 630
+    # conformance examples the same answer and every fixture control the same
+    # count, and costs 1+2+...+N.  Nothing but a growth measure can see it,
+    # and no per-shape witness had been written for it in four rounds.
+    ("R27-1 Appendix: a link's deactivation of the openers below it is O(1) (re-inject the walk over "
+     "the whole stack at every close: the same answers, quadratic over `![`xN then N resolved links)",
+     LEXER,
+     "            closed += 1                 # links may not contain links: every",
+     "            for _opener in stack:       # the retired walk, doing nothing\n"
+     "                pass\n"
+     "            closed += 1                 # links may not contain links: every",
+     [R27_GROWTH]),
+    # The two CORRECTNESS halves of the same clause -- a closing link DOES
+    # deactivate, and an IMAGE opener is exempt -- are R1-3 and R3-1 in
+    # `plan_memo_selftest_mutants_pr510.py`, whose anchors moved onto this
+    # counter with the fix and whose fixture controls are sharper than a
+    # second row here would be.  What R27-1 adds is the COST row above, which
+    # neither of them can state.
+    # -- R27-3: `_straddles` reads only the blanks that overlap the extent.
+    ("R27-3 residue: `_straddles` reads only the OVERLAPPING blanks (re-inject the sum over the whole "
+     "list: the same answers, quadratic in a block of N blanked spans)", TABLES,
+     "    j = bisect.bisect_left(blanks, (a,))",
+     # the RETIRED implementation, re-injected verbatim in front of the window
+     # search: the differential family (`straddle_definition_control`) says the
+     # two answer alike, so nothing but a growth measure can move
+     "    inside = sum(max(0, min(b, y) - max(a, x)) for x, y in blanks)\n"
+     "    return 0 < inside < b - a\n"
+     "    j = bisect.bisect_left(blanks, (a,))",
+     [R27_GROWTH]),
+    ("R27-3 residue: the blank BEFORE the extent may reach into it (drop the step back: a unit whose "
+     "left end is inside a blank that started earlier reads as wholly outside)", TABLES,
+     "    if j and blanks[j - 1][1] > a:      # the blank before `a` may reach into it\n        j -= 1",
+     "    if False:\n        j -= 1",
+     [R27_STRADDLE]),
+    ("R27-3 residue: an extent WHOLLY inside the blanks does not straddle them (flip the early exit: a "
+     "quoted marker becomes a disagreement)", TABLES,
+     "            return False                # wholly inside the blanks: not across them",
+     "            return True                 # wholly inside the blanks: not across them",
+     [R27_STRADDLE]),
+    # -- The generated sweep's own halves, which no checker mutant can reach.
+    ("R27 sweep: every branch character is an ATOM of the corpus (drop them: the pairs that hold a "
+     "character no construct spells stop being generated, and every probe left still passes)", GROWTH,
+     "    atoms = set(_scan_alphabet()) | set(BRACKET_ATOMS)", "    atoms = set(BRACKET_ATOMS)",
+     [R27_GROWTH]),
+    ("R27 sweep: every id KIND the grammar declares has a document spelling in the corpus (drop one: "
+     "the sweep would silently stop pairing that kind's token with anything)", GROWTH,
+     'ID_SPELLINGS = {"short": ("9z", "9z "), "slug": ("#11-a", "`#11-a` "), "cite": ("[C1]", "[C1] ")}',
+     'ID_SPELLINGS = {"short": ("9z", "9z "), "slug": ("#11-a", "`#11-a` ")}',
+     [R27_GROWTH]),
+    # The CONFIRMATION stage decides; the sweep only nominates.  A confirmation
+    # run at the sweep's own sizes would report §6.3's constant-bounded
+    # destination scan as a defect -- four probes of the corpus, green today --
+    # so this row proves the two stages are two sizes and not one.
+    ("R27 sweep: the confirmation runs at a size where a CONSTANT-bounded scan has plateaued (confirm "
+     "at the sweep's sizes instead: §6.3's destination limit reads as growth)", GROWTH,
+     "GROWTH_SWEEP, GROWTH_CONFIRM = 6, 96", "GROWTH_SWEEP, GROWTH_CONFIRM = 6, 6",
+     [R27_GROWTH]),
 ]

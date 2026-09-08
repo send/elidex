@@ -760,6 +760,59 @@ def row_noun_schema_control(M):
                         else "every row-keyed schema's name names a row and no other schema's does"))
 
 
+def straddle_definition_control(M):
+    """PROPERTY: `_straddles` answers its own DEFINITION -- "some character of
+    `[a, b)` inside a blank AND some character of it outside every blank" --
+    over an enumerated family of blank layouts and every extent inside each.
+
+    The predicate stopped being a one-line sum at R27-3 (it summed the WHOLE
+    blank list per candidate token, which made the always-run seed quadratic
+    in the block) and became a bisect to the overlapping window with an early
+    exit.  The oracle here is the definition read one CHARACTER at a time --
+    not the retired implementation, which would only say the two agree and
+    could not tell a shared misreading from a correct one.
+
+    The family is enumerated, not sampled: every subset of eight positions,
+    each in two layouts -- the maximal runs (what `stream()` builds for the
+    disposed reading, where a run of blanked characters is merged into one
+    entry) and the same runs cut into single characters (what it builds for
+    the READER's, where two blanked constructs can stand adjacent without
+    merging).  Both satisfy the ordered, non-overlapping invariant `Stream`
+    states and the bisect reads, and the second is the one that would catch a
+    search that assumed merging."""
+    import plan_memo_tables
+
+    width = 8
+    layouts = []
+    for mask in range(1 << width):
+        runs, i = [], 0
+        while i < width:
+            if mask >> i & 1:
+                j = i
+                while j < width and mask >> j & 1:
+                    j += 1
+                runs.append((i, j))
+                i = j
+            else:
+                i += 1
+        layouts.append(runs)
+        layouts.append([(k, k + 1) for x, y in runs for k in range(x, y)])
+    bad, n = [], 0
+    for blanks in layouts:
+        covered = {k for x, y in blanks for k in range(x, y)}
+        for a in range(width + 1):
+            for b in range(a + 1, width + 2):
+                n += 1
+                cells = range(a, b)
+                want = (any(k in covered for k in cells) and any(k not in covered for k in cells))
+                if plan_memo_tables._straddles(blanks, a, b) != want and len(bad) < 4:
+                    bad.append("%r over [%d, %d) said %s, the definition says %s"
+                               % (blanks, a, b, not want, want))
+    return not bad, ("%d layouts x every extent = %d questions: %s"
+                     % (len(layouts), n, "; ".join(bad) if bad
+                        else "the bisect answers what the definition answers"))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
@@ -785,4 +838,6 @@ def registry():
             ("CONTROL", stream_encoding_control),
         "PROPERTY: every row-keyed schema's NAME is a row noun and no other schema's is (the nouns are derived from SCHEMAS, so the next schema's is covered by default)":
             ("CONTROL", row_noun_schema_control),
+        "PROPERTY: _straddles answers its own definition (a character inside a blank and a character outside every blank), over every blank layout of eight positions and every extent inside it":
+            ("CONTROL", straddle_definition_control),
     }

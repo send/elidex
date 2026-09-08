@@ -527,7 +527,11 @@ MUTANTS += [
      [RG4_GATE, R23_UNDET, R23_STREAM]),
     ("RG4 residue: a unit WHOLLY inside a blanked span is no straddle (widen the predicate: a quoted "
      "marker becomes the schema miss I-A exists to prevent)", TABLES,
-     '    return 0 < inside < b - a', '    return inside > 0',
+     # ⚠ The anchor MOVED at R27-3, when the whole-list sum became a window
+     # search: the "wholly inside" half is now the early exit, and widening the
+     # predicate means taking it out.
+     '            return False                # wholly inside the blanks: not across them',
+     '            pass',
      [RG4_QUOTED]),
     ("RG4 gate: the miss is the STRADDLE, not the presence of a span (re-inject the coarse test: any "
      "declaring field holding a code span becomes a schema miss)", POPULATION,

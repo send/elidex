@@ -17,9 +17,10 @@ MECHANISM the controls share:
     run `check()`, the checker's ONE pipeline;
   * `measure` / `control` -- the one factory that turns a `Case` record into
     a control (exact comparison, never `>=`);
-  * `_count_calls` / `_count_lines` / `_CountedList` -- deterministic work
-    witnesses for the linearity controls (a wall-clock bound flaked on
-    contended hosts in both directions; a work count does not).
+  * `_count_calls` / `_count_lines` / `_count_line_sites` / `_CountedList` --
+    deterministic work witnesses for the linearity controls (a wall-clock
+    bound flaked on contended hosts in both directions; a work count does
+    not).
 
 EVERY TEXT I/O CALL HERE NAMES ITS ENCODING (PR #510 R26-4).  The checker
 advertises "Python 3.9+, standard library only" and reads production memos as
@@ -263,6 +264,47 @@ class _count_lines:
                 self.lines += 1
                 if self.lines > self.limit:
                     raise _WorkExceeded()
+            return tracer
+        sys.settrace(tracer)
+        return self
+
+    def __exit__(self, *exc):
+        sys.settrace(self._prev)
+        return False
+
+
+class _count_line_sites:
+    """Count the executions of EACH source line of `modules` separately --
+    {(file, lineno): executions} in `counts` -- rather than their total.
+
+    `_count_lines` answers "how much work in all", which is the right witness
+    for ONE shape whose cost a control already understands.  It is the wrong
+    one for a SWEEP: a total is dominated by the linear pass over the text
+    (measured over the generated corpus: ~48 source lines per character), so a
+    re-scan whose inner loop is two lines is invisible inside it until the
+    input is thousands of characters long.  Per SITE it is not: a line the
+    scan runs once per character doubles when the input doubles, and a line
+    inside a re-scan quadruples, whatever the constants around it are.  That
+    is what `generated_growth_control` compares, and it is why the sweep can
+    run at 6 and 12 repetitions instead of hundreds.
+
+    No limit and no early stop: both runs are wanted in full, since the claim
+    is about the RATIO of two tallies rather than about either one."""
+
+    def __init__(self, modules):
+        self.files = {m.__file__ for m in modules}
+        self.counts = {}
+
+    def __enter__(self):
+        self._prev = sys.gettrace()
+        counts, files = self.counts, self.files
+
+        def tracer(frame, event, arg):
+            if frame.f_code.co_filename not in files:
+                return None
+            if event == "line":
+                key = (frame.f_code.co_filename, frame.f_lineno)
+                counts[key] = counts.get(key, 0) + 1
             return tracer
         sys.settrace(tracer)
         return self

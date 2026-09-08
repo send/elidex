@@ -617,7 +617,14 @@ class Stream(str):
     OWN coordinates, the spans of it the checker refuses to read as prose
     (`blanks`).  A `str`, so every predicate reads it as before; the map
     exists because a stream character no longer sits at its own source offset
-    once a construct that renders nothing has been dropped."""
+    once a construct that renders nothing has been dropped.
+
+    `blanks` is ORDERED BY START AND NON-OVERLAPPING, and by construction
+    rather than by anyone's care: `stream()` appends each blank at the end of
+    the buffer it has built so far and merges a run of them into the entry
+    beside it, so a later blank can neither begin before an earlier one nor
+    reach back into it.  `_straddles` binary-searches it, and that is the
+    property the search reads."""
 
     def __new__(cls, text, src, blanks):
         o = str.__new__(cls, text)
@@ -761,9 +768,31 @@ def _straddles(blanks, a, b):
     """Whether `[a, b)` holds a character inside one of the `blanks` AND one
     outside every one of them -- the unit is read ACROSS a span, as opposed
     to sitting wholly inside one (a quoted marker: I-A's disposition, on
-    purpose) or wholly outside every one (the ordinary reading)."""
-    inside = sum(max(0, min(b, y) - max(a, x)) for x, y in blanks)
-    return 0 < inside < b - a
+    purpose) or wholly outside every one (the ordinary reading).
+
+    ONLY THE BLANKS THAT OVERLAP `[a, b)` ARE READ.  Summing over the whole
+    list made the always-run seed (`lex_split_seed` -> `split_units`)
+    quadratic in the block: every candidate token and every kind phrase asked
+    this question, and a paragraph of N code spans holds N blanks, so a block
+    of `9z `x` ` repeated cost N^2 even though no unit straddled anything (PR
+    #510 R27-3; measured 3.6x then 3.9x per doubling).  `Stream.blanks` is
+    ordered and non-overlapping by construction, so the overlapping window is
+    a bisect away and the answer is the same one.
+
+    The early exit is not an optimisation but the second half of the
+    question: once the covered length reaches the unit's own, every remaining
+    character is inside a blank and no later one can add to it."""
+    j = bisect.bisect_left(blanks, (a,))
+    if j and blanks[j - 1][1] > a:      # the blank before `a` may reach into it
+        j -= 1
+    inside = 0
+    while j < len(blanks) and blanks[j][0] < b:
+        x, y = blanks[j]
+        inside += min(b, y) - max(a, x)
+        if inside == b - a:
+            return False                # wholly inside the blanks: not across them
+        j += 1
+    return inside > 0
 
 
 def _readings(lx):

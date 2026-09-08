@@ -602,7 +602,15 @@ def inline_pass(s, defs):
     stack and return a literal text node ]"; if we do, the link or image is
     emitted and "if we have a link (and not an image), we also set all [
     delimiters before the opening delimiter to inactive.  (This will prevent
-    us from getting links within links.)"
+    us from getting links within links.)"  That last rule deactivates EVERY
+    link opener still on the stack, since every one of them stands before the
+    opening delimiter, and an opener is never reactivated -- so it is a
+    COUNTER and not a walk: each entry records how many links had closed when
+    it was pushed (`closed`), and it is active exactly while that figure is
+    still current.  Writing the flag into each entry instead re-visited the
+    whole stack at every link, which is quadratic over a paragraph of
+    unmatched `![` openers followed by resolved links (PR #510 R27-1, and the
+    entry stops being mutable with the walk).
 
     A RESOLVED image's description is plain text (§6.4: "the image
     description" is rendered as the `alt` attribute's "plain string
@@ -625,12 +633,19 @@ def inline_pass(s, defs):
     the outer opener as it closes (above), so `[a [b](x.md)](y.md)` links
     `x.md` and leaves `](y.md)` literal, as commonmark.js does.
 
-    LINEAR, and the claim has been falsified four times, so it is now made
-    clause by clause with a control on each rather than as a sentence.  No
-    substring is re-parsed and no entry re-visited: a close records its
-    demotion as an index RANGE and `_demote` applies the union once, because
-    nested images cover one descendant N deep N times and writing the tag at
-    each close is quadratic in the depth (PR #510 R23).  And no LOOKAHEAD may
+    LINEAR, and the claim has been falsified six times, so it is now made
+    clause by clause with a control on each rather than as a sentence -- and,
+    since R27, with a control that does not need the clause to have been
+    thought of first: `generated_growth_control` sweeps a corpus generated
+    from this grammar and requires no source line to grow worse than its
+    input.  No substring is re-parsed and no entry re-visited: a close records
+    its demotion as an index RANGE and `_demote` applies the union once,
+    because nested images cover one descendant N deep N times and writing the
+    tag at each close is quadratic in the depth (PR #510 R23); and a link's
+    deactivation of the openers below it is a COUNTER on the entry rather than
+    a flag written into each of them, because every one of them is deactivated
+    and there are N of them (R27-1, the sixth falsification -- `![`xN followed
+    by N resolved links).  And no LOOKAHEAD may
     scan away the text it is going to fail on (R26-3, three more members of the
     same class, of which the reviewer reported one):
 
@@ -683,6 +698,10 @@ def inline_pass(s, defs):
     # the demotion RANGES, as index slices of `images` / `pairs` -- one per
     # resolved image, recorded in O(1) and applied once at the end (`_demote`)
     dem_img, dem_pair = [], []
+    # the number of LINKS that have closed; an opener recorded a smaller one
+    # is inactive (the Appendix's "set all [ delimiters before the opening
+    # delimiter to inactive", asked in O(1) rather than written N times)
+    closed = 0
     stack, i, n = [], 0, len(s)
     relabel = -1        # the `[` of the label of the last failed full reference
     while i < n:
@@ -751,14 +770,17 @@ def inline_pass(s, defs):
             # the `[` exactly as the Appendix's `delim_bottom` is: what this
             # bracket encloses is what is appended after it, which is an O(1)
             # fact of the stack and not something to search the lists for
-            stack.append([i, _is_image(s, i), True, len(delims), len(images), len(pairs)])
+            stack.append((i, _is_image(s, i), closed, len(delims), len(images), len(pairs)))
             i += 1
             continue
         if c != "]" or not stack:
             i += 1
             continue
-        pos, is_img, active, delim_bottom, img_bottom, pair_bottom = stack.pop()
-        if not active:
+        pos, is_img, was_closed, delim_bottom, img_bottom, pair_bottom = stack.pop()
+        # an IMAGE opener is never deactivated (the Appendix deactivates the
+        # `[` delimiters only); a link opener is, by any link that closed after
+        # it was pushed
+        if not is_img and was_closed != closed:
             i += 1                      # literal `]`; the opener is gone
             continue
         dest, end, form = None, None, None
@@ -798,9 +820,15 @@ def inline_pass(s, defs):
         else:
             out.append((i, end, dest))
             opens.append((pos, pos + 1))    # a link's `[` renders as nothing
-            for opener in stack:        # links may not contain links
-                if not opener[1]:
-                    opener[2] = False
+            closed += 1                 # links may not contain links: every
+            # link opener still on the stack was pushed before this close, and
+            # its recorded figure is now stale, which is what says it is
+            # inactive.  ⚠ Counted where the LINK closes and nowhere else: a
+            # resolved image demotes the links inside its description
+            # (`_demote` below), and un-counting one there would REACTIVATE
+            # openers this close had already deactivated -- the Appendix
+            # deactivates at the close, and demotion is about what the entry
+            # renders as, not about what it did to the stack.
         # the Appendix processes the emphasis inside the construct that just
         # closed, over the delimiters pushed since its `[`, and drops them:
         # emphasis never crosses a link's or an image's text boundary
