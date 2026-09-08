@@ -1409,6 +1409,52 @@ ground for either option; it is not cited.
   said that seam was already in the module's docstring; it was not — that docstring states the seam
   BETWEEN modules, and its "what is here" paragraph named 8 of 15 controls, stale by seven since R26.
   ⚠ Next split candidate: `plan_memo_selftest_work.py` at 790 lines.
+  ⚠ **PR #510 Codex R30 (2026-09-08)** — two findings, both real, and **one of them was mine**.
+  #1 (P2) the `CLAUDE.md` paragraph copied the trip-wire benchmark history, the headroom calculation
+  and the timeout rationale **while explicitly naming the workflow comment canonical** — two live
+  copies of a number that moves. I wrote it ONE ROUND after correcting the same shape in the other
+  direction (there the pointer was refreshed and the canon left stale). The volatile half is removed:
+  what stands is stable policy plus a pointer, and the numbers live at the one declared home.
+  ⚠ **The same defect was inside the SoT file itself and the finding did not reach it**: the
+  `timeout-minutes` line carried its OWN copy of the headroom multiple and had gone stale the moment
+  the block above it was re-measured. Removing that copy surfaced what no single round's figure shows
+  and it is now written beside the timeout: **~10× (R12) → 5.9× (R27) → 5.1× (R29) → 4.4× (R30)** —
+  every round's controls and mutants land in an ALWAYS-RUN job, so the headroom is a **budget, not a
+  constant**, and the point to act is before a runner cancels a green job (which is what the
+  `timeout-minutes: 2` this 5 replaced did, at 211 s).
+  #2 (P2) an unmatched decoration run made an id cell "blank": `**`, `*`, `` ` ``, ``` `` ```, `***`
+  all returned True from `is_blank_id_cell`, so a slice row keyed `**` with the marker and a non-empty
+  `Deps` returned **rc 0 with no findings** — in neither `ids` nor assertion (b). Correct is **rc 2**,
+  an unkeyed row being a schema miss. This is design re-gate 4's family at its ONE documented
+  exception, whose justification — "the decoration IS part of the id grammar there (`**9z**`), so the
+  two readings agree by being the same reading" — is sound for `**9z**` and false for `**`, where the
+  grammar pairs nothing and CommonMark renders the run literally. Right about WHY it exists, wrong
+  about HOW FAR it reaches.
+  ⚠ **Both remedies the review offered fail as written**, which is why the shape was derived rather
+  than taken: "restrict to the explicitly supported blank spellings" is unavailable because the memos
+  really do write `**—**`, so a closed set of undecorated spellings either breaks that row or
+  enumerates the decorated ones unboundedly (the enumerated-exemption trap this file already names
+  twice); and "discard only decoration the grammar pairs" is wrong if the pairing authority is the ID
+  grammar, since ``` `` ``` peels to nothing under the decoration marks yet renders literally under
+  §6.1. So the exception was REMOVED rather than narrowed — the predicate reads what a reader sees.
+  ⚠ **A third axis neither remedy named: WHICH rendering.** The disposed stream blanks a code span, so
+  `` `?` `` would come out empty and re-open the identical silent skip; only the READER's rendering
+  answers the question being asked. Own control, own mutant.
+  Every shape now agrees with a reader: `**` `*` `` ` `` ``` `` ``` `***` → rc 2; `—` `**—**` `` `—` ``
+  → rc 0; `?` `` `?` `` → rc 2; `**7z**` still keys `7z` at rc 1. ⚠ **One REVERSAL no review asked
+  for, flagged rather than buried**: `&#8212;` as an id cell was rc 2 and is now rc 0 — correct, since
+  it renders `—`, but a verdict change in the opposite direction from the finding, so it carries its
+  own POSITIVE-NOVEL control. The agreement obligation against `bare_id` (which still reads raw, and
+  must, since it runs before the keep-set it declares) was MEASURED: over all 4,681 cells of length
+  0-4 from `{*, backtick, -, —, 9, z, space, &#8212;}` under both an empty and a populated keep-set,
+  **3,096 keyed readings, 0 that the new predicate also calls blank**.
+  **611 controls, 333 mutants / 0 survived / 0 crashed**, 0 `unknown control`; conformance 295 / 0 / 0
+  + 335 / 0 / 0; census `--worklist` byte-identical — measured on the COMPLEMENT rather than the
+  output: 145 id cells over the population's 4 memos, **0 verdict changes**.
+  ⚠ Three of my briefing premises were wrong and the delegate reported them: the next split candidate
+  is `plan_memo_selftest_mutants_inline.py` (942), not `plan_memo_selftest_work.py` (790, fifth); the
+  reviewer offered two shapes of which neither is a fix as stated; and the reviewer's §6.1 / §6.2
+  citations are sound (I had grouped this with the two false ones).
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
