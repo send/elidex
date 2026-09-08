@@ -734,8 +734,12 @@ def _units(st, keep):
     text, offset in the block's RAW text)."""
     if not st.blanks:
         return []
+    # `ROW_KINDS`, the grammar's closed set, and NOT its complement -- the same
+    # spelling the bare and anchored naming passes read (PR #510 R24; this said
+    # `t.kind != "cite"`, which agrees exactly today and diverges the moment a
+    # kind is added to `KINDS` without being a row kind).
     out = [("id", t.id, st.at(t.idstart)) for t in tokens(st)
-           if t.id in keep and t.kind != "cite" and _straddles(st.blanks, t.idstart, t.idend)]
+           if t.id in keep and t.kind in ROW_KINDS and _straddles(st.blanks, t.idstart, t.idend)]
     for name, rx in KIND_PHRASES:
         out += [(name, m.group(0), st.at(m.start())) for m in rx.finditer(st)
                 if _straddles(st.blanks, m.start(), m.end())]

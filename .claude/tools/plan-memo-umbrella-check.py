@@ -272,7 +272,17 @@ def _bare(b, keep, out):
     """
     for t in b.tokens:
         tid = t.id
-        if t.kind == "cite" or tid not in keep or tid == b.self_id:
+        # The SAME predicate the anchored pass reads (`t.kind not in ROW_KINDS`),
+        # not its complement.  ⚠ This asked `t.kind == "cite"` until PR #510 R24
+        # -- the two agree exactly while the grammar's kinds are {slug, short,
+        # cite}, so no behaviour rides on the change; what rides on it is the
+        # NEXT kind.  A kind added to `KINDS` and not to `ROW_KINDS` (a footnote
+        # id, say) would be excluded here by the positive spelling and admitted
+        # by the complement, and the two passes would then disagree about what a
+        # row id is -- silently, since nothing compares them.  The closed set is
+        # the grammar's to state (`plan_memo_ids.ROW_KINDS`), and both readers
+        # ask it the same way.
+        if t.kind not in ROW_KINDS or tid not in keep or tid == b.self_id:
             continue
         if t.kind == "short":
             if tid.isdigit():       # `tid` is SHORT_ID, ASCII by grammar: this is `[0-9]+`

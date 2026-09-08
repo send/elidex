@@ -82,8 +82,31 @@ case("POSITIVE-NOVEL", "(link) a link wrapping a REFERENCE image `[![alt][img]](
                        "does not deactivate the outer opener, so `child.md` is scanned",
      build(), "See [![alt][img]](child.md).\n\n[img]: pic.png", 1,
      files={"child.md": VIOLATION + "\n"})
+# ⚠ The needle here read `linked memo not found` until PR #510 R24, and NO
+# producer emits that phrase -- the population's one I/O chokepoint says
+# `linked memo unavailable`.  BE PRECISE ABOUT WHAT THAT DID AND DID NOT BREAK,
+# because the obvious reading is wrong: a `schema` measure is scored
+# `got == expect and (res.rc == 2) == (got > 0)`
+# (`plan_memo_selftest_harness.py`), so this control DID go red under its mutant
+# -- with the escape defeated the link goes live, the sibling is unavailable and
+# rc becomes 2 while the count stays 0, which breaks the second conjunct.  It was
+# never a control that could not fail.  What WAS dead is the COUNT half: a needle
+# nothing spells is 0 for every input, so all the discrimination rested on the rc
+# conjunct and the needle was decorative -- and had that conjunct ever been
+# relaxed, the control would have gone silently vacuous with nothing to say so.
+# With the producer's phrase both halves carry (0 here, 1 below).
+# ⚠ The general check, run when this was fixed: of the 31 distinct tuple measures
+# in the registry this is the only SUBSTRING needle every one of whose cases
+# expects 0. That property alone does NOT prove vacuity -- this control is the
+# proof that it does not -- but it is what points at a needle worth reading.
+# (`('id', …)` measures are exact-key membership tests over a key the fixture
+# chooses, a different shape again.)
 case("NEGATIVE", "(link) an escaped `\\[` opens nothing: `\\[x](absent-file.md)` is not a link, rc 0",
-     build(), "See \\[x](absent-file.md) here.", 0, measure=("schema", "linked memo not found"))
+     build(), "See \\[x](absent-file.md) here.", 0, measure=("schema", "linked memo unavailable"))
+case("POSITIVE", "(link) …and its discriminating half: the UNESCAPED `[x](absent-file.md)` IS a link, so "
+                 "the memo it names is an unavailable sibling -- 1 schema miss, rc 2.  Without this the "
+                 "control above cannot tell a working escape from a needle that never matches",
+     build(), "See [x](absent-file.md) here.", 1, measure=("schema", "linked memo unavailable"))
 
 # R3-2: a root-relative destination is a site URL, never a sibling on disk
 rcase("NEGATIVE", "(rc) a root-relative `/guide.md` is not a sibling on disk (nothing probed): rc 0",
