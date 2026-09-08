@@ -25,6 +25,7 @@ Two rules decided here, once:
 """
 
 import pathlib
+from collections import deque
 
 from plan_memo_memo import Memo
 from plan_memo_sibling import _resolve
@@ -49,13 +50,27 @@ class Population:
         self.spellings = set()
         self.attributed = []        # [(file, table, lineno, row name (`Row.name`), other)]
         self.ids = {}
-        queue, seen = [_resolve(pathlib.Path(main_path))], set()
-        self.root = queue[0].parent     # the root memo's directory: what `display` names relative to
+        start = _resolve(pathlib.Path(main_path))
+        # THE WALK, and the two rules that bound it (PR #510 R28-1).  A memo
+        # enters the queue AT MOST ONCE -- `seen` is written where a path is
+        # SCHEDULED, not where it is popped -- so the queue never holds more
+        # entries than there are memos, however many memos link the same one;
+        # it stood the other way round until R28, and a family where N memos
+        # each link the same K accumulated N*K pending paths to drain N+K
+        # memos.  And the queue is a `deque`, drained from its FRONT in O(1):
+        # `list.pop(0)` shifts every remaining element, which is quadratic in
+        # the queue's length and invisible to every work witness this suite
+        # has (the shift is a C memmove and runs no Python line -- see
+        # `plan_memo_selftest_properties.front_drain_sweep_control`, which is
+        # why that half is a SOURCE claim rather than a measurement).
+        #
+        # The schedule-time `seen` is also what TERMINATES the walk: there is
+        # no second guard at the pop, so a cycle is not an error because a
+        # path is never scheduled twice, not because a repeat pop is skipped.
+        queue, seen = deque([start]), {start}
+        self.root = start.parent        # the root memo's directory: what `display` names relative to
         while queue:
-            p = queue.pop(0)
-            if p in seen:
-                continue
-            seen.add(p)
+            p = queue.popleft()
             # the ONE I/O chokepoint: a memo that cannot be opened, read or
             # decoded (absent, a directory, over-long, invalid UTF-8) is an
             # UNAVAILABLE linked memo -- the documented exit-2 miss, never an
@@ -72,7 +87,10 @@ class Population:
                                     "is unscanned" % type(e).__name__))
                 continue
             self.memos.append(memo)
-            queue.extend(memo.linked_files())
+            for f in memo.linked_files():
+                if f not in seen:
+                    seen.add(f)
+                    queue.append(f)
             # a reference no definition answers is prose under §6.3, and the
             # memo it meant to link is NOT in the population: never a clean run
             for lineno, label in memo.unresolved_references():

@@ -21,7 +21,8 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, GROWTH, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, SIBLING, TABLES, TOKENS,
+    CHECK, CONTROLS, GROWTH, HTML, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, SIBLING, TABLES,
+    TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -329,4 +330,51 @@ MUTANTS += [
      "at the sweep's sizes instead: §6.3's destination limit reads as growth)", GROWTH,
      "GROWTH_SWEEP, GROWTH_CONFIRM = 6, 96", "GROWTH_SWEEP, GROWTH_CONFIRM = 6, 6",
      [R27_GROWTH]),
+]
+
+R28_WALK_ONCE = ("the population walk queues each memo at most once, over a corpus GENERATED from the "
+                 "definition of a memo family: every digraph on three memos, each also with one memo "
+                 "absent")
+R28_FRONT_DRAIN = ("PROPERTY: no source of this checker removes an element from the FRONT of a list "
+                   "(the O(1) half of the population walk's drain, which no work witness here can "
+                   "measure)")
+MUTANTS += [
+    # -- R28-1: the population walk's queue.  TWO rows, because the finding is
+    # two claims measured by two instruments, and each row must leave the other
+    # instrument GREEN or neither is discriminating: the pending entries are a
+    # countable fact and the front removal is not countable at all here.
+    #
+    # The STRUCTURE row.  `list.pop(0)` shifts every remaining element in C, so
+    # no Python line runs, no module binding is called and no dunder fires --
+    # `_count_lines`, `_count_calls`, `_count_line_sites` and `_CountedList`
+    # are all blind to it, and so, measured, is the generated growth control
+    # (green on the pre-R28 walk).  The claim is therefore a SOURCE claim, and
+    # a mutant that re-injects the retired drain has to re-inject it AS SOURCE:
+    # a `deque` that is a list with an O(n) `popleft`, which leaves every
+    # behavioural control in the suite green and exactly one text hit behind.
+    ("R28-1 walk: the pending queue is drained from its front in O(1) (re-inject `list.pop(0)` behind "
+     "the deque's name: the same answers, quadratic in the queue's length)", POPULATION,
+     "from collections import deque",
+     "class deque(list):                      # the retired drain: O(n) at the front\n"
+     "    popleft = lambda self: self.pop(0)",
+     [R28_FRONT_DRAIN]),
+    # The PENDING-ENTRY row, and why it re-injects rather than deletes.  With
+    # the fix, `seen` is written where a path is SCHEDULED and there is no
+    # second guard at the pop -- which is what terminates the walk on a cycle.
+    # So deleting the guard does not re-create the R28-1 defect, it hangs (a
+    # cycle that does not run through the root re-schedules forever), and a
+    # mutant that hangs proves nothing.  What the defect IS, minimally, is a
+    # path pending twice; the row puts exactly that back, bounded.
+    ("R28-1 walk: a memo enters the queue at most once (re-inject a duplicate pending entry -- the "
+     "shape N memos linking the same K produced N*K times over)", POPULATION,
+     "            for f in memo.linked_files():\n"
+     "                if f not in seen:\n"
+     "                    seen.add(f)\n"
+     "                    queue.append(f)",
+     "            for f in memo.linked_files():\n"
+     "                if f not in seen:\n"
+     "                    seen.add(f)\n"
+     "                    queue.append(f)\n"
+     "                    queue.append(f)",
+     [R28_WALK_ONCE]),
 ]

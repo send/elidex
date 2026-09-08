@@ -45,6 +45,29 @@ import tempfile
 from plan_memo_selftest_cases import build
 from plan_memo_selftest_harness import GRAMMAR, HERE, MODULES, SOURCES, run_on
 
+# The entry point's file name, which is not an import name.
+ENTRY = "plan-memo-umbrella-check.py"
+
+
+def _swept_sources():
+    """THE POPULATION EVERY SOURCE SWEEP OF THIS MODULE READS, as (file, text):
+    every `plan_memo*.py` beside this file plus the entry point, GLOBBED -- the
+    checker set and the self-test both, so a module a later touch-time split
+    carves out is swept the day it lands and not the day somebody remembers it.
+
+    Text comes from `SOURCES` when the current set holds it (`load` records the
+    checker set, `patched_module` a patched self-test module) and from disk
+    otherwise, so a MUTANT is seen on either half.  One function, because three
+    sweeps ask the same question and a second spelling of "every source of this
+    checker" is a second answer waiting to drift."""
+    out = []
+    for file in sorted(p.name for p in HERE.glob("plan_memo*.py")) + [ENTRY]:
+        src = SOURCES.get(file)
+        if src is None:
+            src = (HERE / file).read_text(encoding="utf-8")
+        out.append((file, src))
+    return out
+
 
 # The spellings the grammar module owns.  A SOURCE-TEXT sweep over string
 # constants: it reads these exact spellings and nothing about purpose.
@@ -556,13 +579,8 @@ def encoding_sweep_control(M):
     the work and controls modules) are exactly what an enumerated fix would
     have left standing.  So the fix is the predicate, not the list.
 
-    THE POPULATION IS DISCOVERED, NOT LISTED: every `plan_memo*.py` beside this
-    file plus the entry point, globbed -- the checker set and the self-test
-    both, so a module a later touch-time split carves out is swept the day it
-    lands and not the day somebody remembers it.  Text comes from `SOURCES`
-    when the current set holds it (`load` records the checker set,
-    `patched_module` a patched self-test module) and from disk otherwise, so a
-    MUTANT is seen on either half.
+    THE POPULATION IS DISCOVERED, NOT LISTED: `_swept_sources()`, which is
+    every `plan_memo*.py` beside this file plus the entry point, globbed.
 
     A LOWER BOUND IS PART OF THE VERDICT: a sweep that finds no call at all is
     red, because "no site without an encoding" is also what a broken walk, an
@@ -578,11 +596,8 @@ def encoding_sweep_control(M):
     because a control cannot change the preferred encoding of the interpreter
     it is already running in."""
     hits, calls = [], 0
-    files = sorted(p.name for p in HERE.glob("plan_memo*.py")) + ["plan-memo-umbrella-check.py"]
-    for file in files:
-        src = SOURCES.get(file)
-        if src is None:
-            src = (HERE / file).read_text(encoding="utf-8")
+    files = _swept_sources()
+    for file, src in files:
         for node in ast.walk(ast.parse(src, filename=file)):
             if not isinstance(node, ast.Call):
                 continue
@@ -813,6 +828,58 @@ def straddle_definition_control(M):
                         else "the bisect answers what the definition answers"))
 
 
+def front_drain_sweep_control(M):
+    """PROPERTY: no source of this checker removes an element from the FRONT of
+    a list.  Every `x.pop(0)` and every `del x[0]` over `_swept_sources()` is a
+    hit, and one hit is red; at least one `popleft()` call must stand, because
+    a sweep that finds neither reports what a deleted worklist reports.
+
+    WHY A SOURCE CLAIM AND NOT A MEASUREMENT (PR #510 R28-1).  The population
+    walk drained its queue with `queue.pop(0)`, which shifts every remaining
+    element: quadratic in the queue's length, and the queue held one entry per
+    LINK rather than one per memo.  The pending-entry half is a countable fact
+    and `plan_memo_selftest_growth.population_walk_once_control` counts it.
+    This half is not countable by anything in this suite: the shift is a C
+    memmove inside `list.pop(0)`, so it runs no Python line, calls no module
+    binding, and touches no dunder a `_CountedList` could watch -- a `deque`'s
+    `popleft` and a `list`'s `pop(0)` are one call each to every witness the
+    harness has.  What can be stated is the STRUCTURE, so that is what is
+    stated, over every source rather than at the one site the reviewer named:
+    the drain is O(1) or the sweep is red.
+
+    HONESTLY, what it cannot see.  It is a shape sweep over the AST, so a front
+    removal spelled some other way is invisible: `x[0:1] = []`, `x.remove(x[0])`,
+    a slice-and-rebind (`x = x[1:]`, which is O(n) too), a `pop` whose index is
+    a variable that happens to be zero, or a front insert (`x.insert(0, y)`,
+    which is the same memmove but a different question -- `sys.path.insert(0,
+    HERE)` in the entry point is the legitimate one and the sweep must not be
+    reading it).  It also says nothing about a list a caller drains from the
+    front OUTSIDE these sources, and nothing about the queue actually being a
+    deque at run time -- the growth module's control records the pops through
+    the module's own `deque` binding and reports if there is none."""
+    hits, drains, lists = [], 0, 0
+    for file, src in _swept_sources():
+        for node in ast.walk(ast.parse(src, filename=file)):
+            if isinstance(node, ast.Delete):
+                for t in node.targets:
+                    if isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant) \
+                            and t.slice.value == 0:
+                        hits.append("%s:%d del x[0] shifts the whole list" % (file, node.lineno))
+                continue
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr == "popleft":
+                drains += 1
+            elif node.func.attr == "pop":
+                lists += 1
+                if len(node.args) == 1 and isinstance(node.args[0], ast.Constant) \
+                        and node.args[0].value == 0:
+                    hits.append("%s:%d .pop(0) shifts the whole list" % (file, node.lineno))
+    return (not hits and drains > 0,
+            "%d pop() and %d popleft() call site(s) swept, %d removing from the front%s"
+            % (lists, drains, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
@@ -840,4 +907,6 @@ def registry():
             ("CONTROL", row_noun_schema_control),
         "PROPERTY: _straddles answers its own definition (a character inside a blank and a character outside every blank), over every blank layout of eight positions and every extent inside it":
             ("CONTROL", straddle_definition_control),
+        "PROPERTY: no source of this checker removes an element from the FRONT of a list (the O(1) half of the population walk's drain, which no work witness here can measure)":
+            ("CONTROL", front_drain_sweep_control),
     }

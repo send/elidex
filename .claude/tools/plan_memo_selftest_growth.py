@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
-"""The GENERATED growth control for `plan-memo-umbrella-check.py --self-test`:
-the one linearity witness whose population is derived from the grammar rather
-than written against a shape.
+"""The GENERATED cost controls for `plan-memo-umbrella-check.py --self-test`:
+the witnesses whose population is derived from a definition rather than
+written against a shape somebody reported.
+
+TWO POPULATIONS, ONE MOVE.  The block-level one is generated from the GRAMMAR
+(`_growth_atoms` / `_growth_corpus`): every character the sources branch on,
+every delimiter, every bracket construct, each repeated and each pair
+interleaved.  The population one is generated from the definition of a
+DIGRAPH (`_graph_corpus`): every memo family of at most `GRAPH_NODES` memos,
+exhaustively, each also with one memo absent.  A memo family is a graph, not
+a string, so the grammar has nothing to say about it -- but "enumerate the
+definition instead of listing the shapes somebody has already reported" is
+the same move, and it is the move that matters.
 
 WHY IT IS ITS OWN MODULE.  `plan_memo_selftest_work.py` is a list of
 per-clause witnesses -- each one names a construct, a bound and a
 discriminating partner, and each one was written after a review round
 reported that construct.  This module holds the opposite thing: a corpus
-generated from the grammar (`_growth_atoms` / `_growth_corpus`) and ONE rule
-applied to every member of it.  The two are different mechanisms with
-different failure modes, so they are different modules -- carved while
-writing, at the 800-line mark the work module would otherwise have crossed,
-rather than left for a later split.
+generated from a definition and ONE rule applied to every member of it.  The
+two are different mechanisms with different failure modes, so they are
+different modules -- carved while writing, at the 800-line mark the work
+module would otherwise have crossed, rather than left for a later split.
 
 It is still a WORK module: it measures cost with a harness witness
 (`_count_line_sites`) and never a wall clock, its `registry()` fragment is
@@ -24,8 +33,10 @@ the harness and nothing of the controls.
 """
 
 import ast
+import collections
 import itertools
 import pathlib
+import tempfile
 
 from plan_memo_selftest_harness import MODULES, SOURCES, _count_line_sites
 
@@ -276,9 +287,175 @@ def generated_growth_control(M):
                          "already red)" % (len(flagged) - tested)) if tested < len(flagged) else ""))
 
 
+# --------------------------------------------------------------------------
+# The GENERATED memo-family corpus (PR #510 R28-1).
+#
+# The population walk's input is a GRAPH -- memos, and the memos each one
+# links -- so no grammar generates its shapes.  The definition of a digraph
+# does: every edge set over `GRAPH_NODES` labelled memos, exhaustively, and
+# each of those with one non-root memo ABSENT (the walk's I/O chokepoint,
+# which `continue`s before the links are read).  Nothing about a fan, a
+# chain, a clique or a diamond is typed here; each is a member because the
+# enumeration reaches it.
+#
+# WHY THREE IS EXHAUSTIVE ENOUGH, stated as a bound rather than a budget.
+# The rule below is violated exactly when one memo is SCHEDULED twice, which
+# needs two distinct edges into it from two memos the root reaches -- at
+# worst the root, one other memo, and the shared target: three.  A fourth
+# memo multiplies the violation (that is what makes the drain quadratic) but
+# cannot create one where three could not.  The cost is the reason not to go
+# further anyway: four nodes is 4096 edge sets against 64, ~4 s against ~50 ms,
+# against a trip-wire whose whole budget is ~27 s.
+#
+# Self-edges are left out because they are not edges of this walk at all:
+# `Memo.linked_files` excludes the memo itself, so `i -> i` is
+# indistinguishable from no edge, and `_selftest_cases_sibling.py` owns that
+# clause.
+# --------------------------------------------------------------------------
+
+GRAPH_NODES = 3
+
+
+def _graph_corpus():
+    """(name, edges, absent) for every digraph on `GRAPH_NODES` memos, each
+    with every choice of one absent non-root memo (and with none)."""
+    pairs = [(i, j) for i in range(GRAPH_NODES) for j in range(GRAPH_NODES) if i != j]
+    out = []
+    for r in range(len(pairs) + 1):
+        for edges in itertools.combinations(pairs, r):
+            for absent in (None,) + tuple(range(1, GRAPH_NODES)):
+                out.append(("{%s}%s" % (" ".join("%d>%d" % e for e in edges),
+                                        "" if absent is None else " less m%d" % absent),
+                            edges, absent))
+    return out
+
+
+def _confluences(corpus):
+    """The corpus members in which some memo is linked from TWO others -- the
+    class the rule is about.  A corpus with none of them would report the same
+    clean verdict a correct walk does."""
+    return [n for n, edges, _a in corpus
+            if any(sum(1 for i, j in edges if j == w) > 1 for w in range(GRAPH_NODES))]
+
+
+def _write_graph(d, edges, absent):
+    """One corpus member as memos on disk: `m0.md` is the root, and memo i
+    links memo j for each edge (i, j).  Every file of the family is rewritten
+    or removed, so the directory is reused across probes without carrying one
+    member's edges into the next."""
+    for i in range(GRAPH_NODES):
+        f = d / ("m%d.md" % i)
+        if i == absent:
+            if f.exists():
+                f.unlink()
+            continue
+        f.write_text(" ".join("[x](m%d.md)" % j for (a, j) in edges if a == i) + "\n",
+                     encoding="utf-8")
+
+
+def _recorded_pops(pop_mod, path):
+    """Every path the walk takes off the FRONT of its queue, in order -- or
+    None if the population module binds no `deque` to record through.
+
+    The queue is a local, so the witness is the module global the walk
+    constructs it from: `deque` is replaced by a subclass that records each
+    `popleft`, exactly as `_count_calls` watches a module binding.  The
+    subclass is of whatever the module binds (a mutant may bind something
+    else), so the recording survives a mutant and reports what that mutant
+    did rather than crashing on it."""
+    base = getattr(pop_mod, "deque", None)
+    if base is None:
+        return None
+    popped = []
+
+    class _Recording(base):
+        def popleft(self):
+            p = base.popleft(self)
+            popped.append(p)
+            return p
+
+    pop_mod.deque = _Recording
+    try:
+        pop_mod.Population(str(path))
+    finally:
+        pop_mod.deque = base
+    return popped
+
+
+def population_walk_once_control(M):
+    """THE WALK'S QUEUE HOLDS EACH MEMO AT MOST ONCE, over a corpus GENERATED
+    from the definition of a memo family: every digraph on `GRAPH_NODES`
+    memos, each also with one memo absent.  No path is taken off the queue
+    twice; every probe takes at least one.
+
+    WHY THIS AND NOT A GROWTH RATIO (PR #510 R28-1, and the honest answer to
+    "extend the generated growth property to the population walk").  R28-1 is
+    that `queue.extend(memo.linked_files())` accumulated a pending entry per
+    LINK and `queue.pop(0)` shifted the rest, so a family where many memos
+    link the same set drained quadratically.  `generated_growth_control`'s
+    witness -- source LINES executed, small against large -- cannot see any
+    of it, and this is measured, not assumed:
+
+      * the shift is a C memmove inside `list.pop(0)` and runs no Python
+        line at all.  That is the same blind spot the growth control's own
+        docstring declares for the `re` engine, and R28-1 landed in it;
+      * the duplicate pending entries ARE Python lines, but they are linear
+        in the input.  A family of N memos each linking the same K has N*K
+        links, so a loop body that runs once per LINK runs O(input) times and
+        a doubling bound sees nothing.  Measured before the fix on N memos
+        each linking the same 8: the lines executed in `plan_memo_population`
+        went 1592 -> 2872 -> 5432 for N = 20 -> 40 -> 80 (a ratio of ~1.9,
+        against a bound of 2.5), while the entries the drain shifted went
+        14611 -> 58421 -> 233641 (a ratio of exactly 4).
+
+    So the instrument had to change, not the corpus generator.  What replaces
+    the ratio is an EXACT invariant -- one pop per memo -- which needs no
+    doubling family and is red at the minimum size: 77 of these 192 probes
+    report a duplicate pop against the pre-R28 walk.
+
+    WHAT IT CANNOT SEE.  The O(1) front removal, which is the other half of
+    the fix: a `deque`'s `popleft` and a `list`'s `pop(0)` are the same one
+    call to any witness in this suite, and the cost between them is C.  That
+    half is a SOURCE claim instead
+    (`plan_memo_selftest_properties.front_drain_sweep_control`), and the two
+    halves are separately mutated.  Also: work inside `Memo` (this control
+    counts pops, not what a pop costs); a family larger than `GRAPH_NODES`,
+    which cannot hold a violation this one does not (see the comment above)
+    but can hold a worse one; and the ORDER of the walk, which
+    `_selftest_cases_sibling.py`'s controls own."""
+    import plan_memo_population as pop_mod
+
+    if getattr(pop_mod, "deque", None) is None:
+        return False, ("the population module binds no `deque`: its queue is not a structure with an "
+                       "O(1) front removal, and there is no module binding to record its pops through")
+    corpus = _graph_corpus()
+    conf = _confluences(corpus)
+    if not conf:
+        return False, "the corpus holds no memo linked from two others: it cannot report this rule"
+    bad, pops = [], 0
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        for name, edges, absent in corpus:
+            _write_graph(d, edges, absent)
+            popped = _recorded_pops(pop_mod, d / "m0.md")
+            if not popped:
+                bad.append("%s :: the walk took nothing off the recorded queue" % name)
+                continue
+            pops += len(popped)
+            dup = [p.name for p, n in collections.Counter(popped).items() if n > 1]
+            if dup:
+                bad.append("%s :: popped twice: %s" % (name, ", ".join(sorted(dup))))
+    return not bad, ("%d probes over %d digraphs on %d memos (%d of them a confluence), %d pops, "
+                     "%d probe(s) queueing a memo twice%s"
+                     % (len(corpus), len({e for _n, e, _a in corpus}), GRAPH_NODES, len(conf), pops,
+                        len(bad), (": " + "; ".join(bad[:3])) if bad else ""))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
         "the scans are linear over a corpus GENERATED from the grammar: every branch character, delimiter, HTML opener, bracket construct and id kind, each repeated and each PAIR of them interleaved, and no source line grows worse than its input":
             ("CONTROL", generated_growth_control),
+        "the population walk queues each memo at most once, over a corpus GENERATED from the definition of a memo family: every digraph on three memos, each also with one memo absent":
+            ("CONTROL", population_walk_once_control),
     }
