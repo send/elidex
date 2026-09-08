@@ -1091,6 +1091,29 @@ ground for either option; it is not cited.
   **555 controls, 288 mutants / 0 survived / 0 crashed**, 0 `(unknown control)`; conformance 295 / 0 /
   0 + 335 / 0 / 0; `scripts/trip-wires.sh` rc 0; and the #506 census `--worklist` **byte-identical** —
   zero changed lines, which is what a round of root fixes with no census movement should look like.
+  ⚠ **Two from the re-gate's own backlog, in no review** (`dd26b5b7`). (a) The row-kind test had TWO
+  spellings: the anchored pass asked `t.kind not in ROW_KINDS` — the grammar's closed set — while the
+  BARE pass and the residue scan asked its complement (`t.kind == "cite"` / `!= "cite"`). They agree
+  exactly while the kinds are {slug, short, cite}, so no behaviour rides on the collapse; what rides
+  on it is the NEXT kind, which added to `KINDS` and not to `ROW_KINDS` would be excluded by the
+  positive spelling and admitted by the complement — the two passes disagreeing about what a row id
+  is, with nothing comparing them. Measuring the complement rather than fixing the site I remembered
+  found the second one. (b) The escaped-bracket control measured SCHEMA findings containing `linked
+  memo not found`, a phrase NO producer emits (the chokepoint says `linked memo unavailable`).
+  ⚠ **My first reading of this was wrong and the mutation proof is what corrected it**: I recorded it
+  as a control that could never go red, but a `schema` measure is scored
+  `got == expect and (res.rc == 2) == (got > 0)`, so the control DID go red under its mutant — with
+  the escape defeated the link goes live, rc becomes 2 while the count stays 0, and the second
+  conjunct breaks. What was actually dead is the COUNT half: all the discrimination rested on the rc
+  conjunct and the needle was decorative, so a later relaxation there would have left the control
+  silently vacuous. Both halves carry now, with a positive partner exercising the count. The property
+  that pointed at it — the only substring needle every one of whose cases expects 0, 1 of 31 tuple
+  measures — is a POINTER, not a proof of vacuity, and this control is the counter-example proving
+  the difference.
+  ⚠ **E3 re-measured**, since the figure carried in the backlog (74 of 436) is not comparable to the
+  current registry: `523` fixture controls, of which **204 are named by no mutant**
+  (`{c.name for c in CASES} - {name for row in MUTANTS for name in row[4]}`). That is the honest size
+  of "a control that has never gone red", and it is the largest open item on this PR's own list.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
