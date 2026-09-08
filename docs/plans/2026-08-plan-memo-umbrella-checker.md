@@ -4,17 +4,19 @@
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
 at HEAD): `.claude/tools/plan-memo-umbrella-check.py` 811 lines, `plan_memo_tables.py` 407,
-`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 19
-`.py` files: `plan-memo-umbrella-check.py` 582 / `plan_memo_tables.py` 619 / `plan_memo_umbrella_selftest.py`
-93 (the three carried names, 1,294) + `plan_memo_ids.py` 221 / `plan_memo_emphasis.py` 216 / `plan_memo_lexer.py` 829 /
-`plan_memo_blocks.py` 746 / `plan_memo_memo.py` 794 / `plan_memo_population.py` 225 / `plan_memo_roles.py` 436 /
+`plan_memo_umbrella_selftest.py` 396 (`wc -l`, 1,614 total). At HEAD of this PR the program is 20
+`.py` files: `plan-memo-umbrella-check.py` 583 / `plan_memo_tables.py` 814 / `plan_memo_umbrella_selftest.py`
+97 (the three carried names, 1,494) + `plan_memo_ids.py` 224 / `plan_memo_emphasis.py` 216 / `plan_memo_lexer.py` 887 /
+`plan_memo_blocks.py` 746 / `plan_memo_memo.py` 917 / `plan_memo_population.py` 239 / `plan_memo_roles.py` 463 /
 `plan_memo_selftest_cases.py` 614 /
-`plan_memo_selftest_cases_pr510.py` 701 / `plan_memo_selftest_cases_inline.py` 699 /
-`plan_memo_selftest_conformance.py` 377 / `plan_memo_selftest_controls.py` 881 / `plan_memo_selftest_harness.py` 268 /
-`plan_memo_selftest_mutants.py` 466 / `plan_memo_selftest_mutants_pr510.py` 718 / `plan_memo_selftest_mutants_inline.py` 587
-— **10,072 total, measured on the tree of the touch-time split commit `5285c1b0`; re-run at landing** (`wc -l
+`plan_memo_selftest_cases_pr510.py` 701 / `plan_memo_selftest_cases_inline.py` 922 /
+`plan_memo_selftest_conformance.py` 377 / `plan_memo_selftest_controls.py` 939 / `plan_memo_selftest_harness.py` 268 /
+`plan_memo_selftest_work.py` 350 /
+`plan_memo_selftest_mutants.py` 494 / `plan_memo_selftest_mutants_pr510.py` 709 / `plan_memo_selftest_mutants_inline.py` 867
+— **11,427 total, measured on the tree of the R24 collapse round (`d420b632`); re-run at landing** (`wc -l
 .claude/tools/plan*.py`, re-run before each push; a figure here is stale the moment a file is touched).  Every file
-is under the 1000-line bound, the largest being `plan_memo_selftest_controls.py` at 881.  No `crates/` change.
+is under the 1000-line bound, the largest being `plan_memo_selftest_controls.py` at 939 — ⚠ 61 lines of headroom, and
+`plan_memo_selftest_cases_inline.py` 78: the next round that adds controls splits one of them first.  No `crates/` change.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program
 this PR lands (4,771 on the tree of the commit after `1840251b`) — premise-correct the ledger to the live `wc -l` at landing) — **CLOSE −1 at landing of Slice 2**.
@@ -1011,6 +1013,84 @@ ground for either option; it is not cited.
   backward window) and the 40-character slice in `classify` recorded above, which want the boundary
   derived from the grammar. Option A (collapse) is taken for all three, each with a structural guard,
   rather than four symptom fixes — the entry for that round records what each guard cannot see.
+  ⚠ **PR #510 Codex R24 (2026-09-08) — the collapse round.** Four findings, all real, fixed as the
+  three families above plus one located defect, behind a prereq split. **Touch-time split first**
+  (`ef97295d`): `plan_memo_selftest_controls.py` had reached 961 lines and this round adds controls to
+  it. Seam = **the measure** — a control that states a COST and counts it with the deterministic
+  witnesses moves to `plan_memo_selftest_work.py`, which is now the ONLY importer of `_count_calls` /
+  `_count_lines` / `_CountedList`, so "is this a work control?" is an import list rather than a
+  judgement (`deep_nesting_control` stays: it counts nothing). Eight bodies moved byte-identically
+  (AST-segment checked); 961 → 671.
+  **Family 1** (`82552f2d`) — the last raw-text reader. `9z&#32;notes.md owns it.` renders
+  `9z notes.md owns it.` and so names `9z`, but `file_and_cite_spans` masked the whole source run and
+  the ownership claim vanished (0 sites, against 1 for the rendering-identical prose). Root: `dispose`
+  itself asked TWO questions of the raw source; it is two stages now, and stage 2 asks both
+  rendered-text questions of ONE text. ⚠ A second member, in no review, was found by enumerating the
+  family rather than the reports: the decoration exception's `id_only` also read raw content, so
+  `**&#57;z**7z` reported 0 sites where `**9z**7z` reports 1. **Structural guard**:
+  `render_equivalence_control` replaces each character of one prose IN TURN by its §2.5 numeric
+  reference and requires the census not to move — and the set of positions it must skip is read off
+  `inline_pass`'s own code object rather than hand-listed, so under-exclusion is RED and never
+  silently weaker. What it cannot see, stated: two-position disagreements, cells, shapes that prose
+  does not reach, raw lines.
+  **Family 2** (`91bfe590`) — `Memo._preprocess`, CommonMark §2's input preprocessing as ONE unit
+  enumerated from the section: U+0000 → U+FFFD, line endings normalised (the file opened with
+  `newline=""`), tabs deliberately NOT expanded, and the BOM carried as this program's own encoding
+  rule claiming no spec sentence. Before it, a link whose destination was `child\0.md` (a literal NUL
+  in the name) was rejected as a control character instead of linking the file, so that memo and its
+  violations left the population at rc 0. ⚠ Written WITHOUT the bracket-and-parenthesis form on
+  purpose: this checker reads its own plan, code spans are lexed over the whole PARAGRAPH rather than
+  per line, and an example spelled as a link inside a long paragraph pairs its backticks somewhere
+  else and becomes a LIVE link to a memo that does not exist — measured, it added a sixth FATAL to
+  this document before it was rewritten.
+  ⚠ **Three of my briefing premises were wrong here and the delegate said so rather than absorbing
+  them.** (i) The §2.1 attribution: the subsection number is undeterminable in this tree (the corpora
+  carry section NAMES only and hold no example from the quoted sections), so the unit cites **§2**,
+  which is certain, and names each transformation by the sentence it implements — no number invented.
+  (ii) I claimed the NUL substitution makes `_CONTROL` a guard nothing can trip; it does not, because
+  stage (c) tests the PERCENT-DECODED name, so `%00`–`%1f` and `%7f` decode back to controls that the
+  unit never touches (verified here: `child%00.md` → not a sibling, and both `STAGE_C` mutants still
+  kill its control). (iii) §2's line-ending requirement was already met — by accident, through
+  `read_text`'s universal newlines — so it was a requirement nothing PROVED; the control that proves
+  it writes **bytes**, since a text write would translate `\n` and make the CRLF arm a claim about the
+  host instead of about the checker.
+  **Family 3** (`96b3cbb4`) — both context windows are `endpos`/anchor-bounded now
+  (`_APPOSITIVE.search(field, 0, m.start())`, `LICENSE_BEFORE.search(m.text, 0, m.start)`), with no
+  width constant and no block-length copy in either input; the forward side keeps its slice
+  deliberately, since it runs to the end and truncates nothing. ⚠ **A fourth premise of mine was
+  wrong**: the 70 was never what held the mention-only direction. The DASH is — `Unlike Slice 7z,
+  **UMBRELLA, …**` fails on the comma at any width (verified), while a 76-character slug with the dash
+  now attributes where it returned `None` before. **Structural guard**:
+  `anchored_matcher_width_control` — an ANCHORED pattern is never handed a subject a NUMBER truncated;
+  the predicate is "the receiver resolves to a compiled pattern" rather than a method-name or
+  argument-position list, and a local assigned from such a slice counts, so it fires on the
+  variable-hidden shape too. Cannot see: a textual anchor test, non-global receivers, taint beyond one
+  level inside a function, and truncation inside a helper (`Block.window` / `roles()`, which is not a
+  finding: those patterns carry no edge anchor and rank rather than filter).
+  ⚠ **A deletion the mutation proof forced.** Porting `_TRAILING_NOUN` into `LICENSE_BEFORE` produced
+  a mutant that SURVIVED. It is unreachable: wherever a row noun precedes a declared id, the ANCHORED
+  pass reads that site, its span starts AT the noun and it wins the dedup — and dropping the
+  `_TRAILING_NOUN` substitution at `3a9f61a0` ALSO turns no control red and leaves the census
+  byte-identical, so it was already dead there. Deleted rather than ported, because a clause nothing
+  can reach reports coverage the rule does not have.
+  **R24-3** (`59f71999`, P3) — a §6.6 span crossing a line ending seeded its whole content against the
+  OPENER's line, sending a reader to the wrong place for content the ordinary naming scan deliberately
+  masks (so the seed is its only diagnostic). `_inline_raw` yields one entry per LINE now, each located
+  through `Paragraph.locate` at its own offset; the control computes the expected line FROM the
+  fixture, since a constant would be a claim about `HEADER`'s length.
+  ⚠ Two "this mechanism is unreachable" comments quoted the control-registry SIZE at the moment of
+  measuring (540, 554) — a count that is stale the moment the next control lands, leaving a reader
+  unable to tell a wrong claim from an old one. Both name the MUTATION and the two commands now
+  (`a8178006`). ⚠ And one of them had left a *live justification for a dead case* at the rule itself
+  (`d420b632`): `stream()`'s drop-over-blank precedence still argued from "a link tail holding a `.md`
+  file token", which is precisely the overlap family 1 removed — since the tokens are read off the
+  rendering, no `file` span is emitted inside a dropped tail at all. The ordering stands with NO
+  witness; it is kept because `disp` is a max over 0 < 1 < 2 and the ordering is what makes that max
+  total, and the docstring now says how to look for a shape that would restore one, with the
+  denominator stated (four shapes tried, none overlapped — a sample, not a proof).
+  **555 controls, 288 mutants / 0 survived / 0 crashed**, 0 `(unknown control)`; conformance 295 / 0 /
+  0 + 335 / 0 / 0; `scripts/trip-wires.sh` rc 0; and the #506 census `--worklist` **byte-identical** —
+  zero changed lines, which is what a round of root fixes with no census movement should look like.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
