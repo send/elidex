@@ -317,9 +317,10 @@ MUTANTS += [
      '                for col, cell in enumerate(row.cells):\n                    if row.schema is not None and col == row.schema.idc:\n                        continue\n                    src = (',
      ["(id) the id cell's trailing prose is scanned: `**7z** — Slice 9z lands first` reports `9z` "
       "(the row's own `7z` is suppressed)"]),
-    ("R10-3 file: a bare `.md` name is a path-syntax run (re-inject the narrow class)", LEXER,
-     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))*%s(?!%s))',
-     '|(?P<file>[\\w./-]*%s(?!%s))',
+    ("R10-3 file: a bare `.md` name is a path-syntax run (re-inject a narrow class: `+`, `@` and `(` "
+     "bound the run, so a path character becomes a boundary)", LEXER,
+     '        if c in _NAME_BOUNDARY or c.isspace():',
+     '        if c in _NAME_BOUNDARY or c.isspace() or c in "+@(":',
      ["(file) `9z+notes.md` is one file name: no site", "(file) `9z@notes.md` is one file name: no site",
       "(file) `(9z).md` is one file name (a balanced parenthesis pair): no site"]),
     # -- PR #510 Codex R11

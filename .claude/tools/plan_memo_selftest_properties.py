@@ -599,6 +599,72 @@ def encoding_sweep_control(M):
             % (calls, len(files), len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
 
 
+def _paren_shapes(depth):
+    """Every balanced parenthesis shape of nesting depth 0..`depth`, as a
+    (prefix, suffix) pair wrapping a stem -- generated from the definition of
+    balance, so depth 3 is present because the generator reaches it and not
+    because anybody typed it."""
+    out = [("", "")]
+    for _ in range(depth):
+        out += [("(" + a, b + ")") for a, b in out] + [(a + "()", b) for a, b in out]
+    return sorted(set(out))
+
+
+def file_token_resolver_agreement_control(M):
+    """PROPERTY: a name the SIBLING RESOLVER accepts, standing alone in prose, is
+    ONE file token to the LEXER -- the correspondence `plan_memo_lexer`'s
+    `FILE_SUFFIX` comment asserts, and the one PR #510 R26-2 falsified.
+
+    That comment says `sibling_path` stage (d) "CONSUMES this constant for the
+    same test on a link destination", i.e. that the two readers decide "is this
+    a file name" once.  They did not: the lexer's token arm admitted a FLAT
+    parenthesised chunk while the resolver accepts nested-parenthesis `.md`
+    paths, so over the prose `foo((9z)).md` the lexer could reach no further
+    left than the bare suffix and reported the declared id `9z` as a naming
+    site.
+
+    THE POPULATION IS GENERATED FROM THE PROPERTY: every balanced parenthesis
+    shape up to depth 3, wrapped round a stem holding an id, before and after
+    it, plus the empty shape -- so depth 3 is covered because balance generates
+    it.  Each name is kept only if `sibling_path` resolves it; the lexer must
+    then read it as exactly one span covering the whole name.  A run that
+    yielded no name at all would report the same "no disagreement" a clean one
+    does, so the corpus is required to be non-empty AND to hold members of
+    depth >= 2 -- the class the flat arm could not read.
+
+    HONESTLY, the correspondence is ONE-directional and only that direction is
+    a claim: the resolver refuses names the lexer tokenises quite happily
+    (`NUL.md`, `a:b.md`, `/abs/x.md` -- stage (c)'s standing polarity), because
+    the resolver answers "is there a memo beside this one" and the lexer answers
+    "where does this name end".  What must never happen is the other way round:
+    a string the resolver would follow to a file, which the lexer breaks into
+    pieces and reads an id out of."""
+    import pathlib as _p
+    import plan_memo_lexer, plan_memo_sibling      # the freshly loaded set
+
+    names, deep = [], 0
+    for pre, post in _paren_shapes(3):
+        for stem in ("9z", "m9z", "9z.notes", "a" + pre + "9z" + post + "b"):
+            name = pre + stem + post + plan_memo_lexer.FILE_SUFFIX
+            if plan_memo_sibling.sibling_path(_p.Path("/nonexistent-fixture-root"), name) is None:
+                continue
+            names.append(name)
+            deep = max(deep, max(_depth_profile(name)))
+    hits = [n for n in names
+            if plan_memo_lexer.file_and_cite_spans(n) != [(0, len(n), "file")]]
+    return (not hits and len(names) >= 20 and deep >= 2,
+            "%d resolver-accepted name(s) swept, deepest nesting %d, %d not read as one token%s"
+            % (len(names), deep, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
+
+
+def _depth_profile(s):
+    d, out = 0, [0]
+    for c in s:
+        d += (c == "(") - (c == ")")
+        out.append(d)
+    return out
+
+
 class _RecordingStream:
     """A stand-in for `sys.stdout` that records what `reconfigure` was asked
     for.  Not a mock of a stream: `stream_encoding_control` never writes to
@@ -664,6 +730,8 @@ def registry():
             ("CONTROL", break_equivalence_control),
         "PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)":
             ("CONTROL", anchored_matcher_width_control),
+        "PROPERTY: every name the sibling resolver accepts, standing alone in prose, is ONE file token to the lexer (the correspondence FILE_SUFFIX's comment asserts)":
+            ("CONTROL", file_token_resolver_agreement_control),
         "PROPERTY: no source of this checker performs text I/O without naming its encoding (the checker set and the self-test both, globbed)":
             ("CONTROL", encoding_sweep_control),
         "PROPERTY: the entry point sets BOTH output streams to UTF-8 -- the absence a call-site sweep cannot report":

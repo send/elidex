@@ -62,6 +62,7 @@ MODULES
                           work witnesses) / _selftest_cases.py /
                           _selftest_cases_pr510.py /
                           _selftest_cases_inline.py /
+                          _selftest_cases_r26.py /
                           _selftest_cases_sibling.py (the resolver's controls,
                           the one Case module carved on a SUBJECT rather than a
                           review round) /

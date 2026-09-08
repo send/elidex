@@ -212,8 +212,8 @@ MUTANTS += [
       "file `sub/child.md` is walked"]),
     # -- PR #510 Codex R20: row-id composers cover every row kind; the suffix-only file name
     ("R20 #1 file: the stem of a bare `.md` file name may be EMPTY (re-inject the >=1-character stem)", LEXER,
-     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))*%s(?!%s))',
-     '|(?P<file>(?:[^\\s\\[\\]()<>`|]|\\([^\\s()]*\\))+%s(?!%s))',
+     '            if s <= e - k:      # the suffix itself must lie inside the run',
+     '            if s < e - k:',
      ["(file) `.md` alone is a file name (the suffix-only name `sibling_path` accepts): beside a declared no-owner id "
       "`md`, `Read .md for details` reports 0 sites"]),
     ("R20 #1 sibling: stage (d) is the lexer's FILE_SUFFIX test alone (re-inject a stem requirement on the resolver "

@@ -20,7 +20,7 @@ lex?".
 runner reads the one list at one import site.
 """
 
-from plan_memo_selftest_mutants import CHECK, CONTROLS, MEMO, MUTANTS
+from plan_memo_selftest_mutants import CHECK, CONTROLS, LEXER, MEMO, MUTANTS, SIBLING
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
                 "(the checker set and the self-test both, globbed)")
@@ -68,4 +68,75 @@ MUTANTS += [
      "locale's encoding and every diagnostic written there dies on a non-ASCII host)", CHECK,
      "    for stream in (sys.stdout, sys.stderr):", "    for stream in (sys.stdout,):",
      [R26_STREAMS]),
+]
+
+# -- R26-2: the file-name token reads §6.3's balanced-pair rule at any depth.
+R26_NESTED = ("(R26 file) `foo((9z)).md` is ONE file name: nested balanced parentheses are §6.3's rule "
+              "at any depth, so the id inside the name is no naming site.  Until R26 the token arm "
+              "matched a FLAT chunk only, could reach no further left than the bare `.md`, and reported "
+              "`9z`")
+R26_ACROSS = ("(R26 file) `(m.md(9z)md).md`: the run is balanced ACROSS its groups, so it is one name "
+              "and not two tokens with the id exposed between them -- the second shape the flat arm "
+              "could not read, and the one that leaks an id rather than a parenthesis")
+R26_OPEN = ("(R26 file) `9z(x.md)` reports `9z`: the run ending at the suffix may not hold the "
+            "parenthesis still OPEN there, so it starts one past it and the name is `x.md` -- the half "
+            "that says the start is the innermost open parenthesis and not the segment")
+R26_UNMATCHED = ("(R26 file) `9z)foo.md` still reports `9z`: a `)` that closes nothing may be held by "
+                 "no run and crossed by none, so the name is `foo.md` and the id before it is outside "
+                 "-- the second discriminating half, against a scan that balanced parentheses by "
+                 "IGNORING the ones it could not match")
+R26_LONGEST = ("(R26 file) `a.md+9z+b.md` is ONE name ending at the LAST suffix, not the first: "
+               "leftmost-LONGEST, as a pattern would have read it.  Stopping at the first `.md` would "
+               "leave `9z` standing outside the token.  ⚠ The first fixture written for this clause "
+               "was `a.md.9z.md`, and it was NOT discriminating -- an id directly before `.md` is a "
+               "DOTTED NUMBER to the id grammar and no site either way, so both readings reported 0 "
+               "and the mutant survived.  The id has to be separated from the second suffix")
+R26_AGREE = ("PROPERTY: every name the sibling resolver accepts, standing alone in prose, is ONE file "
+             "token to the lexer (the correspondence FILE_SUFFIX's comment asserts)")
+R26_TOKEN_LINEAR = ("file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan "
+                    "from every start position")
+
+MUTANTS += [
+    # ONE clause per row, because the scan is four clauses and any one of them
+    # alone would let a defect through: what an open parenthesis does, what an
+    # unmatchable close does, where a run may start, and which end wins.
+    ("R26-2 file token: a parenthesis NESTS (drop the push: the stack never deepens, so a nested pair "
+     "reads as an unmatchable close and cuts the run -- the flat arm's own defect, re-injected)", LEXER,
+     '        if c == "(":\n            stack.append(i)', '        if c == "(":\n            pass',
+     [R26_NESTED, R26_ACROSS, R26_AGREE]),
+    ("R26-2 file token: an unmatchable `)` ends the segment (drop it: a run holds a close that opens "
+     "nothing, and the id before it is swallowed)", LEXER,
+     '                seg = i + 1     # an unmatchable `)`: no run holds it, none crosses it',
+     '                pass',
+     [R26_UNMATCHED]),
+    ("R26-2 file token: a run starts one past the INNERMOST parenthesis still open (re-inject the "
+     "segment start: the token holds an unclosed `(` and everything before it)", LEXER,
+     '            s = stack[-1] + 1 if stack else seg', '            s = seg',
+     [R26_OPEN]),
+    ("R26-2 file token: leftmost-LONGEST (keep the first end per start instead of the last: the token "
+     "stops at the first suffix and leaves the rest of the name standing)", LEXER,
+     '            if s <= e - k:      # the suffix itself must lie inside the run\n                longest[s] = e',
+     '            if s <= e - k:      # the suffix itself must lie inside the run\n                longest.setdefault(s, e)',
+     [R26_LONGEST]),
+    # The COST row, deliberately VALUE-PRESERVING: the replacement reaches the
+    # same segment start by walking back to it, so nothing about the reading
+    # changes and the only thing the control can be reacting to is the WORK.
+    # (What `re` did was re-enter the arm at every start position; that is not
+    # one substring here, and a mutant that also changed the answer would let a
+    # behaviour control take the credit for killing it.)
+    ("R26-2 work: the token scan is ONE pass (re-inject a walk back to the segment start at every "
+     "candidate -- the same answer, quadratically)", LEXER,
+     '            s = stack[-1] + 1 if stack else seg',
+     '            s = stack[-1] + 1 if stack else [seg for _ in range(i + 1)][-1]',
+     [R26_TOKEN_LINEAR]),
+    # The LOWER BOUNDS of the agreement sweep, which are not decoration: a
+    # corpus that came back empty, or one holding only flat shapes, would
+    # report the same "no disagreement" a clean sweep does.  This row shrinks
+    # the corpus from the RESOLVER's side, which is the half the sweep does not
+    # control, and the `deep >= 2` bound is the only thing that can see it.
+    ("R26-2 agreement: the sweep's corpus must reach nesting depth 2 (make the resolver refuse every "
+     "parenthesised name: the sweep then agrees about flat names only, and says so)", SIBLING,
+     '    if not name.endswith(FILE_SUFFIX):                           # (d)',
+     '    if not name.endswith(FILE_SUFFIX) or "(" in name:            # (d)',
+     [R26_AGREE]),
 ]

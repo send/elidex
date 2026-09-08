@@ -328,9 +328,52 @@ def linear_image_demotion_control(M):
     return ok, ("source lines for 100 / 400 nested, at most 4x the work for 4x the input: %s"
                 % "; ".join(detail))
 
+def linear_file_token_control(M):
+    """The linearity witness for the bare file-name token: N parenthesis groups
+    (or N names) are ONE pass over the text, not a scan from every start.
+
+    THE DEFECT THIS REPLACED WAS ALREADY THERE (PR #510 R26-2, found while
+    fixing the token's paren rule and reported by nobody).  `_TOKEN` was an
+    `re` pattern whose file arm re-entered at every start position, so a run
+    with no `.md` in it was rescanned from each of its own characters: measured
+    against the retired pattern, `(a)`xN cost 3.95x and `a`xN 4.00x per
+    doubling, where this scan costs 2.00x and 1.98x.  The paren fix and the
+    cost fix are one edit, because "balanced at any depth" is not a regular
+    language and leaving `re` is what made the reading expressible at all.
+
+    Two probes, and they fail differently: `(a)`xN has N groups and NO
+    candidate end (the retired pattern's worst case, a run it had to reject),
+    while `x.md `xN has N candidate ends and N segments (this scan's own worst
+    case, and the shape the mutant re-injects a per-candidate walk into).  A
+    control on either alone would leave the other's clause unwatched.
+
+    Counted by `_count_lines`: the work is a `for` inside one function and
+    passes through no module binding `_count_calls` could watch."""
+    import plan_memo_lexer     # the freshly loaded module
+
+    ok, detail = True, []
+    for label, mk, per in (("(a) groups", lambda n: "(a)" * n, 40),
+                           ("x.md names", lambda n: "x.md " * n, 60)):
+        seen = {}
+        for n in (100, 400):
+            try:
+                with _count_lines(plan_memo_lexer, limit=per * n) as c:
+                    plan_memo_lexer.file_and_cite_spans(mk(n))
+            except _WorkExceeded:
+                return False, ("%d %s cost more than %d source lines: not linear"
+                               % (n, label, per * n))
+            seen[n] = c.lines
+        ok = ok and seen[400] <= 4 * seen[100] + 400
+        detail.append("%s %d / %d (<= %dN)" % (label, seen[100], seen[400], per))
+    return ok, ("source lines for 100 / 400, at most 4x the work for 4x the input: %s"
+                % "; ".join(detail))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
+        "file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every start position":
+            ("CONTROL", linear_file_token_control),
         "emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the Appendix's openers_bottom)":
             ("CONTROL", linear_emphasis_control),
         "links() is linear: 30 nested brackets are one inline_pass call":

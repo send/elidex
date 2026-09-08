@@ -713,23 +713,65 @@ FILE_SUFFIX = ".md"
 # edge (`9z+notes.md`, `9z@notes.md`, `計画.md`, `.md` are file names --
 # what `sibling_path` accepts), with the inline delimiters `[` `]` `<` `>`
 # `` ` `` `|` excluded so a link's visible text (`[Slice 9z](slice-9z-sib.md)`)
-# and a code span are not swallowed, and parentheses admitted only as a
-# balanced pair (`(9z).md`).  Trailing closing punctuation (`)` `,` `.` `;`)
-# needs no autolink-style stripping rule: the token ENDS at the suffix, so
-# anything after it is outside by construction (the GFM §6.9
-# extended-autolink trailing-punctuation rule is moot here, and is why none
-# is picked).  The end boundary is the grammar's ASCII class (`ALNUM`), so
-# `x.mdの` still ends the token; the citation shape is the grammar's
-# `CITE_ID` (either case -- `[c1]` is `[C1]` under §6.3 label matching, and
-# the unresolved-reference walk exempts it by the same predicate).
-_TOKEN = re.compile(r"(?P<cite>%s)|(?P<file>(?:[^\s\[\]()<>`|]|\([^\s()]*\))*%s(?!%s))"
-                    % (CITE_ID, re.escape(FILE_SUFFIX), ALNUM))
+# and a code span are not swallowed, and parentheses admitted only in BALANCED
+# UNESCAPED PAIRS -- §6.3's own rule for a link destination, at any nesting
+# depth (`(9z).md`, `foo((9z)).md`, `(m.md(9z)md).md`).  Trailing closing
+# punctuation (`)` `,` `.` `;`) needs no autolink-style stripping rule: the
+# token ENDS at the suffix, so anything after it is outside by construction
+# (the GFM §6.9 extended-autolink trailing-punctuation rule is moot here, and
+# is why none is picked).  The end boundary is the grammar's ASCII class
+# (`ALNUM`), so `x.mdの` still ends the token; the citation shape is the
+# grammar's `CITE_ID` (either case -- `[c1]` is `[C1]` under §6.3 label
+# matching, and the unresolved-reference walk exempts it by the same
+# predicate).  No §2.4 escape is honoured and none should be: the disposition
+# hands this the block AS RENDERED, where `\(` has already become `(`, and the
+# raw-line seed hands it a line that is never inline-parsed, where a backslash
+# IS the character the reader sees.
+#
+# ⚠ WHY THIS IS A SCAN AND NOT A PATTERN (PR #510 R26-2).  "Balanced at any
+# depth" is not a regular language, and the arm that stood here until R26
+# approximated it with a FLAT chunk (`\([^\s()]*\)`).  That made the two
+# readings of "is this a file name" disagree: over the prose `foo((9z)).md` the
+# pattern could match only the suffix `.md`, leaving the declared id `9z`
+# exposed to the naming scan, while `sibling_path` -- documented right here as
+# consuming `FILE_SUFFIX` for the SAME test -- accepts nested-parenthesis `.md`
+# paths without a murmur.  The reader that moved is THIS one, and it moved to
+# the rule §6.3 already spells once for a link destination, because the
+# resolver has no boundaries to find (its input is a destination the link
+# grammar already delimited) while this reader has nothing BUT boundaries to
+# find, so a weaker paren rule here was the only one of the two that was ever
+# an approximation.
+#
+# AND IT IS LINEAR, which the pattern was not: `re` re-entered the arm at every
+# start position, so `(a)`xN and `a`xN cost quadratic time (measured 3.95x /
+# 4.00x per doubling; this scan is 2.00x / 1.98x).  One pass, one paren stack.
+_CITE_TOKEN = re.compile(CITE_ID)
+_ALNUM_AT = re.compile(ALNUM)
+
+# The characters that BOUND a file-name run and are not whitespace: the inline
+# delimiters the rule above excludes.  Whitespace is asked of the character
+# itself (`str.isspace()`, which agrees with `re`'s `\s` on every code point of
+# planes 0-1, verified over 0x0000-0x11000).
+_NAME_BOUNDARY = frozenset("[]<>`|")
 
 
 def file_and_cite_spans(text):
     """[(start, end, "cite" | "file")] over `text`: the ONE reading of "a
-    bare `.md` file name / a citation id stands here" (`_TOKEN`), given a
-    name so that reading has exactly one caller-visible spelling.
+    bare `.md` file name / a citation id stands here" (the rule above), given
+    a name so that reading has exactly one caller-visible spelling.
+
+    ONE LEFT-TO-RIGHT PASS with a paren stack, then one selection.  The pass
+    records, for every position where `FILE_SUFFIX` ends and the next character
+    is not `ALNUM`, the LEFTMOST start a run ending there may have: one past
+    the innermost parenthesis still open there, or the start of the current
+    SEGMENT (the text since the last whitespace, inline delimiter, or
+    unmatchable `)` -- none of which any run may contain, and none of which any
+    run may cross).  The selection is leftmost-longest, the reading a pattern
+    would have given: per start keep the longest end (the ends arrive in
+    increasing order), then walk the starts upward taking each one that begins
+    at or after the previous token's end.  Citations are matched separately and
+    merged by position -- they cannot overlap a file name, because `[` and `]`
+    bound one.
 
     WHICH TEXT is the caller's to say, and the two callers say different
     things because they hold different texts (PR #510 R24; until then both
@@ -758,7 +800,34 @@ def file_and_cite_spans(text):
         half of this predicate (the citation arm only), so
         `<div data-note="slice-9z-sib.md">` reported a `9z` naming site that
         the identical file name in a paragraph does not."""
-    return [(m.start(), m.end(), m.lastgroup) for m in _TOKEN.finditer(text)]
+    n, k = len(text), len(FILE_SUFFIX)
+    stack, seg, longest = [], 0, {}
+    for i, c in enumerate(text):
+        if c in _NAME_BOUNDARY or c.isspace():
+            del stack[:]
+            seg = i + 1
+            continue
+        if c == "(":
+            stack.append(i)
+        elif c == ")":
+            if stack:
+                stack.pop()
+            else:
+                seg = i + 1     # an unmatchable `)`: no run holds it, none crosses it
+        e = i + 1
+        if text[e - k:e] == FILE_SUFFIX and (e == n or not _ALNUM_AT.match(text, e)):
+            s = stack[-1] + 1 if stack else seg
+            if s <= e - k:      # the suffix itself must lie inside the run
+                longest[s] = e
+    out, pos = [], 0
+    for s in sorted(longest):
+        e = longest[s]
+        if s >= pos and e > pos:
+            out.append((s, e, "file"))
+            pos = e
+    out.extend((m.start(), m.end(), "cite") for m in _CITE_TOKEN.finditer(text))
+    out.sort()
+    return out
 
 
 class Lexed:
