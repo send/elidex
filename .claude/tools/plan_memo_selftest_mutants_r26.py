@@ -481,3 +481,31 @@ MUTANTS += [
      "    if one_line_block(line) is not None or quote_content(line) is not None:\n        return True",
      [R29_QUOTE_BUILD]),
 ]
+
+
+R29_HTML_TAGS = ("PROPERTY: the \u00a74.6 start-condition-6 tag list in the code is the list CommonMark "
+                 "0.31.2 spells, both directions, against the vendored extraction (source, version and "
+                 "sha256 recorded)")
+
+MUTANTS += [
+    # -- R29-3: the type-6 tag list.  TWO rows, because a transcription can
+    # drift either way and each direction is a different defect: a name the
+    # spec does not have makes the checker treat a line as an HTML block where
+    # cmark-gfm does not, and a missing one makes it inline-parse a block.
+    #
+    # The first row IS the change this round was asked to make and refused.
+    # `hgroup` occurs ZERO times in CommonMark 0.31.2's spec text -- 0.31
+    # added `search` and dropped it -- so adding it would have been a
+    # conformance regression, and the row is here so that the same request
+    # arrives at a red gate rather than at another round of argument.
+    ("R29-3 \u00a74.6: the type-6 tag list holds no name the spec does not (add `hgroup`, which 0.31 "
+     "removed when it added `search` -- the change this round was asked for)", BLOCKS,
+     '    "head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|"',
+     '    "head|header|hgroup|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|"',
+     [R29_HTML_TAGS]),
+    ("R29-3 \u00a74.6: the type-6 tag list holds every name the spec does (drop `search`, the one 0.31 "
+     "added -- the direction an added-name check cannot see)", BLOCKS,
+     '    "option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")',
+     '    "option|p|param|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")',
+     [R29_HTML_TAGS]),
+]

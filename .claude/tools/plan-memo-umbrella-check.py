@@ -59,7 +59,9 @@ MODULES
                           _selftest_properties.py (the PROPERTY controls whose
                           subject is this checker AS WRITTEN: the source-text,
                           AST, code-object and docstring sweeps, which call
-                          nothing of it) /
+                          nothing of it -- and the §4.6 type-6 tag list, which
+                          it holds against commonmark-0.31.2-html-block-tags.json,
+                          vendored from the spec text with its sha256) /
                           _selftest_invariants.py (the PROPERTY controls whose
                           subject is this checker RUN: one document written two
                           ways that render the same must get one verdict, and a

@@ -606,6 +606,98 @@ def module_map_existence_control(M):
                           % (len(mapped), len(have), len(dangling),
                              (": " + ", ".join(dangling)) if dangling else ""))
 
+# The §4.6 start-condition-6 tag list, VENDORED from the spec text beside the
+# two example corpora, with the source, the version, the sha256 of the file it
+# was read from and the extraction that produced it.  The list in the code is a
+# regex alternation and this is a set of names; the control below is what makes
+# them one claim.
+_HTML_TAGS_FILE = "commonmark-0.31.2-html-block-tags.json"
+# An arm of that alternation is a bare tag name, or a name with ONE digit range
+# after it (`h[1-6]`, which is how the code spells the six heading tags).  An
+# arm of any other shape turns the control RED rather than being skipped: the
+# expansion below is the only reading of the alternation this control has, and
+# an arm it cannot read is an arm it cannot check.
+_TAG_ARM = re.compile(r"([a-z]+)(?:\[([0-9])-([0-9])\])?$")
+
+
+def _expanded_tag_names(alternation):
+    """Every tag name the alternation admits -> (set, "") or (None, why)."""
+    out = set()
+    for arm in alternation.split("|"):
+        m = _TAG_ARM.match(arm)
+        if not m:
+            return None, "the arm %r is not a tag name or a name with a digit range" % arm
+        stem, lo, hi = m.groups()
+        out |= {stem} if lo is None else {stem + str(k) for k in range(int(lo), int(hi) + 1)}
+    return out, ""
+
+
+def html_block_tag_names_control(M):
+    """PROPERTY: the §4.6 start-condition-6 tag list in `plan_memo_blocks` is
+    the list CommonMark 0.31.2 spells -- both directions, against the vendored
+    extraction.
+
+    WHY IT IS VENDORED (PR #510 R29-3).  A review round asked for `hgroup` to
+    be added, citing "CommonMark 0.31.2 §4.6 lists `hgroup`".  It does not:
+    that spec text holds ZERO occurrences of the string, case-insensitive, and
+    its condition-6 list runs `... frameset`, `h1` .. `h6`, `head`, `header`,
+    `hr`, `html`, `iframe` ... and includes `search`, which is the 0.31 change
+    that added `search` and dropped `hgroup`.  Adding it would have been a
+    conformance REGRESSION, and answering that took a round.  It was the second
+    false spec citation in four rounds (R26-1 read §6.3 as capping parenthesis
+    nesting at 32; it permits a limit and names none), and both were answerable
+    from the spec text in one command.  So the list stops being an argument and
+    becomes a gate: the names are extracted from `spec.txt`, stored beside the
+    two example corpora with the source, the version, the sha256 of the file
+    read (`bfef4ddc...`) and the extraction that produced them, and this
+    control requires the code and the extraction to agree.
+
+    THE CODE KEEPS ITS OWN LITERAL rather than reading the artefact, because
+    the checker is a standalone program that must run on a memo with nothing
+    but the standard library beside it -- the vendored files are the
+    self-test's, not the tool's.  This is the shape the example corpora already
+    have: the code implements the spec, the vendored data checks it.
+
+    BOTH DIRECTIONS, and both are the point: a name the code has and the spec
+    does not is a line the checker treats as an HTML block when cmark-gfm does
+    not (which is what the requested change would have created), and a name
+    the spec has and the code does not is a block the checker will inline-parse.
+
+    HONESTLY, what it cannot say.  That the code's list is USED -- so the
+    control also requires the alternation to stand inside the compiled
+    `_HTML_BLOCK` pattern, since a constant nothing reads would agree with the
+    spec for ever.  That the extraction is right: it is re-derivable from the
+    recorded command and the recorded sha256, which is the claim, and no
+    control here re-fetches the network.  And nothing about start conditions
+    1-5 and 7, whose literals are short enough to read but are checked only by
+    the 295 vendored block examples."""
+    import json
+    import plan_memo_blocks
+
+    path = HERE / _HTML_TAGS_FILE
+    if not path.exists():
+        return False, "the vendored list %s is missing" % _HTML_TAGS_FILE
+    data = json.loads(path.read_text(encoding="utf-8"))
+    missing = [k for k in ("source", "version", "sha256", "derivation", "tag_names") if not data.get(k)]
+    if missing:
+        return False, "%s names no %s: an artefact without its provenance is a second transcription" % (
+            _HTML_TAGS_FILE, ", ".join(missing))
+    alternation = plan_memo_blocks._HTML_TAG_NAMES
+    if alternation not in plan_memo_blocks._HTML_BLOCK.pattern:
+        return False, "_HTML_TAG_NAMES does not stand in the compiled _HTML_BLOCK pattern: the list is not read"
+    code, why = _expanded_tag_names(alternation)
+    if code is None:
+        return False, why
+    spec = set(data["tag_names"])
+    extra, absent = sorted(code - spec), sorted(spec - code)
+    ok = not extra and not absent and len(spec) >= 50
+    return ok, ("%d tag name(s) in the code against %d vendored from %s %s (sha256 %s), %d only in the "
+                "code%s, %d only in the spec%s"
+                % (len(code), len(spec), data["source"], data["version"], data["sha256"][:8],
+                   len(extra), (" (%s)" % ", ".join(extra)) if extra else "",
+                   len(absent), (" (%s)" % ", ".join(absent)) if absent else ""))
+
+
 def registry():
     """name -> (kind, control), the PROPERTY fragment of the one table: this
     module's source sweeps merged with the invariants module's."""
@@ -623,6 +715,8 @@ def registry():
             ("CONTROL", encoding_sweep_control),
         "PROPERTY: no source of this checker removes an element from the FRONT of a list (the O(1) half of the population walk's drain, which no work witness here can measure)":
             ("CONTROL", front_drain_sweep_control),
+        "PROPERTY: the §4.6 start-condition-6 tag list in the code is the list CommonMark 0.31.2 spells, both directions, against the vendored extraction (source, version and sha256 recorded)":
+            ("CONTROL", html_block_tag_names_control),
         "PROPERTY: every module of this checker is NAMED in the entry point's MODULES map (the map is checked, not asked to be kept)":
             ("CONTROL", module_map_completeness_control),
         "PROPERTY: every name the entry point's MODULES map spells is a file that exists (the rename half the completeness direction cannot see)":
