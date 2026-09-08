@@ -149,7 +149,7 @@ def _growth_corpus(atoms):
     return corpus
 
 
-def _read_block(M, text, keep):
+def _read_block(text, keep):
     """The block-level inline reading of one text, which is what the corpus
     measures: Phase 2 over the raw text, the disposition, and the residue
     scan -- `plan_memo_lexer.inline_pass` and everything
@@ -177,12 +177,12 @@ def _outgrew(small, large):
     return worst
 
 
-def _growth_at(M, unit, n, modules, keep):
+def _growth_at(unit, n, modules, keep):
     """`_outgrew` between `unit` repeated n and 2n times."""
     tallies = []
     for reps in (n, 2 * n):
         with _count_line_sites(modules) as c:
-            _read_block(M, unit * reps, keep)
+            _read_block(unit * reps, keep)
         tallies.append(c.counts)
     return _outgrew(*tallies)
 
@@ -251,18 +251,18 @@ def generated_growth_control(M):
     corpus = _growth_corpus(atoms)
     flagged = []
     for name, unit in corpus:
-        if _growth_at(M, unit, GROWTH_SWEEP, modules, keep) is not None:
+        if _growth_at(unit, GROWTH_SWEEP, modules, keep) is not None:
             flagged.append((name, unit))
-    bad, unconfirmed = [], 0
+    bad, tested = [], 0
     for name, unit in flagged:
         # the verdict needs ONE confirmation and the report needs a few, so a
         # red run stops confirming after `GROWTH_REPORT` of them.  The GREEN
         # path is unaffected -- it confirms every candidate, because none of
         # them confirms -- and it is the green path the trip-wire pays for.
         if len(bad) >= GROWTH_REPORT:
-            unconfirmed = len(flagged) - len(bad)
             break
-        w = _growth_at(M, unit, GROWTH_CONFIRM, modules, keep)
+        tested += 1
+        w = _growth_at(unit, GROWTH_CONFIRM, modules, keep)
         if w is not None:
             (file, lineno), small, large, over = w
             bad.append("%s :: %s:%d ran %d -> %d over %d -> %d repetitions (%.2fx the bound)"
@@ -272,8 +272,8 @@ def generated_growth_control(M):
                      % (len(atoms), len(corpus), len(flagged), GROWTH_SWEEP, 2 * GROWTH_SWEEP,
                         len(bad), GROWTH_CONFIRM, 2 * GROWTH_CONFIRM,
                         (": " + "; ".join(bad)) if bad else "",
-                        (" (+%d flagged probes not confirmed: the verdict is already red)"
-                         % unconfirmed) if unconfirmed else ""))
+                        (" (%d of the flagged probes were left unmeasured: the verdict is "
+                         "already red)" % (len(flagged) - tested)) if tested < len(flagged) else ""))
 
 
 def registry():
