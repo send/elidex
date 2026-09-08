@@ -34,10 +34,10 @@ modules' own seams.  All three append to this same `MUTANTS` -- one list, filled
 by three modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, ROLES, CHECK, CONTROLS = (
+IDS, EMPHASIS, LEXER, BLOCKS, TABLES, MEMO, POPULATION, ROLES, CHECK, CONTROLS = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_lexer.py", "plan_memo_blocks.py",
-    "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
-    "plan_memo_selftest_controls.py")
+    "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_population.py", "plan_memo_roles.py",
+    "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py")
 
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
@@ -102,7 +102,7 @@ MUTANTS = [
     ("span: an ATX heading is a block", BLOCKS,
      '    m = _ATX.match(rest)\n    if m:', '    m = None\n    if m:',
      ["(span) a paragraph ends at an ATX heading"]),
-    ("A x E: kind markers are read from the MASKED declaring field", MEMO,
+    ("A x E: kind markers are read from the MASKED declaring field", POPULATION,
      'row.field = stream(row.cells[row.schema.decl].lexed)',
      'row.field = row.cells[row.schema.decl].text',
      ["(span) a quoted kind marker is not a declaration (A x E)"]),
@@ -132,7 +132,7 @@ MUTANTS = [
      '    return width is not None',
      ["(rc) a slice header over a one-cell delimiter row is not a table, so its wide body row "
       "is not a width miss"]),
-    ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", MEMO,
+    ("table: a schema body row of the wrong width is exit 2 (the width miss gates)", POPULATION,
      '                for lineno, msg in t.misses:\n'
      '                    self.misses.append((self.display(memo.path), lineno, msg))',
      '                for lineno, msg in t.misses:\n'
@@ -212,30 +212,30 @@ MUTANTS = [
      ["(def) a definition cannot interrupt a paragraph: the reference is unanswered, and "
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
-    ("population: every memo's rows are declared (census)", MEMO,
+    ("population: every memo's rows are declared (census)", POPULATION,
      '        for memo in self.memos:\n            self._declare(memo)', '        self._declare(self.main)',
      ["(population) an umbrella declared in a linked memo is in the census"]),
-    ("population: every memo's ids are in the keep-set", MEMO,
+    ("population: every memo's ids are in the keep-set", POPULATION,
      '        return set(self.ids)',
      '        return {rid for rid, r in self.ids.items() if r.memo is self.main}',
      ["(population) a terminal id declared in a linked memo is in the keep-set, so `Tq / 9z` is "
       "an id-only run, not code"]),
-    ("population: every memo's rows are asserted", MEMO,
+    ("population: every memo's rows are asserted", POPULATION,
      'return [r for memo in self.memos for r in memo.schema_rows(name)]',
      'return list(self.main.schema_rows(name))',
      ["(b) a sibling umbrella's Deps edge is asserted"]),
-    ("population: the link walk is transitive", MEMO,
+    ("population: the link walk is transitive", POPULATION,
      'queue.extend(memo.linked_files())',
      'queue.extend(memo.linked_files() if len(self.memos) == 1 else [])',
      ["(population) the population is transitive: a memo linked from a linked memo is scanned"]),
-    ("gate: an absent linked memo is a schema miss", MEMO,
+    ("gate: an absent linked memo is a schema miss", POPULATION,
      '            except (OSError, UnicodeDecodeError) as e:\n                self.misses.append(',
      '            except (OSError, UnicodeDecodeError) as e:\n                [].append(',
      ["(rc) a linked memo that is not on disk is rc 2, never clean"]),
-    ("gate: an unmatched schema is a schema miss", MEMO,
+    ("gate: an unmatched schema is a schema miss", POPULATION,
      '                if s.name not in matched:', '                if False:',
      ["(rc) a schema with no matching table is rc 2"]),
-    ("gate: a duplicate declaration is a schema miss", MEMO,
+    ("gate: a duplicate declaration is a schema miss", POPULATION,
      '                if rid in self.ids:', '                if False:',
      ["(rc) the same id declared in two memos is rc 2"]),
     ("gate: KIND-SPELLING is a mechanical finding", CHECK,
@@ -255,7 +255,7 @@ MUTANTS = [
      'return t.id if t is not None and t.start == 0 and t.kind in kinds else cell_text.strip()',
      ["(id) a cell that does not start with an id declares nothing: the row is unkeyed (its "
       "Deps edge would go unasserted), so the run is a schema miss"]),
-    ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", MEMO,
+    ("#2 gate: an unkeyed schema row is a schema miss (not a note, not a silent drop)", POPULATION,
      '                    if not is_blank_id_cell(row.id_cell()):\n'
      '                        self.misses.append(',
      '                    if False:\n'
@@ -277,10 +277,10 @@ MUTANTS = [
      '    m = MARKER_RE.search(field)',
      '    m = list(MARKER_RE.finditer(field))[-1]',
      ["(a) a self-declaring field that later says a sibling 'is not it' stays self-declaring"]),
-    ("F5 kind: the undetermined spelling is collected beside the marker", MEMO,
+    ("F5 kind: the undetermined spelling is collected beside the marker", POPULATION,
      '        if m:\n            self.spellings.add(m.group(0))',
      # `MARKER_RE` since PR #510 R22 (`MARKER` is no longer imported into
-     # plan_memo_memo.py, so the old spelling crashed with a NameError under
+     # plan_memo_population.py, so the old spelling crashed with a NameError under
      # the mutant -- a crash is a FAIL); the MUTATION is untouched -- the
      # spelling collected only where the marker is absent
      '        if m and not MARKER_RE.search(row.field):\n            self.spellings.add(m.group(0))',
@@ -306,7 +306,7 @@ MUTANTS = [
      'return bare in {"", "\\u2014", "-"} or bare.casefold() in EMPTY_WORDS',
      ["(c-seed) a Deps cell `–` (en dash) is empty by shape: no alphanumeric",
       "(c-seed) a Deps cell `--` is empty by shape"]),
-    ("4.5 id cell: blanks are LITERAL, not the shape rule (re-inject `is_empty`)", MEMO,
+    ("4.5 id cell: blanks are LITERAL, not the shape rule (re-inject `is_empty`)", POPULATION,
      '                    if not is_blank_id_cell(row.id_cell()):',
      '                    if not __import__("plan_memo_tables").is_empty(row.id_cell()):',
      ["(id) an id cell `?` is not a blank: unkeyed, rc 2",
@@ -340,7 +340,7 @@ MUTANTS = [
      '                if form is not None and not (form == "shortcut" and pos == relabel):',
      '                if form is not None and form != "shortcut":',
      ["(link) a shortcut whose only definition sits mid-paragraph is a schema miss"]),
-    ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", MEMO,
+    ("#1 gate: an unresolved reference is a schema miss (rc 2), not a note", POPULATION,
      '            for lineno, label in memo.unresolved_references():\n'
      '                self.misses.append(',
      '            for lineno, label in ():\n'

@@ -39,7 +39,9 @@ MODULES
                           disposition and the ONE `stream` every predicate reads
                           (the block as the document renders it)
   plan_memo_memo.py       `Memo` (the Phase-1 driver, file I/O, the sibling
-                          resolver) and the transitive `Population`
+                          resolver): ONE memo
+  plan_memo_population.py the transitive `Population`: the memo SET one memo
+                          reaches through its links, and the ONE `ids` map
   plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)
   (this file)             mention scanners, `check()`, the report
   plan_memo_umbrella_selftest.py (the runner) / _selftest_controls.py (the
@@ -100,7 +102,7 @@ if HERE not in sys.path:      # the self-test execs this file once per mutant
 from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
 from plan_memo_lexer import file_and_cite_spans  # noqa: E402
 from plan_memo_tables import split_units, stream  # noqa: E402
-from plan_memo_memo import Population  # noqa: E402
+from plan_memo_population import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     NOUN_ANCHOR, acceptance_vocab_seed, assertion_a, assertion_b, assertion_cd_seed, classify,
     roles,

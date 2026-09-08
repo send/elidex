@@ -7,8 +7,9 @@ markers, and the mask disposition every scanner reads through.
 Everything here answers "what is a row, what is its id, and what kind does
 its declaring field declare?".  The lexical substrate (Phase 1 blocks:
 `plan_memo_blocks.py`; Phase 2 inline: `plan_memo_lexer.py`) is the lexer's;
-the document driver and the transitive memo set (`Memo` / `Population`) are
-`plan_memo_memo.py`'s, which imports this module and never the reverse;
+the document driver is `plan_memo_memo.py`'s `Memo` and the transitive memo
+set `plan_memo_population.py`'s `Population`, both of which import this
+module and never the reverse;
 what the prose says about the rows, and whether that is allowed, is the
 checker and `plan_memo_roles.py`.
 
@@ -603,7 +604,7 @@ def split_units(lx, keep):
     §1 forbids a clean exit for a could-not-scan, so the disagreement is
     printed; and where it decides a gating census -- the marker in a row's
     declaring field -- `Population._kind` raises it as a schema miss instead
-    (`plan_memo_memo.py`).
+    (`plan_memo_population.py`).
 
     The comparison is exact and needs no threshold: both readings come from
     the ONE builder, and a unit is in the residue exactly when its extent

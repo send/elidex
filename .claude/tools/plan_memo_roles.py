@@ -5,7 +5,7 @@ Everything here answers "is this mention licensed, which role does its context
 spell, and do the four assertions of the single-home slot (minted in #506's
 memo §8, not yet in the slot SoT ledger) hold over the row inventory?".
 The mention scanners and the report stay in the checker; the row inventory
-(tables, ids, kinds) is the transitive `Population` in `plan_memo_memo.py`,
+(tables, ids, kinds) is the transitive `Population` in `plan_memo_population.py`,
 which is the ONLY input of every assertion below: a row declared in a linked
 memo is asserted exactly like a row of the main memo.  Findings are
 `(code, file, lineno, message)`; a code ending in `?` is a seed and never gates.

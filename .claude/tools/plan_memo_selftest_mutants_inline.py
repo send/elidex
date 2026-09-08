@@ -17,7 +17,8 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, ROLES, SEQUENCE, TABLES,
+    CHECK, EMPHASIS, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
+    TABLES,
 )
 
 # -- PR #510 Codex R21 control names, spelled once (the §6.5 autolink family,
@@ -177,7 +178,7 @@ MUTANTS += [
      '                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed',
      '                while out and out[-1][0] > pos:\n                    images.append(out.pop()[:2] + ("demoted",))\n                i += 1',
      [R19_UNRESOLVED_KEEPS, R19_OUTSIDE]),
-    ("R19 #2 display: a memo is named by its path relative to the root memo's directory (re-inject the basename)", MEMO,
+    ("R19 #2 display: a memo is named by its path relative to the root memo's directory (re-inject the basename)", POPULATION,
      '            return str(path.relative_to(self.root))', '            return path.name',
      [R19_DISPLAY]),
     ("R19 #3 sibling: the decoded name must be relative under Windows path syntax on every platform (re-inject the "
@@ -455,7 +456,7 @@ MUTANTS += [
      '        for kind, text, off in []:',
      [RG4_SEED]),
     ("RG4 gate: the marker straddling a blanked span in a DECLARING field is a schema miss (drop it: the "
-     "row leaves the census at rc 0 -- §1's clean exit for a could-not-scan)", MEMO,
+     "row leaves the census at rc 0 -- §1's clean exit for a could-not-scan)", POPULATION,
      '        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):', '        if False:',
      [RG4_GATE]),
     ("RG4 residue: a unit WHOLLY inside a blanked span is no straddle (widen the predicate: a quoted "
@@ -463,7 +464,7 @@ MUTANTS += [
      '    return 0 < inside < b - a', '    return inside > 0',
      [RG4_QUOTED]),
     ("RG4 gate: the miss is the STRADDLE, not the presence of a span (re-inject the coarse test: any "
-     "declaring field holding a code span becomes a schema miss)", MEMO,
+     "declaring field holding a code span becomes a schema miss)", POPULATION,
      '        if any(kind == "marker" for kind, _, _ in split_units(lx, ())):', '        if lx.code:',
      [RG4_NOT_GATE]),
     ("RG4 cell: `is_empty` reads the cell's disposed stream (re-inject the raw text: an HTML comment fills "

@@ -42,6 +42,7 @@ MODULES = [
     ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),
     ("plan_memo_memo", "plan_memo_memo.py"),
+    ("plan_memo_population", "plan_memo_population.py"),
     ("plan_memo_roles", "plan_memo_roles.py"),
     ("plan_memo_umbrella_check", "plan-memo-umbrella-check.py"),
 ]

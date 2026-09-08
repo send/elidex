@@ -18,8 +18,8 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, ROLES, SEQUENCE, SPEC_EXAMPLES,
-    TABLES,
+    BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
+    SPEC_EXAMPLES, TABLES,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -226,7 +226,7 @@ MUTANTS += [
     ("R9 F1 seed: only a line holding a `|` or a declared id is reported", CHECK,
      '            if "|" in line or ids:', '            if True:',
      ["(lex-seed) an HTML-block line with neither a `|` nor a declared id is no seed"]),
-    ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", MEMO,
+    ("R9 F2 I/O: a decode error is the unavailable-memo miss (unguard it)", POPULATION,
      '            except (OSError, UnicodeDecodeError) as e:', '            except OSError as e:',
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
@@ -710,7 +710,7 @@ MUTANTS += [
      '                frames.append(child)\n                value = None',
      ["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"]),
     ("R16 #3 chokepoint: only I/O is the unavailable-memo miss (re-inject `RuntimeError` in the chokepoint's "
-     "except: a parser exception becomes rc 2)", MEMO,
+     "except: a parser exception becomes rc 2)", POPULATION,
      '            except (OSError, UnicodeDecodeError) as e:',
      '            except (OSError, RuntimeError, UnicodeDecodeError) as e:',
      ["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"]),
