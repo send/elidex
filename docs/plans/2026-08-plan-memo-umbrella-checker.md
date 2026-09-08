@@ -1186,6 +1186,61 @@ ground for either option; it is not cited.
   paragraph is a live link until proven otherwise. Re-check with
   `python3 .claude/tools/plan-memo-umbrella-check.py docs/plans/2026-08-plan-memo-umbrella-checker.md`:
   four FATALs is the floor, five means someone spelled a link.
+  ⚠ **PR #510 Codex R26 (2026-09-08)** — five findings: four real, and **one rejected on its stated
+  grounds whose CONCLUSION was right for a reason the report did not give**.
+  #1 (P2) claimed §6.3 "permits at most 32 levels" of destination parenthesis nesting. It does not —
+  `spec.txt` 0.31.2 lines 7492-7494 read "(Implementations may impose limits on parentheses nesting to
+  avoid performance issues, but at least three levels of nesting should be supported.)", which is
+  PERMISSION; commonmark.js 0.31.2 imposes none and cmark 0.31.1 caps at 32, so the two reference
+  implementations disagree and the vendored corpus cannot arbitrate (deepest destination in all 630
+  examples is Example 496, depth 2). ⚠ **The cap was taken anyway, and the deciding fact is one
+  neither the report nor the first fix named**: a plan memo is READ ON GITHUB, which renders with
+  cmark-gfm — the implementation this program already uses as its GFM oracle — and measured through
+  it, 32 levels come back as an anchor while 33 come back as literal text. Above 32 the PUBLISHED
+  document holds no link, so reading one would be the checker inventing a memo its own reader never
+  sees, which is the class every finding on this PR has closed. Where two conforming implementations
+  disagree, **the one that renders the artefact wins**; the re-runnable `gh api -X POST /markdown`
+  command is in the code. The fact survived its stated reason being false —
+  [[feedback_ao-name-not-section-number-in-briefs]]'s "反証の理由と事実は別に検証".
+  #2 (P2) the file token and the sibling resolver disagreed about parentheses: `foo((9z)).md` matched
+  only the `.md` suffix, leaving the declared id `9z` exposed while `sibling_path` accepted the whole
+  name. `FILE_SUFFIX` is documented as the ONE spelling both readers consume, and that is the claim
+  this falsified. The LEXER moved, not the resolver — the resolver has no boundaries to find, its
+  input already delimited by the link grammar, while the token reader has nothing BUT boundaries, and
+  only its paren rule was ever an approximation of §6.3's "balanced pair of unescaped parentheses",
+  which holds at any depth and is not a regular language. ⚠ The fix reads a SECOND shape the report
+  did not name and which is worse: `(m.md(9z)md).md` is balanced ACROSS its groups, so it is one name
+  — the flat arm split it in two with the id exposed between them. The first shape leaks a
+  parenthesis; this one leaks an id.
+  #3 (P2) `inline_pass` was non-linear in **four** places and the report named one. Taking "is
+  `inline_pass` linear?" as the subject rather than "is this loop linear?" found the §6.6 tag grammar,
+  the §6.1 code closer and the bare file token beside the reported §6.3 tail; one rule covers all four
+  (a lookahead that cannot succeed is not attempted, one that can is bounded), 3.3-4.0× per doubling
+  before and 1.98-2.02× after. Two members were beyond ANY existing witness — the §6.6 scan runs
+  inside the C `re` engine, where neither the line-count nor the call-count witness can see it — so
+  two production seams exist purely to make the claim countable. No wall-clock.
+  #4 (P2) the self-test harness read sources with the LOCALE encoding, so
+  `PYTHONUTF8=0 LC_ALL=C … --self-test` died before a control ran. The report named 2 sites; the sweep
+  found **15** in 4 files. ⚠ And the class did not stop at call sites: with all 15 fixed the command
+  got further and died anyway, on a `§` in a control's NAME, because the output STREAMS carried the
+  same dependence — which a call-site sweep structurally cannot report, since it looks for a missing
+  argument and this was a missing call.
+  #5 (P3) was OURS: the per-file inventory above, wrong for the very tree it named. Refreshing it
+  would have been the third refresh; it is removed instead, for the reason recorded there.
+  ⚠ **Why the family guards did not catch their own next members** — the second round running in which
+  this is the most useful output. R26-2's guard was a SHARED CONSTANT (`FILE_SUFFIX`) plus a comment
+  asserting both readers consume it: a shared constant guards the VALUE, not the GRAMMAR around it,
+  both sides genuinely read `".md"`, and the entire disagreement lived in what may precede it — the
+  guard could not fail. It is a sweep over a generated corpus now, which asks what the constant only
+  asserted. R26-3's guard was "30 nested brackets are one `inline_pass` call", which guards RE-ENTRY,
+  while the whole remaining class is LOOKAHEAD and never re-enters anything; the docstring had the
+  same shape ("no substring is re-parsed"), so prose and control were both about substrings while the
+  cost sat in the lookaheads.
+  **587 controls, 308 mutants / 0 survived / 0 crashed**, 0 `unknown control`; conformance 295 / 0 / 0
+  + 335 / 0 / 0; `scripts/trip-wires.sh` rc 0; `PYTHONUTF8=0 LC_ALL=C --self-test` rc 0; census
+  `--worklist` **byte-identical for the fourth consecutive round**. Three more touch-time splits
+  landed as standalone pure moves (`plan_memo_html.py`, `plan_memo_tokens.py`, and the R26 case /
+  mutant modules).
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
