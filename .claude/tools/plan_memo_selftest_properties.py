@@ -40,6 +40,7 @@ imports the harness and the fixture builder, and nothing of the controls.
 
 import ast
 import pathlib
+import re
 import tempfile
 
 from plan_memo_selftest_cases import build
@@ -880,6 +881,87 @@ def front_drain_sweep_control(M):
             % (lists, drains, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
 
 
+# The module map lives in the entry point's docstring, between these two
+# headings.  A name is spelled either in full or relative to the `plan_memo`
+# prefix (`_selftest_controls.py`), which is the one normalisation below.
+_MAP_START, _MAP_END = "\nMODULES\n", "\nWHERE THIS RUNS"
+_MAP_NAME = re.compile(r"[A-Za-z0-9_.-]+\.py(?![A-Za-z0-9_])")
+
+
+def _mapped_modules():
+    """The module names the entry point's MODULES map spells, normalised to
+    file names -> (set, "") or (None, why)."""
+    src = dict(_swept_sources())[ENTRY]
+    doc = ast.get_docstring(ast.parse(src, filename=ENTRY)) or ""
+    doc = "\n" + doc
+    a, b = doc.find(_MAP_START), doc.find(_MAP_END)
+    if a < 0 or b < a:
+        return None, "the docstring has no %r ... %r section" % (_MAP_START.strip(), _MAP_END.strip())
+    return {n if not n.startswith("_") else "plan_memo" + n
+            for n in _MAP_NAME.findall(doc[a:b])}, ""
+
+
+def _map_population():
+    """(mapped names, the files on disk the map is required to name).  The
+    entry point is excluded from the requirement: the map names it `(this
+    file)`, deliberately, and a map that had to name itself would be the one
+    line nobody can get wrong."""
+    return sorted(f for f, _ in _swept_sources() if f != ENTRY)
+
+
+def module_map_completeness_control(M):
+    """PROPERTY: every module of this checker is named in the entry point's
+    MODULES map.  The population is `_swept_sources()` minus the entry point --
+    globbed, not listed -- and a file the map does not name is red.
+
+    WHY A CONTROL AND NOT A WARNING (PR #510 R28-2).  The map says what each
+    module OWNS, which `ls` cannot, so it earns its place; but it drifted three
+    times, and the response the second time was to add the three missing names
+    AND A PROSE WARNING saying the map drifts.  One round later it drifted
+    again -- `plan_memo_selftest_growth.py`, carved by R27's split -- exactly as
+    the warning predicted and did not prevent.  A sentence asking the author to
+    be careful is not a mechanism (`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md`);
+    a checker over the artefact is.  The warning is now a pointer to this
+    control rather than a request.
+
+    HONESTLY, what it cannot catch.  It checks that the map NAMES every module,
+    not that what it says about one is TRUE: a description that has gone stale,
+    or is attached to the wrong module, reads exactly like a fresh one here.
+    It is also blind to a module outside the `plan_memo*.py` glob (a helper
+    named otherwise would be swept by nothing in this file), and it takes the
+    map's own `(this file)` for the entry point on trust."""
+    mapped, why = _mapped_modules()
+    if mapped is None:
+        return False, why
+    want = _map_population()
+    missing = [f for f in want if f not in mapped]
+    return not missing, ("%d module(s) on disk against %d name(s) in the map, %d unnamed%s"
+                         % (len(want), len(mapped), len(missing),
+                            (": " + ", ".join(missing)) if missing else ""))
+
+
+def module_map_existence_control(M):
+    """PROPERTY, the OTHER direction of the map: every name the MODULES map
+    spells is a file that exists.  The completeness half cannot see a name left
+    behind by a rename or a deletion -- the map would still cover every file on
+    disk and simply describe one that is gone -- so the two directions are two
+    controls, and each has its own mutant.
+
+    HONESTLY: a name is anything ending in `.py` inside the section, so a name
+    that appears there for another reason (a shell command quoting a glob, say)
+    would be read as a claim about a file.  That is the reason the section
+    holds no such text; if it ever needs to, this control is where the
+    exception has to be written down rather than assumed."""
+    mapped, why = _mapped_modules()
+    if mapped is None:
+        return False, why
+    have = set(_map_population()) | {ENTRY}
+    dangling = sorted(n for n in mapped if n not in have)
+    return not dangling, ("%d name(s) in the map against %d file(s), %d naming nothing on disk%s"
+                          % (len(mapped), len(have), len(dangling),
+                             (": " + ", ".join(dangling)) if dangling else ""))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
@@ -909,4 +991,8 @@ def registry():
             ("CONTROL", straddle_definition_control),
         "PROPERTY: no source of this checker removes an element from the FRONT of a list (the O(1) half of the population walk's drain, which no work witness here can measure)":
             ("CONTROL", front_drain_sweep_control),
+        "PROPERTY: every module of this checker is NAMED in the entry point's MODULES map (the map is checked, not asked to be kept)":
+            ("CONTROL", module_map_completeness_control),
+        "PROPERTY: every name the entry point's MODULES map spells is a file that exists (the rename half the completeness direction cannot see)":
+            ("CONTROL", module_map_existence_control),
     }

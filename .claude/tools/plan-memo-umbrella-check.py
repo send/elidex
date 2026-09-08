@@ -61,6 +61,10 @@ MODULES
                           _selftest_work.py (the controls that state a COST and
                           count it -- the only importer of the deterministic
                           work witnesses) /
+                          _selftest_growth.py (the controls whose POPULATION is
+                          generated rather than written against a reported
+                          shape: from the grammar, and from the definition of a
+                          memo family) /
                           _selftest_harness.py (loader, fixture runner,
                           work witnesses) / _selftest_cases.py /
                           _selftest_cases_pr510.py /
@@ -75,11 +79,15 @@ MODULES
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)
-  ⚠ This map is prose and nothing enforces it: three modules (`_selftest_work`,
-  `_selftest_properties`, `_cases_sibling`) were missing from it for three
-  rounds, each added by a touch-time split that updated the references its OWN
-  move broke and not the map. Re-check it with
-  `ls .claude/tools/plan_memo_*.py` against the names listed here.
+  This map is CHECKED, in both directions and against the files on disk:
+  `plan_memo_selftest_properties`'s `module_map_completeness_control` fails
+  when a module here is not named, and `module_map_existence_control` when a
+  name here is not a module. It is the descriptions, not the names, that a
+  reader still has to keep true. Until PR #510 R28 the map was prose with a
+  warning attached saying that it drifts, and it drifted the round after the
+  warning was written (`_selftest_growth`, carved by R27's split) exactly as
+  three modules had drifted before it -- each time by a touch-time split that
+  updated the references its OWN move broke and not the map.
 
 WHERE THIS RUNS.  By hand on a memo: `SCHEMAS` matches one document family's
 exact header rows, so against any other plan memo it prints `FATAL: no table

@@ -338,6 +338,11 @@ R28_WALK_ONCE = ("the population walk queues each memo at most once, over a corp
 R28_FRONT_DRAIN = ("PROPERTY: no source of this checker removes an element from the FRONT of a list "
                    "(the O(1) half of the population walk's drain, which no work witness here can "
                    "measure)")
+R28_MAP_COMPLETE = ("PROPERTY: every module of this checker is NAMED in the entry point's MODULES map "
+                    "(the map is checked, not asked to be kept)")
+R28_MAP_EXISTS = ("PROPERTY: every name the entry point's MODULES map spells is a file that exists "
+                  "(the rename half the completeness direction cannot see)")
+
 MUTANTS += [
     # -- R28-1: the population walk's queue.  TWO rows, because the finding is
     # two claims measured by two instruments, and each row must leave the other
@@ -377,4 +382,19 @@ MUTANTS += [
      "                    queue.append(f)\n"
      "                    queue.append(f)",
      [R28_WALK_ONCE]),
+    # -- R28-2: the module map, in both directions.  TWO rows, because the two
+    # directions are two controls and a map can drift either way: a module that
+    # arrives without a name (which is what happened, four times) and a name
+    # left standing by a rename (which has not happened yet, and is the half
+    # the completeness direction cannot report).
+    ("R28-2 map: every module is NAMED in the map (drop one line: the module map's own drift, which "
+     "the prose warning it replaced did not prevent)", CHECK,
+     "  plan_memo_roles.py      licensing rule, role ranking, assertions (a)-(d)\n", "",
+     [R28_MAP_COMPLETE]),
+    ("R28-2 map: every name in the map IS a module (add one that is not: a rename leaves the "
+     "completeness direction green and the map wrong)", CHECK,
+     "  (this file)             mention scanners, `check()`, the report\n",
+     "  (this file)             mention scanners, `check()`, the report\n"
+     "  plan_memo_ghost.py      a module that does not exist\n",
+     [R28_MAP_EXISTS]),
 ]
