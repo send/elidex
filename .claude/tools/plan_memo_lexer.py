@@ -33,8 +33,12 @@ renders itself, and only §6.2's own rules tell them apart.  A §2.4 escape and
 a §2.5 character reference are recorded as SUBSTITUTIONS (`subst`), the two
 spellings of "this text renders as that character", in PROSE as in a link
 DESTINATION (where `normalize_destination` reads the same grammar over the
-destination's own text, PR #510 R16).  What is left outside the lexed clauses
--- §6.7 hard and §6.8 soft line breaks, §6.9 textual content -- is read as
+destination's own text, PR #510 R16).  A §6.7 HARD LINE BREAK is lexed too
+(PR #510 R25): its backslash is markup and renders nothing, so the line ending
+beside it stands as itself and the break reaches the stream as the §6.8 SOFT
+break does -- one line ending, whichever of the three spellings the document
+uses.  What is left outside the lexed clauses -- §6.8 soft line breaks, §6.9
+textual content -- is read as
 written, each with its cost MEASURED by a control named in the plan's §3.0b
 CLOSED list; the block types not modelled are the plan's §3.0 table.
 
@@ -203,6 +207,34 @@ def normalize_destination(s):
 
 def _is_escape(s, j):
     return s[j] == "\\" and j + 1 < len(s) and s[j + 1] in ASCII_PUNCT
+
+
+def _is_hard_break(s, j):
+    """Whether the backslash at `s[j]` opens a §6.7 HARD LINE BREAK: "A
+    backslash at the end of the line is a hard line break" (§2.4, vendored
+    Example 16: `foo\\` + a line ending + `bar` renders `<p>foo<br />\\nbar</p>`).
+
+    A DISTINCT construct from the §2.4 escape beside it, and not a widening of
+    it: a line ending is not ASCII punctuation, so `_is_escape` reads none, and
+    it must not -- `_is_escape` is also the link grammars' (`link_label`,
+    `link_title`, `link_destination`, `normalize_destination`), where a
+    backslash before a line ending escapes nothing.  Hence a predicate of its
+    own, read by `inline_pass` alone, which is the only reader that holds a
+    line ending a backslash can precede (a cell is one line; a destination
+    ends at one).
+
+    Only the inline pass can ask it, and only inside a block: at the END of a
+    block the backslash is literal (`Foo\\` under a setext underline renders
+    `<h2>Foo\\</h2>`, vendored block Example 90), which falls out of `j + 1 <
+    len(s)` -- a paragraph's text is its lines JOINED, with no trailing line
+    ending (`plan_memo_memo.Paragraph`), so the last line's trailing backslash
+    has no `\\n` after it.
+
+    The two-space spelling of the same break (§6.7's first form) needs no
+    clause: its spaces render as whitespace, and whitespace is what a line
+    ending contributes too, so the stream already reads it as the break it is
+    (`break_equivalence_control` measures all three spellings)."""
+    return s[j] == "\\" and j + 1 < len(s) and s[j + 1] == "\n"
 
 
 def link_destination(s, i):
@@ -625,6 +657,19 @@ def inline_pass(s, defs):
             subst.append((i, i + 2, s[i + 1]))  # §2.4: `\[` renders the character alone
             i += 2
             continue
+        if _is_hard_break(s, i):
+            # §6.7: the backslash is the MARKUP that makes the break hard; the
+            # break itself is rendered by the line ending, which stands as
+            # itself right after this -- so a hard break and a §6.8 soft break
+            # reach the stream as the SAME character, by the same mechanism
+            # rather than by a second spelling of it.  Disjoint from the escape
+            # above (a line ending is not ASCII punctuation) and reached only
+            # when that branch did not consume this backslash, so `foo\\` +
+            # a line ending is the literal backslash of §2.4 and then a soft
+            # break, as commonmark.js renders it.
+            marks.append((i, i + 1))
+            i += 1
+            continue
         if c == "&":
             m = _CHAR_REF.match(s, i)
             r = _reference(m) if m is not None else None
@@ -857,8 +902,10 @@ class Lexed:
     image's own tail and "demoted" for a link or a nested image demoted
     inside a resolved image's description, §6.4) and
     `marks` = [(start, end)] of every span that renders NO character (a §2.4
-    backslash is not one -- an escape SUBSTITUTES, below -- but a link's `[`
-    is); `subst` = [(start, end, text)], the two spellings of "this renders
+    escape's backslash is not one -- an escape SUBSTITUTES, below -- but a
+    link's `[` is, and so is the backslash of a §6.7 HARD LINE BREAK, whose
+    break is rendered by the line ending standing beside it);
+    `subst` = [(start, end, text)], the two spellings of "this renders
     as that character": a §2.4 escape and a §2.5 character reference;
     `emphasis` = [(open_start, open_end, close_start, close_end, char, use,
     kind)] of every §6.2 / GFM delimiter pair, `kind` = "em" or, inside a

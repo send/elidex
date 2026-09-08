@@ -571,10 +571,13 @@ acase("POSITIVE", "(cell) a `Deps` cell naming a row is still an edge: the contr
 
 # The two line-break rows of §3.0b, whose cost is measured against the same probe
 # table: a break renders a line ending, and a line ending bounds every unit.
-case("POSITIVE", "(§6.7) a hard line break's own markup stands in the stream -- `\\` before a line ending "
-                 "escapes nothing (§2.4 is ASCII punctuation, and a line ending is none) -- and costs "
-                 "nothing: the break renders a line ending, which bounds every unit the scanners read, so "
-                 "`Slice W\\` + `z` names no `Wz` on the probe table where `Wz` is the umbrella",
+case("POSITIVE", "(§6.7) a hard line break's backslash renders NOTHING and the break renders a line "
+                 "ending, which bounds every unit the scanners read, so `Slice W\\` + `z` names no `Wz` "
+                 "on the probe table where `Wz` is the umbrella.  ⚠ THIS CONTROL COULD NOT SEE R25-2: "
+                 "until then the backslash STOOD in the stream, and a standing backslash bounds the two "
+                 "sides exactly as the break does -- the wrong reading and the right one agree in the "
+                 "direction that BOUNDS and part only in the direction that JOINS, which is the R25 "
+                 "control below",
      build(extra=LOST), "Slice W\\\nz owns it.", 0)
 case("POSITIVE", "(§6.8) a SOFT line break is the same measurement: `Slice W` then `z` on the next line "
                  "renders two words and names no `Wz`",
@@ -920,3 +923,40 @@ case("NEGATIVE", "(R24 width) a row noun standing between the licensing phrase a
 case("POSITIVE", "(R24 width) `the grandchild of 9z` is still REPORTED -- the left edge the trailing "
                   "noun clause must not loosen",
      build(), "the grandchild of 9z is terminal.", 1)
+
+
+# ------------------------------------------------ PR #510 Codex R25 controls --
+
+# R25-2 (P2), and it is FAMILY 1 again ("which text does a reader read") --
+# landed in the declared blind spot of that family's structural guard one round
+# after the guard declared it.  `render_equivalence_control` re-spells one
+# character as its §2.5 numeric reference and excludes every position holding a
+# character `inline_pass` branches on; `\` is such a character, and excluded for
+# a reason that stands (`&#92;` before a line ending renders a LITERAL backslash
+# and a soft break, so the re-spelling is not rendering-equivalent there).  The
+# second guard is `break_equivalence_control`, whose unit is a line BREAK rather
+# than a character; these four are the same claim from the record side, and the
+# ROW NOUN adjacency is what makes it observable -- the §3.0b line-break rows
+# above measure only the direction where a break BOUNDS, and a standing
+# backslash bounds too.
+case("POSITIVE", "(R25 §6.7) a HARD line break spelled with a BACKSLASH names the row across it: "
+                 "`Slice\\` + a line ending + `C` reads `Slice C` (§2.4, vendored Example 16: `foo\\` + "
+                 "an ending renders `<p>foo<br />` + `bar</p>`), so the umbrella row `C` is a naming "
+                 "site.  Until R25 the backslash stood in the stream, `NOUN_ANCHOR` could not reach the "
+                 "id, and the run exited 0 with no site at all",
+     build(), "Slice\\\nC owns it.", 1)
+case("POSITIVE", "(R25 §6.8) the SOFT-break partner, green before the fix: the same two words across a "
+                 "plain line ending name the same row -- this is the control that says the backslash "
+                 "case is about the BACKSLASH and not about the adjacency",
+     build(), "Slice\nC owns it.", 1)
+case("POSITIVE", "(R25 §6.7) the TWO-SPACE hard spelling, green before the fix too: its spaces render as "
+                 "whitespace, which is what the ending contributes anyway, so this spelling never held "
+                 "the defect and the three must agree",
+     build(), "Slice  \nC owns it.", 1)
+case("NEGATIVE", "(R25 §2.4) `Slice\\\\` + a line ending is a LITERAL backslash (the first escapes the "
+                 "second) and THEN a soft break, so a rendered character stands between the noun and the "
+                 "id and no row is named -- the discriminating half: a fix that widened the §2.4 escape "
+                 "to swallow any backslash before a line ending, or that dropped the backslash without "
+                 "asking whether the escape above had already consumed it, would pass the R25 control "
+                 "and fail this one",
+     build(), "Slice\\\\\nC owns it.", 0)

@@ -17,7 +17,9 @@ What is here, and the population each one sweeps: the id-grammar spelling sweep
 coverage sweep (every row kind the grammar enumerates, against every composer),
 the kind-phrase gate (every name `Population._kind`'s code object reads), the
 render-equivalence sweep (every position of one prose, re-spelled as a §2.5
-reference), the line-ending property (§2.1's three endings, written as bytes),
+reference), the break-equivalence sweep (every line break of one prose, in
+each of CommonMark's three spellings of one), the line-ending property (§2.1's
+three endings, written as bytes),
 and the anchored-matcher width sweep (every pattern-method call site of the
 module set).  What is NOT: a control that runs one fixture and reads the
 verdict, which is `plan_memo_selftest_controls.py`'s, and a control whose
@@ -309,6 +311,75 @@ def kind_phrase_gate_control(M):
                           (": " + ", ".join(sorted(set(stray)))) if stray else ""))
 
 
+# The prose the BREAK-equivalence sweep re-spells, one line ending at a time.
+# Every ending sits in an adjacency that makes the answer observable -- a row
+# noun then an id (the R25 shape), a licensing phrase's two halves, a slot noun
+# then a slug, a row noun then a TERMINAL id -- because an ending between two
+# words that decide nothing reads the same under every spelling and is no probe
+# (the lesson `_RENDER_PROSE` above carries).
+_BREAK_PROSE = ("Slice\nC owns it, and umbrella\n9z's children carry the obligation, and Slot\n"
+                "#11-zz-alpha lands before Slice\n7z.")
+
+# The three source spellings of ONE line break, CommonMark 0.31.2: the §6.8
+# soft break (the ending alone), and §6.7's two hard forms -- two or more
+# spaces before the ending, and a backslash before it.  A hard break renders
+# `<br />` where a soft one renders nothing extra, but this checker's model of
+# both is the plan's §3.0b row: a break renders a LINE ENDING, and a line
+# ending bounds every unit the scanners read.  That model is what makes the
+# three interchangeable HERE, and it is the claim this control states.
+_BREAK_SPELLINGS = (("§6.8 soft", "\n"), ("§6.7 two spaces", "  \n"), ("§6.7 backslash", "\\\n"))
+
+
+def break_equivalence_control(M):
+    """PROPERTY, the SECOND member of R24's render-equivalence family: the
+    checker's verdict is INVARIANT under a re-spelling of any ONE line break in
+    the source as each of the three spellings CommonMark gives it.
+
+    THE FAMILY'S FIRST GUARD COULD NOT REACH THIS CLASS, and said so in
+    advance.  `render_equivalence_control` re-spells ONE CHARACTER as its §2.5
+    numeric reference, and excludes every position holding a character
+    `inline_pass` branches on -- `\\` by name.  The exclusion is not an
+    oversight to be repaired: `&#92;` before a line ending renders a LITERAL
+    backslash and a soft break, so at a `\\` the re-spelling is genuinely not
+    rendering-equivalent and sweeping it would be a false alarm.  What extends
+    is the family's PROPERTY (one rendering, several source spellings, one
+    verdict), not that function's mechanism; the unit here is a line BREAK
+    rather than a character, because no substitution of one character can
+    spell one.  R25 landed in the declared blind spot one round after it was
+    declared: `Slice\\` + a line ending + `C` reads `Slice C` to a reader and
+    named no row, because the backslash stood in the stream as a character
+    `NOUN_ANCHOR` cannot cross.
+
+    HONESTLY, what it cannot see.  A break in a CELL (a table row is one
+    line, so a cell holds no line ending at all -- the whole class is a
+    paragraph's); a disagreement needing TWO breaks re-spelled at once; an
+    adjacency no shape in `_BREAK_PROSE` reaches; and a line ending inside a
+    construct where the spelling is NOT equivalent, which is why the sweep
+    re-spells the paragraph's own endings and never one inside a code span or
+    a raw HTML span (§6.7: a hard break is neither of those).  ⚠ It also says
+    nothing about the two-space form's SPACES: they render as whitespace,
+    which is what the ending contributes anyway, so this control cannot tell
+    a checker that reads them from one that strips them."""
+    want = _census(run_on(M, build(), _BREAK_PROSE)[0])   # the base: every break soft
+    swept, bad = 0, []
+    for label, spelling in _BREAK_SPELLINGS:
+        for i, ch in enumerate(_BREAK_PROSE):
+            if ch != "\n":
+                continue
+            swept += 1
+            variant = _BREAK_PROSE[:i] + spelling + _BREAK_PROSE[i + 1:]
+            got = _census(run_on(M, build(), variant)[0])
+            if got != want:
+                bad.append("%s at offset %d: %s" % (label, i, _first_difference(want, got)))
+    # a base carrying no site cannot disagree about one, so the census is
+    # asserted non-trivial rather than assumed to be
+    ok = not bad and swept == 3 * _BREAK_PROSE.count("\n") >= 12 and len(want[2]) >= 2
+    return ok, ("%d re-spelling(s) of %d line break(s) in %d spellings against a base of %d site(s) "
+                "and rc %d, %d disagreement(s)%s"
+                % (swept, _BREAK_PROSE.count("\n"), len(_BREAK_SPELLINGS), len(want[2]), want[0],
+                   len(bad), (": " + "; ".join(bad[:2])) if bad else ""))
+
+
 def _slice_bounds(node, ints):
     """Every SLICE bound in `node`'s subtree that is fixed by a NUMBER: an
     integer literal, or a module-global name bound to one (`ints`).  A bound
@@ -427,6 +498,8 @@ def registry():
             ("CONTROL", render_equivalence_control),
         "PROPERTY: the census is the same under each of the three line endings CommonMark §2.1 recognises (LF, CRLF, a bare CR), written as bytes":
             ("CONTROL", line_ending_control),
+        "PROPERTY: the verdict is invariant under re-spelling any ONE line break as each of CommonMark's three (the §6.8 soft break, §6.7's two-space and backslash hard breaks) -- the render-equivalence family's second guard, for the class its first one excludes by construction":
+            ("CONTROL", break_equivalence_control),
         "PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)":
             ("CONTROL", anchored_matcher_width_control),
     }

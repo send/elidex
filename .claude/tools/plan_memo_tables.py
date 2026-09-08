@@ -444,8 +444,10 @@ def code_mask(lx, keep):
 #           on either side of it, because a reader does not read across it;
 #   False = the construct renders NOTHING at all -- a raw HTML tag or comment
 #           (§6.6: markup, not text), a link's tail (§6.3: `](dest)` prints
-#           nothing) or a `mark` (a §2.4 backslash, a link's `[`, a matched
-#           §6.2 / GFM delimiter run) -- so its span contributes no character
+#           nothing) or a `mark` (the backslash of a §6.7 hard line break, a
+#           link's `[`, a matched §6.2 / GFM delimiter run; a §2.4 escape's
+#           backslash is NOT one -- an escape SUBSTITUTES, below) -- so its
+#           span contributes no character
 #           and the text on either side of it is ONE run, exactly as the
 #           rendered document reads it.
 # An image renders no text either, but its own tail is BLANK: `![alt](i.png)`
@@ -468,8 +470,9 @@ def dispose(lx, keep):
     R21), `link` (the tail; the visible text stays, it
     is prose), `image` (the same, for an image -- its own tail and every
     construct demoted into its description), `cite`, `file`, and `mark`
-    (every span that renders no character: a §2.4 backslash, a link's `[`,
-    a matched §6.2 emphasis or GFM strikethrough delimiter run).  A
+    (every span that renders no character: the backslash of a §6.7 hard line
+    break, a link's `[`, a matched §6.2 emphasis or GFM strikethrough
+    delimiter run).  A
     reference definition is a Phase-1 block of its own, never inline
     content, so no block holds one to mask.
 
@@ -490,7 +493,8 @@ def dispose(lx, keep):
     TWO STAGES, and the boundary is which TEXT the question is asked of (PR
     #510 R24).  Stage 1 is LEXICAL: the spans the inline parse alone decides
     (a code span, a raw HTML span, an autolink, a link's or an image's tail,
-    a §2.4 backslash, a link's `[`, every §6.2 / GFM delimiter run) -- no
+    a §6.7 hard break's backslash, a link's `[`, every §6.2 / GFM delimiter
+    run) -- no
     rendered text is needed to place any of them.  Stage 2 asks the two
     questions that are about what the document RENDERS, and asks both of ONE
     text, `rd` (the stage-1 disposition with each blank filled in by what a

@@ -865,3 +865,29 @@ MUTANTS += [
      '                for _off, piece in pieces(p.lexed, a, b):\n                    yield p.locate(a)[0], piece',
      [R24_SPAN_LOCATOR]),
 ]
+
+# -- PR #510 Codex R25 control names, spelled once (this registry's only
+# readers), and the two R25 mutants.
+R25_HARD = ("(R25 §6.7) a HARD line break spelled with a BACKSLASH names the row across it: `Slice\\` + "
+            "a line ending + `C` reads `Slice C` (§2.4, vendored Example 16: `foo\\` + an ending renders "
+            "`<p>foo<br />` + `bar</p>`), so the umbrella row `C` is a naming site.  Until R25 the "
+            "backslash stood in the stream, `NOUN_ANCHOR` could not reach the id, and the run exited 0 "
+            "with no site at all")
+R25_SOFT = ("(R25 §6.8) the SOFT-break partner, green before the fix: the same two words across a plain "
+            "line ending name the same row -- this is the control that says the backslash case is about "
+            "the BACKSLASH and not about the adjacency")
+R25_BREAK_PROPERTY = ("PROPERTY: the verdict is invariant under re-spelling any ONE line break as each of "
+                      "CommonMark's three (the §6.8 soft break, §6.7's two-space and backslash hard "
+                      "breaks) -- the render-equivalence family's second guard, for the class its first "
+                      "one excludes by construction")
+
+MUTANTS += [
+    ("R25-2 lexer: a §6.7 hard line break's backslash renders NOTHING (drop the clause -- the literal "
+     "backslash that stood in the stream until R25)", LEXER,
+     '    return s[j] == "\\\\" and j + 1 < len(s) and s[j + 1] == "\\n"', "    return False",
+     [R25_HARD, R25_BREAK_PROPERTY]),
+    ("R25-2 lexer: the hard break's mark is the BACKSLASH alone, not the backslash AND the line ending "
+     "(swallow the ending too: the break stops separating and the two lines become one word)", LEXER,
+     "            marks.append((i, i + 1))", "            marks.append((i, i + 2))",
+     [R25_HARD, R25_BREAK_PROPERTY]),
+]
