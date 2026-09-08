@@ -253,8 +253,22 @@ def _is_hard_break(s, j):
 # and commonmark.js DOES read.  The vendored corpus cannot decide it either --
 # the deepest destination in all 630 examples is Example 496's
 # `[link](foo(and(bar)))`, depth 2, measured -- so this is a choice made
-# knowingly, in a region the spec leaves open, and it is a divergence from the
-# implementation the rest of this file cites as its oracle.
+# knowingly, in a region the spec leaves open.
+#
+# ⚠ BUT IT IS NOT A DIVERGENCE FROM THE ORACLE THAT GOVERNS THESE DOCUMENTS,
+# and that is the reason to prefer 32 over any other number.  A plan memo is
+# read on GitHub, which renders with cmark-gfm -- the same implementation this
+# program already treats as the GFM oracle (`gh api -X POST /markdown -f
+# mode=gfm`).  Measured through that oracle, not argued: a 32-deep destination
+# comes back `<a href="a((…)).md">x</a>` and a 33-deep one comes back as the
+# literal text `[x](a(((…))).md)`.  So above 32 the DOCUMENT does not hold a
+# link where it is published, and reading one would be the checker inventing a
+# memo its own reader never sees -- the same class as every finding this PR has
+# closed.  commonmark.js is the oracle for the CommonMark core; where the two
+# reference implementations are both conforming and disagree, the one that
+# renders the artefact wins.  Re-run:
+#   n=33; python3 -c "print('[x](a'+'('*$n+'z'+')'*$n+'.md)')" > /tmp/d.md
+#   gh api -X POST /markdown -f mode=gfm -f text="$(cat /tmp/d.md)"
 #
 # WHY IT IS TAKEN ANYWAY: `inline_pass` states a linearity contract, which
 # commonmark.js does not, and this scan is what breaks it.  A `]` followed by
