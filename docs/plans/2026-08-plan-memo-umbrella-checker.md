@@ -1114,6 +1114,61 @@ ground for either option; it is not cited.
   current registry: `523` fixture controls, of which **204 are named by no mutant**
   (`{c.name for c in CASES} - {name for row in MUTANTS for name in row[4]}`). That is the honest size
   of "a control that has never gone red", and it is the largest open item on this PR's own list.
+  ⚠ **PR #510 Codex R25 (2026-09-08)** — two findings, both real, and **both landed inside limits R24
+  had DECLARED**. Family 1's guard says in its own docstring that it cannot see "positions holding a
+  character `inline_pass` branches on"; R25-2 is a backslash, exactly such a character. Family 2 wrote
+  its discriminator down as "a device opens successfully, whereas a reserved character raises
+  `OSError` and is already reported at rc 2"; R25-1 is a counter-example to that sentence. **An honest
+  blind spot is a map of where the next finding lands, not a disclaimer** — the lesson of the round,
+  and worth more than either fix (`memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md`).
+  #2 (P2) a §6.7 hard line break left a literal backslash in the stream: `Slice\` + newline +
+  `C owns it` gave **0 sites** where the soft-break and two-space spellings each give 1 (`C`), because
+  `_is_escape` accepts a backslash only before ASCII punctuation, so the pair recorded nothing and
+  `NOUN_ANCHOR` could not cross the literal backslash. Fixed as a **mark, not a substitution**: the
+  spec says the BREAK renders the line break and the backslash is markup, and since a §6.8 soft break
+  reaches the stream as the source `\n` standing as itself, the backslash now renders nothing and the
+  line ending stands — the two spellings agree BY THE SAME MECHANISM rather than by two constants that
+  coincide. `_is_hard_break` is its own predicate, because widening `_is_escape` would change the link
+  grammars, where a backslash before a line ending escapes nothing. The guard is extended at the level
+  of the PROPERTY, not the function: no single-character re-spelling can spell a line break, so
+  `render_equivalence_control`'s exclusion of `\` is correct and stays (`&#92;` before a line ending
+  really does render a literal backslash plus a soft break — a false alarm, not a missed defect), and
+  the new property is invariance of the verdict under re-spelling any one line break as each of
+  CommonMark's three: 12 re-spellings of 4 breaks, **0 disagreements after, 2 before**.
+  #1 (P2) an NTFS **alternate data stream** passes the sibling guard: `notes%3Achild.md` resolved to
+  the local file `notes:child.md`, which on Windows opens the stream SUCCESSFULLY if it exists, so the
+  census can scan unrelated content and still exit 0. The finding also falsifies the argument R22
+  wrote down — "on Windows a name holding one of `*?\"<>:|` raises `OSError`, so stage (e) reports it"
+  is false for an ADS path — so that sentence is gone and the predicate is drawn on the POLICY instead
+  of on the failure mode. `_is_reserved_component` carries the character half now, for the whole class
+  rather than the reported member. ⚠ **This REVERSES R8**, and the reversal is written into the
+  control's own text rather than only a commit message: what decided it, what survives of R8 (the
+  scheme test still reads the raw path, and `notes%3Achild.md` still has NO scheme — it is stage (c)
+  that refuses it now), and what it costs (a POSIX memo genuinely named `notes:child.md`, or holding
+  any of the six others, stops being a sibling and is dropped without a report — the standing polarity
+  `/abs/x.md`, `C:\x.md`, `sub\child.md` and `NUL.md` already carry). For the six characters other
+  than `:`, whether Windows raises is stated as **not determinable from this tree**, cited to
+  Microsoft rather than guessed.
+  ⚠ **The largest consequence, and it SHRANK the proof**: stage (a), the URL scheme test, is now
+  behaviourally subsumed — every scheme ends in `:`, decoding never removes one, and a `:` in any
+  component is refused at (c). Two ratified mutants (`F3`, `R8-1`) became **equivalent** — no longer
+  killable by any control, which is a permanent FAIL if kept — and were deleted with the reasoning
+  recorded where they stood. Verified twice independently: 367 destinations by the author, and **370
+  by a differently-constructed sweep** (9 schemes × 8 bodies × 5 encodings plus relative controls,
+  comparing `sibling_path` as written against a variant with stage (a) removed), **0 disagreements**
+  both times. Stage (a) is KEPT — it asks the URL standard's own question, first and for the right
+  reason — and its subsumption is a fact about the current character set: if a destination is ever
+  found that (a) refuses and (c) admits, those rows come back with it.
+  **570 controls, 289 mutants / 0 survived / 0 crashed**, 0 `unknown control`; conformance 295 / 0 / 0
+  + 335 / 0 / 0; `scripts/trip-wires.sh` rc 0; census `--worklist` **byte-identical for the third
+  consecutive round**. Two more touch-time splits landed as standalone pure moves: the PROPERTY
+  controls, and the sibling-resolver controls — the first `Case` module carved on a **subject** rather
+  than a review round, since that resolver had been reported at R3, R4, R5, R8, R19, R22 and R25.
+  ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
+  `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
+  gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
+  since the log carries a NUL from a fixture and plain `grep` treats the file as binary and prints
+  nothing. That `grep` failure is real and worth knowing; the conclusion drawn from it was not.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
