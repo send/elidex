@@ -1455,6 +1455,58 @@ ground for either option; it is not cited.
   is `plan_memo_selftest_mutants_inline.py` (942), not `plan_memo_selftest_work.py` (790, fifth); the
   reviewer offered two shapes of which neither is a fix as stated; and the reviewer's §6.1 / §6.2
   citations are sound (I had grouped this with the two false ones).
+  ⚠ **PR #510 Codex R31 (2026-09-08/09) — IN FLIGHT, NOT FINISHED. ▶▶▶ THE NEXT SESSION STARTS HERE.**
+  **State**: five findings fixed and hand-verified, three of the five proved by controls, **A and B
+  still owe controls**, nothing of R31 pushed, no disposition posted, no next trigger fired.
+  ⚠⚠ **R31 was nearly recorded as the first DRY round, and was not.** The review came back with zero
+  inline threads. The three-channel scan then showed `hasNext=true` / `totalCount=105`: **the PR had
+  crossed 100 threads and my GraphQL query paged at 100**, so `unresolved = 0` meant "not fetched",
+  not "not there". Paging properly found **five live P2s** — four of R31's and **one of R30's, which
+  had therefore been disposed of with a third of its findings unseen**. The loop's terminator is two
+  dry rounds in a row, so this defect pointed straight at a false TERMINAL. Fixed in three places: the
+  memory note, and the GLOBAL skill `~/.claude/skills/external-converge/SKILL.md` — whose own snippet
+  had the pagination as a COMMENT beside a single-page call, so I followed the code and not the prose
+  — now pages in code and asserts `totalCount` against the number fetched (backed up first, and the
+  edited snippet was run: `totalCount=105 fetched=105`).
+  **The five, all reproduced by me before any fix, all verified fixed by me after** (`7dcbb663`, a
+  checkpoint commit whose message records that the controls were owed): (A) a kind phrase crossing a
+  resolved link inside a resolved IMAGE description — `![KIND [UNDETERMINED](x)](img.png)` renders the
+  alt text `KIND UNDETERMINED` but read as `KIND [UNDETERMINED`, so the row went terminal at rc 0 →
+  now rc 1; (B) a linked memo whose §5 schema header spells `#` as `&#35;` had its WHOLE TABLE
+  excluded, declarations and assertions with it, at rc 0 → now declared at rc 1 (the §1-forbidden
+  shape at the widest scope yet); (C) emphasis delimiters re-walked after clearing, ×3.9 → ×1.9 per
+  doubling; (D) the raw-line seed's token × span test, ×3.4 → ×1.7; (E) `classify` searching from
+  offset 0 per mention, ×3.5 → ×1.8. ⚠ **E is a regression I introduced at R24** (`96b3cbb4`):
+  removing the 40-character window fixed a vacuous lookbehind and replaced a bounded scan with an
+  unbounded one — the cost half of a correctness fix.
+  ⚠ **Two delegates stalled on this round** (600 s no-progress, twice, on the controls). The fixes and
+  the `plan_memo_tables.py` → `plan_memo_stream.py` split (`e7b49ed4`) survive from them; the controls
+  are being written by hand.
+  ⚠ **A pre-existing mutant SURVIVED and the generated property is what re-aimed it.** `RG4
+  openers_bottom` named `RG4_LINEAR`, which went green once C stopped re-walking dead delimiters. The
+  memo is NOT redundant — dropping it is still quadratic — but on a shape nobody had written down:
+  **six hand-written probes were tried and all six stayed linear**, while `R27_GROWTH`, whose corpus is
+  generated, reds at once and names it (a raw-HTML opener interleaved with an emphasis pair,
+  `plan_memo_emphasis.py:240`, 1.59× the bound). The control was moved to the one that discriminates.
+  A generated corpus catching the decay of a control written three rounds before it.
+  ⚠ **And the generated corpus itself had a falsified exclusion.** Its docstring said blocked
+  arrangements were excluded because "the shapes that have cost this checker its linear contract are a
+  construct standing beside a second one over and over, not one run followed by another" — and C is
+  one run followed by another. Both arrangements are generated now (1,225 → **3,577 probes at the same
+  ~3.6 s**). ⚠⚠ **But measured, that still does NOT catch C**, and the docstring says so rather than
+  implying otherwise: the limit is the ATOM VOCABULARY, not the arrangement — every atom is a single
+  character or a self-contained construct, so a delimiter atom repeated merges into one long run
+  (`***bbb`) instead of the N separate runs the shape needs. So C's control is a hand-written NESTED
+  probe added to `linear_emphasis_control`, verified GREEN on the fix (5,204 / 20,804 lines at 100 /
+  400 pairs, exactly 4× for 4×) and **RED on the pre-fix scan**, with its own mutant.
+  ⚠ `_drop`'s docstring cited a `linear_emphasis_pairs_control` that **was never written** — the
+  delegate stalled before it. Corrected to name the control that exists.
+  **▶ OWED, in order**: controls + mutants for **A** and **B**; controls for **D** and **E** (or the
+  argument that the generated property covers them — untested, because the pre-fix `check` and `roles`
+  sources no longer import against the post-split tree, so re-injection needs patching the inner
+  function rather than the whole file); then the full gate set, push, resolve the five threads
+  (`PRRT_kwDORYj7cc6gayWZ`, `…6gbkY8`, `…6gbkZD`, `…6gbkZL`, `…6gbkZP`), post the disposition, trigger
+  the next round. ⚠ The disposition must correct the record: **R30 had three findings, not two.**
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
