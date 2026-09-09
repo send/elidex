@@ -153,6 +153,31 @@ def _matches(opener, closer):
     return True
 
 
+def _drop(delims, prv, nxt, bottom, k):
+    """Remove `delims[k]` from the Appendix's delimiter STACK: unlink it from
+    the `prv` / `nxt` chain over `delims[bottom:]` and mark it dead.
+
+    ONE REMOVAL PER DELIMITER, EVER -- that is the exact claim, and it is what
+    `process` costs are bounded by (`linear_emphasis_pairs_control` counts the
+    calls of this function against the number of delimiters).  The Appendix
+    says "remove delimiters between the opener and the closer from the
+    delimiter stack", and until PR #510 R31-2 this program marked them dead
+    IN PLACE instead: the entries stayed in the list, so every later opener
+    search walked past them again and every later match re-marked the ones
+    inside its own range.  Both walks grew with the number of pairs already
+    matched, and `"*a " * n + "b* " * n` -- n openers, then n closers, each
+    matching the nearest live opener across the whole dead middle -- cost
+    quadratic time (measured 3.5x then 3.9x per doubling).  A dead entry that
+    is off the chain cannot be walked, so the cost is structural rather than
+    something a later reader must remember not to re-add."""
+    p, q = prv[k - bottom], nxt[k - bottom]
+    if p >= bottom:
+        nxt[p - bottom] = q
+    if q - bottom < len(prv):
+        prv[q - bottom] = p
+    delims[k].dead = True
+
+
 def process(delims, bottom=0):
     """Pair the delimiters of `delims[bottom:]` -- "Appendix: A parsing
     strategy", `process_emphasis` -- and return the pairs as
@@ -175,26 +200,52 @@ def process(delims, bottom=0):
     delimiters is quadratic.  The walk removes a closer that cannot also open
     when it fails, and every delimiter between a matched pair (they are
     inside the emphasis and can never pair with anything outside it).
+
+    REMOVED MEANS OFF THE STACK, not flagged in place (`_drop`, PR #510
+    R31-2).  `prv` / `nxt` are the Appendix's stack as a list you can remove
+    from -- the doubly-linked delimiter list commonmark.js keeps -- over
+    `delims[bottom:]`, so an opener search walks only delimiters that are
+    still on it and "remove everything between the pair" unlinks each entry
+    once rather than re-walking a range that grows with every pair matched.
+    The OUTER walk is still by index (a closer is visited once, in order) and
+    skips what has been removed, so `Delimiter.dead` remains the flag that
+    says so.
+
+    ⚠ `not o.dead` IN THE SEARCH IS REDUNDANT AND IS KEPT, deliberately: an
+    entry the chain can reach is on the stack, so the conjunct never decides
+    anything.  What it buys is that the chain can be mutated AWAY without
+    changing what this function computes -- walk by index instead of by `prv`,
+    or re-walk the whole range instead of the live entries, and the pairs are
+    identical and only the cost moves.  A cost claim can only be proved by a
+    mutation that changes the cost and nothing else, and without this conjunct
+    every such mutation also changes the answer (it would let the search take
+    a delimiter that a pair has already consumed), which would turn the
+    conformance examples red for the wrong reason and prove nothing about the
+    walk.  It is also the guard a future edit that puts a dead entry back on
+    the chain would need.
     """
     pairs, openers_bottom, closer = [], {}, bottom
-    while closer < len(delims):
+    top = len(delims)
+    prv = list(range(bottom - 1, top - 1))       # bottom - 1 = off the stack
+    nxt = list(range(bottom + 1, top + 1))       # top = off the stack
+    while closer < top:
         d = delims[closer]
         if d.dead or not d.can_close:
             closer += 1
             continue
         key = (d.char, d.orig % 3, d.can_open)
         floor = openers_bottom.get(key, bottom)
-        j, found = closer - 1, None
+        j, found = prv[closer - bottom], None
         while j >= floor:
             o = delims[j]
             if not o.dead and o.char == d.char and o.can_open and _matches(o, d):
                 found = j
                 break
-            j -= 1
+            j = prv[j - bottom]
         if found is None:
             openers_bottom[key] = closer
             if not d.can_open:
-                d.dead = True
+                _drop(delims, prv, nxt, bottom, closer)
             closer += 1
             continue
         o = delims[found]
@@ -204,12 +255,15 @@ def process(delims, bottom=0):
         pairs.append((o.end - use, o.end, d.start, d.start + use, o.char, use, "em"))
         o.end -= use
         d.start += use
-        for k in range(found + 1, closer):
-            delims[k].dead = True
+        k = nxt[found - bottom]
+        while k < closer:
+            after = nxt[k - bottom]
+            _drop(delims, prv, nxt, bottom, k)
+            k = after
         if not o.length:
-            o.dead = True
+            _drop(delims, prv, nxt, bottom, found)
         if not d.length:
-            d.dead = True
+            _drop(delims, prv, nxt, bottom, closer)
             closer += 1
     for d in delims[bottom:]:
         d.dead = True

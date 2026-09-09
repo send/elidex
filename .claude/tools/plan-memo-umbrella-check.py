@@ -141,12 +141,12 @@ HERE = str(pathlib.Path(__file__).resolve().parent)
 if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
 from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
-from plan_memo_tokens import file_and_cite_spans  # noqa: E402
+from plan_memo_tokens import covers, file_and_cite_spans  # noqa: E402
 from plan_memo_tables import split_units, stream  # noqa: E402
 from plan_memo_population import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     NOUN_ANCHOR, acceptance_vocab_seed, assertion_a, assertion_b, assertion_cd_seed, classify,
-    roles,
+    licence_starts, roles,
 )
 
 
@@ -195,6 +195,14 @@ class Mention:
         return self.block.stream
 
     @property
+    def licence(self):
+        """The block's index of where a licensing phrase may begin
+        (`plan_memo_roles.licence_starts`), read through the mention exactly
+        as its text is: the rule is written against the block, and every
+        mention of that block asks the same index."""
+        return self.block.licence
+
+    @property
     def key(self):
         return (self.block.memo.key, self.lineno, self.col)
 
@@ -224,7 +232,8 @@ class Block:
     since a stream offset is no longer a raw offset.  Minted only after the
     `Population` has disposed the block (`stream()` asserts it)."""
 
-    __slots__ = ("memo", "file", "text", "mask", "lexed", "stream", "tokens", "source", "self_id")
+    __slots__ = ("memo", "file", "text", "mask", "lexed", "stream", "tokens", "source", "self_id",
+                 "licence")
 
     def __init__(self, memo, file, lexed, source, self_id=None):
         # `file` = the population's ONE display name of the memo
@@ -234,6 +243,12 @@ class Block:
         self.lexed = lexed
         self.stream = stream(lexed)
         self.tokens = list(tokens(self.stream))
+        # Read ONCE per block, beside the token scan and for the same reason:
+        # both are a fact of the block's stream that every site in it asks
+        # about, and asking per site re-reads the block per site (the token
+        # scan has been one pass since it was written; the licensing rule's
+        # index is one since PR #510 R31-4).
+        self.licence = licence_starts(self.stream)
         self.source, self.self_id = source, self_id
 
     def window(self, start, end, w):
@@ -443,7 +458,7 @@ def lex_unsupported_seed(pop, findings, notes):
         for lineno, line, reading in memo.raw:
             spans = file_and_cite_spans(line)
             ids = sorted({t.id for t in tokens(line) if t.id in keep
-                          and not any(a < t.idend and t.idstart < b for a, b, _ in spans)})
+                          and not covers(spans, t.idstart, t.idend)})
             if "|" in line or ids:
                 n += 1
                 findings.append(("LEX-UNSUPPORTED?", pop.display(memo.path), lineno, "%s; it holds %s" % (

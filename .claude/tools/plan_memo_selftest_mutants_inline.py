@@ -590,7 +590,7 @@ R22_MEMORANDUM = ("(licence) `9z's memorandum` is not the licensed possession `m
 
 # The R22 seed's span mask, spelled once: two mutants patch the same clause.
 R22_SEED_MASK = ("ids = sorted({t.id for t in tokens(line) if t.id in keep\n"
-                 "                          and not any(a < t.idend and t.idstart < b for a, b, _ in spans)})")
+                 "                          and not covers(spans, t.idstart, t.idend)})")
 
 MUTANTS += [
     # -- PR #510 Codex R22: one reading, one spelling -- the raw-line seed's
@@ -852,10 +852,16 @@ MUTANTS += [
      r'_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)',
      r'_APPOSITIVE = re.compile(ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + r"\s*$", re.ASCII)',
      [R24_MENTION_ONLY]),
-    ("R24 F3 roles: the backward look reads the whole preceding text, bounded by `endpos` where `$` "
+    # ⚠ THE ANCHOR MOVED AT R31-4, when the backward look stopped scanning the
+    # whole preceding text and started matching at the ONE offset the index
+    # (`licence_starts`) names.  The mutation is the same one -- re-inject the
+    # 40-character slice -- and so is what it must kill: R24's boundary is
+    # still a grammar fact and still carries no width.
+    ("R24 F3 roles: the backward look reads the text before the mention, bounded by `endpos` where `$` "
      "matches (re-inject the 40-character slice: a phrase that long starts at index 0 and the "
      "lookbehind succeeds against nothing)", ROLES,
-     'LICENSE_BEFORE.search(m.text, 0, m.start)', 'LICENSE_BEFORE.search(m.text[max(0, m.start - 40):m.start])',
+     'LICENSE_BEFORE.match(m.text, starts[j], m.start)',
+     'LICENSE_BEFORE.search(m.text[max(0, m.start - 40):m.start])',
      [R24_VACUOUS, R24_WIDTH_PROPERTY]),
     # ⚠ THE SUBJECT OF THIS CONTROL IS THE DEDUP, not a clause of the licensing
     # pattern.  A mutant that dropped a trailing-row-noun clause SURVIVED it --

@@ -11,6 +11,7 @@ memo is asserted exactly like a row of the main memo.  Findings are
 `(code, file, lineno, message)`; a code ending in `?` is a seed and never gates.
 """
 
+import bisect
 import re
 from collections import Counter
 
@@ -40,14 +41,21 @@ from plan_memo_tables import MARKER_RE, ROW_NOUN_SEP, is_empty, stream
 # --------------------------------------------------------------------------
 
 # What may stand immediately BEFORE the mention: the mention is the thing a
-# child is "of", or the runner of a derivation.
+# child is "of", or the runner of a derivation.  Each phrase is written ONCE,
+# here, and the pattern and the index of where one may START are both composed
+# from this tuple (`LICENSE_BEFORE` / `_LICENCE_KEYWORD`), so a phrase added
+# below is indexed by arriving in it and cannot be reachable by one reader and
+# not the other.
+_LICENCE_PHRASES = (
+    r"child(?:ren)?\s+(?:of\s+)?",           # the child of X / any child of X / children of X
+    r"derivation\s+(?:that\s+)?",            # the derivation Slice B runs at its own start
+    r"naming\s+",                            # naming X itself would name nobody
+    r"mint(?:s|ed|ing)?\s+(?:onto\s+)?",     # ... mints / minted / minting X
+)
+
 LICENSE_BEFORE = re.compile(
     BEFORE +                                  # PR #510 R22, see LICENSE_AFTER
-    r"(?:"
-    r"child(?:ren)?\s+(?:of\s+)?"          # the child of X / any child of X / children of X
-    r"|derivation\s+(?:that\s+)?"           # the derivation Slice B runs at its own start
-    r"|naming\s+"                           # naming X itself would name nobody
-    r"|mint(?:s|ed|ing)?\s+(?:onto\s+)?"    # ... mints / minted / minting X
+    r"(?:" + "|".join(_LICENCE_PHRASES) +
     # ⚠ NO TRAILING-ROW-NOUN CLAUSE, and that is a deletion rather than an
     # omission (PR #510 R24).  A `_TRAILING_NOUN` substitution stood here --
     # "a row noun between the licensing phrase and the id (`the child of
@@ -80,8 +88,16 @@ LICENSE_BEFORE = re.compile(
 # the id grammar's that nothing can reach.  Measured: removing it moves no
 # control and no site of the #506 memo (1,205 mentions, 491 licensed, both
 # before and after).
+# ⚠ NO `^`, and the difference is a COPY rather than a semantic (PR #510
+# R31-4).  `.match(s, pos)` is anchored AT `pos` by definition, so `^` -- which
+# matches only at the string's real beginning -- was there to serve a call that
+# handed the pattern a fresh slice of the tail (`m.text[m.end:]`).  That slice
+# is one copy of the rest of the block per mention, which is quadratic in the
+# block for the same reason the backward look was, and it buys nothing an
+# argument does not: `.match(m.text, m.end)` matches exactly where the slice's
+# position 0 was.
 LICENSE_AFTER = re.compile(
-    r"^(?:"
+    r"(?:"
     r"(?:'s|’s)\s+(?:own\s+)?(?:derivation|children|charter|memo|split|plan-memo|sub-slices)"
     r"|,?\s+whose\s+(?:derivation|charter|children)"
     r"|\s+is\s+an?\s+umbrella"
@@ -90,6 +106,64 @@ LICENSE_AFTER = re.compile(
     r")" + AFTER,
     re.IGNORECASE | re.ASCII,
 )
+
+# Where a licensing phrase may BEGIN: the literal each phrase of
+# `_LICENCE_PHRASES` opens with.  DERIVED from the phrases rather than listed
+# beside them -- `licence_index_control` requires each phrase's source to open
+# with that literal and to continue with a regex metacharacter, so a phrase
+# whose first move is not a plain literal turns the control red instead of
+# quietly leaving its sites out of the index.
+# ⚠ AND IT CARRIES NO BOUNDARY OF ITS OWN.  `LICENSE_BEFORE` opens with
+# `BEFORE`, so `grandchild of 9z` is not the licensing phrase -- and that edge
+# is stated THERE, once.  Spelling it here as well would make this index a
+# second, silent statement of it: a mutant that dropped `BEFORE` from the
+# pattern then survived, because the index went on rejecting the site the
+# pattern had stopped rejecting (measured, PR #510 R31-4).  A superset of the
+# starts is all this needs to be -- what it must never do is miss one -- and
+# the pattern applied at each of them is the one reader of the edge.
+_LICENCE_KEYWORD = re.compile(
+    "|".join(sorted({re.match(r"[a-z]+", p).group() for p in _LICENCE_PHRASES})),
+    re.IGNORECASE | re.ASCII,
+)
+
+
+def licence_starts(text):
+    """Every offset of `text` at which a `LICENSE_BEFORE` phrase MAY begin, in
+    order -- one linear scan, read once per block and shared by every mention
+    in it (`Block.licence`).
+
+    WHY A BLOCK NEEDS ONE AT ALL (PR #510 R31-4, and it is a regression of my
+    own).  `LICENSE_BEFORE` is anchored at `$` against the mention, and R24
+    established that "immediately before" is a GRAMMAR fact rather than a
+    character count: it deleted a 40-character slice whose index 0 let the
+    lookbehind succeed against nothing, and handed the pattern the block's
+    whole preceding text (`search(m.text, 0, m.start)`) instead.  That was
+    right about the boundary and wrong about the cost -- it replaced a bounded
+    scan with an unbounded one, and since every mention of the block asks, a
+    paragraph of N mentions scanned O(N^2) characters (measured 3.0x then 3.5x
+    per doubling over `"9z unrelated words. " * n`).
+
+    THE NEW BOUND IS THE SAME KIND OF FACT AS THE OLD ONE, which is what keeps
+    both properties: no width appears anywhere here, and the position comes
+    from the grammar.  Every branch of `LICENSE_BEFORE` opens with a plain
+    literal, so a match can only START where one of those literals stands; and
+    of the candidates before a mention, only the LAST one can reach it.  A
+    match beginning earlier would have to CONTAIN that candidate, and it
+    cannot: what a phrase spells is its own keyword, whitespace, and the words
+    `of` / `that` / `onto` / `the`, and no keyword literal occurs inside any of
+    those or inside another keyword.  So the pattern is applied at ONE
+    position, with `match` rather than `search`, and the walk that chooses the
+    position is the caller's and countable in Python (which is exactly what
+    `leading_run_scan_control` says a scanning method's is not).
+
+    THE INDEX IS A SUPERSET AND THE PATTERN DECIDES.  Every edge of the rule
+    -- the `BEFORE` boundary, the whitespace, the trailing `the` -- is read
+    from `LICENSE_BEFORE` alone, at the position this hands it; an offset here
+    that no phrase actually begins at costs one failed match.  The failure
+    that matters is the other one, so `licence_index_control` states the
+    property this must have: at every position of a generated corpus, the
+    licensed verdict is the one the whole preceding text gives."""
+    return [m.start() for m in _LICENCE_KEYWORD.finditer(text)]
 # ⚠ THE OUTER EDGES, PR #510 R22.  These two are the licensing rule -- a match
 # SUPPRESSES a report -- so an unbounded edge is the dangerous polarity: it
 # licenses a mention on a phrase the document does not contain.  `LICENSE_
@@ -144,23 +218,28 @@ def classify(m):
     DISPOSED stream (`m.text`): a licensing phrase inside a code span is
     code, not a licence.
 
-    NEITHER SIDE IS GIVEN A SLICE.  Both patterns are anchored against the
-    mention -- `LICENSE_BEFORE` at `$`, `LICENSE_AFTER` at `^` -- and the
-    mention's own extent is the id grammar's, so "immediately before" and
-    "immediately after" are stated by the grammar and need no width.  The
-    backward search is bounded by `endpos`, which is where `$` matches and
-    where a slice's end would have been, and costs no copy of the block.  A
-    slice is not a cheaper spelling of an anchor: it truncates the MATCH, and
-    a lookbehind at index 0 of a slice succeeds against nothing (PR #510 R24,
-    the note above `NOUN_ANCHOR`).
+    NEITHER SIDE IS GIVEN A SLICE, AND NEITHER IS GIVEN THE BLOCK.  Both
+    patterns are anchored against the mention -- `LICENSE_BEFORE` at `$`,
+    `LICENSE_AFTER` at the position it is applied at -- and the mention's own
+    extent is the id grammar's, so "immediately before" and "immediately
+    after" are stated by the grammar and need no width.  A slice is not a
+    cheaper spelling of an anchor: it truncates the MATCH, and a lookbehind at
+    index 0 of a slice succeeds against nothing (PR #510 R24, the note above
+    `NOUN_ANCHOR`).
 
-    The forward side keeps its slice, and it is not the same thing: it runs to
-    the END of the block, so it truncates nothing and there is no width in it.
-    `.match(m.text, m.end)` would NOT be the same expression -- `^` matches at
-    the string's real beginning, not at `pos` -- so the tail is the text the
-    pattern is written against."""
-    m.licensed = bool(LICENSE_BEFORE.search(m.text, 0, m.start)
-                      or LICENSE_AFTER.match(m.text[m.end:]))
+    Each side is therefore applied at ONE position, and each position is a
+    fact of the grammar rather than a count of characters (PR #510 R31-4):
+    forward, the mention's own end; backward, the last offset before the
+    mention at which a licensing phrase may begin -- `licence_starts`, the
+    block's index, which carries the argument that no earlier one can reach.
+    R24 removed the backward width for a CORRECTNESS reason and left an
+    unbounded scan in its place, so every mention re-read the block from its
+    start; the index keeps R24's boundary (there is still no width here) and
+    costs one bisect per mention instead."""
+    starts = m.licence
+    j = bisect.bisect_left(starts, m.start) - 1
+    m.licensed = bool((j >= 0 and LICENSE_BEFORE.match(m.text, starts[j], m.start))
+                      or LICENSE_AFTER.match(m.text, m.end))
     return m
 
 

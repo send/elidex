@@ -220,6 +220,20 @@ class Memo:
         # where an indented `| row |` is the I-C silent-skip class.
         self.raw = []
         self.paragraphs, _, _, _ = self._run(self._parse(self.lines, list(range(1, len(self.lines) + 1)), None))
+        # PHASE 2, IN THE ORDER THE SCHEMA QUESTION FORCES (PR #510 R31-1).  A
+        # table's schema is what its HEADER RENDERS (`Table.bind`), so the
+        # header's cells are lexed first; and the schema decides which of the
+        # table's lines are rows at all (a schema row of the wrong width is a
+        # miss and not a row, and a non-schema row is cut to the header's
+        # width), so the rows do not exist until every table is bound.  The
+        # header cells are then resolved a second time by the walk below,
+        # because `lexed()` is the ONE walk of a memo's blocks and a carve-out
+        # there would be a second one; resolving a cell twice off the same
+        # `defs` is the same parse of the same text.
+        for t in self.tables:
+            for cell in t.header.cells:
+                cell.lexed.resolve(self.defs)
+            t.bind()
         for lx in self.lexed():
             lx.resolve(self.defs)
         self.raw.extend((lineno, text, "inline") for lineno, text in self._inline_raw())

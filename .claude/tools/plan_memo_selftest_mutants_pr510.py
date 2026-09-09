@@ -269,8 +269,8 @@ MUTANTS += [
       "over pure CommonMark, which has no tables): a paragraph and a table, not a definition with the "
       "header row as its destination"]),
     ("RG2 IMP-1: admit_table reads the ONE predicate (re-inject a third boundary)", TABLES,
-     '    while j < n and not block_end(lines, j, False, lazy):\n        body = split_row(lines[j])',
-     '    while j < n and not __import__("plan_memo_blocks").is_blank(lines[j]):\n        body = split_row(lines[j])',
+     '    while j < n and not block_end(lines, j, False, lazy):',
+     '    while j < n and not __import__("plan_memo_blocks").is_blank(lines[j]):',
      ["(table) a list item right after a schema table ends it (a block start), so it is not a 1-cell "
       "body row: rc 0"]),
     ("RG2 IMP-1 / R13 §4.4: indented code cannot interrupt a paragraph (re-inject it as an opener "
@@ -530,8 +530,13 @@ MUTANTS += [
      '(?P<t4>![A-Za-z])', '(?P<t4>![A-Z])',
      ["(html) `<!doctype` opens a type-4 block (§4.6 condition 4: `<!` + an ASCII letter, either case) "
       "to the `>` line: raw, no site"]),
+    # ⚠ THE CUT MOVED TO `Table.bind` AT R31-1, because which cells are a row's
+    # is decided by the SCHEMA and the schema is decided by what the header
+    # renders.  The mutation and what it must kill are unchanged: an ignored
+    # cell must not be lexed, and `bind` still runs before the rows' cells are
+    # resolved.
     ("R13 GFM §4.10: the excess cells of a NON-schema row are ignored before lexing (re-inject them)", TABLES,
-     'body[:width], schema))', 'body, schema))',
+     'body[:self.width], self.schema))', 'body, self.schema))',
      ["(table) an excess body cell of a non-schema table is ignored (GFM §4.10): its `9z owns it` is "
       "never lexed -- no site",
       "(rc) an excess body cell of a non-schema table holding `[x](absent-file.md)` is ignored (GFM "
@@ -542,7 +547,7 @@ MUTANTS += [
      # the seed also masks the file/cite spans since PR #510 R22; the MUTATION
      # is untouched -- the seed re-grows its OWN boundary spelling
      ('ids = sorted({t.id for t in tokens(line) if t.id in keep\n'
-      '                          and not any(a < t.idend and t.idstart < b for a, b, _ in spans)})'),
+      '                          and not covers(spans, t.idstart, t.idend)})'),
      'ids = sorted({t for t in __import__("re").findall(r"(?<![0-9A-Za-z-])(?:#11-[a-z0-9-]+|[0-9A-Za-z]{1,4})'
      '(?![0-9A-Za-z-])", line) if t in keep})',
      ["(lex-seed) a raw HTML line `9z-owner`: a hyphen bounds the short id on the raw line as in "

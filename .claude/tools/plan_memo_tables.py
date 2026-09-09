@@ -362,13 +362,37 @@ class Row:
 
 
 class Table:
-    __slots__ = ("schema", "header", "rows", "misses")
+    """One GFM table.  ADMITTED IN PHASE 1 AND BOUND IN PHASE 2 (PR #510
+    R31-1): `admit_table` finds its extent and splits its lines into cells,
+    all of which is decided over RAW text; `bind` asks which schema it is,
+    which is a question about what the header RENDERS and so cannot be asked
+    until the cells are lexed and `Memo.defs` is complete.  `pending` holds
+    the split body lines in between, and is empty afterwards."""
 
-    def __init__(self, schema, header):
-        self.schema = schema            # Schema or None
+    __slots__ = ("schema", "header", "width", "rows", "misses", "pending")
+
+    def __init__(self, header, width):
+        self.schema = None              # Schema or None; set by `bind`
         self.header = header            # Row (schema None)
-        self.rows = []                  # [Row], body rows only
+        self.width = width              # the delimiter row's cell count
+        self.rows = []                  # [Row], body rows only; minted by `bind`
         self.misses = []                # [(lineno, message)] width policy
+        self.pending = []               # [(lineno, line, [Cell])] until `bind`
+
+    def bind(self):
+        """Decide the schema and mint the rows.  Phase 2 must have resolved
+        the header's cells (`Memo.__init__` does, ahead of every other block,
+        for this)."""
+        rendered_header = [rendered(c.lexed) for c in self.header.cells]
+        self.schema = next((s for s in SCHEMAS if rendered_header == s.header), None)
+        for lineno, line, body in self.pending:
+            if self.schema is not None and len(body) != self.width:
+                self.misses.append((lineno, "row has %d cell(s); the %r header has %d -- "
+                                    "a shifted read fabricates findings, so this row is "
+                                    "unscanned" % (len(body), self.schema.name, self.width)))
+            else:
+                self.rows.append(Row(self.header.memo, lineno, line, body[:self.width], self.schema))
+        del self.pending[:]
 
 
 def admit_table(memo, lines, linenos, i, lazy):
@@ -392,27 +416,33 @@ def admit_table(memo, lines, linenos, i, lazy):
     number of cells.  If there are a number of cells fewer than the number
     of cells in the header row, empty cells are inserted.  If there are
     greater, the excess is ignored" (verbatim, GFM 0.29 §4.10 after Example
-    203) -- a NON-schema row is cut to the header's width here, before
-    its cells are lexed, so an ignored cell's `[x](absent.md)` is never a
-    link and its id never a site (PR #510 R13); a SCHEMA row of any other
-    width is the schema miss (local policy over "may vary": a shifted read
-    fabricates findings).  A short row is not padded: an empty cell would
-    hold nothing a scanner reads.
+    203) -- a NON-schema row is cut to the header's width in `bind`, before
+    its cells are ever resolved, so an ignored cell's `[x](absent.md)` is
+    never a link and its id never a site (PR #510 R13); a SCHEMA row of any
+    other width is the schema miss (local policy over "may vary": a shifted
+    read fabricates findings).  A short row is not padded: an empty cell
+    would hold nothing a scanner reads.
+
+    EVERYTHING DECIDED HERE IS DECIDED OVER RAW TEXT, and that is the right
+    text for every one of these questions, not a residue of the reading `bind`
+    moved (PR #510 R31-1).  Phase 1 runs over the source lines and Phase 2
+    over what a block holds, so a table's SHAPE -- that this line is a header
+    (`table_header_at`), that the next one is a delimiter row of N cells
+    (`delimiter_width`: "cells whose only content are hyphens"), where each
+    cell ends (`split_row`, on unescaped `|`), and how many cells a row has --
+    is settled before any inline construct exists.  `&#45;` is a §2.5
+    character reference, an INLINE construct, so a delimiter row spelled with
+    one is no delimiter row at all and the table never forms; the same goes
+    for a `|` written as `&#124;`, which does not split a cell.  What `bind`
+    asks is the one question here that was never block-level: which SCHEMA a
+    table is, which is this checker's own policy about the names a reader
+    sees in the header row.
     """
     n = len(lines)
-    header, width = split_row(lines[i]), delimiter_width(lines[i + 1])
-    hdr_text = [c.text for c in header]
-    schema = next((s for s in SCHEMAS if hdr_text == s.header), None)
-    t = Table(schema, Row(memo, linenos[i], lines[i], header, None))
+    t = Table(Row(memo, linenos[i], lines[i], split_row(lines[i]), None), delimiter_width(lines[i + 1]))
     j = i + 2
     while j < n and not block_end(lines, j, False, lazy):
-        body = split_row(lines[j])
-        if schema is not None and len(body) != width:
-            t.misses.append((linenos[j], "row has %d cell(s); the %r header has %d -- "
-                             "a shifted read fabricates findings, so this row is "
-                             "unscanned" % (len(body), schema.name, width)))
-        else:
-            t.rows.append(Row(memo, linenos[j], lines[j], body[:width], schema))
+        t.pending.append((linenos[j], lines[j], split_row(lines[j])))
         j += 1
     return t, j
 
@@ -609,7 +639,15 @@ def dispose(lx, keep):
     base += [(a, b, "html") for a, b in lx.html]
     base += [(a, b, "autolink") for a, b in lx.autolinks]
     base += [(a, b, "link") for a, b, _ in lx.links]
-    base += [(a, b, "image") for a, b, _ in lx.images]
+    # THE TAG DECIDES, and it is the tag the lexer already computes for the
+    # conformance count: a resolved image's own delimiters (its `![` and its
+    # tail) are BLANKS, because the construct renders a picture where they
+    # stand and the text on either side of it is not one word; anything
+    # DEMOTED into a resolved image's description -- a link, a nested image,
+    # each one's opener and tail -- renders nothing at all under §6.4's plain
+    # string content, so it is a `mark` and the description reads as the one
+    # run a reader sees (PR #510 R31-1).
+    base += [(a, b, "mark" if k == "demoted" else "image") for a, b, k in lx.images]
     base += [(a, b, "mark") for a, b in lx.marks]
     delims = [((oa, ob), (ca, cb), ch, use, ob, ca) for oa, ob, ca, cb, ch, use, _k in lx.emphasis]
     lx.mask = base + [(a, b, "mark") for pair in delims for a, b in pair[:2]]
@@ -832,6 +870,40 @@ def _straddles(blanks, a, b):
             return False                # wholly inside the blanks: not across them
         j += 1
     return inside > 0
+
+
+def rendered(lx):
+    """The plain text a READER sees in this block, with NO keep-set exception
+    -- the reading a question about the DOCUMENT is asked of, as opposed to a
+    question about what a scanner may read out of the stream.
+
+    ITS ONE CALLER IS `Table.bind` (PR #510 R31-1).  A table's schema was
+    matched on the header cells' RAW text, so a header spelled with any
+    equivalent inline syntax -- `&#35;` or `\\#` or `` `#` `` for `#` -- was not
+    the schema's header, the table was admitted as a non-schema one, and every
+    declaration and every assertion in it left the run silently: not one row
+    but a whole memo's rows, at rc 0.  The reading is the same one
+    `Population._unkeyed` already asks of an id cell (`stream(reader=True)`),
+    which is why there is no third spelling of "what does this cell say".
+
+    THE EXCEPTIONS ARE DROPPED ON PURPOSE, and the reason they cannot matter
+    here is the reason they exist: `dispose`'s two keep-set exceptions (an
+    id-only code span, an id-only `**` pair) fire only where a span's content
+    is entirely DECLARED IDS, and a schema's header cells are fixed literals
+    of `SCHEMAS` -- `#`, `Slice`, `Deps` -- none of which is an id.  Asking
+    with an empty keep is therefore the same answer, and it is the only one
+    available: the keep-set is the set of declared ids, which is read from the
+    rows of the tables this decides the schema of.
+
+    ⚠ The row's own ID CELL is still read RAW (`bare_id`), and that is the
+    same circularity from the other side: `**&#57;z**7z` renders `9z7z`, and
+    which of `9z7z` / `9z` a reader sees THERE is decided by the decoration
+    exception, which is keyed on the declared ids being computed.  The raw
+    cell is the reading with every decoration standing, which is what that
+    grammar is written against; `_unkeyed` then asks the rendered question of
+    whatever declared nothing, so no cell escapes both."""
+    dispose(lx, frozenset())
+    return str(stream(lx, reader=True))
 
 
 def _readings(lx):

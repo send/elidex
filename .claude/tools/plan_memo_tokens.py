@@ -21,6 +21,7 @@ token grammar consuming it belong in the same file as each other rather than in
 the same file as §6.3.
 """
 
+import bisect
 import re
 
 from plan_memo_ids import ALNUM, CITE_ID
@@ -164,5 +165,30 @@ def file_and_cite_spans(text):
     out.extend((m.start(), m.end(), "cite") for m in _CITE_TOKEN.finditer(text))
     out.sort()
     return out
+
+
+def covers(spans, a, b):
+    """Whether `[a, b)` meets one of `spans` -- the ONE reader of what
+    `file_and_cite_spans` returns, given a name so its callers do not each
+    re-spell the test.
+
+    IT READS ONLY THE SPANS THAT COULD OVERLAP.  The list is ORDERED BY START
+    AND NON-OVERLAPPING by construction (the file runs are selected leftmost
+    to rightmost, each beginning at or after the previous one's end, and a
+    citation cannot overlap a file name because `[` and `]` bound a run), so
+    the first span that could reach `a` is a bisect away and there is at most
+    one to test: any later span begins after this one ends.
+
+    A caller that asks this of every token instead summed the whole list per
+    token, which is quadratic in the line -- the always-run raw-line seed
+    (`plan-memo-umbrella-check.py::lex_unsupported_seed`) over a raw HTML
+    block of `9z note.md` repeated measured 2.9x then 3.2x per doubling (PR
+    #510 R31-3).  It is the same defect `plan_memo_tables._straddles` had at
+    R27-3 against `Stream.blanks`, whose ordering is stated for the same
+    reason, and the same window closes it."""
+    j = bisect.bisect_left(spans, (a,))
+    if j and spans[j - 1][1] > a:       # the span before `a` may reach into it
+        j -= 1
+    return j < len(spans) and spans[j][0] < b and spans[j][1] > a
 
 

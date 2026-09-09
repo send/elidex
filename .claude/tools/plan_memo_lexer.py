@@ -809,14 +809,36 @@ def inline_pass(s, defs):
             # (`_demote`, once, at the end); a link is CONVERTED here rather
             # than re-tagged, and is appended AFTER the range, so that
             # conversion stays the one site saying a demoted link is not an
-            # image of its own
+            # image of its own.
+            # ⚠ A DEMOTED LINK'S `[` STAYS A MARK.  It used to be POPPED off
+            # `opens` here, on the reasoning that the opener "is inside the
+            # description" -- but being inside one says nothing about what it
+            # renders, and §6.4 reduces the description to the plain string
+            # content of its inline children, where a link contributes its
+            # TEXT and neither of its brackets.  The literal `[` was left
+            # standing in the stream, so `![KIND [UNDETERMINED](x)](img.png)`
+            # -- which renders the alt text `KIND UNDETERMINED` -- read as
+            # `KIND [UNDETERMINED`, the kind phrase was not there, and a row
+            # with a nonempty `Deps` left the census at rc 0 (PR #510 R31-1).
             dem_img.append((img_bottom, len(images)))
             while out and out[-1][0] > pos:
                 images.append(out.pop()[:2] + ("demoted",))
-                opens.pop()             # the demoted link's `[` is inside the description
             while unresolved and unresolved[-1][0] > pos:
                 unresolved.pop()
             images.append((i, end, "image"))
+            # AND THE IMAGE'S OWN `![` IS RECORDED TOO, with the same
+            # disposition as its own tail -- the one rule, stated once: a
+            # construct's markup renders what the construct renders.  A
+            # resolved image puts a picture in the flow rather than the
+            # letters of its description, so its tail is a BLANK and so is
+            # its opener (`open` here, `image` after `dispose` reads the
+            # tag), which keeps the two sides of it apart exactly as the tail
+            # does; demoted into an enclosing description it renders nothing
+            # at all, and `_demote` retags it with everything else so it
+            # becomes a drop by the same range.  Recorded here rather than at
+            # the `[` because only a RESOLVED image has an opener to record:
+            # `![x]` that resolves nothing is literal text, `!` included.
+            images.append((pos - 1, pos + 1, "open"))
         else:
             out.append((i, end, dest))
             opens.append((pos, pos + 1))    # a link's `[` renders as nothing
