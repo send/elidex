@@ -158,8 +158,12 @@ def _drop(delims, prv, nxt, bottom, k):
     the `prv` / `nxt` chain over `delims[bottom:]` and mark it dead.
 
     ONE REMOVAL PER DELIMITER, EVER -- that is the exact claim, and it is what
-    `process` costs are bounded by (`linear_emphasis_pairs_control` counts the
-    calls of this function against the number of delimiters).  The Appendix
+    `process` costs are bounded by (`linear_emphasis_control`'s NESTED probe,
+    `"*a " * n + "b* " * n`, counting the source lines this module runs at two
+    sizes.  ⚠ This sentence named a `linear_emphasis_pairs_control` that was
+    never written: the delegate that added `_drop` stalled before writing any
+    control for it, and a docstring citing a control that does not exist is
+    exactly the unexecuted claim this program exists to stop).  The Appendix
     says "remove delimiters between the opener and the closer from the
     delimiter stack", and until PR #510 R31-2 this program marked them dead
     IN PLACE instead: the entries stayed in the list, so every later opener

@@ -59,6 +59,18 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPUL
 # that needs it.
 SELFTEST = frozenset((CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH))
 
+# The GENERATED growth property (PR #510 R27): the corpus is derived from the
+# grammar rather than written by hand, so it is the control a cost mutant names
+# when no hand-written shape discriminates it.  ⚠ It lives HERE, with the other
+# shared names, because more than one derived registry names it -- the R22
+# lesson about `STAGE_C`, which stood as two byte-identical copies until the
+# round that changed it had to move both.  It was declared in
+# `plan_memo_selftest_mutants_r26.py` until R31 needed it from
+# `_mutants_inline.py` too.
+R27_GROWTH = ("the scans are linear over a corpus GENERATED from the grammar: every branch character, "
+              "delimiter, HTML opener, bracket construct and id kind, each repeated and each PAIR of "
+              "them interleaved, and no source line grows worse than its input")
+
 # The spec-example conformance control (`plan_memo_selftest_conformance.py`):
 # the one control a spec-table transcription error turns red.
 SPEC_EXAMPLES = "CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"

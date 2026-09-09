@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
     CHECK, CONTROLS, EMPHASIS, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
-    ROLES, SEQUENCE, SIBLING, STAGE_C, STREAM, TABLES, TOKENS,
+    R27_GROWTH, ROLES, SEQUENCE, SIBLING, STAGE_C, STREAM, TABLES, TOKENS,
 )
 
 # The R25-1 control names are COMPOSED by the cases module (one per member of
@@ -512,9 +512,26 @@ MUTANTS += [
      # ⚠ not the UNMATCHED probe: a `*` that opens and never closes is unmatched under both readings
      # (measured) -- the subject must be a run whose CLOSING depends on what precedes it
      [RG4_EM, INLINE_EXAMPLES]),
+    # ⚠ THE SUBJECT MOVED, AND THE GENERATED CORPUS IS WHAT FOUND IT AGAIN.  This
+    # row named `RG4_LINEAR` -- "N unmatched delimiter runs cost O(N)" -- and that
+    # control went GREEN when R31-2 stopped re-walking dead delimiters, because
+    # the new scan makes that particular shape linear whether or not the memo is
+    # there.  The memo is NOT redundant, though: dropping it is still quadratic,
+    # on a shape no one had written down.  Six hand-written probes were tried
+    # here first (unmatched closers, closers with no openers, openers-then-
+    # closers, mixed `*`/`_`, `**` runs, unmatchable closers) and ALL SIX stayed
+    # linear -- the symptom-vocabulary population this suite exists to distrust.
+    # `R27_GROWTH`, whose corpus is generated from the grammar, reds immediately
+    # and names the shape: a raw-HTML opener interleaved with an emphasis pair
+    # (`<!--x` + `_x_`, `<![CDATA[x` + `_x_`), 4 of 1,225 probes confirmed at
+    # 1.59x the bound on `plan_memo_emphasis.py:240`.  So the control is moved to
+    # the one that discriminates rather than the mutant being weakened, and
+    # `RG4_LINEAR` stays in the registry as a true claim that no longer proves
+    # THIS clause.  A generated corpus earning its cost by catching the decay of
+    # a control written three rounds before it.
     ("RG4 §6.2: `openers_bottom` memoises a failed search (drop it: a paragraph of unmatched runs is "
      "quadratic)", EMPHASIS, '            openers_bottom[key] = closer', '            pass',
-     [RG4_LINEAR]),
+     [R27_GROWTH]),
     ("RG4 §6.4: emphasis inside a RESOLVED image's description is demoted -- plain string content, no "
      "`<em>` (drop the demotion: the tag count over-claims)", LEXER,
      '            dem_pair.append((pair_bottom, len(pairs)))', '            pass',

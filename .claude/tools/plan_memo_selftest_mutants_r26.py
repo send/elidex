@@ -24,8 +24,8 @@ from plan_memo_selftest_cases_r26 import (
     R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED,
 )
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
-    SIBLING, STREAM, TABLES, TOKENS,
+    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
+    POPULATION, R27_GROWTH, SIBLING, STREAM, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -265,9 +265,6 @@ MUTANTS += [
 ]
 
 
-R27_GROWTH = ("the scans are linear over a corpus GENERATED from the grammar: every branch character, "
-              "delimiter, HTML opener, bracket construct and id kind, each repeated and each PAIR of "
-              "them interleaved, and no source line grows worse than its input")
 R27_STRADDLE = ("PROPERTY: _straddles answers its own definition (a character inside a blank and a "
                 "character outside every blank), over every blank layout of eight positions and every "
                 "extent inside it")
@@ -334,6 +331,12 @@ MUTANTS += [
      "GROWTH_SWEEP, GROWTH_CONFIRM = 6, 96", "GROWTH_SWEEP, GROWTH_CONFIRM = 6, 6",
      [R27_GROWTH]),
 ]
+
+R31_EMPHASIS_LINEAR = ("emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the "
+                       "Appendix's openers_bottom)")
+"""§6.2's delimiter walk, both shapes: the unmatched runs the memo protects and
+-- since PR #510 R31-2 -- the NESTED pairs whose clearing must remove each
+delimiter once.  One control, because it is one claim about one walk."""
 
 R28_WALK_ONCE = ("the population walk queues each memo at most once, over a corpus GENERATED from the "
                  "definition of a memo family: every digraph on three memos, each also with one memo "
@@ -544,4 +547,28 @@ MUTANTS += [
      '                if row.self_id is not None:\n                    continue',
      '                if False:\n                    continue',
      [R30_KEYED]),
+]
+
+# -- PR #510 Codex R31-2: a matched pair's cleared delimiters stayed ON the
+# stack, so every later opener search walked them again and every later match
+# re-marked the ones inside its own range.  The mutation re-injects exactly
+# that -- mark dead IN PLACE, never unlink -- which leaves every correctness
+# control green (the pairs are identical) and only the cost moves.  ⚠ The
+# generated growth property does NOT kill this one: its atoms are single
+# characters and self-contained constructs, so a delimiter atom repeated
+# merges into one long run rather than the N separate runs this shape needs
+# (measured GREEN over all 3,577 probes with the defect re-injected).  That is
+# why the control here is the hand-written NESTED probe, and why both facts
+# are written down rather than left for the next round to rediscover.
+MUTANTS += [
+    ("R31-2 §6.2: a cleared delimiter is REMOVED from the stack, not flagged in place (re-inject the "
+     "in-place mark: every later search walks the dead ones again)", EMPHASIS,
+     '    p, q = prv[k - bottom], nxt[k - bottom]\n'
+     '    if p >= bottom:\n'
+     '        nxt[p - bottom] = q\n'
+     '    if q - bottom < len(prv):\n'
+     '        prv[q - bottom] = p\n'
+     '    delims[k].dead = True',
+     '    delims[k].dead = True',
+     [R31_EMPHASIS_LINEAR]),
 ]

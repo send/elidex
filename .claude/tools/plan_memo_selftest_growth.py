@@ -149,14 +149,42 @@ def _growth_atoms():
 
 
 def _growth_corpus(atoms):
-    """(name, unit) for every atom repeated and every unordered PAIR of atoms
-    interleaved.  Interleaved rather than blocked, because the shapes that
-    have cost this checker its linear contract are a construct standing beside
-    a second one over and over (`![` beside a resolved link; an id token
-    beside a code span), not one run followed by another."""
+    """(name, unit) for every atom repeated, every unordered PAIR of atoms
+    INTERLEAVED, and every ordered pair BLOCKED.
+
+    ⚠ The blocked arrangement was excluded until PR #510 R31, on a stated
+    reason a finding then falsified: "the shapes that have cost this checker
+    its linear contract are a construct standing beside a second one over and
+    over, not one run followed by another".  R31-2 is one run followed by
+    another -- `"*a "*n + "b* "*n`, N emphasis openers then their N closers.
+    An exclusion is a claim about where defects live, and that claim was
+    wrong, so both arrangements are generated now and the corpus no longer
+    decides which shapes are worth trying.
+
+    ⚠⚠ BUT DO NOT READ THAT AS "AND SO R31-2 IS NOW CAUGHT" -- MEASURED, IT IS
+    NOT.  With the pre-R31 emphasis scan re-injected this property is still
+    GREEN (3,577 probes), and the reason is the ATOM VOCABULARY, not the
+    arrangement: every atom is a single character or a self-contained
+    construct, so a delimiter atom REPEATED merges into one long run rather
+    than N separate ones (`'*'` blocked with `'b'` is `***bbb`, never
+    `*a *a *a b* b* b* `).  Building N separate unmatched openers needs a unit
+    shaped `<delimiter><text><separator>`, which no pair of these atoms
+    composes.  So the blocked arrangement is kept on its own merits -- it is
+    strictly more coverage at no measurable cost -- and R31-2's own control is
+    a hand-written work witness, named as the thing this property cannot
+    reach.  The honest boundary is: this corpus generates ARRANGEMENTS of a
+    fixed vocabulary, and a defect needing a vocabulary item it has no way to
+    spell is outside it.
+
+    Blocked pairs are ORDERED (`x+y` and `y+x` are different shapes: openers
+    then closers nests, closers then openers does not), which is why this is
+    `permutations` where the interleaved half is `combinations`.  A blocked
+    SINGLE would be the atom repeated, which the first line already has."""
     corpus = [(repr(a), a) for a in atoms]
-    corpus += [("%s + %s" % (repr(x), repr(y)), x + y)
+    corpus += [("%s + %s interleaved" % (repr(x), repr(y)), x + y)
                for x, y in itertools.combinations(atoms, 2)]
+    corpus += [("%s then %s blocked" % (repr(x), repr(y)), (x, y))
+               for x, y in itertools.permutations(atoms, 2)]
     return corpus
 
 
@@ -188,12 +216,25 @@ def _outgrew(small, large):
     return worst
 
 
+def _grown(unit, reps):
+    """The probe text for one corpus unit at `reps`.  A `str` unit is that
+    string repeated -- the interleaved arrangement, `(AB)^n` when the unit is
+    itself a pair.  A 2-tuple is the BLOCKED arrangement, `A^n B^n`: the first
+    atom's whole run, then the second's.  Both are needed and neither implies
+    the other -- `(AB)^n` never builds the nest that `A^n B^n` does, which is
+    how R31-2's emphasis defect survived this property (PR #510 R31)."""
+    if isinstance(unit, tuple):
+        first, second = unit
+        return first * reps + second * reps
+    return unit * reps
+
+
 def _growth_at(unit, n, modules, keep):
-    """`_outgrew` between `unit` repeated n and 2n times."""
+    """`_outgrew` between `unit` grown to n and to 2n."""
     tallies = []
     for reps in (n, 2 * n):
         with _count_line_sites(modules) as c:
-            _read_block(unit * reps, keep)
+            _read_block(_grown(unit, reps), keep)
         tallies.append(c.counts)
     return _outgrew(*tallies)
 

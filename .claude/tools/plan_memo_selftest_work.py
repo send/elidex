@@ -62,7 +62,23 @@ def linear_emphasis_control(M):
     runs that can only CLOSE (preceded by a letter, followed by a space), so
     every one of them searches back and finds nothing; a probe of runs that
     can only OPEN never enters the search at all and leaves the mutant
-    alive (measured)."""
+    alive (measured).
+
+    TWO SHAPES, because one of them was not enough and a round proved it.
+    (a) UNMATCHED: `a* ` x N, the closers-that-find-nothing above.
+    (b) NESTED: `*a ` x N then `b* ` x N -- N openers, then their N closers,
+    so every closer PAIRS and each successful match had to clear the
+    delimiters between the two.  Until PR #510 R31-2 that clearing re-walked
+    the growing range of already-dead inner delimiters, which (a) cannot see:
+    in (a) nothing ever matches, so there is no range to clear.
+    ⚠ (b) is a HAND-WRITTEN witness on purpose, and the generated growth
+    property (`plan_memo_selftest_growth.py`) is not a substitute for it:
+    measured with the pre-R31 scan re-injected, that property is GREEN over
+    all 3,577 of its probes, because its atoms are single characters and
+    self-contained constructs -- a delimiter atom repeated merges into ONE
+    long run (`***bbb`), never into the N separate runs this shape needs.
+    That is a limit of its VOCABULARY, not of its arrangements, and it is
+    written down in its own docstring."""
     import plan_memo_emphasis     # the freshly loaded module
     out = {}
     for n in (100, 400):
@@ -74,8 +90,24 @@ def linear_emphasis_control(M):
             return False, "%d unmatched delimiter runs cost more than %d source lines: not linear" % (n, 60 * n)
         out[n] = c.lines
     ok = out[400] <= 4 * out[100] + 200
-    return ok, "%d / %d source lines for 100 / 400 unmatched runs (<= 60N, and 4x the work for 4x the input)" % (
-        out[100], out[400])
+
+    nest = {}
+    for n in (100, 400):
+        text = "*a " * n + "b* " * n
+        runs = ([plan_memo_emphasis.run_at(text, 3 * k) for k in range(n)]
+                + [plan_memo_emphasis.run_at(text, 3 * n + 3 * k + 1) for k in range(n)])
+        try:
+            with _count_lines(plan_memo_emphasis, limit=200 * n) as c:
+                plan_memo_emphasis.process(runs)
+        except _WorkExceeded:
+            return False, ("%d nested pairs cost more than %d source lines: not linear -- every "
+                           "match re-walked the delimiters it had already cleared" % (n, 200 * n))
+        nest[n] = c.lines
+    if nest[400] > 4 * nest[100] + 200:
+        return False, ("%d / %d source lines for 100 / 400 NESTED pairs: %.1fx the work for 4x the "
+                       "input" % (nest[100], nest[400], nest[400] / max(nest[100], 1)))
+    return ok, ("%d / %d source lines for 100 / 400 unmatched runs, %d / %d for 100 / 400 nested "
+                "pairs (both <= 4x the work for 4x the input)" % (out[100], out[400], nest[100], nest[400]))
 
 
 def linear_links_control(M):
