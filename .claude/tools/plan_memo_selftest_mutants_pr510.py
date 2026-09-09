@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SIBLING, SPEC_EXAMPLES, STAGE_C, TABLES, TOKENS, WORK,
+    SIBLING, SPEC_EXAMPLES, STAGE_C, STREAM, TABLES, TOKENS, WORK,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -154,7 +154,7 @@ MUTANTS += [
      '    defs, _ = reference_definitions((%s)(block, __import__("plan_memo_lexer").inline_pass(block, {})[0]), limit=1, start=off)' % BLANK,
      ["(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` keeps its "
       "backticks in the destination and the sibling is scanned"]),
-    ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", TABLES,
+    ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", STREAM,
      '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID),',
      ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
       "spelling two ids, both reported"]),

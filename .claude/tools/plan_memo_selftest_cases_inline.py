@@ -381,7 +381,7 @@ case("POSITIVE", "(§2.5) a character reference in PROSE renders its character, 
      build(), "See Slice &#57;z here.", 1)
 
 # ------------------------------- PR #510 design re-gate 4: the RENDERED text --
-# The stream IS what the document renders (`plan_memo_tables.stream`), so an id
+# The stream IS what the document renders (`plan_memo_stream.stream`), so an id
 # or the kind marker split by a construct that renders NOTHING is read as the
 # one unit a reader reads.  Two probe rows make the reading falsifiable: an
 # UMBRELLA `Wz` and a TERMINAL `W`, so the wrong reading of `W**z**` reports

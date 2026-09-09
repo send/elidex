@@ -75,10 +75,10 @@ def degenerate_control(M):
     """A whole-line grep for the marker CANNOT disagree with the marker count;
     the declaring-field parse can.  This proves the two are different programs
     rather than one program written twice."""
-    import plan_memo_tables   # the FRESHLY loaded module, not the import-time one
+    import plan_memo_stream   # the FRESHLY loaded module, not the import-time one
     text = build(d7z="**UMBRELLA, not a terminal unit** stray")
     umb = run_on(M, text)[0].population.no_owner_ids()
-    by_grep = sum(1 for l in text.split("\n") if l.startswith("|") and plan_memo_tables.MARKER in l)
+    by_grep = sum(1 for l in text.split("\n") if l.startswith("|") and plan_memo_stream.MARKER in l)
     return len(umb) != by_grep, "declaring-field parse=%d vs whole-line marker grep=%d (must differ)" % (
         len(umb), by_grep)
 

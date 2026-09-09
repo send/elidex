@@ -131,7 +131,7 @@ def id_scan_grammar_agreement_control(M):
     being obvious, and this control is the answer: exhaustively, not by sample.
 
     THE ORACLE IS THE GRAMMAR, NOT THE RETIRED CODE.  `decorated_id` is still
-    live -- `plan_memo_roles` and `plan_memo_tables` compose their own matchers
+    live -- `plan_memo_roles` and `plan_memo_stream` compose their own matchers
     from it -- so the reference here is the module's own spelling of "a
     decorated id", composed over the module's own `KINDS`, with the module's
     own `_glued` for the boundary clause that round did not touch.  What it
@@ -199,6 +199,7 @@ def row_kind_coverage_control(M):
     an assertion."""
     import plan_memo_ids as ids          # the FRESHLY loaded set, not the import-time one
     import plan_memo_roles as roles
+    import plan_memo_stream as stream_mod
     import plan_memo_tables as tables
     samples = {"short": "9z", "slug": "#11-zz-alpha"}
     missing = [k for k in ids.ROW_KINDS if k not in samples]
@@ -209,7 +210,7 @@ def row_kind_coverage_control(M):
         rid = samples[kind]
         for d in ("**%s**" % rid, "`%s`" % rid):
             probes += 4
-            if tables.attributed_to_other("Slice %s — **%s**" % (d, tables.MARKER), "7z") != rid:
+            if tables.attributed_to_other("Slice %s — **%s**" % (d, stream_mod.MARKER), "7z") != rid:
                 fails.append("appositive/%s %r" % (kind, d))
             m = roles.OWNS_TWO.search("owned by %s and **Qx**" % d)
             if m is None or m.group("aid") != rid:
@@ -619,7 +620,7 @@ def straddle_definition_control(M):
     merging).  Both satisfy the ordered, non-overlapping invariant `Stream`
     states and the bisect reads, and the second is the one that would catch a
     search that assumed merging."""
-    import plan_memo_tables
+    import plan_memo_stream
 
     width = 8
     layouts = []
@@ -644,7 +645,7 @@ def straddle_definition_control(M):
                 n += 1
                 cells = range(a, b)
                 want = (any(k in covered for k in cells) and any(k not in covered for k in cells))
-                if plan_memo_tables._straddles(blanks, a, b) != want and len(bad) < 4:
+                if plan_memo_stream._straddles(blanks, a, b) != want and len(bad) < 4:
                     bad.append("%r over [%d, %d) said %s, the definition says %s"
                                % (blanks, a, b, not want, want))
     return not bad, ("%d layouts x every extent = %d questions: %s"

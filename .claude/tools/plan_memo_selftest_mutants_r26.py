@@ -25,7 +25,7 @@ from plan_memo_selftest_cases_r26 import (
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
-    SIBLING, TABLES, TOKENS,
+    SIBLING, STREAM, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -296,7 +296,7 @@ MUTANTS += [
     # neither of them can state.
     # -- R27-3: `_straddles` reads only the blanks that overlap the extent.
     ("R27-3 residue: `_straddles` reads only the OVERLAPPING blanks (re-inject the sum over the whole "
-     "list: the same answers, quadratic in a block of N blanked spans)", TABLES,
+     "list: the same answers, quadratic in a block of N blanked spans)", STREAM,
      "    j = bisect.bisect_left(blanks, (a,))",
      # the RETIRED implementation, re-injected verbatim in front of the window
      # search: the differential family (`straddle_definition_control`) says the
@@ -306,12 +306,12 @@ MUTANTS += [
      "    j = bisect.bisect_left(blanks, (a,))",
      [R27_GROWTH]),
     ("R27-3 residue: the blank BEFORE the extent may reach into it (drop the step back: a unit whose "
-     "left end is inside a blank that started earlier reads as wholly outside)", TABLES,
+     "left end is inside a blank that started earlier reads as wholly outside)", STREAM,
      "    if j and blanks[j - 1][1] > a:      # the blank before `a` may reach into it\n        j -= 1",
      "    if False:\n        j -= 1",
      [R27_STRADDLE]),
     ("R27-3 residue: an extent WHOLLY inside the blanks does not straddle them (flip the early exit: a "
-     "quoted marker becomes a disagreement)", TABLES,
+     "quoted marker becomes a disagreement)", STREAM,
      "            return False                # wholly inside the blanks: not across them",
      "            return True                 # wholly inside the blanks: not across them",
      [R27_STRADDLE]),

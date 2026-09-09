@@ -41,9 +41,11 @@ MODULES
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
                           HTML blocks), the block-quote marker, block starts, the
                           one `block_end` predicate, GFM rows, reference definitions
-  plan_memo_tables.py     id grammar, schemas, `Row`, `admit_table`, the mask
-                          disposition and the ONE `stream` every predicate reads
-                          (the block as the document renders it)
+  plan_memo_stream.py     the mask disposition, the kind PHRASES read through
+                          it, and the ONE `stream` every predicate reads (the
+                          block as the document renders it)
+  plan_memo_tables.py     id grammar, schemas, `Row` / `Table` and the ONE
+                          admission site `admit_table`
   plan_memo_sibling.py    the ONE destination -> sibling resolver
                           (`sibling_path` and the path machinery it reads):
                           does a link destination name a memo on disk beside
@@ -142,7 +144,7 @@ if HERE not in sys.path:      # the self-test execs this file once per mutant
     sys.path.insert(0, HERE)
 from plan_memo_ids import ROW_KINDS, tokens  # noqa: E402
 from plan_memo_tokens import covers, file_and_cite_spans  # noqa: E402
-from plan_memo_tables import split_units, stream  # noqa: E402
+from plan_memo_stream import split_units, stream  # noqa: E402
 from plan_memo_population import Population  # noqa: E402
 from plan_memo_roles import (  # noqa: E402
     NOUN_ANCHOR, acceptance_vocab_seed, assertion_a, assertion_b, assertion_cd_seed, classify,

@@ -16,7 +16,8 @@ import re
 from collections import Counter
 
 from plan_memo_ids import AFTER, BEFORE, ROW_ID, balanced, bounded, decorated_id, kind_of
-from plan_memo_tables import MARKER_RE, ROW_NOUN_SEP, is_empty, stream
+from plan_memo_stream import MARKER_RE, stream
+from plan_memo_tables import ROW_NOUN_SEP, is_empty
 
 
 # --------------------------------------------------------------------------

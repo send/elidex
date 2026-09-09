@@ -29,10 +29,8 @@ from collections import deque
 
 from plan_memo_memo import Memo
 from plan_memo_sibling import _resolve
-from plan_memo_tables import (
-    KIND_PHRASES, SCHEMAS, attributed_to_other, dispose, is_blank_id_cell,
-    kind_disagreements, stream,
-)
+from plan_memo_stream import KIND_PHRASES, dispose, kind_disagreements, stream
+from plan_memo_tables import SCHEMAS, attributed_to_other, is_blank_id_cell
 
 
 class Population:

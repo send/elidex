@@ -130,7 +130,7 @@ def id_spelling_sweep_control(M):
 
 def kind_phrase_gate_control(M):
     """PROPERTY: `Population._kind` reads NO phrase matcher of its own -- every
-    one of them comes from `plan_memo_tables.KIND_PHRASES`, which is also the
+    one of them comes from `plan_memo_stream.KIND_PHRASES`, which is also the
     tuple the residue gate (`_kind_residue` / `kind_disagreements`) iterates.
 
     This is the construction R23 #2 asked for and the behavioural controls
@@ -143,23 +143,36 @@ def kind_phrase_gate_control(M):
     The subject is `_kind`'s own code object, not its source text: every
     global and attribute name it reads is in `co_names` (a nested
     comprehension's too), so a phrase read through an import inside the
-    function, or through the tables module, is seen as well.  A name that
-    resolves -- in either module's globals -- to a compiled pattern outside
-    `KIND_PHRASES` is the finding."""
-    import plan_memo_population, plan_memo_tables
+    function, or through another module, is seen as well.  A name that
+    resolves -- in ANY module of the checker set -- to a compiled pattern
+    outside `KIND_PHRASES` is the finding.
+
+    ⚠ THE SCOPES ARE THE MODULE SET, not a pair spelled here (PR #510 R31).
+    They were `plan_memo_population` and the module `KIND_PHRASES` lives in,
+    and the touch-time split that carved `plan_memo_stream.py` out of
+    `plan_memo_tables.py` moved `_APPOSITIVE` into a module this no longer
+    looked at: R23 #2's mutant, which reads exactly that pattern through
+    exactly that module, SURVIVED (measured, at the split's first green
+    self-test).  A hand-written list of the places a stray matcher may come
+    from is a population defined by the ones already seen; `MODULES` is the
+    definition, and the module the next split carves out arrives in it
+    without anybody remembering to add it here."""
+    import plan_memo_population, plan_memo_stream
     import re as _re
+    import sys as _sys
 
     code = plan_memo_population.Population._kind.__code__
     names = set(code.co_names)
     for const in code.co_consts:            # a comprehension is its own code object
         names |= set(getattr(const, "co_names", ()))
-    member = {id(rx) for _, rx in plan_memo_tables.KIND_PHRASES}
-    scopes = (vars(plan_memo_population), vars(plan_memo_tables))
-    stray = sorted(n for n in names
+    member = {id(rx) for _, rx in plan_memo_stream.KIND_PHRASES}
+    scopes = [vars(_sys.modules[name]) for name, _file in MODULES]
+    stray = sorted("%s (%s)" % (n, g["__name__"]) for n in names
                    for g in scopes
                    if isinstance(g.get(n), _re.Pattern) and id(g[n]) not in member)
-    return not stray, ("%d name(s) read by _kind, %d phrase(s) in KIND_PHRASES, %d read outside it%s"
-                       % (len(names), len(member), len(stray),
+    return not stray, ("%d name(s) read by _kind, %d phrase(s) in KIND_PHRASES, %d module(s) swept, "
+                       "%d read outside it%s"
+                       % (len(names), len(member), len(scopes), len(stray),
                           (": " + ", ".join(sorted(set(stray)))) if stray else ""))
 
 
@@ -705,7 +718,7 @@ def registry():
     reg.update({
         "PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)":
             ("CONTROL", id_spelling_sweep_control),
-        "PROPERTY: Population._kind reads every kind phrase from plan_memo_tables.KIND_PHRASES, the tuple the residue gate iterates (a fourth phrase cannot decide a kind without being gated)":
+        "PROPERTY: Population._kind reads every kind phrase from plan_memo_stream.KIND_PHRASES, the tuple the residue gate iterates (a fourth phrase cannot decide a kind without being gated)":
             ("CONTROL", kind_phrase_gate_control),
         "PROPERTY: no ANCHORED pattern in the module set is handed a subject truncated by a number (a width window is a second statement of what the anchor already says)":
             ("CONTROL", anchored_matcher_width_control),

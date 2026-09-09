@@ -164,16 +164,16 @@ def _read_block(text, keep):
     """The block-level inline reading of one text, which is what the corpus
     measures: Phase 2 over the raw text, the disposition, and the residue
     scan -- `plan_memo_lexer.inline_pass` and everything
-    `plan_memo_tables.dispose` / `split_units` reach from it.  Not `check()`:
+    `plan_memo_stream.dispose` / `split_units` reach from it.  Not `check()`:
     a probe is one BLOCK, and the file, the memo and the population around it
     are constants of the run rather than of its length."""
     import plan_memo_lexer
-    import plan_memo_tables
+    import plan_memo_stream
 
     lexed = plan_memo_lexer.Lexed(text)
     lexed.resolve({})
-    plan_memo_tables.dispose(lexed, keep)
-    plan_memo_tables.split_units(lexed, keep)
+    plan_memo_stream.dispose(lexed, keep)
+    plan_memo_stream.split_units(lexed, keep)
 
 
 def _outgrew(small, large):
@@ -207,7 +207,7 @@ def generated_growth_control(M):
     times in five review rounds.  R23 found two non-linear sites, R26 four
     (one reported, three found by taking the question rather than the report
     as the subject), R27 two more -- and one of R27's was not in `inline_pass`
-    at all (`plan_memo_tables._straddles`, which summed the whole blank list
+    at all (`plan_memo_stream._straddles`, which summed the whole blank list
     per candidate token), which is what says the family is THIS PROGRAM'S
     SCANS and not that function.  Every round added a witness for the shape
     just reported, and every next round arrived with a shape nobody had
@@ -228,7 +228,7 @@ def generated_growth_control(M):
     re-scan quadruples, and neither figure depends on what the rest of the
     pass costs.  Both of R27's defects are red under this control with no fix
     applied, at 6 and 12 repetitions -- `plan_memo_lexer`'s stack walk 78 ->
-    300 where 2.5x + 16 allows 211, and `plan_memo_tables._straddles`' sum
+    300 where 2.5x + 16 allows 211, and `plan_memo_stream._straddles`' sum
     336 -> 1248 where it allows 856.
 
     TWO STAGES, because one bound cannot separate growth from a large

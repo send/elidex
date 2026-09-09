@@ -19,7 +19,7 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
     CHECK, CONTROLS, EMPHASIS, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
-    ROLES, SEQUENCE, SIBLING, STAGE_C, TABLES, TOKENS,
+    ROLES, SEQUENCE, SIBLING, STAGE_C, STREAM, TABLES, TOKENS,
 )
 
 # The R25-1 control names are COMPOSED by the cases module (one per member of
@@ -128,7 +128,7 @@ MUTANTS += [
      ["(lex-seed) `<span title=\"Slice 9z owns it\">`: an inline span holding a declared id is seeded under the one "
       "raw-line rule",
       "(lex-seed) … and that seed carries the `inline` reading"]),
-    ("R17 #2 disposition: the raw HTML span is masked (drop the `html` kind from the disposition)", TABLES,
+    ("R17 #2 disposition: the raw HTML span is masked (drop the `html` kind from the disposition)", STREAM,
      '    base += [(a, b, "html") for a, b in lx.html]\n', '',
      [R17_ATTR_ID,
       "(html) a cell's `<span title=\"Slice 9z owns it\">` is masked by the same inline pass: no site"]),
@@ -237,7 +237,10 @@ MUTANTS += [
       "spelling sweep)"]),
     ("R20 #2 appositive: ROW_NOUN_ID composes ROW_ID (re-inject decorated_id(SHORT_ID) at the one composer)", TABLES,
      'ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(ROW_ID)',
-     'ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(SHORT_ID)',
+     # ⚠ SPELLED THROUGH THE MODULE (PR #510 R31): `SHORT_ID` left this file's namespace with
+     # the touch-time split, and a replacement naming it would crash the mutant instead of
+     # reddening its control -- a crash proves nothing about the clause.
+     'ROW_NOUN_ID = ROW_NOUN_SEP + decorated_id(__import__("plan_memo_ids").SHORT_ID)',
      ["(a) the R20 reviewer's declaring field `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributes the marker to a "
       "SLUG row: the row is a pointer and the UMBRELLA-MARK attribution finding is emitted",
       "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the "
@@ -272,7 +275,7 @@ MUTANTS += [
      '[^\\x00-\\x20\\x7f<>]*>"',
      '[^\\x00-\\x1f\\x7f<>]*>"',
      [R21_SPACE, INLINE_EXAMPLES]),
-    ("R21 #1 §6.5: the autolink span is MASKED (drop the disposition: its text is prose again)", TABLES,
+    ("R21 #1 §6.5: the autolink span is MASKED (drop the disposition: its text is prose again)", STREAM,
      '    base += [(a, b, "autolink") for a, b in lx.autolinks]\n', '',
      [R21_URI_ID, R21_EMAIL_ID, R21_BACKTICK]),
     ("R21 #1 §6.4: a construct demoted into a resolved image's description renders no tag of its own "
@@ -415,7 +418,7 @@ R23_TWO_BOMS = ('(R23 memo) exactly ONE U+FEFF is dropped: a second is an ordina
                 'the document and the table is lost to it again -- a strip that is a `lstrip` '
                 'rewrites the document instead of reading its encoding')
 R23_GATE_PROPERTY = ('PROPERTY: Population._kind reads every kind phrase from '
-                     'plan_memo_tables.KIND_PHRASES, the tuple the residue gate iterates (a '
+                     'plan_memo_stream.KIND_PHRASES, the tuple the residue gate iterates (a '
                      'fourth phrase cannot decide a kind without being gated)')
 R23_LINEAR = ("a resolved image's demotion is linear: N nested images demote their descendants "
               'once, not once per enclosing image')
@@ -423,28 +426,28 @@ R23_LINEAR = ("a resolved image's demotion is linear: N nested images demote the
 MUTANTS += [
     # -- PR #510 design re-gate 4
     ("RG4 stream: a matched §6.2 / GFM delimiter run renders NOTHING (drop the marks: the delimiters stand "
-     "in the stream and split the token again -- the defect this round fixed)", TABLES,
+     "in the stream and split the token again -- the defect this round fixed)", STREAM,
      '                      for a, b in (op, cl)]', '                      for a, b in ()]',
      [RG4_STRONG, RG4_EM, RG4_STRIKE, RG4_MIRROR, RG4_MARK_EM]),
     ("RG4 stream: the DECORATION exception -- a `**` pair whose content is only declared ids stands "
-     "(drop it: `**9z**` renders away and `**9z**7z` is one token)", TABLES,
+     "(drop it: `**9z**` renders away and `**9z**7z` is one token)", STREAM,
      'if not (ch == "*" and use == 2 and id_only(_reading(rd, ob, ca), keep))', 'if True',
      [RG4_DECOR]),
     ("RG4 stream: the exception is the DECORATION's, not emphasis's (widen it to a single `*`: `*9z*7z` "
-     "names `9z`)", TABLES,
+     "names `9z`)", STREAM,
      'ch == "*" and use == 2 and id_only(_reading', 'ch == "*" and use >= 1 and id_only(_reading',
      [RG4_SINGLE]),
     ("RG4 stream: the exception is `id_only`'s (widen it to every `**` pair: `W**z**` is decorated again "
-     "and the split id comes back)", TABLES,
+     "and the split id comes back)", STREAM,
      'and use == 2 and id_only(_reading(rd, ob, ca), keep)', 'and use == 2 and True',
      [RG4_STRONG, RG4_MIRROR]),
     ("RG4 stream: a raw HTML span renders no character (re-inject it as text the checker refuses to read: "
-     "it blanks and splits the token again)", TABLES,
+     "it blanks and splits the token again)", STREAM,
      '"html": False, "link": False, "mark": False}', '"html": True, "link": False, "mark": False}',
      # ⚠ NOT the `Deps` control: a blanked comment is spaces, and a cell of spaces is as empty as
      # a cell of nothing -- the subject must be a TOKEN the blank would split
      [RG4_TAG, RG4_COMMENT, RG4_MARK_COMMENT]),
-    ("RG4 stream: a link's TAIL renders no character (re-inject it as blanks)", TABLES,
+    ("RG4 stream: a link's TAIL renders no character (re-inject it as blanks)", STREAM,
      '"html": False, "link": False,', '"html": False, "link": True,',
      # ⚠ the tail must sit BETWEEN the token's halves: in `W[z](sib.md)` it follows them both and
      # blanking it splits nothing (measured -- that shape leaves this mutant alive)
@@ -468,11 +471,11 @@ MUTANTS += [
     # it still asserts a true and reachable thing, now for the structural
     # reason rather than the ordering one.
     ("RG4 stream: a §2.4 escape and a §2.5 reference SUBSTITUTE their character (drop both: the reference "
-     "and the backslash are read as written again)", TABLES,
+     "and the backslash are read as written again)", STREAM,
      '        (decor if ch in DECOR_CHARS else subst)[a] = (b, ch)', '        pass',
      [RG4_REF, RG4_MARK_REF, RG4_MARK_ESC]),
     ("RG4 stream: a substitution that would spell a DECORATION does not substitute (drop the carve: "
-     "`\\*\\*C\\*\\*` becomes the bold `**C**` no reader sees)", TABLES,
+     "`\\*\\*C\\*\\*` becomes the bold `**C**` no reader sees)", STREAM,
      '        (decor if ch in DECOR_CHARS else subst)[a] = (b, ch)', '        subst[a] = (b, ch)',
      [RG4_ESCAPED_DECOR, RG4_REF_DECOR]),
     ("RG4 lexer: the §2.4 escape is a substitution (re-inject the bare skip: the backslash stands in the "
@@ -526,7 +529,7 @@ MUTANTS += [
      '        for name in kind_disagreements(row.cells[row.schema.decl].lexed):', '        for name in ():',
      [RG4_GATE, R23_UNDET, R23_STREAM]),
     ("RG4 residue: a unit WHOLLY inside a blanked span is no straddle (widen the predicate: a quoted "
-     "marker becomes the schema miss I-A exists to prevent)", TABLES,
+     "marker becomes the schema miss I-A exists to prevent)", STREAM,
      # ⚠ The anchor MOVED at R27-3, when the whole-list sum became a window
      # search: the "wholly inside" half is now the early exit, and widening the
      # predicate means taking it out.
@@ -634,14 +637,14 @@ MUTANTS += [
      IDS,
      '    return "%s(?:%s)%s" % (BEFORE, phrase, AFTER)', '    return "(?:%s)" % phrase',
      [R22_UNDET_NESS, R22_MANKIND, R22_SUBUMBRELLA, R22_UNITARY, R22_SLICER, R22_DECLARES]),
-    ("R22 #3 phrase: the MARKER is bounded (re-inject the bare phrase)", TABLES,
+    ("R22 #3 phrase: the MARKER is bounded (re-inject the bare phrase)", STREAM,
      "MARKER_RE = re.compile(bounded(re.escape(MARKER)))", "MARKER_RE = re.compile(re.escape(MARKER))",
      [R22_SUBUMBRELLA, R22_UNITARY]),
-    ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", TABLES,
+    ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", STREAM,
      'UNDETERMINED = re.compile(bounded(r"KIND\\s*[\u2014-]?\\s*UNDETERMINED"), re.IGNORECASE | re.ASCII)',
      'UNDETERMINED = re.compile(r"KIND\\s*[\u2014-]?\\s*UNDETERMINED", re.IGNORECASE | re.ASCII)',
      [R22_UNDET_NESS, R22_MANKIND]),
-    ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", TABLES,
+    ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", STREAM,
      'POINTER = re.compile(bounded(r"is a pointer rather than a slice"))',
      'POINTER = re.compile(r"is a pointer rather than a slice")',
      [R22_SLICER]),
@@ -663,7 +666,7 @@ MUTANTS += [
 MUTANTS += [
     # -- PR #510 Codex R23
     ("R23 #1 stream: a §2.5 / §2.4 spelling of a DECORATION character is BLANKED (leave it standing "
-     "as written: the entity's SOURCE letters are back where the id scanner reads them)", TABLES,
+     "as written: the entity's SOURCE letters are back where the id scanner reads them)", STREAM,
      '        if disp[a] == 0:                # inside a dropped or blanked span, that span wins\n'
      '            for k in range(a, b):\n                disp[k] = 1',
      '        pass',
@@ -671,42 +674,42 @@ MUTANTS += [
      # does, so only the FABRICATED-id half of the pair can see this mutation
      [R23_AST_NO]),
     ("R23 #1 stream: it is a BLANK and not a DROP (the character IS rendered, so its two sides are "
-     "not one word: dropping it joins them into an id no reader reads)", TABLES,
+     "not one word: dropping it joins them into an id no reader reads)", STREAM,
      '                disp[k] = 1', '                disp[k] = 2',
      # ⚠ NOT the `&ast;` control: a drop removes the source letters too, so only the JOINING half
      # of the pair can see this mutation -- the two mutants partition the two ways to be wrong
      [R23_QX_NO]),
     ("R23 #1 stream: what a READER sees where a decoration spelling is blanked is the character it "
      "renders (leave it as spaces: the two readings agree on a kind neither of them should read)",
-     TABLES,
+     STREAM,
      '            blank_at[a] = (b, ch)', '            pass',
      [R23_DECOR_KIND]),
     ("R23 #2 gate: the residue gate iterates EVERY member of KIND_PHRASES (truncate it to the "
      "first: the marker stays gated and every other phrase decides a kind unwatched again -- the "
-     "R23 defect exactly)", TABLES,
+     "R23 defect exactly)", STREAM,
      '    for name, rx in KIND_PHRASES:\n        hit = [(rd.blanks, m) for m in rx.finditer(rd)]',
      '    for name, rx in KIND_PHRASES[:1]:\n        hit = [(rd.blanks, m) for m in rx.finditer(rd)]',
      [R23_UNDET, R23_STREAM, R23_POINTER]),
     ("R23 #2 seed: the residue SEED reads every member too (truncate it to the first: a kind phrase "
-     "read across a blank outside a declaring field is silent again)", TABLES,
+     "read across a blank outside a declaring field is silent again)", STREAM,
      '    for name, rx in KIND_PHRASES:\n        out += [(name, m.group(0), st.at(m.start()))',
      '    for name, rx in KIND_PHRASES[:1]:\n        out += [(name, m.group(0), st.at(m.start()))',
      [R23_SEED]),
     ("R23 #2 gate: the two readings must DISAGREE about the phrase (drop the conjunct: a field that "
-     "spells the phrase cleanly and straddles a blank elsewhere becomes a miss)", TABLES,
+     "spells the phrase cleanly and straddles a blank elsewhere becomes a miss)", STREAM,
      '        if bool(hit) == bool(other):\n            continue', '        if False:\n            continue',
      [R23_CLEAN]),
     ("R23 #2 gate: the disagreement must come from a STRADDLE (drop the conjunct: a phrase quoted "
-     "WHOLE becomes the miss I-A exists to prevent)", TABLES,
+     "WHOLE becomes the miss I-A exists to prevent)", STREAM,
      '        if any(_straddles(blanks, m.start(), m.end()) for blanks, m in hit):', '        if True:',
      [R23_QUOTED]),
     ("R23 #2 gate: the READER's rendering is consulted (drop it: a phrase the reader reads across a "
-     "blank is no longer a miss)", TABLES,
+     "blank is no longer a miss)", STREAM,
      '        hit = [(rd.blanks, m) for m in rx.finditer(rd)]', '        hit = []',
      # ⚠ the stream-side controls stay GREEN under this one, and must: they are the other direction
      [RG4_GATE, R23_UNDET]),
     ("R23 #2 gate: the STREAM's rendering is consulted too (drop it: a phrase only the stream reads "
-     "-- a blank standing as spaces -- is no longer a miss)", TABLES,
+     "-- a blank standing as spaces -- is no longer a miss)", STREAM,
      '        hit = hit or [(st.blanks, m) for m in other]', '        hit = hit or []',
      # ⚠ the reader-side controls stay GREEN under this one, and must
      [R23_STREAM, R23_DECOR_KIND]),
@@ -763,16 +766,16 @@ R24_DECOR_READING = ("(R24 render) ``**`x` 9z**7z owns it`` names nobody: a READ
 MUTANTS += [
     # -- PR #510 Codex R24, FAMILY 1: the disposition's two stage-2 questions
     ("R24 F1 tables: the file/cite reading is taken over the block's RENDERING (re-inject the raw "
-     "reading: a §2.5 reference that renders whitespace no longer bounds the file name)", TABLES,
+     "reading: a §2.5 reference that renders whitespace no longer bounds the file name)", STREAM,
      'lx.tokens = [(rd.at(a), rd.at(b), kind) for a, b, kind in file_and_cite_spans(rd)]',
      'lx.tokens = file_and_cite_spans(lx.text)',
      [R24_FILE_RENDERED, R24_RENDER_SWEEP]),
     ("R24 F1 tables: the decoration exception is asked of the RENDERED content (re-inject the raw "
-     "content: `**&#57;z**` decorates an id the source does not spell)", TABLES,
+     "content: `**&#57;z**` decorates an id the source does not spell)", STREAM,
      'id_only(_reading(rd, ob, ca), keep)', 'id_only(lx.text[ob:ca], keep)',
      [R24_DECOR_RENDERED, R24_RENDER_SWEEP]),
     ("R24 F1 tables: the exception reads what a READER sees, not the disposed stream (hand it the "
-     "stream: a code span's blanks whitespace-separate into an id-only run)", TABLES,
+     "stream: a code span's blanks whitespace-separate into an id-only run)", STREAM,
      '    rd = stream(lx, reader=True)', '    rd = stream(lx)',
      [R24_DECOR_READING]),
 ]

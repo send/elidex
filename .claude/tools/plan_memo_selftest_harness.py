@@ -57,6 +57,7 @@ MODULES = [
     ("plan_memo_html", "plan_memo_html.py"),
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),
+    ("plan_memo_stream", "plan_memo_stream.py"),
     ("plan_memo_tables", "plan_memo_tables.py"),
     ("plan_memo_sibling", "plan_memo_sibling.py"),
     ("plan_memo_memo", "plan_memo_memo.py"),

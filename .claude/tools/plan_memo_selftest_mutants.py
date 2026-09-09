@@ -40,11 +40,12 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH = (
+IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
-    "plan_memo_lexer.py", "plan_memo_blocks.py",
-    "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py", "plan_memo_population.py",
-    "plan_memo_roles.py", "plan-memo-umbrella-check.py", "plan_memo_selftest_controls.py",
+    "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_stream.py",
+    "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py",
+    "plan_memo_population.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
+    "plan_memo_selftest_controls.py",
     "plan_memo_selftest_properties.py", "plan_memo_selftest_invariants.py",
     "plan_memo_selftest_work.py", "plan_memo_selftest_growth.py")
 
@@ -379,7 +380,7 @@ MUTANTS = [
      '        if _is_escape(s, i):\n            subst.append((i, i + 2, s[i + 1]))  # §2.4: `\\[` renders the character alone',
      '        if _is_escape(s, i) and s[i + 1] != "`":\n            subst.append((i, i + 2, s[i + 1]))',
      ["(span) a backtick behind a backslash is literal and opens no span"]),
-    ("F12 link: the link tail masks a slug", TABLES,
+    ("F12 link: the link tail masks a slug", STREAM,
      '    base += [(a, b, "link") for a, b, _ in lx.links]', '    pass',
      ["(link) a `#11-` slug in a link DESTINATION is not a naming site"]),
     ("F13 link: an unanswered full reference is reported", LEXER,
@@ -403,7 +404,7 @@ MUTANTS = [
      ["(accept-vocab seed) a POINTER row is excluded from the population",
       "(accept-vocab seed) a row whose marker is ATTRIBUTED to another row is a pointer and owes "
       "no acceptance condition"]),
-    ("C8 disposition: a kept slug inside a code span is visible", TABLES,
+    ("C8 disposition: a kept slug inside a code span is visible", STREAM,
      '            if t.kind == "slug" and t.id in keep:', '            if False:',
      ["(span) a kept slug inside a command-line code span is a naming site"]),
     # -- /elidex-review Stage 6
@@ -453,7 +454,7 @@ MUTANTS = [
     # raw text and the stream read the same at that site for every fixture.
     # Its control stays (the property holds); the clause it tested is now
     # enforced one step upstream, by R12-C's mutant.
-    ("#8 stream: every span of the mask is blanked, not only code", TABLES,
+    ("#8 stream: every span of the mask is blanked, not only code", STREAM,
      '        v = 1 if RENDERS_TEXT[kind] else 2',
      '        v = (1 if RENDERS_TEXT[kind] else 2) if kind == "code" else 0',
      ["(stream) ordering vocabulary in a link TITLE is the link's tail, not prose"]),
