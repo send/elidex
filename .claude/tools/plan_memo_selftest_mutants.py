@@ -40,14 +40,15 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH = (
+IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, INVARIANTS, WORK, PIPELINE, GROWTH = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
     "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_stream.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py",
     "plan_memo_population.py", "plan_memo_roles.py", "plan-memo-umbrella-check.py",
     "plan_memo_selftest_controls.py",
     "plan_memo_selftest_properties.py", "plan_memo_selftest_invariants.py",
-    "plan_memo_selftest_work.py", "plan_memo_selftest_growth.py")
+    "plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py",
+    "plan_memo_selftest_growth.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
@@ -57,7 +58,7 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPUL
 # (PR #510 R25), `GROWTH` the one after it (R27) and `INVARIANTS` the one after
 # that (R29); each arrived here with its split rather than with the first mutant
 # that needs it.
-SELFTEST = frozenset((CONTROLS, PROPERTIES, INVARIANTS, WORK, GROWTH))
+SELFTEST = frozenset((CONTROLS, PROPERTIES, INVARIANTS, WORK, PIPELINE, GROWTH))
 
 # The GENERATED growth property (PR #510 R27): the corpus is derived from the
 # grammar rather than written by hand, so it is the control a cost mutant names

@@ -10,8 +10,8 @@ of one of its methods -- and calls nothing of it; a control here CALLS it, and
 reads what comes back.  In the imports: that module is the only importer of
 `ast` and of the harness's module-set handles (`MODULES` / `SOURCES` /
 `GRAMMAR` / `HERE`), and this one is the only importer of the fixture builder
-and the fixture runner (`build` / `run_on`), exactly as
-`plan_memo_selftest_work.py` is the only importer of the three work witnesses.
+and the fixture runner (`build` / `run_on`), exactly as the three WORK modules
+are the only importers of the harness's work witnesses.
 Carved at PR #510 R29, at 998 lines, before the round's own controls were
 written into it.
 

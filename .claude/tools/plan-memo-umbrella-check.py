@@ -69,8 +69,11 @@ MODULES
                           ways that render the same must get one verdict, and a
                           reader must answer its own definition) /
                           _selftest_work.py (the controls that state a COST and
-                          count it -- the only importer of the deterministic
-                          work witnesses) /
+                          count it over one call handed a STRING) /
+                          _selftest_pipeline.py (the cost controls whose probe
+                          is a MEMO written to disk: Phase 1 parsing it, or
+                          `check()` end to end -- the only importer of
+                          `tempfile` among the WRITTEN-shape work modules) /
                           _selftest_growth.py (the controls whose POPULATION is
                           generated rather than written against a reported
                           shape: from the grammar, and from the definition of a

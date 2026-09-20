@@ -18,8 +18,8 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, POPULATION, ROLES, SEQUENCE,
-    SIBLING, SPEC_EXAMPLES, STAGE_C, STREAM, TABLES, TOKENS, WORK,
+    BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, PIPELINE, POPULATION, ROLES,
+    SEQUENCE, SIBLING, SPEC_EXAMPLES, STAGE_C, STREAM, TABLES, TOKENS,
 )
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
@@ -397,8 +397,10 @@ MUTANTS += [
      '    at = {t.start: t for t in tokens(b.text)}\n    for nm in NOUN_ANCHOR.finditer(b.text):',
      ["(anchor) `` `Slice `C owns it ``: the row noun is inside a code span, so on the disposed "
       "stream there is no `Slice C` to anchor on -- 0 sites (the bare `C` is a declared miss)"]),
+    # ⚠ THE FILE MOVED AT R31, when the work module was split at its document
+    # seam and `linear_orphans_control` went with the probes that write a memo.
     ("R12-D witness: Phase 1's `link_label` calls are counted where Phase 1 makes them (re-bind the "
-     "counter to the lexer's binding, which sees only Phase 2)", WORK,
+     "counter to the lexer's binding, which sees only Phase 2)", PIPELINE,
      'with _count_calls(plan_memo_blocks, "link_label", limit=4 * n) as c:',
      'with _count_calls(__import__("plan_memo_lexer"), "link_label", limit=4 * n) as c:',
      ["Phase-1 orphan detection is linear: <= 4 link_label calls per line"]),

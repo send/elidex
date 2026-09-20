@@ -12,8 +12,8 @@ verdict is read.  A control whose question needs the checker RUN is
 one whose measure is a COST is `plan_memo_selftest_work.py`'s.  In the imports:
 this module is the ONLY importer of `ast` and of the harness's module-set
 handles (`MODULES` / `SOURCES` / `GRAMMAR` / `HERE`), and the invariants module
-the only importer of `build` / `run_on`, exactly as the work module is the only
-importer of the three work witnesses.  In the registry: every control the two
+the only importer of `build` / `run_on`, exactly as the three WORK modules are
+the only importers of the harness's work witnesses.  In the registry: every control the two
 property modules contribute is named `PROPERTY: ...` and every `PROPERTY: ...`
 entry of the one table comes from one of them.
 
