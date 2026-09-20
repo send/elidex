@@ -40,24 +40,18 @@ stated once, in §5.
 
 ## §0.5 Spec citation table
 
-A-i implements no spec logic. Both labels are pinned by `SPECS`, per the umbrella's *a slice may only cite
+**The citations live in §3, which is the table the gate reads, and nowhere else.**
+A-i implements no spec logic; both labels are pinned by `SPECS`, per the umbrella's *a slice may only cite
 labels its own resolver maps*. Looked up with `.claude/tools/webref`, nothing from memory.
 → `python3 .claude/skills/elidex-plan-review/preflight.py <this memo>`; a single pair is
 `.claude/tools/webref heading --exact html 4.10.21`.
-⚠ **The gate does NOT read this table** — it anchors on `## §3 Spec coverage map` and reports
-`heading line: 106`. These two rows are verified only because §3 repeats them. Measured at gate 4 by
-perturbation: fabricating this table's §-number *and* its title leaves the run at EXIT 0, while the same
-fabrication in §3 hard-fails (`❌ HARD FAIL — citation verification`). Two citation tables in one memo is
-one home too many; §3 is the one with a gate behind it.
 
-| Cite | § | Exact title | Anchor |
-|---|---|---|---|
-| `WHATWG HTML §4.10.21` | HTML §4.10.21 | Constraints | `#constraints` |
-| `WHATWG Fetch §2.2.5` | Fetch §2.2.5 | Requests | `#requests` |
-
-Two rows, two **distinct pinned specs**, so K=2 and the table is not one spec twice. Measured, `WHATWG Fetch`
-is `entry[1]`, the canonical label, resolving identically at baseline — the spellings that exercise the
-shortname-as-parse-key rule are `Fetch` / `fetch`.
+⚠ **This section carried a second copy of the table until #501 R82.** The gate anchors on
+`## §3. Spec coverage map`, so that copy was ungated — measured by perturbation, fabricating its §-number
+*and* its title left the run at EXIT 0, while the same fabrication in §3 hard-fails
+(`❌ HARD FAIL — citation verification`). The previous revision of this paragraph said "two citation tables
+in one memo is one home too many" and then kept both, which is the diagnosis-without-the-act this program
+exists to remove.
 
 ---
 
@@ -135,7 +129,9 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
 | WHATWG HTML §4.10.21 Constraints | n/a — no spec logic | a canonical label pinned by `SPECS` | §4.2 — `spec_labels.py`'s `SPECS` tuple | ✓ | no |
 | WHATWG Fetch §2.2.5 Requests | n/a — no spec logic | a second canonical label pinned by `SPECS` | §4.2 — same tuple | ✓ | no |
 
-**Breadth**: measured by the gate on this memo.
+**Breadth**: measured by the gate on this memo. Two rows, two **distinct pinned specs**, so K=2 and the
+table is not one spec twice. Measured, `WHATWG Fetch` is `entry[1]`, the canonical label, resolving
+identically at baseline — the spellings that exercise the shortname-as-parse-key rule are `Fetch` / `fetch`.
 
 ### §3.1 Discovery method
 
@@ -469,7 +465,11 @@ Every diff check names an explicit ref.
    called the check "currently red, A-i unimplemented" — that was `b3a7d469`'s `preflight.py` change, which
    §4 drops; both statements are now stale and the check is **green**.
 2. **K3**: at A-i's head,
-   `git grep -hE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref | wc -l` → **0**. A
+   `! git grep --untracked -qE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref`
+   — **exit 0 when clean, 1 when violated**. ⚠ **Two defects until #501 R82, both making it unable to
+   fail**: the previous form ended `| wc -l`, and a pipeline's status is `wc`'s, so a hit printed a count
+   and still exited **0**; and plain `git grep` reads the index, so an **untracked** plant — where a
+   violation lands during authoring — was invisible (measured both ways). A
    time-limited fact rather than an invariant (§15): Slice B's detector makes it false by design, so it is
    a diff-review item for this PR and gets no standing gate.
 3. **K2 — stated as two claims, because only one of them is mechanised.** A-i discharges the two
@@ -541,7 +541,11 @@ Checks 2 and 3 are scans for prose occurrences, not for file assignments. **Ever
 run against a deliberately planted violation** and observed red **and non-zero** — the plant matrix is
 package-internal / entry-script (`webref`, a file root) / untracked-under-`_webref/` / unplanted, plus
 the shadowed-`python3` and three-cwd cases of item 3. A pin that cannot witness its own negation is not a
-check; neither is one that witnesses it and then exits 0, which is what this commit set found.
+check; neither is one that witnesses it and then exits 0.
+⚠ **Check 2 was exactly that until #501 R82, and this sentence claimed otherwise.** Its command ended
+`| wc -l`, whose status is `wc`'s, so a hit printed a count and exited **0**; and plain `git grep` reads the
+index, so an untracked plant — the case the matrix above names — was invisible. Both measured, and both
+re-measured after the fix: an untracked plant now exits **1**, a clean tree **0**.
 
 ---
 
@@ -848,5 +852,5 @@ what the rule asks for instead.
 
 ⚠ **K3** — "the generic core names no Slice-B artifact" — deliberately gets no mechanism. It is not an
 invariant but a **time-limited fact**: it stops being true the day Slice B lands its detector, by design.
-`git grep -hE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref | wc -l` returns 0 at this head,
+`! git grep --untracked -qE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref` exits 0 at this head,
 which is a diff-review item for this PR, not something to gate in perpetuity.
