@@ -72,7 +72,12 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# `$0` as given may have no slash (`bash webref-generic-core-trip-wire.sh` from
+# this directory), and the controls re-invoke it — through PATH, where it is not.
+# Canonicalise once, so "run from anywhere" is true of the self-invocation too
+# (#501 R74: all controls returned 127 and the clean wire exited 1).
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
 SCOPE_DIR="$ROOT/.claude/tools/_webref"
 SCOPE_FILE="$ROOT/.claude/tools/webref"
 # SELF-TEST MODE.  The controls below re-invoke this script over a fixture tree
@@ -90,7 +95,17 @@ for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
 done
 
 # §2's K2 predicate. Fixed ERE, `grep -E`. The one thing this wire asserts.
-K2RE='\.claude/(skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+#
+# A segment is "anything up to the next separator", where the separators are `/`
+# and the characters that end a path in running text: whitespace, quotes and a
+# backtick.  It was `[A-Za-z0-9_.-]` until #501 R74, which excluded segments §2
+# admits — `.claude/tools/@scope/policy.md` and `.claude/skills/日本語/rule.md`
+# both read GREEN.  ⚠ What stays outside is a segment containing WHITESPACE
+# (`.claude/skills/team name/rule.md`): in arbitrary text that is not decidable
+# without quoting rules, and this repo's recorded rule is that a predicate which
+# cannot return its population is a seed, so it is named in §12(3)'s open half
+# rather than guessed at here.
+K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 
 # A filesystem walk, not `git grep`: an untracked file under the package is
 # exactly where a violation lands during authoring, and `git grep` reads the
@@ -139,15 +154,15 @@ K2RE='\.claude/(skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
 _scan() { # $1 = dir root, $2 = extra file; prints "ok\t…" / "k2\t…" / "err\t…"
   _l="$(mktemp)" || { printf 'err\twalk: no temp file for the file list\n'; return 0; }
   _e="$(mktemp)" || { rm -f "$_l"; printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
-  find "$1" -name __pycache__ -prune -o -print > "$_l" 2>"$_e" || true
+  find "$1" -name __pycache__ -type d -prune -o -print0 > "$_l" 2>"$_e" || true
   # `find` reports an unsearchable directory on stderr and keeps going, so a
   # non-empty stderr means the walk was INCOMPLETE even when its status is 0.
   if [ -s "$_e" ]; then
     printf 'err\twalk of %s was incomplete: %s\n' "${1#$ROOT/}" \
       "$(tr '\n' ';' < "$_e" | cut -c1-200)"
   fi
-  [ -z "${2:-}" ] || printf '%s\n' "$2" >> "$_l"
-  while IFS= read -r f; do
+  [ -z "${2:-}" ] || printf '%s\000' "$2" >> "$_l"
+  while IFS= read -r -d '' f; do
     # `-L` BEFORE `-f`: `[ -f <symlink-to-file> ]` follows the link and would
     # read the target's content instead of the link's own text.
     if [ -L "$f" ]; then
@@ -215,7 +230,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -230,6 +245,17 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # SAYS SO rather than passing quietly.
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/odd/ok.py"
   mkfifo "$CTL/odd/pipe" 2>/dev/null || true
+  # A filename holding a newline: `-print` plus `read` would split it into
+  # fragments and scan those instead of the file (#501 R74).
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nl/foo"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nl/bar"
+  printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/nl/$(printf 'foo\nbar')"
+  # Segments §2 admits that a `[A-Za-z0-9_.-]` class did not.
+  printf 'A = "%s"\nB = "%s"\n' '.claude/tools/@scope/policy.md' '.claude/skills/日本語/rule.md' \
+                                             > "$CTL/seg/control.py"
+  # A REGULAR FILE named `__pycache__`: pruning by name alone skipped it.
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cache/ok.py"
+  printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cache/__pycache__"
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
   # A readable sibling, so the run reaches the ERROR verdict instead of stopping
   # at the zero-read guard — the fixture must exercise the arm it names.
@@ -238,7 +264,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
 
   _control() { # $1 = fixture dir, $2 = expected exit, $3 = expected message, $4 = label
-    _out="$(WEBREF_WIRE_SELFTEST="$1" "$0" 2>&1)"; _rc=$?
+    _out="$(WEBREF_WIRE_SELFTEST="$1" "$SELF" 2>&1)"; _rc=$?
     if [ "$_rc" -ne "$2" ]; then
       echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
       echo "   mean nothing — this wire was not shown able to reach that verdict." >&2
@@ -264,6 +290,9 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/tools" 1 "K2: a"  "K2 fires under the tools root too" || ctl_ok=1
   _control "$CTL/binary" 1 "K2: a" "K2 fires inside binary content"    || ctl_ok=1
   _control "$CTL/link"   1 "K2: a" "K2 fires on a symlink's target"    || ctl_ok=1
+  _control "$CTL/nl"     1 "K2: a" "a newline in a filename is not a split" || ctl_ok=1
+  _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
+  _control "$CTL/cache"  1 "K2: a" "only cache DIRECTORIES are pruned"      || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 1 "cannot say what it holds" "an odd entry fails closed" || ctl_ok=1
   else
