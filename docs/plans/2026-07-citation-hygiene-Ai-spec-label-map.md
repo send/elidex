@@ -465,11 +465,27 @@ Every diff check names an explicit ref.
    called the check "currently red, A-i unimplemented" — that was `b3a7d469`'s `preflight.py` change, which
    §4 drops; both statements are now stale and the check is **green**.
 2. **K3**: at A-i's head,
-   `! git grep --untracked -qE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref`
-   — **exit 0 when clean, 1 when violated**. ⚠ **Two defects until #501 R82, both making it unable to
-   fail**: the previous form ended `| wc -l`, and a pipeline's status is `wc`'s, so a hit printed a count
-   and still exited **0**; and plain `git grep` reads the index, so an **untracked** plant — where a
-   violation lands during authoring — was invisible (measured both ways). A
+   **read the output of these two, both 0 at this head**:
+
+   ```sh
+   git ls-files -z --cached --others --exclude-standard -- .claude/tools/_webref .claude/tools/webref \
+     | tr '\0' '\n' | grep -cE 'cite.?audit|_catalog'      # the artifact as an entry NAME
+   git grep --untracked -lE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref | wc -l
+   ```
+
+   ⚠ **Neither exit code is a contract, and this row claimed one until #501 R83.** Three revisions tried:
+   `| wc -l` could not report a hit at all (a pipeline's status is `wc`'s); `! git grep -qE` could not see
+   an **untracked** plant (it reads the index); and `! git grep --untracked -qE` could not see an artifact
+   that exists only as an entry **name** (an empty `cite_audit.py` read clean), nor distinguish "no match"
+   from "could not read" — `git grep` returns **1** for both, so `!` turned an unreadable file into a
+   certified scope. All four measured.
+
+   Every one of those is a failure mode the K2 wire spent thirteen rounds closing, and the reason they keep
+   arriving here is that **K3's check is a one-liner in prose while K2's is an instrument**. A one-liner
+   that must be sound *is* the self-measuring apparatus this program ratified against, so this row does not
+   grow one: it reports what the two commands print at this head, and what covers the invariant is the
+   diff — finite, and every line entering this tree passes review, exactly as for K2's open part (§12(3)).
+   A
    time-limited fact rather than an invariant (§15): Slice B's detector makes it false by design, so it is
    a diff-review item for this PR and gets no standing gate.
 3. **K2 — stated as two claims, because only one of them is mechanised.** A-i discharges the two
@@ -852,5 +868,5 @@ what the rule asks for instead.
 
 ⚠ **K3** — "the generic core names no Slice-B artifact" — deliberately gets no mechanism. It is not an
 invariant but a **time-limited fact**: it stops being true the day Slice B lands its detector, by design.
-`! git grep --untracked -qE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref` exits 0 at this head,
+both K3 commands above print **0** at this head (names and contents; neither exit code is a contract — §12(2)),
 which is a diff-review item for this PR, not something to gate in perpetuity.
