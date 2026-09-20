@@ -7,11 +7,14 @@ The seam against `plan_memo_selftest_properties.py` is the SUBJECT, and it is
 mechanical rather than a taste.  A control there reads the checker AS WRITTEN
 -- its source text, its AST, the docstring of its entry point, the code object
 of one of its methods -- and calls nothing of it; a control here CALLS it, and
-reads what comes back.  In the imports: that module is the only importer of
-`ast` and of the harness's module-set handles (`MODULES` / `SOURCES` /
-`GRAMMAR` / `HERE`), and this one is the only importer of the fixture builder
-and the fixture runner (`build` / `run_on`), exactly as the three WORK modules
-are the only importers of the harness's work witnesses.
+reads what comes back.  In the imports: that module and the growth
+module are the only importers of `ast` and of the harness's module-set handles,
+this one and the controls module the only importers of the fixture runner
+(`run_on`), and the three WORK modules the only importers of the work
+witnesses.  ⚠ This sentence claimed `build` / `run_on` for this module ALONE
+until PR #510 R32 and was false -- `build` has seven importers.  The seams are
+a table now (`plan_memo_selftest_properties._IMPORT_SEAMS`), enforced rather
+than asserted.
 Carved at PR #510 R29, at 998 lines, before the round's own controls were
 written into it.
 
@@ -723,21 +726,43 @@ def licence_index_control(M):
     itself rather than inferred from (b)'s agreement."""
     import plan_memo_roles
 
+    # THE SPLITTER, ASSERTED DIRECTLY.  No production phrase holds a top-level
+    # alternation today, so removing branch-awareness is an EQUIVALENT mutation
+    # end to end and the corpus below cannot see it (measured, PR #510 R32: the
+    # mutant survived until this half existed).  The clause is therefore stated
+    # where it can be falsified -- over shapes that exercise nesting, character
+    # classes and escapes, which is what makes "top-level" mean anything.
+    for pattern, want in ((r"mint\s+|sprout\s+", [r"mint\s+", r"sprout\s+"]),
+                          (r"child(?:ren)?\s+(?:of\s+)?", [r"child(?:ren)?\s+(?:of\s+)?"]),
+                          (r"a[|b]c|d", ["a[|b]c", "d"]),
+                          (r"a\|b|c", [r"a\|b", "c"])):
+        got = plan_memo_roles._top_level_alternatives(pattern)
+        if got != want:
+            return False, ("the branch splitter reads %r as %r, not %r -- a phrase's alternatives "
+                           "are what the index must offer a start for" % (pattern, got, want))
+
     phrases = plan_memo_roles._LICENCE_PHRASES
-    keywords = set()
+    keywords, branches = set(), 0
     for p in phrases:
-        m = re.match(r"[a-z]+", p)
-        if not m:
-            return False, ("a licensing phrase opens with no plain literal, so no offset of it enters "
-                           "the index and its sites are silently unlicensable: %r" % p[:40])
-        if not plan_memo_roles._LICENCE_KEYWORD.fullmatch(m.group()):
-            return False, ("the index does not hold the literal %r that %r opens with"
-                           % (m.group(), p[:40]))
-        if p[m.end():m.end() + 1] in ("?", "*", "{"):
-            return False, ("%r quantifies the LAST character of the literal it opens with, so the "
-                           "index keys on %r and every site that omits that character leaves it"
-                           % (p[:40], m.group()))
-        keywords.add(m.group())
+        # EVERY TOP-LEVEL BRANCH, not every tuple entry: one entry may hold
+        # several alternatives and the index must offer a start for each
+        # (PR #510 R32 -- `mint\s+|sprout\s+` left `sprout` unlicensable and
+        # BOTH halves of this control passed).
+        for branch in plan_memo_roles._top_level_alternatives(p):
+            branches += 1
+            m = re.match(r"[a-z]+", branch)
+            if not m:
+                return False, ("a licensing branch opens with no plain literal, so no offset of it "
+                               "enters the index and its sites are silently unlicensable: %r"
+                               % branch[:40])
+            if not plan_memo_roles._LICENCE_KEYWORD.fullmatch(m.group()):
+                return False, ("the index does not hold the literal %r that the branch %r opens with"
+                               % (m.group(), branch[:40]))
+            if branch[m.end():m.end() + 1] in ("?", "*", "{"):
+                return False, ("%r quantifies the LAST character of the literal it opens with, so "
+                               "the index keys on %r and every site that omits that character "
+                               "leaves it" % (branch[:40], m.group()))
+            keywords.add(m.group())
 
     # The corpus: licensing openers, their near-misses (a keyword that begins
     # no phrase, and a longer word the keyword is a prefix of), and fillers.
@@ -772,6 +797,7 @@ def licence_index_control(M):
                            % (subject, start, got, want))
     if bad:
         return False, "the index and the whole preceding text disagree: %s" % "; ".join(bad)
-    return True, ("%d phrase(s) opening with a literal the index holds (%s); %d position(s) over %d "
-                  "generated texts where the indexed verdict is the whole preceding text's"
-                  % (len(phrases), "/".join(sorted(keywords)), n, len(texts)))
+    return True, ("%d phrase(s) in %d top-level branch(es), each opening with a literal the index "
+                  "holds (%s); %d position(s) over %d generated texts where the indexed verdict is "
+                  "the whole preceding text's"
+                  % (len(phrases), branches, "/".join(sorted(keywords)), n, len(texts)))

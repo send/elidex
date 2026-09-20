@@ -216,9 +216,16 @@ EVERY row rather than of the rows that declared nothing."""
 # thread fetch stopped at 100 of 105 -- the disposition that called R30 two
 # findings is corrected in the same round these controls land.
 #
-# §6.4: "the description of an image is the plain string content of its inline
-# children", so a bracket construct inside a RESOLVED image's description
-# contributes its TEXT and none of its markup.  Three separate pieces of markup
+# §6.4 reduces an image's description to its "plain string content" when
+# rendering, so a bracket construct inside a RESOLVED image's description
+# contributes its TEXT and none of its markup.
+# ⚠ THE EARLIER WORDING HERE QUOTED A SENTENCE THE SPEC DOES NOT CONTAIN ("the
+# plain string content of its INLINE CHILDREN") -- "inline children" is an AST
+# term, and §6.4 states this as a rendering recommendation rather than as a
+# definition.  No CommonMark PROSE is vendored anywhere in this tree, so
+# neither wording is checkable here; the fragments the lexer quotes are the one
+# spelling, and this reads as a paraphrase rather than as a quotation.  What IS
+# checkable is the behaviour, and that is what the controls below do.  Three separate pieces of markup
 # stand in such a description and each one was disposed of wrongly:
 #
 #   (1) a demoted LINK's `[`, which was POPPED off `opens` and so left standing
@@ -344,3 +351,47 @@ case("NEGATIVE", "(R31-1 §2.5) a header cell rendering `$` (`&#36;`) is NOT the
                  "declares nothing.  The partner that bounds the fix -- a match that normalised the "
                  "header instead of rendering it would pass the three above and fail this one",
      build(), "See [the walk](slice-9z-sib.md).", 0, sibling=_SIB_SCHEMA % "&#36;")
+
+
+# ---------------------------------------- PR #510 Codex R32 controls (R31-1) --
+# THE TWO CLAUSES R31-1 ADDED WITHOUT A PROBE, against the discipline stated 200
+# lines above in the same commit ("each clause has its own probe").  `admit_table`
+# claims a table's SHAPE is settled over raw text at block level, before any
+# inline construct exists, so a §2.5 character reference cannot spell it: a
+# delimiter row of `&#45;` is no delimiter row and the table never forms, and a
+# `&#124;` does not split a cell.  Three sibling clauses of the same fix each got
+# a control; these two got none, and the design re-gate found them.
+#
+# ⚠ NO GFM ARTEFACT IS VENDORED ANYWHERE IN THIS TREE -- no examples, no prose --
+# and `webref` does not cover GFM, so unlike the `&#35;` header clauses (which
+# CommonMark Examples 26 and 12 settle) these two are checked by BEHAVIOUR here
+# and by nothing else.  That is worth knowing rather than implying otherwise;
+# vendoring GFM §4.10 the way §4.6's tag list is vendored is the standing fix.
+
+_R32_SIB = """# sibling
+
+## §5. Slice plan
+
+| # | Slice | Primary module(s) | Slot | Tier | Deps |
+|%s|---|---|---|---|---|
+| **8z** | **UMBRELLA, not a terminal unit.** charter. | `g.rs` | — | T1 | — |
+| **6z** | Terminal.  Acceptance: the probe must return 6. | `h.rs` | — | T1 | %s |
+"""
+
+case("POSITIVE", "(R32 §2.5/GFM) a delimiter row spelled `&#45;&#45;&#45;` is NO delimiter row: a table's "
+                 "shape is settled over RAW text before any inline construct exists, so the character "
+                 "reference never becomes a hyphen, the table never forms, and the linked memo declares "
+                 "nothing.  The clause `admit_table` states and nothing probed",
+     build(), "See [the walk](slice-9z-sib.md).", 0,
+     sibling=_R32_SIB % ("&#45;&#45;&#45;", "**8z**"))
+case("POSITIVE", "(R32 §2.5/GFM) the same sibling with a plain `---` delimiter row DOES form the table "
+                 "and names the umbrella -- the discriminating half: the memo, the rows and the edge "
+                 "are the control's constants and only the delimiter row's spelling differs",
+     build(), "See [the walk](slice-9z-sib.md).", 1,
+     sibling=_R32_SIB % ("---", "**8z**"))
+case("POSITIVE", "(R32 §2.5/GFM) a `&#124;` inside a cell does NOT split it: the row keeps its six "
+                 "cells, so it is no schema miss and the `Deps` edge is still read.  Split at the "
+                 "reference, the row would have seven cells and the run would be rc 2 -- which is why "
+                 "the measure here is the SITE and not merely the exit status",
+     build(), "See [the walk](slice-9z-sib.md).", 1,
+     sibling=_R32_SIB % ("---", "**8z** &#124; x"))

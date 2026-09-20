@@ -26,9 +26,14 @@ it; ⚠ the round's controls were written first and this carve is the commit
 after them, which is the rule's shape late rather than its shape on time.
 
 TWO PIPELINE SHAPES live here and the difference matters to what a probe can
-witness.  `Memo(path)` runs PHASE 1 ALONE, which is what the three oldest
-controls cost (orphan detection, the unresolved walk, the sibling set) -- no
-disposition, no scan, no population.  `_on_pipeline` runs `check()`, the one
+witness.  `Memo(path)` runs Phase 1 AND the Phase-2 resolve its constructor
+performs -- ⚠ it said "PHASE 1 ALONE" until PR #510 R32, which the same delta's
+`Memo.__init__` refutes: one `Memo` over a seven-line fixture makes 1
+`Table.bind` call and 11 `Lexed.resolve` calls, because R31-1 moved the header
+resolve and the bind into the constructor.  What it does NOT run is the
+disposition, the scans and the population, which is the part of the old
+sentence that was true and the part these three controls rely on (orphan
+detection, the unresolved walk, the sibling set).  `_on_pipeline` runs `check()`, the one
 entry point, which is the only way to reach a scan that the seeds and the
 licensing rule live in; both of PR #510 R31's cost findings were there, and
 neither is reachable from a block-level probe at all.

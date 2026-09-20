@@ -10,10 +10,16 @@ CALLS nothing of it -- so no fixture is written, no document is parsed and no
 verdict is read.  A control whose question needs the checker RUN is
 `plan_memo_selftest_invariants.py`'s (carved at PR #510 R29, at 998 lines), and
 one whose measure is a COST is `plan_memo_selftest_work.py`'s.  In the imports:
-this module is the ONLY importer of `ast` and of the harness's module-set
-handles (`MODULES` / `SOURCES` / `GRAMMAR` / `HERE`), and the invariants module
-the only importer of `build` / `run_on`, exactly as the three WORK modules are
-the only importers of the harness's work witnesses.  In the registry: every control the two
+this module and `plan_memo_selftest_growth.py` are the only importers of `ast`
+and of the harness's module-set handles (`MODULES` / `SOURCES` / `GRAMMAR` /
+`HERE`), the fixture runner `run_on` is imported only by the invariants module
+and the controls module, and the harness's work witnesses only by the three
+WORK modules.  ⚠ Those three sentences said "ONLY this module" and "only the
+invariants module" until PR #510 R32, and all three were FALSE -- the growth
+module had imported `ast` and the handles since R27, and `build` is imported by
+seven modules.  They are now a table `import_seam_control` enforces
+(`_IMPORT_SEAMS`), because an "only importer" is a claim about the COMPLEMENT
+and the complement is the half nobody re-reads.  In the registry: every control the two
 property modules contribute is named `PROPERTY: ...` and every `PROPERTY: ...`
 entry of the one table comes from one of them.
 
@@ -37,7 +43,9 @@ imports the invariants module and the harness, and nothing of the controls.
 """
 
 import ast
+import io
 import re
+import tokenize
 
 from plan_memo_selftest_harness import GRAMMAR, HERE, MODULES, SOURCES
 from plan_memo_selftest_invariants import registry as invariant_registry
@@ -654,9 +662,16 @@ def html_block_tag_names_control(M):
     be added, citing "CommonMark 0.31.2 §4.6 lists `hgroup`".  It does not:
     that spec text holds ZERO occurrences of the string, case-insensitive, and
     its condition-6 list runs `... frameset`, `h1` .. `h6`, `head`, `header`,
-    `hr`, `html`, `iframe` ... and includes `search`, which is the 0.31 change
-    that added `search` and dropped `hgroup`.  Adding it would have been a
-    conformance REGRESSION, and answering that took a round.  It was the second
+    `hr`, `html`, `iframe` ... and includes `search`.  Adding `hgroup` would
+    have been a conformance REGRESSION, and answering that took a round.
+    ⚠ A HISTORY CLAUSE STOOD HERE UNTIL PR #510 R32 -- "`search`, which is the
+    0.31 change that added `search` and dropped `hgroup`" -- and NOTHING IN
+    TREE CAN SAY IT.  The vendored artefact is 0.31.2 only: 62 names, no prose,
+    no prior version.  What it supports is "0.31.2 lists `search` and does not
+    list `hgroup`"; measured, it also does not list `source`, which is what the
+    unchanged count of 62 actually points at.  A docstring whose whole argument
+    is that the list "stops being an argument and becomes a gate" is the last
+    place to keep an unsupported one.  It was the second
     false spec citation in four rounds (R26-1 read §6.3 as capping parenthesis
     nesting at 32; it permits a limit and names none), and both were answerable
     from the spec text in one command.  So the list stops being an argument and
@@ -736,6 +751,8 @@ def registry():
             ("CONTROL", module_map_existence_control),
         "PROPERTY: every written `module.symbol` attribution names the module that DEFINES that symbol (the class five touch-time splits left with no detector)":
             ("CONTROL", symbol_attribution_control),
+        "PROPERTY: every import-graph seam this suite states in prose is true of the imports (an \"only importer of X\" is a claim about the COMPLEMENT)":
+            ("CONTROL", import_seam_control),
     })
     return reg
 
@@ -821,7 +838,7 @@ def symbol_attribution_control(M):
     corpus = _attribution_corpus()
     bad, checked = [], 0
     for name, src in corpus:
-        for lineno, line in enumerate(src.split("\n"), 1):
+        for lineno, line in _prose_of(name, src):
             for pattern, mod_group, sym_group in _ATTRIB_SPELLINGS:
                 for m in pattern.finditer(line):
                     mod = m.group(mod_group).replace("plan-memo-umbrella-check", "plan_memo_umbrella_check")
@@ -839,6 +856,39 @@ def symbol_attribution_control(M):
                      % (checked, len(corpus), len(bad), ("; " + "; ".join(bad[:6])) if bad else ""))
 
 
+def _prose_of(name, src):
+    """The PROSE of one file: comments and docstrings for a `.py`, the whole
+    text for a `.md`.  Returned as [(lineno, text)].
+
+    WHY PROSE AND NOT THE WHOLE SOURCE (PR #510 R32).  An attribution a reader
+    FOLLOWS lives in a comment or a docstring.  A module name inside a string
+    literal is DATA -- a mutant's replacement payload, a fixture, a regex -- and
+    a mutant row that injects a stale attribution must spell that stale
+    attribution to inject it.  Swept as source text, the mutation proof's own
+    payload was reported as a defect the moment the row was written.  Excluding
+    the mutants file by name would be the enumerated exemption this suite keeps
+    being bitten by (`memory/feedback_enumerated-exemptions-leave-the-next-class-
+    authoritative.md`); "a literal is data, prose is a claim" is a rule about
+    what the check is FOR, and it holds for the next file too."""
+    if name.endswith(".md"):
+        return list(enumerate(src.split("\n"), 1))
+    out = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                out.append((tok.start[0], tok.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return out
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if doc:
+                base = node.body[0].lineno if node.body else 1
+                for k, line in enumerate(doc.split("\n")):
+                    out.append((base + k, line))
+    return out
+
+
 def _attribution_corpus():
     """The files whose attributions are checked: every source of the checker
     set, plus the plan memos beside it when this tool is sitting in its own
@@ -852,3 +902,103 @@ def _attribution_corpus():
     if plans.is_dir():
         files += [(p.name, p.read_text(encoding="utf-8")) for p in sorted(plans.glob("*.md"))]
     return files
+
+
+# The import-graph seams this suite states in prose, as DATA: name -> (the
+# thing imported, the modules allowed to import it).  Every entry is a sentence
+# some module's docstring asserts; the control below is what makes the sentence
+# fail red instead of reading true.
+#
+# ⚠ THREE OF THESE WERE FALSE WHEN THIS TABLE WAS FIRST WRITTEN (PR #510 R32),
+# and they had been false for rounds: `ast` and the harness's module-set
+# handles were claimed exclusive to this module while the growth module had
+# imported them since R27, and `build` / `run_on` were claimed exclusive to the
+# invariants module while SEVEN modules import `build`.  Each is a universal
+# claim ("the ONLY importer of X") offered to a reader IN PLACE of their own
+# judgement about where the next control goes, so a false one does not merely
+# mislead -- it routes work to the wrong file.
+# Each entry: label -> (names, allowed importers, POPULATION the claim ranges
+# over -- None for "every module of this checker").
+#
+# ⚠ THE POPULATION IS PART OF THE CLAIM, and leaving it out makes the seam
+# meaningless rather than merely loose.  Written first without one, the
+# `tempfile` row had to list every module that touches `tempfile` for any
+# reason, which is not the sentence the docstring makes: that sentence ranges
+# over the WORK modules and says which of those two writes a file.  A seam
+# whose allow-list is "everyone who does it" asserts nothing.
+_WORK = {"plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py"}
+_IMPORT_SEAMS = {
+    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py"}, None),
+    "the harness's module-set handles": (
+        ("MODULES", "SOURCES", "GRAMMAR", "HERE"),
+        {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py"}, None),
+    "the fixture runner": (("run_on",),
+                           {"plan_memo_selftest_invariants.py", "plan_memo_selftest_controls.py"}, None),
+    "the work witnesses": (
+        ("_count_calls", "_count_lines", "_count_line_sites", "_CountedList", "_count_pattern_spans"),
+        {"plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py",
+         "plan_memo_selftest_growth.py"}, None),
+    "tempfile, among the two written-shape work modules": (
+        "tempfile", {"plan_memo_selftest_pipeline.py"}, _WORK),
+}
+
+
+def import_seam_control(M):
+    """PROPERTY: every import-graph seam this suite states in prose is true of
+    the imports.
+
+    WHY A CONTROL AND NOT A CAREFUL READER (PR #510 R32).  Several module
+    docstrings offer the import graph as a MECHANICAL answer to "is this a work
+    control?" / "where does the next control go?" -- "the ONLY importer of
+    `ast`", "the only importer of `build` / `run_on`", "the only importers of
+    the work witnesses".  A reader is told to trust the graph rather than their
+    judgement, so the sentences are load-bearing; and three of them were false
+    when this control was written, one of them by six modules.  They went false
+    the way every claim here goes false: a touch-time split carved a module out,
+    the new module imported what it needed, and no one re-read the sentence that
+    said nobody else could.  `memory/feedback_universal-claims-need-the-
+    complement-measured.md` is the rule -- an "only" is a claim about the
+    COMPLEMENT, and the complement is what nobody measures.
+
+    The table is the permitted set, so a NEW importer is red and must either be
+    added (the seam moved, deliberately) or removed (the seam held and the
+    import was a mistake).  Both directions are reported: a name no module
+    imports at all is red too, because a seam nobody can violate is a sentence
+    about nothing.
+
+    ⚠ EACH SEAM CARRIES THE POPULATION IT RANGES OVER, because without one the
+    `tempfile` row degenerated into "allowed: everyone who imports it" -- a row
+    that can never be red.  The claim its docstring makes is about the two WORK
+    modules and which of them writes a file to disk, so that is the population.
+
+    HONESTLY, what it cannot see: a module reaching a name WITHOUT importing it
+    (`__import__`, an attribute off an already-imported module) -- the mutation
+    proof does exactly that on purpose, which is why the checker set is not in
+    the table; and prose that states a seam this table does not list, which is
+    the same open edge every enumerated table in this file has."""
+    seen = {}
+    for file, src in _swept_sources():
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    seen.setdefault(alias.name.split(".")[0], set()).add(file)
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    seen.setdefault(alias.name, set()).add(file)
+    bad = []
+    for label, (names, allowed, population) in sorted(_IMPORT_SEAMS.items()):
+        names = (names,) if isinstance(names, str) else names
+        importers = set()
+        for name in names:
+            importers |= seen.get(name, set())
+        if population is not None:
+            importers &= population
+        if not importers:
+            bad.append("%s: nothing imports %s -- the seam is a sentence about nothing"
+                       % (label, "/".join(names)))
+            continue
+        extra = sorted(importers - allowed)
+        if extra:
+            bad.append("%s: also imported by %s" % (label, ", ".join(extra)))
+    return not bad, ("%d import seam(s) hold%s" % (len(_IMPORT_SEAMS),
+                                                   ("; " + "; ".join(bad)) if bad else ""))

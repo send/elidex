@@ -1359,8 +1359,10 @@ ground for either option; it is not cited.
   sites) and **one REJECTED on a false spec citation, falsified two independent ways**.
   #3 asked for `hgroup` in the §4.6 type-6 tag list, citing 0.31.2. **0.31.2 contains zero occurrences
   of `hgroup`** (case-insensitive, over `spec.txt`, sha256 `bfef4ddc…`); its list runs `header`, `hr`,
-  `html`, `iframe` and DOES contain `search` — the 0.31 change that added `search` and removed
-  `hgroup`. Diffed programmatically, the code's `_HTML_TAG_NAMES` matches the spec at **62 names, both
+  `html`, `iframe` and DOES contain `search`. ⚠ This read "the 0.31 change that added `search` and
+  removed `hgroup`" until R32, which **nothing in tree can support** — the vendored artefact is
+  0.31.2 only, with no prose and no prior version; measured, it also lacks `source`, which is what
+  the unchanged 62 actually points at. Diffed programmatically, the code's `_HTML_TAG_NAMES` matches the spec at **62 names, both
   directions, no difference** (the only textual difference is `h[1-6]` for `h1`–`h6`). And the
   behavioural half is false too, through the oracle that governs these memos: `text\n<hgroup>\n[x](absent.md)`
   renders `<a href="absent.md">x</a>` on GitHub — a LINK — while the same input with `<header>` leaves
@@ -1758,6 +1760,27 @@ ground for either option; it is not cited.
   proof asserts and needs its own measurement per row. Trigger = the round whose head measures under
   2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
   property. No slot: this is the wire's own budget, not a platform gap.
+  ⚠⚠ **And the budget is what is actually blocking the generated property from subsuming three
+  per-shape controls** — R32's design re-gate measured all three, so the next PR starts from the
+  measurement and not from a re-derivation:
+  - **C (R31-2, emphasis)**: +3 atoms read off `plan_memo_emphasis.DELIMS` (derived, not written
+    against the symptom) → 3,577 → **4,030 probes, 3.4 → 4.6 s**, **RED** on the defect, green on the
+    fix. Cost through the six naming mutants ≈ **+8 s**.
+  - **D (R31-3, raw seed)**: the corpus **UNCHANGED**, driven through `check()` instead of
+    `_read_block` — an 8-line driver — is green on the fix and **RED** on the defect over 97 probes
+    (~2.5 s), naming `plan-memo-umbrella-check.py:466` at 1.59×, *including a single-atom shape
+    (`'[C1] '`) no review round reported*. The full pair corpus through `check()` is ~90 s, so the
+    affordable form is an atoms-only arm. This would subsume `linear_raw_seed_control`.
+  - **E (R31-4, licensing)**: `_count_pattern_spans` is the first witness whose subject is the C `re`
+    engine, and its population is mechanically enumerable — **39 module-level `re.Pattern` globals**
+    across the 13-module set, of which **one** is watched. One control wrapping every enumerated
+    pattern over a growing pipeline probe, with the ≥1-application lower bound the existing control
+    already uses, is the general form.
+  ⚠ **What was wrong was not the decision but the stated reason.** The R31 ledger measured "does the
+  property *as written* cover D and E?" and treated the answer as settling "should a per-shape control
+  be written?" — the deciding question is whether the property can be **parameterised**, and it can.
+  The three docstrings that recorded a reachability limit now record the cost instead
+  (`plan_memo_selftest_growth.py`, `plan_memo_selftest_work.py`, `plan_memo_selftest_pipeline.py`).
 - GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - Markdown library dependency (§5) — trigger-only (see §5); no slot; no date.

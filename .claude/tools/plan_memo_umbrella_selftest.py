@@ -22,49 +22,28 @@ control, and the controls come in four kinds:
                     `feedback_control-rewritten-to-bless-the-defect` names.
 
 Every control runs `check()` -- the SAME pipeline `main()` runs, not a copy of
-it.  The self-test is four modules with one import direction:
+it.
 
-  plan_memo_umbrella_selftest.py    this runner: `run()` -- load, run every
-                                    control of the registry, print, then the
-                                    mutation proof on request;
-  plan_memo_selftest_controls.py    the function-shaped controls and
-                                    `registry()`, the one name -> (kind,
-                                    control) table;
-  plan_memo_selftest_properties.py  the PROPERTY controls whose subject is the
-                                    checker AS WRITTEN -- the source-text, AST,
-                                    code-object and docstring sweeps, which call
-                                    nothing of it;
-  plan_memo_selftest_invariants.py  the PROPERTY controls whose subject is the
-                                    checker RUN -- the re-spelling and
-                                    line-ending equivalences, and the readers
-                                    made to answer their own definition; merged
-                                    by the properties module.  Between them the
-                                    two contribute exactly the `PROPERTY: ...`
-                                    entries of that one table;
-  plan_memo_selftest_work.py        the controls whose measure is WORK rather
-                                    than text (the per-shape linearity
-                                    witnesses); its `registry()` fragment is
-                                    merged into that one table;
-  plan_memo_selftest_growth.py      the one work control whose population is
-                                    GENERATED from the grammar rather than
-                                    written against a shape -- a growth bound
-                                    over every atom and every pair of atoms
-                                    the checker's own tables and sources
-                                    declare; merged by the work module;
-  plan_memo_selftest_cases.py /     the record-shaped controls (`Case`), the
-  _selftest_cases_pr510.py /        fixture builder; one `CASES` list filled
-  _selftest_cases_inline.py         by three modules at the review-round seam
-                                    (pre-converge / R1-R16 / R17 on, the
-                                    Phase-2 inline construct family);
-  plan_memo_selftest_harness.py     the module loader, the fixture runner,
-                                    the control factory, the work witnesses.
+⚠ THE PER-MODULE INVENTORY THAT STOOD HERE IS GONE (PR #510 R32).  It was a
+SECOND list of the self-test's modules, hand-maintained, read by nothing -- the
+entry point's `MODULES` section is the one home and it IS checked, in both
+directions, by `module_map_completeness_control` / `module_map_existence_control`.
+The copy here had already drifted: it opened "the self-test is four modules"
+while listing eight, and the same commit that carved `plan_memo_selftest_
+pipeline.py` out extended this list without adding it.  Two homes for one
+record, one of which silently stopped being maintained -- so the record has one
+home now, and what stays here is the only thing this file can say that the map
+cannot:
 
-The mutants (a re-executable proof that each control can go red) are
-`plan_memo_selftest_mutants.py` (the pre-converge rows + the runner),
-`plan_memo_selftest_mutants_pr510.py` (PR #510 rounds R1-R16),
-`plan_memo_selftest_mutants_inline.py` (R17-R25) and
-`plan_memo_selftest_mutants_r26.py` (R26 on), all appending to the same
-`MUTANTS`, split at the cases modules' seams.
+  IMPORT DIRECTION, one way and no cycles: this runner imports the controls
+  module; the controls module imports the property modules and the work module;
+  the work module imports the pipeline and growth modules; every one of them
+  imports the harness, and the harness imports none of them.  A registry
+  fragment is merged UPWARDS along that chain into the one
+  name -> (kind, control) table the runner reads.
+
+  MUTANTS follow the cases modules' review-round seams and append to one
+  `MUTANTS` list, read at one import site (the runner).
 
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """

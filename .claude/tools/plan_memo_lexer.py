@@ -232,9 +232,17 @@ def _is_hard_break(s, j):
     has no `\\n` after it.
 
     The two-space spelling of the same break (§6.7's first form) needs no
-    clause: its spaces render as whitespace, and whitespace is what a line
-    ending contributes too, so the stream already reads it as the break it is
-    (`break_equivalence_control` measures all three spellings)."""
+    clause here, but NOT for the reason this said until PR #510 R32 ("its
+    spaces render as whitespace").  ⚠ That is the inverse of the spec: block
+    Example 226 renders `aaa     ` + an ending as `<p>aaa<br />`, so the
+    trailing run renders NOTHING -- it is markup consumed by the break, exactly
+    like the backslash this function drops, which is also what this file's own
+    central rule says ("a construct's markup renders what the construct
+    renders").  The clause is unnecessary because the LINE ENDING still stands
+    where the run was, and a line ending is already a whitespace boundary to
+    every reader here; the spaces' own disposition never comes up.  The outcome
+    survived its stated reason being false, which is this round's recurring
+    shape (`break_equivalence_control` measures all three spellings)."""
     return s[j] == "\\" and j + 1 < len(s) and s[j + 1] == "\n"
 
 

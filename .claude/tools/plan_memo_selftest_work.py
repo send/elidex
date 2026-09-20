@@ -80,14 +80,17 @@ def linear_emphasis_control(M):
     delimiters between the two.  Until PR #510 R31-2 that clearing re-walked
     the growing range of already-dead inner delimiters, which (a) cannot see:
     in (a) nothing ever matches, so there is no range to clear.
-    ⚠ (b) is a HAND-WRITTEN witness on purpose, and the generated growth
-    property (`plan_memo_selftest_growth.py`) is not a substitute for it:
-    measured with the pre-R31 scan re-injected, that property is GREEN over
-    all 3,577 of its probes, because its atoms are single characters and
-    self-contained constructs -- a delimiter atom repeated merges into ONE
-    long run (`***bbb`), never into the N separate runs this shape needs.
-    That is a limit of its VOCABULARY, not of its arrangements, and it is
-    written down in its own docstring."""
+    ⚠ (b) IS A STOPGAP, NOT A DESIGN CHOICE, and the difference was measured at
+    PR #510 R32.  With the pre-R31 scan re-injected the generated growth
+    property is GREEN over all 3,577 of its probes, because a delimiter atom
+    repeated merges into ONE long run (`***bbb`) rather than the N separate
+    runs this shape needs.  Until R32 that was written up as a limit of the
+    generator's VOCABULARY.  It is not: three atoms derived from
+    `plan_memo_emphasis.DELIMS` turn the defect red there, and what actually
+    keeps them out is the ~+8 s they cost on an always-run wire.  Cost is a
+    reason; "the property cannot reach this" was not one, and stating the wrong
+    one is how a stopgap becomes the tenth per-shape control this module's own
+    header argues against.  Carried in the plan's §8."""
     import plan_memo_emphasis     # the freshly loaded module
     out = {}
     for n in (100, 400):

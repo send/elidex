@@ -3,16 +3,22 @@
 # (umbrella plan docs/plans/2026-08-plan-memo-umbrella-checker.md §1 "Interim
 # connection on main").
 #
-# Runs `plan-memo-umbrella-check.py --self-test --mutants`: every control in
-# `plan_memo_selftest_cases.py` / `_cases_pr510.py` / `_cases_inline.py` (POSITIVE /
-# POSITIVE-NOVEL / NEGATIVE / KNOWN-MISS), `plan_memo_selftest_controls.py` (the
-# function-shaped controls) and `plan_memo_selftest_work.py` (the controls whose
-# measure is WORK: a counted call, a counted line, a counted read)
-# against the checker's ONE pipeline (`check()`), then every row of
-# `plan_memo_selftest_mutants.py` / `_mutants_pr510.py` / `_mutants_inline.py` -- a source edit that removes one lexing
-# clause or gating stage, exec'd into a fresh module set, whose named control
-# must turn red.  A mutant whose substring no longer applies is a FAIL, as is
-# one that survives.
+# Runs `plan-memo-umbrella-check.py --self-test --mutants`: EVERY control of the
+# one registry (POSITIVE / POSITIVE-NOVEL / NEGATIVE / KNOWN-MISS / CONTROL)
+# against the checker's ONE pipeline (`check()`), then EVERY row of the one
+# mutant list -- a source edit that removes one lexing clause or gating stage,
+# exec'd into a fresh module set, whose named control must turn red.  A mutant
+# whose substring no longer applies is a FAIL, as is one that survives.
+#
+# ⚠ THE PER-MODULE LIST THAT STOOD HERE IS GONE (PR #510 R32).  It named five
+# modules, omitted seven that had been carved out since, and was already stale
+# inside the commit range that added a line to it -- the same defect the plan
+# doc removed from its own head at R26 and the same one the runner's docstring
+# carried.  The module inventory has ONE home, the entry point's `MODULES`
+# section, and that one is machine-checked in both directions
+# (`module_map_completeness_control` / `module_map_existence_control`).  What a
+# wire needs to say is the INVARIANT and the command, not a list somebody must
+# remember to extend.
 #
 # Memo-INDEPENDENT: the fixtures are built in `tempfile` directories, so this
 # wire does not read any plan memo and cannot red a PR that edits one.  The

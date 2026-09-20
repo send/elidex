@@ -170,11 +170,21 @@ def _growth_corpus(atoms):
     `*a *a *a b* b* b* `).  Building N separate unmatched openers needs a unit
     shaped `<delimiter><text><separator>`, which no pair of these atoms
     composes.  So the blocked arrangement is kept on its own merits -- it is
-    strictly more coverage at no measurable cost -- and R31-2's own control is
-    a hand-written work witness, named as the thing this property cannot
-    reach.  The honest boundary is: this corpus generates ARRANGEMENTS of a
-    fixed vocabulary, and a defect needing a vocabulary item it has no way to
-    spell is outside it.
+    strictly more coverage at no measurable cost.
+
+    ⚠ BUT THE VOCABULARY IS A PARAMETER OF THIS GENERATOR, NOT A BOUNDARY OF
+    IT, and this paragraph concluded the opposite until PR #510 R32's design
+    re-gate measured it.  Three atoms read off `plan_memo_emphasis.DELIMS` --
+    the same source the existing delimiter atoms come from, so the vocabulary
+    stays DERIVED rather than written against the symptom -- take the corpus to
+    4,030 probes and turn the R31-2 defect RED, green on the fixed code.  What
+    keeps them out is COST, which is the thing that was never written down:
+    this corpus runs once per self-test plus once per mutant naming it, SIX
+    rows name it, and ~+1.2 s each is ~+8 s on an always-run wire whose
+    headroom R32 had just re-derived from ~2.0x.  So the honest boundary is not
+    "this vocabulary cannot spell it" -- it can, for a measured price -- and
+    the price is carried with the wire's own budget in the plan's §8.  R31-2's
+    hand-written witness stands until that is settled, as the stopgap it is.
 
     Blocked pairs are ORDERED (`x+y` and `y+x` are different shapes: openers
     then closers nests, closers then openers does not), which is why this is

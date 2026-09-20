@@ -26,7 +26,7 @@ from plan_memo_selftest_cases_r26 import (
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
-    POPULATION, R27_GROWTH, ROLES, SIBLING, STREAM, TABLES, TOKENS,
+    POPULATION, PROPERTIES, R27_GROWTH, ROLES, SIBLING, STREAM, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -678,18 +678,19 @@ R31_LICENCE_INDEX = ("PROPERTY: the licensing rule's backward index decides what
                      "with a literal the index holds")
 
 MUTANTS += [
-    ("R31-4 index: every phrase's literal is IN the index (drop one keyword: that phrase's sites "
+    # ⚠ BOTH ROWS MOVED AT R32, when the derivation became branch-aware and their
+    # substrings stopped existing. The runner said so ("the mutant no longer
+    # applies and proves nothing") rather than quietly passing -- the R22
+    # `STAGE_C` rule holding for a third time.
+    ("R31-4 index: every branch's literal is IN the index (drop one keyword: that phrase's sites "
      "leave the index silently and stop being licensable)", ROLES,
-     '    "|".join(sorted({m.group() for m in\n'
-     '                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES) if m})),',
-     '    "|".join(sorted({m.group() for m in\n'
-     '                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES)\n'
-     '                     if m and m.group() != "mint"})),',
+     '            if m:\n                out.add(m.group())',
+     '            if m and m.group() != "mint":\n                out.add(m.group())',
      [R31_LICENCE_INDEX]),
-    ("R31-4 index: the index keys on a phrase's WHOLE literal prefix (key on the first four letters: "
+    ("R31-4 index: the index keys on a branch's WHOLE literal prefix (key on the first four letters: "
      "`deri` is a superset that still matches, so only the structural half reports it)", ROLES,
-     '                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES) if m})),',
-     '                     (re.match(r"[a-z]{1,4}", p) for p in _LICENCE_PHRASES) if m})),',
+     '            m = re.match(r"[a-z]+", branch)',
+     '            m = re.match(r"[a-z]{1,4}", branch)',
      [R31_LICENCE_INDEX]),
     # The QUANTIFIER hazard, and the reason (a) is not merely a restatement of
     # the derivation: `mints?` matches `mint ` while the greedy literal run the
@@ -733,4 +734,57 @@ MUTANTS += [
      '        body = body.replace("\\r\\n", " ").replace("\\r", " ").replace("\\n", " ")\n',
      '',
      [R32_CODE_READING]),
+]
+
+
+
+# -- PR #510 R32 design re-gate: the two claims that were offered as mechanical
+# and were not.  Both rows patch a SELF-TEST module, so the control comes from
+# the patched text.
+R32_SEAMS = ("PROPERTY: every import-graph seam this suite states in prose is true of the imports "
+             "(an \"only importer of X\" is a claim about the COMPLEMENT)")
+R32_ATTRIB = ("PROPERTY: every written `module.symbol` attribution names the module that DEFINES that "
+              "symbol (the class five touch-time splits left with no detector)")
+
+MUTANTS += [
+    ("R32 seams: a seam's allow-list is the set that may import it (widen one to every module: an "
+     "\"only importer\" nobody can violate is a sentence about nothing)", PROPERTIES,
+     '    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py"}, None),',
+     '    "ast": ("ast", set(), None),',
+     [R32_SEAMS]),
+    # The OTHER direction, and the one the first row cannot report: a seam whose
+    # names nothing imports passes any allow-list, so the control needs the
+    # emptiness check that makes a vacuous seam red.
+    ("R32 seams: a seam whose names NOTHING imports is red (rename one to a name no module imports: "
+     "the allow-list is satisfied vacuously)", PROPERTIES,
+     '    "the fixture runner": (("run_on",),',
+     '    "the fixture runner": (("run_on_nothing_imports_this",),',
+     [R32_SEAMS]),
+    # ⚠ THE SUBJECT IS THE ATTRIBUTION, NOT THE ORACLE.  Written first as a patch
+    # to the control's own map ("read the attribution's own module back as the
+    # answer"), this mutant SURVIVED -- correctly, and not because the control is
+    # weak: an oracle rewritten to agree with its subject is a degeneracy no
+    # differential control can catch, since the comparison it would make is the
+    # one that was removed.  A mutant against a control must move the thing the
+    # control READS.  So it puts back one of the stale attributions the class is
+    # about, in a checker source, and the control must find it.
+    ("R32 attribution: a stale `module.symbol` is found (put back the pre-split spelling of the "
+     "disposition, which moved to `plan_memo_stream.py` at `e7b49ed4`)", TOKENS,
+     "(`plan_memo_stream.dispose`, stage 2) hands it the",
+     "(`plan_memo_tables.dispose`, stage 2) hands it the",
+     [R32_ATTRIB]),
+]
+
+
+MUTANTS += [
+    # The hole R32's design re-gate measured: one TUPLE ENTRY holding two
+    # branches. Before the derivation read branches, `sprout` never entered the
+    # index, `sprout 9z` stopped being licensable, and BOTH halves of the
+    # control passed -- the structural half because the entry does open with a
+    # literal, the oracle half because no generated fragment spells `sprout`.
+    ("R32 index: the keyword set is derived per BRANCH, not per tuple entry (collapse the split: an "
+     "entry holding two alternatives indexes only the first)", ROLES,
+     "    out.append(pattern[start:])\n    return out",
+     "    out.append(pattern[start:])\n    return [pattern]",
+     [R31_LICENCE_INDEX]),
 ]

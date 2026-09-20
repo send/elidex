@@ -130,11 +130,54 @@ LICENSE_AFTER = re.compile(
 # each phrase opens with a literal that this set holds, and the index agrees
 # with the whole preceding text at every position of a generated corpus -- so a
 # phrase whose sites would silently leave the index is named there.
-_LICENCE_KEYWORD = re.compile(
-    "|".join(sorted({m.group() for m in
-                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES) if m})),
-    re.IGNORECASE | re.ASCII,
-)
+def _top_level_alternatives(pattern):
+    """`pattern` split on its TOP-LEVEL `|` -- the alternation depth `re` itself
+    reads, so a `|` inside `(?:...)` or `[...]` or escaped is not a split.
+
+    ⚠ A PHRASE IS NOT ONE BRANCH (PR #510 R32).  The keyword set was derived
+    from each TUPLE ENTRY's leading literal, so an entry written as
+    `mint\\s+|sprout\\s+` -- one entry, two branches -- put only `mint` in the
+    index and `sprout 9z` stopped being licensable, silently and in the
+    dangerous direction.  Both halves of `licence_index_control` passed: the
+    structural half reads a leading literal and found one, and the oracle half
+    spells no `sprout`.  The shape is not hypothetical -- `LICENSE_AFTER`
+    directly below is written exactly this way."""
+    out, depth, start, i = [], 0, 0, 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == "[":
+            i += 1
+            while i < len(pattern) and pattern[i] != "]":
+                i += 2 if pattern[i] == "\\" else 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif c == "|" and depth == 0:
+            out.append(pattern[start:i])
+            start = i + 1
+        i += 1
+    out.append(pattern[start:])
+    return out
+
+
+def _licence_keywords():
+    """The literal each BRANCH of each licensing phrase opens with -- the
+    index's alphabet.  A branch that opens with no plain literal contributes
+    nothing rather than raising; `licence_index_control` is what reports it."""
+    out = set()
+    for phrase in _LICENCE_PHRASES:
+        for branch in _top_level_alternatives(phrase):
+            m = re.match(r"[a-z]+", branch)
+            if m:
+                out.add(m.group())
+    return out
+
+
+_LICENCE_KEYWORD = re.compile("|".join(sorted(_licence_keywords())), re.IGNORECASE | re.ASCII)
 
 
 def licence_starts(text):
