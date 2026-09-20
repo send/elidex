@@ -24,6 +24,7 @@ from plan_memo_selftest_cases_r26 import (
     R30_3_DEMOTED_TAIL, R30_3_IMAGE_OPENER, R30_3_LINK_OPENER, R30_3_LOUD_MISS,
     R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED, R31_1_RENDERED_HEADER,
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
+    R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -121,11 +122,15 @@ MUTANTS += [
      "segment start: the token holds an unclosed `(` and everything before it)", TOKENS,
      '            s = stack[-1] + 1 if stack else seg', '            s = seg',
      [R26_OPEN]),
-    ("R26-2 file token: leftmost-LONGEST (keep the first end per start instead of the last: the token "
-     "stops at the first suffix and leaves the rest of the name standing)", TOKENS,
-     '            if s <= e - k:      # the suffix itself must lie inside the run\n                longest[s] = e',
-     '            if s <= e - k:      # the suffix itself must lie inside the run\n                longest.setdefault(s, e)',
-     [R26_LONGEST]),
+    # ⚠ THE `R26-2 file token: leftmost-LONGEST` ROW WAS RETIRED AT R34-1, and
+    # the reason is measured rather than asserted: R34-1 made the end test "the
+    # suffix TERMINATES the run", and at most ONE end per run can satisfy that,
+    # so "keep the first end per start instead of the last" now edits a branch
+    # no input reaches -- an EQUIVALENT mutation, which SURVIVES and reports a
+    # coverage gap that is not one. Its control stays (`a.md+9z+b.md` is still
+    # one name ending at the last suffix, and still green); what is gone is a
+    # row that could never go red again. The clause it used to guard is now
+    # `_terminates_run`, which the three R34-1 rows below cover directly.
     # The COST row, deliberately VALUE-PRESERVING: the replacement reaches the
     # same segment start by walking back to it, so nothing about the reading
     # changes and the only thing the control can be reacting to is the WORK.
@@ -825,4 +830,48 @@ MUTANTS += [
      'UNDETERMINED = re.compile(bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED"),',
      'UNDETERMINED = re.compile(bounded(r"KIND\\s*[\\u2014-]?\\s*UNDETERMINED"),',
      [R33_DASH_SWEEP]),
+]
+
+
+
+# -- PR #510 Codex R34-2: which reading assertion (b) asks the `Deps` cell.
+MUTANTS += [
+    ("R34-2 Deps: emptiness is asked of the READER's rendering (re-inject the prose-scanning stream: "
+     "a cell of only masked syntax reads empty and the row's edge is never reported)", ROLES,
+     '        if not is_empty(stream(row.col("Deps").lexed, reader=True)):',
+     '        if not is_empty(_stream(row, "Deps")):',
+     R34_2_MASKED),
+    # The OTHER direction.  ⚠ Written first as "read the RAW cell", this
+    # SURVIVED -- correctly: `is_empty` decides by SHAPE, so a raw `\u2014` is as
+    # empty as a rendered one and the blanks never move.  The clause these three
+    # controls actually guard is the SHAPE rule, so that is what the mutant
+    # removes: anything the reading leaves standing then counts as an edge, and
+    # every deliberate blank is reported as carrying one.
+    ("R34-2 Deps: emptiness is judged by SHAPE, not by 'the reading left something' (drop the shape "
+     "rule: a cell a reader sees a dash in is reported as carrying an edge)", ROLES,
+     '        if not is_empty(stream(row.col("Deps").lexed, reader=True)):',
+     '        if stream(row.col("Deps").lexed, reader=True).strip():',
+     R34_2_BLANKS),
+]
+
+
+
+# -- PR #510 Codex R34-1: the three tails, three rows.  Each names the control
+# that is the ONLY one its edit moves.
+MUTANTS += [
+    ("R34-1 file token: the suffix TERMINATES the run (re-inject the alphanumeric test: a prefix of a "
+     "longer run is masked and the ids in it are hidden)", TOKENS,
+     "    if e < n and text[e] in \"#?\":\n        return True\n    j = e",
+     "    if e < n and not _ALNUM_AT.match(text, e):\n        return True\n    j = e",
+     [R34_1_CONTINUES]),
+    ("R34-1 file token: a FRAGMENT tail is still a name (drop the `#?` arm: the resolver follows that "
+     "run and the lexer breaks it into pieces -- the one direction the correspondence forbids)", TOKENS,
+     "    if e < n and text[e] in \"#?\":\n        return True\n",
+     "",
+     [R34_1_FRAGMENT]),
+    ("R34-1 file token: a TRAILING-PUNCTUATION tail is still a name (empty the set: a sentence-final "
+     "period stops ending a file name)", TOKENS,
+     "_TRAILING = frozenset(\"?!.,:*_~'\\\")\")",
+     "_TRAILING = frozenset()",
+     [R34_1_TRAILING]),
 ]

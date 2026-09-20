@@ -449,3 +449,76 @@ acase("NEGATIVE", "(R33-2) `KIND / UNDETERMINED` declares NOTHING: the set admit
                   "the fix",
       build(suz=_R33_2 % "/", duz="**7z**"), "UMBRELLA-CELL", 0)
 R33_2_NON_DASH = CASES[-1].name
+
+
+# -- R34-2: assertion (b) asked the emptiness of a `Deps` cell of the PROSE
+# stream, which blanks every construct the prose scanner must not read as prose.
+# So a cell holding only such a construct read as EMPTY and an umbrella row
+# carrying a forbidden dependency emitted nothing, at rc 0.  The question is
+# about what the DOCUMENT says, so it takes the READER's rendering -- the same
+# distinction R30 drew for the id cell, at the other cell assertion (b) reads.
+# ⚠ Each masked FAMILY is its own control: a fix that named one construct would
+# pass that one and leave the other three, which is how this predicate acquired
+# the defect in the first place.
+
+def _umb_deps(deps):
+    return build(s9z="**UMBRELLA, not a terminal unit.** charter.", d9z=deps)
+
+
+R34_2_MASKED = []
+"""The four masked-construct families, each an edge a reader sees."""
+
+for _label, _cell in (("a code span ``b.rs``", "`b.rs`"),
+                      ("a bare `.md` name", "slice-9z-sib.md"),
+                      ("a citation `[C1]`", "[C1]"),
+                      ("an autolink `<https://x.example>`", "<https://x.example>")):
+    acase("POSITIVE", "(R34-2) an umbrella row whose `Deps` cell holds only %s carries an edge: the "
+                      "construct RENDERS something a reader sees, so the cell is not empty and "
+                      "UMBRELLA-CELL is emitted.  Read off the prose-scanning stream -- which blanks "
+                      "exactly the constructs a prose scanner must not read as prose -- the cell was "
+                      "EMPTY and the row's forbidden dependency left the run at rc 0" % _label,
+          _umb_deps(_cell), "UMBRELLA-CELL", 1)
+    R34_2_MASKED.append(CASES[-1].name)
+
+R34_2_BLANKS = []
+"""The real blanks: the partner set that bounds the fix -- emptiness is still
+decided by SHAPE, so a cell a reader sees a dash in carries no edge."""
+
+for _label, _cell in (("an em dash", "—"), ("a hyphen", "-"), ("an en dash", "–")):
+    acase("NEGATIVE", "(R34-2) an umbrella row whose `Deps` cell is %s carries NO edge: the reading "
+                      "moved and `is_empty` still decides by SHAPE, so a deliberate blank is still "
+                      "blank.  The partner that bounds the fix -- reading the cell as 'anything the "
+                      "lexer did not blank' would pass the four above and fail these three" % _label,
+          _umb_deps(_cell), "UMBRELLA-CELL", 0)
+    R34_2_BLANKS.append(CASES[-1].name)
+
+
+# -- R34-1: the suffix must TERMINATE the run.  The old end test was "not
+# followed by an ASCII alphanumeric", so a run that continues into more name
+# still had a PREFIX masked as a file name, and the ids inside that prefix were
+# hidden from the naming scan while no sibling was ever walked.
+
+case("POSITIVE", "(R34-1) `9z+notes.md_tail owns it` REPORTS `9z`: the run continues into more name, "
+                 "`sibling_path` follows no such file, and so the run is no file name and the id in "
+                 "it is prose.  The reported shape -- read as 'the suffix is not followed by an "
+                 "alphanumeric', `9z+notes.md` was masked, the ownership claim produced no site and "
+                 "the run exited 0",
+     build(), "9z+notes.md_tail owns it.", 1)
+R34_1_CONTINUES = CASES[-1].name
+case("NEGATIVE", "(R34-1) `9z+notes.md owns it` reports NOTHING -- the discriminating half: the same "
+                 "prose with the run ENDING at the suffix is a file name, which is what makes the "
+                 "case above a claim about the run's end and not about the `+`",
+     build(), "See 9z+notes.md for the walk.", 0)
+case("NEGATIVE", "(R34-1) a TRAILING-PUNCTUATION tail still ends a name: `See slice-9z-sib.md.` masks "
+                 "the name and reports nothing.  Here the two readers differ LEGITIMATELY -- the "
+                 "resolver rejects the run with the period, because it is handed a destination the "
+                 "link grammar already bounded, while this reader must find the boundary itself and a "
+                 "sentence-final period is prose",
+     build(), "See slice-9z-sib.md.", 0)
+R34_1_TRAILING = CASES[-1].name
+case("NEGATIVE", "(R34-1) a FRAGMENT tail still ends a name: `See slice-9z-sib.md#acceptance` masks "
+                 "the whole name.  This is the direction the correspondence forbids outright -- the "
+                 "resolver follows that run, stripping the fragment, so a reader that broke it into "
+                 "pieces and reported the id would be the one failure mode the property names",
+     build(), "See slice-9z-sib.md#acceptance for the walk.", 0)
+R34_1_FRAGMENT = CASES[-1].name

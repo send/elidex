@@ -466,7 +466,20 @@ def assertion_b(pop, findings, notes):
         kind = "umbrella" if no_owner[row.self_id].kind == "umbrella" else "kind-undetermined"
         checked += 1
         deps = row.col("Deps").text
-        if not is_empty(_stream(row, "Deps")):
+        # ⚠ THE READER'S RENDERING, NOT THE PROSE-SCANNING STREAM (PR #510
+        # R34-2).  `_stream` is what a seed's VOCABULARY reads, so it blanks
+        # every construct the prose scanner must not read as prose -- a code
+        # span, a bare `.md` name, a citation, an autolink.  Asked of THIS
+        # question it answered that a `Deps` cell holding `` `b.rs` `` or
+        # `child.md` or `[C1]` or `<https://…>` is EMPTY, so an umbrella row
+        # carrying a forbidden dependency emitted no UMBRELLA-CELL and the run
+        # exited 0.  "Does this cell carry an edge" is a question about what the
+        # DOCUMENT says, not about what a scanner may read out of it -- the same
+        # distinction R30 drew for `is_blank_id_cell`, at the second of the two
+        # cells assertion (b) reads.  `is_empty` still decides by SHAPE, so a
+        # real blank (`—`, `-`, `–`) is still empty: what changes is that a
+        # construct which RENDERS something is no longer invisible here.
+        if not is_empty(stream(row.col("Deps").lexed, reader=True)):
             findings.append(("UMBRELLA-CELL", pop.display(row.memo.path), row.lineno,
                              "%s row %s carries a Deps edge: %s" % (kind, row.name(), deps[:120])))
     notes.append(

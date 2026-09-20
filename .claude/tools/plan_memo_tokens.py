@@ -52,12 +52,26 @@ FILE_SUFFIX = ".md"
 # `` ` `` `|` excluded so a link's visible text (`[Slice 9z](slice-9z-sib.md)`)
 # and a code span are not swallowed, and parentheses admitted only in BALANCED
 # UNESCAPED PAIRS -- §6.3's own rule for a link destination, at any nesting
-# depth (`(9z).md`, `foo((9z)).md`, `(m.md(9z)md).md`).  Trailing closing
-# punctuation (`)` `,` `.` `;`) needs no autolink-style stripping rule: the
-# token ENDS at the suffix, so anything after it is outside by construction
-# (the GFM §6.9 extended-autolink trailing-punctuation rule is moot here, and
-# is why none is picked).  The end boundary is the grammar's ASCII class
-# (`ALNUM`), so `x.mdの` still ends the token; the citation shape is the
+# depth (`(9z).md`, `foo((9z)).md`, `(m.md(9z)md).md`).
+#
+# ⚠ THE SUFFIX MUST TERMINATE THE RUN, apart from TRAILING PUNCTUATION (PR #510
+# R34-1).  Until R34 the end test was only "not followed by an ASCII
+# alphanumeric", so the reader took a PREFIX of a run whose whole extent is no
+# file name at all: over `9z+notes.md_tail owns it` it masked `9z+notes.md`
+# (because `_` is not alphanumeric), `sibling_path` rejects that run, and the
+# declared umbrella id `9z` was hidden from the naming scan -- an ownership
+# claim that produced no site, at rc 0.  This also contradicted the rule stated
+# two paragraphs up, "the maximal run ... ending in FILE_SUFFIX", which
+# `9z+notes.md` is not.
+#
+# So the GFM §6.9 extended-autolink trailing-punctuation rule is NOT moot and is
+# picked: the run may end in a trailing-punctuation tail, and what precedes that
+# tail must be the suffix.  ⚠ The earlier claim that `x.mdの` "still ends the
+# token" is GONE, and the measurement is why: over all 71 memos of this family,
+# `.md` is followed by a non-space character 41 times and EVERY ONE is trailing
+# punctuation (`:` `)` `'` `;` `,` `.`) -- a non-ASCII continuation occurs ZERO
+# times, so the case that clause defended has no instances, while the ASCII
+# continuation it permitted is the hiding class above.  The citation shape is the
 # grammar's `CITE_ID` (either case -- `[c1]` is `[C1]` under §6.3 label
 # matching, and the unresolved-reference walk exempts it by the same
 # predicate).  No §2.4 escape is honoured and none should be: the disposition
@@ -90,6 +104,47 @@ _ALNUM_AT = re.compile(ALNUM)
 # itself (`str.isspace()`, which agrees with `re`'s `\s` on every code point of
 # planes 0-1, verified over 0x0000-0x11000).
 _NAME_BOUNDARY = frozenset("[]<>`|")
+
+# GFM §6.9's extended-autolink trailing punctuation, which a run may end in
+# after the suffix.  A CLOSED set on purpose and the safe polarity: a character
+# missing from it makes the run no file name, which REPORTS the ids inside it
+# rather than hiding them.
+_TRAILING = frozenset("?!.,:*_~'\")")
+
+
+def _terminates_run(text, e, n):
+    """Whether the file-name run ENDS at `e` -- the suffix is the last of the
+    NAME, and what follows it to the run's end is not more name.
+
+    TWO TAILS ARE ALLOWED, AND THE RESOLVER IS WHY (PR #510 R34-1).  It is the
+    authority on "is this a name I would follow", and measured against it:
+
+      * a FRAGMENT or QUERY tail (`#frag`, `?q=1`, `#`, `#a)b`) -- the resolver
+        follows the WHOLE run, stripping the tail, so the lexer must not break
+        the run into pieces and read an id out of the remainder.  That is the
+        one direction the correspondence forbids outright
+        (`file_token_resolver_agreement_control`), and requiring the suffix to
+        END the run bluntly created it: two NEGATIVE controls went red because
+        `slice-9z-sib.md#…` stopped masking and the declared id was reported;
+      * a TRAILING-PUNCTUATION tail (`.` `,` `)` `:` `'` …) -- here the readers
+        differ LEGITIMATELY and the difference is delimiting, not disagreement:
+        the resolver is handed a destination the link grammar already bounded,
+        while this reader has nothing but boundaries to find, so a period that
+        ends a sentence is prose.  The resolver rejects `notes.md.`; the name
+        inside it, `notes.md`, is one it follows.
+
+    What is refused is the third case: a run that CONTINUES into more name
+    (`9z+notes.md_tail`), which the resolver rejects whole and out of which the
+    old test -- "not followed by an ASCII alphanumeric" -- still masked a
+    prefix, hiding the ids in it."""
+    if e < n and text[e] in "#?":
+        return True
+    j = e
+    while j < n and not (text[j].isspace() or text[j] in _NAME_BOUNDARY):
+        if text[j] not in _TRAILING:
+            return False
+        j += 1
+    return True
 
 
 def file_and_cite_spans(text):
@@ -152,7 +207,7 @@ def file_and_cite_spans(text):
             else:
                 seg = i + 1     # an unmatchable `)`: no run holds it, none crosses it
         e = i + 1
-        if text[e - k:e] == FILE_SUFFIX and (e == n or not _ALNUM_AT.match(text, e)):
+        if text[e - k:e] == FILE_SUFFIX and _terminates_run(text, e, n):
             s = stack[-1] + 1 if stack else seg
             if s <= e - k:      # the suffix itself must lie inside the run
                 longest[s] = e

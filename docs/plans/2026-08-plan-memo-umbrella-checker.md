@@ -1649,6 +1649,44 @@ ground for either option; it is not cited.
   byte-identical. ⚠ Four older mutant rows lost their substrings to the single-home rewrite and the
   runner reported every one as "no longer applies" rather than passing them — the R22 `STAGE_C` rule
   holding a fourth time.
+  ⚠ **PR #510 Codex R34 (2026-09-20)** — **two** findings, both real, both fixed. ✅ **The new
+  monitoring worked**: trigger 06:43:38Z → assessed 06:57:45Z → processed immediately, against R33's
+  98-minute miss. The background poll is harness-tracked; `ScheduleWakeup` is a fallback only.
+  **R34-2 (P2)**: assertion (b) asked the emptiness of a `Deps` cell of the PROSE-SCANNING stream,
+  which blanks exactly the constructs a prose scanner must not read as prose — so a cell holding only
+  `` `b.rs` `` / a bare `.md` name / `[C1]` / an autolink read as EMPTY, an umbrella row carrying a
+  forbidden dependency emitted nothing, and the run exited 0. It takes the READER's rendering now —
+  the same distinction R30 drew for the id cell, at the OTHER of the two cells assertion (b) reads,
+  which makes this the reading family's fourth member. `is_empty` still decides by SHAPE, so the three
+  dash blanks stay blank; each masked family and each blank is its own control.
+  **R34-1 (P2)**: the file-name end test was "the suffix is not followed by an ASCII alphanumeric", so
+  a run that CONTINUES into more name still had a PREFIX masked — `9z+notes.md_tail owns it` masked
+  `9z+notes.md`, `sibling_path` follows no such file, and the declared id was hidden at rc 0.
+  ⚠⚠ **The reviewer's remedy as stated would have regressed, and MEASUREMENT is what settled it.** The
+  file documents two incompatible rules — "the maximal run ending in FILE_SUFFIX" and "the end
+  boundary is ALNUM, so `x.mdの` still ends the token" — and requiring the suffix to terminate the run
+  bluntly kills the second. So the corpus was measured: across all **71** memos of this family, `.md`
+  is followed by a non-space character **41 times and every one is trailing punctuation**
+  (`:` `)` `'` `;` `,` `.`); a non-ASCII continuation occurs **ZERO** times. The clause being defended
+  had no instances, so it is gone and the measurement is recorded in its place.
+  ⚠ **And the first fix was wrong in the other direction — two controls caught it.** Requiring the
+  suffix to end the run outright broke FRAGMENTS: `slice-9z-sib.md#…` stopped masking, and that is
+  precisely the one direction `file_token_resolver_agreement_control` forbids outright ("a string the
+  resolver WOULD follow to a file, which the lexer breaks into pieces and reads an id out of"). The
+  resolver was then asked directly and is the authority: it follows `#frag` / `?q=1` / `#` / `#a)b`
+  and rejects `_tail` / `.` / `)` / `の`. So a fragment or query tail is admitted, trailing punctuation
+  is admitted (where the two readers differ LEGITIMATELY — the resolver is handed a bounded
+  destination, this reader must find the boundary), and a run continuing into more name is refused.
+  ⚠ R34-1 landed in a blind spot **declared hours earlier by this PR's own design re-gate**
+  (`invariants.py:476`, "the correspondence is ONE-directional"). Its docstring tolerates the resolver
+  refusing what the lexer tokenises — but that argument is about WHOLE-run tokens, and never
+  considered a masked PREFIX of a rejected run.
+  ⚠ One older mutant became **EQUIVALENT** and was retired with its measurement: at most one end per
+  run can satisfy the new test, so "keep the first end per start instead of the last" edits a branch
+  no input reaches. Its control stays green; a row that can never go red again does not.
+  **Gate @ R34**: 648 controls / 360 mutants 0 survived 0 crashed / trip-wires rc 0 / census worklist
+  byte-identical. Three further mutant rows were retargeted where the single-home and end-test
+  rewrites moved their substrings, each reported by the runner rather than silently passing.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.

@@ -560,7 +560,11 @@ MUTANTS += [
      [RG4_NOT_GATE]),
     ("RG4 cell: `is_empty` reads the cell's disposed stream (re-inject the raw text: an HTML comment fills "
      "the cell)", ROLES,
-     '        if not is_empty(_stream(row, "Deps")):', '        if not is_empty(row.col("Deps").text):',
+     # ⚠ THE READING MOVED AT R34-2 (prose stream -> reader rendering); the raw
+     # text is still the thing this row re-injects, and an HTML comment still
+     # fills the cell under it.
+     '        if not is_empty(stream(row.col("Deps").lexed, reader=True)):',
+     '        if not is_empty(row.col("Deps").text):',
      [RG4_DEPS]),
     ("RG4 report: a reporting coordinate goes through the stream map (drop it: the column is off by the "
      "characters the stream dropped)", CHECK,

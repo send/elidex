@@ -440,7 +440,9 @@ MUTANTS = [
       "(lex-seed) a raw HTML line `owner-9z`: the hyphen bounds on the left too -- seeded holding `9z`"]),
     ("#3 file token: a bare `.md` file name is masked before the bare scan (drop the arm: no run "
      "ending in the suffix is ever a token)", TOKENS,
-     '        if text[e - k:e] == FILE_SUFFIX and (e == n or not _ALNUM_AT.match(text, e)):',
+     # ⚠ THE END TEST MOVED AT R34-1 (an alphanumeric look-ahead -> "the
+     # suffix terminates the run"); the arm this row drops is the same one.
+     '        if text[e - k:e] == FILE_SUFFIX and _terminates_run(text, e, n):',
      '        if False:',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
     ("#3 bare id: a dotted number is one token", IDS,
