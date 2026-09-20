@@ -2180,6 +2180,27 @@ ground for either option; it is not cited.
   `KIND_PHRASES` — so it asserted "a blank row with no kind phrase is silent", true and irrelevant.
   The pointer arm's mutant surviving is what exposed it. The fixture spells the phrase verbatim now
   (`is a pointer rather than a slice`).
+
+  ⚠ **R42-10 — the reported finding is an FP, and measuring WHY found a better one.** One P2: a
+  schema header spelled `![#](i.png)` should match the schema, because §6.4 makes the description the
+  image's text alternative.
+  **Rejected, with the measurement**: the vendored corpus holds **22** Images examples and in **every
+  one** the description's text appears ONLY inside the `alt` attribute, never as document text. The
+  checker's model — an image puts a picture in the flow, not the letters of `alt` — is the
+  corpus-supported reading, and R30-3's controls hold it. ⚠ **Two attempts to "fix" it each turned one
+  of those controls RED** (returning the description read the wrong text entirely — the span handed to
+  `_inner` is the TAIL; returning blanks stopped a phrase from straddling and silenced a reported
+  near-miss). A control going red under a fix is the FIX's subject being wrong.
+  ⚠⚠ **But the round's underlying observation was real, and wider than its framing**: a LINKED memo
+  whose table binds to no schema declares nothing and the run exits **0** — reproduced with a header
+  reading `No.` instead of `#`, carrying an umbrella row with a nonempty `Deps`. Nothing to do with
+  images. **The fix for THAT was written and measured and withdrawn**: "unbound table whose first
+  column tokenises as row ids" is exactly right on four fixtures and reports three legitimate
+  documentation tables in the real #506 population (`obj`, `R1`…`R7` in a landing record). Carved in
+  §8 with the candidates that remain, because an over-firing gate on the population this tool exists
+  to scan is worse than the silence it replaces.
+  ⚠ Three times in this one round a change of mine turned a shipped control or the census red. That
+  is the gate working, and it is also the measure of how much of this surface I do not hold.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2407,8 +2428,8 @@ ground for either option; it is not cited.
 
 ⚠ **THE CAP IS EXCEEDED, and the classification is stated rather than argued away** (PR #510 Axis 5,
 2026-09-20). `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
-own ones. Classified below, every entry states own or pre-existing; the count is **10 own / 2
-pre-existing**. Ten against a cap of three.
+own ones. Classified below, every entry states own or pre-existing; the count is **11 own / 2
+pre-existing**. Eleven against a cap of three.
 ⚠ **Two corrections the re-gate forced, in opposite directions, and neither was a tally edit**: the
 touch-time-split entry is GONE because the work is DONE in this PR (the split is taken and the
 invariant is a control, `line_bound_control` — the policy's own verdict for a ~0-LoC mechanical split
@@ -2592,10 +2613,44 @@ a paragraph here that reasons the number down.
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
+- **(own)** **A LINKED MEMO'S UNBOUND TABLE IS SILENT** (PR #510 R42-10, **real, reproduced, the fix
+  ATTEMPTED AND WITHDRAWN**). The schema-miss gate asks only of `main` — deliberately, since a linked
+  detail memo may hold no slot ledger — so a linked memo whose slice table binds to NO schema
+  declares nothing and the run exits **0**. Reproduced: a child memo whose header reads `No.` instead
+  of `#` carries an umbrella row with a nonempty `Deps`, and the whole table leaves the census
+  silently. ⚠ **That is the I-C class this checker exists for**, and it is wider than the round that
+  reported it: the round framed it as an IMAGE header, which is an FP (below).
+  ⚠ **THE FIX WAS WRITTEN AND MEASURED AND IT OVER-FIRES.** The predicate tried was "the table binds
+  to no schema AND its first column tokenises as row ids" — the same question `bare_id` asks of a
+  schema row. Against the four fixtures it is exactly right (binds / `No.` / image / a prose table,
+  the last silent). Against the REAL #506 population it reports **three** tables in
+  `2026-07-vm-p4-slice-0a-landing-record.md` whose first columns are `obj` and `R1`…`R7`: a landing
+  record's review-round tables, id-SHAPED and entirely legitimate. It also turned an R31-1 NEGATIVE
+  control red. So an id-shaped first column is not the predicate, and I do not have one.
+  **Scope**: what distinguishes a table whose declarations the census WANTS from a documentation
+  table that happens to key its rows. Candidates measured as insufficient: the id shape (above).
+  Candidates not yet measured: the presence of a kind PHRASE in any cell (a marker or KIND
+  UNDETERMINED is a census claim, `R1` is not); a header that near-misses a schema's rather than
+  differing wholly.
+  **Owner**: Slice 2's plan-review, which owns the prose predicates — this is one.
+  **Trigger**: already fired (reproduced above). **Re-eval: 2026-12-31.** No slot: it is this
+  checker's own gate.
+
 - **(own)** **TWO §6.4/§6.x READINGS THE VENDORED CORPUS CANNOT SETTLE** (PR #510 R42-5b / R42-8,
   **both real, both reproduced, neither fixed on a guess**). ⚠ They are together because they are one
   KIND of open question — a spec-prose reading with no example behind it — not because they are one
   mechanism.
+  **(c) §6.4: is an image's ALT the document's text?** (R42-10) — **REJECTED as an FP, with the
+  measurement.** A round reported that a schema header spelled `![#](i.png)` should match the schema
+  because §6.4 makes the description the image's text alternative. Measured over the vendored inline
+  corpus: **22** Images examples, and in **every one** the description's text appears ONLY inside the
+  `alt` attribute, never as document text. The checker's model — `RENDERS_TEXT["image"] = True` with
+  "an image puts a picture in the flow, not the letters of `alt`" — is the corpus-supported reading
+  and is held by R30-3's controls. ⚠ Two attempts to "fix" it (return the description; return blanks)
+  each turned one of those controls RED, which is the signal that a control is asserting a real
+  decision and the fix is trying to overturn it silently
+  (`memory/feedback_control-rewritten-to-bless-the-defect.md`). The round's underlying observation was
+  real and is carved above — it is about LINKED memos, not images.
   **(b) §6.6 raw HTML inside a resolved image description** (R42-8). `![UMBRELLA, not a
   <span>terminal unit](img.png)` exits **rc 1** with `UMBRELLA-CELL`: `dispose` drops the HTML span
   as zero-width markup, JOINS the words around it, and the marker phrase appears where the alt text

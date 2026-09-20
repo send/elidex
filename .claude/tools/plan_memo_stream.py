@@ -363,7 +363,34 @@ def _inner(kind, text):
         return body
     if kind == "autolink":
         return text[1:-1]
-    return text
+    # ⚠ NO `image` CASE, AND THAT IS DELIBERATE (PR #510 R42-10).  Two
+    # readings were tried here and BOTH broke a shipped control: the
+    # description (wrong text -- the span handed here is the TAIL, the
+    # description is not in it) and blanks (which stopped the phrase in
+    # `KIND ![UNDETERMINED](img.png)` from straddling, so a reported near-miss
+    # went silent).  This function serves the RESIDUE display, where a reader is
+    # sent to the raw text and the markup is what they must see.  The header
+    # comparison wants the opposite and is fixed where it lives, in `rendered`.
+    # `memory/feedback_control-rewritten-to-bless-the-defect.md`: a control that
+    # goes red under a fix is the fix's subject being wrong, not the control's.
+    # ⚠ AN EXPLICIT CLOSED SET, NOT A SILENT FALLBACK (PR #510 R42-10).  This
+    # was `return text` for every other kind, and the `image` case above was
+    # missing -- so a schema header spelled `![#](i.png)` compared as its RAW
+    # syntax, the table bound as non-schema, and a linked memo's umbrella row
+    # with a nonempty `Deps` left the census at rc 0.  A fallback that answers
+    # for kinds nobody enumerated is where the next kind hides; the kinds whose
+    # reader text IS the span are named, and anything else is a defect this
+    # function must not paper over.  ⚠ The closed set is `RENDERS_TEXT`'s KEYS,
+    # not its TRUE half: a mutant that flips a kind to text-rendering (the RG4
+    # rows, which re-inject a raw HTML span or a link tail as text) must reach
+    # this function and get an answer, or it crashes instead of turning its
+    # control red -- and a crash proves nothing about a clause.  For those
+    # kinds the reader text IS the span, which is exactly what the mutant makes
+    # observable.  A kind NOBODY declared is the one this refuses.
+    if kind in RENDERS_TEXT:
+        return text
+    raise KeyError("no reader text defined for the disposed kind %r: a kind that reaches "
+                   "the stream is declared in RENDERS_TEXT and read here" % (kind,))
 
 
 class Stream(str):
