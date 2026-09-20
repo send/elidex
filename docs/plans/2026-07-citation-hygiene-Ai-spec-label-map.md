@@ -482,10 +482,16 @@ Every diff check names an explicit ref.
      itself over a fixture tree and asserts its own exit status** — one fixture per verdict it can reach
      (green; K2 firing under `skills`, under `tools`, on the path A-i removed, inside binary content, on a
      symlink's stored target, on a symlinked **entry script beside the scope**, on a `@`/non-ASCII segment,
-     on a filename holding a newline, on a regular file named `__pycache__` and on a file **under a real
-     cache directory** (excluding that location hid a force-added file from both passes — #501 R77); an empty scope, an
-     unreadable file and an unsearchable directory all failing closed; and an entry git cannot store —
-     a fifo — neither hanging the walk nor hiding the verdict over its readable sibling).
+     on a filename holding a newline, on a regular file named `__pycache__`, on a file **under a real
+     cache directory** (excluding that location hid a force-added file from both passes — #501 R77) and on
+     an **entry's own NAME** — a clean file, and separately a symlink, whose path *is* the forbidden
+     hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
+     closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
+     its readable sibling).
+     ⚠ **The unreadable-file and unsearchable-directory controls cannot run as root**, or where mode 000
+     stays readable, and the wire's summary now says so in that case instead of claiming them: the line is
+     built beside the decision that skips them, so the claim and the fact cannot drift (#501 R78 reproduced
+     the drift). A run on such a machine carries no evidence for those two.
      ⚠ **That last fixture used to require a failure and now requires a pass**, deliberately: §2's K2 is
      about a path this tree *names*, i.e. stored text, and such an entry holds none, cannot be committed
      and cannot survive a checkout. The reason is written beside the fixture, and §4.2 states it too. The subject is

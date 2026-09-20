@@ -191,8 +191,18 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # to name the path: delete the cache and re-run, and if it comes back the
   # source still names it.
   set -- "$1" ${2:+"$2"}
+  # ⚠ THE NAME IS PART OF THE TREE, NOT JUST THE CONTENT. `git grep` searches
+  # contents, so a clean file at `_webref/.claude/skills/new-policy/rule.md` was
+  # counted as read while the forbidden hierarchy sat in its own path (#501 R78,
+  # reproduced). The predicate is applied to the entry's path RELATIVE TO THE
+  # SCOPE — relative to the repo every file here would match, since the generic
+  # core itself lives under `.claude/tools/`.
   git -C "$ROOT" grep --no-index -l -aE '^' -- "$@" 2>>"$_e" | while IFS= read -r f; do
     printf 'ok\t%s\n' "$f"
+    _rel="${f#$_dir/}"
+    printf '%s\n' "$_rel" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
+      printf 'k2\t%s: (the entry NAME is itself) %s\n' "$f" "$m"
+    done
   done
   git -C "$ROOT" grep --no-index -anE -- "$K2RE" "$@" 2>>"$_e" | while IFS= read -r hit; do
     printf 'k2\t%s\n' "$hit"
@@ -215,6 +225,9 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     printf '%s\n' "$tgt" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
       printf 'k2\t%s: -> %s\n' "${l#$ROOT/}" "$m"
     done
+    printf '%s\n' "${l#$ROOT/$_dir/}" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
+      printf 'k2\t%s: (the entry NAME is itself) %s\n' "${l#$ROOT/}" "$m"
+    done
   done
   if [ -s "$_e" ]; then
     printf 'err\tthe walk reported errors, so part of the scope went unread: %s\n' \
@@ -228,10 +241,22 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
 # the same path the exit status comes from -- #501 R69 measured the earlier
 # shape and a mutation to the k2 line survived: the controls proved `_scan`,
 # not the thing that decides.
+# ⚠ `-a` ON EVERY ARM. A matched line can carry a NUL (the scan reads binary
+# content deliberately, and #501 R77 removed the cache exclusion that had kept
+# most of it out), and `grep` without `-a` answers "binary file matches" on
+# stdin and prints NOTHING — leaving `K2_HITS` empty and the run green over a
+# violation it had already found (#501 R78, reproduced: the same pipeline
+# returns rc 1 and no output without `-a`, and the record with it).
+# ⚠ NO FIXTURE ASSERTS THIS, and saying so is the point: `_verdict` takes its
+# input as a shell STRING, and `read` and `$( )` both drop NULs, so in this
+# shape a NUL cannot reach here and reverting `-a` is not a caught mutation.
+# It is kept for the shape one refactor away — streaming `_scan`'s output
+# instead of round-tripping it through a variable — where it becomes
+# load-bearing silently.
 _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
-  K2_HITS="$(printf '%s\n' "$1" | grep '^k2	' || true)"
-  ERR_HITS="$(printf '%s\n' "$1" | grep '^err	' || true)"
-  SCANNED="$(printf '%s\n' "$1" | grep -c '^ok	' || true)"
+  K2_HITS="$(printf '%s\n' "$1" | grep -a '^k2	' || true)"
+  ERR_HITS="$(printf '%s\n' "$1" | grep -a '^err	' || true)"
+  SCANNED="$(printf '%s\n' "$1" | grep -ac '^ok	' || true)"
 }
 
 # ---- CONTROLS: re-invoke THIS script over fixtures, assert the exit code ----
@@ -266,7 +291,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name linkname; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -301,6 +326,15 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   mkdir -p "$CTL/cachedir/__pycache__"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/ok.py"
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cachedir/__pycache__/probe.txt"
+  # A CLEAN file whose own path is the forbidden hierarchy. `git grep` searches
+  # contents, so without a name pass this reads as a file with nothing in it.
+  mkdir -p "$CTL/name/$(dirname "$CONTROL_K2")"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/name/$CONTROL_K2"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/name/ok.py"
+  # …and the same shape as a SYMLINK, whose name pass is a separate arm.
+  mkdir -p "$CTL/linkname/$(dirname "$CONTROL_K2")"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/linkname/ok.py"
+  ln -s "$CTL/linkname/ok.py" "$CTL/linkname/$CONTROL_K2"
   # The real geometry: a scope directory and, BESIDE it, an entry script that
   # is itself a symlink holding a forbidden target.
   mkdir -p "$CTL/extra/sub"
@@ -346,6 +380,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
   _control "$CTL/cache"  1 "K2: a" "a regular file named __pycache__ is read" || ctl_ok=1
   _control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
+  _control "$CTL/name"   1 "entry NAME" "an entry's own NAME is the hierarchy"  || ctl_ok=1
+  _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
@@ -356,19 +392,27 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
   # read" are different answers and only one of them is green.
   _control "$CTL/empty" 2 "read 0 entries" "an empty scope fails loudly" || ctl_ok=1
+  # ⚠ The line is built HERE, beside the decision that produces it. An earlier
+  # shape decided here and described it in the summary below, so the two could
+  # disagree — and an unconditional summary claimed exit-status evidence the run
+  # had not obtained (#501 R78). One site, one truth.
+  _perm_line="            ⚠ NOT EXERCISED on this machine: the unreadable-file and
+            unsearchable-directory controls (this user can read a mode-000 file),
+            so this run carries no evidence for those two"
   if [ -r "$CTL/err/control.py" ]; then
-    echo "  note: the two permission controls could not be exercised here (this user"
-    echo "        can read a mode-000 file); the other five ran"
+    :
   else
+    _perm_line="            an unreadable file and an unsearchable directory also fail closed"
     _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
     _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
   fi
   [ "$ctl_ok" -eq 0 ] || exit 1
   echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
-  echo "            inside binary content and on a symlink's stored target; an empty"
-  echo "            scope, an unreadable file and an unsearchable directory all fail"
-  echo "            closed; an entry git cannot store neither hangs nor hides a verdict;"
-  echo "            a symlinked entry script beside the scope is read too"
+  echo "            inside binary content, on a symlink's stored target, on an entry's"
+  echo "            own NAME, and on a symlinked entry script beside the scope; an empty"
+  echo "            scope fails closed; an entry git cannot store neither hangs nor hides"
+  echo "            a verdict"
+  printf '%s\n' "$_perm_line"
   echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
 
