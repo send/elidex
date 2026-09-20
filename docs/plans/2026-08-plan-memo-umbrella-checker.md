@@ -1553,6 +1553,57 @@ ground for either option; it is not cited.
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
   since the log carries a NUL from a fixture and plain `grep` treats the file as binary and prints
   nothing. That `grep` failure is real and worth knowing; the conclusion drawn from it was not.
+  ⚠ **PR #510 Codex R32 (2026-09-20)** — **one** finding, real, plus a mid-loop design re-gate that
+  found more than the round did.
+  **R32 (P2, §6.1)**: a code span's line endings are converted to spaces BEFORE the one-space trim.
+  ⚠ **The root is wider than the report**: the reviewer's probe was the shape where the trim
+  interacts, but measured against the vendored corpus the conversion was absent ALTOGETHER — the
+  reading was wrong on every multi-line code span, Examples 335 / 336 / 337, **all three already in a
+  corpus this suite runs on every self-test**. So the control is the spec's §6.1 list, not the probe
+  (`run_code_reading`: 19 spans over 22 examples agree; with the conversion removed 3 disagree and the
+  report names those examples). ⚠ That required **widening the conformance charter**, and the sentence
+  it widens is exactly where the finding landed: the module said the examples falsify "what Phase 1
+  CLAIMED — never a rendering", so the examples that settle this were present, in scope, and
+  deliberately not looked at, for four rounds.
+  **▶ The design re-gate (5 axes, fired by the Step-4 self-root-check, NOT at TERMINAL)** — the loop's
+  own rule says to fire it when the same finding shape recurs across ≥2 rounds, and it did:
+  ⚠⚠ **Axis 3: my own measurement answered the wrong question.** The R31 ledger asked "does the
+  generated property *as written* cover D and E?", measured it honestly, and treated the answer as
+  settling "should a per-shape control be written?". The question that decides that is "can the
+  property be **parameterised** to cover them?" — and it can, measured: +3 atoms read off
+  `plan_memo_emphasis.DELIMS` red C; the **unchanged** corpus driven through `check()` instead of
+  `_read_block` reds D *and names a shape no round reported*; and E's witness has an enumerable
+  population of **39** module-level patterns, of which one is watched. The real blocker is COST
+  (~90 s for the full corpus through `check()`), and cost is nowhere written — what is written is a
+  reachability claim that measurement falsifies.
+  ⚠ **Axis 3 also answered the reading-family question NO**: a call-site property is **not writable**,
+  with four counterexamples (`bare_id` must read raw for phase reasons, the seed reads raw on purpose,
+  `is_blank_id_cell` must read the reader's rendering, `Mention.text` must read the disposed stream).
+  Four correct answers, no local predicate. The writable surrogates are named instead.
+  ⚠ **Axes 1/2/5: three of the suite's mechanical seam statements are FALSE** — `ast`, the harness's
+  module-set handles, and `build`/`run_on` (`build` has **seven** importers, worse than the re-gate
+  reported; I re-measured rather than take it). ⚠ The re-gate's *provenance* claim was wrong (blame
+  pointed at my reflow, not the clause's author) while its *fact* was right — the reason and the fact
+  are verified separately. ⚠ `licence_index_control`, written this round, passes a phrase with a
+  top-level alternation in **both** halves. ⚠ `plan_memo_selftest_pipeline.py`'s "`Memo(path)` runs
+  PHASE 1 ALONE" is refuted by the same delta's `Memo.__init__` (1 bind + 11 resolves, measured).
+  **The attribution class had no detector and five splits had run.** `symbol_attribution_control`
+  reads every written `module.symbol` against the AST. ⚠ **The population is the property, not the
+  symptom, and the numbers are the lesson**: a sweep for the symbols I knew had moved found **8**; a
+  dedicated re-gate agent sweeping the same class found **16**; the shape `module.symbol` found
+  **15**; every spelling the corpus actually uses found **28**; the control, whose corpus is every
+  source plus every plan memo, found **31 over 100 files**. The biggest contributor is the plan's
+  `mod.py::sym` coverage-map form, which no symbol-name grep reaches. ⚠ **Three of the thirty-one were
+  in the new control's own docstring** — it cannot tell a historical mention from a present-tense
+  claim, so narrative about a move now carries no locator while a pointer a reader follows must carry
+  a correct one. One mechanical replacement was **refused** rather than applied and fixed by hand.
+  **The CI timing SSoT was ~2× stale** — see §8; R30 made that block the single home and R31 then
+  added 12 controls and 17 mutants without re-measuring, which is the failure one-home does not
+  prevent (one home stops two numbers disagreeing; it does not make anybody re-measure).
+  ⚠ And re-writing it I created the very defect its text warns about — the budget series ended up in
+  two places — caught before landing and collapsed back to one.
+  **Gate @ R32**: 625 controls / 347 mutants 0 survived 0 crashed / trip-wires rc 0 / #506 census
+  worklist byte-identical (`cmp` clean).
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
@@ -1694,6 +1745,19 @@ ground for either option; it is not cited.
   the depth that would make it bite does not occur in this document family, and minting a platform
   slot for it would fail the slot-fit audit. ⚠ The control that guards the fixed half counts BUILDS,
   never characters — a control over the character total would assert the residual is correct.
+- **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32).
+  Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
+  `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
+  home had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
+  re-measuring. The timeout is re-derived there (5 → 10 min) under that block's own rule. ⚠ What is
+  NOT fixed is the driver: the generated corpus costs ~3.6 s and runs once in `--self-test` plus once
+  per mutant naming it, and **six** rows name it (measured by loading `MUTANTS`; a `grep -c` counts
+  the constant's definition and import lines and says ten). Self-test alone is ~6.5 s of ~29 s. Making
+  that not grow means a mutant run answering only "does this control go red", which a smaller corpus
+  can do — but corpus size is the proof's STRENGTH, so shrinking it per-row is a change to what the
+  proof asserts and needs its own measurement per row. Trigger = the round whose head measures under
+  2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
+  property. No slot: this is the wire's own budget, not a platform gap.
 - GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - Markdown library dependency (§5) — trigger-only (see §5); no slot; no date.
