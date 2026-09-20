@@ -3,7 +3,7 @@
 Two sites in the generic tree carried a hand-maintained copy of this
 enumeration:
 
-  - `commands/coverage_map.py` — shortname → label, for §3 table rows
+  - `commands/coverage_map.py` — shortname → label, for its table rows
   - `cli.py`'s `COMMON_SHORTNAMES` help blurb
 
 Adding a spec to one did not reach the other, so the two drifted apart by
@@ -21,11 +21,11 @@ from __future__ import annotations
 
 # (shortname, canonical display label, help blurb)
 #
-# The canonical label is what `coverage-map` prints and what a plan-memo
-# §3 cell should say; the blurb is `cli.py`'s `Common shortnames:` help
-# text, which was the second of the two copies this module replaces. The
-# tuple's ORDER is the order `cli.py` renders, so it is part of the help
-# output, not an implementation detail.
+# The canonical label is the display form `coverage-map` prints, and the
+# spelling any consumer should emit for that spec; the blurb is `cli.py`'s
+# `Common shortnames:` help text, which was the second of the two copies
+# this module replaces. The tuple's ORDER is the order `cli.py` renders,
+# so it is part of the help output, not an implementation detail.
 #
 # No separate parse-alias column: `LABEL_TO_SHORTNAME` keys the shortname
 # itself, and every abbreviation this repo actually used (`HTML`, `DOM`,
@@ -89,8 +89,9 @@ def label_for(shortname: str) -> str | None:
 def shortname_for(label: str) -> str | None:
     """Shortname for a display label or a shortname — case-insensitively.
 
-    Whitespace-tolerant because the callers are plan-memo table cells and
-    source comments, where a stray leading space is not a different spec.
+    Whitespace-tolerant because callers pass text lifted from table cells
+    and source comments, where a stray leading space is not a different
+    spec.
     """
     if not label:
         return None

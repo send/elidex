@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Unit tests for the shared spec shortname ↔ label map.
 
-Every assertion here is one of the pins the slice memo enumerates (S1-S8
-and T-net); the pin name is named in each test's docstring so a failure
-points back at the invariant rather than at the assertion.
+Each test's docstring opens with the pin name it holds (S1-S8, T-net) and
+then states the invariant, so a failure points back at the invariant
+rather than at the assertion.
 """
 from __future__ import annotations
 
@@ -20,16 +20,16 @@ from _webref import cli  # noqa: E402
 from _webref import spec_labels  # noqa: E402
 from _webref.commands import coverage_map  # noqa: E402
 
-# The package is the only tree this suite scans, and it is located from the
-# test file itself — never from a repo root. The three pre-existing generic
-# suites here all stop at `parents[1]`; reaching further (`parents[3]`, which
-# on `origin/main` existed only in the elidex adapter) would make a package
-# test depend on where the package is checked out, and would put unrelated
-# The reverse map the plan-review gate carried before this module existed,
-# vendored as a literal. FROZEN: it is a snapshot taken once, and refreshing
-# it would turn a pin into a mirror — the point is to hold the shared map to
-# what the gate already resolved (S5).
-_VENDORED_GATE_REVERSE = {
+# The package is located from the test file itself — never from a repo
+# root. The three pre-existing suites beside this one all stop at
+# `parents[1]`; reaching further would make a package test depend on where
+# the package happens to be checked out.
+
+# The reverse map a consumer outside this package carried before this
+# module existed, vendored as a literal. FROZEN: it is a snapshot taken
+# once, and refreshing it would turn a pin into a mirror — the point is to
+# hold the shared map to what that consumer already resolved (S5).
+_VENDORED_CONSUMER_REVERSE = {
     "ECMA-262": "ecma262",
     "ECMA-402": "ecma402",
     "WHATWG HTML": "html",
@@ -111,9 +111,9 @@ class TestSharedSpecLabelMap(unittest.TestCase):
             widened[alias.lower()] = short
         self.assertEqual(widened, spec_labels.LABEL_TO_SHORTNAME)
 
-    def test_shortname_for_agrees_with_the_vendored_gate_map(self):
-        """S5: every spelling the gate's own reverse map resolved, resolves."""
-        for label, short in _VENDORED_GATE_REVERSE.items():
+    def test_shortname_for_agrees_with_the_vendored_consumer_map(self):
+        """S5: every spelling that consumer's reverse map resolved, resolves."""
+        for label, short in _VENDORED_CONSUMER_REVERSE.items():
             self.assertEqual(spec_labels.shortname_for(label), short,
                              f"{label!r} no longer resolves to {short!r}")
 
@@ -200,7 +200,7 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
         The last resort is unchanged from what the map replaced. A label
         it emits for a non-pinned spec does NOT read back through
         `shortname_for` — that round-trip is a behaviour change, not a
-        refactor, so it is not this slice's to make.
+        refactor, and this module does not make it.
         """
         self.assertEqual(len(spec_labels.SPECS), 12)
         for short, label, _blurb in spec_labels.SPECS:
@@ -276,7 +276,7 @@ class TestNoNetworkOrCliSubprocess(unittest.TestCase):
                    side_effect=AssertionError("urlopen on the import path")):
             # `reload` re-executes ONE module; everything `cli` imports stayed
             # cached from collection, before the poison (Codex R15, R19). A
-            # gate subprocess imports the whole chain fresh, so evict the whole
+            # consumer subprocess imports the chain fresh, so evict the whole
             # package and import it again here -- every `_webref*` module body
             # then runs under the poison, exactly as in a fresh interpreter.
             collected = {m: sys.modules.pop(m) for m in list(sys.modules)
