@@ -2137,6 +2137,33 @@ ground for either option; it is not cited.
   while the rest of the lexer references six names in it. ⚠ The split then had to move the work
   WITNESS too: `linear_inline_tail_control` watched the lexer alone, and its mutant survived because
   the scan it re-introduces now runs in the other file. `_count_lines` takes a module SET.
+  ⚠⚠ **R42-8 — the blind spot I DECLARED, landing one round later, and a control that needed
+  controls of its own.** Two P2s.
+  · **§6.6 raw HTML in an alt** → §8, NOT fixed: it is a FABRICATED finding (rc 1 where the alt may
+  hold no marker), the corpus has **22** Images examples and **zero** with any `<` in a description,
+  and it corrects this document's own claim that the closed list had two holes. It had three — the
+  `RENDERS_TEXT` column the claim rested on is the FLOW disposition, and §6.4 asks a different
+  question of the same kind.
+  · **The emit-site predicate could not see an `IfExp`.** `print(<%-expr> if cond else <str>)` in the
+  population summary — memo-controlled through `pop.display` — was unescaped, and the control's
+  docstring had declared an f-string and a concatenation as its blind spots ONE ROUND EARLIER. Two
+  named shapes, a third one live
+  (`memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md`, measured again).
+  **So the predicate is INVERTED to the complement**: compliant = a bare string LITERAL, or escaped,
+  or the one structural form where the escape is inside — `sep.join(printable(x) for x in ...)`,
+  which is how a machine-readable format keeps its separator as LAYOUT while its fields are content.
+  Everything else is red. The population went **19 → 41 sites**, and closing it turned up two more
+  unescaped lines (the conformance reports) the old predicate had never looked at.
+  ⚠ **Two mutants, and the second needed something new.** Unwrapping the `IfExp` is red; a mutant
+  that WIDENS the predicate is invisible to both the sweep and the ratchet, because `sites` counts
+  every `print` either way and a looser predicate just empties the finding list. The predicate
+  therefore has **its own controls**: six hand-built nodes, three that must be accepted and three
+  that must be refused, checked before the sweep runs — `empty_registry_control`'s idea applied to a
+  predicate, and the shape `memory/feedback_derived-populations-shrink-in-silence.md`, written
+  earlier THIS session, asks for.
+  ⚠ And the complement first wrapped TOO MUCH — it caught the worklist's `"\t".join(...)` and the
+  conformance reports' newlines, both LAYOUT. That is where the structural third arm came from, and
+  it is stated as structure rather than as an exemption.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
