@@ -85,7 +85,18 @@ scope = [os.path.join(root, ".claude/tools/_webref"), os.path.join(root, ".claud
 # tree rather than a bare mention of a directory's name in prose.
 # `[\w./-]` alone missed a GLOB (`crates/**/*.rs`), which is still a path into
 # the host tree; `*` and `?` join the class.
-PATH_RE = re.compile(r"(?<![\w/.-])(" + "|".join(re.escape(t) for t in tops) + r")/[\w./*?-]+")
+#
+# ⚠ AND THE LOOKBEHIND MUST NOT REJECT A PREFIX.  `(?<![\w/.-])` was written to
+# stop `foodocs/x` matching, but it also rejected `./docs/x`, `../docs/x` and
+# any absolute path, because each puts `/` or `.` immediately before the entry
+# name — measured, all three read GREEN.  A path is not less a path into the
+# host tree for being spelled relative to the file or from the filesystem root.
+# So an OPTIONAL prefix (`./`, any run of `../`, or a leading `/`) is part of
+# the match, and the lookbehind only has to exclude a WORD character before it,
+# which is what actually distinguishes `foodocs/x` from `./docs/x`.
+PATH_RE = re.compile(
+    r"(?<![\w-])(?:\.{1,2}/|(?:\.\./)+|/)?(" + "|".join(re.escape(t) for t in tops)
+    + r")/[\w./*?-]+")
 EXEMPT = {".claude/tools/webref"}
 # ⚠ EXISTENCE IS NOT THE TEST, and an earlier draft made it one.  A path the
 # package should not name is no less one for pointing at a file that is planned,
@@ -123,7 +134,11 @@ for path in files():
         for m in PATH_RE.finditer(line):
             # Prose ends sentences; a path does not end in a period.
             cand = m.group(0).rstrip(".,;:")
-            if cand in EXEMPT or cand in NOT_A_PATH:
+            # The prefix is part of the match now, so normalise it away before
+            # comparing against the two name sets — otherwise `./docs/note.md`
+            # would be reported while `docs/note.md` is not.
+            bare = re.sub(r"^(?:\.{1,2}/|(?:\.\./)+|/)", "", cand)
+            if bare in EXEMPT or bare in NOT_A_PATH:
                 continue
             hits.append(f"{os.path.relpath(path, root)}:{n}: {cand}")
 

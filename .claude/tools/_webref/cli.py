@@ -70,10 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog=".claude/tools/webref",
         description=(
-            "webref lookup helper — spec citation verification for elidex. "
-            "Backs the Axis 4 (Spec citation discipline) recipe owned by "
-            "elidex's pre-push design-review skill, invoked as `/elidex-review` "
-            "-- the name, not the path, because this tree may not name one."
+            "webref lookup helper — resolve a spec citation against "
+            "w3c/webref and the tc39 biblio: section numbers, anchor IDs, "
+            "WebIDL fragments, concept dfn anchors, element-to-interface "
+            "mappings, CSS property metadata and section prose."
         ),
         epilog=COMMON_SHORTNAMES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
