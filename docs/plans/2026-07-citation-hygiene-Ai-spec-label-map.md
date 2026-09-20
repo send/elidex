@@ -488,6 +488,15 @@ Every diff check names an explicit ref.
      hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
      closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
      its readable sibling).
+     ⚠ **The population is git's, not the filesystem's** (#501 R79): `git ls-files --cached --others
+     --exclude-standard` — tracked (including a file force-added under an ignored path), plus untracked
+     minus what `.gitignore` excludes. That last clause is load-bearing in both directions: a `.pyc`
+     embeds its source's absolute path, which matches the predicate, so scanning build products turned the
+     wire red for anyone who had merely run the tool; and an **empty** tracked file was enumerated by
+     nothing content-based, so its name alone could carry the hierarchy past the gate. One `-z` list now
+     drives the population, the name check, the content scan and the count, so those cannot disagree.
+     A fixture pins each direction, and every fixture is a real repository, because a non-repo fixture
+     cannot reproduce the tracked/ignored distinction the population now rests on.
      ⚠ **The unreadable-file and unsearchable-directory controls cannot run as root**, or where mode 000
      stays readable, and the wire's summary now says so in that case instead of claiming them: the line is
      built beside the decision that skips them, so the claim and the fact cannot drift (#501 R78 reproduced
