@@ -2055,6 +2055,25 @@ ground for either option; it is not cited.
   nothing. (iii) The separate unknown-option guard's mutant survived the moment the mode check landed
   — the mode check refuses `--worklis` on its own — so the guard was a strictly weaker second
   spelling and **the guard is gone**. Measured, not argued.
+
+  ⚠⚠⚠ **R42-5 — AND THE LOOP IS PAUSED, not because it is tiring but because the SHAPE says so.**
+  Two more P2s, and both are the SAME mechanism as R42-1, which was already carved: a third and a
+  fourth construct family inside a resolved image description (an autolink contributes nothing at
+  all — **0** reported sites where emphasis, link and code span give 1), plus §6.3's companion rule
+  (`[x <http://a>](absent.md)` exits 2 where the outer syntax should be literal). Both reproduced
+  side by side before being believed.
+  **That is the overlay's generator-layer trigger**: the finding-shape hopped corner to corner —
+  link → code span → autolink → link-opener — across three consecutive rounds. Round N+1 would have
+  found family five. §8's code-span entry is therefore REPLACED by one carve for the generating
+  layer, which is what
+  `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for and what three entries for
+  three families would have violated.
+  ⚠ **The own-ideal test is what decides it, and it is uncomfortable**: §0 of this plan says the
+  lexical half "has a canonical algorithm … and is **implemented by construction**". A per-family
+  demotion list is not by construction — it is a list — so the mechanism being patched is itself the
+  thing the plan committed against, and the honest move is to stop patching family number four rather
+  than to keep converging. **No further round is triggered on this area**; the remaining decision is
+  the user's, and it is the same one §8's cap paragraph already routes there.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2464,35 +2483,49 @@ a paragraph here that reasons the number down.
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
-- **A CODE SPAN inside a resolved IMAGE's description keeps its backticks** (PR #510 R42 — **own**;
-  **real, reproduced, NOT fixed here**). `![`UMBRELLA, not a terminal unit.`](img.png)` in a
-  declaring field exits **rc 0** where the same marker in a LINK inside the same image
-  (`![KIND [UNDETERMINED](x)](img.png)`, the R30-3 shape) exits **rc 1** — reproduced side by side.
-  §6.4 renders an image description as the plain string content of its inline children, so the alt
-  text holds the marker; the image-close branch demotes nested links, images and emphasis but leaves
-  the entry in `lx.code`, and the disposition then blanks the whole marker, so the row reads terminal
-  and a nonempty `Deps` goes unasserted.
-  ⚠ **The vendored corpus does NOT contain this case** and cannot settle it: `commonmark-0.31.2-inline-examples.json`
-  has 22 Images examples and **zero** with a code span in the description (measured). What it does
-  show is the rule across four other construct families — 573 (emphasis), 574 (nested image), 575
-  (link), 585 (emphasis in a reference description) all render the description's markup away and keep
-  its text — three of which this checker already implements. The code span is the fourth, by the same
-  rule, and that inference is stated as an inference.
-  ⚠ **NOT a one-line demotion, which is why it is carved rather than patched.** Dropping the entry
-  from `code` would leave the BACKTICKS standing as literal text in the alt, which is the opposite
-  error; the delimiters must become blanks while the content becomes text, so the fix touches the
-  §6.1 code-span reader, the `marks` recorder, the image-close branch and `code_mask`'s two existing
-  exceptions (the id-only span, and the `keep`-slug carve INSIDE a span). ⚠ And it is bounded by a
-  COST contract: `_demote` exists because per-close retagging is quadratic in nesting depth
-  (measured at R23 — 24 KB of `![`-nesting took 0.4 s), so a per-image walk over `code` would
-  reintroduce exactly that, and the fix has to be an index-range union like the one beside it.
-  That is five intersecting invariant axes, which makes it **edge-dense by CLAUDE.md's own test** and
-  `/elidex-plan-review`-before-implementation **by rule, not by judgment** — the same disposition
-  R36-3 got, and in the same family (nested-markup demotion inside a resolved image).
-  **Owner**: Slice 2's plan-review, which already opens the disposition and the declaring-field
-  predicates — NOT a new occasion, because a trigger that makes the work its own occasion is the
-  circularity the R38 re-gate refused for R36-3. **Re-eval: 2026-12-31.** No slot: it is this
-  checker's own lexer, not a platform gap.
+- **▶ §6.4's ONE RULE IS IMPLEMENTED AS N PER-FAMILY DEMOTIONS** (PR #510 R42-1 / R42-5, **own**;
+  **real, reproduced, NOT fixed here — this is the PAUSE**). CommonMark §6.4 states a single rule: an
+  image description renders as *the plain string content of its inline children*. `inline_pass`
+  implements it once PER CONSTRUCT FAMILY at the image-close branch, so every family is a separate
+  chance to miss one — and three consecutive review rounds each found a different one.
+  **Measured, side by side, with a declared id inside each construct inside one resolved image
+  description** (`See ![<construct>](img.png).`, reported naming sites):
+  | construct | sites | |
+  |---|---|---|
+  | bare prose | 1 | the baseline |
+  | emphasis | 1 | demoted (R30-3) |
+  | link | 1 | demoted (R30-3) |
+  | nested image | 1 | demoted (R30-3) |
+  | **code span** | **1** | ⚠ reports the SITE but blanks a KIND MARKER — `![`UMBRELLA, not a terminal unit.`](img.png)` exits **rc 0** where the LINK form exits rc 1 (R42-1) |
+  | **autolink** | **0** | ⚠ nothing at all (R42-5a) |
+  And §6.3's companion rule — *a link may not contain a link*, with §6.5 parsing an autolink AS a
+  link — has the same shape: `[x <http://a>](absent.md)` should leave the outer syntax literal, and
+  the checker records `absent.md` as a real link and exits **2** (R42-5b, reproduced).
+  ⚠ **THIS ENTRY REPLACES THE ONE THAT CARVED ONLY THE CODE SPAN**, and the replacement IS the
+  disposition: `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` says accumulation on
+  one mechanism means the boundary wants re-drawing, not another entry, and three entries for three
+  construct families would have been exactly that. It is also the overlay's **generator-layer check**:
+  the shape hopped corner to corner (link → code span → autolink → link-opener) across three rounds,
+  and the question a corner-by-corner fix never asks is *which LAYER is generating these*.
+  **The answer, written out.** (1) *Abstraction-coverage*: there is a missing canonical algorithm —
+  one rule over the description's inline CHILDREN, replacing the per-family branch list. (2) *Own-ideal
+  test*: §0 of this plan says the lexical half "has a canonical algorithm (CommonMark 0.31.2 + GFM
+  0.29) and is **implemented by construction**". A per-family demotion list is not by construction; it
+  is a list, and it is the thing being patched. So the mechanism itself fails the plan's own ideal,
+  which is the answer that says *stop patching family number four*.
+  **Scope**: the image-close branch stops naming families and applies one rule to the child set —
+  each child contributes its RENDERED TEXT and none of its markup — with the §6.3 opener-deactivation
+  rule stated once over what an opener may contain, rather than per opener type.
+  ⚠ **Bounded by a COST contract**: `_demote` exists because per-close retagging is quadratic in
+  nesting depth (measured at R23 — 24 KB of `![`-nesting took 0.4 s), so the one rule has to be an
+  index-range union like the one beside it, not a walk per image.
+  **Owner**: its own PR under CLAUDE.md's *Edge-dense work* rule — it intersects §6.4, §6.3, §6.5,
+  §6.1, the disposition table, `code_mask`'s two exceptions and the `_demote` cost contract — so
+  `/elidex-plan-review` precedes implementation, by rule and not by judgment.
+  **Trigger (an EVENT)**: it is already fired — three reported instances stand open. The work is
+  scheduled at Slice 2's plan-review, which opens this area; **`re-eval: 2026-12-31`** is the backstop,
+  not the occasion.
+  No slot: it is this checker's own lexer, not a platform gap.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the
