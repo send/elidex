@@ -276,15 +276,27 @@ K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
 # one: enumerating this by hand is how the next variable gets left authoritative.
 # An empty or failing list means we cannot know what routes git, so the run
 # decides nothing rather than guessing.
-# ⚠ It unsets ONLY routing, never configuration: R94 exported a clean config
-# process-wide and took `safe.directory` with it.
+# ⚠ ROUTING ONLY — AND GIT'S LIST IS NOT ROUTING-ONLY. It also names
+# `GIT_CONFIG`, `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT`, which are
+# CONFIGURATION INPUTS, so unsetting the list wholesale repeated R94's defect by
+# another route: a foreign-owned checkout authorised through
+# `GIT_CONFIG_COUNT=1 / GIT_CONFIG_KEY_0=safe.directory / GIT_CONFIG_VALUE_0=*`
+# worked under a direct `git -C <repo> ls-files` and exited 2 here, after
+# reading nothing (#501 R97). The `GIT_CONFIG*` family is held back.
+# ⚠ THE RISK DIRECTIONS ARE NOT SYMMETRIC, which is why the exemption is this
+# narrow. Clearing too much costs the caller's configuration and the wire then
+# REFUSES to run — loud. Clearing too little leaves git routed at another tree
+# and the wire ANSWERS about it — silent, and wrong. So the default is to clear,
+# and `GIT_CONFIG*` is the one retreat, taken against a reproduced setup.
 _GIT_LOCAL_VARS="$(git rev-parse --local-env-vars 2>/dev/null)" || _GIT_LOCAL_VARS=""
 if [ -z "$_GIT_LOCAL_VARS" ]; then
   echo "!! this git cannot say which variables route it (rev-parse --local-env-vars)," >&2
   echo "   so this run could not prove it read the tree it was pointed at." >&2
   exit 2
 fi
-_git() { ( for _v in $_GIT_LOCAL_VARS; do unset "$_v"; done
+_git() { ( for _v in $_GIT_LOCAL_VARS; do
+             case "$_v" in GIT_CONFIG*) : ;; *) unset "$_v" ;; esac
+           done
            export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
            exec git "$@" ); }
 

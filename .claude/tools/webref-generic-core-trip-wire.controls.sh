@@ -46,7 +46,7 @@ fi
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -110,6 +110,19 @@ chmod +x "$CTL/fakegit/git"
 # `TMPDIR` when given no template, which is why the control shims the command
 # instead of setting the variable: the same defect reproduces on the machines
 # that honour it, and a control that only fires on some of them is not one.
+# A `git` that answers `ls-files` with nothing unless the caller's
+# `GIT_CONFIG_COUNT` reached it. The fixture holds a violation, so a run that
+# KEEPS the configuration reds on K2 and a run that strips it reads zero and
+# exits 2 — the two verdicts differ in status AND message, which is what makes
+# this control discriminate rather than merely fire.
+# ⚠ Shimmed because the real case — a checkout owned by another UID, reachable
+# only via `safe.directory` — cannot be built here. The variable's SURVIVAL is
+# the property under test, and that is constructible; the ownership is not.
+mkdir -p "$CTL/fakegitcfg"
+printf '#!/bin/sh\nif [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi\nexec %s "$@"\n' \
+  "$(command -v git)" > "$CTL/fakegitcfg/git"
+chmod +x "$CTL/fakegitcfg/git"
+printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakemktemp"
 printf '#!/bin/sh\nd="${WEBREF_WIRE_SELFTEST}/scratch"\nmkdir -p "$d"\nprintf %%s "$d"\n' \
   > "$CTL/fakemktemp/mktemp"
@@ -185,7 +198,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy; do
+         cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || true
 done
@@ -390,6 +403,9 @@ else
   echo "   either way and this control would pass without testing anything." >&2
   ctl_ok=1
 fi
+_ctl_env=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*")
+_control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$CTL/fakegitcfg" || ctl_ok=1
+_ctl_env=()
 _ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
 _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || ctl_ok=1
 _ctl_env=()
