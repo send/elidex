@@ -1824,6 +1824,39 @@ ground for either option; it is not cited.
   **Gate after the re-gate**: 657 controls / 364 mutants 0 survived 0 crashed / trip-wires rc 0 /
   census worklist byte-identical. ⚠ Four further mutant rows were retargeted where these fixes moved
   their substrings — one needed a wider anchor because the old one now matched twice.
+  ▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-20, head `e82d3324` PUSHED, tree clean).**
+  **State**: #510 reached **TERMINAL** at R37+R38 (two dry rounds on `cd1f973c`, all three channels
+  with denominators). The TERMINAL design re-gate then ran over `bc7cb013..cd1f973c` and its
+  findings are fixed and pushed — **so the head has MOVED past the dry rounds**.
+  **▶ DO FIRST, in order:**
+  1. ⚠ **Axis 5 of the re-gate never finished** (project-context: stale measured figures, blind-spot
+     classification, defer/slot hygiene, touch-time line counts). The other four axes found **four**
+     stale figures of mine, so treat this as owed, not optional. Re-run it alone over
+     `bc7cb013..e82d3324` — do NOT re-run the other four.
+  2. ⚠ **TERMINAL is STALE: the head moved.** R37/R38 were dry on `cd1f973c`; `e82d3324` has never
+     been reviewed. Trigger `@codex review` and get the dry round back before any merge talk. The
+     merge-head guard hook enforces this mechanically.
+  3. Then, and only then, surface the merge proposal — **merge approval is the user's**, and the
+     three open carves below must be named in it.
+  **▶ THE THREE OPEN FINDINGS — all real, all reproduced, none an "edge" defer:**
+  · **R33-3** (thread `PRRT_kwDORYj7cc6kHEkI`, deliberately left OPEN) → **Slice 2**. §2 I-D names the
+  outcome *including the control flip*; §4 row #5 owns it. Verified at the re-gate: the home
+  pre-existed at base and the flip claim is true — the suppression alone turns an existing NEGATIVE
+  control red, i.e. it would ship a FABRICATED finding.
+  · **R36-1** → **Slice 3** (§8), which this session created because the first filing re-deferred an
+  already-fired trigger into a home no ledger named. Scope, owner, EVENT trigger and re-eval date are
+  all there now.
+  · **R36-3** → **Slice 2's plan-review** (§8). The defect is in the GRAMMAR (`decorated_id` itself
+  gives `C` no left decoration in `prefix**C**`, verified by executing it), which makes it edge-dense
+  and plan-review-first BY RULE.
+  **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
+  are named there, and one of them (`fenced_spans`) is a legitimately-planned site, which is why the
+  half needs §3's `(NEW)` / `✗ (absent)` conventions read first.
+  **▶ MONITORING**: `ScheduleWakeup` alone loses rounds (R33 sat 98 min). Use a harness-tracked
+  background poll — `/tmp/wait_r<N>.sh` shape, `HEAD` + `SINCE` filled in, `run_in_background: true`.
+  ⚠ Its exit code is always 0; **read the log**.
+  **Gate @ `e82d3324`**: 657 controls / 364 mutants 0 survived 0 crashed / trip-wires rc 0 / #506
+  census worklist byte-identical.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
