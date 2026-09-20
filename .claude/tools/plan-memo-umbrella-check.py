@@ -37,7 +37,13 @@ MODULES
                           autolinks and §6.6 raw HTML -- read by BOTH phases
                           (§4.6 start condition 7 is the same tag bodies)
   plan_memo_lexer.py      Phase 2 (inline): code spans + links / images +
-                          delimiter runs in one pass, link grammar, `Lexed`
+                          delimiter runs in ONE pass, the §6.1 closer index, the
+                          bracket stack and the §6.4 demotion, `Lexed`
+  plan_memo_links.py      §6.3's link GRAMMAR -- destination, title, label and
+                          its normalisation, the `![` test, the inline and
+                          reference tails -- plus the §2.4 escape and §2.5
+                          character reference it rests on.  The edge is one way:
+                          the lexer imports this, never the reverse (R42-7)
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
                           HTML blocks), the block-quote marker, block starts, the
                           one `block_end` predicate, GFM rows, reference definitions

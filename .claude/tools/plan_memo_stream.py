@@ -176,9 +176,22 @@ def code_mask(lx, keep):
             # `z`, and the run exited 0 with no residue to say so. The trimmed
             # spaces join the marks, which is the same mechanism saying the same
             # thing: what the reader does not see does not separate.
+            # ⚠ THE TRIM IS TESTED AGAINST THE NORMALISED BODY, not the raw
+            # one (PR #510 R42-7): §6.1 is TWO steps and the order is the rule
+            # -- line endings become spaces FIRST, and only then does the trim
+            # ask whether the result begins and ends with one.  Written against
+            # the raw content it missed every span whose padding IS a line
+            # ending (`` `\nz ` `` renders `z`, and the raw test saw `\n` and
+            # declined), which is the same half-implementation `_inner` records
+            # having had at R32, three lines below this one.  Step one itself is
+            # a SUBSTITUTION the lexer emits; what is masked here is the one
+            # rendered character at each end, which is two source characters
+            # where that character is a CRLF.
             inner = lx.text[a + run:b - tail]
-            if inner[:1] == " " and inner[-1:] == " " and inner.strip(" "):
-                run, tail = run + 1, tail + 1
+            norm = inner.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+            if len(norm) > 1 and norm[0] == " " and norm[-1] == " " and norm.strip(" "):
+                run += 2 if inner.startswith("\r\n") else 1
+                tail += 2 if inner.endswith("\r\n") else 1
             out.append((a, a + run, "mark"))
             out.append((b - tail, b, "mark"))
             continue

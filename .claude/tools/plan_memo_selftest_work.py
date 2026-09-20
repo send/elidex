@@ -307,6 +307,7 @@ def linear_inline_tail_control(M):
     obvious "fix" of refusing the tail when no `)` stands anywhere ahead passes
     the first and fails the second."""
     import plan_memo_lexer     # the freshly loaded module
+    import plan_memo_links     # §6.3's grammar, carved out at R42-7 -- the bound lives there
 
     ok, detail = True, []
     for label, mk in (("[^N ](^N", lambda n: "[" * n + "](" * n),
@@ -314,7 +315,7 @@ def linear_inline_tail_control(M):
         seen = {}
         for n in (100, 400):
             try:
-                with _count_lines(plan_memo_lexer, limit=1200 * n) as c:
+                with _count_lines([plan_memo_lexer, plan_memo_links], limit=1200 * n) as c:
                     plan_memo_lexer.inline_pass(mk(n), {})
             except _WorkExceeded:
                 return False, "%d of %s cost more than %d source lines: not linear" % (n, label, 1200 * n)
@@ -562,6 +563,40 @@ def linear_id_scan_control(M):
 
 
 
+def image_demotion_linear_control(M):
+    """The §6.4 demotion of `code` and `auto` is LINEAR in the nesting depth: N
+    nested resolved images with one code span each cost O(N) source lines, not
+    O(N^2).
+
+    THE CONTRACT `_demote` EXISTS FOR, AND THE FIRST FIX BROKE IT (PR #510
+    R42-7).  The demotion was written as a retag loop per image close --
+    `for j in range(bottom, len(code))` -- so every enclosing close re-walked
+    every descendant: 0.09 / 0.32 / 1.26 s over 9 / 18 / 36 KB, quadratic, in
+    the commit whose message asserted the contract "holds by construction".
+    ⚠ It is the same shape `_demote`'s own docstring records being fixed at R23
+    for nested IMAGES (24 KB of `![`-nesting took 0.4 s), so the regression
+    re-introduced a defect this suite had already paid for once.  The ranges are
+    applied once now, as a union, exactly like `dem_img`.
+
+    HONESTLY: a line count is not a wall clock, and a per-entry cost that is
+    constant but large passes here.  What it catches is the RE-WALK, which is
+    what a retag-per-close is."""
+    import plan_memo_lexer
+    out = {}
+    for n in (200, 800):
+        text = "![x`c`" * n + "y" + "](i.png)" * n
+        try:
+            with _count_lines(plan_memo_lexer, limit=4000 * n) as c:
+                plan_memo_lexer.inline_pass(text, {})
+        except _WorkExceeded:
+            return False, ("%d nested images with a code span each cost more than %d source lines: "
+                           "the demotion is re-walking descendants" % (n, 4000 * n))
+        out[n] = c.lines
+    ok = out[800] <= 5 * out[200] + 2000
+    return ok, ("%d -> %d source lines over a 4x input (%.1fx; linear wants <= ~4x, a per-close "
+                "re-walk gives ~16x)" % (out[200], out[800], out[800] / max(out[200], 1)))
+
+
 def registry():
     """name -> (kind, control), the WORK fragment of the one table: this
     module's per-shape witnesses merged with the growth module's generated
@@ -569,6 +604,8 @@ def registry():
     reg = dict(growth_registry())
     reg.update(document_registry())
     reg.update({
+        "the §6.4 demotion of code spans and autolinks is LINEAR in the nesting depth (a retag loop per image close re-walks every descendant)":
+            ("CONTROL", image_demotion_linear_control),
         "file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every start position":
             ("CONTROL", linear_file_token_control),
         "inline_pass is linear over a malformed inline-link tail: `[`xN + `](`xN is O(N), bounded by §6.3's permitted nesting limit":

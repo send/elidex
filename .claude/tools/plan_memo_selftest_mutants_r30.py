@@ -42,7 +42,7 @@ from plan_memo_selftest_cases_r26 import (
     R42_ALLSPACE, R42_IMG_AUTO, R42_IMG_CODE, R42_TRIM,
 )
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
+    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS, MEMO, MUTANTS,
     POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, RUNNER, SIBLING, STREAM, TABLES, TOKENS,
 )
 
@@ -491,17 +491,20 @@ MUTANTS += [
 # COUNT -- not the control's own threshold.  Mutating the constant would prove
 # only that the control reads its own constant
 # (`memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`),
-# so this row grows a real file past the bound instead: 50 line endings inside
-# the lexer's module docstring take it 961 -> 1,011.  The text still parses, so
+# so this row grows a real file past the bound instead: 400 line endings inside
+# the lexer's module docstring carry it past 1000.  ⚠ The figure the row used to
+# name (961 -> 1,011) went stale the moment §6.3's grammar was carved out at
+# R42-7 and the lexer became 714 lines -- so the row states the INJECTION and
+# the bound, never the file's current size. The text still parses, so
 # `load()` execs it and the control sees the patched source through `SOURCES`.
 AXIS5_LINE_BOUND = ("PROPERTY: every source of this checker is under the 1000-line touch-time bound "
                     "(the invariant this PR broke, as a mechanism instead of a sentence)")
 
 MUTANTS += [
-    ("Axis 5 line bound: a source crosses 1000 lines (grow the lexer's docstring by 50 line endings: "
-     "961 -> 1,011, which is the debt the touch-time rule exists to stop)", LEXER,
+    ("Axis 5 line bound: a source crosses 1000 lines (grow the lexer's docstring by 400 line "
+     "endings, whatever its current size: the debt the touch-time rule exists to stop)", LEXER,
      '"""Phase 2 of CommonMark 0.31.2 "Appendix: A parsing strategy" -- INLINE',
-     '"""' + "\n" * 50 + 'Phase 2 of CommonMark 0.31.2 "Appendix: A parsing strategy" -- INLINE',
+     '"""' + "\n" * 400 + 'Phase 2 of CommonMark 0.31.2 "Appendix: A parsing strategy" -- INLINE',
      [AXIS5_LINE_BOUND]),
 ]
 
@@ -603,14 +606,12 @@ MUTANTS += [
 MUTANTS += [
     ("R42 §6.4: stop demoting CODE SPANS into the description (§6.1 back to masked: a kind marker "
      "there is blanked and the row leaves the census at rc 0)", LEXER,
-     '            for j in range(code_bottom, len(code)):\n'
-     '                code[j] = code[j][:2] + ("demoted",)',
+     '            dem_code.append((code_bottom, len(code)))',
      '            pass',
      [R42_IMG_CODE]),
     ("R42 §6.4: stop demoting AUTOLINKS into the description (§6.5 back to masked: the URI §6.5 makes "
      "the link text contributes nothing and the id in it is reported nowhere)", LEXER,
-     '            for j in range(auto_bottom, len(auto)):\n'
-     '                auto[j] = auto[j][:2] + ("demoted",)',
+     '            dem_auto.append((auto_bottom, len(auto)))',
      '            pass',
      [R42_IMG_AUTO]),
     ("R42 §6.4: blank a demoted code span outright instead of routing it through `id_only` (the "
@@ -624,12 +625,12 @@ MUTANTS += [
 MUTANTS += [
     ("R42-6 §6.1: drop the trim on a demoted span (the padding stands in the alt text and a declared "
      "id split by it is two tokens: `Slice 9` + `z`, no site, rc 0)", STREAM,
-     '            if inner[:1] == " " and inner[-1:] == " " and inner.strip(" "):',
+     '            if len(norm) > 1 and norm[0] == " " and norm[-1] == " " and norm.strip(" "):',
      '            if False:',
      [R42_TRIM]),
     ("R42-6 §6.1: trim unconditionally (drop the spec's own \"not entirely spaces\" arm: an all-space "
      "span is trimmed, which JOINS what the reader sees separated)", STREAM,
-     '            if inner[:1] == " " and inner[-1:] == " " and inner.strip(" "):',
-     '            if inner[:1] == " " and inner[-1:] == " ":',
+     '            if len(norm) > 1 and norm[0] == " " and norm[-1] == " " and norm.strip(" "):',
+     '            if len(norm) > 1 and norm[0] == " " and norm[-1] == " ":',
      [R42_ALLSPACE]),
 ]

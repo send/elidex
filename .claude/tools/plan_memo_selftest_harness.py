@@ -55,6 +55,10 @@ MODULES = [
     ("plan_memo_emphasis", "plan_memo_emphasis.py"),
     ("plan_memo_tokens", "plan_memo_tokens.py"),
     ("plan_memo_html", "plan_memo_html.py"),
+    # ⚠ BEFORE the lexer: the edge is one way (the lexer imports §6.3's
+    # grammar, never the reverse), and this list is exec'd in order, so a
+    # module that arrives after its importer is a NameError at load time.
+    ("plan_memo_links", "plan_memo_links.py"),
     ("plan_memo_lexer", "plan_memo_lexer.py"),
     ("plan_memo_blocks", "plan_memo_blocks.py"),
     ("plan_memo_stream", "plan_memo_stream.py"),
@@ -250,16 +254,26 @@ class _count_lines:
     function.  Every loop iteration is a line event (a backward jump reports
     its line again -- measured on CPython 3.9 and 3.14: a 200 x 200 nested
     comprehension is 80,403 / 80,603 lines), so a re-scan shows as lines,
-    deterministically, on any host."""
+    deterministically, on any host.
+
+    ⚠ ONE module OR SEVERAL (PR #510 R42-7).  A touch-time split moves work out
+    of the module a witness names, and the witness then counts a shrinking part
+    of it while the contract it guards is about the whole: carving §6.3's
+    grammar out of the lexer left `linear_inline_tail_control` watching the
+    lexer alone, and its mutant -- lifting the destination nesting bound --
+    SURVIVED, because the quadratic scan it re-introduces now runs in the other
+    file.  A witness whose subject can be split takes the SET."""
 
     def __init__(self, module, limit):
-        self.file, self.limit, self.lines = module.__file__, limit, 0
+        mods = module if isinstance(module, (list, tuple)) else (module,)
+        self.files = {m.__file__ for m in mods}
+        self.file, self.limit, self.lines = next(iter(self.files)), limit, 0
 
     def __enter__(self):
         self._prev = sys.gettrace()
 
         def tracer(frame, event, arg):
-            if frame.f_code.co_filename != self.file:
+            if frame.f_code.co_filename not in self.files:
                 return None
             if event == "line":
                 self.lines += 1

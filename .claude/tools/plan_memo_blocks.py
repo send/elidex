@@ -40,8 +40,9 @@ import bisect
 import re
 
 from plan_memo_html import CLOSING_TAG, OPEN_TAG
-from plan_memo_lexer import (
-    Lexed, _escaped, _skip_ws, link_destination, link_label, link_title,
+from plan_memo_lexer import Lexed
+from plan_memo_links import (
+    _escaped, _skip_ws, link_destination, link_label, link_title,
 )
 
 # --------------------------------------------------------------------------

@@ -18,7 +18,7 @@ lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, IDS, LEXER, MEMO, MUTANTS, PIPELINE, POPULATION, ROLES,
+    BLOCKS, CHECK, CONTROLS, IDS, LEXER, LINKS, MEMO, MUTANTS, PIPELINE, POPULATION, ROLES,
     SEQUENCE, SIBLING, SPEC_EXAMPLES, STAGE_C, STREAM, TABLES, TOKENS,
 )
 
@@ -67,7 +67,7 @@ MUTANTS += [
      '        t = link_title(s, k2) if k2 > k else None', '        t = None',
      ["(def) a next-line title is part of the definition, not prose: an id in it is no site",
       "(def) a next-line title holding `[x](missing.md)` is a title, not a link: rc 0"]),
-    ("R2-2 link: `![` opens an image, which is not a link", LEXER,
+    ("R2-2 link: `![` opens an image, which is not a link", LINKS,
      '    return i > 0 and s[i - 1] == "!" and not _escaped(s, i - 1)', '    return False',
      ["(link) a link wrapping an IMAGE `[![alt](img.png)](sib.md)` links the sibling; `img.png` is "
       "never a memo"]),
@@ -121,7 +121,7 @@ MUTANTS += [
      '"\\n".join(lines[i:]))[0] or [None])[0]',
      ["Phase-1 orphan detection is linear: <= 4 link_label calls per line"]),
     ("RG-3 link: one label grammar -- a collapsed / shortcut text is a label iff `link_label` "
-     "reads it from the opener", LEXER,
+     "reads it from the opener", LINKS,
      '    raw, _ = link_label(s, opener)\n    if raw is None:', '    raw = s[opener + 1:close]\n    if False:',
      ["(link) bracket text holding unescaped brackets is not a label (§6.3), so `[the [x] walk][]` "
       "is no collapsed reference: rc 0"]),
@@ -684,7 +684,7 @@ MUTANTS += [
 MUTANTS += [
     # -- PR #510 Codex R16
     ("R16 #2 §2.5: character references in a destination are decoded (re-inject backslash-only unescaping: "
-     "no reference is ever matched)", LEXER,
+     "no reference is ever matched)", LINKS,
      '        m = _CHAR_REF.match(s, i)\n        ch = _reference(m) if m else None',
      '        m = None\n        ch = _reference(m) if m else None',
      ["(link) `[child](child&#46;md)`: a decimal character reference in the destination is decoded (§2.5 / "
@@ -698,7 +698,7 @@ MUTANTS += [
       "`%20` (stage b) -- the two decoders run in spec order, `slice sib.md` is walked"]),
     ("R16 #2 §2.5: the decoder is ONE pass of the spec's grammar, not `html.unescape` (re-inject it as a "
      "second pass: HTML's legacy semicolon-less `&copy`, and a decoded `&` / an escaped `&` re-read as a "
-     "reference)", LEXER,
+     "reference)", LINKS,
      '        out.append(s[i])\n        i += 1\n    return "".join(out)',
      '        out.append(s[i])\n        i += 1\n    return __import__("html").unescape("".join(out))',
      ["(link) `[x](child&copy.md)`: HTML's legacy semicolon-less `&copy` is NOT a reference in CommonMark "
@@ -709,16 +709,16 @@ MUTANTS += [
       "(link) `[x](child&#x26;#46;md)`: a decoded `&` is a character, never the start of a second reference "
       "(one pass, no re-scan) -- literal `child&#46;md`, 0 sites"]),
     ("R16 #2 §2.5: U+0000 is replaced by U+FFFD (drop the rule: `&#0;` yields a C0 control the resolver "
-     "rejects)", LEXER,
+     "rejects)", LINKS,
      '    if n == 0 or n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:', '    if n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:',
      ["(link) `[x](child&#0;.md)`: U+0000 is replaced by U+FFFD (§2.5, \"for security reasons\") -- the memo "
       "named `child\\ufffd.md` is walked (a raw U+0000 would be rejected as a C0 control)"]),
-    ("R16 #2 §2.5: a reference needs its `;` (re-inject an optional semicolon)", LEXER,
+    ("R16 #2 §2.5: a reference needs its `;` (re-inject an optional semicolon)", LINKS,
      '[A-Za-z][A-Za-z0-9]{1,31});")', '[A-Za-z][A-Za-z0-9]{1,31});?")',
      ["(link) `[x](child&#46md)`: `&#46` without `;` is no reference -- the destination is the literal "
       "`child&#46md`, which names no memo: 0 sites, `child.md` not walked"]),
     ("R16 #2 §6.3: label matching is on the RAW label (re-inject character-reference decoding in "
-     "`normalize_label`)", LEXER,
+     "`normalize_label`)", LINKS,
      '    return _LABEL_WS.sub(" ", label.strip(" \\t\\r\\n")).casefold()',
      '    return _LABEL_WS.sub(" ", normalize_destination(label).strip(" \\t\\r\\n")).casefold()',
      ["(label) `[foo&auml;]: child.md` then `[fooä]`: §6.3 label matching is on the RAW label (case fold, "

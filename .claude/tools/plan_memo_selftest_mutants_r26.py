@@ -28,7 +28,7 @@ from plan_memo_selftest_cases_r26 import (
     R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED,
 )
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
+    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS, MEMO, MUTANTS,
     POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, SIBLING, STREAM, TABLES, TOKENS,
 )
 
@@ -178,7 +178,7 @@ R26_DEEP_LITERAL = ("(R26 §6.3) a destination nested 33 deep is NOT a link, so 
 
 MUTANTS += [
     ("R26-3 §6.3: the destination's parenthesis nesting is BOUNDED (lift the bound: 33 levels are a "
-     "link again, which is both the reported false rc-2 miss and the quadratic tail scan)", LEXER,
+     "link again, which is both the reported false rc-2 miss and the quadratic tail scan)", LINKS,
      "            if depth > DESTINATION_NESTING_LIMIT:", "            if depth > 10 ** 9:",
      [R26_DEEP_LITERAL, R26_TAIL_LINEAR]),
     # The bound in the OTHER direction, and it is the one that keeps the limit
@@ -186,7 +186,7 @@ MUTANTS += [
     # (`[link](foo(and(bar)))`) is the corpus's deepest at 2.  A limit chosen
     # low enough to be cheap would pass every control above.
     ("R26-3 §6.3: the bound is above what the spec requires and the corpus uses (drop it to 1: "
-     "Example 496's two levels stop being a link)", LEXER,
+     "Example 496's two levels stop being a link)", LINKS,
      "DESTINATION_NESTING_LIMIT = 32", "DESTINATION_NESTING_LIMIT = 1",
      [INLINE_EXAMPLES, R26_DEEP_LINK]),
     ("R26-3 §6.6: the tag grammar is not RUN at a `<` whose closer stands nowhere ahead (drop the "
