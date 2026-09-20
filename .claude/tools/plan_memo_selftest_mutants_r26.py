@@ -25,7 +25,7 @@ from plan_memo_selftest_cases_r26 import (
     R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED, R31_1_RENDERED_HEADER,
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
-    R35_FRAGMENT_ID, R35_QUERY_ID,
+    R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -872,7 +872,9 @@ MUTANTS += [
      [R34_1_FRAGMENT]),
     ("R34-1 file token: a TRAILING-PUNCTUATION tail is still a name (empty the set: a sentence-final "
      "period stops ending a file name)", TOKENS,
-     "_TRAILING = frozenset(\"?!.,:*_~'\\\")\")",
+     # ⚠ the set was re-derived at R38 (GFM attribution dropped, `;` added, `"`
+     # restored), so this row's substring moved with it.
+     "_TRAILING = frozenset(\".,;:!?)'\\\"\")",
      "_TRAILING = frozenset()",
      [R34_1_TRAILING]),
 ]
@@ -891,10 +893,19 @@ MUTANTS += [
      "    if e < n and text[e] in \"#?\":\n        return e\n    if False:",
      [R35_FRAGMENT_ID, R35_QUERY_ID, R35_RUN_AGREEMENT]),
     # ⚠ A ROW FOR "the tail's own trailing punctuation is not part of the name"
-    # WAS WRITTEN AND RETIRED (R35): keeping the period INSIDE the span exposes
-    # no id -- a period is not one -- so no control here can see it, and the
-    # mutant SURVIVED. The clause is real but cosmetic to every predicate this
-    # suite has; recording that is honest, and a row that cannot go red is not.
+    # WAS WRITTEN AND RETIRED (R35), and the reason recorded for it was WRONG
+    # when written (R38 re-gate). It said "a period is not an id", but
+    # `_TRAILING` then also held `*`, `_` and `~`, which ARE decoration
+    # characters, and a decorated id token's extent BEGINS at its decoration --
+    # so over `notes.md#**`9z`` the clause flips the id from reported to masked
+    # at the unit level. The retirement still stands (1,152 generated probes
+    # through the pipeline found no difference, so it is cosmetic to every
+    # predicate here), and it is true NOW for a reason no one intended: R38
+    # narrowed `_TRAILING` to `.,;:!?)'"`, which holds no decoration character
+    # at all. ⚠ The honest statement is the narrow one -- "no `_TRAILING`
+    # character can begin an id core, and `covers` is an overlap test" -- not
+    # "a period is not an id". A conclusion that survives its reason being
+    # false is this PR's own recurring shape, recorded rather than smoothed.
 ]
 
 
@@ -908,4 +919,20 @@ MUTANTS += [
      "            run_end = _run_end_from(text, e, n, 0)",
      ["file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every "
       "start position"]),
+]
+
+
+
+# -- R38 design re-gate: the obligation's SECOND site.
+MUTANTS += [
+    ("R38 seed: the cd-seed asks Deps emptiness of the READER's rendering, like assertion (b) "
+     "(re-inject the prose stream at the site R34-2 left behind)", ROLES,
+     '        empty = is_empty(stream(row.col("Deps").lexed, reader=True))',
+     '        empty = is_empty(_stream(row, "Deps"))',
+     R38_CD_MASKED),
+    ("R38 seed: emptiness is still SHAPE (drop the shape rule here too: a deliberate blank stops "
+     "being one)", ROLES,
+     '        empty = is_empty(stream(row.col("Deps").lexed, reader=True))',
+     '        empty = not stream(row.col("Deps").lexed, reader=True).strip()',
+     [R38_CD_BLANK]),
 ]

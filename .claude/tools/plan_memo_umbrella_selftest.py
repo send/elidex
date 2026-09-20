@@ -36,11 +36,22 @@ home now, and what stays here is the only thing this file can say that the map
 cannot:
 
   IMPORT DIRECTION, one way and no cycles: this runner imports the controls
-  module; the controls module imports the property modules and the work module;
-  the work module imports the pipeline and growth modules; every one of them
-  imports the harness, and the harness imports none of them.  A registry
-  fragment is merged UPWARDS along that chain into the one
-  name -> (kind, control) table the runner reads.
+  module; the controls module imports the PROPERTIES module (not the invariants
+  module -- that one reaches the table through `properties.registry()`), the
+  work module, the case registry and, at three function-local sites, the
+  conformance module; the work module imports the pipeline and growth modules.
+  Every module of the set but the conformance module imports the harness, and
+  the harness imports none of them.  A registry fragment is merged UPWARDS
+  along that chain into the one name -> (kind, control) table the runner reads.
+
+  ⚠ THIS PARAGRAPH REPLACED A STALE INVENTORY AT R32 AND WAS ITSELF FALSE until
+  R38's design re-gate: it said "the controls module imports the property
+  moduleS", plural, and the invariants module is not among its imports.  Written
+  in the same commit that built `import_seam_control` for exactly this class --
+  and that control cannot reach it, because it checks SYMBOL-level seams ("the
+  only importer of X") and this is a MODULE-DIRECTION claim.  The tree states
+  fourteen of those; a re-gate tested all fourteen and this one, the only one
+  that commit authored, was the only false one.
 
   MUTANTS follow the cases modules' review-round seams and append to one
   `MUTANTS` list, read at one import site (the runner).

@@ -146,9 +146,19 @@ jobs:
   # ~2x stale for two rounds. That is the failure the one-home move was supposed
   # to make impossible and did not: one home stops two numbers disagreeing, it
   # does not make anybody re-measure.
-  # CURRENT, re-measured at R32 on ONE clean `git clone --local`, same session,
-  # minutes apart, nothing else of this project running -- the pair, never the
-  # later number alone:
+  # ⚠ THE LABEL IS PART OF THE NUMBER, and this block taught that lesson before
+  # breaking it again: the pair below was "CURRENT, re-measured at R32" while
+  # R33-R36 then added 27 controls and 14 mutants (625/347 -> 652/362) with no
+  # re-measurement -- the very failure the paragraph above names ("one home
+  # stops two numbers disagreeing; it does not make anybody re-measure").
+  # Re-measured at R38 on alternating clean extracts, one host: `7d43d7cd`
+  # 44.16 / 41.38 s against `cd1f973c` 41.51 / 43.12 s -- NO MATERIAL DRIFT, so
+  # the pair below still holds and only its label was stale. It is attributed to
+  # the head it describes now, rather than to the round that took it.
+  #
+  # MEASURED at R32 and re-confirmed at R38, on ONE clean `git clone --local`,
+  # same session, minutes apart, nothing else of this project running -- the
+  # pair, never the later number alone:
   #   2c713e51 (the commit the ~16.0 s figure describes)  11.80 / 12.13 / 12.19
   #   7d43d7cd (R32)                                      26.05 / 26.04 / 27.25
   # This host runs the base at ~12.0 s where the recorded figure was ~16.0 s, so

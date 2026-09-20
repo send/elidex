@@ -105,11 +105,37 @@ _ALNUM_AT = re.compile(ALNUM)
 # planes 0-1, verified over 0x0000-0x11000).
 _NAME_BOUNDARY = frozenset("[]<>`|")
 
-# GFM §6.9's extended-autolink trailing punctuation, which a run may end in
-# after the suffix.  A CLOSED set on purpose and the safe polarity: a character
-# missing from it makes the run no file name, which REPORTS the ids inside it
-# rather than hiding them.
-_TRAILING = frozenset("?!.,:*_~'\")")
+# The punctuation a file-name run may END in after the suffix: LOCAL POLICY,
+# derived from what these documents actually write, and labelled as policy
+# because no spec settles it (the §3 coverage map's own convention for a rule
+# with no spec clause).
+#
+# ⚠ IT WAS ATTRIBUTED TO "GFM §6.9's extended-autolink trailing punctuation"
+# UNTIL R38's design re-gate, AND IT IS NOT THAT SET.  GFM 0.29 §6.9 lists
+# `? ! . , : * _ ~`; this one added `'` `"` `)` -- `)` is governed by GFM's
+# separate parenthesis rule, not that sentence -- and, worse, OMITTED `;`,
+# which this PR's OWN corpus measurement names among the characters that
+# actually follow `.md` here (`:` `)` `'` `;` `,` `.`, 41 occurrences over 71
+# memos).  Comment, set and ledger gave three different answers.  ⚠ No GFM
+# artefact is vendored anywhere in this tree and `webref` does not cover GFM,
+# so a GFM citation here could not have been checked by anything either.
+#
+# So it is the MEASURED set plus the two sentence-enders of the same class as
+# `.`: `* _ ~` were GFM's and occur zero times here, and widening a masking rule
+# beyond what the corpus writes is the DANGEROUS direction -- a character in
+# this set hides the ids in the run before it, while a character missing from it
+# merely REPORTS them.
+#
+# ⚠ AND `"` IS IN THE MEASUREMENT, which the first pass at this set dropped on
+# the ground that it was "GFM's and occurs zero times here".  It occurs FOUR
+# times, and not in prose: a `.md` name inside a raw-HTML attribute
+# (`<div data-note="slice-9z-sib.md">`) ends at the closing quote, which is the
+# seed's own population and has a control ("(seed) a raw HTML-block line whose
+# only declared id sits INSIDE a `.md` file name seeds nothing").  Dropping it
+# turned that control red -- the same mistake as omitting `;`, made in the same
+# edit that was fixing it: a set narrowed against the very measurement cited
+# for it.
+_TRAILING = frozenset(".,;:!?)'\"")
 
 
 def _run_end_from(text, e, n, cached):

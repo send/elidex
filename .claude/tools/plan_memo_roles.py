@@ -525,7 +525,22 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         rid = row.self_id
         deps = row.col("Deps").text
         body = _stream(row, "Slice")
-        empty = is_empty(_stream(row, "Deps"))
+        # THE SAME QUESTION AS ASSERTION (b)'s, SO THE SAME READING (PR #510
+        # R38).  ⚠ R34-2 moved the identical expression in `assertion_b` to the
+        # reader's rendering and left THIS one -- same cell, same question --
+        # on the prose-scanning stream, which blanks every construct a prose
+        # scanner must not read as prose.  So a `Deps` cell holding only
+        # `` `b.rs` `` / a bare `.md` name / `[C1]` / an autolink read as EMPTY
+        # here too, and the seed printed a finding that CONTRADICTED ITSELF --
+        # "states ordering vocabulary in prose while its Deps cell is
+        # '`b.rs`'" -- while the `continue` below meant the seed's real
+        # question (which ids the prose names that the cell does not) was never
+        # asked for those rows at all.
+        # ⚠ Fixing one site of an obligation is not fixing the obligation
+        # (`memory/feedback_sweep-obligations-not-only-statements.md`): the
+        # cell-emptiness question is asked TWICE in this file and both readings
+        # must be the reader's.
+        empty = is_empty(stream(row.col("Deps").lexed, reader=True))
         if not ORDER_WORDS.search(body):
             continue
         # ⚠ A NON-EMPTY `Deps` cell does not discharge this.  The seed used to

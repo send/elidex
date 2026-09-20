@@ -766,7 +766,12 @@ def registry():
 # spelling would be invisible here, which is why the control REPORTS its
 # denominator -- a sweep that silently matched nothing would read as clean.
 _ATTRIB_SPELLINGS = (
-    (re.compile(r"`(plan_memo_[a-z_0-9]+)\.([A-Za-z_]\w*)"), 1, 2),
+    # ⚠ `(?!py\b)` -- `` `plan_memo_blocks.py` `` is a MODULE MENTION, not an
+    # attribution, and this pattern was reading it as the symbol `py`.  It cost
+    # nothing (no module defines `py`, so every one landed in the skip arm) but
+    # it inflated the skip arm to 30 of its 38 entries and hid the eight that
+    # matter there (PR #510 R38 re-gate).
+    (re.compile(r"`(plan_memo_[a-z_0-9]+)\.(?!py\b)([A-Za-z_]\w*)"), 1, 2),
     (re.compile(r"`(plan_memo_[a-z_0-9]+|plan-memo-umbrella-check)\.py::([A-Za-z_]\w*)"), 1, 2),
     (re.compile(r"`([A-Za-z_]\w*)` in `(plan_memo_[a-z_0-9]+)\.py`"), 2, 1),
 )
@@ -843,6 +848,22 @@ def symbol_attribution_control(M):
         for lineno, line in _prose_of(name, src):
             for pattern, mod_group, sym_group in _ATTRIB_SPELLINGS:
                 for m in pattern.finditer(line):
+                    # ⚠ A DATED LOCATOR IS A STATEMENT ABOUT THE PAST (PR #510
+                    # R38).  This corpus marks one with the §3 Touch column's
+                    # own convention -- "⚠ pre-split name `X`", "⚠ pre-R14 name
+                    # `X`" -- and such a name is CORRECT precisely by naming the
+                    # module the symbol has LEFT.  Read as a present-tense
+                    # claim it is a violation, and the mechanical sweep this
+                    # control's first run drove REWROTE TWO OF THEM into
+                    # falsehoods ("pre-split name" then naming the post-split
+                    # module, which is vacuous as well as false).  ⚠ The R32
+                    # record said one replacement was "refused rather than
+                    # applied, the guard doing its job"; two others were applied
+                    # and the guard cannot see the difference, because a count
+                    # is not a reading.  Recognising the marker is reading the
+                    # corpus's stated convention, not exempting a case.
+                    if _DATED_LOCATOR.search(line[:m.start()]):
+                        continue
                     mod = m.group(mod_group).replace("plan-memo-umbrella-check", "plan_memo_umbrella_check")
                     sym = m.group(sym_group)
                     if sym not in home:
@@ -856,6 +877,12 @@ def symbol_attribution_control(M):
                        "control reads are no longer the ones the corpus writes" % len(corpus))
     return not bad, ("%d attribution(s) checked over %d file(s), %d naming the wrong module%s"
                      % (checked, len(corpus), len(bad), ("; " + "; ".join(bad[:6])) if bad else ""))
+
+
+# The corpus's own marker for a DATED locator -- a name introduced as the one a
+# symbol had at some earlier point ("pre-split name", "pre-R14 name").  Such an
+# attribution is correct by naming the module the symbol has left.
+_DATED_LOCATOR = re.compile(r"pre-[\w.]+ name\s*$")
 
 
 def _prose_of(name, src):

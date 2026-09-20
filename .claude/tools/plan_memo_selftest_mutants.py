@@ -454,8 +454,12 @@ MUTANTS = [
      '        if _glued(text, t.end, +1, t.kind, pos, hi):',
      ["(bare) the decoration closes the token even against an id character: `**9z**7z`"]),
     ("#8 stream: the (c) seed reads the Slice cell's disposed stream", ROLES,
-     '        body = _stream(row, "Slice")\n        empty = is_empty(_stream(row, "Deps"))',
-     '        body = row.col("Slice").text\n        empty = is_empty(_stream(row, "Deps"))',
+     # ⚠ the Deps line beside it moved to the reader's rendering at R38, which
+     # took this row's old anchor with it -- and `body = _stream(row, "Slice")`
+     # alone now occurs TWICE (the (c) seed and the acceptance seed), so the
+     # anchor carries the comment line that follows it in the (c) seed.
+     '        body = _stream(row, "Slice")\n        # THE SAME QUESTION AS ASSERTION',
+     '        body = row.col("Slice").text\n        # THE SAME QUESTION AS ASSERTION',
      ["(c-seed) ordering vocabulary inside a code span is code, not prose"]),
     ("#8 stream: the acceptance seed and RETIRED read the disposed stream", ROLES,
      '        body = _stream(row, "Slice")\n        # the population decided',

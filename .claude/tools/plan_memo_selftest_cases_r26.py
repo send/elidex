@@ -544,3 +544,40 @@ case("POSITIVE", "(R35) the discriminating half: with the SAME id one space away
                  "`See notes.md 9z owns it` REPORTS it -- what the tail rule covers is the run, and a "
                  "new run is prose again",
      build(), "See notes.md 9z owns it.", 1, files={"notes.md": "# notes\n"})
+
+
+# -- R38 design re-gate: the THIRD site of the reading family, and the one R34-2
+# left behind.  `assertion_cd_seed` asked the same question as assertion (b) --
+# "does this `Deps` cell carry an edge?" -- of the PROSE-SCANNING stream, so a
+# cell holding only a masked construct read as EMPTY, the seed printed a finding
+# that contradicted itself ("... while its Deps cell is '`b.rs`'"), and its real
+# question (which ids the prose names that the cell does not) was never asked for
+# those rows.  ⚠ Fixing one site of an obligation is not fixing the obligation.
+#
+# The prose here carries ORDERING vocabulary and names NO other row, which is
+# what makes the two branches differ in COUNT: read correctly the cell is
+# non-empty and nothing is reported; read through the prose stream it is empty
+# and the no-edge finding fires.
+
+_CD_PROSE = "Terminal.  This lands first."
+
+R38_CD_MASKED = []
+"""The four masked families at the seed's site: 0 findings, because the cell
+carries an edge a reader sees and the prose names no other party."""
+
+for _label, _cell in (("a bare `.md` name", "slice-9z-sib.md"),
+                      ("a code span ``b.rs``", "`b.rs`"),
+                      ("a citation `[C1]`", "[C1]"),
+                      ("an autolink", "<https://x.example>")):
+    acase("NEGATIVE", "(R38 seed) a row whose `Deps` cell holds only %s carries an edge, so ordering "
+                      "prose naming no other party reports NOTHING.  Read off the prose-scanning "
+                      "stream the cell was EMPTY and the seed fired -- printing a no-edge finding "
+                      "that quoted the very cell contents it had just called empty" % _label,
+          build(s7z=_CD_PROSE, d7z=_cell), "ORDER-PROSE?", 0)
+    R38_CD_MASKED.append(CASES[-1].name)
+
+acase("POSITIVE", "(R38 seed) the partner that bounds it: a `Deps` cell that IS a deliberate blank "
+                  "(an em dash) with the same ordering prose still reports the no-edge finding -- the "
+                  "reading moved and `is_empty` still decides by SHAPE",
+      build(s7z=_CD_PROSE, d7z="—"), "ORDER-PROSE?", 1)
+R38_CD_BLANK = CASES[-1].name
