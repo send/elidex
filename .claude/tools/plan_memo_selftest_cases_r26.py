@@ -209,3 +209,138 @@ acase("POSITIVE", "(R30 id) the keyed partner, end to end: `**7z**` keys the row
 R30_KEYED = CASES[-1].name
 """The keyed partner: red under the mutant that asks the blank question of
 EVERY row rather than of the rows that declared nothing."""
+
+
+# ---------------------------------------------- PR #510 Codex R30-3 controls --
+# R30's THIRD finding, and it arrived with R31's four because the round's
+# thread fetch stopped at 100 of 105 -- the disposition that called R30 two
+# findings is corrected in the same round these controls land.
+#
+# §6.4: "the description of an image is the plain string content of its inline
+# children", so a bracket construct inside a RESOLVED image's description
+# contributes its TEXT and none of its markup.  Three separate pieces of markup
+# stand in such a description and each one was disposed of wrongly:
+#
+#   (1) a demoted LINK's `[`, which was POPPED off `opens` and so left standing
+#       in the stream -- `![KIND [UNDETERMINED](x)](img.png)` renders the alt
+#       text `KIND UNDETERMINED` (vendored Example 575: `![foo [bar](/url)]
+#       (/url2)` -> `alt="foo bar"`) and read as `KIND [UNDETERMINED`;
+#   (2) a demoted construct's TAIL, disposed as a BLANK rather than as a mark,
+#       so the two sides of it were two runs where a reader sees one word;
+#   (3) the image's OWN `![`, never recorded at all, so it stood in the stream
+#       as literal text.
+#
+# Each clause has its own probe below, because each is the only one its mutant
+# moves (measured: the other two survive the other two probes).  The declaring
+# field is the subject in all three and the `Deps` cell is nonempty, so the
+# reported shape is the reviewer's: a row that reads terminal takes real
+# ownership data out of the census at rc 0.
+
+def _kindcell(cell):
+    """The Uz row declaring an unsettled kind in `cell`, with an edge to the
+    terminal row -- so the run says UMBRELLA-CELL at rc 1 when the phrase is
+    read and says nothing at all when it is not."""
+    return build(suz=cell, duz="**7z**")
+
+
+acase("POSITIVE", "(R30-3 §6.4) a kind phrase crossing a LINK inside a resolved image description is "
+                  "read: `![KIND [UNDETERMINED](x)](img.png)` renders the alt text `KIND UNDETERMINED` "
+                  "(Example 575), so the row is kind-undetermined and its `Deps` edge is asserted.  The "
+                  "reviewer's shape: the demoted link's `[` was popped off the opener list, stood in "
+                  "the stream, and the row left the census as terminal at rc 0",
+      _kindcell("![KIND [UNDETERMINED](x)](img.png)"), "UMBRELLA-CELL", 1)
+R30_3_LINK_OPENER = CASES[-1].name
+"""Red under the mutant that pops the demoted link's `[` again."""
+
+acase("POSITIVE", "(R30-3 §6.4) the same phrase crossing a demoted link's TAIL: `![KIND [](x)"
+                  "UNDETERMINED](img.png)` renders `KIND UNDETERMINED` too, because an empty label "
+                  "contributes an empty string and the tail contributes nothing.  This is the clause "
+                  "the opener case cannot see -- there the whole phrase stands before the tail -- and "
+                  "a tail disposed as a BLANK puts a run boundary through the middle of the phrase",
+      _kindcell("![KIND [](x)UNDETERMINED](img.png)"), "UMBRELLA-CELL", 1)
+R30_3_DEMOTED_TAIL = CASES[-1].name
+"""Red under the mutant that disposes a demoted construct as a blank."""
+
+acase("POSITIVE", "(R30-3 §6.4) and the phrase crossing a nested IMAGE's markup: `![KIND ![](i.png)"
+                  "UNDETERMINED](img.png)` renders `KIND UNDETERMINED` (Example 574: a nested image's "
+                  "alt text is folded into the enclosing one's).  The inner `![` is the third piece of "
+                  "markup, and it was recorded nowhere at all -- neither clause above reaches it, since "
+                  "a link's `[` is recorded and a tail is recorded",
+      _kindcell("![KIND ![](i.png)UNDETERMINED](img.png)"), "UMBRELLA-CELL", 1)
+R30_3_IMAGE_OPENER = CASES[-1].name
+"""Red under the mutant that stops recording a resolved image's own `![`."""
+
+case("POSITIVE", "(R30-3 §6.4) a resolved image's own `![` is a BLANK where it is NOT demoted, and the "
+                 "difference is loud: in `KIND ![UNDETERMINED](img.png)` the phrase STRADDLES the "
+                 "image, and the text around an image and the text of its description are two runs (a "
+                 "reader of the first sees a picture where the second stands), so the row is not "
+                 "kind-undetermined -- but the near-miss is reported as a schema miss at rc 2 rather "
+                 "than passed over.  The discriminating half of the clause above: recording the opener "
+                 "as a blank is what makes the phrase visibly CROSS something, and without the record "
+                 "the `![` is literal text, nothing is straddled, and the run exits 0 saying nothing",
+     _kindcell("KIND ![UNDETERMINED](img.png)"), "", 1,
+     measure=("schema", "ACROSS a span this checker does not read as prose"))
+R30_3_LOUD_MISS = CASES[-1].name
+"""The other direction of the image-opener clause: red under the same mutant,
+and it is the one that says the blank is not merely cosmetic."""
+
+acase("POSITIVE", "(R30-3 §6.4) the phrase with the inner markup simply REMOVED -- `![KIND "
+                  "UNDETERMINED](img.png)` -- is the three positives' CONSTANT: a description whose "
+                  "plain string content is the phrase outright, read as prose exactly as §6.4 reduces "
+                  "it.  Green before R30-3 and after, which is what makes the three above claims about "
+                  "the MARKUP a description encloses rather than about descriptions",
+      _kindcell("![KIND UNDETERMINED](img.png)"), "UMBRELLA-CELL", 1)
+
+
+# ------------------------------------------------ PR #510 Codex R31 controls --
+# R31-1: a table's schema was matched on its header cells' RAW text, so a
+# header spelling `#` as `&#35;` (§2.5, a character reference that renders the
+# character) was not the `slice` schema's header.  The table was admitted as a
+# NON-schema one, and a non-schema table declares nothing and asserts nothing:
+# not one row but every row of that memo left the run silently, at rc 0, with
+# its `Deps` edges unasserted.  The subject is a LINKED memo because that is
+# where it bites -- a linked memo is not required to carry every schema, so
+# nothing else says the table went missing.
+#
+# The fix is two clauses, and each has its own mutant: `Table.bind` compares
+# what the header RENDERS (`rendered`, the reader's rendering with no keep-set
+# exception), and `Memo.__init__` resolves the header cells BEFORE binding,
+# since a cell that has not been through the inline pass renders its raw text.
+
+_SIB_SCHEMA = """# sibling
+
+## §5. Slice plan
+
+| %s | Slice | Primary module(s) | Slot | Tier | Deps |
+|---|---|---|---|---|---|
+| **8z** | **UMBRELLA, not a terminal unit.** charter. | `g.rs` | — | T1 | — |
+| **6z** | Terminal.  Acceptance: the probe must return 6. | `h.rs` | — | T1 | **8z** |
+"""
+
+case("POSITIVE", "(R31-1 §2.5) a linked memo whose `slice` header spells `#` as `&#35;` IS that schema: "
+                 "the character reference renders `#`, so the table is bound, `8z` is declared an "
+                 "umbrella and the terminal row's `Deps` edge is a naming site.  The reported shape -- "
+                 "before R31 the raw comparison made it a non-schema table and every declaration and "
+                 "assertion in the memo left the run at rc 0",
+     build(), "See [the walk](slice-9z-sib.md).", 1, sibling=_SIB_SCHEMA % "&#35;")
+R31_1_RENDERED_HEADER = CASES[-1].name
+"""Red under both R31-1 mutants: the raw comparison, and the bind that runs
+before the header cells are lexed."""
+
+case("POSITIVE", "(R31-1 §2.5) the same sibling with the header spelled `#` outright reports the same "
+                 "one site -- the discriminating half: the memo, the rows and the edge are the "
+                 "control's constants and only the SPELLING of one header cell differs, so the case "
+                 "above is a claim about the reading and not about the fixture",
+     build(), "See [the walk](slice-9z-sib.md).", 1, sibling=_SIB_SCHEMA % "#")
+
+case("POSITIVE-NOVEL", "(R31-1 §2.4) a header cell spelling `#` as the ESCAPE `\\#` binds too: §2.4 "
+                       "renders a backslash escape as the character itself, and this is the spelling "
+                       "the reviewer did not name -- the fix reads the rendering rather than "
+                       "enumerating the two syntaxes that reach it",
+     build(), "See [the walk](slice-9z-sib.md).", 1, sibling=_SIB_SCHEMA % "\\#")
+
+case("NEGATIVE", "(R31-1 §2.5) a header cell rendering `$` (`&#36;`) is NOT the `slice` schema: the "
+                 "reading moved and the COMPARISON did not loosen, so the table stays non-schema and "
+                 "declares nothing.  The partner that bounds the fix -- a match that normalised the "
+                 "header instead of rendering it would pass the three above and fail this one",
+     build(), "See [the walk](slice-9z-sib.md).", 0, sibling=_SIB_SCHEMA % "&#36;")

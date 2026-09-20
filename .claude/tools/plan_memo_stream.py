@@ -256,7 +256,7 @@ def dispose(lx, keep):
     # DEMOTED into a resolved image's description -- a link, a nested image,
     # each one's opener and tail -- renders nothing at all under §6.4's plain
     # string content, so it is a `mark` and the description reads as the one
-    # run a reader sees (PR #510 R31-1).
+    # run a reader sees (PR #510 R30-3).
     base += [(a, b, "mark" if k == "demoted" else "image") for a, b, k in lx.images]
     base += [(a, b, "mark") for a, b in lx.marks]
     delims = [((oa, ob), (ca, cb), ch, use, ob, ca) for oa, ob, ca, cb, ch, use, _k in lx.emphasis]

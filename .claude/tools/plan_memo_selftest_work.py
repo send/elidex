@@ -46,7 +46,9 @@ import pathlib
 import tempfile
 
 from plan_memo_selftest_growth import registry as growth_registry
-from plan_memo_selftest_harness import _CountedList, _WorkExceeded, _count_calls, _count_lines
+from plan_memo_selftest_harness import (
+    _CountedList, _WorkExceeded, _count_calls, _count_lines, _count_pattern_spans,
+)
 
 
 def linear_emphasis_control(M):
@@ -818,5 +820,172 @@ def registry():
             ("CONTROL", linear_id_scan_control),
         "a resolved image's demotion is linear: N nested images demote their descendants once, not once per enclosing image":
             ("CONTROL", linear_image_demotion_control),
+        "the always-run raw-content seed is linear: N id tokens and N file names on one raw line are one pass, not a span sum per token":
+            ("CONTROL", linear_raw_seed_control),
+        "the licensing rule's backward look is linear: N mentions hand LICENSE_BEFORE O(N) characters in all, not one growing prefix each":
+            ("CONTROL", linear_licence_scan_control),
     })
     return reg
+
+
+# The memo every control below runs the WHOLE pipeline over: the four schemas,
+# so the run is not a schema miss, and one declared umbrella id, so the scans
+# these controls measure have something to find.  `%s` is the body each shapes
+# for itself.  Written here rather than taken from `plan_memo_selftest_cases.
+# build` on purpose: the cases module's builder is the INVARIANTS module's
+# import (that is the seam between the two property modules), and a work
+# control asks nothing about the verdict this memo produces.
+_PIPELINE_MEMO = """# fixture
+
+| ID | Citation | Anchor | Used by |
+|---|---|---|---|
+| [C1] | ECMA-262 §1 X | `#a` | — |
+
+| Site | Syntax | Emits | Observable | Tier | Slice |
+|---|---|---|---|---|---|
+| `x.rs` | `a` | nothing | none | T1 | 9z |
+
+| # | Slice | Primary module(s) | Slot | Tier | Deps |
+|---|---|---|---|---|---|
+| **9z** | **UMBRELLA, not a terminal unit.** charter. | `a.rs` | — | T1 | — |
+
+| Slot | Why deferred | Trigger | Re-eval |
+|---|---|---|---|
+| `#11-zz-alpha` | **UMBRELLA, not a terminal unit.** why. | now | 2026-12-31 |
+
+%s
+"""
+
+
+def _on_pipeline(M, body, witness):
+    """Run `check()` over `_PIPELINE_MEMO` carrying `body`, inside `witness`
+    (a harness work witness already constructed).  Returns the `Result`."""
+    with tempfile.TemporaryDirectory() as d:
+        p = pathlib.Path(d) / "fixture.md"
+        p.write_text(_PIPELINE_MEMO % body, encoding="utf-8")
+        with witness:
+            return M.check(str(p))
+
+
+def linear_raw_seed_control(M):
+    """The linearity witness for the always-run raw-content seed: one raw line
+    holding N declared-id tokens and N file names costs O(N), not O(N*N).
+
+    THE DEFECT (PR #510 R31-3).  `lex_unsupported_seed` asked of every token
+    whether it stood inside a file name or a citation, and asked it by summing
+    the WHOLE span list -- `any(a < t.idend and t.idstart < b for a, b, _ in
+    spans)` -- so N tokens tested N spans.  The reviewer measured 0.09 / 0.32 /
+    1.28 / 4.59 s over `9z note.md` repeated 1,000 / 2,000 / 4,000 / 8,000
+    times, for 11-88 KB of input.  `plan_memo_tokens.covers` is the reading
+    now: the list is ordered by start and non-overlapping by construction, so
+    one bisect finds the only span that can reach the token.
+
+    THE SUBJECT IS THE CALLER, not `covers`, and that is why this runs the
+    whole pipeline instead of calling the new function N times.  A probe that
+    called `covers` directly would prove `covers` linear and leave the summing
+    comprehension -- the thing the reviewer found, and the thing a later
+    caller could write again -- entirely unwatched.  Measured: with the
+    comprehension re-injected the ENTIRE suite stayed green before this
+    control existed, the generated growth property included, since that
+    property's corpus is a block-level text and never reaches the seed.
+
+    Counted by `_count_lines` over the entry-point module, where both the
+    comprehension and the `covers` call site live; `covers` itself is in
+    another file and traces nothing here, which is the point -- the fixed path
+    executes one line per token and the defect executes one per token per
+    span.  Measured 1,658 / 3,458 source lines fixed (x2.09 for 4x the input)
+    against 81,858 / 1,284,258 re-injected (x15.7).
+
+    The LOWER bound is the seed itself: the run must report exactly one
+    LEX-UNSUPPORTED? finding naming the declared id, or the scan measured
+    above walked a keep-set that was empty and this control would be green
+    over nothing."""
+    def run(n, limit):
+        c = _count_lines(M, limit=limit)
+        res = _on_pipeline(M, "<div>\n" + ("9z note.md " * n) + "\n</div>", c)
+        seeds = [f for f in res.findings if f[0] == "LEX-UNSUPPORTED?"]
+        return c.lines, res.rc, seeds
+
+    try:
+        small, rc_s, seeds_s = run(200, 10 ** 7)
+        big, rc_b, seeds_b = run(800, 4 * small + 2000)
+    except _WorkExceeded:
+        return False, ("a raw line of 800 id tokens and 800 file names cost more than 4x the 200 "
+                       "line's work: the seed tests every span per token, not the one that can reach it")
+    if rc_s or rc_b or len(seeds_s) != 1 or len(seeds_b) != 1:
+        return False, ("the seed did not fire over the probe (rc %d / %d, %d / %d finding(s)): the "
+                       "keep-set was empty and the scan above walked nothing"
+                       % (rc_s, rc_b, len(seeds_s), len(seeds_b)))
+    if "9z" not in seeds_b[0][3]:
+        return False, "the seed fired without naming the declared id: %r" % (seeds_b[0][3][:80],)
+    return True, ("%d / %d source lines of the entry point for 200 / 800 id-and-file-name pairs on one "
+                  "raw line (<= 4x the work for 4x the input), one seed finding naming `9z` each time"
+                  % (small, big))
+
+
+def linear_licence_scan_control(M):
+    """The linearity witness for the licensing rule's BACKWARD look: a
+    paragraph of N mentions hands `LICENSE_BEFORE` O(N) characters in all, not
+    O(N*N).
+
+    THE DEFECT WAS MINE AND IT WAS THE COST HALF OF A CORRECTNESS FIX (PR #510
+    R31-4).  R24 deleted a 40-character slice whose index 0 let the pattern's
+    lookbehind succeed against nothing, and handed the pattern the block's
+    whole preceding text instead (`search(m.text, 0, m.start)`).  That was
+    right about the boundary -- "immediately before" is a fact of the grammar,
+    not a width -- and wrong about the cost: every mention of the block now
+    scanned from the block's start, so N mentions scanned O(N*N) characters.
+    The reviewer measured 0.31 / 1.40 / 4.88 / 19.09 s over `9z unrelated
+    words.` repeated 1,000 / 2,000 / 4,000 / 8,000 times.  `licence_starts` is
+    the bound now, and it is the same KIND of fact as the deleted width was
+    not: the offsets at which a phrase may begin, read once per block.
+
+    THE MEASURE IS THE SPAN, BECAUSE NOTHING ELSE MOVES.  Both readings make
+    one pattern application per mention, execute the same handful of source
+    lines and touch no list a counter could watch; what grows is the text the
+    C engine is handed, which is `_count_pattern_spans`' subject and the
+    reason that witness exists.  Measured: with the unbounded search
+    re-injected the ENTIRE suite stayed green before this control existed.
+
+    TWO SHAPES, and the second is the one that keeps the cheapest wrong answer
+    out.  (a) `9z unrelated words.` x N -- no licensing keyword anywhere, so
+    the index is empty, the pattern is applied ZERO times, and the re-injected
+    search hands it 398,000 then 6,392,000 characters (x16.06).  (b) `mintage
+    9z words.` x N -- a keyword literal (`mint`) that begins no phrase, so the
+    index offers one candidate per mention and the pattern IS applied, over 8
+    characters each: 1,600 then 6,400, exactly 4x for 4x.  Shape (a) alone
+    would be passed by an index that answered "nowhere" to everything, which
+    licenses nothing and is the cheapest possible index; (b)'s LOWER bound --
+    one application per mention -- is what reports that."""
+    import plan_memo_roles       # the freshly loaded module
+
+    out = []
+    for label, unit, per in (("no keyword", "9z unrelated words. ", 0),
+                             ("keyword that begins no phrase", "mintage 9z words. ", 40)):
+        seen = {}
+        for n in (200, 800):
+            c = _count_pattern_spans(plan_memo_roles, "LICENSE_BEFORE", limit=per * n + 400)
+            try:
+                res = _on_pipeline(M, unit * n, c)
+            except _WorkExceeded:
+                return False, ("%d mentions with %s handed LICENSE_BEFORE more than %d characters: "
+                               "the backward look is scanning from the block's start"
+                               % (n, label, per * n + 400))
+            if res.rc:
+                return False, "the probe for %s is a schema miss (rc %d), not a run" % (label, res.rc)
+            seen[n] = (c.chars, c.calls, len(res.mentions))
+        if seen[800][2] < 800:
+            return False, ("the %s probe produced %d mention(s) for 800 repetitions: the scan measured "
+                           "above walked nothing" % (label, seen[800][2]))
+        if seen[800][0] > 4 * seen[200][0] + 400:
+            return False, ("%d / %d characters handed to LICENSE_BEFORE for 200 / 800 mentions with %s: "
+                           "%.1fx the work for 4x the input"
+                           % (seen[200][0], seen[800][0], label, seen[800][0] / max(seen[200][0], 1)))
+        if per and seen[800][1] < 800:
+            return False, ("the %s probe applied LICENSE_BEFORE %d time(s) over 800 mentions: an index "
+                           "that offers no candidate licenses nothing and is the cheapest wrong answer"
+                           % (label, seen[800][1]))
+        out.append("%s %d / %d characters in %d / %d application(s)"
+                   % (label, seen[200][0], seen[800][0], seen[200][1], seen[800][1]))
+    return True, ("for 200 / 800 mentions, at most 4x the characters for 4x the input: %s"
+                  % "; ".join(out))

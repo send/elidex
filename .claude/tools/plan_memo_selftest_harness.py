@@ -17,10 +17,10 @@ MECHANISM the controls share:
     run `check()`, the checker's ONE pipeline;
   * `measure` / `control` -- the one factory that turns a `Case` record into
     a control (exact comparison, never `>=`);
-  * `_count_calls` / `_count_lines` / `_count_line_sites` / `_CountedList` --
-    deterministic work witnesses for the linearity controls (a wall-clock
-    bound flaked on contended hosts in both directions; a work count does
-    not).
+  * `_count_calls` / `_count_lines` / `_count_line_sites` / `_CountedList` /
+    `_count_pattern_spans` -- deterministic work witnesses for the linearity
+    controls (a wall-clock bound flaked on contended hosts in both directions;
+    a work count does not).
 
 EVERY TEXT I/O CALL HERE NAMES ITS ENCODING (PR #510 R26-4).  The checker
 advertises "Python 3.9+, standard library only" and reads production memos as
@@ -340,3 +340,68 @@ class _CountedList(list):
     def __len__(self):
         self._read()
         return list.__len__(self)
+
+
+class _count_pattern_spans:
+    """Tally the CHARACTERS a compiled pattern held by `module.<name>` is
+    handed -- `(endpos or len(subject)) - pos` per application, in `.chars`,
+    with the applications in `.calls` -- and stop the block past `limit`.
+
+    THE FIFTH WITNESS, AND THE FIRST WHOSE SUBJECT IS THE `re` ENGINE (PR #510
+    R31-4).  The other four count Python: calls of a module binding, source
+    lines executed in a file, executions of one source line, reads of a list.
+    A pattern applied once per site over a span that grows with the block is
+    quadratic without moving any of those numbers -- one call, one source
+    line, one list read, every time -- because the growth is inside the C
+    engine, which executes no traced frame.  What DOES grow is the span, so
+    that is what this counts.
+
+    ⚠ IT IS AN UPPER BOUND ON WORK, NOT A MEASURE OF IT, and the two methods
+    differ: `search` scans the span, so its work really is proportional to
+    what it is handed, while `match` is ANCHORED at `pos` and its work is
+    bounded by the pattern however much text stands ahead.  A control that
+    tallies both is therefore conservative in the safe direction -- it can
+    only over-count an anchored call -- and a bound it passes is a bound the
+    engine's real work passes too.
+
+    The proxy delegates to the real pattern and returns exactly what it
+    returns, so every verdict under the witness is the production verdict: the
+    subject reads its own input, and nothing of its guard is stubbed."""
+
+    def __init__(self, module, name, limit):
+        self.module, self.name, self.limit = module, name, limit
+        self.chars, self.calls = 0, 0
+
+    def _tally(self, subject, pos, endpos):
+        self.calls += 1
+        self.chars += (len(subject) if endpos is None else endpos) - pos
+        if self.limit is not None and self.chars > self.limit:
+            raise _WorkExceeded()
+
+    def __enter__(self):
+        self._orig = orig = getattr(self.module, self.name)
+        tally = self._tally
+
+        class _Proxy:
+            def __getattr__(_self, attr):
+                return getattr(orig, attr)
+
+        def _make(method):
+            def call(_self, subject, pos=0, endpos=None):
+                tally(subject, pos, endpos)
+                fn = getattr(orig, method)
+                return fn(subject, pos) if endpos is None else fn(subject, pos, endpos)
+            return call
+
+        # The three APPLICATION methods are counted; everything else a caller
+        # might reach for (`finditer`, `pattern`, `flags`) falls through
+        # `__getattr__` to the real pattern, so there is ONE delegation path
+        # and no list of method names to keep.
+        for method in ("match", "search", "fullmatch"):
+            setattr(_Proxy, method, _make(method))
+        setattr(self.module, self.name, _Proxy())
+        return self
+
+    def __exit__(self, *exc):
+        setattr(self.module, self.name, self._orig)
+        return False

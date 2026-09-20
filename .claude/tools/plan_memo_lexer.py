@@ -819,7 +819,10 @@ def inline_pass(s, defs):
             # standing in the stream, so `![KIND [UNDETERMINED](x)](img.png)`
             # -- which renders the alt text `KIND UNDETERMINED` -- read as
             # `KIND [UNDETERMINED`, the kind phrase was not there, and a row
-            # with a nonempty `Deps` left the census at rc 0 (PR #510 R31-1).
+            # with a nonempty `Deps` left the census at rc 0 (PR #510 R30-3 --
+            # R30's THIRD finding, which the round's own fetch did not page
+            # far enough to see; the disposition that called R30 two findings
+            # is corrected at R31).
             dem_img.append((img_bottom, len(images)))
             while out and out[-1][0] > pos:
                 images.append(out.pop()[:2] + ("demoted",))

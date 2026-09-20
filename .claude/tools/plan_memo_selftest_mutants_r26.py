@@ -21,11 +21,12 @@ runner reads the one list at one import site.
 """
 
 from plan_memo_selftest_cases_r26 import (
-    R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED,
+    R30_3_DEMOTED_TAIL, R30_3_IMAGE_OPENER, R30_3_LINK_OPENER, R30_3_LOUD_MISS,
+    R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED, R31_1_RENDERED_HEADER,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
-    POPULATION, R27_GROWTH, SIBLING, STREAM, TABLES, TOKENS,
+    POPULATION, R27_GROWTH, ROLES, SIBLING, STREAM, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -571,4 +572,147 @@ MUTANTS += [
      '    delims[k].dead = True',
      '    delims[k].dead = True',
      [R31_EMPHASIS_LINEAR]),
+]
+
+
+# -- PR #510 Codex R30-3: three pieces of markup inside a resolved image's
+# description, each disposed of wrongly and each with its own mutant, because
+# each probe moves under exactly one of them (measured: every other pair
+# survives).  §6.4 reduces a description to the plain string content of its
+# inline children -- the children's TEXT, none of their markup.
+MUTANTS += [
+    ("R30-3 §6.4: a demoted link's `[` stays a mark (re-inject the pop: the bracket stands in the "
+     "stream and a phrase crossing it is not there)", LEXER,
+     '                images.append(out.pop()[:2] + ("demoted",))\n',
+     '                images.append(out.pop()[:2] + ("demoted",))\n                opens.pop()\n',
+     [R30_3_LINK_OPENER]),
+    ("R30-3 §6.4: a DEMOTED construct's extent renders NOTHING, so it disposes as a mark and not as "
+     "a blank (put the blank back: the two sides of a demoted tail become two runs)", STREAM,
+     'base += [(a, b, "mark" if k == "demoted" else "image") for a, b, k in lx.images]',
+     'base += [(a, b, "image") for a, b, _k in lx.images]',
+     [R30_3_DEMOTED_TAIL]),
+    # ONE edit, TWO controls, and they are the two DIRECTIONS of the same
+    # clause: with the opener unrecorded a phrase that crosses a nested image's
+    # `![` reads as text that is not there (the first), and a phrase that
+    # straddles a top-level image's `![` stops straddling anything, so the
+    # near-miss the checker owes its reader is not reported at all (the
+    # second).  A row naming only the first would leave the loud half -- which
+    # is the half that keeps a real miss from exiting 0 -- unwitnessed.
+    ("R30-3 §6.4: a RESOLVED image's own `![` is recorded (drop the record: it stands in the stream "
+     "as literal text, where a reader sees either a picture or nothing at all)", LEXER,
+     '            images.append((pos - 1, pos + 1, "open"))\n', '',
+     [R30_3_IMAGE_OPENER, R30_3_LOUD_MISS]),
+]
+
+
+# -- PR #510 Codex R31-1: a table's schema is what its header RENDERS.  Two
+# clauses, two rows: the comparison itself, and the phase order that makes a
+# rendering available to it.  Both land on the same control, because both
+# leave the linked memo's table unbound and its whole population silently
+# outside the run -- which is the finding.
+MUTANTS += [
+    ("R31-1 §2.5: a table's schema is matched on what its header RENDERS (compare the RAW cell text: "
+     "a `&#35;` header is no schema and the memo's rows leave the run at rc 0)", TABLES,
+     "        rendered_header = [rendered(c.lexed) for c in self.header.cells]",
+     "        rendered_header = [c.text for c in self.header.cells]",
+     [R31_1_RENDERED_HEADER]),
+    ("R31-1 phase order: the header cells are lexed BEFORE the tables bind (drop the pre-resolve: "
+     "`rendered` then reads a cell that has not been through the inline pass, which is its raw text "
+     "again -- the same silent skip by the other clause)", MEMO,
+     "        for t in self.tables:\n"
+     "            for cell in t.header.cells:\n"
+     "                cell.lexed.resolve(self.defs)\n"
+     "            t.bind()\n",
+     "        for t in self.tables:\n            t.bind()\n",
+     [R31_1_RENDERED_HEADER]),
+]
+
+
+# -- PR #510 Codex R31-3 and R31-4: two quadratic scans, each re-injected
+# here.  ⚠ BOTH SURVIVED THE WHOLE SUITE BEFORE THEIR CONTROLS WERE WRITTEN --
+# measured, with each defect put back into the checker on disk and the full
+# self-test run: 0 failures, the generated growth property included.  So this
+# is not a pair of rows confirming what a sweep already saw; it is the proof
+# that the two new work controls are the only thing watching these clauses.
+R31_RAW_SEED_LINEAR = ("the always-run raw-content seed is linear: N id tokens and N file names on one "
+                       "raw line are one pass, not a span sum per token")
+R31_LICENCE_LINEAR = ("the licensing rule's backward look is linear: N mentions hand LICENSE_BEFORE "
+                      "O(N) characters in all, not one growing prefix each")
+
+MUTANTS += [
+    ("R31-3 raw seed: a token asks the ONE span that can reach it (re-inject the sum over every span: "
+     "N tokens x N file names on one line)", CHECK,
+     "and not covers(spans, t.idstart, t.idend)",
+     "and not any(a < t.idend and t.idstart < b for a, b, _ in spans)",
+     [R31_RAW_SEED_LINEAR]),
+    ("R31-4 licensing: the backward look starts at the last offset a phrase may begin at (re-inject "
+     "R24's search from the block's start: one growing prefix per mention)", ROLES,
+     "    starts = m.licence\n"
+     "    j = bisect.bisect_left(starts, m.start) - 1\n"
+     "    m.licensed = bool((j >= 0 and LICENSE_BEFORE.match(m.text, starts[j], m.start))\n"
+     "                      or LICENSE_AFTER.match(m.text, m.end))",
+     "    m.licensed = bool(LICENSE_BEFORE.search(m.text, 0, m.start)\n"
+     "                      or LICENSE_AFTER.match(m.text, m.end))",
+     [R31_LICENCE_LINEAR]),
+    # The cheapest wrong answer, and the row that says the upper bound alone
+    # does not report it: an index that offers NO candidate makes every
+    # backward span zero, licenses nothing, and passes any bound on the
+    # characters handed to the pattern.  It is the licensing rule's
+    # `return False` -- the same shape `linear_html_attempts_control` had to
+    # add a lower bound for at R26-3.
+    ("R31-4 licensing: the index offers the candidates rather than none (return an empty index: the "
+     "cheapest possible bound, which licenses nothing and passes every upper bound)", ROLES,
+     "    return [m.start() for m in _LICENCE_KEYWORD.finditer(text)]",
+     "    return []",
+     [R31_LICENCE_LINEAR]),
+]
+
+
+# -- PR #510 R31-4, the correctness half: the index the backward look is
+# bounded by.  Three rows, one per way the argument it rests on can fail --
+# a keyword that leaves the set, a literal the set holds only a truncation of,
+# and the reachability claim itself (the LAST candidate before the mention is
+# the only one that can reach it).
+R31_LICENCE_INDEX = ("PROPERTY: the licensing rule's backward index decides what the whole preceding "
+                     "text decides, at every position of a generated corpus -- and every phrase opens "
+                     "with a literal the index holds")
+
+MUTANTS += [
+    ("R31-4 index: every phrase's literal is IN the index (drop one keyword: that phrase's sites "
+     "leave the index silently and stop being licensable)", ROLES,
+     '    "|".join(sorted({m.group() for m in\n'
+     '                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES) if m})),',
+     '    "|".join(sorted({m.group() for m in\n'
+     '                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES)\n'
+     '                     if m and m.group() != "mint"})),',
+     [R31_LICENCE_INDEX]),
+    ("R31-4 index: the index keys on a phrase's WHOLE literal prefix (key on the first four letters: "
+     "`deri` is a superset that still matches, so only the structural half reports it)", ROLES,
+     '                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES) if m})),',
+     '                     (re.match(r"[a-z]{1,4}", p) for p in _LICENCE_PHRASES) if m})),',
+     [R31_LICENCE_INDEX]),
+    # The QUANTIFIER hazard, and the reason (a) is not merely a restatement of
+    # the derivation: `mints?` matches `mint ` while the greedy literal run the
+    # index keys on is `mints`, so every site spelling the shorter form leaves
+    # the index -- a phrase re-spelled this way silently narrows what the
+    # checker can license.  Both halves of the control report it, and that is
+    # on purpose: the corpus holds `mint ` so the ORACLE sees this one, while
+    # (a) is what covers the same re-spelling of a phrase no fragment builds.
+    ("R31-4 index: no phrase quantifies the last character of its own literal (re-spell `mint(?:s|ed|"
+     "ing)?` as `mints?(?:ed|ing)?`: the index keys on `mints` and `mint ` stops being licensable)",
+     ROLES,
+     r'    r"mint(?:s|ed|ing)?\s+(?:onto\s+)?",     # ... mints / minted / minting X',
+     r'    r"mints?(?:ed|ing)?\s+(?:onto\s+)?",     # ... mints / minted / minting X',
+     [R31_LICENCE_INDEX]),
+    # The reachability claim, and the one row that tests it rather than the
+    # index's contents: with the FIRST candidate taken instead of the last,
+    # `children of children of 9z` is read from the outer `child`, where the
+    # phrase does not reach the mention -- so a licensed site is reported.
+    ("R31-4 index: the LAST candidate before the mention is the one applied (take the first: a match "
+     "beginning earlier cannot reach the mention, which is the whole argument)", ROLES,
+     "    j = bisect.bisect_left(starts, m.start) - 1\n"
+     "    m.licensed = bool((j >= 0 and LICENSE_BEFORE.match(m.text, starts[j], m.start))",
+     "    j = 0 if starts and starts[0] < m.start else -1\n"
+     "    m.licensed = bool((j >= 0 and LICENSE_BEFORE.match(m.text, starts[j], m.start))",
+     [R31_LICENCE_INDEX]),
 ]

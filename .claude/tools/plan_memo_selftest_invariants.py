@@ -674,4 +674,104 @@ def registry():
             ("CONTROL", row_noun_schema_control),
         "PROPERTY: _straddles answers its own definition (a character inside a blank and a character outside every blank), over every blank layout of eight positions and every extent inside it":
             ("CONTROL", straddle_definition_control),
+        "PROPERTY: the licensing rule's backward index decides what the whole preceding text decides, at every position of a generated corpus -- and every phrase opens with a literal the index holds":
+            ("CONTROL", licence_index_control),
     }
+
+
+def licence_index_control(M):
+    """PROPERTY: the licensing rule's backward INDEX and the whole preceding
+    text decide the same question, at every position of a generated corpus --
+    and every phrase of `_LICENCE_PHRASES` opens with a literal the index
+    holds.
+
+    THE CONTROL `plan_memo_roles` NAMES TWICE (PR #510 R31-4).  R31-4 replaced
+    an unbounded backward `search` with `LICENSE_BEFORE.match` applied at ONE
+    offset -- the last candidate `licence_starts` offers before the mention --
+    on an argument rather than a measurement: every branch of the pattern
+    opens with a plain literal, so a match can only START where one of those
+    literals stands, and of the candidates before a mention only the last can
+    reach it (a match beginning earlier would have to CONTAIN that candidate,
+    and what a phrase spells is its own keyword, whitespace and the words
+    `of` / `that` / `onto` / `the`, none of which holds a keyword).  The
+    argument is load-bearing in the DANGEROUS direction: a candidate the index
+    misses is a licensing phrase the checker stops seeing, which turns a
+    suppression into a report -- and, worse, a phrase ADDED to the tuple later
+    whose sites the index never offers.  This is the control that was cited in
+    both places as stating it, and was never written.
+
+    TWO HALVES, and the second is why the first is not enough.  (a) STRUCTURAL:
+    each phrase's source opens with a run of lowercase letters, the index holds
+    that run EXACTLY (neither a truncation of it nor an extension of it), and
+    the run's last character is not quantified away -- `mints?\\s+` would key
+    the index on `mints` while the phrase itself matches `mint `, so every site
+    spelling the shorter form would leave the index.  (b) ORACLE: over a corpus
+    generated from licensing fragments, near-misses and fillers, the indexed
+    verdict equals `LICENSE_BEFORE.search(text, 0, start)` -- the reading R24
+    established and R31-4 bounded -- at EVERY position of every text, not at
+    the positions a defect was once found at.  (a) alone passes an index whose
+    literals are right and whose reachability argument is wrong; (b) alone
+    passes an index that is correct today and silently drops the next phrase
+    added above it, because no generated fragment spells a phrase that is not
+    in the tuple yet -- so (a) is what makes the NEXT phrase covered rather
+    than the next round's finding.
+
+    HONESTLY, WHAT IT CANNOT SEE: the corpus is composed from fragments this
+    control spells, so a licensing phrase reachable only through text no
+    fragment builds is outside it.  That is the same limit every generated
+    corpus in this suite has, and the reason (a) is stated over the tuple
+    itself rather than inferred from (b)'s agreement."""
+    import plan_memo_roles
+
+    phrases = plan_memo_roles._LICENCE_PHRASES
+    keywords = set()
+    for p in phrases:
+        m = re.match(r"[a-z]+", p)
+        if not m:
+            return False, ("a licensing phrase opens with no plain literal, so no offset of it enters "
+                           "the index and its sites are silently unlicensable: %r" % p[:40])
+        if not plan_memo_roles._LICENCE_KEYWORD.fullmatch(m.group()):
+            return False, ("the index does not hold the literal %r that %r opens with"
+                           % (m.group(), p[:40]))
+        if p[m.end():m.end() + 1] in ("?", "*", "{"):
+            return False, ("%r quantifies the LAST character of the literal it opens with, so the "
+                           "index keys on %r and every site that omits that character leaves it"
+                           % (p[:40], m.group()))
+        keywords.add(m.group())
+
+    # The corpus: licensing openers, their near-misses (a keyword that begins
+    # no phrase, and a longer word the keyword is a prefix of), and fillers.
+    # `mint ` earns its place: it is the shorter form of a phrase whose keyword
+    # is an optional-suffix stem, which is the shape (a)'s quantifier test
+    # names -- so the two halves see that one failure independently.
+    frags = ["child ", "child of ", "children of ", "derivation ", "derivation that ",
+             "naming ", "mint ", "mints ", "minted ", "mints onto ", "the ", "x ",
+             "mintage ", "childish ", "renaming ", "", " "]
+    texts = {a + b for a in frags for b in frags}
+    texts |= {a + b + c for a in frags for b in frags for c in ("child ", "mints ", "x ", "")}
+    # `classify` itself is the reader, handed a mention record shaped as the
+    # production one is -- the text, the extent, and the block's index -- so
+    # what this compares is the production verdict and not a second
+    # implementation of the bisect beside it.
+    class _Mention:
+        __slots__ = ("text", "start", "end", "licence", "licensed")
+
+    bad, n = [], 0
+    for text in sorted(texts):
+        subject = text + "9z"
+        starts = plan_memo_roles.licence_starts(subject)
+        for start in range(len(subject) + 1):
+            n += 1
+            m = _Mention()
+            m.text, m.start, m.end, m.licence = subject, start, min(start + 2, len(subject)), starts
+            got = bool(plan_memo_roles.classify(m).licensed)
+            want = bool(plan_memo_roles.LICENSE_BEFORE.search(subject, 0, m.start)
+                        or plan_memo_roles.LICENSE_AFTER.match(subject, m.end))
+            if got != want and len(bad) < 4:
+                bad.append("%r at %d: the index reads %s, the whole preceding text reads %s"
+                           % (subject, start, got, want))
+    if bad:
+        return False, "the index and the whole preceding text disagree: %s" % "; ".join(bad)
+    return True, ("%d phrase(s) opening with a literal the index holds (%s); %d position(s) over %d "
+                  "generated texts where the indexed verdict is the whole preceding text's"
+                  % (len(phrases), "/".join(sorted(keywords)), n, len(texts)))

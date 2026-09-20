@@ -122,8 +122,17 @@ LICENSE_AFTER = re.compile(
 # pattern had stopped rejecting (measured, PR #510 R31-4).  A superset of the
 # starts is all this needs to be -- what it must never do is miss one -- and
 # the pattern applied at each of them is the one reader of the edge.
+# ⚠ A phrase that opens with no plain literal CONTRIBUTES NOTHING here rather
+# than raising, and that is deliberate: an exception at import would make
+# `licence_index_control` a CRASH instead of a red control, and a crash proves
+# nothing about the clause (the mutation proof counts one as a failure for
+# exactly that reason).  The control states the property in both directions --
+# each phrase opens with a literal that this set holds, and the index agrees
+# with the whole preceding text at every position of a generated corpus -- so a
+# phrase whose sites would silently leave the index is named there.
 _LICENCE_KEYWORD = re.compile(
-    "|".join(sorted({re.match(r"[a-z]+", p).group() for p in _LICENCE_PHRASES})),
+    "|".join(sorted({m.group() for m in
+                     (re.match(r"[a-z]+", p) for p in _LICENCE_PHRASES) if m})),
     re.IGNORECASE | re.ASCII,
 )
 
