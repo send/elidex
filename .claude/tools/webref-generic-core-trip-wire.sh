@@ -101,7 +101,7 @@ for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
   # (#501 R75, found by the control for the symlinked entry script).
   [ -e "$p" ] || [ -L "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
-# `git grep` takes pathspecs relative to the directory it runs in.
+# `git ls-files` takes pathspecs relative to the directory it runs in.
 REL_DIR="${SCOPE_DIR#$ROOT/}"; [ "$REL_DIR" != "$SCOPE_DIR" ] || REL_DIR="."
 REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#$ROOT/}"
 
@@ -118,33 +118,12 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#$ROOT/}"
 # rather than guessed at here.
 K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 
-# ⚠ An untracked file under the package is exactly where a violation lands
-# during authoring, which is why the scan is `--no-index` (it reads working-tree
-# contents, not the index) and `-a` (binary contents are searched, not skipped).
-# This comment described the opposite — "a filesystem walk, not `git grep`", and
-# "`-I` skips binaries" — for one round after the walk became git's (#501 R76).
-# Both were the load-bearing choices, stated backwards.
-
-# FAIL CLOSED ON A FILE IT CANNOT READ.  grep exits 0 on a match, 1 on none and
-# **2 on an error** — and an unreadable file is an error, not an absence.  An
-# earlier revision discarded both, so a mode-000 file carrying a host path was
-# counted in "scanned N" and reported nothing: the wire printed its ABSOLUTE
-# over a file it had never read (#501 R70, reproduced).  ONE arm, not two: a
-# revision of this fix also ran a `-r` test, and measured, either arm alone
-# catches the unreadable case, so each made the other's mutation survive.  `rc`
-# is the more general of the pair — it also covers a read that fails after it
-# starts, and a path that stops being a regular file between `find` and `grep`
-# — so the redundant test is gone rather than kept for tidiness.
-#
-# AND IT SCANS BINARY CONTENT.  `grep -I` is `--binary-files=without-match`: a
-# file holding a NUL is reported as *not matching* rather than as unscannable,
-# so an earlier revision counted such a file in "scanned N" and certified K2
-# over content it had skipped — measured with a fixture holding
-# `\0.claude/skills/new-policy/rule.md\0`, which read GREEN (#501 R71).  `-a`
-# treats every byte as text, so the predicate covers every file the count
-# claims.  Matching is `-o`, so the report stays the matched path and not a
-# binary dump.  (Two empty `__init__.py` here are already classified binary by
-# `file --mime`, which is how little "binary" has to mean for this to matter.)
+# ⚠ Three superseded accounts of the scanner lived here until #501 R81 — one
+# describing `git grep --no-index` and `-a`/`-I`, one the `rc >= 2` arm, one
+# the binary handling.  Each was true when written and wrong within a round or
+# two of the next change, and each produced a finding of its own (R76, R80,
+# R81).  They are deleted rather than corrected: the block below is the one
+# account, the same collapse §12(3) made for the memo.
 # THE WALK IS GIT'S, AND THE POPULATION IS GIT'S ANSWER.  Eight review rounds
 # (#501 R69-R79) found ten ways for a hand-rolled walk to certify K2 over
 # something it had not examined — a file it could not read, one whose content
