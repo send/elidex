@@ -362,7 +362,8 @@ lands once. Nothing here is near CLAUDE.md's 1000-line touch-time split threshol
 re-derivation harness and the 700-800 *authoring band* this program used for it. That harness is not in this
 PR (§15), so its budget is not A-i's to state. What is A-i's is the table above and the judgement below.
 
-⚠ **This memo is 780 lines and the third design re-gate asked whether it should split: no.** CLAUDE.md's
+⚠ **This memo is ~700 lines (`wc -l` — the figure moves with every edit to it, so re-run rather than
+read) and the third design re-gate asked whether it should split: no.** CLAUDE.md's
 touch-time split discipline is scoped to files **over 1000 lines** with a real cohesion seam. Splitting a
 memo one review round from landing would also re-create, across two documents, the figure-with-two-homes
 defect that same gate had just removed from the umbrella's slice table.

@@ -21,13 +21,14 @@
 # this wire flagged `docs/note.md` (a synthetic filename inside a test
 # assertion) and `docs/code` (the prose phrase "affected docs/code").
 #
-# A path INTO elidex's tree is one that RESOLVES inside elidex's tree.  That is
-# a fact this wire can check rather than a shape it has to predict, and it
-# separates the two classes above by construction: neither synthetic name
-# exists, `.claude/skills/elidex-review/axes.md` does.  The one deliberate
-# exemption is the tool's own install path `.claude/tools/webref` — an
-# invocation example is not a path into the tree, and DESIGN.md's usage lines
-# carry it.
+# So the predicate is SYNTACTIC — `<top-level entry>/<something>`, globs
+# included — and the handful of strings that are genuinely not paths are named
+# in `NOT_A_PATH` below, where adding one is a visible edit.  ⚠ An earlier draft
+# instead asked whether the path RESOLVES on disk, which reads greener than it
+# should: a path to a file that is planned, renamed away, or written as a glob
+# is still a path into the host tree.  The one deliberate exemption is the
+# tool's own install path `.claude/tools/webref` — an invocation example is not
+# a path into the tree, and DESIGN.md's usage lines carry it.
 #
 # ⚠ WHAT THIS WIRE DOES NOT COVER, stated so a green is not read as more than
 # it is: a BARE top-level name, used with no separator after it.  The predicate
@@ -58,24 +59,45 @@ for p in "${SCOPE[@]}"; do
   [ -e "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
 
-# The repo's own top-level entries ARE the host-project vocabulary.  Deriving
-# the set from the filesystem rather than writing it down is what keeps a new
-# top-level directory from being invisible to this wire on the day it appears.
-mapfile -t TOP < <(cd "$ROOT" && git ls-tree --name-only HEAD | grep -vE '^\.(gitignore|gitattributes)$')
-[ "${#TOP[@]}" -gt 3 ] || { echo "!! derived only ${#TOP[@]} top-level entries; the predicate would be near-vacuous" >&2; exit 2; }
-
+# The top-level vocabulary is derived INSIDE the python below, not here.  An
+# earlier draft read it with `mapfile`, which is bash 4; `/bin/bash` on stock
+# macOS is 3.2, so under `mise run ci` this wire aborted on `set -e` before
+# scanning anything — a wire that cannot run is worse than no wire, and the
+# driver records that same hazard class at `scripts/trip-wires.sh:24-26`.
+#
 # A filesystem walk, not `git grep`: an untracked file under the package is
 # exactly where a violation lands during authoring, and `git grep` reads the
 # index.  (Measured on this repo: a plant in an unstaged file read GREEN.)
-python3 - "$ROOT" "${TOP[@]}" <<'PY'
-import os, re, sys
+python3 - "$ROOT" <<'PY'
+import os, re, subprocess, sys
 
-root, tops = sys.argv[1], sys.argv[2:]
+root = sys.argv[1]
+# The repo's own top-level entries ARE the host-project vocabulary.  Deriving
+# the set rather than writing it down is what keeps a new top-level directory
+# from being invisible to this wire on the day it appears.
+tops = [t for t in subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "HEAD"],
+                                  capture_output=True, text=True, check=True).stdout.split()
+        if t not in (".gitignore", ".gitattributes")]
+if len(tops) < 4:
+    raise SystemExit("!! derived only %d top-level entries; the predicate would be near-vacuous" % len(tops))
 scope = [os.path.join(root, ".claude/tools/_webref"), os.path.join(root, ".claude/tools/webref")]
 # `<top>/<something>` — the trailing segment is what makes it a path INTO the
 # tree rather than a bare mention of a directory's name in prose.
-PATH_RE = re.compile(r"(?<![\w/.-])(" + "|".join(re.escape(t) for t in tops) + r")/[\w./-]+")
+# `[\w./-]` alone missed a GLOB (`crates/**/*.rs`), which is still a path into
+# the host tree; `*` and `?` join the class.
+PATH_RE = re.compile(r"(?<![\w/.-])(" + "|".join(re.escape(t) for t in tops) + r")/[\w./*?-]+")
 EXEMPT = {".claude/tools/webref"}
+# ⚠ EXISTENCE IS NOT THE TEST, and an earlier draft made it one.  A path the
+# package should not name is no less one for pointing at a file that is planned,
+# renamed away, or matched by a glob — `docs/new-policy.md` would have read
+# GREEN purely for not existing yet.  So every syntactic match counts, and the
+# two things that are genuinely NOT paths are named instead: the synthetic
+# filename a test asserts on, and prose that happens to contain a slash.  Both
+# are listed, so adding one is a visible edit rather than a silent widening.
+NOT_A_PATH = {
+    "docs/note.md",   # test_agent_brief.py's synthetic fixture name
+    "docs/code",      # DESIGN.md prose: "affected docs/code"
+}
 
 def files():
     for s in scope:
@@ -101,7 +123,7 @@ for path in files():
         for m in PATH_RE.finditer(line):
             # Prose ends sentences; a path does not end in a period.
             cand = m.group(0).rstrip(".,;:")
-            if cand in EXEMPT or not os.path.exists(os.path.join(root, cand)):
+            if cand in EXEMPT or cand in NOT_A_PATH:
                 continue
             hits.append(f"{os.path.relpath(path, root)}:{n}: {cand}")
 
