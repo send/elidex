@@ -225,7 +225,7 @@ The A/B region boundaries the `spec_labels.py` rows rest on → `git diff origin
 | `cli.py` — blurb derivation | import `SHORTNAME_TO_BLURB`; the derived block must reproduce `origin/main`'s literal byte-identically (S3b) |
 | `cli.py` — the new derivation comment | authored without the B artifact name (K3) |
 | `cli.py:78` — `.claude/skills/elidex-review/axes.md.` | **by-role rewrite** (K2, absolute) — one of the **two** pre-existing instances |
-| `.claude/tools/webref:5` — the same string in the entry point's docstring | **by-role rewrite**, the second instance. Outside `_webref/` but inside `.claude/tools/`, which is what K2 now scopes over |
+| `.claude/tools/webref:5` — the same string in the entry point's docstring | **by-role rewrite**, the second instance. Outside `_webref/`, and named by K2 explicitly: its scope is `_webref/` **plus this one entry script**, not `.claude/tools/`. ⚠ **This cell said "inside `.claude/tools/`, which is what K2 now scopes" until #501 R86** — the widening §13 records as rejected, because it pulls five other-lane trip-wire artifacts into A-i's exit criterion. The wire passes exactly the two pathspecs (`SCOPE_DIR` / `SCOPE_FILE`), so the row was describing a scope neither §2 nor the instrument has over |
 | `coverage_map.py` — `_spec_label` | delegate to `label_for`; keep `origin/main`'s last-resort `.upper().replace("-", " ")` **verbatim** |
 | `DESIGN.md` — the `spec_labels.py` bullet | new bullet, verbatim below |
 | `DESIGN.md` — the `cite_audit.py` adapter paragraph + its 3 `cite-audit` example lines + the attribution-buckets paragraph | **absent in A-i**; they describe a command A-i does not ship. **B** authors them with the detector |
