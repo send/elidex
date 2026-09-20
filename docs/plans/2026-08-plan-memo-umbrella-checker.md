@@ -1687,6 +1687,34 @@ ground for either option; it is not cited.
   **Gate @ R34**: 648 controls / 360 mutants 0 survived 0 crashed / trip-wires rc 0 / census worklist
   byte-identical. Three further mutant rows were retargeted where the single-home and end-test
   rewrites moved their substrings, each reported by the runner rather than silently passing.
+  ⚠ **PR #510 Codex R35 (2026-09-20)** — **one** finding, real, **and it was MINE**: R34-1's own fix
+  created it, one round later. Trigger 07:10:30Z → assessed 07:19:26Z → processed immediately.
+  **R35 (P2)**: R34-1 admitted a fragment/query tail as permission for the run to END, and went on
+  recording the span **at the suffix**. So `notes.md#9z owns it` masked `notes.md`, left `#9z`
+  standing, and the naming scan read the id out of the remainder — **the exact split
+  `file_token_resolver_agreement_control` forbids outright, re-created by the fix that cited the rule
+  against it**. ⚠ I had reasoned about this shape at R34-1, wrote down that `notes.md#9z` would leave
+  the id exposed, and moved on. The tail is part of the NAME; the span covers it now, less trailing
+  punctuation.
+  ▶▶ **THE ROOT, and the reason this round produced a PROPERTY rather than a fourth per-shape
+  control.** Two consecutive rounds (R34-1, R35) landed on the same mechanism — the lexer's file-name
+  reading — and both landed inside the blind spot `file_token_resolver_agreement_control` DECLARES:
+  *"the correspondence is ONE-directional and only that direction is a claim."* Its corpus is bare
+  names, so a name with a TAIL was outside it entirely. `file_token_run_agreement_control` is the
+  other direction, stated over the tails the resolver strips: **a run the resolver FOLLOWS must leave
+  no declared id outside the lexer's spans.** Measured: with R34-1's defect re-injected it reds, and
+  with R35's defect re-injected it reds — **it would have caught both before the reviewer did**.
+  ⚠ Writing it cost two corrections of my own. Stated as span EQUALITY ("the span is the whole run")
+  it was both too strong and a second implementation of the subject: a run whose tail ends in prose
+  punctuation (`notes.md#frag.`) is one the resolver follows while the lexer rightly stops before the
+  period, so equality reds on correct code — and encoding where it should stop would re-spell the very
+  rule under test. The claim is what the correspondence actually forbids: **no id left for the naming
+  scan**. And a mutant for "the tail's own trailing punctuation is not part of the span" SURVIVED and
+  was retired: a period is not an id, so no predicate here can see that clause — real, but cosmetic to
+  this suite, and a row that cannot go red is worse than none.
+  **Gate @ R35**: 652 controls / 361 mutants 0 survived 0 crashed / trip-wires rc 0 / census worklist
+  byte-identical. Three further rows were retargeted where the `_terminates_run` restructure (bool →
+  span end) moved their substrings.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.

@@ -679,6 +679,8 @@ def registry():
             ("CONTROL", straddle_definition_control),
         "PROPERTY: the licensing rule's backward index decides what the whole preceding text decides, at every position of a generated corpus -- and every phrase opens with a literal the index holds":
             ("CONTROL", licence_index_control),
+        "PROPERTY: a run the sibling resolver FOLLOWS is one whole file span to the lexer -- never a prefix with the remainder left for the naming scan (the direction the correspondence forbids)":
+            ("CONTROL", file_token_run_agreement_control),
     }
 
 
@@ -801,3 +803,72 @@ def licence_index_control(M):
                   "holds (%s); %d position(s) over %d generated texts where the indexed verdict is "
                   "the whole preceding text's"
                   % (len(phrases), branches, "/".join(sorted(keywords)), n, len(texts)))
+
+
+def file_token_run_agreement_control(M):
+    """PROPERTY, the direction the correspondence names as the one that must
+    NEVER happen: a run the SIBLING RESOLVER follows to a file is ONE file span
+    to the lexer, covering the WHOLE run -- never a prefix with the remainder
+    left for the naming scan to read an id out of.
+
+    THIS IS THE BLIND SPOT `file_token_resolver_agreement_control` DECLARES,
+    and two consecutive rounds landed in it (PR #510 R34-1, R35).  That control
+    generates names the resolver accepts and checks the lexer reads them whole
+    -- but its corpus is bare names, so a name with a TAIL was outside it.
+    R34-1: the lexer masked a PREFIX of a run the resolver rejects whole
+    (`9z+notes.md_tail`), hiding the id in the prefix.  R35: the fix for R34-1
+    admitted a fragment tail as permission to STOP, so `notes.md#9z` masked
+    `notes.md` and the naming scan read `9z` out of the tail -- the forbidden
+    split, re-created by the fix that cited the rule against it.  A per-shape
+    control was written each time and the next shape arrived the next round;
+    this states the rule over the shapes instead.
+
+    THE POPULATION IS GENERATED FROM THE TAILS THE RESOLVER STRIPS, crossed
+    with an id in each position it could hide in: a stem, a fragment, a query,
+    each with and without a declared id, plus the trailing punctuation that
+    ends a name in prose.  Every run the resolver FOLLOWS is required to be one
+    whole span; a run it rejects is required only not to crash the lexer, since
+    that direction is the standing polarity (a name the lexer reads and the
+    resolver refuses is `NUL.md`, and is fine).
+
+    HONESTLY, what it cannot see: a tail shape the resolver strips that no
+    fragment below spells, and the interaction with parentheses, which
+    `file_token_resolver_agreement_control`'s own balanced-shape corpus owns."""
+    import plan_memo_ids
+    import plan_memo_sibling
+    import plan_memo_tokens
+
+    stems = ("notes.md", "slice-9z-sib.md", "9z+notes.md", "a.md")
+    tails = ("", "#frag", "#9z", "?q=1", "?q=9z", "#", "#a)b", "#9z-x", "#frag.", "#9z)")
+    with tempfile.TemporaryDirectory() as d:
+        base = pathlib.Path(d)
+        for stem in stems:
+            (base / stem).write_text("x", encoding="utf-8")
+        followed, bad = 0, []
+        for stem in stems:
+            for tail in tails:
+                run = stem + tail
+                if plan_memo_sibling.sibling_path(base, run) is None:
+                    continue            # the standing polarity; not this claim
+                followed += 1
+                spans = [(a, b) for a, b, kind in plan_memo_tokens.file_and_cite_spans(run)
+                         if kind == "file"]
+                # THE CLAIM IS "NO ID IS LEFT OUTSIDE", not "the span equals the
+                # run" (PR #510 R35).  Stated as span EQUALITY this was both too
+                # strong and a second implementation of the subject: a run whose
+                # tail ends in prose punctuation (`notes.md#frag.`) is one the
+                # resolver follows while the lexer legitimately stops before the
+                # period, so equality reds on correct code -- and encoding where
+                # it should stop would re-spell the very rule under test.  What
+                # the correspondence forbids is an ID left for the naming scan,
+                # so that is what is measured.
+                exposed = [t.id for t in plan_memo_ids.tokens(run)
+                           if not any(a <= t.idstart and t.idend <= b for a, b in spans)]
+                if exposed and len(bad) < 5:
+                    bad.append("%r -> spans %r leave %r for the naming scan"
+                               % (run, [run[a:b] for a, b in spans], exposed))
+    if followed < len(stems):
+        return False, ("only %d generated run(s) resolve to a file: the corpus cannot report this "
+                       "rule" % followed)
+    return not bad, ("%d run(s) the resolver follows, none leaving an id for the naming scan%s"
+                     % (followed, ("; " + "; ".join(bad)) if bad else ""))

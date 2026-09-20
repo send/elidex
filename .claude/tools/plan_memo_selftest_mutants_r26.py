@@ -25,6 +25,7 @@ from plan_memo_selftest_cases_r26 import (
     R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED, R31_1_RENDERED_HEADER,
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
+    R35_FRAGMENT_ID, R35_QUERY_ID,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -861,17 +862,37 @@ MUTANTS += [
 MUTANTS += [
     ("R34-1 file token: the suffix TERMINATES the run (re-inject the alphanumeric test: a prefix of a "
      "longer run is masked and the ids in it are hidden)", TOKENS,
-     "    if e < n and text[e] in \"#?\":\n        return True\n    j = e",
-     "    if e < n and not _ALNUM_AT.match(text, e):\n        return True\n    j = e",
+     "    run_end = j\n    if e < n and text[e] in \"#?\":",
+     "    run_end = j\n    if e < n and not _ALNUM_AT.match(text, e):\n        return e\n    if False:",
      [R34_1_CONTINUES]),
     ("R34-1 file token: a FRAGMENT tail is still a name (drop the `#?` arm: the resolver follows that "
      "run and the lexer breaks it into pieces -- the one direction the correspondence forbids)", TOKENS,
-     "    if e < n and text[e] in \"#?\":\n        return True\n",
-     "",
+     "    if e < n and text[e] in \"#?\":",
+     "    if e < n and False:",
      [R34_1_FRAGMENT]),
     ("R34-1 file token: a TRAILING-PUNCTUATION tail is still a name (empty the set: a sentence-final "
      "period stops ending a file name)", TOKENS,
      "_TRAILING = frozenset(\"?!.,:*_~'\\\")\")",
      "_TRAILING = frozenset()",
      [R34_1_TRAILING]),
+]
+
+
+
+# -- PR #510 Codex R35: the tail is part of the NAME, not permission to stop.
+R35_RUN_AGREEMENT = ("PROPERTY: a run the sibling resolver FOLLOWS is one whole file span to the "
+                     "lexer -- never a prefix with the remainder left for the naming scan (the "
+                     "direction the correspondence forbids)")
+
+MUTANTS += [
+    ("R35 file token: a fragment/query tail EXTENDS the span (stop at the suffix instead: the id in "
+     "the tail is left for the naming scan)", TOKENS,
+     "    if e < n and text[e] in \"#?\":",
+     "    if e < n and text[e] in \"#?\":\n        return e\n    if False:",
+     [R35_FRAGMENT_ID, R35_QUERY_ID, R35_RUN_AGREEMENT]),
+    # ⚠ A ROW FOR "the tail's own trailing punctuation is not part of the name"
+    # WAS WRITTEN AND RETIRED (R35): keeping the period INSIDE the span exposes
+    # no id -- a period is not one -- so no control here can see it, and the
+    # mutant SURVIVED. The clause is real but cosmetic to every predicate this
+    # suite has; recording that is honest, and a row that cannot go red is not.
 ]

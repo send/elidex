@@ -113,8 +113,9 @@ _TRAILING = frozenset("?!.,:*_~'\")")
 
 
 def _terminates_run(text, e, n):
-    """Whether the file-name run ENDS at `e` -- the suffix is the last of the
-    NAME, and what follows it to the run's end is not more name.
+    """The END OF THE FILE SPAN when the run ends acceptably at `e` -- the
+    suffix is the last of the NAME and what follows it is not more name -- or
+    None when the run continues into more name.
 
     TWO TAILS ARE ALLOWED, AND THE RESOLVER IS WHY (PR #510 R34-1).  It is the
     authority on "is this a name I would follow", and measured against it:
@@ -137,14 +138,23 @@ def _terminates_run(text, e, n):
     (`9z+notes.md_tail`), which the resolver rejects whole and out of which the
     old test -- "not followed by an ASCII alphanumeric" -- still masked a
     prefix, hiding the ids in it."""
-    if e < n and text[e] in "#?":
-        return True
     j = e
     while j < n and not (text[j].isspace() or text[j] in _NAME_BOUNDARY):
-        if text[j] not in _TRAILING:
-            return False
         j += 1
-    return True
+    run_end = j
+    if e < n and text[e] in "#?":
+        # THE TAIL IS PART OF THE NAME, not merely permission to stop (PR #510
+        # R35).  R34-1 admitted a fragment or query here and still recorded the
+        # span ENDING AT THE SUFFIX, so `notes.md#9z owns it` masked `notes.md`
+        # and left `#9z` standing -- the naming scan read the id out of it and
+        # reported a site.  The resolver FOLLOWS that whole run, so this is the
+        # very split the correspondence forbids, re-created by the fix that
+        # cited the correspondence.  The span therefore covers the tail, less
+        # any trailing punctuation, which is prose on this side of the reader.
+        while run_end > e and text[run_end - 1] in _TRAILING:
+            run_end -= 1
+        return run_end
+    return e if all(c in _TRAILING for c in text[e:run_end]) else None
 
 
 def file_and_cite_spans(text):
@@ -207,10 +217,11 @@ def file_and_cite_spans(text):
             else:
                 seg = i + 1     # an unmatchable `)`: no run holds it, none crosses it
         e = i + 1
-        if text[e - k:e] == FILE_SUFFIX and _terminates_run(text, e, n):
+        span_end = _terminates_run(text, e, n) if text[e - k:e] == FILE_SUFFIX else None
+        if span_end is not None:
             s = stack[-1] + 1 if stack else seg
             if s <= e - k:      # the suffix itself must lie inside the run
-                longest[s] = e
+                longest[s] = span_end
     out, pos = [], 0
     for s in sorted(longest):
         e = longest[s]

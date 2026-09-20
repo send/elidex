@@ -522,3 +522,25 @@ case("NEGATIVE", "(R34-1) a FRAGMENT tail still ends a name: `See slice-9z-sib.m
                  "pieces and reported the id would be the one failure mode the property names",
      build(), "See slice-9z-sib.md#acceptance for the walk.", 0)
 R34_1_FRAGMENT = CASES[-1].name
+
+
+# -- R35: R34-1 admitted a fragment/query tail as permission to STOP, and went
+# on recording the span at the SUFFIX.  So `notes.md#9z owns it` masked
+# `notes.md`, left `#9z` standing, and the naming scan read the id out of the
+# remainder -- the split the correspondence forbids outright, re-created by the
+# fix that cited the rule against it.  The tail is part of the NAME.
+
+case("NEGATIVE", "(R35) `See notes.md#9z owns it` reports NOTHING: the resolver follows that whole "
+                 "run, stripping the fragment, so the lexer must span it whole.  The reported shape -- "
+                 "R34-1 stopped the span at the suffix and the id in the fragment became a site",
+     build(), "See notes.md#9z owns it.", 0, files={"notes.md": "# notes\n"})
+R35_FRAGMENT_ID = CASES[-1].name
+case("NEGATIVE", "(R35) the QUERY spelling too: `See notes.md?q=9z owns it` -- the resolver strips a "
+                 "query exactly as it strips a fragment, so one rule covers both and neither is a "
+                 "special case",
+     build(), "See notes.md?q=9z owns it.", 0, files={"notes.md": "# notes\n"})
+R35_QUERY_ID = CASES[-1].name
+case("POSITIVE", "(R35) the discriminating half: with the SAME id one space away from the same name, "
+                 "`See notes.md 9z owns it` REPORTS it -- what the tail rule covers is the run, and a "
+                 "new run is prose again",
+     build(), "See notes.md 9z owns it.", 1, files={"notes.md": "# notes\n"})
