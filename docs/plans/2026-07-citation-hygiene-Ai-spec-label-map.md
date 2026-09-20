@@ -505,6 +505,16 @@ Every diff check names an explicit ref.
      hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
      closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
      its readable sibling).
+     ⚠ **The rules this PR established apply to the arms it adds next** (#501 R93): three of that
+     round's four findings were R92's own — a **staged symlink**'s blob went through the running-text
+     predicate although R87 had already ruled that a stored path takes the stored-path one (reproduced:
+     a staged target `.claude/skills/team name/rule.md` with a clean worktree target read GREEN); this
+     block's own canonical account went on naming the flags R92 had just rejected; and the watchdog R92
+     added leaked its timer (measured 31 orphaned `sleep`s per run, now 0). The index **mode** — not the
+     worktree's file type — now says whether a staged blob is a target or content, and the three
+     stored-path subjects share one call site. ⚠ Separately, the wire refuses to run when its scratch
+     directory is **inside the tree it scans**, which `TMPDIR` can arrange: it would otherwise read the
+     fixtures it created and answer about itself.
      ⚠ **…and so is the CONTENT** (#501 R92): taking the list from the index and the bytes from the
      working tree made the two disagree, and three reproductions came out of that one seam — a violation
      **staged** and reverted in the worktree read GREEN while `git show :victim` still held it; a tracked

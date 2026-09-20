@@ -103,6 +103,36 @@ if [ -n "${WEBREF_WIRE_SELFTEST:-}" ]; then
   SCOPE_DIR="$ROOT/${WEBREF_WIRE_SELFTEST_DIR:-.}"
   SCOPE_FILE="${WEBREF_WIRE_SELFTEST_EXTRA:+$ROOT/$WEBREF_WIRE_SELFTEST_EXTRA}"
 fi
+# ONE SCRATCH ROOT, AND IT MUST NOT BE INSIDE WHAT WE ARE ABOUT TO SCAN.
+# `mktemp` follows `TMPDIR`, and a workspace-confined sandbox may reasonably put
+# it under the tree — at which point this wire scans the fixture repositories
+# and temp files IT created, and answers about itself: a clean checkout went red
+# on its own control tree, and in self-test mode an empty scope reported the
+# scan's own temp files as entries and exited 0 (#501 R93).
+# Refuse rather than guess: there is no portable directory known to be both
+# writable and outside an arbitrary root, and "decided nothing" is this wire's
+# answer whenever it cannot trust its own reading.
+# ⚠ Physical paths on both sides (`pwd -P`), or a symlinked `TMPDIR` walks
+# straight past a textual prefix test.
+SCRATCH="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so nothing here was proved" >&2; exit 2; }
+trap 'case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+_phys() { ( cd "$1" 2>/dev/null && pwd -P ); }
+_scratch_p="$(_phys "$SCRATCH")"
+_root_p="$(_phys "$ROOT")"
+if [ -z "$_scratch_p" ] || [ -z "$_root_p" ]; then
+  echo "!! could not resolve the scratch dir or the root to a physical path," >&2
+  echo "   so this run could not prove it was not scanning its own workings." >&2
+  exit 2
+fi
+case "$_scratch_p/" in
+  "$_root_p"/*)
+    echo "!! the scratch directory ($SCRATCH) is INSIDE the tree this wire scans" >&2
+    echo "   ($ROOT). It would read the fixtures and temp files it created itself" >&2
+    echo "   and report a verdict about its own workings. Set TMPDIR outside the" >&2
+    echo "   scanned tree and run again; this run decided nothing." >&2
+    exit 2 ;;
+esac
+
 for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
   # `-e` FOLLOWS a symlink, so a dangling link reads as "does not exist" — and a
   # dangling link is still an entry whose stored target this wire must read
@@ -150,47 +180,49 @@ K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
 # two of the next change, and each produced a finding of its own (R76, R80,
 # R81).  They are deleted rather than corrected: the block below is the one
 # account, the same collapse §12(3) made for the memo.
-# THE WALK IS GIT'S, AND THE POPULATION IS GIT'S ANSWER.  Eight review rounds
-# (#501 R69-R79) found ten ways for a hand-rolled walk to certify K2 over
-# something it had not examined — a file it could not read, one whose content
-# `grep -I` skipped, a subtree `find` could not descend into, a symlink, an
-# entry of some other type, a filename holding a newline, a prune matching by
-# name rather than type, a segment class narrower than the invariant, an
-# entry's own NAME, and an empty file.  ONE list answers all of it:
+# THE WALK IS GIT'S, AND SO ARE THE BYTES.  Eight review rounds (#501 R69-R79)
+# found ten ways for a hand-rolled walk to certify K2 over something it had not
+# examined — a file it could not read, one whose content `grep -I` skipped, a
+# subtree `find` could not descend into, a symlink, an entry of some other type,
+# a filename holding a newline, a prune matching by name rather than type, a
+# segment class narrower than the invariant, an entry's own NAME, and an empty
+# file.  One authority answers all of it, and it is git:
 #
-#   git ls-files -z --cached --others --exclude-standard -- <scope>
+#   * THE POPULATION is what git says this tree holds: tracked — INCLUDING a
+#     file force-added under an ignored path (#501 R77) — plus untracked minus
+#     what the tree's OWN `.gitignore` excludes (a `.pyc` embeds its source's
+#     absolute path and would otherwise turn this wire red for anyone who had
+#     merely run the tool, #501 R79).  NOT the "standard" git exclusions:
+#     `$GIT_DIR/info/exclude` and the machine's `core.excludesFile` are
+#     uncommitted, and a gate that calls itself absolute cannot read differently
+#     on two machines from one commit (#501 R92).
+#   * THE CONTENT is what git holds for each entry.  A tracked entry is read
+#     from its INDEX BLOB — the bytes a commit would carry — AND from the
+#     worktree, because the two differ in both directions and an unstaged
+#     violation is one `git add` from being carried too.  An untracked entry has
+#     no blob, so only the worktree.  Anything present that is neither a regular
+#     file nor a symlink is an ERROR, never an open(): a tracked path replaced
+#     by a fifo IS listed, and opening it blocked forever (#501 R92).
+#   * A STORED PATH — an entry's own name, and a symlink's target from either
+#     source — goes through the stored-path predicate, never the running-text
+#     one.  `/` is its only delimiter; a quote, a space or a newline inside a
+#     segment is data (#501 R87, R90, R93).
+#   * THE COUNT is that same enumeration, so "counted but not scanned" is not
+#     representable rather than merely checked — three rounds each found a
+#     different way for two separately-derived quantities to disagree.
 #
-#   --cached                     tracked, INCLUDING a file force-added under an
-#                                ignored path (#501 R77)
-#   --others --exclude-standard  untracked, MINUS what `.gitignore` excludes —
-#                                a `.pyc` embeds its source's absolute path and
-#                                would otherwise turn this wire red for anyone
-#                                who had merely run the tool (#501 R79)
-#   -z                           a tracked filename may contain a newline
+# ⚠ THE COMMANDS LIVE IN `_scan` AND `_entry`, NOT HERE.  This block used to
+# spell out the `git ls-files` invocation; R92 changed that invocation and this
+# account went on naming the very flags R92 had rejected, pointing the next
+# maintainer back at the machine-dependent behaviour it had just removed (#501
+# R93).  Three earlier rounds (R76, R80, R81) deleted DUPLICATE ACCOUNTS in
+# favour of this one — and a restated COMMAND is that same duplication one level
+# down.  What lives here is the property; how it is obtained lives next to the
+# code that obtains it.
 #
-# That list drives EVERYTHING: the population, the name check, the content scan
-# and the count.  They are one quantity, so "counted but not scanned" is not
-# representable rather than merely checked — three rounds each found a
-# different way for two separately-derived quantities to disagree.
-#
-# Per entry, exactly one arm:
-#   * a SYMLINK's stored content is its target string (git keeps it as the
-#     blob), read with `readlink`;
-#   * a regular file's content with `grep -aEn` — `-a` because binary content
-#     is content, and plain `grep` rather than `git grep` because `git grep -a
-#     --no-index` was measured NOT to match inside a `.pyc` while `grep -a`
-#     does, and a wire whose reach depends on the installed git is not an
-#     absolute (#501 R79);
-#   * and in both cases the entry's own NAME, matched relative to the SCOPE —
-#     relative to the repo every file here would match, since the generic core
-#     itself lives under `.claude/tools/` (#501 R78).
-#
-# An entry git cannot store — a fifo, a socket, a device — is not listed, and
-# that is the right line rather than an omission: K2 is about text that lives
-# in this tree, and such an entry holds none.  A permission failure is an
-# ERROR, not an absence: `git ls-files` and `grep` both report it on stderr
-# while exiting 0, so a non-empty stderr and a `grep` status above 1 each fail
-# the run.
+# A permission failure is an ERROR, not an absence: `git ls-files` and `grep`
+# both report it on stderr while exiting 0, so a non-empty stderr and a `grep`
+# status above 1 each fail the run.
 # A PATH IS DATA, NOT PROTOCOL. The records below are newline-separated and
 # tab-tagged, and a tracked filename may contain both — so a file named
 # `safe<LF>k2<TAB>forged` injected a synthetic K2 hit and the wire reported
@@ -216,6 +248,30 @@ _onerec() { printf '%s' "$1" | tr '\n' '\001'; }
 # `grep` defines status 2 as an error, and the content arm and `_verdict` both
 # already separated it; these two were the arms that did not.
 _match_path() { _onerec "$1" | grep -aEo -- "$K2RE_PATH"; }
+
+# …AND THE ONE PLACE ITS ANSWER IS TURNED INTO RECORDS.  Three subjects reach
+# it: an entry's own name, a symlink's target in the worktree, and — since #501
+# R92 added the index arm — a symlink's STAGED blob, whose bytes are the target
+# string.  R93 found that third one going through the running-text predicate
+# instead: a staged target `.claude/skills/team name/rule.md` with a clean
+# worktree target read GREEN, because a space terminates a path in running text
+# and nothing terminates it in a stored one (#501 R87's rule, at an arm added
+# after it).  A third copy of the status test was how that happened, so there
+# is now one.
+# $1 = the stored value, $2 = the entry (for records), $3 = what it is,
+# $4 = how a hit is shown.
+_stored() {
+  _mrc=0; _m="$(_match_path "$1")" || _mrc=$?
+  if [ "$_mrc" -gt 1 ]; then
+    printf 'err\t%s: the %s went unchecked (its matcher exited %d)\n' \
+      "$(_esc "$2")" "$3" "$_mrc"
+    return 0
+  fi
+  [ -z "$_m" ] || printf '%s\n' "$_m" | while IFS= read -r m; do
+    printf 'k2\t%s: %s %s\n' "$(_esc "$2")" "$4" "$m"
+  done
+  return 0
+}
 
 # CONTENT, from one file, emitting the records. $1 = file to read, $2 = the
 # entry's path (for the record), $3 = which of its two sources this is.
@@ -252,21 +308,13 @@ _content() {
 # ⚠ `:0:$rel`, not `:$rel`: a tracked file named `0:x.py` makes the short form
 # name stage 0 of `x.py` instead — measured, it returned the OTHER file's
 # content.
-_entry() { # $1 = 1 if git holds a blob for this path, $2 = path relative to $ROOT
-  _has_blob="$1"; rel="$2"; f="$ROOT/$rel"; _read=0
+_entry() { # $1 = 1 if git holds a blob, $2 = its index MODE (empty if not), $3 = path
+  _has_blob="$1"; _mode="$2"; rel="$3"; f="$ROOT/$rel"; _read=0
   # THE NAME. An entry whose own path IS the forbidden hierarchy is the most
   # direct violation there is, and content search cannot see it. Matched
   # relative to the SCOPE: relative to the repo every file here would match,
   # since the generic core itself lives under `.claude/tools/`.
-  _mrc=0; _m="$(_match_path "${rel#$_dir/}")" || _mrc=$?
-  if [ "$_mrc" -gt 1 ]; then
-    printf 'err\t%s: the name matcher exited %d, so the entry NAME went unchecked\n' \
-      "$(_esc "$rel")" "$_mrc"
-  elif [ -n "$_m" ]; then
-    printf '%s\n' "$_m" | while IFS= read -r m; do
-      printf 'k2\t%s: (the entry NAME is itself) %s\n' "$(_esc "$rel")" "$m"
-    done
-  fi
+  _stored "${rel#$_dir/}" "$rel" "entry NAME" "(the entry NAME is itself)"
   # (A) THE INDEX BLOB.
   if [ "$_has_blob" -eq 1 ]; then
     _brc=0
@@ -274,6 +322,13 @@ _entry() { # $1 = 1 if git holds a blob for this path, $2 = path relative to $RO
     if [ "$_brc" -ne 0 ]; then
       printf 'err\t%s: git lists it as staged, but its blob could not be read (exit %d)\n' \
         "$(_esc "$rel")" "$_brc"
+    elif [ "$_mode" = 120000 ]; then
+      # A STAGED SYMLINK's blob IS its target string — a stored path, so it
+      # takes the stored-path predicate (#501 R93). Read with a sentinel
+      # because `$( )` strips trailing newlines (#501 R90's lesson, one arm on).
+      _sb="$(cat "$_b"; printf 'R')"; _sb="${_sb%R}"
+      _stored "$_sb" "$rel" "staged symlink TARGET" "(staged) ->"
+      _read=1
     elif _content "$_b" "$rel" "(staged)"; then
       _read=1
     else
@@ -303,15 +358,7 @@ _entry() { # $1 = 1 if git holds a blob for this path, $2 = path relative to $RO
       printf 'err\t%s: symlink, but its target could not be read\n' "$(_esc "$rel")"
     else
       _read=1
-      _mrc=0; _m="$(_match_path "$tgt")" || _mrc=$?
-      if [ "$_mrc" -gt 1 ]; then
-        printf 'err\t%s: the target matcher exited %d, so the symlink TARGET went unchecked\n' \
-          "$(_esc "$rel")" "$_mrc"
-      elif [ -n "$_m" ]; then
-        printf '%s\n' "$_m" | while IFS= read -r m; do
-          printf 'k2\t%s: -> %s\n' "$(_esc "$rel")" "$m"
-        done
-      fi
+      _stored "$tgt" "$rel" "symlink TARGET" "->"
     fi
   elif [ -f "$f" ]; then
     if _content "$f" "$rel" "(worktree)"; then _read=1
@@ -326,10 +373,10 @@ _entry() { # $1 = 1 if git holds a blob for this path, $2 = path relative to $RO
 }
 
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
-  _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
-  _lc="$(mktemp)" || { rm -f "$_e"; printf 'err\twalk: no temp file for the tracked list\n'; return 0; }
-  _lo="$(mktemp)" || { rm -f "$_e" "$_lc"; printf 'err\twalk: no temp file for the untracked list\n'; return 0; }
-  _b="$(mktemp)"  || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the staged blob\n'; return 0; }
+  _e="$(mktemp "$SCRATCH/errXXXXXX")" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
+  _lc="$(mktemp "$SCRATCH/lcXXXXXX")" || { rm -f "$_e"; printf 'err\twalk: no temp file for the tracked list\n'; return 0; }
+  _lo="$(mktemp "$SCRATCH/loXXXXXX")" || { rm -f "$_e" "$_lc"; printf 'err\twalk: no temp file for the untracked list\n'; return 0; }
+  _b="$(mktemp "$SCRATCH/blobXXXXXX")"  || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the staged blob\n'; return 0; }
   _dir="$1"; _extra="${2:-}"
   # THE LISTS ARE GIT'S ANSWER to what this tree HOLDS, in two halves because
   # the halves keep their bytes in different places (see `_entry`):
@@ -356,7 +403,13 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # no error record, and a green verdict over a population that was cut short
   # (#501 R85, reproduced with a `git` that printed one entry and exited 1).
   _ls_rc=0
-  git -C "$ROOT" ls-files -z --cached \
+  # `--stage`, not a bare `--cached`: the INDEX MODE is what says a staged blob
+  # is a symlink target rather than file content, and asking the worktree
+  # instead gets it wrong exactly when the two disagree (#501 R93).
+  # ⚠ A conflicted path has stages 1/2/3 and no stage 0, so it appears more than
+  # once and `:0:` cannot resolve it — each copy becomes an `err`, which is the
+  # right answer: nothing here can say what such a tree would commit.
+  git -C "$ROOT" ls-files -z --stage \
       -- "$_dir" ${_extra:+"$_extra"} > "$_lc" 2>>"$_e" || _ls_rc=$?
   [ "$_ls_rc" -eq 0 ] || \
     printf 'err\tthe tracked inventory exited %d, so the population is incomplete\n' "$_ls_rc"
@@ -368,8 +421,12 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   [ -s "$_e" ] && printf 'err\tthe walk reported errors, so part of the scope went unread: %s\n' \
     "$(tr '\n' ';' < "$_e" | cut -c1-200)"
   : > "$_e"
-  while IFS= read -r -d '' rel; do _entry 1 "$rel"; done < "$_lc"
-  while IFS= read -r -d '' rel; do _entry 0 "$rel"; done < "$_lo"
+  # `--stage` records are `<mode> <sha> <stage><TAB><path>`; the path may hold a
+  # tab of its own, so strip up to the FIRST one only.
+  while IFS= read -r -d '' _rec; do
+    _entry 1 "${_rec%% *}" "${_rec#*$'\t'}"
+  done < "$_lc"
+  while IFS= read -r -d '' rel; do _entry 0 "" "$rel"; done < "$_lo"
   rm -f "$_lc" "$_lo" "$_b" "$_e"
   return 0
 }
@@ -431,14 +488,14 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
   # the cleanup path is the absolute one it returned (#501 R55: an unchecked
   # `mktemp` made an `rm -rf` expand to the repo root).
-  if ! CTL="$(mktemp -d)" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
+  if ! CTL="$(mktemp -d "$SCRATCH/ctlXXXXXX")" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
     echo "!! could not create a scratch dir for the controls (TMPDIR/disk?)," >&2
     echo "   so this run's assertions were never proved able to fire." >&2
     exit 2
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -491,6 +548,16 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
   # control discriminates that arm rather than every grep in the run (shadowing
   # them all would abort in `_verdict` instead, for a different reason).
+  # A `mktemp` that hands back a directory INSIDE the tree under scan — what a
+  # workspace-confined `TMPDIR` does. ⚠ macOS's `/usr/bin/mktemp` ignores
+  # `TMPDIR` when given no template, which is why the control shims the command
+  # instead of setting the variable: the same defect reproduces on the machines
+  # that honour it, and a control that only fires on some of them is not one.
+  mkdir -p "$CTL/fakemktemp"
+  printf '#!/bin/sh\nd="${WEBREF_WIRE_SELFTEST}/scratch"\nmkdir -p "$d"\nprintf %%s "$d"\n' \
+    > "$CTL/fakemktemp/mktemp"
+  chmod +x "$CTL/fakemktemp/mktemp"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
   mkdir -p "$CTL/fakegrep"
   printf '#!/bin/sh\ncase " $* " in *" -aEo "*) exit 2;; esac\nexec %s "$@"\n' \
     "$(command -v grep)" > "$CTL/fakegrep/grep"
@@ -561,7 +628,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted; do
+           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink; do
     ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
       && git add -A >/dev/null 2>&1 ) || true
   done
@@ -583,6 +650,14 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   #     of failing closed. Nothing here may open it.
   ( cd "$CTL/fifotracked" && printf '# %s\n' "$CONTROL_CLEAN" > sub.py \
     && git add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || true
+  # (2b) A STAGED SYMLINK whose target holds a SPACE inside a segment, with the
+  #      worktree target since made clean. The index mode says it is a symlink,
+  #      so its blob is a stored path; sent through the running-text predicate
+  #      the space terminated the match and the wire read GREEN (#501 R93).
+  ( cd "$CTL/stagedlink" && ln -s '.claude/skills/team name/rule.md' entry \
+    && git add entry >/dev/null 2>&1 \
+    && command rm -f entry && ln -s 'harmless/target' entry \
+    && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && git add ok.py >/dev/null 2>&1 ) || true
   # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
   #     uncommitted state that `--exclude-standard` honours and no other clone
   #     of the same commit shares. (The machine-wide `core.excludesFile` is the
@@ -620,9 +695,16 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
       WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
       "$SELF" > "$_out_f" 2>&1 & _cpid=$!
-    ( sleep 30; kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
+    # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
+    # the subshell; killing only that reparents the `sleep` to PID 1, where it
+    # runs out its 30 s — one orphan per control, dozens per local gate run
+    # (#501 R93, observed). The subshell traps TERM and takes its own children
+    # with it, so the pair is reaped as a unit with shell builtins only.
+    ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
+      sleep 30 & wait
+      kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
     wait "$_cpid"; _rc=$?
-    kill "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
+    kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
     _out="$(cat "$_out_f" 2>/dev/null)"
     if [ "$_rc" -ge 128 ]; then
       echo "!! CONTROL FAILED ($4): the wire did not finish — killed after 30s (signal" >&2
@@ -675,6 +757,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
   _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
   _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
+  _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
+  _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
