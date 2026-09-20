@@ -558,10 +558,15 @@ run against a deliberately planted violation** and observed red **and non-zero**
 package-internal / entry-script (`webref`, a file root) / untracked-under-`_webref/` / unplanted, plus
 the shadowed-`python3` and three-cwd cases of item 3. A pin that cannot witness its own negation is not a
 check; neither is one that witnesses it and then exits 0.
-⚠ **Check 2 was exactly that until #501 R82, and this sentence claimed otherwise.** Its command ended
-`| wc -l`, whose status is `wc`'s, so a hit printed a count and exited **0**; and plain `git grep` reads the
-index, so an untracked plant — the case the matrix above names — was invisible. Both measured, and both
-re-measured after the fix: an untracked plant now exits **1**, a clean tree **0**.
+⚠ **Check 2 is the exception, and it is stated as one rather than patched into conformity.** Four
+revisions of its one-liner each failed differently — `| wc -l` could not report a hit, `! git grep -qE`
+could not see an untracked plant, `! git grep --untracked -qE` could not see a name-only artifact, and none
+could tell "no match" from "could not read" (all measured, #501 R82-R83). §12(2) therefore gives two
+commands whose **output** is read and says plainly that neither exit status is a contract: the name
+pipeline's `grep -c` exits 0 on a hit and 1 when clean — the reverse of a gate — and the content pipeline
+ends in `wc -l`, so its status is `wc`'s unless `pipefail` is set. ⚠ **This paragraph described the retired
+command and its exit codes until #501 R84**, one round after §12(2) replaced it, which is the duplicate
+account the replacement existed to remove.
 
 ---
 
@@ -832,8 +837,14 @@ answers 422, so the probe discriminates rather than always succeeding.
 
 ## §15 Re-derivation
 
-Every claim this memo makes about the tree it ships is re-derivable by a command, and every command is one
-this repo already runs. ⚠ **The sentence said "every claim" until #501 gate 4**, and the paragraph below
+Every claim this memo makes about the tree it ships is re-derivable by a command. **The "Runs in" column
+says which of those the repository executes and which a reader runs by hand** — and the answer is mostly
+the latter: only the trip-wire and the plan-review gate are invoked by anything, the map suite waits for
+Slice A-iii (§12(1)), and the diff-reading rows are review steps with no runner at all. ⚠ **This sentence
+said "and every command is one this repo already runs" until #501 R84**, which the table beneath it
+contradicts row by row — one of them carries `—` in that very column. A command a reader must remember to
+run is a transcript, and the memo says so elsewhere; it should not claim otherwise here.
+⚠ **It also said "every claim" until #501 gate 4**, and the paragraph below
 gives line counts for four files that are in no tracked tree — they are derivable only from `b746f400^`,
 reachable after the squash merge through `refs/pull/501/head` (§14). A line count of an absent file is a
 measurement like any other; it is kept here, with its commit named, because the drop decision is the
