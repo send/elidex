@@ -106,17 +106,26 @@ _files() { # $1 = dir root, $2 = extra file (may be empty)
 # **2 on an error** — and an unreadable file is an error, not an absence.  An
 # earlier revision discarded both, so a mode-000 file carrying a host path was
 # counted in "scanned N" and reported nothing: the wire printed its ABSOLUTE
-# over a file it had never read (#501 R70, reproduced).  A `-r` test catches the
-# ordinary case; the rc>=2 arm catches the rest (I/O errors, and anything the
-# test cannot see).
+# over a file it had never read (#501 R70, reproduced).  ONE arm, not two: a
+# revision of this fix also ran a `-r` test, and measured, either arm alone
+# catches the unreadable case, so each made the other's mutation survive.  `rc`
+# is the more general of the pair — it also covers a read that fails after it
+# starts, and a path that stops being a regular file between `find` and `grep`
+# — so the redundant test is gone rather than kept for tidiness.
+#
+# AND IT SCANS BINARY CONTENT.  `grep -I` is `--binary-files=without-match`: a
+# file holding a NUL is reported as *not matching* rather than as unscannable,
+# so an earlier revision counted such a file in "scanned N" and certified K2
+# over content it had skipped — measured with a fixture holding
+# `\0.claude/skills/new-policy/rule.md\0`, which read GREEN (#501 R71).  `-a`
+# treats every byte as text, so the predicate covers every file the count
+# claims.  Matching is `-o`, so the report stays the matched path and not a
+# binary dump.  (Two empty `__init__.py` here are already classified binary by
+# `file --mime`, which is how little "binary" has to mean for this to matter.)
 _scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" / "err\t…"
   _files "$1" "${2:-}" | while IFS= read -r f; do
-    if [ ! -r "$f" ]; then
-      printf 'err\t%s: unreadable\n' "${f#$ROOT/}"
-      continue
-    fi
-    out="$(grep -IEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
-      printf 'err\t%s: grep failed\n' "${f#$ROOT/}"; continue; }
+    out="$(grep -aEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
+      printf 'err\t%s: unreadable, or the read failed\n' "${f#$ROOT/}"; continue; }
     [ -z "$out" ] || printf '%s\n' "$out" | while IFS= read -r hit; do
       printf 'k2\t%s:%s\n' "${f#$ROOT/}" "$hit"
     done
@@ -148,6 +157,9 @@ CONTROL_K2='.claude/skills/new-policy/rule.md'
 # measured: narrowing the pattern to `skills` alone survived every control
 # until this fixture existed (#501 R70).
 CONTROL_TOOLS='.claude/tools/some-other-lane/artifact.tsv'
+# A host path wrapped in NULs. `grep -I` calls such a file "no match"; the
+# fixture exists so that answer can never be mistaken for a clean one again.
+CONTROL_BINARY='.claude/skills/new-policy/rule.md'
 CONTROL_CLEAN='a label map and nothing that looks like a host path'
 
 if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
@@ -162,11 +174,12 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rw "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools err empty; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty; do mkdir -p "$CTL/$d"; done
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/pin/control.py"
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/k2/control.py"
   printf 'ART  = "%s"\n' "$CONTROL_TOOLS"   > "$CTL/tools/control.py"
+  printf 'x\000%s\000y\n' "$CONTROL_BINARY"  > "$CTL/binary/control.dat"
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
   chmod 000 "$CTL/err/control.py"
 
@@ -195,6 +208,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
   _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
   _control "$CTL/tools" 1 "K2: a"  "K2 fires under the tools root too" || ctl_ok=1
+  _control "$CTL/binary" 1 "K2: a" "K2 fires inside binary content"    || ctl_ok=1
   # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
   # read" are different answers and only one of them is green.
   _control "$CTL/empty" 2 "scanned 0 files" "an empty scope fails loudly" || ctl_ok=1
@@ -205,8 +219,9 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     _control "$CTL/err" 1 "could not be read"       "unreadable fails closed" || ctl_ok=1
   fi
   [ "$ctl_ok" -eq 0 ] || exit 1
-  echo "  controls: green reachable; K2 fires under both roots and on the removed"
-  echo "            path; an unreadable file and an empty scope both fail closed"
+  echo "  controls: green reachable; K2 fires under both roots, on the removed path"
+  echo "            and inside binary content; an unreadable file and an empty scope"
+  echo "            both fail closed"
   echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
 
