@@ -90,8 +90,11 @@ summarised across memos — each concern is stated once, in one slice's memo, an
 > re-derive them (`-Aii.sh`, `-Aiii.sh`, `-B.sh`; the `_proto` graft stays in `-common.sh` on that branch and
 > its call site is in `-Aii.sh`) travel on branch **`citation-hygiene-slice-memos`**, which is **PR #514, open
 > and stacked on this one**. Each slice memo passes `/elidex-plan-review` at its own slice (CLAUDE.md base
-> case). This PR = A-i's deliverable, this umbrella, A-i's memo, and the harness parts A-i cites
-> (`integrity`, `common`, `Ai`).
+> case). This PR = A-i's deliverable, this umbrella and A-i's memo — **and no harness part at all**.
+> ⚠ **This sentence assigned `integrity`, `common` and `Ai` to this PR until #501 R67**; the harness was
+> dropped from it entirely (below, and A-i §15), so those three are not here and never land. What #514
+> still carries is `-Aii.sh` / `-Aiii.sh` / `-B.sh` plus the `_proto` graft, which by the same rule do not
+> land either.
 >
 > ⚠ **#514 must be rebased onto landed `main` before it is reviewed, and this note used to prescribe the
 > opposite** ("opened as its own PR after #501 lands", written while it was already open). Its tip
@@ -117,7 +120,7 @@ stays measured because A-i's memo is in this checkout.
 
 | Slice | Memo | Status |
 |---|---|---|
-| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), **0 hard / 1 soft** grep-pass — the soft is `948 catalog entries`, quoted at `:537` as *B's own figure* under B's S1 heading and not asserted by A-i, so the artifact that would clear it is B's to supply. ⚠ This cell read `0 soft` from the carve until R51 measured it; the gate had been reporting 1 the whole time |
+| A-i | `2026-07-citation-hygiene-Ai-spec-label-map.md` | **review-ready**; `preflight` EXIT 0, K=2 (`fetch`, `html`), **0 hard / 1 soft** grep-pass — the soft is `948 catalog entries`, which A-i's §13.1 Slice-B row quotes as *B's own figure* under B's S1 heading and does not assert, so the artifact that would clear it is B's to supply (located by that quoted phrase — this cell carried a line number until #501 R67, and it had already moved). ⚠ This cell read `0 soft` from the carve until R51 measured it; the gate had been reporting 1 the whole time |
 | A-ii | `2026-07-citation-hygiene-Aii-gate-failure-semantics.md` | on **#514** — status is stated in that memo's own §0, which is the only site that can measure it |
 | A-iii | `2026-07-citation-hygiene-Aiii-suite-scheduler.md` | on **#514** — status in that memo's §0. Its `preflight` EXIT **1 is by design**: A-iii declares **no spec surface**, which is A-ii's §4.2.5 feature and is not landed yet |
 | B | `2026-07-citation-hygiene-B-detector-correctness.md` (`git mv` of the 785-line memo, so its provenance survives) | on **#514** — status in that memo's §0 |

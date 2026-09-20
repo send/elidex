@@ -235,22 +235,9 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
 class TestModuleShape(unittest.TestCase):
     """The pinned map reaches no upstream source.
 
-    ⚠ **This class used to also scan the package for host-project policy —
-    that has moved out of the generic suite entirely.** `DESIGN.md:3-5,33-37`
-    assigns review/plan workflow policy to the host project's adapter, and the
-    two tests that lived here were a second copy of a check the host already
-    runs over this same tree with the same expressions. Two homes for one
-    decision is what this package's own design forbids, and the copy that lived
-    HERE would additionally have had to be DELETED by the change that adds the
-    module it forbade naming — a passing unit test removed in order to add
-    functionality. The host's copy is the single home, and the host's own
-    records carry the obligation to keep it when the mechanism that runs it is
-    retired.
-
-    What remains is not host policy: a module whose job is a literal label map
-    has no business importing the upstream fetcher, whatever is being landed
-    around it. The needle is assembled from fragments because, written whole,
-    it would match this file.
+    A module whose job is a literal label map has no business importing the
+    upstream fetcher. The needle is assembled from fragments because, written
+    whole, it would match this file.
     """
 
     _UPSTREAM_SOURCE = re.compile(re.escape("webref" + "_data"))
