@@ -485,9 +485,9 @@ def lex_unsupported_seed(pop, findings, notes):
                 n += 1
                 findings.append(("LEX-UNSUPPORTED?", pop.display(memo.path), lineno, "%s; it holds %s" % (
                     _READING[reading], ", ".join(["a `|`"] * ("|" in line) + [repr(i) for i in ids]))))
-    notes.append("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block line, an "
-                 "indented-code line, or an inline raw-HTML span) hold a `|` or a declared id; the bound is "
-                 "the plan's §3 table, not this figure" % n)
+    notes.append(printable("[LEX-UNSUPPORTED?] SEED -- %d raw line(s) never inline-parsed (an HTML-block "
+                           "line, an indented-code line, or an inline raw-HTML span) hold a `|` or a declared "
+                           "id; the bound is the plan's §3 table, not this figure" % n))
 
 
 def lex_split_seed(pop, all_blocks, findings, notes):
@@ -620,12 +620,49 @@ def _utf8_streams():
             reconfigure(encoding="utf-8")
 
 
+def printable(text):
+    """One line of run output with every C0 control character and DEL rendered
+    as `<U+XXXX>`, so the run's verdict can be read by `grep`.
+
+    WHY THE PRINTER AND NOT THE ONE CONTROL THAT CARRIES A NUL (PR #510 Axis 5; moved here from the self-test at R42-4).
+    A control name may legitimately BE its fixture -- the R24 NUL control spells
+    a literal U+0000 in a link destination, because that is what it is about --
+    and
+    the trip-wire captures the run through `$(...)`, which bash strips NULs from.
+    The rc was unaffected, so the wire's verdict was right and only its captured
+    TEXT was silently altered; but a gate whose output cannot be grepped is a
+    gate nobody reads (the memo's §6 note already tells a reader to reach for
+    `grep -a`, which is the workaround naming the defect).  Renaming that one
+    control would be the enumerated exemption this suite keeps being bitten by
+    (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`):
+    the next control whose subject is a control character would arrive with the
+    same problem and no rule.  The rule is about the CHANNEL -- a run line is
+    text a reader greps -- so it lives at the one place every line goes through.
+
+    HONESTLY, what it does not do: the fixture text itself is unchanged (the
+    controls still build and parse real NULs -- only the REPORT is escaped), and
+    a non-C0 character that a terminal happens to swallow is not its business."""
+    return "".join("<U+%04X>" % ord(c) if c < " " or c == "\x7f" else c for c in text)
+
+
 # The options this entry point accepts, spelled ONCE.  ⚠ A CLOSED SET whose
 # COMPLEMENT is rejected, never a list of known-bad spellings: the accepted set
 # is the thing a reader and an `if` can both be held to, and a deny-list leaves
 # the next spelling authoritative
 # (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`).
-OPTIONS = frozenset(("--self-test", "--mutants", "--worklist"))
+# ⚠ THE SET WAS NOT ENOUGH (PR #510 R42-4).  Rejecting an unknown option still
+# accepted a KNOWN one in the wrong mode: `--mutants memo.md` ran the ordinary
+# memo check and returned 0 without executing a single mutant, and `--self-test
+# --worklist memo.md` returned from the self-test branch having validated
+# neither the path nor the flag.  Automation with a misplaced known flag got a
+# SUCCESSFUL result for the wrong operation -- the same failure shape as the
+# discarded option, one level up.  So the contract is per MODE: which flags it
+# accepts, and how many positional arguments.
+MODES = (
+    ("--self-test", frozenset(("--self-test", "--mutants")), 0),
+    (None,          frozenset(("--worklist",)),              1),
+)
+OPTIONS = frozenset(f for _sel, flags, _n in MODES for f in flags)
 
 
 def main(argv):
@@ -638,38 +675,50 @@ def main(argv):
     # on its operator: a gate whose answer is the wrong SHAPE, exiting 0.  The
     # census attestation on this PR is a byte comparison of `--worklist`
     # output, which is exactly the consumer that would have been fooled.
-    unknown = sorted({a for a in argv[1:] if a.startswith("--")} - OPTIONS)
-    if unknown:
-        print("unknown option(s): %s\naccepted: %s"
-              % (", ".join(unknown), ", ".join(sorted(OPTIONS))))
+    # ⚠ A SEPARATE "unknown option" GUARD STOOD HERE AND IS GONE (PR #510
+    # R42-4).  The per-mode check below refuses anything outside the SELECTED
+    # mode's allowed set, and no mode allows a spelling outside `OPTIONS`, so
+    # the set test was a strictly weaker second spelling of the same question --
+    # the "one issue, one way" the plan's own §0 asks for, and the shape this
+    # checker has reported three times in the memos it reads.  Its mutant
+    # survived the moment the mode check landed, which is how the redundancy was
+    # measured rather than argued.
+    given = {a for a in argv[1:] if a.startswith("--")}
+    paths = [a for a in argv[1:] if not a.startswith("--")]
+    sel, allowed, want = next((m for m in MODES if m[0] is None or m[0] in given), MODES[-1])
+    misplaced = sorted(given - allowed)
+    if misplaced or len(paths) != want:
+        mode = sel or "<memo>"
+        if misplaced:
+            print(printable("option(s) %s do not apply in %s mode; it accepts %s"
+                            % (", ".join(misplaced), mode, ", ".join(sorted(allowed)) or "no options")))
+        else:
+            print(printable("%s mode takes %d positional argument(s), got %d"
+                            % (mode, want, len(paths))))
         print(__doc__)
         return 2
-    if "--self-test" in argv:
+    if sel == "--self-test":
         import plan_memo_umbrella_selftest as st  # noqa
         return st.run(mutants="--mutants" in argv)
-    paths = [a for a in argv[1:] if not a.startswith("--")]
-    if len(paths) != 1:
-        print(__doc__)
-        return 2
     res = check(paths[0])
     if res.rc == 2:
         for code, file, lineno, msg in res.findings:
-            print("FATAL [%s] %s:%d  %s" % (code, file, lineno, msg))
+            print(printable("FATAL [%s] %s:%d  %s" % (code, file, lineno, msg)))
         return 2
     pop, mentions = res.population, res.mentions
     unlicensed = [m for m in mentions if not m.licensed]
 
     print("=" * 78)
-    print("plan-memo-umbrella-check  --  %s" % pop.main.path)
+    print(printable("plan-memo-umbrella-check  --  %s" % pop.main.path))
     print("  population (transitive over the memo's links): %s"
           % ", ".join(pop.display(m.path) for m in pop.memos[1:]) if len(pop.memos) > 1
           else "  population: the memo alone (it links no other memo)")
     print("=" * 78)
     for n in res.notes:
-        print(n)
+        print(printable(n))
     print()
-    print("[NAMING] %d mentions of a no-owner id; %d licensed, %d REPORTED."
-          % (len(mentions), len(mentions) - len(unlicensed), len(unlicensed)))
+    print(printable("[NAMING] %d mentions of a no-owner id; %d licensed, %d REPORTED."
+          % (len(mentions), len(mentions) - len(unlicensed), len(unlicensed))))
     print("         SEED, not an inventory.  Two classes are DECLARED MISSES and are")
     print("         carried as red controls in --self-test rather than argued away:")
     print("           * a purely numeric id written without a row noun --")
@@ -681,36 +730,43 @@ def main(argv):
     print()
     bysrc = Counter(m.source for m in unlicensed)
     for k, v in sorted(bysrc.items()):
-        print("         %-22s %d" % (k, v))
+        print(printable("         %-22s %d" % (k, v)))
     print()
     role = {m.key: ",".join(roles(m)) or "-" for m in unlicensed}
     byrole = Counter(r.replace(",", "+") if r != "-" else "(no role vocabulary)"
                      for r in role.values())
     print("         rank (a RANKING over the reported set, never a filter on it):")
     for k, v in byrole.most_common(8):
-        print("         %-42s %d" % (k[:42], v))
+        print(printable("         %-42s %d" % (k[:42], v)))
     print()
     for code, file, lineno, msg in res.findings:
-        print("[%s] %s:%d  %s" % (code, file, lineno, msg))
+        print(printable("[%s] %s:%d  %s" % (code, file, lineno, msg)))
     print()
     byid = defaultdict(list)
     for m in unlicensed:
         byid[m.id].append(m)
     if "--worklist" in argv:
         for m in sorted(unlicensed, key=lambda m: m.key):
-            print("%s\t%d\t%s\t%s\t%s\t%s"
-                  % (m.file, m.lineno, m.id, m.source, role[m.key],
-                     m.context().replace("\t", " ")))
+            # ⚠ THE SEPARATOR IS LAYOUT, THE FIELDS ARE CONTENT.  `printable`
+            # escapes every C0, the TAB included, so escaping the assembled line
+            # turned this machine-readable format into `<U+0009>`-separated text
+            # -- caught by the census byte-comparison, which is the consumer
+            # this format exists for.  Each field is escaped; the tabs are the
+            # caller's, exactly as the deliberate line break in the usage
+            # message above is.
+            print("\t".join(printable(f) for f in
+                             (m.file, str(m.lineno), m.id, m.source, role[m.key],
+                              m.context().replace("\t", " "))))
     else:
         for rid in sorted(byid, key=lambda r: (-len(byid[r]), r)):
-            print("--- %s  (%d reported)" % (rid, len(byid[rid])))
+            print(printable("--- %s  (%d reported)" % (rid, len(byid[rid]))))
             for m in byid[rid]:
-                print("    %s:%d [%s] {%s}  %s"
-                      % (m.file, m.lineno, m.source, role[m.key], m.context()[:190]))
+                print(printable("    %s:%d [%s] {%s}  %s"
+                      % (m.file, m.lineno, m.source, role[m.key], m.context()[:190])))
     print()
-    print("%d mechanical finding(s) gate the exit status; %d seed(s) and %d reported "
+    print(printable("%d mechanical finding(s) gate the exit status; %d seed(s) and %d reported "
           "naming site(s) do not." % (len(res.mechanical), len(res.findings) - len(res.mechanical),
-                                      len(unlicensed)))
+                                      len(unlicensed))))
     return res.rc
 
 

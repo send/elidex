@@ -658,9 +658,72 @@ def straddle_definition_control(M):
                         else "the bisect answers what the definition answers"))
 
 
+def report_bytes_control(M):
+    """PROPERTY, asked DIRECTLY rather than through a proxy: no C0 control
+    character and no DEL reaches stdout from the checker's own report, for a
+    memo that puts every one of them in a reported naming context.
+
+    WHY THIS EXISTS BESIDE THE SITE SWEEP (PR #510 R42-4).  The AST sweep reads
+    `print` calls, so it is only ever as complete as its reading of the source:
+    it cannot see a line built by concatenation, printed through a buffer, or
+    emitted by a call it does not recognise -- and its first population was a
+    HAND-WRITTEN pair of module names that left the entry point out entirely,
+    which is how a memo-controlled ESC reached the default report while the
+    sweep said "0 not escaped". This control asks the question the sweep is a
+    proxy for: it RUNS the program over a hostile memo and looks at the bytes.
+
+    THE POPULATION IS THE WHOLE CLASS, not the byte that was reported: all 32
+    C0 characters and DEL, each in a naming context the report is known to
+    print, in one memo. A memo's content must never be able to move a terminal
+    cursor, clear a screen, or forge a line in a captured log.
+
+    HONESTLY, what it cannot see: a report path this fixture does not exercise
+    (the rc-2 schema-miss report is exercised by its own controls, but a code
+    path reached only by some other memo shape is not), and the SELF-TEST's own
+    report, which cannot be run from inside a control without recursing -- that
+    half is the site sweep's."""
+    import io as _io
+    import contextlib
+    hostile = "".join(chr(n) for n in list(range(1, 0x20)) if chr(n) not in "\n\r") + chr(0x7F)
+    with tempfile.TemporaryDirectory() as d:
+        memo = pathlib.Path(d) / "fixture.md"
+        memo.write_text(build() + "\nSlice 9z owns " + hostile + "the close rule.\n", encoding="utf-8")
+        seen = {}
+        for arg in ([], ["--worklist"]):
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                M.main(["prog", str(memo)] + arg)
+            out = buf.getvalue()
+            mode = "--worklist" if arg else "(report)"
+            # ⚠ A FORMAT'S OWN SEPARATOR IS NOT A LEAK, and the distinction is
+            # made by COUNTING, not by exempting the byte.  `--worklist` is
+            # tab-separated with six fields, so every row carries exactly five
+            # tabs; a tab a MEMO planted would make a sixth. Exempting U+0009
+            # outright would have let exactly that through -- which is why the
+            # assertion is the count and not the character class.
+            allowed = "\n\t" if arg else "\n"
+            bad = sorted({ord(c) for c in out
+                          if (c < " " and c not in allowed) or c == chr(0x7F)})
+            if bad:
+                seen[mode] = ["U+%04X" % b for b in bad[:6]]
+            if arg:
+                rows = [l for l in out.split("\n") if "\t" in l]
+                odd = [l[:40] for l in rows if l.count("\t") != 5]
+                if not rows:
+                    seen[mode] = ["no tab-separated row was emitted: the probe did not reach the format"]
+                elif odd:
+                    seen[mode] = ["a row carries %d tabs, not the format's 5: %r"
+                                  % (odd and rows[0].count("\t"), odd[0])]
+    return not seen, ("%d control character(s) planted, %d report mode(s) probed, %s"
+                      % (len(hostile), 2,
+                         "none reached stdout" if not seen else "REACHED stdout: %r" % seen))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
+        "PROPERTY: no C0 control character or DEL from a MEMO reaches stdout through the checker's own report (the property the emit-site sweep is a proxy for, asked by running the program over a hostile memo)":
+            ("CONTROL", report_bytes_control),
         "PROPERTY: plan_memo_ids.tokens reads exactly the language plan_memo_ids.decorated_id spells, over an EXHAUSTIVE corpus of decoration and id characters (the core-first scan against the grammar's own composition)":
             ("CONTROL", id_scan_grammar_agreement_control),
         "PROPERTY: every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the spelling sweep)":

@@ -60,17 +60,19 @@ cannot:
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
-from plan_memo_selftest_controls import empty_registry_fails, printable, registry
+from plan_memo_selftest_controls import empty_registry_fails, registry
 from plan_memo_selftest_harness import load, unload
 
 
 def run(mutants=False):
     fails = []
+    printable = None
     counts = {}
     print("=" * 74)
     print("plan-memo-umbrella-check  --  self-test")
     print("=" * 74)
     M = load()
+    printable = M.printable    # the ONE escape, owned by the report boundary
     reg = registry()
     for name, (kind, control) in reg.items():
         counts[kind] = counts.get(kind, 0) + 1

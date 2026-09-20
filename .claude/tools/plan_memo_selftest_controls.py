@@ -143,31 +143,6 @@ def empty_registry_control(M):
     return fired == (True, True, True, False), "guard fires %s (want True, True, True, False)" % (fired,)
 
 
-def printable(text):
-    """One line of run output with every C0 control character and DEL rendered
-    as `<U+XXXX>`, so the run's verdict can be read by `grep`.
-
-    WHY THE PRINTER AND NOT THE ONE CONTROL THAT CARRIES A NUL (PR #510 Axis 5).
-    A control name may legitimately BE its fixture -- the R24 NUL control spells
-    a literal U+0000 in a link destination, because that is what it is about --
-    and
-    the trip-wire captures the run through `$(...)`, which bash strips NULs from.
-    The rc was unaffected, so the wire's verdict was right and only its captured
-    TEXT was silently altered; but a gate whose output cannot be grepped is a
-    gate nobody reads (the memo's §6 note already tells a reader to reach for
-    `grep -a`, which is the workaround naming the defect).  Renaming that one
-    control would be the enumerated exemption this suite keeps being bitten by
-    (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`):
-    the next control whose subject is a control character would arrive with the
-    same problem and no rule.  The rule is about the CHANNEL -- a run line is
-    text a reader greps -- so it lives at the one place every line goes through.
-
-    HONESTLY, what it does not do: the fixture text itself is unchanged (the
-    controls still build and parse real NULs -- only the REPORT is escaped), and
-    a non-C0 character that a terminal happens to swallow is not its business."""
-    return "".join("<U+%04X>" % ord(c) if c < " " or c == "\x7f" else c for c in text)
-
-
 def printable_output_control(M):
     """The runner's report channel escapes EVERY C0 character and DEL, over the
     whole class rather than the one codepoint that was found.  Population: all
@@ -175,10 +150,10 @@ def printable_output_control(M):
     which is the half that would let an over-eager escape pass."""
     bad = []
     for n in list(range(0x20)) + [0x7F]:
-        got = printable("a%sb" % chr(n))
+        got = M.printable("a%sb" % chr(n))
         if got != "a<U+%04X>b" % n:
             bad.append("U+%04X -> %r" % (n, got))
-    kept = printable("ok [POSITIVE] `[x](child.md)` -- 3 site(s)")
+    kept = M.printable("ok [POSITIVE] `[x](child.md)` -- 3 site(s)")
     if kept != "ok [POSITIVE] `[x](child.md)` -- 3 site(s)":
         bad.append("a printable line was altered: %r" % kept)
     return not bad, ("33 control character(s) checked, %d not escaped%s"

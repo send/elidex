@@ -473,12 +473,12 @@ AXIS5_PRINTABLE = ("the runner's report channel escapes every C0 control charact
 
 MUTANTS += [
     ("Axis 5 report channel: drop the C0 arm of the escape (only DEL is escaped: the NUL a control "
-     "name carries reaches the wire's command substitution and is stripped there)", CONTROLS,
+     "name carries reaches the wire's command substitution and is stripped there)", CHECK,
      'if c < " " or c == "\\x7f" else c',
      'if c == "\\x7f" else c',
      [AXIS5_PRINTABLE]),
     ("Axis 5 report channel: escape EVERYTHING (a printable line is mangled too: a green run over an "
-     "unreadable report is the other direction of the same defect)", CONTROLS,
+     "unreadable report is the other direction of the same defect)", CHECK,
      'if c < " " or c == "\\x7f" else c',
      'if True else c',
      [AXIS5_PRINTABLE]),
@@ -520,10 +520,11 @@ MUTANTS += [
      'print(printable("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90])))',
      'print("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90]))',
      [AXIS5_CHANNEL]),
-    ("Axis 5 channel: unwrap a fails.append (the OTHER emit shape -- a line that reaches the reader "
-     "through the FAIL block rather than the per-control listing)", RUNNER,
-     'fails.append(printable("%s %s :: %s" % (kind, name, detail)))',
-     'fails.append("%s %s :: %s" % (kind, name, detail))',
+    ("Axis 5 channel: unwrap the FAIL block's print (the other line a reader sees -- the per-control "
+     "listing and the failure summary are two sites, and a fix to one says nothing about the other)",
+     RUNNER,
+     'print(printable("FAIL: %s" % f))',
+     'print("FAIL: %s" % f)',
      [AXIS5_CHANNEL]),
 ]
 
@@ -545,21 +546,52 @@ MUTANTS += [
 
 
 # -- R42-3: the entry point's option set.  TWO rows, one per half of the claim.
-R42_OPTIONS = ("PROPERTY: the entry point accepts a CLOSED option set and REFUSES its complement "
-               "(an unknown option was discarded, so a misspelt --worklist returned the other "
-               "format at rc 0)")
+R42_OPTIONS = ("PROPERTY: the entry point's CLI contract is per MODE -- a closed option set whose "
+               "complement is refused, and for each mode the flags it accepts and the positional "
+               "count it takes (a known flag in the wrong mode returned 0 for the wrong operation)")
+R42_BYTES = ("PROPERTY: no C0 control character or DEL from a MEMO reaches stdout through the "
+             "checker's own report (the property the emit-site sweep is a proxy for, asked by "
+             "running the program over a hostile memo)")
+R42_CHANNEL = ("PROPERTY: every line the run REPORTS goes through the escape -- measured over the "
+               "EMIT SITES, the subject the escape function's own control cannot reach")
 
 MUTANTS += [
-    ("R42 options: discard an unknown option again (re-inject the filter that took every non-`--` "
-     "argv entry as the path and said nothing about the rest: `--worklis` runs the other format "
-     "at rc 0)", CHECK,
-     '    unknown = sorted({a for a in argv[1:] if a.startswith("--")} - OPTIONS)',
-     '    unknown = []',
+    # ⚠ TWO ROWS WERE RETIRED HERE (PR #510 R42-4), and the reason is a
+    # MEASUREMENT: once the per-mode check landed, "discard an unknown option
+    # again" SURVIVED -- the mode check refuses `--worklis` on its own, so the
+    # separate set guard was a weaker second spelling and the guard itself is
+    # gone. "Widen the set until the complement is empty" went with it; the
+    # complement direction is covered by the mode rows below, which widen a
+    # MODE's allowed set and are red.
+]
+
+
+# -- R42-4: the two halves the previous round's fixes left open, each of which
+# was a direct consequence of the fix beside it.
+# ⚠ A FOURTH ROW WAS WRITTEN AND WITHDRAWN: "name the report modules by hand
+# again". It SURVIVED, correctly -- with every emit site wrapped, narrowing the
+# population changes nothing observable, so the row asserted nothing. What makes
+# a narrowed population consequential is an UNWRAPPED site inside the part it
+# drops, which is the `report bytes` row below (it unwraps a site in the entry
+# point, the module the hand-written pair left out). The derived population's
+# value was demonstrated once, by measurement rather than by a mutant: it took
+# the control from "0 not escaped" over 2 modules to 6 unescaped over 4.
+MUTANTS += [
+    ("R42-4 modes: accept a known flag in any mode (drop the per-mode flag check: `--mutants "
+     "memo.md` runs the memo report and returns 0 without executing one mutant)", CHECK,
+     '    misplaced = sorted(given - allowed)',
+     '    misplaced = []',
      [R42_OPTIONS]),
-    ("R42 options: widen the set until the complement is empty (every `--` spelling accepted: a "
-     "closed set nobody can fall outside asserts nothing -- the other direction, which the rc "
-     "probes alone cannot see)", CHECK,
-     'OPTIONS = frozenset(("--self-test", "--mutants", "--worklist"))',
-     'OPTIONS = frozenset(("--self-test", "--mutants", "--worklist", "--worklis"))',
+    ("R42-4 modes: drop the positional-count half (two memo paths, or none, run whichever mode "
+     "was selected and say nothing -- the direction the flag check alone cannot see)", CHECK,
+     '    sel, allowed, want = next((m for m in MODES if m[0] is None or m[0] in given), MODES[-1])',
+     '    sel, allowed, want = next((m for m in MODES if m[0] is None or m[0] in given), MODES[-1]); want = max(want, len(paths))',
      [R42_OPTIONS]),
+    ("R42-4 report bytes: stop escaping the checker's OWN report (a memo-controlled ESC reaches "
+     "the default report and can clear a terminal or forge a line in a captured log)", CHECK,
+     'print(printable("    %s:%d [%s] {%s}  %s"\n'
+     '                      % (m.file, m.lineno, m.source, role[m.key], m.context()[:190])))',
+     'print("    %s:%d [%s] {%s}  %s"\n'
+     '                      % (m.file, m.lineno, m.source, role[m.key], m.context()[:190]))',
+     [R42_BYTES, R42_CHANNEL]),
 ]

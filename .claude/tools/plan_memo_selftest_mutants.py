@@ -499,7 +499,7 @@ def run(reg):
     """Apply each mutant to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
     import plan_memo_selftest_harness as h
-    from plan_memo_selftest_controls import printable
+    printable = h.load().printable    # the ONE escape, owned by the report boundary
 
     fails = []
     print()

@@ -407,7 +407,28 @@ def import_seam_control(M):
                                                    ("; " + "; ".join(bad)) if bad else ""))
 
 
-_REPORT_MODULES = ("plan_memo_umbrella_selftest.py", "plan_memo_selftest_mutants.py")
+def _report_modules(sources):
+    """Every source of this checker that PRINTS -- derived from the ASTs, never
+    listed.
+
+    ⚠ THIS WAS A HAND-WRITTEN 2-TUPLE UNTIL PR #510 R42-4, AND IT WAS THE
+    ENUMERATED-TABLE CLASS INSIDE THE CONTROL WRITTEN TO CLOSE AN
+    ENUMERATED-POPULATION DEFECT.  It named the two SELF-TEST runners and left
+    out the entry point, which holds 32 print sites and is the only channel that
+    prints MEMO-CONTROLLED text -- so a memo carrying an ESC put a terminal
+    escape straight into the default report, while the control beside it
+    reported "0 not escaped". The reviewer found that one round after the
+    control landed, which is where a declared-by-enumeration population always
+    puts the next finding
+    (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`).
+    The population is now the PROPERTY: a module with a `print` call."""
+    out = []
+    for file, src in sources:
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+                out.append(file)
+                break
+    return out
 
 
 def report_channel_control(M):
@@ -462,24 +483,41 @@ def report_channel_control(M):
         return (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)
                 and isinstance(node.left, ast.Constant) and isinstance(node.left.value, str))
 
+    sources = _swept_sources()
+    report = _report_modules(sources)
     bad, sites = [], 0
-    for file, src in _swept_sources():
-        if file not in _REPORT_MODULES:
+    for file, src in sources:
+        if file not in report:
             continue
         for node in ast.walk(ast.parse(src)):
             if not isinstance(node, ast.Call) or not node.args:
                 continue
+            # ⚠ `print` ONLY, and that is the BOUNDARY rather than an
+            # exemption (PR #510 R42-4).  Written over `.append` too, this
+            # reached a control's internal `bad.append` scratch buffer and three
+            # count-only `notes.append` lines -- text that either never reaches
+            # stdout or reaches it THROUGH a wrapped `print`, which is where the
+            # escape belongs and where escaping it twice would be the only
+            # alternative. The property is "no C0 byte reaches stdout"; `print`
+            # is the one call that puts one there, so it is the one this reads.
+            # The buffers are covered by the behavioural control below, which
+            # asks the property directly instead of a proxy for it.
             f = node.func
-            if not ((isinstance(f, ast.Name) and f.id == "print")
-                    or (isinstance(f, ast.Attribute) and f.attr == "append")):
+            if not (isinstance(f, ast.Name) and f.id == "print"):
                 continue
             arg = node.args[0]
             # ⚠ THE POPULATION IS BOTH STATES.  Counting only the UNWRAPPED
             # shape makes the denominator go to zero exactly when the property
             # holds, and the emptiness guard then reports a clean suite as a
             # broken control -- measured, on this control's first run.
-            wrapped = (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name)
-                       and arg.func.id == "printable" and arg.args and formats(arg.args[0]))
+            # `printable(...)` or `<module>.printable(...)` -- the self-test
+            # takes the escape off the LOADED checker module, which is an
+            # Attribute, and a predicate that admitted only the bare Name would
+            # have called every wrapped self-test site unescaped.
+            f2 = arg.func if isinstance(arg, ast.Call) else None
+            wrapped = (f2 is not None and arg.args and formats(arg.args[0])
+                       and ((isinstance(f2, ast.Name) and f2.id == "printable")
+                            or (isinstance(f2, ast.Attribute) and f2.attr == "printable")))
             if not (wrapped or formats(arg)):
                 continue
             sites += 1
@@ -487,9 +525,9 @@ def report_channel_control(M):
                 bad.append("%s:%d" % (file, node.lineno))
     if not sites:
         return False, ("no %%-formatted emit site found in %s: the shape this control reads is no "
-                       "longer the one the report modules write" % ", ".join(_REPORT_MODULES))
+                       "longer the one the report modules write" % ", ".join(report))
     return not bad, ("%d emit site(s) over %d report module(s), %d not escaped%s"
-                     % (sites, len(_REPORT_MODULES), len(bad),
+                     % (sites, len(report), len(bad),
                         ("; " + "; ".join(sorted(bad)[:4])) if bad else ""))
 
 
@@ -528,15 +566,39 @@ def option_set_control(M):
     with tempfile.TemporaryDirectory() as d:
         memo = pathlib.Path(d) / "fixture.md"
         memo.write_text(build(), encoding="utf-8")
+        # ⚠ `--mutants` BESIDE A MEMO IS NOW rc 2, not 0 (PR #510 R42-4): a
+        # KNOWN flag in the wrong MODE is refused, which is the half the
+        # option-set fix left open and a review round then reported.
         for arg, want in [("--worklis", 2), ("--definitely-invalid", 2), ("--WORKLIST", 2),
-                          ("--worklist", 0), ("--mutants", 0)]:
+                          ("--worklist", 0), ("--mutants", 2)]:
             buf = _io.StringIO()
             with contextlib.redirect_stdout(buf):
                 rc = M.main(["prog", str(memo), arg])
             if rc != want:
                 bad.append("%s -> rc %d (want %d)" % (arg, rc, want))
-    return not bad, ("%d option spelling(s) declared, %d probe(s) run, %d wrong%s"
-                     % (len(declared), 5, len(bad), ("; " + "; ".join(bad)) if bad else ""))
+    # THE SECOND HALF, and the one the set alone could not reach: a KNOWN flag
+    # in the wrong MODE, and the positional count each mode takes. Probed
+    # through `main` over a real fixture, both directions (refused where it does
+    # not apply, accepted where it does).
+    with tempfile.TemporaryDirectory() as d:
+        memo = pathlib.Path(d) / "fixture.md"
+        memo.write_text(build(), encoding="utf-8")
+        for argv, want in [(["prog", str(memo), "--mutants"], 2),
+                           (["prog", "--self-test", "--worklist", str(memo)], 2),
+                           (["prog", str(memo), str(memo)], 2),
+                           (["prog"], 2),
+                           (["prog", str(memo), "--worklist"], 0)]:
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = M.main(argv)
+            if rc != want:
+                bad.append("%s -> rc %d (want %d)" % (" ".join(argv[1:]), rc, want))
+    if len(M.MODES) < 2:
+        bad.append("MODES declares %d mode(s): a per-mode contract over one mode asserts nothing"
+                   % len(M.MODES))
+    return not bad, ("%d option spelling(s) over %d mode(s), %d probe(s) run, %d wrong%s"
+                     % (len(declared), len(M.MODES), 10, len(bad),
+                        ("; " + "; ".join(bad)) if bad else ""))
 
 
 def registry():
@@ -554,7 +616,7 @@ def registry():
             ("CONTROL", import_seam_control),
         "PROPERTY: every line the run REPORTS goes through the escape -- measured over the EMIT SITES, the subject the escape function's own control cannot reach":
             ("CONTROL", report_channel_control),
-        "PROPERTY: the entry point accepts a CLOSED option set and REFUSES its complement (an unknown option was discarded, so a misspelt --worklist returned the other format at rc 0)":
+        "PROPERTY: the entry point's CLI contract is per MODE -- a closed option set whose complement is refused, and for each mode the flags it accepts and the positional count it takes (a known flag in the wrong mode returned 0 for the wrong operation)":
             ("CONTROL", option_set_control),
     })
     return reg
