@@ -118,11 +118,12 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#$ROOT/}"
 # rather than guessed at here.
 K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 
-# A filesystem walk, not `git grep`: an untracked file under the package is
-# exactly where a violation lands during authoring, and `git grep` reads the
-# index. (Measured on this repo: a plant in an unstaged file read GREEN.)
-# `-I` skips binaries; `__pycache__` is pruned.
-
+# ⚠ An untracked file under the package is exactly where a violation lands
+# during authoring, which is why the scan is `--no-index` (it reads working-tree
+# contents, not the index) and `-a` (binary contents are searched, not skipped).
+# This comment described the opposite — "a filesystem walk, not `git grep`", and
+# "`-I` skips binaries" — for one round after the walk became git's (#501 R76).
+# Both were the load-bearing choices, stated backwards.
 
 # FAIL CLOSED ON A FILE IT CANNOT READ.  grep exits 0 on a match, 1 on none and
 # **2 on an error** — and an unreadable file is an error, not an absence.  An
