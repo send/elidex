@@ -101,9 +101,12 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
   point is generic core by any reading — 16 lines at `origin/main`, a docstring plus
   `from _webref.cli import main`, the
   docstring being the site — and unlike `cli.py` it has no other routing at all.
-  ✅ **The K2 trip-wire ranges over exactly the generic core** (`_webref/` + `webref`). ⚠ Ranging is not
-  deciding: what it ASSERTS is the closed pin (§12(3)); its wider scan is a declared seed. It reports both
-  pre-existing sites (§13 item 3 records the widening-then-redraw).
+  ✅ **The K2 trip-wire ranges over exactly the generic core** (`_webref/` + `webref`) **and decides over
+  it**: two absolutes, the closed removed-path pin and §2's K2 predicate itself (§12(3)). ⚠ **It carried a
+  third, report-only "seed" scan until #501 R69** — a wide `<any top-level entry>/<something>` match that
+  printed and asserted nothing. It is gone rather than demoted: it took four rounds of widening, the repo's
+  rule is that such a predicate is a seed and widening it is the wrong repair, and a print with no consumer
+  and no assertion is what CLAUDE.md calls dead code. The open class is covered by the diff (§12(3)).
 - **K3 — the generic core names no Slice-B artifact.** `cite-audit` and `_catalog` are absent from the
   generic core (`_webref/` + `webref`; matching `origin/main`, measured 0 at both refs — `.claude/skills/` is
   the **adapter** by `DESIGN.md`'s split and is no longer in K3's range, #501 R36); `webref_data`
@@ -230,7 +233,7 @@ The A/B region boundaries the `spec_labels.py` rows rest on → `git diff origin
 | `coverage_map.py` — `_spec_label` | delegate to `label_for`; keep `origin/main`'s last-resort `.upper().replace("-", " ")` **verbatim** |
 | `DESIGN.md` — the `spec_labels.py` bullet | new bullet, verbatim below |
 | `DESIGN.md` — the `cite_audit.py` adapter paragraph + its 3 `cite-audit` example lines + the attribution-buckets paragraph | **absent in A-i**; they describe a command A-i does not ship. **B** authors them with the detector |
-| `webref-generic-core-trip-wire.sh` | **new** — the K2 enforcement, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` (one added line, the second file outside the generic tree). ⚠ **Both were missing from this supposedly exhaustive table until #501 R68.** They are not a post-boundary addition: they are where K2's enforcement went when the harness left A-i (§15), the same obligation relocated. Two absolutes (the removed-path pin; §2's K2 predicate) and one report-only seed, each with a control that runs before the real scan | derive with `git diff --name-only origin/main...HEAD` — three trees, not two |
+| `webref-generic-core-trip-wire.sh` | **new** — the K2 enforcement, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` (one added line, the second file outside the generic tree). ⚠ **Both were missing from this supposedly exhaustive table until #501 R68.** They are not a post-boundary addition: they are where K2's enforcement went when the harness left A-i (§15), the same obligation relocated. **Two absolutes** — the removed-path pin and §2's K2 predicate — each exercised by a control that runs *before* the real tree and reaches the same classifier the exit status does. **Shell and grep only, bash 3.2**: `.github/workflows/ci.yml` runs the driver with no setup step ("the wires are grep-only") and CLAUDE.md rests the ungated-job decision on that, so a wire needing a toolchain would break the premise for all five. ⚠ **This wire used `python3` until #501 R69** and did exactly that | derive with `git diff --name-only origin/main...HEAD` — three trees, not two |
 | `test_spec_labels.py` | **new** — **13 tests**, derived and re-counted, not inherited (⚠ **15 until the third design re-gate**, which moved S7's first clause and S8 out of the generic suite — see §7). **9 carry a §6 pin**: one each for S1, S2, S3, S3b, S4, S5, S6 and T-net, and **one for S7** (its third clause; the artifact-name scan and the `webref_data` clause are separate tests). **4 carry no pin**, one per claim A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and **both directions composing into a round trip** — the fourth was *claimed by drafts 1-5 and absent from the suite*, so it is added here rather than dropped from the derivation (measured: it holds over all 12 rows, both ways). ⚠ Drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only; draft 5 said 10 pins + 4 extras = 14, which matched the file only because S7's double-count offset the missing round-trip. Under §4's lineage the suite is **authored**, so §6 governs and the arithmetic is **9 + 4 = 13**, which is what the file measures (`grep -c 'def test_'` → 13; `python3 -m unittest _webref.test_spec_labels` → `Ran 13`). ⚠ **This clause read `11 + 4 = 15` until Codex R58**: the count at the head of this row was re-derived when the two duplicated slice-boundary tests left the suite, and the arithmetic clause further down the same row was not, so one row asserted both numbers. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`. ⚠ **Two descriptions in this row were of the retired layout until #501 R68**: the artifact-name scan is **no longer a test at all** (R55 deleted it; only S7's `webref_data` module-shape clause remains), and this row ended *"no test asserts over parse aliases, since A-i ships none"* — `test_the_eight_omitted_parse_aliases_are_inert` (S4) asserts over exactly those eight, which is *how* it shows that omitting them is a refactor rather than a behaviour change. Re-derive from the shipped suite: `grep -n 'def test_' .claude/tools/_webref/test_spec_labels.py` |
 
 Each row is scoped to **every occurrence** in the named artifact, not to a bullet list inside it.
@@ -478,7 +481,9 @@ Every diff check names an explicit ref.
      row claimed it did — "**0** paths that resolve inside this repo are named anywhere" — which was the
      resolve-on-disk predicate Codex R59 had already falsified, left standing here for four more rounds.
      What covers the open part is `git diff origin/main...HEAD -- .claude/`: finite, and every line
-     entering this tree passes review. The wire prints its seed to make that reading cheaper.
+     entering this tree passes review. ⚠ **The wire used to print a report-only seed "to make that reading
+     cheaper"; that scan is gone at #501 R69** — it asserted nothing, so it was a print with no consumer,
+     and keeping it invited exactly the reading this row exists to forbid.
    ⚠ Also outside the wire's predicate: a BARE top-level name with no separator (`"docs"`, `"crates"`,
    `"CLAUDE.md"` as standalone tokens), and two such instances pre-exist at this
    slice's base.
@@ -555,8 +560,9 @@ elsewhere. The cap question does not arise: neither row is a deferral.
    `_webref/` **plus** the `webref` entry script — the limb this row worried about. Nothing is owed to C;
    leaving the row standing would have sent C to re-home an assertion that already has a canonical home,
    which is the duplicated decision surface this program exists to remove.
-   ⚠ What the wire does **not** decide is stated in its own header, not here: its absolute is a closed pin
-   on the paths A-i removed, and its syntactic scan is a declared seed.
+   ⚠ What the wire does **not** decide is stated in its own header, not here: it asserts the removed-path
+   pin and §2's K2 predicate, and reaches neither the policy half of `DESIGN.md`'s closing rule nor the
+   two classes no grep predicate can see (bare top-level names, interpolation).
 
 **Owed to Slice B — three assertions that pin the round-trip defect GREEN.** `test_spec_labels.py`'s S6
 test — `test_spec_label_covers_pinned_and_non_pinned_shortnames`, named rather than numbered because a line
@@ -766,8 +772,8 @@ subject.
 | Claim | Command | Runs in |
 |---|---|---|
 | The map has ONE source; both consumers derive from it | `cd .claude/tools && python3 -m unittest _webref.test_spec_labels` | Slice A-iii wires the suites into CI |
-| The two host paths A-i removed have not come back (K2, **the closed part**) | `bash .claude/tools/webref-generic-core-trip-wire.sh` | `trip-wires`, **every PR to `main`**, ungated by the path filter |
-| A *new* host path named in the generic core (K2, **the open part**) | `git diff origin/main...HEAD -- .claude/` — read it; the wire prints a seed but does not fail on it | code review |
+| The removed host path has not come back, and §2's K2 predicate holds (K2, **the closed part** — two absolutes) | `bash .claude/tools/webref-generic-core-trip-wire.sh` | `trip-wires`, **every PR to `main`**, ungated by the path filter |
+| A *new* host path named in the generic core, in a shape §2's predicate does not cover (K2, **the open part**) | `git diff origin/main...HEAD -- .claude/` — read it | code review |
 | The §3 gate resolves both labels this slice cites (§0.5) | `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md` | the gate every lane runs before its plan-review |
 | A §-number matches its title | `.claude/tools/webref heading --exact <spec> <section>` | per CLAUDE.md § "Spec citation" |
 | What this slice changed, and where | `git diff origin/main...HEAD` — three trees, not two: `.claude/tools/_webref/`, `.claude/tools/webref-generic-core-trip-wire.sh`, and one line of `scripts/trip-wires.sh` | — |

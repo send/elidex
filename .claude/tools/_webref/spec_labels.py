@@ -24,15 +24,16 @@ from __future__ import annotations
 # test here can tell the difference: every pin below is an internal round-trip,
 # S7 forbids importing the upstream fetcher, and T-net poisons the network on
 # the import path. So a wrong label is unfalsifiable in-tree by construction.
-# Measured against the upstream index (#501 gate 4), five rows diverge from
+# Measured against the upstream index, five rows diverge from
 # `title`/`organization` deliberately:
 #   webidl       "Web IDL Standard"                   WHATWG  -> `Web IDL` (no prefix)
 #   xhr          "XMLHttpRequest Standard"            WHATWG  -> `WHATWG XHR` (abbreviated)
 #   selectors-4  "Selectors Level 4"                  W3C     -> `CSS Selectors L4`
 #   geometry-1   "Geometry Interfaces Module Level 1" W3C     -> `Geometry Interfaces L1`
 #   webcrypto    no such shortname upstream (series)  W3C     -> `Web Cryptography API`
-# Re-derive with `.claude/tools/webref specs <shortname>`. Changing any of them
-# is a repo-wide re-spelling, not an edit here.
+# Re-derive with `webref specs <shortname>`. A label is a published spelling:
+# changing one is a change to every citation already written against it, not a
+# local edit.
 #
 # The canonical label is the display form `coverage-map` prints, and the
 # spelling any consumer should emit for that spec; the blurb is `cli.py`'s

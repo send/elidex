@@ -9,30 +9,26 @@
 # free of elidex-specific file paths AND PUT ELIDEX POLICY IN ADAPTER COMMANDS
 # OR DOCUMENTATION".
 #
-# ⚠ Those are TWO axes, and this wire reaches only the first.  The header used
-# to quote the rule truncated at "file paths", which read as though a green
-# here covered the whole sentence; #501 gate 4 found the policy half violated
-# in the same commit set the wire was green on (host review history in the
-# package's own suite).  Nothing mechanical covers the policy half — it is a
-# judgement about wording, and the instrument for it is diff review.
+# ⚠ Those are TWO axes, and this wire reaches only the first.  Nothing
+# mechanical covers the policy half — it is a judgement about wording, and the
+# instrument for it is diff review.  #501 found the policy half violated in a
+# commit set this wire was green on, five rounds running, so do not read a
+# green here as `DESIGN.md` compliance.
 #
-# THREE CHECKS, TWO OF THEM ABSOLUTE.  Say which is which, because a green
-# here was read for four review rounds as more than it is.
+# TWO CHECKS, BOTH ABSOLUTE.  Each is closed and decidable; neither is a
+# heuristic, and this wire makes no un-asserted report.
 #
-# (A) THE PIN — closed, decidable, absolute.  A-i removed exactly one host
-#     path from this tree, at two sites: `_webref/cli.py` and the `webref`
-#     entry script each named `.claude/skills/elidex-review/axes.md` (measured
-#     at base `44cd165d`: 1 each; at HEAD: 0).  This wire FAILS if it comes
-#     back.  Same shape as its four siblings, which pin the re-introduction of
-#     a named deleted construct rather than recognising an open category.
+# (A) THE PIN.  A-i removed exactly one host path from this tree, at two
+#     sites: `_webref/cli.py` and the `webref` entry script each named
+#     `.claude/skills/elidex-review/axes.md` (measured at base `44cd165d`:
+#     1 each; at HEAD: 0).  This wire FAILS if it comes back.  Same shape as
+#     its four siblings, which pin the re-introduction of a named deleted
+#     construct rather than recognising an open category.
 #
-# (A2) THE K2 PREDICATE — closed, decidable, absolute.  The plan-memo's §2
-#     states K2 with a predicate of its own: no `.claude/(skills|tools)/` plus
-#     two further path segments, anywhere in this tree.  That predicate is
-#     NARROW: two fixed directory roots, a fixed segment count.  It enumerates
-#     its own population, so it is not a seed, and it measures 0 over the 34
-#     files here — asserting it costs nothing today and catches the class A-i
-#     exists to remove.
+# (B) THE K2 PREDICATE, verbatim from the memo's §2: no
+#     `.claude/(skills|tools)/` plus two further path segments, anywhere in
+#     this tree.  NARROW — two fixed roots, a fixed segment count — so it
+#     enumerates its own population and is not a seed.  Measured 0 here.
 #
 #     ⚠ It was asserted once and the assertion was lost to two fixes that each
 #     made sense alone.  `3aaad3cb` (R55) deleted
@@ -41,191 +37,154 @@
 #     `b0912a6c` (R62) then demoted that scan to report-only, voiding the
 #     deletion's ground, and nobody restored it.  Between those two commits a
 #     file carrying `.claude/skills/elidex-plan-review/preflight.py` passed
-#     this wire GREEN.  R62's rule — a predicate that cannot return its
-#     population is a seed, and widening the regex is the wrong repair — is
-#     true of (B) and was over-applied to this one.  The two are different
-#     predicates and get different treatment.
+#     this wire GREEN.
 #
-#     ⚠ The pin is exercised on every run against a planted fixture before the
-#     real tree is scanned (`_control` below).  A wire that cannot fire is
-#     indistinguishable from a clean tree, and `scripts/trip-wires.sh:105-112`
-#     rejects hand-verification for exactly this reason: a check nobody
-#     re-runs is a transcript, not a gate.  Codex #501 R66.
+# WHAT THIS WIRE DELIBERATELY DOES NOT DO.  An earlier revision also ran a
+# wide `<any top-level entry>/<something>` SEED — printed, never asserted.  It
+# was widened four times, each fix opening the next hole (syntactic
+# over-reach; resolving-on-disk under-reach; a string-keyed exemption that
+# over-suppressed; a basename-keyed one that collided), and interpolation
+# `docs/${x}/y.md` was the fifth.  This repo's recorded rule is that when a
+# predicate cannot return its population it is a SEED and widening the regex
+# is the wrong repair.  A seed that reports and asserts nothing is also a
+# print with no consumer, which `CLAUDE.md` calls dead code.  So it is GONE,
+# not demoted: what covers that open class is the diff — every line entering
+# this tree passes review, and `git diff origin/main...HEAD -- .claude/` is
+# finite.  Two classes it could never see either way: bare top-level names
+# with no separator (`"docs"`, `"crates"`, `"CLAUDE.md"` — live at
+# `cli.py`'s `--paths` default and `refresh.py`'s usage string, both
+# pre-existing) and interpolation.
 #
-# (B) THE SEED — a syntactic scan for `<top-level entry>/<something>`, printed
-#     but NOT asserted, and deliberately not widened again.
+# RUNTIME: shell + grep only, bash 3.2 compatible, no toolchain.  That is a
+# contract, not a coincidence: `.github/workflows/ci.yml` runs this driver
+# with no setup step ("the wires are grep-only") and `CLAUDE.md` rests the
+# ungated-job decision on it.  An earlier revision of this wire used `python3`
+# and broke that premise for all five wires (#501 R69).  Anything needing more
+# than grep belongs in a test, not here.
 #
-#     It was widened four times, each fix opening the next hole: syntactic
-#     over-reached (`docs/note.md` inside a test assertion; the prose "affected
-#     docs/code"); resolving-on-disk under-reached (a planned or renamed-away
-#     path is still a host path); a string-keyed exemption over-suppressed (the
-#     same text in any file); a basename-keyed one collided (any nested
-#     `DESIGN.md`).  Interpolation — `docs/${x}/y.md` — is the fifth.
-#     This repo's own recorded rule is that when a predicate cannot return its
-#     population it is a SEED, and widening the regex is the wrong repair
-#     (`feedback_checks-must-not-be-defined-by-the-symptom-vocabulary`).  So the
-#     seed reports and does not fail: recognising arbitrary path-shaped text in
-#     arbitrary source is not decidable here, and a check that claims otherwise
-#     teaches readers to trust a green it has not earned.  What covers the open
-#     class is the diff — every line entering this tree passes review, and
-#     `git diff origin/main...HEAD -- .claude/` is finite.
-#
-# Run from anywhere.  Exits non-zero if (A) or (A2) fails.
+# Run from anywhere.  Exits non-zero if (A) or (B) fails.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-for p in "$ROOT/.claude/tools/_webref" "$ROOT/.claude/tools/webref"; do
+SCOPE_DIR="$ROOT/.claude/tools/_webref"
+SCOPE_FILE="$ROOT/.claude/tools/webref"
+for p in "$SCOPE_DIR" "$SCOPE_FILE"; do
   [ -e "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
 
+# The host path A-i removed, spelled out, closed. Fixed string, `grep -F`.
+PIN='.claude/skills/elidex-review/axes.md'
+# §2's K2 predicate. Fixed ERE, `grep -E`.
+K2RE='\.claude/(skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+
 # A filesystem walk, not `git grep`: an untracked file under the package is
 # exactly where a violation lands during authoring, and `git grep` reads the
-# index.  (Measured on this repo: a plant in an unstaged file read GREEN.)
-python3 - "$ROOT" <<'PY'
-import os, re, subprocess, sys, tempfile
-
-root = sys.argv[1]
-scope = [os.path.join(root, ".claude/tools/_webref"), os.path.join(root, ".claude/tools/webref")]
-
-# (A) THE PIN. The host path A-i removed, spelled out, closed.
-PINNED = [".claude/skills/elidex-review/axes.md"]
-
-# (A2) THE K2 PREDICATE, verbatim from the plan memo's §2: two fixed directory
-# roots plus two further segments. Closed and decidable -- NOT the seed below.
-# No exemption list: §2 states K2 with none, and an exemption with zero members
-# is an untested escape hatch (measured at HEAD: 0 hits either way).
-K2_RE = re.compile(r"\.claude/(?:skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-
-# (B) THE SEED. Derived vocabulary, syntactic match -- printed, not asserted.
-tops = [t for t in subprocess.run(["git", "-C", root, "ls-tree", "--name-only", "HEAD"],
-                                  capture_output=True, text=True, check=True).stdout.split()
-        if t not in (".gitignore", ".gitattributes")]
-if len(tops) < 4:
-    raise SystemExit("!! derived only %d top-level entries; the seed would be near-vacuous" % len(tops))
-SEED_RE = re.compile(
-    r"(?<![\w-])(?:\.{1,2}/|(?:\.\./)+|/)?(" + "|".join(re.escape(t) for t in tops)
-    + r")/[\w./*?${}-]+")
-# Known non-paths, keyed by path RELATIVE TO `.claude/tools` -- a basename key
-# granted any nested `DESIGN.md` the root document's exemption.
-NOT_A_PATH = {
-    "_webref/test_agent_brief.py": {"docs/note.md"},
-    "_webref/DESIGN.md": {"docs/code"},
+# index. (Measured on this repo: a plant in an unstaged file read GREEN.)
+# `-I` skips binaries; `__pycache__` is pruned.
+_files() { # $1 = dir root, $2 = extra file (may be empty)
+  find "$1" -name __pycache__ -prune -o -type f -print
+  [ -n "${2:-}" ] && printf '%s\n' "$2"
+  return 0
 }
-INSTALL_PATH = {".claude/tools/webref"}
 
-def files(scope, base):
-    for s in scope:
-        if os.path.isfile(s):
-            yield s
-        else:
-            for dirpath, dirnames, filenames in os.walk(s):
-                dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__")]
-                for fn in filenames:
-                    yield os.path.join(dirpath, fn)
+_scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" lines
+  _files "$1" "${2:-}" | while IFS= read -r f; do
+    grep -IFn -- "$PIN" "$f" 2>/dev/null | while IFS= read -r hit; do
+      printf 'pin\t%s:%s\n' "${f#$ROOT/}" "$hit"
+    done
+    grep -IEno -- "$K2RE" "$f" 2>/dev/null | while IFS= read -r hit; do
+      printf 'k2\t%s:%s\n' "${f#$ROOT/}" "$hit"
+    done
+  done
+  return 0
+}
 
+# The classifier the VERDICT reads. Factored out so the controls below exercise
+# the same path the exit status comes from -- #501 R69 measured the earlier
+# shape and a mutation to the k2 line survived: the controls proved `_scan`,
+# not the thing that decides.
+_verdict() { # $1 = _scan output; sets PIN_HITS / K2_HITS
+  PIN_HITS="$(printf '%s\n' "$1" | grep '^pin	' || true)"
+  K2_HITS="$(printf '%s\n' "$1" | grep '^k2	' || true)"
+}
 
-def scan(scope, base):
-    """The ONE engine. The controls below and the real run share it, so a
-    control can only pass by proving the same code the verdict comes from."""
-    pinned_hits, k2_hits, seed_hits, scanned = [], [], [], 0
-    for path in files(scope, base):
-        try:
-            body = open(path, encoding="utf-8").read()
-        except UnicodeDecodeError:
-            # Not "nothing to match": a partially-decodable file would otherwise
-            # be scanned in part and reported as whole.
-            body = open(path, "rb").read().decode("utf-8", "replace")
-        scanned += 1
-        rel = os.path.relpath(path, os.path.join(base, ".claude/tools"))
-        for n, line in enumerate(body.splitlines(), 1):
-            for pin in PINNED:
-                if pin in line:
-                    pinned_hits.append("%s:%d: %s" % (os.path.relpath(path, base), n, pin))
-            for m in K2_RE.finditer(line):
-                k2_hits.append("%s:%d: %s" % (os.path.relpath(path, base), n, m.group(0)))
-            for m in SEED_RE.finditer(line):
-                cand = re.sub(r"^(?:\.{1,2}/|(?:\.\./)+|/)", "", m.group(0).rstrip(".,;:"))
-                if cand in INSTALL_PATH or cand in NOT_A_PATH.get(rel, ()):
-                    continue
-                seed_hits.append("%s:%d: %s" % (os.path.relpath(path, base), n, cand))
-    return scanned, pinned_hits, k2_hits, seed_hits
+# ---- CONTROLS, run BEFORE the real tree ------------------------------------
+# The samples are spelled out a SECOND time on purpose. They are the
+# independent subject each check is tested against, exactly as
+# `layout-box-reader-trip-wire.sh`'s `ban_control` passes a hand-written
+# sample line beside the pattern. If someone edits `PIN` or `K2RE` to a
+# different spelling, the two stop agreeing and THAT is the signal — the
+# failure a pattern-derived fixture cannot see.
+CONTROL_HIT='.claude/skills/elidex-review/axes.md'
+CONTROL_MISS='.claude/skills/elidex-review/workflow.md'
 
+# Distinguish an environment failure from a dead assertion: an empty scratch
+# dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
+# the cleanup path is the absolute one it returned (#501 R55: an unchecked
+# `mktemp` made an `rm -rf` expand to the repo root).
+if ! CTL="$(mktemp -d)" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
+  echo "!! could not create a scratch dir for the controls (TMPDIR/disk?)," >&2
+  echo "   so this run's assertions were never proved able to fire." >&2
+  exit 2
+fi
+trap 'case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-# ---- CONTROLS, run BEFORE the real scan -------------------------------------
-# The samples below are spelled out a SECOND time on purpose. They are not a
-# duplicate of `PINNED`: they are the independent subject the pin is tested
-# against, exactly as `layout-box-reader-trip-wire.sh`'s `ban_control` passes a
-# hand-written sample line beside the pattern. If someone edits `PINNED` to a
-# different spelling, the two stop agreeing and THAT is the signal -- which is
-# the failure `PINNED`-derived fixtures cannot see.
-CONTROL_HIT = ".claude/skills/elidex-review/axes.md"
-CONTROL_MISS = ".claude/skills/elidex-review/workflow.md"
-# (A2)'s control is a DIFFERENT host path, so the two absolutes cannot pass each
-# other's test: `workflow.md` must miss the pin and hit the K2 predicate.
+mkdir -p "$CTL/hit" "$CTL/miss"
+printf 'AXES = "%s"  # planted\n' "$CONTROL_HIT"  > "$CTL/hit/control.py"
+printf 'OTHER = "%s"  # planted\n' "$CONTROL_MISS" > "$CTL/miss/control.py"
 
-with tempfile.TemporaryDirectory() as ctl:
-    # Distinguish an environment failure from a dead assertion: with the dir
-    # empty the controls would exercise nothing and silently "pass".
-    hit_dir = os.path.join(ctl, "hit")
-    miss_dir = os.path.join(ctl, "miss")
-    os.makedirs(hit_dir)
-    os.makedirs(miss_dir)
-    with open(os.path.join(hit_dir, "control.py"), "w", encoding="utf-8") as fh:
-        fh.write('AXES = "%s"  # planted\n' % CONTROL_HIT)
-    with open(os.path.join(miss_dir, "control.py"), "w", encoding="utf-8") as fh:
-        fh.write('OTHER = "%s"  # planted, NOT the pinned path\n' % CONTROL_MISS)
-    n_hit, hits, hit_k2, _ = scan([hit_dir], ctl)
-    n_miss, misses, miss_k2, _ = scan([miss_dir], ctl)
-    if n_hit != 1 or n_miss != 1:
-        raise SystemExit("!! control scan read %d/%d file(s), not 1/1 -- the controls "
-                         "proved nothing about this run" % (n_hit, n_miss))
-    if not hits:
-        raise SystemExit("!! POSITIVE CONTROL FAILED: a planted `%s` did NOT fire the "
-                         "pin, so a green below would mean nothing. `PINNED` is empty, "
-                         "misspelled, or the match loop is broken." % CONTROL_HIT)
-    if misses:
-        raise SystemExit("!! NEGATIVE CONTROL FAILED: `%s` fired the pin, so the pin is "
-                         "matching more than the path it names." % CONTROL_MISS)
-    if not miss_k2:
-        raise SystemExit("!! K2 CONTROL FAILED: a planted `%s` did NOT fire the K2 "
-                         "predicate, so a green below would mean nothing. `K2_RE` is "
-                         "broken." % CONTROL_MISS)
-print("  controls: pin fires on a planted `%s` and not on a sibling; the K2 predicate "
-      "fires on `%s`" % (CONTROL_HIT, CONTROL_MISS))
+ctl_hit="$(ROOT="$CTL" _scan "$CTL/hit" "" || true)"
+ctl_miss="$(ROOT="$CTL" _scan "$CTL/miss" "" || true)"
 
-scanned, pinned_hits, k2_hits, seed_hits = scan(scope, root)
+_verdict "$ctl_hit"
+if [ -z "$PIN_HITS" ]; then
+  echo "!! POSITIVE CONTROL FAILED: a planted \`$CONTROL_HIT\` did NOT reach the pin" >&2
+  echo "   verdict, so a green below would mean nothing. \$PIN is empty or misspelled," >&2
+  echo "   or the classifier dropped it." >&2
+  exit 1
+fi
+_verdict "$ctl_miss"
+if [ -n "$PIN_HITS" ]; then
+  echo "!! NEGATIVE CONTROL FAILED: \`$CONTROL_MISS\` reached the pin verdict, so the" >&2
+  echo "   pin is matching more than the path it names." >&2
+  exit 1
+fi
+if [ -z "$K2_HITS" ]; then
+  echo "!! K2 CONTROL FAILED: a planted \`$CONTROL_MISS\` did NOT reach the K2 verdict," >&2
+  echo "   so a green below would mean nothing. \$K2RE is broken, or the classifier" >&2
+  echo "   dropped it." >&2
+  exit 1
+fi
+echo "  controls: the pin fires on a planted \`$CONTROL_HIT\` and not on a sibling;"
+echo "            the K2 predicate fires on \`$CONTROL_MISS\`"
 
-if not scanned:
-    raise SystemExit("!! scanned 0 files; this wire would report no violation for a "
-                     "reason that is not 'there are none'")
-print("  scanned %d file(s) under the generic core" % scanned)
-if seed_hits:
-    print("  seed (REPORT ONLY -- see the header; the diff covers this class):")
-    for h in seed_hits:
-        print("     %s" % h)
-else:
-    print("  seed: no `<top-level>/...` shaped text (%d entries; NOT an absolute)" % len(tops))
-    print("        blind to: bare roots with no separator (`\"docs\"`, `\"crates\"`,")
-    print("        `\"CLAUDE.md\"` -- live at cli.py's `--paths` default and refresh.py's")
-    print("        usage string, both pre-existing) and interpolation (`docs/${x}/y.md`).")
-failed = False
-if pinned_hits:
-    print("!! a host path A-i REMOVED is back in the generic core:")
-    for h in pinned_hits:
-        print("     %s" % h)
-    failed = True
-else:
-    print("  pin: %d removed host path, none present -- ABSOLUTE" % len(PINNED))
-if k2_hits:
-    print("!! K2: a `.claude/(skills|tools)/<a>/<b>` host path is named in the generic core:")
-    for h in k2_hits:
-        print("     %s" % h)
-    failed = True
-else:
-    print("  K2: 0 `.claude/(skills|tools)/<a>/<b>` paths named here -- ABSOLUTE")
-if failed:
-    raise SystemExit(1)
-PY
+# ---- THE REAL TREE ----------------------------------------------------------
+scanned="$(_files "$SCOPE_DIR" "$SCOPE_FILE" | wc -l | tr -d ' ')"
+if [ "$scanned" -eq 0 ]; then
+  echo "!! scanned 0 files; this wire would report no violation for a reason that is not 'there are none'" >&2
+  exit 2
+fi
+echo "  scanned $scanned file(s) under the generic core"
 
+_verdict "$(_scan "$SCOPE_DIR" "$SCOPE_FILE" || true)"
+failed=0
+
+if [ -n "$PIN_HITS" ]; then
+  echo "!! a host path A-i REMOVED is back in the generic core:"
+  printf '%s\n' "$PIN_HITS" | sed 's/^pin	/     /'
+  failed=1
+else
+  echo "  pin: the removed host path is not present -- ABSOLUTE"
+fi
+
+if [ -n "$K2_HITS" ]; then
+  echo "!! K2: a \`.claude/(skills|tools)/<a>/<b>\` host path is named in the generic core:"
+  printf '%s\n' "$K2_HITS" | sed 's/^k2	/     /'
+  failed=1
+else
+  echo "  K2: 0 \`.claude/(skills|tools)/<a>/<b>\` paths named here -- ABSOLUTE"
+fi
+
+[ "$failed" -eq 0 ] || exit 1
 echo "webref generic-core layering trip-wire PASSED"
