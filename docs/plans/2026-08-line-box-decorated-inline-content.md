@@ -133,13 +133,15 @@ ran; it no longer gates anything.
    pointed at the defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **52** after the amendment recorded next. **Not frozen**
+behaviour** of §6's cells — 49 at rev 34, **52** after the amendments recorded next (R2 adds
+three cells; R3 changes three markups and adds none). **Not frozen**
 (still correctable without reopening anything): Grounds columns, citations, coordinates, §7–§10,
 and the ledgers.
 
-**⚠ Amended once, by the external channel this freeze deliberately keeps** (Codex R2 on #515,
-2026-09-20 — rev 36; the freeze declares #515 unblocked, not the reviewer silenced, and the front
-matter keeps `/external-converge` on the approval PR). Four P2 findings, two roots:
+**⚠ Amended twice, by the external channel this freeze deliberately keeps** (Codex R2 then R3 on
+#515, 2026-09-20 — revs 36 and 37; the freeze declares #515 unblocked, not the reviewer silenced,
+and the front matter keeps `/external-converge` on the approval PR). **R2 — four P2 findings, two
+roots:**
 
 * **R2-F3** — M3's hang gate was written against M5's **whole-box** `has_inline_axis_edge`, which
   is true at *both* markers of an asymmetric box, so an `InlineBoxEnd` that contributes no
@@ -158,9 +160,32 @@ matter keeps `/external-converge` on the approval PR). Four P2 findings, two roo
   (PR-1d, baseline composition on a mixed line). *Rejected position*: building the model here, or
   patching M4/M6/M7 into local coherence against a model that does not exist.
 
-⚠ **The attestation table below predates the amendment** and is left as the record of what that
+**R3 — one P2, and the class it belongs to.** Cell 17c's fixture,
+`<p style="width:100px">aaaaaaaaaa<span style="padding:5px">bbbb</span></p>`, needed a second line
+that css-text-3 §5.5 does not license: it contains no space, so the wrap came from the inline-box
+boundary — from `#11-inline-item-boundary-soft-wrap`, the **pre-existing bug this memo already
+owns as a slot** — and a PR-1c geometry test on it would have required the bug to survive.
+Measured: `line_count` **2** with the span's tags and **1** without them (88.98 + 35.59 = 124.58
+overflowing one line at width 100). The root action is not the cell but the **rule**, installed
+once in the §6 preamble with a discriminator that is a measurement, plus the **sweep** it
+licenses, recorded on the slot in §5.3: 15d and 17d(b) pass; 17c is re-fixtured to
+`<p style="width:60px">aaaa <span style="padding:5px">cccc</span></p>`, and 17 and 17f — fixture-less
+until now, which is how a boundary-dependent fixture comes to be written at all —
+take 17d(b)'s `<p style="width:80px">aaa <span style="padding:10px">bbb ccc</span></p>`,
+so the three PR-1c cells on a wrapping box become three channels on one geometry. No cell is
+added or removed and no **expected behaviour** changes; three markups do, which is why this is an
+amendment to the frozen surface and not a correction beneath it. *Rejected positions, recorded
+here rather than in the cells*: 17c's `aaaaaaaaaa` / `bbbb` at `width:100px`; and a **count-only**
+tagless control — measured,
+`<p style="width:60px">aaaa<span style="padding:10px">bbb ccc</span></p>` gives two lines tagged
+*and* tagless, yet breaks at the boundary tagged (`"aaaa"` / `"bbb ccc"`) and at the space tagless
+(`"aaaabbb "` / `"ccc"`), so the control must compare split **points**.
+
+⚠ **The attestation table below predates the amendments** and is left as the record of what that
 pass checked: it did not see cells 13b / 23b / 24c, and M3's, M5's, M6's and M7's rows were
-consistent under the whole-box gate the amendment replaces.
+consistent under the whole-box gate R2 replaces. R3 changes no Decision column and no expected
+behaviour, so it does not disturb what that pass asserted; M4's row names 17, 17c and 17f and
+their subjects are unchanged.
 
 **Residual risk and how it is discharged**: cross-mechanism code-level consistency — one mechanism
 introducing a value, state or ordering that another's predicate was written without. It is
@@ -1030,6 +1055,15 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   mechanism (round 23, Axis 1; round 24, Axis 3). Trigger: any line-breaking correctness work, a
   compat-survey hit, or `#11-inline-box-decoration-splits` picking up css-text-3 §5.5's margin-edge bullet
   (the same rule's other half). Re-eval: 2026-11-01. Found by Codex on #515.
+  ⚠ **The class was swept at Codex R3 and does not need re-deriving.** Every §6 cell whose
+  expected result needs a second line was measured against the tagless control the §6 preamble
+  states: **15d** and **17d(b)** break at a genuine opportunity and are unchanged; **17c**'s
+  fixture broke at the boundary and **17** and **17f** specified no markup at all, so all three
+  are re-fixtured in §6. Two cells were checked and found outside the class rather than skipped:
+  **15c** declines to assert where `b` lands precisely because that observation would run through
+  this slot, and **19**'s break is **forced** (`<pre>`, clause 5/clause 2), not soft. The finding
+  that opened this slot (Codex on #515) was discharged instance-scoped — cell 15 rewritten, the
+  slot registered — with no sweep for the same dependence elsewhere, which is how 17c survived it.
 
 Own deferrals **per PR** (the policy's unit), for all **seven crate PRs** of the program (§8's two
 bookkeeping PRs — neither touches `crates/` — sit outside check 9's roll-call: the docs-only
@@ -1116,6 +1150,21 @@ new persisted carrier; `LayoutBox` (a component) is the destination and terminal
 on its own schedule.
 
 ## §6. Edge matrix
+
+⚠⚠ **Standing rule for every cell of every PR here: a cell that requires a second line must get
+it from a genuine soft wrap opportunity *inside* a run — never from an inline-box boundary.**
+css-text-3 §5.5 *Line Breaking Details* (§1.3 carries the sentence): "Out-of-flow boxes and
+**inline box boundaries do not introduce a forced line break or soft wrap opportunity** in the
+flow." A cell whose second line comes from the boundary is pinning
+`#11-inline-item-boundary-soft-wrap` (§5.3) — a **pre-existing bug this memo owns as a slot** — as
+expected behaviour, so the cell requires the bug to survive and turns red the day the slot is
+discharged. ⚠ **The discriminator is a measurement, and it compares split *points*, not line
+counts**: lay the same markup out with the span's tags removed; the wrap is genuine only if the
+tagless run breaks at the **same place**. Count alone passes fixtures that are still
+bug-dependent — measured, `<p style="width:60px">aaaa<span style="padding:10px">bbb ccc</span></p>`
+gives two lines both ways, but tagged it splits `"aaaa"` / `"bbb ccc"` (the boundary) and tagless
+`"aaaabbb "` / `"ccc"` (the space). Every multi-line cell was measured against this control at
+Codex R3; the sweep and its non-members are recorded on the slot in §5.3.
 
 **PR-1a characterization (assert today's behaviour; PR-1d's flip set is stated once, in §8's PR-1d DoD):**
 
@@ -1551,9 +1600,20 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     the line the item-boundary flush puts it on (0 with no wrap check, 40 or 20 with one), i.e.
     every PR-1b observation runs through the divergence the slot forbids pinning (round 22,
     Axis 2; gate).
-17. **A decorated inline whose content wraps** — start marker on line N, end marker on line
-    N+1; M4's per-line rebase must yield one rect per line, each with that line's
-    `block_start`.
+17. **A decorated inline whose content wraps** —
+    `<p style="width:80px">aaa <span style="padding:10px">bbb ccc</span></p>`: start marker on
+    line N, end marker on line N+1; M4's per-line rebase must yield one rect per line, each with
+    that line's `block_start`. ⚠ **It is 17d(b)'s markup deliberately**, so that the three PR-1c
+    cells on a wrapping box read three channels off **one** geometry — `line_rects` here,
+    `getClientRects` at 17d(b), `getBoundingClientRect` at 17f — and the arithmetic is stated once,
+    at 17d(b): `"aaa "` 31.14, marker to 41.14, `"bbb"` trimmed 26.70 fitting at 67.84 ≤ 80,
+    cursor 72.28, `"ccc"` reaching 96.28 > 80 and wrapping. `line_count` is **2 both today and
+    after PR-1b**, so §5.3's PR-1b universal is untouched. ⚠ **The wrap is genuine under the
+    preamble's control, measured**: tagged the lines are `"aaa "`+`"bbb "` / `"ccc"`, and with the
+    span's tags removed (`<p style="width:80px">aaa bbb ccc</p>`) they are `"aaa bbb "` / `"ccc"`
+    — the **same break point**, `find_break_opportunities`' split of one run (`pack/items.rs:74`),
+    which is cell 15d's ground too, and not the item boundary at 31.14. The cell carried no markup
+    at all until Codex R3 (freeze amendment).
 10b. **Nested boxes, stack depth > 1** (M4) — `<p>a<span style="padding:5px">b<span
     style="padding:5px">c</span>d</span>e</p>`: each span gets its own rect and its own
     `LayoutBox` edges, and the inner box's span lies within the outer's. This is why M4 is a
@@ -1561,9 +1621,23 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
 17b. **Two producers, one fragment** (M4's ⚠): a single-line `<span style="padding:10px">text</span>`
     must yield exactly **one** `line_rects` entry — the persisting arm's per-entity fold
     (`commit_aligned_entity_rects`, `:479-487`) absorbing `place_item`'s rect and the marker's.
-17c. **A box opened at a line end** — `<p style="width:100px">aaaaaaaaaa<span style="padding:5px">bbbb</span></p>`:
+17c. **A box opened at a line end** — `<p style="width:60px">aaaa <span style="padding:5px">cccc</span></p>`:
     the marker opens with zero span on line N, so no partial rect is emitted, but its content-start
-    **must** still be rebased to 0 or line N+1's rect comes out inverted (M4).
+    **must** still be rebased to 0 or line N+1's rect comes out inverted (M4). Arithmetic, with the
+    harness's `measure_width` (`tests/mod.rs:31`, `TEST_FAMILIES`'s first family at 16px Arial):
+    `"aaaa "` is 40.04 (35.59 + 4.45), so the start marker is placed at 40.04 and advances to
+    **45.04 ≤ 60** — it stays on line N, which is what makes this cell's shape reachable — while
+    `"cccc"` (32.00, no trailing space to trim) would reach **77.04 > 60** and therefore opens line
+    N+1. Line N's open-box stack entry then spans content-start 45.04 → flush cursor 45.04 =
+    **zero**, so M4's flush-time emit — non-empty spans only — produces nothing, which is the arm
+    M4 names this cell for (the *other* rule, `InlineBoxEnd`'s unconditional push, is cell 14c's);
+    line N+1's entry must be rebased from 45.04 to 0, or the rect is `45.04 → 32.00` — inverted,
+    which is the whole assertion. `line_count` is **2 before and after PR-1b**: the 5px start edge does
+    not move the break, so §5.3's PR-1b universal is untouched. ⚠ **The second line is a genuine
+    opportunity, by the preamble's tagless control, measured**: today the markup lays out
+    `"aaaa "` / `"cccc"`, and the tags-removed `<p style="width:60px">aaaa cccc</p>` lays out the
+    **same split**, so the break is UAX #14's at the space. The fixture this cell carried until
+    Codex R3 failed that control (freeze amendment).
 17d. **`getClientRects`, both channels, one asserting a divergence** (M4's ⚠). Two markups:
     (a) **single fragment** — `<span style="padding:10px">text</span>` on one line stores no
     `InlineClientRects` (`boxes.rs:102`'s `len() > 1` guard), so `getClientRects` takes the
@@ -1592,9 +1666,15 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     `getClientRects` takes 17d(a)'s `border_box()` fallback — cell 17c's phenomenon, not this one's
     (round 24 audit).
 17f. **The multi-line `getBoundingClientRect`, pinned as accepted** (§7; cssom-view-1 §6
-    *get the bounding box*) — a wrapping `<span style="padding:10px">` must return the min/max
+    *get the bounding box*) — on cell 17's markup,
+    `<p style="width:80px">aaa <span style="padding:10px">bbb ccc</span></p>`, the shared
+    two-fragment geometry (17d(b), named as this cell's other half at its close, is the third
+    channel on it): the wrapping `<span style="padding:10px">` must return the min/max
     **union of its per-line content spans expanded by the padding on all four sides**, which is
-    what `LayoutBox.border_box()` is. Two divergences from the spec's derivation, both recorded:
+    what `LayoutBox.border_box()` is. The two fragments and the genuineness of the break that
+    produces them are measured at cell 17 under the §6 preamble's tagless control, and
+    `line_count` is 2 both today and after PR-1b. This cell carried no markup at all until Codex
+    R3 (freeze amendment). Two divergences from the spec's derivation, both recorded:
     (a) elidex never invokes `getClientRects()` for this at all (`element/layout_query.rs:26-31`
     → `get_border_box`; ⚠ every earlier drafting of this range, here and at §3's *get the bounding
     box* row and §7, wrote `:29-32`, which contains no part of the `get_border_box` call: that call
