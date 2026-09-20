@@ -480,7 +480,7 @@ Every diff check names an explicit ref.
    from "could not read" — `git grep` returns **1** for both, so `!` turned an unreadable file into a
    certified scope. All four measured.
 
-   Every one of those is a failure mode the K2 wire spent thirteen rounds closing, and the reason they keep
+   Every one of those is a failure mode the K2 wire closed one review round at a time, and the reason they keep
    arriving here is that **K3's check is a one-liner in prose while K2's is an instrument**. A one-liner
    that must be sound *is* the self-measuring apparatus this program ratified against, so this row does not
    grow one: it reports what the two commands print at this head, and what covers the invariant is the
