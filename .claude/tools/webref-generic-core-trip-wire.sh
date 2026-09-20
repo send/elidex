@@ -145,37 +145,55 @@ K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 # claims.  Matching is `-o`, so the report stays the matched path and not a
 # binary dump.  (Two empty `__init__.py` here are already classified binary by
 # `file --mime`, which is how little "binary" has to mean for this to matter.)
-# THE WALK IS GIT'S, NOT A HAND-ROLLED ONE.  Six review rounds (#501 R69-R74)
-# found nine ways for a `find | read | grep` walk to certify K2 over something
-# it had not examined: a file it could not read, one whose content `grep -I`
-# skipped, a subtree `find` could not descend into, a symlink, an entry of some
-# other type, a filename holding a newline, a prune that matched by name rather
-# than by type, and a segment class narrower than the invariant.  Measured, ONE
-# command handles all but the symlink by construction:
+# THE WALK IS GIT'S, AND THE POPULATION IS GIT'S ANSWER.  Eight review rounds
+# (#501 R69-R79) found ten ways for a hand-rolled walk to certify K2 over
+# something it had not examined — a file it could not read, one whose content
+# `grep -I` skipped, a subtree `find` could not descend into, a symlink, an
+# entry of some other type, a filename holding a newline, a prune matching by
+# name rather than type, a segment class narrower than the invariant, an
+# entry's own NAME, and an empty file.  ONE list answers all of it:
 #
-#   git grep --no-index -anE <predicate> -- <scope>
+#   git ls-files -z --cached --others --exclude-standard -- <scope>
 #
-# It works outside a repository (so the fixtures below need no `git init`),
-# reports a newline-bearing filename as `"foo\nbar"` rather than splitting it,
-# reads binary content under `-a`, descends without a prune of its own, and is
-# the canonical way in this repo to ask what text a tree holds.  Writing a
-# fourth variant of the hand-rolled walk when this exists is the thing
-# CLAUDE.md's "既存の抽象で解決できないか考える" forbids.
+#   --cached                     tracked, INCLUDING a file force-added under an
+#                                ignored path (#501 R77)
+#   --others --exclude-standard  untracked, MINUS what `.gitignore` excludes —
+#                                a `.pyc` embeds its source's absolute path and
+#                                would otherwise turn this wire red for anyone
+#                                who had merely run the tool (#501 R79)
+#   -z                           a tracked filename may contain a newline
 #
-# TWO THINGS IT DOES NOT DO, both handled explicitly below:
-#   * it does not read a SYMLINK's target, and a symlink's stored content IS
-#     that target (git keeps it as the blob), so links get their own pass;
-#   * it exits 0 on a permission error and reports it only on stderr, so a
-#     non-empty stderr is treated as a failed walk.
+# That list drives EVERYTHING: the population, the name check, the content scan
+# and the count.  They are one quantity, so "counted but not scanned" is not
+# representable rather than merely checked — three rounds each found a
+# different way for two separately-derived quantities to disagree.
 #
-# COUNTED IS SCANNED.  The count comes from the same tool over the same scope
-# (`-l` with a pattern every line matches), not from a separate traversal, so
-# "counted but not scanned" stays unrepresentable.
+# Per entry, exactly one arm:
+#   * a SYMLINK's stored content is its target string (git keeps it as the
+#     blob), read with `readlink`;
+#   * a regular file's content with `grep -aEn` — `-a` because binary content
+#     is content, and plain `grep` rather than `git grep` because `git grep -a
+#     --no-index` was measured NOT to match inside a `.pyc` while `grep -a`
+#     does, and a wire whose reach depends on the installed git is not an
+#     absolute (#501 R79);
+#   * and in both cases the entry's own NAME, matched relative to the SCOPE —
+#     relative to the repo every file here would match, since the generic core
+#     itself lives under `.claude/tools/` (#501 R78).
 #
 # An entry git cannot store — a fifo, a socket, a device — is not listed, and
 # that is the right line rather than an omission: K2 is about text that lives
-# in this tree, and such an entry holds none.  (Verified: a fifo in the scope
-# neither hangs nor hides a plant elsewhere.)
+# in this tree, and such an entry holds none.  A permission failure is an
+# ERROR, not an absence: `git ls-files` and `grep` both report it on stderr
+# while exiting 0, so a non-empty stderr and a `grep` status above 1 each fail
+# the run.
+# A PATH IS DATA, NOT PROTOCOL. The records below are newline-separated and
+# tab-tagged, and a tracked filename may contain both — so a file named
+# `safe<LF>k2<TAB>forged` injected a synthetic K2 hit and the wire reported
+# `forged` and exited 1 (#501 R80, reproduced). Every path is escaped on its
+# way into a record; the escape is lossy on purpose, since what a reader needs
+# is to find the entry, not to round-trip its bytes.
+_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' | tr '\n\t' '~~'; }
+
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
   _l="$(mktemp)" || { rm -f "$_e"; printf 'err\twalk: no temp file for the file list\n'; return 0; }
@@ -204,15 +222,15 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     # relative to the SCOPE: relative to the repo every file here would match,
     # since the generic core itself lives under `.claude/tools/`.
     printf '%s\n' "${rel#$_dir/}" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
-      printf 'k2\t%s: (the entry NAME is itself) %s\n' "$rel" "$m"
+      printf 'k2\t%s: (the entry NAME is itself) %s\n' "$(_esc "$rel")" "$m"
     done
     if [ -L "$f" ]; then
       # A symlink's stored content IS its target string; git keeps it as the blob.
       tgt="$(readlink "$f" 2>/dev/null)" || {
-        printf 'err\t%s: symlink, but its target could not be read\n' "$rel"; continue; }
-      printf 'ok\t%s\n' "$rel"
+        printf 'err\t%s: symlink, but its target could not be read\n' "$(_esc "$rel")"; continue; }
+      printf 'ok\t%s\n' "$(_esc "$rel")"
       printf '%s\n' "$tgt" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
-        printf 'k2\t%s: -> %s\n' "$rel" "$m"
+        printf 'k2\t%s: -> %s\n' "$(_esc "$rel")" "$m"
       done
       continue
     fi
@@ -221,10 +239,10 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     # inside a `.pyc` on this machine while plain `grep -a` does, and a wire
     # whose reach depends on which git is installed is not an absolute.
     out="$(grep -aEn -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
-      printf 'err\t%s: unreadable, or the read failed\n' "$rel"; continue; }
-    printf 'ok\t%s\n' "$rel"
+      printf 'err\t%s: unreadable, or the read failed\n' "$(_esc "$rel")"; continue; }
+    printf 'ok\t%s\n' "$(_esc "$rel")"
     [ -z "$out" ] || printf '%s\n' "$out" | while IFS= read -r hit; do
-      printf 'k2\t%s:%s\n' "$rel" "$hit"
+      printf 'k2\t%s:%s\n' "$(_esc "$rel")" "$hit"
     done
   done < "$_l"
   rm -f "$_l" "$_e"
@@ -281,7 +299,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name linkname ignored; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname forge linkname ignored; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -332,16 +350,23 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   printf 'generated/\n'                      > "$CTL/ignored/.gitignore"
   mkdir -p "$CTL/ignored/generated"
   printf 'SRC = "%s"\n' "$CONTROL_K2"       > "$CTL/ignored/generated/artefact.bin"
-  # An EMPTY tracked file whose NAME is the hierarchy: the list must enumerate
-  # it even though no content matches (#501 R79).
-  mkdir -p "$CTL/name/$(dirname "$CONTROL_K2")"
-  : > "$CTL/name/empty-$(basename "$CONTROL_K2")"
+  # An EMPTY tracked file whose NAME is the hierarchy, ALONE in its own fixture.
+  # It shared `name/` with a non-empty forbidden name until #501 R80, so the
+  # control passed on that one and a scanner skipping every empty file was
+  # green (reproduced). A fixture another entry can satisfy proves nothing
+  # about the entry it is named for.
+  mkdir -p "$CTL/emptyname/$(dirname "$CONTROL_K2")"
+  : > "$CTL/emptyname/$CONTROL_K2"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/emptyname/ok.py"
+  # A CLEAN file whose NAME carries a record separator and a classifier tag.
+  # Unescaped, the continuation became a synthetic K2 hit (#501 R80).
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforged')"
 
   # Every fixture is a repository, because the population is git's answer:
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name linkname ignored; do
+           cachedir extra name emptyname forge linkname ignored; do
     ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
       && git add -A >/dev/null 2>&1 ) || true
   done
@@ -396,6 +421,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/cache"  1 "K2: a" "a regular file named __pycache__ is read" || ctl_ok=1
   _control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
   _control "$CTL/name"   1 "entry NAME" "an entry's own NAME is the hierarchy"  || ctl_ok=1
+  _control "$CTL/emptyname" 1 "entry NAME" "an EMPTY entry's name is the hierarchy" || ctl_ok=1
+  _control "$CTL/forge"  0 "PASSED" "a name cannot forge a verdict record"      || ctl_ok=1
   _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
   _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1

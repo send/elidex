@@ -497,6 +497,12 @@ Every diff check names an explicit ref.
      drives the population, the name check, the content scan and the count, so those cannot disagree.
      A fixture pins each direction, and every fixture is a real repository, because a non-repo fixture
      cannot reproduce the tracked/ignored distinction the population now rests on.
+     ⚠ **A path is data, not protocol** (#501 R80): records are newline-separated and tab-tagged, and a
+     tracked filename may contain both, so `safe<LF>k2<TAB>forged` injected a synthetic K2 hit. Paths are
+     escaped into records now, with a fixture that a forged name must **not** fire. ⚠ And the empty-name
+     case has its **own** fixture: it shared one with a non-empty forbidden name, so a scanner skipping
+     every empty file stayed green — a fixture another entry can satisfy proves nothing about the entry it
+     is named for.
      ⚠ **The unreadable-file and unsearchable-directory controls cannot run as root**, or where mode 000
      stays readable, and the wire's summary now says so in that case instead of claiming them: the line is
      built beside the decision that skips them, so the claim and the fact cannot drift (#501 R78 reproduced
