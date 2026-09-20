@@ -63,7 +63,12 @@ impl VmInner {
         Ok(())
     }
 
-    /// `DefineComputedMethod` — like `DefineComputedProperty` but non-enumerable (section 14.3.8).
+    /// `DefineComputedMethod` — like `DefineComputedProperty` but
+    /// non-enumerable: ECMA-262 §15.4.5 MethodDefinitionEvaluation defines the
+    /// method with its `enumerable` argument, and §15.7.13 ClassElementEvaluation
+    /// passes `false` for `ClassElement : MethodDefinition` /
+    /// `static MethodDefinition`.  (`compiler/expr_class.rs` is this opcode's
+    /// only producer, so every instance is a class element.)
     pub(crate) fn op_define_computed_method(
         &mut self,
         entry_frame_depth: usize,
@@ -125,13 +130,14 @@ impl VmInner {
     }
 
     /// `SpreadObject` — copy all enumerable own properties from source to target.
-    /// Accessor properties invoke their getter via Get (§12.2.6.8).
+    /// Accessor properties invoke their getter via Get (ECMA-262 §7.3.25
+    /// `CopyDataProperties` step 4.c.ii.1).
     pub(crate) fn op_spread_object(&mut self) -> Result<(), VmError> {
         let source = self.pop()?;
         let obj_val = self.peek()?;
         if let (JsValue::Object(src_id), JsValue::Object(dst_id)) = (source, obj_val) {
             let is_global = dst_id == self.global_object;
-            // §12.2.6.8 CopyDataProperties: snapshot keys in ES order, then Get per key.
+            // §7.3.25 CopyDataProperties: snapshot keys in ES order, then Get per key.
             // Array element indices (ascending) come before string keys.
             let keys: Vec<PropertyKey> = {
                 let elem_indices: Vec<usize> = match &self.get_object(src_id).kind {
@@ -215,7 +221,8 @@ impl VmInner {
         Ok(())
     }
 
-    /// Define a computed-key getter or setter accessor (class accessor §14.3.8).
+    /// Define a computed-key getter or setter accessor (class accessor,
+    /// ECMA-262 §15.4.5 MethodDefinitionEvaluation `get` / `set` productions).
     /// Stack: `[object key closure]` → `[object]`.
     pub(crate) fn op_define_computed_accessor(&mut self, is_getter: bool) -> Result<(), VmError> {
         let closure = self.pop()?;
@@ -223,7 +230,8 @@ impl VmInner {
         let obj_val = self.peek()?;
         if let (JsValue::Object(obj_id), JsValue::Object(fn_id)) = (obj_val, closure) {
             let pk = self.make_property_key(key_val)?;
-            // Class accessors are non-enumerable (§14.3.8).
+            // Class elements are non-enumerable: §15.4.5 takes `enumerable` as
+            // an argument and §15.7.13 ClassElementEvaluation passes `false`.
             self.define_accessor_impl(obj_id, pk, fn_id, is_getter, false)?;
         }
         Ok(())
@@ -339,7 +347,8 @@ impl VmInner {
         Ok(())
     }
 
-    /// `instanceof` operator (§12.10.4).
+    /// `instanceof` operator — ECMA-262 §13.10.1 Runtime Semantics: Evaluation,
+    /// via §13.10.2 `InstanceofOperator`.  (§12.10 is Automatic Semicolon Insertion.)
     pub(crate) fn op_instanceof(&mut self, lhs: JsValue, rhs: JsValue) -> Result<bool, VmError> {
         let JsValue::Object(rhs_id) = rhs else {
             return Err(VmError::type_error(

@@ -27,7 +27,7 @@ pub(super) struct GcRoots<'a> {
     /// [`super::super::VmInner::with_call_mode`] for the duration of
     /// nested dispatch invocations. Walked here so an outer-scope
     /// heap Object displaced from `completion_value` by an inner
-    /// Eval body's `Op::Pop` write stays reachable to the mark
+    /// Eval body's `Op::PopCompletion` write stays reachable to the mark
     /// phase. Pre-D-17b-r2 the analogous root was
     /// `CallFrame::saved_completion`; the field-level migration
     /// moved the storage to this dedicated stack.

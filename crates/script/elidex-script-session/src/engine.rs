@@ -386,6 +386,55 @@ pub trait HostDriver {
     /// drain only until the S5-6 flip deletes the crate.
     fn take_pending_window_opens(&mut self) -> Vec<WindowOpenIntent>;
 
+    /// Non-consuming peek at whether **session-history work is staged** on this
+    /// engine's channels — the history FIFO
+    /// ([`take_pending_history`](Self::take_pending_history)) is non-empty (WHATWG
+    /// HTML §7.4.4 *Non-fragment synchronous "navigations"* — the *URL and history
+    /// update steps*, step 13; §7.4.3 *Reloading and traversing* for the traversal
+    /// actions on the same FIFO), OR the own-context navigation slot
+    /// ([`take_pending_navigation`](Self::take_pending_navigation)) is occupied
+    /// (§7.4.2.2 *Beginning navigation*), OR the `window.open` queue
+    /// ([`take_pending_window_opens`](Self::take_pending_window_opens)) is
+    /// non-empty (§7.2.2.1 *Opening and closing windows*). The predicate itself has
+    /// no spec algorithm — it is a drain-schedule question about those three
+    /// staging channels. The [`has_pending_scroll`](Self::has_pending_scroll) shape:
+    /// **peek, don't consume** — the shell's drain remains the single drain point.
+    ///
+    /// A shell that drains in a *loop* needs "is anything still staged?" as a
+    /// question, and all three drains above answer it only by destroying it — such a
+    /// loop's quiescence predicate is the reader.
+    ///
+    /// **Membership, stated intrinsically**: exactly the three channels above — the
+    /// ones this engine stages session-history and navigation intent onto. That is
+    /// the whole rule at this layer. The four channels a caller might reach for and
+    /// must not — [`take_pending_storage_changes`](Self::take_pending_storage_changes),
+    /// [`take_pending_idb_versionchange_requests`](Self::take_pending_idb_versionchange_requests),
+    /// [`take_pending_focus`](Self::take_pending_focus),
+    /// [`take_pending_parent_messages`](Self::take_pending_parent_messages) — plus
+    /// [`take_pending_scroll`](Self::take_pending_scroll), are not session-history
+    /// staging at all; each has its own drain point. `window.open` IS included
+    /// despite being §7.2.2.1 rather than session history, because it is staged and
+    /// drained on the same schedule as the other two and stranding it would leak an
+    /// intent onto a runtime the next navigation replaces.
+    ///
+    /// **⚠ The consumer-side rule, and why it is NOT stated as an invariant here.**
+    /// A drain loop is correct only while *predicate set ≡ the set its own Phase 1
+    /// consumes*: predicate ⊃ consumed spins to the loop's round cap on work no
+    /// iteration can drain; predicate ⊂ consumed exits "quiescent" with residue
+    /// staged. That equivalence is **per consumer**, not a property this trait can
+    /// assert — and it already fails for one shape in tree:
+    /// `DrainCoordinator::drain_same_turn`'s Phase 1 consumes all three, but
+    /// `drain_synchronous_updates`' Phase 1 is Phase 1a+1b only and does **not**
+    /// consume [`take_pending_navigation`](Self::take_pending_navigation), so a loop
+    /// built on that shape would read this predicate as ⊃ its consumed set and
+    /// cap-loop on a held navigation. (That shape is exactly what the fenced
+    /// residue-bounding slice is designed around — see `elidex-shell`
+    /// `app/drain_host/mod.rs`.) So: adding a channel here is governed by the
+    /// intrinsic rule above; whether *this* predicate is the right question for a
+    /// given drain loop is that loop's own obligation to check.
+    #[must_use]
+    fn has_pending_session_history_work(&self) -> bool;
+
     /// Push the authoritative session-history position — the current entry's
     /// 0-based `index` and total `length` — together (so they never desync) after
     /// a navigation/traversal commit, so `history.length` reads correctly and the

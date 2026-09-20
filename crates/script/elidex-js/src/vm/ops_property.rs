@@ -64,7 +64,7 @@ impl VmInner {
         obj: JsValue,
         key: StringId,
     ) -> Result<JsValue, VmError> {
-        // §6.2.4.5 RequireObjectCoercible: property reads on null/undefined
+        // §7.2.1 RequireObjectCoercible: property reads on null/undefined
         // must throw TypeError before any prototype-chain walk.
         super::coerce::require_object_coercible(obj)?;
         let pk = PropertyKey::String(key);
@@ -140,11 +140,11 @@ impl VmInner {
                     self.lookup_on_proto(self.string_prototype, pk, obj)
                 }
             }
-            // §6.2.4.1 step 4.b: prototype lookup for primitive base values
-            // uses `GetThisValue(V)` (the original primitive) as Receiver,
-            // independent of any boxing for own-property lookup.  An invoked
-            // accessor observes the raw primitive as `this` per §9.4.3
-            // step 5 — matches V8/SpiderMonkey.
+            // §6.2.5.5 GetValue step 3.d: the prototype lookup for a primitive
+            // base passes `GetThisValue(refRecord)` (the original primitive) as
+            // Receiver, independent of any boxing for own-property lookup.  An
+            // invoked accessor therefore observes the raw primitive as `this`
+            // per §10.1.8.1 OrdinaryGet step 7 — matches V8/SpiderMonkey.
             JsValue::Symbol(_) => self.lookup_on_proto(self.symbol_prototype, pk, obj),
             JsValue::Number(_) => self.lookup_on_proto(self.number_prototype, pk, obj),
             JsValue::Boolean(_) => self.lookup_on_proto(self.boolean_prototype, pk, obj),
@@ -503,10 +503,10 @@ impl VmInner {
         key: StringId,
         val: JsValue,
     ) -> Result<(), VmError> {
-        // §6.2.4.5 RequireObjectCoercible: writes on null/undefined throw.
+        // §7.2.1 RequireObjectCoercible: writes on null/undefined throw.
         super::coerce::require_object_coercible(obj)?;
         let pk = PropertyKey::String(key);
-        // §6.2.4.8 PutValue step 5.a: `? ToObject(base)` for the lookup
+        // §6.2.5.6 PutValue step 3.a: `? ToObject(base)` for the lookup
         // target; the original base flows through as Receiver so
         // `ordinary_set` rejects data writes when Receiver is primitive.
         let target_id = match obj {

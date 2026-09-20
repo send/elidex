@@ -103,7 +103,33 @@ impl NavigationController {
     /// The `document_sequence` of the current entry, or `None` when no page is
     /// loaded — the id a [`push_same_document`](Self::push_same_document) /
     /// [`replace_same_document`](Self::replace_same_document) inherits.
-    fn current_document_sequence(&self) -> Option<u64> {
+    ///
+    /// Also the **document-swap marker** a shell compares across a step that may
+    /// rebuild the pipeline: every new-document event re-stamps it from the
+    /// monotonic allocator ([`push`](Self::push) / [`replace`](Self::replace) /
+    /// [`restamp_current_document`](Self::restamp_current_document), the latter
+    /// reached by a reload and by a cross-document traversal's commit), while every
+    /// same-document event ([`push_same_document`](Self::push_same_document) /
+    /// [`replace_same_document`](Self::replace_same_document) /
+    /// [`commit_index`](Self::commit_index) onto a document sibling) leaves it
+    /// alone. Monotonic allocation means the comparison has no ABA: a changed value
+    /// is a swap, an equal value is not.
+    ///
+    /// **⚠ The "same-document events leave it alone" half has ONE exception, and a
+    /// marker comparison must account for it: the EMPTY entry list.**
+    /// [`push_same_document`](Self::push_same_document) inherits the current
+    /// sequence via `unwrap_or_else(|| self.next_document_sequence())`, and
+    /// [`replace_same_document`](Self::replace_same_document) delegates to it when
+    /// [`index`](Self::current_index) is `None` — so on a controller that has no
+    /// entries yet, a same-document push ALLOCATES, moving the marker `None ->
+    /// Some(n)`. There is nothing to inherit, so this is the only defensible
+    /// behavior; it is called out because a caller reading the paragraph above
+    /// would otherwise treat `None -> Some(n)` as proof of a document swap. A
+    /// comparison that must not fire on it should either seed an entry first (the
+    /// shells do — the initial entry is pushed at construction) or treat `None` as
+    /// "no marker yet" rather than as a distinguishable value.
+    #[must_use]
+    pub fn current_document_sequence(&self) -> Option<u64> {
         self.index.map(|i| self.entries[i].document_sequence)
     }
 

@@ -15,6 +15,7 @@ pub mod function;
 pub mod resolve;
 mod stmt;
 mod stmt_destructure;
+mod stmt_loop;
 
 use crate::ast::{Program, StmtKind};
 use crate::bytecode::compiled::{CompiledScript, Constant};

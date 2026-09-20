@@ -10,6 +10,7 @@ use crate::bytecode::opcode::Op;
 use crate::scope::ScopeAnalysis;
 
 use super::expr::compile_expr;
+use super::expr_assign::emit_unsupported;
 use super::function::FunctionCompiler;
 use super::resolve::FunctionScope;
 use super::CompileError;
@@ -219,8 +220,12 @@ pub(super) fn compile_pattern_store(
             fc.emit_u16(Op::SetGlobal, idx);
             fc.emit(Op::Pop);
         }
+        // No store path for an import binding; same disposition as the
+        // for-in/of head in `stmt_loop.rs`.
+        // Slot: `#11-vm-assignment-target-completeness`.
         super::resolve::VarLocation::Module(_) => {
             fc.emit(Op::Pop);
+            emit_unsupported(fc, "binding to an imported name is not supported");
         }
     }
 

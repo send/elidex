@@ -184,7 +184,7 @@ impl VmInner {
         // a Rust local — without that, an outer-scope heap Object
         // held only by the Rust local would be unreachable to GC
         // when the closure overwrites `self.completion_value` (e.g.
-        // an inner Eval body's entry-gated `Op::Pop` write), so a
+        // an inner Eval body's entry-gated `Op::PopCompletion` write), so a
         // collection mid-closure would sweep the slot and the
         // cleanup restore below would write a dangling ObjectId back
         // into VmInner. Pre-r2 the analogous root was
@@ -526,7 +526,7 @@ impl VmInner {
     /// `kind` discriminates script/`eval` body entries (only reached
     /// via `run_function` from `Vm::eval` / `Vm::run_script`) from
     /// every other entry; async + generator bodies are always
-    /// `Function`-kind regardless of caller (§27.5/§27.7 completion
+    /// `Function`-kind regardless of caller (§27.8/§27.10 completion
     /// machinery is not script-completion-value-shaped).
     #[allow(clippy::too_many_lines)] // generator + async + regular frame paths
     pub(crate) fn call_internal(
@@ -1010,7 +1010,7 @@ impl VmInner {
             // ECMA-262 §16.1.6 ScriptEvaluation step 13.b — the body's
             // initial completion is `empty`, surfaced as
             // `NormalCompletion(undefined)` when no entry-frame
-            // `Op::Pop` write fires (empty source, or last statement
+            // `Op::PopCompletion` write fires (empty source, or last statement
             // is not an ExpressionStatement). The outer caller's
             // value is already preserved on `saved_completion_stack`
             // by `with_call_mode`'s entry push, so resetting here

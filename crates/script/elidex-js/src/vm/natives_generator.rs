@@ -1,4 +1,4 @@
-//! Generator iterator (ECMA-262 §27.5).
+//! Generator iterator (ECMA-262 §27.8).
 //!
 //! The generator machinery itself lives inside the dispatcher — this module
 //! just exposes it through the `Generator.prototype.next` native, builds
@@ -33,7 +33,7 @@ use super::VmInner;
 /// - Mark the generator `SuspendedYield` with the built [`SuspendedFrame`].
 ///
 /// Generator frames are [`super::value::FrameKind::Function`], so the
-/// body's `Op::Pop` / `Op::ReturnUndefined` arms never touch
+/// body's `Op::PopCompletion` / `Op::ReturnUndefined` arms never touch
 /// `VmInner::completion_value` — the caller's value is preserved
 /// invariantly across the yield without an explicit save/restore.
 pub(crate) fn op_yield_suspend(

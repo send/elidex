@@ -20,15 +20,17 @@ use super::InlineItem;
 /// intact (segment breaks stay as forced breaks).
 ///
 /// Line-edge trimming (§4.1.2 Phase II) and the "white space that collapses away
-/// generates no box" rule (CSS 2 §9.2.2.1 / §9.2.1.1) are applied at line-packing
-/// time (see [`super::pack::LinePacker`]), not here.
+/// generates no box" rule are applied at line-packing time, not here — see
+/// [`super::pack::LinePacker`], which carries the citation for the rule it
+/// implements. Naming a section here would restate it at a site that does not
+/// decide it, which is how both of this line's previous citations went wrong.
 pub(super) fn collapse_inline_whitespace(items: &mut [InlineItem]) {
     // Cross-run collapse state: true when the previously emitted character (in any
     // earlier run of this IFC) was a collapsible space, so a following collapsible
     // space collapses to zero advance width (§4.1.1 step 4). Initialized to `true`
     // so leading collapsible white space at the start of the inline formatting
     // context collapses away rather than becoming a leading space that shifts
-    // content (CSS Text §4.1.2; matches `elidex-render`'s `collapse_segments`).
+    // content (CSS Text 3 §4.1.2; matches `elidex-render`'s `collapse_segments`).
     let mut prev_collapsible_space = true;
     // Index of the most recent text run, so a preserved segment break at the start
     // of a later run can remove a collapsible space left at the end of it (§4.1.1
@@ -87,7 +89,11 @@ fn collapse_run_text(
     white_space: WhiteSpace,
     prev_collapsible_space: &mut bool,
 ) -> (String, bool) {
-    // CSS Text 3 §4.1.3: normalize line endings before segment-break handling so a
+    // Defensive normalization, not a spec-mandated step: HTML parsing already removes CR
+    // (HTML §13.2.3.5), and css-text-3 §4's note says the DOM gives U+000D no meaning and
+    // does not treat it as a segment break — so text that reached the DOM another way (a
+    // direct `create_text`, say) is the only case this catches. Line endings are
+    // normalized before segment-break handling so a
     // bare CR or CRLF becomes the single canonical segment break (`\n`) for every
     // `white-space` value (otherwise a CR would be mishandled — e.g. preserved as a
     // forced break under pre-line). Matches `elidex-render`'s `normalize_line_endings`.

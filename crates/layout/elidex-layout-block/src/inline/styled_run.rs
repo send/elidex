@@ -34,7 +34,7 @@ pub(crate) enum InlineItem {
         positioned: bool,
     },
     /// Absolutely positioned element placeholder (zero-width, zero-height).
-    /// Used to record static position for CSS 2.1 §10.6.5.
+    /// Used to record static position for CSS 2.1 §10.3.7 / §10.6.4.
     Placeholder(Entity),
 }
 

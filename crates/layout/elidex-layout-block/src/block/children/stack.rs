@@ -140,7 +140,7 @@ pub fn stack_block_children(
         }
 
         // CSS 2.1 §9.3.1/§9.6: absolutely positioned elements are removed from flow.
-        // Record static position before skipping (CSS 2.1 §10.6.5).
+        // Record static position before skipping (CSS 2.1 §10.3.7 / §10.6.4).
         if child_style
             .as_ref()
             .is_some_and(crate::positioned::is_absolutely_positioned)

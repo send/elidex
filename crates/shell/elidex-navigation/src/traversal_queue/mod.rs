@@ -9,7 +9,7 @@
 //! return (plan §1). This module introduces, in its **final phase-separated
 //! shape**, the primitive **both shells now drive** — content mode from
 //! `content/event_loop.rs` through `content/drain_host.rs` (Slice A), app mode
-//! from `app/drain_host.rs` (Slice B):
+//! from `app/drain_host/host.rs` (Slice B):
 //!
 //! - a [`TraversalQueue`] — the WHATWG HTML §7.3.1.1 *session history traversal
 //!   queue* (`#tn-session-history-traversal-queue`) carrying the
@@ -30,8 +30,8 @@
 //! (`docs/plans/2026-07-session-history-slice-A-content-phase-separation.md`).
 //! The isolation unit tests below still pin the coordinator in isolation; **both
 //! shells now drive it** — content mode from `content/event_loop.rs` (Slice A,
-//! the split entry points) and app mode from `app/drain_host.rs` (Slice B, the
-//! single same-turn entry point).
+//! the split entry points) and app mode from `app/drain_host/mod.rs` (Slice B,
+//! the same-turn entry point, iterated to quiescence by that drive site).
 //!
 //! ## The task-timing partition (plan §4.2)
 //!
@@ -57,7 +57,11 @@
 //! Phase 1 and Phase 2 back-to-back inside the input handler through
 //! [`DrainCoordinator::drain_same_turn`], the **same-turn** entry point that
 //! combines both phases in one call and ships once (the app-mode-degenerate path
-//! plus the isolation tests). Content-mode adopting `drain_same_turn` wholesale
+//! plus the isolation tests) — **repeated to quiescence by the drive site**, which
+//! iterates that call plus its own reinstatement tail until the turn's handlers
+//! have staged nothing new. That loop is shell-side schedule policy and this
+//! substrate is unchanged by it: every statement below holds PER ITERATION.
+//! Content-mode adopting `drain_same_turn` wholesale
 //! would collapse the very task boundary this substrate exists to remove, so it
 //! drives the split entry points separately (see each method's doc).
 //!
