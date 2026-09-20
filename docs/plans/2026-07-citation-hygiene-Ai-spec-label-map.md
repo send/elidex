@@ -6,8 +6,12 @@
 `webref-cite-audit-tool`. **Status**: **draft 5, implemented.** `/elidex-plan-review` closed the gate on merit
 at this draft; `/elidex-review` then returned 0 CRIT / 7 IMP / 15 MIN on the implementation plus this memo,
 and those dispositions are applied in the same commit set as this revision. **The draft number is
-deliberately unchanged** — the three memory files carrying this program's state all say draft 5 (checklist
-item 1), and bumping it here would re-create the disagreement that item just cleared. Every quantity below is
+deliberately unchanged** — the **two** memory files that carry a draft number for this program
+(`project_citation-hygiene-program.md`, `active-lane-detail.md`) both say draft 5 (checklist item 1), and
+bumping it here would re-create the disagreement that item just cleared. ⚠ **This said "the three memory
+files" and item 1 named `MEMORY.md` as the third until #501 gate 4**; measured,
+`grep -oiE 'draft ?[0-9]+' MEMORY.md | wc -l` → **0** — it carries no draft number for this program at
+all, so a three-file agreement was never checkable. Every quantity below is
 re-measured at head.
 
 ⚠ **The memo is a record, not a specification.** Per the umbrella's *review cost tracks blast radius*, **the
@@ -23,9 +27,14 @@ the real gates listed in §15 — `preflight.py`, the unit suite, and the K2 tri
 ⚠ **`preflight.py`'s map is not touched** — it migrates in **A-ii**. The four-cell measurement and its
 conclusion (**the gate's copy is not separable from the gate's failure semantics**) are stated once, in the
 umbrella's A-i row, and not restated here. So K1 completes across A-i + A-ii. A-i is inside the generic tree
-with **one stated exception** — the `preflight.py` comment naming a symbol A-i deletes (§4.1), the *comment*
-being the unit — and touches no gate semantics, no CI topology. The resolution delta this produces is stated
-once, in §5.
+with **three stated exceptions**, derived rather than listed
+(`git diff --name-only origin/main...HEAD` minus `.claude/tools/_webref/` and `.claude/tools/webref`): the
+`preflight.py` comment naming a symbol A-i deletes (§4.1), the *comment* being the unit; the K2 trip-wire
+`.claude/tools/webref-generic-core-trip-wire.sh`; and the one line registering it in
+`scripts/trip-wires.sh`. ⚠ **This sentence said "one stated exception … touches no gate semantics, no CI
+topology" until #501 gate 4.** It was written seven weeks before the harness drop added the wire, and the
+last two exceptions are precisely gate semantics and CI topology. The resolution delta this produces is
+stated once, in §5.
 
 ---
 
@@ -33,8 +42,13 @@ once, in §5.
 
 A-i implements no spec logic. Both labels are pinned by `SPECS`, per the umbrella's *a slice may only cite
 labels its own resolver maps*. Looked up with `.claude/tools/webref`, nothing from memory.
-→ `python3 .claude/skills/elidex-plan-review/preflight.py <this memo>` verifies both rows; a single pair is
+→ `python3 .claude/skills/elidex-plan-review/preflight.py <this memo>`; a single pair is
 `.claude/tools/webref heading --exact html 4.10.21`.
+⚠ **The gate does NOT read this table** — it anchors on `## §3 Spec coverage map` and reports
+`heading line: 106`. These two rows are verified only because §3 repeats them. Measured at gate 4 by
+perturbation: fabricating this table's §-number *and* its title leaves the run at EXIT 0, while the same
+fabrication in §3 hard-fails (`❌ HARD FAIL — citation verification`). Two citation tables in one memo is
+one home too many; §3 is the one with a gate behind it.
 
 | Cite | § | Exact title | Anchor |
 |---|---|---|---|
@@ -51,7 +65,7 @@ shortname-as-parse-key rule are `Fetch` / `fetch`.
 
 A dedup that moves the **table** and leaves the **prose** describing it scattered has not collapsed the
 decision surface — it has moved it. `DESIGN.md`'s closing rule for the generic core is operative: *keep new
-generic behavior free of elidex-specific file paths, and put elidex policy in adapter commands or
+generic behavior free of elidex-specific file paths and put elidex policy in adapter commands or
 documentation.* **The unit of this edit is the named artifact**, not the file and not the code branch: every
 occurrence of a Slice-B artifact name, every elidex file path and every copy-count claim is either rewritten
 or explicitly assigned, and the enumeration of those occurrences is **derived**, not authored (§4.1).
@@ -64,7 +78,15 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
   enumerate. `preflight`'s copy is A-ii's; K1 completes there.
 - **K2 — the generic core names no elidex file path**, where *file path* means `.claude/(skills|tools)/` plus
   **two further segments** and *generic core* is **`.claude/tools/_webref/` plus the entry script
-  `.claude/tools/webref`** — `DESIGN.md`'s by-responsibility definition. ✅ **Redrawn at #501 R36** (the
+  `.claude/tools/webref`**. ⚠ **That is a by-DIRECTORY approximation of `DESIGN.md`'s by-RESPONSIBILITY
+  split, and the two are not co-extensive** — this memo called it "`DESIGN.md`'s by-responsibility
+  definition" until #501 gate 4. `DESIGN.md:28-37` divides by responsibility and names no directory;
+  measured, two modules inside the approximation do adapter work (`commands/agent_brief.py`, which
+  `DESIGN.md:47` itself describes as scanning *elidex* paths, and `cli.py`'s `--paths` default
+  `["docs", "crates", "CLAUDE.md"]`, which is the "impacted `docs`/`crates` path heuristics" bullet as a
+  literal). Both are pre-existing, so they are evidence about the definition rather than A-i defects — but a
+  green from the wire is evidence about the directory, not about `DESIGN.md` compliance, and §12(3) must not
+  be read as more. ✅ **Redrawn at #501 R36** (the
   plan-review altitude for this memo is this PR's converge): an earlier revision bound it to all of
   `.claude/tools/`, which measured bought zero evidence (both pre-existing sites lie inside `_webref/cli.py`
   and `webref`) and imported five other-lane trip-wire artifacts into §12(3). The
@@ -146,9 +168,11 @@ the fix: measured, that form prints six unrelated files.
 
 ⚠ **The decision surfaces an already-recorded debt, and A-i states it as owed rather than done.** B's and
 A-ii's memos were authored while Slice A was one merged slice; the 2026-08-01 re-slice changed B's base and
-neither memo was re-derived. `memory/project_citation-hygiene-program.md` records it verbatim: *"**▶ OWED:
-B's memo re-slice edits.** Delegated once and the agent **died on an account monthly spend limit**, so B's
-memo is **untouched**."* Measured, B's memo is written as repairs to a tree that exists at its base, and that
+neither memo was re-derived. `memory/project_citation-hygiene-program.md` records it, verbatim: *"the
+long-standing debt recorded as \"B's memo re-slice edits, delegated once, agent died on a spend limit, B's
+memo untouched\""*. ⚠ **This quotation was a paraphrase until #501 gate 4** — reflowed, with a `▶ OWED:`
+prefix the record does not carry and "an account monthly spend limit" for "a spend limit". §13.1's own rule
+is that **the quoted sentence is the locator**, and a paraphrase returns nothing to `grep -F`. Measured, B's memo is written as repairs to a tree that exists at its base, and that
 tree is `b3a7d469`'s. So the re-introductions are **owed, not done** — sites in §13.1, so the next author
 need not re-derive the census. A-i does **not** re-derive them here: two memos' worth of another slice's
 content, which is the decision-surface duplication this program exists to remove. (An earlier revision gave
@@ -231,7 +255,7 @@ A-i's verbatim `DESIGN.md` bullet, stated here because Slice C shares the file:
 
 > `spec_labels.py` is the single source in the generic tree for spec shortname ↔ display label. It replaced
 > the two hand-maintained copies there — `commands/coverage_map.py`'s label map and `cli.py`'s help blurb —
-> which had drifted apart.
+> which nothing bound together.
 
 ⚠ The **count and the "generic tree" qualifier are load-bearing**, and an earlier draft's bullet carried
 neither: alone among the five copy-count sites it opened "single source for spec shortname ↔ display label",
@@ -276,7 +300,7 @@ which **T-net** pins.
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct precisely because the point is to freeze the *old* table (K4) | no |
 | **S6** | `_spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the last-resort | no |
 | **S7** | K3 by scan. ⚠ **Only the third clause is a suite pin now** — the artifact-name scan is a one-off diff check (§15), and the two tree-scanning tests were **deleted** at the third design re-gate (Codex R55) because they were a second copy of a scan the K2 trip-wire already makes over a strictly larger range (the package **plus** the `webref` entry script). What the suite pins is `webref_data` absent from `spec_labels.py` — a property of the module's shape, not of any slice: a literal label map has no business importing the upstream fetcher | no — `origin/main` satisfies it (measured 0), which is the point |
-| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `.claude/tools/webref-generic-core-trip-wire.sh`**, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and therefore run on every PR to `main`; it covers the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and the wire's pin sees **both** |
+| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `.claude/tools/webref-generic-core-trip-wire.sh`**, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and therefore run on every PR to `main`; it covers the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ⚠ **Between #501 R55 and gate 4 this cell was FALSE**: R55 deleted the suite's copy as "a second copy of a scan the wire already makes", R62 then demoted that scan to report-only, and nobody restored the assertion — so a file naming `.claude/skills/elidex-plan-review/preflight.py` passed the wire GREEN. Gate 4 added **(A2)**, the §2 predicate itself, as a second absolute beside the pin, with its own control; mutation-verified four ways. ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and the wire's pin sees **both** |
 | **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 13 test methods (`grep -rn 'def test_' .claude/tools/_webref/test_spec_labels.py | wc -l` → 13, verified 2026-09-20), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
 
 **UNCHECKED, marked not omitted**: that `shortname_for` and `origin/main`'s `shortname_from_label` are
@@ -304,8 +328,11 @@ generic tree minus B's files, since an inclusion list cannot see a file the slic
 deleted at the third design re-gate (below). The reasoning that kept the walk *inside* the package while it
 existed — a repo-root lookup would have been the first in the generic tree, and would have put five
 other-lane trip-wire artifacts inside a webref unit test's blast radius — is retired history now that the
-walk is gone. What the wire owns is the tree; what the suite owns is the module's shape. K2's and K3's entry-script assertions therefore
-live in `.claude/tools/webref-generic-core-trip-wire.sh`, which is where assertions outside the package belong.
+walk is gone. What the wire owns is the tree; what the suite owns is the module's shape. **K2's**
+entry-script assertion therefore lives in `.claude/tools/webref-generic-core-trip-wire.sh`, which is where
+assertions outside the package belong. ⚠ **This sentence said "K2's *and K3's*" until #501 gate 4**, and the
+wire never carried a K3 needle (`grep -niE 'cite.?audit|_catalog|K3' <the wire>` → no match). §12(2) and §15
+state the truth: K3 is a time-limited fact, not an invariant, and **deliberately gets no mechanism**.
 
 ⚠ **The two ranges are nested, not a partition** — an earlier draft of this section said the trees were
 *split* between the instruments, and §6's S7/S8 said "split by tree" and "the harness scans the rest".
@@ -344,7 +371,7 @@ generic file.
 
 ## §8 Line-count budget
 
-**This section states no digit.** It states the command and the two things its output has to show:
+**This section states no digit about the tree as it stands.** It states the command and the two things its output has to show. (The ⚠ note below carries three: two are historical — a line count this section used to be, and the authoring band the dropped harness used — and one is CLAUDE.md's fixed 1000-line threshold. None of the three moves with a commit, which is the property that matters.)
 
 ```sh
 git diff origin/main...HEAD --numstat -- .claude/ && wc -l .claude/tools/_webref/*.py
@@ -413,7 +440,7 @@ owe.
 
 Every diff check names an explicit ref.
 
-1. **Green**: `test_spec_labels.py` passes (**13 tests**, and the whole `_webref` suite is **25** — both re-measured after the third design re-gate removed the two duplicated slice-boundary tests);
+1. **Green**: `test_spec_labels.py` passes (**13 tests**, and the whole `_webref` suite is **25** — both re-measured after the third design re-gate removed the two duplicated slice-boundary tests). ⚠ **This is a check a reader runs, not a gate that runs itself** — measured at gate 4, nothing invokes it: `mise.toml`'s 17 tasks contain no python, `.github/workflows/` contains none, `scripts/trip-wires.sh` contains none, and `git grep test_spec_labels -- ':!docs/plans'` returns only the file. The three pre-existing `_webref` suites are in the same state, so this is structural rather than a regression — but it is an **asymmetry this PR created**: it judged CI wiring in scope for K2's wire and left the pins that carry K1/K4, the slice's actual thesis, to **Slice A-iii** (§15, the suite scheduler). By the wire's own quoted standard — `scripts/trip-wires.sh:105-112`, *"a check nobody re-runs is a transcript, not a gate"* — these 13 are a transcript until A-iii lands, and §15's table says so rather than implying otherwise;
    `git diff origin/main...HEAD -- crates/` **empty** (measured **0** lines);
    `git diff origin/main...HEAD -- .claude/skills/` is **exactly the one `preflight.py:47-49` comment** of
    §4.1 — not empty, and any other hunk under `.claude/skills/` fails this check. Measured at head: **17**
@@ -459,12 +486,13 @@ check; neither is one that witnesses it and then exits 0, which is what this com
 
 | Lane | Overlap | Ordering |
 |---|---|---|
-| **A-ii** | takes `preflight.py`'s copy **and** its failure semantics, plus `SPEC_LABEL_REVERSE`'s full census (§4.1). ⚠ The hand-offs below are **owed**, not routed — none has a receiving site in A-ii today, and that now includes `#11-preflight-css-module-labels` (checklist item 4) | **A-i first** |
+| **A-ii** | takes `preflight.py`'s copy **and** its failure semantics, plus `SPEC_LABEL_REVERSE`'s full census (§4.1). ⚠ The hand-offs below are **owed**, not routed — none has a receiving site in A-ii today, and that now includes `#11-preflight-css-module-labels` (checklist item 4). ⚠ **Plus one gate 4 added: a drift assertion between the two live maps.** Measured, `preflight.SPEC_LABEL_REVERSE` and the suite's `_VENDORED_CONSUMER_REVERSE` are byte-identical today (15 pairs each), S5 asserts one direction only, and **nothing asserts the converse** — that every label `SPECS` can emit resolves in the gate. `#11-preflight-css-module-labels` is scheduled to extend `SPEC_LABEL_REVERSE` with CSS modules, which diverges them **with both gates green**. The receiving site exists: `.claude/skills/elidex-plan-review/` has its own suite (`test_grep_pass.py`) and needs no repo-root lookup to import its neighbour — and A-i may not touch it (§12(1) allows one comment) | **A-i first** |
 | **A-iii** | none | after A-ii |
 | **Slice B** | takes every row marked B in §4.2, the fall-through, and the `@lru_cache` below | after A-ii |
 | **Slice C** | shares `DESIGN.md`; A-i states its bullet verbatim, C owns the reported-class contract | after B |
 | **PR-A0 (`elidex-wt-submittable`)** | touches the same `_webref` files, and its tree is still byte-identical there. ⚠ **Not a recovery location** — §4 withdrew that role (`git ls-remote origin domform-submittable-category` → 0 refs; author-machine only). Recovery is `refs/pull/501/head`, §14 | after A/B/C; it rebases |
-| **PR #496 / #497** | **none**, by file disjointness rather than by tree | none |
+| **PR #496 / #497** | **none** — both landed (`gh pr view 496 --json state` → MERGED 2026-08-02), and their `.claude/` files are disjoint from A-i's | none |
+| **`scripts/trip-wires.sh` — the live contention** | ⚠ **A-i now edits a file two unlanded branches also edit.** `stale-claim-detector` adds `claim-provenance-trip-wire.sh` to the same `REQUIRED_WIRES` list; `layout-trip-wire-ci` edits the same file. `scripts/trip-wires.sh:70-84` makes this load-bearing — *"a wire that ARRIVES must be registered here in the same commit … disagreement either way is a FAIL"* — so whichever lands second takes a textual merge, not a decision | derive with `git branch \| xargs -I{} git diff --name-only origin/main...{} -- scripts/trip-wires.sh`, not over the `.claude/` trees |
 
 → `git worktree list` plus `git log --oneline origin/main..<branch> -- <file>` per contended file.
 
@@ -491,14 +519,17 @@ B's had already moved before the carve, which is how a reviewer found them (#501
 sentence is the locator.** Each cell reproduces the text it is about, which survives an edit anywhere above
 it; nothing here asks a reader to trust a number this PR cannot re-derive.
 
-| **B** | its opening *"Slice A lands first and B rebases onto it"* and *"Branch: new, cut from Slice A's landed head"*; the carve description saying `cite_audit.py`, `spec_labels.py` and the rest moved "onto this branch **unchanged**"; its size table baselining the two `.py` files at line counts taken before the re-slice; its **17** line-anchored `<file>.py:<n>` edits — 11 into `cite_audit.py`, 6 into `spec_labels.py`, measured on that branch at the carve with `grep -coE '(cite_audit\|spec_labels)\.py:[0-9]'` — concentrated in its §4.1's nine under-report paths; its §4.1 round-trip clause (quoted in §13 below); and its §10 Q3 `@lru_cache` reasoning together with the docstring/`--help` disagreement it files as *pre-existing*. ⚠ **And two sites where A-i's own work is what is at risk**, located by content (the coordinates moved twice while this row was frozen — Codex R12 — so none are carried): **the `test_spec_labels.py` row of B's size table**, reading `\| — \| ~110 \| new (S1-S5) \|`; and **B's `**test_spec_labels.py** (new):` heading** followed by B's **own S1–S5**, which mean different things than A-i's S1–S8 (B's S1 is a round-trip over 948 catalog entries, B's own figure under that heading; A-i's S1 is `shortname_for` over `SPECS`). Its §6 pin table cites the same file under the same numbering | measured, `git cat-file -e origin/main:.claude/tools/_webref/commands/cite_audit.py` **fails**, as does the same test for `spec_labels.py`. B does not *repair* those files at its base; it **creates** them. For those two sites the consequence is sharper than staleness: an author working from B authors a fresh ~110-line file under a **colliding pin numbering** and drops A-i's S3, S3b, S4, S5, S6, S7, S8 and T-net — the only mechanical enforcement of K2 and K3 in the tree. Measured, A-i ships that file with **13 tests** (`grep -rn 'def test_' .claude/tools/_webref/test_spec_labels.py | wc -l` → 13, verified 2026-09-20), not `—`; ⚠ this row said **15** until Codex R62 — R58 re-derived the count in §4.2 and this Slice-B handoff, four hundred lines away, kept the pre-re-gate figure, so the two rows handed B incompatible baselines; its line count is §8's to state — an earlier revision carried a literal here that the review rounds outgrew (Codex R30). ✅ **Both sites discharged in this PR (Codex R14)**: B's heading now reads *A-i's file — B appends, does not create*, its pins are S9–S14 (continuing A-i's S1–S8), and the size-table row baselines on A-i's landed size |
+| **B** | its opening *"Slice A lands first and B rebases onto it"* and *"Branch: new, cut from Slice A's landed head"*; the carve description saying `cite_audit.py`, `spec_labels.py` and the rest moved "onto this branch **unchanged**"; its size table baselining the two `.py` files at line counts taken before the re-slice; its **17** line-anchored `<file>.py:<n>` edits — 11 into `cite_audit.py`, 6 into `spec_labels.py`, measured on that branch at the carve with `grep -coE '(cite_audit\|spec_labels)\.py:[0-9]'` — concentrated in its §4.1's nine under-report paths; its §4.1 round-trip clause (quoted in §13 below); and its §10 Q3 `@lru_cache` reasoning together with the docstring/`--help` disagreement it files as *pre-existing*. ⚠ **And two sites where A-i's own work is what is at risk**, located by content (the coordinates moved twice while this row was frozen — Codex R12 — so none are carried): **the `test_spec_labels.py` row of B's size table**, reading `\| — \| ~110 \| new (S1-S5) \|`; and **B's `**test_spec_labels.py** (new):` heading** followed by B's **own S1–S5**, which mean different things than A-i's S1–S8 (B's S1 is a round-trip over 948 catalog entries, B's own figure under that heading; A-i's S1 is `shortname_for` over `SPECS`). Its §6 pin table cites the same file under the same numbering | measured, `git cat-file -e origin/main:.claude/tools/_webref/commands/cite_audit.py` **fails**, as does the same test for `spec_labels.py`. B does not *repair* those files at its base; it **creates** them. For those two sites the consequence is sharper than staleness: an author working from B authors a fresh ~110-line file under a **colliding pin numbering** and drops A-i's S3, S3b, S4, S5, S6, S7, S8 and T-net — the only mechanical enforcement of K2 and K3 in the tree. Measured, A-i ships that file with **13 tests** (`grep -rn 'def test_' .claude/tools/_webref/test_spec_labels.py | wc -l` → 13, verified 2026-09-20), not `—`; ⚠ this row said **15** until Codex R62 — R58 re-derived the count in §4.2 and this Slice-B handoff, four hundred lines away, kept the pre-re-gate figure, so the two rows handed B incompatible baselines; its line count is §8's to state — an earlier revision carried a literal here that the review rounds outgrew (Codex R30). ✅ **Both sites discharged on #514 (Codex R14, before the R47–R50 carve moved B's memo there)**: B's heading now reads *A-i's file — B appends, does not create*, its pins are S9–S14 (continuing A-i's S1–S8), and the size-table row baselines on A-i's landed size |
 | **A-ii** | its routing row handing A-i *"`spec_labels.py`, the three consumers, `DESIGN.md`"* marked **landed** — which double-books `preflight.py`, claimed by its own next row; and the two later sites premised on *"the asymmetry / the in-process reach is **created by A-i** moving the map"*, one of them classing the resulting deferral as **own**. Its own size baseline is stale at the new base for the same reason | A-i has not moved `preflight.py`'s map since draft 3, and §12(1) now forbids it. A-i's `preflight.py` touch is one comment and adds no `_webref` import, so the asymmetry — and the deferral that row classes as **own** — are created by **A-ii** |
 
-⚠ **Two owed obligations whose receiving site is a FILE, not a memo — §13's forcing function does not
-reach them.** Everything else in this section is discharged by B's or A-ii's own `/elidex-plan-review`,
-which reads a memo. These two do not, and they are **not** registered as ledger slots: A-i already carries
-two (`#11-preflight-css-module-labels`, `#11-webidl-label-spelling-sweep`) and the per-PR deferral cap is
-three, so the durable record is the artifact that carries the obligation plus this row.
+⚠ **Two obligations whose receiving site was a FILE, not a memo — §13's forcing function does not reach
+that shape.** Everything else in this section is discharged by B's or A-ii's own `/elidex-plan-review`, which
+reads a memo. These two were not, and **both are now discharged** (below) rather than owed — so nothing here
+is deferred and nothing needed a ledger slot. ⚠ **This paragraph said "Two **owed** obligations" and
+justified not registering them by "A-i already carries two … and the per-PR deferral cap is three" until
+#501 gate 4** — an accounting that contradicted §11's *"Zero own deferrals"* and §13 item 4's *"does not
+count against A-i's per-PR carve cap"*, i.e. the same two slots counted as 2-of-3 here and 0-of-3 twice
+elsewhere. The cap question does not arise: neither row is a deferral.
 
 1. ✅ **DISCHARGED at the third design re-gate, not deferred.** This row read "S7's first clause must be
    RETIRED when B lands, not extended" — an obligation on a permanent tool-tree file that no plan-review
@@ -541,8 +572,10 @@ also contradicted §8 about whether `all` exited 0 or 1.
 ⚠ **Reproduce a remote-less checkout in a throwaway CLONE, never in a worktree.** `git remote remove origin`
 writes to the **shared** `$GIT_COMMON_DIR/config`, and `git update-ref -d refs/remotes/origin/main` deletes a
 **shared** ref — a worktree isolates neither. Run inside a `git worktree add --detach` of the real repo, that
-recipe strips `origin` from **every worktree of that repo at once** and leaves every `$MAIN` block above
-failing everywhere until someone re-adds the remote. Use
+recipe strips `origin` from **every worktree of that repo at once** and leaves every command that resolves
+`origin/main` — §12's diff checks, §15's table, this memo's own re-derivations — failing everywhere until
+someone re-adds the remote. ⚠ **This sentence said "every `$MAIN` block above" until #501 gate 4**; those
+blocks were the dropped harness's and left with it (`grep -c '\$MAIN'` over both memos → 1, this line). Use
 `git clone --local <repo> <tmp> && cd <tmp> && git remote remove origin`, which is isolated and, on this
 repo's 36 MB object store, effectively free.
 
@@ -580,6 +613,26 @@ the cite-sweep program, trigger = B's `cite-audit` listing them on `main`). Meas
 both spellings, which is how the count 5 is right while the spaced spelling it was attached to would key a
 remedy closing **0** of them. Found by Axis 4.
 
+⚠ **And "found by an axis" makes it a SEED, not an inventory — the slot was named after the one instance
+the axis returned.** Measured at gate 4, the same class (a **pinned** spec cited under a spelling
+`shortname_for` returns `None` for) is live for two more pinned specs:
+
+```sh
+for p in 'WHATWG IDL §' 'WHATWG WebIDL' 'WHATWG Selectors §' 'Selectors Level 4 §' \
+         'W3C Geometry §' 'Geometry Interfaces §'; do
+  printf '%-22s %s\n' "$p" \
+    "$(git grep -cI "$p" -- . ':!docs/plans/2026-07-citation-hygiene*' | awk -F: '{s+=$NF}END{print s+0}')"
+done
+git grep -cI 'Selectors L4 §' … ; git grep -cI 'CSS Selectors L4 §' …   # 8 and 6 → 2 non-resolving
+```
+
+→ webidl **6**, selectors-4 **6+2**, geometry-1 **4**: the slot's own five are under a third of the class,
+and `CSS Selectors L4` / `Geometry Interfaces L1` / `Web IDL` are the only spellings that resolve. A sweep
+keyed to the slot's *name* repairs the webidl sites and leaves the other two specs authoritative under a
+slot nobody re-opens. ✅ **The slot is therefore re-scoped by CLASS, not by instance** — *every pinned
+spec's non-resolving spellings, population derived by the command above* — same owner (cite-sweep program),
+same trigger (B's `cite-audit` on `main`).
+
 **Second known hole → B (S15) (#501 R42).** Same class, recorded the same way and for the same reason: pre-existing,
 byte-identical to `origin/main`, so **K4 forbids A-i touching the map**. `webcrypto` is pinned as the
 **series** label `Web Cryptography API`, unlevelled. Measured, `.claude/tools/webref specs Cryptography`
@@ -607,7 +660,8 @@ owed re-derivation.
 1. Update `project_citation-hygiene-program.md` and `active-lane-detail.md` with A-i's outcome, collapsing to
    the program memo with pointers, frontmatter included. ⚠ **The draft-number disagreement this item used to
    flag is now a no-op** — verified against the live files, `project_citation-hygiene-program.md` (frontmatter
-   and its two draft-number rows), `active-lane-detail.md` and `MEMORY.md` all say **draft 5**. The action stands; the
+   and its two draft-number rows) and `active-lane-detail.md` — the two files that carry one — both say
+   **draft 5**; `MEMORY.md` carries no draft number for this program (measured, 0 hits). The action stands; the
    warning is dropped.
 2. **Amend the umbrella** — for the **four scope-grant clauses only**, because §9 forbids A-i amending *its
    own approval boundary* during its own review. All four sit in the A-i row and turn on the `origin/main`
@@ -691,7 +745,12 @@ answers 422, so the probe discriminates rather than always succeeding.
 
 ## §15 Re-derivation
 
-Every claim this memo makes is re-derivable by a command, and every command is one this repo already runs.
+Every claim this memo makes about the tree it ships is re-derivable by a command, and every command is one
+this repo already runs. ⚠ **The sentence said "every claim" until #501 gate 4**, and the paragraph below
+gives line counts for four files that are in no tracked tree — they are derivable only from `b746f400^`,
+reachable after the squash merge through `refs/pull/501/head` (§14). A line count of an absent file is a
+measurement like any other; it is kept here, with its commit named, because the drop decision is the
+subject.
 
 | Claim | Command | Runs in |
 |---|---|---|
@@ -700,7 +759,7 @@ Every claim this memo makes is re-derivable by a command, and every command is o
 | A *new* host path named in the generic core (K2, **the open part**) | `git diff origin/main...HEAD -- .claude/` — read it; the wire prints a seed but does not fail on it | code review |
 | The §3 gate resolves both labels this slice cites (§0.5) | `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md` | the gate every lane runs before its plan-review |
 | A §-number matches its title | `.claude/tools/webref heading --exact <spec> <section>` | per CLAUDE.md § "Spec citation" |
-| What this slice changed, and where | `git diff origin/main...HEAD -- .claude/` | — |
+| What this slice changed, and where | `git diff origin/main...HEAD` — three trees, not two: `.claude/tools/_webref/`, `.claude/tools/webref-generic-core-trip-wire.sh`, and one line of `scripts/trip-wires.sh` | — |
 
 ⚠ **This section used to be 55 lines describing a 1463-line bespoke harness** under
 `docs/plans/2026-07-citation-hygiene-A-rederive*.sh`, whose blocks re-derived the figures above. It was
@@ -714,7 +773,7 @@ regex missed — the very defect it had been added to fix, one round earlier.
 
 The decision is not "that harness had bugs". It is that **this program had already ruled against the
 mechanism**: `memory/project_citation-hygiene-program.md` records the rule ratified 2026-08-23 —
-*a plan memo holds no measurements and no self-measuring apparatus; what needs measuring goes in a test or
+*plan memo は測定値も自己測定装置も持たない。測定が要るものは test / CI* — in English, *a plan memo holds no measurements and no self-measuring apparatus; what needs measuring goes in a test or
 CI* — scoped "A-ii onwards" only because this harness predated it. Sibling PR #505 was closed unmerged for
 the same fixed point, memo and harness generating review surfaces for each other. Measured on the dropped
 files: 662 of 1463 lines were comment, and 61 of those narrated individual review rounds. The table above is

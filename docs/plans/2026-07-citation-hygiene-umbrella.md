@@ -92,9 +92,11 @@ summarised across memos — each concern is stated once, in one slice's memo, an
 > and stacked on this one**. Each slice memo passes `/elidex-plan-review` at its own slice (CLAUDE.md base
 > case). This PR = A-i's deliverable, this umbrella and A-i's memo — **and no harness part at all**.
 > ⚠ **This sentence assigned `integrity`, `common` and `Ai` to this PR until #501 R67**; the harness was
-> dropped from it entirely (below, and A-i §15), so those three are not here and never land. What #514
-> still carries is `-Aii.sh` / `-Aiii.sh` / `-B.sh` plus the `_proto` graft, which by the same rule do not
-> land either.
+> dropped from it entirely (below, and A-i §15), so those three are not here and never land. ⚠ **What #514
+> carries is derived, not listed** — `git ls-tree -r cfcb4ae6 --name-only | grep rederive` → **7** files
+> (`-Ai.sh`, `-Aii.sh`, `-Aiii.sh`, `-B.sh`, `-common.sh`, `-integrity.sh`, `-rederive.sh`), i.e. the whole
+> harness including the three this PR dropped. By the same rule **none of the seven land**, and the sweep
+> below is scoped to all of them. This sentence named three of the seven until #501 gate 4.
 >
 > ⚠ **#514 must be rebased onto landed `main` before it is reviewed, and this note used to prescribe the
 > opposite** ("opened as its own PR after #501 lands", written while it was already open). Its tip

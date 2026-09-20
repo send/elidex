@@ -16,10 +16,17 @@ from ..spec_labels import label_for
 # ⚠ This comment used to end "(cosmetic only, not load-bearing for
 # verification)", and that is false for any verifier that resolves a row BY
 # ITS LABEL. A generated `CSS TEXT 3 §4.1.3 …` row carries a label no reverse
-# map knows, so such a verifier cannot look the row up and skips it silently —
-# a fabricated §-number passes. Extending `SPECS` is what closes that for a
-# given spec; the fall-back stays as it is so the map remains the only place
-# the enumeration lives.
+# map knows, so such a verifier cannot look the row up: it VERIFIES NOTHING
+# for that row while still exiting 0, and a fabricated §-number passes.
+#
+# Two corrections, both measured (#501 gate 4). It is not *silent*: the one
+# verifier in this repo reports the row and warns on stderr — "verifies
+# nothing while the run still exits 0" is the property that matters. And
+# extending `SPECS` does NOT close it: that verifier resolves labels through a
+# reverse map of its own, which this module does not feed, so the row is still
+# skipped after the spec is pinned here. Closing it means reaching that map.
+# The fall-back stays as it is so the map remains the only place the
+# enumeration lives.
 
 
 def _spec_label(shortname: str) -> str:

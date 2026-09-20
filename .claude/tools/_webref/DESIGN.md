@@ -48,10 +48,11 @@ Current generic modules:
   semantic diff.
 - `commands/refresh.py` captures a new snapshot and compares it with the prior
   saved snapshot.
-- `spec_labels.py` is the single source in the generic tree for spec shortname
+- `spec_labels.py` is the single source in this package for spec shortname
   ↔ display label. It replaced the two hand-maintained copies there —
-  `commands/coverage_map.py`'s label map and `cli.py`'s help blurb — which had
-  drifted apart.
+  `commands/coverage_map.py`'s label map and `cli.py`'s help blurb — which
+  nothing bound together: adding a spec to one reached the other only by an
+  author remembering to.
 
 ## Commands
 

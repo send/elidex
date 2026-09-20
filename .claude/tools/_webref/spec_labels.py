@@ -1,6 +1,6 @@
 """Canonical spec shortname ↔ human display label.
 
-Two sites in the generic tree carried a hand-maintained copy of this
+Two sites in this package carried a hand-maintained copy of this
 enumeration:
 
   - `commands/coverage_map.py` — shortname → label, for its table rows
@@ -20,6 +20,20 @@ from __future__ import annotations
 
 # (shortname, canonical display label, help blurb)
 #
+# ⚠ THE LABELS ARE THIS PROJECT'S RENDERING, NOT THE UPSTREAM TITLE, and no
+# test here can tell the difference: every pin below is an internal round-trip,
+# S7 forbids importing the upstream fetcher, and T-net poisons the network on
+# the import path. So a wrong label is unfalsifiable in-tree by construction.
+# Measured against the upstream index (#501 gate 4), five rows diverge from
+# `title`/`organization` deliberately:
+#   webidl       "Web IDL Standard"                   WHATWG  -> `Web IDL` (no prefix)
+#   xhr          "XMLHttpRequest Standard"            WHATWG  -> `WHATWG XHR` (abbreviated)
+#   selectors-4  "Selectors Level 4"                  W3C     -> `CSS Selectors L4`
+#   geometry-1   "Geometry Interfaces Module Level 1" W3C     -> `Geometry Interfaces L1`
+#   webcrypto    no such shortname upstream (series)  W3C     -> `Web Cryptography API`
+# Re-derive with `.claude/tools/webref specs <shortname>`. Changing any of them
+# is a repo-wide re-spelling, not an edit here.
+#
 # The canonical label is the display form `coverage-map` prints, and the
 # spelling any consumer should emit for that spec; the blurb is `cli.py`'s
 # `Common shortnames:` help text, which was the second of the two copies
@@ -27,7 +41,8 @@ from __future__ import annotations
 # so it is part of the help output, not an implementation detail.
 #
 # No separate parse-alias column: `LABEL_TO_SHORTNAME` keys the shortname
-# itself, and every abbreviation this repo actually used (`HTML`, `DOM`,
+# itself, and every abbreviation these labels are actually written with
+# (`HTML`, `DOM`,
 # `URL`) lower-cases to its own shortname, so an alias column would add
 # no key.
 SPECS: tuple[tuple[str, str, str], ...] = (
@@ -79,7 +94,8 @@ LABEL_TO_SHORTNAME: dict[str, str] = {
 def label_for(shortname: str) -> str | None:
     """Canonical display label for `shortname`, or None if unknown.
 
-    `SPECS` pins this repo's display conventions (the `"WHATWG "` prefix,
+    `SPECS` pins the display conventions these labels follow (the
+    `"WHATWG "` prefix,
     the tc39 pair), so the answer is a pinned one or no answer at all.
     """
     return SHORTNAME_TO_LABEL.get(shortname)

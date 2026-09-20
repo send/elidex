@@ -27,7 +27,7 @@ from .spec_labels import SHORTNAME_TO_BLURB
 
 # Derived from `spec_labels.SPECS`, which also backs `coverage-map`. This
 # blurb was the second of the two hand-maintained copies of that same
-# enumeration, and the two had drifted apart.
+# enumeration, and nothing bound the two together.
 _SHORTNAME_LINES = "\n".join(
     f"  {short:<12} {SHORTNAME_TO_BLURB[short]}" for short in SHORTNAME_TO_BLURB
 )

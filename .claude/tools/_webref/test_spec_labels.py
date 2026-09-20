@@ -86,7 +86,8 @@ class TestSharedSpecLabelMap(unittest.TestCase):
 
     It replaced two hand-maintained copies in the generic tree —
     `coverage_map`'s label map and `cli.py`'s help blurb — which had
-    drifted apart, since adding a spec to one never reached the other.
+    nothing bound together, since adding a spec to one reached the other
+    only by an author remembering to.
     """
 
     def test_shortname_for_resolves_labels_and_shortnames(self):
@@ -167,7 +168,7 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
     """Both consumers must produce their output FROM `SPECS`.
 
     Agreement on today's values is NOT the assertion, because it does not
-    discriminate: replayed against `origin/main`'s re-inlined `_spec_label`
+    discriminate: replayed against the pre-refactor inlined `_spec_label`
     (`_SPEC_LABEL_MAP` plus the same last resort), the value comparison
     passes over all 12 rows. So the pin PERTURBS the canonical map and
     requires the consumer to follow — which the re-inlined body does not.
@@ -213,7 +214,7 @@ class TestConsumersDeriveFromSpecs(unittest.TestCase):
     def test_cli_blurb_block_reproduces_the_vendored_literal(self):
         """S3b: the derived help block is byte-identical to the old literal,
         AND it is derived -- a re-inlined copy of that literal passes the
-        equality and is exactly what S3b exists to forbid (Codex R23), so the
+        equality and is exactly what S3b exists to forbid, so the
         canonical blurb map is perturbed and the CLI must follow.
         """
         self.assertEqual(cli._SHORTNAME_LINES, _VENDORED_BLURB_BLOCK)
@@ -243,7 +244,7 @@ class TestModuleShape(unittest.TestCase):
     _UPSTREAM_SOURCE = re.compile(re.escape("webref" + "_data"))
 
     def test_the_shared_map_does_not_reach_upstream(self):
-        """S7, third clause — the only one `couplings` does not also make."""
+        """S7, third clause — the module-shape half, which no tree scan makes."""
         body = Path(spec_labels.__file__).read_text(encoding="utf-8")
         self.assertIsNone(self._UPSTREAM_SOURCE.search(body))
 
@@ -263,7 +264,7 @@ class TestNoNetworkOrCliSubprocess(unittest.TestCase):
              patch("urllib.request.urlopen",
                    side_effect=AssertionError("urlopen on the import path")):
             # `reload` re-executes ONE module; everything `cli` imports stayed
-            # cached from collection, before the poison (Codex R15, R19). A
+            # cached from collection, before the poison. A
             # consumer subprocess imports the chain fresh, so evict the whole
             # package and import it again here -- every `_webref*` module body
             # then runs under the poison, exactly as in a fresh interpreter.
