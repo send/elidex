@@ -505,6 +505,19 @@ Every diff check names an explicit ref.
      hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
      closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
      its readable sibling).
+     ⚠ **A push sends the COMMIT, so HEAD is read too** (#501 R95). A violation committed and then fixed
+     only in the index read green while `git show HEAD:victim.py` still carried it — the same defect, and
+     the same argument, as the index arm R92 added one round after the worktree-only scan; accepting one
+     and refusing the other would be incoherent. Three symmetric passes now (index, HEAD, working tree),
+     one source each, so "counted" and "scanned" stay one quantity per source. **Bounded at the tip and no
+     further**: elidex squash-merges, so what lands on main is the tip's tree and the commits below it are
+     not what this gate is about. Three more findings that round were git handing back something other
+     than what the tree names — a `replace` ref substituting the staged blob, exported
+     `GIT_DIR`/`GIT_WORK_TREE` pointing the inventory at another checkout while the worktree arm read this
+     one, and an unquoted `${var#$prefix}` treating a checkout path's `[` as a glob so the scope widened to
+     the whole repository. Every `git` call goes through one wrapper that strips git's OWN list of
+     routing variables (`rev-parse --local-env-vars`, not a hand-written one) and pins no-lazy-fetch and
+     no-replace-objects; configuration, `safe.directory` included, is left alone.
      ⚠ **The wire's threat model is ACCIDENT, NOT ADVERSARY, and it is now written down** (#501 R94).
      Four findings, all of them defects in what the previous two rounds added, and one of them a crafted
      index entry (a mode-120000 blob holding a NUL — storable by git, realisable by no filesystem). The

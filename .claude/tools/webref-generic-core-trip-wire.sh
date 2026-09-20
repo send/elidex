@@ -90,6 +90,14 @@ export LC_ALL=C
 # ⚠ A git too old to know this variable ignores it, and then the fetch is back.
 # Nothing here can detect that, and saying so is the honest position.
 export GIT_NO_LAZY_FETCH=1
+# ⚠ AND NO REPLACEMENT OBJECTS. A local `replace` ref — history-repair work
+# leaves them — makes `cat-file` hand back a DIFFERENT object than the one the
+# index and the commit name. Reproduced: a staged blob holding
+# `.claude/skills/team/rule.md` replaced by a clean blob read K2 zero and
+# exited 0, while the same read with this variable set showed the violation
+# (#501 R95). What is committed is the object the index names, so that is the
+# object this wire reads.
+export GIT_NO_REPLACE_OBJECTS=1
 
 # `$0` as given may have no slash (`bash webref-generic-core-trip-wire.sh` from
 # this directory), and the controls re-invoke it — through PATH, where it is not.
@@ -151,8 +159,16 @@ for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
   [ -e "$p" ] || [ -L "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
 # `git ls-files` takes pathspecs relative to the directory it runs in.
-REL_DIR="${SCOPE_DIR#$ROOT/}"; [ "$REL_DIR" != "$SCOPE_DIR" ] || REL_DIR="."
-REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#$ROOT/}"
+# ⚠ `${var#"$prefix"/}` — QUOTED. Unquoted, the operand after `#` is a PATTERN,
+# so a checkout path holding a glob character stops matching itself: under
+# `/work/repo[1]` the removal failed, `REL_DIR` fell back to `.`, and the wire
+# inventoried the WHOLE REPOSITORY instead of the generic core — turning every
+# ordinary host-path reference elsewhere in the tree into a K2 hit (#501 R95,
+# reproduced under bash 5.3; note zsh does not re-interpret the operand, so this
+# only shows under the shell the wire actually runs). Same lesson as R80 one
+# layer down: a path is data, not protocol.
+REL_DIR="${SCOPE_DIR#"$ROOT"/}"; [ "$REL_DIR" != "$SCOPE_DIR" ] || REL_DIR="."
+REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 
 # §2's K2 predicate. Fixed ERE, `grep -E`. The one thing this wire asserts.
 #
@@ -251,6 +267,27 @@ K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
 # `forged` and exited 1 (#501 R80, reproduced). Every path is escaped on its
 # way into a record; the escape is lossy on purpose, since what a reader needs
 # is to find the entry, not to round-trip its bytes.
+# EVERY `git` CALL IN THIS FILE GOES THROUGH HERE, because `-C "$ROOT"` does NOT
+# win over the repository-routing environment: with `GIT_DIR`/`GIT_WORK_TREE`
+# exported — a wrapper, a hook — the inventory described ANOTHER CHECKOUT while
+# the worktree arm read files under `$ROOT`, and a fixture holding a forbidden
+# path reported one clean entry and exited 0 (#501 R95, reproduced).
+# ⚠ The list is git's own (`rev-parse --local-env-vars`), not a hand-written
+# one: enumerating this by hand is how the next variable gets left authoritative.
+# An empty or failing list means we cannot know what routes git, so the run
+# decides nothing rather than guessing.
+# ⚠ It unsets ONLY routing, never configuration: R94 exported a clean config
+# process-wide and took `safe.directory` with it.
+_GIT_LOCAL_VARS="$(git rev-parse --local-env-vars 2>/dev/null)" || _GIT_LOCAL_VARS=""
+if [ -z "$_GIT_LOCAL_VARS" ]; then
+  echo "!! this git cannot say which variables route it (rev-parse --local-env-vars)," >&2
+  echo "   so this run could not prove it read the tree it was pointed at." >&2
+  exit 2
+fi
+_git() { ( for _v in $_GIT_LOCAL_VARS; do unset "$_v"; done
+           export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
+           exec git "$@" ); }
+
 _esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' | tr '\n\t' '~~'; }
 
 # A stored path as ONE record: newline is data inside a segment, not a
@@ -330,20 +367,21 @@ _content() {
 # ⚠ `:0:$rel`, not `:$rel`: a tracked file named `0:x.py` makes the short form
 # name stage 0 of `x.py` instead — measured, it returned the OTHER file's
 # content.
-_entry() { # $1 = 1 if git holds a blob, $2 = its index MODE (empty if not), $3 = path
-  _has_blob="$1"; _mode="$2"; rel="$3"; f="$ROOT/$rel"; _read=0
+_entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree), $3 = path
+  _src="$1"; _mode="$2"; rel="$3"; f="$ROOT/$rel"; _read=0
   # THE NAME. An entry whose own path IS the forbidden hierarchy is the most
   # direct violation there is, and content search cannot see it. Matched
   # relative to the SCOPE: relative to the repo every file here would match,
   # since the generic core itself lives under `.claude/tools/`.
-  _stored "${rel#$_dir/}" "$rel" "entry NAME" "(the entry NAME is itself)"
-  # (A) THE INDEX BLOB.
-  if [ "$_has_blob" -eq 1 ]; then
+  _stored "${rel#"$_dir"/}" "$rel" "entry NAME" "(the entry NAME is itself)"
+  # (A) A STORED OBJECT — the index's, or HEAD's.
+  if [ "$_src" != tree ]; then
+    if [ "$_src" = index ]; then _spec=":0:$rel"; _tag="(staged)"; else _spec="HEAD:$rel"; _tag="(in HEAD)"; fi
     _brc=0
-    git -C "$ROOT" cat-file blob ":0:$rel" > "$_b" 2>/dev/null || _brc=$?
+    _git -C "$ROOT" cat-file blob "$_spec" > "$_b" 2>/dev/null || _brc=$?
     if [ "$_brc" -ne 0 ]; then
-      printf 'err\t%s: git lists it as staged, but its blob could not be read (exit %d)\n' \
-        "$(_esc "$rel")" "$_brc"
+      printf 'err\t%s: git lists it in %s, but its blob could not be read (exit %d)\n' \
+        "$(_esc "$rel")" "$_src" "$_brc"
     elif [ "$_mode" = 120000 ]; then
       # A STAGED SYMLINK's blob IS its target string — a stored path, so it
       # takes the stored-path predicate (#501 R93). Read with a sentinel
@@ -362,17 +400,18 @@ _entry() { # $1 = 1 if git holds a blob, $2 = its index MODE (empty if not), $3 
           "$(_esc "$rel")"
       else
         _sb="$(cat "$_b"; printf 'R')"; _sb="${_sb%R}"
-        _stored "$_sb" "$rel" "staged symlink TARGET" "(staged) ->"
+        _stored "$_sb" "$rel" "staged symlink TARGET" "$_tag ->"
       fi
       _read=1
-    elif _content "$_b" "$rel" "(staged)"; then
+    elif _content "$_b" "$rel" "$_tag"; then
       _read=1
     else
-      printf 'err\t%s: its staged blob could not be searched\n' "$(_esc "$rel")"
+      printf 'err\t%s: its %s blob could not be searched\n' "$(_esc "$rel")" "$_src"
     fi
   fi
   # (B) THE WORKING TREE.
-  if [ -L "$f" ]; then
+  if [ "$_src" != tree ]; then :
+  elif [ -L "$f" ]; then
     # A symlink's stored content IS its target string; git keeps it as the blob.
     # ⚠ AND `$( )` STRIPS TRAILING NEWLINES, so the plain substitution truncated
     # the stored value: a target `.claude/skills/team/<LF>` arrived as
@@ -403,15 +442,16 @@ _entry() { # $1 = 1 if git holds a blob, $2 = its index MODE (empty if not), $3 
     printf 'err\t%s: in the worktree but neither a regular file nor a symlink, so it was NOT opened\n' \
       "$(_esc "$rel")"
   fi
-  # A tracked path DELETED from the worktree reaches none of those arms, and its
-  # blob above already answered for it.
+  # A tracked path DELETED from the worktree reaches none of those arms; the
+  # index pass answered for it with its own record.
   [ "$_read" -eq 0 ] || printf 'ok\t%s\n' "$(_esc "$rel")"
 }
 
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _e="$(mktemp "$SCRATCH/errXXXXXX")" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
   _lc="$(mktemp "$SCRATCH/lcXXXXXX")" || { rm -f "$_e"; printf 'err\twalk: no temp file for the tracked list\n'; return 0; }
-  _lo="$(mktemp "$SCRATCH/loXXXXXX")" || { rm -f "$_e" "$_lc"; printf 'err\twalk: no temp file for the untracked list\n'; return 0; }
+  _lo="$(mktemp "$SCRATCH/loXXXXXX")" || { rm -f "$_e" "$_lc"; printf 'err\twalk: no temp file for the worktree list\n'; return 0; }
+  _lh="$(mktemp "$SCRATCH/lhXXXXXX")" || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the HEAD list\n'; return 0; }
   _b="$(mktemp "$SCRATCH/blobXXXXXX")"  || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the staged blob\n'; return 0; }
   _dir="$1"; _extra="${2:-}"
   # THE LISTS ARE GIT'S ANSWER to what this tree HOLDS, in two halves because
@@ -445,25 +485,49 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # ⚠ A conflicted path has stages 1/2/3 and no stage 0, so it appears more than
   # once and `:0:` cannot resolve it — each copy becomes an `err`, which is the
   # right answer: nothing here can say what such a tree would commit.
-  git -C "$ROOT" ls-files -z --stage \
+  _git -C "$ROOT" ls-files -z --stage \
       -- "$_dir" ${_extra:+"$_extra"} > "$_lc" 2>>"$_e" || _ls_rc=$?
   [ "$_ls_rc" -eq 0 ] || \
     printf 'err\tthe tracked inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+  # THE WORKING TREE's half is tracked AND untracked together: every path that
+  # has bytes on disk right now, whichever list git files it under.
   _ls_rc=0
-  git -C "$ROOT" ls-files -z --others --exclude-per-directory=.gitignore \
+  _git -C "$ROOT" ls-files -z --cached --others --exclude-per-directory=.gitignore \
       -- "$_dir" ${_extra:+"$_extra"} > "$_lo" 2>>"$_e" || _ls_rc=$?
   [ "$_ls_rc" -eq 0 ] || \
-    printf 'err\tthe untracked inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+    printf 'err\tthe worktree inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+  # …AND HEAD, because a push sends the COMMIT, not the index (#501 R95). A
+  # violation committed and then fixed only in the index read green while
+  # `git show HEAD:victim` still held it. Bounded at the TIP and no further:
+  # elidex squash-merges, so what lands on main is the tip's tree, and the
+  # commits below it are not what this gate is about. An unborn HEAD — every
+  # fixture here, and a fresh clone before its first commit — is not an error:
+  # there is simply nothing committed to read.
+  if _git -C "$ROOT" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    _ls_rc=0
+    _git -C "$ROOT" ls-tree -r -z HEAD \
+        -- "$_dir" ${_extra:+"$_extra"} > "$_lh" 2>>"$_e" || _ls_rc=$?
+    [ "$_ls_rc" -eq 0 ] || \
+      printf 'err\tthe HEAD inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+  fi
   [ -s "$_e" ] && printf 'err\tthe walk reported errors, so part of the scope went unread: %s\n' \
     "$(tr '\n' ';' < "$_e" | cut -c1-200)"
   : > "$_e"
   # `--stage` records are `<mode> <sha> <stage><TAB><path>`; the path may hold a
   # tab of its own, so strip up to the FIRST one only.
+  # THREE PASSES, ONE SOURCE EACH — so "counted" and "scanned" stay the same
+  # quantity per source, and a path living in all three is read three times
+  # rather than once with two of its versions assumed.
+  # `--stage` and `ls-tree -r` both emit `<mode> …<TAB><path>`; the path may hold
+  # a tab of its own, so strip up to the FIRST one only.
   while IFS= read -r -d '' _rec; do
-    _entry 1 "${_rec%% *}" "${_rec#*$'\t'}"
+    _entry index "${_rec%% *}" "${_rec#*$'\t'}"
   done < "$_lc"
-  while IFS= read -r -d '' rel; do _entry 0 "" "$rel"; done < "$_lo"
-  rm -f "$_lc" "$_lo" "$_b" "$_e"
+  while IFS= read -r -d '' _rec; do
+    _entry head "${_rec%% *}" "${_rec#*$'\t'}"
+  done < "$_lh"
+  while IFS= read -r -d '' rel; do _entry tree "" "$rel"; done < "$_lo"
+  rm -f "$_lc" "$_lo" "$_lh" "$_b" "$_e"
   return 0
 }
 
@@ -525,7 +589,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # repository needs the user's. The inventory is made machine-independent by
   # `--exclude-per-directory` instead (see `_scan`), which is why nothing has to
   # be stripped for the real read.
-  _fgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git "$@"; }
+  _fgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@"; }
   # Distinguish an environment failure from a dead assertion: an empty scratch
   # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
   # the cleanup path is the absolute one it returned (#501 R55: an unchecked
@@ -541,7 +605,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # `$SCRATCH`, so the trap at the top already removes it — one owner, one
   # cleanup, nothing to compose.
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -589,7 +653,13 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # nonzero with nothing on stderr is the one signal a truncated population has,
   # and it was discarded (#501 R85).
   mkdir -p "$CTL/fakegit"
-  printf '#!/bin/sh\nprintf "ok.py\\000"\nexit 1\n' > "$CTL/fakegit/git"
+  # ⚠ ONLY `ls-files` FAILS. The shim used to answer every `git` invocation,
+  # which made it a control for whatever the wire asked git next rather than for
+  # a failing inventory — and #501 R95 added a `rev-parse` preflight that the
+  # blanket shim then answered with the fixture's own bytes. Same shape as
+  # `fakegrep`: a control shims the ONE call it is about.
+  printf '#!/bin/sh\ncase " $* " in *" ls-files "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
+    "$(command -v git)" > "$CTL/fakegit/git"
   chmod +x "$CTL/fakegit/git"
   # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
   # control discriminates that arm rather than every grep in the run (shadowing
@@ -674,7 +744,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob; do
+           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy; do
     ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
       && _fgit add -A >/dev/null 2>&1 ) || true
   done
@@ -713,6 +783,38 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     && command rm -f raw.bin \
     && _fgit update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
     && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || true
+  # (2d) A violation COMMITTED and then fixed only in the index and worktree. A
+  #      push sends the commit, so a gate that reads the index alone calls this
+  #      clean while `git show HEAD:victim.py` still carries it (#501 R95).
+  ( cd "$CTL/committed" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
+    && _fgit add victim.py >/dev/null 2>&1 \
+    && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+    && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
+    && _fgit add victim.py >/dev/null 2>&1 ) || true
+  # (2e) A local `replace` ref pointing the staged blob at a clean one. What is
+  #      committed is the object the index NAMES, so that is what must be read.
+  ( cd "$CTL/replaced" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
+    && _fgit add victim.py >/dev/null 2>&1 \
+    && _bad="$(_fgit rev-parse :0:victim.py)" \
+    && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
+    && _good="$(_fgit hash-object -w victim.py)" \
+    && _fgit replace "$_bad" "$_good" >/dev/null 2>&1 ) || true
+  # (2f) `GIT_DIR`/`GIT_WORK_TREE` exported at another checkout. `-C` does not
+  #      win over them, so the inventory described the decoy while the worktree
+  #      arm read files here — one clean entry, exit 0, over a violation (#501
+  #      R95). The decoy is a real repo holding nothing forbidden.
+  printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/routed/probe.py"
+  printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
+  ( cd "$CTL/routed" && _fgit add -A >/dev/null 2>&1 ) || true
+  ( cd "$CTL/routeddecoy" && _fgit add -A >/dev/null 2>&1 ) || true
+  # (2g) A checkout path holding a GLOB CHARACTER. Built outside the fixture
+  #      loop on purpose: the loop's word list would itself glob the name.
+  #      The violation sits BESIDE the scope, so a widened `REL_DIR` — the
+  #      defect — turns this green fixture red.
+  mkdir -p "$CTL/glob[1]/scope"
+  printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/glob[1]/scope/ok.py"
+  printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
+  ( cd "$CTL/glob[1]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || true
   # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
   #     uncommitted state that `--exclude-standard` honours and no other clone
   #     of the same commit shares. (The machine-wide `core.excludesFile` is the
@@ -738,7 +840,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
 
   _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
                # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
-               # $7 = optional PATH prefix (to shadow a tool the wire calls)
+               # $7 = optional PATH prefix (to shadow a tool the wire calls),
+               # $8 = optional environment assignments (to route or mislead git)
     # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
     # otherwise report (#501 R92). The FIFO finding's whole harm was that the
     # local gate BLOCKED instead of failing closed — and a control for it, run
@@ -749,7 +852,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     _out_f="$CTL/.control_out"
     WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
       WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
-      "$SELF" > "$_out_f" 2>&1 & _cpid=$!
+      env ${8:-} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
     # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
     # the subshell; killing only that reparents the `sleep` to PID 1, where it
     # runs out its 30 s — one orphan per control, dozens per local gate run
@@ -812,6 +915,11 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
   _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
   _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
+  _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1
+  _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
+  _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" "" "" "" \
+    "GIT_DIR=$CTL/routeddecoy/.git GIT_WORK_TREE=$CTL/routeddecoy" || ctl_ok=1
+  _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1
   _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
   _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
   _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
@@ -824,7 +932,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
   # read" are different answers and only one of them is green.
-  _control "$CTL/empty" 2 "read 0 entries" "an empty scope fails loudly" || ctl_ok=1
+  _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" || ctl_ok=1
   # ⚠ The line is built HERE, beside the decision that produces it. An earlier
   # shape decided here and described it in the summary below, so the two could
   # disagree — and an unconditional summary claimed exit-status evidence the run
@@ -857,12 +965,12 @@ fi
 # noticed when it starts to.
 _verdict "$(_scan "$REL_DIR" ${REL_FILE:+"$REL_FILE"})"
 if [ "$SCANNED" -eq 0 ]; then
-  echo "!! read 0 entries; this wire would report no violation for a reason that is not 'there are none'" >&2
+  echo "!! read 0 stored objects or files; this wire would report no violation for a reason that is not 'there are none'" >&2
   exit 2
 fi
 # The population is git's: tracked, plus untracked minus ignored. An EMPTY file
 # is in it -- its name is still part of the tree (#501 R79).
-echo "  read $SCANNED entr(y/ies) under the generic core, in full"
+echo "  read $SCANNED stored object(s)/file(s) under the generic core — the index, HEAD and the working tree, in full"
 failed=0
 
 if [ -n "$K2_HITS" ]; then
