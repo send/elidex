@@ -482,7 +482,8 @@ Every diff check names an explicit ref.
      itself over a fixture tree and asserts its own exit status** — one fixture per verdict it can reach
      (green; K2 firing under `skills`, under `tools`, on the path A-i removed, inside binary content, on a
      symlink's stored target, on a symlinked **entry script beside the scope**, on a `@`/non-ASCII segment,
-     on a filename holding a newline and on a regular file named `__pycache__`; an empty scope, an
+     on a filename holding a newline, on a regular file named `__pycache__` and on a file **under a real
+     cache directory** (excluding that location hid a force-added file from both passes — #501 R77); an empty scope, an
      unreadable file and an unsearchable directory all failing closed; and an entry git cannot store —
      a fifo — neither hanging the walk nor hiding the verdict over its readable sibling).
      ⚠ **That last fixture used to require a failure and now requires a pass**, deliberately: §2's K2 is
