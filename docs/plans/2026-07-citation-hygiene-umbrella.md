@@ -130,7 +130,7 @@ behaviour is not what the pre-slice memo assumed.
 
 ⚠ **The second correction was itself wrong and is corrected here.** This document said wiring the suites
 into CI takes a **live-network dependency** ("the 48-test `_webref` suite fetches 2 URLs"). Measured
-(`rederive suites`): **0 `urlopen` calls** across the `origin/main` suites. The figure came from a
+(`git grep -c urlopen` over the suite files at `origin/main`): **0 `urlopen` calls**. The figure came from a
 branch-measured run, and the branch's catalog fall-through — which the re-slice moved to **B** — was the
 thing fetching. A-i ships a pinned-map-only resolver and adds no network requirement; **B owns the offline
 contract for the fall-through it introduces**, which is a constraint below.
@@ -169,26 +169,16 @@ contract for the fall-through it introduces**, which is a constraint below.
   this constraint turns on is **blast radius** (zero `crates/**`, two consumers, a dict lookup), which is a
   separate axis: a terminal slice under an approved umbrella does not inherit the review apparatus of the
   slice it was carved from.
-- **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` was shared and owed a split. ✅ DISCHARGED by A-i**
-  (`06e50b41`, with `3987bfbc` and `4121b667`), before A-i's implementation. It is now a dispatcher — still
-  the only entry point, so every memo's `<block>` citation resolves through the same path — sourcing one part
-  per slice, a shared part, and an integrity part. ⚠ **Which parts, and how many, is A-i §8's to state, not
-  this bullet's**: the list that used to sit here was falsified the moment the integrity split landed.
-  ⚠ **The layout figures are deliberately not restated here.** They are derived in **A-i §8**
-  (`wc -l …-A-rederive*.sh`), whose `rederive budget` block prints them; that is the one site that states
-  them. This bullet carried its own copy through four revisions and each was falsified by the next commit to
-  the harness — and Codex round 2 found the fifth, where the commit that corrected §8 updated §8 and missed
-  this paragraph, **inside the paragraph describing that exact failure**. Four of those were read as
-  *"a count derived once and not re-derived after the next edit"*; the fifth showed the actual root, which is
-  one level up: **the figure had two homes**, so every fix could only ever update one of them. The remedy for
-  that is a canonical site, not a fifth manual sync
-  (`memory/feedback_duplicated-decision-surface-blocks-converge.md`). ⚠ §8 also records `-common`'s 700-800
-  band overrun and its discharge — the standalone split commit that carved the integrity part out; whichever
-  slice next touches the harness reads §8 rather than this line. ⚠ This bullet is a **status register**, not
-  a scope grant, which is why A-i corrected it in its own commit set rather than deferring it to landing (§9's
-  self-ratification rule covers the four scope-grant clauses in the A-i row, not this) — and *removing* a
-  stale duplicated figure from a status register falls on the same non-grant side, by the distinction
-  `89cc4051` already drew and applied.
+- **`docs/plans/2026-07-citation-hygiene-A-rederive.sh` was shared and owed a split.** ✅ **Moot — the
+  harness was dropped from A-i's PR entirely** (A-i §15). A `/code-review max` pass over it found four of
+  the gates A-i named as its exit criteria were false-GREEN, and this program's own ratified rule — *a plan
+  memo holds no measurements and no self-measuring apparatus; what needs measuring goes in a test or CI* —
+  had already excluded the mechanism for every slice after A-i. The one obligation that outlives it, K2's
+  enforcement, is now `.claude/tools/webref-generic-core-trip-wire.sh`, registered in
+  `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and run on every PR to `main`.
+  ⚠ **A-ii / A-iii / B carry harness parts of their own on `citation-hygiene-slice-memos` (#514). By the
+  same rule those do not land either** — that PR needs the equivalent sweep before it is reviewed.
+
 
 ## Cross-lane coordination
 
