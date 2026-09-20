@@ -39,7 +39,7 @@ from plan_memo_selftest_cases_r26 import (
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
     R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED, R42_BLANK_MARKER,
-    R42_ALLSPACE, R42_IMG_AUTO, R42_IMG_CODE, R42_TRIM,
+    R42_9_UNDET, R42_ALLSPACE, R42_IMG_AUTO, R42_IMG_CODE, R42_TRIM,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS, MEMO, MUTANTS,
@@ -538,7 +538,7 @@ MUTANTS += [
 MUTANTS += [
     ("R42: accept the blank-and-marked row again (drop the contradiction clause: the row is keyed "
      "by nothing, assertion (b) never reads its Deps edge, rc 0)", POPULATION,
-     '                spelled = [n for n in ("marker",) if hit.get(n)]',
+     '                spelled = [n for n in ("marker", "undetermined") if hit.get(n)]',
      '                spelled = []',
      [R42_BLANK_MARKER]),
     ("R42: read the declaring field from the wrong moment (`row.field`, which this pass runs BEFORE "
@@ -654,4 +654,22 @@ MUTANTS += [
      '        if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)):\n'
      '            return True\n        if escaped(node):',
      [AXIS5_CHANNEL]),
+]
+
+
+# -- R42-9: both directions of the blank-id phrase set.
+MUTANTS += [
+    ("R42-9: narrow the blank-id contradiction back to the MARKER alone (the over-narrowing a review "
+     "round reported: an UNDETERMINED row with a `Deps` cell exits 0 and no gate reports it)",
+     POPULATION,
+     '                spelled = [n for n in ("marker", "undetermined") if hit.get(n)]',
+     '                spelled = [n for n in ("marker",) if hit.get(n)]',
+     [R42_9_UNDET]),
+    ("R42-9: widen it to every kind phrase (the POINTER arm back: the #506 memo's `Function`/`eval` "
+     "row at `:1985` is a legitimate empty-id row and would become a FATAL)", POPULATION,
+     '                spelled = [n for n in ("marker", "undetermined") if hit.get(n)]',
+     '                spelled = [n for n in ("marker", "undetermined", "pointer") if hit.get(n)]',
+     ["(R42-9) and the arm that WAS refuted stays refuted: the POINTER phrase on a blank id is the "
+      "legitimate shape (`declaring_rows` names the #506 memo's `Function`/`eval` row, `:1985`) -- "
+      "another row owns this one, which is what an unkeyed row is for"]),
 ]

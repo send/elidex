@@ -208,14 +208,23 @@ class Population:
                 # docstring), through the ONE `KIND_PHRASES` site.
                 field = stream(row.cells[s.decl].lexed) if s.decl is not None else ""
                 hit = self._phrases(field)
-                # ⚠ THE MARKER ALONE, NOT EVERY KIND PHRASE.  Written first over
-                # all three, this flagged the #506 memo's `Function`/`eval` row
-                # (`:1985`) -- an empty-id row whose field spells the POINTER
-                # phrase, which `declaring_rows` names as the legitimate shape
-                # this exemption exists for. A pointer says "another row owns
-                # this"; only the MARKER claims the row is itself an umbrella,
-                # which is the claim a blank id contradicts.
-                spelled = [n for n in ("marker",) if hit.get(n)]
+                # ⚠ NOT EVERY KIND PHRASE -- AND NOT THE MARKER ALONE EITHER
+                # (PR #510 R42, narrowed; R42-9, widened back by one).  Written
+                # first over all three, this flagged the #506 memo's
+                # `Function`/`eval` row (`:1985`), an empty-id row whose field
+                # spells the POINTER phrase -- the legitimate shape
+                # `declaring_rows` names this exemption for: a pointer says
+                # "another row owns this", which is exactly what an unkeyed row
+                # is for.  ⚠ The correction then went PAST the evidence and kept
+                # only the marker, though nothing had refuted the UNDETERMINED
+                # phrase: §5 puts an undetermined row IN the naming population
+                # with the same no-owner obligation as an umbrella, so a blank
+                # id contradicts it for the same reason -- and the row with a
+                # `Deps` cell exited 0 with no gate reporting it.  A predicate
+                # narrowed to the one case that was shown, rather than to the
+                # complement of what was REFUTED, is the shape this checker
+                # keeps finding in the documents it reads.
+                spelled = [n for n in ("marker", "undetermined") if hit.get(n)]
                 if spelled:
                     self.misses.append((self.display(memo.path), row.lineno,
                                         "the %r row's id cell is blank -- a DELIBERATE non-row -- but its "

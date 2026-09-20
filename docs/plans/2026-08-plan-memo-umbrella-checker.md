@@ -2164,6 +2164,22 @@ ground for either option; it is not cited.
   ⚠ And the complement first wrapped TOO MUCH — it caught the worklist's `"\t".join(...)` and the
   conformance reports' newlines, both LAYOUT. That is where the structural third arm came from, and
   it is stated as structure rather than as an exemption.
+
+  ⚠ **R42-9 — I narrowed PAST THE EVIDENCE, and that is its own class.** One P2: a blank id cell whose
+  declaring field spells `KIND UNDETERMINED` was accepted as a deliberate non-row, so with a `Deps`
+  cell it exited **0** with no gate reporting it. The R42 fix had narrowed that predicate from all
+  three kind phrases to the MARKER alone — because a real memo row refuted the POINTER arm — and took
+  the UNDETERMINED arm with it, **though nothing had refuted that one**. §5 puts an undetermined row
+  IN the naming population with the same no-owner obligation an umbrella has, so a blank id
+  contradicts it for the same reason. Widened back by exactly one, with a mutant in EACH direction.
+  **Narrowing to the case that was SHOWN, rather than to the complement of what was REFUTED**, is the
+  same shape this checker keeps finding in the documents it reads — and it is the third time in this
+  PR that a correction overshot (`memory/feedback_universal-claims-need-the-complement-measured.md`).
+  ⚠ And the NEGATIVE control that should have caught the overshoot had the WRONG SUBJECT for a third
+  time: its fixture read "Owned by **9z**, which carries the marker", which matches NO phrase in
+  `KIND_PHRASES` — so it asserted "a blank row with no kind phrase is silent", true and irrelevant.
+  The pointer arm's mutant surviving is what exposed it. The fixture spells the phrase verbatim now
+  (`is a pointer rather than a slice`).
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers

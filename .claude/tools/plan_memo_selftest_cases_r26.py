@@ -741,3 +741,33 @@ case("NEGATIVE", "(R42 §6.1/§6.4) the partner that bounds the whole demotion: 
                  "completes and NOTHING is reported -- the trim belongs to §6.4's reading of a "
                  "description, never to a code span in ordinary prose",
      build(), "Slot #11-zz-alph` a ` owns it.", 0)
+
+
+# -- R42-9: the blank-id contradiction, widened back by exactly ONE phrase.
+# ⚠ The R42 correction narrowed the predicate to the MARKER because a real memo
+# row refuted the POINTER arm -- and took the UNDETERMINED arm with it, though
+# nothing had refuted that one.  §5 puts an undetermined row IN the naming
+# population with the same no-owner obligation as an umbrella, so a blank id
+# contradicts it for the same reason.  Narrowing to the case that was SHOWN
+# rather than to the complement of what was REFUTED is the shape this checker
+# keeps finding in the documents it reads.
+_R42_9 = ("\n| — | %s | `g.rs` | — | T1 | **7z** |")
+
+case("POSITIVE", "(R42-9) a blank id cell whose declaring field spells KIND UNDETERMINED is the same "
+                 "contradiction as the marker: §5 gives an undetermined row the no-owner obligation "
+                 "an umbrella has, and keyed by nothing it is absent from `ids`, so assertion (b) "
+                 "never reads its `Deps` edge -- rc 2, not the silent 0 the marker-only predicate gave",
+     build().replace("| **Uz** | Terminal.  Acceptance: the probe must return 5. | `f.rs` | — | T1 | — |", "| **Uz** | Terminal.  Acceptance: the probe must return 5. | `f.rs` | — | T1 | — |" + _R42_9 % "KIND UNDETERMINED here."), "", 1, measure=_R42_MISS)
+R42_9_UNDET = CASES[-1].name
+
+case("NEGATIVE", "(R42-9) and the arm that WAS refuted stays refuted: the POINTER phrase on a blank "
+                 "id is the legitimate shape (`declaring_rows` names the #506 memo's "
+                 "`Function`/`eval` row, `:1985`) -- another row owns this one, which is what an "
+                 "unkeyed row is for",
+     build().replace("| **Uz** | Terminal.  Acceptance: the probe must return 5. | `f.rs` | — | T1 | — |", "| **Uz** | Terminal.  Acceptance: the probe must return 5. | `f.rs` | — | T1 | — |" + _R42_9 % "This is a pointer rather than a slice."), "", 0,
+     measure=_R42_MISS)
+"""⚠ The phrase is the one `KIND_PHRASES` spells, verbatim.  Written as "Owned
+by **9z**, which carries the marker" this fixture matched NO phrase at all, so
+the control asserted "a blank row with no kind phrase is silent" -- true, and a
+different claim.  Its mutant (widening the predicate back to the pointer arm)
+survived, which is how the wrong subject was found rather than read."""
