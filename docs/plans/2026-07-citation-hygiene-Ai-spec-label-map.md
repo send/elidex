@@ -96,8 +96,9 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
   `from _webref.cli import main`, the
   docstring being the site — and unlike `cli.py` it has no other routing at all.
   ✅ **The K2 trip-wire ranges over exactly the generic core** (`_webref/` + `webref`) **and decides over
-  it.** ⚠ **What it asserts, what it does not, which fixtures prove that, and every change to those answers
-  are stated ONCE — in §12(3).** This bullet defines the predicate; it does not restate the mechanism.
+  it.** ⚠ **What it asserts, what it does not, and which fixtures prove that are stated ONCE — in the
+  wire's own canonical account** (the comment block above `_esc`), with §12(3) holding the criterion.
+  This bullet defines the predicate; it does not restate the mechanism.
   Three consecutive rounds (#501 R74-R76) each found one more site still describing a superseded version of
   it, which is the duplicated decision surface this program exists to remove, so the account now has one
   home and the other sites point at it.
@@ -229,7 +230,7 @@ The A/B region boundaries the `spec_labels.py` rows rest on → `git diff origin
 | `coverage_map.py` — `_spec_label` | delegate to `label_for`; keep `origin/main`'s last-resort `.upper().replace("-", " ")` **verbatim** |
 | `DESIGN.md` — the `spec_labels.py` bullet | new bullet, verbatim below |
 | `DESIGN.md` — the `cite_audit.py` adapter paragraph + its 3 `cite-audit` example lines + the attribution-buckets paragraph | **absent in A-i**; they describe a command A-i does not ship. **B** authors them with the detector |
-| `webref-generic-core-trip-wire.sh` | **new** — the K2 enforcement, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` (one added line). ⚠ **This said "the second file outside the generic tree" until #501 R87**; there are **three** — the `preflight.py` comment, this wire, and this registration — which §0.1 lists and this row, calling itself exhaustive, contradicted. ⚠ **Both were missing from this supposedly exhaustive table until #501 R68.** They are not a post-boundary addition: they are where K2's enforcement went when the harness left A-i (§15), the same obligation relocated. **Shell and grep only, bash 3.2** — `.github/workflows/ci.yml` runs the driver with no setup step ("the wires are grep-only") and CLAUDE.md rests the ungated-job decision on that, so a wire needing a toolchain would break the premise for all five; it used `python3` until #501 R69 and did exactly that. **What it asserts, its fixtures and its mutation record are §12(3)'s to state, not this row's** | derive with `git diff --name-only origin/main...HEAD` — three trees, not two |
+| `webref-generic-core-trip-wire.sh` | **new** — the K2 enforcement, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` (one added line). ⚠ **This said "the second file outside the generic tree" until #501 R87**; there are **three** — the `preflight.py` comment, this wire, and this registration — which §0.1 lists and this row, calling itself exhaustive, contradicted. ⚠ **Both were missing from this supposedly exhaustive table until #501 R68.** They are not a post-boundary addition: they are where K2's enforcement went when the harness left A-i (§15), the same obligation relocated. **Shell and grep only, bash 3.2** — `.github/workflows/ci.yml` runs the driver with no setup step ("the wires are grep-only") and CLAUDE.md rests the ungated-job decision on that, so a wire needing a toolchain would break the premise for all five; it used `python3` until #501 R69 and did exactly that. **What it asserts, its fixtures and its mutation record are the wire's own to state, not this row's** | derive with `git diff --name-only origin/main...HEAD` — three trees, not two |
 | `test_spec_labels.py` | **new** — **13 tests**, derived and re-counted, not inherited (⚠ **15 until the third design re-gate**, which moved S7's first clause and S8 out of the generic suite — see §7). **9 carry a §6 pin**: one each for S1, S2, S3, S3b, S4, S5, S6 and T-net, and **one for S7** — `test_the_shared_map_does_not_reach_upstream`, its `webref_data` clause and nothing else. ⚠ **This said the artifact-name scan was a separate test until #501 R85**, while the same row already recorded that R55 deleted it; the scan is a diff-review item (§12(2)), not a pin. **4 carry no pin**, one per claim A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and **both directions composing into a round trip** — the fourth was *claimed by drafts 1-5 and absent from the suite*, so it is added here rather than dropped from the derivation (measured: it holds over all 12 rows, both ways). ⚠ Drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only; draft 5 said 10 pins + 4 extras = 14, which matched the file only because S7's double-count offset the missing round-trip. Under §4's lineage the suite is **authored**, so §6 governs and the arithmetic is **9 + 4 = 13**, which is what the file measures (`grep -c 'def test_'` → 13; `python3 -m unittest _webref.test_spec_labels` → `Ran 13`). ⚠ **This clause read `11 + 4 = 15` until Codex R58**: the count at the head of this row was re-derived when the two duplicated slice-boundary tests left the suite, and the arithmetic clause further down the same row was not, so one row asserted both numbers. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`. ⚠ **Two descriptions in this row were of the retired layout until #501 R68**: the artifact-name scan is **no longer a test at all** (R55 deleted it; only S7's `webref_data` module-shape clause remains), and this row ended *"no test asserts over parse aliases, since A-i ships none"* — `test_the_eight_omitted_parse_aliases_are_inert` (S4) asserts over exactly those eight, which is *how* it shows that omitting them is a refactor rather than a behaviour change. Re-derive from the shipped suite: `grep -n 'def test_' .claude/tools/_webref/test_spec_labels.py` |
 
 Each row is scoped to **every occurrence** in the named artifact, not to a bullet list inside it.
@@ -300,7 +301,7 @@ which **T-net** pins.
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct precisely because the point is to freeze the *old* table (K4) | no |
 | **S6** | `_spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the last-resort | no |
 | **S7** | K3 by scan. ⚠ **Only the third clause is a suite pin now** — the artifact-name scan is a one-off diff check (§15), and the two tree-scanning tests were **deleted** at the third design re-gate (Codex R55) because they were a second copy of a scan the K2 trip-wire already makes over a strictly larger range (the package **plus** the `webref` entry script). What the suite pins is `webref_data` absent from `spec_labels.py` — a property of the module's shape, not of any slice: a literal label map has no business importing the upstream fetcher | no — `origin/main` satisfies it (measured 0), which is the point |
-| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `.claude/tools/webref-generic-core-trip-wire.sh`**, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and therefore run on every PR to `main`; it covers the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ⚠ **Between #501 R55 and gate 4 this cell was FALSE** — a file naming `.claude/skills/elidex-plan-review/preflight.py` passed the wire GREEN, because R55 deleted the suite's copy as redundant with a scan R62 then demoted to report-only. **§12(3) states what the wire asserts today and how that was restored; this cell does not restate it.** ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and the wire's pin sees **both** |
+| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `.claude/tools/webref-generic-core-trip-wire.sh`**, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and therefore run on every PR to `main`; it covers the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ⚠ **Between #501 R55 and gate 4 this cell was FALSE** — a file naming `.claude/skills/elidex-plan-review/preflight.py` passed the wire GREEN, because R55 deleted the suite's copy as redundant with a scan R62 then demoted to report-only. **The wire's own header states what it asserts today; §12(3) holds the criterion, and this cell restates neither.** ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and the wire's pin sees **both** |
 | **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 13 test methods (`grep -rn 'def test_' .claude/tools/_webref/test_spec_labels.py | wc -l` → 13, verified 2026-09-20), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
 
 **UNCHECKED, marked not omitted**: that `shortname_for` and `origin/main`'s `shortname_from_label` are
@@ -388,7 +389,12 @@ git diff origin/main...HEAD --numstat -- .claude/ && wc -l .claude/tools/_webref
    of four, because a ⚠ comment this loop kept extending outgrew the enumeration it replaced. The criterion
    is load-bearing on the commentary budget, not only on the refactor — if it goes red again, the reading is
    "the prose here has outgrown its subject", not "restate the criterion".
-2. **No file is near CLAUDE.md's 1000-line touch-time split threshold.**
+2. **No file this PR ships is over CLAUDE.md's 1000-line touch-time split threshold.**
+   ⚠ The wire reached it (#501 R96) and was **split at its seam in its own commit**, per the discipline's
+   own instruction not to defer: the scanner answers, the controls prove the answers are reachable. The
+   earlier wording was "no file is *near*" — a judgement word doing quantitative work, with a band nobody
+   had defined, which is why it read green at 994 lines. The threshold is CLAUDE.md's fixed 1000 and does
+   not move with a commit; "near" did.
 
 ⚠ A previous revision of this section carried a per-file Δ table and, before that, a `wc -l` figure for this
 memo. Both went stale inside the same review loop that wrote them — the second time (Codex R65) by a
@@ -491,126 +497,27 @@ Every diff check names an explicit ref.
 3. **K2 — stated as two claims, because only one of them is mechanised.** A-i discharges the two
    instances that existed at its base (`cli.py` and the `webref` entry script both named
    `.claude/skills/elidex-review/axes.md`; measured 1 each at `44cd165d`, 0 at HEAD).
-   - **Closed part, absolute**: `bash .claude/tools/webref-generic-core-trip-wire.sh` → PASSED. It FAILS
-     if either removed path returns anywhere in **the population stated below** — which is git's answer,
-     not "any file", and the difference is load-bearing in both directions. Registered in
-     `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, so it runs on **every PR to `main`**, ungated by the CI
-     path filter. ⚠ **And the PASSED is earned**: before it reads the real tree the wire **re-invokes
-     itself over a fixture tree and asserts its own exit status** — one fixture per verdict it can reach
-     (green; K2 firing under `skills`, under `tools`, on the path A-i removed, inside binary content, on a
-     symlink's stored target, on a symlinked **entry script beside the scope**, on a `@`/non-ASCII segment,
-     on a filename holding a newline, on a regular file named `__pycache__`, on a file **under a real
-     cache directory** (excluding that location hid a force-added file from both passes — #501 R77) and on
-     an **entry's own NAME** — a clean file, and separately a symlink, whose path *is* the forbidden
-     hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
-     closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
-     its readable sibling).
-     ⚠ **A push sends the COMMIT, so HEAD is read too** (#501 R95). A violation committed and then fixed
-     only in the index read green while `git show HEAD:victim.py` still carried it — the same defect, and
-     the same argument, as the index arm R92 added one round after the worktree-only scan; accepting one
-     and refusing the other would be incoherent. Three symmetric passes now (index, HEAD, working tree),
-     one source each, so "counted" and "scanned" stay one quantity per source. **Bounded at the tip and no
-     further**: elidex squash-merges, so what lands on main is the tip's tree and the commits below it are
-     not what this gate is about. Three more findings that round were git handing back something other
-     than what the tree names — a `replace` ref substituting the staged blob, exported
-     `GIT_DIR`/`GIT_WORK_TREE` pointing the inventory at another checkout while the worktree arm read this
-     one, and an unquoted `${var#$prefix}` treating a checkout path's `[` as a glob so the scope widened to
-     the whole repository. Every `git` call goes through one wrapper that strips git's OWN list of
-     routing variables (`rev-parse --local-env-vars`, not a hand-written one) and pins no-lazy-fetch and
-     no-replace-objects; configuration, `safe.directory` included, is left alone.
-     ⚠ **The wire's threat model is ACCIDENT, NOT ADVERSARY, and it is now written down** (#501 R94).
-     Four findings, all of them defects in what the previous two rounds added, and one of them a crafted
-     index entry (a mode-120000 blob holding a NUL — storable by git, realisable by no filesystem). The
-     answer is not a NUL-safe reader: a contributor who wants past this gate edits `REQUIRED_WIRES`, which
-     `scripts/trip-wires.sh` names as the one edit that genuinely disables it, so hardening against a
-     crafted index while conceding that edit is incoherent. Anything outside the model gets the same
-     "unknown fails closed" answer every unreadable thing here gets. Stating the model is what bounds the
-     file — an unstated one makes every construction an open finding.
-     The other three were **operational regressions**, not exotica: an exported clean git config took
-     `safe.directory` with it and broke the gate on a foreign-UID checkout; a second `EXIT` trap silently
-     replaced the scratch cleanup (one leaked directory per run, measured); and `git cat-file` lazy-fetched
-     in a blobless partial clone, against this gate's own no-network contract (`GIT_NO_LAZY_FETCH=1`, with
-     an absent blob falling through to the existing error).
-     ⚠ **The rules this PR established apply to the arms it adds next** (#501 R93): three of that
-     round's four findings were R92's own — a **staged symlink**'s blob went through the running-text
-     predicate although R87 had already ruled that a stored path takes the stored-path one (reproduced:
-     a staged target `.claude/skills/team name/rule.md` with a clean worktree target read GREEN); this
-     block's own canonical account went on naming the flags R92 had just rejected; and the watchdog R92
-     added leaked its timer (measured 31 orphaned `sleep`s per run, now 0). The index **mode** — not the
-     worktree's file type — now says whether a staged blob is a target or content, and the three
-     stored-path subjects share one call site. ⚠ Separately, the wire refuses to run when its scratch
-     directory is **inside the tree it scans**, which `TMPDIR` can arrange: it would otherwise read the
-     fixtures it created and answer about itself.
-     ⚠ **…and so is the CONTENT** (#501 R92): taking the list from the index and the bytes from the
-     working tree made the two disagree, and three reproductions came out of that one seam — a violation
-     **staged** and reverted in the worktree read GREEN while `git show :victim` still held it; a tracked
-     path replaced by a **FIFO** made `grep` block forever, so the local gate **hung** rather than failing
-     closed; and the untracked half answered to whatever the machine's git was told to ignore. A tracked
-     entry is now read from its index blob *and* the worktree (the two differ, and an unstaged violation is
-     one `git add` from being carried); an untracked entry has no blob, so only the worktree; anything that
-     is neither a regular file nor a symlink is an **error, never an open()**. ⚠ And the controls grew a
-     **watchdog**, because a hang is a verdict this harness could not otherwise report — a control for the
-     FIFO, run plainly, would block too.
-     ⚠ **The population is git's, not the filesystem's** (#501 R79, R92): `git ls-files --cached` plus
-     `--others --exclude-per-directory=.gitignore` — tracked (including a file force-added under an ignored
-     path), plus untracked minus what the tree's own `.gitignore` excludes. **Not `--exclude-standard`**:
-     that adds `$GIT_DIR/info/exclude` and the machine's `core.excludesFile`, neither committed nor the
-     repository's statement about what it carries — measured, a global `*.py` rule emptied the fixtures and
-     the gate exited 1 before reaching this repo. A wire that calls itself ABSOLUTE cannot read differently
-     on two machines from one commit. That last clause is load-bearing in both directions: a `.pyc`
-     embeds its source's absolute path, which matches the predicate, so scanning build products turned the
-     wire red for anyone who had merely run the tool; and an **empty** tracked file was enumerated by
-     nothing content-based, so its name alone could carry the hierarchy past the gate. One `-z` list now
-     drives the population, the name check, the content scan and the count, so those cannot disagree.
-     A fixture pins each direction, and every fixture is a real repository, because a non-repo fixture
-     cannot reproduce the tracked/ignored distinction the population now rests on.
-     ⚠ **A matcher that fails is not a matcher that found nothing** (#501 R85, R88, R89): `grep` calls
-     status 2 an error, and every site here that discards a status collapses it with "no match" — so an
-     operational failure reads as a clean answer. It has now been the finding three times, at three
-     depths: the inventory (`git ls-files`), the verdict classifiers, and the two stored-path arms, which
-     were bare pipelines inside a `_scan` the caller invokes under `|| true` (measured: a shim making only
-     `grep -aEo` exit 2 left the wire green over a tracked `.claude/skills/team/rule.md`). The stored-path
-     predicate now has **one call site** (`_match_path`) so the question is decided once; the remaining
-     arms each keep their own status test. Two fixtures, one per stored-path subject, because the
-     name fixture goes red from its own arm and so cannot speak for the target's.
-     ⚠ **…and `$( )` is where a stored value stops being whole** (#501 R90): command substitution strips
-     trailing newlines, so a symlink target `.claude/skills/team/<LF>` arrived with an empty final segment
-     and the wire exited 0 over a value git stores verbatim (reproduced). `readlink -n` plus a status
-     sentinel keeps both the bytes and the exit status. ⚠ Two controls, because the two halves fail in
-     **opposite directions**: the sentinel alone stops the truncation, while `-n` stops readlink's own
-     newline being read as stored content — which would fire on `.claude/skills/a/`, a directory and no
-     violation. Dropping only `-n` was a surviving mutant until the second control existed.
-     Every other stored value here already avoids substitution: the entry name comes from `read -r -d ''`,
-     and the match captures hold `grep -o` records that cannot end in a newline.
-     ⚠ **A stored path is bytes, and it reaches the predicate whole** (#501 R87-R88): an entry's own name
-     and a symlink's target are matched by a slash-delimited predicate of their own — the content
-     predicate's quote and space terminators are the honest answer for running text and the wrong one for a
-     name git hands over entire — a newline inside a segment is data rather than a record separator, and
-     the whole run is pinned to `LC_ALL=C` because under a multibyte locale an invalid byte cannot
-     participate in a bracket expression (measured: the same file read GREEN under `C.UTF-8` and RED under
-     `C`). Fixtures for all three. ⚠ The byte one is **environment-sensitive** and says so at the fixture:
-     it discriminates the locale export only where the inherited locale is multibyte.
-     ⚠ **A path is data, not protocol** (#501 R80): records are newline-separated and tab-tagged, and a
-     tracked filename may contain both, so `safe<LF>k2<TAB>forged` injected a synthetic K2 hit. Paths are
-     escaped into records now, with a fixture that a forged name must **not** fire. ⚠ And the empty-name
-     case has its **own** fixture: it shared one with a non-empty forbidden name, so a scanner skipping
-     every empty file stayed green — a fixture another entry can satisfy proves nothing about the entry it
-     is named for.
-     ⚠ **The unreadable-file and unsearchable-directory controls cannot run as root**, or where mode 000
-     stays readable, and the wire's summary now says so in that case instead of claiming them: the line is
-     built beside the decision that skips them, so the claim and the fact cannot drift (#501 R78 reproduced
-     the drift). A run on such a machine carries no evidence for those two.
-     ⚠ **That last fixture used to require a failure and now requires a pass**, deliberately: §2's K2 is
-     about a path this tree *names*, i.e. stored text, and such an entry holds none, cannot be committed
-     and cannot survive a checkout. The reason is written beside the fixture, and §4.2 states it too. The subject is
-     the exit code, not an internal variable: an earlier shape inspected variables and three mutations
-     survived it. `scripts/trip-wires.sh:105-112` records why hand-verification does not close this gap —
-     a check nobody re-runs is a transcript, not a gate — and the general form of that rule is what
-     rounds R70-R73 kept finding: **a green over something the wire did not read — or never enumerated —
-     is a transcript too.**
-     ⚠ **This row described a `PINNED` string plus a negative sibling until #501 R72.** That pin was
-     measured to be strictly contained in §2's predicate and collapsed into it at R70 (§4.2); an emptied
-     `PINNED` is no longer a mutation this wire can have.
+   - **Closed part, absolute**: `bash .claude/tools/webref-generic-core-trip-wire.sh` → PASSED, and
+     `bash scripts/trip-wires.sh` → 0. It FAILS if either removed path returns anywhere in the population
+     the wire states, which is git's answer and not "any file". Registered in `REQUIRED_WIRES`, so it runs
+     on **every PR to `main`**, ungated by the CI path filter.
+     ⚠ **And the PASSED is earned**: before it reads the real tree the wire re-invokes itself over a
+     fixture tree and asserts its own exit status, one fixture per verdict it can reach. The controls live
+     in `webref-generic-core-trip-wire.controls.sh`; their absence ends the run at "decided nothing"
+     rather than scanning without them.
+     ⚠ **What the wire asserts, and why, is stated ONCE — in the wire, not here** (#501 R96). This row
+     carried a ⚠ block per review round: the population, the content sources, the stored-path predicate,
+     the locale, the matcher statuses, the threat model, one per defect the loop found. Every one of them
+     duplicated the wire's own canonical account, which #501 R93 made the single site for exactly this
+     reason — and the duplicate is what grew this memo by tens of lines a round while the thing it
+     described stayed one file away. **The account is the comment block above `_esc` in the wire**; the
+     reasoning behind each clause is in the commit that added it. What this row owns is the *criterion*
+     below, not the mechanism.
+     ⚠ Two limits stay here because they are not the wire's to state: the unreadable-file and
+     unsearchable-directory controls **cannot run as root**, or where mode 000 stays readable, and a run
+     on such a machine carries no evidence for those two (the summary says so in that case, built beside
+     the decision that skips it, so claim and fact cannot drift). And the byte-level locale fixture is
+     **environment-sensitive** — it discriminates only where the inherited locale is multibyte.
    - **Open part, reviewed not gated**: "no *other* host path is named here" is not something this wire
      decides, and its header says so with the four failed attempts named. ⚠ An earlier revision of this
      row claimed it did — "**0** paths that resolve inside this repo are named anywhere" — which was the
@@ -712,7 +619,7 @@ elsewhere. The cap question does not arise: neither row is a deferral.
    ⚠ What the wire does **not** decide is stated in its own header, not here: it asserts **§2's K2
    predicate**, the single absolute it carries, and reaches neither the policy half of `DESIGN.md`'s
    closing rule nor the classes no grep predicate can see (bare top-level names, interpolation, and a
-   segment containing whitespace — §12(3)). ⚠ **This row named a second removed-path pin until #501 R76**;
+   segment containing whitespace). ⚠ **This row named a second removed-path pin until #501 R76**;
    that pin was measured strictly contained in the predicate and collapsed at R70, and this was the third
    site to say otherwise — §7 was the second.
 
