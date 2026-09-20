@@ -1409,7 +1409,11 @@ ground for either option; it is not cited.
   said that seam was already in the module's docstring; it was not — that docstring states the seam
   BETWEEN modules, and its "what is here" paragraph named 8 of 15 controls, stale by seven since R26.
   ⚠ Next split candidate: `plan_memo_selftest_work.py` at 790 lines.
-  ⚠ **PR #510 Codex R30 (2026-09-08)** — two findings, both real, and **one of them was mine**.
+  ⚠ **PR #510 Codex R30 (2026-09-08)** — **THREE** findings, all real, and **one of them was mine**.
+  ⚠ This entry said "two" until 2026-09-20, and the count was wrong for the reason the round
+  after it records: the thread fetch paged at 100 of 105, so #3 (the §6.4 image description,
+  fixed and controlled as **R30-3**) was disposed of unseen. The count is the record, so it is
+  corrected here rather than only in the round that found the omission.
   #1 (P2) the `CLAUDE.md` paragraph copied the trip-wire benchmark history, the headroom calculation
   and the timeout rationale **while explicitly naming the workflow comment canonical** — two live
   copies of a number that moves. I wrote it ONE ROUND after correcting the same shape in the other
@@ -1455,9 +1459,9 @@ ground for either option; it is not cited.
   is `plan_memo_selftest_mutants_inline.py` (942), not `plan_memo_selftest_work.py` (790, fifth); the
   reviewer offered two shapes of which neither is a fix as stated; and the reviewer's §6.1 / §6.2
   citations are sound (I had grouped this with the two false ones).
-  ⚠ **PR #510 Codex R31 (2026-09-08/09) — IN FLIGHT, NOT FINISHED. ▶▶▶ THE NEXT SESSION STARTS HERE.**
-  **State**: five findings fixed and hand-verified, three of the five proved by controls, **A and B
-  still owe controls**, nothing of R31 pushed, no disposition posted, no next trigger fired.
+  ⚠ **PR #510 Codex R31 (2026-09-08/09, closed 2026-09-20)** — five findings, all real, all fixed
+  and all now proved. Four are R31's and the fifth is R30's third, which R30's own thread fetch
+  did not page far enough to see.
   ⚠⚠ **R31 was nearly recorded as the first DRY round, and was not.** The review came back with zero
   inline threads. The three-channel scan then showed `hasNext=true` / `totalCount=105`: **the PR had
   crossed 100 threads and my GraphQL query paged at 100**, so `unresolved = 0` meant "not fetched",
@@ -1501,12 +1505,49 @@ ground for either option; it is not cited.
   400 pairs, exactly 4× for 4×) and **RED on the pre-fix scan**, with its own mutant.
   ⚠ `_drop`'s docstring cited a `linear_emphasis_pairs_control` that **was never written** — the
   delegate stalled before it. Corrected to name the control that exists.
-  **▶ OWED, in order**: controls + mutants for **A** and **B**; controls for **D** and **E** (or the
-  argument that the generated property covers them — untested, because the pre-fix `check` and `roles`
-  sources no longer import against the post-split tree, so re-injection needs patching the inner
-  function rather than the whole file); then the full gate set, push, resolve the five threads
-  (`PRRT_kwDORYj7cc6gayWZ`, `…6gbkY8`, `…6gbkZD`, `…6gbkZL`, `…6gbkZP`), post the disposition, trigger
-  the next round. ⚠ The disposition must correct the record: **R30 had three findings, not two.**
+  **▶ DISCHARGED (2026-09-20, `dac4f5a7` + `fe3142e2`).** All five now carry controls and mutants.
+  ⚠⚠ **The open question — does the generated growth property cover D and E? — was MEASURED, and the
+  answer is no, twice.** Each defect was put back into the checker on disk and the full self-test run:
+  **green both times**, the generated property included. D is unreachable from that property at all
+  (its corpus is a block-level text and never runs the always-run raw-content seed), and E moves none
+  of the four existing witnesses (both readings make one pattern application per mention and execute
+  the same source lines — the growth is inside the C `re` engine). So the two fixes had been shipped
+  with *nothing at all* watching them, which is what the untested "or the argument that the property
+  covers them" would have concluded the other way.
+  **A** (§6.4) turned out to be **three** clauses, not one, and each needed its own probe because each
+  is the only one its mutant moves (measured — the other two survive the other two probes): the
+  demoted link's `[` (the reviewer's shape, vendored Example 575), a demoted construct's TAIL, and the
+  image's **own `![`**, whose record is also what turns a phrase STRADDLING an image from silence into
+  a loud rc-2 miss. **B** (§2.5) got the positive, the raw-`#` constant, the `\#` spelling the reviewer
+  did not name, and a `&#36;` header that must still NOT bind — plus one mutant per clause (the
+  comparison, and the phase order that gives it a rendering to compare).
+  **E owed a third thing nobody had listed**: `plan_memo_roles.py` cites `licence_index_control` twice
+  as stating R31-4's reachability argument and **it was never written** — the second never-written
+  cited control this round (the first, `_drop`'s, was corrected one commit earlier). It exists now as
+  an ORACLE over `classify` itself against the whole preceding text, at all 22,574 positions of a
+  generated corpus, with a structural half that covers the NEXT phrase added to the tuple rather than
+  the ones the corpus spells. The keyword derivation had to stop raising on a phrase with no literal
+  prefix, so that case turns the control **red** instead of crashing it.
+  **E also needed a witness this suite did not have.** One pattern application per mention either way,
+  the same source lines, no list to count — what grows is the SPAN handed to the engine.
+  `_count_pattern_spans` is the fifth harness witness; the proxy delegates to the real pattern, so
+  every verdict under it is the production verdict.
+  ⚠ **Touch-time split, and it is the rule's shape LATE**: `plan_memo_selftest_work.py` reached 991
+  lines on the controls commit, so `plan_memo_selftest_pipeline.py` carves the probes that write a
+  memo (991 → 581 + 486) in a commit of its own. CLAUDE.md wants the carve *before* the touching
+  edit; the controls went first. ⚠ Two seams, not one — growth is separated by POPULATION, work and
+  pipeline by PROBE — and the first draft of that docstring asserted the pipeline module is "the only
+  importer of `tempfile` among the work modules", which **measurement falsified** (the growth module
+  writes its digraph corpus to disk too). ⚠ One mutant row moved with its subject (R12-D → `PIPELINE`)
+  and the runner *said so* rather than degrading quietly — the R22 `STAGE_C` lesson holding.
+  **Gate**: 623 controls, 346 mutants / 0 survived / 0 crashed, `scripts/trip-wires.sh` rc 0, the #506
+  census worklist byte-identical across both commits (`cmp` clean, 815 lines, rc 0), and the split's
+  control NAME SET identical to the pre-split commit's. ⚠ `dac4f5a7`'s message reports 623 as **622**
+  — I read the figure from a run taken before `licence_index_control` was registered, my own edit
+  invalidating my own measurement; it cannot be amended here (the pre-commit guard refuses `--amend`)
+  and is corrected in `fe3142e2`'s message and here.
+  ⚠ The disposition corrects the record: **R30 had three findings, not two**, and the two code
+  comments that labelled A `R31-1` now say `R30-3`.
   ⚠ **A correction the delegate got wrong, checked rather than accepted**: it reported the plan's
   `51 seed(s)` figure as irreproducible. It is the tool's OWN summary line (`0 mechanical finding(s)
   gate the exit status; 51 seed(s) and 714 reported naming site(s) do not`) — read it with `grep -a`,
