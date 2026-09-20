@@ -87,11 +87,19 @@ SCOPE_FILE="$ROOT/.claude/tools/webref"
 # passing and the wire green.  The subject has to be the exit code.
 if [ -n "${WEBREF_WIRE_SELFTEST:-}" ]; then
   ROOT="$WEBREF_WIRE_SELFTEST"
-  SCOPE_DIR="$WEBREF_WIRE_SELFTEST"
-  SCOPE_FILE=""
+  # A fixture may name a scope SUBDIRECTORY and an EXTRA ENTRY beside it, both
+  # relative to the root, so a control can reproduce the real geometry — the
+  # scope directory and the `webref` entry script are SIBLINGS, and an extra
+  # entry inside the scope would be caught by the directory walk anyway, proving
+  # nothing about its own arm.
+  SCOPE_DIR="$ROOT/${WEBREF_WIRE_SELFTEST_DIR:-.}"
+  SCOPE_FILE="${WEBREF_WIRE_SELFTEST_EXTRA:+$ROOT/$WEBREF_WIRE_SELFTEST_EXTRA}"
 fi
 for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
-  [ -e "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
+  # `-e` FOLLOWS a symlink, so a dangling link reads as "does not exist" — and a
+  # dangling link is still an entry whose stored target this wire must read
+  # (#501 R75, found by the control for the symlinked entry script).
+  [ -e "$p" ] || [ -L "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
 # `git grep` takes pathspecs relative to the directory it runs in.
 REL_DIR="${SCOPE_DIR#$ROOT/}"; [ "$REL_DIR" != "$SCOPE_DIR" ] || REL_DIR="."
@@ -169,6 +177,7 @@ K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 # neither hangs nor hides a plant elsewhere.)
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
+  _dir="$1"; _extra="${2:-}"
   set -- "$1" ${2:+"$2"} ':!*__pycache__/*'
   git -C "$ROOT" grep --no-index -l -aE '^' -- "$@" 2>>"$_e" | while IFS= read -r f; do
     printf 'ok\t%s\n' "$f"
@@ -178,7 +187,16 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   done
   # Symlinks, the one thing `git grep` will not read for us. `-print0` and
   # `read -d ''` because a link's own name may hold a newline too.
-  find "$ROOT/$1" -type l -print0 2>>"$_e" | while IFS= read -r -d '' l; do
+  #
+  # ⚠ The scope's EXTRA ENTRY is part of this, not just the directory: K2 covers
+  # the `webref` entry script, and when that script is itself a symlink whose
+  # target names a host path, `git grep` skips it and a directory-only symlink
+  # pass never reaches it (#501 R75, reproduced — the wire read one file fewer
+  # and still printed ABSOLUTE).
+  { find "$ROOT/$_dir" -type l -print0 2>>"$_e"
+    [ -z "$_extra" ] || { [ -L "$ROOT/$_extra" ] && printf '%s\000' "$ROOT/$_extra"; }
+    true
+  } | while IFS= read -r -d '' l; do
     tgt="$(readlink "$l" 2>/dev/null)" || {
       printf 'err\t%s: symlink, but its target could not be read\n' "${l#$ROOT/}"; continue; }
     printf 'ok\t%s\n' "${l#$ROOT/}"
@@ -236,7 +254,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache extra; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -266,6 +284,11 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # A REGULAR FILE named `__pycache__`: pruning by name alone skipped it.
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cache/ok.py"
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cache/__pycache__"
+  # The real geometry: a scope directory and, BESIDE it, an entry script that
+  # is itself a symlink holding a forbidden target.
+  mkdir -p "$CTL/extra/sub"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/extra/sub/ok.py"
+  ln -s "$CONTROL_K2" "$CTL/extra/entry"
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
   # A readable sibling, so the run reaches the ERROR verdict instead of stopping
   # at the zero-read guard — the fixture must exercise the arm it names.
@@ -273,8 +296,10 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/walk/sub/hidden.py"
   chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
 
-  _control() { # $1 = fixture dir, $2 = expected exit, $3 = expected message, $4 = label
-    _out="$(WEBREF_WIRE_SELFTEST="$1" "$SELF" 2>&1)"; _rc=$?
+  _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
+               # $5 = optional scope subdir (relative), $6 = optional extra entry (relative)
+    _out="$(WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
+            WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" "$SELF" 2>&1)"; _rc=$?
     if [ "$_rc" -ne "$2" ]; then
       echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
       echo "   mean nothing — this wire was not shown able to reach that verdict." >&2
@@ -303,6 +328,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/nl"     1 "K2: a" "a newline in a filename is not a split" || ctl_ok=1
   _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
   _control "$CTL/cache"  1 "K2: a" "only cache DIRECTORIES are pruned"      || ctl_ok=1
+  _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
   else
@@ -323,7 +349,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
   echo "            inside binary content and on a symlink's stored target; an empty"
   echo "            scope, an unreadable file and an unsearchable directory all fail"
-  echo "            closed; an entry git cannot store neither hangs nor hides a verdict"
+  echo "            closed; an entry git cannot store neither hangs nor hides a verdict;"
+  echo "            a symlinked entry script beside the scope is read too"
   echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
 
