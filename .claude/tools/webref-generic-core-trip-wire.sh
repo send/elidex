@@ -118,6 +118,18 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#$ROOT/}"
 # rather than guessed at here.
 K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 
+# …and the SAME invariant over a STORED PATH — an entry's own name, or a
+# symlink's target — where the only delimiter is `/`.
+#
+# In running text a quote or a space ends a path and nothing decides where;
+# that is why $K2RE stops at them, and why a whitespace segment is named in
+# §12(3)'s open half. A stored path has no such ambiguity: git hands it over
+# whole. `.claude/skills/team"name/rule.md` is ONE entry with two segments, and
+# the content predicate's terminators cut it in half — measured, the wire read
+# that entry, reported K2 zero and exited 0 (#501 R87). Using the text
+# predicate on a name was not conservatism, it was the wrong predicate.
+K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
+
 # ⚠ Three superseded accounts of the scanner lived here until #501 R81 — one
 # describing `git grep --no-index` and `-a`/`-I`, one the `rc >= 2` arm, one
 # the binary handling.  Each was true when written and wrong within a round or
@@ -208,7 +220,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     # direct violation there is, and content search cannot see it. Matched
     # relative to the SCOPE: relative to the repo every file here would match,
     # since the generic core itself lives under `.claude/tools/`.
-    printf '%s\n' "${rel#$_dir/}" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
+    printf '%s\n' "${rel#$_dir/}" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
       printf 'k2\t%s: (the entry NAME is itself) %s\n' "$(_esc "$rel")" "$m"
     done
     if [ -L "$f" ]; then
@@ -216,7 +228,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
       tgt="$(readlink "$f" 2>/dev/null)" || {
         printf 'err\t%s: symlink, but its target could not be read\n' "$(_esc "$rel")"; continue; }
       printf 'ok\t%s\n' "$(_esc "$rel")"
-      printf '%s\n' "$tgt" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
+      printf '%s\n' "$tgt" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
         printf 'k2\t%s: -> %s\n' "$(_esc "$rel")" "$m"
       done
       continue
@@ -286,7 +298,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname forge linkname ignored lsfail; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename forge linkname ignored lsfail; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -349,6 +361,10 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # control passed on that one and a scanner skipping every empty file was
   # green (reproduced). A fixture another entry can satisfy proves nothing
   # about the entry it is named for.
+  # A quote inside a NAME segment: `/` is the only delimiter a stored path has.
+  mkdir -p "$CTL/quotename/.claude/skills/team\"name"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/quotename/.claude/skills/team\"name/rule.md"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/quotename/ok.py"
   mkdir -p "$CTL/emptyname/$(dirname "$CONTROL_K2")"
   : > "$CTL/emptyname/$CONTROL_K2"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/emptyname/ok.py"
@@ -360,7 +376,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname forge linkname ignored; do
+           cachedir extra name emptyname quotename forge linkname ignored; do
     ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
       && git add -A >/dev/null 2>&1 ) || true
   done
@@ -417,6 +433,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
   _control "$CTL/name"   1 "entry NAME" "an entry's own NAME is the hierarchy"  || ctl_ok=1
   _control "$CTL/emptyname" 1 "entry NAME" "an EMPTY entry's name is the hierarchy" || ctl_ok=1
+  _control "$CTL/quotename" 1 "entry NAME" "a quote inside a name segment"          || ctl_ok=1
   _control "$CTL/forge"  0 "PASSED" "a name cannot forge a verdict record"      || ctl_ok=1
   _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
   _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
