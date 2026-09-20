@@ -841,7 +841,12 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
                # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
                # $7 = optional PATH prefix (to shadow a tool the wire calls),
-               # $8 = optional environment assignments (to route or mislead git)
+               # and `_ctl_env` (an ARRAY, set by the caller) for environment
+               # assignments. ⚠ NOT a string: `env ${8:-}` word-split them, so a
+               # `TMPDIR` holding a space broke the routed control with
+               # `env: 'dir/.../.git': No such file or directory` and the whole
+               # gate exited 1 for a contributor whose temp path has a space
+               # (#501 R96). A path is data here too.
     # ⚠ WITH A WATCHDOG, because a hang is a verdict this harness could not
     # otherwise report (#501 R92). The FIFO finding's whole harm was that the
     # local gate BLOCKED instead of failing closed — and a control for it, run
@@ -852,7 +857,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     _out_f="$CTL/.control_out"
     WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
       WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
-      env ${8:-} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
+      env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
     # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
     # the subshell; killing only that reparents the `sleep` to PID 1, where it
     # runs out its 30 s — one orphan per control, dozens per local gate run
@@ -889,6 +894,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # inside such a command, so a bare call would abort the script on the first
   # non-zero and the remaining arms would never run.
   ctl_ok=0
+  _ctl_env=()   # per-control environment; reset after any control that sets it
   _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1
   _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
   _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
@@ -914,11 +920,38 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stored content" || ctl_ok=1
   _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
   _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
-  _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
+  if [ -s "$CTL/notcommitted/.git/info/exclude" ]; then
+    _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
+  else
+    echo "!! CONTROL NOT EXERCISED (per-clone info/exclude cannot hide an entry): the" >&2
+    echo "   fixture's info/exclude is empty, so the probe is visible either way." >&2
+    ctl_ok=1
+  fi
   _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1
-  _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
-  _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" "" "" "" \
-    "GIT_DIR=$CTL/routeddecoy/.git GIT_WORK_TREE=$CTL/routeddecoy" || ctl_ok=1
+  # ⚠ A FIXTURE THAT DID NOT BUILD MUST NOT PASS. Both of these are built with
+  # `|| true`, and for both the FALLBACK STATE still satisfies the control's own
+  # assertion — so a failed `git replace` (or a failed `info/exclude` write) left
+  # the control green while testing nothing, and the mutation it exists to catch
+  # would have survived it too (#501 R96, reproduced with a `git` wrapper failing
+  # only `replace`). Every other fixture here falls back to a state its control
+  # REJECTS; these two were the exceptions, and each now asserts the precondition
+  # that makes it meaningful.
+  # ⚠ Asked as `replace -l`, not by reading the blob: this run exports
+  # `GIT_NO_REPLACE_OBJECTS=1`, so a read here returns the violating bytes
+  # whether or not the replacement took — the check would have passed vacuously
+  # for the very reason the control exists. (Caught by the precondition firing
+  # on a correctly-built fixture.)
+  if [ -n "$(cd "$CTL/replaced" && _fgit replace -l 2>/dev/null)" ]; then
+    _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
+  else
+    echo "!! CONTROL NOT EXERCISED (a replace ref cannot substitute the staged blob):" >&2
+    echo "   the fixture's replacement never took, so the staged blob is the violating one" >&2
+    echo "   either way and this control would pass without testing anything." >&2
+    ctl_ok=1
+  fi
+  _ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
+  _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || ctl_ok=1
+  _ctl_env=()
   _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1
   _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
   _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
