@@ -148,15 +148,31 @@ def code_mask(lx, keep):
     `#11-zz-alpha_extra` is not `#11-zz-alpha`) -- the spans a reader of
     prose must skip."""
     out = []
-    for a, b in lx.code:
+    for a, b, tag in lx.code:
         if id_only(lx.text[a:b].strip("`"), keep):    # whitespace is a separator token
+            continue
+        if tag == "demoted":
+            # ⚠ §6.4, INSIDE A RESOLVED IMAGE DESCRIPTION (PR #510 R42-1): the
+            # description renders as the plain string CONTENT of its inline
+            # children, so a code span there contributes its content and
+            # NEITHER delimiter -- the backtick runs are marks and the content
+            # is ordinary text.  The id-only test above runs FIRST and
+            # unchanged, which is what keeps the decoration exception alive in
+            # alt text exactly as `dispose` already keeps the `**` one: the
+            # emphasis twin `![**9z**7z …](i.png)` reports two ids, and so does
+            # the code twin.  Emitted as `mark` rather than skipped, because a
+            # standing backtick would JOIN the two sides of it.
+            run = len(lx.text[a:b]) - len(lx.text[a:b].lstrip("`"))
+            tail = len(lx.text[a:b]) - len(lx.text[a:b].rstrip("`"))
+            out.append((a, a + run, "mark"))
+            out.append((b - tail, b, "mark"))
             continue
         cut = a
         for t in tokens(lx.text, a, b):
             if t.kind == "slug" and t.id in keep:
-                out.append((cut, t.idstart))
+                out.append((cut, t.idstart, "code"))
                 cut = t.idend
-        out.append((cut, b))
+        out.append((cut, b, "code"))
     return out
 
 
@@ -246,9 +262,14 @@ def dispose(lx, keep):
     about where a file name stands, and the reverse -- so ONE reading serves
     both and there is no third stage.  The file/cite spans are recorded in
     SOURCE coordinates (`Stream.at`), which is what a mask is in."""
-    base = [(a, b, "code") for a, b in code_mask(lx, keep)]
+    base = list(code_mask(lx, keep))    # already (a, b, kind): "code", or "mark" for a demoted span
     base += [(a, b, "html") for a, b in lx.html]
-    base += [(a, b, "autolink") for a, b in lx.autolinks]
+    # A DEMOTED autolink is the same rule as the demoted code span above:
+    # §6.5 makes the URI the link's text, so inside a §6.4 description the URI
+    # is what the alt text holds and the angle brackets render nothing.
+    base += [(a, b, "autolink") if tag != "demoted" else (a, a + 1, "mark")
+             for a, b, tag in lx.autolinks]
+    base += [(b - 1, b, "mark") for a, b, tag in lx.autolinks if tag == "demoted"]
     base += [(a, b, "link") for a, b, _ in lx.links]
     # THE TAG DECIDES, and it is the tag the lexer already computes for the
     # conformance count: a resolved image's own delimiters (its `![` and its

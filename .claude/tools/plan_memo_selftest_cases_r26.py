@@ -630,3 +630,69 @@ case("NEGATIVE", "(R42) and the POINTER phrase on a blank id cell is NOT the con
                  "#506 memo's `Function`/`eval` row is this shape, and a rule over every kind phrase "
                  "rather than the marker alone reported it",
      build(i7z="**—**", s7z="Owned by **9z**, which carries the marker."), "", 0, measure=_R42_MISS)
+
+
+# -- R42-1 / R42-5a: §6.4 over §3.0b's CLOSED inline list.  The description
+# renders as the plain string content of its inline children, and the branch
+# had covered §6.2 / §6.3 / §6.4 (R30-3) while leaving §6.1 and §6.5 masked --
+# the last two rows of a list the plan itself declares closed, which is why
+# this is a CROSS-PRODUCT and not three more one-off cases: every row of §3.0b
+# that can carry an id, inside one resolved image description, measured against
+# the same id in bare prose.
+_IMG = "See ![%s owns it](img.png)."
+
+case("NEGATIVE", "(R42 §6.4) the baseline the cross-product is measured against: the id in BARE prose "
+                 "outside any image is one reported site",
+     build(), "9z owns it.", 1)
+for _label, _inner in (("§6.2 emphasis", "*9z*"),
+                       ("§6.3 link text", "[9z](x)"),
+                       ("§6.4 nested image alt", "![9z](i.png)"),
+                       ("§6.1 code span", "`9z`"),
+                       ("§6.5 autolink", "<xx:9z>")):
+    case("POSITIVE", "(R42 §6.4) a declared id inside a %s inside a RESOLVED image description is one "
+                     "reported site, the same as in bare prose: §6.4 reduces the description to the "
+                     "plain string content of its inline children, so every row of §3.0b's closed "
+                     "list contributes its text and none of its markup.  §6.1 and §6.5 were the two "
+                     "rows the image-close branch never demoted -- a code span there BLANKED a kind "
+                     "marker and an autolink contributed nothing at all" % _label,
+         build(), _IMG % _inner, 1)
+R42_IMG_AUTO = CASES[-1].name
+
+# ⚠ THE CODE-SPAN ROW ABOVE DOES NOT DISCRIMINATE THE DEMOTION, and both of its
+# mutants SURVIVED until this was measured: `` `9z` `` is an ID-ONLY span, which
+# `code_mask` skips whether or not it was demoted, so the control was proving
+# the id-only exception and not §6.4 (`memory/feedback_surviving-mutation-means-
+# the-probe-has-another-subject.md`).  The discriminating shape is a code span
+# holding PROSE -- which is what R42-1 actually reported -- and its measure is
+# the VERDICT, because a blanked kind marker leaves the row terminal at rc 0
+# where every other family gives rc 1.
+acase("POSITIVE", "(R42 §6.4/§6.1) a kind marker wholly inside a CODE SPAN inside a resolved image "
+                  "description is read: §6.4 reduces the description to the plain string content of "
+                  "its inline children, so the alt text holds the marker and the row's `Deps` edge is "
+                  "asserted.  The reported shape: the span stayed in `lx.code`, the disposition "
+                  "blanked the whole marker, the row read TERMINAL and the run exited 0 -- while the "
+                  "identical marker in a LINK inside the same image exited 1",
+      _kindcell("![`UMBRELLA, not a terminal unit.`](img.png)"), "UMBRELLA-CELL", 1)
+R42_IMG_CODE = CASES[-1].name
+
+# The DECORATION exception, measured rather than asserted: a decorated id reads
+# the SAME inside a resolved image description as it does in bare prose, and the
+# code-span form reads the same as the `**` form.  That equality is the whole
+# claim -- the id-only test runs BEFORE the demotion, so the span's delimiters
+# stand and `` `9z`7z `` does not glue into one token.  ⚠ Written first as "is
+# still TWO ids", which is wrong in both positions: it is one, because `7z` is
+# licensed where `9z` is not. The invariant is the EQUALITY, not the count.
+for _where, _prose in (("inside a resolved image description", _IMG % "`9z`7z"),
+                       ("in bare prose (the same reading)", "`9z`7z owns it."),
+                       ("the `**` twin inside an image (the precedent)", _IMG % "**9z**7z"),
+                       ("the `**` twin in bare prose", "**9z**7z owns it.")):
+    case("POSITIVE", "(R42 §6.4/§6.1) a DECORATED id %s reports the one unlicensed id: the id-only "
+                     "exception runs before the demotion, so the delimiters stand and the two ids do "
+                     "not glue -- the precedent `dispose` already sets for the `**` pair, and the "
+                     "reason a demoted code span is routed through `id_only` rather than blanked" % _where,
+         build(), _prose, 1)
+
+rcase("NEGATIVE", "(R42 §6.1) the partner that bounds the demotion: the SAME code span OUTSIDE an "
+                  "image is a QUOTATION and its prose is not read -- a kind marker quoted whole stays "
+                  "quoted (I-A), so the §6.4 demotion must not leak out of the description",
+      build(suz="`UMBRELLA, not a terminal unit.`", duz="**7z**"), "", 0)

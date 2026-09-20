@@ -29,7 +29,7 @@ from plan_memo_selftest_mutants import (
 # blank-everything helper left in the lexer for these two rows alone would be
 # production dead code -- exactly what the plan forbids.  A mutant may spell
 # the defect it re-injects; the subject may not keep it around.
-BLANK = ('lambda t, sp: "".join(" " if any(a <= k < b for a, b in sp) and c != "\\n" else c '
+BLANK = ('lambda t, sp: "".join(" " if any(a <= k < b for a, b, _ in sp) and c != "\\n" else c '
          'for k, c in enumerate(t))')
 
 MUTANTS += [
@@ -137,13 +137,13 @@ MUTANTS += [
       "`<slice sib.md>` does"]),
     ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,
      '= inline_pass(self.text, defs)',
-     '= inline_pass((%s)(self.text, [(m.start(), m.end()) '
+     '= inline_pass((%s)(self.text, [(m.start(), m.end(), "code") '
      'for m in re.finditer(r"`[^`]*`", self.text)]), defs)' % BLANK,
      ["(span) a backtick inside a link DESTINATION is consumed by the link, not a code span: "
       "`[sib](slice`x`.md)` links the sibling"]),
     ("R4-3 pass: a code span swallows a `]` (brackets inside it are not delimiters)", LEXER,
-     '                code.append((i, close))\n                i = close',
-     '                code.append((i, close))\n                i += 1',
+     '                code.append((i, close, "code"))\n                i = close',
+     '                code.append((i, close, "code"))\n                i += 1',
      ["(span) a backtick BEFORE the `]` opens a code span that swallows it: `[not a "
       "`link](absent.md)`` is code, no link, rc 0",
       "(link) a link inside a code span is not a link (A x B)",

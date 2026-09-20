@@ -748,7 +748,7 @@ def inline_pass(s, defs):
         if c == "<":
             m = _AUTOLINK.match(s, i)   # §6.5 before §6.6, the spec's order
             if m is not None:
-                auto.append((i, m.end()))
+                auto.append((i, m.end(), "autolink"))
                 i = m.end()             # an autolink is one token, never inline-parsed
                 continue
             lit, at = required_closer(s, i)
@@ -770,7 +770,7 @@ def inline_pass(s, defs):
             if close is None:
                 i = a1                  # an unmatched backtick string is literal
             else:
-                code.append((i, close))
+                code.append((i, close, "code"))
                 i = close
             continue
         if c == "[":
@@ -778,13 +778,14 @@ def inline_pass(s, defs):
             # the `[` exactly as the Appendix's `delim_bottom` is: what this
             # bracket encloses is what is appended after it, which is an O(1)
             # fact of the stack and not something to search the lists for
-            stack.append((i, _is_image(s, i), closed, len(delims), len(images), len(pairs)))
+            stack.append((i, _is_image(s, i), closed, len(delims), len(images), len(pairs),
+                          len(code), len(auto)))
             i += 1
             continue
         if c != "]" or not stack:
             i += 1
             continue
-        pos, is_img, was_closed, delim_bottom, img_bottom, pair_bottom = stack.pop()
+        pos, is_img, was_closed, delim_bottom, img_bottom, pair_bottom, code_bottom, auto_bottom = stack.pop()
         # an IMAGE opener is never deactivated (the Appendix deactivates the
         # `[` delimiters only); a link opener is, by any link that closed after
         # it was pushed
@@ -831,6 +832,25 @@ def inline_pass(s, defs):
             # R30's THIRD finding, which the round's own fetch did not page
             # far enough to see; the disposition that called R30 two findings
             # is corrected at R31).
+            # ⚠ AND THE SAME RULE FOR THE TWO REMAINING FAMILIES OF §3.0b's
+            # CLOSED LIST (PR #510 R42-1 / R42-5a).  §6.4 reduces the
+            # description to the plain string content of its inline children,
+            # and the branch above demoted links, nested images and emphasis
+            # but left `code` (§6.1) and `auto` (§6.5) masked -- so a code span
+            # there blanked a kind MARKER (rc 0 where the link form is rc 1) and
+            # an autolink contributed NOTHING at all (0 reported sites where
+            # every other family gives 1).  The entries are retagged rather than
+            # removed: the DISPOSITION decides what a demoted span renders, and
+            # for a code span that decision needs `keep` (the id-only exception
+            # must survive into alt text exactly as the `**` one does, which is
+            # the precedent `dispose` already sets) -- so the lexer records the
+            # fact and `code_mask` reads it.  Retagged in place by index range,
+            # like `dem_img` beside it, so the §6.4 pass stays linear in the
+            # nesting depth (the R23 contract `_demote` exists for).
+            for j in range(code_bottom, len(code)):
+                code[j] = code[j][:2] + ("demoted",)
+            for j in range(auto_bottom, len(auto)):
+                auto[j] = auto[j][:2] + ("demoted",)
             dem_img.append((img_bottom, len(images)))
             while out and out[-1][0] > pos:
                 images.append(out.pop()[:2] + ("demoted",))

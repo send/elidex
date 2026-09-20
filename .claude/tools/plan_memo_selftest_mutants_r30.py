@@ -39,6 +39,7 @@ from plan_memo_selftest_cases_r26 import (
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
     R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED, R42_BLANK_MARKER,
+    R42_IMG_AUTO, R42_IMG_CODE,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -594,4 +595,27 @@ MUTANTS += [
      'print("    %s:%d [%s] {%s}  %s"\n'
      '                      % (m.file, m.lineno, m.source, role[m.key], m.context()[:190]))',
      [R42_BYTES, R42_CHANNEL]),
+]
+
+
+# -- R42-1 / R42-5a: §6.4's last two rows.  ONE row per family, because the two
+# were missed independently and a fix to one says nothing about the other.
+MUTANTS += [
+    ("R42 §6.4: stop demoting CODE SPANS into the description (§6.1 back to masked: a kind marker "
+     "there is blanked and the row leaves the census at rc 0)", LEXER,
+     '            for j in range(code_bottom, len(code)):\n'
+     '                code[j] = code[j][:2] + ("demoted",)',
+     '            pass',
+     [R42_IMG_CODE]),
+    ("R42 §6.4: stop demoting AUTOLINKS into the description (§6.5 back to masked: the URI §6.5 makes "
+     "the link text contributes nothing and the id in it is reported nowhere)", LEXER,
+     '            for j in range(auto_bottom, len(auto)):\n'
+     '                auto[j] = auto[j][:2] + ("demoted",)',
+     '            pass',
+     [R42_IMG_AUTO]),
+    ("R42 §6.4: blank a demoted code span outright instead of routing it through `id_only` (the "
+     "decoration exception stops surviving into alt text: `` `9z`7z `` glues)", STREAM,
+     '        if tag == "demoted":',
+     '        if False:',
+     [R42_IMG_CODE]),
 ]

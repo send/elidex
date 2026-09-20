@@ -511,11 +511,11 @@ census at rc 0.
 |---|---|---|---|---|---|
 | §2.4 | Backslash escapes | LEXED — one parity helper; an ODD run escapes, and the same helper answers the row splitter (`\|`) and the inline pass | **its character** — the escape and the §2.5 reference are the two spellings of one substitution, at the one site the stream builds; the backslash renders nothing. EXCEPT a `*` or a `` ` ``, which stands as written: the stream carries exactly one kind of markup (a kept id decoration), and substituting `\*\*C\*\*` would spell a bold `**C**` the document does not have (measured — the umbrella memo quotes a `grep` pattern in that shape) | `plan_memo_lexer.py::_is_escape` / `inline_pass`, `plan_memo_stream.py::stream` | spec examples (13); "(row) `a\\|b` holds an UNESCAPED pipe"; "(kind) …§2.4 an escaped comma DECLARES the umbrella…"; "(render) `\*\*C\*\*`…" |
 | §2.5 | Entity and numeric character references | LEXED **everywhere** (design re-gate 4) — in a link DESTINATION by `normalize_destination`, because that text must equal a file name (R16), and in PROSE by the same grammar in the one inline pass | **its character**, under the §2.4 row's one rule and its one exception | `plan_memo_lexer.py::normalize_destination` / `_CHAR_REF` in `inline_pass` | spec examples (17); "(§2.5) a character reference in PROSE renders its character…" (`Slice &#57;z` IS a site: 1, where the row above measured 0 — **the re-measured cost of the old reading was never `0 sites`, it was a lost site**); "(kind) …§2.5 a character reference for the comma…"; "(render) `&#42;&#42;C&#42;&#42;`…" |
-| §6.1 | Code spans | LEXED → MASKED (backtick strings of equal length). Disposition exception: an id-only span is the document SPELLING an id, not code (`plan_memo_tables.py`) | **text** (blanked) — the one construct that renders characters this checker refuses to read (I-A), so it bounds what it sits between and a unit read ACROSS it is the `[LEX-SPLIT?]` residue, not a decision | `inline_pass` / `_code_closer` | spec examples (22); the code-span family; "(render) `Slice W`z` owns it`…" + its seed |
+| §6.1 | Code spans | LEXED → MASKED (backtick strings of equal length). Disposition exception: an id-only span is the document SPELLING an id, not code (`plan_memo_tables.py`). **Inside a resolved §6.4 description** (R42-1): the span contributes its CONTENT and neither delimiter — the backtick runs are marks — and the id-only test runs FIRST, so the decoration exception survives into alt text exactly as the `**` one does | **text** (blanked) — the one construct that renders characters this checker refuses to read (I-A), so it bounds what it sits between and a unit read ACROSS it is the `[LEX-SPLIT?]` residue, not a decision | `inline_pass` / `_code_closer` | spec examples (22); the code-span family; "(render) `Slice W`z` owns it`…" + its seed |
 | §6.2 | Emphasis and strong emphasis (+ GFM 0.29 strikethrough, the same delimiter machinery) | LEXED (design re-gate 4) — the spec's delimiter runs, flanking rules, rule of three and `process_emphasis`; a `~` run of one or two is the GFM extension's, three or more is literal. Disposition exception, the code span's own: a `**` pair whose content is only declared ids is the document DECORATING an id, so its delimiters STAND and bound it (`**9z**7z` is `9z` then `7z`, never the token `9z7z`) | **nothing** for a matched pair; an UNMATCHED run is literal **text** and bounds what it sits between | `plan_memo_emphasis.py` (`run_at` / `process`), pushed by `inline_pass`, disposed in `plan_memo_stream.py::dispose` | spec examples (132, `Emphasis and strong emphasis` 350-481); the "(render)" family (the LOST-SITE and FABRICATED-SITE probes over `W**z**` / `W*z*` / `W~~z~~`, the literal `W*z`, the intraword `W_z_`, `W~~~z~~~`, `**9z**7z`, `*9z*7z`); 8 mutants. **The old row's "Cost: none measured" was false**: the cost was a fabricated site on one row and a lost site on another, and, through the same split, a lost kind |
 | §6.3 | Links | LEXED — the Appendix bracket stack; inline / full / collapsed / shortcut; a link deactivates every earlier `[` | **nothing** for the `[` and the tail (`](dest)` prints no character); the link TEXT is the document's text there and stays prose (B×D) | `inline_pass` | spec examples (90); the link family; "(render) §6.3 a link's brackets `W[z](…)`…" |
 | §6.4 | Images | LEXED — not a link; destination never a sibling; a RESOLVED description is plain text, so a link inside it — and, since design re-gate 4, an emphasis pair inside it — is demoted (R19: no tag of its own) | **text** (blanked) for the tail: an image puts a picture in the flow, not the letters of its alt text, so its two sides are not one word — while the description is scanned as prose, the stated deviation | `inline_pass` (the `is_img` arm) | spec examples (22); the R19 image family; the demotion is what makes Examples 573 / 576 / 577 / 585 / 589 align (`alt="foo bar"` emits no `<em>`) |
-| §6.5 | Autolinks | LEXED → MASKED whole (R21) — ONE token tried at a `<` **before** the tag grammar (the spec's order); its contents are not inline syntax, so a bracket inside it opens nothing and an id inside it is no site | **text** (blanked) — its text IS its URL, which a reader reads | `inline_pass` / `_AUTOLINK` | spec examples (19); the R21 autolink family (12 controls, 5 mutants) |
+| §6.5 | Autolinks | LEXED → MASKED whole (R21) — ONE token tried at a `<` **before** the tag grammar (the spec's order); its contents are not inline syntax, so a bracket inside it opens nothing and an id inside it is no site. **Inside a resolved §6.4 description** (R42-5a): §6.5 makes the URI the link's TEXT, so the description holds the URI and the angle brackets are marks — the row the image-close branch never demoted, which reported the id inside an autolink NOWHERE | **text** (blanked) — its text IS its URL, which a reader reads | `inline_pass` / `_AUTOLINK` | spec examples (19); the R21 autolink family (12 controls, 5 mutants) |
 | §6.6 | Raw HTML | LEXED → **DROPPED** whole (R17 masked it; design re-gate 4 made the mask a drop) — one tag grammar (open / closing tag, comment, PI, declaration, CDATA) whose tag bodies are also §4.6 condition 7's. Seeded (`[LEX-UNSUPPORTED?]`) when it holds a `\|` or a declared id | **nothing** — a tag or a comment is markup, not text: `W<b>z</b>` and `W<!-- c -->z` render `Wz`, and a `Deps` cell holding only a comment is EMPTY | `inline_pass` / `_HTML_TAG` | spec examples (20); the R17 raw-HTML family; "(render) §6.6 …`W<b>z</b>` / `W<!-- c -->z`…"; "(cell) a `Deps` cell holding only an HTML comment is EMPTY…" |
 | §6.7 | Hard line breaks | PROSE-AS-WRITTEN | **text** — the break's own markup stands in the stream (a `\` before a line ending escapes nothing: §2.4 is ASCII punctuation and a line ending is none; two trailing spaces are two spaces). **Cost, measured**: none, and for a stated reason rather than an unexamined one — the break renders a LINE ENDING, and a line ending bounds every unit the scanners read, so no reading of the markup can join what the break separates | — | "(§6.7) a hard line break's own markup stands in the stream … and costs nothing" (`Slice W\` + `z` names no `Wz`, on the probe table where `Wz` IS the umbrella); "(§6.7) a HARD line break inside a link's text does not break the link" (1 site) |
 | §6.8 | Soft line breaks | PROSE-AS-WRITTEN — same reading as §6.7 (the joined block text) | **text** — the line ending itself, the same bound. **Cost, measured**: none, by the same argument and its own control | — | "(§6.8) a SOFT line break is the same measurement: `Slice W` then `z` on the next line renders two words and names no `Wz`"; and the §6.7 control for the link case |
@@ -2056,24 +2056,42 @@ ground for either option; it is not cited.
   — the mode check refuses `--worklis` on its own — so the guard was a strictly weaker second
   spelling and **the guard is gone**. Measured, not argued.
 
-  ⚠⚠⚠ **R42-5 — AND THE LOOP IS PAUSED, not because it is tiring but because the SHAPE says so.**
-  Two more P2s, and both are the SAME mechanism as R42-1, which was already carved: a third and a
-  fourth construct family inside a resolved image description (an autolink contributes nothing at
-  all — **0** reported sites where emphasis, link and code span give 1), plus §6.3's companion rule
-  (`[x <http://a>](absent.md)` exits 2 where the outer syntax should be literal). Both reproduced
-  side by side before being believed.
-  **That is the overlay's generator-layer trigger**: the finding-shape hopped corner to corner —
-  link → code span → autolink → link-opener — across three consecutive rounds. Round N+1 would have
-  found family five. §8's code-span entry is therefore REPLACED by one carve for the generating
-  layer, which is what
-  `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for and what three entries for
-  three families would have violated.
-  ⚠ **The own-ideal test is what decides it, and it is uncomfortable**: §0 of this plan says the
-  lexical half "has a canonical algorithm … and is **implemented by construction**". A per-family
-  demotion list is not by construction — it is a list — so the mechanism being patched is itself the
-  thing the plan committed against, and the honest move is to stop patching family number four rather
-  than to keep converging. **No further round is triggered on this area**; the remaining decision is
-  the user's, and it is the same one §8's cap paragraph already routes there.
+  ⚠⚠⚠ **R42-5 — THE LOOP WAS PAUSED ON A FALSE PREMISE, AND THE PAUSE IS LIFTED.** Two more P2s:
+  an autolink inside a resolved image description contributes **nothing at all** (0 reported sites
+  where emphasis, link, nested image and code span all give 1), and `[x <http://a>](absent.md)` exits
+  2 where §6.3's prose makes the outer syntax literal. Both reproduced before being believed.
+  **The disposition written here first was to PAUSE and carve a "generator layer", and it rested on
+  two claims that are FALSE, both of which a second opinion measured:**
+  · *"three consecutive rounds where the shape hopped between construct families."* **Two.** The
+  construct-family findings landed at 11:51Z (code span) and 13:38Z (autolink + opener); the two
+  rounds between them were the CLI and report-channel findings, and "link" was R30-3, rounds earlier.
+  · *"Round N+1 would have found family five."* **There is no family five.** §3.0b is headed *"the
+  spec's CLOSED list (the bound IS this table)"* — this document's own bound. §6.2 / §6.3 / §6.4 were
+  demoted at R30-3, §2.4 / §2.5 substitute, §6.6 renders nothing, §6.7 / §6.8 are line endings, §6.9
+  is text. **§6.1 and §6.5 were the only two rows left**, and both were in hand.
+  So the "generating layer" was a **bounded enumeration with exactly two holes**, not a layer that
+  keeps producing — and the remedy for a bounded enumeration is to close it, which is what the
+  policy's *容認しない pattern* says outright for work this size.
+  ⚠ **Two further errors in the same disposition**: the carve was **mis-homed** (Slice 2 is the PROSE
+  half, I-D/I-E, reviewed against a different reference; §6.4 is lexical and belongs to Slice 1, which
+  was plan-reviewed for exactly this scope — invoking *Edge-dense work* to defer a defect INSIDE the
+  slice that owns it inverts that rule's base case); and R42-5b was **bundled with the wrong
+  mechanism** (it lives in the `closed` counter at link close, not the image-close branch).
+  **✅ FIXED instead, and the fix is the one rule the entry asked for**: the bracket stack carries the
+  `code` and `auto` bottoms, the image-close branch retags the entries above them `"demoted"` by index
+  range — the same linear shape as `dem_img`, so the R23 cost contract holds by construction — and the
+  disposition reads the tag: a demoted code span contributes its content with its backtick runs as
+  marks, a demoted autolink its URI with the angle brackets as marks. ⚠ The id-only test runs FIRST,
+  so the decoration exception survives into alt text exactly as `dispose` already keeps the `**` one.
+  **Measured**: `lx.code` and `lx.autolinks` have ONE consumer each, which is what makes this ≈45 lines
+  and not a program; the §3.0b cross-product is now a control per row INSIDE a resolved image against
+  the bare-prose baseline, plus the decorated-id equality in all four positions, plus three mutants
+  (drop each demotion, and blank a demoted span instead of routing it through `id_only`).
+  **677 controls / 377 mutants 0 survived 0 crashed**, census `--worklist` byte-identical.
+  ⚠ **What the PAUSE reflex got right** is that it stopped the corner-by-corner patching and asked
+  which layer generates the findings. The answer was "a closed table with two empty rows" — and the
+  cost of answering it wrongly was one commit, caught because the judgement was put to a second
+  reader before it was acted on rather than after.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2301,16 +2319,19 @@ ground for either option; it is not cited.
 
 ⚠ **THE CAP IS EXCEEDED, and the classification is stated rather than argued away** (PR #510 Axis 5,
 2026-09-20). `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
-own ones. Classified below, every entry states own or pre-existing; the count is **11 own / 1
-pre-existing** (the Markdown-library choice). Eleven against a cap of three.
+own ones. Classified below, every entry states own or pre-existing; the count is **10 own / 2
+pre-existing**. Ten against a cap of three.
 ⚠ **Two corrections the re-gate forced, in opposite directions, and neither was a tally edit**: the
 touch-time-split entry is GONE because the work is DONE in this PR (the split is taken and the
 invariant is a control, `line_bound_control` — the policy's own verdict for a ~0-LoC mechanical split
 was "fold", and folding it is how a deferral is discharged honestly); and the GFM row-splitter entry
 moved from pre-existing to OWN because its stated grounding was measurably false. Those two
-cancelled; R42's code-span-in-image carve then took it to **11**, and it is carved rather than fixed
-because five intersecting axes make it plan-review-first BY RULE — which is the policy's option (c),
-not a postponement. The number is reported, never reasoned from.
+cancelled. ⚠ **And a third correction reversed one of mine**: the §6.4 carve that took the count to
+11 is GONE, because the work is DONE (below). The policy's *容認しない pattern* names that case
+outright — 「~30-150 LoC で本 PR に fold できるが念のため defer 化」→ fold — and the fix measured
+**≈45 lines across two modules with one reader each**. What stands in its place is the narrower §6.3
+row question that was bundled with it and is a different mechanism. The number is reported, never
+reasoned from.
 ⚠ **No entry is merged or deleted to move that number** — the policy forbids exactly that
 ("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない"). What the shape of the
 ten says: three (Slice 3, the id-grammar decoration release, the touch-time-split pre-commitment)
@@ -2483,49 +2504,24 @@ a paragraph here that reasons the number down.
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
-- **▶ §6.4's ONE RULE IS IMPLEMENTED AS N PER-FAMILY DEMOTIONS** (PR #510 R42-1 / R42-5, **own**;
-  **real, reproduced, NOT fixed here — this is the PAUSE**). CommonMark §6.4 states a single rule: an
-  image description renders as *the plain string content of its inline children*. `inline_pass`
-  implements it once PER CONSTRUCT FAMILY at the image-close branch, so every family is a separate
-  chance to miss one — and three consecutive review rounds each found a different one.
-  **Measured, side by side, with a declared id inside each construct inside one resolved image
-  description** (`See ![<construct>](img.png).`, reported naming sites):
-  | construct | sites | |
-  |---|---|---|
-  | bare prose | 1 | the baseline |
-  | emphasis | 1 | demoted (R30-3) |
-  | link | 1 | demoted (R30-3) |
-  | nested image | 1 | demoted (R30-3) |
-  | **code span** | **1** | ⚠ reports the SITE but blanks a KIND MARKER — `![`UMBRELLA, not a terminal unit.`](img.png)` exits **rc 0** where the LINK form exits rc 1 (R42-1) |
-  | **autolink** | **0** | ⚠ nothing at all (R42-5a) |
-  And §6.3's companion rule — *a link may not contain a link*, with §6.5 parsing an autolink AS a
-  link — has the same shape: `[x <http://a>](absent.md)` should leave the outer syntax literal, and
-  the checker records `absent.md` as a real link and exits **2** (R42-5b, reproduced).
-  ⚠ **THIS ENTRY REPLACES THE ONE THAT CARVED ONLY THE CODE SPAN**, and the replacement IS the
-  disposition: `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` says accumulation on
-  one mechanism means the boundary wants re-drawing, not another entry, and three entries for three
-  construct families would have been exactly that. It is also the overlay's **generator-layer check**:
-  the shape hopped corner to corner (link → code span → autolink → link-opener) across three rounds,
-  and the question a corner-by-corner fix never asks is *which LAYER is generating these*.
-  **The answer, written out.** (1) *Abstraction-coverage*: there is a missing canonical algorithm —
-  one rule over the description's inline CHILDREN, replacing the per-family branch list. (2) *Own-ideal
-  test*: §0 of this plan says the lexical half "has a canonical algorithm (CommonMark 0.31.2 + GFM
-  0.29) and is **implemented by construction**". A per-family demotion list is not by construction; it
-  is a list, and it is the thing being patched. So the mechanism itself fails the plan's own ideal,
-  which is the answer that says *stop patching family number four*.
-  **Scope**: the image-close branch stops naming families and applies one rule to the child set —
-  each child contributes its RENDERED TEXT and none of its markup — with the §6.3 opener-deactivation
-  rule stated once over what an opener may contain, rather than per opener type.
-  ⚠ **Bounded by a COST contract**: `_demote` exists because per-close retagging is quadratic in
-  nesting depth (measured at R23 — 24 KB of `![`-nesting took 0.4 s), so the one rule has to be an
-  index-range union like the one beside it, not a walk per image.
-  **Owner**: its own PR under CLAUDE.md's *Edge-dense work* rule — it intersects §6.4, §6.3, §6.5,
-  §6.1, the disposition table, `code_mask`'s two exceptions and the `_demote` cost contract — so
-  `/elidex-plan-review` precedes implementation, by rule and not by judgment.
-  **Trigger (an EVENT)**: it is already fired — three reported instances stand open. The work is
-  scheduled at Slice 2's plan-review, which opens this area; **`re-eval: 2026-12-31`** is the backstop,
-  not the occasion.
-  No slot: it is this checker's own lexer, not a platform gap.
+- **(own)** **§6.3 vs the Appendix: an autolink inside a link's brackets** (PR #510 R42-5b, **real,
+  reproduced, NOT a defect until the spec question is settled**). `[x <http://a>](absent.md)` records
+  `absent.md` as a link and exits **2**; §6.3's prose says a link may not contain a link and §6.5
+  parses an autolink AS one, so the outer syntax should be literal.
+  ⚠ **But the checker implements the Appendix VERBATIM**, and the Appendix's deactivation step fires
+  only "if we have a link (and not an image)" — an autolink never enters that procedure, because it
+  is matched by the inline scanner and never becomes a bracket opener. So this is a **spec-prose vs
+  Appendix discrepancy**, not an implementation slip: the link-in-link rule itself works
+  (`[x [y](b)](a)` records only `b`, measured). ⚠ The vendored corpus **cannot settle it**: the two
+  autolink/link examples (526, 538) are precedence, not nesting — measured over
+  `commonmark-0.31.2-inline-examples.json`.
+  **Scope**: one §3.0b row decision (§6.3 × §6.5), and if the prose wins it is `closed += 1` at the
+  `_AUTOLINK` match plus a control — ONE line, not a program. ⚠ It is NOT bundled with §6.4's
+  demotion: that lives in the image-close branch, this lives in the `closed` counter at link close,
+  and calling them one mechanism was wrong.
+  **Trigger**: settle it against a reference implementation (cmark or commonmark.js) — which this
+  session could not execute — at Slice 1's next touch of `plan_memo_lexer.py`. **Re-eval: 2026-12-31.**
+  No slot: it is a row of this checker's own grammar table.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the

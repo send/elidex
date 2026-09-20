@@ -425,7 +425,7 @@ def run_code_reading(M):
                 for m in re.finditer(r"<code>(.*?)</code>", ex["html"], re.S)]
         lx = plan_memo_lexer.Lexed(text)
         lx.resolve({})
-        got_spans = [text[a:b] for a, b in lx.code]
+        got_spans = [text[a:b] for a, b, _ in lx.code]
         if len(got_spans) != len(want):
             bad.append("Example %d: the lexer found %d code span(s), the html has %d"
                        % (ex["example"], len(got_spans), len(want)))

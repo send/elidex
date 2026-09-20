@@ -137,7 +137,7 @@ MUTANTS = [
      ["(span) backtick strings pair by EQUAL length"]),
     ("span: an unmatched backtick string is literal", LEXER,
      '            if close is None:\n                i = a1                  # an unmatched backtick string is literal',
-     '            if close is None:\n                code.append((i, n))\n                i = n',
+     '            if close is None:\n                code.append((i, n, "code"))\n                i = n',
      ["(span) an unmatched backtick string is literal, not a mask to end of line"]),
     ("span: lexed over the paragraph, not the line", MEMO,
      '            if kind:\n                flush(kind)', '            flush()',

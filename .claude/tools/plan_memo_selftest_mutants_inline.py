@@ -276,7 +276,12 @@ MUTANTS += [
      '[^\\x00-\\x1f\\x7f<>]*>"',
      [R21_SPACE, INLINE_EXAMPLES]),
     ("R21 #1 §6.5: the autolink span is MASKED (drop the disposition: its text is prose again)", STREAM,
-     '    base += [(a, b, "autolink") for a, b in lx.autolinks]\n', '',
+     # ⚠ RE-ANCHORED at PR #510 R42-5a: the autolink line now carries the
+     # demoted tag (§6.4 inside a resolved image description), so the mutant
+     # drops the whole comprehension rather than the old two-field one. The
+     # property is unchanged -- the span must be MASKED where it is not demoted.
+     '    base += [(a, b, "autolink") if tag != "demoted" else (a, a + 1, "mark")\n'
+     '             for a, b, tag in lx.autolinks]\n', '',
      [R21_URI_ID, R21_EMAIL_ID, R21_BACKTICK]),
     ("R21 #1 §6.4: a construct demoted into a resolved image's description renders no tag of its own "
      "(re-tag it `image`: the resolved-image count over-claims)", LEXER,
