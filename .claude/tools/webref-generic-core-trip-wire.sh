@@ -179,7 +179,18 @@ K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
   _dir="$1"; _extra="${2:-}"
-  set -- "$1" ${2:+"$2"} ':!*__pycache__/*'
+  # NO EXCLUSION. A `:!*__pycache__/*` pathspec lived here until #501 R77, and
+  # it removed from BOTH passes any file under a real cache directory — including
+  # one force-added to git, which survives a checkout and is therefore in the
+  # tree K2 is about (reproduced: `_webref/__pycache__/codex_probe.txt` holding a
+  # forbidden path read GREEN). Excluding by location is a rule about what may be
+  # skipped, which is the shape R72/R73 removed twice; the omission is gone
+  # instead. Measured, the cache directories here yield zero K2 hits, so this
+  # costs nothing today and fails closed hereafter. ⚠ If a `.pyc` ever DOES
+  # fail this wire, read it as a stale compiled artifact of a source that used
+  # to name the path: delete the cache and re-run, and if it comes back the
+  # source still names it.
+  set -- "$1" ${2:+"$2"}
   git -C "$ROOT" grep --no-index -l -aE '^' -- "$@" 2>>"$_e" | while IFS= read -r f; do
     printf 'ok\t%s\n' "$f"
   done
@@ -255,7 +266,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache extra; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -285,6 +296,11 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # A REGULAR FILE named `__pycache__`: pruning by name alone skipped it.
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cache/ok.py"
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cache/__pycache__"
+  # A file under a REAL cache directory. Excluding it by location hid it from
+  # both passes even when tracked (#501 R77).
+  mkdir -p "$CTL/cachedir/__pycache__"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/ok.py"
+  printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cachedir/__pycache__/probe.txt"
   # The real geometry: a scope directory and, BESIDE it, an entry script that
   # is itself a symlink holding a forbidden target.
   mkdir -p "$CTL/extra/sub"
@@ -328,7 +344,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/link"   1 "K2: a" "K2 fires on a symlink's target"    || ctl_ok=1
   _control "$CTL/nl"     1 "K2: a" "a newline in a filename is not a split" || ctl_ok=1
   _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
-  _control "$CTL/cache"  1 "K2: a" "only cache DIRECTORIES are pruned"      || ctl_ok=1
+  _control "$CTL/cache"  1 "K2: a" "a regular file named __pycache__ is read" || ctl_ok=1
+  _control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
