@@ -79,6 +79,17 @@ set -euo pipefail
 # governs binary-file *handling*; it does not change multibyte regex semantics.
 # So the locale is pinned for the whole run rather than per call site.
 export LC_ALL=C
+# ⚠ AND NO NETWORK. In a blobless partial clone an indexed blob may be PROMISED
+# rather than local, and `git cat-file` will then fetch it on demand — measured,
+# the run spawned `git fetch origin --filter=blob:none` and `git-upload-pack`
+# (#501 R94). That contradicts this gate's own contract (`.github/workflows/
+# ci.yml`: no toolchain, no cache, no network) and would make a required local
+# gate depend on credentials, connectivity and an unbounded remote operation.
+# With lazy fetching off, an absent blob simply fails the read and becomes the
+# `err` record that already exists — unknown fails closed, as everywhere else.
+# ⚠ A git too old to know this variable ignores it, and then the fetch is back.
+# Nothing here can detect that, and saying so is the honest position.
+export GIT_NO_LAZY_FETCH=1
 
 # `$0` as given may have no slash (`bash webref-generic-core-trip-wire.sh` from
 # this directory), and the controls re-invoke it — through PATH, where it is not.
@@ -220,6 +231,17 @@ K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
 # down.  What lives here is the property; how it is obtained lives next to the
 # code that obtains it.
 #
+# ⚠ THE THREAT MODEL IS ACCIDENT, NOT ADVERSARY — and saying so bounds this
+# file (#501 R94). A contributor who wants past this gate edits `REQUIRED_WIRES`
+# in `scripts/trip-wires.sh`, which that file's own comment names as the one
+# edit that genuinely disables it. Hardening against a crafted index while
+# conceding a one-line edit to the registration would be incoherent. So a
+# construction git can store but no filesystem can realise — a symlink blob
+# holding a NUL — is not met with a NUL-safe reader: it is an ERROR, and the
+# gate goes red. Every "unknown fails closed" decision in this file is the same
+# decision, and anything outside the model gets that answer rather than a new
+# mechanism.
+#
 # A permission failure is an ERROR, not an absence: `git ls-files` and `grep`
 # both report it on stderr while exiting 0, so a non-empty stderr and a `grep`
 # status above 1 each fail the run.
@@ -326,8 +348,22 @@ _entry() { # $1 = 1 if git holds a blob, $2 = its index MODE (empty if not), $3 
       # A STAGED SYMLINK's blob IS its target string — a stored path, so it
       # takes the stored-path predicate (#501 R93). Read with a sentinel
       # because `$( )` strips trailing newlines (#501 R90's lesson, one arm on).
-      _sb="$(cat "$_b"; printf 'R')"; _sb="${_sb%R}"
-      _stored "$_sb" "$rel" "staged symlink TARGET" "(staged) ->"
+      # ⚠ A NUL FIRST. `$( )` drops NUL bytes, so a blob holding
+      # `.claude/skills/<NUL>/rule.md` reached `_stored` as
+      # `.claude/skills//rule.md` and read GREEN (#501 R94, reproduced via
+      # `git hash-object` + `git update-index --cacheinfo`). No NUL-safe reader
+      # is built for it: **no path can contain a NUL**, so such a blob is not a
+      # symlink target at all, and "cannot be read as a path" is an ERROR — the
+      # same fail-closed answer every other unreadable thing here gets. The
+      # threat model is accident, not adversary (see the header); a blob crafted
+      # to be unreadable reds the gate rather than passing it.
+      if ! tr -d '\000' < "$_b" | cmp -s - "$_b"; then
+        printf 'err\t%s: its staged symlink target holds a NUL, which no path can, so it was not read as one\n' \
+          "$(_esc "$rel")"
+      else
+        _sb="$(cat "$_b"; printf 'R')"; _sb="${_sb%R}"
+        _stored "$_sb" "$rel" "staged symlink TARGET" "(staged) ->"
+      fi
       _read=1
     elif _content "$_b" "$rel" "(staged)"; then
       _read=1
@@ -480,10 +516,16 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # ⚠ THE FIXTURES ARE BUILT WITH GIT, so whoever runs this must not be able to
   # change what they contain (#501 R92). A global `core.excludesFile` of `*.py`
   # made `git add -A` skip the fixtures' own files, and an `init.templateDir`
-  # could seed `info/exclude`. Neutralising both config layers is what keeps a
-  # control a control; the inventory itself is made machine-independent
-  # separately, by `--exclude-per-directory` (see `_scan`).
-  export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+  # could seed `info/exclude`. `_fgit` neutralises both config layers.
+  # ⚠ PER CALL, NOT `export` (#501 R94). Exported, it applied to the REAL scan
+  # too and took `safe.directory` with it — measured: a checkout owned by
+  # another UID, readable only because of a global `safe.directory` entry, went
+  # from working to "detected dubious ownership", so the required gate could not
+  # run in an otherwise valid environment. The fixtures need a clean config; the
+  # repository needs the user's. The inventory is made machine-independent by
+  # `--exclude-per-directory` instead (see `_scan`), which is why nothing has to
+  # be stripped for the real read.
+  _fgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git "$@"; }
   # Distinguish an environment failure from a dead assertion: an empty scratch
   # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
   # the cleanup path is the absolute one it returned (#501 R55: an unchecked
@@ -493,9 +535,13 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     echo "   so this run's assertions were never proved able to fire." >&2
     exit 2
   fi
-  trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
+  # ⚠ NO SECOND `trap ... EXIT` HERE. `trap` REPLACES; a second one silently
+  # discarded the scratch-root cleanup and left an empty directory behind on
+  # every successful run (#501 R94, reproduced). `CTL` is created UNDER
+  # `$SCRATCH`, so the trap at the top already removes it — one owner, one
+  # cleanup, nothing to compose.
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -628,15 +674,15 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink; do
-    ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
-      && git add -A >/dev/null 2>&1 ) || true
+           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob; do
+    ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
+      && _fgit add -A >/dev/null 2>&1 ) || true
   done
   # …and the cache fixture's probe is FORCE-added under an ignored path, which
   # is the case `--cached` exists to keep (#501 R77).
   ( cd "$CTL/cachedir" && printf '__pycache__/\n' > .gitignore \
-    && git add -A >/dev/null 2>&1 \
-    && git add -f __pycache__/probe.txt >/dev/null 2>&1 ) || true
+    && _fgit add -A >/dev/null 2>&1 \
+    && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 ) || true
   # THE THREE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
   # built AFTER the add loop above, because each needs the index to hold one
   # thing while the worktree holds another.
@@ -644,20 +690,29 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   #     still carries it, so a pre-push run that reads only the worktree
   #     certifies the very commit that pushes it.
   ( cd "$CTL/staged" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-    && git add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || true
+    && _fgit add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || true
   # (2) A TRACKED path replaced by a FIFO. `--cached` still lists it, and
   #     opening it blocks forever with no writer — the local gate hangs instead
   #     of failing closed. Nothing here may open it.
   ( cd "$CTL/fifotracked" && printf '# %s\n' "$CONTROL_CLEAN" > sub.py \
-    && git add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || true
+    && _fgit add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || true
   # (2b) A STAGED SYMLINK whose target holds a SPACE inside a segment, with the
   #      worktree target since made clean. The index mode says it is a symlink,
   #      so its blob is a stored path; sent through the running-text predicate
   #      the space terminated the match and the wire read GREEN (#501 R93).
   ( cd "$CTL/stagedlink" && ln -s '.claude/skills/team name/rule.md' entry \
-    && git add entry >/dev/null 2>&1 \
+    && _fgit add entry >/dev/null 2>&1 \
     && command rm -f entry && ln -s 'harmless/target' entry \
-    && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && git add ok.py >/dev/null 2>&1 ) || true
+    && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || true
+  # (2c) A mode-120000 index entry whose BLOB HOLDS A NUL. git will store and
+  #      commit it; no filesystem can realise it as a symlink. It must red the
+  #      gate as unreadable, not be quietly shortened into something clean.
+  ( cd "$CTL/nulblob" \
+    && printf '.claude/skills/\000/rule.md' > raw.bin \
+    && _sha="$(_fgit hash-object -w --stdin < raw.bin)" \
+    && command rm -f raw.bin \
+    && _fgit update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
+    && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || true
   # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
   #     uncommitted state that `--exclude-standard` honours and no other clone
   #     of the same commit shares. (The machine-wide `core.excludesFile` is the
@@ -665,7 +720,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   #     a fixture, because neutralising the config layer above would also
   #     neutralise the fixture that tried to set it.)
   ( cd "$CTL/notcommitted" && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-    && git add ok.py >/dev/null 2>&1 \
+    && _fgit add ok.py >/dev/null 2>&1 \
     && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \
     && printf 'probe.txt\n' > .git/info/exclude ) || true
 
@@ -757,6 +812,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
   _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
   _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
+  _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
   _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
   _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1

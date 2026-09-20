@@ -505,6 +505,19 @@ Every diff check names an explicit ref.
      hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
      closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
      its readable sibling).
+     ⚠ **The wire's threat model is ACCIDENT, NOT ADVERSARY, and it is now written down** (#501 R94).
+     Four findings, all of them defects in what the previous two rounds added, and one of them a crafted
+     index entry (a mode-120000 blob holding a NUL — storable by git, realisable by no filesystem). The
+     answer is not a NUL-safe reader: a contributor who wants past this gate edits `REQUIRED_WIRES`, which
+     `scripts/trip-wires.sh` names as the one edit that genuinely disables it, so hardening against a
+     crafted index while conceding that edit is incoherent. Anything outside the model gets the same
+     "unknown fails closed" answer every unreadable thing here gets. Stating the model is what bounds the
+     file — an unstated one makes every construction an open finding.
+     The other three were **operational regressions**, not exotica: an exported clean git config took
+     `safe.directory` with it and broke the gate on a foreign-UID checkout; a second `EXIT` trap silently
+     replaced the scratch cleanup (one leaked directory per run, measured); and `git cat-file` lazy-fetched
+     in a blobless partial clone, against this gate's own no-network contract (`GIT_NO_LAZY_FETCH=1`, with
+     an absent blob falling through to the existing error).
      ⚠ **The rules this PR established apply to the arms it adds next** (#501 R93): three of that
      round's four findings were R92's own — a **staged symlink**'s blob went through the running-text
      predicate although R87 had already ruled that a stored path takes the stored-path one (reproduced:
