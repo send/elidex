@@ -18,6 +18,12 @@
 #     Same shape as its four siblings, which pin the re-introduction of a named
 #     deleted construct rather than recognising an open category.
 #
+#     ⚠ The pin is exercised on every run against a planted fixture before the
+#     real tree is scanned (`_control` below).  A wire that cannot fire is
+#     indistinguishable from a clean tree, and `scripts/trip-wires.sh:105-112`
+#     rejects hand-verification for exactly this reason: a check nobody
+#     re-runs is a transcript, not a gate.  Codex #501 R66.
+#
 # (B) THE SEED — a syntactic scan for `<top-level entry>/<something>`, printed
 #     but NOT asserted, and deliberately not widened again.
 #
@@ -49,7 +55,7 @@ done
 # exactly where a violation lands during authoring, and `git grep` reads the
 # index.  (Measured on this repo: a plant in an unstaged file read GREEN.)
 python3 - "$ROOT" <<'PY'
-import os, re, subprocess, sys
+import os, re, subprocess, sys, tempfile
 
 root = sys.argv[1]
 scope = [os.path.join(root, ".claude/tools/_webref"), os.path.join(root, ".claude/tools/webref")]
@@ -74,7 +80,7 @@ NOT_A_PATH = {
 }
 INSTALL_PATH = {".claude/tools/webref"}
 
-def files():
+def files(scope, base):
     for s in scope:
         if os.path.isfile(s):
             yield s
@@ -84,25 +90,68 @@ def files():
                 for fn in filenames:
                     yield os.path.join(dirpath, fn)
 
-pinned_hits, seed_hits, scanned = [], [], 0
-for path in files():
-    try:
-        body = open(path, encoding="utf-8").read()
-    except UnicodeDecodeError:
-        # Not "nothing to match": a partially-decodable file would otherwise be
-        # scanned in part and reported as whole.
-        body = open(path, "rb").read().decode("utf-8", "replace")
-    scanned += 1
-    rel = os.path.relpath(path, os.path.join(root, ".claude/tools"))
-    for n, line in enumerate(body.splitlines(), 1):
-        for pin in PINNED:
-            if pin in line:
-                pinned_hits.append("%s:%d: %s" % (os.path.relpath(path, root), n, pin))
-        for m in SEED_RE.finditer(line):
-            cand = re.sub(r"^(?:\.{1,2}/|(?:\.\./)+|/)", "", m.group(0).rstrip(".,;:"))
-            if cand in INSTALL_PATH or cand in NOT_A_PATH.get(rel, ()):
-                continue
-            seed_hits.append("%s:%d: %s" % (os.path.relpath(path, root), n, cand))
+
+def scan(scope, base):
+    """The ONE engine. The controls below and the real run share it, so a
+    control can only pass by proving the same code the verdict comes from."""
+    pinned_hits, seed_hits, scanned = [], [], 0
+    for path in files(scope, base):
+        try:
+            body = open(path, encoding="utf-8").read()
+        except UnicodeDecodeError:
+            # Not "nothing to match": a partially-decodable file would otherwise
+            # be scanned in part and reported as whole.
+            body = open(path, "rb").read().decode("utf-8", "replace")
+        scanned += 1
+        rel = os.path.relpath(path, os.path.join(base, ".claude/tools"))
+        for n, line in enumerate(body.splitlines(), 1):
+            for pin in PINNED:
+                if pin in line:
+                    pinned_hits.append("%s:%d: %s" % (os.path.relpath(path, base), n, pin))
+            for m in SEED_RE.finditer(line):
+                cand = re.sub(r"^(?:\.{1,2}/|(?:\.\./)+|/)", "", m.group(0).rstrip(".,;:"))
+                if cand in INSTALL_PATH or cand in NOT_A_PATH.get(rel, ()):
+                    continue
+                seed_hits.append("%s:%d: %s" % (os.path.relpath(path, base), n, cand))
+    return scanned, pinned_hits, seed_hits
+
+
+# ---- CONTROLS, run BEFORE the real scan -------------------------------------
+# The samples below are spelled out a SECOND time on purpose. They are not a
+# duplicate of `PINNED`: they are the independent subject the pin is tested
+# against, exactly as `layout-box-reader-trip-wire.sh`'s `ban_control` passes a
+# hand-written sample line beside the pattern. If someone edits `PINNED` to a
+# different spelling, the two stop agreeing and THAT is the signal -- which is
+# the failure `PINNED`-derived fixtures cannot see.
+CONTROL_HIT = ".claude/skills/elidex-review/axes.md"
+CONTROL_MISS = ".claude/skills/elidex-review/workflow.md"
+
+with tempfile.TemporaryDirectory() as ctl:
+    # Distinguish an environment failure from a dead assertion: with the dir
+    # empty the controls would exercise nothing and silently "pass".
+    hit_dir = os.path.join(ctl, "hit")
+    miss_dir = os.path.join(ctl, "miss")
+    os.makedirs(hit_dir)
+    os.makedirs(miss_dir)
+    with open(os.path.join(hit_dir, "control.py"), "w", encoding="utf-8") as fh:
+        fh.write('AXES = "%s"  # planted\n' % CONTROL_HIT)
+    with open(os.path.join(miss_dir, "control.py"), "w", encoding="utf-8") as fh:
+        fh.write('OTHER = "%s"  # planted, NOT the pinned path\n' % CONTROL_MISS)
+    n_hit, hits, _ = scan([hit_dir], ctl)
+    n_miss, misses, _ = scan([miss_dir], ctl)
+    if n_hit != 1 or n_miss != 1:
+        raise SystemExit("!! control scan read %d/%d file(s), not 1/1 -- the controls "
+                         "proved nothing about this run" % (n_hit, n_miss))
+    if not hits:
+        raise SystemExit("!! POSITIVE CONTROL FAILED: a planted `%s` did NOT fire the "
+                         "pin, so a green below would mean nothing. `PINNED` is empty, "
+                         "misspelled, or the match loop is broken." % CONTROL_HIT)
+    if misses:
+        raise SystemExit("!! NEGATIVE CONTROL FAILED: `%s` fired the pin, so the pin is "
+                         "matching more than the path it names." % CONTROL_MISS)
+print("  controls: pin fires on a planted `%s`, and not on a sibling path" % CONTROL_HIT)
+
+scanned, pinned_hits, seed_hits = scan(scope, root)
 
 if not scanned:
     raise SystemExit("!! scanned 0 files; this wire would report no violation for a "

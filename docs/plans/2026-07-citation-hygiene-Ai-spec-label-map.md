@@ -125,7 +125,7 @@ string** — and a claim about *prose* is checked by a grep over prose occurrenc
 **A-i's implementation is authored from `origin/main`. Every row below is relative to that tree.**
 
 Measured, `git ls-tree origin/main -- .claude/tools/_webref/spec_labels.py` prints nothing and
-`git show origin/main:.claude/tools/_webref/cli.py | grep -c cite-audit` is **0**.
+`git show origin/main:.claude/tools/_webref/cli.py | grep -F cite-audit | wc -l` is **0**.
 
 The consequence is a lineage decision. Measured, exactly one commit carries the whole `.claude/`
 implementation — `git log --oneline origin/main..HEAD -- .claude/` → `b3a7d469 tools(webref): carve the
@@ -427,7 +427,7 @@ Every diff check names an explicit ref.
    called the check "currently red, A-i unimplemented" — that was `b3a7d469`'s `preflight.py` change, which
    §4 drops; both statements are now stale and the check is **green**.
 2. **K3**: at A-i's head,
-   `git grep -cE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref` → **0**. A
+   `git grep -hE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref | wc -l` → **0**. A
    time-limited fact rather than an invariant (§15): Slice B's detector makes it false by design, so it is
    a diff-review item for this PR and gets no standing gate.
 3. **K2 — stated as two claims, because only one of them is mechanised.** A-i discharges the two
@@ -436,7 +436,11 @@ Every diff check names an explicit ref.
    - **Closed part, absolute**: `bash .claude/tools/webref-generic-core-trip-wire.sh` → PASSED. It FAILS
      if either removed path returns, in a tracked *or* untracked file. Registered in
      `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, so it runs on **every PR to `main`**, ungated by the CI
-     path filter.
+     path filter. ⚠ **And the PASSED is earned**: before it reads the real tree the wire runs the same
+     scan over a planted fixture and requires the pin to fire, plus a sibling path that must *not* fire
+     (Codex R66). Until then a green here could not be distinguished from an emptied or misspelled
+     `PINNED` — and `scripts/trip-wires.sh:105-112` records why hand-verification does not close that
+     gap: a check nobody re-runs is a transcript, not a gate.
    - **Open part, reviewed not gated**: "no *other* host path is named here" is not something this wire
      decides, and its header says so with the four failed attempts named. ⚠ An earlier revision of this
      row claimed it did — "**0** paths that resolve inside this repo are named anywhere" — which was the
@@ -574,8 +578,8 @@ reports `organization=WHATWG` for it and `xhr` is pinned `WHATWG XHR` — so und
 the receiving pins are B's **T10** (the spelling is *reported* under `UNKNOWN-SPEC`, never dropped) and the
 ledger slot `#11-webidl-label-spelling-sweep` (the five sites below re-spelled to the pinned `Web IDL`, owner =
 the cite-sweep program, trigger = B's `cite-audit` listing them on `main`). Measured,
-`git grep -clI 'WHATWG Web IDL' -- . ':!docs/plans/2026-07-citation-hygiene*'` → **0** files;
-`git grep -clI 'WHATWG WebIDL' …` → **5**, all in `crates/script/elidex-js/`: `src/vm/error.rs:33`,
+`git grep -lI 'WHATWG Web IDL' -- . ':!docs/plans/2026-07-citation-hygiene*' | wc -l` → **0** files;
+`git grep -lI 'WHATWG WebIDL' … | wc -l` → **5**, all in `crates/script/elidex-js/`: `src/vm/error.rs:33`,
 `src/vm/host/fetch/mod.rs:258`, `src/vm/host/request_response/mod.rs:188`,
 `src/vm/tests/tests_events_misc.rs:400`, `src/vm/tests/tests_worker.rs:832`. The `Web ?IDL` regex matches
 both spellings, which is how the count 5 is right while the spaced spelling it was attached to would key a
@@ -597,7 +601,7 @@ level re-pointings (umbrella "Cross-lane coordination"; B §6 **S15** pins it).
 docstring — *"60 lookups were 60 identical HTTP GETs at ~46 ms, 18.6s of a 47.4s run"* — sitting on
 `heading`'s fetch path, so it is **routed, not dropped**: B owns the catalog fall-through and is the
 many-lookups-per-spec consumer. ⚠ **B's memo does not support this routing and must not be cited as if it
-did**, and the umbrella does not carry it either (`grep -c 'lru_cache' …-umbrella.md` → **0**, so the
+did**, and the umbrella does not carry it either (`grep -F 'lru_cache' …-umbrella.md | wc -l` → **0**, so the
 matching row is owed). B `:618` (§10 Q3) reasons from the decorator being *already present*, which at B's new
 base it is not; `:637` files the resulting docstring/`--help` disagreement as a "**pre-existing** defect not
 owned by this PR", a classification that inverts once B is the commit that adds it. Both fold into §13.1's
@@ -647,8 +651,9 @@ owed re-derivation.
    and that line is a *reader-census row* about `SPEC_LABEL_REVERSE`'s four plan-memo readers — not an
    obligation. A-ii's §11 lists **one** own slot and its landing checklist registers only that one. So the
    slot is **owed, not routed** — the same label §13's other two hand-offs carry, and for the same reason:
-   after A-i lands it is absent from the SoT (`project_open-defer-slots.md`, `grep -c` → **0**) and owned by
-   nobody. It survives only in two **landed** memos —
+   at the time of that reading it was absent from the SoT (`grep -F '#11-preflight-css-module-labels'
+   memory/project_open-defer-slots.md | wc -l` → **0** then, **1** now — see the ✅ below) and owned by
+   nobody. It survived only in two **landed** memos —
    `2026-07-terminal-z-c3a-seam-and-audit-plan.md:655` (row 8, the authoritative hand-off) and
    `2026-07-terminal-z-c3a-impl-plan.md:538` — registered with owner **PM** and trigger *before the next
    plan-memo citing a CSS module, C-3b at the latest*. ⚠ **And that trigger cannot be relied on to force a
@@ -723,5 +728,5 @@ what the rule asks for instead.
 
 ⚠ **K3** — "the generic core names no Slice-B artifact" — deliberately gets no mechanism. It is not an
 invariant but a **time-limited fact**: it stops being true the day Slice B lands its detector, by design.
-`git grep -cE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref` returns 0 at this head,
+`git grep -hE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref | wc -l` returns 0 at this head,
 which is a diff-review item for this PR, not something to gate in perpetuity.
