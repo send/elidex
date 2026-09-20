@@ -21,7 +21,13 @@ CLAUDE.md § "Design discipline": *"Edge-dense work = multi-PR program + 実装�
 | A-i | The shared spec-label map | `webref-cite-audit-tool` (current) | **Generic tree, plus one comment in the adapter.** Create `.claude/tools/_webref/spec_labels.py`
 **pinned-map-only**; point `coverage_map` and `cli` at it; the `DESIGN.md` bullet; author the generic-tree
 `test_spec_labels.py`; rewrite every consumer list and rationale naming an elidex file path (by role) or a
-Slice-B artifact, and author the copy-count claim at the five sites that carry it. ⚠ **Amended at landing
+Slice-B artifact, and author the copy-count claim at the five sites that carry it. ⚠ **Plus the K2
+enforcement, added to this row at #501 R68**: `.claude/tools/webref-generic-core-trip-wire.sh` and the one
+line registering it in `scripts/trip-wires.sh`'s `REQUIRED_WIRES`. It is **not** a post-boundary addition —
+it is where K2's enforcement went when the harness was dropped from A-i (below), i.e. the same obligation
+relocated, not a new one; but this row and A-i's §4.2 artifact table both accounted only for the generic-tree
+refactor and the one adapter comment, so a reviewer checking the slice against its approval boundary could
+not see it. ⚠ **Amended at landing
 per A-i §13 item 2 (the four scope-grant clauses), measured against the `origin/main` base** — this row used
 to say *touches no adapter file* (A-i §4.1 rewrites one three-line comment in `preflight.py`, nothing else),
 *delete the 8 inert parse aliases* (`origin/main` has none; A-i **omits** them), *move the 8 label-map tests*

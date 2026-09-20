@@ -230,7 +230,8 @@ The A/B region boundaries the `spec_labels.py` rows rest on → `git diff origin
 | `coverage_map.py` — `_spec_label` | delegate to `label_for`; keep `origin/main`'s last-resort `.upper().replace("-", " ")` **verbatim** |
 | `DESIGN.md` — the `spec_labels.py` bullet | new bullet, verbatim below |
 | `DESIGN.md` — the `cite_audit.py` adapter paragraph + its 3 `cite-audit` example lines + the attribution-buckets paragraph | **absent in A-i**; they describe a command A-i does not ship. **B** authors them with the detector |
-| `test_spec_labels.py` | **new** — **13 tests**, derived and re-counted, not inherited (⚠ **15 until the third design re-gate**, which moved S7's first clause and S8 out of the generic suite — see §7). **9 carry a §6 pin**: one each for S1, S2, S3, S3b, S4, S5, S6 and T-net, and **one for S7** (its third clause; the artifact-name scan and the `webref_data` clause are separate tests). **4 carry no pin**, one per claim A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and **both directions composing into a round trip** — the fourth was *claimed by drafts 1-5 and absent from the suite*, so it is added here rather than dropped from the derivation (measured: it holds over all 12 rows, both ways). ⚠ Drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only; draft 5 said 10 pins + 4 extras = 14, which matched the file only because S7's double-count offset the missing round-trip. Under §4's lineage the suite is **authored**, so §6 governs and the arithmetic is **9 + 4 = 13**, which is what the file measures (`grep -c 'def test_'` → 13; `python3 -m unittest _webref.test_spec_labels` → `Ran 13`). ⚠ **This clause read `11 + 4 = 15` until Codex R58**: the count at the head of this row was re-derived when the two duplicated slice-boundary tests left the suite, and the arithmetic clause further down the same row was not, so one row asserted both numbers. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`, and no test asserts over parse aliases, since A-i ships none |
+| `webref-generic-core-trip-wire.sh` | **new** — the K2 enforcement, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` (one added line, the second file outside the generic tree). ⚠ **Both were missing from this supposedly exhaustive table until #501 R68.** They are not a post-boundary addition: they are where K2's enforcement went when the harness left A-i (§15), the same obligation relocated. Two absolutes (the removed-path pin; §2's K2 predicate) and one report-only seed, each with a control that runs before the real scan | derive with `git diff --name-only origin/main...HEAD` — three trees, not two |
+| `test_spec_labels.py` | **new** — **13 tests**, derived and re-counted, not inherited (⚠ **15 until the third design re-gate**, which moved S7's first clause and S8 out of the generic suite — see §7). **9 carry a §6 pin**: one each for S1, S2, S3, S3b, S4, S5, S6 and T-net, and **one for S7** (its third clause; the artifact-name scan and the `webref_data` clause are separate tests). **4 carry no pin**, one per claim A-i's own comments make: case/space tolerance, unknown → `None`, the empty-`SPECS` re-exec pinning the comprehension form, and **both directions composing into a round trip** — the fourth was *claimed by drafts 1-5 and absent from the suite*, so it is added here rather than dropped from the derivation (measured: it holds over all 12 rows, both ways). ⚠ Drafts 1-4 said "8 tests", a residue of the dropped `TestSharedSpecLabelMap`, whose 8 A-i tests reached S1/S2/S3 only; draft 5 said 10 pins + 4 extras = 14, which matched the file only because S7's double-count offset the missing round-trip. Under §4's lineage the suite is **authored**, so §6 governs and the arithmetic is **9 + 4 = 13**, which is what the file measures (`grep -c 'def test_'` → 13; `python3 -m unittest _webref.test_spec_labels` → `Ran 13`). ⚠ **This clause read `11 + 4 = 15` until Codex R58**: the count at the head of this row was re-derived when the two duplicated slice-boundary tests left the suite, and the arithmetic clause further down the same row was not, so one row asserted both numbers. `test_coverage_map_fallback_round_trips` is B's; A-i does not author it. No prose in it names `cite_audit`. ⚠ **Two descriptions in this row were of the retired layout until #501 R68**: the artifact-name scan is **no longer a test at all** (R55 deleted it; only S7's `webref_data` module-shape clause remains), and this row ended *"no test asserts over parse aliases, since A-i ships none"* — `test_the_eight_omitted_parse_aliases_are_inert` (S4) asserts over exactly those eight, which is *how* it shows that omitting them is a refactor rather than a behaviour change. Re-derive from the shipped suite: `grep -n 'def test_' .claude/tools/_webref/test_spec_labels.py` |
 
 Each row is scoped to **every occurrence** in the named artifact, not to a bullet list inside it.
 
@@ -316,11 +317,13 @@ A-ii's).
 `test_spec_labels.py` — **plus §4.1's one adapter comment**, `preflight.py:47-49`, prose naming a symbol this
 slice deletes, moving no behaviour.
 
-**K2 being an absolute** makes §12(3) a plain grep — the block greps the whole generic tree at once rather
-than gating on a `comm -13` delta of base against head. The exception is irrelevant either way, the block
-ranging over the whole generic core (`_webref/` + `webref`) in fact and not only in intent. The block does still compute a set
-difference, but for a **reported** line (*of which in A's half*), not its verdict — deriving A's half as the
-generic tree minus B's files, since an inclusion list cannot see a file the slice creates.
+**K2 being an absolute** makes §12(3) a plain scan of the whole generic core (`_webref/` + the `webref`
+entry script) rather than a delta of base against head, so a violation authored anywhere in the tree is
+caught wherever it came from. ⚠ **This paragraph described a `comm -13` set difference and "the block"
+until #501 R68** — that was the dropped harness's `couplings`, which computed one for a *reported* line.
+The wire computes no set difference at all: it scans, and it fails on the pin and on §2's K2 predicate.
+The canonical account of what is absolute and what is review-only is **§12(3)**; this section does not
+restate it.
 → `bash .claude/tools/webref-generic-core-trip-wire.sh`
 
 ⚠ **The unit suite scans no tree at all, and that is the end state, not an interim one.**
@@ -428,8 +431,16 @@ approval and outside a slice commit — the self-ratification the re-slice avoid
 ## §11 Defer slots
 
 **Zero own deferrals.** A-i creates no failable capability (§5's reachability argument, not a membership
-claim), no network dependency (`SPECS` is pinned; the catalog fall-through is B's), no scheduling gap, and
-no file near the touch-time split threshold (§8), so **no defer slot** is owed at landing. Owed *actions*
+claim), no network dependency (`SPECS` is pinned; the catalog fall-through is B's), and no file near the
+touch-time split threshold (§8), so **no defer slot** is owed at landing.
+⚠ **There IS a scheduling gap, and this sentence claimed there was none until #501 R68.** Between A-i
+landing and A-iii wiring the suites into CI, `test_spec_labels.py` is run by no required check (measured:
+`mise.toml`'s tasks are cargo + shell trip-wires only; `.github/workflows/` and `scripts/trip-wires.sh`
+invoke no python), so a regression that re-inlines either consumer can merge in that interval. It is **not**
+a defer slot: the receiving site is named and dated — Slice A-iii, §15's table row — and per
+`feedback_defer_cap_policy` an obligation with a named receiving slice is a hand-off, not a deferral. What
+it is not is absent, which is what this paragraph used to imply. §12(1) states the same gap at the point a
+reader checks the exit criterion. Owed *actions*
 are a different category and are §13's — after this commit set: the umbrella's four scope-grant clauses plus
 the `@lru_cache` row, the re-homing of `#11-preflight-css-module-labels`, and the re-derivations B and A-ii
 owe.
