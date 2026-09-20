@@ -620,8 +620,30 @@ def _utf8_streams():
             reconfigure(encoding="utf-8")
 
 
+# The options this entry point accepts, spelled ONCE.  ⚠ A CLOSED SET whose
+# COMPLEMENT is rejected, never a list of known-bad spellings: the accepted set
+# is the thing a reader and an `if` can both be held to, and a deny-list leaves
+# the next spelling authoritative
+# (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`).
+OPTIONS = frozenset(("--self-test", "--mutants", "--worklist"))
+
+
 def main(argv):
     _utf8_streams()
+    # ⚠ AN UNKNOWN OPTION USED TO BE DISCARDED IN SILENCE (PR #510 R42).  The
+    # path list was `[a for a in argv[1:] if not a.startswith("--")]`, so
+    # `--worklis` -- one character off `--worklist` -- ran the ordinary report
+    # at rc 0, and a caller that asked for the worklist got the other format
+    # with no error to say so.  That is this program's own failure mode turned
+    # on its operator: a gate whose answer is the wrong SHAPE, exiting 0.  The
+    # census attestation on this PR is a byte comparison of `--worklist`
+    # output, which is exactly the consumer that would have been fooled.
+    unknown = sorted({a for a in argv[1:] if a.startswith("--")} - OPTIONS)
+    if unknown:
+        print("unknown option(s): %s\naccepted: %s"
+              % (", ".join(unknown), ", ".join(sorted(OPTIONS))))
+        print(__doc__)
+        return 2
     if "--self-test" in argv:
         import plan_memo_umbrella_selftest as st  # noqa
         return st.run(mutants="--mutants" in argv)

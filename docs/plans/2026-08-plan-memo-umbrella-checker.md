@@ -2007,6 +2007,23 @@ ground for either option; it is not cited.
   backticks, so the marker is blanked and the row reads terminal. Five intersecting axes — the §6.1
   reader, the `marks` recorder, the image-close branch, `code_mask`'s two exceptions, and the `_demote`
   cost contract R23 measured — make it plan-review-first BY RULE.
+
+  ⚠ **R42-3, the round after, and the fixed poll caught it in 13 minutes where the broken one took
+  45 and was wrong.** Two P2s again, both in threads.
+  · **An UNKNOWN CLI OPTION was discarded in silence — FIXED.** `main` took the path list as "every
+  argv entry that does not start with `--`", so `--worklis`, ONE CHARACTER off `--worklist`, ran the
+  ordinary report and exited **0**; a caller that asked for the worklist got the other format with
+  nothing saying so. ⚠ **That caller is on this PR**: the census attestation every round of this
+  converge has rested on is a byte comparison of `--worklist` output. The fix is a CLOSED set
+  (`OPTIONS`) whose COMPLEMENT is refused, never a deny-list of known-bad spellings, with a control
+  that checks the set against the usage lines in both directions and runs `main` over a real fixture,
+  and two mutants — one re-injecting the discard, one widening the set until the complement is empty
+  (the direction the rc probes alone cannot see).
+  · **The DEFER-CAP breach was raised as a finding, independently.** It is not a new defect: it is
+  the decision §8 already routes to the user, and the reviewer reached the same reading of the policy
+  ("pause to fold, narrow, split, or obtain explicit acceptance; landing unchanged bypasses that
+  decision"). The thread stays OPEN, because the resolution is not the author's to make — and it is
+  the one item on this PR that no amount of further review can close.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers

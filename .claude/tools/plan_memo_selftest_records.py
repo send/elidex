@@ -43,6 +43,10 @@ import io
 import re
 import tokenize
 
+import pathlib
+import tempfile
+
+from plan_memo_selftest_cases import build
 from plan_memo_selftest_harness import HERE
 from plan_memo_selftest_properties import ENTRY, _swept_sources, registry as property_registry
 
@@ -489,6 +493,52 @@ def report_channel_control(M):
                         ("; " + "; ".join(sorted(bad)[:4])) if bad else ""))
 
 
+def option_set_control(M):
+    """PROPERTY: the entry point accepts a CLOSED set of options and rejects
+    its complement, and the set the code checks is the set the docstring's
+    usage lines spell.
+
+    WHY (PR #510 R42).  `main` took the path list as "every argv entry that
+    does not start with `--`", so an unknown option was DISCARDED: `--worklis`,
+    one character off `--worklist`, ran the ordinary report and exited 0, and a
+    caller that asked for the worklist got the other format with nothing saying
+    so. This PR's own census attestation is a byte comparison of `--worklist`
+    output, so that caller was here.
+
+    THE SUBJECT IS THE COMPLEMENT, which is the half that goes stale: a
+    deny-list of known-bad spellings would pass every new one
+    (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`).
+    So the control asks TWO things -- that `OPTIONS` is what the usage lines
+    spell (a drift check in both directions), and that a spelling outside it is
+    refused by `main` itself, run over a real fixture rather than reasoned about.
+
+    HONESTLY, what it cannot see: whether an accepted option does what it says,
+    and a single-dash or bare-word argument (the path rule takes those, which is
+    what makes a memo path a memo path)."""
+    src = dict(_swept_sources())[ENTRY]
+    doc = ast.get_docstring(ast.parse(src, filename=ENTRY)) or ""
+    spelled = set(re.findall(r"--[a-z][a-z-]*", doc))
+    declared = set(M.OPTIONS)
+    if spelled != declared:
+        return False, ("the usage lines spell %s and OPTIONS declares %s -- the two homes disagree"
+                       % (sorted(spelled), sorted(declared)))
+    import contextlib
+    import io as _io
+    bad = []
+    with tempfile.TemporaryDirectory() as d:
+        memo = pathlib.Path(d) / "fixture.md"
+        memo.write_text(build(), encoding="utf-8")
+        for arg, want in [("--worklis", 2), ("--definitely-invalid", 2), ("--WORKLIST", 2),
+                          ("--worklist", 0), ("--mutants", 0)]:
+            buf = _io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = M.main(["prog", str(memo), arg])
+            if rc != want:
+                bad.append("%s -> rc %d (want %d)" % (arg, rc, want))
+    return not bad, ("%d option spelling(s) declared, %d probe(s) run, %d wrong%s"
+                     % (len(declared), 5, len(bad), ("; " + "; ".join(bad)) if bad else ""))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table, merged
     over the property module's (invariants included)."""
@@ -504,5 +554,7 @@ def registry():
             ("CONTROL", import_seam_control),
         "PROPERTY: every line the run REPORTS goes through the escape -- measured over the EMIT SITES, the subject the escape function's own control cannot reach":
             ("CONTROL", report_channel_control),
+        "PROPERTY: the entry point accepts a CLOSED option set and REFUSES its complement (an unknown option was discarded, so a misspelt --worklist returned the other format at rc 0)":
+            ("CONTROL", option_set_control),
     })
     return reg

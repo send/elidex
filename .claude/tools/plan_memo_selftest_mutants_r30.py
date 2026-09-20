@@ -542,3 +542,24 @@ MUTANTS += [
      '                field = row.field',
      [R42_BLANK_MARKER]),
 ]
+
+
+# -- R42-3: the entry point's option set.  TWO rows, one per half of the claim.
+R42_OPTIONS = ("PROPERTY: the entry point accepts a CLOSED option set and REFUSES its complement "
+               "(an unknown option was discarded, so a misspelt --worklist returned the other "
+               "format at rc 0)")
+
+MUTANTS += [
+    ("R42 options: discard an unknown option again (re-inject the filter that took every non-`--` "
+     "argv entry as the path and said nothing about the rest: `--worklis` runs the other format "
+     "at rc 0)", CHECK,
+     '    unknown = sorted({a for a in argv[1:] if a.startswith("--")} - OPTIONS)',
+     '    unknown = []',
+     [R42_OPTIONS]),
+    ("R42 options: widen the set until the complement is empty (every `--` spelling accepted: a "
+     "closed set nobody can fall outside asserts nothing -- the other direction, which the rc "
+     "probes alone cannot see)", CHECK,
+     'OPTIONS = frozenset(("--self-test", "--mutants", "--worklist"))',
+     'OPTIONS = frozenset(("--self-test", "--mutants", "--worklist", "--worklis"))',
+     [R42_OPTIONS]),
+]
