@@ -79,7 +79,8 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
   point is generic core by any reading — 16 lines at `origin/main`, a docstring plus
   `from _webref.cli import main`, the
   docstring being the site — and unlike `cli.py` it has no other routing at all.
-  ✅ **The K2 trip-wire ranges over exactly the generic core** (`_webref/` + `webref`) and reports both
+  ✅ **The K2 trip-wire ranges over exactly the generic core** (`_webref/` + `webref`). ⚠ Ranging is not
+  deciding: what it ASSERTS is the closed pin (§12(3)); its wider scan is a declared seed. It reports both
   pre-existing sites (§13 item 3 records the widening-then-redraw).
 - **K3 — the generic core names no Slice-B artifact.** `cite-audit` and `_catalog` are absent from the
   generic core (`_webref/` + `webref`; matching `origin/main`, measured 0 at both refs — `.claude/skills/` is
@@ -424,13 +425,21 @@ Every diff check names an explicit ref.
    `git grep -cE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref` → **0**. A
    time-limited fact rather than an invariant (§15): Slice B's detector makes it false by design, so it is
    a diff-review item for this PR and gets no standing gate.
-3. **K2**: `bash .claude/tools/webref-generic-core-trip-wire.sh` → PASSED, i.e. **0** paths that resolve
-   inside this repo are named anywhere in `.claude/tools/_webref/` or the `webref` entry script. A-i
-   discharges the two that existed at its base (`cli.py` and the entry script both named
-   `.claude/skills/elidex-review/axes.md`); the wire is registered in `scripts/trip-wires.sh`'s
-   `REQUIRED_WIRES`, so it runs on **every PR to `main`**, ungated by the CI path filter. ⚠ The wire states
-   its own coverage boundary in its header: a BARE top-level name with no separator (`"docs"`, `"crates"`,
-   `"CLAUDE.md"` as standalone tokens) is outside its predicate, and two such instances pre-exist at this
+3. **K2 — stated as two claims, because only one of them is mechanised.** A-i discharges the two
+   instances that existed at its base (`cli.py` and the `webref` entry script both named
+   `.claude/skills/elidex-review/axes.md`; measured 1 each at `44cd165d`, 0 at HEAD).
+   - **Closed part, absolute**: `bash .claude/tools/webref-generic-core-trip-wire.sh` → PASSED. It FAILS
+     if either removed path returns, in a tracked *or* untracked file. Registered in
+     `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, so it runs on **every PR to `main`**, ungated by the CI
+     path filter.
+   - **Open part, reviewed not gated**: "no *other* host path is named here" is not something this wire
+     decides, and its header says so with the four failed attempts named. ⚠ An earlier revision of this
+     row claimed it did — "**0** paths that resolve inside this repo are named anywhere" — which was the
+     resolve-on-disk predicate Codex R59 had already falsified, left standing here for four more rounds.
+     What covers the open part is `git diff origin/main...HEAD -- .claude/`: finite, and every line
+     entering this tree passes review. The wire prints its seed to make that reading cheaper.
+   ⚠ Also outside the wire's predicate: a BARE top-level name with no separator (`"docs"`, `"crates"`,
+   `"CLAUDE.md"` as standalone tokens), and two such instances pre-exist at this
    slice's base.
 4. **K1/K4**: S3, S3b and S5 green — and S3 is green *as a perturbation*, not as an agreement (§6), so K1's
    `coverage_map` half is now actually pinned.
@@ -681,7 +690,8 @@ Every claim this memo makes is re-derivable by a command, and every command is o
 | Claim | Command | Runs in |
 |---|---|---|
 | The map has ONE source; both consumers derive from it | `cd .claude/tools && python3 -m unittest _webref.test_spec_labels` | Slice A-iii wires the suites into CI |
-| The generic core names no elidex file path (K2) | `bash .claude/tools/webref-generic-core-trip-wire.sh` | `trip-wires`, **every PR to `main`**, ungated by the path filter |
+| The two host paths A-i removed have not come back (K2, **the closed part**) | `bash .claude/tools/webref-generic-core-trip-wire.sh` | `trip-wires`, **every PR to `main`**, ungated by the path filter |
+| A *new* host path named in the generic core (K2, **the open part**) | `git diff origin/main...HEAD -- .claude/` — read it; the wire prints a seed but does not fail on it | code review |
 | The §3 gate resolves both labels this slice cites (§0.5) | `python3 .claude/skills/elidex-plan-review/preflight.py docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md` | the gate every lane runs before its plan-review |
 | A §-number matches its title | `.claude/tools/webref heading --exact <spec> <section>` | per CLAUDE.md § "Spec citation" |
 | What this slice changed, and where | `git diff origin/main...HEAD -- .claude/` | — |
