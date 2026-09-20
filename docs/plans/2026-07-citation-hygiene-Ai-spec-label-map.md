@@ -523,6 +523,15 @@ Every diff check names an explicit ref.
      predicate now has **one call site** (`_match_path`) so the question is decided once; the remaining
      arms each keep their own status test. Two fixtures, one per stored-path subject, because the
      name fixture goes red from its own arm and so cannot speak for the target's.
+     ⚠ **…and `$( )` is where a stored value stops being whole** (#501 R90): command substitution strips
+     trailing newlines, so a symlink target `.claude/skills/team/<LF>` arrived with an empty final segment
+     and the wire exited 0 over a value git stores verbatim (reproduced). `readlink -n` plus a status
+     sentinel keeps both the bytes and the exit status. ⚠ Two controls, because the two halves fail in
+     **opposite directions**: the sentinel alone stops the truncation, while `-n` stops readlink's own
+     newline being read as stored content — which would fire on `.claude/skills/a/`, a directory and no
+     violation. Dropping only `-n` was a surviving mutant until the second control existed.
+     Every other stored value here already avoids substitution: the entry name comes from `read -r -d ''`,
+     and the match captures hold `grep -o` records that cannot end in a newline.
      ⚠ **A stored path is bytes, and it reaches the predicate whole** (#501 R87-R88): an entry's own name
      and a symlink's target are matched by a slash-delimited predicate of their own — the content
      predicate's quote and space terminators are the honest answer for running text and the wrong one for a

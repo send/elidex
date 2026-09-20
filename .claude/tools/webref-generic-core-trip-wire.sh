@@ -263,7 +263,23 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     fi
     if [ -L "$f" ]; then
       # A symlink's stored content IS its target string; git keeps it as the blob.
-      tgt="$(readlink "$f" 2>/dev/null)" || {
+      # ⚠ AND `$( )` STRIPS TRAILING NEWLINES, so the plain substitution truncated
+      # the stored value: a target `.claude/skills/team/<LF>` arrived as
+      # `.claude/skills/team/`, whose final segment is empty, so `[^/]+` could not
+      # match and the wire exited 0 over a violation git stores verbatim (#501 R90,
+      # reproduced). `-n` stops `readlink` adding its own newline, and the `R%d`
+      # sentinel keeps the substitution from ending in one — so nothing is stripped
+      # and the exit status still reaches us.
+      # ⚠ Every OTHER stored value here avoids `$( )` already: the entry name comes
+      # from `read -r -d ''`, and the two match captures hold `grep -o` output whose
+      # records cannot end in a newline because `_onerec` removed them. This was the
+      # one raw stored value that went through a substitution.
+      # If some `readlink` lacks `-n` it exits non-zero here and the entry becomes an
+      # `err` record: unknown fails closed, which is the only safe direction for a
+      # portability question inside an absolute.
+      tgt="$(readlink -n "$f" 2>/dev/null; printf 'R%d' "$?")"
+      _rlrc="${tgt##*R}"; tgt="${tgt%R*}"
+      [ "$_rlrc" -eq 0 ] || {
         printf 'err\t%s: symlink, but its target could not be read\n' "$(_esc "$rel")"; continue; }
       printf 'ok\t%s\n' "$(_esc "$rel")"
       _mrc=0; _m="$(_match_path "$tgt")" || _mrc=$?
@@ -349,7 +365,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink nltarget linkslash; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -423,6 +439,17 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # which is why that is enough; said here so the exit status is not read as
   # the thing under test.
   ln -s "$CONTROL_K2" "$CTL/grepfaillink/entry"
+  # A target whose FINAL SEGMENT IS A NEWLINE — the bytes `$( )` throws away.
+  ln -s $'.claude/skills/team/\n' "$CTL/nltarget/entry"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nltarget/ok.py"
+  # The OTHER direction, and the reason `-n` is not merely tidiness: a target
+  # ending in `/` names a DIRECTORY, not an `<a>/<b>` path, so it must stay
+  # green. Without `-n`, readlink's own newline lands where the empty final
+  # segment was and `[^/]+` matches it — the wire would fire on a target that
+  # holds no violation. The sentinel alone does not catch that; this does
+  # (measured: dropping only `-n` leaves `nltarget` green and turns this red).
+  ln -s '.claude/skills/a/' "$CTL/linkslash/entry"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/linkslash/ok.py"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfaillink/ok.py"
   # An IGNORED generated artefact carrying a forbidden path. It must NOT fire:
   # a `.pyc` embeds its source's absolute path, and scanning build products
@@ -461,7 +488,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink; do
+           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash; do
     ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
       && git add -A >/dev/null 2>&1 ) || true
   done
@@ -527,6 +554,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
   _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
   _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
+  _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
+  _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stored content" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
