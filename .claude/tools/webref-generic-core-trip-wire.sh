@@ -93,6 +93,9 @@ fi
 for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
   [ -e "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
+# `git grep` takes pathspecs relative to the directory it runs in.
+REL_DIR="${SCOPE_DIR#$ROOT/}"; [ "$REL_DIR" != "$SCOPE_DIR" ] || REL_DIR="."
+REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#$ROOT/}"
 
 # §2's K2 predicate. Fixed ERE, `grep -E`. The one thing this wire asserts.
 #
@@ -133,58 +136,61 @@ K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 # claims.  Matching is `-o`, so the report stays the matched path and not a
 # binary dump.  (Two empty `__init__.py` here are already classified binary by
 # `file --mime`, which is how little "binary" has to mean for this to matter.)
-# COUNTED IS SCANNED, BY CONSTRUCTION.  The count comes from the `ok` records
-# this emits — one per entry it actually read to the end — not from a separate
-# walk.  Three rounds found three different ways for a separately-derived count
-# to disagree with what was examined (a file it could not read, #501 R70; a
-# file whose content `grep -I` skipped, R71; a whole subtree `find` could not
-# descend into, R72), each certified as ABSOLUTE.  They are one defect: two
-# quantities that could differ.  Now there is one, and "counted but not
-# scanned" is not representable rather than merely checked.
+# THE WALK IS GIT'S, NOT A HAND-ROLLED ONE.  Six review rounds (#501 R69-R74)
+# found nine ways for a `find | read | grep` walk to certify K2 over something
+# it had not examined: a file it could not read, one whose content `grep -I`
+# skipped, a subtree `find` could not descend into, a symlink, an entry of some
+# other type, a filename holding a newline, a prune that matched by name rather
+# than by type, and a segment class narrower than the invariant.  Measured, ONE
+# command handles all but the symlink by construction:
 #
-# AND THE POPULATION IS EVERY ENTRY, NOT EVERY REGULAR FILE.  `-type f` excludes
-# symlinks, and a symlink's stored content IS its target string — git keeps
-# `.claude/skills/new-policy/rule.md` as the blob — so such a link carried the
-# forbidden text through the walk untouched (#501 R73, reproduced).  Adding
-# `-type l` would answer that one case and leave the next; instead the walk
-# prints EVERYTHING and every entry lands in exactly one arm: a symlink is read
-# with `readlink`, a regular file with `grep`, a directory holds no stored text
-# and is skipped, and anything else — a fifo, a socket, a device — is an ERROR,
-# because a wire that cannot say what an entry holds must not certify over it.
-_scan() { # $1 = dir root, $2 = extra file; prints "ok\t…" / "k2\t…" / "err\t…"
-  _l="$(mktemp)" || { printf 'err\twalk: no temp file for the file list\n'; return 0; }
-  _e="$(mktemp)" || { rm -f "$_l"; printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
-  find "$1" -name __pycache__ -type d -prune -o -print0 > "$_l" 2>"$_e" || true
-  # `find` reports an unsearchable directory on stderr and keeps going, so a
-  # non-empty stderr means the walk was INCOMPLETE even when its status is 0.
+#   git grep --no-index -anE <predicate> -- <scope>
+#
+# It works outside a repository (so the fixtures below need no `git init`),
+# reports a newline-bearing filename as `"foo\nbar"` rather than splitting it,
+# reads binary content under `-a`, descends without a prune of its own, and is
+# the canonical way in this repo to ask what text a tree holds.  Writing a
+# fourth variant of the hand-rolled walk when this exists is the thing
+# CLAUDE.md's "既存の抽象で解決できないか考える" forbids.
+#
+# TWO THINGS IT DOES NOT DO, both handled explicitly below:
+#   * it does not read a SYMLINK's target, and a symlink's stored content IS
+#     that target (git keeps it as the blob), so links get their own pass;
+#   * it exits 0 on a permission error and reports it only on stderr, so a
+#     non-empty stderr is treated as a failed walk.
+#
+# COUNTED IS SCANNED.  The count comes from the same tool over the same scope
+# (`-l` with a pattern every line matches), not from a separate traversal, so
+# "counted but not scanned" stays unrepresentable.
+#
+# An entry git cannot store — a fifo, a socket, a device — is not listed, and
+# that is the right line rather than an omission: K2 is about text that lives
+# in this tree, and such an entry holds none.  (Verified: a fifo in the scope
+# neither hangs nor hides a plant elsewhere.)
+_scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
+  _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
+  set -- "$1" ${2:+"$2"} ':!*__pycache__/*'
+  git -C "$ROOT" grep --no-index -l -aE '^' -- "$@" 2>>"$_e" | while IFS= read -r f; do
+    printf 'ok\t%s\n' "$f"
+  done
+  git -C "$ROOT" grep --no-index -anE -- "$K2RE" "$@" 2>>"$_e" | while IFS= read -r hit; do
+    printf 'k2\t%s\n' "$hit"
+  done
+  # Symlinks, the one thing `git grep` will not read for us. `-print0` and
+  # `read -d ''` because a link's own name may hold a newline too.
+  find "$ROOT/$1" -type l -print0 2>>"$_e" | while IFS= read -r -d '' l; do
+    tgt="$(readlink "$l" 2>/dev/null)" || {
+      printf 'err\t%s: symlink, but its target could not be read\n' "${l#$ROOT/}"; continue; }
+    printf 'ok\t%s\n' "${l#$ROOT/}"
+    printf '%s\n' "$tgt" | grep -aEo -- "$K2RE" | while IFS= read -r m; do
+      printf 'k2\t%s: -> %s\n' "${l#$ROOT/}" "$m"
+    done
+  done
   if [ -s "$_e" ]; then
-    printf 'err\twalk of %s was incomplete: %s\n' "${1#$ROOT/}" \
+    printf 'err\tthe walk reported errors, so part of the scope went unread: %s\n' \
       "$(tr '\n' ';' < "$_e" | cut -c1-200)"
   fi
-  [ -z "${2:-}" ] || printf '%s\000' "$2" >> "$_l"
-  while IFS= read -r -d '' f; do
-    # `-L` BEFORE `-f`: `[ -f <symlink-to-file> ]` follows the link and would
-    # read the target's content instead of the link's own text.
-    if [ -L "$f" ]; then
-      tgt="$(readlink "$f" 2>/dev/null)" || {
-        printf 'err\t%s: symlink, but its target could not be read\n' "${f#$ROOT/}"; continue; }
-      out="$(printf '%s\n' "$tgt" | grep -aEno -- "$K2RE")" || [ $? -eq 1 ] || {
-        printf 'err\t%s: symlink, but the scan of its target failed\n' "${f#$ROOT/}"; continue; }
-    elif [ -d "$f" ]; then
-      continue
-    elif [ -f "$f" ]; then
-      out="$(grep -aEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
-        printf 'err\t%s: unreadable, or the read failed\n' "${f#$ROOT/}"; continue; }
-    else
-      printf 'err\t%s: neither a regular file, a symlink nor a directory -- this wire cannot say what it holds\n' "${f#$ROOT/}"
-      continue
-    fi
-    printf 'ok\t%s\n' "${f#$ROOT/}"
-    [ -z "$out" ] || printf '%s\n' "$out" | while IFS= read -r hit; do
-      printf 'k2\t%s:%s\n' "${f#$ROOT/}" "$hit"
-    done
-  done < "$_l"
-  rm -f "$_l" "$_e"
+  rm -f "$_e"
   return 0
 }
 
@@ -240,9 +246,13 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   printf 'x\000%s\000y\n' "$CONTROL_BINARY"  > "$CTL/binary/control.dat"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/link/ok.py"
   ln -s "$CONTROL_K2" "$CTL/link/forbidden-target"
-  # An entry that is neither file, symlink nor directory. A fifo is the one such
-  # thing every POSIX shell can make; if the filesystem refuses, the control
-  # SAYS SO rather than passing quietly.
+  # An entry git cannot store. ⚠ This fixture's expected verdict CHANGED at
+  # #501 R74: it used to require exit 1 ("the wire cannot say what this holds"),
+  # and now requires exit 0 with the sibling still read. The reason is §2's
+  # wording, not convenience — K2 is about a path this tree *names*, i.e. stored
+  # text, and a fifo holds none: it cannot be committed and cannot survive a
+  # checkout. What the control still pins is that such an entry neither hangs
+  # the walk nor suppresses the verdict over its siblings.
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/odd/ok.py"
   mkfifo "$CTL/odd/pipe" 2>/dev/null || true
   # A filename holding a newline: `-print` plus `read` would split it into
@@ -294,14 +304,14 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
   _control "$CTL/cache"  1 "K2: a" "only cache DIRECTORIES are pruned"      || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
-    _control "$CTL/odd" 1 "cannot say what it holds" "an odd entry fails closed" || ctl_ok=1
+    _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
   else
     echo "  note: the odd-entry control could not be exercised here (no fifo);"
     echo "        every other control ran"
   fi
   # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
   # read" are different answers and only one of them is green.
-  _control "$CTL/empty" 2 "read 0 files" "an empty scope fails loudly" || ctl_ok=1
+  _control "$CTL/empty" 2 "read 0 entries" "an empty scope fails loudly" || ctl_ok=1
   if [ -r "$CTL/err/control.py" ]; then
     echo "  note: the two permission controls could not be exercised here (this user"
     echo "        can read a mode-000 file); the other five ran"
@@ -312,18 +322,20 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   [ "$ctl_ok" -eq 0 ] || exit 1
   echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
   echo "            inside binary content and on a symlink's stored target; an empty"
-  echo "            scope, an unreadable file, an unsearchable directory and an entry"
-  echo "            that is none of file/symlink/directory all fail closed"
+  echo "            scope, an unreadable file and an unsearchable directory all fail"
+  echo "            closed; an entry git cannot store neither hangs nor hides a verdict"
   echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
 
 # ---- THE REAL TREE ----------------------------------------------------------
-_verdict "$(_scan "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"} || true)"
+_verdict "$(_scan "$REL_DIR" ${REL_FILE:+"$REL_FILE"} || true)"
 if [ "$SCANNED" -eq 0 ]; then
-  echo "!! read 0 files; this wire would report no violation for a reason that is not 'there are none'" >&2
+  echo "!! read 0 entries; this wire would report no violation for a reason that is not 'there are none'" >&2
   exit 2
 fi
-echo "  read $SCANNED file(s) under the generic core, in full"
+# "holding text": the population is what `git grep -l '^'` returns plus the
+# symlinks, so an empty file is not counted -- it holds nothing K2 is about.
+echo "  read $SCANNED entr(y/ies) holding text under the generic core, in full"
 failed=0
 
 if [ -n "$K2_HITS" ]; then
