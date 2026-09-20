@@ -492,7 +492,8 @@ Every diff check names an explicit ref.
    instances that existed at its base (`cli.py` and the `webref` entry script both named
    `.claude/skills/elidex-review/axes.md`; measured 1 each at `44cd165d`, 0 at HEAD).
    - **Closed part, absolute**: `bash .claude/tools/webref-generic-core-trip-wire.sh` → PASSED. It FAILS
-     if either removed path returns, in a tracked *or* untracked file. Registered in
+     if either removed path returns anywhere in **the population stated below** — which is git's answer,
+     not "any file", and the difference is load-bearing in both directions. Registered in
      `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, so it runs on **every PR to `main`**, ungated by the CI
      path filter. ⚠ **And the PASSED is earned**: before it reads the real tree the wire **re-invokes
      itself over a fixture tree and asserts its own exit status** — one fixture per verdict it can reach
@@ -513,6 +514,15 @@ Every diff check names an explicit ref.
      drives the population, the name check, the content scan and the count, so those cannot disagree.
      A fixture pins each direction, and every fixture is a real repository, because a non-repo fixture
      cannot reproduce the tracked/ignored distinction the population now rests on.
+     ⚠ **A matcher that fails is not a matcher that found nothing** (#501 R85, R88, R89): `grep` calls
+     status 2 an error, and every site here that discards a status collapses it with "no match" — so an
+     operational failure reads as a clean answer. It has now been the finding three times, at three
+     depths: the inventory (`git ls-files`), the verdict classifiers, and the two stored-path arms, which
+     were bare pipelines inside a `_scan` the caller invokes under `|| true` (measured: a shim making only
+     `grep -aEo` exit 2 left the wire green over a tracked `.claude/skills/team/rule.md`). The stored-path
+     predicate now has **one call site** (`_match_path`) so the question is decided once; the remaining
+     arms each keep their own status test. Two fixtures, one per stored-path subject, because the
+     name fixture goes red from its own arm and so cannot speak for the target's.
      ⚠ **A stored path is bytes, and it reaches the predicate whole** (#501 R87-R88): an entry's own name
      and a symlink's target are matched by a slash-delimited predicate of their own — the content
      predicate's quote and space terminators are the honest answer for running text and the wrong one for a

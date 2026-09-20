@@ -203,6 +203,20 @@ _esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' | tr '\n\t' '~~'; }
 # separator. `\001` is chosen because no predicate here mentions it.
 _onerec() { printf '%s' "$1" | tr '\n' '\001'; }
 
+# THE ONE PLACE A STORED PATH IS MATCHED.  Both stored-path subjects — an
+# entry's own name and a symlink's target — run this, so "did the matcher
+# fail?" is decided once instead of per arm.  Prints the matches, one per line.
+# Status: 0 = matched, 1 = did not, **2 or more = the matcher failed**.
+# ⚠ THAT LAST CASE IS THE WHOLE POINT (#501 R89).  These arms used to be bare
+# `_onerec … | grep … | while …` pipelines inside a `_scan` the caller invokes
+# under `|| true`, so a `grep` that exited 2 produced no match, no record and no
+# trace: the entry still emitted `ok`, K2 stayed empty and the wire exited 0
+# over a name it had never actually read (reproduced with a clean tracked
+# `.claude/skills/team/rule.md` and a shim making only `grep -aEo` exit 2).
+# `grep` defines status 2 as an error, and the content arm and `_verdict` both
+# already separated it; these two were the arms that did not.
+_match_path() { _onerec "$1" | grep -aEo -- "$K2RE_PATH"; }
+
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
   _l="$(mktemp)" || { rm -f "$_e"; printf 'err\twalk: no temp file for the file list\n'; return 0; }
@@ -238,17 +252,29 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     # direct violation there is, and content search cannot see it. Matched
     # relative to the SCOPE: relative to the repo every file here would match,
     # since the generic core itself lives under `.claude/tools/`.
-    _onerec "${rel#$_dir/}" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
-      printf 'k2\t%s: (the entry NAME is itself) %s\n' "$(_esc "$rel")" "$m"
-    done
+    _mrc=0; _m="$(_match_path "${rel#$_dir/}")" || _mrc=$?
+    if [ "$_mrc" -gt 1 ]; then
+      printf 'err\t%s: the name matcher exited %d, so the entry NAME went unchecked\n' \
+        "$(_esc "$rel")" "$_mrc"
+    elif [ -n "$_m" ]; then
+      printf '%s\n' "$_m" | while IFS= read -r m; do
+        printf 'k2\t%s: (the entry NAME is itself) %s\n' "$(_esc "$rel")" "$m"
+      done
+    fi
     if [ -L "$f" ]; then
       # A symlink's stored content IS its target string; git keeps it as the blob.
       tgt="$(readlink "$f" 2>/dev/null)" || {
         printf 'err\t%s: symlink, but its target could not be read\n' "$(_esc "$rel")"; continue; }
       printf 'ok\t%s\n' "$(_esc "$rel")"
-      _onerec "$tgt" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
-        printf 'k2\t%s: -> %s\n' "$(_esc "$rel")" "$m"
-      done
+      _mrc=0; _m="$(_match_path "$tgt")" || _mrc=$?
+      if [ "$_mrc" -gt 1 ]; then
+        printf 'err\t%s: the target matcher exited %d, so the symlink TARGET went unchecked\n' \
+          "$(_esc "$rel")" "$_mrc"
+      elif [ -n "$_m" ]; then
+        printf '%s\n' "$_m" | while IFS= read -r m; do
+          printf 'k2\t%s: -> %s\n' "$(_esc "$rel")" "$m"
+        done
+      fi
       continue
     fi
     # THE CONTENT. `-a` because binary content is content; `grep` rather than
@@ -323,7 +349,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail grepfail grepfaillink; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -373,7 +399,31 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   mkdir -p "$CTL/fakegit"
   printf '#!/bin/sh\nprintf "ok.py\\000"\nexit 1\n' > "$CTL/fakegit/git"
   chmod +x "$CTL/fakegit/git"
+  # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
+  # control discriminates that arm rather than every grep in the run (shadowing
+  # them all would abort in `_verdict` instead, for a different reason).
+  mkdir -p "$CTL/fakegrep"
+  printf '#!/bin/sh\ncase " $* " in *" -aEo "*) exit 2;; esac\nexec %s "$@"\n' \
+    "$(command -v grep)" > "$CTL/fakegrep/grep"
+  chmod +x "$CTL/fakegrep/grep"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
+  mkdir -p "$CTL/grepfail/.claude/skills/team"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfail/.claude/skills/team/rule.md"
+  # SEPARATELY, because a fixture another entry can satisfy proves nothing about
+  # the entry it is named for (#501 R75/R80, twice). `grepfail` above would go
+  # red from its NAME arm alone, so it cannot show that the TARGET arm reports a
+  # failed matcher. Here the only entries are a clean-named symlink whose stored
+  # target is the forbidden hierarchy, and a clean regular file to keep the run
+  # off the zero-read guard.
+  # ⚠ What discriminates here is the MESSAGE, not the exit status: the shim
+  # fails `-aEo` for every subject, so each entry's NAME matcher reports a
+  # failure too and the run exits 1 whatever the TARGET arm does. Measured —
+  # reverting only the target arm still exits 1, and the control catches it on
+  # "the symlink TARGET went unchecked" being absent. `_control` asserts both,
+  # which is why that is enough; said here so the exit status is not read as
+  # the thing under test.
+  ln -s "$CONTROL_K2" "$CTL/grepfaillink/entry"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/grepfaillink/ok.py"
   # An IGNORED generated artefact carrying a forbidden path. It must NOT fire:
   # a `.pyc` embeds its source's absolute path, and scanning build products
   # turned the wire red for anyone who had merely run the tool (#501 R79).
@@ -411,7 +461,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored; do
+           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink; do
     ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
       && git add -A >/dev/null 2>&1 ) || true
   done
@@ -475,6 +525,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
   _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
   _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
+  _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
+  _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
@@ -510,7 +562,12 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
 fi
 
 # ---- THE REAL TREE ----------------------------------------------------------
-_verdict "$(_scan "$REL_DIR" ${REL_FILE:+"$REL_FILE"} || true)"
+# No `|| true` here. It was redundant — `_scan` returns 0 unconditionally and
+# reports every failure as an `err` record — but it is exactly the token that
+# made the stored-path arms' statuses look deliberately discarded (#501 R89),
+# and a swallow that currently swallows nothing is the one that stops being
+# noticed when it starts to.
+_verdict "$(_scan "$REL_DIR" ${REL_FILE:+"$REL_FILE"})"
 if [ "$SCANNED" -eq 0 ]; then
   echo "!! read 0 entries; this wire would report no violation for a reason that is not 'there are none'" >&2
   exit 2
