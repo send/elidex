@@ -20,10 +20,12 @@ time and each with a MECHANICAL seam rather than a prose one.  The controls
 whose measure is WORK rather than text -- the linearity witnesses, every one
 of them written against `_count_calls` / `_count_lines` / `_CountedList` --
 are `plan_memo_selftest_work.py` (PR #510 R24); the PROPERTY controls, every
-one of which enumerates its own population and sweeps it, are
-`plan_memo_selftest_properties.py` (PR #510 R25) and the
-`plan_memo_selftest_invariants.py` it merges (R29) -- the checker as written and
-the checker run -- and they are exactly the entries named `PROPERTY: ...`.  This module imports no work witness and reads
+one of which enumerates its own population and sweeps it, reach this module
+through `plan_memo_selftest_records.py` (the written record held against the
+tree), which merges `plan_memo_selftest_properties.py` (PR #510 R25), which
+merges `plan_memo_selftest_invariants.py` (R29) -- the sentence, the checker as
+written and the checker run -- and they are exactly the entries named
+`PROPERTY: ...`.  This module imports no work witness and reads
 no module source, AST or code object -- it imports neither `ast` nor the
 harness's `MODULES` / `SOURCES` / `GRAMMAR` -- and those two import lists are
 the two seams' statement.
@@ -50,7 +52,7 @@ import plan_memo_selftest_cases_inline  # noqa: F401 -- appends the Phase-2 inli
 import plan_memo_selftest_cases_sibling  # noqa: F401 -- appends the sibling-resolver family to the same CASES
 import plan_memo_selftest_cases_r26  # noqa: F401 -- appends R26's rounds to the same CASES
 from plan_memo_selftest_harness import control, run_on
-from plan_memo_selftest_properties import registry as property_registry
+from plan_memo_selftest_records import registry as property_registry
 from plan_memo_selftest_work import registry as work_registry
 
 

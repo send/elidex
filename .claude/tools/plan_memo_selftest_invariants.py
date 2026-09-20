@@ -7,13 +7,14 @@ The seam against `plan_memo_selftest_properties.py` is the SUBJECT, and it is
 mechanical rather than a taste.  A control there reads the checker AS WRITTEN
 -- its source text, its AST, the docstring of its entry point, the code object
 of one of its methods -- and calls nothing of it; a control here CALLS it, and
-reads what comes back.  In the imports: that module and the growth
-module are the only importers of `ast` and of the harness's module-set handles,
+reads what comes back.  In the imports: that module, the growth
+module and the records module are the only importers of `ast` and of the
+harness's module-set handles,
 this one and the controls module the only importers of the fixture runner
 (`run_on`), and the three WORK modules the only importers of the work
 witnesses.  ⚠ This sentence claimed `build` / `run_on` for this module ALONE
 until PR #510 R32 and was false -- `build` has seven importers.  The seams are
-a table now (`plan_memo_selftest_properties._IMPORT_SEAMS`), enforced rather
+a table now (`plan_memo_selftest_records._IMPORT_SEAMS`), enforced rather
 than asserted.
 Carved at PR #510 R29, at 998 lines, before the round's own controls were
 written into it.
@@ -34,10 +35,11 @@ verdict, which is a `Case` in `plan_memo_selftest_cases*.py` or a function in
 `plan_memo_selftest_work.py`'s.
 
 `registry()` returns this module's fragment of the one name -> (kind, control)
-table; `plan_memo_selftest_properties.registry()` merges it and
-`plan_memo_selftest_controls.registry()` merges that, so the runner and the
+table; `plan_memo_selftest_properties.registry()` merges it,
+`plan_memo_selftest_records.registry()` merges that and
+`plan_memo_selftest_controls.registry()` merges THAT, so the runner and the
 mutation proof still read ONE table, and every entry of it named
-`PROPERTY: ...` still comes from the two property modules.  A mutant row whose
+`PROPERTY: ...` still comes from the three property modules.  A mutant row whose
 file is THIS module patches the self-test, not the checker set
 (`plan_memo_selftest_mutants.SELFTEST`).
 

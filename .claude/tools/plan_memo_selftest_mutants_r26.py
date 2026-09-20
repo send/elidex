@@ -29,7 +29,7 @@ from plan_memo_selftest_cases_r26 import (
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
-    POPULATION, PROPERTIES, R27_GROWTH, ROLES, SIBLING, STREAM, TABLES, TOKENS,
+    POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, SIBLING, STREAM, TABLES, TOKENS,
 )
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
@@ -755,15 +755,16 @@ R32_ATTRIB = ("PROPERTY: every written `module.symbol` attribution names the mod
 
 MUTANTS += [
     ("R32 seams: a seam's allow-list is the set that may import it (widen one to every module: an "
-     "\"only importer\" nobody can violate is a sentence about nothing)", PROPERTIES,
-     '    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py"}, None),',
+     "\"only importer\" nobody can violate is a sentence about nothing)", RECORDS,
+     '    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",\n'
+     '                    "plan_memo_selftest_records.py"}, None),',
      '    "ast": ("ast", set(), None),',
      [R32_SEAMS]),
     # The OTHER direction, and the one the first row cannot report: a seam whose
     # names nothing imports passes any allow-list, so the control needs the
     # emptiness check that makes a vacuous seam red.
     ("R32 seams: a seam whose names NOTHING imports is red (rename one to a name no module imports: "
-     "the allow-list is satisfied vacuously)", PROPERTIES,
+     "the allow-list is satisfied vacuously)", RECORDS,
      '    "the fixture runner": (("run_on",),',
      '    "the fixture runner": (("run_on_nothing_imports_this",),',
      [R32_SEAMS]),

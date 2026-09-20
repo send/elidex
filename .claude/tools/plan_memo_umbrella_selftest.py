@@ -36,9 +36,10 @@ home now, and what stays here is the only thing this file can say that the map
 cannot:
 
   IMPORT DIRECTION, one way and no cycles: this runner imports the controls
-  module; the controls module imports the PROPERTIES module (not the invariants
-  module -- that one reaches the table through `properties.registry()`), the
-  work module, the case registry and, at three function-local sites, the
+  module; the controls module imports the RECORDS module (not the properties or
+  invariants module -- those two reach the table through `records.registry()`,
+  which merges `properties.registry()`, which merges the invariants module's),
+  the work module, the case registry and, at three function-local sites, the
   conformance module; the work module imports the pipeline and growth modules.
   Every module of the set but the conformance module imports the harness, and
   the harness imports none of them.  A registry fragment is merged UPWARDS

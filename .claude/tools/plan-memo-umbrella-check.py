@@ -64,6 +64,10 @@ MODULES
                           nothing of it -- and the §4.6 type-6 tag list, which
                           it holds against commonmark-0.31.2-html-block-tags.json,
                           vendored from the spec text with its sha256) /
+                          _selftest_records.py (the PROPERTY controls whose
+                          subject is a sentence SOMEBODY WROTE about this module
+                          set -- this map, an attribution `mod.sym`, an "only
+                          importer of X" -- held against what the set IS) /
                           _selftest_invariants.py (the PROPERTY controls whose
                           subject is this checker RUN: one document written two
                           ways that render the same must get one verdict, and a
@@ -93,7 +97,7 @@ MODULES
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)
   This map is CHECKED, in both directions and against the files on disk:
-  `plan_memo_selftest_properties`'s `module_map_completeness_control` fails
+  `plan_memo_selftest_records`'s `module_map_completeness_control` fails
   when a module here is not named, and `module_map_existence_control` when a
   name here is not a module. It is the descriptions, not the names, that a
   reader still has to keep true. Until PR #510 R28 the map was prose with a

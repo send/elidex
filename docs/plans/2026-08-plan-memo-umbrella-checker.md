@@ -1829,7 +1829,13 @@ ground for either option; it is not cited.
   with denominators). The TERMINAL design re-gate then ran over `bc7cb013..cd1f973c` and its
   findings are fixed and pushed — **so the head has MOVED past the dry rounds**.
   **▶ DO FIRST, in order:**
-  0. 🔴 **CRIT — THE PLAN'S OWN INVARIANT IS FALSE AT THE MERGE CANDIDATE, and this PR broke it.**
+  0. ✅ **DISCHARGED (2026-09-20, the next session's first act).** The split is taken, recorded in
+     §7's Slice 0 with the seam it actually used (the handoff's was refined — it would have split
+     `dash_spelling_sweep_control` from the sibling its own docstring names), and the header's
+     invariant holds again: `plan_memo_selftest_properties.py` 1,110 → 751 + `plan_memo_selftest_
+     records.py` 420, largest `plan*.py` now 974. Control NAME SET identical, census `--worklist`
+     byte-identical, 657 / 364 0-0, trip-wires rc 0. **The original CRIT, kept for the record:**
+     🔴 **THE PLAN'S OWN INVARIANT IS FALSE AT THE MERGE CANDIDATE, and this PR broke it.**
      The header states, with the command that decides it, that *"every `.claude/tools/plan*.py` is
      under the 1000-line touch-time bound"*. Measured: `plan_memo_selftest_properties.py` was **738**
      at `bc7cb013` and is **1110** now — I added 372 lines of property controls across this session
@@ -1843,9 +1849,9 @@ ground for either option; it is not cited.
      population, which sweeps the checker AS WRITTEN (its source text, AST, code objects, docstrings).
      Carve the first group out, keep `_swept_sources` as the shared population, re-point the `PROPERTIES`
      mutant rows, and confirm the control NAME SET is unchanged.
-     ⚠ **It is not done here, and that is a deliberate stop, not an oversight**: this session ran out of
-     context, and a split botched at the end is worse than a split recorded as owed. It is item 0
-     because it is the one thing that should not reach a merge.
+     ⚠ **It was not done there, and that was a deliberate stop, not an oversight**: that session ran
+     out of context, and a split botched at the end is worse than a split recorded as owed. It was
+     item 0 because it is the one thing that should not reach a merge.
   1. ⚠ **Axis 5 of the re-gate never finished** (project-context: stale measured figures, blind-spot
      classification, defer/slot hygiene, touch-time line counts). The other four axes found **four**
      stale figures of mine, so treat this as owed, not optional. Re-run it alone over
@@ -1982,6 +1988,48 @@ ground for either option; it is not cited.
   edits to `plan_memo_memo.py` are its docstring and the narrowed `from plan_memo_tables import
   admit_table`, 517 controls / 264 mutants 0 / 0 with **0** `(unknown control)`, `scripts/trip-wires.sh`
   rc 0, and the census worklist byte-identical to `89e65c8d`'s (`cmp` clean).
+  ⚠ Touch-time split at the START of the next session (`plan_memo_selftest_properties.py` had
+  reached **1,110** lines, from 738 at `bc7cb013` — this PR added 372 lines of property controls
+  across one session and took no split, which is the CRIT Axis 5 reported against the header's own
+  1000-line invariant; it is discharged HERE, before any other item):
+  `plan_memo_selftest_records.py` takes every control whose subject is a SENTENCE somebody wrote
+  about this module set, held against what the set IS — the entry point's MODULES map in both
+  directions (`_MAP_START` / `_MAP_NAME` / `_mapped_modules` / `_map_population` /
+  `module_map_completeness_control` / `module_map_existence_control`), the attribution sweep
+  (`_ATTRIB_SPELLINGS` / `_DATED_LOCATOR` / `_defining_module` / `_prose_of` /
+  `_attribution_corpus` / `symbol_attribution_control`) and the import seams (`_WORK` /
+  `_IMPORT_SEAMS` / `import_seam_control`). 1,110 → **751 + 420**.
+  ⚠ **THE SEAM THE PREVIOUS SESSION'S HANDOFF NAMED WAS REFINED, and the refinement is the whole
+  point of judging cohesion rather than counting lines.** The handoff said "sweeps the tree for
+  CROSS-FILE CONSISTENCY" vs "sweeps the checker AS WRITTEN", and named
+  `symbol_attribution_control` / `import_seam_control` / `dash_spelling_sweep_control` as the group.
+  That does not partition: `id_spelling_sweep_control` is a cross-file consistency sweep too and
+  stays, while `dash_spelling_sweep_control`'s own docstring calls itself "the
+  `id_spelling_sweep_control` shape applied to the other character class" — so the handoff's line
+  would have split a pair the SOURCE ITSELF calls a pair, which is a line count wearing a cohesion
+  label. What does partition is the SECOND SUBJECT: every control that moved compares a written
+  sentence with the tree, every control that stayed compares the code with nothing. It takes the
+  MODULES-map pair WITH the attribution sweep, which `symbol_attribution_control`'s docstring
+  already names as its other half ("the map pair next to it carries both directions for exactly
+  this reason"), and it leaves both spelling sweeps together.
+  One `registry()` chain, one direction, no cycle: controls → records → properties → invariants
+  (the records module merges the property module's fragment exactly as that one merges the
+  invariants module's, so `_swept_sources` stays the ONE shared population and is imported, not
+  copied). `RECORDS` joins `SELFTEST` in `plan_memo_selftest_mutants.py` with the split rather than
+  with the first mutant that needs it, and the **two** MUTANTS rows whose substring moved (both
+  R32 seam rows) target it.
+  ⚠ **The split CHANGED the graph its own control asserts, and the control said so**: the records
+  module imports `ast` and the harness's `HERE`, so both `_IMPORT_SEAMS` rows had to widen — which
+  is the first time that table, rather than a prose sentence, was the thing an edit had to move.
+  And `symbol_attribution_control` turned RED on its own first run after the carve, naming
+  `plan_memo_selftest_invariants.py:16` `` `plan_memo_selftest_properties._IMPORT_SEAMS` `` → the
+  records module: one stale attribution the split created and the suite caught unaided.
+  Behaviour-preserving, measured on the two invariants every split on this PR has used: the
+  **control NAME SET is identical** (all 657 names and kinds, read off `registry()` rather than off
+  the run's printed lines, which wrap) and the **#506 census `--worklist` is byte-identical**
+  (`cmp` clean, rc 0, 51 seeds / 715 sites). 657 controls / 364 mutants 0 survived 0 crashed, 0
+  `(unknown control)`, `scripts/trip-wires.sh` rc 0. The header's invariant now holds: the largest
+  `.claude/tools/plan*.py` is `plan_memo_selftest_mutants_inline.py` at **974**.
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,

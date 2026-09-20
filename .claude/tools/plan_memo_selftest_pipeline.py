@@ -313,7 +313,8 @@ def quote_build_once_control(M):
 # these controls measure have something to find.  `%s` is the body each shapes
 # for itself.  Written here rather than taken from `plan_memo_selftest_cases.
 # build` on purpose: the cases module's builder is the INVARIANTS module's
-# import (that is the seam between the two property modules), and a work
+# import (that is the seam between the source-sweep and the behavioural
+# property modules), and a work
 # control asks nothing about the verdict this memo produces.
 _PIPELINE_MEMO = """# fixture
 

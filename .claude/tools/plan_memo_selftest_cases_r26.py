@@ -12,9 +12,10 @@ R26's subject is the checker's OPERATING ENVELOPE (what it assumes about its
 host, what it costs) and the places where one reading of a text disagreed with
 another; the two findings with fixture-shaped controls are here, while the
 work-shaped ones are `plan_memo_selftest_work.py`'s and the swept ones are
-`plan_memo_selftest_properties.py`'s (the checker as written) and
-`plan_memo_selftest_invariants.py`'s (the checker run), by those modules' own
-seams.
+`plan_memo_selftest_properties.py`'s (the checker as written),
+`plan_memo_selftest_records.py`'s (a sentence somebody wrote about the module
+set) and `plan_memo_selftest_invariants.py`'s (the checker run), by those
+modules' own seams.
 
 This is the TAIL module of the four, so R26 ON lands here -- exactly as its
 mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
