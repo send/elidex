@@ -1715,6 +1715,36 @@ ground for either option; it is not cited.
   **Gate @ R35**: 652 controls / 361 mutants 0 survived 0 crashed / trip-wires rc 0 / census worklist
   byte-identical. Three further rows were retargeted where the `_terminates_run` restructure (bool →
   span end) moved their substrings.
+  ⚠⚠ **PR #510 Codex R36 (2026-09-20) — THREE findings, all real; ONE fixed and TWO carved. Step-4
+  PAUSE declared.** Trigger 07:26:29Z → assessed 07:37:28Z → processed immediately.
+  **R36-2 (P2, FIXED, and it was mine — the THIRD round running on this reader)**: R34-1 gave the end
+  test a walk to the run boundary and `file_and_cite_spans` applies that test at EVERY suffix, so one
+  run holding N suffixes re-walked the same boundary N times — measured ×3.80 then ×4.02 per doubling.
+  The boundary is a fact of the text, not of the suffix asking. ⚠ **The first fix for it was ALSO
+  wrong and this suite's own cost control caught it**: precomputing every offset's run end is a second
+  full pass, linear but double the constant, and `linear_file_token_control` went red at its stated
+  ceiling. A single cached boundary serves every suffix of a run (they are met in increasing order),
+  so it is amortised O(1) with no extra pass — ×4.0 → ×2.1, 0.817 s → 0.003 s at n=4,000.
+  **R36-1 and R36-3 are carved, each to a home §8 now names** — see §8 for both, including the reverted
+  fix and the measurement that reverted it.
+  ▶▶ **STEP-4 PAUSE, and BOTH triggers fired, not one.**
+  (1) *Same mechanism, three rounds*: R34-1, R35 and R36-2 are all the file-name reader's run
+  handling, and each round's fix produced the next round's finding.
+  (2) *Canary — a fix in round N breaks an invariant shipped in a prior round*: R36-3's fix turned
+  `id_scan_grammar_agreement_control` red. That is the literal wording of the trigger, and it fired
+  for the first time in this converge.
+  **The root-check's two written questions.** (a) *Abstraction coverage*: partly closed already —
+  R35's `file_token_run_agreement_control` subsumes the CORRECTNESS half of the run handling
+  (re-injecting R34-1's and R35's defects both red it). What has no property is the COST half: every
+  change to this reader needs a correctness guard AND a cost witness, and only the first is a
+  property, so R36-2 was caught by the reviewer rather than by the suite. (b) *Own-ideal test*: the
+  mechanism is NOT the anti-pattern — "ONE reading of 'a bare `.md` file name stands here'" is the
+  design and it is right. What violated the project's own ideal is HOW I changed it: three rounds of
+  edits to a reader bound by the id grammar, the sibling resolver, the disposition, a cost contract
+  and an agreement property — **≥3 intersecting invariant axes, which CLAUDE.md makes
+  plan-review-before-implementation by RULE**. I patched it inline three times instead.
+  **Gate @ R36**: 652 controls / 361 mutants 0 survived 0 crashed / trip-wires rc 0 / census worklist
+  byte-identical.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
@@ -1890,6 +1920,29 @@ ground for either option; it is not cited.
   be written?" — the deciding question is whether the property can be **parameterised**, and it can.
   The three docstrings that recorded a reachability limit now record the cost instead
   (`plan_memo_selftest_growth.py`, `plan_memo_selftest_work.py`, `plan_memo_selftest_pipeline.py`).
+- **The id grammar releases a REJECTED core's trailing decoration** (PR #510 R36-3, **real, reproduced,
+  NOT fixed here**). `prefix**C** owns it` reports nothing while `prefix **C** owns it` reports a site:
+  in `plan_memo_ids.tokens` the rejected `prefix` core takes the opening `**` as its right decoration,
+  `C` cannot reclaim it, comes out `balanced=False`, and the bare pass drops it as an undecorated
+  single letter — exit 0 on an ownership claim.
+  ⚠ **A fix was written, measured, and REVERTED because it broke a shipped invariant**: releasing the
+  decoration to the rejected core's end turned `id_scan_grammar_agreement_control` red on
+  `9z#11-a**[C1]` (3 disagreements). Asking the grammar directly shows why — `decorated_id`'s own
+  composition ALSO gives `C` no left decoration in `prefix**C**`, so the scan and the grammar agreed
+  and **the defect is in the grammar**, not in the scan that mirrors it.
+  ⚠ **That makes it edge-dense by CLAUDE.md's own test** — it intersects the id grammar, the
+  grammar↔scan agreement property, the `_glued` boundary rule, the decoration-run cost contract
+  (R29-2) and both mention passes — so it is `/elidex-plan-review`-before-implementation **by rule,
+  not by judgment**. Trigger = that plan-review. No slot: it is this checker's own grammar, not a
+  platform gap.
+- **Phase 1's container content as strings — TRIGGER FIRED** (PR #510 R36-1). The defer below
+  predicted "the next finding on this seam" as its trigger, and R36-1 is it: `item_marker()` rebuilds
+  the whole suffix at every nested `- ` marker, measured by the reviewer at 0.36 / 1.40 / 5.54 / 21.58 s
+  over 2,000 / 4,000 / 8,000 / 16,000 markers. It is the LIST half of the quote-nesting item already
+  carved below, same mechanism, and the same remedy (an OFFSET rather than a string, through every
+  `blocks.py` predicate and both container passes). ⚠ Two rounds have now landed on this seam, which
+  is `feedback_defer-accumulation-signals-mis-drawn-slice`'s signal that the boundary wants
+  re-drawing rather than another entry — carried to the next slice with that noted.
 - GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - Markdown library dependency (§5) — trigger-only (see §5); no slot; no date.

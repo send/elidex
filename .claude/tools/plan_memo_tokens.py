@@ -112,7 +112,32 @@ _NAME_BOUNDARY = frozenset("[]<>`|")
 _TRAILING = frozenset("?!.,:*_~'\")")
 
 
-def _terminates_run(text, e, n):
+def _run_end_from(text, e, n, cached):
+    """The end of the file-name RUN containing `e`, reusing `cached` -- the end
+    last computed -- when `e` has not yet passed it.
+
+    ⚠ THE RE-WALK WAS QUADRATIC AND IT WAS MINE (PR #510 R36-2).  R34-1 gave
+    the end test a scan to the run boundary, and `file_and_cite_spans` applies
+    that test at EVERY suffix, so one run holding N suffixes (`a.md` repeated)
+    re-walked the same boundary N times: measured 0.054 / 0.203 / 0.817 s over
+    1,000 / 2,000 / 4,000, x3.8 then x4.0 per doubling.
+
+    ⚠ AND THE FIRST FIX FOR IT WAS ALSO WRONG, caught by this suite's own cost
+    control: precomputing every offset's run end is a second full pass over the
+    text, which is linear but doubles the constant, and
+    `linear_file_token_control` went red at its stated ceiling.  The boundary a
+    suffix needs is the one for the run it is IN, suffixes inside a run are met
+    in increasing order, so ONE cached boundary serves every suffix of that run
+    and the walk is amortised O(1) with no extra pass."""
+    if e < cached:
+        return cached
+    j = e
+    while j < n and not (text[j].isspace() or text[j] in _NAME_BOUNDARY):
+        j += 1
+    return j
+
+
+def _terminates_run(text, e, n, run_end):
     """The END OF THE FILE SPAN when the run ends acceptably at `e` -- the
     suffix is the last of the NAME and what follows it is not more name -- or
     None when the run continues into more name.
@@ -138,10 +163,6 @@ def _terminates_run(text, e, n):
     (`9z+notes.md_tail`), which the resolver rejects whole and out of which the
     old test -- "not followed by an ASCII alphanumeric" -- still masked a
     prefix, hiding the ids in it."""
-    j = e
-    while j < n and not (text[j].isspace() or text[j] in _NAME_BOUNDARY):
-        j += 1
-    run_end = j
     if e < n and text[e] in "#?":
         # THE TAIL IS PART OF THE NAME, not merely permission to stop (PR #510
         # R35).  R34-1 admitted a fragment or query here and still recorded the
@@ -203,6 +224,7 @@ def file_and_cite_spans(text):
         `<div data-note="slice-9z-sib.md">` reported a `9z` naming site that
         the identical file name in a paragraph does not."""
     n, k = len(text), len(FILE_SUFFIX)
+    run_end = 0
     stack, seg, longest = [], 0, {}
     for i, c in enumerate(text):
         if c in _NAME_BOUNDARY or c.isspace():
@@ -217,7 +239,11 @@ def file_and_cite_spans(text):
             else:
                 seg = i + 1     # an unmatchable `)`: no run holds it, none crosses it
         e = i + 1
-        span_end = _terminates_run(text, e, n) if text[e - k:e] == FILE_SUFFIX else None
+        if text[e - k:e] == FILE_SUFFIX:
+            run_end = _run_end_from(text, e, n, run_end)
+            span_end = _terminates_run(text, e, n, run_end)
+        else:
+            span_end = None
         if span_end is not None:
             s = stack[-1] + 1 if stack else seg
             if s <= e - k:      # the suffix itself must lie inside the run

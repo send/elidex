@@ -442,8 +442,8 @@ MUTANTS = [
      "ending in the suffix is ever a token)", TOKENS,
      # ⚠ THE END TEST MOVED AT R34-1 (an alphanumeric look-ahead -> "the
      # suffix terminates the run"); the arm this row drops is the same one.
-     '        span_end = _terminates_run(text, e, n) if text[e - k:e] == FILE_SUFFIX else None',
-     '        span_end = None',
+     '            span_end = _terminates_run(text, e, n, run_end)',
+     '            span_end = None',
      ["(bare) a bare `.md` file name holding an id is a file token, not a site"]),
     ("#3 bare id: a dotted number is one token", IDS,
      '    return kind == "short" and text[i] == "." and lo <= j < hi and bool(cont.match(text[j]))',

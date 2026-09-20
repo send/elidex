@@ -257,7 +257,18 @@ def linear_file_token_control(M):
 
     ok, detail = True, []
     for label, mk, per in (("(a) groups", lambda n: "(a)" * n, 40),
-                           ("x.md names", lambda n: "x.md " * n, 60)):
+                           ("x.md names", lambda n: "x.md " * n, 60),
+                           # ⚠ ONE RUN HOLDING N SUFFIXES (PR #510 R36-2), and the
+                           # shape this control did NOT have: both probes above are
+                           # SPACE-SEPARATED, so every run holds exactly one suffix
+                           # and per-suffix work was invisible here. R34-1 gave the
+                           # end test a walk to the run boundary and the scan applies
+                           # it at EVERY suffix, so `a.md` repeated without
+                           # separators re-walked the same boundary N times --
+                           # x3.80 then x4.02 per doubling, caught by the reviewer
+                           # and not by this control. The boundary belongs to the
+                           # RUN, so a run with many suffixes is the shape.
+                           ("a.md run (no separators)", lambda n: "a.md" * n, 60)):
         seen = {}
         for n in (100, 400):
             try:

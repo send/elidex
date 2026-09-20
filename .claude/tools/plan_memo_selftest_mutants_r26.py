@@ -862,8 +862,8 @@ MUTANTS += [
 MUTANTS += [
     ("R34-1 file token: the suffix TERMINATES the run (re-inject the alphanumeric test: a prefix of a "
      "longer run is masked and the ids in it are hidden)", TOKENS,
-     "    run_end = j\n    if e < n and text[e] in \"#?\":",
-     "    run_end = j\n    if e < n and not _ALNUM_AT.match(text, e):\n        return e\n    if False:",
+     "    if e < n and text[e] in \"#?\":",
+     "    if e < n and not _ALNUM_AT.match(text, e):\n        return e\n    if False:",
      [R34_1_CONTINUES]),
     ("R34-1 file token: a FRAGMENT tail is still a name (drop the `#?` arm: the resolver follows that "
      "run and the lexer breaks it into pieces -- the one direction the correspondence forbids)", TOKENS,
@@ -895,4 +895,17 @@ MUTANTS += [
     # no id -- a period is not one -- so no control here can see it, and the
     # mutant SURVIVED. The clause is real but cosmetic to every predicate this
     # suite has; recording that is honest, and a row that cannot go red is not.
+]
+
+
+
+# -- PR #510 Codex R36-2: the run boundary is a fact of the TEXT, computed once
+# per run, not once per suffix asking.
+MUTANTS += [
+    ("R36-2 file token: the run boundary is REUSED across the suffixes of one run (pass 0 as the "
+     "cache: every suffix re-walks to the same boundary)", TOKENS,
+     "            run_end = _run_end_from(text, e, n, run_end)",
+     "            run_end = _run_end_from(text, e, n, 0)",
+     ["file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan from every "
+      "start position"]),
 ]
