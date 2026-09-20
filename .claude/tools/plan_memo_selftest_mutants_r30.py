@@ -39,7 +39,7 @@ from plan_memo_selftest_cases_r26 import (
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
     R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED, R42_BLANK_MARKER,
-    R42_IMG_AUTO, R42_IMG_CODE,
+    R42_ALLSPACE, R42_IMG_AUTO, R42_IMG_CODE, R42_TRIM,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -618,4 +618,18 @@ MUTANTS += [
      '        if tag == "demoted":',
      '        if False:',
      [R42_IMG_CODE]),
+]
+
+
+MUTANTS += [
+    ("R42-6 §6.1: drop the trim on a demoted span (the padding stands in the alt text and a declared "
+     "id split by it is two tokens: `Slice 9` + `z`, no site, rc 0)", STREAM,
+     '            if inner[:1] == " " and inner[-1:] == " " and inner.strip(" "):',
+     '            if False:',
+     [R42_TRIM]),
+    ("R42-6 §6.1: trim unconditionally (drop the spec's own \"not entirely spaces\" arm: an all-space "
+     "span is trimmed, which JOINS what the reader sees separated)", STREAM,
+     '            if inner[:1] == " " and inner[-1:] == " " and inner.strip(" "):',
+     '            if inner[:1] == " " and inner[-1:] == " ":',
+     [R42_ALLSPACE]),
 ]

@@ -2092,6 +2092,23 @@ ground for either option; it is not cited.
   which layer generates the findings. The answer was "a closed table with two empty rows" — and the
   cost of answering it wrongly was one commit, caught because the judgement was put to a second
   reader before it was acted on rather than after.
+
+  ⚠ **R42-6 — the fold's own follow-on, and the loop caught it in 13 minutes.** §6.1's TRIM is part
+  of the CONTENT §6.4 reads, and the demotion did not apply it: a padded span only started reaching
+  that branch once it stopped being masked, so `` ![Slot #11-zz-alph` a ` owns it](img.png) `` left
+  the padding standing and the slug split into `#11-zz-alph` + `a` — declared nowhere, no site, rc 0.
+  Fixed where the demotion is: the trimmed spaces JOIN the delimiter marks, which is the same
+  mechanism saying the same thing — what the reader does not see does not separate. The spec's own
+  "but does not consist entirely of space characters" arm is a separate control.
+  ⚠⚠ **BOTH of its mutants survived their first fixtures, for two DIFFERENT reasons, and each is the
+  same lesson**: the padded control measured the site COUNT, and the wrong reading still reports one
+  site — `9`, which the template also declares — so "one site" was true either way and the claim is
+  about WHICH id (the fixture now splits an id whose halves are declared nowhere, making the count
+  the verdict); and the all-space control carried a SPACE after the closing backtick, so that space
+  did the separating and the claim was never tested (the span is the only separator now).
+  A probe whose subject is not the claim is green for a reason that has nothing to do with the
+  property (`memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`) — twice in
+  one fix, both found by running the mutants rather than by reading the controls.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers

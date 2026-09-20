@@ -164,6 +164,21 @@ def code_mask(lx, keep):
             # standing backtick would JOIN the two sides of it.
             run = len(lx.text[a:b]) - len(lx.text[a:b].lstrip("`"))
             tail = len(lx.text[a:b]) - len(lx.text[a:b].rstrip("`"))
+            # ⚠ §6.1's TRIM IS PART OF THE CONTENT, not of the delimiters (PR
+            # #510 R42-6, a direct consequence of the demotion above: the span
+            # only started reaching this branch when it stopped being masked).
+            # "If the resulting string both begins and ends with a space
+            # character, but does not consist entirely of space characters, a
+            # single space character is removed from the front and back" -- and
+            # §6.4 uses THAT string, so `` ![Slice 9` z ` owns it](i.png) ``
+            # renders the alt text `Slice 9z owns it` and the declared `9z` is
+            # ONE id. Reading the padded content verbatim split it into `9` and
+            # `z`, and the run exited 0 with no residue to say so. The trimmed
+            # spaces join the marks, which is the same mechanism saying the same
+            # thing: what the reader does not see does not separate.
+            inner = lx.text[a + run:b - tail]
+            if inner[:1] == " " and inner[-1:] == " " and inner.strip(" "):
+                run, tail = run + 1, tail + 1
             out.append((a, a + run, "mark"))
             out.append((b - tail, b, "mark"))
             continue

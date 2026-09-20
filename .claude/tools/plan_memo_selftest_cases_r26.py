@@ -696,3 +696,48 @@ rcase("NEGATIVE", "(R42 §6.1) the partner that bounds the demotion: the SAME co
                   "image is a QUOTATION and its prose is not read -- a kind marker quoted whole stays "
                   "quoted (I-A), so the §6.4 demotion must not leak out of the description",
       build(suz="`UMBRELLA, not a terminal unit.`", duz="**7z**"), "", 0)
+
+
+# -- R42-6: §6.1's trim is part of the CONTENT §6.4 reads.  A direct consequence
+# of the demotion above -- a padded span only started reaching that branch once
+# it stopped being masked -- and the three arms are the spec's own clause: the
+# trim fires, it must NOT fire (all spaces), and the span is outside a
+# description at all.
+#
+# ⚠ THE FIXTURE SPLITS AN ID WHOSE HALVES ARE UNDECLARED, and that is what makes
+# the measure discriminate.  Written first over `` `Slice 9` z ` `` the count
+# stayed 1 under BOTH mutants -- the wrong reading reports `9`, which the
+# template also declares, so "one site" was true either way and the claim is
+# about WHICH.  `#11-zz-alph` + `a` are declared nowhere, so the wrong reading
+# reports NOTHING and the count is the verdict
+# (`memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`).
+case("POSITIVE", "(R42 §6.1/§6.4) a PADDED code span inside a resolved image description renders its "
+                 "TRIMMED content: §6.1 removes one leading and one trailing space when the content "
+                 "begins and ends with one, and §6.4 uses that string -- so "
+                 "`` ![Slot #11-zz-alph` a ` owns it](img.png) `` has the alt text "
+                 "`Slot #11-zz-alpha owns it` and the slot is ONE reported site.  Read verbatim it "
+                 "splits into `#11-zz-alph` and `a`, which are declared nowhere: no site, rc 0, and "
+                 "no residue to say the checker could not read it",
+     build(), "See ![Slot #11-zz-alph` a ` owns it](img.png).", 1)
+R42_TRIM = CASES[-1].name
+"""Red under both R42-6 mutants: dropping the trim splits the slug, and trimming
+unconditionally eats the separator the all-space arm needs."""
+
+case("POSITIVE", "(R42 §6.1/§6.4) the arm the spec spells out, and the one an unconditional trim "
+                 "breaks: a span that consists ENTIRELY of spaces is NOT trimmed (\"but does not "
+                 "consist entirely of space characters\"), so "
+                 "`` ![Slot #11-zz-alpha`  `owns it](img.png) `` keeps the separator and the slug "
+                 "stands alone -- trimmed, it would fuse with what follows and the site would vanish.  "
+                 "⚠ The span is the ONLY separator here, deliberately: written with a space after the "
+                 "closing backtick the control stayed green under the mutant, because that space did "
+                 "the separating and the claim was never tested",
+     build(), "See ![Slot #11-zz-alpha`  `owns it](img.png).", 1)
+R42_ALLSPACE = CASES[-1].name
+"""Red under the mutant that trims unconditionally -- the arm `R42_TRIM` cannot
+reach, since trimming IS correct on a padded span."""
+
+case("NEGATIVE", "(R42 §6.1/§6.4) the partner that bounds the whole demotion: the SAME padded span "
+                 "OUTSIDE an image is MASKED whole, so its content is not read, the slug never "
+                 "completes and NOTHING is reported -- the trim belongs to §6.4's reading of a "
+                 "description, never to a code span in ordinary prose",
+     build(), "Slot #11-zz-alph` a ` owns it.", 0)
