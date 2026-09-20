@@ -181,7 +181,17 @@ jobs:
   # mutant naming it, and SIX rows name it (measured by loading `MUTANTS`, not by
   # grepping: a `grep -c` counts the constant's definition and import lines too
   # and says ten). Self-test alone is ~6.5 s of the ~29 s; the mutant phase is
-  # the rest. ⚠ So the budget is spent by REVIEW ROUNDS, not by the program:
+  # the rest.
+  # ⚠ RE-MEASURED at PR #510 Axis 5 (2026-09-20, head `b8324d06`) under THIS
+  # block's own condition -- one clean `git clone --local`, sequential, nothing
+  # else of this project running: the wire is 28.53 / 29.34 / 27.46 s and the
+  # self-test alone 6.90 / 6.79 / 6.26 s. BOTH figures above reproduce, and the
+  # head has since grown to 658 controls / 366 mutants. A review pass reported
+  # them as stale off a WARM WORKTREE at an older head (26.4 / 25.0 s) -- which
+  # is why the condition is written into the block: measured concurrently with
+  # other work the same wire ran 31.96 / 35.05 / 39.85 s here, a 1.5x spread
+  # that has nothing to do with the program. THE CONDITION IS PART OF THE
+  # NUMBER, in both directions. ⚠ So the budget is spent by REVIEW ROUNDS, not by the program:
   # every round that adds a mutant naming the growth property costs ~3.6 s of it.
   # Making that not grow is a change to the proof's own strength and is deferred
   # with a trigger in the plan's §8, not done here.

@@ -1923,11 +1923,14 @@ ground for either option; it is not cited.
   CHANNEL rather than in the one control whose name legitimately carries one — `printable()` escapes
   every C0 character and DEL, with a control over all 33 and two mutants (drop the arm / escape
   everything). ⚠ Still OPEN and routed to the user: the **defer cap** (10 own against ≤3, classified
-  in §8 without merging or deleting an entry to move the number), the **"~29 s"** figure (re-measured
-  under the block's own clean-clone condition at the pushed head), and the **touch-time-split
+  in §8 without merging or deleting an entry to move the number) and the **touch-time-split
   pre-commitment** on `_cases_r26.py` / `_mutants_r26.py` (939 / 584, under the bound, split owed by
   the next commit that adds to them — recorded rather than done because the head must stop moving for
-  the round about to run).
+  the round about to run). ⚠ The **"~29 s"** finding is an **FP**: re-measured under the block's own
+  clean-clone condition at `b8324d06` it reproduces (28.53 / 29.34 / 27.46), and the pass that called
+  it stale had measured a warm worktree at an older head — `memory/feedback_verify-agent-measurements-and-fp-verdicts.md`
+  is the rule, and this is the second time on this PR that a figure's CONDITION, not its value, was
+  the thing in dispute.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2174,7 +2177,14 @@ a paragraph here that reasons the number down.
   re-measuring. The timeout is re-derived there (5 → 10 min) under that block's own rule. ⚠ What is
   NOT fixed is the driver: the generated corpus costs ~3.6 s and runs once in `--self-test` plus once
   per mutant naming it, and **six** rows name it (measured by loading `MUTANTS`; a `grep -c` counts
-  the constant's definition and import lines and says ten). Self-test alone is ~6.5 s of ~29 s. Making
+  the constant's definition and import lines and says ten). Self-test alone is ~6.5 s of ~29 s.
+  ⚠ **Both re-measured at PR #510 Axis 5** (2026-09-20, head `b8324d06`, one clean `git clone
+  --local`, sequential, nothing else of this project running — the condition the `ci.yml` block
+  writes down): wire 28.53 / 29.34 / 27.46, self-test alone 6.90 / 6.79 / 6.26. **Both figures
+  HOLD**, at a head that has since grown to 658 controls / 366 mutants; the review pass that reported
+  them stale had measured a WARM WORKTREE at an older head, and the same wire run here concurrently
+  with other work gave 31.96 / 35.05 / 39.85 — a 1.5x spread owing nothing to the program. The
+  condition is part of the number in BOTH directions. Making
   that not grow means a mutant run answering only "does this control go red", which a smaller corpus
   can do — but corpus size is the proof's STRENGTH, so shrinking it per-row is a change to what the
   proof asserts and needs its own measurement per row. Trigger = the round whose head measures under
