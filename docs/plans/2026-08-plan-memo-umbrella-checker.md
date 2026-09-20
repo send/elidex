@@ -1829,6 +1829,23 @@ ground for either option; it is not cited.
   with denominators). The TERMINAL design re-gate then ran over `bc7cb013..cd1f973c` and its
   findings are fixed and pushed — **so the head has MOVED past the dry rounds**.
   **▶ DO FIRST, in order:**
+  0. 🔴 **CRIT — THE PLAN'S OWN INVARIANT IS FALSE AT THE MERGE CANDIDATE, and this PR broke it.**
+     The header states, with the command that decides it, that *"every `.claude/tools/plan*.py` is
+     under the 1000-line touch-time bound"*. Measured: `plan_memo_selftest_properties.py` was **738**
+     at `bc7cb013` and is **1110** now — I added 372 lines of property controls across this session
+     and took no touch-time split, which CLAUDE.md requires AT TOUCH TIME and which §7 records seven
+     times for this PR. Three more files are in the 900s (`_mutants_inline.py` 974, `plan_memo_lexer.py`
+     961, `_mutants_r26.py` 938).
+     ⚠ **The seam is already identified and is a real cohesion seam, not a line count**: everything
+     this session added to that file sweeps the tree for CROSS-FILE CONSISTENCY — `symbol_attribution_control`,
+     `import_seam_control`, `dash_spelling_sweep_control`, with `_ATTRIB_SPELLINGS`, `_IMPORT_SEAMS`,
+     `_DATED_LOCATOR`, `_defining_module`, `_attribution_corpus`, `_prose_of` — against the original
+     population, which sweeps the checker AS WRITTEN (its source text, AST, code objects, docstrings).
+     Carve the first group out, keep `_swept_sources` as the shared population, re-point the `PROPERTIES`
+     mutant rows, and confirm the control NAME SET is unchanged.
+     ⚠ **It is not done here, and that is a deliberate stop, not an oversight**: this session ran out of
+     context, and a split botched at the end is worse than a split recorded as owed. It is item 0
+     because it is the one thing that should not reach a merge.
   1. ⚠ **Axis 5 of the re-gate never finished** (project-context: stale measured figures, blind-spot
      classification, defer/slot hygiene, touch-time line counts). The other four axes found **four**
      stale figures of mine, so treat this as owed, not optional. Re-run it alone over
@@ -1849,6 +1866,20 @@ ground for either option; it is not cited.
   · **R36-3** → **Slice 2's plan-review** (§8). The defect is in the GRAMMAR (`decorated_id` itself
   gives `C` no left decoration in `prefix**C**`, verified by executing it), which makes it edge-dense
   and plan-review-first BY RULE.
+  **▶ AXIS 5's OTHER LIVE FINDINGS** (it completed after the handoff was first written; 1 CRIT ·
+  11 IMP · 3 MIN, of which 6 were already fixed in this session's work): the **"39 module-level
+  `re.Pattern` globals"** figure in §8 does NOT reproduce — 34 / 46 / 47 depending on the
+  enumeration — and it is the SCOPING BASIS of that carve, so re-measure before acting on it; the
+  enumerated-table **blind-spot class** (`_IMPORT_SEAMS` / `_ATTRIB_SPELLINGS` / `_TRAILING`) has its
+  instances fixed but no detector and no §8 entry; the shared `trip-wires` budget was re-derived here
+  while the `stale-claim-detector` lane is adding a SECOND always-run wire to the same job, which no
+  trigger covers; and **three plan-memo checkers are being built in parallel** (this one,
+  `claim-gate-plan-check.py`, `plan-xcheck.py`) with zero cross-references in either direction — the
+  other two have already reconciled with each other. Also: "~29 s" in two homes should be ~25 s
+  measured, and the wire's verdict runs through a command substitution that drops a NUL byte
+  (pre-existing, rc unaffected).
+  ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
+  "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
   are named there, and one of them (`fenced_spans`) is a legitimately-planned site, which is why the
   half needs §3's `(NEW)` / `✗ (absent)` conventions read first.

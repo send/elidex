@@ -148,7 +148,7 @@ jobs:
   # does not make anybody re-measure.
   # ⚠ THE LABEL IS PART OF THE NUMBER, and this block taught that lesson before
   # breaking it again: the pair below was "CURRENT, re-measured at R32" while
-  # R33-R36 then added 27 controls and 14 mutants (625/347 -> 652/362) with no
+  # R33-R36 then added 27 controls and 15 mutants (625/347 -> 652/362) with no
   # re-measurement -- the very failure the paragraph above names ("one home
   # stops two numbers disagreeing; it does not make anybody re-measure").
   # Re-measured at R38 on alternating clean extracts, one host: `7d43d7cd`
