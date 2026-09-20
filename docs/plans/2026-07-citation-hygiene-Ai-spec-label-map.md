@@ -505,9 +505,23 @@ Every diff check names an explicit ref.
      hierarchy, which content search alone counted as read and certified (#501 R78); an empty scope failing
      closed; and an entry git cannot store — a fifo — neither hanging the walk nor hiding the verdict over
      its readable sibling).
-     ⚠ **The population is git's, not the filesystem's** (#501 R79): `git ls-files --cached --others
-     --exclude-standard` — tracked (including a file force-added under an ignored path), plus untracked
-     minus what `.gitignore` excludes. That last clause is load-bearing in both directions: a `.pyc`
+     ⚠ **…and so is the CONTENT** (#501 R92): taking the list from the index and the bytes from the
+     working tree made the two disagree, and three reproductions came out of that one seam — a violation
+     **staged** and reverted in the worktree read GREEN while `git show :victim` still held it; a tracked
+     path replaced by a **FIFO** made `grep` block forever, so the local gate **hung** rather than failing
+     closed; and the untracked half answered to whatever the machine's git was told to ignore. A tracked
+     entry is now read from its index blob *and* the worktree (the two differ, and an unstaged violation is
+     one `git add` from being carried); an untracked entry has no blob, so only the worktree; anything that
+     is neither a regular file nor a symlink is an **error, never an open()**. ⚠ And the controls grew a
+     **watchdog**, because a hang is a verdict this harness could not otherwise report — a control for the
+     FIFO, run plainly, would block too.
+     ⚠ **The population is git's, not the filesystem's** (#501 R79, R92): `git ls-files --cached` plus
+     `--others --exclude-per-directory=.gitignore` — tracked (including a file force-added under an ignored
+     path), plus untracked minus what the tree's own `.gitignore` excludes. **Not `--exclude-standard`**:
+     that adds `$GIT_DIR/info/exclude` and the machine's `core.excludesFile`, neither committed nor the
+     repository's statement about what it carries — measured, a global `*.py` rule emptied the fixtures and
+     the gate exited 1 before reaching this repo. A wire that calls itself ABSOLUTE cannot read differently
+     on two machines from one commit. That last clause is load-bearing in both directions: a `.pyc`
      embeds its source's absolute path, which matches the predicate, so scanning build products turned the
      wire red for anyone who had merely run the tool; and an **empty** tracked file was enumerated by
      nothing content-based, so its name alone could carry the hierarchy past the gate. One `-z` list now
