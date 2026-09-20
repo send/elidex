@@ -649,6 +649,44 @@ def html_block_tag_names_control(M):
                    len(absent), (" (%s)" % ", ".join(absent)) if absent else ""))
 
 
+def line_bound_control(M):
+    """PROPERTY: every source of this checker is under the 1000-line touch-time
+    bound CLAUDE.md sets and this plan's header states as its own invariant.
+
+    WHY A CONTROL AND NOT THE SENTENCE THAT WAS THERE (PR #510 Axis 3 + Axis 5).
+    The bound was stated in the plan's header, with the command that decides it,
+    and it was BROKEN by this very PR -- `plan_memo_selftest_properties.py`
+    reached 1,110 lines over one session and an external review round reported
+    it.  The first response was a touch-time split plus a §8 entry promising the
+    next commit would split the next file; that entry's own trigger fired IN THE
+    COMMIT THAT WROTE IT (two mutant rows appended to the file it named, 939 ->
+    961), and two independent review axes measured that one commit later.  A
+    prose rule its own author broke inside a single commit is the argument for a
+    mechanism (`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md`),
+    and the population was already here: `_swept_sources()` globs exactly the
+    files the invariant ranges over, so the check is a fold over it.
+
+    The bound is the one CLAUDE.md sets, not a margin: a file AT 1000 is over.
+    The detail reports the largest file every run, green or red, so the number a
+    reader would use to pick the next split target is a MEASUREMENT taken now
+    rather than a figure someone transcribed into a document.
+
+    HONESTLY, what it cannot see: the two vendored CommonMark corpora, which are
+    generated data and outside the cohesion test -- they are `.json`, and the
+    population is `plan_memo*.py` plus the entry point, so they are excluded by
+    the glob rather than by a name; and cohesion itself, which is the judgement
+    the bound is a proxy for.  A 999-line file with no seam passes here and a
+    600-line file with an obvious one is not reported -- this control holds the
+    floor, not the ceiling."""
+    sizes = sorted(((src.count("\n") + (0 if src.endswith("\n") else 1)), file)
+                   for file, src in _swept_sources())
+    over = [(n, f) for n, f in sizes if n >= 1000]
+    big = sizes[-1]
+    return not over, ("%d source(s) swept, largest %s at %d line(s), %d at or over 1000%s"
+                      % (len(sizes), big[1], big[0], len(over),
+                         ("; " + "; ".join("%s %d" % (f, n) for n, f in over[-3:])) if over else ""))
+
+
 def registry():
     """name -> (kind, control), the PROPERTY fragment of the one table: this
     module's source sweeps merged with the invariants module's."""
@@ -670,6 +708,8 @@ def registry():
             ("CONTROL", html_block_tag_names_control),
         "PROPERTY: the separator dash set is spelled once, in plan_memo_ids.py (the class three readers spelled three ways, disagreeing)":
             ("CONTROL", dash_spelling_sweep_control),
+        "PROPERTY: every source of this checker is under the 1000-line touch-time bound (the invariant this PR broke, as a mechanism instead of a sentence)":
+            ("CONTROL", line_bound_control),
     })
     return reg
 

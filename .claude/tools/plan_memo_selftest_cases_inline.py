@@ -774,14 +774,14 @@ case("NEGATIVE", "(R24 render) ``**`x` 9z**7z owns it`` names nobody: a READER s
 # claim).
 NUL_CHILD = ("| # | Slice | Primary module(s) | Slot | Tier | Deps |\n|---|---|---|---|---|---|\n"
              "| **9zy** | **UMBRELLA, not a terminal unit.** carved. | `v.rs` | — | T1 | — |\n")
-case("POSITIVE", "(R24 §2.1) a link destination holding a literal U+0000 names the file the document "
+case("POSITIVE", "(R24 §2) a link destination holding a literal U+0000 names the file the document "
                  "renders: §2 replaces the NUL with U+FFFD before parsing, so `[x](child\0.md)` links "
                  "`child<U+FFFD>.md`, that memo is walked and its rows are declared.  Left in, the NUL "
                  "is an ASCII control, `link_destination` (§6.3) refuses the destination, and the memo "
                  "-- with every violation in it -- left the census while the run could still exit 0",
      build(), "See [the child](child\0.md).", 1, files={"child�.md": NUL_CHILD},
      measure=("id", "9zy"))
-case("POSITIVE", "(R24 §2.1) the same link with the REPLACEMENT CHARACTER written out is walked -- the "
+case("POSITIVE", "(R24 §2) the same link with the REPLACEMENT CHARACTER written out is walked -- the "
                  "discriminating half: the file, the table and the link are the control's constants, "
                  "and only the SPELLING of the destination's one character differs",
      build(), "See [the child](child�.md).", 1, files={"child�.md": NUL_CHILD},

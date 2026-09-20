@@ -182,16 +182,27 @@ jobs:
   # grepping: a `grep -c` counts the constant's definition and import lines too
   # and says ten). Self-test alone is ~6.5 s of the ~29 s; the mutant phase is
   # the rest.
-  # ⚠ RE-MEASURED at PR #510 Axis 5 (2026-09-20, head `b8324d06`) under THIS
-  # block's own condition -- one clean `git clone --local`, sequential, nothing
-  # else of this project running: the wire is 28.53 / 29.34 / 27.46 s and the
-  # self-test alone 6.90 / 6.79 / 6.26 s. BOTH figures above reproduce, and the
-  # head has since grown to 658 controls / 366 mutants. A review pass reported
-  # them as stale off a WARM WORKTREE at an older head (26.4 / 25.0 s) -- which
-  # is why the condition is written into the block: measured concurrently with
-  # other work the same wire ran 31.96 / 35.05 / 39.85 s here, a 1.5x spread
-  # that has nothing to do with the program. THE CONDITION IS PART OF THE
-  # NUMBER, in both directions. ⚠ So the budget is spent by REVIEW ROUNDS, not by the program:
+  # ⚠ THE `~29 s` ABOVE IS STALE, AND THE VERDICT THAT SAID OTHERWISE WAS WRONG
+  # (PR #510, 2026-09-20). It was re-measured, declared an FP ("28.53 / 29.34 /
+  # 27.46, both figures hold"), and a review axis then measured 25.67-26.80 at
+  # the SAME head under the SAME stated condition -- ranges that do not overlap.
+  # Arbitrated on a third clean `git clone --local` at `7121476e`, sequential,
+  # nothing else of this project running:
+  #   this wire alone      24.88 / 24.93 / 25.05 s
+  #   the whole job (5)    26.10 / 26.22 / 26.73 s
+  #   self-test alone      ~6.5 s  (this figure has reproduced every time)
+  # So the wire is **~25 s**, the job ~26 s, and the self-test is ~6.5 s of the
+  # wire -- the RATIO is the part that has never moved.
+  # ⚠ WHAT THE EPISODE ACTUALLY SHOWS is that the absolute is not reproducible
+  # on this host to better than ~20%: three "quiet clean clone" runs of the same
+  # command at nearby heads gave 24.9, 26.1 and 28.5 s. The earlier block
+  # attributed a 31.9-39.9 s set to CONCURRENCY; the whole job measured quiet
+  # lands at 26-34 depending on the run, so SUBJECT (one wire vs five) explains
+  # as much as load does and the concurrency claim was not supported.
+  # Therefore: derive the timeout from the RATIO and the trend, never from one
+  # point value, and when an absolute is written, name the SUBJECT beside the
+  # condition. A number this noisy is an argument unless both are stated
+  # (`memory/feedback_convention-dependent-figures-are-argument.md`). ⚠ So the budget is spent by REVIEW ROUNDS, not by the program:
   # every round that adds a mutant naming the growth property costs ~3.6 s of it.
   # Making that not grow is a change to the proof's own strength and is deferred
   # with a trigger in the plan's §8, not done here.

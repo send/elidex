@@ -148,8 +148,9 @@ def printable(text):
     as `<U+XXXX>`, so the run's verdict can be read by `grep`.
 
     WHY THE PRINTER AND NOT THE ONE CONTROL THAT CARRIES A NUL (PR #510 Axis 5).
-    A control name may legitimately BE its fixture -- the §2.1 control spells a
-    literal U+0000 in a link destination, because that is what it is about -- and
+    A control name may legitimately BE its fixture -- the R24 NUL control spells
+    a literal U+0000 in a link destination, because that is what it is about --
+    and
     the trip-wire captures the run through `$(...)`, which bash strips NULs from.
     The rc was unaffected, so the wire's verdict was right and only its captured
     TEXT was silently altered; but a gate whose output cannot be grepped is a

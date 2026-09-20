@@ -111,9 +111,15 @@ _NAME_BOUNDARY = frozenset("[]<>`|")
 # with no spec clause).
 #
 # ⚠ IT WAS ATTRIBUTED TO "GFM §6.9's extended-autolink trailing punctuation"
-# UNTIL R38's design re-gate, AND IT IS NOT THAT SET.  GFM 0.29 §6.9 lists
-# `? ! . , : * _ ~`; this one added `'` `"` `)` -- `)` is governed by GFM's
-# separate parenthesis rule, not that sentence -- and, worse, OMITTED `;`,
+# UNTIL R38's design re-gate, AND IT IS NOT THAT SET.  ⚠ The recalled contents
+# of that section -- `? ! . , : * _ ~` -- are UNVERIFIED and unverifiable here,
+# for exactly the reason the withdrawal gives below: nothing in this tree can
+# check a GFM citation, so the premise is stated as recall, not as fact (PR
+# #510 Axis 5 re-gate; `memory/feedback_ao-name-not-section-number-in-briefs.md`
+# -- a withdrawal's REASONING is held to the same standard as the claim it
+# withdraws).  What the withdrawal actually rests on is the measurement two
+# sentences down, which needs no spec at all: this set added `'` `"` `)` and,
+# worse, OMITTED `;`,
 # which this PR's OWN corpus measurement names among the characters that
 # actually follow `.md` here (`:` `)` `'` `;` `,` `.`, 41 occurrences over 71
 # memos).  Comment, set and ledger gave three different answers.  ⚠ No GFM

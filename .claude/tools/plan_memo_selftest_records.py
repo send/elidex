@@ -403,6 +403,92 @@ def import_seam_control(M):
                                                    ("; " + "; ".join(bad)) if bad else ""))
 
 
+_REPORT_MODULES = ("plan_memo_umbrella_selftest.py", "plan_memo_selftest_mutants.py")
+
+
+def report_channel_control(M):
+    """PROPERTY: every line the run REPORTS goes through the escape, measured
+    over the emit sites rather than over the escape function.
+
+    ⚠ THE CONTROL BESIDE THIS ONE HAD THE WRONG SUBJECT (PR #510 Axis 3 + Axis
+    5, and each reached it by a different route).  `printable_output_control`
+    iterates all 33 control characters through `printable()` directly, and the
+    two mutants beside it edit `printable()`'s own expression -- so the SUBJECT
+    of all three is the function.  Axis 5 proved the gap by executing it: delete
+    every `printable(` CALL SITE from the runner, leave the function intact, and
+    the whole suite stays green while a raw NUL returns to the log.  A probe
+    whose subject is the dependency proves the dependency, never the caller
+    (`memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`).
+    And the docstring's claim -- "it lives at the one place every line goes
+    through" -- was false when written: there are two print channels and eleven
+    emit sites, of which three were wrapped.
+
+    THE POPULATION IS THE EMIT SITE, NOT THE NAME.  Every `print(...)` and every
+    `<list>.append(...)` in the two report modules whose argument is a `%`
+    formatting expression over a literal format string must be wrapped in
+    `printable(...)`.  That predicate is structural: it does not ask whether the
+    arguments happen to carry a control name today, which is the symptom
+    vocabulary and would leave the next site authoritative
+    (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`).
+    ⚠ No site is exempted for "it only formats numbers" -- an exemption list is
+    the next class's hiding place, and escaping a number costs nothing.
+
+    HONESTLY, what it cannot see: a line built by concatenation or an f-string
+    rather than `%`; a third report module (the population is the two named
+    here, and a new one would be invisible until it is added -- the same open
+    edge every enumerated table in this suite has, and the reason the count is
+    reported); and output written by something other than `print` / `append`.
+
+    ⚠ AND ONE STRUCTURAL LIMIT ON THE PROOF, not on the control.  Both mutants
+    that kill this control patch the RUNNER; none patches
+    `plan_memo_selftest_mutants.py`, whose eight emit sites this control DOES
+    cover.  That is not an omission: a mutant against that file would have to be
+    exec'd by the loop that lives in it, which is already running, so the mutant
+    runner is the one file in the set that cannot be its own subject.  The
+    control's population is both modules; the mutation proof reaches one.  The
+    gap is named here rather than left for the round that finds it
+    (`memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md`),
+    and the whole-channel attack IS verified by hand at every re-gate: strip
+    every `printable(` call site from both files, keep the function, and this
+    control goes red where the function's own control stays green -- reproduced
+    on this commit (rc 1, one raw NUL back in the log)."""
+    def formats(node):
+        """The node is a `%` over a literal format string -- the shape a report
+        line is built with, wrapped or not."""
+        return (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)
+                and isinstance(node.left, ast.Constant) and isinstance(node.left.value, str))
+
+    bad, sites = [], 0
+    for file, src in _swept_sources():
+        if file not in _REPORT_MODULES:
+            continue
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            f = node.func
+            if not ((isinstance(f, ast.Name) and f.id == "print")
+                    or (isinstance(f, ast.Attribute) and f.attr == "append")):
+                continue
+            arg = node.args[0]
+            # ⚠ THE POPULATION IS BOTH STATES.  Counting only the UNWRAPPED
+            # shape makes the denominator go to zero exactly when the property
+            # holds, and the emptiness guard then reports a clean suite as a
+            # broken control -- measured, on this control's first run.
+            wrapped = (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name)
+                       and arg.func.id == "printable" and arg.args and formats(arg.args[0]))
+            if not (wrapped or formats(arg)):
+                continue
+            sites += 1
+            if not wrapped:
+                bad.append("%s:%d" % (file, node.lineno))
+    if not sites:
+        return False, ("no %%-formatted emit site found in %s: the shape this control reads is no "
+                       "longer the one the report modules write" % ", ".join(_REPORT_MODULES))
+    return not bad, ("%d emit site(s) over %d report module(s), %d not escaped%s"
+                     % (sites, len(_REPORT_MODULES), len(bad),
+                        ("; " + "; ".join(sorted(bad)[:4])) if bad else ""))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table, merged
     over the property module's (invariants included)."""
@@ -416,5 +502,7 @@ def registry():
             ("CONTROL", symbol_attribution_control),
         "PROPERTY: every import-graph seam this suite states in prose is true of the imports (an \"only importer of X\" is a claim about the COMPLEMENT)":
             ("CONTROL", import_seam_control),
+        "PROPERTY: every line the run REPORTS goes through the escape -- measured over the EMIT SITES, the subject the escape function's own control cannot reach":
+            ("CONTROL", report_channel_control),
     })
     return reg

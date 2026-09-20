@@ -804,7 +804,7 @@ MUTANTS += [
 ]
 
 # -- PR #510 Codex R24 FAMILY 2 control names, spelled once.
-R24_NUL = ("(R24 §2.1) a link destination holding a literal U+0000 names the file the document "
+R24_NUL = ("(R24 §2) a link destination holding a literal U+0000 names the file the document "
            "renders: §2 replaces the NUL with U+FFFD before parsing, so `[x](child\0.md)` links "
            "`child<U+FFFD>.md`, that memo is walked and its rows are declared.  Left in, the NUL "
            "is an ASCII control, `link_destination` (§6.3) refuses the destination, and the memo "

@@ -79,7 +79,7 @@ def run(mutants=False):
             # `ok` means "reported 0": the site IS wrong, so the control stays red
             print(printable("  RED  [KNOWN-MISS] %s -- %s (this site IS wrong)" % (name, detail)))
             if not ok:
-                fails.append("KNOWN-MISS %s now reports; update the declared miss class" % name)
+                fails.append(printable("KNOWN-MISS %s now reports; update the declared miss class" % name))
             continue
         if not ok:
             fails.append(printable("%s %s :: %s" % (kind, name, detail)))
@@ -87,21 +87,22 @@ def run(mutants=False):
     unload()
 
     print()
-    print("%d control(s): %s."
-          % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts))))
+    print(printable("%d control(s): %s."
+                    % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts)))))
     n_mutants = None
     if mutants:
         import plan_memo_selftest_mutants as mm
         import plan_memo_selftest_mutants_pr510  # noqa: F401 -- appends R1-R16's mutants to MUTANTS
         import plan_memo_selftest_mutants_inline  # noqa: F401 -- appends R17-R25's mutants to MUTANTS
-        import plan_memo_selftest_mutants_r26  # noqa: F401 -- appends R26-on's mutants to MUTANTS
+        import plan_memo_selftest_mutants_r26  # noqa: F401 -- appends R26-R29's mutants to MUTANTS
+        import plan_memo_selftest_mutants_r30  # noqa: F401 -- appends R30-on's mutants to MUTANTS
         fails += mm.run(reg)
         n_mutants = len(mm.MUTANTS)
     fails += empty_registry_fails(len(reg), n_mutants)
     if fails:
         print()
         for f in fails:
-            print("FAIL: %s" % f)
+            print(printable("FAIL: %s" % f))
         return 1
     print("all controls behaved as declared.")
     return 0

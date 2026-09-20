@@ -96,8 +96,14 @@ this tool answers *"does this memo's row-kind census parse, and is every naming 
 agree"*. ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
 collapse only once "why N" can be WRITTEN, and nobody has written it — three populations (one memo
 family / any memo's figures / two named memos) that today share no predicate. The obligation this
-raises is the cross-reference, not the merge: each tool's header names the other two and the boundary
-above. **Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the three need to
+raises is the cross-reference, not the merge. ⚠ **And it is discharged in ONE of three directions,
+which this paragraph first reported as done** (PR #510 Axis 3 + Axis 5, measured independently):
+only `.claude/tools/plan-memo-umbrella-check.py` — this PR's — names the other two.
+`claim-gate-plan-check.py` names `plan-xcheck.py` and not this one; `plan-xcheck.py` names neither.
+This PR cannot edit those trees, so the reciprocal is **OWED on the two lanes**
+(`claim-gate-plan-check` in `elidex-wt-claimcheck`, `plan-xcheck.py` on `layout-decorated-inline`)
+and is carried into their memos rather than asserted here. **Trigger (an EVENT)**: whichever of
+those two lanes next touches its tool's header. **Re-eval: 2026-12-31.** **Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the three need to
 share. Re-eval: 2026-12-31.
 
 ## §2 Coupled invariants (edge-dense)
@@ -364,7 +370,7 @@ and each attribution spelling has a positive control and a mutant.
 | CommonMark §2.4 Backslash escapes | row split parity | only an ODD backslash run escapes a `|` (`a\\|b` is two cells); the trailing-pipe check reads the same parity (`_escaped`, one helper) | `plan_memo_blocks.py::split_row` | ✓ controls "(row) `a\\|b` holds an UNESCAPED pipe…", "(row) `a\|b` is one cell…", "(row) a trailing `\\|`…" | no |
 | §5 (local policy over the disposition exception) | id-only code spans | an id-only run is tokenised by the declared-id GRAMMAR longest-first (a `#11-` slug is atomic; `` `#11-zz-alpha / 9z` `` spells two ids), with separators between tokens | `plan_memo_stream.py::id_only` (`_ID_RUN_TOKEN`) | ✓ control "(span) a `#11-` slug is ATOMIC in an id-only run…" | no |
 | (no spec clause — a tokenisation fact of these documents) | bare `.md` file name | read by PATH SYNTAX: the maximal run — **possibly empty (R20)** — of non-whitespace characters ending in the lexer's `FILE_SUFFIX` (inline delimiters `[` `]` `<` `>` `` ` `` `\|` excluded so link text and code spans are not swallowed; parentheses only as a balanced pair), bounded by spaces / tabs / line ends or the cell edge; no trailing-punctuation rule is needed because the token ENDS at the suffix (the GFM §6.9 autolink rule is moot). ONE notion of "is a file name", defined by the lexer (`FILE_SUFFIX`) and consumed by `sibling_path` stage (d): the stem is unconstrained on both sides, so `.md` alone is a file name in prose and a sibling in a destination; ⚠ until R20 the token arm required a one-character stem while `sibling_path` did not, and beside a declared id `md` the prose `Read .md for details` reported `md` | `plan_memo_lexer.py::_TOKEN` / `FILE_SUFFIX`, `plan_memo_memo.py::Memo.sibling_path` (d) | ✓ controls "(file) `9z+notes.md`…", "(file) `9z@notes.md`…", "(file) `(9z).md`…", "(file) a link's visible text is not swallowed…", "(file) `.md` alone is a file name…", "(file) `notes.md` beside a declared no-owner id `md`…", "(file) bare `md` (no suffix)… IS a site", "(link) `[x](.md)` links the sibling file named `.md`…" | no |
-| CommonMark §2.1 / §4.9 / GFM §4.10 | ASCII classes at every boundary | a blank line = spaces or tabs only (§4.9); edge pipes and cell trimming use the same space/tab class; the far side of a `.` after a bare id is the ASCII id class (`9z.次の工程` reports `9z`); `is_empty`'s `isalnum` is deliberately Unicode (a letter in any script fills a cell) | `plan_memo_blocks.py::is_blank` / `split_row`, `plan_memo_ids.py::_glued` (⚠ pre-R14 name `plan-memo-umbrella-check.py::_glued`), `plan_memo_tables.py::is_empty` | ✓ controls "(span) an NBSP-only line is NOT blank…", "(table) a row opening with an NBSP…", "(bare) `9z.次の工程`…", "(bare) `9z.é`…" | no |
+| CommonMark §2.1 / §4.9 / GFM §4.10 | ASCII classes at every boundary | a blank line = spaces or tabs only (§2.1 — the DEFINING sentence, which `plan_memo_blocks.py` and §5's own row both place there; §4.9 is where its EFFECT on leaf blocks is spelled); edge pipes and cell trimming use the same space/tab class; the far side of a `.` after a bare id is the ASCII id class (`9z.次の工程` reports `9z`); `is_empty`'s `isalnum` is deliberately Unicode (a letter in any script fills a cell) | `plan_memo_blocks.py::is_blank` / `split_row`, `plan_memo_ids.py::_glued` (⚠ pre-R14 name `plan-memo-umbrella-check.py::_glued`), `plan_memo_tables.py::is_empty` | ✓ controls "(span) an NBSP-only line is NOT blank…", "(table) a row opening with an NBSP…", "(bare) `9z.次の工程`…", "(bare) `9z.é`…" | no |
 | §5 (local policy: the id grammar of these documents) — **R14** | ONE id-token grammar for every reader | the three kinds (short / `#11-` slug / `[C19]` citation, either case), the decoration, and the ONE two-sided boundary — a decorated side is bounded by its decoration; an undecorated side by the complement of the kind's continuation class (short: ASCII alnum + the dotted-number rule, a hyphen BOUNDS; slug: alnum + `_` + `-` on BOTH sides; citation: its brackets) — are spelled once in `plan_memo_ids.py` and CONSUMED by the bare and anchored naming scans, the raw-line seed, the id cell, the kept-slug exception inside a code span, the lexer's citation mask and the reference walk's citation exemption (R8/R9/R14: the boundary had been spelled six ways, disagreeing on a hyphen on a raw line, a slug's right side, and a citation's case); the orphan-definition exemption is by the orphan's exact bracket `(line, column)`, never by line | `plan_memo_ids.py::tokens` / `is_cite_label` / `kind_of`; readers `plan-memo-umbrella-check.py::_bare` / `_anchored` / `lex_unsupported_seed`, `plan_memo_tables.py::bare_id` / `code_mask`, `plan_memo_lexer.py::_TOKEN`, `plan_memo_memo.py::Memo.unresolved_references` (`Memo.orphans`) | ✓ controls "(lex-seed) a raw HTML line `9z-owner`…" / "…`owner-9z`…", "(slug) `#11-zz-alphaZZ`…", "(slug) `` `tool #11-zz-alpha_extra` ``…", "(cite) `[c1]` beside a declared no-owner id `c1`…", "(cite) adjacent lowercase citations `[c1][c2]`…", "an orphan definition exempts its OWN bracket only…", and the PROPERTY control "the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)" — a sweep over the other modules' string constants for the grammar's spellings, which by construction cannot see a class spelled in another order (`[A-Za-z0-9-]` is the HTML tag-name grammar, `[a-zA-Z0-9+.-]` the URL scheme grammar; neither is an id class), a class built by concatenation, a hand-written character test, `\b` under `re.ASCII`, or a comment — **nor KIND coverage (R20)**: a composer built on `SHORT_ID` alone spells nothing twice; `ROW_KINDS` / `ROW_ID` (slug \| short — a citation keys a citation-table row but declares no kind and is no row in this sense) is the grammar's ONE "a row id here" alternation, composed by `ROW_NOUN_ID` → `_APPOSITIVE`, `OWNS_TWO` and the anchored reading (`_anchored`, `t.kind in ROW_KINDS`), and the PROPERTY control "every row-id composer admits every row kind of plan_memo_ids.ROW_KINDS (the kind half of the spelling sweep)" probes each composer with a sample of every kind in the grammar's tuple (a kind without a sample is red); ⚠ until R20 `_APPOSITIVE` composed `decorated_id(SHORT_ID)`, so `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributed nothing: the pointer row was an umbrella, no `UMBRELLA-MARK` finding, exit 0 | no |
 | CommonMark §6.3 | one label grammar | the text of a collapsed / shortcut reference is a label iff `link_label` reads it from the opener (no second walker); the full form carries `raw` out of `_reference_tail` | `plan_memo_lexer.py::_reference_tail` / `link_label` | ✓ control "(link) bracket text holding unescaped brackets is not a label (§6.3)…" | no |
 | CommonMark "Appendix: A parsing strategy", Phase 2 | one inline pass | code spans (§6.1) and brackets are recognised together, left to right; a backtick string opens a span as met and the scan jumps past it; an inline-link tail is parsed by lookahead on the RAW text (a backtick inside a destination is consumed by the link; one before the `]` opens a span that swallows it); no code pre-mask | `plan_memo_lexer.py::inline_pass` (`code_spans` / `links` are views over it) | ✓ controls "(span) a backtick inside a link DESTINATION is consumed by the link…", "(span) a backtick BEFORE the `]` opens a code span that swallows it…", "(link) a link inside a code span is not a link (A x B)" | no |
@@ -373,7 +379,7 @@ and each attribution spelling has a positive control and a mutant.
 | CommonMark "Appendix: A parsing strategy", Phase 1; §4.4; §4.6; §5.1; GFM §4.10 | block start = block state | "is this line at a block start" is the driver's state (a run open or not), the ONE context bit `block_end` / `raw_opener` take; a type-7 HTML opener or an indented line after a table's rows, a one-line block or a setext heading opens a raw extent; after a run line (paragraph text, a definition, a list-item line, a quote's lazy line) it is text — no caller looks back at the previous raw line (R11); inside a block quote the same state, re-entered (R13) | `plan_memo_blocks.py::raw_opener` / `block_end` / `run_end`, `plan_memo_memo.py::Memo._parse` / `_quote`, `plan_memo_tables.py::admit_table` | ✓ controls "(table) a type-7 HTML opener right after a schema table ENDS it…", "(html) `# h\n<span>\n9z owns it`…", "(html) `Heading\n===\n<span>\n9z owns it`…", "(html) `[sib]: slice-9z-sib.md\n<span>\n9z owns it`…", "(html) `- item\n<span>\n9z owns it`…" | no |
 | WHATWG URL §4.4 "URL parsing" — the basic URL parser's *scheme start state* (`#scheme-start-state`) and *scheme state* (`#scheme-state`), then §1.3 "Percent-encoded bytes" *percent-decode* on a string (`#string-percent-decode`) — + **local policy** (CommonMark §6.3 / GFM say nothing about siblings on disk) | ONE destination → sibling resolver | `Memo.sibling_path`, stages in spec order: (a) scheme on the RAW path — `#scheme-start-state` step 1 ("If c is an ASCII alpha, append c, lowercased, to buffer, and set state to scheme state") and `#scheme-state` step 1 ("If c is an ASCII alphanumeric, U+002B (+), U+002D (-), or U+002E (.), append c, lowercased, to buffer") / step 2 ("Otherwise, if c is U+003A (:)" → the scheme) read the input's code points AS WRITTEN; `%` is in neither class, so at `%` the parser leaves for the *no scheme state* and `notes%3Achild.md` has no scheme — it is the file `notes:child.md`; percent-decoding is no step of the parser (the *path state*, `#path-state`, percent-ENCODES and keeps `%xx`), (b) percent-decode — `#string-percent-decode` ("Let bytes be the UTF-8 encoding of input. Return the percent-decoding of bytes"; `urllib.parse.unquote`), a consumer's operation on the parsed path (`slice%20sib.md` = `slice sib.md`) — ⚠ until R17 this row and the docstring cited "WHATWG URL" bare, (c) the DECODED name must be RELATIVE on every platform, and hold no C0 control / DEL (`child%00.md` would make `resolve()` raise) — **R19**: ONE platform-independent reading, Windows path syntax (`pathlib.PureWindowsPath`, the superset: `/` and `\` both separate, a drive letter / UNC prefix / root ANCHORS), which is the URL standard's own reading of a special-scheme path (`file` is a special scheme): `#path-state` step 1 ends a segment at `/` or, "url is special and c is U+005C (\)", at a backslash (invalid-reverse-solidus validation error), and step 1.4.1's drive-letter rule is, in the spec's words, "a (platform-independent) Windows drive letter quirk" — so `PureWindowsPath(name).anchor` must be empty: `/x`, `//host/x` (a site URL joined to the memo's directory would probe the host's filesystem root), `\x`, `C:\temp\x`, `\\server\share\x` and the drive-relative `C:x` (raw `C:x.md` is already scheme `c` at (a); percent-encoded `C%3Ax.md` decodes to a drive anchor here, as does the one-letter `n%3Ax.md`, where the multi-letter `notes%3Ax.md` of (a) is a file name) are rejected; ⚠ until R19 (c) rejected a leading `/` only, so `C%3A%5Ctemp%5Cchild.md` and `%5Cchild.md` passed and on Windows `parent / name` discarded the memo's directory, (d) `.md`, (e) the name's PARTS joined beside the memo under the same syntax — `\` is a separator everywhere, never a POSIX name character: `sub%5Cchild.md` is the sibling `sub/child.md` on every platform (R19) — then `_resolve` = `resolve()` with `OSError` or (Python 3.9–3.12 symlink loop) `RuntimeError` read as an UNAVAILABLE sibling, reported by the population's one I/O chokepoint (`Memo()` under `OSError | UnicodeDecodeError` — I/O ONLY, `read_text(encoding="utf-8")`; ⚠ until R16 `RuntimeError` too, which read a parser `RecursionError` — a `RuntimeError` — as an unavailable memo, rc 2, no census; a parser exception is a crash, crash = FAIL) as the exit-2 unavailable-memo miss; `linked_files` dedups with a set | `plan_memo_memo.py::Memo.sibling_path` / `_resolve` / `linked_files`, `Population.__init__` | ✓ controls "(link) `notes%3Achild.md` has no scheme…", "(link) a percent-encoded destination…", "(rc) a percent-encoded ABSOLUTE destination…", "a decoded destination with a C0 control character is rejected…", "an OSError from resolve() is the unavailable-sibling schema miss…" (OSError and RuntimeError injected), "an undecodable sibling is the unavailable-linked-memo schema miss…", "linked_files is linear: <= N Path.__eq__ calls over N distinct siblings…", "a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss" (R16; mutant re-injects the broad except), the R19 "(rc) …" family (`C%3A%5Ctemp%5Cchild.md`, `%5Cchild.md`, the percent-encoded UNC, the raw `\\server\share\x.md` — §2.4 decodes it to the `\`-rooted `\server\share\x.md`, commonmark.js's href `%5Cserver%5Cshare%5Cx.md` — drive-relative `C:child.md` raw and encoded, the one-letter `n%3Achild.md`) and "(link) `sub%5Cchild.md`…" (walks `sub/child.md`); mutants R19 #3 (the `/`-only test re-injected; the POSIX reading `parent / name` re-injected) | no |
 | CommonMark §2.5 Entity and numeric character references + §6.3 (destination) — **R16** | ONE destination normalisation | `normalize_destination`: ONE left-to-right pass over the destination's raw text at the ONE site both forms and both grammars return through (`link_destination`, bare and `<…>`; the inline link and the §4.7 definition both call it) — a §2.4 escape yields its character; a §2.5 reference — `&` + an HTML5 entity name + `;` (`html.entities.html5`, looked up WITH the `;`, so HTML's legacy semicolon-less `&copy` is literal, Example 29, and `&MadeUpEntity;` is literal, Example 30), `&#` + 1–7 digits + `;`, `&#x` / `&#X` + 1–6 hex digits + `;` — yields its character, with U+0000, code points above U+10FFFF and surrogates → U+FFFD; the two grammars meet at a character exactly once (`\&#46;` is a literal `&#46;`; a decoded `&`, `&#x26;#46;`, is never re-read as a reference). NOT decoded: a label (§6.3 matching is on the raw label — `[foo&auml;]` ≠ `[fooä]`, commonmark.js measured), a title (`link_title` reads shape only, never text), a code span (`inline_pass` jumps past it). ⚠ Until R16 backslash-only: `[child](child&#46;md)` / `[sib]: child&#46;md` reached `sibling_path` as the literal, no `.md` suffix, the sibling silently outside the population, rc 0 | `plan_memo_lexer.py::normalize_destination` / `_CHAR_REF` / `_reference` / `_codepoint`, `link_destination` (both returns) | ✓ controls "(link) `[child](child&#46;md)`…", "(link) `[child](<child&#46;md>)`…", "(link) `[child](child&period;md)`…", "(link) `[child](child&#x2E;md)`…", "(def) `[sib]: child&#46;md`…", "(link) `[x](slice&#37;20sib.md)`…" (§2.5 then `sibling_path` stage b, spec order), "(link) `[x](child&#0;.md)`…", "(link) `[x](child&#x110000;.md)`…", "(link) `[x](child&copy.md)`…", "(link) `[x](child&#46md)`…", "(link) `[x](child\&#46;md)`…", "(link) `[x](child&#x26;#46;md)`…", "(link) `[x](child&MadeUpEntity;md)`…", "(span) `` `[c](child&#46;md)` ``…", "(label) `[foo&auml;]: child.md` then `[fooä]`…"; mutants R16 #2 (backslash-only re-injected; `html.unescape` re-injected; the U+0000 rule dropped; `;` optional; decoding re-injected in `normalize_label`) | no |
-| CommonMark §6.6 Raw HTML — **R17** | ONE tag grammar, a span of the one inline pass | `_HTML_TAG` in `inline_pass`, tried at every `<` the scan meets (left to right with backtick strings and brackets, commonmark.js's order: `<a href="`">b` c` is a tag then a literal backtick, `` `x <span title="`">b `` a code span then text): an **open tag** (`<` + a tag name — an ASCII letter then ASCII letters / digits / `-` — + attributes + optional spaces / tabs / one line ending + optional `/` + `>`; an **attribute** = at least one space / tab / line ending (≤1 line ending), an attribute name — ASCII letter / `_` / `:` then letters / digits / `_` / `.` / `:` / `-` — and an optional value spec `=` with optional whitespace around it and a value: **unquoted** = a nonempty string without spaces, tabs, line endings, `"`, `'`, `=`, `<`, `>`, `` ` `` — so `<span title=[x](y.md)>` IS a tag (⚠ the R17 brief presumed a negative), **single-quoted**, **double-quoted**), a **closing tag** (`</` + name + optional whitespace + `>`), an **HTML comment** (0.31's `<!-->`, `<!--->`, or `<!--` + a string not containing `-->` + `-->`: `<!-- a -- b -->` is one, 0.30 forbade it), a **processing instruction** (`<?` … `?>`), a **declaration** (`<!` + an ASCII letter + no `>` + `>`, either case) or a **CDATA section** (`<![CDATA[` … `]]>`, exact case). The span is RAW + SEEDED, the §3.0 disposition of a §4.6 block line applied to the same kind of text: never inline-parsed (a bracket inside an attribute value or a comment is no link delimiter — `<span title="[child](absent.md)">` once made a false unavailable-memo miss, rc 2), never a naming site (an id inside an attribute is masked, kind `html`), recorded in `Memo.raw` with the `inline` reading and seeded under the one raw-line rule when it holds a `\|` or a declared id; a `<` the grammar refuses is text and the brackets after it are read (`<3 [x](y.md)`, `<a href="x" [x](y.md)>`, `< span>`, `</ span>`, `<a b="c"d>` Example 622, `<! …>`, `<![cdata[`, `\<span …>`). §4.6 start condition 7 ("a complete open tag … or a complete closing tag") reads the same `OPEN_TAG` / `CLOSING_TAG` — ⚠ until R17 the tag grammar was spelled a second time in `plan_memo_blocks.py` | `plan_memo_html.py::_HTML_TAG` / `OPEN_TAG` / `CLOSING_TAG` / `inline_pass` (`html`), `Lexed.html`, `plan_memo_stream.py::dispose` (`html`), `plan_memo_memo.py::Memo._inline_raw` (seed), `plan_memo_blocks.py::_HTML_BLOCK` (t7) | ✓ controls "(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\">text</span>`…" and the "(html) …" R17 family (each arm positive, each negative rc 2 or a reported site, the two left-to-right probes, the cell, `[<span>x</span>](…)`), "(lex-seed) `<span title=\"Slice 9z owns it\">`…" (+ the `inline` reading); **falsifier = the section's own list, `Raw HTML` Examples 613–632, vendored in `commonmark-0.31.2-inline-examples.json`** ⚠ (this cited `commonmark-0.31.2-inline-html-examples.json` until R38's design re-gate — that file was added at R17 and **deleted at R21** `dbb2644c` when the inline corpora were merged, so the locator had been dead for seventeen rounds while the substance stayed true; the 20 examples are in the merged file. ⚠ `symbol_attribution_control` cannot reach this class: it reads `module.symbol` attributions, never a vendored DATA-file name) — the runner's inline conformance control: the spans Phase 2 masks are exactly the text the html emits verbatim (each span verbatim in order in its `<p>` body, and the body's unescaped `<` count — minus two per code span — equals the spans'); mutants R17 #2 (the `<` arm dropped; quoted values dropped; the comment arm dropped; 0.30's comment exclusion re-injected; the PI / CDATA arms dropped; `<!` + anything; optional whitespace before an attribute; the seed record dropped; the `html` disposition dropped) | no |
+| CommonMark §6.6 Raw HTML — **R17** | ONE tag grammar, a span of the one inline pass | `_HTML_TAG` in `inline_pass`, tried at every `<` the scan meets (left to right with backtick strings and brackets, commonmark.js's order: `<a href="`">b` c` is a tag then a literal backtick, `` `x <span title="`">b `` a code span then text): an **open tag** (`<` + a tag name — an ASCII letter then ASCII letters / digits / `-` — + attributes + optional spaces / tabs / one line ending + optional `/` + `>`; an **attribute** = at least one space / tab / line ending (≤1 line ending), an attribute name — ASCII letter / `_` / `:` then letters / digits / `_` / `.` / `:` / `-` — and an optional value spec `=` with optional whitespace around it and a value: **unquoted** = a nonempty string without spaces, tabs, line endings, `"`, `'`, `=`, `<`, `>`, `` ` `` — so `<span title=[x](y.md)>` IS a tag (⚠ the R17 brief presumed a negative), **single-quoted**, **double-quoted**), a **closing tag** (`</` + name + optional whitespace + `>`), an **HTML comment** (0.31's `<!-->`, `<!--->`, or `<!--` + a string not containing `-->` + `-->`: `<!-- a -- b -->` is one, 0.30 forbade it), a **processing instruction** (`<?` … `?>`), a **declaration** (`<!` + an ASCII letter + no `>` + `>`, either case) or a **CDATA section** (`<![CDATA[` … `]]>`, exact case). The span is RAW + SEEDED, the §3.0 disposition of a §4.6 block line applied to the same kind of text: never inline-parsed (a bracket inside an attribute value or a comment is no link delimiter — `<span title="[child](absent.md)">` once made a false unavailable-memo miss, rc 2), never a naming site (an id inside an attribute is masked, kind `html`), recorded in `Memo.raw` with the `inline` reading and seeded under the one raw-line rule when it holds a `\|` or a declared id; a `<` the grammar refuses is text and the brackets after it are read (`<3 [x](y.md)`, `<a href="x" [x](y.md)>`, `< span>`, `</ span>`, `<a b="c"d>` (this suite's own fixture, from `plan_memo_selftest_cases_inline.py`, not a spec example — the spec's optional-whitespace-before-attribute case is Example 622, `` <a href='bar'title=title> ``, read off the vendored inline corpus rather than recalled), `<! …>`, `<![cdata[`, `\<span …>`). §4.6 start condition 7 ("a complete open tag … or a complete closing tag") reads the same `OPEN_TAG` / `CLOSING_TAG` — ⚠ until R17 the tag grammar was spelled a second time in `plan_memo_blocks.py` | `plan_memo_html.py::_HTML_TAG` / `OPEN_TAG` / `CLOSING_TAG` / `inline_pass` (`html`), `Lexed.html`, `plan_memo_stream.py::dispose` (`html`), `plan_memo_memo.py::Memo._inline_raw` (seed), `plan_memo_blocks.py::_HTML_BLOCK` (t7) | ✓ controls "(html) the R17 reviewer's shape `<span title=\"[child](absent.md)\">text</span>`…" and the "(html) …" R17 family (each arm positive, each negative rc 2 or a reported site, the two left-to-right probes, the cell, `[<span>x</span>](…)`), "(lex-seed) `<span title=\"Slice 9z owns it\">`…" (+ the `inline` reading); **falsifier = the section's own list, `Raw HTML` Examples 613–632, vendored in `commonmark-0.31.2-inline-examples.json`** ⚠ (this cited `commonmark-0.31.2-inline-html-examples.json` until R38's design re-gate — that file was added at R17 and **deleted at R21** `dbb2644c` when the inline corpora were merged, so the locator had been dead for seventeen rounds while the substance stayed true; the 20 examples are in the merged file. ⚠ `symbol_attribution_control` cannot reach this class: it reads `module.symbol` attributions, never a vendored DATA-file name) — the runner's inline conformance control: the spans Phase 2 masks are exactly the text the html emits verbatim (each span verbatim in order in its `<p>` body, and the body's unescaped `<` count — minus two per code span — equals the spans'); mutants R17 #2 (the `<` arm dropped; quoted values dropped; the comment arm dropped; 0.30's comment exclusion re-injected; the PI / CDATA arms dropped; `<!` + anything; optional whitespace before an attribute; the seed record dropped; the `html` disposition dropped) | no |
 | CommonMark §6.2 Emphasis and strong emphasis (+ GFM 0.29 Strikethrough) — **design re-gate 4** | which delimiter runs PAIR | a delimiter run is a maximal run of `*` / `_` (CommonMark) or one-or-two `~` (GFM: "a matching pair of one or two tildes", so three or more is literal — `a~~~b~~~c` renders verbatim, measured on GitHub's pipeline); LEFT-FLANKING = not followed by Unicode whitespace and either not followed by Unicode punctuation or preceded by whitespace or punctuation (right-flanking mirrors it; the classes are Unicode by the spec's own words — P* or S* for punctuation, 0.31's definition — never ASCII, since the surrounding text of these memos is Japanese as often as not); `*` opens iff left-flanking and closes iff right-flanking, `_` adds §6.2 rules 5–6 (`snake_case` stays intact), `~` reads the `*` conditions and pairs EQUAL lengths only; then the Appendix's `process_emphasis` — each closer matched to the nearest live opener at or above the bracket's bottom, the RULE OF THREE on the ORIGINAL run lengths, `openers_bottom` so a failed search is never repeated, the delimiters between a matched pair removed — run where the Appendix runs it: when a link or an image closes (over the delimiters inside it) and once at the block's end, so emphasis never crosses a link's text boundary. A pair inside a RESOLVED image's description is DEMOTED (§6.4: plain string content, no `<em>` — the R19 rule, one more construct). What the caller wants is not a tree but the CHARACTER SPANS the delimiters occupy, since those are what the stream drops | `plan_memo_emphasis.py::run_at` / `_matches` / `process`, pushed by `plan_memo_lexer.py::inline_pass`, disposed by `plan_memo_stream.py::dispose` | ✓ | no |
 | (no spec clause — this checker's disposition, over CommonMark's rendering) — **design re-gate 4** | ONE stream: the block as the document renders it | each construct contributes text, nothing, or its character (`RENDERS_TEXT` + the §2.4 / §2.5 substitution, §3.0b's `Renders` column); a DROP beats a BLANK where they overlap (the fact of the spec beats this checker's policy — a link tail holding a `.md` file token settles it); the two id-decoration exceptions (`id_only` over a code span and over a `**` pair); the offset map back to raw coordinates; and the residue where a unit straddles a blanked span, reported as `[LEX-SPLIT?]` and, in a declaring field, as a schema miss | `plan_memo_stream.py::stream` / `Stream` / `dispose` / `split_units`, `plan_memo_population.py::Population._kind_residue`, `plan-memo-umbrella-check.py::lex_split_seed` / `Block.at_raw` | ✓ | no |
 
@@ -1868,8 +1874,10 @@ ground for either option; it is not cited.
      and took no touch-time split, which CLAUDE.md requires AT TOUCH TIME and which §7 records seven
      times for this PR. Three more files are in the 900s (`_mutants_inline.py` 974, `plan_memo_lexer.py`
      961, `_mutants_r26.py` 938). ⚠ Those four figures are pinned to `eb1bfefd`, the head that
-     measured them; `_mutants_r26.py` is 939 at HEAD, moved by the very commit that discharged this
-     CRIT (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
+     measured them, and they have moved twice since — which is why no line count is transcribed into
+     this document any more: `line_bound_control` measures the whole set every run and prints the
+     largest file, so the number a reader would use to pick the next split target is taken NOW
+     (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
      ⚠ **The seam is already identified and is a real cohesion seam, not a line count**: everything
      this session added to that file sweeps the tree for CROSS-FILE CONSISTENCY — `symbol_attribution_control`,
      `import_seam_control`, `dash_spelling_sweep_control`, with `_ATTRIB_SPELLINGS`, `_IMPORT_SEAMS`,
@@ -1923,14 +1931,52 @@ ground for either option; it is not cited.
   CHANNEL rather than in the one control whose name legitimately carries one — `printable()` escapes
   every C0 character and DEL, with a control over all 33 and two mutants (drop the arm / escape
   everything). ⚠ Still OPEN and routed to the user: the **defer cap** (10 own against ≤3, classified
-  in §8 without merging or deleting an entry to move the number) and the **touch-time-split
-  pre-commitment** on `_cases_r26.py` / `_mutants_r26.py` (939 / 584, under the bound, split owed by
-  the next commit that adds to them — recorded rather than done because the head must stop moving for
-  the round about to run). ⚠ The **"~29 s"** finding is an **FP**: re-measured under the block's own
-  clean-clone condition at `b8324d06` it reproduces (28.53 / 29.34 / 27.46), and the pass that called
-  it stale had measured a warm worktree at an older head — `memory/feedback_verify-agent-measurements-and-fp-verdicts.md`
-  is the rule, and this is the second time on this PR that a figure's CONDITION, not its value, was
-  the thing in dispute.
+  in §8 without merging or deleting an entry to move the number).
+
+  ✅ **THEN THE TERMINAL FIX-DELTA DESIGN RE-GATE RAN, and it was not clean** (2026-09-20, axes 3 / 4
+  / 5 over `cd1f973c..7121476e`; axes 1 and 2 argued to yield 0 by an EMPTY POPULATION — `git diff
+  --name-only cd1f973c..HEAD -- crates/` is 0 files, so the Layering and ECS axes have no subject,
+  which is a different argument from "it is only docs"
+  (`memory/feedback_terminal-gate-not-optional-on-doc-only-delta.md`)). **1 CRIT / 9 IMP / 6 MIN /
+  14 FP.** Codex had gone dry twice on `7121476e` by then; every one of these came from the design
+  re-gate, not from the external reviewer.
+  · **CRIT — the NUL fix's control had the WRONG SUBJECT, and two axes reached it by different
+  routes.** `printable_output_control` iterates all 33 control characters through `printable()`, and
+  both mutants edit `printable()`'s own expression — so all three prove the FUNCTION. Axis 5 proved
+  the gap by EXECUTING it: strip every `printable(` call site from the runners, leave the function
+  intact, and the suite stays green while a raw NUL returns to the log. And the docstring's claim
+  ("it lives at the one place every line goes through") was false when written: two print channels,
+  fourteen emit sites, three wrapped. Fixed at the CHANNEL — every emit site wrapped with no
+  exemption for "this one only formats numbers", plus `report_channel_control`, whose population is
+  the EMIT SITES read off the AST, plus two mutants that unwrap one. Verified by reproducing Axis 5's
+  attack byte for byte: **rc 1** now, where it was rc 0 and green.
+  · **The 1000-line invariant is a CONTROL now, not a sentence** — `line_bound_control`, six lines
+  over the population `_swept_sources()` already globbed. Both axes asked for it, and the reason is
+  the entry it replaces: the §8 touch-time pre-commitment asserted "the touch this PR gave
+  `_mutants_r26.py` was a re-point of two rows, not growth" **in the commit that appended two mutant
+  rows to it** (`b8324d06`, +22 lines) — its own trigger had already fired when it was written. So
+  the split is taken (`_mutants_r30.py`, the review-round seam for the fifth time; the ONE name
+  crossing the boundary was measured and moved, leaving zero) and the entry is GONE. Its mutant grows
+  the lexer's docstring by 50 line endings, 961 → 1,011, because the subject must be a real line
+  count and not the control's own threshold.
+  · **Axis 4** — I re-introduced a citation this tree had WITHDRAWN: `plan_memo_memo.py` records that
+  the subsection number for CommonMark's insecure-character rule is not determinable here, and I
+  wrote "the §2.1 control". Three pre-existing sibling sites carried it too; the population was
+  classified mechanically (NUL rule vs line endings) and only the three NUL ones moved to bare §2,
+  the four line-ending ones being correct. Two memo citations repaired (the blank-line definition is
+  §2.1, not §4.9; `` <a b="c"d> `` is this suite's fixture and Example 622 is
+  `` <a href='bar'title=title> ``, read off the vendored corpus), and the GFM §6.9 premise is marked
+  UNVERIFIED because the same paragraph says nothing in this tree can check a GFM citation.
+  · **The "~29 s" FP verdict is RETRACTED** — see §8. Three clean-clone measurements at nearby heads
+  gave 24.9 / 26.1 / 28.5 for one command, so the absolute is not reproducible to better than ~20%
+  here and the derivation rests on the ratio.
+  · **Two §8 entries were mis-scoped and both are corrected**: the hand-written-table class was
+  scoped by the SYMPTOM VOCABULARY (it selected the tables that had already declared themselves);
+  and the GFM row-splitter entry's `(pre-existing)` grounding was measurably false
+  (`git grep -c split_row origin/main` = 0; `main` carries one splitter and this PR introduces
+  another), so it is own. The cap is 10 own either way, by two corrections that cancelled.
+  · **The three-checker cross-reference is 1 of 3**, not done, and the reciprocal is owed on two
+  other lanes with a trigger and a date.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2096,8 +2142,11 @@ ground for either option; it is not cited.
   `(unknown control)`, `scripts/trip-wires.sh` rc 0. The header's invariant now holds: the largest
   `.claude/tools/plan*.py` is `plan_memo_selftest_mutants_inline.py` at **974**.
   ⚠⚠ **THE COMMAND THAT FIRST "PROVED" THE NAME SET COULD NOT DISCRIMINATE, and the same NUL byte is
-  why** (found while fixing the NUL, PR #510 Axis 5). The dump holds one control name carrying a
-  literal U+0000, so `grep '^CONTROL' <dump>` treats the file as binary and emits NOTHING — the
+  why** (found while fixing the NUL, PR #510 Axis 5). ⚠ The NUL is **not in any source file** — a
+  later re-gate measured all 73 tracked files under `.claude/tools` as byte-clean and corrected the
+  claim that had stood here; it exists only at RUNTIME, in one control's name, and therefore in any
+  dump or log GENERATED from a run. That generated dump holds it, so `grep '^CONTROL' <dump>` treats
+  the file as binary and emits NOTHING — the
   attestation `diff`ed two EMPTY streams and printed "identical" for any pair of inputs whatsoever.
   Reproduced: `grep '^CONTROL' base/names.txt | wc -l` = **0** against `grep -a -c` = **657**. The
   claim itself is TRUE — re-measured with `grep -a` the 657 names and kinds are identical, and that
@@ -2107,6 +2156,33 @@ ground for either option; it is not cited.
   binary-unsafe verifier is a SILENT false green, and the same defect that made the wire's output
   ungreppable also made the author's own attestation ungreppable — one root, two victims, and only
   the second one was noticed by a person.
+  ⚠ Touch-time split at the TERMINAL design re-gate (`plan_memo_selftest_mutants_r26.py` had reached
+  **961** lines): the MUTANT registry is split at the review-round seam for the FIFTH time —
+  `_mutants_r26.py` keeps R26–R29 (the operating envelope, the file-name token's balanced-pair rule,
+  `inline_pass`'s linear contract, the row-noun and straddle properties, the population walk, the
+  module map, the id scan, the §4.6 tag list) and `plan_memo_selftest_mutants_r30.py` holds R30 on.
+  961 → **523 + 485**. The seam was measured rather than asserted: an AST pass over the boundary
+  reported exactly ONE name crossing it (`R31_EMPHASIS_LINEAR`, declared in the R26 half and named by
+  a single row in the R30 half), so it moved with the split and the crossing count is **zero** — the
+  halves share no imported name and neither imports the other.
+  ⚠ **AND IT WAS ONE COMMIT LATE, on a premise this document itself asserted.** A §8 entry written at
+  `b8324d06` said "the touch this PR gave `_mutants_r26.py` was a re-point of two rows, not growth —
+  so the split is not owed by THIS commit", and set the trigger as "the next commit that adds a
+  mutant to it splits it FIRST". That same commit appended two mutant rows (+22 lines, 939 → 961):
+  **the trigger had already fired inside the commit that wrote it**, and two independent review axes
+  measured that one commit later. So the entry is deleted, the split is taken here, and the invariant
+  is a CONTROL — `line_bound_control`, a fold over the `_swept_sources()` population that was already
+  there, reporting the largest file every run so no line count is ever transcribed into a document
+  again. A prose rule its own author broke inside a single commit is the case for a mechanism
+  (`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md`); the policy's verdict for a ~0-LoC
+  mechanical split is "fold", and folding it is what discharges the deferral honestly.
+  ⚠ Its mutant's subject is a REAL line count, not the control's threshold: 50 line endings inside
+  `plan_memo_lexer.py`'s module docstring take it 961 → 1,011, which the control must report red.
+  Mutating the `>= 1000` constant instead would have proved only that the control reads its own
+  constant (`memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`).
+  Behaviour-preserving: 660 controls / 369 mutants 0 survived 0 crashed, 0 `(unknown control)`,
+  `scripts/trip-wires.sh` rc 0, and the #506 census `--worklist` byte-identical.
+
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,
@@ -2128,9 +2204,14 @@ ground for either option; it is not cited.
 
 ⚠ **THE CAP IS EXCEEDED, and the classification is stated rather than argued away** (PR #510 Axis 5,
 2026-09-20). `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
-own ones. Classified below, every entry states own or pre-existing; the count is **10 own / 2
-pre-existing** (pre-existing = the GFM row-splitter duplication, which predates this PR on three
-branch families, and the Markdown-library choice). Ten against a cap of three.
+own ones. Classified below, every entry states own or pre-existing; the count is **10 own / 1
+pre-existing** (the Markdown-library choice). Ten against a cap of three.
+⚠ **Two corrections the re-gate forced, in opposite directions, and neither was a tally edit**: the
+touch-time-split entry is GONE because the work is DONE in this PR (the split is taken and the
+invariant is a control, `line_bound_control` — the policy's own verdict for a ~0-LoC mechanical split
+was "fold", and folding it is how a deferral is discharged honestly); and the GFM row-splitter entry
+moved from pre-existing to OWN because its stated grounding was measurably false. Net 10, by two
+moves that cancelled — which is why the policy forbids reasoning from the number.
 ⚠ **No entry is merged or deleted to move that number** — the policy forbids exactly that
 ("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない"). What the shape of the
 ten says: three (Slice 3, the id-grammar decoration release, the touch-time-split pre-commitment)
@@ -2178,13 +2259,19 @@ a paragraph here that reasons the number down.
   NOT fixed is the driver: the generated corpus costs ~3.6 s and runs once in `--self-test` plus once
   per mutant naming it, and **six** rows name it (measured by loading `MUTANTS`; a `grep -c` counts
   the constant's definition and import lines and says ten). Self-test alone is ~6.5 s of ~29 s.
-  ⚠ **Both re-measured at PR #510 Axis 5** (2026-09-20, head `b8324d06`, one clean `git clone
-  --local`, sequential, nothing else of this project running — the condition the `ci.yml` block
-  writes down): wire 28.53 / 29.34 / 27.46, self-test alone 6.90 / 6.79 / 6.26. **Both figures
-  HOLD**, at a head that has since grown to 658 controls / 366 mutants; the review pass that reported
-  them stale had measured a WARM WORKTREE at an older head, and the same wire run here concurrently
-  with other work gave 31.96 / 35.05 / 39.85 — a 1.5x spread owing nothing to the program. The
-  condition is part of the number in BOTH directions. Making
+  ⚠⚠ **THE `~29 s` IS STALE AND THE VERDICT THAT CALLED IT AN FP WAS WRONG** (PR #510, 2026-09-20).
+  It was re-measured on a clean clone as 28.53 / 29.34 / 27.46 and declared to hold; a review axis
+  then measured **25.67 – 26.80** at the same head under the same stated condition — **ranges that do
+  not overlap**. Arbitrated on a third clean `git clone --local` at `7121476e`, sequential, nothing
+  else of this project running: **this wire 24.88 / 24.93 / 25.05**, the whole job (all five wires)
+  26.10 / 26.22 / 26.73, self-test alone ~6.5 s. The wire is **~25 s**; the FP verdict is retracted.
+  ⚠ **What the episode shows is not who measured badly — it is that the ABSOLUTE is not reproducible
+  on this host to better than ~20%**: three "quiet clean clone" runs of the same command at nearby
+  heads gave 24.9, 26.1 and 28.5 s. And the concurrency attribution (31.96 / 35.05 / 39.85 "measured
+  concurrently with other work") is **not supported**: the whole job measured quiet lands in that same
+  neighbourhood, so SUBJECT (one wire vs five) explains as much as load does. The figure that has
+  never moved is the RATIO — self-test ≈ 6.5 s of the wire — which is what the derivation rests on;
+  an absolute is written only with its SUBJECT beside its condition. Making
   that not grow means a mutant run answering only "does this control go red", which a smaller corpus
   can do — but corpus size is the proof's STRENGTH, so shrinking it per-row is a change to what the
   proof asserts and needs its own measurement per row. Trigger = the round whose head measures under
@@ -2285,13 +2372,31 @@ a paragraph here that reasons the number down.
   were wrong on the first run. **Trigger (an EVENT)**: the next round that reports a dead §3 pointer,
   or the next touch-time split, which is what makes one. **Re-eval: 2026-12-31.** No slot: it is this
   checker's own map.
-- **(pre-existing** — the duplication is on `main` across three branch families, not introduced
-  here**)** GFM row splitter duplicated four ways across three branch families — trigger = two of
+- **(own** — ⚠ **the `(pre-existing)` grounding written here first was FALSE, and the policy asks for
+  the grounding precisely so the cap cannot be re-litigated** (`memory/feedback_defer_cap_policy.md`:
+  「pre-existing 判定の根拠 … も併記」). It read "the duplication is on `main` across three branch
+  families". Measured: `git grep -c split_row origin/main` = **0 hits**, and `origin/main` carries
+  exactly **one** GFM row splitter, `elidex-plan-review/preflight.py::_parse_table_row`. The other
+  three are on UNLANDED branches and one of them — `plan_memo_blocks.py::split_row` — is introduced
+  **by this PR**. That makes the deferral own, and the honest count **10 own / 1 pre-existing**, not
+  9 / 2. The entry's own trigger ("two of them on `main`") is consistent with one and stands.**)**
+  GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
-- **The HAND-WRITTEN TABLE has no detector, and the class is now four deep** (PR #510 Axis 5,
-  2026-09-20 — **own** deferral). Four enumerated tables decide what their controls can see:
+- **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
+  ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
+  VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the
+  'what it cannot see' form" — which selects exactly the tables that had already declared themselves
+  and leaves every other one invisible BY CONSTRUCTION
+  (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`, the rule this very
+  entry cites). Measured by the STRUCTURAL property instead — a module-level name bound to a literal
+  container or to a `frozenset` / `set` / `tuple` / `dict` / `list` constructor, over
+  `.claude/tools/plan*.py` by `ast.parse` — the population is **dozens**, and ⚠ the exact figure
+  depends on the predicate: admitting any such constructor gives **59**, restricting to constructors
+  *of literals* gives **38**. That spread is the point, so no single number is written here; what is
+  authoritative is the PREDICATE and the command that runs it, and the four below are a **SEED, not
+  an inventory**. The four that fired so far:
   `_IMPORT_SEAMS` (which import seams are checked), `_ATTRIB_SPELLINGS` (which attribution spellings
   are read), `_TRAILING` (which trailing characters are decoration) and `_ID_SPELLINGS` (which id
   character classes the sweep knows). Every one states its own "HONESTLY, what it cannot see" and
@@ -2302,10 +2407,11 @@ a paragraph here that reasons the number down.
   one commit before this entry had to widen `_IMPORT_SEAMS` — the first edit in this PR's life that
   had to move that table rather than a prose sentence — and it landed inside the very territory the
   previous round had declared undetected.
-  **Scope**: one control that enumerates the tables themselves (a module-level name bound to a
-  container whose docstring or comment carries the "what it cannot see" form) and asserts each has a
-  stated POPULATION and a stated COMPLEMENT — i.e. that the table's own reach is derived, not
-  asserted. ⚠ **Not a one-liner, and that is why it is carved rather than written here**: the
+  **Scope**: one control whose population is the STRUCTURAL set above (every module-level name bound
+  to a literal container or such a constructor, read off the AST — never a grep for the declaration
+  sentence), asserting that each table a control READS has a stated POPULATION and a stated
+  COMPLEMENT — i.e. that the table's own reach is derived, not asserted. The "what it cannot see"
+  sentence is the ASSERTION the control checks for, never the selector that decides who is checked. ⚠ **Not a one-liner, and that is why it is carved rather than written here**: the
   question "is this table's complement measured" is itself a claim about a complement, so the control
   can be written to pass vacuously, which is the failure
   `memory/feedback_control-rewritten-to-bless-the-defect.md` names. It needs a negative control that
@@ -2313,16 +2419,3 @@ a paragraph here that reasons the number down.
   **Owner**: this checker's own self-test, not a platform gap — no slot.
   **Trigger (an EVENT)**: the next round that reports a miss traceable to one of the four tables, or
   the fifth table. **Re-eval: 2026-12-31.**
-- **Touch-time split debt re-accumulated inside the range that paid a CRIT for it** (PR #510 Axis 5 —
-  **own**, and a pre-commitment rather than a deferral of work already due). Measured over
-  `bc7cb013..HEAD` (`git diff --name-only`, `wc -l` each side): `plan_memo_selftest_mutants_r26.py`
-  718 → **939**, `plan_memo_selftest_cases_r26.py` 346 → **584**, `plan_memo_selftest_invariants.py`
-  777 → **876**. None is over the bound and the touch this PR gave `_mutants_r26.py` was a re-point
-  of two rows, not growth — so the split is not owed by THIS commit. It is owed by the next one that
-  ADDS to those files, which on an open converge loop is the next review round, and the seam is the
-  one every prior split on this PR used (the review-round boundary: R26/R3x out of R1–R25).
-  **Trigger (an EVENT, and the earliest one this ledger holds)**: the next commit that adds a control
-  or a mutant to `plan_memo_selftest_cases_r26.py` or `plan_memo_selftest_mutants_r26.py` splits it
-  FIRST, as its own prereq commit. No date — the trigger is nearer than any date would be.
-  ⚠ Recorded here rather than done now because a split moves the head, and the head must stop moving
-  for the review round that is about to run (`memory/feedback_i-was-the-thing-preventing-convergence.md`).

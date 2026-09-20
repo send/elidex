@@ -40,7 +40,7 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH = (
+IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
     "plan_memo_lexer.py", "plan_memo_blocks.py", "plan_memo_stream.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py",
@@ -49,7 +49,7 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPUL
     "plan_memo_selftest_properties.py", "plan_memo_selftest_records.py",
     "plan_memo_selftest_invariants.py",
     "plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py",
-    "plan_memo_selftest_growth.py")
+    "plan_memo_selftest_growth.py", "plan_memo_umbrella_selftest.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
@@ -59,7 +59,12 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPUL
 # (PR #510 R25), `GROWTH` the one after it (R27), `INVARIANTS` the one after
 # that (R29) and `RECORDS` the one after that (the written-record split); each
 # arrived here with its split rather than with the first mutant that needs it.
-SELFTEST = frozenset((CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH))
+# ⚠ `RUNNER` is the exception to that pattern and arrives WITH its first
+# mutant (PR #510 Axis 5): the report channel's emit sites live there, and the
+# attack that proved the escape's control had the wrong subject is a patch to
+# a CALL SITE. It is patchable because the runner imports `registry`, so the
+# patched module hands the table back like any other self-test module.
+SELFTEST = frozenset((CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER))
 
 # The GENERATED growth property (PR #510 R27): the corpus is derived from the
 # grammar rather than written by hand, so it is the control a cost mutant names
@@ -494,6 +499,7 @@ def run(reg):
     """Apply each mutant to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
     import plan_memo_selftest_harness as h
+    from plan_memo_selftest_controls import printable
 
     fails = []
     print()
@@ -502,14 +508,14 @@ def run(reg):
         src = (h.HERE / file).read_text(encoding="utf-8")
         n = src.count(find)
         if n != 1:
-            fails.append("MUTANT %r: substring occurs %d times in %s (must be exactly 1) -- the "
-                         "mutant no longer applies and proves nothing" % (name, n, file))
-            print("  FAIL [MUTANT] %s (substring x%d)" % (name, n))
+            fails.append(printable("MUTANT %r: substring occurs %d times in %s (must be exactly 1) -- the "
+                                   "mutant no longer applies and proves nothing" % (name, n, file)))
+            print(printable("  FAIL [MUTANT] %s (substring x%d)" % (name, n)))
             continue
         unknown = [c for c in controls if c not in reg]
         if unknown:
-            fails.append("MUTANT %r names unknown control(s) %s" % (name, unknown))
-            print("  FAIL [MUTANT] %s (unknown control)" % name)
+            fails.append(printable("MUTANT %r names unknown control(s) %s" % (name, unknown)))
+            print(printable("  FAIL [MUTANT] %s (unknown control)" % name))
             continue
         patched = src.replace(find, replace)
         if file in SELFTEST:
@@ -536,12 +542,12 @@ def run(reg):
         finally:
             h.unload()
         if crash:
-            fails.append("MUTANT %r crash: %s" % (name, crash))
+            fails.append(printable("MUTANT %r crash: %s" % (name, crash)))
         elif survived:
-            fails.append("MUTANT %r SURVIVED: control(s) stayed green: %s" % (name, survived))
-        print("  %-4s [MUTANT] %s%s" % ("FAIL" if (survived or crash) else "ok", name,
-                                        " (crash: %s)" % crash if crash else ""))
-    print("%d mutant(s), %d survived, %d crashed."
-          % (len(MUTANTS), sum(1 for f in fails if "SURVIVED" in f),
-             sum(1 for f in fails if " crash: " in f)))
+            fails.append(printable("MUTANT %r SURVIVED: control(s) stayed green: %s" % (name, survived)))
+        print(printable("  %-4s [MUTANT] %s%s" % ("FAIL" if (survived or crash) else "ok", name,
+                                        " (crash: %s)" % crash if crash else "")))
+    print(printable("%d mutant(s), %d survived, %d crashed."
+                    % (len(MUTANTS), sum(1 for f in fails if "SURVIVED" in f),
+                       sum(1 for f in fails if " crash: " in f))))
     return fails
