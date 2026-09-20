@@ -10,12 +10,11 @@ Adding a spec to one did not reach the other, so the two drifted apart by
 construction. Both now derive from `SPECS` below, which is the single
 SOURCE site: neither consumer carries an enumeration any more.
 
-⚠ That is not the same as "a spec is added in exactly one place", which an
-earlier revision of this docstring claimed. Adding a row also requires
-re-deriving every pin that vendors a snapshot of this map — the suite beside
-this module holds one — and reaching any consumer outside this package that
-still keeps a reverse map of its own. Those pins are deliberate: they exist
-to redden when the map moves. One SOURCE, plus the pins that travel with it.
+⚠ One SOURCE site is not the same as "a spec is added in exactly one place".
+Adding a row also requires re-deriving every pin that vendors a snapshot of
+this map — the suite beside this module holds one — and reaching any consumer
+outside this package that still keeps a reverse map of its own. Those pins are
+deliberate: they exist to redden when the map moves.
 """
 from __future__ import annotations
 

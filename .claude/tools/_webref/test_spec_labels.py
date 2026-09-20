@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Unit tests for the shared spec shortname ↔ label map.
 
-Each test's docstring opens with the pin name it holds (S1-S8, T-net) and
-then states the invariant, so a failure points back at the invariant
-rather than at the assertion.
+A test that holds a named pin opens its docstring with that pin's name
+(`S1`, `S3b`, `T-net`, ...) and then states the invariant, so a failure
+points back at the invariant rather than at the assertion. The rest are
+ordinary unit tests over the same module and carry no pin name.
 """
 from __future__ import annotations
 

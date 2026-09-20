@@ -150,8 +150,10 @@ neither memo was re-derived. `memory/project_citation-hygiene-program.md` record
 B's memo re-slice edits.** Delegated once and the agent **died on an account monthly spend limit**, so B's
 memo is **untouched**."* Measured, B's memo is written as repairs to a tree that exists at its base, and that
 tree is `b3a7d469`'s. So the re-introductions are **owed, not done** — sites in §13.1, so the next author
-need not re-derive the census. A-i does **not** re-derive them here: 696 and 578 lines of another slice's
-content, which is the decision-surface duplication this program exists to remove. **The gates are B's and
+need not re-derive the census. A-i does **not** re-derive them here: two memos' worth of another slice's
+content, which is the decision-surface duplication this program exists to remove. (An earlier revision gave
+their sizes as *696 and 578* — §13.1 measures the second as **654**, so the memo carried both figures at
+once, four hundred lines apart.) **The gates are B's and
 A-ii's own plan-reviews**, neither of which passes on a memo whose base is wrong.
 
 ⚠ The obligation is not *created* by this decision: `cite_audit.py` cannot survive at A-i's head under any
@@ -273,8 +275,8 @@ which **T-net** pins.
 | **S4** | `LABEL_TO_SHORTNAME` is byte-identical with the 8 aliases omitted | **yes** |
 | **S5** | `shortname_for` agrees with `origin/main`'s 15 `SPEC_LABEL_REVERSE` pairs, **vendored as a literal** — correct precisely because the point is to freeze the *old* table (K4) | no |
 | **S6** | `_spec_label` over the 12 pinned shortnames **and** a non-pinned sample exercising the last-resort | no |
-| **S7** | K3 by scan. ⚠ **Only the third clause is a suite pin now** — the artifact-name scan is a one-off diff check now, not a pin (§15); what the suite pins is `webref_data` absent from `spec_labels.py`. ⚠ **The two ranges were NESTED, not split by tree** — an earlier draft of this row said "split", and there is no partition. Measured, walking each tree under the rule both scanners use: the unit suite ranges over `.claude/tools/_webref/`, **33** files (verified 2026-08-02); the K2 trip-wire ranges over the generic core, **34** files — the same 33 **plus** the `webref` entry script (redrawn at #501 R36 from 39 + 10; re-verified at the second design re-gate, which also found the entry script was a *file* root `os.walk` silently skipped — fixed, with a file-root control in the block). The package is a **strict subset**, and the two scanners use the same regexes, so the suite's two tree-scanning tests have **zero discriminating power** over `couplings`: every plant the suite catches, `couplings` catches. What only `couplings` witnesses is the entry script. The exception is S7's **third** clause — `webref_data` in `spec_labels.py` — which the suite checks and `couplings` does not | no — `origin/main` satisfies it at both ranges (measured 0), which is the point |
-| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `couplings` alone since the third design re-gate** — it always covered the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and after the §13-item-3 widening the harness sees **both** |
+| **S7** | K3 by scan. ⚠ **Only the third clause is a suite pin now** — the artifact-name scan is a one-off diff check (§15), and the two tree-scanning tests were **deleted** at the third design re-gate (Codex R55) because they were a second copy of a scan the K2 trip-wire already makes over a strictly larger range (the package **plus** the `webref` entry script). What the suite pins is `webref_data` absent from `spec_labels.py` — a property of the module's shape, not of any slice: a literal label map has no business importing the upstream fetcher | no — `origin/main` satisfies it (measured 0), which is the point |
+| **S8** | K2 as an **absolute**, under §2's predicate: no `.claude/(skills\|tools)/` + two-further-segments path anywhere in the **generic core** (`_webref/` + the `webref` entry script). ⚠ **Enforced by `.claude/tools/webref-generic-core-trip-wire.sh`**, registered in `scripts/trip-wires.sh`'s `REQUIRED_WIRES` and therefore run on every PR to `main`; it covers the package *and* the entry script, so the suite's package-only copy was the nested one and was removed (§7). ✅ The containment question is closed at #501 R36 — the scope is the generic core and nothing outside it | **yes** — `origin/main` has **two** (`_webref/cli.py:78`, `.claude/tools/webref:5`), and the wire's pin sees **both** |
 | **T-net** | **the import path** is inert: under `subprocess.run` and `urlopen` poisoned, both modules re-execute and answer. ⚠ Scoped to the import, not "across A-i's suite" — measured, it is one `patch(` block in one of 13 test methods (`grep -rn 'def test_' .claude/tools/_webref/test_spec_labels.py | wc -l` → 13, verified 2026-09-20), and that is the right scope: the module load is the thing the gate pays for on every citation, and re-executing it once under the poison is what exercises it | no |
 
 **UNCHECKED, marked not omitted**: that `shortname_for` and `origin/main`'s `shortname_from_label` are
@@ -309,33 +311,38 @@ a reason with no webref content. ⚠ **This sentence named `#11-layoutbox-trip-w
 lane's next task"; that slot is CLOSED** — landed by #496 `da958ace` on 2026-08-02 and recorded in
 `memory/project_open-defer-slots.md`. The scoping decision does not rest on it: the five artifacts are
 other-lane-owned whether or not any particular slot is open, which is the ground the decision now states. K2's and K3's entry-script assertions therefore
-live in `couplings`, which is where assertions outside the package belong.
+live in `.claude/tools/webref-generic-core-trip-wire.sh`, which is where assertions outside the package belong.
 
 ⚠ **The two ranges are nested, not a partition** — an earlier draft of this section said the trees were
 *split* between the instruments, and §6's S7/S8 said "split by tree" and "the harness scans the rest".
-Measured, walking each tree under the rule both scanners use (`__pycache__` skipped, undecodable files
-skipped), and with the same two regexes on both sides: the suite ranges over `.claude/tools/_webref/` — **33**
-files; `couplings` ranges over the generic core — **34**, the same 33 plus the `webref` entry script (an
-earlier revision ranged over all of `.claude/tools/` — 39, adding five other-lane trip-wire artifacts — plus
-`.claude/skills/` — 10; redrawn at #501 R36). The package range is a **strict subset** of the harness's.
-Verified by planting a violation in each range: a package plant turns the
-suite red **and** `couplings` RED, so the suite's two tree-scanning tests discriminated **nothing** that
-`couplings` would miss; an entry-script plant is caught by `couplings` alone (re-measured after the second
-design re-gate fixed `_wtscan`'s file-root blind spot; a `.claude/skills/` plant is, by design, nobody's —
-the adapter is outside K2/K3).
+Measured at the time, walking each tree under the rule both scanners used (`__pycache__` skipped,
+undecodable files skipped) and with the same two regexes on both sides, the package range was a **strict
+subset** of the generic-core range: the same files **plus** the `webref` entry script. (An earlier revision
+ranged over all of `.claude/tools/`, pulling in five other-lane trip-wire artifacts, plus `.claude/skills/`;
+redrawn at #501 R36.) Verified by planting a violation in each range: a package plant turned the suite red
+**and** the tree-wide scan red, so the suite's two tree-scanning tests discriminated **nothing** the
+tree-wide scan would miss; an entry-script plant was caught by the tree-wide scan alone. A `.claude/skills/`
+plant is, by design, nobody's — the adapter is outside K2/K3.
 
 ⚠ **At the third design re-gate those two tests were DELETED from the generic suite** (Codex R55). Having
 measured them as discriminating nothing, keeping them was two homes for one decision — and the copy in the
 package additionally had to be *removed by Slice B* in order for B to add `cite_audit.py`, i.e. a passing
 unit test that a downstream slice must delete to add functionality. `DESIGN.md:3-5,33-37` puts review/plan
-workflow policy in the elidex adapter, not in a package meant to be extractable. `couplings` is now the
-single home; its expressions are character-for-character the ones the suite carried (`PATHRE` = the old
-`_ELIDEX_PATH`, `B_ART`/`B_FT` = the old needles), and §13 records that Slice C — which retires the harness
-— must re-home the assertion rather than drop it. **What the suite still adds is S7's third clause**
-(`webref_data` in `spec_labels.py`, which `couplings` does not check — its `BFILES` is an exclusion list,
-not a scan) and the schedule it runs on — not range. That clause is not slice policy: a literal label map
+workflow policy in the elidex adapter, not in a package meant to be extractable. `.claude/tools/webref-generic-core-trip-wire.sh` is now
+the single home, and it is a **registered** wire (`scripts/trip-wires.sh`, `REQUIRED_WIRES`) rather than a
+memo-owned script, so no later slice is owed a re-homing — §13 item 2 records that discharge. **What the
+suite still adds is S7's third clause** (`webref_data` in `spec_labels.py`, which the wire does not check)
+and the schedule it runs on — not range. That clause is not slice policy: a literal label map
 has no business importing the upstream fetcher whichever slice is landing, so it moved to a class named for
 the module's own shape. The containment stays: the scope is §2's generic core, decided at #501 R36.
+
+⚠ **The entry script's docstring says what the tool does and nothing else, and that is deliberate.** Two
+revisions of it named a review recipe — the first by path, the second by the skill's invocation name after
+Codex R56 objected to the path. Only the path moved; the wording `DESIGN.md:33-37` is actually about stayed,
+which Codex R60 then flagged. The third revision replaced the recipe with a note *explaining* the rule, and
+Codex R65 flagged that too: a note about the host's review history is itself host wording. The rule lives in
+`_webref/DESIGN.md`, the enforcement in the wire, and the history here. Nothing about it belongs in the
+generic file.
 
 **One-issue-one-way**: the label enumeration goes three sites → one, two of the three in this slice.
 
@@ -343,28 +350,27 @@ the module's own shape. The containment stays: the scope is §2's generic core, 
 
 ## §8 Line-count budget
 
-Re-derive with `git diff origin/main...HEAD --numstat -- .claude/` and `wc -l`; this section states no digit
-it did not take from those two commands.
+**This section states no digit.** It states the command and the two things its output has to show:
 
-| File | Δ | at HEAD |
-|---|---|---|
-| `_webref/spec_labels.py` | **new**, +97 | 97 |
-| `_webref/test_spec_labels.py` | **new**, +301 | 301 |
-| `_webref/cli.py` | +13 / −15 | 262 |
-| `_webref/commands/coverage_map.py` | +17 / −20 | 111 |
-| `_webref/DESIGN.md` | +4 | — |
-| `.claude/tools/webref` | +7 / −4 | — |
-| `elidex-plan-review/preflight.py` | +3 / −3 (comment only) | 499 |
+```sh
+git diff origin/main...HEAD --numstat -- .claude/ && wc -l .claude/tools/_webref/*.py
+```
 
-Both consumers lose lines, which is the shape the de-duplication predicts: the enumeration leaves them and
-lands once. Nothing here is near CLAUDE.md's 1000-line touch-time split threshold.
+1. **Both consumers lose lines on balance** (`cli.py`, `commands/coverage_map.py`) — the shape the
+   de-duplication predicts: the enumeration leaves them and lands once in `spec_labels.py`.
+2. **No file is near CLAUDE.md's 1000-line touch-time split threshold.**
+
+⚠ A previous revision of this section carried a per-file Δ table and, before that, a `wc -l` figure for this
+memo. Both went stale inside the same review loop that wrote them — the second time (Codex R65) by a
+one-line docstring rewrap in the round immediately before. A digit in a memo is a hostage to the next commit
+to the thing it counts, and this section's whole subject is quantities that move on every commit, so it
+holds none.
 
 ⚠ **This section used to be 88 lines**, almost all of it the per-commit line-count history of the
 re-derivation harness and the 700-800 *authoring band* this program used for it. That harness is not in this
 PR (§15), so its budget is not A-i's to state. What is A-i's is the table above and the judgement below.
 
-⚠ **This memo is ~700 lines (`wc -l` — the figure moves with every edit to it, so re-run rather than
-read) and the third design re-gate asked whether it should split: no.** CLAUDE.md's
+⚠ **The third design re-gate asked whether this memo should split: no.** CLAUDE.md's
 touch-time split discipline is scoped to files **over 1000 lines** with a real cohesion seam. Splitting a
 memo one review round from landing would also re-create, across two documents, the figure-with-two-homes
 defect that same gate had just removed from the umbrella's slice table.
@@ -401,12 +407,11 @@ approval and outside a slice commit — the self-ratification the re-slice avoid
 ## §11 Defer slots
 
 **Zero own deferrals.** A-i creates no failable capability (§5's reachability argument, not a membership
-claim), no network dependency (`SPECS` is pinned; the catalog fall-through is B's), no scheduling gap. The
-harness's owed split, the one trigger §8 carried, is **discharged** in the three prereq commits §8 names, so
-**no defer slot** is owed at landing. Owed *actions* are a different category and are §13's — after this
-commit set: **one** harness edit (`suites`' relocation; the `couplings` widening is taken), the umbrella's
-four scope-grant clauses plus the `@lru_cache` row, the re-homing of `#11-preflight-css-module-labels`, and
-the re-derivations B and A-ii owe.
+claim), no network dependency (`SPECS` is pinned; the catalog fall-through is B's), no scheduling gap, and
+no file near the touch-time split threshold (§8), so **no defer slot** is owed at landing. Owed *actions*
+are a different category and are §13's — after this commit set: the umbrella's four scope-grant clauses plus
+the `@lru_cache` row, the re-homing of `#11-preflight-css-module-labels`, and the re-derivations B and A-ii
+owe.
 
 ---
 
@@ -500,8 +505,9 @@ three, so the durable record is the artifact that carries the obligation plus th
 
 1. ✅ **DISCHARGED at the third design re-gate, not deferred.** This row read "S7's first clause must be
    RETIRED when B lands, not extended" — an obligation on a permanent tool-tree file that no plan-review
-   round reads. The clause is **gone from the suite**: it was a second copy of `couplings`' own scan, so
-   deleting it removes the obligation instead of scheduling it. Nothing is owed to B here any more.
+   round reads. The clause is **gone from the suite**: it was a second copy of the tree-wide scan the K2
+   trip-wire makes, so deleting it removes the obligation instead of scheduling it. Nothing is owed to B
+   here any more.
 2. ✅ **DISCHARGED, not owed.** This row read "K2/K3's entry-script half is enforced from `docs/plans/`,
    and Slice C retires that … C must re-home the assertion". Both halves stopped being true in the same
    commit that dropped the harness: the enforcement is now
@@ -551,9 +557,10 @@ identical two sites — while importing five other-lane artifacts (`layout-box-r
 `layout-box-reader-trip-wire.sh`, and three `*-trip-wire.sh`) into A-i's §12(3) exit criterion, so a Layout-lane
 edit with no webref content could fail it. K3 was mis-drawn a second way: its headline said *the generic core*
 names no Slice-B artifact, but its body ranged over `.claude/skills/`, the **adapter**. The correction — K2/K3
-bound to `_webref/` plus the `.claude/tools/webref` entry script, one enforcement point (`couplings`) — costs
-no evidence and removes all cross-lane coupling. A-ii and A-iii cite `couplings` by name and are unaffected;
-no CI wiring is involved, so `#11-layoutbox-trip-wire-not-in-ci` is untouched.
+bound to `_webref/` plus the `.claude/tools/webref` entry script, one enforcement point — costs no evidence
+and removes all cross-lane coupling. ⚠ **A-ii and A-iii cite the dropped harness's block by name**, so the
+memo PR that carries them (#514) has to be swept for it before it lands; the umbrella records that
+obligation. No CI wiring is involved here, so `#11-layoutbox-trip-wire-not-in-ci` is untouched.
 
 **Frozen literals.** S5's 15 `SPEC_LABEL_REVERSE` pairs **and** S3b's vendored `COMMON_SHORTNAMES` blurb text
 are both `origin/main` snapshots taken at vendoring time and refreshed never — which is what makes them pins

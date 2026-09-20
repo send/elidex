@@ -4,16 +4,6 @@
 Resolves a spec citation against w3c/webref + tc39 biblio: section numbers,
 anchor IDs, WebIDL fragments, concept dfn anchors, element-to-interface
 mappings, CSS property metadata, and section prose.
-
-⚠ No host-project workflow wording here, by `_webref/DESIGN.md:33-37`, which
-assigns "review/plan workflow wording" to the adapter. Two revisions of this
-docstring named a review recipe: the first by path, the second by the skill's
-invocation name after a reviewer objected to the path. Only the path moved —
-the wording the rule is actually about stayed. Whichever project consumes this
-tool documents on its own side what it uses the tool for — and that side is
-where the pointer belongs, since naming it from here is itself the violation
-the layering trip-wire catches. (It did: the first draft of this very note
-named the adapter file by path and turned the wire RED.)
 """
 import sys
 from pathlib import Path
