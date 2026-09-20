@@ -36,7 +36,7 @@ import bisect
 import re
 
 from plan_memo_ids import (
-    CITE_ID, DECOR_CHARS, ROW_KINDS, SHORT_ID, SLUG_ID, bounded, tokens,
+    CITE_ID, DASH_CLASS, DECOR_CHARS, ROW_KINDS, SHORT_ID, SLUG_ID, bounded, tokens,
 )
 from plan_memo_tokens import file_and_cite_spans
 
@@ -69,7 +69,8 @@ never a change to the phrase."""
 # the naming rule enforces against umbrellas.  Two spellings are in use; both
 # are tolerated and the divergence is reported (a kind with two spellings is a
 # kind no program can enumerate).
-UNDETERMINED = re.compile(bounded(r"KIND\s*[—-]?\s*UNDETERMINED"), re.IGNORECASE | re.ASCII)
+UNDETERMINED = re.compile(bounded(r"KIND\s*" + DASH_CLASS + r"?\s*UNDETERMINED"),
+                          re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
 # "SCHEDULED FROM ITS OWN SLOT" rows).  ⚠ Keyed on one spelling, and the safe

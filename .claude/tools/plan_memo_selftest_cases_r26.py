@@ -395,3 +395,57 @@ case("POSITIVE", "(R32 §2.5/GFM) a `&#124;` inside a cell does NOT split it: th
                  "the measure here is the SITE and not merely the exit status",
      build(), "See [the walk](slice-9z-sib.md).", 1,
      sibling=_R32_SIB % ("---", "**8z** &#124; x"))
+
+
+# ------------------------------------------------ PR #510 Codex R33 controls --
+# R33-1: `_APPOSITIVE` is `.search`ed over the declaring field and opens with
+# `ROW_NOUN_ID`, which had NO LEFT BOUNDARY -- so the search could begin inside
+# a longer word ending in a row noun.  `Subslice 9z — **UMBRELLA, …**` attributed
+# the marker to `9z`, the containing row was read as a POINTER, and a false
+# `UMBRELLA-MARK` mechanical failure was emitted.  ⚠ The dangerous polarity here
+# is FABRICATION, not silence: the checker reported a finding the document does
+# not support.  `NOUN_ANCHOR` had carried the same `BEFORE` boundary since R24;
+# this composer did not.
+
+acase("POSITIVE", "(R33-1) `Slice 9z — **UMBRELLA, …**` attributes the marker to the named row: the "
+                  "appositive reading, unchanged.  The control's constant -- what R33-1 narrows is "
+                  "where the search may BEGIN, never what a real row noun means",
+      build(wb="Slice 9z — **UMBRELLA, not a terminal unit.** points into §8."), "UMBRELLA-MARK", 1)
+R33_1_REAL_NOUN = CASES[-1].name
+acase("NEGATIVE", "(R33-1) `Subslice 9z — **UMBRELLA, …**` attributes NOTHING: `Subslice` is one word "
+                  "and the row noun inside it is not a row noun, so the field is the containing row's "
+                  "OWN declaration.  The reported shape -- read without a left boundary the search "
+                  "started mid-word, the row became a pointer and the run FABRICATED an UMBRELLA-MARK",
+      build(wb="Subslice 9z — **UMBRELLA, not a terminal unit.** points into §8."), "UMBRELLA-MARK", 0)
+R33_1_LONGER_WORD = CASES[-1].name
+acase("NEGATIVE", "(R33-1) `xSlice 9z — …` likewise: the boundary is a fact of the GRAMMAR (an ASCII "
+                  "alphanumeric may not stand before the noun), not a list of words that happen to end "
+                  "in one -- so a prefix nobody thought of is covered by the same clause",
+      build(wb="xSlice 9z — **UMBRELLA, not a terminal unit.** points into §8."), "UMBRELLA-MARK", 0)
+R33_1_NOVEL_PREFIX = CASES[-1].name
+
+# R33-2: the undetermined-kind phrase admitted the em dash and the hyphen and
+# NOT the en dash, while `_APPOSITIVE` and the id-cell blank set both admitted
+# all three.  One rule, three spellings, disagreeing -- so `KIND – UNDETERMINED`
+# read as terminal, assertion (b) never looked at the row's `Deps`, and the run
+# exited 0.  The dash set is spelled ONCE now (`plan_memo_ids.DASH`).
+
+_R33_2 = "KIND %s UNDETERMINED until the probe runs."
+acase("POSITIVE-NOVEL", "(R33-2) `KIND – UNDETERMINED` with an EN DASH declares the unsettled kind, so "
+                        "the row's nonempty `Deps` edge is asserted.  The reported shape: this one "
+                        "spelling was missing from the phrase's character class while the row grammar "
+                        "beside it accepted it, and the row left the run at rc 0",
+      build(suz=_R33_2 % "–", duz="**7z**"), "UMBRELLA-CELL", 1)
+R33_2_EN_DASH = CASES[-1].name
+acase("POSITIVE", "(R33-2) the EM DASH spelling, green before the fix -- the discriminating half: the "
+                  "row, the phrase and the edge are the control's constants and only the dash differs",
+      build(suz=_R33_2 % "—", duz="**7z**"), "UMBRELLA-CELL", 1)
+acase("POSITIVE", "(R33-2) and the HYPHEN spelling, also green before -- three spellings of one "
+                  "separator, which is why the set is spelled once and composed rather than written "
+                  "out at each reader",
+      build(suz=_R33_2 % "-", duz="**7z**"), "UMBRELLA-CELL", 1)
+acase("NEGATIVE", "(R33-2) `KIND / UNDETERMINED` declares NOTHING: the set admits the three dashes "
+                  "these documents use and did not become 'any punctuation' -- the partner that bounds "
+                  "the fix",
+      build(suz=_R33_2 % "/", duz="**7z**"), "UMBRELLA-CELL", 0)
+R33_2_NON_DASH = CASES[-1].name

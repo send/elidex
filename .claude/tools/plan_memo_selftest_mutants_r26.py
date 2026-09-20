@@ -23,6 +23,7 @@ runner reads the one list at one import site.
 from plan_memo_selftest_cases_r26 import (
     R30_3_DEMOTED_TAIL, R30_3_IMAGE_OPENER, R30_3_LINK_OPENER, R30_3_LOUD_MISS,
     R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED, R31_1_RENDERED_HEADER,
+    R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -787,4 +788,41 @@ MUTANTS += [
      "    out.append(pattern[start:])\n    return out",
      "    out.append(pattern[start:])\n    return [pattern]",
      [R31_LICENCE_INDEX]),
+]
+
+
+
+# -- PR #510 Codex R33.  ⚠ R33-1's polarity is FABRICATION, not silence: without
+# the boundary the checker emitted a mechanical failure the document does not
+# support, which is the direction a reviewer of the REPORT cannot catch.
+R33_DASH_SWEEP = ("PROPERTY: the separator dash set is spelled once, in plan_memo_ids.py (the class "
+                  "three readers spelled three ways, disagreeing)")
+
+MUTANTS += [
+    ("R33-1 appositive: the row noun carries a LEFT boundary (drop `BEFORE`: the search starts inside "
+     "a longer word and the containing row is read as a pointer)", TABLES,
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID',
+     '_APPOSITIVE = re.compile(ROW_NOUN_ID',
+     [R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX]),
+    # The OTHER direction, and the row the first one cannot report: a boundary
+    # that refuses everything passes both negatives above and reports nothing at
+    # all, which is the cheapest wrong answer here.
+    ("R33-1 appositive: the boundary admits a REAL row noun (refuse every appositive: the two "
+     "negatives stay green and the attribution stops happening)", TABLES,
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID',
+     '_APPOSITIVE = re.compile(BEFORE + "(?!)" + ROW_NOUN_ID',
+     [R33_1_REAL_NOUN]),
+    ("R33-2 dashes: the set holds the EN dash (drop it: `KIND – UNDETERMINED` reads as terminal and "
+     "the row's `Deps` is never asserted)", IDS,
+     'DASH = "\\u2014\\u2013-"', 'DASH = "\\u2014-"',
+     [R33_2_EN_DASH]),
+    ("R33-2 dashes: the set is the three these documents use, not any punctuation (widen it: a `/` "
+     "separator would declare a kind)", IDS,
+     'DASH = "\\u2014\\u2013-"', 'DASH = "/\\u2014\\u2013-"',
+     [R33_2_NON_DASH]),
+    ("R33-2 sweep: a second dash class in a checker module is found (re-inject one at the reader that "
+     "had it)", STREAM,
+     'UNDETERMINED = re.compile(bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded(r"KIND\\s*[\\u2014-]?\\s*UNDETERMINED"),',
+     [R33_DASH_SWEEP]),
 ]

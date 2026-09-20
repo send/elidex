@@ -376,9 +376,14 @@ MUTANTS = [
      ["(id) an id cell `?` is not a blank: unkeyed, rc 2",
       "(id) an id cell `…` is not a blank: unkeyed, rc 2 (the shape rule would skip it)",
       "(id) an id cell `**?**` is not a blank: decoration does not blank it, rc 2"]),
+    # ⚠ THE SPELLING MOVED AT R33-2, when the three readers of the dash set
+    # stopped each writing their own: `ID_CELL_BLANKS` composes
+    # `plan_memo_ids.DASH` now, so the blank set is narrowed by narrowing the
+    # one set. The runner reported the old substring as "no longer applies"
+    # rather than passing it -- the R22 `STAGE_C` rule, a fourth time.
     ("4.5 id cell: `—` is a literal blank", TABLES,
-     'ID_CELL_BLANKS = frozenset({"", "\\u2014", "-", "\\u2013"})',
-     'ID_CELL_BLANKS = frozenset({"", "-", "\\u2013"})',
+     'ID_CELL_BLANKS = frozenset({""} | set(DASH))',
+     'ID_CELL_BLANKS = frozenset({""} | (set(DASH) - {"\\u2014"}))',
      ["(id) an id cell `—` is a literal blank: a deliberate non-row, rc 0"]),
     ("4.5 link: a citation-grammar label is exempt in every reference form", MEMO,
      'exempt = is_cite_label(key) or form == "shortcut"',

@@ -38,7 +38,7 @@ document renders it.
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
-from plan_memo_ids import DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
+from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
 from plan_memo_stream import MARKER_RE, rendered
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -72,7 +72,7 @@ def is_empty(cell_stream):
 # an id or a deliberate blank, and anything else (`?`, `…`, `**?**`, `--`) is
 # an UNKEYED row -- the silent-skip class the schema miss exists for.  So the
 # blanks are LITERAL here: exactly these four, as a READER sees the cell.
-ID_CELL_BLANKS = frozenset({"", "\u2014", "-", "\u2013"})
+ID_CELL_BLANKS = frozenset({""} | set(DASH))
 
 
 def is_blank_id_cell(cell_reading):
@@ -386,7 +386,16 @@ def bare_id(cell_text, kinds):
     return t.id if t is not None and t.start == 0 and t.kind in kinds else None
 
 
-_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)
+# ⚠ `BEFORE` IS LOAD-BEARING AND WAS MISSING UNTIL PR #510 R33-1.  This is
+# `.search`ed over the field, and `ROW_NOUN_ID` opens with the row noun, so
+# without a left boundary the search could start INSIDE a longer word:
+# `Subslice 9z — **UMBRELLA, …**` (and even `xSlice 9z — …`) attributed the
+# marker to `9z`, the containing row was read as a POINTER, and a false
+# `UMBRELLA-MARK` mechanical failure was emitted.  `NOUN_ANCHOR` had carried
+# the same boundary since R24; this composer did not, which is the "spelled
+# twice, disagreeing" shape again.
+_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\s*" + DASH_CLASS + r"\s*" + DECOR + r"\s*$",
+                         re.ASCII)
 
 
 def attributed_to_other(field, rid):

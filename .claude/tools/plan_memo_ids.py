@@ -55,6 +55,17 @@ ALNUM = "[%s]" % ALNUM_CHARS
 word boundary every anchor in these modules reads (the row-noun anchor, the
 end of a bare `.md` file name)."""
 
+# The DASHES these documents separate an appositive or a kind phrase with,
+# spelled ONCE (PR #510 R33-2).  Three readers spelled their own class and they
+# DISAGREED: `_APPOSITIVE` and the id-cell blank set both admitted the EN dash,
+# and the undetermined-kind phrase did not -- so `KIND – UNDETERMINED` read as
+# terminal, assertion (b) never looked at the row's `Deps`, and the run exited
+# 0.  This is the id grammar's file because that is where the other "spelled
+# once and every reader composes it" constants already live (`BEFORE` / `AFTER`
+# / `ALNUM`), and `id_spelling_sweep_control` is the precedent for enforcing it.
+DASH = "\u2014\u2013-"                      # em dash, en dash, hyphen-minus
+DASH_CLASS = "[" + DASH + "]"
+
 BEFORE = "(?<!%s)" % ALNUM
 AFTER = "(?!%s)" % ALNUM
 """The ASCII word boundary, as the two lookarounds that spell it -- the ONE

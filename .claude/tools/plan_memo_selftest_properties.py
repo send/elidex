@@ -753,6 +753,8 @@ def registry():
             ("CONTROL", symbol_attribution_control),
         "PROPERTY: every import-graph seam this suite states in prose is true of the imports (an \"only importer of X\" is a claim about the COMPLEMENT)":
             ("CONTROL", import_seam_control),
+        "PROPERTY: the separator dash set is spelled once, in plan_memo_ids.py (the class three readers spelled three ways, disagreeing)":
+            ("CONTROL", dash_spelling_sweep_control),
     })
     return reg
 
@@ -1002,3 +1004,80 @@ def import_seam_control(M):
             bad.append("%s: also imported by %s" % (label, ", ".join(extra)))
     return not bad, ("%d import seam(s) hold%s" % (len(_IMPORT_SEAMS),
                                                    ("; " + "; ".join(bad)) if bad else ""))
+
+
+def dash_spelling_sweep_control(M):
+    """PROPERTY: the separator DASH set is spelled once, in the id grammar
+    module, and no other source of this checker writes its own.
+
+    THREE READERS SPELLED IT AND THEY DISAGREED (PR #510 R33-2).  The
+    appositive reader admitted em dash, en dash and hyphen; the id-cell blank
+    set admitted the same three; and the undetermined-kind phrase admitted only
+    em dash and hyphen.  So `KIND – UNDETERMINED` -- visually identical to the
+    spelling beside it -- was read as a terminal row, assertion (b) never looked
+    at its `Deps`, and the run exited 0.  This is the `id_spelling_sweep_control`
+    shape applied to the other character class these documents actually vary.
+
+    HONESTLY, what it cannot see: a dash class built by concatenation or held
+    in a variable, a single dash character compared with `==` (which is what
+    `ID_CELL_BLANKS` does, through the shared constant), and a fourth dash
+    codepoint nobody has written yet -- the last being the reason the set is a
+    NAMED constant rather than a regex fragment repeated three times."""
+    # ⚠ THE POPULATION IS THE CHECKER SET, NOT EVERY SOURCE.  Swept over the
+    # self-test too, this reported eight "defects" that were control NAMES --
+    # a fixture described as "a `Deps` cell `–` (en dash) is empty by shape"
+    # is prose about a dash, not a second reader of one.  A second READER can
+    # only live in the checker, so that is the population; the same distinction
+    # the attribution sweep draws between a claim and a specimen.
+    grammar = GRAMMAR
+    checker = {file for _name, file in MODULES}
+    # ⚠ A CHARACTER CLASS, NOT ANY TEXT HOLDING A DASH.  Written first as
+    # "a line with a dash and a bracket", this reported three docstrings that
+    # merely DISCUSS the separator -- prose about a dash is not a reader of one,
+    # the same claim/specimen line the attribution sweep draws.  The predicate
+    # is a bracket group containing a dash and no whitespace, tested against
+    # STRING LITERALS from the AST rather than against raw lines, so a comment
+    # or a docstring cannot trip it and a class cannot hide from it.
+    # ⚠ FIRST, THE CLASS MUST MEAN THE SET.  `DASH_CLASS` is `"[" + DASH + "]"`,
+    # so it is correct only while the hyphen stays LAST -- a character appended
+    # after it becomes a RANGE endpoint, silently widening or refusing to
+    # compile.  Measured: a mutant appending `/` raised `bad character range`
+    # rather than turning a control red, and a crash proves nothing about a
+    # clause.  So the set and the class are compared member by member here.
+    import plan_memo_ids
+    compiled = re.compile(plan_memo_ids.DASH_CLASS)
+    for ch in plan_memo_ids.DASH:
+        if not compiled.fullmatch(ch):
+            return False, ("DASH_CLASS does not match %r, a member of DASH -- the class is not the "
+                           "set it is built from (a hyphen that is not last makes a RANGE)" % ch)
+    for ch in "/.,;:_ ":
+        if compiled.fullmatch(ch):
+            return False, ("DASH_CLASS matches %r, which is not a dash -- a range endpoint has "
+                           "widened the class beyond its set" % ch)
+
+    # ⚠ AND THE DASH MAY BE SPELLED AS AN ESCAPE.  Inside a RAW string
+    # (`r"[\\u2014-]"`) the six characters `\\u2014` are not a dash, so a
+    # predicate looking only for the character misses the class entirely --
+    # measured: the mutant that re-injects exactly that form SURVIVED this
+    # control until the escape spelling was admitted here.  Both forms count,
+    # because both compile to the same class.
+    dash_in_class = r"(?:[\u2014\u2013]|\\u201[34])"
+    klass = re.compile(r"\[(?:(?!\])[^\s])*" + dash_in_class + r"(?:(?!\])[^\s])*\]")
+    bad = []
+    for file, src in _swept_sources():
+        if file == grammar or file not in checker:
+            continue
+        tree = ast.parse(src)
+        docstrings = {id(n.body[0].value) for n in ast.walk(tree)
+                      if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                      and n.body and isinstance(n.body[0], ast.Expr)
+                      and isinstance(n.body[0].value, ast.Constant)
+                      and isinstance(n.body[0].value.value, str)}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and id(node) not in docstrings and klass.search(node.value)):
+                bad.append("%s:%d spells a dash class of its own: %r"
+                           % (file, node.lineno, klass.search(node.value).group()))
+    return not bad, ("%d checker source(s) swept, %d spelling a dash class outside %s%s"
+                     % (len(checker) - 1, len(bad), grammar,
+                        ("; " + "; ".join(bad[:4])) if bad else ""))

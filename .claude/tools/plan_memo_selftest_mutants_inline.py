@@ -657,9 +657,11 @@ MUTANTS += [
     ("R22 #3 phrase: the MARKER is bounded (re-inject the bare phrase)", STREAM,
      "MARKER_RE = re.compile(bounded(re.escape(MARKER)))", "MARKER_RE = re.compile(re.escape(MARKER))",
      [R22_SUBUMBRELLA, R22_UNITARY]),
+    # ⚠ THESE SUBSTRINGS MOVED AT R33-2, when the dash set stopped being written
+    # out at each reader and became `plan_memo_ids.DASH_CLASS`.
     ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", STREAM,
-     'UNDETERMINED = re.compile(bounded(r"KIND\\s*[\u2014-]?\\s*UNDETERMINED"), re.IGNORECASE | re.ASCII)',
-     'UNDETERMINED = re.compile(r"KIND\\s*[\u2014-]?\\s*UNDETERMINED", re.IGNORECASE | re.ASCII)',
+     'UNDETERMINED = re.compile(bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED",',
      [R22_UNDET_NESS, R22_MANKIND]),
     ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", STREAM,
      'POINTER = re.compile(bounded(r"is a pointer rather than a slice"))',
@@ -869,8 +871,8 @@ MUTANTS += [
      [R24_LONG_SLUG, R24_WIDTH_PROPERTY]),
     ("R24 F3 tables: the appositive still requires the DASH (drop it: a field that merely mentions a "
      "sibling attributes to it, which is what the window was believed to prevent)", TABLES,
-     r'_APPOSITIVE = re.compile(ROW_NOUN_ID + r"\s*[—–-]\s*" + DECOR + r"\s*$", re.ASCII)',
-     r'_APPOSITIVE = re.compile(ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + r"\s*$", re.ASCII)',
+     r'_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\s*" + DASH_CLASS + r"\s*" + DECOR + r"\s*$",',
+     r'_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + r"\s*$",',
      [R24_MENTION_ONLY]),
     # ⚠ THE ANCHOR MOVED AT R31-4, when the backward look stopped scanning the
     # whole preceding text and started matching at the ONE offset the index

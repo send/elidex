@@ -1606,6 +1606,49 @@ ground for either option; it is not cited.
   two places — caught before landing and collapsed back to one.
   **Gate @ R32**: 625 controls / 347 mutants 0 survived 0 crashed / trip-wires rc 0 / #506 census
   worklist byte-identical (`cmp` clean).
+  ⚠ **PR #510 Codex R33 (2026-09-20)** — **three** findings, all real, all reproduced before any fix.
+  **Two land here; the third is Slice 2's and the plan already said so.**
+  ⚠⚠ **PROCESS FAILURE FIRST**: R33 landed at 04:51:53Z, 13 min after the trigger, and **was not
+  picked up for 98 minutes** — the scheduled wakeup did not result in processing and I did not notice.
+  The user asked "R33 ちゃんとモニターしてますか?" and that is the only reason it was caught. A trigger
+  that is fired is not a round that is watched → [[feedback_every-triggered-pr-must-be-on-the-loop]].
+  **R33-1 (P2)**: `_APPOSITIVE` is `.search`ed and opens with `ROW_NOUN_ID`, which had **no left
+  boundary**, so the search could begin inside a longer word: `Subslice 9z — **UMBRELLA, …**` — and
+  even `xSlice 9z — …` — attributed the marker to `9z`, the containing row was read as a POINTER, and
+  the run **FABRICATED** an `UMBRELLA-MARK` mechanical failure. ⚠ The polarity is fabrication, not
+  silence: a reviewer reading the REPORT cannot catch this. `NOUN_ANCHOR` had carried the same
+  `BEFORE` boundary since R24; this composer did not.
+  **R33-2 (P2)**: the undetermined-kind phrase admitted em dash and hyphen and **not the en dash**,
+  while `_APPOSITIVE` and the id-cell blank set admitted all three. One rule, three spellings,
+  disagreeing — so `KIND – UNDETERMINED` read as terminal, assertion (b) never looked at the row's
+  `Deps`, and the run exited 0. Fixed as a **single home** (`plan_memo_ids.DASH`) that all three
+  readers compose, with `dash_spelling_sweep_control` enforcing it — the `id_spelling_sweep_control`
+  shape applied to the other character class these documents vary.
+  ⚠ **Writing that control cost three corrections of my own, each caught by running it**: its
+  population was every source (it reported eight control NAMES — prose about a dash is not a reader
+  of one); its predicate was "a line with a dash and a bracket" (it reported three docstrings); and
+  its final form **missed the `\u2014` ESCAPE spelling**, so the mutant that re-injects exactly that
+  form SURVIVED until the escape was admitted. ⚠ A fourth: the widen-mutant `[—–-/]` is a reversed
+  RANGE and **crashed** instead of reddening, which exposed that `DASH_CLASS = "[" + DASH + "]"` is
+  correct only while the hyphen stays last — now guarded member-by-member in the same control.
+  **▶ R33-3 (P2) is REAL and is DEFERRED to Slice 2, which the plan already assigns it.** Every cell
+  of a schema row receives `row.self_id` and both passes discard every token equal to it *by value*,
+  so an umbrella row whose own Slice cell says `9z owns integration` produces no site while identical
+  prose outside the row is reported. Reproduced. ⚠ **But the fix is not the suppression alone**: with
+  it applied, the existing NEGATIVE control "a row naming itself in its own cell" goes RED, because
+  `9z mints its children here` is licensed by neither `LICENSE_BEFORE` (the phrase must precede) nor
+  `LICENSE_AFTER` (no `mints` arm) — it had been green only through the over-broad suppression. §2
+  **I-D** states exactly this outcome ("a row's mention of itself is classified like any other … the
+  existing NEGATIVE control **flips to POSITIVE** when the role is forbidden; the licensed `mints its
+  children` form stays NEGATIVE") and §4 row **#5** carries it as `self_id` exclusion hides a
+  forbidden self-attached role, I-D, priority 2, **"predicate (+ control flip)"** — and §4 #4–#6 are
+  **Slice 2's**, which gets its own plan-reviewed memo. Landing the suppression here without the
+  licensing predicate would ship a FABRICATED finding, which is the same polarity R33-1 fixes. The
+  change was written, measured, and reverted; Slice 2 inherits both halves.
+  **Gate @ R33**: 637 controls / 356 mutants 0 survived 0 crashed / trip-wires rc 0 / census worklist
+  byte-identical. ⚠ Four older mutant rows lost their substrings to the single-home rewrite and the
+  runner reported every one as "no longer applies" rather than passing them — the R22 `STAGE_C` rule
+  holding a fourth time.
 - **Slice 2**: §4 #4–#6 each with positive + mutant controls, I-E's connective set each a control
   plus the `Unlike Slice 7z` negative; the flipped self-reference control documented; R94 threads
   #4/#5/#6 resolved on #506; slot CLOSE −1.
