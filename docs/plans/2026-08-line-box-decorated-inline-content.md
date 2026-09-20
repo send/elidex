@@ -101,6 +101,88 @@ The rule, from here:
 > or a §6 cell**. At TERMINAL the plan is approved and implementation starts, whatever the
 > IMP/MIN count stands at.
 
+## ⚠⚠ DESIGN FREEZE (2026-09-20, rev 35) — the rule above is **RETIRED, not satisfied**
+
+**§5.1's eight mechanism *Decision* columns and §6's 49 cells are frozen at rev 34 (`9a17506d`).
+Implementation starts.** The ledger below is kept as the record of how the loop ran; it no longer
+gates anything.
+
+**Why the rule was retired — three measurements, not fatigue.**
+
+1. **The loop was generating its own resets.** Classified by origin, every counter reset after
+   round 21 (which reached TERMINAL legitimately, and was reset by an *external* reviewer's three
+   genuine findings) was either noise or a defect the previous revision's own fix had introduced:
+   round 23 = two **wording** fixes; round 24 = one **`file:line`** fix inside text the previous
+   revision had just written; round 25 = a dead branch **introduced by rev 32**; round 26 = an
+   equality guard against an extended ordering **introduced by rev 33, the fix for round 25**;
+   rev 34's gate = a smaller defect **introduced by rev 34**. Three consecutive self-introduced
+   resets. Nothing made the counter likely to reach two.
+2. **The rule keyed on a surface that grew every round.** `wc -m`: 152,152 at round 18 → 199,416
+   → 249,144 → 279,186 → 317,266 → **363,770** at rev 34, the last two increments +38k and +46.5k
+   — accelerating. Inline `⚠` markers 101 → 376; `An earlier drafting` markers 2 → 40. Requiring
+   *zero* §6-cell-changing findings from a 49-cell matrix that gains ~40k characters of argued
+   prose per round is a fixed-point search over an input growing ~15% per iteration.
+3. **⚠ The decisive ground is detector mismatch, not cost.** Rounds 25 and 26 both found
+   *code-level predicate* defects — a dead branch, and an equality test against an extended
+   ordering. `cargo test` catches that class at implementation: this crate already carries five
+   multi-line assertions
+   (`grep -rnE 'lines\.len\(\), *[2-9]|line_count, *[2-9]' crates/layout/elidex-layout-block/src`
+   → `inline/tests/inline_flow/{persist,vertical,transform,justify}.rs`), and a guard that never
+   fires turns all of them red on the first run. Round 26's own Axis 2 said so and offered to
+   downgrade its finding to IMP on that ground. Five agents over 363k characters of prose were
+   pointed at the defects the compiler and the existing suite find in seconds.
+
+**What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
+behaviour** of §6's 49 cells — what an implementer builds from. **Not frozen** (still correctable
+without reopening anything): Grounds columns, citations, coordinates, §7–§10, and the ledgers.
+
+**Residual risk and how it is discharged**: cross-mechanism code-level consistency — one mechanism
+introducing a value, state or ordering that another's predicate was written without. It is
+discharged by the **per-PR test suites**, not by further review of this document; the five
+multi-line assertions above are the standing tripwire for the round-26 class specifically.
+
+**Attestation** — a single narrow pass over §5.1 + §6 only (2026-09-20), asking one question: do
+the eight Decisions contradict each other or any cell? **Result: clean.** Each mechanism's
+introduced values and their readers:
+
+| row | introduces / changes | checked against | verdict |
+|---|---|---|---|
+| M1 | the two marker items; the emit predicate; the payload (entity, three `EdgeSizes`, `WritingModeContext`, five font fields) | M3, M4, M5, M6, M7, M8; cells 1, 2, 5, 6b, 6c, 6d, 6e, 6f, 6g, 6h, 12b, 12c, 12e, 14, 14b, 20, 21, 25 | consistent |
+| M2 | nothing new (a transparent `Placeholder`-shaped arm) | cell 9 | consistent |
+| M3 | `LineOccupancy`; `note_line_occupancy`; guard `≥ Content`; `finish()` `> Empty`; the reset; `hang: Option<f32>` | M4, M5, M6, M7; cells 3b, 14b, 15, 15b, 15d, 16, 16b | consistent |
+| M4 | the open-box stack; unconditional `End` push; flush-time partial emit and rebase | cells 6, 10b, 13, 14c, 15c, 17, 17b, 17c, 17d, 17f, 21 | consistent |
+| M5 | `has_inline_axis_edge`; the PR-1d substitution; the `:200` gate escape | M3's hang and shaping break; cells 3b, 5, 6, 12d, 14/14b, 16, 21, 24, 24b | consistent |
+| M6 | the marker's `block_advance` | M3's `max`; cells 18, 23 | consistent |
+| M7 | the `RenderedText` rung; the tentative baseline | M3's guard, `finish()` and reset; cells 22, 24 | consistent |
+| M8 | the max-content edge sum | cell 25 | consistent |
+
+Reader sets were verified by enumeration rather than asserted (`git grep` at `22de3078`):
+`on_line` has exactly two readers (`pack/mod.rs:658`, `:756`); `any_rendered_content` exactly one
+(`:211`); `flush_line` exactly three call sites (`:659`, `:751`, `:757`); `place_item` exactly two
+(`:559`, `:620`).
+
+⚠ **Coverage limit, stated rather than left implicit**: cells **7, 8, 10, 11** carry no expected
+value of their own — they are PR-1a *characterization* cells and the block header supplies it
+("assert today's behaviour"), so they are complete by that header. Cell **19** was the one real
+gap the pass's disclosure exposed: a **PR-1d** cell with no assertion, now filled, and its
+`<pre>\n</pre>` attribution to clause 5 corrected to clause 2 (the engine never reaches
+`force_break` for it).
+
+**Discipline from here.**
+
+1. **A code-level predicate defect does not get a prose rewrite** — it gets **one required-test
+   line added to the §6 cell that owns the behaviour**. Rewriting a mechanism paragraph adds
+   review surface the next reader must audit; a test line is checked by the compiler. Same rule
+   the citation-hygiene lane reached: *a plan memo carries no measurements and no self-measuring
+   apparatus; measurement lives in tests and CI.*
+2. **No new inline `⚠ An earlier drafting …` blocks.** A rejected position gets one line in the
+   acceptance ledger and at most a pointer from the cell. Existing markers stay — deleting them
+   would reopen what they closed — but the accretion stops here.
+3. **No further whole-umbrella review.** Each PR gets a narrow plan-review of its own slice, the
+   normal pre-push gate, and external review.
+4. **The approval PR [#515](https://github.com/send/elidex/pull/515) is unblocked by this
+   declaration**, not by a renewed TERMINAL.
+
 Grounds, measured rather than asserted (`git show <rev>:<memo>`, section extents by the same
 `^## §N\.` split `plan-xcheck.py` uses):
 
@@ -1448,7 +1530,24 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
 18. `white-space: pre` — `<pre> <span style="padding:5px"></span></pre>`: the line is already
     kept by clause 2 via the *preserved space text*; height must not double-count (M6 takes a
     `max`).
-19. Decorated inline adjacent to a forced break, incl. `<pre>\n</pre>` (clause 5).
+19. **Decorated inline adjacent to a forced break — a non-regression cell, and only one of its two
+    shapes is constructible.** Assertion: `<pre>` + a decorated inline + a preserved segment break
+    yields the **same line count before and after PR-1d**. Clause 5's line already exists
+    independently of clause 3: `force_break` sets `any_rendered_content = true` unconditionally
+    (`pack/mod.rs:781`), and M3 leaves that write **outside** `note_line_occupancy` (M3's Grounds
+    dispositions it), so M5's existence flip adds nothing on such a line and must not double-count
+    it. ⚠ **The parenthetical this cell used to carry — "incl. `<pre>\n</pre>` (clause 5)" — was
+    spec-true and engine-false** (round 26, the §5.1/§6 consistency pass): css-text-3 §4.1.1
+    preserves the segment break, so *by the spec* it is a forced break, but the engine never
+    reaches `force_break` for it — the end-of-text break is filtered out of
+    `find_break_opportunities` (`pack/items.rs:74`, stated at `pack/mod.rs:547-551`), and the line
+    is kept by **clause 2** instead, through `contributes_content = !text.is_empty()` under `Pre`.
+    That is the same predicate §5.1 M7 now names as raising the `RenderedText` rung, so the two
+    statements agree. ⚠ **The `<br>` shape is NOT constructible and no cell asserts it**: `<br>`
+    carries no break behaviour anywhere in the engine (§9's disposition — a missing feature, not a
+    divergence), so there is no `<br>`-adjacent forced break for a marker to sit beside. A
+    decorated `<br>` does still pass M1's four filters and take a marker pair; what it cannot do
+    is break. When forced-break elements are implemented, this cell gains that shape.
 20. `display: none` ⇒ no marker (`inline/collect.rs:218`); `position: absolute` ⇒ out of flow,
     clause 3 does not apply.
 21. **Co-resident entity on a newly-existing line** — css-inline-3 §2.3's "and its in-flow
