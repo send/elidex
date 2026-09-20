@@ -227,7 +227,10 @@ def spec_examples_control(M):
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
     ok, detail = conf.run(plan_memo_memo)
-    print("       " + detail.replace("\n", "\n       "))
+    # The newlines are LAYOUT and the lines are CONTENT, so the escape goes
+    # inside the join -- the same shape the worklist uses, and the one
+    # `report_channel_control` names structurally (PR #510 R42-8).
+    print("\n       ".join(M.printable(l) for l in ("       " + detail).split("\n")))
     return ok, detail.split("\n")[0]
 
 
@@ -243,7 +246,10 @@ def inline_examples_control(M):
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
     ok, detail = conf.run_inline(plan_memo_memo)
-    print("       " + detail.replace("\n", "\n       "))
+    # The newlines are LAYOUT and the lines are CONTENT, so the escape goes
+    # inside the join -- the same shape the worklist uses, and the one
+    # `report_channel_control` names structurally (PR #510 R42-8).
+    print("\n       ".join(M.printable(l) for l in ("       " + detail).split("\n")))
     return ok, detail.split("\n")[0]
 
 

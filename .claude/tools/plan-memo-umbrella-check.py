@@ -701,7 +701,7 @@ def main(argv):
         else:
             print(printable("%s mode takes %d positional argument(s), got %d"
                             % (mode, want, len(paths))))
-        print(__doc__)
+        print(printable(__doc__))
         return 2
     if sel == "--self-test":
         import plan_memo_umbrella_selftest as st  # noqa
@@ -714,12 +714,12 @@ def main(argv):
     pop, mentions = res.population, res.mentions
     unlicensed = [m for m in mentions if not m.licensed]
 
-    print("=" * 78)
+    print(printable("=" * 78))
     print(printable("plan-memo-umbrella-check  --  %s" % pop.main.path))
-    print("  population (transitive over the memo's links): %s"
+    print(printable("  population (transitive over the memo's links): %s"
           % ", ".join(pop.display(m.path) for m in pop.memos[1:]) if len(pop.memos) > 1
-          else "  population: the memo alone (it links no other memo)")
-    print("=" * 78)
+          else "  population: the memo alone (it links no other memo)"))
+    print(printable("=" * 78))
     for n in res.notes:
         print(printable(n))
     print()

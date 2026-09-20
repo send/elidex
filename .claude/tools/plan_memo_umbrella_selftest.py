@@ -66,13 +66,20 @@ from plan_memo_selftest_harness import load, unload
 
 def run(mutants=False):
     fails = []
-    printable = None
     counts = {}
-    print("=" * 74)
-    print("plan-memo-umbrella-check  --  self-test")
-    print("=" * 74)
+    # ⚠ THE SET IS LOADED BEFORE THE BANNER, and that ordering is the escape's
+    # (PR #510 R42-8).  `printable` belongs to the report boundary, which is the
+    # entry point, so the runner takes it off the LOADED module -- and the two
+    # banner lines used to print before that binding existed.  Ordering the load
+    # first is what lets the rule be "every non-literal line is escaped" with no
+    # exemption for the two that happen to carry no memo text: an exemption list
+    # is where the next unescaped site hides
+    # (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`).
     M = load()
     printable = M.printable    # the ONE escape, owned by the report boundary
+    print(printable("=" * 74))
+    print("plan-memo-umbrella-check  --  self-test")
+    print(printable("=" * 74))
     reg = registry()
     for name, (kind, control) in reg.items():
         counts[kind] = counts.get(kind, 0) + 1

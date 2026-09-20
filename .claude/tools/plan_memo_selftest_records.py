@@ -477,11 +477,38 @@ def report_channel_control(M):
     every `printable(` call site from both files, keep the function, and this
     control goes red where the function's own control stays green -- reproduced
     on this commit (rc 1, one raw NUL back in the log)."""
-    def formats(node):
-        """The node is a `%` over a literal format string -- the shape a report
-        line is built with, wrapped or not."""
-        return (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)
-                and isinstance(node.left, ast.Constant) and isinstance(node.left.value, str))
+    def escaped(node):
+        """`printable(...)`, by either spelling -- the self-test takes the
+        escape off the LOADED checker module, which is an Attribute."""
+        return (isinstance(node, ast.Call)
+                and ((isinstance(node.func, ast.Name) and node.func.id == "printable")
+                     or (isinstance(node.func, ast.Attribute) and node.func.attr == "printable")))
+
+    def compliant(node):
+        """⚠ THE COMPLEMENT, NOT A LIST OF SHAPES (PR #510 R42-8).  This asked
+        for a `%` over a literal, so it saw only the shape it was written
+        against: `print(<expr> if cond else <str>)` in the population summary --
+        an `IfExp`, memo-controlled through `pop.display` -- was invisible to it
+        and unescaped, ONE ROUND after the docstring below declared an f-string
+        and a concatenation as its blind spots.  Two named shapes, a third one
+        live: extending the list is the wrong direction
+        (`memory/feedback_enumerated-exemptions-leave-the-next-class-authoritative.md`).
+        A print argument is compliant when it is a bare string LITERAL, or it is
+        escaped, or it is the one structural form where the escape is INSIDE:
+        `sep.join(printable(x) for x in ...)`, which is how a machine-readable
+        format keeps its separator as LAYOUT while its fields are content --
+        escaping the assembled line turns the worklist's tabs into `<U+0009>`,
+        measured, and the census byte-comparison is the consumer that caught it.
+        Everything else is red."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return True
+        if escaped(node):
+            return True
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join" and node.args):
+            elt = getattr(node.args[0], "elt", None)
+            return elt is not None and escaped(elt)
+        return False
 
     sources = _swept_sources()
     report = _report_modules(sources)
@@ -505,27 +532,46 @@ def report_channel_control(M):
             f = node.func
             if not (isinstance(f, ast.Name) and f.id == "print"):
                 continue
-            arg = node.args[0]
-            # ⚠ THE POPULATION IS BOTH STATES.  Counting only the UNWRAPPED
-            # shape makes the denominator go to zero exactly when the property
-            # holds, and the emptiness guard then reports a clean suite as a
-            # broken control -- measured, on this control's first run.
-            # `printable(...)` or `<module>.printable(...)` -- the self-test
-            # takes the escape off the LOADED checker module, which is an
-            # Attribute, and a predicate that admitted only the bare Name would
-            # have called every wrapped self-test site unescaped.
-            f2 = arg.func if isinstance(arg, ast.Call) else None
-            wrapped = (f2 is not None and arg.args and formats(arg.args[0])
-                       and ((isinstance(f2, ast.Name) and f2.id == "printable")
-                            or (isinstance(f2, ast.Attribute) and f2.attr == "printable")))
-            if not (wrapped or formats(arg)):
-                continue
+            # ⚠ THE POPULATION IS EVERY `print`, both states.  Counting only
+            # the non-compliant shape makes the denominator go to zero exactly
+            # when the property holds, and the emptiness guard then reports a
+            # clean suite as a broken control -- measured, on this control's
+            # first run.
             sites += 1
-            if not wrapped:
+            if not compliant(node.args[0]):
                 bad.append("%s:%d" % (file, node.lineno))
-    if not sites:
-        return False, ("no %%-formatted emit site found in %s: the shape this control reads is no "
-                       "longer the one the report modules write" % ", ".join(report))
+    # ⚠ AND THE PREDICATE ITSELF HAS CONTROLS (PR #510 R42-8).  A `compliant`
+    # that WIDENS calls an unescaped site clean, which the ratchet below cannot
+    # see -- `sites` counts every `print` either way, so a looser predicate just
+    # empties `bad` and the control goes green by asking a different question.
+    # The only witness for that direction is a shape that MUST be refused, so
+    # the predicate is run against six hand-built nodes, three of each verdict:
+    # this is the `empty_registry_control` idea applied to a predicate.
+    probe = {
+        '"x"': True, 'printable("x" % y)': True, 'M.printable("x")': True,
+        '"\t".join(printable(f) for f in g)': True,
+        '"x %s" % y': False, '("x %s" % y) if c else "z"': False, 'f"x{y}"': False,
+    }
+    wrong = [src for src, want in probe.items()
+             if compliant(ast.parse(src, mode="eval").body) is not want]
+    if wrong:
+        return False, ("the compliance predicate answers wrongly on %d of its own %d probes (%s): a "
+                       "predicate that widens calls an unescaped site clean"
+                       % (len(wrong), len(probe), "; ".join(wrong[:3])))
+
+    # ⚠ A RATCHET, not just an emptiness guard (PR #510 R42-8).  A predicate
+    # that NARROWS sees fewer sites and finds all of them compliant -- it goes
+    # green by asking less, which is the failure
+    # `memory/feedback_derived-populations-shrink-in-silence.md` records this PR
+    # having had once already (a substitution payload shrank another control's
+    # swept set by fifteen positions and nothing was red).  The floor is raised
+    # deliberately when sites are added and can never fall on its own; the
+    # mutant that re-narrows this predicate is red against it.
+    FLOOR = 41
+    if sites < FLOOR:
+        return False, ("%d print site(s) over %s, below the recorded floor of %d: the predicate has "
+                       "NARROWED -- a control that asks less is not a control that passed"
+                       % (sites, ", ".join(report), FLOOR))
     return not bad, ("%d emit site(s) over %d report module(s), %d not escaped%s"
                      % (sites, len(report), len(bad),
                         ("; " + "; ".join(sorted(bad)[:4])) if bad else ""))

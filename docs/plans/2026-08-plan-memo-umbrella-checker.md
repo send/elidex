@@ -2549,7 +2549,25 @@ a paragraph here that reasons the number down.
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
-- **(own)** **§6.3 vs the Appendix: an autolink inside a link's brackets** (PR #510 R42-5b, **real,
+- **(own)** **TWO §6.4/§6.x READINGS THE VENDORED CORPUS CANNOT SETTLE** (PR #510 R42-5b / R42-8,
+  **both real, both reproduced, neither fixed on a guess**). ⚠ They are together because they are one
+  KIND of open question — a spec-prose reading with no example behind it — not because they are one
+  mechanism.
+  **(b) §6.6 raw HTML inside a resolved image description** (R42-8). `![UMBRELLA, not a
+  <span>terminal unit](img.png)` exits **rc 1** with `UMBRELLA-CELL`: `dispose` drops the HTML span
+  as zero-width markup, JOINS the words around it, and the marker phrase appears where the alt text
+  may not have one. ⚠ **This is the opposite direction from every other finding on this surface — a
+  FABRICATED finding, not a missed one**, which is why it must not be "fixed" on a guess: if the alt
+  really does drop the markup, rc 1 is correct and a fix would silence a true report.
+  ⚠⚠ **AND IT CORRECTS THIS DOCUMENT'S OWN ANALYSIS.** The fold's reasoning said §3.0b's closed list
+  left exactly TWO rows unhandled (§6.1 and §6.5), on the strength of the table's "§6.6 renders
+  nothing" column. That column is the FLOW disposition; §6.4 asks a different question of the same
+  kind, and `RENDERS_TEXT` has one value per kind with no place to say so. So the list was bounded —
+  the fold stands — but it had **three** holes, not two, and the structure underneath is that the
+  disposition is a function of (kind, CONTEXT) while the table is a function of kind.
+  **Measured**: the vendored inline corpus holds **22** Images examples and **zero** with any `<` in
+  a description, so it cannot decide this (the same reason (a) below is open).
+  **(a) §6.3 vs the Appendix: an autolink inside a link's brackets** (R42-5b, **real,
   reproduced, NOT a defect until the spec question is settled**). `[x <http://a>](absent.md)` records
   `absent.md` as a link and exits **2**; §6.3's prose says a link may not contain a link and §6.5
   parses an autolink AS one, so the outer syntax should be literal.
@@ -2564,9 +2582,11 @@ a paragraph here that reasons the number down.
   `_AUTOLINK` match plus a control — ONE line, not a program. ⚠ It is NOT bundled with §6.4's
   demotion: that lives in the image-close branch, this lives in the `closed` counter at link close,
   and calling them one mechanism was wrong.
-  **Trigger**: settle it against a reference implementation (cmark or commonmark.js) — which this
-  session could not execute — at Slice 1's next touch of `plan_memo_lexer.py`. **Re-eval: 2026-12-31.**
-  No slot: it is a row of this checker's own grammar table.
+  **Trigger for BOTH**: settle them against a reference implementation (cmark or commonmark.js) —
+  which this session could not execute — at Slice 1's next touch of the lexer or the disposition.
+  ⚠ A reading that only the spec's PROSE supports gets a §3.0b row and a control the day it is
+  settled, never a fix on the day it is reported. **Re-eval: 2026-12-31.**
+  No slot: they are rows of this checker's own grammar table.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the

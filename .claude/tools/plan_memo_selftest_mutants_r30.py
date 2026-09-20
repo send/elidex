@@ -634,3 +634,24 @@ MUTANTS += [
      '            if len(norm) > 1 and norm[0] == " " and norm[-1] == " ":',
      [R42_ALLSPACE]),
 ]
+
+
+# -- R42-8: the emit-site predicate, inverted to the COMPLEMENT.
+MUTANTS += [
+    ("R42-8 channel: unwrap the population summary (an `IfExp`, memo-controlled through "
+     "`pop.display` -- the exact shape the %-only predicate could not see)", CHECK,
+     '    print(printable("  population (transitive over the memo\'s links): %s"\n'
+     '          % ", ".join(pop.display(m.path) for m in pop.memos[1:]) if len(pop.memos) > 1\n'
+     '          else "  population: the memo alone (it links no other memo)"))',
+     '    print("  population (transitive over the memo\'s links): %s"\n'
+     '          % ", ".join(pop.display(m.path) for m in pop.memos[1:]) if len(pop.memos) > 1\n'
+     '          else "  population: the memo alone (it links no other memo)")',
+     [AXIS5_CHANNEL]),
+    ("R42-8 channel: narrow the predicate back to a `%` over a literal (the list of shapes it was "
+     "written against: every other way of building a line goes unread)", RECORDS,
+     '        if isinstance(node, ast.Constant) and isinstance(node.value, str):\n'
+     '            return True\n        if escaped(node):',
+     '        if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)):\n'
+     '            return True\n        if escaped(node):',
+     [AXIS5_CHANNEL]),
+]
