@@ -313,7 +313,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   mkdir -p "$CTL/cachedir/__pycache__"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/ok.py"
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cachedir/__pycache__/probe.txt"
-  # A CLEAN file whose own path is the forbidden hierarchy. `git grep` searches
+  # A CLEAN file whose own path is the forbidden hierarchy. A content search
   # contents, so without a name pass this reads as a file with nothing in it.
   mkdir -p "$CTL/name/$(dirname "$CONTROL_K2")"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/name/$CONTROL_K2"
