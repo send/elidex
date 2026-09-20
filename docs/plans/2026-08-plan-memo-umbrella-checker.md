@@ -1977,6 +1977,36 @@ ground for either option; it is not cited.
   another), so it is own. The cap is 10 own either way, by two corrections that cancelled.
   · **The three-checker cross-reference is 1 of 3**, not done, and the reciprocal is owed on two
   other lanes with a trigger and a date.
+
+  ⚠ **R42 — and the round that carried it read as SILENCE for 27 minutes.** After the re-gate's fixes
+  landed, Codex went dry once on `0fd691fe`, and the next round returned **two P2s as INLINE THREADS**
+  (threads 116 → 118). The poll's terminator read the reviews+comments resolver only — 2 of the 3
+  channels the skill names — so a threads-only round showed as `round_items=1 findings=0 dry=false`,
+  which is indistinguishable from silence, and it printed "trigger likely dropped". ⚠ **Second time
+  in one session that the MONITOR, not the reviewer, lost the round** (the first was a `jq` error that
+  fabricated the same verdict). The poll now terminates on a new-unresolved-thread delta as well, and
+  a THIRD control was added for exactly this shape: a resolver returning the 2-channel line is
+  reported as `PROBE BROKEN`, not as a quiet round (all three controls executed).
+  · **R42-2 is FIXED**: a blank id cell whose declaring field carries the umbrella marker is a
+  contradiction, not a deliberate non-row — keyed by nothing it is absent from `ids`, assertion (a)
+  sees the marker, assertion (b) skips `self_id is None`, and the `Deps` edge goes unasserted at rc 0.
+  ⚠ Two things the fix had to get right and got wrong first: the field is read from the disposed cell
+  **at that moment** (`row.field` is written by a LATER pass, so the first version was vacuous — its
+  own mutant now pins that), and the predicate is the **MARKER alone**, not every kind phrase (written
+  over all three it flagged the #506 memo's `Function`/`eval` row at `:1985`, the legitimate empty-id
+  pointer row `declaring_rows` names — a NEGATIVE control now holds that line). The `KIND_PHRASES`
+  read is factored into ONE site (`Population._phrases`) rather than spelled twice, and the R23 mutant
+  that guarded the old site follows it.
+  ⚠ **And three existing NEGATIVE controls were blessing the defect as scaffolding**: `_idcell` put
+  the marker and a `Deps` edge on every R30 id-cell fixture, so the three deliberate-blank cases were
+  asserting a second thing nobody chose. Their own subject (is `` `—` `` read as a blank?) is
+  untouched — they keep it with `marked=False` — and the contradiction has controls of its own. That
+  is the opposite of `memory/feedback_control-rewritten-to-bless-the-defect.md`: the control was
+  green over a real defect, and it is the DEFECT that turned red.
+  · **R42-1 is CARVED, not fixed** (§8): a code span inside a resolved image's description keeps its
+  backticks, so the marker is blanked and the row reads terminal. Five intersecting axes — the §6.1
+  reader, the `marks` recorder, the image-close branch, `code_mask`'s two exceptions, and the `_demote`
+  cost contract R23 measured — make it plan-review-first BY RULE.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2204,14 +2234,16 @@ ground for either option; it is not cited.
 
 ⚠ **THE CAP IS EXCEEDED, and the classification is stated rather than argued away** (PR #510 Axis 5,
 2026-09-20). `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
-own ones. Classified below, every entry states own or pre-existing; the count is **10 own / 1
-pre-existing** (the Markdown-library choice). Ten against a cap of three.
+own ones. Classified below, every entry states own or pre-existing; the count is **11 own / 1
+pre-existing** (the Markdown-library choice). Eleven against a cap of three.
 ⚠ **Two corrections the re-gate forced, in opposite directions, and neither was a tally edit**: the
 touch-time-split entry is GONE because the work is DONE in this PR (the split is taken and the
 invariant is a control, `line_bound_control` — the policy's own verdict for a ~0-LoC mechanical split
 was "fold", and folding it is how a deferral is discharged honestly); and the GFM row-splitter entry
-moved from pre-existing to OWN because its stated grounding was measurably false. Net 10, by two
-moves that cancelled — which is why the policy forbids reasoning from the number.
+moved from pre-existing to OWN because its stated grounding was measurably false. Those two
+cancelled; R42's code-span-in-image carve then took it to **11**, and it is carved rather than fixed
+because five intersecting axes make it plan-review-first BY RULE — which is the policy's option (c),
+not a postponement. The number is reported, never reasoned from.
 ⚠ **No entry is merged or deleted to move that number** — the policy forbids exactly that
 ("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない"). What the shape of the
 ten says: three (Slice 3, the id-grammar decoration release, the touch-time-split pre-commitment)
@@ -2384,6 +2416,35 @@ a paragraph here that reasons the number down.
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
+- **A CODE SPAN inside a resolved IMAGE's description keeps its backticks** (PR #510 R42 — **own**;
+  **real, reproduced, NOT fixed here**). `![`UMBRELLA, not a terminal unit.`](img.png)` in a
+  declaring field exits **rc 0** where the same marker in a LINK inside the same image
+  (`![KIND [UNDETERMINED](x)](img.png)`, the R30-3 shape) exits **rc 1** — reproduced side by side.
+  §6.4 renders an image description as the plain string content of its inline children, so the alt
+  text holds the marker; the image-close branch demotes nested links, images and emphasis but leaves
+  the entry in `lx.code`, and the disposition then blanks the whole marker, so the row reads terminal
+  and a nonempty `Deps` goes unasserted.
+  ⚠ **The vendored corpus does NOT contain this case** and cannot settle it: `commonmark-0.31.2-inline-examples.json`
+  has 22 Images examples and **zero** with a code span in the description (measured). What it does
+  show is the rule across four other construct families — 573 (emphasis), 574 (nested image), 575
+  (link), 585 (emphasis in a reference description) all render the description's markup away and keep
+  its text — three of which this checker already implements. The code span is the fourth, by the same
+  rule, and that inference is stated as an inference.
+  ⚠ **NOT a one-line demotion, which is why it is carved rather than patched.** Dropping the entry
+  from `code` would leave the BACKTICKS standing as literal text in the alt, which is the opposite
+  error; the delimiters must become blanks while the content becomes text, so the fix touches the
+  §6.1 code-span reader, the `marks` recorder, the image-close branch and `code_mask`'s two existing
+  exceptions (the id-only span, and the `keep`-slug carve INSIDE a span). ⚠ And it is bounded by a
+  COST contract: `_demote` exists because per-close retagging is quadratic in nesting depth
+  (measured at R23 — 24 KB of `![`-nesting took 0.4 s), so a per-image walk over `code` would
+  reintroduce exactly that, and the fix has to be an index-range union like the one beside it.
+  That is five intersecting invariant axes, which makes it **edge-dense by CLAUDE.md's own test** and
+  `/elidex-plan-review`-before-implementation **by rule, not by judgment** — the same disposition
+  R36-3 got, and in the same family (nested-markup demotion inside a resolved image).
+  **Owner**: Slice 2's plan-review, which already opens the disposition and the declaring-field
+  predicates — NOT a new occasion, because a trigger that makes the work its own occasion is the
+  circularity the R38 re-gate refused for R36-3. **Re-eval: 2026-12-31.** No slot: it is this
+  checker's own lexer, not a platform gap.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the

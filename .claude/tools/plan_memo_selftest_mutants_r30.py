@@ -38,7 +38,7 @@ from plan_memo_selftest_cases_r26 import (
     R30_CODE_SPAN_READING, R30_KEYED, R30_PAIRED, R30_UNPAIRED, R31_1_RENDERED_HEADER,
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
-    R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED,
+    R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED, R42_BLANK_MARKER,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS,
@@ -525,4 +525,20 @@ MUTANTS += [
      'fails.append(printable("%s %s :: %s" % (kind, name, detail)))',
      'fails.append("%s %s :: %s" % (kind, name, detail))',
      [AXIS5_CHANNEL]),
+]
+
+
+# -- R42: the blank-and-marked contradiction.  TWO rows, because the clause has
+# two separable halves and each alone is a different silent skip.
+MUTANTS += [
+    ("R42: accept the blank-and-marked row again (drop the contradiction clause: the row is keyed "
+     "by nothing, assertion (b) never reads its Deps edge, rc 0)", POPULATION,
+     '                spelled = [n for n in ("marker",) if hit.get(n)]',
+     '                spelled = []',
+     [R42_BLANK_MARKER]),
+    ("R42: read the declaring field from the wrong moment (`row.field`, which this pass runs BEFORE "
+     "-- it is None here, so every blank row reads as terminal and the clause is vacuous)", POPULATION,
+     '                field = stream(row.cells[s.decl].lexed) if s.decl is not None else ""',
+     '                field = row.field',
+     [R42_BLANK_MARKER]),
 ]

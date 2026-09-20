@@ -188,6 +188,58 @@ class Population:
                                         "table keys (%s): %r; the row declares nothing and is unkeyed, "
                                         "so its cells would go unasserted"
                                         % (s.name, " / ".join(s.kinds), row.id_cell()[:60])))
+                    continue
+                # ⚠ A BLANK ID CELL AND A KIND MARKER CONTRADICT EACH OTHER, and
+                # the pair used to be accepted in silence (PR #510 R42).  The
+                # blank-cell exemption above says "this is a DELIBERATE non-row",
+                # which is why it is not a miss; a declaring field that spells
+                # `**UMBRELLA, not a terminal unit.**` says the opposite -- it is
+                # a row, and one whose `Deps` assertion (b) exists to read.  With
+                # both, the row is keyed by nothing, so it is absent from `ids`,
+                # assertion (a) sees a marker and emits no missing-marker seed,
+                # and assertion (b) skips it on `self_id is None`: every gate
+                # declines it for a different reason and the run exits 0.
+                # Reported rather than resolved either way, because which half
+                # the author meant is not decidable here -- delete the marker or
+                # give the row an id.
+                # ⚠ `row.field` is not written until AFTER this pass, so the
+                # field is read here from the same disposed cell the later loop
+                # reads (the disposition has already run -- see this method's
+                # docstring), through the ONE `KIND_PHRASES` site.
+                field = stream(row.cells[s.decl].lexed) if s.decl is not None else ""
+                hit = self._phrases(field)
+                # ⚠ THE MARKER ALONE, NOT EVERY KIND PHRASE.  Written first over
+                # all three, this flagged the #506 memo's `Function`/`eval` row
+                # (`:1985`) -- an empty-id row whose field spells the POINTER
+                # phrase, which `declaring_rows` names as the legitimate shape
+                # this exemption exists for. A pointer says "another row owns
+                # this"; only the MARKER claims the row is itself an umbrella,
+                # which is the claim a blank id contradicts.
+                spelled = [n for n in ("marker",) if hit.get(n)]
+                if spelled:
+                    self.misses.append((self.display(memo.path), row.lineno,
+                                        "the %r row's id cell is blank -- a DELIBERATE non-row -- but its "
+                                        "declaring field spells a kind (%s): a row cannot be both, and "
+                                        "keyed by nothing it leaves the census with no gate reporting it "
+                                        "(absent from `ids`; assertion (a) sees the marker; assertion (b) "
+                                        "skips a row whose id is None). Delete the marker or give the row "
+                                        "an id: %r"
+                                        % (s.name, "/".join(spelled), row.id_cell()[:60])))
+
+    @staticmethod
+    def _phrases(field):
+        """{name: match} over `KIND_PHRASES` for one declaring field -- the ONE
+        site that applies that tuple to a text.
+
+        It exists because the blank-id contradiction below needs the same
+        question `_kind` asks ("does this field spell a kind?") at a moment
+        when `row.field` has not been written yet, and a second spelling of
+        "does this field declare a kind" is a second answer waiting to drift --
+        the defect this checker has recorded three times (the row-kind test's
+        two spellings at R22, the dash class's three at R33-2, the blank-cell
+        test's two). Read-only: no membership decision and no side effect, so
+        `_kind`'s ORDER between the members stays `_kind`'s alone."""
+        return {name: rx.search(field or "") for name, rx in KIND_PHRASES}
 
     def _kind(self, row):
         """The kind the row's masked declaring field declares.  The
@@ -205,7 +257,7 @@ class Population:
         phrase); their MEMBERSHIP is not."""
         if row.field is None:
             return "terminal"
-        hit = {name: rx.search(row.field) for name, rx in KIND_PHRASES}
+        hit = self._phrases(row.field)
         if hit["undetermined"]:
             self.spellings.add(hit["undetermined"].group(0))
         if hit["marker"]:

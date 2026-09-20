@@ -739,9 +739,13 @@ MUTANTS += [
     ("R23 #2 _kind: every phrase it reads comes from KIND_PHRASES (re-inject a direct read: a "
      "phrase decides a kind without the tuple -- and so without the gate -- ever seeing it)",
      POPULATION,
-     '        hit = {name: rx.search(row.field) for name, rx in KIND_PHRASES}',
+     # ⚠ RE-POINTED at PR #510 R42: the `KIND_PHRASES` read moved into
+     # `Population._phrases`, the ONE site both `_kind` and the blank-and-marked
+     # contradiction now ask through. The property is unchanged -- a phrase that
+     # decides a kind must come from the tuple -- so the row follows the site.
+     '        hit = self._phrases(row.field)',
      '        import plan_memo_tables\n'
-     '        hit = {name: rx.search(row.field) for name, rx in KIND_PHRASES}\n'
+     '        hit = self._phrases(row.field)\n'
      '        hit["pointer"] = hit["pointer"] or plan_memo_tables._APPOSITIVE.search(row.field)',
      [R23_GATE_PROPERTY]),
     ("R23 #3 memo: a leading U+FEFF is dropped where the text becomes lines (keep it: the first "

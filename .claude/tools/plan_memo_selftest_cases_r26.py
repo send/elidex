@@ -143,8 +143,29 @@ R30_UNPAIRED = []
 reported class, red under the mutant that re-injects that strip."""
 
 
-def _idcell(cell):
-    return build(i7z=cell, s7z="**UMBRELLA, not a terminal unit.**", d7z="**9z**")
+def _idcell(cell, marked=True):
+    """The 7z row with `cell` as its id cell.
+
+    `marked` puts `**UMBRELLA, not a terminal unit.**` in the declaring field
+    and a `Deps` edge beside it -- the context the R30 shapes need, because the
+    defect R30 reported was that such a row "exited 0 despite a marker and a
+    `Deps` edge".
+
+    ⚠ IT IS FALSE FOR THE DELIBERATE-BLANK CASES, and that is a correction
+    (PR #510 R42).  Those three assert that `` `—` `` / `&#8212;` / `**—**` is
+    a deliberate blank and therefore NO miss -- their subject is the ID CELL's
+    reading.  Carrying the marker as scaffolding made them assert a SECOND
+    thing nobody chose: that a blank-id row claiming to be an umbrella, with a
+    `Deps` edge, is fine.  It is not -- keyed by nothing, that row is absent
+    from `ids`, so assertion (b) never reads the edge, which is the I-C
+    silent-skip class this checker exists for, and a review round reported it.
+    So the blank cases drop the marker (their own subject is untouched: a blank
+    must still produce no miss, and `**` / `*` / `` ` `` must still produce
+    one) and the contradiction gets a control of its own below."""
+    kw = dict(i7z=cell)
+    if marked:
+        kw.update(s7z="**UMBRELLA, not a terminal unit.**", d7z="**9z**")
+    return build(**kw)
 
 
 case("POSITIVE", "(R30 id) an id cell `**` is an unmatched strong-emphasis run: §6.2 pairs nothing "
@@ -190,17 +211,17 @@ case("NEGATIVE", "(R30 id) an id cell `**—**` is STILL a deliberate blank: her
                  "(§6.2), and paired decoration around a blank is what the strip was right about.  The "
                  "partner that bounds the fix's reach: refusing decoration outright would pass all six "
                  "above and fail this one",
-     _idcell("**—**"), "", 0, measure=_MISS)
+     _idcell("**—**", marked=False), "", 0, measure=_MISS)
 R30_PAIRED.append(CASES[-1].name)
 case("NEGATIVE", "(R30 id) an id cell `` `—` `` is a deliberate blank: the code span renders its "
                  "content and a reader sees the em dash -- the same partner for the other `DECOR_MARK`",
-     _idcell("`—`"), "", 0, measure=_MISS)
+     _idcell("`—`", marked=False), "", 0, measure=_MISS)
 R30_PAIRED.append(CASES[-1].name)
 case("POSITIVE-NOVEL", "(R30 id) an id cell `&#8212;` is a deliberate blank: §2.5 renders the em dash, "
                        "which the RAW reading could not see -- this cell was a schema miss before R30 "
                        "and is a non-row after it, the one verdict the fix reverses in the other "
                        "direction",
-     _idcell("&#8212;"), "", 0, measure=_MISS)
+     _idcell("&#8212;", marked=False), "", 0, measure=_MISS)
 R30_PAIRED.append(CASES[-1].name)
 acase("POSITIVE", "(R30 id) the keyed partner, end to end: `**7z**` keys the row, so the marker and "
                   "the `Deps` edge ARE asserted -- UMBRELLA-CELL, rc 1.  This is the run the six "
@@ -582,3 +603,30 @@ acase("POSITIVE", "(R38 seed) the partner that bounds it: a `Deps` cell that IS 
                   "reading moved and `is_empty` still decides by SHAPE",
       build(s7z=_CD_PROSE, d7z="—"), "ORDER-PROSE?", 1)
 R38_CD_BLANK = CASES[-1].name
+
+
+# -- R42: a blank id cell and an umbrella marker contradict each other.
+# The reviewer's shape: the row is keyed by nothing, so it is absent from
+# `ids`; assertion (a) sees the marker and emits no missing-marker seed; and
+# assertion (b) skips a row whose `self_id` is None.  Every gate declines it
+# for a different reason and the run exits 0 with a `Deps` edge unasserted.
+_R42_MISS = ("schema", "id cell is blank")
+
+case("POSITIVE", "(R42) a DELIBERATE blank id cell whose declaring field claims the row is an "
+                 "umbrella is a contradiction, not a non-row: keyed by nothing it is absent from "
+                 "`ids`, so assertion (b) never reads its `Deps` edge -- reported as a schema miss "
+                 "at rc 2 rather than passed over at rc 0",
+     _idcell("**—**", marked=True), "", 1, measure=_R42_MISS)
+R42_BLANK_MARKER = CASES[-1].name
+"""Red under the mutant that accepts the blank-and-marked row again."""
+
+case("NEGATIVE", "(R42) the partner that bounds it: the SAME blank id cell with no kind phrase in "
+                 "its declaring field is the deliberate non-row the exemption is for, and stays "
+                 "silent -- the blank is not what is reported, the contradiction is",
+     _idcell("**—**", marked=False), "", 0, measure=_R42_MISS)
+
+case("NEGATIVE", "(R42) and the POINTER phrase on a blank id cell is NOT the contradiction: it says "
+                 "another row owns this one, which is exactly what an unkeyed row is for -- the "
+                 "#506 memo's `Function`/`eval` row is this shape, and a rule over every kind phrase "
+                 "rather than the marker alone reported it",
+     build(i7z="**—**", s7z="Owned by **9z**, which carries the marker."), "", 0, measure=_R42_MISS)
