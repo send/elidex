@@ -937,3 +937,25 @@ MUTANTS += [
      '        empty = not stream(row.col("Deps").lexed, reader=True).strip()',
      [R38_CD_BLANK]),
 ]
+
+
+# PR #510 Axis 5: the report channel.  TWO rows, one per HALF of the escape --
+# dropping the C0 arm is the defect that was found (a control name carrying a
+# literal NUL, silently stripped by the wire's `$(...)`), and dropping the
+# "leave a printable character alone" half is the over-escape nobody would
+# notice from a green run.
+AXIS5_PRINTABLE = ("the runner's report channel escapes every C0 control character and DEL, so a run "
+                   "line a control names with one is still greppable")
+
+MUTANTS += [
+    ("Axis 5 report channel: drop the C0 arm of the escape (only DEL is escaped: the NUL a control "
+     "name carries reaches the wire's command substitution and is stripped there)", CONTROLS,
+     'if c < " " or c == "\\x7f" else c',
+     'if c == "\\x7f" else c',
+     [AXIS5_PRINTABLE]),
+    ("Axis 5 report channel: escape EVERYTHING (a printable line is mangled too: a green run over an "
+     "unreadable report is the other direction of the same defect)", CONTROLS,
+     'if c < " " or c == "\\x7f" else c',
+     'if True else c',
+     [AXIS5_PRINTABLE]),
+]

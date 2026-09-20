@@ -74,6 +74,32 @@ false of the self-test wire once this lands). The file header's "branch `vm-p4-p
 CLAUDE.md" / "duplicated four ways" lines and the two `§6.6` docstrings (`plan_memo_tables.py:116/153`,
 CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
 
+⚠ **A SECOND concurrent lane touches the same one-line list, and no obligation named it until PR #510
+Axis 5 (2026-09-20)**: the `stale-claim-detector` lane (worktree `elidex-wt-staleclaim`) adds
+`claim-provenance-trip-wire.sh` to `scripts/trip-wires.sh`'s `REQUIRED_WIRES`, the list whose entire
+purpose is that a wire cannot be added or lost without a line — so `--ours` / `--theirs` on it is the
+one resolution neither lane may take. **Whichever lands second APPENDS its line**; both wires then
+stand. Measured, because the first guess was that this is a budget problem and it is not: this wire
+is ~26 s and `claim-provenance-trip-wire.sh` is ~6 s on the same host, against the `timeout-minutes`
+re-derived at ~4x headroom — so the collision is a MERGE hazard on the inventory, not a cost one.
+⚠ And the budget block in `ci.yml` is derived against THIS wire alone; that is now stated there, so
+the second wire's arrival does not read as drift in the figure.
+
+⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
+another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`
+(worktree `elidex-wt-claimcheck` — quantitative-claim provenance and staleness) and `plan-xcheck.py`
+(worktree `elidex-wt-decinline` — the layout memo cross-check); the latter two have reconciled with
+each other and neither knows about this one. Each also ships an always-run wire, which is how three
+tools become one CI job's budget. **The boundary, stated so the next author does not have to guess**:
+this tool answers *"does this memo's row-kind census parse, and is every naming site licensed"*;
+`claim-gate` answers *"is a number in a memo still true"*; `plan-xcheck` answers *"do two layout memos
+agree"*. ⚠ They are NOT collapsed here, and deliberately: CLAUDE.md's *One issue, one way* demands the
+collapse only once "why N" can be WRITTEN, and nobody has written it — three populations (one memo
+family / any memo's figures / two named memos) that today share no predicate. The obligation this
+raises is the cross-reference, not the merge: each tool's header names the other two and the boundary
+above. **Trigger for revisiting the collapse (an EVENT)**: the first predicate two of the three need to
+share. Re-eval: 2026-12-31.
+
 ## §2 Coupled invariants (edge-dense)
 
 - **I-A Lexical masking, and the RENDERED text** (design re-gate 4) — the ONE text every predicate
@@ -1841,7 +1867,9 @@ ground for either option; it is not cited.
      at `bc7cb013` and is **1110** now — I added 372 lines of property controls across this session
      and took no touch-time split, which CLAUDE.md requires AT TOUCH TIME and which §7 records seven
      times for this PR. Three more files are in the 900s (`_mutants_inline.py` 974, `plan_memo_lexer.py`
-     961, `_mutants_r26.py` 938).
+     961, `_mutants_r26.py` 938). ⚠ Those four figures are pinned to `eb1bfefd`, the head that
+     measured them; `_mutants_r26.py` is 939 at HEAD, moved by the very commit that discharged this
+     CRIT (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
      ⚠ **The seam is already identified and is a real cohesion seam, not a line count**: everything
      this session added to that file sweeps the tree for CROSS-FILE CONSISTENCY — `symbol_attribution_control`,
      `import_seam_control`, `dash_spelling_sweep_control`, with `_ATTRIB_SPELLINGS`, `_IMPORT_SEAMS`,
@@ -1872,18 +1900,34 @@ ground for either option; it is not cited.
   · **R36-3** → **Slice 2's plan-review** (§8). The defect is in the GRAMMAR (`decorated_id` itself
   gives `C` no left decoration in `prefix**C**`, verified by executing it), which makes it edge-dense
   and plan-review-first BY RULE.
-  **▶ AXIS 5's OTHER LIVE FINDINGS** (it completed after the handoff was first written; 1 CRIT ·
-  11 IMP · 3 MIN, of which 6 were already fixed in this session's work): the **"39 module-level
-  `re.Pattern` globals"** figure in §8 does NOT reproduce — 34 / 46 / 47 depending on the
-  enumeration — and it is the SCOPING BASIS of that carve, so re-measure before acting on it; the
-  enumerated-table **blind-spot class** (`_IMPORT_SEAMS` / `_ATTRIB_SPELLINGS` / `_TRAILING`) has its
-  instances fixed but no detector and no §8 entry; the shared `trip-wires` budget was re-derived here
-  while the `stale-claim-detector` lane is adding a SECOND always-run wire to the same job, which no
-  trigger covers; and **three plan-memo checkers are being built in parallel** (this one,
-  `claim-gate-plan-check.py`, `plan-xcheck.py`) with zero cross-references in either direction — the
-  other two have already reconciled with each other. Also: "~29 s" in two homes should be ~25 s
-  measured, and the wire's verdict runs through a command substitution that drops a NUL byte
-  (pre-existing, rc unaffected).
+  ✅ **AXIS 5 RE-RUN ALONE over `bc7cb013..94124588`, 2026-09-20 — 1 CRIT / 6 IMP / 4 MIN / 3 FP, all
+  processed.** The CRIT was the split commit's OWN: the §7 record spelled a dead attribution bare in
+  this memo (the table's pre-split name `plan_memo_selftest_properties._IMPORT_SEAMS`), `_attribution_corpus` reads
+  `<root>/docs/plans/*.md`, and the always-run wire went rc 1 on the commit whose record asserts rc 0.
+  Root cause was ORDER, not spelling — the gate was run, the memo was edited afterwards, and a memo
+  edit is a CORPUS edit. **The rule this PR now runs under: re-run the self-test AFTER the memo edit,
+  never only before it.** Discharged, with the three FPs recorded as FP (the two ship-time slot
+  registrations, the 717-vs-715 site figures, the 1000-line invariant itself).
+  What each finding became: the **"39 module-level `re.Pattern` globals"** denominator is REMOVED (it
+  reproduces under no enumeration — 34 / 41 / 47 / 60 — and the carve needs the population's
+  definition and its command, not a number); the enumerated-table **blind-spot class** now has a §8
+  entry with scope / owner / EVENT trigger / re-eval, and is measured rather than predicted (the
+  split had to widen `_IMPORT_SEAMS`, landing inside the territory declared undetected); the
+  `stale-claim-detector` lane's second wire is now an explicit §1 merge obligation on `REQUIRED_WIRES`
+  (append, never `--ours`) and the `ci.yml` budget block states that its figures cover THIS wire alone
+  — ⚠ Axis 5 refuted the premise that the collision is a BUDGET problem: 26 s + 6 s against a
+  10-minute timeout is a merge hazard on the inventory, not a cost one; the **three parallel
+  plan-memo checkers** now cross-reference, with the boundary written as three questions (this =
+  the row-kind census, `claim-gate-plan-check.py` = is a number still true, `plan-xcheck.py` = do two
+  layout memos agree) and a trigger for revisiting the collapse; the NUL byte is fixed at the
+  CHANNEL rather than in the one control whose name legitimately carries one — `printable()` escapes
+  every C0 character and DEL, with a control over all 33 and two mutants (drop the arm / escape
+  everything). ⚠ Still OPEN and routed to the user: the **defer cap** (10 own against ≤3, classified
+  in §8 without merging or deleting an entry to move the number), the **"~29 s"** figure (re-measured
+  under the block's own clean-clone condition at the pushed head), and the **touch-time-split
+  pre-commitment** on `_cases_r26.py` / `_mutants_r26.py` (939 / 584, under the bound, split owed by
+  the next commit that adds to them — recorded rather than done because the head must stop moving for
+  the round about to run).
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
@@ -2022,14 +2066,44 @@ ground for either option; it is not cited.
   module imports `ast` and the harness's `HERE`, so both `_IMPORT_SEAMS` rows had to widen — which
   is the first time that table, rather than a prose sentence, was the thing an edit had to move.
   And `symbol_attribution_control` turned RED on its own first run after the carve, naming
-  `plan_memo_selftest_invariants.py:16` `` `plan_memo_selftest_properties._IMPORT_SEAMS` `` → the
-  records module: one stale attribution the split created and the suite caught unaided.
+  `plan_memo_selftest_invariants.py:16`, whose pre-split name `plan_memo_selftest_properties._IMPORT_SEAMS`
+  had to become the records module's: one stale attribution the split created and the suite caught
+  unaided.
+  ⚠⚠ **AND THEN THE SENTENCE ABOVE DID IT AGAIN — the FOURTH instance on this PR of a record
+  breaking the rule it records, and the one that proves the class needs a mechanism rather than
+  care.** Written first WITHOUT the `pre-split name` locator, it spelled the dead attribution bare
+  in this memo — and `_attribution_corpus` reads `<root>/docs/plans/*.md`, so the always-run wire
+  went rc 1 on the very commit whose §7 record asserts `scripts/trip-wires.sh` rc 0. What made it
+  reach a commit is not the spelling but the ORDER: the gate was run, the memo was edited AFTERWARDS,
+  and a memo edit is a CORPUS edit (`memory/feedback_verified-claims-go-stale-under-own-later-edits.md`).
+  The rule this PR now runs under: **the self-test is re-run AFTER the memo edit, never only before
+  it** — and it was Axis 5, not the author, that measured it.
+  ⚠⚠⚠ **AND IT FIRED AGAIN, in the paragraph that reports it.** Writing §6's discharge note for this
+  very finding spelled the same dead attribution bare a second time, the wire went rc 1 again, and it
+  was caught only because the new rule above had just been adopted and the wire was re-run after the
+  memo edit. That is the case FOR the mechanism and against the care: a rule that had existed for two
+  minutes, held by the author who wrote it, in the sentence describing the defect, did not survive one
+  paragraph. What survived it is the gate. (`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md`:
+  what works is a checker over the artefact — the R38 dated-locator convention, `` pre-split name `X` ``,
+  is the spelling that makes such a sentence legal, and it is now used at both sites.)
   Behaviour-preserving, measured on the two invariants every split on this PR has used: the
   **control NAME SET is identical** (all 657 names and kinds, read off `registry()` rather than off
   the run's printed lines, which wrap) and the **#506 census `--worklist` is byte-identical**
   (`cmp` clean, rc 0, 51 seeds / 715 sites). 657 controls / 364 mutants 0 survived 0 crashed, 0
   `(unknown control)`, `scripts/trip-wires.sh` rc 0. The header's invariant now holds: the largest
   `.claude/tools/plan*.py` is `plan_memo_selftest_mutants_inline.py` at **974**.
+  ⚠⚠ **THE COMMAND THAT FIRST "PROVED" THE NAME SET COULD NOT DISCRIMINATE, and the same NUL byte is
+  why** (found while fixing the NUL, PR #510 Axis 5). The dump holds one control name carrying a
+  literal U+0000, so `grep '^CONTROL' <dump>` treats the file as binary and emits NOTHING — the
+  attestation `diff`ed two EMPTY streams and printed "identical" for any pair of inputs whatsoever.
+  Reproduced: `grep '^CONTROL' base/names.txt | wc -l` = **0** against `grep -a -c` = **657**. The
+  claim itself is TRUE — re-measured with `grep -a` the 657 names and kinds are identical, and that
+  is the command the record now carries — but for one commit it was an assertion dressed as a
+  measurement (`memory/feedback_ao-name-not-section-number-in-briefs.md`'s 「判別しない grep」;
+  `memory/feedback_attestation-by-enumeration-not-assertion.md`). ⚠ Two lessons, not one: a
+  binary-unsafe verifier is a SILENT false green, and the same defect that made the wire's output
+  ungreppable also made the author's own attestation ungreppable — one root, two victims, and only
+  the second one was noticed by a person.
 - **Slice 1 — lexical substrate + one pipeline + one population** (I-A/B/C/F; §3 all rows; §4
   #1–#3; interim connection; header/docstring rewrite). Touch set: `plan_memo_tables.py` (lexer,
   `split_row`, `find_tables`, `links`, `code_spans`, `Memo`), `plan-memo-umbrella-check.py` (`check()`,
@@ -2049,17 +2123,33 @@ ground for either option; it is not cited.
 
 ## §8 Defer (owned here, not only in file headers)
 
-- Acceptance half of assertion (b) — "not implementable here"; slot
+⚠ **THE CAP IS EXCEEDED, and the classification is stated rather than argued away** (PR #510 Axis 5,
+2026-09-20). `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
+own ones. Classified below, every entry states own or pre-existing; the count is **10 own / 2
+pre-existing** (pre-existing = the GFM row-splitter duplication, which predates this PR on three
+branch families, and the Markdown-library choice). Ten against a cap of three.
+⚠ **No entry is merged or deleted to move that number** — the policy forbids exactly that
+("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない"). What the shape of the
+ten says: three (Slice 3, the id-grammar decoration release, the touch-time-split pre-commitment)
+are already the policy's option (c) — re-sliced to a named owner with a trigger, which is what
+`memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for; three (entries 1–3) are in
+the ratified plan from before implementation and were reviewed as design, not accumulated in the
+loop; and four are genuine converge-loop own deferrals. **That is still over the cap however it is
+grouped**, and the policy's own clause for this state is PAUSE and put the four options (fold /
+narrow scope / split the PR / accept with rationale) to the user — which is where it goes, not into
+a paragraph here that reasons the number down.
+
+- **(own)** Acceptance half of assertion (b) — "not implementable here"; slot
   `#11-plan-memo-acceptance-falsifiability-check` is minted in #506's memo (§5 mention `190d2adb:…:1218`, §8 row `:2711`)
   and is **not yet in the slot SoT ledger** (`memory/project_open-defer-slots.md` = 0 hits); its
   ledger registration is owed at #506's landing, not here. No date — trigger = #506 landing.
-- The four assertions' owner, `#11-plan-memo-spec-field-single-home-check` (cited by the tool headers
+- **(own)** The four assertions' owner, `#11-plan-memo-spec-field-single-home-check` (cited by the tool headers
   as "the single-home slot #506's memo §8 mints") — the same pre-agreed commitment: minted in #506's
   memo §8 (`190d2adb:…:2710`), **not in the slot SoT ledger** (0 hits), registration owed at #506's
   landing, not here; the headers cite that origin rather than presenting the slot as registered.
-- Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
+- **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
-- **Phase 1 hands a container's content to itself as a LIST OF STRINGS, so the characters
+- **(own)** **Phase 1 hands a container's content to itself as a LIST OF STRINGS, so the characters
   materialised are Σ(content length) over the nesting levels — superlinear in DEPTH by construction**
   (PR #510 R29-1, partly discharged). What R29-1 fixed is real and reported: `quote_content` was the
   marker TEST and the BUILD in one function, and two of its three callers wanted only the test, so
@@ -2077,7 +2167,7 @@ ground for either option; it is not cited.
   the depth that would make it bite does not occur in this document family, and minting a platform
   slot for it would fail the slot-fit audit. ⚠ The control that guards the fixed half counts BUILDS,
   never characters — a control over the character total would assert the residual is correct.
-- **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32).
+- **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
   Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
   `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
   home had stood ~2× stale for two rounds because R31 added 12 controls and 17 mutants without
@@ -2102,17 +2192,30 @@ ground for either option; it is not cited.
     (`'[C1] '`) no review round reported*. The full pair corpus through `check()` is ~90 s, so the
     affordable form is an atoms-only arm. This would subsume `linear_raw_seed_control`.
   - **E (R31-4, licensing)**: `_count_pattern_spans` is the first witness whose subject is the C `re`
-    engine, and its population is mechanically enumerable — **39 module-level `re.Pattern` globals**
-    across the 13-module set, of which **one** is watched. One control wrapping every enumerated
-    pattern over a growing pipeline probe, with the ≥1-application lower bound the existing control
-    already uses, is the general form.
+    engine, and its population is mechanically ENUMERABLE — which is the whole of the argument. One
+    control wrapping every enumerated pattern over a growing pipeline probe, with the ≥1-application
+    lower bound the existing control already uses, is the general form. The watched half is measured
+    and is **one**: `grep -rn '_count_pattern_spans(' .claude/tools/` returns a single instantiation
+    (`plan_memo_selftest_pipeline.py`, on the licensing pattern).
+    ⚠ **THE DENOMINATOR THAT STOOD HERE IS GONE (PR #510 Axis 5, 2026-09-20).** It read "**39
+    module-level `re.Pattern` globals** across the 13-module set" and it reproduces under NO
+    enumeration: module-level names bound to `re.compile` give **41** over every `plan*.py` and
+    **34** over the thirteen non-selftest modules; counting every `re.compile` call in a module-level
+    statement (tuples and dicts included) gives **60** and **47**. A number whose value depends on
+    which convention the reader assumes is an argument, not a measurement
+    (`memory/feedback_convention-dependent-figures-are-argument.md`), and it was the stated SCOPING
+    BASIS of this carve. What the carve needs is the population's DEFINITION and the command that
+    enumerates it — "the module-level names bound to `re.compile` over the module set", by
+    `ast.parse` over `tree.body`, not a grep for `re.Pattern` — so that is what stands, and the
+    control derives its own denominator at run time the way every other enumerating control here
+    does.
   ⚠ **What was wrong was not the decision but the stated reason.** The R31 ledger measured "does the
   property *as written* cover D and E?" and treated the answer as settling "should a per-shape control
   be written?" — the deciding question is whether the property can be **parameterised**, and it can.
   The three docstrings that recorded a reachability limit now record the cost instead
   (`plan_memo_selftest_growth.py`, `plan_memo_selftest_work.py`, `plan_memo_selftest_pipeline.py`).
-- **The id grammar releases a REJECTED core's trailing decoration** (PR #510 R36-3, **real, reproduced,
-  NOT fixed here**). `prefix**C** owns it` reports nothing while `prefix **C** owns it` reports a site:
+- **The id grammar releases a REJECTED core's trailing decoration** (PR #510 R36-3 — **own**; **real,
+  reproduced, NOT fixed here**). `prefix**C** owns it` reports nothing while `prefix **C** owns it` reports a site:
   in `plan_memo_ids.tokens` the rejected `prefix` core takes the opening `**` as its right decoration,
   `C` cannot reclaim it, comes out `balanced=False`, and the bare pass drops it as an undecorated
   single letter — exit 0 on an ownership claim.
@@ -2131,7 +2234,7 @@ ground for either option; it is not cited.
   scheduled and already opens this area (I-D/I-E, the licensing predicate and `_anchored`); the
   decoration-release rule is decided there or explicitly carried with a reason.
   **Re-eval: 2026-12-31.** No slot: it is this checker's own grammar, not a platform gap.
-- **▶ SLICE 3 — Phase 1 carries OFFSETS, not strings** (PR #510 R29-1 partial, R36-1). ⚠ **This was
+- **▶ SLICE 3 — Phase 1 carries OFFSETS, not strings** (PR #510 R29-1 partial, R36-1 — **own**). ⚠ **This was
   written first as a third §8 entry appended to the one whose trigger it fired, and the R38 design
   re-gate refused it**: the entry cited
   `feedback_defer-accumulation-signals-mis-drawn-slice` — "the boundary wants re-drawing rather than
@@ -2155,7 +2258,7 @@ ground for either option; it is not cited.
   depth 1 — today the deepest real nesting is 1, which is why it does not bite yet and is measurable
   at any time by `grep`. **Re-eval: 2026-12-31**, so it is scheduled rather than trigger-only.
   No slot: this is the checker's own Phase 1, not a platform gap.
-- **`symbol_attribution_control` ships only the COMPLETENESS half** (R38 design re-gate). It checks
+- **`symbol_attribution_control` ships only the COMPLETENESS half** (R38 design re-gate — **own**). It checks
   that an attribution names the module that DEFINES the symbol; it cannot see an attribution whose
   symbol exists **nowhere**, because `if sym not in home: continue`. The map pair next to it carries
   both directions for exactly this reason (`module_map_existence_control`: *"the rename half the
@@ -2172,6 +2275,44 @@ ground for either option; it is not cited.
   were wrong on the first run. **Trigger (an EVENT)**: the next round that reports a dead §3 pointer,
   or the next touch-time split, which is what makes one. **Re-eval: 2026-12-31.** No slot: it is this
   checker's own map.
-- GFM row splitter duplicated four ways across three branch families — trigger = two of
+- **(pre-existing** — the duplication is on `main` across three branch families, not introduced
+  here**)** GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
-- Markdown library dependency (§5) — trigger-only (see §5); no slot; no date.
+- **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
+  (§5) — trigger-only (see §5); no slot; no date.
+- **The HAND-WRITTEN TABLE has no detector, and the class is now four deep** (PR #510 Axis 5,
+  2026-09-20 — **own** deferral). Four enumerated tables decide what their controls can see:
+  `_IMPORT_SEAMS` (which import seams are checked), `_ATTRIB_SPELLINGS` (which attribution spellings
+  are read), `_TRAILING` (which trailing characters are decoration) and `_ID_SPELLINGS` (which id
+  character classes the sweep knows). Every one states its own "HONESTLY, what it cannot see" and
+  every one of those sentences says the same thing: *a shape this table does not list*. The
+  INSTANCES found so far are fixed; the CLASS has no mechanism, and
+  `memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md` says a declared blind
+  spot is a map of the next finding. ⚠ It is now MEASURED rather than predicted: the touch-time split
+  one commit before this entry had to widen `_IMPORT_SEAMS` — the first edit in this PR's life that
+  had to move that table rather than a prose sentence — and it landed inside the very territory the
+  previous round had declared undetected.
+  **Scope**: one control that enumerates the tables themselves (a module-level name bound to a
+  container whose docstring or comment carries the "what it cannot see" form) and asserts each has a
+  stated POPULATION and a stated COMPLEMENT — i.e. that the table's own reach is derived, not
+  asserted. ⚠ **Not a one-liner, and that is why it is carved rather than written here**: the
+  question "is this table's complement measured" is itself a claim about a complement, so the control
+  can be written to pass vacuously, which is the failure
+  `memory/feedback_control-rewritten-to-bless-the-defect.md` names. It needs a negative control that
+  is RED before the mechanism exists.
+  **Owner**: this checker's own self-test, not a platform gap — no slot.
+  **Trigger (an EVENT)**: the next round that reports a miss traceable to one of the four tables, or
+  the fifth table. **Re-eval: 2026-12-31.**
+- **Touch-time split debt re-accumulated inside the range that paid a CRIT for it** (PR #510 Axis 5 —
+  **own**, and a pre-commitment rather than a deferral of work already due). Measured over
+  `bc7cb013..HEAD` (`git diff --name-only`, `wc -l` each side): `plan_memo_selftest_mutants_r26.py`
+  718 → **939**, `plan_memo_selftest_cases_r26.py` 346 → **584**, `plan_memo_selftest_invariants.py`
+  777 → **876**. None is over the bound and the touch this PR gave `_mutants_r26.py` was a re-point
+  of two rows, not growth — so the split is not owed by THIS commit. It is owed by the next one that
+  ADDS to those files, which on an open converge loop is the next review round, and the seam is the
+  one every prior split on this PR used (the review-round boundary: R26/R3x out of R1–R25).
+  **Trigger (an EVENT, and the earliest one this ledger holds)**: the next commit that adds a control
+  or a mutant to `plan_memo_selftest_cases_r26.py` or `plan_memo_selftest_mutants_r26.py` splits it
+  FIRST, as its own prereq commit. No date — the trigger is nearer than any date would be.
+  ⚠ Recorded here rather than done now because a split moves the head, and the head must stop moving
+  for the review round that is about to run (`memory/feedback_i-was-the-thing-preventing-convergence.md`).

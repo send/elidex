@@ -156,6 +156,13 @@ jobs:
   # the pair below still holds and only its label was stale. It is attributed to
   # the head it describes now, rather than to the round that took it.
   #
+  # ⚠ THE FIGURES BELOW COVER THIS WIRE ALONE, not the job (PR #510 Axis 5).
+  # `scripts/trip-wires.sh` runs every wire in `REQUIRED_WIRES`, and the
+  # `stale-claim-detector` lane is adding a second heavy one
+  # (`claim-provenance-trip-wire.sh`, ~6 s measured on the same host as the
+  # ~26 s below).  The headroom stated here is therefore an upper bound on
+  # THIS wire's share; when the second lands, the ratio is re-derived against
+  # the JOB, and the plan's §1 carries the merge obligation on the inventory.
   # MEASURED at R32 and re-confirmed at R38, on ONE clean `git clone --local`,
   # same session, minutes apart, nothing else of this project running -- the
   # pair, never the later number alone:

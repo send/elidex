@@ -60,7 +60,7 @@ cannot:
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
-from plan_memo_selftest_controls import empty_registry_fails, registry
+from plan_memo_selftest_controls import empty_registry_fails, printable, registry
 from plan_memo_selftest_harness import load, unload
 
 
@@ -77,13 +77,13 @@ def run(mutants=False):
         ok, detail = control(M)
         if kind == "KNOWN-MISS":
             # `ok` means "reported 0": the site IS wrong, so the control stays red
-            print("  RED  [KNOWN-MISS] %s -- %s (this site IS wrong)" % (name, detail))
+            print(printable("  RED  [KNOWN-MISS] %s -- %s (this site IS wrong)" % (name, detail)))
             if not ok:
                 fails.append("KNOWN-MISS %s now reports; update the declared miss class" % name)
             continue
         if not ok:
-            fails.append("%s %s :: %s" % (kind, name, detail))
-        print("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90]))
+            fails.append(printable("%s %s :: %s" % (kind, name, detail)))
+        print(printable("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90])))
     unload()
 
     print()

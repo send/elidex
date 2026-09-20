@@ -138,6 +138,18 @@ Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
 
+THE OTHER TWO PLAN-MEMO CHECKERS, and the boundary (PR #510 Axis 5).  Three
+tools that read plan memos and ship always-run trip-wires were built in
+parallel, and until this line none named another.  THIS one asks *does this
+memo's row-kind census parse, and is every naming site licensed* over ONE
+document family.  `claim-gate-plan-check.py` asks *is a number written in a memo
+still true* over any memo's figures.  `plan-xcheck.py` asks *do two named layout
+memos agree*.  They share no predicate today, which is why they are three and
+not one; CLAUDE.md's *One issue, one way* asks for the collapse only once "why
+three" can be written, and the plan's §1 carries the trigger and the re-eval
+date.  A reader deciding where a new memo check belongs reads the three
+questions above, not the file names.
+
 Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the population)
         plan-memo-umbrella-check.py --self-test [--mutants]
 """
