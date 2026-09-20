@@ -72,6 +72,14 @@
 
 set -euo pipefail
 
+# BYTES, NOT CHARACTERS.  Every predicate here is a byte pattern over content
+# git may hold, and under a UTF-8 locale an invalid byte cannot participate in a
+# bracket expression — measured, a file holding `.claude/skills/\xffname/rule.md`
+# read GREEN under `LC_ALL=C.UTF-8` and RED under `LC_ALL=C` (#501 R88).  `-a`
+# governs binary-file *handling*; it does not change multibyte regex semantics.
+# So the locale is pinned for the whole run rather than per call site.
+export LC_ALL=C
+
 # `$0` as given may have no slash (`bash webref-generic-core-trip-wire.sh` from
 # this directory), and the controls re-invoke it — through PATH, where it is not.
 # Canonicalise once, so "run from anywhere" is true of the self-invocation too
@@ -120,6 +128,12 @@ K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
+#
+# ⚠ Which means the VALUE must reach `grep` whole.  `printf | grep` makes a
+# newline a record separator, so `.claude/skills/team<LF>name/rule.md` was split
+# into two lines and matched neither (#501 R88, reproduced for a name and for a
+# symlink target).  `_onerec` maps newline to a byte that no predicate mentions,
+# so the segment stays one value and `[^/]+` spans it.
 #
 # In running text a quote or a space ends a path and nothing decides where;
 # that is why $K2RE stops at them, and why a whitespace segment is named in
@@ -185,6 +199,10 @@ K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
 # is to find the entry, not to round-trip its bytes.
 _esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' | tr '\n\t' '~~'; }
 
+# A stored path as ONE record: newline is data inside a segment, not a
+# separator. `\001` is chosen because no predicate here mentions it.
+_onerec() { printf '%s' "$1" | tr '\n' '\001'; }
+
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _e="$(mktemp)" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
   _l="$(mktemp)" || { rm -f "$_e"; printf 'err\twalk: no temp file for the file list\n'; return 0; }
@@ -220,7 +238,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     # direct violation there is, and content search cannot see it. Matched
     # relative to the SCOPE: relative to the repo every file here would match,
     # since the generic core itself lives under `.claude/tools/`.
-    printf '%s\n' "${rel#$_dir/}" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
+    _onerec "${rel#$_dir/}" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
       printf 'k2\t%s: (the entry NAME is itself) %s\n' "$(_esc "$rel")" "$m"
     done
     if [ -L "$f" ]; then
@@ -228,7 +246,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
       tgt="$(readlink "$f" 2>/dev/null)" || {
         printf 'err\t%s: symlink, but its target could not be read\n' "$(_esc "$rel")"; continue; }
       printf 'ok\t%s\n' "$(_esc "$rel")"
-      printf '%s\n' "$tgt" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
+      _onerec "$tgt" | grep -aEo -- "$K2RE_PATH" | while IFS= read -r m; do
         printf 'k2\t%s: -> %s\n' "$(_esc "$rel")" "$m"
       done
       continue
@@ -260,10 +278,17 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
 # It is kept for the shape one refactor away — streaming `_scan`'s output
 # instead of round-tripping it through a variable — where it becomes
 # load-bearing silently.
+# ⚠ AND ITS OWN STATUS.  `grep` exits 1 for "no line selected" and **2 for an
+# error**; `|| true` collapsed both, so an operational failure here reported an
+# empty `K2_HITS` over a violation `_scan` had already found (#501 R88). Each
+# arm now distinguishes them and a status above 1 aborts rather than answering.
 _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
-  K2_HITS="$(printf '%s\n' "$1" | grep -a '^k2	' || true)"
-  ERR_HITS="$(printf '%s\n' "$1" | grep -a '^err	' || true)"
-  SCANNED="$(printf '%s\n' "$1" | grep -ac '^ok	' || true)"
+  _vrc=0; K2_HITS="$(printf '%s\n' "$1" | grep -a '^k2	')" || _vrc=$?
+  [ "$_vrc" -le 1 ] || { echo "!! the K2 classifier failed (grep exit $_vrc); this run decided nothing" >&2; exit 2; }
+  _vrc=0; ERR_HITS="$(printf '%s\n' "$1" | grep -a '^err	')" || _vrc=$?
+  [ "$_vrc" -le 1 ] || { echo "!! the error classifier failed (grep exit $_vrc); this run decided nothing" >&2; exit 2; }
+  _vrc=0; SCANNED="$(printf '%s\n' "$1" | grep -ac '^ok	')" || _vrc=$?
+  [ "$_vrc" -le 1 ] || { echo "!! the count classifier failed (grep exit $_vrc); this run decided nothing" >&2; exit 2; }
 }
 
 # ---- CONTROLS: re-invoke THIS script over fixtures, assert the exit code ----
@@ -298,7 +323,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename forge linkname ignored lsfail; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -361,6 +386,16 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # control passed on that one and a scanner skipping every empty file was
   # green (reproduced). A fixture another entry can satisfy proves nothing
   # about the entry it is named for.
+  # A NEWLINE inside a name segment: it is data, not a record separator.
+  mkdir -p "$CTL/nlname/.claude/skills/$(printf 'team\nname')"
+  printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/.claude/skills/$(printf 'team\nname')/rule.md"
+  printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/nlname/ok.py"
+  # A byte no UTF-8 locale can place in a bracket expression. ⚠ This control is
+  # environment-sensitive: it discriminates the `LC_ALL=C` export only where the
+  # INHERITED locale is multibyte, so on a C-locale machine the mutation that
+  # deletes the export survives it. Said here rather than left implied.
+  printf 'X = ".claude/skills/\377name/rule.md"\n' > "$CTL/rawbyte/probe.bin"
+  printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/rawbyte/ok.py"
   # A quote inside a NAME segment: `/` is the only delimiter a stored path has.
   mkdir -p "$CTL/quotename/.claude/skills/team\"name"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/quotename/.claude/skills/team\"name/rule.md"
@@ -376,7 +411,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
   # reproduce that distinction — and the distinction is now load-bearing.
   for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-           cachedir extra name emptyname quotename forge linkname ignored; do
+           cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored; do
     ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
       && git add -A >/dev/null 2>&1 ) || true
   done
@@ -434,6 +469,8 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/name"   1 "entry NAME" "an entry's own NAME is the hierarchy"  || ctl_ok=1
   _control "$CTL/emptyname" 1 "entry NAME" "an EMPTY entry's name is the hierarchy" || ctl_ok=1
   _control "$CTL/quotename" 1 "entry NAME" "a quote inside a name segment"          || ctl_ok=1
+  _control "$CTL/nlname"  1 "entry NAME" "a NEWLINE inside a name segment"          || ctl_ok=1
+  _control "$CTL/rawbyte" 1 "K2: a"      "a byte no UTF-8 locale can bracket"       || ctl_ok=1
   _control "$CTL/forge"  0 "PASSED" "a name cannot forge a verdict record"      || ctl_ok=1
   _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
   _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1

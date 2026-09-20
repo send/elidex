@@ -513,6 +513,14 @@ Every diff check names an explicit ref.
      drives the population, the name check, the content scan and the count, so those cannot disagree.
      A fixture pins each direction, and every fixture is a real repository, because a non-repo fixture
      cannot reproduce the tracked/ignored distinction the population now rests on.
+     ⚠ **A stored path is bytes, and it reaches the predicate whole** (#501 R87-R88): an entry's own name
+     and a symlink's target are matched by a slash-delimited predicate of their own — the content
+     predicate's quote and space terminators are the honest answer for running text and the wrong one for a
+     name git hands over entire — a newline inside a segment is data rather than a record separator, and
+     the whole run is pinned to `LC_ALL=C` because under a multibyte locale an invalid byte cannot
+     participate in a bracket expression (measured: the same file read GREEN under `C.UTF-8` and RED under
+     `C`). Fixtures for all three. ⚠ The byte one is **environment-sensitive** and says so at the fixture:
+     it discriminates the locale export only where the inherited locale is multibyte.
      ⚠ **A path is data, not protocol** (#501 R80): records are newline-separated and tab-tagged, and a
      tracked filename may contain both, so `safe<LF>k2<TAB>forged` injected a synthetic K2 hit. Paths are
      escaped into records now, with a fixture that a forged name must **not** fire. ⚠ And the empty-name
