@@ -96,11 +96,7 @@ K2RE='\.claude/(skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
 # exactly where a violation lands during authoring, and `git grep` reads the
 # index. (Measured on this repo: a plant in an unstaged file read GREEN.)
 # `-I` skips binaries; `__pycache__` is pruned.
-_files() { # $1 = dir root, $2 = extra file (may be empty)
-  find "$1" -name __pycache__ -prune -o -type f -print
-  [ -n "${2:-}" ] && printf '%s\n' "$2"
-  return 0
-}
+
 
 # FAIL CLOSED ON A FILE IT CANNOT READ.  grep exits 0 on a match, 1 on none and
 # **2 on an error** — and an unreadable file is an error, not an absence.  An
@@ -122,14 +118,34 @@ _files() { # $1 = dir root, $2 = extra file (may be empty)
 # claims.  Matching is `-o`, so the report stays the matched path and not a
 # binary dump.  (Two empty `__init__.py` here are already classified binary by
 # `file --mime`, which is how little "binary" has to mean for this to matter.)
-_scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" / "err\t…"
-  _files "$1" "${2:-}" | while IFS= read -r f; do
+# COUNTED IS SCANNED, BY CONSTRUCTION.  The count comes from the `ok` records
+# this emits — one per file it actually read to the end — not from a separate
+# walk.  Three rounds found three different ways for a separately-derived count
+# to disagree with what was examined (a file it could not read, #501 R70; a
+# file whose content `grep -I` skipped, R71; a whole subtree `find` could not
+# descend into, R72), each certified as ABSOLUTE.  They are one defect: two
+# quantities that could differ.  Now there is one, and "counted but not
+# scanned" is not representable rather than merely checked.
+_scan() { # $1 = dir root, $2 = extra file; prints "ok\t…" / "k2\t…" / "err\t…"
+  _l="$(mktemp)" || { printf 'err\twalk: no temp file for the file list\n'; return 0; }
+  _e="$(mktemp)" || { rm -f "$_l"; printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
+  find "$1" -name __pycache__ -prune -o -type f -print > "$_l" 2>"$_e" || true
+  # `find` reports an unsearchable directory on stderr and keeps going, so a
+  # non-empty stderr means the walk was INCOMPLETE even when its status is 0.
+  if [ -s "$_e" ]; then
+    printf 'err\twalk of %s was incomplete: %s\n' "${1#$ROOT/}" \
+      "$(tr '\n' ';' < "$_e" | cut -c1-200)"
+  fi
+  [ -z "${2:-}" ] || printf '%s\n' "$2" >> "$_l"
+  while IFS= read -r f; do
     out="$(grep -aEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
       printf 'err\t%s: unreadable, or the read failed\n' "${f#$ROOT/}"; continue; }
+    printf 'ok\t%s\n' "${f#$ROOT/}"
     [ -z "$out" ] || printf '%s\n' "$out" | while IFS= read -r hit; do
       printf 'k2\t%s:%s\n' "${f#$ROOT/}" "$hit"
     done
-  done
+  done < "$_l"
+  rm -f "$_l" "$_e"
   return 0
 }
 
@@ -137,9 +153,10 @@ _scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" / "err
 # the same path the exit status comes from -- #501 R69 measured the earlier
 # shape and a mutation to the k2 line survived: the controls proved `_scan`,
 # not the thing that decides.
-_verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS
+_verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
   K2_HITS="$(printf '%s\n' "$1" | grep '^k2	' || true)"
   ERR_HITS="$(printf '%s\n' "$1" | grep '^err	' || true)"
+  SCANNED="$(printf '%s\n' "$1" | grep -c '^ok	' || true)"
 }
 
 # ---- CONTROLS: re-invoke THIS script over fixtures, assert the exit code ----
@@ -172,16 +189,22 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     echo "   so this run's assertions were never proved able to fire." >&2
     exit 2
   fi
-  trap 'chmod -R u+rw "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
+  trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk; do mkdir -p "$CTL/$d"; done
+  mkdir -p "$CTL/walk/sub"
+  printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/pin/control.py"
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/k2/control.py"
   printf 'ART  = "%s"\n' "$CONTROL_TOOLS"   > "$CTL/tools/control.py"
   printf 'x\000%s\000y\n' "$CONTROL_BINARY"  > "$CTL/binary/control.dat"
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
-  chmod 000 "$CTL/err/control.py"
+  # A readable sibling, so the run reaches the ERROR verdict instead of stopping
+  # at the zero-read guard — the fixture must exercise the arm it names.
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/err/readable.py"
+  printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/walk/sub/hidden.py"
+  chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
 
   _control() { # $1 = fixture dir, $2 = expected exit, $3 = expected message, $4 = label
     _out="$(WEBREF_WIRE_SELFTEST="$1" "$0" 2>&1)"; _rc=$?
@@ -211,29 +234,28 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/binary" 1 "K2: a" "K2 fires inside binary content"    || ctl_ok=1
   # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
   # read" are different answers and only one of them is green.
-  _control "$CTL/empty" 2 "scanned 0 files" "an empty scope fails loudly" || ctl_ok=1
+  _control "$CTL/empty" 2 "read 0 files" "an empty scope fails loudly" || ctl_ok=1
   if [ -r "$CTL/err/control.py" ]; then
-    echo "  note: the unreadable-file control could not be exercised here (this user"
-    echo "        can read a mode-000 file); the other three ran"
+    echo "  note: the two permission controls could not be exercised here (this user"
+    echo "        can read a mode-000 file); the other five ran"
   else
-    _control "$CTL/err" 1 "could not be read"       "unreadable fails closed" || ctl_ok=1
+    _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
+    _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
   fi
   [ "$ctl_ok" -eq 0 ] || exit 1
   echo "  controls: green reachable; K2 fires under both roots, on the removed path"
-  echo "            and inside binary content; an unreadable file and an empty scope"
-  echo "            both fail closed"
+  echo "            and inside binary content; an empty scope, an unreadable file and"
+  echo "            an unsearchable directory all fail closed"
   echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
 
 # ---- THE REAL TREE ----------------------------------------------------------
-scanned="$(_files "$SCOPE_DIR" "$SCOPE_FILE" | wc -l | tr -d ' ')"
-if [ "$scanned" -eq 0 ]; then
-  echo "!! scanned 0 files; this wire would report no violation for a reason that is not 'there are none'" >&2
+_verdict "$(_scan "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"} || true)"
+if [ "$SCANNED" -eq 0 ]; then
+  echo "!! read 0 files; this wire would report no violation for a reason that is not 'there are none'" >&2
   exit 2
 fi
-echo "  scanned $scanned file(s) under the generic core"
-
-_verdict "$(_scan "$SCOPE_DIR" "$SCOPE_FILE" || true)"
+echo "  read $SCANNED file(s) under the generic core, in full"
 failed=0
 
 if [ -n "$K2_HITS" ]; then
@@ -247,8 +269,8 @@ else
 fi
 
 if [ -n "$ERR_HITS" ]; then
-  echo "!! a file under the generic core could not be read, so neither absolute above"
-  echo "   covers it -- this wire does not report a green over a file it never read:"
+  echo "!! part of the generic core could not be read, so the verdict above does not"
+  echo "   cover it -- this wire does not report a green over what it never read:"
   printf '%s\n' "$ERR_HITS" | sed 's/^err	/     /'
   failed=1
 fi
