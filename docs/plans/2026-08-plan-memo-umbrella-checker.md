@@ -2024,6 +2024,37 @@ ground for either option; it is not cited.
   ("pause to fold, narrow, split, or obtain explicit acceptance; landing unchanged bypasses that
   decision"). The thread stays OPEN, because the resolution is not the author's to make — and it is
   the one item on this PR that no amount of further review can close.
+
+  ⚠⚠ **R42-4 FIRED THE ≥2-ROUND SELF-ROOT-CHECK, and the root was in the two fixes of the round
+  before.** Both P2s were direct consequences of R42-3: an unknown option was refused but a KNOWN one
+  in the wrong MODE still ran the wrong operation at rc 0 (`--mutants memo.md`), and the escape that
+  now guarded the self-test's report left the CHECKER's own report — the only channel that prints
+  MEMO-CONTROLLED text — untouched, so a memo carrying an ESC put a terminal-clear sequence straight
+  into the default output.
+  **The root, written out**: both fixes had taken the population the REVIEWER named instead of
+  deriving it. `_REPORT_MODULES` was a hand-written two-element tuple naming the two self-test
+  runners — **the enumerated-table class, inside the control written to close an enumerated-population
+  defect** — and it left out the entry point's 32 print sites; `OPTIONS` was the option SET where the
+  contract is per MODE. That is the plan's own ideal inverted: a population is DERIVED, not listed.
+  So this round does not patch the two sites: the population is derived from the ASTs (a module that
+  calls `print`), `printable` MOVES to the entry point — the report boundary it guards, which the
+  self-test borrows off the loaded module — and the CLI contract becomes `MODES` (per mode: the flags
+  it accepts and the positional count it takes).
+  ⚠ **And the proxy is no longer the only witness.** `report_bytes_control` asks the property
+  DIRECTLY: it runs the program over a memo carrying all 30 plantable C0 characters and DEL in a
+  reported naming context, in both report modes, and looks at the bytes. The AST sweep could never
+  have seen this class — its first population was wrong, and a sweep is only as complete as its
+  reading of the source.
+  ⚠ **Three things the fix got wrong first, each caught by a measurement rather than by review**:
+  (i) the escape ate the worklist's TABS, because a total escape does not know a separator from
+  content — caught by the census byte-comparison, exactly the consumer that format exists for. The
+  fields are escaped and the tabs are the caller's now, and the control asserts the COUNT (five per
+  row) rather than exempting U+0009, since exempting it would have let a memo-planted tab through.
+  (ii) A mutant that re-narrowed the population SURVIVED and was **withdrawn rather than weakened**:
+  with every site wrapped, narrowing the population changes nothing observable, so the row asserted
+  nothing. (iii) The separate unknown-option guard's mutant survived the moment the mode check landed
+  — the mode check refuses `--worklis` on its own — so the guard was a strictly weaker second
+  spelling and **the guard is gone**. Measured, not argued.
   ⚠ **An off-by-one INSIDE the sentence correcting an off-by-one**: the R38 note said R33–R36 added
   "14 mutants (625/347 → 652/362)"; 362 − 347 = **15**. Fixed.
   **▶ ALSO CARVED**: `symbol_attribution_control`'s **existence half** (§8) — nine dead §3 pointers
