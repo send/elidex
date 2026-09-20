@@ -189,8 +189,16 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # count, so an empty file is enumerated too (#501 R79: `git grep -l` lists
   # only files with a matching line, so an empty one skipped even the NAME
   # check).
+  # ⚠ ITS STATUS, NOT JUST ITS STDERR. `|| true` discarded the only signal an
+  # inventory has when it fails silently — a partial list then gives SCANNED > 0,
+  # no error record, and a green verdict over a population that was cut short
+  # (#501 R85, reproduced with a `git` that printed one entry and exited 1).
+  _ls_rc=0
   git -C "$ROOT" ls-files -z --cached --others --exclude-standard \
-      -- "$_dir" ${_extra:+"$_extra"} > "$_l" 2>>"$_e" || true
+      -- "$_dir" ${_extra:+"$_extra"} > "$_l" 2>>"$_e" || _ls_rc=$?
+  if [ "$_ls_rc" -ne 0 ]; then
+    printf 'err\tthe inventory command exited %d, so the population is incomplete\n' "$_ls_rc"
+  fi
   [ -s "$_e" ] && printf 'err\tthe walk reported errors, so part of the scope went unread: %s\n' \
     "$(tr '\n' ';' < "$_e" | cut -c1-200)"
   : > "$_e"
@@ -278,7 +286,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname forge linkname ignored; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname forge linkname ignored lsfail; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -322,6 +330,13 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   mkdir -p "$CTL/linkname/$(dirname "$CONTROL_K2")"
   printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/linkname/ok.py"
   ln -s "$CTL/linkname/ok.py" "$CTL/linkname/$CONTROL_K2"
+  # An inventory that fails AFTER printing something. `git ls-files` exiting
+  # nonzero with nothing on stderr is the one signal a truncated population has,
+  # and it was discarded (#501 R85).
+  mkdir -p "$CTL/fakegit"
+  printf '#!/bin/sh\nprintf "ok.py\\000"\nexit 1\n' > "$CTL/fakegit/git"
+  chmod +x "$CTL/fakegit/git"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
   # An IGNORED generated artefact carrying a forbidden path. It must NOT fire:
   # a `.pyc` embeds its source's absolute path, and scanning build products
   # turned the wire red for anyone who had merely run the tool (#501 R79).
@@ -367,9 +382,10 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
 
   _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
-               # $5 = optional scope subdir (relative), $6 = optional extra entry (relative)
+               # $5 = optional scope subdir (relative), $6 = optional extra entry (relative),
+               # $7 = optional PATH prefix (to shadow a tool the wire calls)
     _out="$(WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
-            WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" "$SELF" 2>&1)"; _rc=$?
+            WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" "$SELF" 2>&1)"; _rc=$?
     if [ "$_rc" -ne "$2" ]; then
       echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
       echo "   mean nothing — this wire was not shown able to reach that verdict." >&2
@@ -404,6 +420,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/forge"  0 "PASSED" "a name cannot forge a verdict record"      || ctl_ok=1
   _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
   _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
+  _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
   _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
   if [ -p "$CTL/odd/pipe" ]; then
     _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
