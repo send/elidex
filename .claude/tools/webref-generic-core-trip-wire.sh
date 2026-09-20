@@ -119,17 +119,27 @@ K2RE='\.claude/(skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
 # binary dump.  (Two empty `__init__.py` here are already classified binary by
 # `file --mime`, which is how little "binary" has to mean for this to matter.)
 # COUNTED IS SCANNED, BY CONSTRUCTION.  The count comes from the `ok` records
-# this emits — one per file it actually read to the end — not from a separate
+# this emits — one per entry it actually read to the end — not from a separate
 # walk.  Three rounds found three different ways for a separately-derived count
 # to disagree with what was examined (a file it could not read, #501 R70; a
 # file whose content `grep -I` skipped, R71; a whole subtree `find` could not
 # descend into, R72), each certified as ABSOLUTE.  They are one defect: two
 # quantities that could differ.  Now there is one, and "counted but not
 # scanned" is not representable rather than merely checked.
+#
+# AND THE POPULATION IS EVERY ENTRY, NOT EVERY REGULAR FILE.  `-type f` excludes
+# symlinks, and a symlink's stored content IS its target string — git keeps
+# `.claude/skills/new-policy/rule.md` as the blob — so such a link carried the
+# forbidden text through the walk untouched (#501 R73, reproduced).  Adding
+# `-type l` would answer that one case and leave the next; instead the walk
+# prints EVERYTHING and every entry lands in exactly one arm: a symlink is read
+# with `readlink`, a regular file with `grep`, a directory holds no stored text
+# and is skipped, and anything else — a fifo, a socket, a device — is an ERROR,
+# because a wire that cannot say what an entry holds must not certify over it.
 _scan() { # $1 = dir root, $2 = extra file; prints "ok\t…" / "k2\t…" / "err\t…"
   _l="$(mktemp)" || { printf 'err\twalk: no temp file for the file list\n'; return 0; }
   _e="$(mktemp)" || { rm -f "$_l"; printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
-  find "$1" -name __pycache__ -prune -o -type f -print > "$_l" 2>"$_e" || true
+  find "$1" -name __pycache__ -prune -o -print > "$_l" 2>"$_e" || true
   # `find` reports an unsearchable directory on stderr and keeps going, so a
   # non-empty stderr means the walk was INCOMPLETE even when its status is 0.
   if [ -s "$_e" ]; then
@@ -138,8 +148,22 @@ _scan() { # $1 = dir root, $2 = extra file; prints "ok\t…" / "k2\t…" / "err\
   fi
   [ -z "${2:-}" ] || printf '%s\n' "$2" >> "$_l"
   while IFS= read -r f; do
-    out="$(grep -aEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
-      printf 'err\t%s: unreadable, or the read failed\n' "${f#$ROOT/}"; continue; }
+    # `-L` BEFORE `-f`: `[ -f <symlink-to-file> ]` follows the link and would
+    # read the target's content instead of the link's own text.
+    if [ -L "$f" ]; then
+      tgt="$(readlink "$f" 2>/dev/null)" || {
+        printf 'err\t%s: symlink, but its target could not be read\n' "${f#$ROOT/}"; continue; }
+      out="$(printf '%s\n' "$tgt" | grep -aEno -- "$K2RE")" || [ $? -eq 1 ] || {
+        printf 'err\t%s: symlink, but the scan of its target failed\n' "${f#$ROOT/}"; continue; }
+    elif [ -d "$f" ]; then
+      continue
+    elif [ -f "$f" ]; then
+      out="$(grep -aEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
+        printf 'err\t%s: unreadable, or the read failed\n' "${f#$ROOT/}"; continue; }
+    else
+      printf 'err\t%s: neither a regular file, a symlink nor a directory -- this wire cannot say what it holds\n' "${f#$ROOT/}"
+      continue
+    fi
     printf 'ok\t%s\n' "${f#$ROOT/}"
     [ -z "$out" ] || printf '%s\n' "$out" | while IFS= read -r hit; do
       printf 'k2\t%s:%s\n' "${f#$ROOT/}" "$hit"
@@ -191,7 +215,7 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   fi
   trap 'chmod -R u+rwX "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-  for d in clean pin k2 tools binary err empty walk; do mkdir -p "$CTL/$d"; done
+  for d in clean pin k2 tools binary err empty walk link odd; do mkdir -p "$CTL/$d"; done
   mkdir -p "$CTL/walk/sub"
   printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
   printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -199,6 +223,13 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/k2/control.py"
   printf 'ART  = "%s"\n' "$CONTROL_TOOLS"   > "$CTL/tools/control.py"
   printf 'x\000%s\000y\n' "$CONTROL_BINARY"  > "$CTL/binary/control.dat"
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/link/ok.py"
+  ln -s "$CONTROL_K2" "$CTL/link/forbidden-target"
+  # An entry that is neither file, symlink nor directory. A fifo is the one such
+  # thing every POSIX shell can make; if the filesystem refuses, the control
+  # SAYS SO rather than passing quietly.
+  printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/odd/ok.py"
+  mkfifo "$CTL/odd/pipe" 2>/dev/null || true
   printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
   # A readable sibling, so the run reaches the ERROR verdict instead of stopping
   # at the zero-read guard — the fixture must exercise the arm it names.
@@ -232,6 +263,13 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
   _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
   _control "$CTL/tools" 1 "K2: a"  "K2 fires under the tools root too" || ctl_ok=1
   _control "$CTL/binary" 1 "K2: a" "K2 fires inside binary content"    || ctl_ok=1
+  _control "$CTL/link"   1 "K2: a" "K2 fires on a symlink's target"    || ctl_ok=1
+  if [ -p "$CTL/odd/pipe" ]; then
+    _control "$CTL/odd" 1 "cannot say what it holds" "an odd entry fails closed" || ctl_ok=1
+  else
+    echo "  note: the odd-entry control could not be exercised here (no fifo);"
+    echo "        every other control ran"
+  fi
   # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
   # read" are different answers and only one of them is green.
   _control "$CTL/empty" 2 "read 0 files" "an empty scope fails loudly" || ctl_ok=1
@@ -243,9 +281,10 @@ if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
     _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
   fi
   [ "$ctl_ok" -eq 0 ] || exit 1
-  echo "  controls: green reachable; K2 fires under both roots, on the removed path"
-  echo "            and inside binary content; an empty scope, an unreadable file and"
-  echo "            an unsearchable directory all fail closed"
+  echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
+  echo "            inside binary content and on a symlink's stored target; an empty"
+  echo "            scope, an unreadable file, an unsearchable directory and an entry"
+  echo "            that is none of file/symlink/directory all fail closed"
   echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
 
