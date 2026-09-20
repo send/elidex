@@ -221,7 +221,7 @@ class Population:
         return "terminal"
 
     def _kind_residue(self, row):
-        """The one place the residue GATES (`plan_memo_tables.split_units`),
+        """The one place the residue GATES (`plan_memo_stream.split_units`),
         for EVERY member of `KIND_PHRASES` and not for the one member that
         was in front of me when I wrote it.  A declaring field that spells a
         kind phrase ACROSS a span the checker does not read as prose --

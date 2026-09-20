@@ -716,3 +716,21 @@ MUTANTS += [
      "    m.licensed = bool((j >= 0 and LICENSE_BEFORE.match(m.text, starts[j], m.start))",
      [R31_LICENCE_INDEX]),
 ]
+
+
+
+# -- PR #510 Codex R32: §6.1 is TWO steps and the order is the rule.  The
+# control is the spec's own §6.1 list rather than the probe the round arrived
+# with, because what the probe exposed was the absence of the FIRST step, which
+# reaches every multi-line code span -- so the mutant removes that step and the
+# report names Examples 335 / 336 / 337 rather than the reported shape.
+R32_CODE_READING = ("CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts "
+                    "inside `<code>` (line endings converted, then the one-space trim)")
+
+MUTANTS += [
+    ("R32 §6.1: a code span's line endings are converted to spaces BEFORE the one-space trim (drop the "
+     "conversion: the raw line ending stands in the reader's text and the trim never fires)", STREAM,
+     '        body = body.replace("\\r\\n", " ").replace("\\r", " ").replace("\\n", " ")\n',
+     '',
+     [R32_CODE_READING]),
+]

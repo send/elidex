@@ -908,7 +908,7 @@ class Lexed:
     over raw lines by `plan_memo_memo.py::Memo`, and a reference
     definition is never inline content.  `tokens` = [(start, end, "cite" |
     "file")] in SOURCE coordinates, read off the block's rendering and set by
-    the disposition's stage 2 (`plan_memo_tables.dispose`), never here: the
+    the disposition's stage 2 (`plan_memo_stream.dispose`), never here: the
     reading needs a rendering, and a `Lexed` has none until it is disposed.
     `resolve(defs)` runs `inline_pass` and sets
     `code` = code spans, `html` = raw HTML spans (§6.6), `autolinks` =

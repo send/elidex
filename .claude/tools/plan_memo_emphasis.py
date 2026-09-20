@@ -4,7 +4,7 @@ delimiter runs PAIR, and therefore which characters of a block render as
 nothing at all.
 
 WHY THIS EXISTS.  The scanners read the text a reader sees
-(`plan_memo_tables.stream`), so every construct must say what characters it
+(`plan_memo_stream.stream`), so every construct must say what characters it
 contributes.  A `*` is the one character whose answer is not local: in
 `**9z**7z` the four asterisks contribute nothing, in `9*z` the one asterisk
 contributes itself, and only the §6.2 matching rules tell them apart.  Guess

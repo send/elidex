@@ -445,7 +445,7 @@ def lex_unsupported_seed(pop, findings, notes):
 
     HAD THE TEXT BEEN PROSE is the whole rule, so the FILE-NAME and
     CITATION disposition applies here too, from the same reading the
-    disposition itself consumes (`plan_memo_lexer.file_and_cite_spans`): an
+    disposition itself consumes (`plan_memo_tokens.file_and_cite_spans`): an
     id token overlapping one of those spans is one prose would never have
     read, and seeds nothing.  Until PR #510 R22 this scan read the raw line
     directly and the disposition had a second, hand-written spelling here
@@ -475,7 +475,7 @@ def lex_unsupported_seed(pop, findings, notes):
 
 def lex_split_seed(pop, all_blocks, findings, notes):
     """`[LEX-SPLIT?]` SEED: the RESIDUE of the rendered-text reading
-    (`plan_memo_tables.split_units`, PR #510 design re-gate 4).
+    (`plan_memo_stream.split_units`, PR #510 design re-gate 4).
 
     Every construct that renders NOTHING is dropped from the stream, so an id
     or a kind phrase split by one -- `Slice 9**z**`, `UMBRELLA, not a

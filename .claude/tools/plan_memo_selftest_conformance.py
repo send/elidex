@@ -16,7 +16,19 @@ vendored in `commonmark-0.31.2-block-examples.json` (295 examples over
 since PR #510 R15, when the list item became a container -- `List items`
 §5.2 (Examples 253-300) and `Lists` §5.3 (Examples 301-326), each
 container's own falsifier), and this control runs every one through `Memo`
-and checks the html for what Phase 1 CLAIMED -- never a rendering.
+and checks the html for what Phase 1 CLAIMED.
+
+⚠ "NEVER A RENDERING" WAS THE CHARTER UNTIL PR #510 R32, AND THAT SENTENCE IS
+WHERE THE ROUND'S FINDING LANDED.  The corpus already held the examples that
+settle what a code span READS as (§6.1 converts line endings to spaces before
+trimming one space a side); the aligner declined to look at renderings on
+principle, so `_inner` disagreed with the spec on every multi-line code span in
+a corpus this file runs on every self-test.  A declared blind spot is a map of
+where the next finding lands, and this one was declared for four rounds.  The
+charter is now: the spec's own examples falsify BOTH what Phase 1 claims about
+a block AND what the reader's rendering says a masked span reads as
+(`run_code_reading`).  Everything the aligner does is still a claim check, not
+a re-implementation of rendering -- the html is read, never produced.
 
 WHAT IS CHECKED (`align`).  Phase 1 STATES its output as a block sequence
 (`Memo.sequence`: `[kind, first line, last line]` in document order, a
@@ -375,3 +387,55 @@ def _report(data, passed, fails, skips):
     for no, section, err in fails:
         lines.append("  FAIL Example %d (%s): %s" % (no, section, err))
     return not fails and passed > 0, "\n".join(lines)
+
+
+def run_code_reading(M):
+    """The READER'S RENDERING half of the corpus (PR #510 R32): for every
+    §6.1 example, the text `plan_memo_stream._inner` says a code span reads as
+    must equal the text the spec's own html puts inside `<code>`.
+
+    THE POPULATION IS THE SPEC'S, not the shape a round reported.  R32's
+    finding arrived as one probe (`Slice 9` + a span whose content is `\nz `);
+    what it exposed was that §6.1's FIRST step -- "line endings are converted
+    to spaces" -- was absent altogether, so the disagreement covers every
+    multi-line code span rather than the one that interacts with the trim.
+    Asking the question of the vendored §6.1 list instead of that probe is the
+    difference between a control that watches the defect and one that watches
+    the clause (`memory/feedback_checks-must-not-be-defined-by-the-symptom-
+    vocabulary.md`).  Measured: 19 spans over the 22 vendored examples agree
+    after the fix; with the conversion removed, 3 disagree and the report
+    names Examples 335 / 336 / 337.
+
+    The span EXTENTS come from the checker's own `inline_pass`, so an example
+    whose span count disagrees with its `<code>` count is reported rather than
+    skipped silently -- a lexer that stopped finding code spans would otherwise
+    make this control vacuously green."""
+    import html as html_mod
+    import plan_memo_lexer
+    import plan_memo_stream
+
+    data = json.loads(INLINE_EXAMPLES.read_text(encoding="utf-8"))
+    rows = [r for r in data["examples"] if r["section"] == "Code spans"]
+    if not rows:
+        return False, "the vendored inline corpus holds no Code spans examples: nothing was checked"
+    agreed, bad = 0, []
+    for ex in rows:
+        text = ex["markdown"].rstrip("\n")
+        want = [html_mod.unescape(m.group(1))
+                for m in re.finditer(r"<code>(.*?)</code>", ex["html"], re.S)]
+        lx = plan_memo_lexer.Lexed(text)
+        lx.resolve({})
+        got_spans = [text[a:b] for a, b in lx.code]
+        if len(got_spans) != len(want):
+            bad.append("Example %d: the lexer found %d code span(s), the html has %d"
+                       % (ex["example"], len(got_spans), len(want)))
+            continue
+        for src, expect in zip(got_spans, want):
+            got = plan_memo_stream._inner("code", src)
+            if got == expect:
+                agreed += 1
+            elif len(bad) < 6:
+                bad.append("Example %d: %r reads as %r, the spec renders %r"
+                           % (ex["example"], src, got, expect))
+    return not bad, ("%d code span(s) over %d §6.1 examples read as the spec renders them%s"
+                     % (agreed, len(rows), ("; " + "; ".join(bad)) if bad else ""))

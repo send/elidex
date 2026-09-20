@@ -69,7 +69,7 @@ def bounded(phrase):
     """`phrase`, bounded by `BEFORE` / `AFTER` on BOTH sides: an ASCII
     alphanumeric may not abut it on either end.
 
-    The marker phrases the census reads (`plan_memo_tables.MARKER_RE`,
+    The marker phrases the census reads (`plan_memo_stream.MARKER_RE`,
     `UNDETERMINED`, `POINTER`, `plan_memo_roles.DECLARES`,
     `LICENSE_BEFORE` / `LICENSE_AFTER`) all compose this rather than each
     growing its own edge: a phrase matcher that is a bare substring test or
@@ -99,7 +99,7 @@ both, in either order.  `DECOR_CHARS` is the same fact as a character set,
 which the stream builder reads to keep itself honest -- an escaped `\\*` or a
 `&#42;` renders an asterisk that is TEXT, and substituting it would spell a
 decoration the document does not have, so those two substitutions are
-BLANKED instead of substituted (`plan_memo_tables.stream`).  Blanked, not
+BLANKED instead of substituted (`plan_memo_stream.stream`).  Blanked, not
 left standing as written: the source spelling holds letters and digits, and
 a `&ast;` standing in the stream named a row `ast` no reader can see (PR
 #510 R23)."""

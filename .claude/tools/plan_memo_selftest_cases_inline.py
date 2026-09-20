@@ -561,7 +561,7 @@ case("NEGATIVE", "(render) `**9z**'s children`: the licensing rule needs no deco
 
 # #1 (P2) seed: the raw-line seed reports "what a naming scan would have read
 # HAD THE TEXT BEEN PROSE", so the file-name / citation disposition applies to
-# it -- from `plan_memo_lexer.file_and_cite_spans`, the ONE reading the
+# it -- from `plan_memo_tokens.file_and_cite_spans`, the ONE reading the
 # disposition itself consumes.  It scanned the raw line directly until R22,
 # and the seed's own `t.kind != "cite"` was a second spelling of half of it.
 RAW_FILE = '\n<div data-note="%s">\n</div>\n'

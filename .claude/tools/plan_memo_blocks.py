@@ -151,7 +151,7 @@ def quote_marker(line):
     of the line.  Inside N nested quotes the same suffix was copied twice per
     level and the second copy was thrown away after a comparison against
     `None`.  Those two callers read this function instead;
-    `plan_memo_selftest_work.quote_build_once_control` is the count that keeps
+    `plan_memo_selftest_pipeline.quote_build_once_control` is the count that keeps
     them here.  ⚠ What this does NOT fix is the copy the gather still makes
     once per line per enclosing quote: Phase 1 hands each container's content
     to itself as a list of STRINGS, so the characters it materialises are the

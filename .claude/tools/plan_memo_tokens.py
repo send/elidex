@@ -13,7 +13,7 @@ caller holds which and why -- never over a parse.
 So this module sits BESIDE the lexer rather than inside it, and below it: it
 imports the id grammar and `re`, and nothing of CommonMark, while the lexer
 imports nothing of this.  Its consumers are the disposition
-(`plan_memo_tables.dispose`), the raw-line seed
+(`plan_memo_stream.dispose`), the raw-line seed
 (`plan-memo-umbrella-check.py`), and `plan_memo_sibling`, which reads
 `FILE_SUFFIX` from here for the ONE test on a link destination -- the
 correspondence PR #510 R26-2 had to repair, and the reason the constant and the
@@ -114,7 +114,7 @@ def file_and_cite_spans(text):
     things because they hold different texts (PR #510 R24; until then both
     read raw source and one of them was wrong about it):
 
-      * the DISPOSITION (`plan_memo_tables.dispose`, stage 2) hands it the
+      * the DISPOSITION (`plan_memo_stream.dispose`, stage 2) hands it the
         block AS A READER SEES IT and maps the spans back to source offsets.
         It must: a file name's boundaries are whitespace boundaries, and §2.5
         can put whitespace where the source has none, so over the source
@@ -183,7 +183,7 @@ def covers(spans, a, b):
     token, which is quadratic in the line -- the always-run raw-line seed
     (`plan-memo-umbrella-check.py::lex_unsupported_seed`) over a raw HTML
     block of `9z note.md` repeated measured 2.9x then 3.2x per doubling (PR
-    #510 R31-3).  It is the same defect `plan_memo_tables._straddles` had at
+    #510 R31-3).  It is the same defect `plan_memo_stream._straddles` had at
     R27-3 against `Stream.blanks`, whose ordering is stated for the same
     reason, and the same window closes it."""
     j = bisect.bisect_left(spans, (a,))

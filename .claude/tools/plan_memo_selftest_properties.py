@@ -734,5 +734,121 @@ def registry():
             ("CONTROL", module_map_completeness_control),
         "PROPERTY: every name the entry point's MODULES map spells is a file that exists (the rename half the completeness direction cannot see)":
             ("CONTROL", module_map_existence_control),
+        "PROPERTY: every written `module.symbol` attribution names the module that DEFINES that symbol (the class five touch-time splits left with no detector)":
+            ("CONTROL", symbol_attribution_control),
     })
     return reg
+
+
+# The three spellings this corpus uses to attribute a symbol to a module.
+# READ OFF THE CORPUS, not guessed: `mod.sym` is the sources' form, `mod.py::sym`
+# the plan's §3 coverage-map form (which carried 12 of the 28 sites the first
+# run found), and ``sym` in `mod.py`` a prose form the other two miss.  A fourth
+# spelling would be invisible here, which is why the control REPORTS its
+# denominator -- a sweep that silently matched nothing would read as clean.
+_ATTRIB_SPELLINGS = (
+    (re.compile(r"`(plan_memo_[a-z_0-9]+)\.([A-Za-z_]\w*)"), 1, 2),
+    (re.compile(r"`(plan_memo_[a-z_0-9]+|plan-memo-umbrella-check)\.py::([A-Za-z_]\w*)"), 1, 2),
+    (re.compile(r"`([A-Za-z_]\w*)` in `(plan_memo_[a-z_0-9]+)\.py`"), 2, 1),
+)
+
+
+def _defining_module():
+    """{top-level name: {module names that define it}} over the checker set,
+    from the AST -- the authority a written attribution is checked against."""
+    home = {}
+
+    def names(t):
+        if isinstance(t, ast.Name):
+            yield t.id
+        elif isinstance(t, (ast.Tuple, ast.List)):
+            for e in t.elts:
+                yield from names(e)
+
+    for file, src in _swept_sources():
+        mod = "plan_memo_umbrella_check" if file == ENTRY else file[:-3]
+        for node in ast.parse(src).body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                home.setdefault(node.name, set()).add(mod)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    for nm in names(target):
+                        home.setdefault(nm, set()).add(mod)
+            elif isinstance(node, ast.AnnAssign):
+                for nm in names(node.target):
+                    home.setdefault(nm, set()).add(mod)
+    return home
+
+
+def symbol_attribution_control(M):
+    """PROPERTY: every written `module.symbol` attribution in this checker
+    names the module that actually DEFINES that symbol.
+
+    THE CLASS HAD NO DETECTOR AND FIVE SPLITS HAD RUN (PR #510 R32).  Each
+    touch-time split moves symbols between modules, and every docstring,
+    comment and plan row that attributed one by name went stale silently: the
+    stream reader attributed to the tables module after it was carved out, the
+    file-and-citation scan still attributed to the lexer after the token
+    grammar left it, and a quote-cost control still attributed to the work
+    module after THIS round's own carve.  Nothing read them, so nothing was
+    red.  First run: 31 sites over 100 files.
+
+    ⚠ THE EXAMPLES ABOVE NAME NO MODULE, AND THAT IS THIS CONTROL'S ONE REAL
+    LIMIT.  It cannot tell a present-tense attribution from a historical one --
+    "`x.y` was wrong" reads exactly like "`x.y`" -- so prose ABOUT a stale
+    attribution would be a finding against itself.  The first run proved it:
+    three of the thirty-one were in this very docstring.  Narrative about a
+    move therefore carries no locator; a POINTER a reader follows must carry a
+    correct one, which is why the historical note at
+    `plan_memo_tokens.covers` was corrected rather than reworded.
+
+    ⚠ THE POPULATION IS THE PROPERTY, NOT THE SYMPTOM.  A sweep for the
+    symbols a reader happens to know moved found 8; a sweep for the shape
+    `module.symbol` found 15; asking the question of every spelling the corpus
+    actually uses found 28 -- and the spelling that contributed most (the
+    plan's `mod.py::sym` coverage-map form) is the one no symbol-name grep
+    reaches.  `memory/feedback_checks-must-not-be-defined-by-the-symptom-
+    vocabulary.md` is the rule; this is the measurement behind it.
+
+    HONESTLY, what it cannot see: an attribution spelled a fourth way; a
+    symbol named with no module beside it (the overwhelming majority, and the
+    reason this is not a general staleness check); a module named with no
+    symbol; and a name this checker does not define at top level (a method, an
+    attribute), which is skipped rather than guessed at.  The DENOMINATOR is
+    reported for exactly that reason -- a regex that stopped matching would
+    otherwise read as a clean sweep."""
+    home = _defining_module()
+    corpus = _attribution_corpus()
+    bad, checked = [], 0
+    for name, src in corpus:
+        for lineno, line in enumerate(src.split("\n"), 1):
+            for pattern, mod_group, sym_group in _ATTRIB_SPELLINGS:
+                for m in pattern.finditer(line):
+                    mod = m.group(mod_group).replace("plan-memo-umbrella-check", "plan_memo_umbrella_check")
+                    sym = m.group(sym_group)
+                    if sym not in home:
+                        continue
+                    checked += 1
+                    if mod not in home[sym]:
+                        bad.append("%s:%d `%s.%s` -> %s"
+                                   % (name, lineno, mod, sym, "/".join(sorted(home[sym]))))
+    if not checked:
+        return False, ("no `module.symbol` attribution matched in %d file(s): the spellings this "
+                       "control reads are no longer the ones the corpus writes" % len(corpus))
+    return not bad, ("%d attribution(s) checked over %d file(s), %d naming the wrong module%s"
+                     % (checked, len(corpus), len(bad), ("; " + "; ".join(bad[:6])) if bad else ""))
+
+
+def _attribution_corpus():
+    """The files whose attributions are checked: every source of the checker
+    set, plus the plan memos beside it when this tool is sitting in its own
+    repository (`<root>/docs/plans/*.md`).  The plan's §3 coverage map is the
+    single densest population of these attributions, so leaving it out would
+    put the majority of the class outside the control; taking it only when the
+    directory exists keeps the tool runnable from anywhere, which its header
+    promises."""
+    files = list(_swept_sources())
+    plans = HERE.parents[1] / "docs" / "plans"
+    if plans.is_dir():
+        files += [(p.name, p.read_text(encoding="utf-8")) for p in sorted(plans.glob("*.md"))]
+    return files

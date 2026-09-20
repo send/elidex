@@ -283,13 +283,31 @@ def _reading(rd, a, b):
 
 def _inner(kind, text):
     """The text a READER sees where this checker blanks: a code span's content
-    without its backtick strings (§6.1, minus the one space each side the spec
-    strips when both are there and the content is not all spaces), an
-    autolink's URL without its angle brackets, and -- for the spans that are
-    already their own text -- the span as written."""
+    without its backtick strings, an autolink's URL without its angle
+    brackets, and -- for the spans that are already their own text -- the span
+    as written.
+
+    §6.1 IS TWO STEPS AND THE ORDER IS THE RULE (PR #510 R32).  "First, line
+    endings are converted to spaces"; THEN, if what results begins and ends
+    with a space and is not all spaces, one space is removed from each end.
+    This function did only the second step, and asked it of the RAW content --
+    so a span whose content opens with a line ending had neither step fire, and
+    the line ending stood in the reader's text where the spec puts a space.
+    Falsified on every multi-line code span in the vendored corpus, not only
+    where a trim interacts: Example 335 `` ``\nfoo\nbar  \nbaz\n`` `` renders
+    `foo bar   baz`, 336 `` ``\nfoo \n`` `` renders `foo `, 337
+    `` `foo   bar \nbaz` `` renders `foo   bar  baz`.  The reported shape was
+    `Slice 9` followed by a span whose content is `\nz `, which renders
+    `Slice 9z`: the run was silent -- no token AND no `[LEX-SPLIT?]` residue,
+    so nothing sent a reader to the text.
+
+    ⚠ The three §2.1 line endings are converted, not just `\n`: a memo written
+    with CRLF or with bare CR is one document of many lines by §2.1, and
+    `line_ending_control` holds the whole census invariant under all three."""
     if kind == "code":
         k = len(text) - len(text.lstrip("`"))
         body = text[k:len(text) - k]
+        body = body.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
         if len(body) > 1 and body[0] == " " and body[-1] == " " and body.strip(" "):
             body = body[1:-1]
         return body
