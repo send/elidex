@@ -105,9 +105,17 @@ EXEMPT = {".claude/tools/webref"}
 # two things that are genuinely NOT paths are named instead: the synthetic
 # filename a test asserts on, and prose that happens to contain a slash.  Both
 # are listed, so adding one is a visible edit rather than a silent widening.
+# ⚠ SCOPED TO THE FILE THAT CARRIES THEM, not to the string.  A bare string set
+# suppressed the same text wherever it appeared: measured, an untracked
+# `_webref/_tripwire_probe.py` containing `HOST_POLICY = "docs/note.md"` scanned
+# clean, so the gate certified an actual host path.  Keyed by file, a new file
+# that hard-codes either string is reported, and the two real occurrences stay
+# silent — which is what an exemption is for.
 NOT_A_PATH = {
-    "docs/note.md",   # test_agent_brief.py's synthetic fixture name
-    "docs/code",      # DESIGN.md prose: "affected docs/code"
+    # test_agent_brief.py's synthetic fixture name, asserted on in-test
+    "test_agent_brief.py": {"docs/note.md"},
+    # DESIGN.md prose: "an actionable list of affected docs/code"
+    "DESIGN.md": {"docs/code"},
 }
 
 def files():
@@ -138,7 +146,7 @@ for path in files():
             # comparing against the two name sets — otherwise `./docs/note.md`
             # would be reported while `docs/note.md` is not.
             bare = re.sub(r"^(?:\.{1,2}/|(?:\.\./)+|/)", "", cand)
-            if bare in EXEMPT or bare in NOT_A_PATH:
+            if bare in EXEMPT or bare in NOT_A_PATH.get(os.path.basename(path), ()):
                 continue
             hits.append(f"{os.path.relpath(path, root)}:{n}: {cand}")
 
