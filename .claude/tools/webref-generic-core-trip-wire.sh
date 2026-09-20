@@ -15,20 +15,26 @@
 # commit set this wire was green on, five rounds running, so do not read a
 # green here as `DESIGN.md` compliance.
 #
-# TWO CHECKS, BOTH ABSOLUTE.  Each is closed and decidable; neither is a
-# heuristic, and this wire makes no un-asserted report.
+# ONE CHECK, ABSOLUTE.  It is closed and decidable; it is not a heuristic, and
+# this wire makes no un-asserted report.
 #
-# (A) THE PIN.  A-i removed exactly one host path from this tree, at two
-#     sites: `_webref/cli.py` and the `webref` entry script each named
-#     `.claude/skills/elidex-review/axes.md` (measured at base `44cd165d`:
-#     1 each; at HEAD: 0).  This wire FAILS if it comes back.  Same shape as
-#     its four siblings, which pin the re-introduction of a named deleted
-#     construct rather than recognising an open category.
+# THE K2 PREDICATE, verbatim from the memo's §2: no `.claude/(skills|tools)/`
+# plus two further path segments, anywhere in this tree.  NARROW — two fixed
+# roots, a fixed segment count — so it enumerates its own population and is not
+# a seed.  Measured 0 here.
 #
-# (B) THE K2 PREDICATE, verbatim from the memo's §2: no
-#     `.claude/(skills|tools)/` plus two further path segments, anywhere in
-#     this tree.  NARROW — two fixed roots, a fixed segment count — so it
-#     enumerates its own population and is not a seed.  Measured 0 here.
+# ⚠ It replaces a second check rather than joining one.  This wire began as a
+# PIN on the one host path A-i removed (`.claude/skills/elidex-review/axes.md`,
+# at two sites: `_webref/cli.py` and the `webref` entry script — measured 1 each
+# at base `44cd165d`, 0 at HEAD), because at the time the K2 predicate had no
+# assertion anywhere.  When #501 gate 4 restored that assertion the pin became
+# strictly redundant: measured, the removed path IS a
+# `.claude/(skills|tools)/<a>/<b>` string, so every input that fires the pin
+# fires K2 and no input does the reverse.  Two checks where one contains the
+# other is not belt-and-braces, it is a second decision surface — and it cost a
+# real control: the pin's fixture was caught by the K2 arm, so killing the pin's
+# verdict left the control green (#501 R70).  Collapsed to one.  The historical
+# fact the pin carried is this comment, and the failure message names it.
 #
 #     ⚠ It was asserted once and the assertion was lost to two fixes that each
 #     made sense alone.  `3aaad3cb` (R55) deleted
@@ -62,20 +68,28 @@
 # and broke that premise for all five wires (#501 R69).  Anything needing more
 # than grep belongs in a test, not here.
 #
-# Run from anywhere.  Exits non-zero if (A) or (B) fails.
+# Run from anywhere.  Exits non-zero if K2 fails or a file cannot be read.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCOPE_DIR="$ROOT/.claude/tools/_webref"
 SCOPE_FILE="$ROOT/.claude/tools/webref"
-for p in "$SCOPE_DIR" "$SCOPE_FILE"; do
+# SELF-TEST MODE.  The controls below re-invoke this script over a fixture tree
+# and assert its EXIT STATUS.  That is the point: a control that only inspects an
+# internal variable proves the classifier, not the thing the verdict does with it
+# — measured at #501 R70, where killing the verdict's error arm left a control
+# passing and the wire green.  The subject has to be the exit code.
+if [ -n "${WEBREF_WIRE_SELFTEST:-}" ]; then
+  ROOT="$WEBREF_WIRE_SELFTEST"
+  SCOPE_DIR="$WEBREF_WIRE_SELFTEST"
+  SCOPE_FILE=""
+fi
+for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
   [ -e "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
 done
 
-# The host path A-i removed, spelled out, closed. Fixed string, `grep -F`.
-PIN='.claude/skills/elidex-review/axes.md'
-# §2's K2 predicate. Fixed ERE, `grep -E`.
+# §2's K2 predicate. Fixed ERE, `grep -E`. The one thing this wire asserts.
 K2RE='\.claude/(skills|tools)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
 
 # A filesystem walk, not `git grep`: an untracked file under the package is
@@ -88,12 +102,22 @@ _files() { # $1 = dir root, $2 = extra file (may be empty)
   return 0
 }
 
-_scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" lines
+# FAIL CLOSED ON A FILE IT CANNOT READ.  grep exits 0 on a match, 1 on none and
+# **2 on an error** — and an unreadable file is an error, not an absence.  An
+# earlier revision discarded both, so a mode-000 file carrying a host path was
+# counted in "scanned N" and reported nothing: the wire printed its ABSOLUTE
+# over a file it had never read (#501 R70, reproduced).  A `-r` test catches the
+# ordinary case; the rc>=2 arm catches the rest (I/O errors, and anything the
+# test cannot see).
+_scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" / "err\t…"
   _files "$1" "${2:-}" | while IFS= read -r f; do
-    grep -IFn -- "$PIN" "$f" 2>/dev/null | while IFS= read -r hit; do
-      printf 'pin\t%s:%s\n' "${f#$ROOT/}" "$hit"
-    done
-    grep -IEno -- "$K2RE" "$f" 2>/dev/null | while IFS= read -r hit; do
+    if [ ! -r "$f" ]; then
+      printf 'err\t%s: unreadable\n' "${f#$ROOT/}"
+      continue
+    fi
+    out="$(grep -IEno -- "$K2RE" "$f" 2>/dev/null)" || [ $? -eq 1 ] || {
+      printf 'err\t%s: grep failed\n' "${f#$ROOT/}"; continue; }
+    [ -z "$out" ] || printf '%s\n' "$out" | while IFS= read -r hit; do
       printf 'k2\t%s:%s\n' "${f#$ROOT/}" "$hit"
     done
   done
@@ -104,60 +128,87 @@ _scan() { # $1 = dir root, $2 = extra file; prints "pin\t…" / "k2\t…" lines
 # the same path the exit status comes from -- #501 R69 measured the earlier
 # shape and a mutation to the k2 line survived: the controls proved `_scan`,
 # not the thing that decides.
-_verdict() { # $1 = _scan output; sets PIN_HITS / K2_HITS
-  PIN_HITS="$(printf '%s\n' "$1" | grep '^pin	' || true)"
+_verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS
   K2_HITS="$(printf '%s\n' "$1" | grep '^k2	' || true)"
+  ERR_HITS="$(printf '%s\n' "$1" | grep '^err	' || true)"
 }
 
-# ---- CONTROLS, run BEFORE the real tree ------------------------------------
-# The samples are spelled out a SECOND time on purpose. They are the
-# independent subject each check is tested against, exactly as
-# `layout-box-reader-trip-wire.sh`'s `ban_control` passes a hand-written
-# sample line beside the pattern. If someone edits `PIN` or `K2RE` to a
-# different spelling, the two stop agreeing and THAT is the signal — the
-# failure a pattern-derived fixture cannot see.
-CONTROL_HIT='.claude/skills/elidex-review/axes.md'
-CONTROL_MISS='.claude/skills/elidex-review/workflow.md'
+# ---- CONTROLS: re-invoke THIS script over fixtures, assert the exit code ----
+# The samples are spelled out a SECOND time on purpose. They are the independent
+# subject each check is tested against, exactly as `layout-box-reader-trip-wire.sh`'s
+# `ban_control` passes a hand-written sample line beside the pattern. If someone
+# edits $PIN or $K2RE to a different spelling, the two stop agreeing and THAT is
+# the signal — the failure a pattern-derived fixture cannot see.
+# Two fixtures for the one predicate, on purpose: the path A-i actually removed
+# (the case the wire exists for) and a path that never existed here (the general
+# case). If $K2RE is edited to a different shape, both stop agreeing with it.
+CONTROL_REMOVED='.claude/skills/elidex-review/axes.md'
+CONTROL_K2='.claude/skills/new-policy/rule.md'
+# $K2RE names TWO roots. A fixture for only one leaves the other unasserted —
+# measured: narrowing the pattern to `skills` alone survived every control
+# until this fixture existed (#501 R70).
+CONTROL_TOOLS='.claude/tools/some-other-lane/artifact.tsv'
+CONTROL_CLEAN='a label map and nothing that looks like a host path'
 
-# Distinguish an environment failure from a dead assertion: an empty scratch
-# dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
-# the cleanup path is the absolute one it returned (#501 R55: an unchecked
-# `mktemp` made an `rm -rf` expand to the repo root).
-if ! CTL="$(mktemp -d)" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
-  echo "!! could not create a scratch dir for the controls (TMPDIR/disk?)," >&2
-  echo "   so this run's assertions were never proved able to fire." >&2
-  exit 2
-fi
-trap 'case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
+if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
+  # Distinguish an environment failure from a dead assertion: an empty scratch
+  # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
+  # the cleanup path is the absolute one it returned (#501 R55: an unchecked
+  # `mktemp` made an `rm -rf` expand to the repo root).
+  if ! CTL="$(mktemp -d)" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
+    echo "!! could not create a scratch dir for the controls (TMPDIR/disk?)," >&2
+    echo "   so this run's assertions were never proved able to fire." >&2
+    exit 2
+  fi
+  trap 'chmod -R u+rw "$CTL" 2>/dev/null || true; case "$CTL" in /*/*) rm -rf "$CTL";; esac' EXIT
 
-mkdir -p "$CTL/hit" "$CTL/miss"
-printf 'AXES = "%s"  # planted\n' "$CONTROL_HIT"  > "$CTL/hit/control.py"
-printf 'OTHER = "%s"  # planted\n' "$CONTROL_MISS" > "$CTL/miss/control.py"
+  for d in clean pin k2 tools err empty; do mkdir -p "$CTL/$d"; done
+  printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
+  printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/pin/control.py"
+  printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/k2/control.py"
+  printf 'ART  = "%s"\n' "$CONTROL_TOOLS"   > "$CTL/tools/control.py"
+  printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
+  chmod 000 "$CTL/err/control.py"
 
-ctl_hit="$(ROOT="$CTL" _scan "$CTL/hit" "" || true)"
-ctl_miss="$(ROOT="$CTL" _scan "$CTL/miss" "" || true)"
+  _control() { # $1 = fixture dir, $2 = expected exit, $3 = expected message, $4 = label
+    _out="$(WEBREF_WIRE_SELFTEST="$1" "$0" 2>&1)"; _rc=$?
+    if [ "$_rc" -ne "$2" ]; then
+      echo "!! CONTROL FAILED ($4): expected exit $2, got $_rc. A green below would" >&2
+      echo "   mean nothing — this wire was not shown able to reach that verdict." >&2
+      printf '%s\n' "$_out" | sed 's/^/     /' >&2
+      return 1
+    fi
+    case "$_out" in *"$3"*) : ;; *)
+      echo "!! CONTROL FAILED ($4): exit $2 as expected, but for the wrong reason —" >&2
+      echo "   the output does not contain \"$3\"." >&2
+      printf '%s\n' "$_out" | sed 's/^/     /' >&2
+      return 1 ;;
+    esac
+    return 0
+  }
 
-_verdict "$ctl_hit"
-if [ -z "$PIN_HITS" ]; then
-  echo "!! POSITIVE CONTROL FAILED: a planted \`$CONTROL_HIT\` did NOT reach the pin" >&2
-  echo "   verdict, so a green below would mean nothing. \$PIN is empty or misspelled," >&2
-  echo "   or the classifier dropped it." >&2
-  exit 1
+  # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
+  # inside such a command, so a bare call would abort the script on the first
+  # non-zero and the remaining arms would never run.
+  ctl_ok=0
+  _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1
+  _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
+  _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
+  _control "$CTL/tools" 1 "K2: a"  "K2 fires under the tools root too" || ctl_ok=1
+  # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
+  # read" are different answers and only one of them is green.
+  _control "$CTL/empty" 2 "scanned 0 files" "an empty scope fails loudly" || ctl_ok=1
+  if [ -r "$CTL/err/control.py" ]; then
+    echo "  note: the unreadable-file control could not be exercised here (this user"
+    echo "        can read a mode-000 file); the other three ran"
+  else
+    _control "$CTL/err" 1 "could not be read"       "unreadable fails closed" || ctl_ok=1
+  fi
+  [ "$ctl_ok" -eq 0 ] || exit 1
+  echo "  controls: green reachable; K2 fires under both roots and on the removed"
+  echo "            path; an unreadable file and an empty scope both fail closed"
+  echo "            (each asserted on this script's own exit status, over a fixture tree)"
 fi
-_verdict "$ctl_miss"
-if [ -n "$PIN_HITS" ]; then
-  echo "!! NEGATIVE CONTROL FAILED: \`$CONTROL_MISS\` reached the pin verdict, so the" >&2
-  echo "   pin is matching more than the path it names." >&2
-  exit 1
-fi
-if [ -z "$K2_HITS" ]; then
-  echo "!! K2 CONTROL FAILED: a planted \`$CONTROL_MISS\` did NOT reach the K2 verdict," >&2
-  echo "   so a green below would mean nothing. \$K2RE is broken, or the classifier" >&2
-  echo "   dropped it." >&2
-  exit 1
-fi
-echo "  controls: the pin fires on a planted \`$CONTROL_HIT\` and not on a sibling;"
-echo "            the K2 predicate fires on \`$CONTROL_MISS\`"
 
 # ---- THE REAL TREE ----------------------------------------------------------
 scanned="$(_files "$SCOPE_DIR" "$SCOPE_FILE" | wc -l | tr -d ' ')"
@@ -170,20 +221,21 @@ echo "  scanned $scanned file(s) under the generic core"
 _verdict "$(_scan "$SCOPE_DIR" "$SCOPE_FILE" || true)"
 failed=0
 
-if [ -n "$PIN_HITS" ]; then
-  echo "!! a host path A-i REMOVED is back in the generic core:"
-  printf '%s\n' "$PIN_HITS" | sed 's/^pin	/     /'
-  failed=1
-else
-  echo "  pin: the removed host path is not present -- ABSOLUTE"
-fi
-
 if [ -n "$K2_HITS" ]; then
-  echo "!! K2: a \`.claude/(skills|tools)/<a>/<b>\` host path is named in the generic core:"
+  echo "!! K2: a \`.claude/(skills|tools)/<a>/<b>\` host path is named in the generic core."
+  echo "   (If one of these is \`.claude/skills/elidex-review/axes.md\`, it is the path A-i"
+  echo "    removed from \`_webref/cli.py\` and the \`webref\` entry script, come back.)"
   printf '%s\n' "$K2_HITS" | sed 's/^k2	/     /'
   failed=1
 else
   echo "  K2: 0 \`.claude/(skills|tools)/<a>/<b>\` paths named here -- ABSOLUTE"
+fi
+
+if [ -n "$ERR_HITS" ]; then
+  echo "!! a file under the generic core could not be read, so neither absolute above"
+  echo "   covers it -- this wire does not report a green over a file it never read:"
+  printf '%s\n' "$ERR_HITS" | sed 's/^err	/     /'
+  failed=1
 fi
 
 [ "$failed" -eq 0 ] || exit 1
