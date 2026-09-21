@@ -664,17 +664,17 @@ MUTANTS += [
      '    return "%s(?:%s)%s" % (BEFORE, phrase, AFTER)', '    return "(?:%s)" % phrase',
      [R22_UNDET_NESS, R22_MANKIND, R22_SUBUMBRELLA, R22_UNITARY, R22_SLICER, R22_DECLARES]),
     ("R22 #3 phrase: the MARKER is bounded (re-inject the bare phrase)", STREAM,
-     "MARKER_RE = re.compile(bounded(re.escape(MARKER)))", "MARKER_RE = re.compile(re.escape(MARKER))",
+     "MARKER_RE = re.compile(bounded(_phrase(MARKER)))", "MARKER_RE = re.compile(_phrase(MARKER))",
      [R22_SUBUMBRELLA, R22_UNITARY]),
     # ⚠ THESE SUBSTRINGS MOVED AT R33-2, when the dash set stopped being written
     # out at each reader and became `plan_memo_ids.DASH_CLASS`.
     ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", STREAM,
-     'UNDETERMINED = re.compile(bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED"),',
-     'UNDETERMINED = re.compile(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED",',
+     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED",',
      [R22_UNDET_NESS, R22_MANKIND]),
     ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", STREAM,
-     'POINTER = re.compile(bounded(r"is a pointer rather than a slice"))',
-     'POINTER = re.compile(r"is a pointer rather than a slice")',
+     'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
+     'POINTER = re.compile(_phrase("is a pointer rather than a slice"))',
      [R22_SLICER]),
     ("R22 #3 phrase: the DECLARES vocabulary is bounded (re-inject the bare alternation)", ROLES,
      '    bounded(r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'

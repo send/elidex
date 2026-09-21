@@ -56,7 +56,38 @@ MARKER = "UMBRELLA, not a terminal unit"
 finding) and for composing the matcher.  Every match goes through
 `MARKER_RE`; a bare `MARKER in text` is the unbounded reading R22 removed."""
 
-MARKER_RE = re.compile(bounded(re.escape(MARKER)))
+GAP = r"(?u:\s)"
+r"""ONE character class for "a gap a READER sees between two words", composed
+into every kind phrase below.
+
+⚠ THE THREE PHRASES SPELLED IT THREE DIFFERENT WAYS, AND TWO OF THEM DROPPED A
+CLAIM (PR #510 R47-4).  The marker and the pointer were `re.escape`d LITERALS,
+so their gaps were U+0020 and nothing else; `UNDETERMINED` used `\s` under
+`re.ASCII`, which is ASCII whitespace and not U+00A0.  Measured against cmark
+0.31.2, which is what a reader's renderer does:
+`**UMBRELLA, not a&nbsp;terminal unit.**` renders the marker VERBATIM to a
+reader and exited **0** -- no census claim, the row left the census as an
+active terminal.  So did `&#10;` (a newline), `&#9;` (a tab) and a literal
+U+00A0 typed straight into the cell, while `&#32;` -- the one spelling that
+decodes to U+0020 -- worked.  A phrase nobody can see the difference in is a
+phrase the census must read the same way.
+⚠ Stated as a PROPERTY, not a list: `(?u:\s)` is Unicode whitespace, which is
+every one of the 28 codepoints below U+3000 whose `str.isspace()` is true --
+enumerating the ones a reviewer happened to name would leave the next one
+authoritative, which is the failure `KIND_PHRASES`' own comment records for
+the word boundaries. The scope `(?u:...)` is deliberate: `UNDETERMINED` keeps
+`re.ASCII` for its case folding (under `a` a long s never folds to `s`), and
+only the GAP is Unicode.
+"""
+
+
+def _phrase(text):
+    """A literal phrase whose word gaps are `GAP` -- the ONE composer, so a
+    fourth phrase cannot arrive with a fourth spelling of a space."""
+    return GAP.join(re.escape(w) for w in text.split(" ")).replace(GAP, GAP + "+")
+
+
+MARKER_RE = re.compile(bounded(_phrase(MARKER)))
 """The ONE matcher for the marker, read over a block's disposed STREAM (a
 declaring field is one).  It must still read a marker the document SPLITS
 with a construct that renders nothing -- `**UMBRELLA, not a *terminal*
@@ -69,14 +100,14 @@ never a change to the phrase."""
 # the naming rule enforces against umbrellas.  Two spellings are in use; both
 # are tolerated and the divergence is reported (a kind with two spellings is a
 # kind no program can enumerate).
-UNDETERMINED = re.compile(bounded(r"KIND\s*" + DASH_CLASS + r"?\s*UNDETERMINED"),
+UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),
                           re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
 # "SCHEDULED FROM ITS OWN SLOT" rows).  ⚠ Keyed on one spelling, and the safe
 # polarity: a differently-spelled pointer row is terminal, and so REPORTED by
 # the acceptance seed, never missed.
-POINTER = re.compile(bounded(r"is a pointer rather than a slice"))
+POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))
 
 KIND_PHRASES = (("marker", MARKER_RE), ("undetermined", UNDETERMINED), ("pointer", POINTER))
 """EVERY phrase whose presence or absence in a declaring field changes the

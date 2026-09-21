@@ -212,8 +212,29 @@ class Population:
                 if t.schema is not None:
                     continue
                 for row in [t.header] + t.rows:
+                    # ⚠ BOTH READINGS, not the stream alone (PR #510 R47-2, a
+                    # hole in this gate as first written).  A claim spelled
+                    # ACROSS a masked span -- `` **UMBRELLA, not a `terminal`
+                    # unit.** `` -- is what a READER sees and what the disposed
+                    # stream does not, so a stream-only search found nothing,
+                    # the run emitted a non-gating `LEX-SPLIT?` seed and exited
+                    # 0 with the table's declarations and `Deps` edges gone.
+                    # That is the same I-C silent skip this gate exists to
+                    # close, one construct further in.
+                    # ⚠ Asked through `kind_disagreements`, which is the
+                    # CANONICAL question `_kind_residue` already gates a BOUND
+                    # row with -- not a second rule written here.  Reusing it
+                    # keeps the I-A arm by construction: a phrase quoted WHOLE
+                    # (`` `UMBRELLA, not a terminal unit` ``) makes the two
+                    # readings differ but does not STRADDLE, so it stays what
+                    # I-A says it is -- not a declaration, not a miss -- and
+                    # the negative control over that case needs no exemption
+                    # here to stay green.
                     hit = next((n for c in row.cells
                                 for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)
+                    if hit is None:
+                        hit = next((n for c in row.cells
+                                    for n in kind_disagreements(c.lexed)), None)
                     if hit is None:
                         continue
                     self.misses.append((

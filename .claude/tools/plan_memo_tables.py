@@ -223,7 +223,18 @@ naming no row (PR #510 R15)."""
 # `Slice-M` / `Slice-4a` are the same anchor with a hyphen.  Requiring `\s+`
 # left them invisible to both passes; measured, four of five such sites in this
 # memo are real violations.
-ROW_NOUN_SEP = ROW_NOUN + r"[ \t\n-]+"       # ASCII separators (`\s` is Unicode)
+# ⚠ THE DASH SET IS `DASH`'s, COMPOSED, NOT RE-SPELLED (PR #510 R47-1).  This
+# read `[ \t\n-]+` -- the ASCII hyphen alone -- while `plan_memo_ids.DASH`
+# already defines all three spellings for exactly this reason, and the comment
+# beside it records the last time the two disagreed (`KIND – UNDETERMINED` read
+# as terminal at rc 0).  With a narrower set here, `Slice — 9 owns the close
+# rule` matched no appositive, the bare pass deliberately ignores a numeric id,
+# and the ownership claim produced NO site at rc 0 -- measured: the ASCII
+# hyphen and a plain space both report it, the en and em dashes did not.
+# A second, narrower definition of a set that already has one home is the
+# duplicated decision surface CLAUDE.md's *One issue, one way* names; the
+# hyphen stays last in the class, where it is a literal.
+ROW_NOUN_SEP = ROW_NOUN + "[ \t\n" + DASH + "]+"   # ASCII space/tab/newline + the canonical dashes
 # A row noun then a row id of EVERY row kind (`ROW_ID`: slug or short, the
 # grammar's alternation) -- `Slice **E**`, `Slice `#11-zz-alpha``.  Built on
 # `SHORT_ID` alone until PR #510 R20, so a marker attributed to a slug row

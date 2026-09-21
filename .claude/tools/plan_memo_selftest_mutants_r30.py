@@ -45,6 +45,10 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
     R42_8_HTML_NO_SEED_CELL, R42_8_HTML_NO_SEED_PROSE, R42_9_UNDET, R42_ALLSPACE,
     R42_BLANK_MARKER, R42_IMG_AUTO, R42_IMG_CODE, R42_LINE_ENDING_FIRST, R42_TRIM,
     R45_SHORT_DELIM, R45_TABLE_MISS_SCOPE, R45_UNKEYED_SCOPE,
+    R47_1_DASH_SET, R47_1_EN_DASH, R47_2_UNBOUND_QUOTED, R47_2_UNBOUND_STRADDLE,
+    R47_4_BASELINE, R47_4_BOUNDARY, R47_4_NBSP, R47_4_NON_WHITESPACE, R47_4_TAB,
+    R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
+    R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONFORMANCE, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS,
@@ -360,8 +364,8 @@ MUTANTS += [
      [R33_2_NON_DASH]),
     ("R33-2 sweep: a second dash class in a checker module is found (re-inject one at the reader that "
      "had it)", STREAM,
-     'UNDETERMINED = re.compile(bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED"),',
-     'UNDETERMINED = re.compile(bounded(r"KIND\\s*[\\u2014-]?\\s*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*[\\u2014-]?" + GAP + "*UNDETERMINED"),',
      [R33_DASH_SWEEP]),
 ]
 
@@ -730,33 +734,35 @@ MUTANTS += [
      'for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
      'for n, rx in KIND_PHRASES if rx.search(c.text)), None)',
      [R42_10_UNBOUND_RENDERED]),
-    # ⚠ RE-POINTED: this row re-injected "ANY row's first cell is an id",
-    # including the HEADER, while the figure beside it (151) is "EVERY BODY
-    # ROW's". Three readings, and the mutant proved a predicate the entry did
-    # not describe. It is the entry's reading now, so the number and the thing
-    # it justifies are the same predicate.
+    # ⚠ THESE TWO ROWS BROKE TWICE IN ONE SESSION, and the second break is the
+    # instructive one: re-pointed at the loop HEADER, the injected predicate was
+    # overwritten by the two `hit =` assignments below it, so the mutant ran and
+    # changed nothing -- it SURVIVED while looking re-pointed.  The anchor is the
+    # whole assignment block now, so a re-injected predicate is the only one that
+    # runs.  Both rows target the same substring; each is applied to a fresh copy.
     ("R42-10: the REJECTED id-shape predicate (re-inject it: every unbound table whose EVERY BODY "
      "ROW starts with a row id -- 151 of them over the corpus §8 names)", POPULATION,
-     '                for row in [t.header] + t.rows:\n'
      '                    hit = next((n for c in row.cells\n'
-     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
-     '                _b = [r for r in t.rows]\n'
-     '                for row in ([t.header] if False else [t.header]):\n'
+     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)\n'
+     '                    if hit is None:\n'
+     '                        hit = next((n for c in row.cells\n'
+     '                                    for n in kind_disagreements(c.lexed)), None)',
      '                    _t = __import__("plan_memo_ids").tokens\n'
-     '                    hit = ("marker" if _b and all(\n'
+     '                    hit = ("marker" if t.rows and all(\n'
      '                        r.cells and next(_t((r.cells[0].text or "").strip(" \\t")), None)\n'
-     '                        is not None for r in _b) else None)',
+     '                        is not None for r in t.rows) else None)',
      [R42_10_UNBOUND_ID_SHAPED]),
     ("R42-10: the REJECTED header-near-miss predicate (re-inject it: a renamed header is reported "
      "whether or not the table declares anything)", POPULATION,
-     '                for row in [t.header] + t.rows:\n'
      '                    hit = next((n for c in row.cells\n'
-     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
-     '                for row in [t.header] + t.rows:\n'
-     '                    hit = next((s.name for s in __import__("plan_memo_tables").SCHEMAS\n'
-     '                                if len(s.header) == len(t.header.cells)\n'
-     '                                and sum(1 for a, b in zip([c.text for c in t.header.cells], s.header)\n'
-     '                                        if a != b) <= 1), None)',
+     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)\n'
+     '                    if hit is None:\n'
+     '                        hit = next((n for c in row.cells\n'
+     '                                    for n in kind_disagreements(c.lexed)), None)',
+     '                    hit = next((sc.name for sc in __import__("plan_memo_tables").SCHEMAS\n'
+     '                                if len(sc.header) == len(t.header.cells)\n'
+     '                                and sum(1 for a, b in zip([c.text for c in t.header.cells],\n'
+     '                                                          sc.header) if a != b) <= 1), None)',
      [R42_10_UNBOUND_NO_CLAIM]),
 ]
 
@@ -830,4 +836,95 @@ MUTANTS += [
      '_DELIM_CELL = re.compile(r":?-+:?")',
      '_DELIM_CELL = re.compile(r":?---+:?")',
      [R45_SHORT_DELIM]),
+]
+
+MUTANTS += [
+    ("R47-1 separator: the row-noun separator COMPOSES `DASH` (re-spell the narrower ASCII-only "
+     "set -- an en/em-dash claim matches no appositive and the numeric id goes unreported at rc 0)",
+     TABLES,
+     'ROW_NOUN_SEP = ROW_NOUN + "[ \\t\\n" + DASH + "]+"',
+     'ROW_NOUN_SEP = ROW_NOUN + r"[ \\t\\n-]+"',
+     [R47_1_DASH_SET, R47_1_EN_DASH]),
+    ("R47-2 gate: the unbound-claim gate asks BOTH readings (drop the disagreement arm -- a claim "
+     "straddling a masked span is invisible to the stream and the table leaves the census at rc 0)",
+     POPULATION,
+     '                    if hit is None:\n'
+     '                        hit = next((n for c in row.cells\n'
+     '                                    for n in kind_disagreements(c.lexed)), None)\n',
+     '',
+     [R47_2_UNBOUND_STRADDLE]),
+    ("R47-2 gate: the disagreement arm requires a STRADDLE (widen it to every disagreement -- a "
+     "phrase quoted WHOLE becomes a claim, against I-A)", STREAM,
+     '        if any(_straddles(blanks, m.start(), m.end()) for blanks, m in hit):\n'
+     '            out.append(name)',
+     '        if True:\n'
+     '            out.append(name)',
+     [R47_2_UNBOUND_QUOTED]),
+]
+
+MUTANTS += [
+    ("R47-4 gap: a word gap is what a READER sees (re-spell the marker as a `re.escape`d literal -- "
+     "U+0020 and nothing else, so `&nbsp;` drops the claim at rc 0)", STREAM,
+     'MARKER_RE = re.compile(bounded(_phrase(MARKER)))',
+     'MARKER_RE = re.compile(bounded(re.escape(MARKER)))',
+     [R47_4_NBSP, R47_4_TAB]),
+    ("R47-4 gap: the UNDETERMINED phrase composes the SAME gap (re-spell its `\\s` under `re.ASCII`, "
+     "which is ASCII whitespace and not U+00A0)", STREAM,
+     'bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED")',
+     'bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED")',
+     [R47_4_UNDET_NBSP]),
+    ("R47-4 gap: the gap is a WHITESPACE class, not a wildcard (widen it to `.` -- every arm above "
+     "still passes, and only the word-boundary negative catches it)", STREAM,
+     'GAP = r"(?u:\\s)"',
+     'GAP = r"."',
+     [R47_4_NON_WHITESPACE]),
+]
+
+# -- R47-5: the DERIVED scope ratchet's closure.  `population_scope_control`
+# enumerates every `ast.For` in the census module and demands a mutant that
+# TRUNCATES that loop; these are the rows it demanded.  Nine of the twelve it
+# found were already covered by a control that goes red -- the ratchet's job
+# was to say WHICH, measured one loop at a time, not to invent them -- and
+# three needed a fixture that takes a second iteration.
+MUTANTS += [
+    ("R47-5 scope: the population walk queues EVERY link of a memo (truncate the loop at line ~88)", POPULATION,
+     '            for f in memo.linked_files():',
+     '            for f in list(memo.linked_files())[:1]:',
+     ["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"]),
+    ("R47-5 scope: every UNANSWERED reference of a memo is reported (truncate the loop at line ~94)", POPULATION,
+     '            for lineno, label in memo.unresolved_references():',
+     '            for lineno, label in list(memo.unresolved_references())[:1]:',
+     [R47_5_TWO_REFS]),
+    ("R47-5 scope: every TABLE of a memo is bound (truncate the loop at line ~106)", POPULATION,
+     '            for t in memo.tables:\n                for lineno, msg in t.misses:',
+     '            for t in list(memo.tables)[:1]:\n                for lineno, msg in t.misses:',
+     ["(rc) a schema body row whose width differs from its header is rc 2"]),
+    ("R47-5 scope: every MISS of a table is reported (truncate the loop at line ~107)", POPULATION,
+     '                for lineno, msg in t.misses:',
+     '                for lineno, msg in list(t.misses)[:1]:',
+     [R47_5_TWO_MISSES]),
+    ("R47-5 scope: every declared id is given a KIND (truncate the loop at line ~123)", POPULATION,
+     '        for row in self.ids.values():',
+     '        for row in list(self.ids.values())[:1]:',
+     [R47_5_ALL_KINDS]),
+    ("R47-5 scope: every SCHEMA ROW of a memo is declared (truncate the loop at line ~152)", POPULATION,
+     '            for row in memo.schema_rows(s.name):\n                rid = row.self_id',
+     '            for row in list(memo.schema_rows(s.name))[:1]:\n                rid = row.self_id',
+     ["a self-declaring row that MENTIONS a sibling stays in the population"]),
+    ("R47-5 scope: every TABLE of a memo is asked for an unbound claim (truncate the loop at line ~211)", POPULATION,
+     '            for t in memo.tables:\n                if t.schema is not None:',
+     '            for t in list(memo.tables)[:1]:\n                if t.schema is not None:',
+     [R47_5_SECOND_TABLE]),
+    ("R47-5 scope: every ROW of an unbound table is asked (truncate the loop at line ~214)", POPULATION,
+     '                for row in [t.header] + t.rows:',
+     '                for row in list([t.header] + t.rows)[:1]:',
+     [R42_10_UNBOUND_CLAIM]),
+    ("R47-5 scope: every SCHEMA ROW is read for the unkeyed miss (truncate the loop at line ~265)", POPULATION,
+     '            for row in memo.schema_rows(s.name):\n                if row.self_id is not None:',
+     '            for row in list(memo.schema_rows(s.name))[:1]:\n                if row.self_id is not None:',
+     [R47_5_SECOND_ROW]),
+    ("R47-5 scope: every kind phrase the residue names is reported (truncate the loop at line ~388)", POPULATION,
+     '        for name in kind_disagreements(row.cells[row.schema.decl].lexed):',
+     '        for name in list(kind_disagreements(row.cells[row.schema.decl].lexed))[:1]:',
+     [R47_5_TWO_PHRASES]),
 ]

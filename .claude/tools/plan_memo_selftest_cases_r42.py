@@ -417,3 +417,185 @@ for _label, _delim in (("one hyphen", "-"), ("left-aligned", ":-"),
 R45_SHORT_DELIM = CASES[-1].name
 """Red under the mutant re-injecting a three-hyphen minimum: the schema tables
 stop being tables, nothing is declared, and the run says nothing."""
+
+
+# -- R47-1: the row-noun separator re-spelled the dash set.  `DASH` has one
+# home and `ROW_NOUN_SEP` carried a second, narrower copy (`[ \t\n-]`), so a
+# claim introduced with an EN or EM dash matched no appositive and the numeric
+# id -- a declared KNOWN-MISS to the bare pass -- was never reported.  All four
+# spellings, because the claim is that the SET is composed and not that one
+# character was added; the space arm is the one no dash reading can explain.
+_R47_1_ARMS = {}
+for _label, _sep in (("an ASCII hyphen", "-"), ("an EN dash", "\u2013"),
+                     ("an EM dash", "\u2014"), ("a plain space", "")):
+    case("POSITIVE", "(R47-1) a numeric id introduced by a row noun and %s is one reported site: the "
+                     "separator composes `plan_memo_ids.DASH`, which is the ONE home of the three "
+                     "spellings, rather than re-spelling a narrower set.  With the ASCII hyphen "
+                     "alone, `Slice \u2014 9 owns the close rule.` matched no appositive, the bare "
+                     "pass deliberately ignores a numeric id, and the ownership claim produced no "
+                     "site at rc 0" % _label,
+         build(i9z="**9**", s9z="**UMBRELLA, not a terminal unit.** charter."),
+         "Slice %s9 owns the close rule." % (_sep + " " if _sep else ""), 1)
+    _R47_1_ARMS[_label] = CASES[-1].name
+
+# ⚠ THE MUTANT MUST NAME A DASH ARM, AND THE FIRST VERSION NAMED THE LAST ONE
+# REGISTERED -- the PLAIN SPACE, which no dash change can move, so the mutant
+# SURVIVED (`memory/feedback_surviving-mutation-means-the-probe-has-another-
+# subject.md`, caught by running it).  The space and hyphen arms are the
+# BASELINE: they say the site is reported for reasons a dash cannot explain,
+# and they must stay green under the mutant.  The en and em dash arms are the
+# subject.
+R47_1_DASH_SET = _R47_1_ARMS["an EM dash"]
+"""Red under the mutant re-spelling the narrower ASCII-only separator."""
+R47_1_EN_DASH = _R47_1_ARMS["an EN dash"]
+"""The second dash the ASCII-only set drops; named separately so the mutant
+proves both spellings and not just the one that was reported."""
+
+# -- R47-2: the unbound-claim gate read the STREAM only.  A claim spelled
+# across a masked span is what a READER sees and what the disposed stream does
+# not, so the gate found nothing, the run emitted a non-gating `LEX-SPLIT?`
+# seed and exited 0 -- the same I-C silent skip the gate exists to close, one
+# construct further in.  ⚠ Its own follow-on: the gate landed one commit
+# earlier in this same session.
+_UNBOUND_STRADDLE = _UNBOUND.replace("**UMBRELLA, not a terminal unit.** carved.",
+                                     "**UMBRELLA, not a `terminal` unit.** carved.")
+
+case("POSITIVE", "(R47-2) a LINKED memo's unbound table whose kind claim STRADDLES a masked span is "
+                 "the same miss as a plain one: `` **UMBRELLA, not a `terminal` unit.** `` is what a "
+                 "reader sees and what the disposed stream does not, so a stream-only search found "
+                 "nothing and the run exited 0 with the table's declarations and `Deps` gone.  Asked "
+                 "through `kind_disagreements`, the CANONICAL question `_kind_residue` already gates "
+                 "a bound row with -- not a second rule",
+     build(), LINK, 1, sibling=_UNBOUND_STRADDLE % "**7z**",
+     measure=("schema", "binding to NO schema"))
+R47_2_UNBOUND_STRADDLE = CASES[-1].name
+"""Red under the mutant dropping the second reading from the gate."""
+
+case("NEGATIVE", "(R47-2) and the I-A arm survives BY CONSTRUCTION, not by an exemption: a phrase "
+                 "quoted WHOLE in an unbound table still declares nothing.  `kind_disagreements` "
+                 "requires a STRADDLE, so the quoted form is not a disagreement and needed no case "
+                 "carved out of the widened gate",
+     build(), LINK, 0,
+     sibling=_UNBOUND.replace("**UMBRELLA, not a terminal unit.** carved.",
+                              "`UMBRELLA, not a terminal unit.` carved.") % "—",
+     measure=("schema", "binding to NO schema"))
+R47_2_UNBOUND_QUOTED = CASES[-1].name
+"""Red under a mutant that widens the gate to every disagreement rather than to
+a straddle -- the direction the positive above cannot see."""
+
+
+# -- R47-4: the three kind phrases spelled the WORD GAP three different ways,
+# and two of them dropped a census claim.  cmark 0.31.2 is the ground truth --
+# `**UMBRELLA, not a&nbsp;terminal unit.**` renders the marker VERBATIM to a
+# reader -- and the run exited 0, so the row left the census as an active
+# terminal with nothing saying why.  `&#32;` is the ONE spelling that worked
+# (it decodes to U+0020), which is why it is the baseline arm here: it says
+# the fixture is not green for a generic reason.
+_GAPS = (("a plain space (the baseline arm: this one ALWAYS worked)", " "),
+         ("`&#32;` (decodes to U+0020 -- the arm the defect never touched)", "&#32;"),
+         ("`&nbsp;` (U+00A0 -- the spelling a human actually types)", "&nbsp;"),
+         ("a LITERAL U+00A0 typed into the cell", "\u00a0"),
+         ("`&#10;` (a line ending, which a reader reads as a gap)", "&#10;"),
+         ("`&#9;` (a tab)", "&#9;"))
+for _label, _gap in _GAPS:
+    acase("POSITIVE", "(R47-4) the marker phrase written with %s is the marker: a word GAP is what a "
+                      "READER sees between two words, not U+0020 in particular.  cmark renders every "
+                      "one of these as whitespace, so a census that reads only U+0020 drops the "
+                      "claim and the row leaves as an active terminal at rc 0" % _label,
+          kindcell("**UMBRELLA, not a%sterminal unit.**" % _gap), "UMBRELLA-CELL", 1)
+    _n = CASES[-1].name
+    if _gap == "&nbsp;":
+        R47_4_NBSP = _n
+    elif _gap == "&#9;":
+        R47_4_TAB = _n
+    elif _gap == "&#32;":
+        R47_4_BASELINE = _n
+
+# ⚠ THE OTHER DIRECTION, because widening a gap can loosen a BOUNDARY: the
+# word edges `bounded()` added at R22 must still hold.  Without these the
+# mutant "make the gap `.*`" would pass every arm above.
+for _label, _cell in (("`SUBUMBRELLA, not a terminal unit`", "**SUBUMBRELLA, not a terminal unit.**"),
+                      ("`UMBRELLA, not a terminal unitary claim`",
+                       "**UMBRELLA, not a terminal unitary claim.**")):
+    acase("NEGATIVE", "(R47-4) and the WORD BOUNDARY still holds after the gap widened: %s is not "
+                      "the marker.  The gap is a character class between words, never a licence to "
+                      "match inside a longer one" % _label,
+          kindcell(_cell), "UMBRELLA-CELL", 0)
+R47_4_BOUNDARY = CASES[-1].name
+
+acase("POSITIVE", "(R47-4) the UNDETERMINED phrase has its own spelling of the gap and the same "
+                  "defect: under `re.ASCII` its `\\s` is ASCII whitespace, so a U+00A0 between "
+                  "`KIND` and `UNDETERMINED` read as no kind at all.  The scope `(?u:...)` widens "
+                  "the GAP alone and leaves the ASCII case folding, which is why the phrase is "
+                  "still not matched by a long-s spelling",
+      kindcell("KIND\u00a0UNDETERMINED"), "UMBRELLA-CELL", 1)
+R47_4_UNDET_NBSP = CASES[-1].name
+
+
+# ⚠ THE ARM A WILDCARD GAP BREAKS, and the reason the word-boundary negatives
+# above cannot stand in for it: widening the gap to `.` leaves every boundary
+# intact (`unitary` still fails on its right lookaround), so the mutant that
+# turns GAP into a wildcard SURVIVED against them -- measured, not reasoned.
+# A gap is WHITESPACE, so a visible character between the words is not one.
+acase("NEGATIVE", "(R47-4) a NON-whitespace character where a gap would be is not a gap: "
+                  "`UMBRELLA, not-a terminal unit` is not the marker.  The word boundaries cannot "
+                  "see this -- they guard the two ENDS of the phrase -- so it is the only arm that "
+                  "fails when the gap class is widened from whitespace to a wildcard",
+      kindcell("**UMBRELLA, not-a terminal unit.**"), "UMBRELLA-CELL", 0)
+R47_4_NON_WHITESPACE = CASES[-1].name
+
+
+# -- R47-5: the loops the DERIVED scope ratchet found unpinned.  Three of the
+# twelve survived truncation with every control green -- measured, one loop at
+# a time -- so each gets the fixture that needs a SECOND iteration.  The other
+# nine are pinned by controls that already existed; the ratchet's job was to
+# say which, not to invent them.
+case("POSITIVE", "(R47-5 scope) TWO unresolved references are both reported: the loop over a memo's "
+                 "unanswered references walks all of them.  Truncated it reports the first and the "
+                 "second reference's memo is missing from the population with nothing saying so",
+     build(), "See [x][aa] and [y][bb].", 2,
+     measure=("schema", "unresolved reference"))
+R47_5_TWO_REFS = CASES[-1].name
+
+case("POSITIVE", "(R47-5 scope) TWO table misses in one memo are both reported: the loop over a "
+                 "table's misses walks all of them.  Truncated, the second row is unscanned at rc 2 "
+                 "with only the first named -- a reader fixes one and believes the table is clean",
+     build().replace("| **7z** |", "| **7z** | EXTRA |", 1).replace("| **Qx** |", "| **Qx** | EXTRA |", 1),
+     "", 2, measure=("schema", "a shifted read fabricates findings"))
+R47_5_TWO_MISSES = CASES[-1].name
+
+case("POSITIVE", "(R47-5 scope) TWO kind phrases straddling masked spans in ONE declaring field are "
+                 "both reported: `_kind_residue` walks every phrase `kind_disagreements` returns.  "
+                 "Truncated, the row's second undecidable kind is silent",
+     kindcell("**UMBRELLA, not a `terminal` unit.**  KIND `x` UNDETERMINED"), "", 2,
+     measure=("schema", "ACROSS a span this checker does not read as prose"))
+R47_5_TWO_PHRASES = CASES[-1].name
+
+case("POSITIVE", "(R47-5 scope) EVERY declared id is given a kind, not just the first: the loop "
+                 "over `self.ids` walks the whole map.  Truncated, only one row is classified and "
+                 "the census under-counts the no-owner rows it exists to take",
+     build(), "", 1, measure=("note", "[CENSUS] 4 no-owner"))
+R47_5_ALL_KINDS = CASES[-1].name
+
+
+# ⚠ TWO MORE, AND THEY EXIST BECAUSE MY OWN MEASUREMENT WAS WRONG.  The probe
+# that decided which unpinned loops were "already covered" used
+# `src.replace(line, ..., 1)` while `for t in memo.tables:` and
+# `for row in memo.schema_rows(s.name):` each occur TWICE -- so it truncated
+# the FIRST occurrence both times and reported the second as covered on the
+# strength of a measurement of the first.  The widened mutant anchors then
+# SURVIVED, which is how it surfaced: the mutation proof measured what the
+# probe had only claimed.
+case("POSITIVE", "(R47-5 scope) a memo's SECOND table is asked for an unbound claim too: the "
+                 "sibling carries a bound table and then an unbound one whose row carries the "
+                 "marker.  Truncated to the first table the claim is silent and the run exits 0",
+     build(), LINK, 1, sibling=(SIB_TABLE % "—") + "\n\n" + _UNBOUND % "**7z**",
+     measure=("schema", "binding to NO schema"))
+R47_5_SECOND_TABLE = CASES[-1].name
+
+case("POSITIVE", "(R47-5 scope) a memo's SECOND schema row is read for the unkeyed miss too: the "
+                 "sibling's first row is keyed and its second is not.  Truncated to the first row "
+                 "the unkeyed one declares nothing and leaves the census at rc 0",
+     build(), LINK, 1, sibling=SIB_TABLE.replace("| **Tq** |", "| xxxxTq |") % "—",
+     measure=("schema", "the row declares nothing and is unkeyed"))
+R47_5_SECOND_ROW = CASES[-1].name

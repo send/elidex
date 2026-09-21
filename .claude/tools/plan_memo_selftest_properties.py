@@ -710,6 +710,10 @@ def registry():
             ("CONTROL", dash_spelling_sweep_control),
         "PROPERTY: every source of this checker is under the 1000-line touch-time bound (the invariant this PR broke, as a mechanism instead of a sentence)":
             ("CONTROL", line_bound_control),
+        "PROPERTY: every loop in the census module that walks a POPULATION is pinned by a mutant that truncates THAT loop (the ratchet is derived from the code, not a list somebody extends when a reviewer names one)":
+            ("CONTROL", population_scope_control),
+        "PROPERTY: every source of this checker compiles with SyntaxWarning as an error (an invalid escape in a docstring is a future SyntaxError, and this PR shipped one)":
+            ("CONTROL", syntax_warning_control),
     })
     return reg
 
@@ -789,3 +793,151 @@ def dash_spelling_sweep_control(M):
     return not bad, ("%d checker source(s) swept, %d spelling a dash class outside %s%s"
                      % (len(checker) - 1, len(bad), grammar,
                         ("; " + "; ".join(bad[:4])) if bad else ""))
+
+
+def syntax_warning_control(M):
+    """PROPERTY: every source of this checker compiles with `SyntaxWarning`
+    raised as an ERROR.
+
+    ⚠ WRITTEN BECAUSE THIS PR SHIPPED ONE (PR #510 R47-4).  A docstring added
+    one commit earlier explained the new gap class and spelled `\\s` inside a
+    NON-raw string, so Python emitted *"invalid escape sequence"* on every
+    import -- a warning today and a `SyntaxError` in a later Python.  Nothing
+    in the suite looked, and it surfaced only because the warning printed into
+    an unrelated measurement's output.  The population is `_swept_sources()`,
+    the same glob every other source sweep here reads, so a module a later
+    split carves out is covered the day it lands."""
+    import warnings
+    bad = []
+    for file, text in _swept_sources():
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                compile(text, file, "exec")
+            except SyntaxError as e:
+                bad.append("%s: %s" % (file, e))
+                continue
+        for w in caught:
+            if issubclass(w.category, SyntaxWarning):
+                bad.append("%s:%s %s" % (file, getattr(w, "lineno", "?"), w.message))
+    return not bad, ("%d source(s) compiled, %d with a SyntaxWarning%s"
+                     % (len(_swept_sources()), len(bad),
+                        ("; " + "; ".join(bad[:4])) if bad else ""))
+
+
+# The census module's loops whose TRUNCATION is unobservable by construction,
+# each with the reason.  ⚠ This is the stated COMPLEMENT of the derived
+# population below, not a list of the loops somebody remembered: the sweep
+# enumerates every `ast.For` in the module and a loop that is neither pinned
+# nor named here turns the control red.
+_SCOPE_EXEMPT = {
+    "for s in SCHEMAS:":
+        "SCHEMAS is a module constant of the GRAMMAR, not a population this walk "
+        "collects; its own completeness is `schema_*` controls' subject",
+    "for lx in memo.lexed():":
+        "truncating it RAISES -- `stream() before dispose()` -- so the scope is held by "
+        "the program's own assertion and not by a control. MEASURED, not assumed: the "
+        "truncation was run and the suite reports an AssertionError, and the mutant "
+        "runner counts a crash as a FAIL rather than as a kill, so a row here would be "
+        "a row that cannot pass",
+    "for row in self.declaring_rows():":
+        "the same: truncating it raises a TypeError downstream (a row whose `field` was "
+        "never set), so the scope is held by construction. MEASURED the same way",
+}
+
+
+def _census_loops(text):
+    """Every `ast.For` in the census module, as (lineno, stripped source line)
+    -- the DERIVED population of the scope ratchet."""
+    import ast
+    lines = text.split("\n")
+    return [(n.lineno, lines[n.lineno - 1].strip())
+            for n in ast.walk(ast.parse(text)) if isinstance(n, ast.For)]
+
+
+def _truncating_mutants():
+    """Every mutant row against the census module whose REPLACEMENT truncates a
+    loop, as the set of `for <target> in ` prefixes it truncates.
+
+    Read off the registry rather than off a list, and keyed on the REPLACEMENT
+    (what the mutant does) rather than on the find (where it is), because a
+    mutant whose find happens to CONTAIN a loop line proves nothing about that
+    loop -- which is exactly how the first version of this ratchet reported a
+    loop as pinned while its truncation survived."""
+    import plan_memo_selftest_mutants as mm
+    # ⚠ The four review-round modules APPEND to `mm.MUTANTS`, and a plain
+    # `--self-test` never imports them -- so reading the base module alone gave
+    # an EMPTY registry and every loop read as unpinned.  A control whose
+    # population depends on whether something else happened to be imported is
+    # not a control (`memory/feedback_derived-populations-shrink-in-silence.md`),
+    # so the appenders are imported here, by the same glob that finds them.
+    import importlib
+    for name in sorted(q.stem for q in HERE.glob("plan_memo_selftest_mutants*.py")):
+        importlib.import_module(name)
+    out = set()
+    for _name, file, _find, replace, _controls in mm.MUTANTS:
+        if file != "plan_memo_population.py":
+            continue
+        for line in replace.split("\n"):
+            line = line.strip()
+            if line.startswith("for ") and " in " in line and "[:1]" in line:
+                out.add(line.split(" in ")[0] + " in ")
+    return out
+
+
+def population_scope_control(M):
+    """PROPERTY: every loop in the census module that walks a POPULATION is
+    pinned by a mutant that TRUNCATES THAT LOOP.
+
+    ⚠ THE RATCHET WAS A HAND-WRITTEN LIST AND IT MISSED A LOOP IN EVERY ONE OF
+    THREE CONSECUTIVE ROUNDS (PR #510 R45 / R47).  R45 found `_unkeyed` and the
+    table-miss loop unpinned; R47 pinned the OUTER loop of `_unbound_claims`
+    and left its two inner ones; an independent AST inventory then found more.
+    Each time the response was to add the row the reviewer named, which is the
+    shape this document's own root analysis already committed against in
+    writing: **a population is DERIVED, not listed**.  So the population here
+    is every `ast.For` in the module, read off the source the current module
+    set was exec'd from, and a loop that is neither pinned nor in the stated
+    complement `_SCOPE_EXEMPT` is red.
+
+    ⚠ STATIC, AND THAT IS WHAT MAKES IT AFFORDABLE.  It asserts that a
+    truncating mutant EXISTS for each loop; the mutation proof separately
+    asserts that every mutant's named control goes red.  The two together are
+    the behavioural property -- "truncating this loop is noticed" -- at no
+    extra runtime, where measuring it directly costs ~6.4 s per loop.
+
+    ⚠ KEYED ON THE REPLACEMENT, not on the find.  A first version matched a
+    mutant whose FIND text contained the loop line, and reported
+    `for t in memo.tables:` as pinned by a row that truncates the enclosing
+    `self.memos` loop and never touches it
+    (`memory/feedback_gate-criterion-by-behaviour-not-by-name.md`).
+
+    Both directions, like the module map: a truncating mutant naming a loop the
+    module no longer has is also red, since a re-point that orphans a row
+    leaves the ratchet looking full."""
+    text = dict(_swept_sources()).get("plan_memo_population.py", "")
+    if not text:
+        return False, "the census module is not in the swept population"
+    loops = _census_loops(text)
+    pinned = _truncating_mutants()
+    unpinned = [(ln, src) for ln, src in loops
+                if src not in _SCOPE_EXEMPT
+                and not any(src.startswith(pre) for pre in pinned)]
+    orphan = [pre for pre in pinned
+              if not any(src.startswith(pre) for _ln, src in loops)]
+    bad = (["%d `%s` is neither pinned nor in the stated complement" % (ln, src)
+            for ln, src in unpinned]
+           + ["a truncating mutant names `%s`, which the module no longer has" % pre
+              for pre in orphan])
+    # ⚠ DISJOINT, because the first version's three numbers summed to 21 over 20
+    # loops -- a loop that is exempt AND pinned was counted twice, and a report
+    # whose own arithmetic does not add up invites the reader to trust the
+    # wrong one.  Exempt is decided first, so each loop lands in exactly one.
+    n_exempt = sum(1 for _ln, src in loops if src in _SCOPE_EXEMPT)
+    n_pinned = sum(1 for _ln, src in loops
+                   if src not in _SCOPE_EXEMPT and any(src.startswith(p) for p in pinned))
+    assert n_exempt + n_pinned + len(unpinned) == len(loops), "the three buckets must partition"
+    return not bad, ("%d loop(s) = %d pinned by a truncating mutant + %d exempt with a reason "
+                     "+ %d unpinned%s"
+                     % (len(loops), n_pinned, n_exempt, len(unpinned),
+                        ("; " + "; ".join(bad[:5])) if bad else ""))
