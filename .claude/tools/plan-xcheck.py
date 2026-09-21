@@ -17,12 +17,17 @@ excluded (`NON_LANDING`) — folding those in silenced the `omits` check for
 exactly the harness-dependent cells, which round 14 proved by mutation.
 
 Checks 11b/11c DO read prose. 11b reads every backticked `<path>.rs` span, with or
-without a `:line` suffix and with or without a leading word (`elidex-style a/b.rs`).
+without a `:line` suffix and with or without a leading crate qualifier
+(`elidex-style a/b.rs`), which is *kept* and required to hold: resolving the bare
+filename against the whole tracked list accepted it from any crate.
 11c reads every `cell(s) <list>`, where a list is one or more `<digits><letter?>`
 tokens — each optionally carrying an attached `(x)` sub-reference, which is dropped
 — joined by `,`, `and`, `, and`, `/`, or a dash range that is expanded. A list ends
 at the first thing that is not one of those, so a numeral reachable only through
-some other joiner is still unread.
+some other joiner is still unread. `CELL_REF` is the ONE cell-list grammar: the
+per-PR harvest used to carry a narrower private one that stopped at `/` and at an
+attached `(x)`, so `cells 17d(b) and 18` gave a PR only `17d` and the two readers
+disagreed about what a claim said.
 
 What is still unchecked is *claim* integrity — a sentence whose truth
 depends on a fact stated elsewhere in the file, in another crate, or in code the
@@ -89,9 +94,7 @@ def tokens(listing):
         else: got.add(tok)
     return got
 
-CELL_LIST = re.compile(r"cells? ((?:\d+[a-z]?(?:\s*[–-]\s*\d+)?(?:\s*(?:,|and)\s*)?)+)")
-
-# A `cell(s) <list>` ANYWHERE in the file (check 11c). A token is digits + an
+# A `cell(s) <list>` ANYWHERE in the file (check 11c) AND per PR (checks 5-6). A token is digits + an
 # optional letter + an optional ATTACHED `(x)` sub-reference; `tokens()` drops the
 # sub-reference for free (it harvests digit-led runs), so `17d(b)` yields `17d`.
 # The range dash is the one separator that may not cross a line: `\s*` there would
@@ -110,7 +113,7 @@ NON_LANDING = re.compile(r"\s*(flip\b|do\s+not\b|(are|is)\s+unconstructible\b)",
 def cell_lists(text):
     """Every 'cell(s) <list>' in `text`, split into (landing, other)."""
     land, other = set(), set()
-    for m in CELL_LIST.finditer(text):
+    for m in CELL_REF.finditer(text):
         tail = text[m.end(): m.end()+40]
         (other if NON_LANDING.match(tail) else land).update(tokens(m.group(1)))
     return land, other
@@ -139,7 +142,12 @@ def main(path):
     # the same way the whole coupling escaped checks 1-2 (F2).
     m_rows=set(re.findall(r"^\|\s*\*\*(M\d)\*\*", s, re.M))
     s2, s3, s5, s6, s8, s10 = (sect(s,n) for n in ("2","3","5","6","8","10"))
-    ledger_slots=set(re.findall(r"`(#11-[a-z0-9-]+)`", s10))
+    # A ledger SLOT is one some §10 ROW acts on. The old section-wide scan also
+    # harvested §10's PR column and any prose paragraph in the section, so a slot
+    # whose action row was deleted still cleared checks 1, 4 and 8 on the strength
+    # of a sentence mentioning it.
+    ledger_slots={sl for c in rows(s10) if c and not c[0].startswith("Action")
+                  for sl in re.findall(r"`(#11-[a-z0-9-]+)`", c[0])}
 
     # 0. a section this program reads but cannot find yields an EMPTY string, and
     # every check keyed on it then runs zero times and reports success. §8 was the
@@ -147,9 +155,13 @@ def main(path):
     # `elif s8` in check 7 suppressed the missing-partition error, so a memo with its
     # entire definition of done removed exited 0 (F4). An absent section is a
     # contradiction, not a pass.
+    # `sect()` returns the heading TOO, so testing the whole slice for emptiness only
+    # caught a deleted heading: `## §2. …` with its table gone stayed truthy and the
+    # guard passed a section with nothing in it. Test the BODY -- everything after the
+    # heading line -- which is what every check keyed on the section actually reads.
     for n, body in (("2",s2), ("3",s3), ("5",s5), ("6",s6), ("8",s8), ("10",s10)):
-        if not body.strip():
-            bad("MISSING", f"§{n} is absent or empty — every check keyed on it ran zero times")
+        if not body.partition("\n")[2].strip():
+            bad("MISSING", f"§{n} is absent or has no body — every check keyed on it ran zero times")
 
     # 1. §2 pair table references only existing M-rows, and each pair names a PR
     # Go through the shared row parser: the old `startswith("| ")` filter dropped
@@ -179,7 +191,12 @@ def main(path):
     # 4. §3 rows: routed-to-a-slot rows must be ✗, ✓ rows must not name a slot;
     #    and any slot a Touch cell routes to must have a §10 ledger row
     for c in rows(s3):
-        if len(c)<5 or c[0].startswith("Spec section"): continue
+        if c[0].startswith("Spec section"): continue
+        # a row too short to HOLD the Touch/enum columns used to `continue` -- so a row
+        # that lost them skipped ownership and enum validation silently, while the
+        # breadth count below still counted it (`len(c) >= 4`) and K/M still agreed.
+        if len(c)<5:
+            bad("ENUM", f"§3 row has {len(c)} columns, too few to validate: {c[0][:52]}"); continue
         touch, enum = c[3], c[4]
         if "#11-" in touch and enum.startswith("✓"): bad("ENUM", f"row routed to a slot but marked ✓: {c[0][:52]}")
         if "#11-" not in touch and enum.startswith("✗") and "PR-" not in touch and not re.search(r"\bM\d\b", touch) and "§9" not in touch:
@@ -193,6 +210,14 @@ def main(path):
     cells=set(re.findall(r"^(\d+[a-z]?)\.\s", s6, re.M))
     s6_chunks=chunk_by(s6, rf"^\*\*({PR})\b")
     s6_by_pr={k: set(re.findall(r"^(\d+[a-z]?)\.\s", v, re.M)) for k,v in s6_chunks.items()}
+    # `s6_by_pr` is a SET per PR, so two rows numbered `17.` under one heading were
+    # two obligations read as one and every downstream check cleared. The cross-PR
+    # case is the "under both" check below; this is the within-one-heading case.
+    for pr, v in sorted(s6_chunks.items()):
+        seq=re.findall(r"^(\d+[a-z]?)\.\s", v, re.M); been=set()
+        for c in seq:
+            if c in been: bad("CELL", f"§6 defines cell {c} more than once under {pr}")
+            been.add(c)
     routed=set().union(*s6_by_pr.values()) if s6_by_pr else set()
     for c in sorted(cells-routed, key=str):
         bad("CELL", f"cell {c} is under no §6 PR heading")
@@ -241,11 +266,17 @@ def main(path):
 
     # 9. own-deferral bookkeeping: §5.3's per-PR statement vs §10's own-tagged rows
     stated={}
-    for m in re.finditer(rf"({PR}|seam-3 prereq|dead-arm prereq) opens? (\d+|none)", s5):
+    for m in re.finditer(rf"({PR}|seam-3 prereq|dead-arm prereq|predicate prereq) opens? (\d+|none)", s5):
         stated[m.group(1)] = 0 if m.group(2)=="none" else int(m.group(2))
     if not stated:
         bad("COUNT", "§5.3 states no per-PR own-deferral count")
     else:
+        # the guard above is an AGGREGATE one: one PR stating a count satisfied it for
+        # all of them, so a PR whose `opens none` was deleted went unchecked as long as
+        # it also had no §10 `(own)` row (the `actual - stated` sweep below sees only
+        # PRs that DO). Every PR §5.3 defines must state its own count.
+        for pr in sorted(defined - set(stated)):
+            bad("COUNT", f"§5.3 defines {pr} but states no own-deferral count for it")
         actual={}
         for c in rows(s10):
             if len(c)<2 or "(own)" not in c[0]: continue
@@ -281,7 +312,11 @@ def main(path):
                 bad("ROUTE", f"§2 pair {c[0][:28]} -> unknown PR {tok!r}")
     for l in s3.split("\n"):
         if not l.startswith("|") or set(l) <= set("| -:"): continue
-        for tok in re.findall(PR, l):
+        # Harvest the WHOLE label, not a `PR-\d+[a-z]` prefix of it: `findall(PR, …)` on
+        # a row routing to `PR-1abc` returned the valid prefix `PR-1a`, so a malformed
+        # label read as defined -- and §3 labels need not be bold, so check 3's
+        # bold-label scan does not see it either.
+        for tok in re.findall(r"PR-[A-Za-z0-9]+", l):
             if tok not in defined: bad("ROUTE", f"§3 names undefined {tok}")
 
     # 11. §3's stated breadth must match the table it summarises
@@ -321,13 +356,25 @@ def main(path):
     seen=set()
     # A span may name the crate before the path (`elidex-style resolve/…/mod.rs:260`);
     # anchoring the path to the opening backtick left those never existence-checked.
-    for m in re.finditer(r"`(?:[A-Za-z0-9_-]+ )?([A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
-        f=m.group(1)
-        if f in seen: continue
-        seen.add(f)
+    # The qualifier is KEPT and enforced: discarding it and resolving the bare filename
+    # against the whole tracked list accepted `elidex-style navigation.rs` on the
+    # strength of a `navigation.rs` in some other crate. A leading word is treated as a
+    # qualifier only when it names a real crate, so an ordinary preceding word
+    # (`see foo.rs`) still falls through to the bare-suffix resolution. Crate names
+    # come from the manifests, not from a `crates/<name>` guess -- this workspace
+    # nests them one level deeper (`crates/layout/elidex-layout-block/`).
+    crate_dirs={q.parent.name for q in root.glob("crates/**/Cargo.toml")}
+    for m in re.finditer(r"`(?:([A-Za-z0-9_-]+) )?([A-Za-z0-9_./-]+\.rs)(?::[\d-]+)?`", s):
+        w, f = m.group(1), m.group(2)
+        crate = w if w in crate_dirs else None
+        if (crate, f) in seen: continue
+        seen.add((crate, f))
         if is_new(f): continue
         if f.startswith("crates/"):
             if not (root/f).is_file(): bad("PATH", f"cited file does not exist: {f}")
+        elif crate:
+            if not any(f"/{crate}/" in t and t.endswith("/"+f) for t in tracked):
+                bad("PATH", f"cited path matches no file in crate {crate}: {f}")
         elif not any(t.endswith("/"+f) for t in tracked):
             bad("PATH", f"cited path matches no file under crates/: {f}")
 
