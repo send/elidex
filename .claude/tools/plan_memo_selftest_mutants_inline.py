@@ -129,7 +129,7 @@ MUTANTS += [
       "raw-line rule",
       "(lex-seed) … and that seed carries the `inline` reading"]),
     ("R17 #2 disposition: the raw HTML span is masked (drop the `html` kind from the disposition)", STREAM,
-     '    base += [(a, b, "html") for a, b in lx.html]\n', '',
+     '    base += [(a, b, "html") for a, b, tag in lx.html if tag != "demoted"]\n', '',
      [R17_ATTR_ID,
       "(html) a cell's `<span title=\"Slice 9z owns it\">` is masked by the same inline pass: no site"]),
 ]

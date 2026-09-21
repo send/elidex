@@ -39,6 +39,9 @@ from plan_memo_selftest_cases_r26 import (
     R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX, R33_1_REAL_NOUN, R33_2_EN_DASH, R33_2_NON_DASH,
     R34_1_CONTINUES, R34_1_FRAGMENT, R34_1_TRAILING, R34_2_BLANKS, R34_2_MASKED,
     R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED, R42_BLANK_MARKER,
+    R31_1_DOLLAR_UNBOUND, R42_8_HTML_ALT, R42_8_HTML_ATTR_SITE, R42_8_HTML_NO_SEED_CELL,
+    R42_8_HTML_NO_SEED_PROSE, R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_ID_SHAPED,
+    R42_10_UNBOUND_NO_CLAIM, R42_10_UNBOUND_RENDERED,
     R42_9_UNDET, R42_ALLSPACE, R42_IMG_AUTO, R42_IMG_CODE, R42_TRIM,
 )
 from plan_memo_selftest_mutants import (
@@ -672,4 +675,74 @@ MUTANTS += [
      ["(R42-9) and the arm that WAS refuted stays refuted: the POINTER phrase on a blank id is the "
       "legitimate shape (`declaring_rows` names the #506 memo's `Function`/`eval` row, `:1985`) -- "
       "another row owns this one, which is what an unkeyed row is for"]),
+]
+
+
+# -- R42-8 §6.6 inside a resolved image description.  FOUR mutants over THREE
+# decisions, because each is the only one its own mutant moves: does the lexer
+# RECORD the demotion, does the disposition READ that record, and does the seed
+# follow it -- in a paragraph and in a cell, two sites, and the paragraph mutant
+# leaves the cell one standing.
+MUTANTS += [
+    ("R42-8 §6.6: the lexer records a raw HTML span demoted into a resolved image description "
+     "(drop the range -- the span stays markup, masked and seeded as in bare prose)", LEXER,
+     '            dem_html.append((html_bottom, len(html)))\n', '',
+     [R42_8_HTML_ALT, R42_8_HTML_ATTR_SITE, R42_8_HTML_NO_SEED_PROSE, R42_8_HTML_NO_SEED_CELL]),
+    ("R42-8 §6.6: the disposition READS that record (re-mask the demoted span -- the tag is still "
+     "recorded, so the seed still skips it and only the READING moves)", STREAM,
+     '    base += [(a, b, "html") for a, b, tag in lx.html if tag != "demoted"]',
+     '    base += [(a, b, "html") for a, b, tag in lx.html]',
+     [R42_8_HTML_ALT, R42_8_HTML_ATTR_SITE]),
+    ("R42-8 §6.6 seed: a demoted span is not seeded from a PARAGRAPH (re-inject the seed)", MEMO,
+     '            for a, b, tag in p.lexed.html:\n                if tag == "demoted":\n'
+     '                    continue\n',
+     '            for a, b, tag in p.lexed.html:\n',
+     [R42_8_HTML_NO_SEED_PROSE]),
+    ("R42-8 §6.6 seed: ... and not from a CELL either -- its own site, which the paragraph mutant "
+     "leaves standing", MEMO,
+     '                    for a, b, tag in cell.lexed.html:\n                        if tag == "demoted":\n'
+     '                            continue\n',
+     '                    for a, b, tag in cell.lexed.html:\n',
+     [R42_8_HTML_NO_SEED_CELL]),
+]
+
+# -- R42-10: the unbound-claim gate.  FIVE mutants: the gate itself, the two
+# NARROWINGS (to `main`, and to the raw cell text) and the two predicates the
+# measurement REJECTED -- the id shape and the header near-miss.  The last two
+# are re-injected here rather than argued about, because the reason they are
+# wrong is a corpus count and a corpus count is not a control: what a control
+# can hold is that the shipped predicate is silent where they speak.
+MUTANTS += [
+    ("R42-10: the unbound-claim gate exists (drop the call -- a linked memo's unbound table makes "
+     "its census claim and leaves the population at rc 0)", POPULATION,
+     '        self._unbound_claims()\n', '',
+     [R42_10_UNBOUND_CLAIM, R31_1_DOLLAR_UNBOUND]),
+    ("R42-10: the gate asks of the whole POPULATION (narrow it to `main`, where the schema-miss "
+     "gate already asks -- the linked half is the whole defect)", POPULATION,
+     '        for memo in self.memos:\n            for t in memo.tables:\n                if t.schema is not None:',
+     '        for memo in self.memos[:1]:\n            for t in memo.tables:\n                if t.schema is not None:',
+     [R42_10_UNBOUND_CLAIM, R31_1_DOLLAR_UNBOUND]),
+    ("R42-10: the phrase is read off the RENDERED cell (read the raw text -- a marker inside a code "
+     "span becomes a claim)", POPULATION,
+     'for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
+     'for n, rx in KIND_PHRASES if rx.search(c.text)), None)',
+     [R42_10_UNBOUND_RENDERED]),
+    ("R42-10: the REJECTED id-shape predicate (re-inject it: every unbound table whose first column "
+     "tokenises as row ids -- 151 of them over the 141 plan memos on this disk)", POPULATION,
+     '                    hit = next((n for c in row.cells\n'
+     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
+     '                    hit = ("marker" if row.cells and next(__import__("plan_memo_ids").tokens(\n'
+     '                        (row.cells[0].text or "").strip(" \\t")), None) is not None else None)',
+     [R42_10_UNBOUND_ID_SHAPED]),
+    ("R42-10: the REJECTED header-near-miss predicate (re-inject it: a renamed header is reported "
+     "whether or not the table declares anything)", POPULATION,
+     '                for row in [t.header] + t.rows:\n'
+     '                    hit = next((n for c in row.cells\n'
+     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
+     '                for row in [t.header] + t.rows:\n'
+     '                    hit = next((s.name for s in __import__("plan_memo_tables").SCHEMAS\n'
+     '                                if len(s.header) == len(t.header.cells)\n'
+     '                                and sum(1 for a, b in zip([c.text for c in t.header.cells], s.header)\n'
+     '                                        if a != b) <= 1), None)',
+     [R42_10_UNBOUND_NO_CLAIM]),
 ]

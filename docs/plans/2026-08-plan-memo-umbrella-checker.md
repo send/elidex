@@ -516,7 +516,7 @@ census at rc 0.
 | §6.3 | Links | LEXED — the Appendix bracket stack; inline / full / collapsed / shortcut; a link deactivates every earlier `[` | **nothing** for the `[` and the tail (`](dest)` prints no character); the link TEXT is the document's text there and stays prose (B×D) | `inline_pass` | spec examples (90); the link family; "(render) §6.3 a link's brackets `W[z](…)`…" |
 | §6.4 | Images | LEXED — not a link; destination never a sibling; a RESOLVED description is plain text, so a link inside it — and, since design re-gate 4, an emphasis pair inside it — is demoted (R19: no tag of its own) | **text** (blanked) for the tail: an image puts a picture in the flow, not the letters of its alt text, so its two sides are not one word — while the description is scanned as prose, the stated deviation | `inline_pass` (the `is_img` arm) | spec examples (22); the R19 image family; the demotion is what makes Examples 573 / 576 / 577 / 585 / 589 align (`alt="foo bar"` emits no `<em>`) |
 | §6.5 | Autolinks | LEXED → MASKED whole (R21) — ONE token tried at a `<` **before** the tag grammar (the spec's order); its contents are not inline syntax, so a bracket inside it opens nothing and an id inside it is no site. **Inside a resolved §6.4 description** (R42-5a): §6.5 makes the URI the link's TEXT, so the description holds the URI and the angle brackets are marks — the row the image-close branch never demoted, which reported the id inside an autolink NOWHERE | **text** (blanked) — its text IS its URL, which a reader reads | `inline_pass` / `_AUTOLINK` | spec examples (19); the R21 autolink family (12 controls, 5 mutants) |
-| §6.6 | Raw HTML | LEXED → **DROPPED** whole (R17 masked it; design re-gate 4 made the mask a drop) — one tag grammar (open / closing tag, comment, PI, declaration, CDATA) whose tag bodies are also §4.6 condition 7's. Seeded (`[LEX-UNSUPPORTED?]`) when it holds a `\|` or a declared id | **nothing** — a tag or a comment is markup, not text: `W<b>z</b>` and `W<!-- c -->z` render `Wz`, and a `Deps` cell holding only a comment is EMPTY | `inline_pass` / `_HTML_TAG` | spec examples (20); the R17 raw-HTML family; "(render) §6.6 …`W<b>z</b>` / `W<!-- c -->z`…"; "(cell) a `Deps` cell holding only an HTML comment is EMPTY…" |
+| §6.6 | Raw HTML | LEXED → **DROPPED** whole in ordinary prose (R17 masked it; design re-gate 4 made the mask a drop) — one tag grammar (open / closing tag, comment, PI, declaration, CDATA) whose tag bodies are also §4.6 condition 7's. Seeded (`[LEX-UNSUPPORTED?]`) when it holds a `\|` or a declared id — **and NOT seeded when demoted**, the rule §6.5 already had | **nothing in prose; its own SOURCE TEXT inside a resolved image description** — a tag or a comment is markup there, not text: `W<b>z</b>` and `W<!-- c -->z` render `Wz`, and a `Deps` cell holding only a comment is EMPTY; but §6.4 reduces a description to the plain string content of its inline children and an `html_inline` node's plain string content is its own source, so `![UMBRELLA, not a <span>terminal unit](i.png)` has the alt text `UMBRELLA, not a <span>terminal unit` (cmark 0.31.2 ESCAPES the brackets into the attribute — they are content) and an id in an attribute there IS a naming site. ⚠ This row is the standing proof that the disposition is a function of (kind, CONTEXT) while `RENDERS_TEXT` is a function of kind alone | `inline_pass` / `_HTML_TAG` | spec examples (20); the R17 raw-HTML family; "(render) §6.6 …`W<b>z</b>` / `W<!-- c -->z`…"; "(cell) a `Deps` cell holding only an HTML comment is EMPTY…" |
 | §6.7 | Hard line breaks | PROSE-AS-WRITTEN | **text** — the break's own markup stands in the stream (a `\` before a line ending escapes nothing: §2.4 is ASCII punctuation and a line ending is none; two trailing spaces are two spaces). **Cost, measured**: none, and for a stated reason rather than an unexamined one — the break renders a LINE ENDING, and a line ending bounds every unit the scanners read, so no reading of the markup can join what the break separates | — | "(§6.7) a hard line break's own markup stands in the stream … and costs nothing" (`Slice W\` + `z` names no `Wz`, on the probe table where `Wz` IS the umbrella); "(§6.7) a HARD line break inside a link's text does not break the link" (1 site) |
 | §6.8 | Soft line breaks | PROSE-AS-WRITTEN — same reading as §6.7 (the joined block text) | **text** — the line ending itself, the same bound. **Cost, measured**: none, by the same argument and its own control | — | "(§6.8) a SOFT line break is the same measurement: `Slice W` then `z` on the next line renders two words and names no `Wz`"; and the §6.7 control for the link case |
 | §6.9 | Textual content | PROSE-AS-WRITTEN — the base case: every character not claimed above is text the scanners read (this is where ids and row nouns are found at all) | **text**, itself | — | every naming control in the suite |
@@ -1856,31 +1856,93 @@ ground for either option; it is not cited.
   **Gate after the re-gate**: 657 controls / 364 mutants 0 survived 0 crashed / trip-wires rc 0 /
   census worklist byte-identical. ⚠ Four further mutant rows were retargeted where these fixes moved
   their substrings — one needed a wider anchor because the old one now matched twice.
-  ▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21, head `1bede857` PUSHED, tree clean, NO round in
-  flight — the trigger is deliberately unfired).**
-  **STATE**: everything the 2026-09-20 handoff listed below is DONE (items 0–3, the Axis 5 re-run,
-  the TERMINAL fix-delta re-gate over axes 3/4/5, and rounds R42 … R42-10). The loop did NOT
-  converge: it ran ten rounds, and from R42-6 on **every round's findings were opened by the
-  previous round's fix of mine**. R42-10 is the first where that stopped — one FP and one carve,
-  with essentially no code change.
-  **▶ THE DECISION THIS SESSION OWES, BEFORE ANY TRIGGER** — three things, and the third is new:
-  1. **Defer cap: 11 own against a cap of 3.** §8 classifies every entry and the policy's four
-     options are (a) fold / (b) narrow / (c) split / (d) accept with a written rationale. The
-     analysis is in §8's cap paragraph; the choice is the user's
-     (`memory/feedback_defer_cap_policy.md`'s PAUSE clause).
-  2. **Two spec-prose readings the vendored corpus cannot settle** (§8: §6.3-vs-Appendix, and §6.6
-     raw HTML in an alt). Both need a reference implementation — cmark or commonmark.js — which no
-     session so far has been able to execute. Until then neither is a defect.
-  3. **The linked-memo unbound table** (§8, new at R42-10): real, reproduced, and the obvious
-     predicate MEASURED as over-firing on the live population. It needs the gate's population
-     DEFINED, which is a design decision rather than a patch.
-  ⚠ **AND A QUESTION ABOUT HOW TO PROCEED AT ALL.** Over R42-6…R42-10 three of my changes turned a
-  shipped control or the census red, and three separate controls I wrote had a subject that was not
-  their claim — every one found by RUNNING the mutants, none by re-reading the control. Two readings
-  are open: the surface is converging (R42-10's shape supports it), or this surface wants
-  `/elidex-plan-review` before more of it is touched, which is what CLAUDE.md's edge-dense rule says
-  for a subsystem with no canonical algorithm. **The user was asked to choose and has not yet.**
-  **▶ WHAT THE 2026-09-20 HANDOFF SAID, kept because its items are the record of what was done:**
+  ▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21 evening — the three owed decisions are TAKEN and
+  the round is ready to trigger).**
+  **STATE**: everything below (items 0–3, the Axis 5 re-run, the TERMINAL fix-delta re-gate, rounds
+  R42 … R42-10) was already done. THIS session took the three decisions the loop was stopped on, and
+  two of them turned out to have code in them.
+
+  ✅ **1. HOW TO PROCEED — CONTINUE, WITHOUT `/elidex-plan-review`, UNDER A WRITTEN PER-FIX CHECK**
+  (user, 2026-09-21). The question was whether a surface on which three of my changes had turned a
+  shipped control or the census red, and on which three controls I wrote had a subject that was not
+  their claim, wants a plan-review before it is touched again. The answer is no — and the two
+  recurrences are addressed directly instead. **THE RULE, which applies to every fix from here:
+  before the commit, write ONE LINE EACH —**
+  **(a) does this control's SUBJECT match its CLAIM?** (what would make it green for a reason that
+  has nothing to do with the property; name the discriminating partner that rules that out), and
+  **(b) WHICH ARM was refuted?** (name the arm, and check the change is not narrowed to the case that
+  happened to be SHOWN — `memory/feedback_universal-claims-need-the-complement-measured.md`).
+  ⚠ Both fired on their first use, which is the argument for the rule and not for the review: (a)
+  produced the baseline control beside the §6.6 one (a finding count of 0 is what ANY silence gives),
+  and (b) is what kept the §6.6 change scoped to *inside a resolved image description* rather than to
+  raw HTML generally — the bare-prose R17 reading is untouched and has its own negative beside it.
+  ⚠ And the per-fix check did NOT catch everything: the R42-10 gate turned a shipped NEGATIVE red,
+  and only running it did. The rule narrows the class; the mutation proof is still what closes it.
+
+  ✅ **2. THE DEFER CAP — OPTION (d), ACCEPTED WITH A WRITTEN RATIONALE** (user, 2026-09-21). §8's cap
+  block now states why (a) fold, (b) narrow and (c) split are each unavailable in this PR, entry by
+  entry, and gives the count as an ENUMERATION rather than as a figure. **Ten own / one pre-existing.**
+  ⚠ Two entries left the list and neither is a tally edit — the test being that under (d) removing
+  them buys nothing: the spec-prose entry is SETTLED (below), and the standalone quote-half entry was
+  a DUPLICATE of Slice 3, whose own text says the two halves are one carve and which was written at
+  R38 to replace it. The R38 re-slice had been applied to the prose and not to the list.
+
+  ✅ **3. THE TWO SPEC-PROSE READINGS — SETTLED BY EXECUTION, and they went opposite ways.** `brew
+  install cmark` and `npm install commonmark@0.31.2` both succeeded here, at the vendored corpus's
+  own version, so the "no session could execute a reference implementation" premise is retired.
+  · **§6.3 vs the Appendix (`[x <http://a>](absent.md)`) — NOT A DEFECT, the Appendix wins.** Both
+  implementations render `<a href="absent.md">x <a href="http://a">http://a</a></a>`: the outer link
+  IS a link and the autolink nests inside it. The checker implements the Appendix verbatim and was
+  right; the prose reading loses. The link-in-link control (`[x [y](b)](a)` → `[x <a href="b">y</a>](a)`)
+  reproduces beside it, so the deactivation rule itself is unaffected.
+  · **§6.6 raw HTML inside a resolved image description — A REAL DEFECT, and FIXED.**
+  `![UMBRELLA, not a <span>terminal unit](img.png)` gives
+  `alt="UMBRELLA, not a &lt;span&gt;terminal unit"`. ⚠ **cmark ESCAPING the angle brackets is what
+  decides it**: they are the alt's CONTENT, not markup — an `html_inline` node's plain string content
+  is its own SOURCE TEXT, where in ordinary prose it renders nothing. Masked as markup the span
+  JOINED its two sides and the run exited **1** on an ownership claim nobody made: the one
+  FABRICATED finding on this surface, which is exactly why it was never fixed on the prose alone.
+  ⚠ The fix is the same mechanism as the R42-5 code-span and autolink demotions — `dem_html` beside
+  `dem_code` / `dem_auto`, one range applied once, so the R23 linear contract holds by construction —
+  plus the seed following the reading (a demoted span hides nothing, the rule an autolink already
+  had). ⚠ **No line-ending substitution, and that is MEASURED**: §6.1 normalises a code span's
+  endings to spaces (`` ![a `b\nc` d](i.png) `` → `a b c d`) and §6.6 does not
+  (`![a <span\nx>b](i.png)` keeps it). ⚠ **The population was enumerated wrongly on the first pass** —
+  a `grep` for `lx.html` that EXCLUDED the self-test files, so the conformance control and a mutant
+  row were missed and 21 spec examples crashed; the whole-population grep found them in one line
+  (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`).
+  · **§6.4 (is an image's alt the document's text?)** stays the FP R42-10 measured it to be.
+
+  ✅ **4. THE LINKED-MEMO UNBOUND TABLE — MEASURED, AND THE CENSUS-CLAIM HALF IS FIXED.** §8 carried
+  two unmeasured candidates and both were measured on the real population, which is 141 plan memos /
+  511 tables / **507 unbound** across this worktree and `elidex-wt-vmp4plan`.
+  · *kind PHRASE in any cell* — **0** findings over that corpus, while the phrases themselves occur
+  **77** times in it, so the zero is a silence and not an empty population; and it fires on the
+  reproduced defect. **Shipped**, reading the RENDERED cell as the census reads a declaring field.
+  · *header NEAR-MISS* — 0 over the corpus too, and REFUSED for a reason no corpus count shows: it
+  fires on a renamed header whose table **declares nothing**. A two-fixture pair discriminates them,
+  and it is a NEGATIVE control now with a mutant that re-injects the predicate.
+  · *the id shape* stays refused (**151** tables over the same corpus), also pinned by a control and
+  a mutant.
+  ⚠⚠ **AND THE GATE IMMEDIATELY FOUND ONE INSIDE THIS SUITE'S OWN FIXTURES.** R31-1's `$`-header
+  NEGATIVE is a linked memo whose table binds to nothing **while carrying an umbrella row** — the
+  identical class, reached independently, with a different header. Its site-count measure also
+  asserts `rc != 2`, and that implicit half had been blessing the silence for eleven rounds. ⚠ The
+  fixture and the SUBJECT are untouched and only the measure moved (to the gate that names the
+  unbound claim, which a bound table would not produce): replacing the marker to quiet the gate would
+  have taken the discrimination with it, because without an umbrella there is no no-owner row and a
+  loosened header match produces no site either
+  (`memory/feedback_control-rewritten-to-bless-the-defect.md`).
+  **What remains in §8** is the residual only: an unbound table making NO kind claim.
+  **GATE AFTER ALL FOUR**: **693 controls / 392 mutants 0 survived 0 crashed** / trip-wires rc 0 /
+  #506 census `--worklist` byte-identical (815 lines, rc 0) / this memo at the four-FATAL floor.
+  ⚠ Per the Axis 5 rule, the self-test is re-run AFTER this memo edit, never only before it.
+  **▶ NEXT: trigger the round (`/external-converge 510`), and arm a harness-tracked background poll
+  in the SAME turn — with a negative control fired at the judgement before it goes to background
+  (`memory/feedback_a-monitor-needs-a-negative-control.md`). Merge is NOT to be proposed.**
+
+  **▶ WHAT THE 2026-09-20 / 2026-09-21 HANDOFFS SAID, kept because their items are the record of
+  what was done:**
   0. ✅ **DISCHARGED (2026-09-20, the next session's first act).** The split is taken, recorded in
      §7's Slice 0 with the seam it actually used (the handoff's was refined — it would have split
      `dash_spelling_sweep_control` from the sibling its own docstring names), and the header's
@@ -2446,31 +2508,67 @@ ground for either option; it is not cited.
 
 ## §8 Defer (owned here, not only in file headers)
 
-⚠ **THE CAP IS EXCEEDED, and the classification is stated rather than argued away** (PR #510 Axis 5,
-2026-09-20). `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
-own ones. Classified below, every entry states own or pre-existing; the count is **11 own / 2
-pre-existing**. Eleven against a cap of three.
-⚠ **Two corrections the re-gate forced, in opposite directions, and neither was a tally edit**: the
-touch-time-split entry is GONE because the work is DONE in this PR (the split is taken and the
-invariant is a control, `line_bound_control` — the policy's own verdict for a ~0-LoC mechanical split
-was "fold", and folding it is how a deferral is discharged honestly); and the GFM row-splitter entry
-moved from pre-existing to OWN because its stated grounding was measurably false. Those two
-cancelled. ⚠ **And a third correction reversed one of mine**: the §6.4 carve that took the count to
-11 is GONE, because the work is DONE (below). The policy's *容認しない pattern* names that case
-outright — 「~30-150 LoC で本 PR に fold できるが念のため defer 化」→ fold — and the fix measured
-**≈45 lines across two modules with one reader each**. What stands in its place is the narrower §6.3
-row question that was bundled with it and is a different mechanism. The number is reported, never
-reasoned from.
-⚠ **No entry is merged or deleted to move that number** — the policy forbids exactly that
-("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない"). What the shape of the
-ten says: three (Slice 3, the id-grammar decoration release, the touch-time-split pre-commitment)
-are already the policy's option (c) — re-sliced to a named owner with a trigger, which is what
-`memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for; three (entries 1–3) are in
-the ratified plan from before implementation and were reviewed as design, not accumulated in the
-loop; and four are genuine converge-loop own deferrals. **That is still over the cap however it is
-grouped**, and the policy's own clause for this state is PAUSE and put the four options (fold /
-narrow scope / split the PR / accept with rationale) to the user — which is where it goes, not into
-a paragraph here that reasons the number down.
+✅ **THE CAP IS EXCEEDED AND OPTION (d) IS TAKEN — ACCEPTED WITH THIS RATIONALE, BY THE USER, ON
+2026-09-21.** `memory/feedback_defer_cap_policy.md` caps a PR at **≤3 OWN** deferrals and counts only
+own ones; its PAUSE clause routes the four options (fold / narrow / split / accept with a written
+rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
+the reason the other three are not available **in this PR**.
+
+⚠ **THE COUNT IS GIVEN AS AN ENUMERATION, NOT AS A FIGURE** — a bare number here has gone stale three
+times in this document (`memory/feedback_attestation-by-enumeration-not-assertion.md`). The entries
+below, in order: (1) acceptance half of assertion (b); (2) the four assertions' single-home slot;
+(3) two KNOWN-MISS bare-id shapes; (4) the always-run wire's cost per review round; (5) the id
+grammar's released trailing decoration; (6) Slice 3, Phase 1 offsets; (7) `symbol_attribution_control`'s
+existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the unbound table
+making no kind claim; (11) the hand-written table with no detector. **Ten own and one pre-existing**
+— (9) is the pre-existing one. Count the list rather than trusting this sentence.
+
+⚠ **Two entries left the list this session and NEITHER is a tally edit** — and the test of that is
+that the decision is (d), so removing them buys nothing: the §6.3 / §6.6 / §6.4 spec-prose entry is
+**settled** (below: one reading fixed, two closed as non-defects, against two reference
+implementations), so it is no longer a deferral of anything; and the standalone *"Phase 1 hands a
+container's content to itself as a LIST OF STRINGS"* entry was a **duplicate** of Slice 3, whose own
+text says the two halves are ONE carve and which was written at R38 to replace it. The R38 re-slice
+was applied to the prose and not to the list. The earlier corrections that cancelled (the touch-time
+split folded because the work was done; the GFM splitter re-classified own on a measurement) stand.
+
+**WHY (a) FOLD IS NOT AVAILABLE.** The policy's *容認しない pattern* — "~30–150 LoC で本 PR に fold
+できるが念のため defer 化" — is the case for folding, and this PR has already taken it **twice by
+measurement**: the §6.4 carve folded at R42-5 once the fix measured ≈45 lines across two modules with
+one reader each, and the §6.6 reading folded this session at ~20 lines once a reference implementation
+settled it. What is left does not fit that shape. (5), (6) and (11) are each explicitly
+`/elidex-plan-review`-before-implementation **by CLAUDE.md's edge-dense rule, not by judgment** — (5)
+intersects the id grammar, the grammar↔scan agreement property, the `_glued` boundary rule, the
+decoration-run cost contract and both mention passes; (6) intersects the block grammar, both container
+passes, the raw-extent seed and the Phase-1 cost contract; (11) needs a negative control that is RED
+before the mechanism exists. Folding any of them here is precisely the *single PR + skipped
+plan-review* that `memory/feedback_edge-dense-mandatory-plan-review-and-split.md` exists to prevent.
+(1), (2) and (3) are in the ratified plan from BEFORE implementation and were reviewed as design.
+
+**WHY (b) NARROW SCOPE IS NOT AVAILABLE — AND WHERE IT WAS TAKEN.** Narrowing removes a deferral only
+when the narrowed remainder is empty. It was taken where it could be: (10) is a narrowing, its
+census-claim half shipped with four controls and five mutants and only the no-claim residual carried.
+Narrowing the rest does not reduce the list — (4) is the wire's own budget with a measured trigger,
+(7) is blocked on §3's `(NEW)` / `✗ (absent)` conventions, (8) is trigger-only on a condition
+(`two of them on main`) that is measurably not met.
+
+**WHY (c) SPLIT THE PR IS NOT AVAILABLE.** (c) is already the shape of three entries — (5), (6) and
+(11) are re-sliced to a named owner with an EVENT trigger and a re-eval date, which is what
+`memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for. Splitting what remains
+would mean cutting the checker itself, and the pieces do not separate: every entry names the SAME
+program, and the split this PR could take at a real seam it has taken **six times** already as
+standalone touch-time commits (§7 Slice 0). A further split would be a split of the deferral LIST,
+not of the work — which changes no reader's decision and loses the one home that ties the entries to
+the design they came from.
+
+⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** Six of the ten own entries
+were produced by the REVIEW LOOP rather than by the plan (4, 5, 6, 7, 10 and the row splitter), and
+that is the honest reading of why the cap is breached: a 40-round external convergence on a program
+whose subject is itself a checker generates carves faster than a cap written for feature PRs
+anticipates. That is an argument for (d) here, and an argument for
+`memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` being applied to the NEXT slice
+boundary — not for reasoning the number down, which the policy forbids outright
+("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない").
 
 - **(own)** Acceptance half of assertion (b) — "not implementable here"; slot
   `#11-plan-memo-acceptance-falsifiability-check` is minted in #506's memo (§5 mention `190d2adb:…:1218`, §8 row `:2711`)
@@ -2482,24 +2580,6 @@ a paragraph here that reasons the number down.
   landing, not here; the headers cite that origin rather than presenting the slot as registered.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
-- **(own)** **Phase 1 hands a container's content to itself as a LIST OF STRINGS, so the characters
-  materialised are Σ(content length) over the nesting levels — superlinear in DEPTH by construction**
-  (PR #510 R29-1, partly discharged). What R29-1 fixed is real and reported: `quote_content` was the
-  marker TEST and the BUILD in one function, and two of its three callers wanted only the test, so
-  `quote_marker` is that test and the builds over `">"*2000 + " x"` go 4,002 → 2,000 against 2,000
-  quotes. ⚠ **What it did NOT fix, stated because the reviewer's timing curve is mostly something
-  else**: over `">"*n + " x"` the Python lines executed in `plan_memo_memo` + `plan_memo_blocks` are
-  EXACTLY linear (572,256 → 1,144,256 at n = 4,000 → 8,000, ×2.00), so every superlinear term is
-  C-level — and `gc.disable()` takes n = 64,000 from **0.681 s to 0.274 s** (measured here, twice),
-  because the cyclic collector walks the N suspended `_run` frames and their content lists. A residual
-  superlinear term survives that (×2.10 / ×2.76 per doubling with GC off), and it is the Σ above.
-  Removing it means a "line" that carries an OFFSET rather than a string, i.e. every `blocks.py`
-  predicate plus both container passes — its own PR under CLAUDE.md's edge-dense rule, not a patch
-  inside this one. Trigger = a memo whose quote nesting is deep enough to matter (nothing in the
-  population is: the deepest real nesting is 1), or the next finding on this seam. No slot minted:
-  the depth that would make it bite does not occur in this document family, and minting a platform
-  slot for it would fail the slot-fit audit. ⚠ The control that guards the fixed half counts BUILDS,
-  never characters — a control over the character total would assert the residual is correct.
 - **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
   Measured on one clean `git clone --local`, same session: `2c713e51` 11.80 / 12.13 / 12.19 s against
   `7d43d7cd` 26.05 / 26.04 / 27.25 s — **2.2×**, and the `ci.yml` block that is the declared single
@@ -2633,78 +2713,44 @@ a paragraph here that reasons the number down.
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
-- **(own)** **A LINKED MEMO'S UNBOUND TABLE IS SILENT** (PR #510 R42-10, **real, reproduced, the fix
-  ATTEMPTED AND WITHDRAWN**). The schema-miss gate asks only of `main` — deliberately, since a linked
-  detail memo may hold no slot ledger — so a linked memo whose slice table binds to NO schema
-  declares nothing and the run exits **0**. Reproduced: a child memo whose header reads `No.` instead
-  of `#` carries an umbrella row with a nonempty `Deps`, and the whole table leaves the census
-  silently. ⚠ **That is the I-C class this checker exists for**, and it is wider than the round that
-  reported it: the round framed it as an IMAGE header, which is an FP (below).
-  ⚠ **THE FIX WAS WRITTEN AND MEASURED AND IT OVER-FIRES.** The predicate tried was "the table binds
-  to no schema AND its first column tokenises as row ids" — the same question `bare_id` asks of a
-  schema row. Against the four fixtures it is exactly right (binds / `No.` / image / a prose table,
-  the last silent). Against the REAL #506 population it reports **three** tables in
-  `2026-07-vm-p4-slice-0a-landing-record.md` whose first columns are `obj` and `R1`…`R7`: a landing
-  record's review-round tables, id-SHAPED and entirely legitimate. It also turned an R31-1 NEGATIVE
-  control red. So an id-shaped first column is not the predicate, and I do not have one.
-  **Scope**: what distinguishes a table whose declarations the census WANTS from a documentation
-  table that happens to key its rows. Candidates measured as insufficient: the id shape (above).
-  Candidates not yet measured: the presence of a kind PHRASE in any cell (a marker or KIND
-  UNDETERMINED is a census claim, `R1` is not); a header that near-misses a schema's rather than
-  differing wholly.
-  **Owner**: Slice 2's plan-review, which owns the prose predicates — this is one.
-  **Trigger**: already fired (reproduced above). **Re-eval: 2026-12-31.** No slot: it is this
-  checker's own gate.
-
-- **(own)** **TWO §6.4/§6.x READINGS THE VENDORED CORPUS CANNOT SETTLE** (PR #510 R42-5b / R42-8,
-  **both real, both reproduced, neither fixed on a guess**). ⚠ They are together because they are one
-  KIND of open question — a spec-prose reading with no example behind it — not because they are one
-  mechanism.
-  **(c) §6.4: is an image's ALT the document's text?** (R42-10) — **REJECTED as an FP, with the
-  measurement.** A round reported that a schema header spelled `![#](i.png)` should match the schema
-  because §6.4 makes the description the image's text alternative. Measured over the vendored inline
-  corpus: **22** Images examples, and in **every one** the description's text appears ONLY inside the
-  `alt` attribute, never as document text. The checker's model — `RENDERS_TEXT["image"] = True` with
-  "an image puts a picture in the flow, not the letters of `alt`" — is the corpus-supported reading
-  and is held by R30-3's controls. ⚠ Two attempts to "fix" it (return the description; return blanks)
-  each turned one of those controls RED, which is the signal that a control is asserting a real
-  decision and the fix is trying to overturn it silently
-  (`memory/feedback_control-rewritten-to-bless-the-defect.md`). The round's underlying observation was
-  real and is carved above — it is about LINKED memos, not images.
-  **(b) §6.6 raw HTML inside a resolved image description** (R42-8). `![UMBRELLA, not a
-  <span>terminal unit](img.png)` exits **rc 1** with `UMBRELLA-CELL`: `dispose` drops the HTML span
-  as zero-width markup, JOINS the words around it, and the marker phrase appears where the alt text
-  may not have one. ⚠ **This is the opposite direction from every other finding on this surface — a
-  FABRICATED finding, not a missed one**, which is why it must not be "fixed" on a guess: if the alt
-  really does drop the markup, rc 1 is correct and a fix would silence a true report.
-  ⚠⚠ **AND IT CORRECTS THIS DOCUMENT'S OWN ANALYSIS.** The fold's reasoning said §3.0b's closed list
-  left exactly TWO rows unhandled (§6.1 and §6.5), on the strength of the table's "§6.6 renders
-  nothing" column. That column is the FLOW disposition; §6.4 asks a different question of the same
-  kind, and `RENDERS_TEXT` has one value per kind with no place to say so. So the list was bounded —
-  the fold stands — but it had **three** holes, not two, and the structure underneath is that the
-  disposition is a function of (kind, CONTEXT) while the table is a function of kind.
-  **Measured**: the vendored inline corpus holds **22** Images examples and **zero** with any `<` in
-  a description, so it cannot decide this (the same reason (a) below is open).
-  **(a) §6.3 vs the Appendix: an autolink inside a link's brackets** (R42-5b, **real,
-  reproduced, NOT a defect until the spec question is settled**). `[x <http://a>](absent.md)` records
-  `absent.md` as a link and exits **2**; §6.3's prose says a link may not contain a link and §6.5
-  parses an autolink AS one, so the outer syntax should be literal.
-  ⚠ **But the checker implements the Appendix VERBATIM**, and the Appendix's deactivation step fires
-  only "if we have a link (and not an image)" — an autolink never enters that procedure, because it
-  is matched by the inline scanner and never becomes a bracket opener. So this is a **spec-prose vs
-  Appendix discrepancy**, not an implementation slip: the link-in-link rule itself works
-  (`[x [y](b)](a)` records only `b`, measured). ⚠ The vendored corpus **cannot settle it**: the two
-  autolink/link examples (526, 538) are precedence, not nesting — measured over
-  `commonmark-0.31.2-inline-examples.json`.
-  **Scope**: one §3.0b row decision (§6.3 × §6.5), and if the prose wins it is `closed += 1` at the
-  `_AUTOLINK` match plus a control — ONE line, not a program. ⚠ It is NOT bundled with §6.4's
-  demotion: that lives in the image-close branch, this lives in the `closed` counter at link close,
-  and calling them one mechanism was wrong.
-  **Trigger for BOTH**: settle them against a reference implementation (cmark or commonmark.js) —
-  which this session could not execute — at Slice 1's next touch of the lexer or the disposition.
-  ⚠ A reading that only the spec's PROSE supports gets a §3.0b row and a control the day it is
-  settled, never a fix on the day it is reported. **Re-eval: 2026-12-31.**
-  No slot: they are rows of this checker's own grammar table.
+- **(own)** **AN UNBOUND TABLE THAT MAKES NO KIND CLAIM IS STILL SILENT** (PR #510 R42-10, **the
+  CENSUS-CLAIM half is FIXED in this PR; this is the residual**). The schema-miss gate asks only of
+  `main` — deliberately, since a linked detail memo may hold no slot ledger — so a linked memo whose
+  slice table binds to NO schema left the census with no diagnostic at all and the run exited **0**.
+  ⚠ **What is now closed**: a table binding to no schema while carrying a `KIND_PHRASES` phrase makes
+  a CENSUS CLAIM, and that contradiction is `Population._unbound_claims`, with four controls and five
+  mutants. ⚠ **The predicate was picked by MEASUREMENT and two candidates were refused, both of them
+  the ones this entry previously carried as unmeasured**:
+  - *the first column tokenises as row ids* — exactly right on the four fixtures and **151** tables
+    over the 141 plan memos on this disk (a landing record's `obj` / `R1`…`R7` review tables are
+    id-shaped and legitimate). Refused, and pinned by a NEGATIVE control plus a mutant that
+    re-injects it;
+  - *the header NEAR-MISSES a schema's* — silent on that corpus too, and refused for a reason no
+    corpus count shows: it fires on a renamed header whose table **declares nothing**. Pinned by its
+    own NEGATIVE control and a mutant.
+  - the shipped predicate — *a kind phrase in any cell, read off the RENDERED cell* — fires **0**
+    times over those same 141 memos / 511 tables / **507 unbound**, while the phrases themselves
+    occur **77** times in that corpus, so the zero is a silence and not an empty population.
+    ⚠ **Every figure in this entry is a DATED MEASUREMENT with its corpus beside it, never a
+    standing claim** — 2026-09-21, the `docs/plans/*.md` of this worktree and of
+    `elidex-wt-vmp4plan`, a corpus that exists on no other disk. The commands, so a reader
+    re-derives rather than trusts: the sweep is the checker itself
+    (`plan-memo-umbrella-check.py <memo>` over each file, counting the `binding to NO schema`
+    line); the positive control is `KIND_PHRASES` `findall` over the same file list; the
+    denominators come from `Memo(f).tables` over it.
+  ⚠ **AND THE GATE FOUND ONE INSIDE THIS SUITE'S OWN FIXTURES** — R31-1's `$`-header NEGATIVE is a
+  linked memo whose table binds to nothing while carrying an umbrella row, the identical class
+  reached independently and with a different header. Its site-count measure also asserted `rc != 2`,
+  and that implicit half had been blessing the silence. The fixture and the subject are untouched and
+  the measure moved to the gate; replacing the marker to quiet it would have taken the
+  discrimination with it (`memory/feedback_control-rewritten-to-bless-the-defect.md`).
+  **Scope of what remains**: an unbound table making NO kind claim. Its ordinary rows are lost just
+  as silently, and no predicate measured here separates one from a documentation table that happens
+  to key its rows — which is the 151 above. The gate's docstring states this as what it cannot see.
+  **Owner**: Slice 2's plan-review, which owns the prose predicates.
+  **Trigger (an EVENT)**: a round that reports a declaration lost from an unbound table carrying no
+  kind phrase, or a second corpus measurement that separates the two populations.
+  **Re-eval: 2026-12-31.** No slot: it is this checker's own gate.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the

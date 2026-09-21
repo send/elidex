@@ -22,7 +22,7 @@ mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
 ("R26 on").  R27's fixture-shaped control is below.
 """
 
-from plan_memo_selftest_cases import CASES, acase, build, case, rcase
+from plan_memo_selftest_cases import CASES, LINK, SIB_TABLE, acase, build, case, rcase
 
 # ------------------------------------------------ PR #510 Codex R26 controls --
 # R26-2: the bare file-name token and `plan_memo_sibling.sibling_path`
@@ -368,11 +368,30 @@ case("POSITIVE-NOVEL", "(R31-1 §2.4) a header cell spelling `#` as the ESCAPE `
                        "enumerating the two syntaxes that reach it",
      build(), "See [the walk](slice-9z-sib.md).", 1, sibling=_SIB_SCHEMA % "\\#")
 
+# ⚠ THIS CONTROL'S MEASURE MOVED AT R42-10, AND THE REASON IS THE DEFECT IT WAS
+# GREEN OVER.  It read the SITE COUNT (0), which under the harness also asserts
+# `rc != 2` -- and that implicit half was blessing a real silence: this sibling
+# is a LINKED memo whose table binds to nothing WHILE CARRYING AN UMBRELLA ROW,
+# which is exactly the R42-10 class, arrived at independently and with a `$`
+# header rather than a `No.` one.  The fixture is untouched and the SUBJECT is
+# untouched -- the question is still whether the header comparison loosened --
+# but it is now asked of the gate that names the unbound claim: under a match
+# that NORMALISED the header instead of rendering it the table would BIND, the
+# gate would fall silent, and this control goes red on 1 -> 0.  Replacing the
+# marker to quiet the gate would have taken the discrimination with it (without
+# an umbrella there is no no-owner row and a loosened match produces no site
+# either), which is how a control gets rewritten to bless a defect.
 case("NEGATIVE", "(R31-1 §2.5) a header cell rendering `$` (`&#36;`) is NOT the `slice` schema: the "
                  "reading moved and the COMPARISON did not loosen, so the table stays non-schema and "
                  "declares nothing.  The partner that bounds the fix -- a match that normalised the "
-                 "header instead of rendering it would pass the three above and fail this one",
-     build(), "See [the walk](slice-9z-sib.md).", 0, sibling=_SIB_SCHEMA % "&#36;")
+                 "header instead of rendering it would pass the three above and fail this one -- and "
+                 "the witness is the R42-10 gate naming the unbound claim, which a bound table would "
+                 "not produce",
+     build(), "See [the walk](slice-9z-sib.md).", 1, sibling=_SIB_SCHEMA % "&#36;",
+     measure=("schema", "binding to NO schema"))
+R31_1_DOLLAR_UNBOUND = CASES[-1].name
+"""Red both ways: under a loosened header match (the table binds, 1 -> 0) and
+under the mutants that drop the R42-10 gate."""
 
 
 # ---------------------------------------- PR #510 Codex R32 controls (R31-1) --
@@ -771,3 +790,135 @@ by **9z**, which carries the marker" this fixture matched NO phrase at all, so
 the control asserted "a blank row with no kind phrase is silent" -- true, and a
 different claim.  Its mutant (widening the predicate back to the pointer arm)
 survived, which is how the wrong subject was found rather than read."""
+
+
+# -- R42-8 / §6.6 inside a resolved image description.  THE ONE FINDING ON THIS
+# SURFACE THAT RAN THE OTHER WAY: a FABRICATED report, not a missed one.  §8
+# carried it undecided for two rounds because the vendored corpus cannot settle
+# it -- 22 Images examples, none with a `<` in a description -- and a "fix" on
+# the prose alone would have SILENCED a true report if the alt really did drop
+# the markup.  Settled against both reference implementations at the corpus's
+# own version (cmark 0.31.2 and commonmark.js 0.31.2):
+#
+#   ![UMBRELLA, not a <span>terminal unit](img.png)
+#     -> <img src="img.png" alt="UMBRELLA, not a &lt;span&gt;terminal unit" />
+#
+# cmark ESCAPING the angle brackets is what decides it: they are the alt's
+# CONTENT, not markup.  §6.4 reduces the description to the plain string
+# content of its inline children, and an `html_inline` node's plain string
+# content is its own SOURCE TEXT -- so the span renders its characters, where
+# in ordinary prose it renders nothing at all.
+#
+# ⚠ THE PAIR IS THE SUBJECT, not either control alone.  A finding count of 0 is
+# what ANY silence gives, so the baseline below (the same cell with the span
+# taken out, at 1) is what makes the first control about the span.
+acase("NEGATIVE", "(R42-8 §6.6) a raw HTML span inside a resolved image description is the alt's own TEXT, "
+                  "so the kind marker is NOT read across it: `![UMBRELLA, not a <span>terminal unit]"
+                  "(img.png)` has the alt text `UMBRELLA, not a <span>terminal unit` (cmark 0.31.2 and "
+                  "commonmark.js 0.31.2 both, the latter escaping the brackets -- they are content) and "
+                  "the marker phrase is not in it.  Masked as markup the span JOINED its two sides and "
+                  "the row exited 1 on an ownership claim nobody made: a FABRICATED finding, the "
+                  "opposite direction from every other §6.4 defect on this surface",
+      _kindcell("![UMBRELLA, not a <span>terminal unit](img.png)"), "UMBRELLA-CELL", 0)
+R42_8_HTML_ALT = CASES[-1].name
+"""Red under the mutants that stop demoting a raw HTML span, or re-mask it."""
+
+acase("POSITIVE", "(R42-8 §6.6) the BASELINE that control is measured against -- the identical cell with "
+                  "the span taken out reads the marker and exits 1, so the silence above is the span's "
+                  "and not the fixture's",
+      _kindcell("![UMBRELLA, not a terminal unit](img.png)"), "UMBRELLA-CELL", 1)
+
+# ⚠ AND THE CONTROL THAT SEPARATES "CONTRIBUTES ITS TEXT" FROM "MERELY DOES NOT
+# JOIN": a blanked span would not join its two sides either, and would still
+# HIDE an id inside it.  The reference puts the attribute value in the alt
+# verbatim (`alt="x &lt;span title=&quot;9z owns it&quot;&gt;y"`), so there the
+# id is document text and IS a naming site -- the exact reverse of the R17
+# reading in bare prose, which is untouched beside it.
+case("POSITIVE", "(R42-8 §6.6) an id inside a raw HTML ATTRIBUTE inside a resolved image description is a "
+                 "reported naming site: the alt text spells the tag out, so `9z owns it` is document "
+                 "text there.  This is what a blank mask cannot give -- it would not join the sides "
+                 "either, and would still hide the id",
+     build(), 'See ![x <span title="9z owns it">y](img.png).', 1)
+R42_8_HTML_ATTR_SITE = CASES[-1].name
+"""Red under the mutants that stop demoting a raw HTML span, or re-mask it."""
+
+case("NEGATIVE", "(R42-8 §6.6) the R17 reading in BARE PROSE is untouched: the same span outside any "
+                 "image is masked whole and its id is no naming site.  The arm that was refuted is "
+                 "\"a raw HTML span renders nothing INSIDE A RESOLVED IMAGE DESCRIPTION\", not \"a raw "
+                 "HTML span renders nothing\"",
+     build(), 'See <span title="9z owns it">y</span>.', 0)
+
+# The seed follows the reading, in both block shapes.  A demoted span hides
+# nothing -- its text is in the scanned stream -- so it is not seeded, which is
+# the rule an autolink already carries.  Bare prose still seeds (above, and the
+# R17 pair in `plan_memo_selftest_cases_inline.py`).
+acase("NEGATIVE", "(R42-8 §6.6 seed) a raw HTML span DEMOTED into a resolved image description is not "
+                  "seeded -- the naming scan has already read it -- and a span crossing a LINE ENDING "
+                  "is not seeded per line either",
+      build(), "LEX-UNSUPPORTED?", 0, prose='See ![x <span\ntitle="9z owns it">y](img.png).')
+R42_8_HTML_NO_SEED_PROSE = CASES[-1].name
+"""Red under the mutant that seeds a demoted span from a PARAGRAPH again."""
+
+acase("NEGATIVE", "(R42-8 §6.6 seed) the same in a CELL, which is the other half of the seed's "
+                  "population and its own site: the paragraph control cannot see it",
+      build(suz='![x <span title="9z owns it">y](img.png)'), "LEX-UNSUPPORTED?", 0)
+R42_8_HTML_NO_SEED_CELL = CASES[-1].name
+"""Red under the mutant that seeds a demoted span from a CELL again."""
+
+
+# -- R42-10: A LINKED MEMO'S UNBOUND TABLE THAT MAKES A CENSUS CLAIM.  The
+# schema-miss gate asks only of `main` -- deliberately, a linked detail memo
+# may hold no slot ledger -- so a linked memo whose slice table binds to NO
+# schema declared nothing and the run exited 0.  The reported framing was an
+# IMAGE header, which is an FP (above); the defect underneath is wider and has
+# nothing to do with images.
+#
+# ⚠ THE PREDICATE WAS CHOSEN BY MEASUREMENT, over the three candidates §8
+# carried.  "The first column tokenises as row ids" is exactly right on these
+# four fixtures and reports 151 tables over the 141 plan memos on this disk (a
+# landing record's `obj` / `R1`...`R7` review tables) -- the negative below
+# pins it.  A header NEAR-MISS is silent on that corpus too, but it fires on a
+# renamed header whose table DECLARES NOTHING, which the second negative pins.
+# What is left is the claim itself: a kind phrase is an assertion about the
+# census, so a table carrying one and binding to nothing is a contradiction.
+# Measured with the shipped predicate: 141 memos, 0 findings.
+_UNBOUND = SIB_TABLE.replace("| # | Slice |", "| No. | Slice |")
+
+case("POSITIVE", "(R42-10) a LINKED memo whose slice table binds to no schema -- its header reads "
+                 "`No.` where the schema reads `#` -- but carries an umbrella row with a `Deps` "
+                 "edge: the claim is made and the whole table leaves the census.  It exited 0, with "
+                 "no gate reporting it, because the schema-miss gate asks only of `main`",
+     build(), LINK, 1, sibling=_UNBOUND % "**7z**",
+     measure=("schema", "binding to NO schema"))
+R42_10_UNBOUND_CLAIM = CASES[-1].name
+"""Red under the mutants that drop the gate or narrow it back to `main`."""
+
+case("NEGATIVE", "(R42-10) the SAME unbound header with no kind phrase in it is silent -- the gate "
+                 "is keyed on the CLAIM, not on the header.  This is the control a header-near-miss "
+                 "predicate fails: `No.` differs from `#` there too, and that table declares nothing",
+     build(), LINK, 0,
+     sibling=_UNBOUND.replace("**UMBRELLA, not a terminal unit.** carved.", "an ordinary carve.") % "—",
+     measure=("schema", "binding to NO schema"))
+R42_10_UNBOUND_NO_CLAIM = CASES[-1].name
+"""Red under a mutant that keys the gate on the header instead of the claim."""
+
+case("NEGATIVE", "(R42-10) a documentation table whose first column is ID-SHAPED is silent: a landing "
+                 "record's review-round table (`obj`, `R1`...`R7`) keys its rows and declares "
+                 "nothing.  This is the control the REJECTED predicate fails -- it reports 151 such "
+                 "tables over the 141 plan memos on this disk",
+     build(), LINK, 0,
+     sibling=("## rounds\n\n| obj | Round | Outcome |\n|---|---|---|\n"
+              "| R1 | 1 | carried |\n| R7 | 7 | closed |\n"),
+     measure=("schema", "binding to NO schema"))
+R42_10_UNBOUND_ID_SHAPED = CASES[-1].name
+"""Red under a mutant that keys the gate on the id shape of the first column."""
+
+case("NEGATIVE", "(R42-10) the phrase is read off the RENDERED cell, as the census reads a declaring "
+                 "field: a marker inside a CODE SPAN in an unbound table is not a claim, exactly as "
+                 "it is not one in a bound table's declaring field",
+     build(), LINK, 0,
+     sibling=_UNBOUND.replace("**UMBRELLA, not a terminal unit.** carved.",
+                              "`UMBRELLA, not a terminal unit.` carved.") % "—",
+     measure=("schema", "binding to NO schema"))
+R42_10_UNBOUND_RENDERED = CASES[-1].name
+"""Red under the mutant that reads the raw cell text instead of the rendering."""

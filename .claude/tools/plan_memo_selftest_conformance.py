@@ -186,7 +186,15 @@ def inline_claim(lx, body):
     §6.7 / §6.8 line breaks and §6.9 textual content are PROSE-AS-WRITTEN
     (§3.0b) and emit a tag Phase 2 makes no claim about (`<br />`), so
     nothing here counts a bare `<`."""
-    spans, pos, cut = [lx.text[a:b] for a, b in lx.html], 0, []
+    # ⚠ A DEMOTED span is not in this population, and the reason is the same
+    # measurement that demoted it: inside a resolved image's description the
+    # span is the alt's own TEXT, so the html ESCAPES it
+    # (`alt="… &lt;span&gt; …"`) and "stands verbatim in the body" is false of
+    # it by construction.  The filter removes nothing this corpus measures --
+    # of its 22 Images examples, none carries a `<` in a description -- so the
+    # claim it leaves behind is exactly the claim it had.  The demoted reading
+    # is carried by its own fixture controls, not here.
+    spans, pos, cut = [lx.text[a:b] for a, b, tag in lx.html if tag != "demoted"], 0, []
     for sp in spans:
         k = body.find(sp, pos)
         if k < 0:

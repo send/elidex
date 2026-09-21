@@ -115,6 +115,7 @@ class Population:
         for memo in self.memos:
             for lx in memo.lexed():
                 dispose(lx, keep)
+        self._unbound_claims()
         for memo in self.memos:
             self._unkeyed(memo)
         for row in self.declaring_rows():
@@ -160,6 +161,64 @@ class Population:
                                         % (row.name(), self.display(r2.memo.path), r2.lineno, r2.schema.name)))
                     continue
                 self.ids[rid] = row
+
+    def _unbound_claims(self):
+        """Every table in the POPULATION that binds to no schema and yet makes
+        a CENSUS CLAIM -- a cell carrying a `KIND_PHRASES` phrase -- is a miss.
+
+        The schema-miss gate above asks only of `main`, deliberately: a linked
+        detail memo may hold no slot ledger, and requiring one of every memo
+        would red half the family.  The hole that left (PR #510 R42-10, real
+        and reproduced): a LINKED memo whose slice table's header reads `No.`
+        instead of `#` binds to nothing, so its umbrella row and that row's
+        `Deps` edge leave the census with no diagnostic at all and the run
+        exits 0 -- the I-C class this checker exists for.
+
+        ⚠ THE PREDICATE IS THE CLAIM, NOT THE SHAPE, and that distinction was
+        MEASURED rather than reasoned.  The first predicate tried was "the
+        first column tokenises as row ids", which is exactly right on the four
+        fixtures and reported **151** tables over the corpus below -- a landing record's review-round tables (`obj`, `R1`...`R7`)
+        are id-shaped and entirely legitimate.  A header NEAR-MISS was the
+        other candidate and it is weaker for a reason no corpus count shows:
+        it fires on a renamed header whose table declares NOTHING (measured on
+        a two-fixture pair -- it reports the negative control, this predicate
+        does not).  A kind phrase is a claim ABOUT THE CENSUS, so a table
+        carrying one and binding to nothing is a contradiction the way an
+        umbrella row with a blank id cell is.
+        Measured over those same memos: this predicate fires **0** times,
+        while the phrases themselves occur **77** times in that corpus (in
+        bound tables and in prose) -- so the zero is a silence, not an empty
+        population.
+
+        ⚠ EVERY FIGURE HERE IS A DATED MEASUREMENT, NOT A STANDING CLAIM, and
+        it is written with its corpus because that corpus is not reproducible
+        elsewhere: 2026-09-21, the 141 `docs/plans/*.md` of this worktree and
+        of `elidex-wt-vmp4plan`, 511 tables of which 507 bind to nothing.  A
+        reader re-derives it by running this checker over each of those files
+        and counting the `binding to NO schema` line; what is authoritative is
+        the PREDICATE below and that command, never the number
+        (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
+
+        ⚠ HONESTLY, WHAT IT CANNOT SEE: an unbound table making NO kind claim.
+        Its ordinary rows are lost just as silently, and no predicate measured
+        here separates one from a documentation table that happens to key its
+        rows -- which is the 151 above.  That half is §8's, narrowed to it;
+        this half is closed."""
+        for memo in self.memos:
+            for t in memo.tables:
+                if t.schema is not None:
+                    continue
+                for row in [t.header] + t.rows:
+                    hit = next((n for c in row.cells
+                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)
+                    if hit is None:
+                        continue
+                    self.misses.append((
+                        self.display(memo.path), t.header.lineno,
+                        "a table binding to NO schema carries a %s kind phrase at :%d -- it makes a "
+                        "census claim and its whole population is unscanned; the header is %r"
+                        % (hit, row.lineno, [c.text for c in t.header.cells])))
+                    break
 
     def _unkeyed(self, memo):
         """The rows that declared nothing, sorted into the two verdicts -- run

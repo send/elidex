@@ -291,7 +291,29 @@ def dispose(lx, keep):
     both and there is no third stage.  The file/cite spans are recorded in
     SOURCE coordinates (`Stream.at`), which is what a mask is in."""
     base = list(code_mask(lx, keep))    # already (a, b, kind): "code", or "mark" for a demoted span
-    base += [(a, b, "html") for a, b in lx.html]
+    # ⚠ §6.6, INSIDE A RESOLVED IMAGE DESCRIPTION (PR #510, settled against
+    # cmark 0.31.2 and commonmark.js 0.31.2 -- the two readings §8 carried as
+    # undecidable on the vendored corpus, which holds 22 Images examples and
+    # none with a `<` in a description).  A raw HTML span is NOT markup there:
+    # §6.4 reduces the description to the plain string content of its inline
+    # children, and an `html_inline` node's plain string content is its OWN
+    # SOURCE TEXT.  Both references put it in the alt verbatim --
+    # `![UMBRELLA, not a <span>terminal unit](img.png)` gives
+    # `alt="UMBRELLA, not a &lt;span&gt;terminal unit"`, and cmark ESCAPING the
+    # angle brackets is what settles it: they are content, not markup.
+    # So the span is dropped from the mask entirely and its characters stand as
+    # ordinary text.  Masking it `html` (renders nothing, joins the two sides)
+    # FABRICATED a finding: the marker phrase appeared across a `<span>` the
+    # alt text spells out, and the row exited 1 on an ownership claim nobody
+    # made.  ⚠ The opposite direction from every other §6.4 finding on this
+    # surface -- a report invented, not a report missed -- which is why it was
+    # never fixed on the prose alone.
+    # ⚠ No line-ending substitution, and that is measured, not assumed: §6.1
+    # normalises a CODE span's endings to spaces (`` ![a `b\nc` d](i.png) ``
+    # -> `a b c d`) and §6.6 does not (`![a <span\nx>b](i.png)` keeps the
+    # ending), so the `_line_endings_to_spaces` pass beside `code` has no twin
+    # here.
+    base += [(a, b, "html") for a, b, tag in lx.html if tag != "demoted"]
     # A DEMOTED autolink is the same rule as the demoted code span above:
     # §6.5 makes the URI the link's text, so inside a §6.4 description the URI
     # is what the alt text holds and the angle brackets render nothing.

@@ -422,8 +422,10 @@ def inline_pass(s, defs):
     not attempted, and one that can is bounded), and the reason R23 fixing one
     left the sentence standing is that the sentence was about substrings while
     the cost was in the lookaheads.  `code` =
-    [(start, end)] backticks included; `html` = [(start, end)] of every raw
-    HTML span, `<` and `>` included; `links` = [(tail_start, end,
+    [(start, end)] backticks included; `html` = [(start, end, kind)] of every raw
+    HTML span, `<` and `>` included, `kind` = "html" or "demoted" (§6.4:
+    inside a resolved image's description a raw HTML span is not markup but
+    its own source text); `links` = [(tail_start, end,
     destination)] with `tail_start` the `]` closing the link text, so a
     caller masking the tail leaves the visible text -- prose -- in the
     scanned stream; `images` = [(tail_start, end)], every tail that is NOT a
@@ -456,7 +458,7 @@ def inline_pass(s, defs):
     marks, subst, delims, opens, pairs = [], [], [], [], []
     # the demotion RANGES, as index slices of `images` / `pairs` -- one per
     # resolved image, recorded in O(1) and applied once at the end (`_demote`)
-    dem_img, dem_pair, dem_code, dem_auto = [], [], [], []
+    dem_img, dem_pair, dem_code, dem_auto, dem_html = [], [], [], [], []
     # the number of LINKS that have closed; an opener recorded a smaller one
     # is inactive (the Appendix's "set all [ delimiters before the opening
     # delimiter to inactive", asked in O(1) rather than written N times)
@@ -510,7 +512,7 @@ def inline_pass(s, defs):
             if m is None:
                 i += 1                  # neither §6.5 nor §6.6, so a literal `<`
             else:
-                html.append((i, m.end()))
+                html.append((i, m.end(), "html"))
                 i = m.end()             # a raw HTML span is never inline-parsed
             continue
         if c == "`":
@@ -530,13 +532,14 @@ def inline_pass(s, defs):
             # bracket encloses is what is appended after it, which is an O(1)
             # fact of the stack and not something to search the lists for
             stack.append((i, _is_image(s, i), closed, len(delims), len(images), len(pairs),
-                          len(code), len(auto)))
+                          len(code), len(auto), len(html)))
             i += 1
             continue
         if c != "]" or not stack:
             i += 1
             continue
-        pos, is_img, was_closed, delim_bottom, img_bottom, pair_bottom, code_bottom, auto_bottom = stack.pop()
+        (pos, is_img, was_closed, delim_bottom, img_bottom, pair_bottom, code_bottom,
+         auto_bottom, html_bottom) = stack.pop()
         # an IMAGE opener is never deactivated (the Appendix deactivates the
         # `[` delimiters only); a link opener is, by any link that closed after
         # it was pushed
@@ -608,6 +611,7 @@ def inline_pass(s, defs):
             # union is applied once below, like `dem_img` and `dem_pair`.
             dem_code.append((code_bottom, len(code)))
             dem_auto.append((auto_bottom, len(auto)))
+            dem_html.append((html_bottom, len(html)))
             dem_img.append((img_bottom, len(images)))
             while out and out[-1][0] > pos:
                 images.append(out.pop()[:2] + ("demoted",))
@@ -657,6 +661,7 @@ def inline_pass(s, defs):
     marks += opens
     code = _demote(code, dem_code, 2)
     auto = _demote(auto, dem_auto, 2)
+    html = _demote(html, dem_html, 2)
     _line_endings_to_spaces(s, code, subst)
     return (code, out, _demote(images, dem_img, 2), unresolved, html, auto, marks, subst,
             _demote(pairs, dem_pair, 6))
@@ -699,7 +704,8 @@ class Lexed:
     the disposition's stage 2 (`plan_memo_stream.dispose`), never here: the
     reading needs a rendering, and a `Lexed` has none until it is disposed.
     `resolve(defs)` runs `inline_pass` and sets
-    `code` = code spans, `html` = raw HTML spans (§6.6), `autolinks` =
+    `code` = code spans, `html` = raw HTML spans (§6.6) with the same
+    "html" / "demoted" kind, `autolinks` =
     [(start, end)] of every §6.5 autolink span (`<` and `>` included; masked
     whole, its destination never joining the population -- an autolink's URL
     carries a scheme or is a `mailto:`, so it is never a sibling on disk),

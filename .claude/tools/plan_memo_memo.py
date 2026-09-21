@@ -671,6 +671,14 @@ class Memo:
         yields the blocks.  Read once, after `resolve`, into `raw` for the
         LEX-UNSUPPORTED? seed.
 
+        ⚠ A span DEMOTED into a resolved image's description is NOT seeded --
+        the same rule an autolink already carries ("unlike a raw HTML span it
+        is NOT seeded, because the construct is fully lexed and hides
+        nothing").  There its SOURCE TEXT stands in the scanned stream as
+        ordinary prose (§6.4, `plan_memo_stream.dispose`), so it hides nothing
+        either, and seeding it would send a reader to text the naming scan has
+        already read.
+
         Per LINE, because that is the shape the seed's other population already
         has (a raw extent contributes each of its lines, `raw_extent`) and
         because the seed's whole job is to send a reader to the text a scanner
@@ -697,11 +705,15 @@ class Memo:
         for t in self.tables:
             for row in [t.header] + t.rows:
                 for cell in row.cells:
-                    for a, b in cell.lexed.html:
+                    for a, b, tag in cell.lexed.html:
+                        if tag == "demoted":
+                            continue
                         for _off, piece in pieces(cell.lexed, a, b):
                             yield row.lineno, piece
         for p in self.paragraphs:
-            for a, b in p.lexed.html:
+            for a, b, tag in p.lexed.html:
+                if tag == "demoted":
+                    continue
                 for off, piece in pieces(p.lexed, a, b):
                     yield p.locate(off)[0], piece
 
