@@ -613,6 +613,7 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A37 | R12 | R11's own atomic term — "both boundaries of every atomic item, deliberately *permissive* at the GL/WJ/ZWJ exception", on the ground that a subset assertion is unsound only when it **rejects** a licensed break | the ground inverts for this invariant: over-licensing an **item boundary** is precisely how the flush it exists to catch gets blessed, so a fixture could have pinned an item-boundary bug at an atomic adjacent to a WJ (a control widened until it blesses the defect it was built to catch). And no class modelling is needed to state the rule exactly — measured through `find_break_opportunities` (probe run and reverted): `"a\u{FFFC}b"` → `[(1, Allowed), (4, Allowed)]`; with a WJ (U+2060) or ZWJ (U+200D) on one side that side is suppressed, which **is** css-text-3 §5.5's second sentence; with NBSP (U+00A0) it is also suppressed, which is the **one** case §5.5 licenses by name. So the licensed set is the breaker's own answer over the U+FFFC-encoded text ∪ NBSP-adjacent atomic boundaries. R11's "U+FFFC alone does not encode the rule" is withdrawn with it — it encodes all of it but NBSP. Found by Codex on #515 |
 | A38 | R12 | that PR-1c may leave the relayout refresh to `#11-inline-relayout-box-staleness`, on R11's ground that "what M4 changes is *which fields* go stale, not *whether* they do" | true for a wrong **number**, false for a wrong **picture**, and R11's own cell 13d is what made the difference: `InlineFlow` is rebuilt every pass (`git grep -nF 'Reconcile InlineFlow' 154bac3f -- crates/layout/elidex-layout-block/src/inline/mod.rs` → `:413`; the unconditional `insert_one` at `:528`; the candidate-key clear at `:156`) while `assign_inline_layout_boxes` skips any entity that already carries a `LayoutBox` (`boxes.rs:62-64`). After PR-1c a restyle therefore moves the glyphs and leaves the background and border at the first-layout box — a desynchronisation created here, since nothing is painted for an inline today. PR-1c takes the `layout_generation` comparison the slot already prescribes (`boxes.rs:86`), at a file M4 edits anyway; the slot keeps every other frozen `LayoutBox`, `content` included. Found by Codex on #515 ⚠ **Narrowed at R13**: the *promotion* stands, the prescribed mechanism does not — see A39 |
 | A39 | R13 | the `layout_generation` comparison as PR-1c's repair — taken from `#11-inline-relayout-box-staleness`'s own prescription when R12 promoted it | **inert off the paged path**, and the engine states it at both sites that already had to solve this: `git show 22de3078:crates/layout/elidex-layout-block/src/inline/reconcile.rs` at `:198-200` → "`layout_generation` is constant 0 off the paged path, so this is an explicit reconcile (insert-or-remove), not a generation comparison", and `…/inline/mod.rs` `:558` → "(F9 — `layout_generation` is constant 0 non-paged, so removal, not comparison)". Stored and current both read `0`, so the comparison skips exactly where the presence test does. ⚠ **The general form**: a deferral puts the *problem* under review and leaves the *remedy* unexamined, so promoting a slot's prescribed fix into a PR is the point at which that fix must be re-derived — R12 verified *which PR should own it*, not *whether it works*. Replaced by the ownership predicate §8 and §9 now state, which is the idiom the engine already uses for `InlineFlow`. Found by Codex on #515 |
+| A40 | R15 | PR-1c carrying a box reconciler of its own — the ownership predicate R14 wrote, which specifies the **insert** half and is silent on removal | an entity that *leaves* the producer set keeps its IFC-written box forever: restyle a decorated empty `<span>`'s last edge to zero and M1 emits no marker while no text gives `place_item` bounds either, so nothing overwrites and nothing removes. ⚠ **Third consecutive round on one mechanism, so the Step-4 self-root-check ran instead of a fourth patch**, and both its written questions point the same way. (1) The canonical algorithm is not missing — it is **two-sided and already in the engine**: `reconcile_flows` persists what the pass produced and `clear_inline_flows` removes it from every unpersisted candidate, the latter calling itself "the single staleness reconciler" (`git show 22de3078:crates/layout/elidex-layout-block/src/inline/mod.rs` at `:552-559`). R14 quoted "insert-or-remove" and implemented insert. (2) A second, box-only, insert-only reconciler beside the one that calls itself single is precisely the "N implementations of one rule" CLAUDE.md *One issue, one way* forbids. So the repair is carved into a **prerequisite PR** that extends that reconciler to the IFC-owned `LayoutBox` in both directions — which also repairs `LayoutBox.content` and therefore **discharges** `#11-inline-relayout-box-staleness` rather than narrowing it. Found by Codex on #515 |
 
 ---
 
@@ -1223,8 +1224,10 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   same missing attribution seen from the other side. ⚠ It is first-layout-only until
   `#11-inline-relayout-box-staleness` lands (§8, §9) — an ordering note, **not** a blocking
   dependency. ⚠ Its stated ground, "that limit applies equally to PR-1c's own edge write", no
-  longer holds: R12 moved the box repair into PR-1c (by ownership, not by the inert
-  `layout_generation` comparison — R13), so PR-1c's edges *are* refreshed. What survives is the narrower ground — this residue is a `#11-inline-box-decoration-splits`
+  longer holds: the box repair now lands in a **prerequisite PR** ahead of PR-1c
+  (R12 moved it out of the slot, R13 measured the slot's own remedy inert, R15 carved it out as
+  the two-sided extension of the engine's single staleness reconciler), so PR-1c's edges *are*
+  refreshed. What survives is the narrower ground — this residue is a `#11-inline-box-decoration-splits`
   facet whose per-fragment attribution does not exist at all yet, so there is nothing for a
   refresh to keep current. Also fragmentation across the marker pair;
   **css-text-3 §5.5's adjacent-soft-wrap rule** (a break next to a decorated boundary lands at the
@@ -3232,19 +3235,48 @@ off the paged path**, and the engine says so at both sites that had to solve thi
 path, so this is an explicit reconcile (insert-or-remove), **not a generation comparison**" — and
 `inline/mod.rs:558` — "(F9 — `layout_generation` is constant 0 non-paged, so **removal, not
 comparison**)". Stored and current would both read `0`, the comparison would skip exactly as the
-presence test does, and nothing would be repaired. What PR-1c takes instead is the predicate the skip is really reaching for — **who owns this
-entity's box** — stated positively and derived by construction. The IFC writes, unconditionally
-and every pass, for the boxes **it** produces (M4's marker-derived rects, and the element bounds
-`place_item` pushes for a `FlowMember::Text` whose entity is not the IFC parent), and never writes
-for a member another layout placed (an atomic's box comes from `layout_child`, with real edges the
-IFC would overwrite with zeroes). ⚠ **Positively, not as a list of exceptions**: `entity_bounds`
-carries both kinds because `place_item` pushes for every member, so the flag rides the push — the
-producer knows which it is — rather than being re-derived downstream from a set of
-excluded classes, which would leave the next class authoritative by default. The presence test was
-a **proxy** for that ownership question and is correct only on the first pass; by the second, the
-IFC owns the box and the box is still present, so the proxy inverts.
-This is the same shape the engine already uses for `InlineFlow` — an explicit reconcile of what
-this pass produced — which is what makes it an existing idiom rather than a new mechanism. The slot keeps the residue it names (§9). Found by Codex on #515. **§7's full `LayoutBox`-edge reader list
+presence test does, and nothing would be repaired. What PR-1c takes instead is **not a box reconciler of PR-1c's own — the engine already has the
+canonical one, and R14 took half of it twice** (R15's self-root-check). The repair moves to a
+**prerequisite PR** that discharges `#11-inline-relayout-box-staleness`, and PR-1c depends on it.
+
+⚠⚠ **Why the root-check landed there rather than on a fourth patch.** Three consecutive rounds
+found a defect in the previous round's own repair — R13 said PR-1c may not defer the refresh, R14
+measured the deferred remedy inert, R15 found the replacement silent on **removal**. The two
+questions the check must answer in writing:
+
+1. *Is a canonical algorithm missing?* **No — it exists and is two-sided.** The IFC's staleness
+   reconciler for `InlineFlow` is *insert-or-remove over a candidate set*: `reconcile_flows`
+   persists what this pass produced and `clear_inline_flows` removes it from every candidate key
+   not persisted, the latter documented at `inline/mod.rs:552-559` (`22de3078`) as "**the single
+   staleness reconciler** (F9 — `layout_generation` is constant 0 non-paged, so removal, not
+   comparison)". R14's text quoted "explicit reconcile (**insert-or-remove**)" and then specified
+   only the insert half, which is exactly the hole R15 found: an entity that *leaves* the producer
+   set — a decorated empty `<span>` whose last edge is restyled to zero, so M1 emits no marker and
+   no `place_item` bounds exist either — keeps its IFC-written box forever.
+2. *Does the mechanism violate the project's own stated ideal?* **Yes.** CLAUDE.md *One issue, one
+   way* requires a single canonical form rather than "新 seam + N 個の legacy 実装", and
+   `clear_inline_flows` calls itself **the** single staleness reconciler. A second, box-only,
+   insert-only reconciler standing beside it is a second implementation of one rule — the thing
+   the mandate forbids — and it is what the per-fix lens kept producing because that lens only
+   ever asked whether *this* patch is correct.
+
+**So the prerequisite extends that one reconciler to the IFC-owned `LayoutBox`**, both directions,
+over its own candidate set — the flow reconciler's `candidate_keys` is *not* reusable, being "the
+IFC parent's raw direct children, then every recursed inline element's raw direct children"
+(`collect.rs:148-150`), i.e. the entities that could carry a *flow*, not those that could carry a
+*box* — but both sets fall out of the same collect walk. It also repairs `LayoutBox.content`,
+which is this slot's own residue, so the slot is discharged rather than narrowed.
+
+The **ownership predicate still holds and is where the insert half gets its domain**: the IFC
+writes for the boxes it produces (M4's marker-derived rects, and the element bounds `place_item`
+pushes for a `FlowMember::Text` whose entity is not the IFC parent) and never for a member another
+layout placed — an atomic's box comes from `layout_child` carrying real edges the IFC would
+overwrite with zeroes, which is what the presence skip was actually protecting. Stated positively,
+the flag riding the producer's push, rather than as a list of excluded classes. ⚠ The presence
+test was a **proxy** for that ownership question, correct only on the first pass: by the second the
+IFC owns the box and the box is still there, so the proxy inverts — the same shape as reading
+`layout_generation` as a relayout token because of its name.
+Found by Codex on #515; the prerequisite carve is R15's. Ledger **A40**. **§7's full `LayoutBox`-edge reader list
 dispositioned, no member of it standing in for the rest** (a `getBoundingClientRect` assertion
 included, made through the
 layout-level channel §5.2 names, not in `elidex-dom-api`) — **and dispositioned over a second entity
@@ -3943,26 +3975,58 @@ program owes is the disclosure and the routing, not the fix. Ledger **A36**.
   (`inline/mod.rs:413`, `:528`, `:156`) while this box is not, so after PR-1c and cell 13d the
   glyphs move on a restyle and the background and border stay at the first-layout box — a
   desynchronisation that does not exist today, because nothing is painted for an inline at all.
-  **PR-1c therefore repairs the write, and R13 corrected *how*.** The
+  **The write is repaired before PR-1c, and R13/R15 corrected *how* twice.** The
   `layout_generation` comparison this slot prescribes — and which R12 promoted on the slot's word —
   is **inert**: the counter is constant `0` off the paged path, as `inline/reconcile.rs:198-200`
   and `inline/mod.rs:558` both state at `22de3078`, so the comparison degenerates into the presence
   test. ⚠ **The slot's own prescribed remedy had never been measured** — a deferral puts the
   *problem* under review and leaves the *remedy* unexamined, and promoting one into a PR is the
-  moment to re-derive it. What PR-1c takes is the predicate the skip is really reaching for — **who owns this
-entity's box** — stated positively and derived by construction. The IFC writes, unconditionally
-and every pass, for the boxes **it** produces (M4's marker-derived rects, and the element bounds
-`place_item` pushes for a `FlowMember::Text` whose entity is not the IFC parent), and never writes
-for a member another layout placed (an atomic's box comes from `layout_child`, with real edges the
-IFC would overwrite with zeroes). ⚠ **Positively, not as a list of exceptions**: `entity_bounds`
-carries both kinds because `place_item` pushes for every member, so the flag rides the push — the
-producer knows which it is — rather than being re-derived downstream from a set of
-excluded classes, which would leave the next class authoritative by default. The presence test was
-a **proxy** for that ownership question and is correct only on the first pass; by the second, the
-IFC owns the box and the box is still present, so the proxy inverts. §8 states it as a PR-1c
-  deliverable, and this slot's residue is unchanged. **This slot keeps the residue**: every
-  other `LayoutBox` the engine freezes the same way, `LayoutBox.content` included, which no part of
-  this program touches. Found by Codex on #515.
+  moment to re-derive it. What PR-1c takes is **not a box reconciler of PR-1c's own — the engine already has the
+canonical one, and R14 took half of it twice** (R15's self-root-check). The repair moves to a
+**prerequisite PR** that discharges `#11-inline-relayout-box-staleness`, and PR-1c depends on it.
+
+⚠⚠ **Why the root-check landed there rather than on a fourth patch.** Three consecutive rounds
+found a defect in the previous round's own repair — R13 said PR-1c may not defer the refresh, R14
+measured the deferred remedy inert, R15 found the replacement silent on **removal**. The two
+questions the check must answer in writing:
+
+1. *Is a canonical algorithm missing?* **No — it exists and is two-sided.** The IFC's staleness
+   reconciler for `InlineFlow` is *insert-or-remove over a candidate set*: `reconcile_flows`
+   persists what this pass produced and `clear_inline_flows` removes it from every candidate key
+   not persisted, the latter documented at `inline/mod.rs:552-559` (`22de3078`) as "**the single
+   staleness reconciler** (F9 — `layout_generation` is constant 0 non-paged, so removal, not
+   comparison)". R14's text quoted "explicit reconcile (**insert-or-remove**)" and then specified
+   only the insert half, which is exactly the hole R15 found: an entity that *leaves* the producer
+   set — a decorated empty `<span>` whose last edge is restyled to zero, so M1 emits no marker and
+   no `place_item` bounds exist either — keeps its IFC-written box forever.
+2. *Does the mechanism violate the project's own stated ideal?* **Yes.** CLAUDE.md *One issue, one
+   way* requires a single canonical form rather than "新 seam + N 個の legacy 実装", and
+   `clear_inline_flows` calls itself **the** single staleness reconciler. A second, box-only,
+   insert-only reconciler standing beside it is a second implementation of one rule — the thing
+   the mandate forbids — and it is what the per-fix lens kept producing because that lens only
+   ever asked whether *this* patch is correct.
+
+**So the prerequisite extends that one reconciler to the IFC-owned `LayoutBox`**, both directions,
+over its own candidate set — the flow reconciler's `candidate_keys` is *not* reusable, being "the
+IFC parent's raw direct children, then every recursed inline element's raw direct children"
+(`collect.rs:148-150`), i.e. the entities that could carry a *flow*, not those that could carry a
+*box* — but both sets fall out of the same collect walk. It also repairs `LayoutBox.content`,
+which is this slot's own residue, so the slot is discharged rather than narrowed.
+
+The **ownership predicate still holds and is where the insert half gets its domain**: the IFC
+writes for the boxes it produces (M4's marker-derived rects, and the element bounds `place_item`
+pushes for a `FlowMember::Text` whose entity is not the IFC parent) and never for a member another
+layout placed — an atomic's box comes from `layout_child` carrying real edges the IFC would
+overwrite with zeroes, which is what the presence skip was actually protecting. Stated positively,
+the flag riding the producer's push, rather than as a list of excluded classes. ⚠ The presence
+test was a **proxy** for that ownership question, correct only on the first pass: by the second the
+IFC owns the box and the box is still there, so the proxy inverts — the same shape as reading
+`layout_generation` as a relayout token because of its name. ⚠⚠ **R15: this slot is
+  therefore not narrowed but *discharged*, as a prerequisite PR ahead of PR-1c.** Extending the
+  engine's one staleness reconciler in both directions repairs `LayoutBox.content` — the residue
+  R13 left here — by the same edit, so splitting the two would be a second implementation of one
+  rule (CLAUDE.md *One issue, one way*), which is the root R15's self-root-check named. §8 carries
+  the derivation and the two written questions. Found by Codex on #515; the carve is R15's.
   (`#11-inline-align-clientrects-nonpersist-path` was ledger-marked to fold into terminal-Z
   C-3/C-4 alongside it; the dead-arm prereq #511 **closed** it instead — SoT corrected at landing,
   2026-09-07: the fold note now applies to `#11-inline-relayout-box-staleness` alone.)
@@ -4565,6 +4629,6 @@ record; no count carried here) before being carved into #510. Earlier revisions 
 | **Close `#11-line-box-decorated-inline-content`** — §5.3 and §8 both assert it, and until now no ledger row carried it | PR-1d |
 | The plan-checker standing maintenance note is **already written** into `.claude/skills/elidex-plan-review/SKILL.md` on this branch, not booked for landing — an earlier trigger, "the next plan-review round that runs them by hand", fired every round and discharged nothing, and a landing-scoped row would have left it unowned in exactly the window it matters (its trigger is now #510's resolution or TERMINAL, §9). **Not a `#11-` slot** — skill infra, per that file's own slot-fit precedent. This row records it; the **tooling PR** ships it with the two checkers (§8, §9) — the note lives in SKILL.md, a tooling file. ⚠ Routed to the seam-3 prereq PR, then PR-1a, by earlier revisions; #508 shipped neither the note nor the tools, and PR-1a would have landed them unconnected — the shipper is the §9 task's own PR, on its §9 trigger (#510's resolution or TERMINAL) and under its own plan-review; that PR retires or rewrites this note. | tooling PR |
 | Split the joint "fold into terminal-Z C-3/C-4" parenthetical shared by `#11-inline-align-clientrects-nonpersist-path` and `#11-inline-relayout-box-staleness` — this PR closes the first, so the pairing stops holding **here**, and leaving it to a later PR would strand the SoT asserting a fold against a closed slot — ✅ **landed with #511 (2026-09-07)** | dead-arm prereq PR |
-| Enrich `#11-inline-relayout-box-staleness`'s SoT entry with M4's write-path statement (§9), and note that `#11-inline-box-decoration-splits`'s work is first-layout-only until this slot lands — an **ordering** note, not a blocking dependency (§5.3). ⚠ R12/R13: PR-1c itself no longer sits behind the slot — it repairs its own boxes by ownership (the slot's `layout_generation` comparison is inert off the paged path) — so this row's scope is the splits facet alone | PR-1c |
+| Enrich `#11-inline-relayout-box-staleness`'s SoT entry with M4's write-path statement (§9), and note that `#11-inline-box-decoration-splits`'s work is first-layout-only until this slot lands — an **ordering** note, not a blocking dependency (§5.3). ⚠ R12/R13/R15: the slot is **discharged by a prerequisite PR** ahead of PR-1c (its own `layout_generation` remedy being inert off the paged path), so this row's scope is the splits facet alone | PR-1c |
 | Rewrite `project_line-box-decorated-inline-content.md`, `MEMORY.md`'s Layout-lane entry and `active-lane-detail.md`, all of which still carry a superseded framing of this slot. ⚠ Re-tagged from `seam-3 prereq PR` under the 2026-08-16 narrowing (§8); the per-program memory file is maintained round by round meanwhile, so what remains for the approval PR is the framing in `MEMORY.md` / `active-lane-detail.md` and the final state of the per-program file | approval PR |
 | Record the successor program the close hands off to: `#11-inline-box-decoration-splits`, `#11-inline-min-content-box-edges` and `#11-inline-zero-edge-box-in-item-stream` **arm at PR-1d landing** (the splits slot on the first disjunct of its trigger; §5.3 gives C-3b as the other; the zero-edge slot on the first disjunct of its trigger, §5.3), and `#11-inline-fragmented-fn-seams-1-2` **does not arm at the close** — none of PR-1a–1d edits `inline/reconcile.rs` (PR-1d's `clear_inline_flows` item is a path consequence, §5.2/§7) and disjunct 1 is self-exempted. ⚠ It is **already armed**, independently of this program: its disjunct 3 fired at #511 (2026-09-07), the program's only `reconcile.rs` touch, so the reshape is unblocked now and ordered against nothing here — a Layout-lane task in its own right with its own plan-review (the signature's ECS question), re-eval 2026-11-01. Two earlier dispositions are withdrawn on the record: "neither of its disjuncts fires" (counted the disjuncts this memo prescribed, not the ones the slot carries) and "scheduled after PR-1d" (anchored to a `reconcile.rs` write PR-1d does not make — round 20, Axes 2/3). The Layout lane's next-task choice is therefore among **four**: the three slots that arm here and the already-armed successor | PR-1d |
