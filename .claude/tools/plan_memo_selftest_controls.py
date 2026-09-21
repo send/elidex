@@ -254,6 +254,60 @@ def inline_examples_control(M):
     return ok, detail.split("\n")[0]
 
 
+def refused_destination_silence_control(M):
+    """PROPERTY: a destination the sibling resolver REFUSES leaves no finding,
+    no seed and no note naming it -- and that silence is PINNED, not merely
+    current.
+
+    ⚠ WRITTEN BECAUSE THE SILENCE WAS A DECLARED POLICY WITH NO MECHANISM
+    (PR #510 R47, blind-spot audit).  `plan_memo_sibling`'s stage (c) refuses a
+    reserved character, a DOS device and an anchored path, and says so three
+    times in prose -- "dropped without a report … which is this stage's
+    standing polarity".  The existing controls pin that such a memo is NOT
+    WALKED; nothing pinned that the run says NOTHING.  Measured: inserting a
+    `[DEST-REFUSED?]` seed for exactly this case left all 701 controls green,
+    so the polarity could be reversed -- in either direction -- in silence.
+
+    ⚠ THE DISCRIMINATING PARTNER IS IN THE SAME RUN: an ordinary sibling in the
+    same memo IS walked and DOES appear in the population line.  Without it
+    "nothing names these" is also true of a checker that reads no destinations
+    at all.
+
+    ⚠ This control states the policy; it does not endorse it.  §8 carries the
+    open question -- a could-not-scan that exits 0 sits against §1's own rule --
+    and if that is ever decided the other way, THIS control is what turns red
+    and makes the decision explicit."""
+    import tempfile, pathlib
+    with tempfile.TemporaryDirectory() as d:
+        root = pathlib.Path(d)
+        (root / "sib.md").write_text("# an ordinary sibling\n", encoding="utf-8")
+        try:
+            (root / "notes:child.md").write_text("# reachable on this fs\n", encoding="utf-8")
+        except OSError:
+            pass
+        memo = root / "m.md"
+        # ⚠ The FULL fixture, not the slot table alone: with three schemas
+        # missing the run exits 2 on schema misses before it prints the
+        # population line, and the discriminating half would read False for a
+        # reason that has nothing to do with the destinations.
+        from plan_memo_selftest_cases import build
+        memo.write_text(build() + "\nSee [a](notes%3Achild.md), [b](NUL.md) and [c](sib.md).\n",
+                        encoding="utf-8")
+        # ⚠ Read the RESULT, not stdout: `check()` returns and the report is
+        # printed by `main()`, so a `redirect_stdout` here captures nothing and
+        # BOTH halves read as "not named" -- the refused half would have passed
+        # vacuously.
+        res = M.check(str(memo))
+        out = "\n".join(
+            [str(f) for f in res.findings] + [str(n) for n in res.notes]
+            + [res.population.display(m.path) for m in res.population.memos])
+    refused = [n for n in ("notes%3Achild.md", "notes:child.md", "NUL.md") if n in out]
+    walked = "sib.md" in out
+    ok = not refused and walked
+    return ok, ("refused destinations named in the report: %s (must be none); the ordinary sibling "
+                "IS named: %s (must be True)" % (refused or "none", walked))
+
+
 def demoted_agreement_control(M):
     """Every §3.0b family demoted into a resolved image description, against
     the spec's OWN html -- the cross-product the vendored corpus cannot reach
@@ -594,6 +648,7 @@ def registry():
     reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
         "with the html"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
+    reg["a destination the sibling resolver REFUSES leaves no finding, seed or note naming it -- the stated policy, pinned rather than merely current"] = ("CONTROL", refused_destination_silence_control)
     reg["CommonMark 0.31.2 §6.4: Phase 2's inline claim agrees with the spec's own html for every "
         "§3.0b family DEMOTED into a resolved image description (the cross-product the corpus cannot reach)"] = ("CONTROL", demoted_agreement_control)
     reg["CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts inside `<code>` (line endings converted, then the one-space trim)"] = ("CONTROL", code_span_reading_control)

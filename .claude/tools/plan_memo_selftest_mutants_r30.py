@@ -44,7 +44,7 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
     R42_10_UNBOUND_NO_CLAIM, R42_10_UNBOUND_RENDERED, R42_8_HTML_ALT, R42_8_HTML_ATTR_SITE,
     R42_8_HTML_NO_SEED_CELL, R42_8_HTML_NO_SEED_PROSE, R42_9_UNDET, R42_ALLSPACE,
     R42_BLANK_MARKER, R42_IMG_AUTO, R42_IMG_CODE, R42_LINE_ENDING_FIRST, R42_TRIM,
-    R45_SHORT_DELIM, R45_TABLE_MISS_SCOPE, R45_UNKEYED_SCOPE,
+    R45_DELIM_ALL, R45_SHORT_DELIM, R45_TABLE_MISS_SCOPE, R45_UNKEYED_SCOPE,
     R47_1_DASH_SET, R47_1_EN_DASH, R47_2_UNBOUND_QUOTED, R47_2_UNBOUND_STRADDLE,
     R47_4_BASELINE, R47_4_BOUNDARY, R47_4_NBSP, R47_4_NON_WHITESPACE, R47_4_TAB,
     R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
@@ -747,10 +747,16 @@ MUTANTS += [
      '                    if hit is None:\n'
      '                        hit = next((n for c in row.cells\n'
      '                                    for n in kind_disagreements(c.lexed)), None)',
+     # ⚠ ANCHORED. `tokens()` is a SCANNER: `next(tokens("prose with 9z inside"))`
+     # is not None, so the unanchored form re-injects "CONTAINS an id" (318
+     # tables) while the figure beside it is "STARTS with an id" (151). The
+     # number and the thing it justifies were different predicates one level
+     # down from where that was last corrected.
      '                    _t = __import__("plan_memo_ids").tokens\n'
+     '                    _st = lambda c: (lambda k: k is not None and k.start == 0)(\n'
+     '                        next(_t((c or "").strip(" \\t")), None))\n'
      '                    hit = ("marker" if t.rows and all(\n'
-     '                        r.cells and next(_t((r.cells[0].text or "").strip(" \\t")), None)\n'
-     '                        is not None for r in t.rows) else None)',
+     '                        r.cells and _st(r.cells[0].text) for r in t.rows) else None)',
      [R42_10_UNBOUND_ID_SHAPED]),
     ("R42-10: the REJECTED header-near-miss predicate (re-inject it: a renamed header is reported "
      "whether or not the table declares anything)", POPULATION,
@@ -835,7 +841,7 @@ MUTANTS += [
      "dialect the review finding asked for, which cmark-gfm refutes)", BLOCKS,
      '_DELIM_CELL = re.compile(r":?-+:?")',
      '_DELIM_CELL = re.compile(r":?---+:?")',
-     [R45_SHORT_DELIM]),
+     list(R45_DELIM_ALL)),
 ]
 
 MUTANTS += [
@@ -927,4 +933,28 @@ MUTANTS += [
      '        for name in kind_disagreements(row.cells[row.schema.decl].lexed):',
      '        for name in list(kind_disagreements(row.cells[row.schema.decl].lexed))[:1]:',
      [R47_5_TWO_PHRASES]),
+]
+
+REFUSED_SILENCE = ("a destination the sibling resolver REFUSES leaves no finding, seed or note "
+                   "naming it -- the stated policy, pinned rather than merely current")
+
+# -- R47-6: the refusal POLICY, in both directions.  The first mutant reverses
+# the polarity (a refused destination reports); the second breaks the
+# discriminating half (nothing is walked at all), which is what says the
+# control's silence half is not vacuous.
+MUTANTS += [
+    ("R47-6 refusal: a REFUSED destination stays silent (reverse the polarity -- report it, the "
+     "reading §1's could-not-scan rule would ask for and the one §8 carries as open)", MEMO,
+     '                f = sibling_path(self.path.parent, dest)\n'
+     '                if f is not None and f not in seen:',
+     '                f = sibling_path(self.path.parent, dest)\n'
+     '                if f is None:\n'
+     '                    f = self.path.parent / dest\n'
+     '                if f is not None and f not in seen:',
+     [REFUSED_SILENCE]),
+    ("R47-6 refusal: ... and the ORDINARY sibling IS walked (drop every link -- the half that says "
+     "\"nothing names these\" is not also true of a checker that reads no destinations)", MEMO,
+     '                if f is not None and f not in seen:',
+     '                if False and f not in seen:',
+     [REFUSED_SILENCE]),
 ]

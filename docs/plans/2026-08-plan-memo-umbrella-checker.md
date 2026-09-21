@@ -1958,10 +1958,14 @@ ground for either option; it is not cited.
   counting `len(lx.code)` and `len(lx.autolinks)` whole, which R42-5a had demoted one round earlier.
   `![a `b` c](img.png)` reported *"the html emits 0 `<code>`, Phase 2 claims 1 code span(s)"*
   against cmark's own `alt="a b c"`: a FABRICATED falsifier failure, in the direction that also
-  CANCELS a real one through the `left` conservation count. The corpus cannot reach it (22 of 335
-  inline examples render an `<img>`; zero carry a backtick and zero a `<` in the description), so
-  the sentence the §6.6 fix wrote for `.html` — "the filter removes nothing this corpus measures" —
-  was true of the siblings too, and hid them. Fixed at all four sites, with a control that runs each
+  CANCELS a real one through the `left` conservation count. The corpus cannot reach it, and ⚠ the figure first
+  written here was wrong in a way worth keeping: *"22 of 335 inline examples render an `<img>`"* is
+  the IMAGES SECTION count, a different predicate — **23** render one (19 Images, 3 Links, 1
+  Emphasis). The SAFETY conclusion is unchanged and is measured by over-approximation so no regex
+  can drop a row: zero of the 23 carry a backtick anywhere, and the two carrying a `<` are Example
+  580 (`![foo](<url>)`, in the DESTINATION) and Example 475 (raw HTML with no description). So the
+  sentence the §6.6 fix wrote for `.html` — "the filter removes nothing this corpus measures" — was
+  true of the siblings too, and hid them. Fixed at all four sites, with a control that runs each
   §3.0b family through `inline_claim` against the spec's own html plus a BARE twin and a
   deliberately-wrong body, and four mutants. ⚠ **The module had never been mutable**: it was not in
   the mutant module set at all, so no row could name the falsifier in either direction. It is
@@ -1985,7 +1989,10 @@ ground for either option; it is not cited.
   the mutant re-injecting that predicate was written for *any row including the header* (333 / more)
   — the number and the thing it justified were different predicates. Both say every body row now.
   (c) *"the phrases occur 77 times"* — **76**, and the memo edit in the very commit asserting it is
-  what removed the 77th. The count is no longer transcribed: this document is in its own corpus, so
+  what removed the 77th. ⚠ **And it moved AGAIN, to 78** — because that "removal" took the number
+  out of the memo and left it standing in `Population._unbound_claims`' docstring, so the same
+  figure was re-falsified a round later by edits that had nothing to do with it. It is gone from
+  BOTH now. This document is in its own corpus, so
   the figure moves whenever this paragraph is edited, which is the failure
   `memory/feedback_document-landing-invalidates-its-own-measurements.md` names and which was cited
   three lines below the number.
@@ -2595,10 +2602,18 @@ below, in order: (1) acceptance half of assertion (b); (2) the four assertions' 
 (3) two KNOWN-MISS bare-id shapes; (4) the always-run wire's cost per review round; (5) the id
 grammar's released trailing decoration; (6) Slice 3, Phase 1 offsets; (7) `symbol_attribution_control`'s
 existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the `self_id`
-suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the hand-written
-table with no detector. **Ten own and two pre-existing** — (9) and (10) are the pre-existing ones,
-each with its grounding stated where the policy asks for it. Count the list rather than trusting
-this sentence: `awk` the `^- \*\*` lines of this section and you must get twelve.
+suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the §6.2 demotion
+tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the
+hand-written table with no detector. **Twelve own and two pre-existing** — (9) and (10) are the
+pre-existing ones, each with its grounding stated where the policy asks for it. Count the list
+rather than trusting this sentence: `awk` the `^- \*\*` lines of this section and you must get
+fourteen.
+⚠ **(12) AND (13) ARRIVED AT R47 AND BOTH MOVE THE OWN COUNT**, from ten to twelve. Neither is a
+deferral of convenience: (12)'s one-line fix overturns a control this plan RATIFIED — the direction
+cmark supports is the one the ratified control rejects — and (13) changes what the conformance proof
+asserts by giving it a second ground truth. The user's option-(d) acceptance was given at ten; this
+records the movement rather than absorbing it, because the policy's whole point is that the number
+is a classification and not an edit.
 ⚠ **(10) ARRIVED BY AUDIT, NOT BY REVIEW** (PR #510 R45). It is a real deferral of this PR's subject
 that a reader auditing §8 could not find, because its home (§4) has no trigger column and no date
 — so the enumeration was complete over §8 and incomplete over the PR. Adding it moves the total and
@@ -2783,11 +2798,17 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   completeness direction cannot see"*). With the denominator cleaned (a `` `mod.py` `` mention is no
   longer misread as the symbol `py`), the skip arm is **nine distinct `module.symbol` PAIRS over fourteen
   SITES** — ⚠ and the sentence that stood here, *"exactly nine attributions, all in §3's coverage
-  map"*, was false in both halves (PR #510 R45, replayed through the control's own loop). It
-  undercounted sites by five, and "all in §3" is refuted by the list's own first member: ten sites
-  are in §3, one is a docstring in `plan_memo_selftest_records.py`, and **three are in §8 itself —
-  this very sentence**. `grep -n 'plan_memo_ids\._TOKEN' <this memo>` returns exactly one line, the
-  one enumerating it here; its only real site is that docstring. A universal falsified by the
+  map"*, was false in both halves (PR #510 R45, replayed through the control's own loop). "All
+  in §3" is refuted by the list's own first member: of the FIFTEEN sites, fourteen are in THIS MEMO
+  and exactly one is in a real module — a docstring in `plan_memo_selftest_properties.py`.
+  ⚠ **Three particulars of that correction were themselves wrong when written, and are corrected
+  here**: the site count was given as fourteen (it is fifteen — the fifteenth is the paragraph that
+  wrote the correction); the one real site was attributed to `plan_memo_selftest_records.py`; and
+  `grep -c 'plan_memo_ids\._TOKEN' <this memo>` was said to return exactly one line, which was true
+  when measured and became **two** in the same commit, because this entry is the second. A
+  correction that lands inside its own corpus falsifies itself
+  (`memory/feedback_document-landing-invalidates-its-own-measurements.md`); the command is what
+  stands, not the number. A universal falsified by the
   paragraph asserting it is the shape
   `memory/feedback_universal-claims-need-the-complement-measured.md` names, and the enumeration is
   now of PAIRS with the site count beside it: `plan_memo_ids._TOKEN`, `plan_memo_lexer._TOKEN`, `plan_memo_lexer.links`,
@@ -2883,6 +2904,37 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   **Trigger (an EVENT)**: a round that reports a declaration lost from an unbound table carrying no
   kind phrase, or a second corpus measurement that separates the two populations.
   **Re-eval: 2026-12-31.** No slot: it is this checker's own gate.
+- **(own)** **THE §6.2 DEMOTION TAG IS RECORDED AND NEVER READ, and in alt text that loses a census
+  claim** (PR #510 R47, blind-spot audit — **real, reproduced, NOT fixed here**). `dispose` unpacks
+  the emphasis entries discarding the kind (`…, use, _k`) where `code`, `autolinks`, `html` and
+  `images` all read their `"demoted"` tag. Reproduced with a declared single-letter row id:
+  `![UMBRELLA, not **a** terminal unit](img.png)` exits **0** while cmark's alt is
+  `UMBRELLA, not a terminal unit` — the marker VERBATIM — and the single-star twin `*a*` exits 1,
+  so the checker distinguishes two spellings the reference renders identically. The `**` survives
+  into the stream because `id_only("a")` is true and the decoration exception fires.
+  ⚠ **Why it is NOT fixed in the round that found it**: the one-line fix (read the tag) also makes
+  `![**9z**7z](i.png)` read as the single token `9z7z` — which is cmark's answer — and that turns a
+  SHIPPED control red, the `**` twin R42 ratified as reporting TWO ids. Changing it is overturning a
+  recorded decision, not patching a slip, and the direction cmark supports is the one the ratified
+  control rejects.
+  ⚠ **Edge-dense by CLAUDE.md's own test**: it intersects the id-grammar decoration exception, §6.4's
+  demotion, `MARKER_RE`, the residue gate (`kind_disagreements` cannot see it — both readings agree,
+  measured) and the `keep` set. `/elidex-plan-review` before implementation, BY RULE.
+  ⚠ **The `kindcell` control family has the matching hole**: link / empty link / nested image / code
+  span / raw HTML / plain are all covered and emphasis — the one construct whose tag is dropped — is
+  not. **Owner**: Slice 2's plan-review. **Trigger**: already fired. **Re-eval: 2026-12-31.**
+- **(own)** **THE CONFORMANCE FALSIFIER COMPARES A GFM READER AGAINST A PURE-CommonMark RENDERER**
+  (PR #510 R47 — the same fabricated-falsifier class as the §6.4 one this PR fixed, in the one
+  construct that PR did not reach). `a ~~b~~ c` gives *"the html emits 0 `<del>`, Phase 2 claims 1
+  GFM strikethrough pair"*: the lexer reads GFM strikethrough, the vendored html is cmark's and
+  cmark has no such extension. Corpus-unreachable (zero `~` pairs in the 335 inline examples) and
+  pre-existing, so nothing has ever been red.
+  ⚠ **It is a DECISION, not a patch**: `cmark-gfm 0.29.0.gfm.13` is now installed on this host (it
+  settled the delimiter FP this round), so the falsifier could compare GFM constructs against a GFM
+  renderer — but that makes the conformance corpus two corpora with two ground truths, which is a
+  change to what the proof asserts. **Owner**: Slice 1's next touch of the conformance module.
+  **Trigger**: the next round that reports a falsifier disagreement on a GFM-only construct, or a
+  `~` pair entering the corpus. **Re-eval: 2026-12-31.** No slot: it is this checker's own proof.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the

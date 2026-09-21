@@ -188,11 +188,18 @@ def inline_claim(lx, body):
     nothing here counts a bare `<`."""
     # ⚠ A DEMOTED span is not in this population, and the reason is the same
     # measurement that demoted it: inside a resolved image's description the
-    # span is the alt's own TEXT, so the html ESCAPES it
-    # (`alt="… &lt;span&gt; …"`) and "stands verbatim in the body" is false of
-    # it by construction.  The filter removes nothing this corpus measures --
-    # of its 22 Images examples, none carries a `<` in a description -- so the
-    # claim it leaves behind is exactly the claim it had.  The demoted reading
+    # span is the alt's own TEXT, so "stands verbatim in the body" is false of
+    # it: cmark serialises it into the `alt` attribute (escaped there, though
+    # ⚠ the escaping is cmark's serializer and NOT the deciding fact --
+    # commonmark.js emits the same characters unescaped) rather than into the
+    # `<p>` body this reads.
+    # ⚠ The filter removes nothing this corpus measures, and the figure is
+    # re-derived rather than carried: **23** of the 335 inline examples render
+    # an `<img>` (19 in Images, 3 in Links, 1 in Emphasis -- "22" was the
+    # IMAGES SECTION count, a different predicate), **zero** carry a backtick
+    # anywhere, and the two carrying a `<` are Example 580 (`![foo](<url>)`, in
+    # the DESTINATION) and Example 475 (`*<img src="foo" title="*"/>`, raw
+    # HTML, no description at all).  The demoted reading
     # is carried by its own fixture controls, not here.
     spans, pos, cut = [lx.text[a:b] for a, b, tag in lx.html if tag != "demoted"], 0, []
     # ⚠ AND THE SAME FILTER FOR THE TWO FAMILIES DEMOTED ONE ROUND EARLIER.
@@ -531,8 +538,9 @@ def demoted_agreement_control(M):
     CONVERTED into an `images` entry at the image close, so `out` never keeps
     one."""
     import plan_memo_lexer as L
-    bad = []
+    bad, seen = [], 0
     for label, src, body in _DEMOTED_AGREEMENT + _BARE_AGREEMENT:
+        seen += 1
         lx = L.Lexed(src)
         lx.resolve({})
         got = inline_claim(lx, body)
@@ -550,7 +558,9 @@ def demoted_agreement_control(M):
     if lx.links:
         bad.append("a link demoted into a description stayed in `lx.links` (%r) -- the unfiltered "
                    "link count above is only correct while this holds" % (lx.links,))
+    # ⚠ `seen` is what the LOOP consumed, not `len(the list)`: reported from the
+    # length, truncating the loop to `[:1]` still printed "11 shape(s) checked".
+    # A detail line that cannot move is not a witness.
     return not bad, ("%d shape(s) checked (%d demoted, %d bare, 1 negative, 1 lexer fact)%s"
-                     % (len(_DEMOTED_AGREEMENT) + len(_BARE_AGREEMENT),
-                        len(_DEMOTED_AGREEMENT), len(_BARE_AGREEMENT),
+                     % (seen, len(_DEMOTED_AGREEMENT), len(_BARE_AGREEMENT),
                         "" if not bad else " -- " + "; ".join(bad)))

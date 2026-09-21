@@ -128,7 +128,15 @@ def unload():
     for name, _ in MODULES:
         sys.modules.pop(name, None)
     while _INSTALLED_LEAVES:
-        sys.modules.pop(_INSTALLED_LEAVES.pop(), None)
+        # RESTORE, never merely delete: one of the four installs in a full run
+        # replaces a module that was already there, and `load()` calls
+        # `unload()`, so a nested load inside a control would otherwise EVICT
+        # the patch mid-row and silently turn that mutant into a no-op.
+        name, prev = _INSTALLED_LEAVES.pop()
+        if prev is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = prev
 
 
 def patched_module(file, src):
@@ -161,8 +169,8 @@ def patched_module(file, src):
     # which is the same one-row lifetime `SOURCES` already has.
     if not hasattr(mod, "registry"):
         name = pathlib.Path(file).stem
+        _INSTALLED_LEAVES.append((name, sys.modules.get(name)))
         sys.modules[name] = mod
-        _INSTALLED_LEAVES.append(name)
     return mod
 
 

@@ -233,8 +233,14 @@ survived, which is how the wrong subject was found rather than read."""
 #   ![UMBRELLA, not a <span>terminal unit](img.png)
 #     -> <img src="img.png" alt="UMBRELLA, not a &lt;span&gt;terminal unit" />
 #
-# cmark ESCAPING the angle brackets is what decides it: they are the alt's
-# CONTENT, not markup.  §6.4 reduces the description to the plain string
+# ⚠ The ESCAPING is cmark's SERIALIZER and not the deciding fact -- this
+# comment said it was, and commonmark.js 0.31.2 emits the same characters
+# UNESCAPED (`alt="UMBRELLA, not a <span>terminal unit"`).  What BOTH agree on,
+# and all the fix rests on, is that the span's characters are IN the alt.  The
+# retraction was applied to `plan_memo_stream.py` and not here, which is the
+# `memory/feedback_sweep-obligations-not-only-statements.md` shape: a
+# correction owes every site that carries the statement, not the one that was
+# reported.  §6.4 reduces the description to the plain string
 # content of its inline children, and an `html_inline` node's plain string
 # content is its own SOURCE TEXT -- so the span renders its characters, where
 # in ordinary prose it renders nothing at all.
@@ -405,6 +411,7 @@ R45_TABLE_MISS_SCOPE = CASES[-1].name
 # three-hyphen rule is a different dialect's.  ⚠ `is_separator` had ZERO
 # self-test references before this control and no fixture used a short
 # delimiter, so the suite could not have told the two readings apart.
+_R45_DELIM_ARMS = []
 for _label, _delim in (("one hyphen", "-"), ("left-aligned", ":-"),
                        ("right-aligned", "-:"), ("centred", ":-:")):
     case("POSITIVE", "(R45 GFM §4.10) a delimiter cell of %s admits the table exactly as `---` does "
@@ -414,7 +421,14 @@ for _label, _delim in (("one hyphen", "-"), ("left-aligned", ":-"),
                      "for a three-hyphen minimum is the FP this pins" % _label,
          build().replace("|---|---|---|---|---|---|", "|%s|%s|%s|%s|%s|%s|" % ((_delim,) * 6))
                 .replace("|---|---|---|---|", "|%s|%s|%s|%s|" % ((_delim,) * 4)), "9z owns it.", 1)
-R45_SHORT_DELIM = CASES[-1].name
+    _R45_DELIM_ARMS.append(CASES[-1].name)
+
+# ⚠ ALL FOUR ARMS, not `CASES[-1]`: bound after the loop it named only the
+# `:-:` variant, so the mutant proved one spelling and the other three were
+# decoration -- the same trap R47-1's mutant fell into, in a loop written one
+# commit earlier.
+R45_SHORT_DELIM = _R45_DELIM_ARMS[0]
+R45_DELIM_ALL = list(_R45_DELIM_ARMS)
 """Red under the mutant re-injecting a three-hyphen minimum: the schema tables
 stop being tables, nothing is declared, and the run says nothing."""
 

@@ -189,9 +189,17 @@ class Population:
         carrying one and binding to nothing is a contradiction the way an
         umbrella row with a blank id cell is.
         Measured over those same memos: this predicate fires **0** times,
-        while the phrases themselves occur **77** times in that corpus (in
-        bound tables and in prose) -- so the zero is a silence, not an empty
-        population.
+        while the phrases themselves DO occur in that corpus (in bound tables
+        and in prose) -- so the zero is a silence, not an empty population.
+
+        ⚠ THE OCCURRENCE COUNT IS DELIBERATELY NOT WRITTEN HERE, and the reason
+        is that it has now been falsified TWICE by the commits asserting it:
+        77 when first written, 76 one memo edit later, 78 a session after that.
+        This document family is IN the corpus, so the number moves whenever any
+        of it is edited -- and the round that "removed" it removed it from the
+        memo and left it standing in this docstring, which is why it moved
+        again unnoticed. What the argument needs is NONZERO, which the command
+        settles at read time.
 
         ⚠ EVERY FIGURE HERE IS A DATED MEASUREMENT, NOT A STANDING CLAIM, and
         it is written with its corpus because that corpus is not reproducible
