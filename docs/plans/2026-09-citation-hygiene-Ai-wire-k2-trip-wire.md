@@ -836,3 +836,20 @@ was never asked for. Three instances now (`WEBREF_WIRE_MUTANTS`, `WEBREF_WIRE_SE
 the HEAD probe's collapsed status). The general lesson is recorded where the modes are entered
 rather than in a fourth ⚠ here: **a mode this wire can be put into from outside must be
 unreachable or loud, never silent.**
+
+### §10.1 Round 2 — five findings, two of them made by round 1's fixes
+
+| # | What | Disposition |
+|---|---|---|
+| **P2** | An inventoried worktree path that **vanishes** before it is read matches none of `_entry`'s arms — no `ok`, no `err`, **no record at all** — and the final guard only requires the *aggregate* `SCANNED` to be non-zero, so its siblings carry the run to green. Reproduced: a forbidden untracked file removed just after `ls-files` gave exit 0 | **Fixed.** An absent tree entry that git does **not** report as tracked is now an `err`. ⚠ The membership question is asked of git rather than inferred from absence, because a *tracked* path deleted from the worktree is the legitimate case — the index pass already answered for it. Control: a `git` shim whose `--others` inventory names a path that is not there (the deterministic form of the race). |
+| **P2** | `_match_path` **still** ignored `_onerec`'s status after §10's fix: it is called beneath `\|\|` in `_stored`, where `errexit` is suspended, so a failing assignment simply fell through to `grep`, which returned 1 for the empty value — the same misclassification by another route | **Fixed** with `\|\| return 4`. ⚠ **Removing the pipeline was not enough, and round 1 stopped there** — a fix aimed at one channel while the value travelled another. ⚠ **No control pins this**, and the wire says so: `_onerec` is parameter expansion now, so nothing external is left for a shim to break and the only way in is to edit the function. Kept for the shape one refactor away, on the same footing as the `-a` on `_verdict`'s arms. |
+| **P2** | Round 1's punctuation terminators bought the false positive back as a **false negative**: excluded from the segment *entirely*, a real path `.claude/tools/team,inc/rule.md` stopped at the comma and read K2 zero | **Fixed.** A segment is now *"any run of path characters that does not END in punctuation"*. ⚠ The green control pins one direction and a red control the other; **neither alone could have caught this**, which is the argument for having both. |
+| **P2** | The watchdog's `kill -9 "$_cpid"` reaches only the wire's own bash — a command substitution or `grep` **blocked beneath it**, precisely the FIFO hang the watchdog exists to catch, is reparented and stays blocked, so repeated local runs accumulate permanent orphans | **Fixed.** The child is started under `set -m` so it is its own process group, and the group is killed. Measured on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not. |
+| **P2** | The green boundary fixture exercised only the **entry name**, so it pinned `$K2RE_PATH` and not the independently-changed arm in `$K2RE`; removing the boundary from the running-text predicate reintroduced the URL false positive with every control green | **Fixed.** A second fixture carries the URL as file *content*, and the mutation record that targeted only the stored-path regex now has a sibling for the running-text one. |
+
+⚠ **Two of the five were introduced by round 1**, and both are the same mistake: a fix aimed at
+the site the finding named rather than at the property. The punctuation repair traded one
+direction of wrongness for the other; the pipeline repair removed the channel the status was
+being lost through and left the one it was actually travelling. The mutation set caught neither
+— they are not reachable by mutating a guard, they *are* the guard being wrong — which is the
+clearest statement available of what that instrument does and does not buy.

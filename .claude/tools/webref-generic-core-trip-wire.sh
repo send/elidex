@@ -287,16 +287,23 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 # WHAT THIS WIRE DOES NOT DECIDE above, stated there and not restated here.
 # ⚠ TWO REPAIRS THE EXTERNAL REVIEWER FOUND, BOTH FALSE-POSITIVE DIRECTIONS —
 # which in a REQUIRED gate is the direction that gets gates switched off.
-#   * CLOSING PUNCTUATION is not a path segment. `)]}>,;` joined the
-#     terminators because the harmless prose `See (.claude/tools/foo/) for
-#     details` matched with `)` as the final segment — i.e. the gate rejected a
-#     ONE-segment directory reference, which is outside K2 entirely.
+#   * CLOSING PUNCTUATION MAY NOT END A SEGMENT — but it may sit INSIDE one.
+#     `)]}>,;` became terminators because the harmless prose
+#     `See (.claude/tools/foo/) for details` matched with `)` as the final
+#     segment, rejecting a ONE-segment reference outside K2 entirely. ⚠ The
+#     first repair excluded those characters from the segment ENTIRELY, which
+#     bought the false positive back as a FALSE NEGATIVE: a real path
+#     `.claude/tools/team,inc/rule.md` stopped at the comma and read K2 zero.
+#     So each segment is now "any run of path characters that does not END in
+#     punctuation" — `[^…]*[^…punct]` — which admits `team,inc` and still
+#     refuses a bare `)`. The green control pins one direction and a red
+#     control pins the other; neither alone could have caught this.
 #   * A LEADING BOUNDARY is required, so `.claude` must start the string or
 #     follow a `/`. Without it `https://example.claude/skills/team/rule.md`
 #     matched on the suffix of another host name.
 # The leading class is consumed by the match, so a record shows one extra
 # character; that is cheaper than a lookbehind ERE does not have.
-K2RE='(^|[^A-Za-z0-9_.~-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`)}>,;]+/[^]/[:space:]"'"'"'`)}>,;]+'
+K2RE='(^|[^A-Za-z0-9_.~-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
@@ -487,12 +494,27 @@ _onerec() { printf '%s' "${1//$'\n'/$_REC_SEP}"; }
 # `.claude/skills/team/rule.md` and a shim making only `grep -aEo` exit 2).
 # `grep` defines status 2 as an error, and the content arm and `_verdict` both
 # already separated it; these two were the arms that did not.
-# ⚠ NO PIPELINE. It was `_onerec "$1" | grep …`, and under `pipefail` the
-# status of a pipeline is its RIGHTMOST non-zero one — so a pre-processing
-# failure was reported as `grep`'s 1, i.e. as an ordinary "no match", and an
-# entry whose own name is a forbidden path passed the gate. Computing the value
-# first removes the masking channel rather than trying to read through it.
-_match_path() { _mp="$(_onerec "$1")"; grep -aEo -- "$K2RE_PATH" <<<"$_mp"; }
+# ⚠ NO PIPELINE, AND THE ASSIGNMENT'S STATUS IS RETURNED. It was
+# `_onerec "$1" | grep …`, and under `pipefail` a pipeline's status is its
+# RIGHTMOST non-zero one — so a pre-processing failure arrived as `grep`'s 1,
+# i.e. as an ordinary "no match", and an entry whose own name is a forbidden
+# path passed the gate.
+# ⚠ REMOVING THE PIPELINE WAS NOT ENOUGH, and the first repair stopped there.
+# `_match_path` is called beneath `||` in `_stored`, where `errexit` is
+# suspended, so a failing assignment simply fell through to `grep`, which
+# returned 1 for the empty value — the same misclassification by another route.
+# Measured by the external reviewer: replacing `_onerec` with `return 2` let an
+# entry named `.claude/skills/team/rule.md` report `K2: 0` and exit 0. `|| return 4`
+# is what makes the failure reach `_stored`'s `> 1` arm.
+# ⚠ AND NO CONTROL PINS IT, which is worth saying rather than leaving to be
+# discovered. `_onerec` is parameter expansion now — there is no external
+# command left in it for a PATH shim to break — so the only way to reach this
+# arm is to edit the function, which is a mutation rather than an input. The
+# reviewer's reproduction did exactly that. Deleting `|| return 4` therefore
+# reds nothing today; it is kept for the shape one refactor away (an `_onerec`
+# that shells out again), where it becomes load-bearing silently. Same standing
+# as the `-a` on `_verdict`'s arms below, and recorded in the same words.
+_match_path() { _mp="$(_onerec "$1")" || return 4; grep -aEo -- "$K2RE_PATH" <<<"$_mp"; }
 
 # …AND THE ONE PLACE ITS ANSWER IS TURNED INTO RECORDS.  Three subjects reach
 # it: an entry's own name, a symlink's target in the worktree, and — since #501
@@ -639,6 +661,19 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
     else printf 'err\t%s: unreadable, or the read failed\n' "$(_esc "$rel")"; fi
   elif [ -e "$f" ]; then
     printf 'err\t%s: in the worktree but neither a regular file nor a symlink, so it was NOT opened\n' \
+      "$(_esc "$rel")"
+  elif ! _git -C "$ROOT" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+    # ⚠ INVENTORIED, THEN GONE — AND UNTRACKED, so nothing else answers for it.
+    # The arms above all test the path as it is NOW, and a path that vanished
+    # between `ls-files` and this read matched none of them: no `ok`, no `err`,
+    # no record at all. The final guard only requires the AGGREGATE `SCANNED`
+    # to be non-zero, so its siblings carried the run to green. Reproduced by
+    # the external reviewer: a forbidden untracked file removed immediately
+    # after the inventory and restored afterwards gave exit 0.
+    # ⚠ A TRACKED path deleted from the worktree is NOT this case — the index
+    # pass answered for it with its own record — which is why the membership
+    # question is asked of git rather than assumed from absence.
+    printf 'err\t%s: the inventory listed it but it is gone, so this run never read it\n' \
       "$(_esc "$rel")"
   fi
   # A tracked path DELETED from the worktree reaches none of those arms; the

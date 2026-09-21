@@ -122,7 +122,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -213,6 +213,13 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/punct/other.py"
 mkdir -p "$CTL/suffixpath/fixtures/example.claude/skills/team"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/suffixpath/fixtures/example.claude/skills/team/rule.md"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/suffixpath/ok.py"
+#      ⚠ …and the SAME repair in the RUNNING-TEXT predicate needs its own
+#      fixture, because the two regexes are independent: the entry-name fixture
+#      above exercises `$K2RE_PATH` only, so removing the boundary from `$K2RE`
+#      reintroduced the URL false positive with every control still green
+#      (external reviewer, R2). This one is file CONTENT.
+printf '# see https://example.claude/skills/team/rule.md for the upstream note\n' \
+  > "$CTL/suffixpath/url.py"
 
 # A `git` that fails ONLY the HEAD existence probe, so "unborn" and "git could
 # not answer" can be told apart. ⚠ `--verify` is the discriminator: the wire
@@ -230,6 +237,16 @@ mkdir -p "$CTL/catfail"
 printf '#!/bin/sh\nexit 1\n' > "$CTL/catfail/cat"
 chmod +x "$CTL/catfail/cat"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
+
+# A `git` whose UNTRACKED inventory names a path that is not there — the
+# deterministic form of "the file vanished between `ls-files` and the read".
+# The real race (another process rewriting an untracked file) cannot be staged
+# reliably; this shim poses the same question to the same arm.
+mkdir -p "$CTL/fakegitphantom"
+printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "phantom-gone.py\\000"; exit 0;; esac\nexec %s "$@"\n' \
+  "$(command -v git)" "$(command -v git)" > "$CTL/fakegitphantom/git"
+chmod +x "$CTL/fakegitphantom/git"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/phantom/ok.py"
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
 # them all would abort in `_verdict` instead, for a different reason).
@@ -326,7 +343,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -485,10 +502,18 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # ⚠ THE TOKEN IS WHAT MAKES SELF-TEST MODE REACHABLE. The wire refuses to
   # enter it without this, so an inherited `WEBREF_WIRE_SELFTEST` left exported
   # in somebody's shell can no longer redirect the required gate at a fixture.
+  # ⚠ `set -m` SO THE CHILD IS ITS OWN PROCESS GROUP. Without it the watchdog's
+  # `kill -9 "$_cpid"` reaches only the wire's own bash; a command substitution
+  # or a `grep` BLOCKED beneath it — precisely the FIFO hang this watchdog
+  # exists to catch — is reparented and stays blocked after the gate reports
+  # the timeout, so repeated local runs accumulate permanent orphans. Measured
+  # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
+  set -m
   WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_TOKEN="$_SELFTEST_TOKEN" \
     WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
     WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
     env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
+  set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
   # the subshell; killing only that reparents the `sleep` to PID 1, where it
   # runs out its 30 s — one orphan per control, dozens per local gate run
@@ -496,7 +521,7 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # with it, so the pair is reaped as a unit with shell builtins only.
   ( trap 'kill $(jobs -p) 2>/dev/null; exit 0' TERM
     sleep 30 & wait
-    kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
+    kill -9 -"$_cpid" 2>/dev/null || kill -9 "$_cpid" 2>/dev/null ) & _wpid=$!
   wait "$_cpid"; _rc=$?
   kill -TERM "$_wpid" 2>/dev/null || true; wait "$_wpid" 2>/dev/null || true
   # ⚠ CLEARED HERE, NOT BY THE CALLER. `_ctl_env` is file-scope (bash has no
@@ -563,6 +588,7 @@ _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails cl
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
 _control "$CTL/headprobe" 1 "the HEAD probe exited" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
 _control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
+_control "$CTL/phantom" 1 "the inventory listed it but it is gone" "an inventoried path that vanished is not silently skipped" "" "" "$CTL/fakegitphantom" || ctl_ok=1
 # ⚠ TWO GREEN-DIRECTION CONTROLS. Every other control here proves the wire can
 # RED; these two prove it does not red on a legitimate tree, which is the
 # failure mode that gets a required gate switched off rather than fixed.
@@ -735,8 +761,10 @@ s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inv
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
 s/\[ "$_hrc" -gt 1 \]/false/	a failed HEAD PROBE is not an unborn HEAD
 s/\[ "$_catrc" -ne 0 \]/false/	a failed staged-blob read is not a clean target
-s/)}>,;\]+/]+/g	closing punctuation is not a path segment
+s/)}>,;\]/]/g	closing punctuation is not a path segment
+s/elif ! _git -C "$ROOT" ls-files --error-unmatch/elif false \&\& ! _git -C "$ROOT" ls-files --error-unmatch/	an inventoried path that vanished is not silently skipped
 s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
+s/(^|\[^A-Za-z0-9_.~-\])\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
 s/\[ "${WEBREF_WIRE_SELFTEST_TOKEN:-}" != "$_SELFTEST_TOKEN" \]/false/	an inherited SELFTEST export cannot redirect the gate
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
