@@ -1897,9 +1897,16 @@ ground for either option; it is not cited.
   reproduces beside it, so the deactivation rule itself is unaffected.
   · **§6.6 raw HTML inside a resolved image description — A REAL DEFECT, and FIXED.**
   `![UMBRELLA, not a <span>terminal unit](img.png)` gives
-  `alt="UMBRELLA, not a &lt;span&gt;terminal unit"`. ⚠ **cmark ESCAPING the angle brackets is what
-  decides it**: they are the alt's CONTENT, not markup — an `html_inline` node's plain string content
-  is its own SOURCE TEXT, where in ordinary prose it renders nothing. Masked as markup the span
+  `alt="UMBRELLA, not a &lt;span&gt;terminal unit"`. The span contributes its own SOURCE TEXT to the
+  alt where in ordinary prose it renders nothing — an `html_inline` node's plain string content is
+  its source.
+  ⚠ **THE FIRST STATEMENT OF THE REASON HERE WAS WRONG AND THE FACT WAS NOT.** It read *"cmark
+  ESCAPING the angle brackets is what decides it"*, which reads as a cross-implementation property
+  and is not one: commonmark.js 0.31.2 emits `alt="UMBRELLA, not a <span>terminal unit"` — the same
+  characters, UNESCAPED. Escaping is cmark's serializer choice about an attribute value. What BOTH
+  implementations agree on, and what the fix rests on, is that the span's characters are IN the alt
+  rather than dropped. The reason and the fact had to be verified separately
+  (`memory/feedback_ao-name-not-section-number-in-briefs.md` 追補 6). Masked as markup the span
   JOINED its two sides and the run exited **1** on an ownership claim nobody made: the one
   FABRICATED finding on this surface, which is exactly why it was never fixed on the prose alone.
   ⚠ The fix is the same mechanism as the R42-5 code-span and autolink demotions — `dem_html` beside
@@ -1937,9 +1944,77 @@ ground for either option; it is not cited.
   **GATE AFTER ALL FOUR**: **693 controls / 392 mutants 0 survived 0 crashed** / trip-wires rc 0 /
   #506 census `--worklist` byte-identical (815 lines, rc 0) / this memo at the four-FATAL floor.
   ⚠ Per the Axis 5 rule, the self-test is re-run AFTER this memo edit, never only before it.
-  **▶ NEXT: trigger the round (`/external-converge 510`), and arm a harness-tracked background poll
-  in the SAME turn — with a negative control fired at the judgement before it goes to background
-  (`memory/feedback_a-monitor-needs-a-negative-control.md`). Merge is NOT to be proposed.**
+  ⚠⚠ **R43 AND R44 WERE BOTH DRY — AND THE TERMINAL ATTESTATION FOUND SIX THINGS THE TWO DRY ROUNDS
+  DID NOT.** The reviewer returned `Didn't find any major issues` on `fc0cc556` twice, each with its
+  denominator measured (threads 132 of totalCount 132 over two pages, 0 new since the trigger; 47
+  bot reviews, 0 P-badge bodies; the one comment since the trigger being the verdict itself). By the
+  loop's own rule that is TERMINAL. **It was not**, and the reason is the rule
+  `memory/feedback_attestation-by-enumeration-not-assertion.md` states: two dry rounds are not an
+  attestation. Three fresh adversarial agents were given the enumeration — every finding of the
+  whole loop with one re-runnable command each, a CONCEPT sweep for siblings of this session's
+  fixes, and a falsification pass over this session's own written claims.
+  · 🔴 **A SIBLING OF MY OWN FIX, LEFT BEHIND IN THE SAME FUNCTION.** `inline_claim` — the falsifier
+  every spec-example control rests on — got its `.html` demoted filter from the §6.6 fix and kept
+  counting `len(lx.code)` and `len(lx.autolinks)` whole, which R42-5a had demoted one round earlier.
+  `![a `b` c](img.png)` reported *"the html emits 0 `<code>`, Phase 2 claims 1 code span(s)"*
+  against cmark's own `alt="a b c"`: a FABRICATED falsifier failure, in the direction that also
+  CANCELS a real one through the `left` conservation count. The corpus cannot reach it (22 of 335
+  inline examples render an `<img>`; zero carry a backtick and zero a `<` in the description), so
+  the sentence the §6.6 fix wrote for `.html` — "the filter removes nothing this corpus measures" —
+  was true of the siblings too, and hid them. Fixed at all four sites, with a control that runs each
+  §3.0b family through `inline_claim` against the spec's own html plus a BARE twin and a
+  deliberately-wrong body, and four mutants. ⚠ **The module had never been mutable**: it was not in
+  the mutant module set at all, so no row could name the falsifier in either direction. It is
+  `CONFORMANCE` now, and `patched_module` grew the one generalisation that needed — a self-test LEAF
+  owns no `registry()` and is reached by the owning module's call-time import, so it is installed
+  under its real name for the row.
+  · 🔴 **§6.1 STEP ONE SHIPPED UNPINNED.** Both R42-6 mutants patch the TRIM; replacing the
+  line-ending substitution with a no-op left all 695 controls green while a real naming site
+  vanished (`![Slot #11-zz-alph`<NL>a ` owns it](img.png)`: one site becomes none, the slug split in
+  silence). The fix's own commit called this "half of §6.1" and the unwatched half was that same
+  half. Pinned, with the space-padded twin as the arm it must not move.
+  · 🔴 **TWO POPULATION-SCOPE LOOPS WERE CORRECT AND UNWATCHED.** `_unkeyed` and the table-miss loop
+  both scope to the whole population; `self.memos[:1]` — the identical edit five other loops already
+  have a mutant for — survived on both. Two fixtures, measured to discriminate SEPARATELY (scoping
+  one leaves the other's miss reported), and two mutants. `memory/feedback_derived-populations-
+  shrink-in-silence.md`.
+  · 🔴 **THREE CLAIMS I WROTE THIS SESSION WERE FALSE.** (a) *"cmark ESCAPING the angle brackets is
+  what decides it"* — commonmark.js 0.31.2 emits the same characters UNESCAPED; escaping is cmark's
+  serializer, not a CommonMark property. The FACT survives and the REASON did not, and they had to
+  be checked separately. (b) The id-shape figure **151** is the count for *every body row*, while
+  the mutant re-injecting that predicate was written for *any row including the header* (333 / more)
+  — the number and the thing it justified were different predicates. Both say every body row now.
+  (c) *"the phrases occur 77 times"* — **76**, and the memo edit in the very commit asserting it is
+  what removed the 77th. The count is no longer transcribed: this document is in its own corpus, so
+  the figure moves whenever this paragraph is edited, which is the failure
+  `memory/feedback_document-landing-invalidates-its-own-measurements.md` names and which was cited
+  three lines below the number.
+  · 🔴 **A REVIEW FINDING WITH NO DISPOSITION ANYWHERE** — the three-hyphen delimiter ask. Settled
+  the way this PR settled its other two spec questions, by EXECUTION: `cmark-gfm 0.29.0.gfm.13`
+  makes a `<table>` from `|-|`, `|:-|`, `|-:|` and `|:-:|` alike, so the checker is right and the
+  finding is an FP. ⚠ `is_separator` had zero self-test references and no fixture used a short
+  delimiter, so the suite could not have told the readings apart. Four controls and a mutant now.
+  · **§8 HYGIENE, from the same audit**: *"exactly nine attributions, all in §3's coverage map"* was
+  false in both halves — nine PAIRS over fourteen SITES, and **three of those sites are the sentence
+  making the claim** (`plan_memo_ids._TOKEN` occurs in this memo at that line and nowhere else); the
+  hand-written-table entry's **59 / 38** are WITHDRAWN, since the predicate as worded yields 97 / 84
+  and no variant reaches them; the wire entry's "six rows name it" is withdrawn for having no stated
+  command; two entries carrying neither a date nor a trigger-only declaration now say which they
+  are; and the `self_id` deferral — real, reproduced, homed in §4 row #5 whose table has no trigger
+  column — is listed in §8 as **(10)**, pre-existing with its grounding (`aee896dd`, the ratified
+  plan, against the branch's first commit `5e9439b4`), so §8 is a complete index of this PR's
+  deferrals. The enumeration is **twelve entries, ten own and two pre-existing**; the CAP is
+  unchanged, which is what made writing (10) down cheap and leaving it out dishonest.
+  **GATE AFTER R45**: **701 controls / 400 mutants 0 survived 0 crashed** / trip-wires rc 0 / #506
+  census `--worklist` byte-identical / this memo at the four-FATAL floor / largest `plan*.py` 983.
+  ⚠ **What the round says about the loop**: the reviewer went dry twice on a head carrying a
+  fabricated falsifier, an unpinned spec step, two unwatched scope loops and three false claims of
+  mine. A dry round bounds what the REVIEWER found, never what is there
+  — which is exactly why the attestation is an enumeration and not a sentence.
+  **▶ NEXT: the head has MOVED, so the two dry rounds are spent. Re-trigger `/external-converge 510`
+  on the new head, arm a harness-tracked background poll in the same turn with a negative control
+  fired at the judgement first (`memory/feedback_a-monitor-needs-a-negative-control.md`), and do NOT
+  read R43/R44 as covering this delta. Merge is NOT to be proposed.**
 
   **▶ WHAT THE 2026-09-20 / 2026-09-21 HANDOFFS SAID, kept because their items are the record of
   what was done:**
@@ -2519,9 +2594,16 @@ times in this document (`memory/feedback_attestation-by-enumeration-not-assertio
 below, in order: (1) acceptance half of assertion (b); (2) the four assertions' single-home slot;
 (3) two KNOWN-MISS bare-id shapes; (4) the always-run wire's cost per review round; (5) the id
 grammar's released trailing decoration; (6) Slice 3, Phase 1 offsets; (7) `symbol_attribution_control`'s
-existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the unbound table
-making no kind claim; (11) the hand-written table with no detector. **Ten own and one pre-existing**
-— (9) is the pre-existing one. Count the list rather than trusting this sentence.
+existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the `self_id`
+suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the hand-written
+table with no detector. **Ten own and two pre-existing** — (9) and (10) are the pre-existing ones,
+each with its grounding stated where the policy asks for it. Count the list rather than trusting
+this sentence: `awk` the `^- \*\*` lines of this section and you must get twelve.
+⚠ **(10) ARRIVED BY AUDIT, NOT BY REVIEW** (PR #510 R45). It is a real deferral of this PR's subject
+that a reader auditing §8 could not find, because its home (§4) has no trigger column and no date
+— so the enumeration was complete over §8 and incomplete over the PR. Adding it moves the total and
+not the CAP, which counts own deferrals only; that it changes nothing about the decision is what
+makes writing it down cheap, and leaving it out dishonest.
 
 ⚠ **Two entries left the list this session and NEITHER is a tally edit** — and the test of that is
 that the decision is (d), so removing them buys nothing: the §6.3 / §6.6 / §6.4 spec-prose entry is
@@ -2578,6 +2660,10 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   as "the single-home slot #506's memo §8 mints") — the same pre-agreed commitment: minted in #506's
   memo §8 (`190d2adb:…:2710`), **not in the slot SoT ledger** (0 hits), registration owed at #506's
   landing, not here; the headers cite that origin rather than presenting the slot as registered.
+  ⚠ **Trigger = #506's landing, and no date — the same trigger-only form as the entry above it**,
+  which this one had left unstated (PR #510 R45: an audit over all eleven entries found exactly two
+  carrying neither a date nor an explicit trigger-only declaration, this and the wire's budget).
+  Stated, because an entry a reader cannot schedule is indistinguishable from one nobody re-reads.
 - **(own)** Two KNOWN-MISS bare-id shapes (numeric / single letter) — declared in the self-test; trigger = a
   memo minting such an id; no slot (seed boundary, not a platform gap); no date — trigger-only.
 - **The always-run wire's cost grows with REVIEW ROUNDS, not with the program** (PR #510 R32 — **own**).
@@ -2605,7 +2691,13 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   can do — but corpus size is the proof's STRENGTH, so shrinking it per-row is a change to what the
   proof asserts and needs its own measurement per row. Trigger = the round whose head measures under
   2× against the re-derived 10 minutes, or the next round that adds a mutant naming the growth
-  property. No slot: this is the wire's own budget, not a platform gap.
+  property. No slot: this is the wire's own budget, not a platform gap. ⚠ **And no date — this is
+  trigger-only, stated rather than left to inference** (PR #510 R45, the second of the two entries
+  the hygiene audit found carrying neither).
+  ⚠ **The "six rows name it" figure is WITHDRAWN**: the entry never named the constant or the
+  command, `MUTANTS` is now 399 rows across ten modules, and no stated reading discriminates six
+  from ten. A figure whose command is not written down cannot be re-derived, which is the same
+  defect as a figure whose predicate is not written down.
   ⚠⚠ **And the budget is what is actually blocking the generated property from subsuming three
   per-shape controls** — R32's design re-gate measured all three, so the next PR starts from the
   measurement and not from a re-derivation:
@@ -2689,8 +2781,16 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   symbol exists **nowhere**, because `if sym not in home: continue`. The map pair next to it carries
   both directions for exactly this reason (`module_map_existence_control`: *"the rename half the
   completeness direction cannot see"*). With the denominator cleaned (a `` `mod.py` `` mention is no
-  longer misread as the symbol `py`), the skip arm is exactly **nine** attributions, all in §3's
-  coverage map: `plan_memo_ids._TOKEN`, `plan_memo_lexer._TOKEN`, `plan_memo_lexer.links`,
+  longer misread as the symbol `py`), the skip arm is **nine distinct `module.symbol` PAIRS over fourteen
+  SITES** — ⚠ and the sentence that stood here, *"exactly nine attributions, all in §3's coverage
+  map"*, was false in both halves (PR #510 R45, replayed through the control's own loop). It
+  undercounted sites by five, and "all in §3" is refuted by the list's own first member: ten sites
+  are in §3, one is a docstring in `plan_memo_selftest_records.py`, and **three are in §8 itself —
+  this very sentence**. `grep -n 'plan_memo_ids\._TOKEN' <this memo>` returns exactly one line, the
+  one enumerating it here; its only real site is that docstring. A universal falsified by the
+  paragraph asserting it is the shape
+  `memory/feedback_universal-claims-need-the-complement-measured.md` names, and the enumeration is
+  now of PAIRS with the site count beside it: `plan_memo_ids._TOKEN`, `plan_memo_lexer._TOKEN`, `plan_memo_lexer.links`,
   `plan_memo_tables.` × `_link_destination` / `_link_title` / `code_spans` / `fenced_spans` /
   `find_tables` / `links`. Measured: **zero definitions in the tree** for all seven distinct symbols.
   ⚠ **The existence half is NOT a one-line addition**, which is why it is carved rather than written
@@ -2713,6 +2813,25 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency
   (§5) — trigger-only (see §5); no slot; no date.
+- **(pre-existing, and HOMED IN §4 ROW #5 — listed here so §8 is a complete index of this
+  PR's deferrals)** `self_id` exclusion hides a forbidden self-attached role. A row's id is discarded from
+  EVERY cell by both mention passes, not only from the leading declaration in its id cell, so
+  `9z owns integration.` written inside 9z's own Slice cell reports nothing while the identical
+  sentence in prose reports one site — both at rc 0. ⚠ **Grounding for the pre-existing call**
+  (`memory/feedback_defer_cap_policy.md` asks for it so the cap cannot be re-litigated): the row is
+  in the RATIFIED plan from before implementation — `git log -S 'self_id\` exclusion hides a
+  forbidden self-attached role'` returns `aee896dd`, the umbrella-plan commit whose subject records
+  the plan-review converging in three rounds, and the branch's first code commit is `5e9439b4`. It
+  is therefore the same category as entries (1)–(3), not a loop-accumulated deferral. ⚠ What DID
+  happen in the loop is that R33-3 WIDENED it: the `(+ control flip)` clause was added at
+  `2c14695d`, because the fix turns an existing NEGATIVE control red — suppressing the id alone
+  would ship a FABRICATED finding.
+  ⚠ **Why it is written here at all**: §4's columns are `# | Site | Defect | Invariant | Slice |
+  Closed by` — there is no trigger column and no date, so a reader auditing THIS section for the
+  PR's deferrals would not find it (PR #510 R45). **Owner**: Slice 2. **Trigger (an EVENT)**: Slice
+  2's implementation, which owns the `_anchored` predicate this sits in. **Re-eval: 2026-12-31.**
+  Counted in the enumeration above as (10), pre-existing — not against the cap, which counts own
+  deferrals only.
 - **(own)** **AN UNBOUND TABLE THAT MAKES NO KIND CLAIM IS STILL SILENT** (PR #510 R42-10, **the
   CENSUS-CLAIM half is FIXED in this PR; this is the residual**). The schema-miss gate asks only of
   `main` — deliberately, since a linked detail memo may hold no slot ledger — so a linked memo whose
@@ -2721,16 +2840,29 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   a CENSUS CLAIM, and that contradiction is `Population._unbound_claims`, with four controls and five
   mutants. ⚠ **The predicate was picked by MEASUREMENT and two candidates were refused, both of them
   the ones this entry previously carried as unmeasured**:
-  - *the first column tokenises as row ids* — exactly right on the four fixtures and **151** tables
-    over the 141 plan memos on this disk (a landing record's `obj` / `R1`…`R7` review tables are
-    id-shaped and legitimate). Refused, and pinned by a NEGATIVE control plus a mutant that
-    re-injects it;
+  - *the first column tokenises as row ids* — exactly right on the four fixtures and **151** unbound
+    tables over the corpus below (a landing record's `obj` / `R1`…`R7` review tables are id-shaped
+    and legitimate). Refused, and pinned by a NEGATIVE control plus a mutant that re-injects it.
+    ⚠ **The READING is part of the predicate and the first statement of it here was loose enough to
+    be three different numbers**: 151 is *every body row's first cell*; *any* body row's gives 333,
+    and *any row including the header* more again. The mutant that re-injects the predicate was
+    written to the second reading while this sentence quoted the first, so the figure and the thing
+    it justified disagreed. Both now say *every body row*
+    (`memory/feedback_convention-dependent-figures-are-argument.md`: a number whose value depends on
+    the convention the reader assumes is an argument, not a measurement);
   - *the header NEAR-MISSES a schema's* — silent on that corpus too, and refused for a reason no
     corpus count shows: it fires on a renamed header whose table **declares nothing**. Pinned by its
     own NEGATIVE control and a mutant.
   - the shipped predicate — *a kind phrase in any cell, read off the RENDERED cell* — fires **0**
-    times over those same 141 memos / 511 tables / **507 unbound**, while the phrases themselves
-    occur **77** times in that corpus, so the zero is a silence and not an empty population.
+    times over those same 141 memos / 511 tables / **507 unbound**, while the phrases themselves DO
+    occur in that corpus, so the zero is a silence and not an empty population.
+    ⚠ **The occurrence count is deliberately not transcribed here, and the reason is that writing it
+    once already falsified it**: the figure was **77**, and the memo edit in the very commit
+    asserting it removed one `KIND UNDETERMINED` occurrence, making it **76** at the commit that
+    claimed 77. This document is IN the corpus, so that number moves whenever this paragraph is
+    edited — the exact failure `memory/feedback_document-landing-invalidates-its-own-measurements.md`
+    names, cited three lines below and not applied to the number three lines above it. What the
+    argument needs is *nonzero*, which the command settles at read time.
     ⚠ **Every figure in this entry is a DATED MEASUREMENT with its corpus beside it, never a
     standing claim** — 2026-09-21, the `docs/plans/*.md` of this worktree and of
     `elidex-wt-vmp4plan`, a corpus that exists on no other disk. The commands, so a reader
@@ -2760,10 +2892,14 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   entry cites). Measured by the STRUCTURAL property instead — a module-level name bound to a literal
   container or to a `frozenset` / `set` / `tuple` / `dict` / `list` constructor, over
   `.claude/tools/plan*.py` by `ast.parse` — the population is **dozens**, and ⚠ the exact figure
-  depends on the predicate: admitting any such constructor gives **59**, restricting to constructors
-  *of literals* gives **38**. That spread is the point, so no single number is written here; what is
-  authoritative is the PREDICATE and the command that runs it, and the four below are a **SEED, not
-  an inventory**. The four that fired so far:
+  depends on the predicate. **THE TWO NUMBERS THAT STOOD HERE — 59 and 38 — ARE WITHDRAWN, NOT
+  CORRECTED** (PR #510 R45): re-derived from the predicate exactly as this entry words it they come
+  out **97 / 84**, and no variant tried (uppercase-only names, excluding bare tuple literals,
+  non-selftest modules, the thirteen-module set) reproduces 59 or 38. A number nobody can reach from
+  the stated predicate is an argument dressed as a measurement — the very thing this paragraph cites
+  `memory/feedback_convention-dependent-figures-are-argument.md` for, written two sentences after
+  citing it. What is authoritative is the PREDICATE and the command that runs it, and the four below
+  are a **SEED, not an inventory**. The four that fired so far:
   `_IMPORT_SEAMS` (which import seams are checked), `_ATTRIB_SPELLINGS` (which attribution spellings
   are read), `_TRAILING` (which trailing characters are decoration) and `_ID_SPELLINGS` (which id
   character classes the sweep knows). Every one states its own "HONESTLY, what it cannot see" and

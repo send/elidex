@@ -175,9 +175,12 @@ class Population:
         exits 0 -- the I-C class this checker exists for.
 
         ⚠ THE PREDICATE IS THE CLAIM, NOT THE SHAPE, and that distinction was
-        MEASURED rather than reasoned.  The first predicate tried was "the
-        first column tokenises as row ids", which is exactly right on the four
-        fixtures and reported **151** tables over the corpus below -- a landing record's review-round tables (`obj`, `R1`...`R7`)
+        MEASURED rather than reasoned.  The first predicate tried was "EVERY
+        BODY ROW's first cell tokenises as a row id" -- the reading matters and
+        a loose statement of it is three different numbers (every body row =
+        151, any body row = 333, any row including the header = more) -- which
+        is exactly right on the four fixtures and reported **151** unbound
+        tables over the corpus below -- a landing record's review-round tables (`obj`, `R1`...`R7`)
         are id-shaped and entirely legitimate.  A header NEAR-MISS was the
         other candidate and it is weaker for a reason no corpus count shows:
         it fires on a renamed header whose table declares NOTHING (measured on

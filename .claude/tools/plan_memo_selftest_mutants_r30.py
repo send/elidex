@@ -43,11 +43,13 @@ from plan_memo_selftest_cases_r26 import ( R30_3_DEMOTED_TAIL, R30_3_IMAGE_OPENE
 from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_ID_SHAPED,
     R42_10_UNBOUND_NO_CLAIM, R42_10_UNBOUND_RENDERED, R42_8_HTML_ALT, R42_8_HTML_ATTR_SITE,
     R42_8_HTML_NO_SEED_CELL, R42_8_HTML_NO_SEED_PROSE, R42_9_UNDET, R42_ALLSPACE,
-    R42_BLANK_MARKER, R42_IMG_AUTO, R42_IMG_CODE, R42_TRIM,
+    R42_BLANK_MARKER, R42_IMG_AUTO, R42_IMG_CODE, R42_LINE_ENDING_FIRST, R42_TRIM,
+    R45_SHORT_DELIM, R45_TABLE_MISS_SCOPE, R45_UNKEYED_SCOPE,
 )
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS, MEMO, MUTANTS,
-    POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, RUNNER, SIBLING, STREAM, TABLES, TOKENS,
+    BLOCKS, CHECK, CONFORMANCE, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS,
+    MEMO, MUTANTS, POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, RUNNER, SIBLING, STREAM,
+    TABLES, TOKENS,
 )
 
 R31_EMPHASIS_LINEAR = ("emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the "
@@ -728,12 +730,22 @@ MUTANTS += [
      'for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
      'for n, rx in KIND_PHRASES if rx.search(c.text)), None)',
      [R42_10_UNBOUND_RENDERED]),
-    ("R42-10: the REJECTED id-shape predicate (re-inject it: every unbound table whose first column "
-     "tokenises as row ids -- 151 of them over the 141 plan memos on this disk)", POPULATION,
+    # ⚠ RE-POINTED: this row re-injected "ANY row's first cell is an id",
+    # including the HEADER, while the figure beside it (151) is "EVERY BODY
+    # ROW's". Three readings, and the mutant proved a predicate the entry did
+    # not describe. It is the entry's reading now, so the number and the thing
+    # it justifies are the same predicate.
+    ("R42-10: the REJECTED id-shape predicate (re-inject it: every unbound table whose EVERY BODY "
+     "ROW starts with a row id -- 151 of them over the corpus §8 names)", POPULATION,
+     '                for row in [t.header] + t.rows:\n'
      '                    hit = next((n for c in row.cells\n'
      '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
-     '                    hit = ("marker" if row.cells and next(__import__("plan_memo_ids").tokens(\n'
-     '                        (row.cells[0].text or "").strip(" \\t")), None) is not None else None)',
+     '                _b = [r for r in t.rows]\n'
+     '                for row in ([t.header] if False else [t.header]):\n'
+     '                    _t = __import__("plan_memo_ids").tokens\n'
+     '                    hit = ("marker" if _b and all(\n'
+     '                        r.cells and next(_t((r.cells[0].text or "").strip(" \\t")), None)\n'
+     '                        is not None for r in _b) else None)',
      [R42_10_UNBOUND_ID_SHAPED]),
     ("R42-10: the REJECTED header-near-miss predicate (re-inject it: a renamed header is reported "
      "whether or not the table declares anything)", POPULATION,
@@ -746,4 +758,76 @@ MUTANTS += [
      '                                and sum(1 for a, b in zip([c.text for c in t.header.cells], s.header)\n'
      '                                        if a != b) <= 1), None)',
      [R42_10_UNBOUND_NO_CLAIM]),
+]
+
+
+DEMOTED_AGREEMENT = ("CommonMark 0.31.2 §6.4: Phase 2's inline claim agrees with the spec's own html "
+                     "for every §3.0b family DEMOTED into a resolved image description (the "
+                     "cross-product the corpus cannot reach)")
+
+# -- R45: the FALSIFIER's own demotion filter, one mutant per family.  Each
+# un-filters one count and the control goes red on that family alone; the
+# vendored corpus stays green under all three, which is the whole reason the
+# control exists.
+MUTANTS += [
+    ("R45 §6.4 falsifier: a DEMOTED code span emits no `<code>` (un-filter the count -- the shape "
+     "that shipped: `![a `b` c](img.png)` reported \"the html emits 0 `<code>`, Phase 2 claims 1\" "
+     "against cmark's own `alt=\"a b c\"`)", CONFORMANCE,
+     '    code = [e for e in lx.code if e[2] != "demoted"]',
+     '    code = list(lx.code)',
+     [DEMOTED_AGREEMENT]),
+    ("R45 §6.4 falsifier: a DEMOTED autolink emits no `<a href=` (un-filter the count)", CONFORMANCE,
+     '    auto = [e for e in lx.autolinks if e[2] != "demoted"]',
+     '    auto = list(lx.autolinks)',
+     [DEMOTED_AGREEMENT]),
+    ("R45 §6.4 falsifier: a DEMOTED raw HTML span is not masked verbatim (un-filter the span list "
+     "-- the R42-8 fix, now pinned by a control the corpus can reach)", CONFORMANCE,
+     '[lx.text[a:b] for a, b, tag in lx.html if tag != "demoted"]',
+     '[lx.text[a:b] for a, b, tag in lx.html]',
+     [DEMOTED_AGREEMENT]),
+    ("R45 §6.4 falsifier: the filter must not be applied EVERYWHERE -- invert it, so the count "
+     "keeps only the DEMOTED spans and a bare code span claims none.  The direction the demoted "
+     "arm alone cannot see: a filter that simply stopped counting passes it", CONFORMANCE,
+     '    code = [e for e in lx.code if e[2] != "demoted"]',
+     '    code = [e for e in lx.code if e[2] == "demoted"]',
+     [DEMOTED_AGREEMENT]),
+]
+
+
+# -- R45: §6.1 STEP ONE, the half both R42-6 mutants missed.  They patch the
+# TRIM; this patches the SUBSTITUTION, and the space-padded twin stays green
+# under it -- which is the evidence that the two arms have different subjects.
+MUTANTS += [
+    ("R45 §6.1: line endings become spaces BEFORE the trim asks (neuter step one -- the raw test "
+     "then declines the trim on a span padded with a line ending, and the slug splits in silence)",
+     STREAM,
+     '            norm = inner.replace("\\r\\n", " ").replace("\\r", " ").replace("\\n", " ")',
+     '            norm = inner',
+     [R42_LINE_ENDING_FIRST]),
+]
+
+# -- R45: the two population-scope loops the ratchet missed.  Same edit shape as
+# the five rows that already exist for `_declare` / `keep` / `data_rows` / the
+# walk / `_unbound_claims`; these two had no row, and both survived silently.
+MUTANTS += [
+    ("R45 scope: `_unkeyed` asks of the whole POPULATION (scope it to `main` -- a linked memo's "
+     "unkeyed row goes unreported at rc 0)", POPULATION,
+     '        for memo in self.memos:\n            self._unkeyed(memo)',
+     '        for memo in self.memos[:1]:\n            self._unkeyed(memo)',
+     [R45_UNKEYED_SCOPE]),
+    ("R45 scope: the table-miss loop asks of the whole POPULATION (scope it to `main` -- a linked "
+     "memo's width miss goes unreported at rc 0)", POPULATION,
+     '        for memo in self.memos:\n            for t in memo.tables:\n'
+     '                for lineno, msg in t.misses:',
+     '        for memo in self.memos[:1]:\n            for t in memo.tables:\n'
+     '                for lineno, msg in t.misses:',
+     [R45_TABLE_MISS_SCOPE]),
+]
+
+MUTANTS += [
+    ("R45 GFM §4.10: a delimiter cell is >=1 hyphen (re-inject a three-hyphen minimum -- the "
+     "dialect the review finding asked for, which cmark-gfm refutes)", BLOCKS,
+     '_DELIM_CELL = re.compile(r":?-+:?")',
+     '_DELIM_CELL = re.compile(r":?---+:?")',
+     [R45_SHORT_DELIM]),
 ]

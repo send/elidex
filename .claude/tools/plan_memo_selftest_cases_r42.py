@@ -159,6 +159,32 @@ R42_ALLSPACE = CASES[-1].name
 """Red under the mutant that trims unconditionally -- the arm `R42_TRIM` cannot
 reach, since trimming IS correct on a padded span."""
 
+# ⚠ AND THE HALF OF §6.1 NOTHING WATCHED (PR #510 R45, found by re-running the
+# fix's own mutation rather than by reading it).  §6.1 is TWO steps and the
+# ORDER is the rule: line endings become spaces FIRST, and only then does the
+# trim ask whether the result begins and ends with one.  Both shipped mutants
+# patch the `if` -- the TRIM -- so step one itself could be replaced with a
+# no-op and the whole suite stayed GREEN, while a real naming site was lost.
+# The mutation is not equivalent: with step one the alt reads
+# `Slot #11-zz-alpha owns it` and the slot is ONE site; without it the raw test
+# sees `\n`, declines the trim, and the slug splits into `#11-zz-alph` + `a`,
+# declared nowhere -- 0 sites, rc 0, no residue.
+# ⚠ The measure is WHICH id, not how many: the space-padded twin above is the
+# arm step one must NOT change, and it reports 1 either way.
+case("POSITIVE", "(R42 §6.1/§6.4) §6.1's TWO steps run in ORDER: a code span padded with a LINE "
+                 "ENDING inside a resolved image description is normalised to a space FIRST and only "
+                 "then trimmed, so `` ![Slot #11-zz-alph`<NL>a ` owns it](img.png) `` has the alt "
+                 "text `Slot #11-zz-alpha owns it` and the slot is ONE reported site.  Written "
+                 "against the RAW content the trim declines -- `\\n` is not a space -- the slug "
+                 "splits into `#11-zz-alph` and `a`, declared nowhere, and the run exits 0 saying "
+                 "nothing.  ⚠ This is the half of the R42-7 fix that shipped UNPINNED: both R42-6 "
+                 "mutants patch the trim, so step one could be made a no-op with every control green",
+     build(), "See ![Slot #11-zz-alph`\na ` owns it](img.png).", 1)
+R42_LINE_ENDING_FIRST = CASES[-1].name
+"""Red under the mutant that drops §6.1 step one (the line-ending
+substitution); the space-padded `R42_TRIM` twin stays green under it, which is
+what makes this control's subject step one rather than the trim."""
+
 case("NEGATIVE", "(R42 §6.1/§6.4) the partner that bounds the whole demotion: the SAME padded span "
                  "OUTSIDE an image is MASKED whole, so its content is not read, the slug never "
                  "completes and NOTHING is reported -- the trim belongs to §6.4's reading of a "
@@ -326,3 +352,68 @@ case("NEGATIVE", "(R42-10) the phrase is read off the RENDERED cell, as the cens
      measure=("schema", "binding to NO schema"))
 R42_10_UNBOUND_RENDERED = CASES[-1].name
 """Red under the mutant that reads the raw cell text instead of the rendering."""
+
+
+# -- R45: TWO POPULATION-SCOPE LOOPS THAT WERE CORRECT AND UNWATCHED.  Found by
+# running the mutation rather than by reading the code: scoping either to
+# `self.memos[:1]` -- the same edit shape `_declare`, `keep`, `data_rows`, the
+# transitive walk and `_unbound_claims` all HAVE a mutant for -- left every one
+# of the 695 controls green.  The population-scope ratchet covered five of
+# seven loops, and the two it missed both report a LINKED memo's schema miss,
+# which is the I-C silent-skip class this checker exists for
+# (`memory/feedback_derived-populations-shrink-in-silence.md`: a population the
+# next edit can shrink in silence).
+# ⚠ The two fixtures discriminate SEPARATELY, measured: scoping `_unkeyed`
+# leaves the width miss reported and vice versa, so neither control stands in
+# for the other.
+_SIB_UNKEYED = SIB_TABLE.replace("| **Wz** |", "| xxxxWz |")
+_SIB_WIDTH = SIB_TABLE.replace("| `w.rs` | — | T1 | %s |", "| `w.rs` | — | T1 | %s | EXTRA |")
+
+case("POSITIVE", "(R45 scope) a LINKED memo's UNKEYED row is reported: `_unkeyed` asks of the whole "
+                 "population, not of `main`.  Scoped to `main` the sibling's `xxxxWz` id cell "
+                 "declares nothing, the row is unscanned and the run exits 0 -- the I-C class, in "
+                 "the memo the census exists to reach",
+     build(), LINK, 1, sibling=_SIB_UNKEYED % "—",
+     measure=("schema", "the row declares nothing and is unkeyed"))
+R45_UNKEYED_SCOPE = CASES[-1].name
+"""Red under the mutant scoping `_unkeyed` to `main`; green under the
+table-miss one, which is what makes its subject that loop alone."""
+
+case("POSITIVE", "(R45 scope) a LINKED memo's table WIDTH miss is reported: the table-miss loop asks "
+                 "of the whole population too.  Scoped to `main` the sibling's 7-cell row under a "
+                 "6-cell header leaves the run at 0 with nothing saying the row was skipped",
+     build(), LINK, 1, sibling=_SIB_WIDTH % "—",
+     measure=("schema", "a shifted read fabricates findings"))
+R45_TABLE_MISS_SCOPE = CASES[-1].name
+"""Red under the mutant scoping the table-miss loop to `main`; green under the
+`_unkeyed` one."""
+
+
+# -- R45: THE ONE REVIEW FINDING THIS LOOP LEFT WITH NO DISPOSITION AT ALL, and
+# it is an FP -- but "the author probably knows it is an FP" is not a
+# disposition, and nothing here watched the behaviour either way.  The finding
+# asked that a delimiter cell require THREE hyphens, so that `|-|-|` would not
+# admit a table.  Settled by EXECUTION against the GFM reference implementation
+# rather than by reading the prose, which is the rule this PR adopted for its
+# other two open spec questions:
+#
+#   $ printf '| a | b |\n|-|-|\n| 1 | 2 |\n' | cmark-gfm -e table
+#   <table> ...
+#
+# cmark-gfm 0.29.0.gfm.13 makes a table from a ONE-hyphen delimiter, and from
+# `:-`, `-:` and `:-:` too.  The checker is right and the finding is wrong; the
+# three-hyphen rule is a different dialect's.  ⚠ `is_separator` had ZERO
+# self-test references before this control and no fixture used a short
+# delimiter, so the suite could not have told the two readings apart.
+for _label, _delim in (("one hyphen", "-"), ("left-aligned", ":-"),
+                       ("right-aligned", "-:"), ("centred", ":-:")):
+    case("POSITIVE", "(R45 GFM §4.10) a delimiter cell of %s admits the table exactly as `---` does "
+                     "-- \"cells whose only content are hyphens (-), and optionally, a leading or "
+                     "trailing colon (:)\" sets no minimum length.  Verified against cmark-gfm "
+                     "0.29.0.gfm.13, which makes a `<table>` from all four; a review finding asking "
+                     "for a three-hyphen minimum is the FP this pins" % _label,
+         build().replace("|---|---|---|---|---|---|", "|%s|%s|%s|%s|%s|%s|" % ((_delim,) * 6))
+                .replace("|---|---|---|---|", "|%s|%s|%s|%s|" % ((_delim,) * 4)), "9z owns it.", 1)
+R45_SHORT_DELIM = CASES[-1].name
+"""Red under the mutant re-injecting a three-hyphen minimum: the schema tables
+stop being tables, nothing is declared, and the run says nothing."""

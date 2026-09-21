@@ -40,7 +40,7 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER = (
+IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER, CONFORMANCE = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
     "plan_memo_lexer.py", "plan_memo_links.py", "plan_memo_blocks.py", "plan_memo_stream.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py",
@@ -49,7 +49,8 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
     "plan_memo_selftest_properties.py", "plan_memo_selftest_records.py",
     "plan_memo_selftest_invariants.py",
     "plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py",
-    "plan_memo_selftest_growth.py", "plan_memo_umbrella_selftest.py")
+    "plan_memo_selftest_growth.py", "plan_memo_umbrella_selftest.py",
+    "plan_memo_selftest_conformance.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
@@ -64,7 +65,15 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
 # attack that proved the escape's control had the wrong subject is a patch to
 # a CALL SITE. It is patchable because the runner imports `registry`, so the
 # patched module hands the table back like any other self-test module.
-SELFTEST = frozenset((CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER))
+# ⚠ `CONFORMANCE` arrived LAST and with its first mutant too (PR #510 R45),
+# which is the shape to notice rather than the arrival: the module held the
+# falsifier that decides every spec-example control, and until that round NO
+# mutant could name it -- so a defect in the falsifier itself was invisible to
+# the proof in both directions.  It was one: the `.html` demoted filter was
+# added there without sweeping `.code` and `.autolinks` in the same function,
+# and the corpus cannot reach the difference.
+SELFTEST = frozenset((CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER,
+                      CONFORMANCE))
 
 # The GENERATED growth property (PR #510 R27): the corpus is derived from the
 # grammar rather than written by hand, so it is the control a cost mutant names
@@ -524,7 +533,12 @@ def run(reg):
             # one, so the row's controls come from the patched text whichever
             # self-test module they live in
             M, table = h.load(), dict(reg)
-            table.update(h.patched_module(file, patched).registry())
+            pm = h.patched_module(file, patched)
+            # a module that OWNS controls hands its fragment back; a LEAF is
+            # installed under its real name by `patched_module` and reached
+            # through the owning module's call-time import (PR #510 R45)
+            if hasattr(pm, "registry"):
+                table.update(pm.registry())
         else:
             M, table = h.load({file: patched}), reg
         survived, crash = [], None

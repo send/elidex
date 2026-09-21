@@ -195,6 +195,25 @@ def inline_claim(lx, body):
     # claim it leaves behind is exactly the claim it had.  The demoted reading
     # is carried by its own fixture controls, not here.
     spans, pos, cut = [lx.text[a:b] for a, b, tag in lx.html if tag != "demoted"], 0, []
+    # ⚠ AND THE SAME FILTER FOR THE TWO FAMILIES DEMOTED ONE ROUND EARLIER.
+    # R42-5a made a code span and an autolink inside a resolved image's
+    # description render their CONTENT, so the html emits no `<code>` and no
+    # `<a href=` for them -- and these counts kept asking `len(lx.code)` /
+    # `len(lx.autolinks)`, which claims a tag the spec's own html does not
+    # emit.  `![a `b` c](img.png)` -> `alt="a b c"` (cmark 0.31.2) reported
+    # "the html emits 0 `<code>`, Phase 2 claims 1 code span(s)": a FABRICATED
+    # falsifier failure, the same direction as the §6.6 defect and left behind
+    # by the same fix -- the `.html` filter above was added without sweeping
+    # its two semantic siblings in the same function
+    # (`memory/feedback_semantic-sibling-selfseed-and-regate-breadth.md`).
+    # ⚠ The corpus cannot reach it and that is measured, not assumed: of the
+    # 335 inline examples 22 render an `<img>`, and of those ZERO carry a
+    # backtick and ZERO carry a `<` in the DESCRIPTION (Example 580's `<` is in
+    # the destination).  `lx.links` needs no filter -- a demoted link is
+    # CONVERTED into `images` at the image close and never stays in `out` --
+    # and `images` / `emphasis` already filter by their own tag below.
+    code = [e for e in lx.code if e[2] != "demoted"]
+    auto = [e for e in lx.autolinks if e[2] != "demoted"]
     for sp in spans:
         k = body.find(sp, pos)
         if k < 0:
@@ -202,11 +221,11 @@ def inline_claim(lx, body):
         cut.append((k, k + len(sp)))
         pos = k + len(sp)
     rest = _blank(body, cut)
-    got, want = len(_A.findall(rest)), len(lx.links) + len(lx.autolinks)
+    got, want = len(_A.findall(rest)), len(lx.links) + len(auto)
     if got != want:
         return ("the html emits %d `<a href=` outside the masked raw HTML, Phase 2 claims %d link(s) "
-                "+ %d autolink(s)" % (got, len(lx.links), len(lx.autolinks)))
-    got, want = rest.count("<code>"), len(lx.code)
+                "+ %d autolink(s)" % (got, len(lx.links), len(auto)))
+    got, want = rest.count("<code>"), len(code)
     if got != want:
         return "the html emits %d `<code>`, Phase 2 claims %d code span(s)" % (got, want)
     got, want = len(_IMG.findall(rest)), sum(1 for e in lx.images if e[2] == "image")
@@ -230,7 +249,7 @@ def inline_claim(lx, body):
     # unmasked, the html emits it verbatim, and no count above moves (⚠ the
     # R17 property's `<` conservation had this direction; four of its mutants
     # survived the first R21 draft, which had counts only).
-    left = rest.count("<") - 2 * (len(lx.links) + len(lx.autolinks)) - 2 * len(lx.code) - img
+    left = rest.count("<") - 2 * (len(lx.links) + len(auto)) - 2 * len(code) - img
     left -= 2 * (len(em) + sum(1 for p in lx.emphasis if p[4] == "~" and p[6] == "em"))
     left -= len(_PROSE_TAGS.findall(rest))
     if left:
@@ -447,3 +466,91 @@ def run_code_reading(M):
                            % (ex["example"], src, got, expect))
     return not bad, ("%d code span(s) over %d §6.1 examples read as the spec renders them%s"
                      % (agreed, len(rows), ("; " + "; ".join(bad)) if bad else ""))
+
+
+# The pairs below are the SPEC'S OWN html for each shape, taken from cmark
+# 0.31.2 (`printf '%s' '<src>' | cmark`), body only -- the `<p>` wrapper is
+# stripped because `inline_claim` is handed a paragraph's BODY.
+_DEMOTED_AGREEMENT = [
+    # (label, source, the <p> body / the <img> element the spec renders)
+    ("§6.1 code span, demoted",  "![a `b` c](img.png)",
+     '<img src="img.png" alt="a b c" />'),
+    ("§6.5 autolink, demoted",   "![a <http://x.example/> c](img.png)",
+     '<img src="img.png" alt="a http://x.example/ c" />'),
+    ("§6.6 raw HTML, demoted",   "![a <span>b](img.png)",
+     '<img src="img.png" alt="a &lt;span&gt;b" />'),
+    ("§6.3 link, demoted",       "![a [x](y) c](img.png)",
+     '<img src="img.png" alt="a x c" />'),
+    ("§6.4 nested image",        "![a ![n](m) c](img.png)",
+     '<img src="img.png" alt="a n c" />'),
+    ("§6.2 emphasis, demoted",   "![a *b* c](img.png)",
+     '<img src="img.png" alt="a b c" />'),
+]
+"""Each §3.0b family INSIDE a resolved image description."""
+
+_BARE_AGREEMENT = [
+    ("§6.1 code span, bare", "a `b` c",                 'a <code>b</code> c'),
+    ("§6.5 autolink, bare",  "a <http://x.example/> c", 'a <a href="http://x.example/">http://x.example/</a> c'),
+    ("§6.6 raw HTML, bare",  "a <span>b</span> c",      'a <span>b</span> c'),
+    ("§6.3 link, bare",      "a [x](y) c",              'a <a href="y">x</a> c'),
+    ("§6.2 emphasis, bare",  "a *b* c",                 'a <em>b</em> c'),
+]
+"""The same families OUTSIDE any image -- the discriminating twin: these are
+the counts the demoted filter must NOT touch."""
+
+
+def demoted_agreement_control(M):
+    """`inline_claim` agrees with the SPEC'S OWN html for every §3.0b family
+    demoted into a resolved image description -- and still disagrees where it
+    should.
+
+    ⚠ THIS CONTROL EXISTS BECAUSE THE CORPUS CANNOT REACH THE CASE, and that
+    is measured rather than assumed: of the 335 vendored inline examples, 22
+    render an `<img>`, and of those ZERO carry a backtick and ZERO carry a `<`
+    in the DESCRIPTION.  So `inline_examples_control` runs green over a
+    falsifier that FABRICATES failures here -- which is exactly what it did:
+    R42-5a made a demoted code span and autolink render their content (no
+    `<code>`, no `<a href=` in the html), while `inline_claim` kept counting
+    `len(lx.code)` / `len(lx.autolinks)` whole.  `![a `b` c](img.png)` returned
+    *"the html emits 0 `<code>`, Phase 2 claims 1 code span(s)"* against
+    cmark's own `alt="a b c"`.
+
+    ⚠ THREE ARMS, because the first two alone can both be green for the wrong
+    reason:
+      * DEMOTED must agree (None) -- the property;
+      * BARE must agree too -- the twin that says the filter did not simply
+        stop counting (a filter applied everywhere would pass the first arm
+        while destroying the falsifier);
+      * a DELIBERATELY WRONG body must still DISAGREE -- without it, an
+        `inline_claim` that returned None unconditionally passes both arms
+        above, which is the shape
+        `memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`
+        names.
+    `lx.links` is deliberately unfiltered and that is a fact about the LEXER,
+    verified here rather than asserted: a link demoted into a description is
+    CONVERTED into an `images` entry at the image close, so `out` never keeps
+    one."""
+    import plan_memo_lexer as L
+    bad = []
+    for label, src, body in _DEMOTED_AGREEMENT + _BARE_AGREEMENT:
+        lx = L.Lexed(src)
+        lx.resolve({})
+        got = inline_claim(lx, body)
+        if got is not None:
+            bad.append("%s: %r should AGREE with the spec's html, got %s" % (label, src, got))
+    # arm three: the falsifier must still falsify
+    lx = L.Lexed("a `b` c")
+    lx.resolve({})
+    if inline_claim(lx, "a b c") is None:
+        bad.append("a body with NO `<code>` for a bare code span was accepted -- the falsifier "
+                   "falsifies nothing")
+    # and the lexer fact the filter rests on
+    lx = L.Lexed("![a [x](y) c](img.png)")
+    lx.resolve({})
+    if lx.links:
+        bad.append("a link demoted into a description stayed in `lx.links` (%r) -- the unfiltered "
+                   "link count above is only correct while this holds" % (lx.links,))
+    return not bad, ("%d shape(s) checked (%d demoted, %d bare, 1 negative, 1 lexer fact)%s"
+                     % (len(_DEMOTED_AGREEMENT) + len(_BARE_AGREEMENT),
+                        len(_DEMOTED_AGREEMENT), len(_BARE_AGREEMENT),
+                        "" if not bad else " -- " + "; ".join(bad)))

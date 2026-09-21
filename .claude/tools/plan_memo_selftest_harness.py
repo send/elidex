@@ -119,9 +119,16 @@ def load(patches=None):
     return mod
 
 
+_INSTALLED_LEAVES = []
+"""Self-test LEAF modules a mutant row installed under their real name; see
+`patched_module`.  Cleared by `unload()`, so an install lasts one row."""
+
+
 def unload():
     for name, _ in MODULES:
         sys.modules.pop(name, None)
+    while _INSTALLED_LEAVES:
+        sys.modules.pop(_INSTALLED_LEAVES.pop(), None)
 
 
 def patched_module(file, src):
@@ -144,6 +151,18 @@ def patched_module(file, src):
     mod.__file__ = str(HERE / file)
     SOURCES[file] = src
     exec(compile(src, mod.__file__, "exec"), mod.__dict__)
+    # ⚠ A LEAF of the self-test set owns no controls: it is imported BY NAME,
+    # at call time, from the module that does (PR #510 R45 --
+    # `plan_memo_selftest_conformance` holds the spec falsifier, and every
+    # control over it lives in `plan_memo_selftest_controls`).  Merging a
+    # `registry()` it does not have is an AttributeError, and leaving it
+    # uninstalled makes the mutant a no-op -- the silent direction.  So a leaf
+    # is installed under its REAL name for the row and `unload()` drops it,
+    # which is the same one-row lifetime `SOURCES` already has.
+    if not hasattr(mod, "registry"):
+        name = pathlib.Path(file).stem
+        sys.modules[name] = mod
+        _INSTALLED_LEAVES.append(name)
     return mod
 
 

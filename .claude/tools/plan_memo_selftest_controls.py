@@ -254,6 +254,16 @@ def inline_examples_control(M):
     return ok, detail.split("\n")[0]
 
 
+def demoted_agreement_control(M):
+    """Every §3.0b family demoted into a resolved image description, against
+    the spec's OWN html -- the cross-product the vendored corpus cannot reach
+    (`plan_memo_selftest_conformance.demoted_agreement_control`; 22 of its 335
+    inline examples render an `<img>` and none carries a backtick or a `<` in
+    the description)."""
+    import plan_memo_selftest_conformance as conf
+    return conf.demoted_agreement_control(M)
+
+
 def code_span_reading_control(M):
     """The spec's §6.1 examples against the READER'S rendering of a code span
     (`plan_memo_selftest_conformance.run_code_reading`) -- the half the
@@ -584,6 +594,8 @@ def registry():
     reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
         "with the html"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)
+    reg["CommonMark 0.31.2 §6.4: Phase 2's inline claim agrees with the spec's own html for every "
+        "§3.0b family DEMOTED into a resolved image description (the cross-product the corpus cannot reach)"] = ("CONTROL", demoted_agreement_control)
     reg["CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts inside `<code>` (line endings converted, then the one-space trim)"] = ("CONTROL", code_span_reading_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)

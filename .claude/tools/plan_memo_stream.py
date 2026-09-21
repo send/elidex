@@ -298,9 +298,13 @@ def dispose(lx, keep):
     # §6.4 reduces the description to the plain string content of its inline
     # children, and an `html_inline` node's plain string content is its OWN
     # SOURCE TEXT.  Both references put it in the alt verbatim --
-    # `![UMBRELLA, not a <span>terminal unit](img.png)` gives
-    # `alt="UMBRELLA, not a &lt;span&gt;terminal unit"`, and cmark ESCAPING the
-    # angle brackets is what settles it: they are content, not markup.
+    # `![UMBRELLA, not a <span>terminal unit](img.png)` puts the span's own
+    # characters in the alt: cmark 0.31.2 gives
+    # `alt="UMBRELLA, not a &lt;span&gt;terminal unit"` and commonmark.js 0.31.2
+    # gives `alt="UMBRELLA, not a <span>terminal unit"`.
+    # ⚠ The ESCAPING is cmark's serializer, NOT the deciding fact -- the first
+    # version of this comment said it was, and the second implementation does
+    # the opposite.  What both agree on is that the characters are THERE.
     # So the span is dropped from the mask entirely and its characters stand as
     # ordinary text.  Masking it `html` (renders nothing, joins the two sides)
     # FABRICATED a finding: the marker phrase appeared across a `<span>` the
