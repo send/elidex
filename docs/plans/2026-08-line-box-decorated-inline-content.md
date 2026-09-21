@@ -617,6 +617,8 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A41 | R15 | §3's css-text-3 §7.3 row quoting **one** of the clause's two normative sentences, marking `✗` on triggers 2 and 3 of the first, and §1.4's reading of that first sentence as the live half | the reviewer's premise — three triggers, one delivered, two unowned — fails on measurement, and so does the row it corrects. A text run carries the **parent element**'s entity (`collect.rs:309` pushes `StyledRun::from_style(parent_entity, …)`; only the pseudo arm at `:263` pushes the child), so any inline box that places a member changes the entity across its boundary and `pack/mod.rs:744`'s `coalesce` is false there by construction — the file's own comment at `:727-735` says so. elidex therefore already breaks shaping at those boundaries, **by over-breaking**, for all three triggers alike; triggers 2 and 3 are not live divergences and nothing in this program implements them. What *is* live is the sentence the memo never quoted: shaping must **not** be broken where formatting does not effectively change (`body css-text-3 boundary-shaping`), and `<p>a<span>x</span>c</p>` with an unstyled span is shaped as three runs — `grep -c 'must not be broken'` and `grep -c 'effective change'` over the memo both returned **0** before this round. New slot `#11-shaping-break-at-unchanged-inline-boundary` (§1.4, §3, §5.3, §8, §10), pre-existing class, and the row takes a split verdict. ⚠ **§1.4's own premise is sharpened, not withdrawn, and the audit's first reading that it was false is itself rejected here**: same-entity text *does* meet across a boundary, in exactly the case where the box places nothing — cells 14 and 15's markup, PR-1b's subject — and that same case is the one the engine already gets right under the second sentence, so the two halves are complements rather than a contradiction. Both are recorded because a row that logged only the fix would lose the reviewer's premise being false. Found by Codex on #515 |
 | A42 | R15 | §9's predicate-prereq bullet closing the replaced-inline gap with "closing the gap is separate, pre-existing work neither this PR nor this umbrella takes on" and naming no destination | a hand-off to nobody is not a disposition. The gap is author-reachable today — `is_atomic_inline` (`inline/collect.rs:14-19`) matches four display keywords and not `Inline`, so an `<img>` in a paragraph is taken for an inline box, recursed into, and emits no `InlineItem`; `<p>a<img src=x>b</p>` advances by zero. The inline module reaches no replaced element at all, its one `replaced` / `ImageData` / `get_intrinsic_size` hit being the doc comment at `inline/styled_run.rs:12`, while the sizing exists one directory over in `block/replaced.rs`. New slot `#11-replaced-inline-no-atomic-layout` (§5.3, §9, §10), pre-existing class; the prereq PR's predicate supplies the classification, not the layout. Found by Codex on #515 |
 | A43 | R15 | R15's own first disposition of the reviewer's §7.3 finding — that triggers 2 and 3 are **not** live divergences, because an entity change already breaks shaping at their boundaries | true only where the box **places content**. The member-less corner is the same corner for all three triggers and only trigger 1 closes in it: M1 emits a marker for a non-zero edge, so `<p>a<span style="padding:1px"></span>b</p>` breaks at PR-1b, while `<p>a<span style="vertical-align:super"></span>b</p>` gets no marker and keeps its two `<p>`-entity runs coalesced, after PR-1d as much as today. Measured: `git grep -nE 'vertical_align'` over `crates/layout/elidex-layout-block/src/inline/` at `154bac3f` (with `unicode_bidi` and `Isolate` in the same alternation) is empty, and `last_placed_entity` has exactly two write sites, `pack/mod.rs:439` and `:772`, so identity is the sole discriminator. ⚠ The reviewer's finding was **right as stated**, and this side's first two readings of it were wrong in opposite directions — first that the triggers were unowned with no measurement behind the claim, then that they were not live at all. New slot `#11-shaping-break-vertical-align-and-isolation` |
+| A44 | R16 | this umbrella prescribing the prerequisite PR's **mechanism** — revs 50–51's candidate-set derivation off the collect walk, the ownership flag "riding the producer's push", and the `clear_inline_flows`-extension sketch | **under-specified as a PR and over-specified as a design, in one move.** R15 carved the repair into a prerequisite and the bookkeeping never followed: it was absent from §5.3's roll-call, from §8's sequence and topology, and from the §5.3 pre-existing-class list, while §8 and §9 each carried two paragraphs designing how it would work. R16 returned five findings and **four are defects in that prescribed mechanism** — a candidate set that is not a superset of previously owned boxes (risk 1, §8), a reconciler that covers `LayoutBox` and not `InlineClientRects` (the obligation, §8), and a removal that wire #5 bans with no `EcsDom` API to route it through (risk 2, §8) — because the memo presented the mechanism as settled and the reviewer read it at umbrella depth, correctly. The measurement that makes this a change of **altitude** and not a scope cut: the memo grew from **507,706** to **607,814** characters across revs 44–51 (`git show b14fcecd:docs/plans/2026-08-line-box-decorated-inline-content.md` against `2815674a`'s copy, both `LC_ALL=en_US.UTF-8 wc -m`) while the per-round new-real count went **3, 2, 1, 3, 5** over R12–R16 — a rising finding rate against a rising input, which is a loop that does not converge. CLAUDE.md's *Edge-dense work* rule already answers it: the prerequisite is a terminal per-PR slice and gets its own memo and its own `/elidex-plan-review`. So the umbrella states the obligation, names the three risks that review must answer, and stops. **Nothing is dropped** — every R16 finding is recorded, three of them as that PR's required plan-review inputs. Found by Codex on #515 |
+| A45 | R16 | §3's css-inline-3 §5.3 row reading "two conditions, one delivered", with the *glyphless* condition delivered by M7's tentative baseline at PR-1d | delivered **only where a font resolves**, and elidex does not guarantee one. `FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60-84` at `154bac3f`) ends `self.db.query(&query)` and answers `None` when the family list matches nothing, with no last-resort family appended anywhere in the call. The case this program reaches it through is the one line it creates that has nothing else to take a baseline from: `<p><span style="font-family:no-such-family;padding:1px"></span></p>` carries no text, so `inline/mod.rs:200`'s measurability gate — inside `if has_text` at `:191` — never runs, M5 commits the line on the inline-axis edge, M7's tentative gets `None`, and the IFC returns `first_baseline == None` where §5.3 asks for the strut's. ⚠ **The gap is not created here**: the same `None` reaches `measure_text` (`elidex-shaping/src/measurement.rs:54`), so `origin/main` already renders ordinary text in an unavailable family as nothing, with no marker involved — which is why the class is **pre-existing** and the disclosure, not the fix, is owed. New slot `#11-shaping-no-last-resort-font` (§3, §5.3, §8, §10), reachable far past this program. Found by Codex on #515 |
 
 ---
 
@@ -902,7 +904,7 @@ it is the plan-checker tooling task's (§9), not this memo's. Ledger **A34**.
 | CSSOM View 1 §6 Extensions to the `Element` Interface | *get the bounding box* (`#element-get-the-bounding-box`), which `getBoundingClientRect()` returns the result of | step 1 invokes `getClientRects()`; step 4 returns "the smallest rectangle that includes all of the rectangles in list **of which the height or width is not zero**" (step 2 = zeros for an empty list, step 3 = **the first** rect when all are zero-area) | ⚠ elidex derives it from `LayoutBox.border_box()` and **never invokes `getClientRects()`** (`element/layout_query.rs:26-31` → `get_border_box`), so the two derivations are independent — pre-existing. PR-1c makes them *disagree*, at the broken edges only; §6 cell 17f pins it — **`#11-inline-box-decoration-splits`** | ✗ (deliberate, §5.3) | yes |
 | CSSOM View 1 §6 Extensions to the `Element` Interface | `clientTop` / `clientLeft` / `clientWidth` / `clientHeight`, step 1 | "If the element has no associated box **or if the box is inline, return zero**" — verbatim, and **identical across all four members** (`body cssom-view-1 dom-element-clienttop`) | ⚠ **step 1 is unimplemented for all four.** `clientTop` / `clientLeft` (`element/layout_query.rs:133-151`) read `lb.border.top` / `lb.border.left` as **direct field reads** and return zero today only because `inline/pack/boxes.rs:82-84` hard-codes `EdgeSizes::default()` — the lines M4 replaces — so PR-1c would turn an accidental correctness into a violation. `clientWidth` / `clientHeight` (`:119-131`) read `get_padding_box` (`:346`) and therefore **already violate step 1 today**, before this program. **Carved out of this umbrella into the predicate prereq PR** (§9), which must land **before PR-1a** — its predicate has two consumers, these four members and M1's emit test (§6 cell 6c). Why it is not a cell here: the predicate is css-display-3 §A Glossary's *inline box* — "A non-replaced inline-level box whose inner display type is flow. …" — the elision marks §A's second sentence, "The contents of an inline box participate in the same inline formatting context as the inline box itself", dropped unmarked at every site until rev 34 (round 26, Axis 4) — i.e. **two** inputs, and elidex answers only one (`is_atomic_inline`, `inline/collect.rs:14`, matches `InlineBlock`/`InlineFlex`/`InlineGrid`/`InlineTable` and **not** the replaced half of css-display-3's *atomic inline*). A guard keyed on `Display::Inline` alone would be a second, wrong answer to a question `collect.rs` already answers | ✗ (deliberate, §9) | yes |
 | Resize Observer 1 §3.3.1 *content rect* | *Watching content rect means that:* — the list's third bullet | "non-replaced inline Elements will always have an **empty** content rect" (`dfn resize-observer-1 "content rect"` → §3.3.1 `#content-rect`; `body resize-observer-1 content-rect-h`) | ⚠ **unimplemented, and already violated on `154bac3f`.** The observer's size source is `LayoutBox::content_rect_local` (`crates/script/elidex-js/src/vm/host/resize_observer.rs:404-407` → `crates/core/elidex-plugin/src/layout_types/boxes.rs:204-211`), a total function of `padding` and `content.size` with no inline special case, and an inline `LayoutBox`'s content height is the **line's** block size. Measured, not argued: an ordinary `<p><span>Hi</span></p>` already reports a non-empty `content_rect_local()` for the span today, while an *empty* undecorated span has no `LayoutBox` at all and so reads `(0,0)` — accidentally conformant. **PR-1c** (cell 14c) and **PR-1d** (cell 21) grant that box to previously box-less targets, so the existing violation gains reach and a `ResizeObserver` callback fires with a non-empty `contentRect` where §3.3.1 requires an empty one. **Routed to `#11-resize-observer-inline-empty-content-rect`** (§9, §10), **pre-existing** class | ✗ (deliberate, §9) | yes |
-| CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | glyphless / fallback-only box | strut with first-available-font metrics | **two conditions, one delivered**: the *glyphless* one is M7's tentative baseline — **PR-1d**; the *fallback-only* one ("or if it contains only glyphs from fallback fonts") has no elidex signal at all and is **`#11-inline-fallback-font-strut`**'s (§5.3, §8) | ✗ (pre-existing, disclosed) | yes |
+| CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | glyphless / fallback-only box | strut with first-available-font metrics | **two conditions, one delivered, and that one only where a font resolves**: the *glyphless* one is M7's tentative baseline — **PR-1d** — but the strut's "first available font" is a font elidex cannot guarantee, `FontDatabase::query` answering `None` with no last-resort family (R16, **`#11-shaping-no-last-resort-font`**, §5.3, §8); the *fallback-only* one ("or if it contains only glyphs from fallback fonts") has no elidex signal at all and is **`#11-inline-fallback-font-strut`**'s (§5.3, §8) | ✗ (pre-existing, disclosed) | yes |
 | CSS Inline 3 §5.3 Calculating the Logical Height Contributions ("Layout Bounds") of Inline Boxes | half-leading | `A′ = A + L/2` | existing formula (`inline/pack/mod.rs:581`) — unchanged | ✓ (pre-existing) | yes |
 | CSS Text 3 §5.5 Line Breaking Details | break opportunities | inline box boundary is **not** one | M3 — the marker path calls the shared core without a wrap check — **PR-1b** | ✓ | yes |
 | CSS Text 3 §5.5 Line Breaking Details | soft wrap opportunities *between* inline boxes | those of the text alone — an **inline-box** boundary adds none. ⚠ **Scoped at R11**: the claim read "the boundary between two runs adds none", a universal §5.5's *next* bullet refutes for **atomic inlines** — "For Web-compatibility there is a soft wrap opportunity before and after each replaced element or other atomic inline, even when adjacent to a character that would normally suppress them, including U+00A0 NO-BREAK SPACE", with a GL/WJ/ZWJ exception the invariant now implements by construction (R12: feeding U+FFFC to the engine's own breaker reproduces the whole bullet bar the NBSP case, §8). An atomic item's two boundaries are therefore **licensed unless the adjacent character is GL/WJ/ZWJ, NBSP excepted**, and the *adjacent soft wrap opportunity* row — two rows down, past the intra-word shaping row — is about which edge a break lands at, not about whether one exists | `place_item`'s per-item flush (`pack/mod.rs:658` at `22de3078`) wraps at **every** item boundary with no break-opportunity test — pre-existing, **`#11-inline-item-boundary-soft-wrap`** (§5.3; Codex on #515). Over-breaking is wrong at inline-box boundaries and **accidentally right** at atomic ones, so the slot is scoped to the boundaries §5.5 does not license and its discharge must preserve the others; §8's PR-1b suite invariant carries the atomic term explicitly (R11) | ✗ (pre-existing → slot) | yes |
@@ -1702,8 +1704,34 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   and it does not enter §5.3's per-PR count. Trigger: any atomic-inline or replaced-element layout
   work, any work on `is_atomic_inline`'s answer (the predicate prereq PR is the first candidate),
   or a compat-survey hit. Re-eval: 2026-11-01.
+* **`#11-shaping-no-last-resort-font`** (new slot, **pre-existing** class, opened by R16):
+  css-inline-3 §5.3 gives a glyphless inline box a strut "with the metrics of the box's **first
+  available font**" (§1.5's quote) — a font the spec takes to exist. elidex has none.
+  `FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60-84` at `154bac3f`) maps
+  the five CSS generic names onto `fontdb`'s generic variants, treats every other name as a
+  specific family, and ends `self.db.query(&query)`, so it answers `None` when nothing matches —
+  **no last-resort family is appended anywhere in the call** (`git grep -niE
+  'last.resort|fallback_font|default_family' 154bac3f -- crates/text/` is empty, and the family
+  list is `ComputedStyle.font_family` unextended, `inline/styled_run.rs:90`). **What R16 reached
+  it through**: a decoration-only line then has no baseline source at all.
+  `<p><span style="font-family:no-such-family;padding:1px"></span></p>` carries no text, so
+  `inline/mod.rs:200`'s measurability gate — which sits inside `if has_text` (`:191`) — never
+  runs; M5 commits the line on the inline-axis edge; M7's tentative needs `query` and gets
+  `None`; and the IFC finishes with `first_baseline == None` where §5.3 asks for the strut's.
+  Why deferred: supplying a last-resort font is an `elidex-shaping` decision — which face, how it
+  is discovered per platform, what holds when the system offers none — with its own invariant
+  axis, and it is reachable from **every** `font-family` that resolves to nothing, far past this
+  program's markup. **Pre-existing** class on the memo's own test: the same `None` reaches
+  `measure_text` (`db.query(…)?`, `elidex-shaping/src/measurement.rs:54`), so `origin/main`
+  already renders ordinary text in an unavailable family as nothing, with no marker involved.
+  **Not** an own deferral and it does not enter §5.3's per-PR count. ⚠ **It is neither adjacent
+  font slot**: `#11-inline-fontless-measurability-gate` is the **text-driven** early return, which
+  this markup never reaches, and `#11-inline-fallback-font-strut` is §5.3's *second* condition,
+  which needs glyphs to exist before provenance can classify them. Trigger: any font-fallback or
+  font-discovery work in `elidex-shaping`, `#11-inline-fallback-font-strut`'s discharge (the same
+  layer), or a compat-survey hit. Re-eval: 2026-11-01. Ledger **A45**.
 
-Own deferrals **per PR** (the policy's unit), for all **seven crate PRs** of the program (§8's two
+Own deferrals **per PR** (the policy's unit), for all **eight crate PRs** of the program (§8's two
 bookkeeping PRs — neither touches `crates/` — sit outside check 9's roll-call: the docs-only
 **approval PR** opens none by construction; the **tooling PR** ships skill infra — checker
 generalisation, wiring and two-file awareness, §9 — and its own-deferral count is its own memo's
@@ -1715,6 +1743,8 @@ since it is carved precisely because its questions are not this memo's to settle
 ⚠ **That line is wrapped deliberately**: until rev 34 the wrap fell between `dead-arm` and
 `prereq`, which hid the tuple from the checker's own regex — the remediable half of the two
 defects the paragraph below records (round 26, Axis 3).
+⚠ The **reconciler prereq** (R15's carve, registered here at R16; §8) takes the same treatment
+for the same reason, and opens none here.
 ⚠ The seam-3 prereq's **1** is `#11-inline-fragmented-fn-seams-1-2`, and the count is the SoT's
 landing record for #508, not this memo's: the slot is **mixed** class — seams 1 and 2 are
 pre-existing, but `reconcile_flows`' extracted signature is *created* by #508, so its own half
@@ -1724,12 +1754,14 @@ the SoT's favour. The dead-arm prereq's "none" is verified at #511's landing (it
 ⚠ `plan-xcheck.py`'s check 9 — **as the checker stands at this branch's HEAD; the tooling PR
 widens the alternation, so this paragraph is re-derived when the tooling PR lands — the approval
 PR is cut from `origin/main` and needs no merge, and the checker on this branch is unchanged
-until then** — reads **six** of this program's seven `opens` statements, not
-seven. ⚠ **It read five until rev 34, and the two it missed failed for *different* reasons — one
+until then** — reads **six** of this program's eight `opens` statements, not
+eight. ⚠ **It read five until rev 34, and the two it missed failed for *different* reasons — one
 of them remediable here** (round 26, Axis 3; an earlier drafting of this very sentence asserted
 only the first reason, and the revision that added the second gave the remediation for the first
 alone). (a) Its alternation is closed (`PR-1[a-z]|seam-3 prereq|dead-arm prereq`), so
-`predicate prereq` is unmatched by name — **not fixable here**: widening the alternation is the
+`predicate prereq` is unmatched by name — and `reconciler prereq`, R16's carve, is the **second**
+name it does not reach, which is the drift the tooling task's widening is now sized against —
+**not fixable here**: widening the alternation is the
 plan-checker tooling task's (§9). (b) `dead-arm prereq` **is** in the alternation and was
 nonetheless unread, because the pattern's literal space fell on a **line wrap** in the sentence
 above — **fixed here, by rewrapping that line at zero cost**, which is the disposition (b) was
@@ -1743,9 +1775,15 @@ grep -noE '(PR-1[a-z]|seam-3 prereq|dead-arm prereq) opens? ([0-9]+|none)' <memo
 bullets above, once from this sentence) and `seam-3 prereq` and `dead-arm prereq` **once** each.
 Against them §10 carries **four** `(own)`-tagged rows (PR-1a, PR-1b, PR-1c, seam-3 prereq —
 `awk '/^## §10\./,0' <memo> | grep -cF '(own)'` → 4), so check 9 is **live in both directions** for
-PR-1a, PR-1b, PR-1c, PR-1d, the seam-3 prereq and the dead-arm prereq; only `predicate prereq`
-still holds in the reverse direction alone — an `(own)`-tagged §10 row naming it would fail as
-`§10 tags … which §5.3 does not account for`.
+PR-1a, PR-1b, PR-1c, PR-1d, the seam-3 prereq and the dead-arm prereq; `predicate prereq` and
+`reconciler prereq` still hold in the reverse direction alone — an `(own)`-tagged §10 row naming
+either would fail as `§10 tags … which §5.3 does not account for`. ⚠ **And check 13's closed
+world is the reason neither carve takes a §10 row of its own**: its prereq alternation is the
+same closed three (`(seam-3|dead-arm|predicate) prereq PR`), so a row tagged to a fourth prereq
+routes to nowhere by the checker's own reckoning. The precedent is already the predicate
+prereq's — it carries no §10 row, its registrations sitting in §5.3, §8 and §9 — and the
+reconciler prereq follows it; what §10 does carry is the `#11-inline-relayout-box-staleness` row,
+whose action names the prerequisite that discharges the slot.
 ⚠ This is a claim *about* the checker that the checker cannot check
 ([[feedback_prose-rules-cannot-fix-unexecuted-claims]]); the two commands above produced it, and
 re-running them is the only thing that keeps it true. Widening the alternation is the plan-checker
@@ -1757,10 +1795,10 @@ tooling task's (§9), not a fix to make here. `#11-inline-root-inline-box`,
 `#11-writing-mode-inline-blockification` (R11) and
 `#11-intra-word-shaping-across-line-break` (R12),
 `#11-shaping-break-at-unchanged-inline-boundary`, `#11-shaping-break-vertical-align-and-isolation` and `#11-replaced-inline-no-atomic-layout`
-(both R15) and the
+(all three R15), `#11-shaping-no-last-resort-font` (R16) and the
 dead arm's own disposition are pre-existing class, so none of them enters a per-PR count. ⚠ **Three
-of them were added at R10, two of those having been missing before it — and the last four, R11's,
-R12's and R15's two, were added to this list in the same revision that opened them, which is the
+of them were added at R10, two of those having been missing before it — and the last six, R11's,
+R12's, R15's three and R16's, were added to this list in the same revision that opened them, which is the
 discipline the record below asks for**: each round that
 opened a pre-existing-class slot stated the class at the slot and at its §10 row and left this
 list — the one site that turns the class into the *accounting* claim below — unextended,
@@ -3394,23 +3432,11 @@ questions the check must answer in writing:
    the mandate forbids — and it is what the per-fix lens kept producing because that lens only
    ever asked whether *this* patch is correct.
 
-**So the prerequisite extends that one reconciler to the IFC-owned `LayoutBox`**, both directions,
-over its own candidate set — the flow reconciler's `candidate_keys` is *not* reusable, being "the
-IFC parent's raw direct children, then every recursed inline element's raw direct children"
-(`collect.rs:148-150`), i.e. the entities that could carry a *flow*, not those that could carry a
-*box* — but both sets fall out of the same collect walk. It also repairs `LayoutBox.content`,
-which is this slot's own residue, so the slot is discharged rather than narrowed.
-
-The **ownership predicate still holds and is where the insert half gets its domain**: the IFC
-writes for the boxes it produces (M4's marker-derived rects, and the element bounds `place_item`
-pushes for a `FlowMember::Text` whose entity is not the IFC parent) and never for a member another
-layout placed — an atomic's box comes from `layout_child` carrying real edges the IFC would
-overwrite with zeroes, which is what the presence skip was actually protecting. Stated positively,
-the flag riding the producer's push, rather than as a list of excluded classes. ⚠ The presence
-test was a **proxy** for that ownership question, correct only on the first pass: by the second the
-IFC owns the box and the box is still there, so the proxy inverts — the same shape as reading
-`layout_generation` as a relayout token because of its name.
-Found by Codex on #515; the prerequisite carve is R15's. Ledger **A40**. **§7's full `LayoutBox`-edge reader list
+**So the repair is a prerequisite PR's, and this memo states the obligation and stops there** —
+the **Reconciler prereq PR** paragraph below. What PR-1c's DoD owes is the dependency: it is not
+cut from `origin/main` until that PR has landed, and no cell of PR-1c asserts a second-pass
+geometry. Found by Codex on #515; the prerequisite carve is R15's, its scope correction R16's.
+Ledger **A40**, **A44**. **§7's full `LayoutBox`-edge reader list
 dispositioned, no member of it standing in for the rest** (a `getBoundingClientRect` assertion
 included, made through the
 layout-level channel §5.2 names, not in `elidex-dom-api`) — **and dispositioned over a second entity
@@ -3612,7 +3638,8 @@ construction. This branch is retired after both land (`git
 merge origin/main` folds the landed copies back: the two checkers add/add, `SKILL.md`
 modify/modify, all resolved to `origin/main`'s versions). Order: **the tooling PR lands before or
 together with the approval PR**; PR-1a
-branches off `main` only after the approval PR and the predicate prereq have landed (topology
+branches off `main` only after the approval PR and the predicate prereq have landed, and PR-1c
+only after the reconciler prereq has (topology
 below).
 ⚠⚠ **The two PRs are ordered, and the ground is a dependency, not a schedule preference**
 (R6-c; the unordered reading is ledger **A21**). §3's coverage map is produced "from the table
@@ -3626,7 +3653,8 @@ no design round. ⚠ **The remedy is the order, not a bundle** — the approval 
 exactly one file, because bundling would put skill infra through a plan review scoped to a layout
 umbrella, the shape #506 paid for. ⚠ **And if #510 has not resolved by then**, the tooling PR's
 memo decides build-on-vs-beside against `origin/main` as it stands; another lane's open PR cannot
-hold this one, and now cannot hold the approval PR through it either. The predicate prereq is
+hold this one, and now cannot hold the approval PR through it either. The predicate prereq and the
+reconciler prereq are
 ordered against neither (nor was round 21, now complete). No later PR re-ships any of them — the shipper is defined by
 the *event* that makes the row true (approval; the tooling task), not by a PR letter.
 ⚠ Earlier revisions routed all of this to the seam-3 prereq PR, and rev 25's first draft to
@@ -3856,6 +3884,41 @@ between the `elidex-plugin` display half and the component half, and the disposi
 It is carved because those are not this memo's questions; the seven above are, because this program
 depends on them.
 
+**Reconciler prereq PR**: the IFC's staleness reconciler covers **the IFC-owned per-entity
+components — `LayoutBox` *and* `InlineClientRects`** — in **both** directions, discharging
+`#11-inline-relayout-box-staleness` rather than narrowing it. Both are named because
+`assign_inline_layout_boxes` owns both under the one skip and says so itself — "neither its
+LayoutBox nor a stale `InlineClientRects` is refreshed here" (`inline/pack/boxes.rs:95-101` at
+`22de3078`); a `LayoutBox`-only reconciler leaves a multi-line inline that relayouts to one line
+holding its stale component, and `getClientRects` returns **early** off it
+(`element/layout_query.rs:219` at `154bac3f`), never reaching the refreshed `border_box()`
+fallback at `:236-238`. PR-1c is ordered behind this PR; nothing else here is.
+
+⚠⚠ **The mechanism is that PR's `/elidex-plan-review`, not this memo's, and revs 50–51's
+prescription of it — a candidate-set derivation, an ownership flag riding the producer's push, a
+`clear_inline_flows` extension — is withdrawn** (ledger **A44**). CLAUDE.md's *Edge-dense work*
+rule makes the terminal unit **"承認済 umbrella 配下で plan-review を通った narrowly-scoped
+per-PR slice"**, and a PR spanning two per-entity components, a new core-ECS removal chokepoint, a
+trip-wire allowlist change and its own candidate-set design is one. What the umbrella owes it is
+the obligation above and the risks that review must answer:
+
+1. **The candidate set must be a superset of the previously owned boxes, and one derived from the
+   current collect walk is not.** `collect_inline_items_inner` `continue`s **before** recursing —
+   `display:none` at `collect.rs:218-220` (`154bac3f`), atomic at `:243-251` — while the candidate
+   record is `candidate_keys.extend_from_slice(&grandchildren)` at `:277-278`, below both. A
+   nested decorated inline that owns a box, whose **outer** inline is then restyled to
+   `display:none`, is never revisited (reviewed base: `:223-256`, `:282-283` at `22de3078`).
+2. **Removal needs a chokepoint that does not exist.** Wire #5 of
+   `.claude/tools/layout-box-reader-trip-wire.sh` bans `remove_one::<LayoutBox>` outside
+   `crates/core/elidex-ecs/src/dom/geometry.rs` and the test paths, and that file exposes
+   `set_layout_box` (`:140`) and `layout_box_mut` (`:169`) and **no removal API** at `154bac3f` —
+   so a core-ECS surface, a trip-wire allowlist change and the `FragmentTree` invalidation the
+   chokepoint enforces (`geometry.rs:147`, `:171`) are all in its touch set.
+3. **Both components, one reconciler** — the obligation above.
+
+Found by Codex on #515: the carve is R15's, its scope correction R16's. No `PR-1x` letter — it is
+a prerequisite, spelled like its three siblings.
+
 **Ordering — done as fixed: seam-3 landed first (#508, 2026-08-23), the dead-arm PR second
 (#511, 2026-09-07, cut from `origin/main` after #508). The ground was asymmetric cost, not
 coupling.** The two were not coupled *as planned*: the dead arm is in `pack/mod.rs`, and its `inline/mod.rs` half (`:239`,
@@ -3881,18 +3944,25 @@ constraint is **in `main` before PR-1a**, because M1's emit test consumes the pr
 §6 cell 6c). ⚠ This memo does **not** claim it is disjoint from the other two: its touch set follows
 from its own plan-review's choice of home (§9), so disjointness is a question it answers, not a
 premise this memo may use. What the umbrella owns is the ordering.
-All three branch from `main`;
+⚠ **The reconciler prereq is ordered the same way and against a different PR**: against
+none of the other three, and **in `main` before PR-1c**, because PR-1c's M4 write has no
+reconciliation hook without it. Its touch set is likewise its own plan-review's (§8's
+*Reconciler prereq PR* paragraph), so this memo claims no disjointness for it either.
+All four branch from `main`;
 whichever lands second takes `git merge origin/main` (⚠ **not** `rebase` — an opened PR branch
 cannot be rebased without a force-push, which `~/.claude/hooks/` denies; #511 needed no merge —
 it was cut from `origin/main` after #508 landed). **Branch topology**: the
-**three** prereqs branch off `main`, as does the **tooling PR** (approval-independent, ordered on
+**four** prereqs branch off `main`, as does the **tooling PR** (approval-independent, ordered on
 its §9 trigger — #510's resolution or TERMINAL — and against nothing else here); the **approval PR**
-is cut from `origin/main` at TERMINAL carrying the memo alone (§8 above); PR-1a branches off `main` after **all three** prereqs
+is cut from `origin/main` at TERMINAL carrying the memo alone (§8 above); PR-1a branches off `main` after **three** of them
 *and the approval PR* have *landed* — the two `elidex-layout-block` ones (**both landed**) because they move code PR-1a edits, and
-the predicate PR (**pending**) because PR-1a's M1 consumes what it establishes. ⚠ Whether the
-predicate prereq is ordered against the other two depended on its touch set, which §9 hands over;
+the predicate PR (**pending**) because PR-1a's M1 consumes what it establishes; the **reconciler
+PR** (**pending**) is the fourth and is ordered against **PR-1c**, not PR-1a, so it may land any
+time before that. ⚠ Whether the
+predicate prereq is ordered against the other three depended on its touch set, which §9 hands over;
 the two `elidex-layout-block` prereqs having landed, that question is now moot for ordering and
-survives only as the predicate PR's own re-anchoring against `22de3078`. PR-1b,
+survives only as the predicate PR's own re-anchoring against `22de3078`, and the same holds for
+the reconciler PR. PR-1b,
 PR-1c and PR-1d each depend on their predecessor's mechanism, and because CLAUDE.md mandates **squash** merge
 a stacked branch's base commits are rewritten when its parent lands — which cannot be repaired on
 an *opened* PR without the force-push the hooks deny. So they are **not opened as a stack**: each
@@ -3971,6 +4041,28 @@ clause is **delivered**, and here it could not see that the clause quoted was **
 Nothing in this program creates the gap or narrows it — PR-1b's boundary break runs in the *first*
 sentence's direction — so what this program owes is the disclosure and the routing, not the fix.
 Ledger **A41**.
+
+**Likewise not covered** (R16): css-inline-3 §5.3's strut is taken "with the metrics of the box's
+**first available font**", and elidex has no font that is always available —
+`FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60-84` at `154bac3f`) ends
+`self.db.query(&query)` and answers `None` when the family list matches nothing, with no
+last-resort family appended anywhere in the call. **It gets its own slot,
+`#11-shaping-no-last-resort-font`** (pre-existing class; Why / trigger / re-eval in §5.3,
+registered by §10's `approval PR` row), and §3's css-inline-3 §5.3 glyphless row records the
+qualification on M7's half accordingly. ⚠ **What made it visible here is the one line this
+program creates that has nothing else to take a baseline from**:
+`<p><span style="font-family:no-such-family;padding:1px"></span></p>` has no text, so
+`inline/mod.rs:200`'s measurability gate — inside `if has_text` at `:191` — never runs, M5 commits
+the line on the inline-axis edge, M7's tentative gets `None`, and the IFC returns
+`first_baseline == None`. **The program does not create the gap**: the same `None` already makes
+ordinary text in an unavailable family render as nothing on `origin/main`
+(`measure_text`'s `db.query(…)?`, `elidex-shaping/src/measurement.rs:54`), with no marker
+involved. What it does is reach the gap through a *second* door, which is why the disclosure is
+owed here and the fix is not — supplying a last-resort font is `elidex-shaping` work. ⚠ **It is
+neither of the two font slots this memo already carries**:
+`#11-inline-fontless-measurability-gate` is the text-driven early return that this markup skips,
+and `#11-inline-fallback-font-strut` is §5.3's *second* condition, which presupposes glyphs.
+Ledger **A45**.
 
 ## §9. Out of scope, with disposition
 
@@ -4142,48 +4234,17 @@ Ledger **A41**.
 canonical one, and R14 took half of it twice** (R15's self-root-check). The repair moves to a
 **prerequisite PR** that discharges `#11-inline-relayout-box-staleness`, and PR-1c depends on it.
 
-⚠⚠ **Why the root-check landed there rather than on a fourth patch.** Three consecutive rounds
-found a defect in the previous round's own repair — R13 said PR-1c may not defer the refresh, R14
-measured the deferred remedy inert, R15 found the replacement silent on **removal**. The two
-questions the check must answer in writing:
-
-1. *Is a canonical algorithm missing?* **No — it exists and is two-sided.** The IFC's staleness
-   reconciler for `InlineFlow` is *insert-or-remove over a candidate set*: `reconcile_flows`
-   persists what this pass produced and `clear_inline_flows` removes it from every candidate key
-   not persisted, the latter documented at `inline/mod.rs:552-559` (`22de3078`) as "**the single
-   staleness reconciler** (F9 — `layout_generation` is constant 0 non-paged, so removal, not
-   comparison)". R14's text quoted "explicit reconcile (**insert-or-remove**)" and then specified
-   only the insert half, which is exactly the hole R15 found: an entity that *leaves* the producer
-   set — a decorated empty `<span>` whose last edge is restyled to zero, so M1 emits no marker and
-   no `place_item` bounds exist either — keeps its IFC-written box forever.
-2. *Does the mechanism violate the project's own stated ideal?* **Yes.** CLAUDE.md *One issue, one
-   way* requires a single canonical form rather than "新 seam + N 個の legacy 実装", and
-   `clear_inline_flows` calls itself **the** single staleness reconciler. A second, box-only,
-   insert-only reconciler standing beside it is a second implementation of one rule — the thing
-   the mandate forbids — and it is what the per-fix lens kept producing because that lens only
-   ever asked whether *this* patch is correct.
-
-**So the prerequisite extends that one reconciler to the IFC-owned `LayoutBox`**, both directions,
-over its own candidate set — the flow reconciler's `candidate_keys` is *not* reusable, being "the
-IFC parent's raw direct children, then every recursed inline element's raw direct children"
-(`collect.rs:148-150`), i.e. the entities that could carry a *flow*, not those that could carry a
-*box* — but both sets fall out of the same collect walk. It also repairs `LayoutBox.content`,
-which is this slot's own residue, so the slot is discharged rather than narrowed.
-
-The **ownership predicate still holds and is where the insert half gets its domain**: the IFC
-writes for the boxes it produces (M4's marker-derived rects, and the element bounds `place_item`
-pushes for a `FlowMember::Text` whose entity is not the IFC parent) and never for a member another
-layout placed — an atomic's box comes from `layout_child` carrying real edges the IFC would
-overwrite with zeroes, which is what the presence skip was actually protecting. Stated positively,
-the flag riding the producer's push, rather than as a list of excluded classes. ⚠ The presence
-test was a **proxy** for that ownership question, correct only on the first pass: by the second the
-IFC owns the box and the box is still there, so the proxy inverts — the same shape as reading
-`layout_generation` as a relayout token because of its name. ⚠⚠ **R15: this slot is
+⚠⚠ **R15: this slot is
   therefore not narrowed but *discharged*, as a prerequisite PR ahead of PR-1c.** Extending the
   engine's one staleness reconciler in both directions repairs `LayoutBox.content` — the residue
   R13 left here — by the same edit, so splitting the two would be a second implementation of one
-  rule (CLAUDE.md *One issue, one way*), which is the root R15's self-root-check named. §8 carries
-  the derivation and the two written questions. Found by Codex on #515; the carve is R15's.
+  rule (CLAUDE.md *One issue, one way*), which is the root R15's self-root-check named. ⚠ **R16:
+  the *mechanism* by which it extends is that PR's plan-review's, not this memo's, and rev 50's
+  second copy of the derivation and of the self-root-check's two written questions is struck from
+  here** (ledger **A44**) — §8 is the single site, its **PR-1c** paragraph carrying those two
+  questions and its **Reconciler prereq PR** paragraph the obligation and the risks the review
+  must answer. Nothing about candidate sets, ownership flags or a `clear_inline_flows` extension
+  is settled in this memo. Found by Codex on #515; the carve is R15's, the scope correction R16's.
   (`#11-inline-align-clientrects-nonpersist-path` was ledger-marked to fold into terminal-Z
   C-3/C-4 alongside it; the dead-arm prereq #511 **closed** it instead — SoT corrected at landing,
   2026-09-07: the fold note now applies to `#11-inline-relayout-box-staleness` alone.)
@@ -4323,9 +4384,12 @@ IFC owns the box and the box is still there, so the proxy inverts — the same s
   `origin/terminal-z-c3-plan` and self-declares "pre-`/elidex-plan-review` design anchor", so it is
   read as intent, not as ratified fact.
   ⚠ **Lane sequencing**: C-3 states it is "not layout-only and not parallel-safe … coordinated
-  sub-slices, not a single PR". Both programs are in the Layout lane. This umbrella's seven PRs do
+  sub-slices, not a single PR". Both programs are in the Layout lane. This umbrella's eight PRs do
   not block on C-3 (they add no carrier and no consumer), but the splits slot does — its trigger is
-  amended to name C-3b alongside PR-1d landing.
+  amended to name C-3b alongside PR-1d landing. ⚠ **The reconciler prereq is the one whose
+  non-blocking is not this memo's to assert**: risk 2 (§8) puts a core-ECS surface in
+  `elidex-ecs/src/dom/geometry.rs` — the file C-3a's seam owns — in its touch set, so whether it
+  is parallel-safe with C-3 is a question for its own plan-review, on its own touch set.
 * **`#11-bidi-full-uba-fidelity` — the paint-time reorder drops the gap the markers open**
   (R7-b; **pre-existing** class, an **existing** slot of another program, so no deferral of this
   one's). On a line whose bidi order is non-identity, `builder/inline_flow.rs:154-190` (at
@@ -4885,6 +4949,7 @@ record; no count carried here) before being carved into #510. Earlier revisions 
 | Open `#11-shaping-break-at-unchanged-inline-boundary` (**pre-existing** class, opened by R15) with the Why / trigger / re-eval in §5.3 — css-text-3 §7.3's **second** normative sentence, "Text shaping must not be broken across inline box boundaries when there is no effective change in formatting, or if the only formatting changes do not affect the glyphs (as in applying text decoration)", unimplemented and unimplementable on the current mechanism: a text run carries the **parent element**'s entity (`collect.rs:309`), so `<p>a<span>x</span>c</p>` is three runs, and both measurement and shaping are per-run (`inline/measure.rs:57`, `:78`; one rustybuzz call per `InlineFlowRun::Text`, `builder/inline_flow.rs:107-124`). Reachable on an unstyled `<span>` with no CSS at all. Closing it is `elidex-shaping` / `elidex-text` work plus a formatting-identity comparison layout does not have, orthogonal to decoration; PR-1b's boundary break runs in the *first* sentence's direction and neither creates nor narrows this. Registered at the approval PR on the same ground as the rows above; **not** an own deferral and not in §5.3's per-PR count. ⚠ The registration must carry the **evidence limit**: the measurement is structural — the run split and the per-run shaping call traced, no joining-script fixture rendered end-to-end — so the slot's first step is building one | approval PR |
 | Open `#11-shaping-break-vertical-align-and-isolation` (**pre-existing** class, opened by R15) with the Why / trigger / re-eval in §5.3 — css-text-3 §7.3's first sentence lists three triggers and elidex implements none of them as triggers, over-covering all three wherever the box places content; in the member-less corner only trigger 1 closes, by PR-1b's marker, so a `vertical-align`-only or isolation-only box keeps its two texts coalesced. Registered at the approval PR on the ground the `#11-inline-item-boundary-soft-wrap` row states; **not** an own deferral and not in §5.3's per-PR count (observable today with no marker involved) | approval PR |
 | Open `#11-replaced-inline-no-atomic-layout` (**pre-existing** class, opened by R15) with the Why / trigger / re-eval in §5.3 — a replaced element computing `display: inline` (the ordinary `<img>`) gets no inline layout: `is_atomic_inline` (`inline/collect.rs:14-19`) answers from display keywords only, so the IFC recurses into an element with no children and emits nothing, and `<p>a<img src=x>b</p>` advances the cursor by zero with no `LayoutBox` from the inline path. The inline module reaches no replaced element at all (one hit for `replaced` / `ImageData` / `get_intrinsic_size` under `src/inline/`, the doc comment at `inline/styled_run.rs:12`), while the sizing sits in `block/replaced.rs`, reachable only from `block/mod.rs`. Closing it is atomic-inline layout work, orthogonal to decoration. Registered at the approval PR on the same ground as the rows above; **not** an own deferral and not in §5.3's per-PR count. ⚠ The §9 predicate-prereq bullet reasoned about this gap and named no destination until R15 (ledger **A42**); what that PR delivers is the classification, not the layout | approval PR |
+| Open `#11-shaping-no-last-resort-font` (**pre-existing** class, opened by R16) with the Why / trigger / re-eval in §5.3 — css-inline-3 §5.3's strut takes "the metrics of the box's first available font", and elidex has no font that is always available: `FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60-84`) ends `self.db.query(&query)` and answers `None` when the family list matches nothing, with no last-resort family appended anywhere in the call. Reachable from any `font-family` that resolves to nothing, text or not — the same `None` reaches `measure_text` (`elidex-shaping/src/measurement.rs:54`). Closing it is `elidex-shaping` font-discovery work, orthogonal to decoration. Registered at the approval PR on the same ground as the rows above; **not** an own deferral and not in §5.3's per-PR count (ordinary text in an unavailable family already renders as nothing, with no marker involved). ⚠ The registration must carry what makes it **distinct from the two adjacent font slots** — `#11-inline-fontless-measurability-gate` is the text-driven early return this case skips, `#11-inline-fallback-font-strut` is §5.3's second condition, which presupposes glyphs — since a slot filed as either would be closed by work that leaves this open (ledger **A45**) | approval PR |
 | Open `#11-inline-zero-edge-box-in-item-stream` (own) with the Why / trigger / date in §5.3 — the cells it flips named there (found by Codex on #515) | PR-1a |
 | Open `#11-block-in-inline-anonymous-block-split` (**pre-existing** class, opened by R8) with the Why / trigger / re-eval in §9 — CSS 2 §9.2.1.1's break of an inline around an in-flow block-level box, unimplemented on the inline path, which this program makes observable in the decorated-**outer** case (§6 cell 6i) without creating it. Registered at the approval PR on the ground the `#11-inline-root-inline-box` row states; **not** an own deferral, so it does not enter §5.3's per-PR count (the flattening is what the IFC does today with no marker involved). ⚠ Before R8, §6 cell 6e disclaimed this behaviour and handed it to "§9" with no §9 entry behind it — the same defect shape §9's `<br>`/`<wbr>` bullet records for rev 32, which is why this row exists rather than a bare disclaimer | approval PR |
 | Open `#11-resize-observer-inline-empty-content-rect` (**pre-existing** class, opened by R9) with the Why / trigger / re-eval in §9 — resize-observer-1 §3.3.1's "non-replaced inline Elements will always have an empty content rect", unimplemented in the observer's size source, which this program does not create (measured: an ordinary `<p><span>Hi</span></p>` span already reports a non-empty `content_rect_local()`) but whose reach it extends to previously box-less targets at PR-1c (§6 cell 14c) and PR-1d (§6 cell 21). Registered at the approval PR on the ground the `#11-inline-root-inline-box` row states; **not** an own deferral, so it does not enter §5.3's per-PR count. ⚠ Before R9 the rule was quoted in §7 and nowhere routed — no §3 row, no slot, no §9 disposition — the same hand-off-to-nothing shape R8-b's row above records | approval PR |
