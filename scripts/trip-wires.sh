@@ -84,10 +84,10 @@ fi
 #     in the commit that adds it, is what closes it.
 REQUIRED_WIRES="
 layout-box-reader-trip-wire.sh
-webref-generic-core-trip-wire.sh
 native-ctor-guard-trip-wire.sh
 wasm-runtime-trip-wire.sh
 wasm-vm-trip-wire.sh
+webref-generic-core-trip-wire.sh
 "
 
 # Guard the guard: an emptied REQUIRED_WIRES would make every check below vacuous.
