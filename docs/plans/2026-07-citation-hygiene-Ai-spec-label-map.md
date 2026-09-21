@@ -542,21 +542,22 @@ Every diff check names an explicit ref.
      enter the generic core and no required check will say so. The obligation is named in §13, owned by
      the stacked PR, and is the reason it is stacked rather than deferred.
    - **Open part, reviewed not gated**: "no *other* host path is named here" is not something this wire
-     decides, and its header says so with the four failed attempts named. ⚠ An earlier revision of this
+     decides. ⚠ An earlier revision of this
      row claimed it did — "**0** paths that resolve inside this repo are named anywhere" — which was the
      resolve-on-disk predicate Codex R59 had already falsified, left standing here for four more rounds.
      What covers the open part is `git diff origin/main...HEAD -- .claude/`: finite, and every line
      entering this tree passes review. ⚠ **The wire used to print a report-only seed "to make that reading
      cheaper"; that scan is gone at #501 R69** — it asserted nothing, so it was a print with no consumer,
      and keeping it invited exactly the reading this row exists to forbid.
-   ⚠ **A segment containing WHITESPACE is outside the closed part** (`.claude/skills/team name/rule.md`).
-   §2 admits it; no predicate over running text can delimit it without quoting rules, and this repo's rule
-   is that such a population belongs to a seed rather than to an absolute — so it is review-covered, like
-   the rest of the open half. `@`-prefixed and non-ASCII segments **are** covered: they were excluded by an
-   `[A-Za-z0-9_.-]` class until #501 R74, which was a defect rather than a boundary.
-   ⚠ Also outside the wire's predicate: a BARE top-level name with no separator (`"docs"`, `"crates"`,
-   `"CLAUDE.md"` as standalone tokens), and two such instances pre-exist at this
-   slice's base.
+   ⚠ **WHAT THE WIRE DOES NOT DECIDE IS ENUMERATED IN THE WIRE, AND ONLY THERE** — its
+   `WHAT THIS WIRE DOES NOT DECIDE` block, which says in its own first line that it is the single site.
+   This row used to restate two of those classes (a whitespace segment; a bare top-level name) and to
+   point at "the four failed attempts named" in the header, which are the seed's four failed *widenings*,
+   not the classes. Both were a second decision surface for one decision, and the restatement went stale
+   the moment the stacked PR's review added a fifth class (a one-segment `.claude/tools/webref`, 31 live
+   instances inside the scope). **Swept by the stacked PR** ([#519](https://github.com/send/elidex/pull/519)),
+   because that PR is where the enumeration now lives and where the fifth class was found; the sweep is
+   recorded in its memo §5 item 1.
 4. **K1/K4**: S3, S3b and S5 green — and S3 is green *as a perturbation*, not as an agreement (§6), so K1's
    `coverage_map` half is now actually pinned.
 
@@ -640,11 +641,14 @@ elsewhere. The cap question does not arise: neither row is a deferral.
    leaving the row standing would have sent C to re-home an assertion that already has a canonical home,
    which is the duplicated decision surface this program exists to remove.
    ⚠ What the wire does **not** decide is stated in its own header, not here: it asserts **§2's K2
-   predicate** and reaches neither the policy half of `DESIGN.md`'s closing rule nor the classes no grep
-   predicate can see (bare top-level names, interpolation, and a segment containing whitespace). **Those
-   four classes are open items, not footnotes** — they are registered as slots by the stacked PR, which is
-   where a declared blind spot in a required gate belongs; §11's "zero own deferrals" is A-i's count and
-   does not absorb them. ⚠ **This row named a second removed-path pin until #501 R76**;
+   predicate** and reaches neither the policy half of `DESIGN.md`'s closing rule nor the classes its
+   predicate cannot see. ⚠ **This row said those classes "are registered as slots by the stacked PR", and
+   that booking is WITHDRAWN** — the stacked PR ([#519](https://github.com/send/elidex/pull/519)) decided
+   the opposite, with the argument in its memo §8: a defer slot records work someone owes, a declared
+   blind spot records the reach of a predicate, and for two of the classes "closable here" is answerable
+   only as *no*, so a re-evaluation trigger could never fire. This sentence was a prediction made *about*
+   that PR before it was reviewed; the PR that decided is the one that corrects it. §11's "zero own
+   deferrals" is A-i's count and now needs to absorb nothing. ⚠ **This row named a second removed-path pin until #501 R76**;
    that pin was measured strictly contained in the predicate and collapsed at R70, and this was the third
    site to say otherwise — §7 was the second.
 

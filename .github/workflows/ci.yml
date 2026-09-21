@@ -126,18 +126,30 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none —
-  # they run on the shell, `git` and `grep` a bare checkout already has: nothing
-  # to install, no cache, no network — so a filter would buy nothing and cost the
-  # one property the wires exist for.
-  # ⚠ DELIBERATELY NO RUNTIME FIGURE. This said "~1s for the whole set" until a wire
-  # grew fixture self-tests and the number stopped being true; and the figure does not
-  # reproduce across machines anyway — on the same commit a reviewer measured two to
-  # three times this checkout's (the wire ~3x, the whole driver ~2x). What the decision rests on is the ABSENCE OF A
-  # SETUP STEP, which no amount of seconds changes, and the tamper path below, whose
-  # cost does not change either. The time that is spent goes to the wires' own fixture
-  # self-tests rather than to the tree they scan, so it tracks the number of controls,
-  # not the size of the repo. Gating them would mean listing BOTH
+  # are filtered because each pays for a Rust toolchain; the wires need NOTHING
+  # INSTALLED — no language runtime, no package manager, no cache, no network —
+  # so a filter would buy nothing and cost the one property the wires exist for.
+  # ⚠ THE PROPERTY IS "NOTHING TO INSTALL", NOT A LIST OF TOOLS. Two wordings
+  # have now been retired here for being enumerations narrower than the truth:
+  # "the wires are grep-only" (they call `git` constantly) and "the shell, `git`
+  # and `grep`" (they also call `sed`, `tr`, `cmp`, `readlink`, `mktemp`,
+  # `mkfifo`, `chmod`, `env`, `cut`, `ln`, `cp`, `awk`, `sort`, `comm`, `wc`).
+  # Both were false in the same shape, and the second was written while
+  # retiring the first. What is checkable, and what the gating decision rests
+  # on, is that this job has NO SETUP STEP — one `uses:`, the checkout:
+  #   yq '.jobs["trip-wires"].steps[].uses' .github/workflows/ci.yml
+  #   # or: sed -n '/^  trip-wires:/,/^  [a-z]/p' .github/workflows/ci.yml | grep -c 'uses:'
+  # ⚠ DELIBERATELY NO RUNTIME FIGURE EITHER. This said "~1s for the whole set"
+  # until a wire grew fixture self-tests and the number stopped being true, and
+  # then carried a cross-machine RATIO ("two to three times this checkout's")
+  # whose baseline was stated nowhere — the same defect one level down, inside
+  # the block whose thesis is that such figures do not belong here. Derive it
+  # if you need it (`/usr/bin/time -p bash scripts/trip-wires.sh`); the
+  # `timeout-minutes` below is the one number with a consequence, and it is
+  # re-derived when a wire lands, not tracked here. The time that is spent goes
+  # to the wires' own fixture self-tests rather than to the tree they scan, so
+  # it tracks the number of controls, not the size of the repo.
+  # Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
   # allowlist gate would itself be an allowlist entry someone must remember to keep
@@ -152,16 +164,23 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    timeout-minutes: 2
+    # RE-DERIVED WHEN THE K2 WIRE LANDED, not inherited. That wire's fixture
+    # self-tests take the driver from ~3 s to ~20 s on a developer checkout
+    # (measure: `/usr/bin/time -p bash scripts/trip-wires.sh`), and a reviewer
+    # on this repo measured a hosted runner ~4x slower than a local one — so
+    # ~80 s against the old 120 s budget, i.e. 1.5x headroom where the figure
+    # this was sized against (~1 s) gave ~100x. 5 minutes restores ~15x.
+    # ⚠ THE RULE, so the next person does not have to rediscover it: a wire
+    # that adds fixture self-tests re-derives this line in the same PR. Leaving
+    # it while the job grows is how an always-run gate starts failing for time
+    # instead of for what it asserts.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       # The same script `mise run trip-wires` runs, so the local gate and CI
-      # cannot diverge. No setup step: the wires need only the shell, `git` and
-      # `grep` this checkout already has. (This said "grep-only" until the K2
-      # wire took its population and its bytes from git — `git` is on the runner
-      # either way, so the decision is unchanged and only its statement was
-      # false. The property above is the one it rests on.)
+      # cannot diverge. No setup step — nothing to install; see the block above
+      # for why this is stated as a property and not as a list of tools.
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh

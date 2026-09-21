@@ -31,13 +31,21 @@ narrowly-scoped per-PR slice は terminal 単位"* — covers what a plan-review
 not reach an instrument added afterwards. So nothing has ever reviewed this wire as a design.
 
 ⚠ **The lane SSoT considered this carve once and declined it**, and the record is the
-starting point rather than a footnote (`project_citation-hygiene-program.md`, the R73 block):
+starting point rather than a footnote (`project_citation-hygiene-program.md`; the declining
+passage follows the **R74** trajectory line, the re-evaluation trigger is R73's — a previous
+revision cited "the R73 block" for both, and that block contains neither). ⚠ **The phrases
+below are TRANSLATIONS of a Japanese SSoT, not verbatim quotations** — a reader following the
+pointer will find 「正準アルゴリズム不在」/「正準機構を手で再実装していた」/「不変条件はここ・
+機構はあちら」/「次に wire で finding が出たら option B … を検討する」:
 the edge-dense trigger's *"no canonical algorithm"* limb was **falsified by measurement**, so
 the findings of that period were evidence of *"a canonical mechanism being re-implemented by
 hand"*, not of inherent complexity; and the wire is K2's enforcement, i.e. A-i's own
 invariant, so carving it reproduces the *"invariant here, mechanism there"* split that gate 4
 raised. **The same block set the re-evaluation trigger** — *"next time the wire draws a
-finding, consider option B"* — and it fired in every round from R74 to R97. So this carve is
+finding, consider option B"* — and it fired repeatedly from R74 on. ⚠ **A previous revision wrote "in every round from R74 to R97",
+which the SSoT's own round headers falsify** — R82 records *「今回は 2 件とも memo（wire ではない）」*,
+and R83/R84 are likewise about memo text, not the wire. The rounds in which the wire itself drew a
+finding are derivable from the SSoT rather than asserted here. So this carve is
 what the SSoT scheduled, not a reversal of it. **The second ground is answered in §1.1**: the
 separation this carve makes is one stacked PR wide and lands immediately after #501, which is
 the narrowest form the objection admits short of not carving at all.
@@ -128,32 +136,54 @@ PR** (#510). §6 states what can and cannot be executed here.
 `.claude/tools/_webref/` plus the entry script `.claude/tools/webref`.
 
 ⚠ **K2 has a closed part and an open part.** The closed part is the path predicate above —
-decidable, and this wire decides it. The open part is *"no other host path or host policy is
-named here"*. #501 §12(3) owns that split and this memo does not restate it. ⚠ **What this
-memo got wrong in draft 1**: it said no grep decides the open part. True of the *policy*
-half; over-broad for the *host path* half, whose live instances (`cli.py`'s `--paths`
-default, `refresh.py`'s usage string) a grep does decide. The wire's own header names them.
+decidable, and this wire decides it. The open part is #501 §12(3)'s, quoted as written:
+*"'no **other** host path is named here' is not something this wire decides"*. #501 §12(3)
+owns that split and this memo does not restate it. ⚠ **An earlier revision of this line
+widened that quotation to "no other host path *or host policy* is named here"** — the phrase
+*"or host policy"* occurs on no ref (`git show webref-cite-audit-tool:docs/plans/
+2026-07-citation-hygiene-Ai-spec-label-map.md | grep -c "host policy"` → **0**), and the
+widening is what made §5 item 1's "disposes of three" arithmetic look supported. The policy
+clause is disposed of in §12(3) **nowhere**; see §5 item 1.
 
-⚠ **"THE PREDICATE FORBIDS SOMETHING ITS OWN AUTHORITY PERMITS" — raised in review round 1,
-and it does not hold.** The concern: `DESIGN.md`'s closing rule says to *"put elidex policy in
-adapter commands **or documentation**"*, and `DESIGN.md` itself plus adapter-role modules such
-as `commands/agent_brief.py` are **inside the scanned population** — so a fixture carrying that
-sentence plus one adapter path reds the wire (reproduced). **The two clauses are about
-different things.** Clause one bans elidex-specific *file paths*; clause two says where elidex
-*policy* — a rule, a convention, prose — may live. Nothing in clause two permits a path.
+### §2.0 The authority, quoted in full — and K2 is STRICTER than it
 
-The reading that makes the rule coherent is the one its own rationale supplies: the package
-*"should stay generic enough to move to a standalone repository later"*, and a `DESIGN.md` or
-an adapter command naming `.claude/skills/<x>/<y>` does not move. So clause one is unqualified
-over the package — adapter commands and the package's own documentation included — and clause
-two permits policy there, expressed without naming a host path. **That is what A-i did**: it
-removed `.claude/skills/elidex-review/axes.md` from `cli.py` and from the `webref` entry
-script, both adapter surfaces, and kept the policy.
+`_webref/DESIGN.md` opens (`:3-5`, verbatim, both sentences):
 
-⚠ **Where this is now stated is the wire's header, not here**, and if a future reader wants
-clause two to permit *paths* in adapter commands, that is an amendment to `DESIGN.md` — owned
-by whichever slice owns `_webref/`, since §1's boundary predicate forbids this diff from
-touching it.
+> `webref` is maintained inside elidex for now, but **its drift-detection core** should stay
+> generic enough to move to a standalone repository later. **elidex specific behavior belongs
+> in thin adapter commands.**
+
+and closes with: *"keep new generic behavior free of elidex-specific file paths and put elidex
+policy in adapter commands or documentation."*
+
+⚠ **A previous revision of this section quoted only the first half of the first sentence, with
+its subject replaced** — "the package *should stay generic enough to move*" — and never quoted
+the second sentence at all (`grep -rn "thin adapter\|drift-detection core"` over this memo and
+both shell files returned **0** before this revision). That substitution is exactly what made
+the conclusion "clause one is unqualified over the package, adapter commands included" appear
+to follow from the authority. It does not follow, and the sentence it omitted says the
+opposite: `DESIGN.md` deliberately sends elidex-specific behaviour **into** adapter commands,
+and `_webref/commands/` and the `webref` entry script are adapter surfaces inside K2's scope.
+
+⚠ **So review round 1's finding stands, and this memo's withdrawal of it is withdrawn.**
+*"The predicate forbids something its own authority permits"* is true as far as `DESIGN.md`
+goes. What resolves it is not a reading of `DESIGN.md` but the honest statement of what K2 is:
+
+**K2 is a deliberate widening of `DESIGN.md`'s rule, chosen by this program, and the wire
+enforces K2 — not `DESIGN.md`.** `DESIGN.md` scopes movability to *the drift-detection core*
+and permits elidex *behaviour* in thin adapter commands. #501's §2 scopes K2 to
+`_webref/` **plus the entry script**, and forbids one syntactic class — a
+`.claude/(skills|tools)/<a>/<b>` string — **everywhere in that scope, adapter commands and the
+package's own documentation included**. The ground for the widening is that such a string does
+not move whoever writes it, so the distinction `DESIGN.md` draws between core and adapter does
+not help a reader deciding whether the package can be lifted out. That is a program decision
+with a cost, and it is stated as one rather than dressed as exegesis.
+
+⚠ **The cost is real and is not hidden**: a thin adapter command that legitimately implements
+elidex policy may not spell a two-segment host path, and must reach the host some other way
+(a parameter, a caller-supplied default). Whether `DESIGN.md` should be amended to say so is
+**not this slice's**: it is an edit to `_webref/DESIGN.md`, the one file §1's boundary
+predicate genuinely covers. It is handed to whichever slice owns `_webref/`.
 
 ⚠ **The by-DIRECTORY approximation cuts both ways.** Draft 1 stated only the evidentiary
 direction (a green says nothing about `DESIGN.md` compliance) and added that the adapter-work
@@ -182,9 +212,10 @@ several at once. Enumerated:
 **No spec surface** — this slice touches no spec-defined behaviour: one shell predicate, its
 controls, one line of registration and two policy paragraphs. Its authority is `DESIGN.md`'s
 closing rule plus the trip-wire registration convention in `scripts/trip-wires.sh`.
-⚠ **Draft 1 also named "CLAUDE.md's layering mandate", which is wrong** — that section is the
-VM-host rule (`crates/script/elidex-js/src/vm/host/`) and says nothing about the generic core;
-naming it routes a reader to the wrong review axis.
+⚠ **Draft 1 also named "CLAUDE.md's layering mandate", which is wrong** — that section carries
+two rules, the VM-host one (`crates/script/elidex-js/src/vm/host/`) and the core-vs-compat
+split, and **neither** says anything about the generic core; naming it routes a reader to the
+wrong review axis.
 
 ⚠ **This adopts slice A-iii's shape, and with it A-iii's `preflight` exit.** Measured, both
 ways, at this head:
@@ -221,6 +252,8 @@ cross-document citation — goes with the table; there is no longer a citation a
 | `.github/workflows/ci.yml` | the ungated-job rationale for the `trip-wires` job |
 | `CLAUDE.md` | the paragraph restating that rationale, which names the job comment as canonical |
 | this memo | the plan-review record — **a tracked file in this slice's diff**, which draft 1's boundary count forgot |
+| `docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md` | #501's memo, **swept** where it duplicated or contradicted the decisions this slice made: §12(3)'s two restatements of the wire's blind classes and its "its header says so" pointer, and §12(4)'s booking of four defer slots on this PR (§5 item 1). ⚠ Added to this table by the review that found the contradiction; the artifact set is not frozen, and §7.5 says so |
+| `docs/plans/2026-07-citation-hygiene-umbrella.md` | the A-i-wire **memo-table row** (without it, the umbrella's own repo-wide preflight command hard-fails on this memo with nothing to explain it), the retired "1089-line wire" figure, and §6's answer recorded where the umbrella books the CI-topology question |
 
 ⚠ **What the wire asserts, and why, is stated once — in the wire**, in the comment block
 above `_esc`. This table names the files; it does not restate the mechanism.
@@ -237,11 +270,15 @@ so "answered, status quo" is distinguishable from "unanswered" (§7 criterion 4)
 ### 1. Do any of the four declared blind spots become defer slots? — **No. Implementation: changed (comments).**
 
 **The question, as round 1 sharpened it**: draft 1 said the wire *"does neither"* (close nor
-file), which is false — #501 §12(3) already disposes of three, as *"Open part, reviewed not
-gated"* (the policy half), *"review-covered"* (the whitespace segment) and outside-the-predicate
-(bare top-level names, both live instances named). The real question is **whether a permanent,
-required, ungated gate may hold a review-only obligation at all**, or whether registering it in
-CI changes what "filed" has to mean.
+file). The disposition that replaced it said #501 §12(3) *"already disposes of three"*, and
+**that count does not survive checking either** — §12(3)'s *"Open part, reviewed not gated"*
+bullet is about **host paths**, not `DESIGN.md`'s policy clause, which §12 disposes of nowhere;
+the count was propped up by a quotation this memo had widened (§2). What §12(3) actually did was
+restate two classes (whitespace, bare top-level names) in its own prose while §12(4) booked all
+four as **defer slots on this PR** — i.e. the base memo both duplicated the enumeration and
+contradicted the answer below. The real question is **whether a permanent, required, ungated
+gate may hold a review-only obligation at all**, or whether registering it in CI changes what
+"filed" has to mean.
 
 **Answer: the gate holds no obligation it does not assert.** What a blind spot records is the
 **reach of a predicate**, not work someone owes later — and the two are different objects. A
@@ -270,11 +307,24 @@ decision surface this instrument spent R76 / R80 / R81 collapsing, one level dow
 one place the list is stated and that anything added is added there. The other sites point at
 it.
 
-⚠ **One cross-PR residue, named rather than fixed here.** #501 §12(3) both *delegates* to this
-header (*"its header says so"*) and *restates* two of the four itself. Collapsing that is an
-edit to #501's memo, which §1's boundary predicate forbids this diff from making. It is raised
-to #501; it is not a defer slot, because the wire's header is already the canonical site and a
-duplicate that agrees is a tidiness item, not a gap.
+**The list is now five, not four.** Review found a class nobody had listed: a
+`.claude/(skills|tools)/` path with **one** further segment, of which this package's own entry
+script is the live case — **31 instances inside the scanned scope** (`cli.py` 22, `DESIGN.md` 7,
+`__init__.py` 1, `commands/refresh.py` 1; the derivation is in the wire's block). Unlike classes
+3 and 4 it **is** grep-decidable, so the block's own "not closable by any wire" justification
+does not reach it, and the honest statement — made in the block — is that the predicate never
+looked. It is listed, not closed: widening to one segment would red the package on every
+mention of its own entry point.
+
+**And the base memo is swept, not merely raised.** A previous revision declined this on the
+ground that *"§1's boundary predicate forbids this diff from making"* the edit — **false**: that
+predicate's pathspec is `-- .claude/tools/_webref`, which does not cover
+`docs/plans/2026-07-citation-hygiene-Ai-spec-label-map.md`, an ordinary file on the branch this
+PR is stacked on. Three sites are swept **in this PR**, because this is the PR that decided
+them: §12(3)'s two restatements and its *"its header says so"* pointer (whose *"four failed
+attempts"* are the deleted seed's four failed **widenings**, not these classes), and §12(4)'s
+booking of four defer slots on this PR. Leaving them would land a memo asserting, in the same
+tree, that slots exist which §8 refuses to file.
 
 ---
 
@@ -357,25 +407,45 @@ unfixed in the carried commit (the carried commit had already written one answer
 comment had already reached that formulation (*"What the decision rests on is the ABSENCE OF A
 SETUP STEP"*); the other three sites had not.
 
-| site | before | now |
-|---|---|---|
-| `ci.yml`, the ungated-job rationale block | *"the wires need none — no toolchain, no cache, no network"* | *"they run on the shell, `git` and `grep` a bare checkout already has: nothing to install, no cache, no network"* |
-| `ci.yml`, the step comment | *"No toolchain step: the wires are grep-only."* | *"No setup step…"*, plus one parenthesis recording that *"grep-only"* stopped being true when this wire took its population from git, and that `git` is on the runner either way so the **decision** is unchanged |
-| `CLAUDE.md` | *"toolchain も cache も network も要らない"* | the same property, in the same words, with the *"「grep のみ」ではない"* correction |
-| the wire's header — §4's canonical site | *"RUNTIME: shell + grep only … ('the wires are grep-only')"* | *"the shell, `git` and `grep` — nothing a bare checkout lacks"*, with the `⚠ NOT "GREP-ONLY"` correction and the reason |
+⚠ **AND THE FIRST REPLACEMENT WAS FALSE IN THE SAME SHAPE.** This item's first attempt wrote
+*"the shell, `git` and `grep` a bare checkout already has"* at all four sites. Four reviewers
+measured it independently: the wire and its controls also call `sed`, `tr`, `cmp`, `readlink`,
+`mktemp`, `mkfifo`, `chmod`, `env`, `cut`, `ln`, `cp`, and the four **sibling** wires in the same
+job add `awk`, `sort`, `comm`, `wc`. A narrower-than-true enumeration, written by the edit
+retiring a narrower-than-true enumeration — which is what "a check defined by the symptom
+vocabulary" costs: the residue command below *used to* grep for the retired **phrase**
+(`grep-only`), so it could not see the new one.
+
+**The property, settled**: the wires need **nothing installed** — no language runtime, no
+package manager, no cache, no network. ⚠ **And that is stated as a property, not a list**,
+because the list has now been wrong twice. What makes it checkable is the job's shape:
+
+```sh
+# the whole claim, derived: the trip-wires job has ONE `uses:`, the checkout.
+sed -n '/^  trip-wires:/,/^  [a-z]/p' .github/workflows/ci.yml | grep -c 'uses:'   # -> 1
+# and nothing in the wire set shells out to a language runtime. ⚠ The second
+# filter is not decoration: without it the only hit is a COMMENT recording that
+# an earlier revision used python3 — i.e. the bare grep cannot tell the history
+# of the rule from a violation of it.
+grep -rnE '\b(python3?|node|ruby|perl|cargo)\b' \
+     .claude/tools/*-trip-wire*.sh scripts/trip-wires.sh \
+  | grep -vE ':[0-9]+:[[:space:]]*#'          # -> no output
+```
+
+| site | now says |
+|---|---|
+| `ci.yml`, the ungated-job rationale block | the property, plus both retired enumerations named as retired |
+| `ci.yml`, the step comment | *"No setup step — nothing to install"*, pointing at the block |
+| `CLAUDE.md` | the same property, with 「道具の列挙で書かない」 and the `uses:` derivation |
+| the wire's header — §4's canonical site | *"RUNTIME: NOTHING TO INSTALL"*, with both retired lists and the reason |
 
 ⚠ **Including `ci.yml`'s line, which this slice had touched the file of but not the line** —
 the case draft 1 recorded as out of scope.
 
-Derive the residue rather than trusting this table:
-
-```sh
-grep -rn -- 'grep-only\|grep only' .github/workflows/ci.yml CLAUDE.md scripts/trip-wires.sh \
-  .claude/tools/webref-generic-core-trip-wire.sh \
-  .claude/tools/webref-generic-core-trip-wire.controls.sh
-```
-
-One hit remains and it is the correction itself, in `ci.yml`, quoting the phrase it retires.
+⚠ **One more thing the wire's header was doing**, found by the same pass: it closed with
+*"anything needing more than the shell, git and grep belongs in a test, not here"*, sitting
+beside a sentence about the **job**. Read there it is a rule for the wire **set** — i.e. an
+answer to §6's open question, asserted in a comment. Scoped to this wire, with §6 named.
 
 ---
 
@@ -416,9 +486,20 @@ both halves of the same run.
 command): after this revision the scanner is in the 700-line band that CLAUDE.md's touch-time
 discipline says to look at *while writing*. Looked at, and the answer is no: the split rule is a
 **cohesion** judgement, not a line count, and what is left is one predicate, one walk, one
-verdict — a monolithic cohesive unit, four fifths of it rationale. The cut that existed was the
-one already taken. This is recorded rather than left implicit, because "the file is in the band
-and nobody said why it stayed" is how the discipline degrades into a count.
+verdict — a monolithic cohesive unit, mostly rationale (§0's first command prints the
+code/comment split; a previous revision put a fraction here, and it was both a quantity that
+moves and wrong). The cut that existed was the one already taken. This is recorded rather than
+left implicit, because "the file is in the band and nobody said why it stayed" is how the
+discipline degrades into a count.
+
+⚠ **And the same judgement is owed for the CONTROLS file, which a previous revision did not
+give.** It carries two subjects — the fixture controls, and the mutation harness the wire gates
+behind `WEBREF_WIRE_MUTANTS` — and that looks like a seam. It is not taken, for the reason the
+harness exists: **the mutation set's whole claim is that each control is about the arm it
+names**, so the two lists must be edited together and are checked against each other in the same
+run (the correspondence check reds on a record naming no control). Splitting them puts the two
+halves of one assertion in two files and makes the check cross-file for no gain. The seam that
+would be real — fixtures vs. controls — runs through every entry rather than between two blocks.
 
 ---
 
@@ -485,7 +566,9 @@ always-run job may cost — has three.
 paragraph this slice rewrites, in the opposite direction, and adds a second CLAUDE.md site.
 
 ⚠ **And this slice's carried commit had already written one answer before the question was
-called open.** It rewrote that paragraph to say the wire set needs *"no toolchain, no cache,
+called open** (quoting against **this branch's own predecessor commit**, not against the stacked
+base — the PR's diff removes different text at two of the four sites, because the carve rewrote
+them once already). It rewrote that paragraph to say the wire set needs *"no toolchain, no cache,
 no network"* — the "no" answer, landed on a repo-wide surface. Draft 1 claimed the six items
 were *"deliberately not fixed in the carried commit"*; for this one that was not true. §5
 item 4 has since rewritten all four sites to the **property** rather than the shorthand, and
@@ -528,8 +611,9 @@ saying which takes a new check.
 
 ⚠ **This is a finding about another lane's PR, and it is raised, not imposed.** Under this
 answer #510's wire has the wrong *home*, not the wrong *content*. The write path is in #510's
-files, which §1's boundary predicate forbids this diff from touching — so "no" **cannot be
-executed here, only agreed**. It is carried to #510 as a design question for that lane, and
+files — another branch's, which this diff cannot write whatever §1 says (a previous revision
+cited §1's boundary predicate here, and that predicate covers only `.claude/tools/_webref`). So
+"no" **cannot be executed here, only agreed**. It is carried to #510 as a design question for that lane, and
 whichever way it settles, the losing side's rationale text is the edit, not this wire.
 
 ⚠ **The budget half is not settled by this answer and is not this slice's to settle.** What the
@@ -551,7 +635,8 @@ instrument.
    **Met**, and §5 item 5 added the other direction: the controls file run on its own now exits
    **2** naming what it is, instead of failing inside `mktemp`.
 3. **The mutation set is enumerated in the controls file itself, machine-readably, and each
-   entry is shown to red when reverted. Met — 18 entries, `0 not killed as named`.**
+   entry is shown to red when reverted. Met — the run prints the count and `not killed as
+   named`, and the count is ratcheted rather than quoted here.**
 
    ```sh
    WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
@@ -602,9 +687,11 @@ instrument.
 5. `git diff --name-only webref-cite-audit-tool...HEAD` matches **§4's table** — no count, and
    §4 includes this memo. ⚠ The artifact set is **not frozen**: §5 items 2, 5 and 6 can each
    change it, and draft 1's version forbade exactly those answers by fixing the set first.
-   **Met, and the set did not in fact change**: items 5 and 6 were answered without adding a
-   file, and criterion 3's mutation set ships **inside the controls file** rather than as a
-   sixth artifact.
+   **Met — and the set DID change**, which is the criterion working rather than failing: items 5
+   and 6 were answered without adding a file, and criterion 3's mutation set ships **inside the
+   controls file**, but the design review found #501's memo contradicting §8 and the umbrella
+   missing the row its own repo-wide command needs. Both are now in §4's table. A version of this
+   criterion that froze the set at five would have forced those two defects to land.
 
 ## §8 Defer slots
 
@@ -622,7 +709,6 @@ undated trigger the lane's precedent already rejects (*"has nothing that forces 
 3. Draft 2 recorded four candidates over the cap and the cap policy's ban on deleting slots to
 make the arithmetic work; nothing is deleted here — the candidates were never obligations.
 
-**Where the four are stated**: one block in the wire, `WHAT THIS WIRE DOES NOT DECIDE`, which
-#501 §12(3) delegates to. ⚠ §12(3) also restates two of them itself; collapsing that duplicate
-is an edit to #501's memo, which §1's boundary predicate forbids this diff from making, so it is
-**raised to #501** rather than filed here.
+**Where the five are stated**: one block in the wire, `WHAT THIS WIRE DOES NOT DECIDE`. #501's
+memo used to restate two of them and to book all of them as slots on this PR; **both are swept
+in this diff** (§5 item 1), so the single site is now true rather than asserted.

@@ -4,33 +4,46 @@
 # 2026-07-citation-hygiene-Ai-spec-label-map.md §2 invariant K2, which that
 # memo's §12(3) names as an exit criterion.
 #
-# `_webref/DESIGN.md` says the package "should stay generic enough to move to
-# a standalone repository later" and closes with "keep new generic behavior
-# free of elidex-specific file paths AND PUT ELIDEX POLICY IN ADAPTER COMMANDS
-# OR DOCUMENTATION".
+# WHAT THIS WIRE ENFORCES IS K2, AND K2 IS STRICTER THAN `DESIGN.md`.  Say it
+# that way round, because the reverse — deriving the predicate from
+# `DESIGN.md` — does not work, and a revision of this header tried.
 #
-# ⚠ Those are TWO CLAUSES, and they are about different things.  The first
-# bans elidex-specific FILE PATHS; the second says where elidex POLICY — a
-# rule, a convention, prose — may live.  This wire is an instrument for the
-# first only.  Nothing mechanical covers the second: it is a judgement about
-# wording, and its instrument is diff review.  #501 found the policy half
-# violated in a commit set this wire was green on, five rounds running, so do
-# not read a green here as `DESIGN.md` compliance.
+# `_webref/DESIGN.md` in full, both ends.  It OPENS (`:3-5`):
 #
-# ⚠ AND THE SECOND CLAUSE DOES NOT CARVE OUT THE FIRST, which a reader may
-# reasonably wonder, since `commands/` and `DESIGN.md` itself are both inside
-# the scanned scope and are exactly where clause two sends elidex policy.  The
-# reading that makes the rule coherent is the one its own rationale supplies:
-# the package "should stay generic enough to MOVE to a standalone repository",
-# and a `DESIGN.md` or an adapter command naming `.claude/skills/<x>/<y>` does
-# not move.  So clause one is unqualified over the package — adapter commands
-# and the package's own documentation included — and clause two permits POLICY
-# there, expressed without naming a host path.  That is what A-i did: it
-# removed `.claude/skills/elidex-review/axes.md` from `cli.py` and from the
-# `webref` entry script, both adapter surfaces, and kept the policy.
-# ⚠ If a future reader wants clause two to permit PATHS in adapter commands,
-# that is an amendment to `DESIGN.md`, owned by whichever slice owns
-# `_webref/` — not a change to this wire, whose predicate is K2's.
+#     "`webref` is maintained inside elidex for now, but ITS DRIFT-DETECTION
+#      CORE should stay generic enough to move to a standalone repository
+#      later.  ELIDEX SPECIFIC BEHAVIOR BELONGS IN THIN ADAPTER COMMANDS."
+#
+# and CLOSES with:
+#
+#     "keep new generic behavior free of elidex-specific file paths and put
+#      elidex policy in adapter commands or documentation."
+#
+# ⚠ SO `DESIGN.md` DELIBERATELY SENDS ELIDEX-SPECIFIC WORK INTO ADAPTER
+# COMMANDS — and `_webref/commands/` and this entry script are adapter surfaces
+# INSIDE the scanned scope.  A review round put that as "the predicate forbids
+# something its own authority permits", a revision of this header answered it
+# by quoting the opening sentence with its subject changed from "its
+# drift-detection core" to "the package" and omitting the next sentence
+# entirely, and that answer is WITHDRAWN.  The tension is real.
+#
+# WHAT RESOLVES IT is that this wire does not enforce `DESIGN.md`.  It enforces
+# K2, as #501's §2 states it: no `.claude/(skills|tools)/<a>/<b>` string
+# anywhere in `_webref/` plus this entry script — adapter commands and the
+# package's own documentation INCLUDED.  That is a WIDENING of `DESIGN.md`'s
+# rule, taken deliberately, on this ground: such a string does not move
+# whoever wrote it, so the core/adapter line `DESIGN.md` draws does not help
+# anyone deciding whether the package can be lifted out.  The cost is equally
+# plain — a thin adapter command implementing elidex policy may not SPELL a
+# two-segment host path and must reach the host some other way.  Whether
+# `DESIGN.md` should be amended to say so belongs to whichever slice owns
+# `_webref/`; it is not this wire's to decide.
+#
+# ⚠ AND THE POLICY CLAUSE IS UNREACHED EITHER WAY.  Nothing mechanical covers
+# "elidex policy" — it is a judgement about wording, and its instrument is diff
+# review.  #501 found that half violated in a commit set this wire was green
+# on, five rounds running, so do not read a green here as `DESIGN.md`
+# compliance.
 #
 # ONE CHECK, ABSOLUTE.  It is closed and decidable; it is not a heuristic, and
 # this wire makes no un-asserted report.
@@ -63,10 +76,16 @@
 #     this wire GREEN.
 #
 # WHAT THIS WIRE DOES NOT DECIDE — THE WHOLE LIST, AND THIS IS THE ONE PLACE IT
-# IS STATED.  A-i's memo §12(3) delegates here rather than keeping a second
-# copy ("its header says so"), so anything added to this list is added HERE.
+# IS STATED, so anything added to this list is added HERE.
+# ⚠ THAT CLAIM WAS FALSE WHEN FIRST WRITTEN, and the correction is the reason
+# to trust it now.  It said "A-i's memo §12(3) delegates here", citing that
+# row's phrase "its header says so" — which is scoped to the OPEN part and
+# whose "four failed attempts" are the deleted seed's four failed WIDENINGS,
+# not these classes.  Meanwhile §12(3) restated two of them itself and §12(4)
+# booked all four as defer slots.  The stacked PR that owns this header swept
+# all three sites, so the delegation the sentence asserted now exists.
 # None of these is a deferred obligation: they are the reach of a predicate,
-# not work someone owes later.  What covers all four is the diff — every line
+# not work someone owes later.  What covers them is the diff — every line
 # entering this tree passes review, and `git diff origin/main...HEAD --
 # .claude/` is finite.
 #
@@ -82,6 +101,24 @@
 #      string.
 #   4. INTERPOLATION — `docs/${x}/y.md`, where the path exists only once the
 #      program runs.
+#   5. A `.claude/(skills|tools)/` path with ONE further segment — of which
+#      `.claude/tools/webref`, this package's own entry script, is the live
+#      case.  Measured inside the scanned scope:
+#
+#        LC_ALL=C grep -rc '\.claude/tools/webref\b' \
+#          .claude/tools/_webref .claude/tools/webref
+#        # cli.py 22 (the --help examples), DESIGN.md 7, __init__.py 1,
+#        # commands/refresh.py 1  = 31
+#
+#      ⚠ THIS ONE IS DECIDABLE AND IS STILL NOT DECIDED, which is why it is
+#      listed apart from 3 and 4.  §2's predicate takes TWO further segments,
+#      so it cannot see these; widening it to one would red the package on
+#      every mention of its own entry point, and "the tool naming how it is
+#      invoked" is not the class K2 exists for.  What is NOT claimed is that
+#      the wire looked and found nothing: it never looked.  Narrowing this
+#      (e.g. "any one-segment path OTHER than this package's own entry") is a
+#      predicate change and belongs to whoever proposes it, with its own
+#      control.
 #
 # ⚠ 3 AND 4 ARE NOT CLOSABLE BY ANY WIRE, and saying so is the point: both are
 # properties of a grep over arbitrary source text, so "later, with a better
@@ -96,19 +133,25 @@
 # also a print with no consumer, which `CLAUDE.md` calls dead code.  So it is
 # GONE, not demoted.
 #
-# RUNTIME: the shell, `git` and `grep` — nothing a bare checkout lacks, and
-# bash 3.2 compatible.  That is a contract, not a coincidence: the property the
-# ungated `trip-wires` job rests on is the ABSENCE OF A SETUP STEP (no language
-# runtime to install, no cache, no network), stated canonically at that job in
-# `.github/workflows/ci.yml` and restated in `CLAUDE.md`.  An earlier revision
-# of this wire used `python3` and broke that premise for all five wires (#501
-# R69).  Anything needing more than the shell, git and grep belongs in a test,
-# not here.
-# ⚠ NOT "GREP-ONLY", which is what three of those four sites said until this
-# slice.  The population and the bytes are git's (see THE WALK IS GIT'S below),
-# so this wire makes dozens of `git` calls; `git` is on the runner either way —
-# it is how the checkout got there — so the decision is unchanged and only its
-# statement was false.
+# RUNTIME: NOTHING TO INSTALL, and bash 3.2 compatible.  That is a contract,
+# not a coincidence: the property the ungated `trip-wires` job rests on is the
+# ABSENCE OF A SETUP STEP — no language runtime, no package manager, no cache,
+# no network — stated canonically at that job in `.github/workflows/ci.yml` and
+# restated in `CLAUDE.md`.  An earlier revision of THIS wire used `python3` and
+# broke that premise (#501 R69), which is the concrete thing to avoid here.
+# ⚠ STATED AS A PROPERTY, NOT A LIST, because two lists have already been wrong
+# at these same sites: "the wires are grep-only" (this wire calls `git`
+# constantly) and then "the shell, `git` and `grep`" (it also calls `sed`,
+# `tr`, `cmp`, `readlink`, `mktemp`, `mkfifo`, `chmod`, `env`, `cut`, `ln`,
+# `cp` — and the sibling wires add `awk`, `sort`, `comm`, `wc`).  The second
+# was written by the edit retiring the first.
+# ⚠ AND THIS PARAGRAPH IS ABOUT THIS WIRE, NOT THE WIRE SET.  A revision of it
+# ended "anything needing more than the shell, git and grep belongs in a test,
+# not here", which — sitting beside a sentence about the job — reads as a rule
+# for the SET, i.e. as an answer to the open question of whether the required
+# ungated wire set may require an interpreter.  That question is contended
+# (PR #510) and is not settled by a comment in one wire; see the A-i-wire plan
+# memo §6.
 #
 # Run from anywhere.  Exits non-zero if K2 fails or a file cannot be read.
 
@@ -529,7 +572,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   _lc="$(mktemp "$SCRATCH/lcXXXXXX")" || { rm -f "$_e"; printf 'err\twalk: no temp file for the tracked list\n'; return 0; }
   _lo="$(mktemp "$SCRATCH/loXXXXXX")" || { rm -f "$_e" "$_lc"; printf 'err\twalk: no temp file for the worktree list\n'; return 0; }
   _lh="$(mktemp "$SCRATCH/lhXXXXXX")" || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the HEAD list\n'; return 0; }
-  _b="$(mktemp "$SCRATCH/blobXXXXXX")"  || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the staged blob\n'; return 0; }
+  _b="$(mktemp "$SCRATCH/blobXXXXXX")"  || { rm -f "$_e" "$_lc" "$_lo" "$_lh"; printf 'err\twalk: no temp file for the staged blob\n'; return 0; }
   _dir="$1"; _extra="${2:-}"
   # THE LISTS ARE GIT'S ANSWER to what this tree HOLDS, in two halves because
   # the halves keep their bytes in different places (see `_entry`):
