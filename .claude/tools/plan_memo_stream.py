@@ -760,6 +760,22 @@ def kind_disagreements(lx):
     for name, rx in KIND_PHRASES:
         hit = [(rd.blanks, m) for m in rx.finditer(rd)]
         other = list(rx.finditer(st))
+        # ⚠ PRESENCE, and a COUNT comparison was tried here and REVERTED
+        # (PR #510 R48-1).  A field carrying a CLEAN phrase beside a straddling
+        # one reads as agreement, and a review round showed a case where that
+        # hides a real doubt: `Slice 7z -- **UMBRELLA, not a `terminal` unit.**
+        # Then **UMBRELLA, not a terminal unit.**` is rc 2 with the straddling
+        # marker ALONE and rc 1 once the clean one is added, because the reader
+        # attributes the FIRST marker to `7z` (a pointer) while the stream
+        # misses it and reads the later one as self-declaring (an umbrella).
+        # ⚠ Counting does not separate that from the case the R23 control
+        # RATIFIES -- `KIND UNDETERMINED.  Also KIND UNDETER`MINED`.` also has
+        # 2 vs 1, and there the kind is undetermined under both readings, so
+        # the census genuinely is not in doubt.  The property that tells them
+        # apart is whether the two readings declare the same KIND AND the same
+        # ATTRIBUTION, which this function cannot ask: it is per-phrase and has
+        # no row, while `_kind`'s ordering and `attributed_to_other` are the
+        # Population's.  Carved in §8 rather than approximated here.
         if bool(hit) == bool(other):
             continue
         hit = hit or [(st.blanks, m) for m in other]

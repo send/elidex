@@ -613,3 +613,23 @@ case("POSITIVE", "(R47-5 scope) a memo's SECOND schema row is read for the unkey
      build(), LINK, 1, sibling=SIB_TABLE.replace("| **Tq** |", "| xxxxTq |") % "—",
      measure=("schema", "the row declares nothing and is unkeyed"))
 R47_5_SECOND_ROW = CASES[-1].name
+
+
+# -- R48-2: `_phrases` kept only the FIRST match per phrase, so a field
+# spelling BOTH supported undetermined forms contributed ONE spelling and the
+# KIND-SPELLING consistency gate saw a set of size one.  The same two spellings
+# in two different ROWS were reported, which is what made it look covered --
+# and is the discriminating partner here.
+case("POSITIVE", "(R48-2) TWO undetermined spellings in ONE declaring field are both collected: the "
+                 "KIND-SPELLING gate is about the DOCUMENT's spellings, so a field using both "
+                 "reports exactly as two rows using one each do.  Reading only the first match, the "
+                 "set had size one and the run exited 0 on the condition that gate exists for",
+     build(s9z="KIND UNDETERMINED and KIND \u2013 UNDETERMINED"), "", 1,
+     measure=("finding", "KIND-SPELLING"))
+R48_2_TWO_SPELLINGS = CASES[-1].name
+
+case("POSITIVE", "(R48-2) the discriminating twin -- the SAME two spellings split across two rows "
+                 "-- was always reported, which is why the one-field case looked covered",
+     build(s9z="KIND UNDETERMINED", s7z="KIND \u2013 UNDETERMINED"), "", 1,
+     measure=("finding", "KIND-SPELLING"))
+R48_2_TWO_ROWS = CASES[-1].name

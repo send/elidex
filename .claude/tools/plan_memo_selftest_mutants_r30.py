@@ -48,6 +48,7 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
     R47_1_DASH_SET, R47_1_EN_DASH, R47_2_UNBOUND_QUOTED, R47_2_UNBOUND_STRADDLE,
     R47_4_BASELINE, R47_4_BOUNDARY, R47_4_NBSP, R47_4_NON_WHITESPACE, R47_4_TAB,
     R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
+    R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS,
     R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
 )
 from plan_memo_selftest_mutants import (
@@ -957,4 +958,20 @@ MUTANTS += [
      '                if f is not None and f not in seen:',
      '                if False and f not in seen:',
      [REFUSED_SILENCE]),
+]
+
+MUTANTS += [
+    ("R48-2 spellings: `_phrases` returns EVERY occurrence (re-inject `search` -- one Match per "
+     "phrase, so a field using both undetermined spellings contributes one and the consistency "
+     "gate sees a set of size one)", POPULATION,
+     '        return {name: list(rx.finditer(field or "")) for name, rx in KIND_PHRASES}',
+     '        return {name: [m] if m else [] for name, m in\n'
+     '                ((n, rx.search(field or "")) for n, rx in KIND_PHRASES)}',
+     [R48_2_TWO_SPELLINGS]),
+    ("R48-2 spellings: every collected occurrence reaches `spellings` (truncate the loop -- the "
+     "shape the derived scope ratchet demanded a row for the moment the loop was written)",
+     POPULATION,
+     '        for _m in hit["undetermined"]:\n            self.spellings.add(_m.group(0))',
+     '        for _m in hit["undetermined"][:1]:\n            self.spellings.add(_m.group(0))',
+     [R48_2_TWO_SPELLINGS]),
 ]

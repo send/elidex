@@ -354,14 +354,14 @@ MUTANTS = [
      '    m = list(MARKER_RE.finditer(field))[-1]',
      ["(a) a self-declaring field that later says a sibling 'is not it' stays self-declaring"]),
     ("F5 kind: the undetermined spelling is collected beside the marker", POPULATION,
-     '        if hit["undetermined"]:\n            self.spellings.add(hit["undetermined"].group(0))',
+     '        for _m in hit["undetermined"]:\n            self.spellings.add(_m.group(0))',
      # both sides read out of `hit` since PR #510 R23, when the three kind phrases
      # became one tuple: a mutant may name only what the mutated file has (spelling
      # this as `MARKER.search` crashed with a NameError at R22 -- a crash is a
      # FAIL); the MUTATION is untouched -- the spelling collected only where the
      # marker is absent
-     '        if hit["undetermined"] and not hit["marker"]:\n'
-     '            self.spellings.add(hit["undetermined"].group(0))',
+     '        for _m in (hit["undetermined"] if not hit["marker"] else []):\n'
+     '            self.spellings.add(_m.group(0))',
      ["(rc) a row carrying the marker AND one undetermined spelling, beside another row's other "
       "spelling, is KIND-SPELLING rc 1"]),
     ("F6 (c): the Deps cell's ids are the population's mentions, not a raw tokenisation", ROLES,

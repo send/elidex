@@ -338,8 +338,24 @@ class Population:
         the defect this checker has recorded three times (the row-kind test's
         two spellings at R22, the dash class's three at R33-2, the blank-cell
         test's two). Read-only: no membership decision and no side effect, so
-        `_kind`'s ORDER between the members stays `_kind`'s alone."""
-        return {name: rx.search(field or "") for name, rx in KIND_PHRASES}
+        `_kind`'s ORDER between the members stays `_kind`'s alone.
+
+        ⚠ EVERY OCCURRENCE, not the first (PR #510 R48-2).  This returned
+        `rx.search(...)` -- one `Match` per phrase -- and `_kind` then added
+        `hit["undetermined"].group(0)` to `spellings`.  A field spelling BOTH
+        supported forms, `KIND UNDETERMINED and KIND -- UNDETERMINED`,
+        therefore contributed ONE spelling, the KIND-SPELLING consistency gate
+        saw a set of size one, and the run exited 0 on a document using two --
+        the exact condition that gate exists to report, invisible because the
+        reader of the field stopped at the first match.  The same two spellings
+        in two different ROWS were reported, which is what made it look
+        covered.
+        ⚠ This is the SAME defect class as a loop truncated to its first
+        element -- "take the first" where the property is about all of them --
+        expressed without a loop, so `population_scope_control`'s `ast.For`
+        population cannot see it.  That limit is stated in the control.
+        """
+        return {name: list(rx.finditer(field or "")) for name, rx in KIND_PHRASES}
 
     def _kind(self, row):
         """The kind the row's masked declaring field declares.  The
@@ -358,8 +374,8 @@ class Population:
         if row.field is None:
             return "terminal"
         hit = self._phrases(row.field)
-        if hit["undetermined"]:
-            self.spellings.add(hit["undetermined"].group(0))
+        for _m in hit["undetermined"]:
+            self.spellings.add(_m.group(0))
         if hit["marker"]:
             other = attributed_to_other(row.field, row.self_id)
             if other:

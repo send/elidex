@@ -867,11 +867,12 @@ below, in order: (1) acceptance half of assertion (b); (2) the four assertions' 
 grammar's released trailing decoration; (6) Slice 3, Phase 1 offsets; (7) `symbol_attribution_control`'s
 existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the `self_id`
 suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the §6.2 demotion
-tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the
-hand-written table with no detector. **Twelve own and two pre-existing** — (9) and (10) are the
+tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the residue
+gate's presence comparison; (15) the hand-written table with no detector. **Thirteen own and two
+pre-existing** — (9) and (10) are the
 pre-existing ones, each with its grounding stated where the policy asks for it. Count the list
 rather than trusting this sentence: `awk` the `^- \*\*` lines of this section and you must get
-fourteen.
+fifteen.
 ⚠ **(12) AND (13) ARRIVED AT R47 AND BOTH MOVE THE OWN COUNT**, from ten to twelve. Neither is a
 deferral of convenience: (12)'s one-line fix overturns a control this plan RATIFIED — the direction
 cmark supports is the one the ratified control rejects — and (13) changes what the conformance proof
@@ -1199,6 +1200,31 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   change to what the proof asserts. **Owner**: Slice 1's next touch of the conformance module.
   **Trigger**: the next round that reports a falsifier disagreement on a GFM-only construct, or a
   `~` pair entering the corpus. **Re-eval: 2026-12-31.** No slot: it is this checker's own proof.
+- **(own)** **THE RESIDUE GATE COMPARES PRESENCE, AND A CLEAN PHRASE BESIDE A STRADDLING ONE HIDES
+  THE STRADDLE** (PR #510 R48-1 — **real, reproduced, a fix written and REVERTED**).
+  `kind_disagreements` asks `bool(hit) == bool(other)`, so a declaring field carrying BOTH a clean
+  phrase and one straddling a masked span reads as agreement. Measured:
+  ``Slice 7z — **UMBRELLA, not a `terminal` unit.**`` alone is **rc 2**; adding
+  `Then **UMBRELLA, not a terminal unit.**` after it takes the run to **rc 1** with only a
+  non-gating `LEX-SPLIT?` seed — the reader attributes the FIRST marker to `7z` (a POINTER) while
+  the stream misses it and reads the later one as self-declaring (an UMBRELLA). The kind itself
+  flips, which is exactly the doubt the gate exists for.
+  ⚠ **The obvious fix — compare COUNTS — was written, measured, and reverted**: it turns the R23
+  NEGATIVE control red, and that control is RIGHT. Its fixture
+  ``KIND UNDETERMINED.  Also KIND UNDETER`MINED`.`` also has 2 occurrences against 1, and there the
+  kind is undetermined under BOTH readings, so the census genuinely is not in doubt. Counting
+  cannot separate the two cases; the property that does is whether the two readings declare the
+  same KIND **and the same ATTRIBUTION**.
+  ⚠ **And that question cannot be asked where the comparison lives.** `kind_disagreements` is
+  per-phrase and has no row; `_kind`'s ordering (marker > undetermined > pointer) and
+  `attributed_to_other` are the Population's, and `_kind` has side effects (`self.attributed`), so
+  asking it twice is not free. The fix is a real re-slice of the residue gate, not a predicate
+  tweak — it intersects the gate, `_kind`'s ordering, the attribution pass, I-A's straddle rule and
+  a ratified control, so it is `/elidex-plan-review`-before-implementation **BY RULE**, the same
+  disposition and for the same reason as the id-grammar decoration release above.
+  **Owner**: Slice 2's plan-review, which owns the prose predicates and already opens `_anchored`.
+  **Trigger**: already fired (reproduced above). **Re-eval: 2026-12-31.** No slot: it is this
+  checker's own gate.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
   ⚠ **THIS ENTRY FIRST SAID "the class is now four deep" AND SCOPED THE CARVE BY THE SYMPTOM
   VOCABULARY** — "a module-level name bound to a container whose docstring or comment carries the
