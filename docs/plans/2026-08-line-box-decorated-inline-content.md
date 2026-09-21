@@ -146,9 +146,9 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **53** after the amendments recorded next (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **54** after the amendments recorded next (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
-edits three and withdraws one cell's second arm). ⚠ **Each round's edit set is stated as the diff
+edits three and withdraws one cell's second arm; R6 adds one cell and edits two). ⚠ **Each round's edit set is stated as the diff
 measures it, not as the round's own summary described it** (R5): R4's read "removes one cell's
 third assertion and adds one cell", and the diff shows it also edited **6**, **6g**, **13b** and
 **24c** — the same under-count the attestation disclaimer below carried. The basis is one command,
@@ -157,9 +157,10 @@ per-cell texts. **Not frozen**
 (still correctable without reopening anything): Grounds columns, citations, coordinates, §7–§10,
 and the ledgers.
 
-**⚠ Amended four times, by the external channel this freeze deliberately keeps and by the
+**⚠ Amended five times, by the external channel this freeze deliberately keeps and by the
 cumulative design re-gate it does not silence either** (Codex R2, R3 then R4 on #515, 2026-09-20 —
-revs 36, 37 and 38; R5 — rev 39, the re-gate plus a property sweep; the freeze declares #515
+revs 36, 37 and 38; R5 — rev 39, the re-gate plus a property sweep; R6 — rev 40, three of whose
+four findings are defects in rev 39's own structural fix; the freeze declares #515
 unblocked, not the reviewer silenced, and the front matter keeps `/external-converge` on the
 approval PR). **R2 — four P2 findings, two roots:**
 
@@ -258,6 +259,51 @@ defect a previous round patched at the site it was named at. No Decision column 
   honoured rather than restated, every figure the amendments added either deleted for the
   relation it stood for or converted to one its cell's test computes.
 
+**R6 — four findings, three of them defects in what R5 added, and the common cause is that R5's
+structural fix was specified in prose and never executed.** The governing rule this amendment
+installs, in §8 beside the invariant itself: **a gate is landed by running it, not by writing
+it** — the PR that lands the helper routes every §6 cell through it in one execution, in both
+regimes, and a green matrix is the acceptance criterion.
+
+* **R6-a — the invariant as written failed nearly every fixture.** "Every offset at which
+  `flush_line` is entered" includes the terminal `FlushReason::LastLine` that `finish()` enters
+  for any occupied line, at an end-of-text offset `find_break_opportunities` filters out by
+  construction. The recorded set becomes the `SoftWrap` and `Forced` entries, with the three
+  `FlushReason` variants named so the exclusion is checkable; `Forced`'s licence is the mandatory
+  half of the same `find_break_opportunities` result and not a second allowance. Rejected
+  position: ledger **A20**.
+* **R6-b — cell 15c could not pass the invariant it inherits, at any `W` in its own window.**
+  R5 raised 15c's lower bound to `measure_width("aaaab")` (ledger **A16**) and thereby repaired
+  the **pre**-PR-1b regime only: with the markers' 40px of advance, `b` overruns `W` throughout
+  the raised window, so the fixture breaks at an offset `find_break_opportunities("aaaab")`
+  licenses nowhere. **A fixture has two regimes and a repair that reads one is half a repair.**
+  The cell drops its trailing `b` — it asserted nothing about where `b` lands — leaving a text
+  with no licensed break and no realised one; the window widens rather than narrows, and the
+  discriminating upper bound is untouched. The alternative, re-fixturing behind a space so the
+  break lands at a licensed offset, is rejected on css-text-3 §5.5 rather than on measurement
+  (**A19**), and the raised window itself is **A18**. ⚠ **No exemption list was opened**: an
+  "exempt the cells that pin an accepted divergence" carve-out is the enumerated-exemption trap
+  [[feedback_enumerated-exemptions-leave-the-next-class-authoritative]] names, and it would leave
+  the invariant total in name only.
+* **R6-c — the memo's own verification commands name files that are not on `main`.** R5 made
+  `plan-xcheck.py` the stated mechanism for §3's coverage map, §5.3's defer count and §10's
+  routing, and both checkers are on this branch and on no other. The approval PR, whose DoD is
+  one file, would therefore land a document citing commands the repository cannot run. **The
+  tooling PR is ordered before or with the approval PR** (§8's 順序 block, §9's task); the diff
+  stays one file, the remedy being the order and not a bundle. Rejected position: **A21**. The
+  sweep that finding asks for found no second instance: every other path the memo cites as
+  runnable — `.claude/tools/webref`, `.claude/tools/layout-box-reader-trip-wire.sh` and its
+  `.tsv` allowlist, `.claude/skills/elidex-plan-review/preflight.py`, `scripts/trip-wires.sh`,
+  `.github/workflows/ci.yml` — is on `origin/main` today, and the one remaining external path,
+  `~/.claude/hooks/`, is a user-level path outside the repository by design.
+* **R6-d — the PR-1c cell *set* could not discriminate `LayoutBox.margin`.** Each cell was fine;
+  the set carried padding only, with border reached solely by the end-to-end clause and margin
+  by a PR-1b cursor cell. New cell **13c** asserts three pairwise-distinct non-zero values, so a
+  swap between fields fails it and not only a drop. The same set-level read over **M5**'s
+  disjunction found the margin term undiscriminated there too, and cell **3** gains the markup
+  that pins it — M5 having one derivation site, one reading suffices. §8's PR-1c DoD carries both
+  arguments at set level, which is where the defect was.
+
 ⚠ **The attestation table below predates the amendments** and is left as the record of what that
 pass checked: it did not see cells 13b / 23b / 24c, and M3's, M5's, M6's and M7's rows were
 consistent under the whole-box gate R2 replaces. R3 changes no Decision column and no expected
@@ -274,10 +320,16 @@ unchanged: **6**, **14b** (a false markup identity, a stale cross-cell pointer),
 (a withdrawn-claim marker retired to the ledger), **13b**, **24d** (two unlicensed spec figures),
 **14**, **16** (the whole-box name at a boundary gate, a mis-distributed summary quantity),
 **17**, **17c**, **17d** (literal arithmetic replaced by the relation the test computes) and
-**20** (css-text-3 §5.5's out-of-flow half). The matrix stays at **53** cells. ⚠ **No M-row *Decision* column changes at R4 or R5** — verified
+**20** (css-text-3 §5.5's out-of-flow half). **R6**: cell **13c** is **new** (so M4's row below, left as the pass wrote it, is short one cell,
+and the missing one is the row's only non-padding-only cell) and **3** and **15c** are edited —
+3 gaining the markup it never had, 15c re-fixtured; the matrix goes **53 → 54**. Measured by the
+freeze's own command, not summarised: extract `## §6` from `8804d4f5` and from this revision,
+split on `^\d+[a-z]?\. ` and compare the per-cell texts — added `13c`, changed `3` and `15c`,
+removed none. ⚠ **No M-row *Decision* column changes at R4, R5 or R6** — verified
 by extracting each row's Decision cell (split on unescaped `|`, M1's pipe escaped since rev 34)
 and comparing — but at R4 **M1's** Grounds changed as well as M7's, which this disclaimer also
-did not say; at R5 the Grounds changes are M4's and M7's.
+did not say; at R5 the Grounds changes are M4's and M7's, and at R6 no Grounds column changes
+either, the R6 work landing in §6, §8 and §9.
 
 **Residual risk and how it is discharged**: cross-mechanism code-level consistency — one mechanism
 introducing a value, state or ordering that another's predicate was written without. It is
@@ -383,6 +435,10 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A15 | R5 | stating the border area cssom-view-1 §6 asks for on cell 13b as a figure (it read 14px, then ≈22px) | 14px is the span's `line-height` plus padding, the derivation css-inline-3 §5.3's "the layout bounds need not correspond to the box's edges" and css-inline-3 §6.4's "the `line-height` has no impact on the size of an inline box" both exclude; ≈22px is the first available font's ascent + descent, which css-inline-3 §6.4 offers as an example a UA **may** use while saying "this specification does not specify how" |
 | A17 | round 26 | "the only markup that gains a line does so through the item-boundary flush `#11-inline-item-boundary-soft-wrap` records" (§5.3, PR-1b) | a universal over *markup* that the same bullet refutes two clauses earlier: the advance makes text reach the guard at a genuine UAX #14 opportunity earlier than it did, so both paths gain lines and the slot owns only the second. The universal that survives is the one over **cells** |
 | A16 | R5 | cell 15c's width window opening at `measure_width("aaaa")` | its lower part sits below `measure_width("aaaab")`, where today's own layout already breaks at an item boundary `find_break_opportunities` licenses nowhere, so the cell's pre-PR baseline was bug-dependent and the §6 preamble's tagless control fails on it |
+| A18 | R6-b | A16's replacement — cell 15c keeping `…<span style="padding:20px"></span>b</p>` with the window raised to `measure_width("aaaab")` | the raise licenses the **pre**-PR-1b baseline only: from PR-1b the two markers add 40px, so `b` overruns `W` at every `W` in the window (`W < measure_width("aaaa") + 40 < measure_width("aaaa") + 40 + measure_width("b")`) and the fixture breaks where `find_break_opportunities("aaaab")` — empty — licenses nothing. A fixture has two regimes; a repair that reads one is half a repair |
+| A19 | R6-b | re-fixturing 15c as `aaaa ` + the box + `b`, so the flush lands at the licensed offset the space opens | it satisfies the invariant but decides, silently, a question css-text-3 §5.5 leaves open: that bullet puts the break at the box's margin edge "for soft wrap opportunities before the first or after the last character **of a box**", and an empty decorated inline has no characters, so which side of it the break falls on is undetermined — the cell would pin a contested answer to the very question it exists to assert |
+| A20 | R6-a | the suite break invariant recording "every offset at which `flush_line` is entered" | `finish()` enters `flush_line(FlushReason::LastLine)` for any occupied line, at the end-of-text offset `find_break_opportunities` filters out by construction, so the predicate reports the ordinary end of a paragraph as an unlicensed break and fails every fixture whose last line carries content |
+| A21 | R6-c | "neither PR waits on the other" for the approval and tooling PRs | true while the memo's claims did not depend on the checkers, and R5 ended that: `plan-xcheck.py` became the stated verification mechanism for §3's coverage map, §5.3's defer count and §10's routing, and neither checker is on `origin/main`, so a memo-only approval PR lands re-runnable commands naming files the repository does not contain |
 
 ---
 
@@ -894,7 +950,7 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   **a11y node bounds** (`elidex-a11y/src/tree.rs:121-125`, an unconditional `border_box()` read).
   Measured for hit-testing on PR-1c's own shape: with the span's 10px padding real, the point
   (12, 20) inside the padding ring hits the **span**; with the padding zeroed, as today, the same
-  point hits the `<p>`. §6 cells 6, 10b, 13, 13b, 14c, 15c, 17, 17b, 17c, 17d and 17f land here.
+  point hits the `<p>`. §6 cells 6, 10b, 13, 13b, 13c, 14c, 15c, 17, 17b, 17c, 17d and 17f land here.
   ⚠ **The predicate prereq PR (§9) is already in `main` by this point** — it lands before PR-1a —
   which is what keeps PR-1c honest: PR-1c makes an inline's `LayoutBox.border` real, and
   cssom-view-1 §6 step 1 requires `clientTop`/`clientLeft` to stay **zero** for an inline box, so
@@ -1142,11 +1198,13 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   read as a line (withdrawn from §6 to **this slot**, constructible when the slot lands), and
   **cell 15c**, recorded here as outside the class because it "declines to assert where `b`
   lands", true of the *assertion* and false of the *fixture* (its window opened below
-  `M("aaaab")`, where today's layout already breaks at an unlicensed boundary; pinned above that
-  flip in §6). **A cell can be in this class through its width and not through its markup, which
+  `M("aaaab")`, where today's layout already breaks at an unlicensed boundary). **A cell can be in
+  this class through its width and not through its markup, which
   is why per-cell vigilance is not the instrument.** The finding that opened the slot was
   discharged instance-scoped, which is how 17c survived it; the R3 sweep was population-scoped,
-  which is how 21(b) and 15c survived that.
+  which is how 21(b) and 15c survived that, and R5's own repair of 15c survived it once more
+  (ledger **A18**) — 15c now carries no following text at all (§6). The §6 preamble states the
+  rule that kept missing it.
   ⚠ **Two cells the R5 sweep read and could not settle, recorded rather than passed over.**
   (i) **Cell 24d** asserts `line_count` **1** for two adjacent glyphless decorated boxes on the
   strength of css-text-3 §5.5, and has **no oracle until PR-1d**: today the markup is Shape B
@@ -1265,7 +1323,11 @@ bug-dependent; ledger A5 carries the measured instance. ⚠ **The R3 sweep of th
 not the class** (R5): it missed cell 21's arm (b), whose second line the packer discards, and
 cell 15c, whose *width window* rather than its markup reaches the bug-dependent regime. Both are
 dispositioned below; the per-cell reading is superseded by the suite-level invariant §8's PR-1b
-DoD carries, and §5.3's slot record keeps the members and the non-members.
+DoD carries, and §5.3's slot record keeps the members and the non-members. ⚠⚠ **And a fixture has
+two regimes — today's and the one the markers' advance creates — so a reading that settles one
+settles half** (R6-b; ledger **A18** is the instance, 15c's raised window). That is why the
+guarantee is a predicate **run** over every fixture in **both** regimes and not a rule a reader
+applies: §8's DoD requires the PR that lands it to execute it over the whole matrix.
 
 ⚠⚠ **Second standing rule: a markup belongs to one cell, and a copy of it elsewhere must name
 that cell and assert nothing the owning cell does not.** A copy goes stale the day its cell is
@@ -1455,6 +1517,18 @@ task's (§9).
 **PR-1b inline-axis advance:**
 
 3. `margin` alone, **including negative** — requires M1's `resolve_box_model` sourcing.
+   ⚠ **It carries a markup from R6 on, and the markup is what discriminates M5's *margin* term**
+   (R6-d): `<p>a<span style="margin:10px"></span>b</p>`, whose only non-zero edges are margins, so
+   M5's `padding ∨ border ∨ margin` is true **through its margin term alone** and M3's sum
+   advances by it. Two assertions: `b` is displaced by 20px, and the `a`/`b` runs **stop
+   coalescing** — M3's side-specific shaping break, which reads M5's derivation, so the cell fails
+   if that derivation is blind to margins. No other cell isolates that term — §8's PR-1c DoD
+   carries the set-level read — and M5 has one derivation site with three readings, so this one
+   markup pins the term for all of them. The shaping-break
+   mechanism itself is cell **14**'s, on `padding:1px`; what is asserted here is only that the
+   same gate fires on a margin-sourced edge. The **negative** arm is the same markup with
+   `margin:-10px`: the advance is the signed sum, and the break still fires, the gate testing
+   non-zeroness and not sign.
 3b. **Cancelling pair, the sum/disjunction contrast on the advance side** — the edge pair is
     `margin:-10px;padding:10px`, so that **each** inline-axis side cancels: the side's components
     sum to zero while every component is non-zero, which is M3's **sum** against M5's
@@ -1746,6 +1820,20 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     so the two candidate models are far apart on it and the cell fails in both directions — if
     per-box bounds ever land, the asserted content height drops from the line's to the box's own,
     and a cell written on a span whose `line-height` equalled its line's would pass under either.
+13c. **The three edge sets stay three fields** (M4's invariant (iii); R6-d) —
+    `<p>a<span style="padding:1px;border:3px solid;margin:7px">text</span>b</p>`: the span's
+    `LayoutBox` carries `padding == 1`, `border == 3` and `margin == 7` on every side, its
+    `border_box()` is the content rect inflated by **4** per side (padding + border, the margin
+    **excluded** — cssom-view-1 §6's border area) and its `margin_box()` by **11**. ⚠ **The three
+    values are pairwise distinct on purpose**: with one shared value a carrier that merged two
+    sets, or routed margin into `padding`, would pass, so the cell would catch a *drop* and not a
+    *swap*. This is the one PR-1c cell whose box is not padding-only, and §8's PR-1c DoD carries
+    the set-level argument for why one was needed. ⚠ The fixture sets the three resolved
+    `EdgeSizes` on the span's `ComputedStyle` directly, as cell 2's ⚠ establishes for border
+    (`border-style` resolution is `elidex-style`'s and `elidex-layout-block` has no edge to it);
+    `border:3px solid` is the CSS the fixture stands for, not a string the crate parses. ⚠ It
+    asserts no cursor displacement — that is cell 13(b)'s, on its own markup, and the advance
+    here would be the three-set sum rather than the padding this cell varies.
 14c. **The empty decorated inline gains a `LayoutBox` it never had** (§7's presence change) —
     `<p>a<span style="padding:1px"></span>b</p>`: today that span has **no** `LayoutBox`
     (`assign_inline_layout_boxes` iterates `entity_bounds`, which only `place_item` populates, and
@@ -1765,27 +1853,29 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     (`resize.rs:271`) only *inside* the `if changed` (`:263`) the content comparison gates, so it is
     a consequence of the callback and never the trigger for one (round 24 audit).
 15c. **The box does not move to the next line at its own edge** (CSS 2 §9.4.2's "cannot be split …
-    overflows"; §1.3) — `<p style="width:W">aaaa<span style="padding:20px"></span>b</p>` with
-    **`measure_width("aaaab") ≤ W < measure_width("aaaa") + 40`**: the span's `LayoutBox` sits on
+    overflows"; §1.3) — `<p style="width:W">aaaa<span style="padding:20px"></span></p>` with
+    **`measure_width("aaaa") ≤ W < measure_width("aaaa") + 40`**: the span's `LayoutBox` sits on
     line 1 (`block_start` = line 1's) because the marker path calls the shared core with **no wrap
-    check** (M3); a wrap check would have flushed before or inside the box. Asserts the box's line
-    only, nothing about where `b` lands (that is the item-boundary flush, §5.3's pre-existing
-    slot). PR-1c because the box's rect is M4's — at PR-1b the only channel is `b`'s
-    `inline_start` on the line the item-boundary flush puts it on (0 with no wrap check, 40 or 20
-    with one), i.e. every PR-1b observation runs through the divergence the slot forbids pinning
-    (round 22, Axis 2; gate).
-    ⚠ **The lower bound is `measure_width("aaaab")`, and raising it to that is R5's amendment**
-    (ledger A16). The upper bound is what makes the cell discriminate — a wrap check at the marker
-    fires only while the box's 40px would overrun `W` — and is unchanged. The old lower bound,
-    `measure_width("aaaa")`, admitted a sub-window below the flip in which **today's own layout**
-    breaks between `aaaa` and `b` at an item boundary css-text-3 §5.5 licenses nowhere: measured
-    at `22de3078`, `line_count` is 2 throughout it and 1 at and above the flip, while
-    `find_break_opportunities("aaaab")` is empty, so the §6 preamble's tagless control **fails**
-    below the flip (tagged two lines, `<p style="width:W">aaaab</p>` one) and passes at or above
-    it. Raising the bound makes the cell's pre-PR baseline a licensed layout. It does not make
-    `b`'s post-PR-1b position licensed — nothing can, since the cell's discriminating condition is
-    that the box does not fit beside `b`, which is why it asserts the box's line and nothing about
-    `b`. No literal `W`: the test computes both bounds from `measure_width`, as 15d's does.
+    check** (M3); a wrap check would have flushed before or inside the box. Asserts that the box
+    has a `LayoutBox`, that its `block_start` is line 1's, and `lines.len() == 1`. PR-1c because
+    the box's rect is M4's: at PR-1b the box has no rect, so the cell's own assertion has no
+    channel there (round 22, Axis 2; gate).
+    ⚠ **The box is the fixture's last item, and that is what makes the cell invariant-clean**:
+    with no content after it nothing can reach the wrap guard, so the realised break set is empty
+    at every `W` in the window, matching a licensed set that is empty because `aaaa` carries no
+    UAX #14 opportunity at all — the property holds by the text rather than by a width. The two
+    fixtures this replaces are ledger **A18** (a trailing `b`, which the markers' own advance
+    pushes past `W` throughout the window) and **A19** (that `b` behind a space, which css-text-3
+    §5.5 leaves undetermined for a characterless box).
+    ⚠ **The upper bound is what makes the cell discriminate**: a wrap check at a marker fires
+    only while the box's edges would overrun `W` — at the start marker below
+    `measure_width("aaaa") + 20`, at the end marker below `measure_width("aaaa") + 40` — so the
+    `+ 40` bound is "some marker's check fires", and the lower bound says only that `aaaa` itself
+    fits. Under such a check the flushed second line would carry the markers alone,
+    `contributes_content` false (M3 passes the constant at PR-1b), so it would be discarded with
+    its tentative rects: what turns the cell red is the box having **no `LayoutBox` at all**,
+    which is why presence is asserted beside `block_start`. No literal `W`: the test computes
+    both bounds from `measure_width`, as 15d's does.
 17. **A decorated inline whose content wraps** —
     `<p style="width:80px">aaa <span style="padding:10px">bbb ccc</span></p>`: start marker on
     line N, end marker on line N+1; M4's per-line rebase must yield one rect per line, each with
@@ -2430,8 +2520,30 @@ from `place_item`'s per-item flush — the pre-existing divergence
 ⚠ **It must also see a line the packer *discards***: a whitespace-only line is flushed and then
 dropped on `any_rendered_content == false`, appearing in no `InlineFlow` and no `line_count`,
 which is what hid the co-resident cell's withdrawn arm from three sweeps (§6, PR-1d). The offset
-set is therefore taken at the **flush** — every offset at which `flush_line` is entered,
-committed or discarded — not from the persisted lines. **Why this rather than another rule in the
+set is therefore taken at the **flush** — every offset at which `flush_line` is entered **for a
+soft wrap or a forced break**, committed or discarded — not from the persisted lines.
+⚠⚠ **The reason is named, and naming it excludes the terminal commit** (R6-a). `FlushReason` has
+exactly **three** variants — `SoftWrap`, `Forced`, `LastLine` (`inline/pack/justify.rs:20-28`) —
+and `finish()` enters `flush_line(FlushReason::LastLine)` whenever the line is occupied
+(`pack/mod.rs:786-789`), at the end-of-text offset, which `find_break_opportunities` **filters out
+by construction** (`crates/text/elidex-linebreak/src/lib.rs:28-33` drops the mandatory break
+`unicode-linebreak` emits at `text.len()`). A predicate over *every* `flush_line` entry therefore
+reports the ordinary end of a paragraph as an unlicensed break, and fails every fixture whose last
+line carries content — which is all but the text-less ones. So the recorded set is the `SoftWrap`
+and `Forced` entries only. `Forced` needs no separate licence either: the engine reaches
+`force_break` from `PackItem::Text`'s `break_after == Some(BreakOpportunity::Mandatory)`, i.e. from
+an offset the same `find_break_opportunities` call returned, so "plus any forced break" above is
+the **mandatory half of the same result**, not a second allowance. **Checkable as written**: the
+helper matches on `FlushReason` and its `LastLine` arm records nothing, so the exclusion is a code
+shape a reader can see rather than a description to be trusted.
+⚠⚠ **Its DoD is the run, not the sentence** (R6): the PR lands the helper with **every** §6 cell
+routed through it and the whole matrix green in one execution. A gate whose behaviour on the real
+corpus is unmeasured is the defect and not the fix, which is what the first execution of this one
+showed — ledger **A20** (the offset set it recorded) and **A18** (the one cell it failed).
+⚠ **And a fixture is read in both regimes when it is written or re-fixtured**, today's layout and
+the one the markers' advance creates: a break licensed in one can be unlicensed in the other, and
+the landed helper only ever sees the second, so nothing in the suite catches a cell whose *window*
+was chosen against the first (A18 is that instance). **Why this rather than another rule in the
 preamble**: §6 already carries one, with a measured discriminator, and two members still got
 through, because a rule's population is the cells a reader classifies as needing a second line
 while the class is the fixtures whose *layout* has an unlicensed break. A predicate over every
@@ -2452,7 +2564,25 @@ re-checks §7's reader family, and `elidex-render`'s existing `border_box()`-rea
 named and dispositioned here. `note_line_occupancy`, `pack/inline_box.rs` and M8's contribution
 carry docstring citations to their §3 rows.
 
-**PR-1c** (box geometry): cells 6, 10b, 13, 13b, 14c, 15c, 17, 17b, 17c, 17d and 17f —
+**PR-1c** (box geometry): cells 6, 10b, 13, 13b, 13c, 14c, 15c, 17, 17b, 17c, 17d and 17f —
+⚠⚠ **Cell 13c is new at R6, and the argument for it is at the level of the *set*, not of any
+cell** (R6-d). M4's invariant (iii) is that padding, border and margin stay three **independent**
+`LayoutBox` fields; the discrimination question is therefore not "does some cell assert an edge"
+but "does the set separate the three". Read as a set, **every cell in the list above but 13c
+carries padding and nothing else** — the population is that list, not a second copy of it — while
+the border term is exercised only by the end-to-end clause below (`border:5px solid` through
+`elidex-shell`) and the margin term by cell **3**, which is PR-1b and observes the *cursor*, never
+a produced box. An implementation that dropped `LayoutBox.margin`, or routed margin into
+`padding`, therefore satisfied **every** listed cell. 13c closes it with three pairwise-distinct
+non-zero values, so a *swap* between two fields fails it and not only a drop. ⚠ **The same
+set-level read over M5's disjunction finds one more, and §6's `margin`-alone PR-1b cell is where
+it is fixed rather than here**: M5 is `padding ∨ border ∨ margin` with a **single** derivation site and three readings
+(§5.1 M5), and **no cell isolates its margin term** — the PR-1d flip set reaches padding through
+cell **1** and border through cell **2**, and every remaining cell the attestation's M5 row names
+either carries a non-zero padding on the side it reads or is a negative, all-inline-axis-zero
+cell. Because the derivation site is one, pinning the term at any one reading pins it for all
+three, and cell **3**'s markup (§6) is that pin. Nothing else in M4 or M5 has the shape: their
+remaining quantities are single-valued (the rect, the advance sum, the rung).
 ⚠ **all of them assert a first-layout property**, because `assign_inline_layout_boxes` skips any
 entity that already carries a `LayoutBox` (`boxes.rs:62-64`) and **no production site removes
 one**: wire #5 of `.claude/tools/layout-box-reader-trip-wire.sh` bans the
@@ -2637,7 +2767,7 @@ memo decides (§9's memo-split booking), and nothing else** — the
 `SPEC_LABEL_REVERSE` CSS-label gap is **owned elsewhere**, by the SoT slot
 `#11-preflight-css-module-labels` (citation-hygiene Slice B, after its A-ii migrates that dict),
 so this program cites the owner and hand-verifies citations meanwhile, as §3 records; ordered
-**on its §9 trigger — #510's resolution (landing or closure) or this umbrella's TERMINAL, whichever comes first** —
+**on its §9 trigger — #510's resolution (landing or closure) or this umbrella's TERMINAL, whichever comes first, and in no case after the approval PR** —
 because #510 puts a generic plan-memo checker and a selftest wire on the same
 `trip-wires` registry and the tooling PR's own plan-memo must decide build-on-vs-beside that
 substrate under `/elidex-plan-review` (#506 shipped checker tooling without one and paid a tooling-only IMP tail across several external rounds (the SoT's #506
@@ -2650,20 +2780,26 @@ origin/main...HEAD` on this branch lists the memo *and* the three tooling files 
 from this branch** with `git checkout layout-decorated-inline -- <paths>` — the approval PR the
 memo alone, the tooling PR the three tooling files (then the generalisation work §9 names) — so
 the approval PR's DoD, **its diff against `origin/main` is exactly one file**, holds by
-construction and **neither PR waits on the other** (a first draft had the approval PR wait for the
-tooling PR to land and merge back — a schedule pressure with no design ground, the shape under
-which #506 shipped tooling without a plan-review). This branch is retired after both land (`git
+construction. This branch is retired after both land (`git
 merge origin/main` folds the landed copies back: the two checkers add/add, `SKILL.md`
-modify/modify, all resolved to `origin/main`'s versions). Order: approval PR at TERMINAL; tooling
-PR on its §9 trigger (#510's resolution — landing or closure — or TERMINAL, whichever first; #510 is
-another lane's open PR, so this program does not wait on it past its own terminal); PR-1a
+modify/modify, all resolved to `origin/main`'s versions). Order: **the tooling PR lands before or
+together with the approval PR**; PR-1a
 branches off `main` only after the approval PR and the predicate prereq have landed (topology
 below).
-⚠ **Consequence stated**: nothing in this program waits on the tooling PR except the tooling task
-itself; #510's state affects only the tooling PR's substrate decision. The predicate prereq is
-ordered against neither (nor was round 21, now complete). If #510 closes unmerged, that resolution fires the trigger
-and the tooling PR's memo decides the substrate question against whatever `origin/main` then
-carries. No later PR re-ships any of them — the shipper is defined by
+⚠⚠ **The two PRs are ordered, and the ground is a dependency, not a schedule preference**
+(R6-c; the unordered reading is ledger **A21**). §3's coverage map is produced "from the table
+above by `python3 .claude/tools/plan-xcheck.py <memo>`", §5.3's defer count is cross-checked by it
+and §8 routes §10's routing errors to its check 13 — while **both checkers are tracked on this
+branch and neither is on `origin/main`** (`git ls-tree -r origin/main --name-only | grep -c plan-`
+→ 0). An approval PR carrying **only** the memo would therefore land a document on `main` whose
+re-runnable verification commands name files the repository does not contain — the class §3.1
+exists to prevent, one level up. Ordering the tooling PR first costs nothing: its scope depends on
+no design round. ⚠ **The remedy is the order, not a bundle** — the approval PR's diff stays
+exactly one file, because bundling would put skill infra through a plan review scoped to a layout
+umbrella, the shape #506 paid for. ⚠ **And if #510 has not resolved by then**, the tooling PR's
+memo decides build-on-vs-beside against `origin/main` as it stands; another lane's open PR cannot
+hold this one, and now cannot hold the approval PR through it either. The predicate prereq is
+ordered against neither (nor was round 21, now complete). No later PR re-ships any of them — the shipper is defined by
 the *event* that makes the row true (approval; the tooling task), not by a PR letter.
 ⚠ Earlier revisions routed all of this to the seam-3 prereq PR, and rev 25's first draft to
 PR-1a. #508 shipped only its own plan-memo, on the user-ratified rule (2026-08-16, recorded in
@@ -3561,10 +3697,10 @@ slot's trigger (§5.3) in the same revision, so the two sites cannot drift apart
   done, **the per-PR plan-reviews under this umbrella (and this memo's landing-record revisions)
   depend on running the checkers by hand** — the habit the task exists to end.
   ⚠ **Trigger: #510's resolution — landing or closure — or this umbrella's TERMINAL, whichever
-  comes first** (the sibling checker substrate this task must decide against; if #510 is still
+  comes first, and in no case later than the approval PR** (the sibling checker substrate this
+  task must decide against; if #510 is still
   open at TERMINAL the memo decides against `origin/main` as it then stands — another lane's PR
-  must not hold this task past this program's terminal; the approval PR waits only on the renewed
-  TERMINAL, §8);
+  must not hold this task past this program's terminal);
   **discharger: the tooling PR**, cut from `origin/main` (approval-independent skill infra, by this
   bullet's own classification), under `/elidex-plan-review` — not because it is edge-dense but
   because #506 shipped checker tooling without one and paid a tooling-only IMP tail across several external rounds (the SoT's #506
@@ -3579,6 +3715,13 @@ record; no count carried here) before being carved into #510. Earlier revisions 
   Before all that, a revision wrote "this memo's next plan-review round", which fires *every*
   round and can discharge nothing, so it expired unheard six times running; a trigger that recurs
   is not a trigger.
+  ⚠⚠ **The approval PR waits on this one, and that is new at R6** (R6-c; ledger **A21**): R5 made
+  these two checkers the memo's stated verification mechanism — §3's coverage map produced by
+  `plan-xcheck.py`, §5.3's defer count cross-checked by it, §10's routing errors caught by its
+  check 13 — and neither file is on `origin/main`, so a memo-only approval PR would land
+  re-runnable commands naming files the repository does not contain. §8's 順序 block carries the
+  order; the approval PR's diff stays exactly one file, the remedy being the ordering and not a
+  bundle.
   Re-eval: 2026-11-01.
 
 ## §10. Slot ledger actions at landing
