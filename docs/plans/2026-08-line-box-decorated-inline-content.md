@@ -3235,7 +3235,7 @@ off the paged path**, and the engine says so at both sites that had to solve thi
 path, so this is an explicit reconcile (insert-or-remove), **not a generation comparison**" — and
 `inline/mod.rs:558` — "(F9 — `layout_generation` is constant 0 non-paged, so **removal, not
 comparison**)". Stored and current would both read `0`, the comparison would skip exactly as the
-presence test does, and nothing would be repaired. What PR-1c takes instead is **not a box reconciler of PR-1c's own — the engine already has the
+presence test does, and nothing would be repaired. The repair PR-1c depends on is therefore **not a box reconciler of its own — the engine already has the
 canonical one, and R14 took half of it twice** (R15's self-root-check). The repair moves to a
 **prerequisite PR** that discharges `#11-inline-relayout-box-staleness`, and PR-1c depends on it.
 
@@ -3981,7 +3981,7 @@ program owes is the disclosure and the routing, not the fix. Ledger **A36**.
   and `inline/mod.rs:558` both state at `22de3078`, so the comparison degenerates into the presence
   test. ⚠ **The slot's own prescribed remedy had never been measured** — a deferral puts the
   *problem* under review and leaves the *remedy* unexamined, and promoting one into a PR is the
-  moment to re-derive it. What PR-1c takes is **not a box reconciler of PR-1c's own — the engine already has the
+  moment to re-derive it. The repair PR-1c depends on is therefore **not a box reconciler of its own — the engine already has the
 canonical one, and R14 took half of it twice** (R15's self-root-check). The repair moves to a
 **prerequisite PR** that discharges `#11-inline-relayout-box-staleness`, and PR-1c depends on it.
 
