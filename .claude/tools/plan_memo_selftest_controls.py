@@ -51,6 +51,7 @@ import plan_memo_selftest_cases_pr510  # noqa: F401 -- appends the review-round 
 import plan_memo_selftest_cases_inline  # noqa: F401 -- appends the Phase-2 inline rounds to the same CASES
 import plan_memo_selftest_cases_sibling  # noqa: F401 -- appends the sibling-resolver family to the same CASES
 import plan_memo_selftest_cases_r26  # noqa: F401 -- appends R26's rounds to the same CASES
+import plan_memo_selftest_cases_r42  # noqa: F401 -- appends R42's round to the same CASES
 from plan_memo_selftest_harness import control, run_on
 from plan_memo_selftest_records import registry as property_registry
 from plan_memo_selftest_work import registry as work_registry
