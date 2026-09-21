@@ -48,11 +48,18 @@ Current generic modules:
   semantic diff.
 - `commands/refresh.py` captures a new snapshot and compares it with the prior
   saved snapshot.
-- `spec_labels.py` is the single source in this package for spec shortname
-  ↔ display label. It replaced the two hand-maintained copies there —
-  `commands/coverage_map.py`'s label map and `cli.py`'s help blurb — which
-  nothing bound together: adding a spec to one reached the other only by an
-  author remembering to.
+- `spec_labels.py` is the single source in this package for the **spec
+  enumeration** — the set of shortnames, and per shortname a display label and
+  a help blurb. It replaced the two hand-maintained copies of that enumeration:
+  `commands/coverage_map.py`'s label map and `cli.py`'s help blurb, which
+  nothing bound together, so adding a spec to one reached the other only by an
+  author remembering to. ⚠ They are not two copies of the same *mapping* —
+  `cli.py` carried shortname → blurb, and 10 of the 12 blurbs differ from the
+  label — which is why this says enumeration and not label map. ⚠ And "single
+  source **in this package**" is the whole claim: the suite beside the module
+  holds two frozen snapshots on purpose (they are pins, and they redden when
+  the map moves), and the elidex adapter still keeps a reverse map of its own
+  until Slice A-ii migrates it.
 
 ## Commands
 
