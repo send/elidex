@@ -126,9 +126,17 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
-  # the whole set, no toolchain, no cache), so a filter would buy nothing and cost the
-  # one property the wires exist for. Gating them would mean listing BOTH
+  # are filtered because each pays for a Rust toolchain; the wires need none — no
+  # toolchain, no cache, no network — so a filter would buy nothing and cost the
+  # one property the wires exist for.
+  # ⚠ DELIBERATELY NO RUNTIME FIGURE. This said "~1s for the whole set" until a wire
+  # grew fixture self-tests and the number stopped being true; and the figure does not
+  # reproduce across machines anyway — on the same commit a reviewer measured two to
+  # three times this checkout's (the wire ~3x, the whole driver ~2x). What the decision rests on is the ABSENCE OF A
+  # SETUP STEP, which no amount of seconds changes, and the tamper path below, whose
+  # cost does not change either. The time that is spent goes to the wires' own fixture
+  # self-tests rather than to the tree they scan, so it tracks the number of controls,
+  # not the size of the repo. Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
   # allowlist gate would itself be an allowlist entry someone must remember to keep
