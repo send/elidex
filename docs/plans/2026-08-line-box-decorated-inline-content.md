@@ -146,10 +146,11 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **55** after the amendments recorded next (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **56** after the amendments recorded next (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
-and edits three, and is the **first amendment to change a Decision column** — four of them).
+and edits three, and is the **first amendment to change a Decision column** — four of them; R8
+adds one cell, **6i**, and edits **6e**, and changes no Decision column).
 ⚠ **The command over-reports, and R7 is the instance**: splitting on `^\d+[a-z]?\. ` attributes
 §6's trailing matter (the non-regression pair, the test-placement paragraph) to whichever cell is
 **last**, so inserting a new last cell reports the previous one as changed. R7's run named
@@ -164,11 +165,12 @@ per-cell texts. **Not frozen**
 (still correctable without reopening anything): Grounds columns, citations, coordinates, §7–§10,
 and the ledgers.
 
-**⚠ Amended six times, by the external channel this freeze deliberately keeps and by the
+**⚠ Amended seven times, by the external channel this freeze deliberately keeps and by the
 cumulative design re-gate it does not silence either** (Codex R2, R3 then R4 on #515, 2026-09-20 —
 revs 36, 37 and 38; R5 — rev 39, the re-gate plus a property sweep; R6 — rev 40, three of whose
 four findings are defects in rev 39's own structural fix; R7 — rev 41, whose first finding is a
-**re-raise of an R5 finding this memo never applied while its commit message said it had**; the
+**re-raise of an R5 finding this memo never applied while its commit message said it had**;
+R8 — rev 42, whose subject is a hand-off with nothing behind it; the
 freeze declares #515
 unblocked, not the reviewer silenced, and the front matter keeps `/external-converge` on the
 approval PR). **R2 — four P2 findings, two roots:**
@@ -388,6 +390,23 @@ executes, because a rule is the thing that failed.
   two field-read sites name `clientTop`/`clientLeft` because that is the shape of the *code* there
   (`lb.border.*`) and not an enumeration of the rule. Ledger **A25**.
 
+* **R8-b — a disclaimer that handed a case to a section holding no entry for it, and the case is
+  reachable.** §6 cell 6e disclaimed correct block-in-inline layout "pre-existing — §9", and §9
+  carried nothing for it: its only occurrence of *Anonymous block* is the CSS 2 §9.2.1.1
+  **citation-label** correction, not a disposition. The reachability was measured, not argued:
+  with the **outer** inline decorated, the collector's recursion arm takes the block child (no
+  block-level filter precedes it) and the block's text enters the enclosing IFC as an ordinary
+  run, while M1's predicate — a function of the span's own style — holds, so the markers bracket
+  it. Option (c), "the predicate does not reach the case", is therefore refuted rather than
+  declined. **Disposition**: a real slot, `#11-block-in-inline-anonymous-block-split` (§9, §10),
+  **pre-existing** class so PR-1a's own count is untouched; cell **6e** retargeted; new cell
+  **6i** pins the outer half against the subtree-gated predicate `has_direct_block_child` already
+  makes available in the same file. Ordering behind the split is rejected — ledger **A26**.
+  ⚠ The same sweep found one further hand-off with nothing behind it — §8 requirement 5's "§9
+  hands the `is_monolithic` consumers to the predicate PR", where the consumers §9 books are the
+  `client*` members and M1's emit test and not that one — corrected in place. §9's `<br>`/`<wbr>` bullet already records this defect *shape*
+  for rev 32, which is the ground for treating it as a class rather than a site.
+
 ⚠ **The attestation table below predates the amendments** and is left as the record of what that
 pass checked: it did not see cells 13b / 23b / 24c, and M3's, M5's, M6's and M7's rows were
 consistent under the whole-box gate R2 replaces. R3 changes no Decision column and no expected
@@ -419,7 +438,9 @@ at any row. That is the shape R7-a required (a mechanism placed by ownership acr
 not a note), and the freeze anticipates exactly this: the external channel it keeps is allowed to
 amend the frozen surface, and an amendment that touched only §6 would have left the mechanism
 unowned. **R7** is therefore the round this disclaimer cannot be read past: the pass's M3, M4, M6
-and M7 rows are the pre-R7 ones, and cell **24e** is not in any row's list above.
+and M7 rows are the pre-R7 ones, and cell **24e** is not in any row's list above. **R8** adds
+cell **6i** and edits **6e**, both M1's; **6i** is likewise not in any row's list above, and the
+round changes no Decision and no Grounds column. The matrix goes **55 → 56**.
 
 **Residual risk and how it is discharged**: cross-mechanism code-level consistency — one mechanism
 introducing a value, state or ordering that another's predicate was written without. It is
@@ -533,6 +554,7 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A23 | R7-a | replaying the marker's **inline** advance along with its block one on a continuation line | M4's flush-time rebase already carries the cursor and the start edge was consumed on the earlier line — cell 17c's own rule — so re-adding it is exactly the double-count that rule exists to prevent; the replay passes `inline_advance = 0.0` |
 | A24 | R7-b | carrying the markers' gaps through the renderer's bidi reorder path inside this program | it is an `elidex-render` mechanism, the crate boundary A6 already keeps; and measured — two RTL runs baked 100px apart emit the same glyph positions as with the gap closed, while the identity control paints each at its own position — the loss is the non-identity branch's own pre-existing shape, which discards layout's baked justify offsets the same way and names `#11-bidi-full-uba-fidelity` in its comment. Routed there, pinned at cell 12b |
 | A25 | R7-c | listing `clientWidth`/`clientHeight` among the consumers of PR-1c's real edges while carving out `clientTop`/`clientLeft` | cssom-view-1 §6 step 1 is identical across all four members, so after the predicate prereq an inline reports zero on all four and a two-member carve-out is the enumerated-exemption shape the front matter refuses; the readback claim is `getClientRects()` / `getBoundingClientRect()` and nothing else |
+| A26 | R8-b | ordering the decorated-outer block-in-inline case behind the CSS 2 §9.2.1.1 anonymous-block split, the reviewer's alternative to a disposition | the split is a `block/children/stack.rs` box-tree change that re-parents the content out of this IFC, not an inline-module one; ordering this umbrella behind it blocks every PR on an unrelated unimplemented feature and changes nothing about whether the markers are right for the tree the engine builds. The residual is owned instead, by `#11-block-in-inline-anonymous-block-split`, and pinned by §6 cell 6i |
 
 ---
 
@@ -973,13 +995,14 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   current behaviour: `items.is_empty()` (`inline/mod.rs:161`) excludes markers, and the `any_font`
   closure gains its **exhaustiveness arm** at `:192-199` returning `false` — behaviour-neutral,
   since a marker is neither `Text` nor `Atomic`. The **outer condition** at `:200` is untouched
-  until PR-1d. **Characterization tests for §6 cells 1, 2, 5, 6b, 6c, 6f, 6d, 6e, 6g, 6h, 7–12 and 12d land here
+  until PR-1d. **Characterization tests for §6 cells 1, 2, 5, 6b, 6c, 6f, 6d, 6e, 6i, 6g, 6h, 7–12 and 12d land here
   asserting today's behaviour** — the cells that pin *line suppression*, which is observable with
-  `entity`-only markers. ⚠ **Cells 6b, 6g and 6h are the exceptions and are not characterization
-  cells**: the marker variants do not exist on `154bac3f`, so all three pin *new* item-stream behaviour
-  (6g and 6h the pseudo-element routing M1 records, non-empty and empty `content`). PR-1a stays
+  `entity`-only markers. ⚠ **Cells 6b, 6i, 6g and 6h are the exceptions and are not characterization
+  cells**: the marker variants do not exist on `154bac3f`, so all four pin *new* item-stream behaviour
+  (6g and 6h the pseudo-element routing M1 records, non-empty and empty `content`; 6i that the
+  predicate reads the box's own style and not its subtree). PR-1a stays
   behaviour-neutral in the sense that matters — no layout output moves — but the item stream is
-  deliberately not neutral, and 6b, 6g and 6h are what assert that, since `grep -rn padding
+  deliberately not neutral, and 6b, 6i, 6g and 6h are what assert that, since `grep -rn padding
   crates/layout/elidex-layout-block/src/inline/tests/` → no hits means the existing suite pins
   nothing about decorated inlines. Cell 12d's harness change lands here too, with the cell it
   makes constructible. PR-1a opens 1.
@@ -1565,7 +1588,30 @@ task's (§9).
     (`crates/layout/elidex-layout-block/src/block/mod.rs:70`) tests **direct** children only, so this
     `<p>` takes the IFC path and the `<div>` reaches the arm. A block-level box is not an inline box.
     ⚠ It does **not** assert correct block-in-inline layout (CSS 2 §9.2.1.1's anonymous-block split
-    is unimplemented on this path, pre-existing — §9); it pins only that M1 emits nothing for it.
+    is unimplemented on this path, pre-existing — `#11-block-in-inline-anonymous-block-split`, §9);
+    it pins only that M1 emits nothing for it. ⚠ **This cell is the inner-decorated half only**; the
+    outer-decorated half, where M1 *does* emit, is cell 6i, and the residual both sit on is that
+    slot's.
+6i. **A decorated inline whose only content is a block-level box still gets markers** (M1, the
+    own-style ground; Codex R8-b) — `<p>a<span style="padding:5px"><div>x</div></span>b</p>`: the
+    `<span>` is non-replaced, outer `inline`, inner flow, with a non-zero edge, so M1's predicate
+    holds and `InlineBoxStart`/`InlineBoxEnd` bracket the recursion at `collect.rs:291` — the
+    recursion that collects the `<div>`'s text into **this** IFC, because
+    `collect_inline_items_inner`'s four filters (`display:none`, absolutely positioned, atomic
+    inline, pseudo-element) do not select a block-level child and the arm is the fall-through.
+    ⚠ **What discriminates it**: the competing answer is not hypothetical, it is a function in the
+    same file — `has_direct_block_child` (`collect.rs:70`), whose one call is
+    `positioned_subflow_key`'s at `:111` — so "suppress the markers when the subtree contains a
+    block-level box" is
+    the predicate a reader reaches for to make the §9.2.1.1 residual unreachable, and it answers
+    this markup **no marker** where M1 answers **markers**. Cell 6e is the converse (the block
+    itself gets none); no other cell separates the box's **own** style from its *subtree*, as 6g
+    separates it from the entity's origin. Observed through the PR-1a harness and
+    **behaviour-neutral** here. ⚠ It asserts **nothing** about correct block-in-inline layout: CSS 2
+    §9.2.1.1 breaks the inline around the block into two boxes, and this path produces neither —
+    pre-existing, and `#11-block-in-inline-anonymous-block-split` (§9) owns it along with the
+    consequence PR-1b then PR-1c and PR-1d define over the flattened shape. Does not flip at
+    PR-1d: the IFC's own text already keeps the line.
 7. Shape A (decorated inline containing only collapsible white space).
 8. Shape B (completely empty decorated inline).
 9. `a <span style="padding:10px"> </span>b` — the M2 cell: the space must collapse against its
@@ -2636,8 +2682,8 @@ to their §3 rows; **two test-harness additions, without which cells 12d, 6b, 6g
 unconstructible**: `setup_inline_test` (`inline/tests/mod.rs:54`) gains a deterministic way to
 force `any_font == false`, and a helper beside `collect_styled_runs` (the `fn`, `:11-25`) returns the
 `InlineItem`s rather than `filter_map`ping them to `Vec<StyledRun>` — the existing one discards
-every non-`Text` variant, so it cannot observe a marker; cells 1, 2, 5, 6b, 6c, 6f, 6d, 6e, 6g, 6h, 7–12 and 12d land
-here — as characterization tests except 6b, 6g and 6h, which pin new item-stream behaviour
+every non-`Text` variant, so it cannot observe a marker; cells 1, 2, 5, 6b, 6c, 6f, 6d, 6e, 6i, 6g, 6h, 7–12 and 12d land
+here — as characterization tests except 6b, 6i, 6g and 6h, which pin new item-stream behaviour
 (§5.3); zero layout-output change. **Dead-field rule**: fields
 whose first reader is a later PR are added by that PR — M6/M7's `line_height` and font identity by
 **PR-1d**, `group_key` by `#11-inline-box-decoration-splits` — so nothing ships unread and no
@@ -2869,7 +2915,7 @@ once `LayoutBox` carries real edges (cell 17d(a)), so the cssom-view-1 §6 and c
 citation obligations travel with the derivation to `#11-inline-box-decoration-splits`; the open-box
 stack and its `flush_line` hook carry docstring citations to their §3 rows.
 
-**PR-1d** (existence): cells 18, 19, 20, 21, 22, 23, 23b, 24, 24b, 24c, 24d and 24e, plus the flip set — **cells 1, 2, 7, 8, 10, 11, 12 and 12d flip; 5, 6b, 6c, 6f, 6d, 6e, 6g, 6h and 9 do not**; this is the one normative statement of it — every §7
+**PR-1d** (existence): cells 18, 19, 20, 21, 22, 23, 23b, 24, 24b, 24c, 24d and 24e, plus the flip set — **cells 1, 2, 7, 8, 10, 11, 12 and 12d flip; 5, 6b, 6c, 6f, 6d, 6e, 6i, 6g, 6h and 9 do not**; this is the one normative statement of it — every §7
 consumer checked, **including the second and wider stage of the presence change §7 states**: every
 entity on a line the flip moves from discard to commit gains its first `LayoutBox`, so the same
 reader list PR-1c dispositioned is re-checked against a *newly box-bearing* entity rather than a
@@ -3058,8 +3104,11 @@ own plan-review (round 25, Axis 3):
    So this program
    is **not** the first to key a non-sizing decision on presence — the class is **pre-existing and
    engine-wide** (a failed image is fragmentable today; a decoded one is not), which strengthens the
-   case for one canonical answer rather than weakening it. §9 hands the `is_monolithic` consumers to
-   the predicate PR as its natural second consumer. ⚠ **Why presence is the wrong answer, with the
+   case for one canonical answer rather than weakening it. ⚠ The `is_monolithic` consumers are a
+   **routing note of this requirement**, not a disposition §9 carries: §9's canonical-predicate
+   bullet books exactly the two consumers **inside** this program — the four `client*` members and
+   M1's emit test — and hands every other question about that PR's scope to its own memo, so
+   whether they become its second consumer is that memo's call. ⚠ **Why presence is the wrong answer, with the
    normalisation's reach measured rather than called cheap**: two of the three components
    are **already decode-independent tag projections** — `attribute_reconcile.rs:54` says so verbatim
    ("Presence-gated: `IframeData` exists ⇔ the entity is an `<iframe>`"), and `FormControlState` is
@@ -3581,6 +3630,37 @@ slot's trigger (§5.3) in the same revision, so the two sites cannot drift apart
   attribution** a bidi split needs (one `DOMRect` per fragment, and which edge survives), a
   *layout* representation gap, while this is a renderer discarding positions layout got right — the
   mechanism mismatch the memo applies elsewhere to keep a slot's subject honest.
+* **`#11-block-in-inline-anonymous-block-split`** (new slot, **pre-existing** class; Codex R8-b):
+  CSS 2 §9.2.1.1 *Anonymous block boxes* — "When an inline box contains an in-flow block-level box,
+  the inline box (and its inline ancestors within the same line box) is broken around the
+  block-level box …, splitting the inline box into two boxes (even if either side is empty), one on
+  each side of the block-level box(es)", with the line boxes on each side enclosed in anonymous
+  block boxes (`body CSS2 anonymous-block-level`) — is unimplemented on the inline path.
+  `collect_inline_items_inner`'s recursion arm has no block-level filter, so a `display:block` child
+  of an inline is recursed into and its text becomes an ordinary run of the **enclosing** IFC; §6
+  cell 6i's markup is the reachability witness and `block/mod.rs:70`'s `children_are_block`, testing
+  direct children only, is why the `<p>` is on the IFC path at all.
+  **Why it is this program's concern and not only a gap it inherits**: when the **outer** inline is
+  decorated, M1's predicate is satisfied by that inline's *own* style, so the markers bracket a
+  block's content and PR-1b's advance, PR-1c's geometry and PR-1d's line existence are each defined
+  over a representation §9.2.1.1 says should not exist.
+  **Why it is nonetheless pre-existing and not an own deferral**: nothing here creates the
+  flattening. The enclosing inline already wraps that content and the IFC already claims it as its
+  own line, with no marker involved; what the markers change is that the wrong representation
+  becomes *observable* — an advance, a `LayoutBox`, a committed line — where today it is only
+  implied. So it does not enter §5.3's per-PR own count, on the ground §10's other
+  pre-existing-class rows state.
+  **Why not ordered behind the split instead** (the reviewer's alternative): the fix is a box-tree
+  change in `block/children/stack.rs`'s anonymous-box construction reached from `stack_block_children`
+  (`block/mod.rs:433`), not in the inline module this program touches, and it re-parents the content
+  out of this IFC entirely. Ordering a marker program behind it would block every PR of this
+  umbrella on an unrelated unimplemented feature while changing nothing about whether the markers
+  are right for the tree the engine actually builds. Ledger **A26**.
+  **Trigger**: the next change that implements or touches the §9.2.1.1 break for an inline
+  containing an in-flow block-level box — i.e. one that reaches `stack_block_children`'s anonymous
+  wrapping from the inline side — or any PR of this umbrella that needs the decorated-outer case to
+  produce spec geometry rather than the flattened one. **Re-eval**: at PR-1d's landing, against §6
+  cell 6i, which is the cell that would have to change.
 * **`#11-inline-spec-cite-misattribution`** (new slot, **pre-existing** class): the wrong-section
   citations §3.1 records, which this program *found* but did not create. The classes are concept-grep classes and pattern-less hand-offs, **enumerated — and counted — once, at the end of this bullet**, inside the enumeration that determines the figure; §10's row was stripped of the count for exactly that reason and an earlier drafting of this sentence restated it here, giving one figure two sites (round 25, Axis 3). §3.1's three come first, each
   defined by a concept grep because round 16 measured that a coordinate list under-covers every one
@@ -3935,6 +4015,7 @@ record; no count carried here) before being carved into #510. Earlier revisions 
 | Open `#11-inline-fontless-measurability-gate` (**pre-existing** class, opened by R4) with the Why / trigger / date in §5.3 — `inline/mod.rs:200`'s early return zeroes `line_count` for any fontless IFC, and PR-1d lifts it only behind `has_inline_axis_edge`, so a block-axis-only decorated inline keeps returning 0. Registered at the approval PR on the same ground; **not** an own deferral and not in §5.3's per-PR count (measured at `22de3078`: 0 with a block-axis edge, 0 with an inline-axis edge, 0 with none — the gate is blind to edges, so the residual predates the program and the partial lift worsens nothing). §6 cell 12d pins both sides | approval PR |
 | Open `#11-inline-item-boundary-soft-wrap` (**pre-existing** class) with the Why / trigger / date in §5.3 (found by Codex on #515; cell 15 stops pinning the divergence; registered at the approval PR on the ground the row above states) | approval PR |
 | Open `#11-inline-zero-edge-box-in-item-stream` (own) with the Why / trigger / date in §5.3 — the cells it flips named there (found by Codex on #515) | PR-1a |
+| Open `#11-block-in-inline-anonymous-block-split` (**pre-existing** class, opened by R8) with the Why / trigger / re-eval in §9 — CSS 2 §9.2.1.1's break of an inline around an in-flow block-level box, unimplemented on the inline path, which this program makes observable in the decorated-**outer** case (§6 cell 6i) without creating it. Registered at the approval PR on the ground the `#11-inline-root-inline-box` row states; **not** an own deferral, so it does not enter §5.3's per-PR count (the flattening is what the IFC does today with no marker involved). ⚠ Before R8, §6 cell 6e disclaimed this behaviour and handed it to "§9" with no §9 entry behind it — the same defect shape §9's `<br>`/`<wbr>` bullet records for rev 32, which is why this row exists rather than a bare disclaimer | approval PR |
 | **Close `#11-line-box-decorated-inline-content`** — §5.3 and §8 both assert it, and until now no ledger row carried it | PR-1d |
 | The plan-checker standing maintenance note is **already written** into `.claude/skills/elidex-plan-review/SKILL.md` on this branch, not booked for landing — an earlier trigger, "the next plan-review round that runs them by hand", fired every round and discharged nothing, and a landing-scoped row would have left it unowned in exactly the window it matters (its trigger is now #510's resolution or TERMINAL, §9). **Not a `#11-` slot** — skill infra, per that file's own slot-fit precedent. This row records it; the **tooling PR** ships it with the two checkers (§8, §9) — the note lives in SKILL.md, a tooling file. ⚠ Routed to the seam-3 prereq PR, then PR-1a, by earlier revisions; #508 shipped neither the note nor the tools, and PR-1a would have landed them unconnected — the shipper is the §9 task's own PR, on its §9 trigger (#510's resolution or TERMINAL) and under its own plan-review; that PR retires or rewrites this note. | tooling PR |
 | Split the joint "fold into terminal-Z C-3/C-4" parenthetical shared by `#11-inline-align-clientrects-nonpersist-path` and `#11-inline-relayout-box-staleness` — this PR closes the first, so the pairing stops holding **here**, and leaving it to a later PR would strand the SoT asserting a fold against a closed slot — ✅ **landed with #511 (2026-09-07)** | dead-arm prereq PR |
