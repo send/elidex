@@ -9,10 +9,24 @@
 # exists to prove the wire can reach every answer it claims. One green run of
 # the scanner tells you nothing this file has not earned.
 #
-# WHAT IT MAY ASSUME: `$SELF`, `$SCRATCH`, `$ROOT`, the `CONTROL_*` strings, and
-# the `_git` / `_fgit` / `_phys` helpers — all defined by the wire before it
-# sources this. It defines `$CTL`, `_control`, `_ctl_env` and `$_perm_line`, and
-# leaves `ctl_ok` for the wire to read.
+# THE INTERFACE, AND IT IS ASSERTED BELOW RATHER THAN DESCRIBED. What this file
+# consumes: `$SELF` (the wire, re-invoked per control), `$SCRATCH` (the one
+# scratch root, whose trap also cleans up `$CTL`), the five `CONTROL_*` sample
+# strings, and the `_git` helper. What it defines: `$CTL`, `_fgit`, `_control`,
+# `_ctl_env`, `$_perm_line`, `$_fifo_line`, and `ctl_ok` for the wire to read.
+# ⚠ THE LIST USED TO BE WIDER THAN THE TRUTH — it claimed `$ROOT` and `_phys`,
+# neither of which this file mentions, and attributed `_fgit` to the wire, which
+# does not define it. A stated interface nobody checks drifts the way any other
+# unexecuted claim does; the loop below is what makes this one true.
+#
+# WHY SOURCED AND NOT A SEPARATE PROGRAM. The alternative the plan-review
+# offered — a real entry point taking explicit parameters — costs a second copy
+# of `_git`, the locale pin and the `GIT_NO_*` exports, i.e. a second statement
+# of how this gate reads git. That is the decision-surface duplication this
+# instrument spent four review rounds collapsing (#501 R76, R80, R81, R89), and
+# it is what CLAUDE.md's "one issue, one way" forbids. The seam is real (answers
+# vs. proof the answers are reachable); what was missing was the interface being
+# enforced instead of narrated, and that is what this file now does.
 #
 # ⚠ ITS ABSENCE IS NOT A SKIPPED SELF-TEST. The wire refuses to run without it
 # (exit 2, "decided nothing") rather than scanning with its controls silently
@@ -30,6 +44,28 @@
 # repository needs the user's. The inventory is made machine-independent by
 # `--exclude-per-directory` instead (see `_scan`), which is why nothing has to
 # be stripped for the real read.
+# THE CONTRACT, ASSERTED AT ENTRY. Run on its own this file has none of the
+# names above, and it used to say so by failing in `mktemp` with
+# `mkdtemp failed on /ctlXXXXXX: Read-only file system` — a diagnostic about the
+# wrong subject entirely, which is how a reader concludes the controls are
+# broken rather than misinvoked.
+# ⚠ AND THIS IS THE PIN FOR "IS THIS A WIRE?". The question has ONE decider —
+# `scripts/trip-wires.sh`, which diffs its `*-trip-wire.sh` glob against
+# `REQUIRED_WIRES` in BOTH directions — so a rename that brought this file INTO
+# the convention would run it and fail twice over: here, with the message below,
+# and there, with `trip-wire(s) ran but are not registered`. Nothing rests on
+# the name being one token short of the glob.
+_ctl_missing=
+for _n in SELF SCRATCH CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN; do
+  [ -n "${!_n:-}" ] || _ctl_missing="$_ctl_missing \$$_n"
+done
+declare -f _git >/dev/null 2>&1 || _ctl_missing="$_ctl_missing _git()"
+if [ -n "$_ctl_missing" ]; then
+  echo "!! This file is the CONTROLS for \`webref-generic-core-trip-wire.sh\`. It is" >&2
+  echo "   SOURCED by that wire and has no meaning on its own; missing:$_ctl_missing" >&2
+  echo "   Run the wire instead — it sources this file and refuses to run without it." >&2
+  exit 2
+fi
 _fgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@"; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
@@ -40,6 +76,18 @@ if ! CTL="$(mktemp -d "$SCRATCH/ctlXXXXXX")" || [ -z "$CTL" ] || [ ! -d "$CTL" ]
   echo "   so this run's assertions were never proved able to fire." >&2
   exit 2
 fi
+# CAN THIS FILESYSTEM HOLD A FIFO? Two controls need one — `odd` (an entry git
+# cannot store) and `fifotracked` (a tracked path replaced by one) — and both
+# used to create theirs under `|| true`, so on a filesystem without them each
+# fell back to a state its own assertion could not distinguish: `odd` printed a
+# note claiming "every other control ran" (false in exactly the runs where
+# `fifotracked` had just failed for the same missing capability), and
+# `fifotracked` reported a WIRE failure for a MACHINE limitation. Asked once,
+# answered once, reported once — the shape `$_perm_line` already uses for the
+# other capability this harness cannot assume.
+_fifo_ok=0
+if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.fifoprobe"; fi
+
 # ⚠ NO SECOND `trap ... EXIT` HERE. `trap` REPLACES; a second one silently
 # discarded the scratch-root cleanup and left an empty directory behind on
 # every successful run (#501 R94, reproduced). `CTL` is created UNDER
@@ -64,7 +112,7 @@ ln -s "$CONTROL_K2" "$CTL/link/forbidden-target"
 # checkout. What the control still pins is that such an entry neither hangs
 # the walk nor suppresses the verdict over its siblings.
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/odd/ok.py"
-mkfifo "$CTL/odd/pipe" 2>/dev/null || true
+[ "$_fifo_ok" -eq 0 ] || mkfifo "$CTL/odd/pipe"
 # A filename holding a newline: `-print` plus `read` would split it into
 # fragments and scan those instead of the file (#501 R74).
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/nl/foo"
@@ -198,13 +246,20 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || true
 done
 # …and the cache fixture's probe is FORCE-added under an ignored path, which
 # is the case `--cached` exists to keep (#501 R77).
-( cd "$CTL/cachedir" && printf '__pycache__/\n' > .gitignore \
+# ⚠ BUILT OUTSIDE THE LOOP ABOVE, AND THE ORDER IS THE WHOLE CONTROL. Inside
+# it, `add -A` ran BEFORE `.gitignore` existed, so the probe was already tracked
+# and the force-add changed nothing: measured, deleting `add -f` outright left
+# this control GREEN and the wire exit 0. `.gitignore` first, then the ordinary
+# add — which must now SKIP the probe — then the force-add as the only thing
+# that can track it.
+( cd "$CTL/cachedir" && _fgit init -q . >/dev/null 2>&1 \
+  && printf '__pycache__/\n' > .gitignore \
   && _fgit add -A >/dev/null 2>&1 \
   && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 ) || true
 # THE THREE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
@@ -218,6 +273,7 @@ done
 # (2) A TRACKED path replaced by a FIFO. `--cached` still lists it, and
 #     opening it blocks forever with no writer — the local gate hangs instead
 #     of failing closed. Nothing here may open it.
+[ "$_fifo_ok" -eq 0 ] || \
 ( cd "$CTL/fifotracked" && printf '# %s\n' "$CONTROL_CLEAN" > sub.py \
   && _fgit add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || true
 # (2b) A STAGED SYMLINK whose target holds a SPACE inside a segment, with the
@@ -353,12 +409,35 @@ _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_
 _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
 _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
 _control "$CTL/tools" 1 "K2: a"  "K2 fires under the tools root too" || ctl_ok=1
-_control "$CTL/binary" 1 "K2: a" "K2 fires inside binary content"    || ctl_ok=1
+# ⚠ THE NEEDLE IS THE RECORD, NOT THE HEADLINE. `"K2: a"` passes with `-a`
+# removed from `_content`'s grep too: this grep answers `Binary file … matches`
+# on stdout and exits 0, so the run still reds — with a record naming a TEMP
+# BLOB PATH that no longer exists instead of the entry and line. Measured as a
+# surviving mutant. `(worktree):1:` is printed only when the content was
+# actually read.
+_control "$CTL/binary" 1 "control.dat (worktree):1:" "K2 fires inside binary content, and the content is READ" || ctl_ok=1
 _control "$CTL/link"   1 "K2: a" "K2 fires on a symlink's target"    || ctl_ok=1
 _control "$CTL/nl"     1 "K2: a" "a newline in a filename is not a split" || ctl_ok=1
 _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
 _control "$CTL/cache"  1 "K2: a" "a regular file named __pycache__ is read" || ctl_ok=1
-_control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
+# ⚠ A PRECONDITION, because this fixture's fallback state satisfies nothing.
+# The property under test is "IGNORED **and** TRACKED"; if the force-add did not
+# take, the probe is ignored and untracked, the fixture holds no violation to
+# find, and a green here would be a green over a question never posed. Asked of
+# git rather than of the filesystem — the two disagree exactly here.
+# ⚠ `check-ignore --no-index`: without it git answers about the INDEX, so a path
+# that IS ignored reads "not ignored" the moment it is tracked — the flag is off
+# exactly in the state this control requires, and the precondition would have
+# rejected its own correct fixture (measured while writing it).
+if ( cd "$CTL/cachedir" && _fgit check-ignore --no-index -q __pycache__/probe.txt \
+     && _fgit ls-files --error-unmatch __pycache__/probe.txt >/dev/null 2>&1 ); then
+  _control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
+else
+  echo "!! CONTROL NOT EXERCISED (a file UNDER a cache directory is read): the" >&2
+  echo "   fixture's probe is not both IGNORED and TRACKED, so it does not pose the" >&2
+  echo "   question this control exists to ask and would pass without testing it." >&2
+  ctl_ok=1
+fi
 _control "$CTL/name"   1 "entry NAME" "an entry's own NAME is the hierarchy"  || ctl_ok=1
 _control "$CTL/emptyname" 1 "entry NAME" "an EMPTY entry's name is the hierarchy" || ctl_ok=1
 _control "$CTL/quotename" 1 "entry NAME" "a quote inside a name segment"          || ctl_ok=1
@@ -373,7 +452,20 @@ _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TAR
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
 _control "$CTL/linkslash" 0 "PASSED" "readlink's own newline is not read as stored content" || ctl_ok=1
 _control "$CTL/staged" 1 "(staged)" "a STAGED violation reverted in the worktree still fires" || ctl_ok=1
-_control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
+# ⚠ THE TWO FIFO CONTROLS SHARE ONE PRECONDITION AND ONE REPORT LINE, built
+# HERE beside the decision that produces it (the `$_perm_line` shape, and for
+# the same reason: a summary written apart from its decision can disagree with
+# it). A machine that cannot hold a FIFO is a capability limit, not a wire
+# defect — but it is also not something this run may pass over in silence.
+_fifo_line="            an entry git cannot store neither hangs nor hides a verdict, and a
+            tracked path replaced by one is not opened"
+if [ "$_fifo_ok" -eq 1 ]; then
+  _control "$CTL/fifotracked" 1 "NOT opened" "a tracked path replaced by a FIFO is not opened" || ctl_ok=1
+else
+  _fifo_line="            ⚠ NOT EXERCISED on this machine: the two FIFO controls (this
+          filesystem holds no fifo), so this run carries no evidence that an
+          entry git cannot store neither hangs nor hides a verdict"
+fi
 if [ -s "$CTL/notcommitted/.git/info/exclude" ]; then
   _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 else
@@ -414,11 +506,9 @@ _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is no
 _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
 _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
-if [ -p "$CTL/odd/pipe" ]; then
+# …the second of the pair `$_fifo_line` above reports on.
+if [ "$_fifo_ok" -eq 1 ]; then
   _control "$CTL/odd" 0 "PASSED" "an unstorable entry neither hangs nor hides" || ctl_ok=1
-else
-  echo "  note: the odd-entry control could not be exercised here (no fifo);"
-  echo "        every other control ran"
 fi
 # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
 # read" are different answers and only one of them is green.
@@ -438,10 +528,122 @@ else
   _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
 fi
 [ "$ctl_ok" -eq 0 ] || exit 1
+
+# ---- THE MUTATION SET ------------------------------------------------------
+# WHY IT IS HERE AND NOT IN A COMMIT LOG. Every control above proves a verdict
+# is REACHABLE. What it does not prove is that the verdict is PRODUCED BY THE
+# CODE THE CONTROL IS ABOUT — a control can pass over an arm someone deleted, if
+# another arm happens to red the same fixture (measured twice: #501 R70, where
+# killing the verdict's error arm left a control green, and this slice's own
+# `cachedir`, green with its force-add removed entirely).
+#
+# The answer is a mutation set, and the only question was where it lives. The
+# population used to be PROSE — "each fix this wire's history names", scattered
+# across review commits on #501, which that PR's squash merge ERASES. A
+# criterion whose population disappears when the parent lands is not a
+# criterion. So the set lives HERE, machine-readably, in the file that ships
+# with the thing it is about:
+#
+#   one record per line, TAB-separated:  <sed expression>  <substring the run must print>
+#
+# The expression is applied to a COPY of the wire; the copy must (a) differ from
+# the original — a stale anchor that matches nothing is a FAILED entry, not a
+# passing one — (b) exit non-zero, and (c) print the named control's own
+# diagnostic, so an entry that reds for an unrelated reason is caught too.
+#
+# RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
+# minutes rather than seconds), and a required check nobody can afford to run is
+# how gates get switched off:
+#
+#     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
+#
+# ⚠ ADDING AN ARM MEANS ADDING A RECORD. Nothing here can detect an arm that
+# never had one — this set is a floor, not a census, and saying so is the point.
+# ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
+# shell this wire commits to — a quoted here-document nested inside a command
+# substitution is still parsed for expansions, and the `unset "$_v"` in one of
+# the records below aborted the WHOLE FILE with `_v: unbound variable`, on every
+# run, mutation mode or not. Measured: 3.2 red, 5.3 green.
+_mutants() { cat <<'MUTANTS'
+s/grep -aEn --/grep -En --/	K2 fires inside binary content, and the content is READ
+s/"$_mrc" -gt 1/"$_mrc" -gt 99/	a failed NAME matcher fails closed
+s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a quote inside a name segment
+s/| tr '\\n' '\\001'/| cat/	a NEWLINE inside a name segment
+s/^  _stored "${rel#"$_dir"\/}"/  : /	an entry's own NAME is the hierarchy
+s/--exclude-per-directory=.gitignore/--exclude-standard/	per-clone info/exclude cannot hide an entry
+s/if _git -C "$ROOT" rev-parse --verify/if false \&\& _git -C "$ROOT" rev-parse --verify/	a COMMITTED violation fixed only in the index still fires
+s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not a path
+s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
+s/export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1/export GIT_NO_LAZY_FETCH=1/	a replace ref cannot substitute the staged blob
+s/| tr '\\n\\t' '~~'/| cat/	a name cannot forge a verdict record
+s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/	a byte no UTF-8 locale can bracket
+s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
+s/\[ -e "$p" \] || \[ -L "$p" \]/[ -e "$p" ]/	a symlinked EXTRA entry is scanned
+s/REL_DIR="${SCOPE_DIR#"$ROOT"\/}"/REL_DIR="${SCOPE_DIR#$ROOT\/}"/	a glob character in the checkout path does not widen the scope
+s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION survives the routing purge
+s/\[ "$_ls_rc" -eq 0 \]/[ 0 -eq 0 ]/	a failed inventory fails closed
+s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
+MUTANTS
+}
+
+if [ -n "${WEBREF_WIRE_MUTANTS:-}" ]; then
+  # The copy must sit BESIDE the wire: `$ROOT` is derived from `$0`, and the
+  # scope it reads is this repository's real generic core. Its own controls file
+  # has to be beside it too, under the name the wire derives (`${SELF%.sh}`), or
+  # the copy refuses to run — which is criterion 2 working, not a harness bug.
+  _mut_wire="${SELF%.sh}.mutant.sh"
+  _mut_ctl="${SELF%.sh}.mutant.controls.sh"
+  trap 'command rm -f "$_mut_wire" "$_mut_ctl"; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+  cp "$_CONTROLS" "$_mut_ctl"
+  # Through a FILE, not a pipe: the counters below must survive the loop, and a
+  # `_mutants | while` runs the body in a subshell that discards them.
+  _mutants > "$CTL/.mutants"
+  _mut_n=0; _mut_bad=0
+  while IFS="$(printf '\t')" read -r _mx _mwant; do
+    [ -n "$_mx" ] || continue
+    _mut_n=$((_mut_n + 1))
+    if ! sed "$_mx" "$SELF" > "$_mut_wire" 2>/dev/null; then
+      echo "!! MUTANT $_mut_n: the expression is not a valid sed script: $_mx" >&2
+      _mut_bad=$((_mut_bad + 1)); continue
+    fi
+    # ⚠ AND IT MUST BE EXECUTABLE. `_control` invokes `"$SELF"` DIRECTLY, not
+    # through `bash`, so a copy written by `sed` (mode 644) exits 126
+    # "Permission denied" for EVERY control — which reds the run, prints every
+    # control's diagnostic, and therefore satisfies a "did it name the right
+    # control?" test VACUOUSLY. Measured: all 18 entries below "passed" that
+    # way, and a deliberately inert entry (a comment-only edit that cannot
+    # change any verdict) was the negative control that exposed it. The probe's
+    # subject was the permission bit, not the mutation.
+    chmod +x "$_mut_wire"
+    if cmp -s "$_mut_wire" "$SELF"; then
+      echo "!! MUTANT $_mut_n ($_mwant): the expression MATCHED NOTHING, so this entry" >&2
+      echo "   tested a copy identical to the wire: $_mx" >&2
+      _mut_bad=$((_mut_bad + 1)); continue
+    fi
+    _mrc2=0
+    _mout="$(env -u WEBREF_WIRE_MUTANTS bash "$_mut_wire" 2>&1)" || _mrc2=$?
+    if [ "$_mrc2" -eq 0 ]; then
+      echo "!! MUTANT $_mut_n ($_mwant) SURVIVED: the wire still exited 0 with this" >&2
+      echo "   applied, so nothing above is testing it: $_mx" >&2
+      _mut_bad=$((_mut_bad + 1)); continue
+    fi
+    case "$_mout" in
+      *"$_mwant"*) ;;
+      *) echo "!! MUTANT $_mut_n killed for the WRONG REASON (exit $_mrc2): the output" >&2
+         echo "   does not name \"$_mwant\", so another check masked the one under test." >&2
+         _mut_bad=$((_mut_bad + 1)) ;;
+    esac
+  done < "$CTL/.mutants"
+  command rm -f "$_mut_wire" "$_mut_ctl"
+  echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named"
+  [ "$_mut_bad" -eq 0 ] || exit 1
+  echo "  every entry above was shown to red, and to red for its own reason"
+  exit 0
+fi
 echo "  controls: green reachable; K2 fires under both roots, on the removed path,"
 echo "            inside binary content, on a symlink's stored target, on an entry's"
 echo "            own NAME, and on a symlinked entry script beside the scope; an empty"
-echo "            scope fails closed; an entry git cannot store neither hangs nor hides"
-echo "            a verdict"
+echo "            scope fails closed"
+printf '%s\n' "$_fifo_line"
 printf '%s\n' "$_perm_line"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"

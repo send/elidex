@@ -91,7 +91,7 @@ mise run fmt         # cargo fmt --all
 
 `changes` path filter (`dorny/paths-filter@v4`、`.github/workflows/**` 含む) で以下 3 job を gate: `check` (3 OS × `cargo fmt --all -- --check` + clippy + nextest + doc-tests、後 3 つは `--all-features`) / `doc` (`cargo doc --workspace --no-deps --all-features` + `RUSTDOCFLAGS=-D warnings`) / `deny` (license + supply chain)。**Push to main は path filter bypass で常時全 job 実行**。
 
-4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は toolchain も cache も network も要らないので filter は何も買わない (所要時間は書かない — 同 job のコメント参照、数字は machine 依存で再現しない)。理由の正典 = 同 job のコメント。
+4 つ目の job `trip-wires` (`bash scripts/trip-wires.sh` = `mise run trip-wires` と同一 script) は **filter で gate しない** — `main` 宛 PR / `main` への push で常時実行。gate すると `.claude/tools/**` (wire 本体 + `layout-box-reader-allowlist.tsv`) と `scripts/**` (entry point) を filter に列挙する必要があり、allowlist gate の改竄経路自体が「誰かが維持すべき allowlist 項目」になる (`layout-box-reader-allowlist.tsv` だけを触る PR が、それを読む job を skip できてしまう)。wire は bare checkout にある shell / `git` / `grep` だけで走り、install するものも cache も network も要らないので filter は何も買わない (「grep のみ」ではない — K2 wire は population も bytes も git から取る。決定が乗っているのは **setup step が無いこと**。所要時間は書かない — 同 job のコメント参照、数字は machine 依存で再現しない)。理由の正典 = 同 job のコメント。
 
 ⚠ **買えるものの範囲**: allowlist drift が **PR で赤くなる**ところまで。`main-protection` ruleset に required-status-check は無いので **merge はブロックされない** (上記「CI 全 pass を目視確認してから squash merge」の慣行が引き続き最終ゲート)。
 

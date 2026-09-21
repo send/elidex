@@ -126,8 +126,9 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none — no
-  # toolchain, no cache, no network — so a filter would buy nothing and cost the
+  # are filtered because each pays for a Rust toolchain; the wires need none —
+  # they run on the shell, `git` and `grep` a bare checkout already has: nothing
+  # to install, no cache, no network — so a filter would buy nothing and cost the
   # one property the wires exist for.
   # ⚠ DELIBERATELY NO RUNTIME FIGURE. This said "~1s for the whole set" until a wire
   # grew fixture self-tests and the number stopped being true; and the figure does not
@@ -157,6 +158,10 @@ jobs:
       - uses: actions/checkout@v6
 
       # The same script `mise run trip-wires` runs, so the local gate and CI
-      # cannot diverge. No toolchain step: the wires are grep-only.
+      # cannot diverge. No setup step: the wires need only the shell, `git` and
+      # `grep` this checkout already has. (This said "grep-only" until the K2
+      # wire took its population and its bytes from git — `git` is on the runner
+      # either way, so the decision is unchanged and only its statement was
+      # false. The property above is the one it rests on.)
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh

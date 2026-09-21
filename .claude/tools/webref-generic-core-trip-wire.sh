@@ -9,11 +9,28 @@
 # free of elidex-specific file paths AND PUT ELIDEX POLICY IN ADAPTER COMMANDS
 # OR DOCUMENTATION".
 #
-# ⚠ Those are TWO axes, and this wire reaches only the first.  Nothing
-# mechanical covers the policy half — it is a judgement about wording, and the
-# instrument for it is diff review.  #501 found the policy half violated in a
-# commit set this wire was green on, five rounds running, so do not read a
-# green here as `DESIGN.md` compliance.
+# ⚠ Those are TWO CLAUSES, and they are about different things.  The first
+# bans elidex-specific FILE PATHS; the second says where elidex POLICY — a
+# rule, a convention, prose — may live.  This wire is an instrument for the
+# first only.  Nothing mechanical covers the second: it is a judgement about
+# wording, and its instrument is diff review.  #501 found the policy half
+# violated in a commit set this wire was green on, five rounds running, so do
+# not read a green here as `DESIGN.md` compliance.
+#
+# ⚠ AND THE SECOND CLAUSE DOES NOT CARVE OUT THE FIRST, which a reader may
+# reasonably wonder, since `commands/` and `DESIGN.md` itself are both inside
+# the scanned scope and are exactly where clause two sends elidex policy.  The
+# reading that makes the rule coherent is the one its own rationale supplies:
+# the package "should stay generic enough to MOVE to a standalone repository",
+# and a `DESIGN.md` or an adapter command naming `.claude/skills/<x>/<y>` does
+# not move.  So clause one is unqualified over the package — adapter commands
+# and the package's own documentation included — and clause two permits POLICY
+# there, expressed without naming a host path.  That is what A-i did: it
+# removed `.claude/skills/elidex-review/axes.md` from `cli.py` and from the
+# `webref` entry script, both adapter surfaces, and kept the policy.
+# ⚠ If a future reader wants clause two to permit PATHS in adapter commands,
+# that is an amendment to `DESIGN.md`, owned by whichever slice owns
+# `_webref/` — not a change to this wire, whose predicate is K2's.
 #
 # ONE CHECK, ABSOLUTE.  It is closed and decidable; it is not a heuristic, and
 # this wire makes no un-asserted report.
@@ -45,28 +62,53 @@
 #     file carrying `.claude/skills/elidex-plan-review/preflight.py` passed
 #     this wire GREEN.
 #
-# WHAT THIS WIRE DELIBERATELY DOES NOT DO.  An earlier revision also ran a
-# wide `<any top-level entry>/<something>` SEED — printed, never asserted.  It
-# was widened four times, each fix opening the next hole (syntactic
-# over-reach; resolving-on-disk under-reach; a string-keyed exemption that
-# over-suppressed; a basename-keyed one that collided), and interpolation
-# `docs/${x}/y.md` was the fifth.  This repo's recorded rule is that when a
-# predicate cannot return its population it is a SEED and widening the regex
-# is the wrong repair.  A seed that reports and asserts nothing is also a
-# print with no consumer, which `CLAUDE.md` calls dead code.  So it is GONE,
-# not demoted: what covers that open class is the diff — every line entering
-# this tree passes review, and `git diff origin/main...HEAD -- .claude/` is
-# finite.  Two classes it could never see either way: bare top-level names
-# with no separator (`"docs"`, `"crates"`, `"CLAUDE.md"` — live at
-# `cli.py`'s `--paths` default and `refresh.py`'s usage string, both
-# pre-existing) and interpolation.
+# WHAT THIS WIRE DOES NOT DECIDE — THE WHOLE LIST, AND THIS IS THE ONE PLACE IT
+# IS STATED.  A-i's memo §12(3) delegates here rather than keeping a second
+# copy ("its header says so"), so anything added to this list is added HERE.
+# None of these is a deferred obligation: they are the reach of a predicate,
+# not work someone owes later.  What covers all four is the diff — every line
+# entering this tree passes review, and `git diff origin/main...HEAD --
+# .claude/` is finite.
 #
-# RUNTIME: shell + grep only, bash 3.2 compatible, no toolchain.  That is a
-# contract, not a coincidence: `.github/workflows/ci.yml` runs this driver
-# with no setup step ("the wires are grep-only") and `CLAUDE.md` rests the
-# ungated-job decision on it.  An earlier revision of this wire used `python3`
-# and broke that premise for all five wires (#501 R69).  Anything needing more
-# than grep belongs in a test, not here.
+#   1. THE POLICY CLAUSE of `DESIGN.md`'s closing rule (above).  Not a path
+#      question at all; no grep decides it.
+#   2. A SEGMENT CONTAINING WHITESPACE in running text
+#      (`.claude/skills/team name/rule.md`).  §2 admits such a path; in
+#      arbitrary text nothing says where it ends without quoting rules.  ⚠ A
+#      STORED path has no such ambiguity and IS covered — see `$K2RE_PATH`.
+#   3. A BARE TOP-LEVEL NAME with no separator (`"docs"`, `"crates"`,
+#      `"CLAUDE.md"` as standalone tokens).  Two instances pre-exist at this
+#      slice's base: `cli.py`'s `--paths` default and `refresh.py`'s usage
+#      string.
+#   4. INTERPOLATION — `docs/${x}/y.md`, where the path exists only once the
+#      program runs.
+#
+# ⚠ 3 AND 4 ARE NOT CLOSABLE BY ANY WIRE, and saying so is the point: both are
+# properties of a grep over arbitrary source text, so "later, with a better
+# predicate" is not a plan, it is the seed this wire already deleted.  An
+# earlier revision ran a wide `<any top-level entry>/<something>` SEED —
+# printed, never asserted.  It was widened four times, each fix opening the
+# next hole (syntactic over-reach; resolving-on-disk under-reach; a
+# string-keyed exemption that over-suppressed; a basename-keyed one that
+# collided), and interpolation was the fifth.  This repo's recorded rule is
+# that when a predicate cannot return its population it is a SEED and widening
+# the regex is the wrong repair.  A seed that reports and asserts nothing is
+# also a print with no consumer, which `CLAUDE.md` calls dead code.  So it is
+# GONE, not demoted.
+#
+# RUNTIME: the shell, `git` and `grep` — nothing a bare checkout lacks, and
+# bash 3.2 compatible.  That is a contract, not a coincidence: the property the
+# ungated `trip-wires` job rests on is the ABSENCE OF A SETUP STEP (no language
+# runtime to install, no cache, no network), stated canonically at that job in
+# `.github/workflows/ci.yml` and restated in `CLAUDE.md`.  An earlier revision
+# of this wire used `python3` and broke that premise for all five wires (#501
+# R69).  Anything needing more than the shell, git and grep belongs in a test,
+# not here.
+# ⚠ NOT "GREP-ONLY", which is what three of those four sites said until this
+# slice.  The population and the bytes are git's (see THE WALK IS GIT'S below),
+# so this wire makes dozens of `git` calls; `git` is on the runner either way —
+# it is how the checkout got there — so the decision is unchanged and only its
+# statement was false.
 #
 # Run from anywhere.  Exits non-zero if K2 fails or a file cannot be read.
 
@@ -79,25 +121,17 @@ set -euo pipefail
 # governs binary-file *handling*; it does not change multibyte regex semantics.
 # So the locale is pinned for the whole run rather than per call site.
 export LC_ALL=C
-# ⚠ AND NO NETWORK. In a blobless partial clone an indexed blob may be PROMISED
-# rather than local, and `git cat-file` will then fetch it on demand — measured,
-# the run spawned `git fetch origin --filter=blob:none` and `git-upload-pack`
-# (#501 R94). That contradicts this gate's own contract (`.github/workflows/
-# ci.yml`: no toolchain, no cache, no network) and would make a required local
-# gate depend on credentials, connectivity and an unbounded remote operation.
-# With lazy fetching off, an absent blob simply fails the read and becomes the
-# `err` record that already exists — unknown fails closed, as everywhere else.
-# ⚠ A git too old to know this variable ignores it, and then the fetch is back.
-# Nothing here can detect that, and saying so is the honest position.
-export GIT_NO_LAZY_FETCH=1
-# ⚠ AND NO REPLACEMENT OBJECTS. A local `replace` ref — history-repair work
-# leaves them — makes `cat-file` hand back a DIFFERENT object than the one the
-# index and the commit name. Reproduced: a staged blob holding
-# `.claude/skills/team/rule.md` replaced by a clean blob read K2 zero and
-# exited 0, while the same read with this variable set showed the violation
-# (#501 R95). What is committed is the object the index names, so that is the
-# object this wire reads.
-export GIT_NO_REPLACE_OBJECTS=1
+# ⚠ THE TWO GIT READING SWITCHES LIVE IN `_git`, NOT HERE, and that is the
+# whole of it — see the `export` inside it. They were stated at BOTH levels
+# until the mutation set (below) measured what each level is worth, and the
+# answer was asymmetric in a way nobody would guess: `GIT_NO_REPLACE_OBJECTS`
+# IS in `git rev-parse --local-env-vars`, so the routing purge in `_git` clears
+# it and only the re-export inside survives; `GIT_NO_LAZY_FETCH` is NOT, so
+# there the outer one was the live copy and the inner was redundant. One value,
+# stated twice, load-bearing at a different level each time — which is why the
+# mutation aimed at the outer `GIT_NO_REPLACE_OBJECTS=1` SURVIVED: the line it
+# changed decided nothing. Every git call in this file goes through `_git`, so
+# after the purge is the one place that holds for all of them.
 
 # `$0` as given may have no slash (`bash webref-generic-core-trip-wire.sh` from
 # this directory), and the controls re-invoke it — through PATH, where it is not.
@@ -176,11 +210,8 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 # and the characters that end a path in running text: whitespace, quotes and a
 # backtick.  It was `[A-Za-z0-9_.-]` until #501 R74, which excluded segments §2
 # admits — `.claude/tools/@scope/policy.md` and `.claude/skills/日本語/rule.md`
-# both read GREEN.  ⚠ What stays outside is a segment containing WHITESPACE
-# (`.claude/skills/team name/rule.md`): in arbitrary text that is not decidable
-# without quoting rules, and this repo's recorded rule is that a predicate which
-# cannot return its population is a seed, so it is named in §12(3)'s open half
-# rather than guessed at here.
+# both read GREEN.  ⚠ A segment containing WHITESPACE stays outside it — item 2 of
+# WHAT THIS WIRE DOES NOT DECIDE above, stated there and not restated here.
 K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
@@ -247,16 +278,22 @@ K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
 # down.  What lives here is the property; how it is obtained lives next to the
 # code that obtains it.
 #
-# ⚠ THE THREAT MODEL IS ACCIDENT, NOT ADVERSARY — and saying so bounds this
-# file (#501 R94). A contributor who wants past this gate edits `REQUIRED_WIRES`
-# in `scripts/trip-wires.sh`, which that file's own comment names as the one
-# edit that genuinely disables it. Hardening against a crafted index while
-# conceding a one-line edit to the registration would be incoherent. So a
-# construction git can store but no filesystem can realise — a symlink blob
-# holding a NUL — is not met with a NUL-safe reader: it is an ERROR, and the
-# gate goes red. Every "unknown fails closed" decision in this file is the same
-# decision, and anything outside the model gets that answer rather than a new
-# mechanism.
+# ⚠ THE ONE RULE FOR EVERYTHING GIT CAN HOLD AND THIS READER CANNOT REPRESENT:
+# it is an ERROR and the gate goes red. Not a special reader, not a silently
+# narrowed value. A mode-120000 blob holding a NUL is the case that made the
+# rule explicit (#501 R94): `$( )` DROPS NULs, so it arrived as a clean path and
+# read GREEN — the danger being a silent misread, which is why detecting it and
+# erroring is fail-closed rather than hardening.
+# ⚠ THIS IS NOT A BOUND ON THE FILE, and an earlier revision claimed it was
+# ("the threat model is accident, not adversary — and saying so bounds this
+# file"). The file grew afterwards, and the NUL arm that sentence was written to
+# justify IS a mechanism, so the claim was falsified by its own neighbourhood.
+# What is true, and all that was ever needed: a contributor who wants past this
+# gate edits `REQUIRED_WIRES` in `scripts/trip-wires.sh`, which that file's own
+# comment names as the one edit that genuinely disables it — so this wire does
+# not trade reading correctness for adversary-resistance it could not have
+# anyway. Every "unknown fails closed" decision in this file is that same
+# decision.
 #
 # A permission failure is an ERROR, not an absence: `git ls-files` and `grep`
 # both report it on stderr while exiting 0, so a non-empty stderr and a `grep`
@@ -297,6 +334,34 @@ fi
 _git() { ( for _v in $_GIT_LOCAL_VARS; do
              case "$_v" in GIT_CONFIG*) : ;; *) unset "$_v" ;; esac
            done
+           # ⚠ NO NETWORK. In a blobless partial clone an indexed blob may be
+           # PROMISED rather than local, and `git cat-file` will then fetch it
+           # on demand — measured, the run spawned
+           # `git fetch origin --filter=blob:none` and `git-upload-pack` (#501
+           # R94). That contradicts this gate's own contract (`.github/
+           # workflows/ci.yml`: nothing to install, no cache, no network) and
+           # would make a required local gate depend on credentials,
+           # connectivity and an unbounded remote operation. With lazy fetching
+           # off an absent blob simply fails the read and becomes the `err`
+           # record that already exists — unknown fails closed, as everywhere.
+           # ⚠ A git too old to know the variable ignores it, and then the
+           # fetch is back. Nothing here can detect that, and saying so is the
+           # honest position.
+           # ⚠ AND NO REPLACEMENT OBJECTS. A local `replace` ref — history
+           # repair leaves them — makes `cat-file` hand back a DIFFERENT object
+           # than the one the index and the commit name. Reproduced: a staged
+           # blob holding `.claude/skills/team/rule.md` replaced by a clean blob
+           # read K2 zero and exited 0, while the same read with this variable
+           # set showed the violation (#501 R95). What is committed is the
+           # object the index names, so that is the object this wire reads.
+           # ⚠ AFTER THE PURGE ABOVE, WHICH IS WHY IT IS HERE: git's own list
+           # names `GIT_NO_REPLACE_OBJECTS`, so the loop clears it.
+           # ⚠ AND IT IS PRESENCE-CHECKED, NOT PARSED: git disables replacement
+           # if the variable is SET AT ALL, so `GIT_NO_REPLACE_OBJECTS=0` does
+           # NOT turn it back on. Measured while building the mutation set —
+           # the entry that sets it to 0 survives, and the one that REMOVES the
+           # assignment kills. Anyone "switching this off" to debug has to
+           # unset it.
            export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
            exec git "$@" ); }
 
