@@ -94,6 +94,9 @@ MODULES
                           _selftest_cases_inline.py /
                           _selftest_cases_r26.py /
                           _selftest_cases_r42.py /
+                          _selftest_ratchets.py (the controls that assert a
+                          MECHANISM covers a derived class, not a property of
+                          the source) /
                           _selftest_cases_sibling.py (the resolver's controls,
                           the one Case module carved on a SUBJECT rather than a
                           review round) /

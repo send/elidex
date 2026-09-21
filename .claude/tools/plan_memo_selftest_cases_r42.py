@@ -633,3 +633,37 @@ case("POSITIVE", "(R48-2) the discriminating twin -- the SAME two spellings spli
      build(s9z="KIND UNDETERMINED", s7z="KIND \u2013 UNDETERMINED"), "", 1,
      measure=("finding", "KIND-SPELLING"))
 R48_2_TWO_ROWS = CASES[-1].name
+
+
+# -- R49-1 / R49-2.
+case("POSITIVE", "(R49-1) a BLANK-id row whose declaring field spells a kind ACROSS a masked span is "
+                 "the same contradiction as the clean spelling: the blank-id check asked the "
+                 "disposed stream alone, so `` **UMBRELLA, not a `terminal` unit.** `` on a blank-id "
+                 "row exited 0 while the clean form exited 2.  Asked through the ONE contradiction "
+                 "site now, so a caller cannot forget the arm",
+     build(i7z="**—**", s7z="**UMBRELLA, not a `terminal` unit.**", d7z="**9z**"), "", 1,
+     measure=("schema", "id cell is blank -- a DELIBERATE non-row"))
+R49_1_BLANK_STRADDLE = CASES[-1].name
+
+case("POSITIVE", "(R49-1) the clean twin, which was ALWAYS reported -- so the case above is a claim "
+                 "about the READING and not about the fixture",
+     build(i7z="**—**", s7z="**UMBRELLA, not a terminal unit.**", d7z="**9z**"), "", 1,
+     measure=("schema", "id cell is blank -- a DELIBERATE non-row"))
+
+for _label, _deps in (("an EMPTY label", "[](slice-9z-sib.md)"),
+                      ("a punctuation-only label", "[\u2192](slice-9z-sib.md)")):
+    acase("POSITIVE", "(R49-2) an umbrella's `Deps` cell whose whole content is a resolved link with "
+                      "%s carries an edge: the reader rendering drops a link's TAIL, so the cell had "
+                      "no alphanumeric character and read as EMPTY -- while the population walker "
+                      "was following that very sibling.  A resolved link is an edge whatever its "
+                      "label renders as" % _label,
+          build(d9z=_deps), "UMBRELLA-CELL", 1, sibling="# sibling\n")
+    if _deps.startswith("[]"):
+        R49_2_EMPTY_LABEL = CASES[-1].name
+    else:
+        R49_2_ARROW_LABEL = CASES[-1].name
+
+acase("NEGATIVE", "(R49-2) and a genuinely blank `Deps` cell is still empty: the links arm is an "
+                  "ADDITION to the shape rule, not a replacement -- `—` carries no edge and no link",
+      build(d9z="**—**"), "UMBRELLA-CELL", 0)
+R49_2_REAL_BLANK = CASES[-1].name

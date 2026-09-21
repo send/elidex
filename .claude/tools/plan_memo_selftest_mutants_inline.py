@@ -568,8 +568,8 @@ MUTANTS += [
      # ⚠ THE READING MOVED AT R34-2 (prose stream -> reader rendering); the raw
      # text is still the thing this row re-injects, and an HTML comment still
      # fills the cell under it.
-     '        if not is_empty(stream(row.col("Deps").lexed, reader=True)):',
-     '        if not is_empty(row.col("Deps").text):',
+     '    return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links',
+     '    return is_empty(cell.text) and not cell.lexed.links',
      [RG4_DEPS]),
     ("RG4 report: a reporting coordinate goes through the stream map (drop it: the column is off by the "
      "characters the stream dropped)", CHECK,

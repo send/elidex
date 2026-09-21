@@ -328,13 +328,20 @@ def _attribution_corpus():
 # over the WORK modules and says which of those two writes a file.  A seam
 # whose allow-list is "everyone who does it" asserts nothing.
 _WORK = {"plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py"}
+# ⚠ `plan_memo_selftest_ratchets.py` joined both source-reading seams at PR
+# #510 R49, when it was carved out of the properties module -- and this control
+# is what reported it, in the same run as the split.  That is the THIRD time a
+# touch-time split has had to widen this table, which is the stated trigger of
+# §8's "the HAND-WRITTEN TABLE has no detector" entry: the table's own reach is
+# asserted rather than derived, so it is correct only as long as someone
+# re-reads it.
 _IMPORT_SEAMS = {
     "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
-                    "plan_memo_selftest_records.py"}, None),
+                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py"}, None),
     "the harness's module-set handles": (
         ("MODULES", "SOURCES", "GRAMMAR", "HERE"),
         {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
-         "plan_memo_selftest_records.py"}, None),
+         "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py"}, None),
     "the fixture runner": (("run_on",),
                            {"plan_memo_selftest_invariants.py", "plan_memo_selftest_controls.py"}, None),
     "the work witnesses": (

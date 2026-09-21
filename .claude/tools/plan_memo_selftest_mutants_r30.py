@@ -48,7 +48,7 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
     R47_1_DASH_SET, R47_1_EN_DASH, R47_2_UNBOUND_QUOTED, R47_2_UNBOUND_STRADDLE,
     R47_4_BASELINE, R47_4_BOUNDARY, R47_4_NBSP, R47_4_NON_WHITESPACE, R47_4_TAB,
     R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
-    R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS,
+    R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS, R49_2_ARROW_LABEL, R49_2_EMPTY_LABEL,
     R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
 )
 from plan_memo_selftest_mutants import (
@@ -293,7 +293,7 @@ MUTANTS += [
     ("R32 seams: a seam's allow-list is the set that may import it (widen one to every module: an "
      "\"only importer\" nobody can violate is a sentence about nothing)", RECORDS,
      '    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",\n'
-     '                    "plan_memo_selftest_records.py"}, None),',
+     '                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py"}, None),',
      '    "ast": ("ast", set(), None),',
      [R32_SEAMS]),
     # The OTHER direction, and the one the first row cannot report: a seam whose
@@ -373,23 +373,38 @@ MUTANTS += [
 
 
 # -- PR #510 Codex R34-2: which reading assertion (b) asks the `Deps` cell.
+# ⚠ MERGED AT R49-2, when the emptiness question became ONE function
+# (`deps_is_empty`).  There were FOUR rows here -- two questions (the reader
+# rendering, the shape rule) times two call sites (assertion (b), the cd-seed)
+# -- and with one site the per-site pairs became the same mutant.  Each row
+# below therefore names BOTH sites' controls: one edit now moves both, which is
+# the unification's whole point and not a loss of coverage.  Retiring the
+# duplicates is honest only because the controls they named are all still
+# named; dropping a control here would be number-shrinking.
 MUTANTS += [
-    ("R34-2 Deps: emptiness is asked of the READER's rendering (re-inject the prose-scanning stream: "
-     "a cell of only masked syntax reads empty and the row's edge is never reported)", ROLES,
-     '        if not is_empty(stream(row.col("Deps").lexed, reader=True)):',
-     '        if not is_empty(_stream(row, "Deps")):',
-     R34_2_MASKED),
+    ("R34-2/R38 Deps: emptiness is asked of the READER's rendering (re-inject the prose-scanning "
+     "stream: a cell of only masked syntax reads empty and the row's edge is never reported -- at "
+     "BOTH sites at once, since R49-2 gave the question one home)", ROLES,
+     '    return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links',
+     '    return is_empty(stream(cell.lexed)) and not cell.lexed.links',
+     list(R34_2_MASKED) + list(R38_CD_MASKED)),
     # The OTHER direction.  ⚠ Written first as "read the RAW cell", this
     # SURVIVED -- correctly: `is_empty` decides by SHAPE, so a raw `\u2014` is as
     # empty as a rendered one and the blanks never move.  The clause these three
     # controls actually guard is the SHAPE rule, so that is what the mutant
     # removes: anything the reading leaves standing then counts as an edge, and
     # every deliberate blank is reported as carrying one.
-    ("R34-2 Deps: emptiness is judged by SHAPE, not by 'the reading left something' (drop the shape "
-     "rule: a cell a reader sees a dash in is reported as carrying an edge)", ROLES,
-     '        if not is_empty(stream(row.col("Deps").lexed, reader=True)):',
-     '        if stream(row.col("Deps").lexed, reader=True).strip():',
-     R34_2_BLANKS),
+    ("R34-2/R38 Deps: emptiness is judged by SHAPE, not by 'the reading left something' (drop the "
+     "shape rule: a cell a reader sees a dash in is reported as carrying an edge)", ROLES,
+     '    return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links',
+     '    return (not stream(cell.lexed, reader=True).strip()) and not cell.lexed.links',
+     list(R34_2_BLANKS) + [R38_CD_BLANK]),
+    ("R49-2 Deps: a resolved LINK is an edge whatever its label renders as (drop the links arm -- "
+     "`[](slice-9z-sib.md)` reads as an empty cell while the walker follows that very sibling)",
+     ROLES,
+     '    return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links',
+     '    return is_empty(stream(cell.lexed, reader=True))',
+     [R49_2_EMPTY_LABEL, R49_2_ARROW_LABEL]),
 ]
 
 
@@ -461,18 +476,9 @@ MUTANTS += [
 
 
 # -- R38 design re-gate: the obligation's SECOND site.
-MUTANTS += [
-    ("R38 seed: the cd-seed asks Deps emptiness of the READER's rendering, like assertion (b) "
-     "(re-inject the prose stream at the site R34-2 left behind)", ROLES,
-     '        empty = is_empty(stream(row.col("Deps").lexed, reader=True))',
-     '        empty = is_empty(_stream(row, "Deps"))',
-     R38_CD_MASKED),
-    ("R38 seed: emptiness is still SHAPE (drop the shape rule here too: a deliberate blank stops "
-     "being one)", ROLES,
-     '        empty = is_empty(stream(row.col("Deps").lexed, reader=True))',
-     '        empty = not stream(row.col("Deps").lexed, reader=True).strip()',
-     [R38_CD_BLANK]),
-]
+# ⚠ The two rows that stood here are MERGED into the R34-2 pair above: R49-2
+# gave the emptiness question one home, so "the cd-seed's copy of it" is no
+# longer a separate edit.  Their controls are named there.
 
 
 # PR #510 Axis 5: the report channel.  TWO rows, one per HALF of the escape --
@@ -554,8 +560,8 @@ MUTANTS += [
      [R42_BLANK_MARKER]),
     ("R42: read the declaring field from the wrong moment (`row.field`, which this pass runs BEFORE "
      "-- it is None here, so every blank row reads as terminal and the clause is vacuous)", POPULATION,
-     '                field = stream(row.cells[s.decl].lexed) if s.decl is not None else ""',
-     '                field = row.field',
+     '                hit = (self._claims(row.cells[s.decl]) if s.decl is not None\n                       else {n: False for n, _rx in KIND_PHRASES})',
+     '                hit = {n: bool(m) for n, m in self._phrases(row.field or "").items()}',
      [R42_BLANK_MARKER]),
 ]
 
@@ -732,8 +738,8 @@ MUTANTS += [
      [R42_10_UNBOUND_CLAIM, R31_1_DOLLAR_UNBOUND]),
     ("R42-10: the phrase is read off the RENDERED cell (read the raw text -- a marker inside a code "
      "span becomes a claim)", POPULATION,
-     'for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)',
-     'for n, rx in KIND_PHRASES if rx.search(c.text)), None)',
+     '        field = stream(cell.lexed)',
+     '        field = cell.text',
      [R42_10_UNBOUND_RENDERED]),
     # ⚠ THESE TWO ROWS BROKE TWICE IN ONE SESSION, and the second break is the
     # instructive one: re-pointed at the loop HEADER, the injected predicate was
@@ -743,33 +749,13 @@ MUTANTS += [
     # runs.  Both rows target the same substring; each is applied to a fresh copy.
     ("R42-10: the REJECTED id-shape predicate (re-inject it: every unbound table whose EVERY BODY "
      "ROW starts with a row id -- 151 of them over the corpus §8 names)", POPULATION,
-     '                    hit = next((n for c in row.cells\n'
-     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)\n'
-     '                    if hit is None:\n'
-     '                        hit = next((n for c in row.cells\n'
-     '                                    for n in kind_disagreements(c.lexed)), None)',
-     # ⚠ ANCHORED. `tokens()` is a SCANNER: `next(tokens("prose with 9z inside"))`
-     # is not None, so the unanchored form re-injects "CONTAINS an id" (318
-     # tables) while the figure beside it is "STARTS with an id" (151). The
-     # number and the thing it justifies were different predicates one level
-     # down from where that was last corrected.
-     '                    _t = __import__("plan_memo_ids").tokens\n'
-     '                    _st = lambda c: (lambda k: k is not None and k.start == 0)(\n'
-     '                        next(_t((c or "").strip(" \\t")), None))\n'
-     '                    hit = ("marker" if t.rows and all(\n'
-     '                        r.cells and _st(r.cells[0].text) for r in t.rows) else None)',
+     '                    hit = next((n for c in row.cells\n                                for n, claimed in self._claims(c).items() if claimed), None)',
+     '                    _t = __import__("plan_memo_ids").tokens\n                    _st = lambda c: (lambda k: k is not None and k.start == 0)(\n                        next(_t((c or "").strip(" \\t")), None))\n                    hit = ("marker" if t.rows and all(\n                        r.cells and _st(r.cells[0].text) for r in t.rows) else None)',
      [R42_10_UNBOUND_ID_SHAPED]),
     ("R42-10: the REJECTED header-near-miss predicate (re-inject it: a renamed header is reported "
      "whether or not the table declares anything)", POPULATION,
-     '                    hit = next((n for c in row.cells\n'
-     '                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)\n'
-     '                    if hit is None:\n'
-     '                        hit = next((n for c in row.cells\n'
-     '                                    for n in kind_disagreements(c.lexed)), None)',
-     '                    hit = next((sc.name for sc in __import__("plan_memo_tables").SCHEMAS\n'
-     '                                if len(sc.header) == len(t.header.cells)\n'
-     '                                and sum(1 for a, b in zip([c.text for c in t.header.cells],\n'
-     '                                                          sc.header) if a != b) <= 1), None)',
+     '                    hit = next((n for c in row.cells\n                                for n, claimed in self._claims(c).items() if claimed), None)',
+     '                    hit = next((sc.name for sc in __import__("plan_memo_tables").SCHEMAS\n                                if len(sc.header) == len(t.header.cells)\n                                and sum(1 for a, b in zip([c.text for c in t.header.cells],\n                                                          sc.header) if a != b) <= 1), None)',
      [R42_10_UNBOUND_NO_CLAIM]),
 ]
 
@@ -855,10 +841,8 @@ MUTANTS += [
     ("R47-2 gate: the unbound-claim gate asks BOTH readings (drop the disagreement arm -- a claim "
      "straddling a masked span is invisible to the stream and the table leaves the census at rc 0)",
      POPULATION,
-     '                    if hit is None:\n'
-     '                        hit = next((n for c in row.cells\n'
-     '                                    for n in kind_disagreements(c.lexed)), None)\n',
-     '',
+     '        for name in kind_disagreements(cell.lexed):\n            hit[name] = True',
+     '        pass',
      [R47_2_UNBOUND_STRADDLE]),
     ("R47-2 gate: the disagreement arm requires a STRADDLE (widen it to every disagreement -- a "
      "phrase quoted WHOLE becomes a claim, against I-A)", STREAM,

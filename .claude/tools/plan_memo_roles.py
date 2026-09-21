@@ -479,7 +479,7 @@ def assertion_b(pop, findings, notes):
         # cells assertion (b) reads.  `is_empty` still decides by SHAPE, so a
         # real blank (`—`, `-`, `–`) is still empty: what changes is that a
         # construct which RENDERS something is no longer invisible here.
-        if not is_empty(stream(row.col("Deps").lexed, reader=True)):
+        if not deps_is_empty(row.col("Deps")):
             findings.append(("UMBRELLA-CELL", pop.display(row.memo.path), row.lineno,
                              "%s row %s carries a Deps edge: %s" % (kind, row.name(), deps[:120])))
     notes.append(
@@ -487,6 +487,28 @@ def assertion_b(pop, findings, notes):
         "⚠ HALF of assertion (b): the acceptance half is NOT checked and is not "
         "mechanisable -- §5 gives acceptance no cell, only prose in the Slice cell. "
         "A `0` here says nothing about it." % checked)
+
+
+def deps_is_empty(cell):
+    """Whether a `Deps` cell carries NO edge -- the ONE site of that question.
+
+    ⚠ It is one function because the file had asked it TWICE, in two places,
+    and each sweep of it has had to visit both (the R34-2 `reader=True` sweep
+    left a comment saying so).  A third caller asking it a third way is what
+    this removes.
+
+    Two arms, and the second is PR #510 R49-2.  The reader rendering restores
+    what a code span, a file name, a citation and an autolink contribute -- but
+    a LINK renders only its label, and its tail is dropped.  So a cell whose
+    whole content is `[](slice-9z-sib.md)` or `[\u2192](slice-9z-sib.md)` has no
+    alphanumeric character and read as EMPTY, while the population walker was
+    following that very sibling: an umbrella carrying an explicit dependency
+    emitted no `UMBRELLA-CELL` and the run exited 0.  Measured, both forms.
+
+    A resolved link is an edge whatever its LABEL renders as, so the question
+    is asked of the cell rather than of a string: "does the document put an
+    edge here", which is what R34-2 already decided this question means."""
+    return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links
 
 
 def assertion_cd_seed(pop, mentions, findings, notes):
@@ -540,7 +562,7 @@ def assertion_cd_seed(pop, mentions, findings, notes):
         # (`memory/feedback_sweep-obligations-not-only-statements.md`): the
         # cell-emptiness question is asked TWICE in this file and both readings
         # must be the reader's.
-        empty = is_empty(stream(row.col("Deps").lexed, reader=True))
+        empty = deps_is_empty(row.col("Deps"))
         if not ORDER_WORDS.search(body):
             continue
         # ⚠ A NON-EMPTY `Deps` cell does not discharge this.  The seed used to

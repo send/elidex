@@ -239,10 +239,7 @@ class Population:
                     # the negative control over that case needs no exemption
                     # here to stay green.
                     hit = next((n for c in row.cells
-                                for n, rx in KIND_PHRASES if rx.search(stream(c.lexed))), None)
-                    if hit is None:
-                        hit = next((n for c in row.cells
-                                    for n in kind_disagreements(c.lexed)), None)
+                                for n, claimed in self._claims(c).items() if claimed), None)
                     if hit is None:
                         continue
                     self.misses.append((
@@ -297,8 +294,12 @@ class Population:
                 # field is read here from the same disposed cell the later loop
                 # reads (the disposition has already run -- see this method's
                 # docstring), through the ONE `KIND_PHRASES` site.
-                field = stream(row.cells[s.decl].lexed) if s.decl is not None else ""
-                hit = self._phrases(field)
+                # ⚠ BOTH READINGS, through the ONE contradiction site (PR
+                # #510 R49-1): this asked the disposed stream alone, so a
+                # blank-id row whose field spells the marker ACROSS a masked
+                # span exited 0 while the clean spelling exited 2.
+                hit = (self._claims(row.cells[s.decl]) if s.decl is not None
+                       else {n: False for n, _rx in KIND_PHRASES})
                 # ⚠ NOT EVERY KIND PHRASE -- AND NOT THE MARKER ALONE EITHER
                 # (PR #510 R42, narrowed; R42-9, widened back by one).  Written
                 # first over all three, this flagged the #506 memo's
@@ -325,6 +326,31 @@ class Population:
                                         "skips a row whose id is None). Delete the marker or give the row "
                                         "an id: %r"
                                         % (s.name, "/".join(spelled), row.id_cell()[:60])))
+
+    @staticmethod
+    def _claims(cell):
+        """The kind phrases a CELL claims under EITHER reading -- the stream's
+        matches plus the ones the two readings disagree about across a blank.
+        The ONE site of the contradiction question.
+
+        ⚠ IT IS ONE SITE BECAUSE THE QUESTION WAS ASKED IN THREE PLACES AND
+        FIXED IN ONE AT A TIME (PR #510 R47-2, then R49-1).  `_kind_residue`
+        gates a BOUND row this way; `_unbound_claims` was taught to at R47-2
+        after a round reported it; and the blank-id contradiction was still
+        asking the disposed stream alone, so a blank-id row whose field spells
+        ``**UMBRELLA, not a `terminal` unit.**`` exited **0** with a
+        non-gating seed while the clean spelling exited 2 -- the same silent
+        skip, at the third site, one round later.
+        ⚠ So the fix is not a third patch: a caller that asks "does this cell
+        claim a kind" gets both readings BY CONSTRUCTION, and cannot forget the
+        arm. `_kind` deliberately does NOT use this -- it decides which kind a
+        field DECLARES, which is a question about the rendering, and the doubt
+        is `_kind_residue`'s to report."""
+        field = stream(cell.lexed)
+        hit = {name: bool(ms) for name, ms in Population._phrases(field).items()}
+        for name in kind_disagreements(cell.lexed):
+            hit[name] = True
+        return hit
 
     @staticmethod
     def _phrases(field):
