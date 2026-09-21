@@ -14,8 +14,8 @@ seam-3 split relocates a
 block of
 `inline/mod.rs`, and the dead-arm deletion removes a surface spanning **both** `pack/mod.rs` and
 `inline/mod.rs` (§8 names it; it is not one contiguous range). Both were required before PR-1a,
-and both have landed. **The other three state an obligation rather than relocating code**, and
-each touch set is its own plan-review's to determine, so this note makes no claim about them:
+and both have landed. **The other three relocate no code**, and each touch set is its own
+plan-review's to determine, so this note makes no claim about them:
 the **predicate** PR (§9) is the third required before PR-1a, the **min-content** PR is required
 before PR-1b, and the **reconciler** PR before PR-1c. The memo does **not** re-anchor
 after each: its coordinates exist to prove claims about the code as it stands today. **Each PR's
@@ -622,8 +622,9 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A43 | R15 | R15's own first disposition of the reviewer's §7.3 finding — that triggers 2 and 3 are **not** live divergences, because an entity change already breaks shaping at their boundaries | true only where the box **places content**. The member-less corner is the same corner for all three triggers and only trigger 1 closes in it: M1 emits a marker for a non-zero edge, so `<p>a<span style="padding:1px"></span>b</p>` breaks at PR-1b, while `<p>a<span style="vertical-align:super"></span>b</p>` gets no marker and keeps its two `<p>`-entity runs coalesced, after PR-1d as much as today. Measured: `git grep -nE 'vertical_align'` over `crates/layout/elidex-layout-block/src/inline/` at `154bac3f` (with `unicode_bidi` and `Isolate` in the same alternation) is empty, and `last_placed_entity` has exactly two write sites, `pack/mod.rs:439` and `:772`, so identity is the sole discriminator. ⚠ The reviewer's finding was **right as stated**, and this side's first two readings of it were wrong in opposite directions — first that the triggers were unowned with no measurement behind the claim, then that they were not live at all. New slot `#11-shaping-break-vertical-align-and-isolation` |
 | A44 | R16 | this umbrella prescribing the prerequisite PR's **mechanism** — revs 50–51's candidate-set derivation off the collect walk, the ownership flag "riding the producer's push", and the `clear_inline_flows`-extension sketch | **under-specified as a PR and over-specified as a design, in one move.** R15 carved the repair into a prerequisite and the bookkeeping never followed: it was absent from §5.3's roll-call, from §8's sequence and topology, and from the §5.3 pre-existing-class list, while §8 and §9 each carried two paragraphs designing how it would work. R16 returned five findings and **four are defects in that prescribed mechanism** — a candidate set that is not a superset of previously owned boxes (risk 1, §8), a reconciler that covers `LayoutBox` and not `InlineClientRects` (the obligation, §8), and a removal that wire #5 bans with no `EcsDom` API to route it through (risk 2, §8) — because the memo presented the mechanism as settled and the reviewer read it at umbrella depth, correctly. The measurement that makes this a change of **altitude** and not a scope cut: the memo grew from **507,706** to **607,814** characters across revs 44–51 (`git show b14fcecd:docs/plans/2026-08-line-box-decorated-inline-content.md` against `2815674a`'s copy, both `LC_ALL=en_US.UTF-8 wc -m`) while the per-round new-real count went **3, 2, 1, 3, 5** over R12–R16 — a rising finding rate against a rising input, which is a loop that does not converge. CLAUDE.md's *Edge-dense work* rule already answers it: the prerequisite is a terminal per-PR slice and gets its own memo and its own `/elidex-plan-review`. So the umbrella states the obligation, names the three risks that review must answer, and stops. **Nothing is dropped** — every R16 finding is recorded, three of them as that PR's required plan-review inputs. Found by Codex on #515 |
 | A45 | R16 | §3's css-inline-3 §5.3 row reading "two conditions, one delivered", with the *glyphless* condition delivered by M7's tentative baseline at PR-1d | delivered **only where a font resolves**, and elidex does not guarantee one. `FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60-84` at `154bac3f`) ends `self.db.query(&query)` and answers `None` when the family list matches nothing, with no last-resort family appended anywhere in the call. The case this program reaches it through is the one line it creates that has nothing else to take a baseline from: `<p><span style="font-family:no-such-family;padding:1px"></span></p>` carries no text, so `inline/mod.rs:200`'s measurability gate — inside `if has_text` at `:191` — never runs, M5 commits the line on the inline-axis edge, M7's tentative gets `None`, and the IFC returns `first_baseline == None` where §5.3 asks for the strut's. ⚠ **The gap is not created here**: the same `None` reaches `measure_text` (`elidex-shaping/src/measurement.rs:54`), so `origin/main` already renders ordinary text in an unavailable family as nothing, with no marker involved — which is why the class is **pre-existing** and the disclosure, not the fix, is owed. New slot `#11-shaping-no-last-resort-font` (§3, §5.3, §8, §10), reachable far past this program. Found by Codex on #515 |
-| A46 | R17 | rev 52's own obligation for the reconciler prereq — that the reconciler covers `LayoutBox` **and** `InlineClientRects` "in **both** directions", written as an unconditional pair of components | measured, the pair is not unconditional, and a reconciler built to it would be wrong in both halves on one entity. `atomic::layout_atomic_items` runs at `inline/mod.rs:179` and `pack::assign_inline_layout_boxes` at `:380` (both `22de3078`); the atomic path takes its box from `layout_child` (`inline/atomic.rs:60`), the child's own formatting context, and the tail skips every entity that already carries a `LayoutBox` (`pack/boxes.rs:62-64`). So a decorated inline restyled to `inline-block` holds a **fresh** box written before the tail and a **stale** `InlineClientRects` — whose only producer in the workspace is that tail and which nothing ever removes (`git grep -nF 'InlineClientRects' -- crates` → one `insert_one`, no `remove_one`, 2026-09-21). The obligation is restated over **outcomes** — no earlier pass's IFC geometry survives for an entity the IFC no longer lays out, and no geometry this pass's producer wrote is removed — and the transfer case becomes risk 4, which names distinguishing the current producer **at removal time** as a requirement and leaves *how* to that PR's plan-review. Found by Codex on #515 |
-| A47 | R17 | the deferral of `#11-inline-min-content-box-edges` past PR-1b, on M8's ground that `min_content_inline_size` has no accumulator for an edge to join | that ground measures what the fix **costs**, not whether PR-1b is correct without it. That is **A38's** shape and not A39's — A38 withdrew a deferral whose ground was true of a wrong *number* and false of the wrong *picture*, which is exactly what happens when the ground is read off the pass in isolation instead of off the pass and the layout together; A39's is the narrower case of a slot's *prescribed remedy* going unexamined. PR-1b is **not** correct without it. The inconsistency is not between the two intrinsic sizes, where css-sizing-3 §5.2's "does not define precisely how to determine these sizes" would leave the engine a choice; it is between intrinsic sizing and the layout PR-1b ships. `shrink_to_fit_width` is `min(max_content, max(min_content, available))` (`crates/layout/elidex-layout/src/intrinsic/mod.rs:134`), fed by `intrinsic/block.rs:39`/`:49` and consumed at `elidex-layout/src/layout/mod.rs:57` for an `auto`-width inline-block, so at a small available width the box settles on the **word** width while PR-1b's line needs word + edges and overflows — and deferring the *max*-content half instead only relocates that. The work therefore lands as a **prerequisite PR ahead of PR-1b** (§8), stated as an obligation with named risks, and the slot is **withdrawn rather than re-tagged**: a gap that never opens is not a deferral, so §10's `(own)` row is deleted, §5.3's PR-1b count goes to none, and §3's min-content row is answered by the prerequisite. Found by Codex on #515 |
+| A46 | R17 | rev 52's own obligation for the reconciler prereq — that the reconciler covers `LayoutBox` **and** `InlineClientRects` "in **both** directions", written as an unconditional pair of components | measured, the pair is not unconditional, and a reconciler built to it would be wrong in both halves on one entity. `atomic::layout_atomic_items` runs at `inline/mod.rs:179` and `pack::assign_inline_layout_boxes` at `:380` (both `22de3078`); the atomic path takes its box from `layout_child` (`inline/atomic.rs:60`), the child's own formatting context, and the tail skips every entity that already carries a `LayoutBox` (`pack/boxes.rs:62-64`). So a decorated inline restyled to `inline-block` holds a **fresh** box written before the tail and a **stale** `InlineClientRects` — whose only producer in the workspace is that tail and which nothing ever removes (`git grep -nF 'InlineClientRects' -- crates` → one `insert_one`, no `remove_one`, 2026-09-21). The obligation is restated over **outcomes** — no earlier pass's IFC geometry survives for an entity the IFC no longer lays out, and no geometry this pass's producer wrote is removed — and the transfer case becomes risk 4, which names distinguishing the current producer **at removal time** as a requirement and leaves *how* to that PR's plan-review. Found by Codex on #515 ⚠ **Form superseded at R18 (A48)**: the invariant and the risks are withdrawn, the transfer measurement stands as direction 3 of §8's defect statement |
+| A47 | R17 | the deferral of `#11-inline-min-content-box-edges` past PR-1b, on M8's ground that `min_content_inline_size` has no accumulator for an edge to join | that ground measures what the fix **costs**, not whether PR-1b is correct without it. That is **A38's** shape and not A39's — A38 withdrew a deferral whose ground was true of a wrong *number* and false of the wrong *picture*, which is exactly what happens when the ground is read off the pass in isolation instead of off the pass and the layout together; A39's is the narrower case of a slot's *prescribed remedy* going unexamined. PR-1b is **not** correct without it. The inconsistency is not between the two intrinsic sizes, where css-sizing-3 §5.2's "does not define precisely how to determine these sizes" would leave the engine a choice; it is between intrinsic sizing and the layout PR-1b ships. `shrink_to_fit_width` is `min(max_content, max(min_content, available))` (`crates/layout/elidex-layout/src/intrinsic/mod.rs:134`), fed by `intrinsic/block.rs:39`/`:49` and consumed at `elidex-layout/src/layout/mod.rs:57` for an `auto`-width inline-block, so at a small available width the box settles on the **word** width while PR-1b's line needs word + edges and overflows — and deferring the *max*-content half instead only relocates that. The work therefore lands as a **prerequisite PR ahead of PR-1b** (§8), stated as an obligation with named risks, and the slot is **withdrawn rather than re-tagged**: a gap that never opens is not a deferral, so §10's `(own)` row is deleted, §5.3's PR-1b count goes to none, and §3's min-content row is answered by the prerequisite. Found by Codex on #515 ⚠ **Form superseded at R18 (A48)**: the obligation and its named risks are withdrawn, the ordering and the withdrawal of the slot stand |
+| A48 | R18 | this umbrella stating a **requirement** for the reconciler and min-content prereqs at all — rev 52's component pair, rev 53's outcome invariant, and rev 53's invariant plus four named risks: three attempts, three rounds | each had a corner the next round found, and the pattern is four rounds deep — new-real findings **3 / 5 / 3 / 2** over R15–R18, of which **1 / 4 / 2 / 2** were defects in the previous round's own text (R16's four is A44's own figure; R15's one is A40, against R14's repair; R17's two are rev 52's prereq count and rev 52's obligation; R18's two are both rev 53's). R18's pair are instances the requirement did not reach: an `inline-block` restyled to a decorated `inline`, where the **other** producer's stale box survives on an entity the IFC does lay out, and min-content's loss of **joining** across items, which no edge term closes. Both are facts about the defect, so both land inside it rather than beside it. ⚠ **The memo's own idiom for work it hands off is a slot** — the gap, a Why, a trigger, a date, an owner — and its slots state the gap and hand the mechanism over; none writes an invariant for the fix to satisfy, the nearest being `#11-resize-observer-inline-empty-content-rect`'s *What the fix needs*, which names an **input** the fix consumes. The heavier form was invented for these two, and a form that reads as a specification is reviewed as one. §8's two paragraphs therefore become **defect statements** with the extent that bounds them; the obligation / invariant / named-risk framing goes, A46's transfer measurement and A47's shrink-to-fit arithmetic surviving inside them. ⚠ Rev 53's transfer sentence was itself false and is not carried over: it reasoned about an entity "now absent from `entity_bounds`", while `place_item` pushes a rect for every placed item whose entity is not the IFC's own — atomics included (`inline/pack/mod.rs:703-715` at `154bac3f`). **Prediction, recorded so R19 can falsify it: R19's findings will not be about these two prerequisites.** Found by Codex on #515 |
 
 ---
 
@@ -3428,8 +3429,9 @@ wire's own reach: that script's header disclaims the stronger reading, so what i
 this PR.** `assign_inline_layout_boxes` skips any entity that already carries a `LayoutBox`
 (`boxes.rs:62-64`), so without this the new edges freeze at first layout — and R11's cell 13d is
 what makes that *visible* rather than merely stale: `InlineFlow` is rebuilt on **every** pass
-(`inline/mod.rs:413`'s "Reconcile `InlineFlow` … every pass", the unconditional `insert_one` at
-`:528`, the candidate-key clear at `:156`), so after any restyle the glyphs move to their new
+(`inline/mod.rs:413`'s "Reconcile `InlineFlow` … every pass", the `insert_one` at `:528` —
+probe-gated at `:525`, not unconditional — and the candidate-key clear at `:156`), so after any
+restyle the glyphs move to their new
 positions while the background and border are painted at the **first-layout** box. Before PR-1c
 nothing was painted for an inline at all, so this desynchronisation is **created here**, which is
 why "the same skip already freezes `LayoutBox.content`" does not carry it: `content` being stale
@@ -3466,7 +3468,7 @@ questions the check must answer in writing:
    the mandate forbids — and it is what the per-fix lens kept producing because that lens only
    ever asked whether *this* patch is correct.
 
-**So the repair is a prerequisite PR's, and this memo states the obligation and stops there** —
+**So the repair is a prerequisite PR's, and this memo states the defect and stops there** —
 the **Reconciler prereq PR** paragraph below. What PR-1c's DoD owes is the dependency: it is not
 cut from `origin/main` until that PR has landed, and no cell of PR-1c asserts a second-pass
 geometry. Found by Codex on #515; the prerequisite carve is R15's, its scope correction R16's.
@@ -3919,103 +3921,107 @@ between the `elidex-plugin` display half and the component half, and the disposi
 It is carved because those are not this memo's questions; the seven above are, because this program
 depends on them.
 
-**Reconciler prereq PR**: **after a layout pass, no per-entity geometry an earlier pass's IFC
-wrote survives for an entity the IFC no longer lays out, and no geometry another producer wrote
-for an entity in this pass is removed.** The geometry at issue is `LayoutBox` *and*
-`InlineClientRects`: `assign_inline_layout_boxes` owns both under the one skip and says so itself
-— "neither its LayoutBox nor a stale `InlineClientRects` is refreshed here"
-(`inline/pack/boxes.rs:95-101` at `22de3078`); a reconciler reaching `LayoutBox` alone leaves a
-multi-line inline that relayouts to one line holding its stale component, and `getClientRects`
-returns **early** off it (`element/layout_query.rs:219` at `154bac3f`), never reaching the
-refreshed `border_box()` fallback at `:236-238`. The invariant discharges
-`#11-inline-relayout-box-staleness` rather than narrowing it. PR-1c is ordered behind this PR;
-nothing else here is.
-⚠ **It is stated over outcomes rather than as an unconditional pair of components, because
-measured the pair is not unconditional** (ledger **A46**, withdrawing rev 52's stronger form): an
-entity can leave the set `assign_inline_layout_boxes` writes and still be given a **fresh** box
-by another producer in the same pass. `atomic::layout_atomic_items` runs at `inline/mod.rs:179`
-and `pack::assign_inline_layout_boxes` at `:380` (both `22de3078`); the atomic path's box is
-whatever `layout_child` returns (`inline/atomic.rs:60` at `22de3078`) — the child's own
-formatting context, not this one — and the tail then *skips* every entity that already carries a
-`LayoutBox` (`pack/boxes.rs:62-64` at `22de3078`). So a decorated inline restyled to
-`inline-block` holds a current box written before the tail and, at the same time, a stale
-`InlineClientRects`, whose only producer in the workspace is that tail (`pack/boxes.rs:124-126`
-at `22de3078`: `git grep -nF 'InlineClientRects' -- crates` returns one `insert_one`
-and no removal anywhere, 2026-09-21). A rule that removed every previously-IFC-owned entity now
-absent from `entity_bounds` would delete the live box and keep the dead rects — both halves
-wrong, on one entity.
+**Reconciler prereq PR** — **the gap**: `assign_inline_layout_boxes` skips every entity that
+already carries a `LayoutBox` (`inline/pack/boxes.rs:62-64`, identical at `22de3078`) and the IFC
+has no removal half, so the two components written past that skip — the box at `:88` and
+`InlineClientRects` at `:124-126` — are **first-layout-only artefacts**; the function says so
+itself, "neither its LayoutBox nor a stale `InlineClientRects` is refreshed here" (`:95-101` at
+`22de3078`). `InlineFlow`, the same pass's other per-entity output, is reconciled every pass
+(`inline/mod.rs:413`'s "Reconcile `InlineFlow` … every pass", the `insert_one` at `:528`, the
+candidate clear at `:156`), so one pass's outputs age differently. Measured, the skip runs in
+**three** directions.
 
-⚠⚠ **The mechanism is that PR's `/elidex-plan-review`, not this memo's, and revs 50–51's
-prescription of it — a candidate-set derivation, an ownership flag riding the producer's push, a
-`clear_inline_flows` extension — is withdrawn** (ledger **A44**). CLAUDE.md's *Edge-dense work*
-rule makes the terminal unit **"承認済 umbrella 配下で plan-review を通った narrowly-scoped
-per-PR slice"**, and a PR spanning two per-entity components, a new core-ECS removal chokepoint, a
-trip-wire allowlist change and its own candidate-set design is one. What the umbrella owes it is
-the obligation above and the risks that review must answer:
+1. **Stays.** An entity the IFC lays out in both passes keeps the first pass's geometry — `:62-64`
+   fires on the box the IFC wrote itself — and `getClientRects` returns **early** off the stale
+   component (`element/layout_query.rs:219`), never reaching the `border_box()` fallback at
+   `:236-238`, so a multi-line inline that relayouts to one line still answers with its old
+   per-line rects. After PR-1c the glyphs move on a restyle and the chrome does not, at cell 13d's
+   measured scale on `elidex-render`'s relpos harness: the box the edges give is
+   `(12,-12) 40x44` and 5 `SolidRect`s against the `(24,0) 16x20` and 1 the first pass left.
+2. **Leaves.** An entity that drops out of `entity_bounds` keeps geometry no producer will write
+   again and no remover will take: restyle it to `display:none` and `collect_inline_items_inner`
+   `continue`s before recursing (`inline/collect.rs:218-220`), so it contributes no item,
+   `place_item` records no rect, and its IFC box stands unchanged. Ledger **A40**'s decorated
+   empty `<span>` whose last edge goes to zero is this direction one PR later.
+3. **Transfers — either way, with the entity still in `entity_bounds`.** `place_item` pushes a
+   rect for every placed item whose entity is not the IFC's own (`inline/pack/mod.rs:703-715`),
+   **atomics included** — which is why the skip's own comment names `layout_child`'s
+   inline-blocks. So the entity is present and the geometry on it is another producer's.
+   *inline → `inline-block`*: `atomic::layout_atomic_items` runs at `inline/mod.rs:179` and the
+   tail at `:380` (both `22de3078`), so a **fresh** atomic box from `layout_child`
+   (`inline/atomic.rs:60`) stands before the tail; the skip keeps the tail off the entity, and the
+   **stale** `InlineClientRects` of its inline pass survives beside the fresh box — current box,
+   dead rects, one entity, and direction 1's early return serves the dead half.
+   *`inline-block` → inline*: the mirror. `layout_atomic_items` matches `InlineItem::Atomic` and
+   nothing else (`inline/atomic.rs:38-44`), so it no longer visits the entity; the **stale
+   atomic** box survives, nothing removing one; and `:62-64` sees that box and skips the fresh IFC
+   bounds. The other producer's geometry stands on an entity the IFC does lay out this pass.
+   ⚠ rev 53 called such an entity "now absent from `entity_bounds`"; `place_item`'s push is
+   blind to item kind (`:703`), so it is present and a rule keyed on that absence never reaches
+   it.
 
-1. **The candidate set must be a superset of the previously owned boxes, and one derived from the
-   current collect walk is not.** `collect_inline_items_inner` `continue`s **before** recursing —
-   `display:none` at `collect.rs:218-220` (`154bac3f`), atomic at `:243-251` — while the candidate
-   record is `candidate_keys.extend_from_slice(&grandchildren)` at `:277-278`, below both. A
-   nested decorated inline that owns a box, whose **outer** inline is then restyled to
-   `display:none`, is never revisited (reviewed base: `:223-256`, `:282-283` at `22de3078`).
-2. **Removal needs a chokepoint that does not exist.** Wire #5 of
-   `.claude/tools/layout-box-reader-trip-wire.sh` bans `remove_one::<LayoutBox>` outside
-   `crates/core/elidex-ecs/src/dom/geometry.rs` and the test paths, and that file exposes
-   `set_layout_box` (`:140`) and `layout_box_mut` (`:169`) and **no removal API** at `154bac3f` —
-   so a core-ECS surface, a trip-wire allowlist change and the `FragmentTree` invalidation the
-   chokepoint enforces (`geometry.rs:147`, `:171`) are all in its touch set.
-3. **One reconciler, reaching both components' geometry** — the obligation above, in the
-   outcome form A46 settles on and not as an unconditional component pair.
-4. **A transfer of producers must be distinguishable at removal time.** Absence from the current
-   pass's inline bounds does not by itself mean the geometry is dead, per the ⚠ above; which
-   producer holds an entity now is therefore a fact the removal half needs, and *how* it is
-   established is that review's to settle. An inline→atomic (`display:inline-block`) and an
-   inline→block transition are required tests, in both halves: the box kept, the rects gone.
+**Extent**, measured at `22de3078` on 2026-09-21: `InlineClientRects` has **one** producer in the
+workspace and **no** remover (`git grep -nF 'InlineClientRects' -- crates` → the `insert_one` at
+`pack/boxes.rs:124-126`, no `remove_one` anywhere), and `LayoutBox` has no removal path either —
+`crates/core/elidex-ecs/src/dom/geometry.rs` exposes `set_layout_box` (`:140`) and
+`layout_box_mut` (`:169`) and nothing that removes, while wire #5 of
+`.claude/tools/layout-box-reader-trip-wire.sh` bans the `remove_one::<LayoutBox>` shape outside
+that file and outside test paths, its one live hit being test-only.
 
-Found by Codex on #515: the carve is R15's, its scope correction R16's. No `PR-1x` letter — it is
-a prerequisite, spelled like its four siblings.
+Extending the engine's single staleness reconciler (`reconcile_flows` + `clear_inline_flows`,
+`inline/mod.rs:552-559` at `22de3078`) is a terminal per-PR slice under CLAUDE.md's *Edge-dense
+work* rule, so the mechanism, the candidate set, the removal chokepoint, the producer
+discrimination and the touch set are that PR's plan-memo and `/elidex-plan-review` (ledger
+**A44**). ⚠⚠ **Three revisions stated a requirement here instead, each with a corner the next
+round found; all three are withdrawn** (ledger **A48**). The repair discharges
+`#11-inline-relayout-box-staleness` rather than narrowing it — the same edit repairs
+`LayoutBox.content`.
 
-**Min-content prereq PR**: **a decorated inline's inline-axis edges reach the min-content inline
-size of the content that contains it, so that shrink-to-fit sizing yields a width the line PR-1b
-lays out fits into.** M8 carries the arithmetic: `shrink_to_fit_width` is
-`min(max_content, max(min_content, available))` (`elidex-layout/src/intrinsic/mod.rs:134`), so a
-min-content that omits the edges makes an `auto`-width inline-block settle on the word width
-whenever the available width is at or below it, while PR-1b's advance needs word + edges.
-⚠ **This is why it is a prerequisite and no longer one of this program's own deferrals** (ledger
-**A47**, withdrawing `#11-inline-min-content-box-edges`): the inconsistency is not between the two
-intrinsic sizes — where css-sizing-3 §5.2's "does not define precisely how to determine these
-sizes" would leave the engine a choice — but between intrinsic sizing and the layout PR-1b ships,
-and deferring the *max*-content half instead relocates it rather than escaping it. Ordering: **in
-`main` before PR-1b**. No `PR-1x` letter, and like its four siblings its mechanism, touch set and
-own deferrals are its plan-memo's and its `/elidex-plan-review`'s, not this memo's — CLAUDE.md's
-*Edge-dense work* rule reaches it on its own terms: a pass with nowhere to put the value has to be
-restructured to hold it, which is exactly the shape that rule sends to plan-review. What the
-umbrella owes it is the obligation above and the risks that review must answer:
+Ordered **in `main` before PR-1c**, against nothing else here. Found by Codex on #515 — the carve
+is R15's, its scope correction R16's, the transfer directions R17's and R18's. No `PR-1x` letter;
+it is a prerequisite, spelled like its four siblings.
 
-1. **The obligation cannot be met by adding a term.** `min_content_inline_size`
-   (`inline/measure.rs:15-37`) is `max_word = max_word.max(m.width)` over
-   `run.text.split_whitespace()` for each `InlineItem::Text` and nothing else; there is no
-   running candidate for an edge to join. The review states what the restructure costs before it
-   is priced as small.
-2. **The same absence already loses run boundaries, so the restructure moves a second behaviour.**
-   `a<b>b</b>c` measures `max(|a|,|b|,|c|)` today and never `|abc|`, because each item is walked
-   independently. Whether the restructure changes that too, and whether the changed figure is
-   correct under css-text-3's break opportunities, is a consequence to be decided and pinned
-   rather than discovered — and the defect is pre-existing, so its disposition may be a slot of
-   that PR's own rather than work it must do.
-3. **min-content must not be allowed to exceed max-content silently.** The formula above clamps
-   rather than failing, so an edge counted in one pass and not the other reads as a plausible
-   width. The review says which assertion catches that.
-4. **There is a second shrink-to-fit consumer with a different shape, and whether it is in scope
-   is that review's.** `elidex-layout-block`'s own `shrink_to_fit_width`
-   (`positioned/constraints.rs:318`, the absolutely-positioned path called from
-   `positioned/layout.rs:319`) is a homonym that reads `max_content_width` and **no** min-content
-   at all — so the obligation above does not reach it, and whether that divergence is this PR's
-   or a pre-existing one of its own is a question this memo does not settle.
+**Min-content prereq PR** — **the gap**: `min_content_inline_size` (`inline/measure.rs:15-37`) is
+`max_word = max_word.max(m.width)` over `run.text.split_whitespace()` for each `InlineItem::Text`
+and nothing else, so it returns the maximum over **per-item, per-word** widths — no edge term,
+and no joining across items. PR-1b widens the line by the edges, and shrink-to-fit is
+`min(max_content, max(min_content, available))` (`elidex-layout/src/intrinsic/mod.rs:134`),
+reached from `elidex-layout/src/layout/mod.rs:57` for an inline-level atomic display
+(`InlineBlock` / `InlineFlex` / `InlineGrid` / `InlineTable`) with `width:auto`. Two measured
+instances.
 
-Ordered against PR-1b only: the seam-3 and dead-arm prereqs have landed, and it shares no
-obligation with the predicate or reconciler prereqs.
+1. **No edge term.** `<span style="padding:10px">x</span>` in such a box: with PR-1b's
+   max-content term in place and min-content still edge-less, `max(min_content, available)` never
+   reaches word + 20px at any available width below it, so the box settles under the advance
+   PR-1b's line takes and the content overflows it. §6 cell 25 asserts the 20px on **both**
+   intrinsic sizes for that reason.
+2. **No join across items.** `a<b style="padding:10px">b</b>c` in the same box: css-text-3 §5.5 —
+   "Out-of-flow boxes and inline box boundaries do not introduce a forced line break or soft wrap
+   opportunity in the flow" — leaves `abc` one unbreakable segment across two inline-box
+   boundaries, so its min-content contribution is `|abc|` plus the edges while the function
+   returns `max(|a|, |b|, |c|)`: three text nodes are three `InlineItem::Text`s and each is walked
+   alone. **An edge term alone does not close this** — `max(|a|, |b|+20, |c|)` is still not
+   `|abc|+20` — so the joining loss is the same defect, not a follow-up.
+
+⚠ **Extent — a second shrink-to-fit with its own behaviour**: `elidex-layout-block` has a
+**homonym** `shrink_to_fit_width` (`positioned/constraints.rs:318`, the absolutely-positioned
+path called from `positioned/layout.rs:319`) whose signature differs and which reads
+`max_content_width` alone, never min-content at all.
+
+**Why it is a prerequisite and no longer one of this program's own deferrals**: ledger **A47**
+carries the ground, withdrawing `#11-inline-min-content-box-edges` — the inconsistency is between
+intrinsic sizing and the layout PR-1b ships, not between the two intrinsic sizes, and deferring
+the *max*-content half instead only relocates it. `max_word` is the pass's whole state, so
+neither an edge nor a join has anywhere to land in it — the change reaches the pass's structure
+and not only its arithmetic, which is the shape CLAUDE.md's *Edge-dense work* rule sends to its
+own plan-review. What that change is, what it costs, what pins it and what it touches are that
+PR's plan-memo's and that review's. ⚠⚠ **Rev 53 stated an obligation and four named risks here
+instead; they are withdrawn** (ledger **A48**).
+
+Ordered **in `main` before PR-1b**, against nothing else here — the seam-3 and dead-arm prereqs
+have landed, and it is ordered against neither the predicate nor the reconciler prereq. Found by
+Codex on #515 (R17; instance 2's classification R18's). No `PR-1x` letter, like its four
+siblings.
 
 **Ordering — done as fixed: seam-3 landed first (#508, 2026-08-23), the dead-arm PR second
 (#511, 2026-09-07, cut from `origin/main` after #508). The ground was asymmetric cost, not
@@ -4346,9 +4352,9 @@ canonical one, and R14 took half of it twice** (R15's self-root-check). The repa
   the *mechanism* by which it extends is that PR's plan-review's, not this memo's, and rev 50's
   second copy of the derivation and of the self-root-check's two written questions is struck from
   here** (ledger **A44**) — §8 is the single site, its **PR-1c** paragraph carrying those two
-  questions and its **Reconciler prereq PR** paragraph the obligation and the risks the review
-  must answer. Nothing about candidate sets, ownership flags or a `clear_inline_flows` extension
-  is settled in this memo. Found by Codex on #515; the carve is R15's, the scope correction R16's.
+  questions and its **Reconciler prereq PR** paragraph the defect and the extent that bounds it.
+  Nothing about candidate sets, ownership flags or a `clear_inline_flows` extension is settled in
+  this memo. Found by Codex on #515; the carve is R15's, the scope correction R16's.
   (`#11-inline-align-clientrects-nonpersist-path` was ledger-marked to fold into terminal-Z
   C-3/C-4 alongside it; the dead-arm prereq #511 **closed** it instead — SoT corrected at landing,
   2026-09-07: the fold note now applies to `#11-inline-relayout-box-staleness` alone.)
@@ -4492,9 +4498,10 @@ canonical one, and R14 took half of it twice** (R15's self-root-check). The repa
   sub-slices, not a single PR". Both programs are in the Layout lane. This umbrella's nine crate
   PRs do not block on C-3 (they add no carrier and no consumer), but the splits slot does — its
   trigger is amended to name C-3b alongside PR-1d landing. ⚠ **The reconciler prereq is the one
-  whose non-blocking is not this memo's to assert**: risk 2 (§8) puts a core-ECS surface in
-  `elidex-ecs/src/dom/geometry.rs` — the file C-3a's seam owns — in its touch set, so whether it
-  is parallel-safe with C-3 is a question for its own plan-review, on its own touch set.
+  whose non-blocking is not this memo's to assert**: §8's extent for that defect includes
+  `elidex-ecs/src/dom/geometry.rs` — the file C-3a's seam owns, and the file wire #5 leaves as
+  the only sanctioned home for a `LayoutBox` write — so whether it is parallel-safe with C-3 is a
+  question for its own plan-review, on its own touch set.
 * **`#11-bidi-full-uba-fidelity` — the paint-time reorder drops the gap the markers open**
   (R7-b; **pre-existing** class, an **existing** slot of another program, so no deferral of this
   one's). On a line whose bidi order is non-identity, `builder/inline_flow.rs:154-190` (at
