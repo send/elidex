@@ -122,7 +122,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -222,11 +222,18 @@ printf '# see https://example.claude/skills/team/rule.md for the upstream note\n
   > "$CTL/suffixpath/url.py"
 
 # A `git` that fails ONLY the HEAD existence probe, so "unborn" and "git could
-# not answer" can be told apart. ⚠ `--verify` is the discriminator: the wire
-# also runs `rev-parse --local-env-vars` at startup, and a shim matching
-# `rev-parse` alone would make the run exit 2 there for a different reason.
+# not answer" can be told apart. ⚠ BOTH TOKENS ARE NEEDED. `rev-parse` alone
+# would also break the `--local-env-vars` call the wire makes at startup, and
+# `--verify` alone breaks `show-ref --verify` — which is the very command that
+# now establishes unbornness, so the shim silently became a control for the
+# wrong arm and reported the wrong message. A shim shims the ONE call it is
+# about, and "one call" means the verb AND the flag.
+# ⚠ AS ONE ADJACENT SEQUENCE, not two globs. `*" rev-parse "*" --verify "*`
+# cannot match: the first half consumes the space that the second half needs,
+# so the shim matched nothing and the control silently exercised an unshimmed
+# git — the failure a glob makes look like a passing fixture.
 mkdir -p "$CTL/headprobe"
-printf '#!/bin/sh\ncase " $* " in *" --verify "*) exit 2;; esac\nexec %s "$@"\n' \
+printf '#!/bin/sh\ncase " $* " in *" rev-parse --verify "*) exit 2;; esac\nexec %s "$@"\n' \
   "$(command -v git)" > "$CTL/headprobe/git"
 chmod +x "$CTL/headprobe/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
@@ -266,6 +273,22 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/badref/ok.py"
 # and the filesystem does not have. Without a literal pathspec the membership
 # question matches the WRONG file and the vanished entry is passed over.
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/globspec/foo1.py"
+
+#  (d) `@` IS A PATH CHARACTER, NOT A PROSE BOUNDARY. `foo@.claude/...` is the
+#      suffix of a component and must not match — the first boundary spelling
+#      admitted it, because it was written as "not one of these few path
+#      characters" instead of "one of these prose delimiters".
+printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
+
+# An ORPHAN branch with commits on another branch: HEAD is legitimately unborn
+# while the repository is not empty, which is the case that separates "this HEAD
+# has nothing committed" from "the repository has nothing committed".
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/orphan/ok.py"
+
+# A tracked directory replaced in the worktree by a symlink to somewhere else.
+# The inventory then holds BOTH the untracked symlink and the formerly-tracked
+# descendant, and reading the descendant follows the ancestor out of the tree.
+printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/external/a.py"
 mkdir -p "$CTL/fakegitglob"
 printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "foo[1].py\\000"; exit 0;; esac\nexec %s "$@"\n' \
   "$(command -v git)" "$(command -v git)" > "$CTL/fakegitglob/git"
@@ -366,7 +389,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -438,6 +461,19 @@ done
 ( cd "$CTL/catfail" && ln -s '.claude/skills/team/rule.md' entry \
   && _fgit add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catfail
+# …the orphan-branch fixture: commit on one branch, then check out an orphan.
+( cd "$CTL/orphan" && _fgit init -q . >/dev/null 2>&1 \
+  && printf 'x\n' > seed.txt && _fgit add seed.txt >/dev/null 2>&1 \
+  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && _fgit checkout -q --orphan fresh >/dev/null 2>&1 \
+  && command rm -f seed.txt && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed orphan
+# …and the ancestor-symlink fixture: commit `dir/a.py` clean, then replace `dir`
+# with a link to a directory outside the tree whose `a.py` is NOT clean.
+( cd "$CTL/ancestorlink" && _fgit init -q . >/dev/null 2>&1 \
+  && mkdir -p dir && printf '# %s\n' "$CONTROL_CLEAN" > dir/a.py \
+  && _fgit add -A >/dev/null 2>&1 \
+  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && command rm -rf dir && ln -s "$CTL/external" dir ) || _fixture_failed ancestorlink
 # ⚠ THE HEAD-PROBE FIXTURE NEEDS A COMMIT, and did not have one until the rule
 # it encodes was corrected. R2 asserted "a failed probe is an error"; R3 showed
 # the property is really "exit 1 is not by itself absence", so the fixture must
@@ -626,12 +662,15 @@ _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" 
 _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
 _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
-_control "$CTL/headprobe" 1 "this repository is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
+_control "$CTL/headprobe" 1 "that ref EXISTS, so this HEAD is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
 _control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
 _control "$CTL/phantom" 1 "the inventory listed it but it is gone" "an inventoried path that vanished is not silently skipped" "" "" "$CTL/fakegitphantom" || ctl_ok=1
 _control "$CTL/globspec" 1 "the inventory listed it but it is gone" "the vanished-path question is asked of a LITERAL path" "" "" "$CTL/fakegitglob" || ctl_ok=1
-_control "$CTL/badref" 1 "this repository is not unborn" "a malformed HEAD ref is not an unborn repository" || ctl_ok=1
+_control "$CTL/badref" 1 "does not name a branch" "a malformed HEAD ref is not an unborn repository" || ctl_ok=1
 _control "$CTL/punctslash" 1 "K2: a" "punctuation BEFORE a slash is part of the path" || ctl_ok=1
+_control "$CTL/atclaude" 0 "PASSED" "a PATH character before .claude is not a prose boundary" || ctl_ok=1
+_control "$CTL/orphan" 0 "PASSED" "an orphan branch is an unborn HEAD, not a read failure" || ctl_ok=1
+_control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree read does not traverse an ancestor symlink" || ctl_ok=1
 # ⚠ TWO GREEN-DIRECTION CONTROLS. Every other control here proves the wire can
 # RED; these two prove it does not red on a legitimate tree, which is the
 # failure mode that gets a required gate switched off rather than fixed.
@@ -802,7 +841,10 @@ s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION
 s/\[ "$_ls_rc" -eq 0 \]/[ 0 -eq 0 ]/	a failed inventory fails closed
 s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inventory fails closed
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
-s/\[ "$_urc" -ne 0 \] || \[ -n "$_any" \]/false/	a failed HEAD PROBE is not an unborn HEAD
+s/\[ "$_shrc" -eq 0 \]/false/	a failed HEAD PROBE is not an unborn HEAD
+s/\[ "$_shrc" -ne 1 \]/true/	an orphan branch is an unborn HEAD, not a read failure
+s/\[\[:space:\]\[:cntrl:\]/[@[:space:][:cntrl:]/	a PATH character before .claude is not a prose boundary
+s/elif _ancestor_link "$rel"; then/elif false; then/	the worktree read does not traverse an ancestor symlink
 s/\[ "$_catrc" -ne 0 \]/false/	a failed staged-blob read is not a clean target
 s/)}>,;\]/]/g	closing punctuation is not a path segment
 s/elif ! _git -C "$ROOT" --literal-pathspecs/elif false \&\& ! _git -C "$ROOT" --literal-pathspecs/	an inventoried path that vanished is not silently skipped
@@ -810,7 +852,7 @@ s/--literal-pathspecs ls-files --error-unmatch/ls-files --error-unmatch/	the van
 s/\[ "$_hrc" -ne 0 \]/false/	a malformed HEAD ref is not an unborn repository
 s/\]*\[^\]\/\[:space:\]"'"'"'`)}>,;\]'/]*]'/	punctuation BEFORE a slash is part of the path
 s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
-s/(^|\[^A-Za-z0-9_.~-\])\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
+s#^K2RE_PATH=.*#K2RE_PATH='\\.claude/(skills|tools)/[^/]+/[^/]+'#	a segment merely ENDING in .claude is not the host path
 s/\[ "${WEBREF_WIRE_SELFTEST_PPID:-}" != "$PPID" \]/false/	an inherited SELFTEST export cannot redirect the gate
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
@@ -841,7 +883,11 @@ _mut_bare=0
 awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS" | sed '/^$/d' | while IFS= read -r _lbl; do
   grep -qF -- "	$_lbl" "$CTL/.mutants" || printf '%s\n' "$_lbl"
 done > "$CTL/.bare"
-_mut_bare="$(grep -c . "$CTL/.bare")"
+# ⚠ `wc -l`, NOT `grep -c .`. `grep` exits 1 when no line is selected, so on an
+# EMPTY `.bare` — the state this ratchet exists to let you reach — the
+# assignment failed and `set -e` aborted the required gate before the
+# comparison ran. The success case was the one that broke it.
+_mut_bare="$(wc -l < "$CTL/.bare" | tr -d '[:space:]')"
 if [ "$_mut_bare" -gt "$_MUT_UNRECORDED_MAX" ]; then
   echo "!! $_mut_bare controls have no mutation record, against a ratchet of $_MUT_UNRECORDED_MAX." >&2
   echo "   Either the new control needs a record, or a record was deleted. The bare ones:" >&2

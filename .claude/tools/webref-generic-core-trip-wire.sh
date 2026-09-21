@@ -52,8 +52,35 @@
 # on, five rounds running, so do not read a green here as `DESIGN.md`
 # compliance.
 #
-# ONE CHECK, ABSOLUTE.  It is closed and decidable; it is not a heuristic, and
-# this wire makes no un-asserted report.
+# ONE CHECK — AND IT HAS TWO PREDICATES WITH DIFFERENT EPISTEMIC STATUS.  This
+# distinction is the conclusion of four review rounds, every one of which found
+# a boundary defect in the SAME half, so it is stated before anything else:
+#
+#   * `$K2RE_PATH`, over a STORED PATH (an entry's own name, a symlink target),
+#     is CLOSED AND DECIDABLE.  git hands the value over whole, `/` is the only
+#     delimiter, and a quote, a space or a newline inside a segment is data.
+#     There is no judgement in it.  It is the absolute.
+#   * `$K2RE`, over RUNNING TEXT, is a BOUNDED HEURISTIC and calling it an
+#     absolute is what kept this file wrong.  "Does a path reference start and
+#     end here?" cannot be decided without knowing the language the bytes are
+#     in — prose, code, Markdown, a URL, a `.pyc` — so the predicate encodes
+#     two stated rules (a prose delimiter before it; no closing punctuation
+#     ending its final segment) and both are approximations.
+#
+# ⚠ THE CLAIM WAS THE DEFECT, NOT THE REGEX.  Four rounds ran as "the predicate
+# is absolute, so this counter-example is a bug to repair", and each repair was
+# aimed at the example: too loose (prose in parentheses reddened the gate), too
+# tight (a comma inside a segment), too tight again (a comma before a slash),
+# then wrong in kind (`@` treated as a boundary because the rule was written as
+# "not these few path characters" instead of "one of these prose delimiters").
+# Naming it a heuristic does not weaken what the wire DOES — it still reds on
+# anything shaped like a host path — it stops the next boundary case being
+# evidence that the file is broken, and makes the real requirement explicit:
+# **every boundary rule carries a control in BOTH directions**, because each of
+# those four was invisible to a control that only tested the other way.
+#
+# What is un-negotiable in both halves: this wire makes no un-asserted report,
+# and it never answers green over something it did not read.
 #
 # A NON-ZERO STATUS IS NOT A SPECIFIC NEGATIVE.  This is the invariant three
 # rounds of external review kept finding violations of, one site at a time, so
@@ -337,12 +364,19 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 #     may not END in punctuation. Admits `team,inc` and `team,`; still refuses a
 #     bare `)`. The green control pins one direction and a red control the
 #     other; neither alone could have caught either of these.
-#   * A LEADING BOUNDARY is required, so `.claude` must start the string or
-#     follow a `/`. Without it `https://example.claude/skills/team/rule.md`
-#     matched on the suffix of another host name.
+#   * A LEADING BOUNDARY is required, so `.claude` must start the string, follow
+#     a `/`, or follow a PROSE DELIMITER. Without it
+#     `https://example.claude/skills/team/rule.md` matched on the suffix of
+#     another host name. ⚠ The first spelling of this was "any character that is
+#     not `[A-Za-z0-9_.~-]`", which is the wrong shape: it admits PATH
+#     characters as boundaries, so `foo@.claude/skills/team/rule.md` matched on
+#     the suffix of the component `foo@.claude`. The list is POSITIVE now —
+#     whitespace, quotes, a backtick, an opening bracket, or `/` — because the
+#     question is "does prose end here?", and answering it by excluding a few
+#     path characters leaves every path character nobody thought of saying yes.
 # The leading class is consumed by the match, so a record shows one extra
 # character; that is cheaper than a lookbehind ERE does not have.
-K2RE='(^|[^A-Za-z0-9_.~-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]+/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
+K2RE='(^|[[:space:][:cntrl:]"'"'"'`([{<]|/)\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]+/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
@@ -515,6 +549,18 @@ _git() { ( for _v in $_GIT_LOCAL_VARS; do
 # string.
 _ESC_T=$'~'
 _REC_SEP=$'\001'
+# Is any PROPER ancestor component of $1 (relative to $ROOT) a symlink? The
+# entry itself is not tested — a symlinked entry is a case the arms above own.
+_ancestor_link() {
+  _al_rest="$1"; _al_pre=""
+  while [ "${_al_rest#*/}" != "$_al_rest" ]; do
+    _al_head="${_al_rest%%/*}"; _al_rest="${_al_rest#*/}"
+    _al_pre="${_al_pre:+$_al_pre/}$_al_head"
+    [ ! -L "$ROOT/$_al_pre" ] || return 0
+  done
+  return 1
+}
+
 _esc() { _e="${1//\\/\\\\}"; _e="${_e//$'\n'/$_ESC_T}"; printf '%s' "${_e//$'\t'/$_ESC_T}"; }
 
 # A stored path as ONE record: newline is data inside a segment, not a
@@ -695,6 +741,18 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
       _read=1
       _stored "$tgt" "$rel" "symlink TARGET" "->"
     fi
+  elif _ancestor_link "$rel"; then
+    # ⚠ AN ANCESTOR COMPONENT IS A SYMLINK, so what is on disk here is NOT what
+    # git would carry. Reproduced: a tracked `dir/a.py` with `dir` replaced in
+    # the worktree by `dir -> /tmp/external` leaves the inventory holding both
+    # the untracked symlink and the formerly-tracked descendant, and `-f`
+    # followed the ancestor — so forbidden bytes in an EXTERNAL directory
+    # reddened a required gate over content `git add -A` would never stage.
+    # The entry is not skipped (that is how things get passed over in silence);
+    # it is an `err`, because this run genuinely cannot say what the tree holds
+    # there.
+    printf 'err\t%s: an ancestor component is a symlink, so the worktree bytes here are not this tree'"'"'s\n' \
+      "$(_esc "$rel")"
   elif [ -f "$f" ]; then
     if _content "$f" "$rel" "(worktree)"; then _read=1
     else printf 'err\t%s: unreadable, or the read failed\n' "$(_esc "$rel")"; fi
@@ -805,9 +863,29 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     # So the absence is established POSITIVELY — a repository with no commits
     # at all — and everything else is an error. Measured: truly unborn gives
     # `rev-list -n1 --all` exit 0 with empty output; a malformed ref gives 128.
-    _urc=0; _any="$(_git -C "$ROOT" rev-list -n 1 --all 2>/dev/null)" || _urc=$?
-    if [ "$_urc" -ne 0 ] || [ -n "$_any" ]; then
-      printf 'err\tHEAD could not be resolved and this repository is not unborn, so the commit was never read\n'
+    # ⚠ AND THE SUBJECT IS *THIS HEAD*, NOT THE REPOSITORY. The first version of
+    # this test asked whether the repository held any commit at all
+    # (`rev-list -n 1 --all`), which is a different question: on an ORPHAN
+    # BRANCH with commits on another branch, HEAD is legitimately unborn and
+    # `--all` still returns one, so the gate reported a read error over a tree
+    # it had correctly nothing to read. Measured, all three cases:
+    #   orphan branch, commits elsewhere : symbolic-ref 0 -> ref absent  = unborn
+    #   empty repository                 : symbolic-ref 0 -> ref absent  = unborn
+    #   malformed branch ref             : symbolic-ref **128**          = ERROR
+    # So: HEAD must name a branch, and that branch must be absent. Anything
+    # else is a failure to read, which is what the invariant above demands.
+    _srf="$(_git -C "$ROOT" symbolic-ref -q HEAD 2>/dev/null)" || _srf=""
+    if [ -z "$_srf" ]; then
+      printf 'err\tHEAD could not be resolved and does not name a branch, so the commit was never read\n'
+    else
+      _shrc=0; _git -C "$ROOT" show-ref --verify --quiet -- "$_srf" || _shrc=$?
+      if [ "$_shrc" -eq 0 ]; then
+        printf 'err\tHEAD names %s and that ref EXISTS, so this HEAD is not unborn and the commit was never read\n' \
+          "$(_esc "$_srf")"
+      elif [ "$_shrc" -ne 1 ]; then
+        printf 'err\tHEAD names %s but that ref could not be read (show-ref exit %d)\n' \
+          "$(_esc "$_srf")" "$_shrc"
+      fi
     fi
   fi
   if [ "$_hrc" -eq 0 ]; then

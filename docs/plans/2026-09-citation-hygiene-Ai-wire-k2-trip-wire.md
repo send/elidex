@@ -901,3 +901,55 @@ failed probe is an error") on a fixture that was genuinely unborn — under the 
 that fixture's green is *right*, so the control could no longer distinguish anything. It has a
 commit now. **A control written against a rule outlives the rule**, and a passing control is not
 evidence that it still asks the question it was named for.
+
+### §10.3 Round 4 — PAUSE, and the claim that was driving the loop
+
+`…trip-wire.sh` has now carried a finding in **four consecutive rounds**, which is this loop's
+scope-creep PAUSE. The root-check ran again, and this time it lands somewhere different from
+§10.2's.
+
+**Q1 — abstraction coverage.** §10.2's invariant (*a non-zero status is not a specific
+negative*) held up: R4's HEAD finding is a violation of it that my own R3 fix introduced — I
+established the negative positively, as the invariant demands, **but for the wrong subject**,
+asking whether the *repository* had commits rather than whether *this HEAD* did. The invariant
+is right; its first application was not. No further abstraction is missing there.
+
+**Q2 — own-ideal test, and this is the one that moved.** The wire's header said
+*"ONE CHECK, ABSOLUTE. It is closed and decidable; it is not a heuristic."* Measured against
+four rounds of evidence, **that is false of half of it**:
+
+| | subject | status |
+|---|---|---|
+| `$K2RE_PATH` | a **stored path** — git hands the value over whole, `/` is the only delimiter | genuinely **closed and decidable**. One finding, in R1, stable since |
+| `$K2RE` | **running text** — arbitrary bytes in an unknown language | a **bounded heuristic**. Every boundary finding in R1, R2, R3 and R4 was here |
+
+*"Does a path reference start and end here?"* cannot be decided without knowing whether the
+bytes are prose, code, Markdown, a URL or a `.pyc`. **The claim was the defect, not the
+regex** — it made each counter-example read as "a bug to repair", so each repair was aimed at
+the example and the next round found the opposite direction:
+
+> too loose (prose in parentheses reddened the gate) → too tight (a comma inside a segment) →
+> too tight again (a comma before a slash) → wrong in kind (`@` treated as a boundary, because
+> the rule was written as *"not these few path characters"* instead of *"one of these prose
+> delimiters"*).
+
+**Disposition: option A — step back and collapse**, not a fifth boundary patch. The header now
+states the two halves' different status, and with it the requirement that follows: **every
+boundary rule carries a control in both directions**, because each of those four defects was
+invisible to a control that tested only the other way. What the wire *does* is unchanged; what
+it *claims* is now true.
+
+| # | What | Disposition |
+|---|---|---|
+| **P2** | `rev-list -n 1 --all` asks whether the **repository** has commits; on an orphan branch HEAD is legitimately unborn while another branch has one, so a clean fixture reported a read error | **Fixed.** `symbolic-ref -q HEAD` + `show-ref --verify` on the named ref. Measured, all three: orphan = symbolic-ref 0 / ref absent; empty repo = same; **malformed ref = symbolic-ref 128**. Green-direction control (an orphan-branch fixture). |
+| **P2** | The leading boundary admitted **path characters**: `foo@.claude/skills/team/rule.md` matched on the suffix of a component | **Fixed.** The list is positive — whitespace, a control character, a quote, a backtick, an opening bracket, or `/`. ⚠ `[:cntrl:]` is load-bearing and the **binary control caught its absence in the same run that introduced it**: that fixture wraps the path in NULs. |
+| **P2** | `-f` **followed an ancestor symlink**: a tracked `dir/a.py` with `dir` replaced by a link to an external directory made the gate red over bytes `git add -A` would never stage | **Fixed.** A proper ancestor being a symlink is an `err` — not a skip, because that is how entries get passed over in silence. |
+| **P2** | `grep -c .` on an **empty** `.bare` prints 0 and **exits 1**, so `set -e` aborted the gate — and it fires exactly when the ratchet reaches the state it exists to permit | **Fixed** with `wc -l`. Measured: `grep -c .` rc 1 / `wc -l` rc 0 on an empty file. ⚠ No control: reaching an empty `.bare` needs every control to have a record, which is not today's state. Recorded rather than implied. |
+
+⚠ **And two of my own fixtures were wrong in ways a passing control hid.** The `headprobe`
+shim matched `--verify` *anywhere*, so it also broke the `show-ref --verify` that now decides
+unbornness — the shim had silently become a control for a different arm. Narrowing it to
+`rev-parse --verify` then exposed a second defect: `*" rev-parse "*" --verify "*` **can never
+match**, because the first half consumes the space the second needs, so the shim matched
+nothing and the control exercised an unshimmed git. **A shim shims the one call it names, and
+"one call" means the verb and the flag, as one adjacent sequence.**
