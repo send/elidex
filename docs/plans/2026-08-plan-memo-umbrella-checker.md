@@ -868,11 +868,11 @@ grammar's released trailing decoration; (6) Slice 3, Phase 1 offsets; (7) `symbo
 existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (10) the `self_id`
 suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the §6.2 demotion
 tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the residue
-gate's presence comparison; (15) the hand-written table with no detector. **Thirteen own and two
-pre-existing** — (9) and (10) are the
+gate's presence comparison; (15) the declaration site that produced no table; (16) the hand-written
+table with no detector. **Fourteen own and two pre-existing** — (9) and (10) are the
 pre-existing ones, each with its grounding stated where the policy asks for it. Count the list
 rather than trusting this sentence: `awk` the `^- \*\*` lines of this section and you must get
-fifteen.
+sixteen.
 ⚠ **(12) AND (13) ARRIVED AT R47 AND BOTH MOVE THE OWN COUNT**, from ten to twelve. Neither is a
 deferral of convenience: (12)'s one-line fix overturns a control this plan RATIFIED — the direction
 cmark supports is the one the ratified control rejects — and (13) changes what the conformance proof
@@ -1223,6 +1223,37 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   a ratified control, so it is `/elidex-plan-review`-before-implementation **BY RULE**, the same
   disposition and for the same reason as the id-grammar decoration release above.
   **Owner**: Slice 2's plan-review, which owns the prose predicates and already opens `_anchored`.
+  **Trigger**: already fired (reproduced above). **Re-eval: 2026-12-31.** No slot: it is this
+  checker's own gate.
+- **(own)** **A DECLARATION SITE THAT PRODUCED NO TABLE AT ALL IS INVISIBLE TO THE LOST-DECLARATION
+  GATE** (PR #510 R50 — **real, reproduced, a fix written and REVERTED**). The gate walks
+  `memo.tables`, which is what Phase 1 ADMITTED. A linked memo carrying the EXACT slice header with
+  a malformed delimiter row — five cells under a six-cell header — forms no GFM table (§4.10), so
+  the gate never sees it. Measured: the sibling's umbrella row and its nonempty `Deps` stayed out of
+  `ids` (4 tables against 5, `Wz` and `Tq` absent) and the run exited **0** with the declaration
+  gone. It is the I-C class one layer below the R47-2 fix: that one caught a table that bound to no
+  schema, this is a header that became no table.
+  ⚠ **A second arm over the raw lines was written and measured, and it is REVERTED for two
+  independent reasons.**
+  **(i) It over-fires on a position where no declaration can live.** A schema-shaped line inside an
+  INDENTED CODE BLOCK is code, not a declaration, and a raw-line population cannot tell — a shipped
+  control (`` `\t| Slot | … |` over `\t|---|…|` ``) went red. The population must be "lines where a
+  table could have been admitted", which is a Phase-1 block-context question and not a `"|" in line`
+  test. That is the population-by-symptom-vocabulary trap the §8 entry below this one names.
+  **(ii) It requires overturning FOUR ratified controls.** "(table) header and delimiter of unequal
+  width are not a table", "(table) a delimiter cell is ≥1 hyphen; `:` alone is not", "(rc) a slice
+  header over a one-cell delimiter row is not a table…", and the lazy-quote header control all
+  assert **rc 0** beside their own subject. Their subject (is this a table?) survives the change and
+  only the measure would move — the shape R31-1's `$`-header control took successfully — but
+  deciding that EVERY schema-shaped non-table is a miss is a design question, not a measure fix: a
+  memo may legitimately show a table's shape in prose, and this checker's own documents do.
+  ⚠ **What the revert cost is known and small**: the arm reported **0** files over the 141-memo
+  corpus, so nothing real is being missed today; what is missing is the gate.
+  **Scope**: the lost-declaration gate's second arm, with a population defined by Phase-1 block
+  context, and a decision on whether a schema-shaped non-table is a miss everywhere or only in a
+  LINKED memo (the reproduced case).
+  **Owner**: Slice 2's plan-review, which owns this gate's other open question (R48-1) — the two
+  should be decided together, since both are about what the gate's population IS.
   **Trigger**: already fired (reproduced above). **Re-eval: 2026-12-31.** No slot: it is this
   checker's own gate.
 - **The HAND-WRITTEN TABLE has no detector** (PR #510 Axis 5, 2026-09-20 — **own** deferral).
