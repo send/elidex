@@ -122,7 +122,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -247,6 +247,29 @@ printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "phantom-gone.
   "$(command -v git)" "$(command -v git)" > "$CTL/fakegitphantom/git"
 chmod +x "$CTL/fakegitphantom/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/phantom/ok.py"
+
+#  (c) PUNCTUATION BEFORE A SLASH is not prose punctuation — the `/` settles
+#      where the reference ends — so a path whose INTERMEDIATE segment ends in
+#      one is a real K2 hit. This is the red-direction partner of `punct`, and
+#      the two together are what pin the rule to the FINAL segment only:
+#      `punct` alone admitted a predicate that missed this, and this one alone
+#      admitted the predicate that reddened prose.
+printf 'RULE = "%s"\n' '.claude/tools/team,/rule.md' > "$CTL/punctslash/control.py"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/punctslash/ok.py"
+
+# A repository whose branch ref holds malformed data: `rev-parse --verify
+# --quiet HEAD` exits 1 exactly as an unborn repository does, so this fixture is
+# what separates "there is no commit" from "HEAD could not be read".
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/badref/ok.py"
+
+# A tracked `foo1.py` beside an untracked `foo[1].py` that the inventory names
+# and the filesystem does not have. Without a literal pathspec the membership
+# question matches the WRONG file and the vanished entry is passed over.
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/globspec/foo1.py"
+mkdir -p "$CTL/fakegitglob"
+printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "foo[1].py\\000"; exit 0;; esac\nexec %s "$@"\n' \
+  "$(command -v git)" "$(command -v git)" > "$CTL/fakegitglob/git"
+chmod +x "$CTL/fakegitglob/git"
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
 # them all would abort in `_verdict` instead, for a different reason).
@@ -343,7 +366,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -415,6 +438,21 @@ done
 ( cd "$CTL/catfail" && ln -s '.claude/skills/team/rule.md' entry \
   && _fgit add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catfail
+# ⚠ THE HEAD-PROBE FIXTURE NEEDS A COMMIT, and did not have one until the rule
+# it encodes was corrected. R2 asserted "a failed probe is an error"; R3 showed
+# the property is really "exit 1 is not by itself absence", so the fixture must
+# be a repository that DOES have a commit — otherwise the probe failing and the
+# repository being unborn are the same situation and the control cannot tell
+# the two apart. A control written against a rule outlives the rule.
+( cd "$CTL/headprobe" && _fgit add -A >/dev/null 2>&1 \
+  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed headprobe
+# …and the malformed-ref fixture: commit, then overwrite the branch ref with
+# data git cannot resolve. ⚠ Built after the add loop, because it needs a HEAD
+# to break.
+( cd "$CTL/badref" && _fgit add -A >/dev/null 2>&1 \
+  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && _br="$(_fgit symbolic-ref --short HEAD)" \
+  && printf 'deadbeef\n' > ".git/refs/heads/$_br" ) || _fixture_failed badref
 # (2d) A violation COMMITTED and then fixed only in the index and worktree. A
 #      push sends the commit, so a gate that reads the index alone calls this
 #      clean while `git show HEAD:victim.py` still carries it (#501 R95).
@@ -499,9 +537,11 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
       return 1 ;;
   esac
   _out_f="$CTL/.control_out"
-  # ⚠ THE TOKEN IS WHAT MAKES SELF-TEST MODE REACHABLE. The wire refuses to
-  # enter it without this, so an inherited `WEBREF_WIRE_SELFTEST` left exported
-  # in somebody's shell can no longer redirect the required gate at a fixture.
+  # ⚠ OUR OWN PID IS WHAT MAKES SELF-TEST MODE REACHABLE. The child is started
+  # from this shell, so its `$PPID` is `$$`; a leftover export carries a PID
+  # that is nobody's parent any more. A fixed token was tried first and failed
+  # for the obvious reason — the string is in this file, so exporting both
+  # variables reproduced the redirect.
   # ⚠ `set -m` SO THE CHILD IS ITS OWN PROCESS GROUP. Without it the watchdog's
   # `kill -9 "$_cpid"` reaches only the wire's own bash; a command substitution
   # or a `grep` BLOCKED beneath it — precisely the FIFO hang this watchdog
@@ -509,7 +549,7 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # the timeout, so repeated local runs accumulate permanent orphans. Measured
   # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
   set -m
-  WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_TOKEN="$_SELFTEST_TOKEN" \
+  WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_PPID="$$" \
     WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
     WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
     env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
@@ -586,9 +626,12 @@ _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" 
 _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
 _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
-_control "$CTL/headprobe" 1 "the HEAD probe exited" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
+_control "$CTL/headprobe" 1 "this repository is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
 _control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
 _control "$CTL/phantom" 1 "the inventory listed it but it is gone" "an inventoried path that vanished is not silently skipped" "" "" "$CTL/fakegitphantom" || ctl_ok=1
+_control "$CTL/globspec" 1 "the inventory listed it but it is gone" "the vanished-path question is asked of a LITERAL path" "" "" "$CTL/fakegitglob" || ctl_ok=1
+_control "$CTL/badref" 1 "this repository is not unborn" "a malformed HEAD ref is not an unborn repository" || ctl_ok=1
+_control "$CTL/punctslash" 1 "K2: a" "punctuation BEFORE a slash is part of the path" || ctl_ok=1
 # ⚠ TWO GREEN-DIRECTION CONTROLS. Every other control here proves the wire can
 # RED; these two prove it does not red on a legitimate tree, which is the
 # failure mode that gets a required gate switched off rather than fixed.
@@ -597,7 +640,7 @@ _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not
 # …and the self-test escape hatch, which must not be reachable from an
 # inherited environment. `_ctl_env` overrides the token the harness passes, so
 # this is the one control that asks the wire to REFUSE to run.
-_ctl_env=("WEBREF_WIRE_SELFTEST_TOKEN=stale-from-somebody-s-shell")
+_ctl_env=("WEBREF_WIRE_SELFTEST_PPID=1")
 _control "$CTL/clean" 2 "by the controls beside this wire" "an inherited SELFTEST export cannot redirect the gate" || ctl_ok=1
 _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
@@ -759,13 +802,16 @@ s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION
 s/\[ "$_ls_rc" -eq 0 \]/[ 0 -eq 0 ]/	a failed inventory fails closed
 s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inventory fails closed
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
-s/\[ "$_hrc" -gt 1 \]/false/	a failed HEAD PROBE is not an unborn HEAD
+s/\[ "$_urc" -ne 0 \] || \[ -n "$_any" \]/false/	a failed HEAD PROBE is not an unborn HEAD
 s/\[ "$_catrc" -ne 0 \]/false/	a failed staged-blob read is not a clean target
 s/)}>,;\]/]/g	closing punctuation is not a path segment
-s/elif ! _git -C "$ROOT" ls-files --error-unmatch/elif false \&\& ! _git -C "$ROOT" ls-files --error-unmatch/	an inventoried path that vanished is not silently skipped
+s/elif ! _git -C "$ROOT" --literal-pathspecs/elif false \&\& ! _git -C "$ROOT" --literal-pathspecs/	an inventoried path that vanished is not silently skipped
+s/--literal-pathspecs ls-files --error-unmatch/ls-files --error-unmatch/	the vanished-path question is asked of a LITERAL path
+s/\[ "$_hrc" -ne 0 \]/false/	a malformed HEAD ref is not an unborn repository
+s/\]*\[^\]\/\[:space:\]"'"'"'`)}>,;\]'/]*]'/	punctuation BEFORE a slash is part of the path
 s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
 s/(^|\[^A-Za-z0-9_.~-\])\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
-s/\[ "${WEBREF_WIRE_SELFTEST_TOKEN:-}" != "$_SELFTEST_TOKEN" \]/false/	an inherited SELFTEST export cannot redirect the gate
+s/\[ "${WEBREF_WIRE_SELFTEST_PPID:-}" != "$PPID" \]/false/	an inherited SELFTEST export cannot redirect the gate
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

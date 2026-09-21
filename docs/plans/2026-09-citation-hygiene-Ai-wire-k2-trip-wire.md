@@ -853,3 +853,51 @@ direction of wrongness for the other; the pipeline repair removed the channel th
 being lost through and left the one it was actually travelling. The mutation set caught neither
 — they are not reachable by mutating a guard, they *are* the guard being wrong — which is the
 clearest statement available of what that instrument does and does not buy.
+
+### §10.2 Round 3 — the root, and why three rounds found it one site at a time
+
+**All four findings were of one shape**: *"fresh evidence after the claimed fix"*. That is the
+loop's ≥2-round recurrence trigger, so the root-check ran before any of them was patched.
+
+**Q1 — is a canonical algorithm missing, or are these N ad-hoc paths each carrying a subset
+bug?** The latter, and the algorithm has a name now:
+
+> **A non-zero status is not a specific negative.** A command's failure may be read as a
+> *particular* negative (*"there is no HEAD"*, *"this path is untracked"*) only when a
+> separate, **positive** test establishes that negative. Otherwise it is an ERROR.
+
+The reason it kept biting is that **the wrong reading is always the convenient one** — it turns
+*"I could not find out"* into *"there is nothing to find"*, which is the direction that makes a
+gate green.
+
+**And the audit is written out**, so *"is there another site?"* has an answer rather than a
+guess. Every status this file reads is enumerated in the wire's header with what it concludes:
+**two sites inferred a specific negative** (the HEAD probe, the tracked-membership question) —
+both are the R3 findings, both fixed — and every other site concludes only *error*, from a
+documented contract (`grep`'s 1-vs-≥2) or from nothing at all. A new `git` call joins that list
+or it is a defect.
+
+**Q2 — own-ideal test.** The wire's own header says *"ONE CHECK, ABSOLUTE … this wire makes no
+un-asserted report"* and *"One authority answers all of it, and it is git."* The walk is not the
+anti-pattern; **the scattered interpretation of git's answers was** — the opposite of one
+authority. That is why the disposition is the named invariant plus an audit (option A: step
+back and collapse) rather than a fourth site-patch.
+
+| # | What | Disposition |
+|---|---|---|
+| **P2** | `rev-parse --verify --quiet HEAD` exits **1 for a malformed branch ref too**, so R2's "only >1 is an error" still skipped the HEAD inventory and exited 0 while HEAD lookup had failed | **Fixed.** Unborn is established *positively* — `rev-list -n 1 --all` exiting 0 with empty output. Measured: truly unborn = rc 0/empty, malformed ref = **rc 128**. |
+| **P2** | The membership check read `$rel` as a **pathspec**: a vanished untracked `foo[1].py` matched a tracked `foo1.py` and was reported tracked, so the entry nothing had answered for was passed over — the hole that arm was added to close | **Fixed** with `--literal-pathspecs`. Measured: rc 0 without it, rc 1 with it. ⚠ Same lesson as `${var#"$prefix"/}` one layer up: **a path is data, not a pattern** — third instance in this file. |
+| **P2** | The self-test companion token is a **fixed literal in this file**, so exporting both variables — exactly what copying the two lines out of the controls produces — still redirected a normal run | **Fixed.** The companion value is the parent's **live PID**; the child's own `$PPID` must equal it, which copying cannot satisfy. Verified on bash 5.3 and 3.2, and the reviewer's exact reproduction now refuses. |
+| **P2** | R2's punctuation rule over-reached onto **both** segments, so `.claude/tools/team,/rule.md` — whose comma is followed by `/` and therefore cannot be prose — went undetected | **Fixed.** The restriction belongs only on the **final** segment, because that is the only place the end of the reference is ambiguous; an intermediate segment is delimited by `/`, which settles it. |
+
+⚠ **The punctuation predicate was wrong three times in three different directions** — too loose
+(prose reddened the gate), too tight (a comma inside a segment), then too tight again (a comma
+before a slash). Each repair was aimed at the example in the finding. What finally settled it
+was stating the *property* — *"ambiguity exists only where the reference ends"* — and it now has
+a control on each side, because **neither direction alone could have caught the other**.
+
+⚠ **And one R2 control had to be rewritten, not just kept.** `headprobe` encoded R2's rule ("a
+failed probe is an error") on a fixture that was genuinely unborn — under the corrected rule
+that fixture's green is *right*, so the control could no longer distinguish anything. It has a
+commit now. **A control written against a rule outlives the rule**, and a passing control is not
+evidence that it still asks the question it was named for.

@@ -55,6 +55,37 @@
 # ONE CHECK, ABSOLUTE.  It is closed and decidable; it is not a heuristic, and
 # this wire makes no un-asserted report.
 #
+# A NON-ZERO STATUS IS NOT A SPECIFIC NEGATIVE.  This is the invariant three
+# rounds of external review kept finding violations of, one site at a time, so
+# it is named here once and audited rather than rediscovered:
+#
+#     A command's failure may be read as a PARTICULAR negative ("there is no
+#     HEAD", "this path is untracked") only when a SEPARATE, POSITIVE test
+#     establishes that negative.  Otherwise it is an ERROR.
+#
+# The reason it kept biting is that the wrong reading is always the convenient
+# one — it turns "I could not find out" into "there is nothing to find", which
+# is exactly the direction that makes a gate green.
+#
+# ⚠ THE AUDIT, so "is there another site?" has an answer rather than a guess.
+# Every place this file reads a status, and what it concludes:
+#   * `rev-parse --verify --quiet HEAD` -> "unborn"        — INFERRED a negative.
+#     Fixed: exit 1 also covers a MALFORMED ref, so unborn is now established
+#     positively (`rev-list -n1 --all` exits 0 with no output) and anything else
+#     is an `err`.  Measured: unborn = rc 0/empty, malformed ref = rc 128.
+#   * `ls-files --error-unmatch` -> "untracked"            — INFERRED a negative.
+#     Fixed: `--literal-pathspecs`, because `$rel` was being read as a PATHSPEC,
+#     so a vanished untracked `foo[1].py` matched a tracked `foo1.py` and was
+#     reported as tracked.  Measured: rc 0 without the flag, rc 1 with it.
+#   * `grep` in `_content` / `_match_path` / `_classify`   — conclude only from
+#     grep's OWN documented contract (1 = no line selected, >= 2 = error), and
+#     every arm separates them.  Not an inference.
+#   * `cat` of a staged blob, `readlink`, the three `ls-files`/`ls-tree`
+#     inventories, `mktemp`, `rev-parse --local-env-vars`  — any non-zero is an
+#     ERROR.  No negative is inferred at all.
+# Two sites inferred; both are fixed above; the rest conclude nothing they were
+# not told.  A new `git` call added below joins this list or it is a defect.
+#
 # THE K2 PREDICATE, verbatim from the memo's §2: no `.claude/(skills|tools)/`
 # plus two further path segments, anywhere in this tree.  NARROW — two fixed
 # roots, a fixed segment count — so it enumerates its own population and is not
@@ -206,12 +237,15 @@ SCOPE_FILE="$ROOT/.claude/tools/webref"
 # a clean initialised repository made the required gate exit 0, while scanning
 # the actual tree exited 1. Same class as the `WEBREF_WIRE_MUTANTS` bypass, on a
 # variable that predates it.
-# The companion token is what the controls set and a leftover does not have. It
-# is a fixed string, not a secret: the threat model is accident, not adversary
-# (a contributor who wants past this gate edits `REQUIRED_WIRES`), so the job is
-# to turn a silent redirect into a loud refusal.
-_SELFTEST_TOKEN='webref-wire-selftest/v1'
-if [ -n "${WEBREF_WIRE_SELFTEST:-}" ] && [ "${WEBREF_WIRE_SELFTEST_TOKEN:-}" != "$_SELFTEST_TOKEN" ]; then
+# ⚠ THE COMPANION VALUE IS THE PARENT'S LIVE PID, NOT A LITERAL. A fixed token
+# was the first attempt and it does not work: the string is in this file, so a
+# debugging shell that exports BOTH variables — which is exactly what copying
+# the two lines out of the controls produces — still redirected a later normal
+# run and skipped every control (reproduced by the external reviewer). A PID
+# cannot be satisfied by copying: the child's own `$PPID` must equal it, so only
+# a process actually started by this wire passes, and a leftover export carries
+# a PID from a shell that is no longer anybody's parent.
+if [ -n "${WEBREF_WIRE_SELFTEST:-}" ] && [ "${WEBREF_WIRE_SELFTEST_PPID:-}" != "$PPID" ]; then
   echo "!! WEBREF_WIRE_SELFTEST is set in this environment, but this run was not started" >&2
   echo "   by the controls beside this wire. In self-test mode the scan answers about" >&2
   echo "   \$WEBREF_WIRE_SELFTEST instead of the checkout AND every control is skipped," >&2
@@ -294,16 +328,21 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 #     first repair excluded those characters from the segment ENTIRELY, which
 #     bought the false positive back as a FALSE NEGATIVE: a real path
 #     `.claude/tools/team,inc/rule.md` stopped at the comma and read K2 zero.
-#     So each segment is now "any run of path characters that does not END in
-#     punctuation" — `[^…]*[^…punct]` — which admits `team,inc` and still
-#     refuses a bare `)`. The green control pins one direction and a red
-#     control pins the other; neither alone could have caught this.
+#     ⚠ …and the SECOND repair over-reached in turn, by applying the rule to
+#     BOTH segments: `.claude/tools/team,/rule.md` is a valid path whose first
+#     segment ends in a comma, and it went undetected. The restriction belongs
+#     ONLY on the FINAL segment, because that is the only place the end of the
+#     reference is ambiguous — an intermediate segment is delimited by `/`,
+#     which settles it. So: first segment takes any path characters, the last
+#     may not END in punctuation. Admits `team,inc` and `team,`; still refuses a
+#     bare `)`. The green control pins one direction and a red control the
+#     other; neither alone could have caught either of these.
 #   * A LEADING BOUNDARY is required, so `.claude` must start the string or
 #     follow a `/`. Without it `https://example.claude/skills/team/rule.md`
 #     matched on the suffix of another host name.
 # The leading class is consumed by the match, so a record shows one extra
 # character; that is cheaper than a lookbehind ERE does not have.
-K2RE='(^|[^A-Za-z0-9_.~-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
+K2RE='(^|[^A-Za-z0-9_.~-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]+/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
@@ -662,7 +701,7 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
   elif [ -e "$f" ]; then
     printf 'err\t%s: in the worktree but neither a regular file nor a symlink, so it was NOT opened\n' \
       "$(_esc "$rel")"
-  elif ! _git -C "$ROOT" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+  elif ! _git -C "$ROOT" --literal-pathspecs ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
     # ⚠ INVENTORIED, THEN GONE — AND UNTRACKED, so nothing else answers for it.
     # The arms above all test the path as it is NOW, and a path that vanished
     # between `ls-files` and this read matched none of them: no `ok`, no `err`,
@@ -673,6 +712,11 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
     # ⚠ A TRACKED path deleted from the worktree is NOT this case — the index
     # pass answered for it with its own record — which is why the membership
     # question is asked of git rather than assumed from absence.
+    # ⚠ AND `--literal-pathspecs`, because `$rel` is DATA, not a pattern. Without
+    # it git reads the name as a PATHSPEC: a vanished untracked `foo[1].py`
+    # matched a tracked `foo1.py` and was reported as tracked, so the entry that
+    # nothing had answered for was passed over in silence — the very hole this
+    # arm was added to close. Same lesson as `${var#"$prefix"/}` one layer up.
     printf 'err\t%s: the inventory listed it but it is gone, so this run never read it\n' \
       "$(_esc "$rel")"
   fi
@@ -753,8 +797,18 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # returning 2 for this probe only.
   _hrc=0
   _git -C "$ROOT" rev-parse --verify --quiet HEAD >/dev/null 2>&1 || _hrc=$?
-  if [ "$_hrc" -gt 1 ]; then
-    printf 'err\tthe HEAD probe exited %d, so this run cannot tell an unborn HEAD from a failure\n' "$_hrc"
+  if [ "$_hrc" -ne 0 ]; then
+    # ⚠ EXIT 1 IS NOT "UNBORN" EITHER, and treating it as such was the second
+    # version of this bug: a repository whose branch ref holds malformed data
+    # also exits 1, and the wire then skipped the HEAD inventory and exited 0
+    # over a clean index and worktree while HEAD lookup had actually FAILED.
+    # So the absence is established POSITIVELY — a repository with no commits
+    # at all — and everything else is an error. Measured: truly unborn gives
+    # `rev-list -n1 --all` exit 0 with empty output; a malformed ref gives 128.
+    _urc=0; _any="$(_git -C "$ROOT" rev-list -n 1 --all 2>/dev/null)" || _urc=$?
+    if [ "$_urc" -ne 0 ] || [ -n "$_any" ]; then
+      printf 'err\tHEAD could not be resolved and this repository is not unborn, so the commit was never read\n'
+    fi
   fi
   if [ "$_hrc" -eq 0 ]; then
     _ls_rc=0
