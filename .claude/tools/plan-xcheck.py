@@ -30,14 +30,44 @@ memo never traced. Mutation-confirmed still-open (round 15): §3 row spec
 §-numbers, M-row prose PR claims, cell M-attribution, §6 test-placement routing,
 deleted slot triggers, claimed crate deps, and a cell reference misattributed to
 another cell that also exists.
+
+SCOPE — this program is specific to
+`docs/plans/2026-08-line-box-decorated-inline-content.md`. The PR *namespace* is
+generic (any `PR-<n><letter>` §5.3 defines, with the characterization PR derived
+from §6 rather than named), but four things are this memo's content and will
+mis-fire on any other memo: the prereq names check 9/13 accept (`seam-3`,
+`dead-arm`, `predicate`), the `EVENT_TAGS` check 13 allows, the umbrella slot
+check 8 exempts, and check 12's `SUPERSEDED` line ranges. Do not read a clean run
+on a different memo as coverage.
 """
 import re, sys, pathlib
+
+# The PR namespace is derived, not fixed. The old literal `PR-1[a-z]` made a
+# structurally identical plan numbered `PR-2a` undefined at check 3 and unrouted
+# at checks 5-6 -- a rejection of the memo rather than of a contradiction in it
+# (F5). What stays memo-specific is listed in the module docstring's SCOPE note.
+PR = r"PR-\d+[a-z]"
 
 def sect(s, n):
     m=re.search(rf"^## §{re.escape(n)}\.", s, re.M)
     if not m: return ""
     nxt=re.search(r"^## §", s[m.end():], re.M)
     return s[m.start(): m.end()+ (nxt.start() if nxt else len(s))]
+
+_UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+
+def cells_of(line):
+    """Columns of one markdown table row: split on UNESCAPED pipes, then unescape.
+
+    A raw `.split("|")` turns a cell containing `\\|` into two columns and shifts
+    every positional read after it. On this memo the `border-style` row parsed as
+    7 columns instead of 6, so check 4 read prose where the ✓/✗ glyph is and the
+    row could be neither flagged nor cleared -- it escaped the check entirely
+    rather than failing it."""
+    t=line.strip()
+    if t.startswith("|"): t=t[1:]
+    if t.endswith("|") and not t.endswith("\\|"): t=t[:-1]
+    return [x.strip().replace("\\|", "|") for x in _UNESCAPED_PIPE.split(t)]
 
 def rows(table_text):
     """Data rows of a markdown table: no separator, no header."""
@@ -46,7 +76,7 @@ def rows(table_text):
         # `|x` (no space after the pipe) is valid markdown too; requiring `| ` let a row
         # written that way escape every table check (gate #3 on rev 25, E4).
         if not l.startswith("|") or set(l) <= set("| -:"): continue
-        out.append([x.strip() for x in l.strip("|").split("|")])
+        out.append(cells_of(l))
     return out
 
 def tokens(listing):
@@ -104,14 +134,28 @@ def main(path):
     s=pathlib.Path(path).read_text(); fails=[]
     def bad(c,msg): fails.append(f"[{c}] {msg}")
 
-    m_rows=set(re.findall(r"^\| \*\*(M\d)\*\*", s, re.M))
+    # `|**M3**` (no space after the pipe) is valid markdown; requiring `| ` let an
+    # M-row written that way vanish from `m_rows`, and with its §2 pair row written
+    # the same way the whole coupling escaped checks 1-2 (F2).
+    m_rows=set(re.findall(r"^\|\s*\*\*(M\d)\*\*", s, re.M))
     s2, s3, s5, s6, s8, s10 = (sect(s,n) for n in ("2","3","5","6","8","10"))
     ledger_slots=set(re.findall(r"`(#11-[a-z0-9-]+)`", s10))
 
+    # 0. a section this program reads but cannot find yields an EMPTY string, and
+    # every check keyed on it then runs zero times and reports success. §8 was the
+    # loud case: with it deleted the DoD half of checks 5-6 iterated nothing AND the
+    # `elif s8` in check 7 suppressed the missing-partition error, so a memo with its
+    # entire definition of done removed exited 0 (F4). An absent section is a
+    # contradiction, not a pass.
+    for n, body in (("2",s2), ("3",s3), ("5",s5), ("6",s6), ("8",s8), ("10",s10)):
+        if not body.strip():
+            bad("MISSING", f"§{n} is absent or empty — every check keyed on it ran zero times")
+
     # 1. §2 pair table references only existing M-rows, and each pair names a PR
-    pairs=[l for l in s2.split("\n") if l.startswith("| ") and "×" in l]
-    for l in pairs:
-        c=[x.strip() for x in l.strip("|").split("|")]
+    # Go through the shared row parser: the old `startswith("| ")` filter dropped
+    # compact `|1 × 2 |…` rows, and its own `.split("|")` mis-columned escaped pipes.
+    pairs=[c for c in rows(s2) if any("×" in x for x in c)]
+    for c in pairs:
         if len(c)<4: bad("PAIR", f"row has {len(c)} cols: {c[0]}"); continue
         # a coupling may be resolved by an M-row or by deferring it to a named slot,
         # but a slot named as a routing DESTINATION must be one §10 acts on --
@@ -123,11 +167,11 @@ def main(path):
             elif sl not in ledger_slots:
                 bad("PAIR", f"{c[0]} -> slot {sl} has no §10 ledger row")
     # 2. every M-row appears in some pair
-    for r in sorted(m_rows - {c.strip() for l in pairs for c in l.strip('|').split('|')}):
+    for r in sorted(m_rows - {x for c in pairs for x in c}):
         bad("PAIR", f"{r} is in no coupling pair")
 
     # 3. PR labels used anywhere vs PRs §5.3 defines
-    defined=set(re.findall(r"\*\*(PR-1[a-z]) —", s5))
+    defined=set(re.findall(rf"\*\*({PR}) —", s5))
     used=set(re.findall(r"\*\*(PR-\w+)\*\*", s))
     for u in sorted(used-defined):
         bad("PR", f"{u} referenced but not defined in §5.3")
@@ -147,8 +191,8 @@ def main(path):
     # 5-6. cell routing, PER PR. §6's headers are the structural source of truth;
     #      §8's DoD and §5.3's bullets are prose restatements of it.
     cells=set(re.findall(r"^(\d+[a-z]?)\.\s", s6, re.M))
-    s6_by_pr={k: set(re.findall(r"^(\d+[a-z]?)\.\s", v, re.M))
-              for k,v in chunk_by(s6, r"^\*\*(PR-1[a-z])\b").items()}
+    s6_chunks=chunk_by(s6, rf"^\*\*({PR})\b")
+    s6_by_pr={k: set(re.findall(r"^(\d+[a-z]?)\.\s", v, re.M)) for k,v in s6_chunks.items()}
     routed=set().union(*s6_by_pr.values()) if s6_by_pr else set()
     for c in sorted(cells-routed, key=str):
         bad("CELL", f"cell {c} is under no §6 PR heading")
@@ -158,8 +202,8 @@ def main(path):
                 for c in sorted(own & theirs, key=str):
                     bad("CELL", f"cell {c} is under both {pr}'s and {other}'s §6 heading")
 
-    for label, text, hdr, stop in (("§8 DoD", s8, r"^\*\*(PR-1[a-z])\*\*", r"^\*\*(?!PR-1[a-z]\*\*)"),
-                                   ("§5.3", s5, r"^\* \*\*(PR-1[a-z]) —", r"^\* (?!\*\*PR-1[a-z] —)")):
+    for label, text, hdr, stop in (("§8 DoD", s8, rf"^\*\*({PR})\*\*", rf"^\*\*(?!{PR}\*\*)"),
+                                   ("§5.3", s5, rf"^\* \*\*({PR}) —", rf"^\* (?!\*\*{PR} —)")):
         for pr, body in chunk_by(text, hdr, stop).items():
             land, _ = cell_lists(body)
             for c in sorted(land - cells, key=str):
@@ -170,12 +214,17 @@ def main(path):
             for c in sorted(s6_by_pr.get(pr, set()) - land, key=str):
                 bad("CELL", f"{label} {pr} omits cell {c}, which §6 groups under it")
 
-    # 7. the flip set partitions the characterization PR's cells
+    # 7. the flip set partitions the characterization PR's cells.
+    # The characterization PR is read off §6 -- the one whose heading says so, else
+    # the first -- not hard-coded to `PR-1a`, so a plan numbered differently is
+    # still checked instead of silently comparing against an empty base set.
+    char_pr=next((k for k,v in s6_chunks.items() if "characteriz" in v[:200].lower()),
+                 next(iter(s6_chunks), None))
     flip=nonflip=None
     m=re.search(r"cells? ([\d,\s a-z–-]+?)\s*flip;\s*([\d,\s a-z–-]+?)\s*do not", s8)
     if m:
         flip, nonflip = tokens(m.group(1)), tokens(m.group(2))
-        base=s6_by_pr.get("PR-1a", set())
+        base=s6_by_pr.get(char_pr, set())
         for c in sorted(flip & nonflip, key=str): bad("FLIP", f"cell {c} is listed as both flipping and not")
         for c in sorted(base - flip - nonflip, key=str): bad("FLIP", f"cell {c} is in neither the flip nor the non-flip list")
         for c in sorted((flip | nonflip) - base, key=str): bad("FLIP", f"flip set names cell {c}, not a characterization cell")
@@ -192,7 +241,7 @@ def main(path):
 
     # 9. own-deferral bookkeeping: §5.3's per-PR statement vs §10's own-tagged rows
     stated={}
-    for m in re.finditer(r"(PR-1[a-z]|seam-3 prereq|dead-arm prereq) opens? (\d+|none)", s5):
+    for m in re.finditer(rf"({PR}|seam-3 prereq|dead-arm prereq) opens? (\d+|none)", s5):
         stated[m.group(1)] = 0 if m.group(2)=="none" else int(m.group(2))
     if not stated:
         bad("COUNT", "§5.3 states no per-PR own-deferral count")
@@ -211,12 +260,11 @@ def main(path):
 
     # 9b. §5.3's per-PR "Owns couplings …" must reproduce §2's PR column exactly
     s2_own={}
-    for l in pairs:
-        c=[x.strip() for x in l.strip("|").split("|")]
+    for c in pairs:
         if len(c)>=4 and not c[3].strip("`* ").startswith("#11-"):
             s2_own.setdefault("PR-"+c[3].strip("`* "), set()).add(c[0])
     if s2_own:
-        for pr, body in chunk_by(s5, r"^\* \*\*(PR-1[a-z]) —", r"^\* (?!\*\*PR-1[a-z] —)").items():
+        for pr, body in chunk_by(s5, rf"^\* \*\*({PR}) —", rf"^\* (?!\*\*{PR} —)").items():
             m=re.search(r"Owns couplings? (.+?)(?:\n\n|$)", body, re.S)
             if not m: bad("OWN", f"§5.3 {pr} states no coupling ownership"); continue
             claimed={re.sub(r"\s*×\s*", " × ", t)
@@ -226,15 +274,14 @@ def main(path):
 
     # 10. §3's PR column and §2's PR column must name a PR §5.3 defines (or a slot)
     prs = defined | {"prereq"}
-    for l in pairs:
-        c=[x.strip() for x in l.strip("|").split("|")]
+    for c in pairs:
         if len(c)>=4:
             tok=c[3].strip("`* ")
             if tok and not tok.startswith("#11-") and f"PR-{tok}" not in prs and tok not in prs:
                 bad("ROUTE", f"§2 pair {c[0][:28]} -> unknown PR {tok!r}")
     for l in s3.split("\n"):
-        if not l.startswith("| ") or "---" in l: continue
-        for tok in re.findall(r"PR-1[a-z]", l):
+        if not l.startswith("|") or set(l) <= set("| -:"): continue
+        for tok in re.findall(PR, l):
             if tok not in defined: bad("ROUTE", f"§3 names undefined {tok}")
 
     # 11. §3's stated breadth must match the table it summarises
