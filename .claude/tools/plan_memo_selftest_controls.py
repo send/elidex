@@ -311,9 +311,9 @@ def refused_destination_silence_control(M):
 def demoted_agreement_control(M):
     """Every §3.0b family demoted into a resolved image description, against
     the spec's OWN html -- the cross-product the vendored corpus cannot reach
-    (`plan_memo_selftest_conformance.demoted_agreement_control`; 22 of its 335
-    inline examples render an `<img>` and none carries a backtick or a `<` in
-    the description)."""
+    (`plan_memo_selftest_conformance.demoted_agreement_control`; 23 of its 335
+    inline examples render an `<img>` -- "22" is the Images SECTION's size --
+    and none carries a backtick or a `<` in a DESCRIPTION)."""
     import plan_memo_selftest_conformance as conf
     return conf.demoted_agreement_control(M)
 

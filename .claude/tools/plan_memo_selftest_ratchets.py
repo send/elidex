@@ -80,8 +80,35 @@ def _truncating_mutants():
         for line in replace.split("\n"):
             line = line.strip()
             if line.startswith("for ") and " in " in line and "[:1]" in line:
-                out.add(line.split(" in ")[0] + " in ")
+                out.add(_untruncate(line))
     return out
+
+
+def _untruncate(line):
+    """The ORIGINAL loop line a truncating replacement was made from: drop the
+    `[:1]` and unwrap the `list(...)` a truncation may have added.
+
+    ⚠ THE FIRST VERSION MATCHED A TARGET PREFIX (`for name in `) AND THAT IS
+    THE SAME TRAP THIS CONTROL'S OWN DOCSTRING WARNS ABOUT, one level in (PR
+    #510 R51 audit).  `for memo in ` aliases FIVE loops, `for row in ` five,
+    `for t in ` two and `for name in ` two -- so ONE mutant credited up to five
+    loops, and `for name in kind_disagreements(cell.lexed):` (the R49-1
+    unification) was pinned ONLY by aliasing: truncating it left every control
+    green while the ratchet still printed `0 unpinned`.  A gate that reports
+    "covered" for a loop nothing truncates is worse than no gate, because it is
+    the thing the reader is told to trust.
+    ⚠ Keyed on the LINE, exactly, recovered from the mutant's own edit -- the
+    criterion is the thing itself and not a name that resembles it
+    (`memory/feedback_gate-criterion-by-behaviour-not-by-name.md`)."""
+    head, _, rest = line.partition(" in ")
+    rest = rest.rstrip()
+    assert rest.endswith(":"), rest
+    expr = rest[:-1]
+    if expr.endswith("[:1]"):
+        expr = expr[:-len("[:1]")]
+    if expr.startswith("list(") and expr.endswith(")"):
+        expr = expr[len("list("):-1]
+    return "%s in %s:" % (head, expr)
 
 
 def population_scope_control(M):
@@ -98,6 +125,23 @@ def population_scope_control(M):
     is every `ast.For` in the module, read off the source the current module
     set was exec'd from, and a loop that is neither pinned nor in the stated
     complement `_SCOPE_EXEMPT` is red.
+
+    ⚠⚠ WHAT IT DOES NOT MEASURE, stated because a ratchet's own reach is the
+    first thing its reader will over-trust (PR #510 R51 audit, which MEASURED
+    each of these rather than predicting them):
+      * the population is `ast.For` in ONE file.  It misses 11 comprehensions
+        and generator expressions and 1 `while` in this module -- including
+        `while queue:`, which IS the population walk -- and every loop in every
+        other module.  Measured, not assumed: truncating `_phrases`' own
+        comprehension CRASHES (held by construction, like the exempt entries),
+        and truncating `data_rows`' is caught by 8 controls, so there is no
+        live hole by that route today;
+      * `map` / `filter` / `next` / recursion are not loops to `ast`;
+      * it asserts a truncating mutant EXISTS, not that it is the strongest
+        one possible.
+    Naming them is the point: a declared blind spot is a map of where the next
+    finding lands (`memory/feedback_declared-blind-spots-are-where-the-next-
+    finding-lands.md`), and this list is the map.
 
     ⚠ STATIC, AND THAT IS WHAT MAKES IT AFFORDABLE.  It asserts that a
     truncating mutant EXISTS for each loop; the mutation proof separately
@@ -120,10 +164,8 @@ def population_scope_control(M):
     loops = _census_loops(text)
     pinned = _truncating_mutants()
     unpinned = [(ln, src) for ln, src in loops
-                if src not in _SCOPE_EXEMPT
-                and not any(src.startswith(pre) for pre in pinned)]
-    orphan = [pre for pre in pinned
-              if not any(src.startswith(pre) for _ln, src in loops)]
+                if src not in _SCOPE_EXEMPT and src not in pinned]
+    orphan = [pre for pre in pinned if pre not in {src for _ln, src in loops}]
     bad = (["%d `%s` is neither pinned nor in the stated complement" % (ln, src)
             for ln, src in unpinned]
            + ["a truncating mutant names `%s`, which the module no longer has" % pre
@@ -134,7 +176,7 @@ def population_scope_control(M):
     # wrong one.  Exempt is decided first, so each loop lands in exactly one.
     n_exempt = sum(1 for _ln, src in loops if src in _SCOPE_EXEMPT)
     n_pinned = sum(1 for _ln, src in loops
-                   if src not in _SCOPE_EXEMPT and any(src.startswith(p) for p in pinned))
+                   if src not in _SCOPE_EXEMPT and src in pinned)
     assert n_exempt + n_pinned + len(unpinned) == len(loops), "the three buckets must partition"
     return not bad, ("%d loop(s) = %d pinned by a truncating mutant + %d exempt with a reason "
                      "+ %d unpinned%s"
@@ -159,7 +201,28 @@ _KIND_QUESTION_SITES = {
         "_kind_residue": "the REPORTING site: it names which phrase the two readings "
                          "disagree about, which is more than `_claims`' boolean",
     },
+    "_claims": {
+        "_unkeyed": "the blank-id contradiction",
+        "_unbound_claims": "the unbound-table gate. ⚠ Written here first as "
+                           "`_lost_declarations`, a name from a second arm that was reverted "
+                           "with its code -- and THIS ratchet caught the stale spelling on its "
+                           "first run, which is the difference between a complement that is "
+                           "checked and one that is asserted",
+        "assertion_a": "the marker-outside-the-declaring-field check, which asks the same "
+                       "question of a NON-declaring cell",
+    },
 }
+
+# ⚠ THE POPULATION IS THE WHOLE MODULE SET, not the census module (PR #510
+# R52).  Scoped to one file, this ratchet declared -- in its own docstring, one
+# commit before it happened -- that "a caller in ANOTHER MODULE is outside the
+# population entirely".  The very next round found one: `plan_memo_roles.py`'s
+# marker-outside-the-declaring-field check was searching the disposed stream
+# alone, the FOURTH site of this question in four rounds.  A declared blind spot
+# is a map of where the next finding lands, measured again
+# (`memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md`).
+_KIND_QUESTION_MODULES = ("plan_memo_population.py", "plan_memo_roles.py",
+                          "plan_memo_tables.py", "plan_memo_memo.py", "plan_memo_stream.py")
 
 
 def kind_question_site_control(M):
@@ -173,39 +236,58 @@ def kind_question_site_control(M):
     still did not, and was reported the round after THAT -- each fix a patch at
     the site that had just been named.
     ⚠ So the question has ONE implementation (`Population._claims`) and this
-    control is what stops a fourth caller from asking it a fourth way: the
+    control is what makes a fourth caller IN THIS MODULE visible: the
     population is every call to either name in the census module, read off the
     AST, and a caller outside the stated complement is red.  It is the
     `population_scope_control` idea applied to a QUESTION rather than to a
-    loop -- and, like that one, it is derived rather than listed."""
+    loop -- and, like that one, it is derived rather than listed.
+
+    ⚠⚠ IT MEASURES CALLS TO TWO NAMES, NOT THE QUESTION, which is less than
+    "cannot ask it a fourth way" would promise.  Both gaps were MEASURED (PR
+    #510 R51 audit) and the first statement of this docstring overclaimed:
+      * a caller that RE-DERIVES the question from `KIND_PHRASES` directly,
+        stream-only -- the exact R49-1 defect -- leaves this at `0
+        unsanctioned`; `KIND_PHRASES` is already read directly at three sites
+        outside this module.  ⚠ NOT LIVE: when it was tried the behavioural
+        backstop fired (the R49-1 control went red), so the class is covered by
+        a control even though it is not covered here;
+      * a caller in ANOTHER MODULE is outside the population entirely -- moving
+        the question body into `plan_memo_roles.py` left every control green
+        and this reporting `0 unsanctioned`, because the `if not seen` guard
+        only fires when BOTH names vanish from the one file parsed and
+        `kind_disagreements` is defined elsewhere.
+    The honest claim is the narrower one, and it is the one made above."""
     import ast
-    text = dict(_swept_sources()).get("plan_memo_population.py", "")
-    if not text:
-        return False, "the census module is not in the swept population"
-    tree = ast.parse(text)
-    fn_of, bad, seen = {}, [], 0
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            for sub in ast.walk(node):
-                fn_of[id(sub)] = node.name
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        f = node.func
-        name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
-        if name not in _KIND_QUESTION_SITES:
-            continue
-        seen += 1
-        caller = fn_of.get(id(node))
-        if caller not in _KIND_QUESTION_SITES[name]:
-            bad.append("`%s` is called from `%s`, which is not a sanctioned site "
-                       "(route it through `_claims`, or state why it asks directly)"
-                       % (name, caller))
+    sources = dict(_swept_sources())
+    missing = [m for m in _KIND_QUESTION_MODULES if m not in sources]
+    if missing:
+        return False, "modules absent from the swept population: %s" % missing
+    bad, seen = [], 0
+    for mod in _KIND_QUESTION_MODULES:
+        tree = ast.parse(sources[mod])
+        fn_of = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                for sub in ast.walk(node):
+                    fn_of[id(sub)] = node.name
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+            if name not in _KIND_QUESTION_SITES:
+                continue
+            seen += 1
+            caller = fn_of.get(id(node))
+            if caller not in _KIND_QUESTION_SITES[name]:
+                bad.append("`%s` is called from `%s` in %s, which is not a sanctioned site "
+                           "(route it through `_claims`, or state why it asks directly)"
+                           % (name, caller, mod))
     if not seen:
         return False, ("no call to a kind-phrase question was found: the names this control "
                        "reads are no longer the ones the module writes")
-    return not bad, ("%d call site(s) over %d question(s), %d unsanctioned%s"
-                     % (seen, len(_KIND_QUESTION_SITES), len(bad),
+    return not bad, ("%d call site(s) over %d question(s) in %d module(s), %d unsanctioned%s"
+                     % (seen, len(_KIND_QUESTION_SITES), len(_KIND_QUESTION_MODULES), len(bad),
                         ("; " + "; ".join(bad[:4])) if bad else ""))
 
 

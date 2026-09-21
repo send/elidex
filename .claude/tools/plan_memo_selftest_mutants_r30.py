@@ -49,6 +49,7 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
     R47_4_BASELINE, R47_4_BOUNDARY, R47_4_NBSP, R47_4_NON_WHITESPACE, R47_4_TAB,
     R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
     R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS, R49_2_ARROW_LABEL, R49_2_EMPTY_LABEL,
+    R51_CD_SEED_LINK, R51_TWO_STRADDLES, R52_OUTSIDE_QUOTED, R52_OUTSIDE_STRADDLE,
     R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
 )
 from plan_memo_selftest_mutants import (
@@ -404,7 +405,7 @@ MUTANTS += [
      ROLES,
      '    return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links',
      '    return is_empty(stream(cell.lexed, reader=True))',
-     [R49_2_EMPTY_LABEL, R49_2_ARROW_LABEL]),
+     [R49_2_EMPTY_LABEL, R49_2_ARROW_LABEL, R51_CD_SEED_LINK]),
 ]
 
 
@@ -958,4 +959,23 @@ MUTANTS += [
      '        for _m in hit["undetermined"]:\n            self.spellings.add(_m.group(0))',
      '        for _m in hit["undetermined"][:1]:\n            self.spellings.add(_m.group(0))',
      [R48_2_TWO_SPELLINGS]),
+]
+
+MUTANTS += [
+    ("R51 claims: EVERY disagreement the canonical question returns is marked (truncate the loop "
+     "inside `_claims` -- the one the ratchet credited to a mutant that never touched it, because "
+     "it matched a target PREFIX)", POPULATION,
+     '        for name in kind_disagreements(cell.lexed):\n            hit[name] = True',
+     '        for name in list(kind_disagreements(cell.lexed))[:1]:\n            hit[name] = True',
+     [R51_TWO_STRADDLES]),
+]
+
+MUTANTS += [
+    ("R52 outside-field: the marker-outside-the-declaring-field check asks the CANONICAL question "
+     "(re-inject the stream-only search -- a marker split across a masked construct certifies "
+     "nothing and nothing says so)", ROLES,
+     '        if any(pop._claims(c).get("marker")',
+     '        if any(__import__("plan_memo_stream").MARKER_RE.search(\n'
+     '                   __import__("plan_memo_stream").stream(c.lexed))',
+     [R52_OUTSIDE_STRADDLE]),
 ]

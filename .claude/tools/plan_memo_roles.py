@@ -445,7 +445,18 @@ def assertion_a(pop, findings, notes):
                  "marker -- read it: a declaration, a quotation of the criterion, or "
                  "another row's kind?" % row.name()))
         # the marker outside the declaring field certifies nothing
-        if any(MARKER_RE.search(stream(c.lexed))
+        # ⚠ THROUGH THE CANONICAL QUESTION (PR #510 R52): this searched the
+        # disposed STREAM alone, so a marker SPLIT across a masked construct --
+        # `` **UMBRELLA, not a `terminal` unit.** `` in `Primary module(s)` --
+        # was invisible, and the row left assertion (a) at rc 0 with only a
+        # non-gating seed.  That is the FOURTH site of the same question in
+        # four rounds (`_kind_residue`, `_unbound_claims` at R47-2, the blank-id
+        # contradiction at R49-1, this), and the first one OUTSIDE the census
+        # module -- which is exactly the hole the kind-question ratchet had
+        # declared one commit earlier and did not cover.
+        # ⚠ `_claims` keeps I-A by construction: a phrase quoted WHOLE is not a
+        # straddle, so the quoted cell still certifies nothing.
+        if any(pop._claims(c).get("marker")
                for i, c in enumerate(row.cells) if i != row.schema.decl):
             findings.append(
                 ("UMBRELLA-MARK", pop.display(row.memo.path), row.lineno,
@@ -507,7 +518,21 @@ def deps_is_empty(cell):
 
     A resolved link is an edge whatever its LABEL renders as, so the question
     is asked of the cell rather than of a string: "does the document put an
-    edge here", which is what R34-2 already decided this question means."""
+    edge here", which is what R34-2 already decided this question means.
+
+    ⚠ IT CHANGES THE OTHER CALLER TOO, AND THAT WAS UNSTATED WHEN THE ARM
+    LANDED (PR #510 R51 audit).  `assertion_cd_seed` asks this same question,
+    so a link-only `Deps` cell now takes the NON-EMPTY branch there: a row with
+    ordering vocabulary in its prose and a bare `[](sib.md)` in its cell emits
+    NO `ORDER-PROSE?` seed where it previously did.  Measured, 1 -> 0.
+    ⚠ That FOLLOWS from the decision rather than contradicting it -- the cell
+    does carry an edge, and the seed's subject is prose ordering with an EMPTY
+    cell -- but it is a real loss and is named here rather than left for the
+    next reader to discover: the alternative reading is that a label-less link
+    points at a FILE and never says which ROW the ordering is against, so the
+    prose ordering is still undeclared as an edge.  The current reading is
+    pinned by a control on the cd-seed side, so flipping it is a decision
+    somebody makes rather than a side effect somebody ships."""
     return is_empty(stream(cell.lexed, reader=True)) and not cell.lexed.links
 
 

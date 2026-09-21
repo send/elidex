@@ -214,9 +214,13 @@ def inline_claim(lx, body):
     # its two semantic siblings in the same function
     # (`memory/feedback_semantic-sibling-selfseed-and-regate-breadth.md`).
     # ⚠ The corpus cannot reach it and that is measured, not assumed: of the
-    # 335 inline examples 22 render an `<img>`, and of those ZERO carry a
-    # backtick and ZERO carry a `<` in the DESCRIPTION (Example 580's `<` is in
-    # the destination).  `lx.links` needs no filter -- a demoted link is
+    # 335 inline examples 23 render an `<img>` (19 Images, 3 Links, 1 Emphasis -- "22" is the IMAGES
+    # SECTION's size, a different predicate), and of those ZERO carry a
+    # backtick and the two carrying a `<` are Example 580 (in the DESTINATION)
+    # and Example 475 (raw HTML, no description).
+    # ⚠ The figure was written as 22 here and retracted one commit later at
+    # line ~197 without sweeping THIS site, twenty lines below it, in the
+    # commit titled "corrections that had not been swept".  `lx.links` needs no filter -- a demoted link is
     # CONVERTED into `images` at the image close and never stays in `out` --
     # and `images` / `emphasis` already filter by their own tag below.
     code = [e for e in lx.code if e[2] != "demoted"]
@@ -512,9 +516,11 @@ def demoted_agreement_control(M):
     should.
 
     ⚠ THIS CONTROL EXISTS BECAUSE THE CORPUS CANNOT REACH THE CASE, and that
-    is measured rather than assumed: of the 335 vendored inline examples, 22
-    render an `<img>`, and of those ZERO carry a backtick and ZERO carry a `<`
-    in the DESCRIPTION.  So `inline_examples_control` runs green over a
+    is measured rather than assumed: of the 335 vendored inline examples **23**
+    render an `<img>` (19 Images, 3 Links, 1 Emphasis -- "22" is the IMAGES
+    SECTION's size, a different predicate), ZERO of those carry a backtick, and
+    the two carrying a `<` are Example 580 (in the DESTINATION) and Example 475
+    (raw HTML, no description).  So `inline_examples_control` runs green over a
     falsifier that FABRICATES failures here -- which is exactly what it did:
     R42-5a made a demoted code span and autolink render their content (no
     `<code>`, no `<a href=` in the html), while `inline_claim` kept counting

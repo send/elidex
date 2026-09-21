@@ -666,7 +666,7 @@ ground for either option; it is not cited.
   site of both. ⚠ Touch-time split before Codex R15 (`plan_memo_selftest_mutants.py` had reached 981
   lines): the mutant registry is split at the SAME seam — `plan_memo_selftest_mutants.py` keeps the
   row shape, `run` and every pre-converge mutant; `plan_memo_selftest_mutants_pr510.py` holds the PR
-  #510 review-round mutants and appends to the same `MUTANTS`; the runner imports both. ⚠ Touch-time split on 2026-09-21 (`plan_memo_selftest_cases_r26.py` went 773 → 924 under the R42-8 / R42-10 controls of that session): the R42 family is carved to `plan_memo_selftest_cases_r42.py` at the REVIEW-ROUND seam this suite splits on four times already, 624 + 328. ⚠ Taken at TOUCH TIME and not at the 1,000-line bound (`memory/feedback_touch-time-split-means-while-writing.md`), and taken as its own commit AFTER the feature commit rather than before it — the honest record, since the seam only became visible once the controls were written. The seam was MEASURED: an AST pass reports the R42 group using exactly TWO names from the rest of the module (the fixture builders `_idcell` / `_kindcell`, which lose their underscore in the same commit because a name that crosses a module boundary is not module-private) and the rest using none of the R42 group's. Control NAME SET identical across the split (691 lines of names, `cmp` clean against the committed head with the new file stashed too — the first comparison was contaminated by the untracked module surviving a plain `git stash`), 693 / 392 0-0, census `--worklist` byte-identical, `MODULES` map back to 34 / 34. ⚠ Touch-time split before design re-gate 3 (`plan_memo_tables.py` had reached 879
+  #510 review-round mutants and appends to the same `MUTANTS`; the runner imports both. ⚠ Touch-time split on 2026-09-21 (`plan_memo_selftest_cases_r26.py` went 773 → 924 under the R42-8 / R42-10 controls of that session): the R42 family is carved to `plan_memo_selftest_cases_r42.py` at the REVIEW-ROUND seam this suite splits on four times already, 624 + 328. ⚠ Taken at TOUCH TIME and not at the 1,000-line bound (`memory/feedback_touch-time-split-means-while-writing.md`), and taken as its own commit AFTER the feature commit rather than before it — the honest record, since the seam only became visible once the controls were written. The seam was MEASURED: an AST pass reports the R42 group using exactly TWO names from the rest of the module (the fixture builders `_idcell` / `_kindcell`, which lose their underscore in the same commit because a name that crosses a module boundary is not module-private) and the rest using none of the R42 group's. Control NAME SET identical across the split — **all 693**, `cmp` clean, taken from `plan_memo_selftest_controls.registry()` in two `git clone --local` checkouts of the parent and the split. ⚠ **The first statement of this was a universal over an incomplete extraction**: it read "691 lines of names", because the names were scraped from the RUN's output with a `^  (ok|FAIL)` pattern and the two KNOWN-MISS controls print `RED`, so exactly those two were never compared while the sentence claimed the SET. Re-measured from the registry, which is the population itself rather than a rendering of it, and the claim holds — but it held unverified for two of its members. ⚠ An earlier attempt was also contaminated by the untracked new module surviving a plain `git stash` (it needs `-u`), 693 / 392 0-0, census `--worklist` byte-identical, `MODULES` map back to 34 / 34. ⚠ Touch-time split before design re-gate 3 (`plan_memo_tables.py` had reached 879
   lines): `Memo` (the Phase-1 driver `_parse` / `_quote`, Phase-2 resolution, file I/O, the sibling
   resolver) AND `Population` move to `plan_memo_memo.py` — `Population` cannot stay behind, since
   `Population → Memo → admit_table` would then be an import cycle (`admit_table` stays with the
@@ -923,9 +923,16 @@ standalone touch-time commits (§7 Slice 0). A further split would be a split of
 not of the work — which changes no reader's decision and loses the one home that ties the entries to
 the design they came from.
 
-⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** Six of the ten own entries
-were produced by the REVIEW LOOP rather than by the plan (4, 5, 6, 7, 10 and the row splitter), and
-that is the honest reading of why the cap is breached: a 40-round external convergence on a program
+⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **Ten of the fourteen own
+entries** were produced by the REVIEW LOOP rather than by the plan — (4)–(8) and (11)–(15) — and
+that is the honest reading of why the cap is breached:
+⚠ **THIS SENTENCE WAS STALE IN THREE WAYS AT ONCE AND IS CORRECTED HERE** (PR #510 R51 audit). It
+read *"Six of the ten own entries … (4, 5, 6, 7, 10 and the row splitter)"*: the headline had moved
+to fourteen own two commits earlier; it listed **(10)**, which the enumeration above classifies
+**pre-existing**, so it cannot be an own entry at all; and (10)'s own paragraph says it *"ARRIVED BY
+AUDIT, NOT BY REVIEW"*, which this sentence contradicted. A count, a classification and a provenance
+all wrong in one clause — and every one of them re-derivable from the list ten lines above it. That
+is the argument for the enumeration form, made against the paragraph that introduced it. a 40-round external convergence on a program
 whose subject is itself a checker generates carves faster than a cap written for feature PRs
 anticipates. That is an argument for (d) here, and an argument for
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` being applied to the NEXT slice
@@ -1093,8 +1100,12 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   families". Measured: `git grep -c split_row origin/main` = **0 hits**, and `origin/main` carries
   exactly **one** GFM row splitter, `elidex-plan-review/preflight.py::_parse_table_row`. The other
   three are on UNLANDED branches and one of them — `plan_memo_blocks.py::split_row` — is introduced
-  **by this PR**. That makes the deferral own, and the honest count **10 own / 1 pre-existing**, not
-  9 / 2. The entry's own trigger ("two of them on `main`") is consistent with one and stands.**)**
+  **by this PR**. That makes the deferral own. ⚠ **The count that stood here — "10 own /
+  1 pre-existing, not 9 / 2" — is REMOVED rather than refreshed**: it was true when the entry was
+  written and the list has grown five times since, so a tally inside an ENTRY is a second home for
+  a figure the section's own enumeration already carries. The classification of THIS entry (own, on
+  the measurement above) is what belongs here; the count belongs to the enumeration and nowhere
+  else. The entry's own trigger ("two of them on `main`") is consistent with one and stands.**)**
   GFM row splitter duplicated four ways across three branch families — trigger = two of
   them on `main`; Slice 1's `split_row` is the candidate canonical copy; no slot; no date — trigger-only.
 - **(pre-existing** — a standing project choice predating this PR**)** Markdown library dependency

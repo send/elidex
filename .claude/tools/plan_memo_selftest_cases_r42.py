@@ -667,3 +667,61 @@ acase("NEGATIVE", "(R49-2) and a genuinely blank `Deps` cell is still empty: the
                   "ADDITION to the shape rule, not a replacement -- `—` carries no edge and no link",
       build(d9z="**—**"), "UMBRELLA-CELL", 0)
 R49_2_REAL_BLANK = CASES[-1].name
+
+
+# -- R51 audit: the loop inside `_claims` was pinned ONLY by the ratchet's
+# prefix aliasing -- truncating it left every control green.
+# ⚠ THE FIRST FIXTURE FOR THIS DID NOT DISCRIMINATE AND THE MUTANT SURVIVED.
+# It spelled the second phrase `` KIND `x` UNDETERMINED ``, whose blank renders
+# as SPACES -- so `KIND   UNDETERMINED` still matches the STREAM, the phrase
+# came from `_phrases` rather than from the disagreement loop, and truncating
+# the loop changed nothing.  Both phrases must fail the stream for the loop to
+# be the subject: `` KIND UNDETER`MINED` `` leaves `KIND UNDETER` behind, which
+# matches nothing, while a reader sees `KIND UNDETERMINED`.
+# (`memory/feedback_surviving-mutation-means-the-probe-has-another-subject.md`)
+case("POSITIVE", "(R51) a blank-id row whose field straddles a masked span with TWO kind phrases "
+                 "names BOTH: `_claims` marks every disagreement the canonical question returns, "
+                 "not the first.  Truncated, the miss reads one kind and a reader deleting that one "
+                 "believes the row is settled",
+     build(i7z="**—**", s7z="**UMBRELLA, not a `terminal` unit.** and KIND UNDETER`MINED`",
+           d7z="**9z**"), "", 1,
+     measure=("schema", "spells a kind (marker/undetermined)"))
+R51_TWO_STRADDLES = CASES[-1].name
+
+
+# -- R51 audit: the R49-2 links arm changes `assertion_cd_seed` too, which the
+# commit that added it did not say.  Pinned on THAT side so the reading is a
+# decision and not a side effect.
+case("NEGATIVE", "(R51) the links arm reaches the cd-seed as well: a row with ordering vocabulary in "
+                 "its prose and a bare `[](sib.md)` in its `Deps` cell emits NO `ORDER-PROSE?` seed, "
+                 "because the cell is not empty.  Measured 1 -> 0 when the arm landed, and unstated "
+                 "until an audit asked.  ⚠ The alternative reading -- a label-less link names a FILE "
+                 "and never says which ROW the ordering is against -- is recorded in "
+                 "`deps_is_empty`'s docstring; this control is what makes flipping it a decision",
+     build(s7z="Terminal.  This lands before the rewrite.", d7z="[](slice-9z-sib.md)"), "", 0,
+     measure=("finding", "ORDER-PROSE?"), sibling="# sibling\n")
+R51_CD_SEED_LINK = CASES[-1].name
+
+
+# -- R52: the FOURTH site of the contradiction question, and the FIRST outside
+# the census module -- which is exactly the hole the kind-question ratchet
+# declared one commit earlier and did not cover.  A declared blind spot is a map
+# of where the next finding lands, measured again.
+_OUTSIDE = "| **7z** | Terminal. Terminal.  Acceptance: the probe must return 3. | `b.rs` |"
+for _label, _mk, _want in (
+        ("STRADDLING a masked construct", "**UMBRELLA, not a `terminal` unit.**", 1),
+        ("spelled cleanly (the twin that was ALWAYS reported)", "**UMBRELLA, not a terminal unit.**", 1),
+        ("quoted WHOLE (I-A: a quotation certifies nothing, and still does not)",
+         "`UMBRELLA, not a terminal unit.`", 0)):
+    acase("POSITIVE" if _want else "NEGATIVE",
+          "(R52) a marker OUTSIDE the declaring field, %s: assertion (a)'s outside-field check "
+          "searched the disposed STREAM alone, so the straddled spelling was invisible and the row "
+          "left at rc 0 with only a non-gating seed while the clean spelling exited 1.  Asked "
+          "through the canonical `_claims` now -- which keeps the quoted case by construction, "
+          "since a phrase quoted whole is not a straddle" % _label,
+          build().replace(_OUTSIDE, _OUTSIDE.replace("| `b.rs` |", "| " + _mk + " |")),
+          "UMBRELLA-MARK", _want)
+    if _want and "STRADDLING" in _label:
+        R52_OUTSIDE_STRADDLE = CASES[-1].name
+    elif not _want:
+        R52_OUTSIDE_QUOTED = CASES[-1].name
