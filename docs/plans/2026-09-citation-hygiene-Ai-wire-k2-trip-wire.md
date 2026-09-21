@@ -78,17 +78,19 @@ CLAUDE.md's layering mandate, neither of which is a web specification.
 |---|---|---|---|---|---|
 | (none — §0 explains why) | n/a | n/a | n/a | n/a | n/a |
 
-⚠ The Step 0 preflight hard-fails a memo with no resolvable `§<number>` row. That is expected
-here and is a known shape in this repo, not a defect in this memo — derive the population of
-memos in the same position rather than taking the claim:
+⚠ **A first draft of this row predicted that Step 0 would hard-fail here. It does not** — the
+placeholder row parses, resolves to no known spec label, and preflight exits 0 with one soft
+finding. The prediction was written from the shape of the rule rather than from running it,
+which is the failure mode this program exists to remove, so it is recorded rather than
+quietly corrected. Run it, do not predict it:
 
 ```sh
-for f in $(git ls-files 'docs/plans/*.md'); do \
-  python3 .claude/skills/elidex-plan-review/preflight.py "$f" >/dev/null 2>&1 \
-  || echo "$f"; done | wc -l
+python3 .claude/skills/elidex-plan-review/preflight.py \
+  docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md; echo "rc=$?"
 ```
 
-The review that matters for this slice is Steps 1–4, not Step 0's citation arm.
+What Step 0's citation arm can say about this slice is *nothing*, because there is nothing for
+it to resolve. The review that decides this slice is Steps 1–4.
 
 ## §4 Artifacts
 
