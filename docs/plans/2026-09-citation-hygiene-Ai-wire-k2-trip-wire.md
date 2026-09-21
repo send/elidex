@@ -511,9 +511,12 @@ no contract. Three changes:
 scanning the real tree — is not one this wire wants: its contract is that a green is earned by
 both halves of the same run.
 
-⚠ **And no second seam is taken.** Re-derive the sizes rather than reading them (§0's first
-command): after this revision the scanner is in the 700-line band that CLAUDE.md's touch-time
-discipline says to look at *while writing*. Looked at, and the answer is no: the split rule is a
+⚠ **And no second seam is taken — as judged at the time. That judgement is now SUPERSEDED; see
+§8.** Re-derive the sizes rather than reading them (§0's first command): when this was written
+the scanner was in the 700-line band CLAUDE.md's touch-time discipline says to look at *while
+writing*, and four external-review rounds have since carried both files past **1000**, which is
+the hard trigger rather than the band. The reasoning below is kept because it is what a re-derivation
+at 1000 has to argue against, not because it still concludes. Looked at then, the answer was no: the split rule is a
 **cohesion** judgement, not a line count, and what is left is one predicate, one walk, one
 verdict — a monolithic cohesive unit, mostly rationale (§0's first command prints the
 code/comment split; a previous revision put a fraction here, and it was both a quantity that
@@ -724,23 +727,53 @@ instrument.
 
 ## §8 Defer slots
 
-**None, and §5 item 1 is why** — not "none yet". A defer slot records work the slice owes; the
-four declared blind spots record the **reach of a predicate**, which is a different object.
-Registering the wire in CI changes who runs it and how often; it does not widen its subject, so
-it cannot turn a statement about reach into an obligation.
+**Three, and an earlier revision of this section said zero.** That was right about the four
+declared blind spots and wrong as a total: the loop added obligations §8 was never reopened to
+see. The distinction it draws still holds — *a defer slot records work the slice owes; a
+declared blind spot records the reach of a predicate* — and it is what sorts the list below.
 
-⚠ **And for two of the four a slot would be unfileable on its own terms.** Interpolation and
-bare top-level names are properties of a grep over arbitrary source text: *"closable here"* is
-answerable only as **no**, so a `Re-evaluation trigger` could never fire — worse than the
-undated trigger the lane's precedent already rejects (*"has nothing that forces a look"*).
+### Not slots, and why (unchanged)
 
-⚠ **The cap arithmetic therefore does not arise.** Own deferrals: **0**, against a per-PR cap of
-3. Draft 2 recorded four candidates over the cap and the cap policy's ban on deleting slots to
-make the arithmetic work; nothing is deleted here — the candidates were never obligations.
+The **seven** classes in the wire's `WHAT THIS WIRE DOES NOT DECIDE` block are reach, not work.
+For interpolation and bare top-level names, *"closable here"* is answerable only as **no**, so a
+`Re-evaluation trigger` could never fire — worse than the undated trigger the lane's precedent
+already rejects. ⚠ The list was **five** when this section was first written and is seven now;
+the two additions are recorded at §10.3 and §10.4.
 
-**Where the five are stated**: one block in the wire, `WHAT THIS WIRE DOES NOT DECIDE`. #501's
-memo used to restate two of them and to book all of them as slots on this PR; **both are swept
-in this diff** (§5 item 1), so the single site is now true rather than asserted.
+### Slot 1 — the touch-time split, and it is the discipline's own prescribed shape
+
+| | |
+|---|---|
+| **Why deferred** | Both shell files crossed **1000 lines** during this converge loop (measure: `wc -l .claude/tools/webref-generic-core-trip-wire*.sh`). CLAUDE.md's touch-time discipline says a >1000-line file gets a **standalone prereq split** and — in the same sentence — that the split must be **its own PR / its own commit**, never bundled into the feature PR. So doing it here is what the rule forbids, not what it asks. |
+| **Re-evaluation trigger** | Immediately after #519 lands, before the next PR that edits either file. |
+| **Re-evaluation date** | 2026-09-28 |
+
+⚠ **This is not "the file got big".** It is an obligation created *by this PR's own review loop*:
++240 and +186 lines across four rounds. And the seam question is genuinely reopened — §5 item 5's
+"one predicate, one walk, one verdict" argument was made against a 786-line file and has to be
+re-derived at 1026, where the header alone is now a third of it.
+
+### Slot 2 — `_match_path`'s `|| return 4` is unpinned
+
+| | |
+|---|---|
+| **Why deferred** | `_onerec` is parameter expansion, so nothing external is left for a shim to break and the only way to reach the guard is to edit the function — a mutation, not an input. The guard is kept for the shape one refactor away (an `_onerec` that shells out again). |
+| **Re-evaluation trigger** | Any change that puts an external command back into `_onerec`. |
+| **Re-evaluation date** | 2026-12-31 |
+
+### Slot 3 — the ratchet's `wc -l` path is unpinned
+
+| | |
+|---|---|
+| **Why deferred** | The bug it fixes (`grep -c .` exiting 1 on an empty file) fires only when **every** control has a mutation record, i.e. when `_MUT_UNRECORDED_MAX` reaches 0. That state is not reachable today. |
+| **Re-evaluation trigger** | `_MUT_UNRECORDED_MAX` reaching 0 — a condition the ratchet already makes monotone-downward, so it is fireable rather than notional. |
+| **Re-evaluation date** | 2026-12-31 |
+
+⚠ **Own-deferral count: 3, against a per-PR cap of 3.** At the cap, not over it. ⚠ And the
+honest note on slots 2 and 3: both are *"a code path the gate's own tests cannot reach"*, which
+is a smaller admission than a blind spot but a real one, and the cap policy forbids deleting a
+slot to make arithmetic work — so if a fourth arrives, one of these has to be closed rather than
+re-labelled.
 
 ## §9 What the pre-push gate changed, and what it deliberately did not
 
@@ -953,3 +986,67 @@ unbornness — the shim had silently become a control for a different arm. Narro
 match**, because the first half consumes the space the second needs, so the shim matched
 nothing and the control exercised an unshimmed git. **A shim shims the one call it names, and
 "one call" means the verb and the flag, as one adjacent sequence.**
+
+### §10.4 Round 5 + the design re-gate — the round that judged round 4 wrong
+
+R4 declared *"option A — step back and collapse, not a fifth boundary patch."* Codex's R5 and
+the mandated cumulative design re-gate (two axes, run because PAUSE fired and a divergent loop
+never reaches TERMINAL) agree it was **both**, and that the patch half was the worst change in
+this PR.
+
+**The CRIT: R4's leading-boundary rewrite made a required gate FAIL OPEN.** Replacing the
+exclusion class with a positive delimiter list closed one contrived false positive
+(`foo@.claude/…`) and opened at least five false negatives. Measured, HEAD-at-R4 vs the
+revision before it:
+
+| input | R3 | R4 |
+|---|---|---|
+| `DEFAULT=.claude/skills/a/b.md` | HIT | **MISS** |
+| `--paths=.claude/skills/a/b.md` | HIT | **MISS** |
+| `k:.claude/skills/a/b.md` | HIT | **MISS** |
+| `` `.claude/skills/a/b.md` `` | HIT | **MISS** |
+| `**.claude/skills/a/b.md**` | HIT | **MISS** |
+
+⚠ **Two of those shapes are live in the scanned tree**: `--opt=<path>` is how `cli.py` spells
+its `--help` examples, and a backtick is how `DESIGN.md` — which is Markdown — spells a path.
+**The gate silently stopped covering its own most likely violation**, and no control could see
+it because every red-direction fixture writes its path after a space or a quote.
+
+**What was actually missing was not a better list — it was a stated failure DIRECTION.**
+Neither form can enumerate its complement; the question is where an unknown character lands:
+
+> an **exclusion** class makes it a *boundary* → over-match → **false positive** → the gate
+> reds, somebody looks, somebody fixes it.
+> a **positive** list makes it *not* a boundary → under-match → **false negative** → the gate
+> is green and nobody ever finds out.
+
+In a required gate those are not symmetric. The class is an exclusion again, `@` is handled
+*inside* it (beside `+`, `%`, `-`), and the reasoning is in the wire so the next round cannot
+re-derive it wrong. **Six new red-direction fixtures** pin the spellings above — the direction
+that had no control at all.
+
+**And the retraction had only reached the reader, not the gate.** Three reviewers independently
+found that the line CI actually prints still said `K2: 0 … -- ABSOLUTE`, over a count that is the
+**union** of the closed stored-path predicate and the half R4 had just called a heuristic. It now
+prints the two separately. ⚠ This is the sweep-three-faces rule: R4 swept the *statement* and
+neither the *obligation* (a control in both directions — unmet for the rule R4 itself wrote) nor
+the *consequence* (the verdict line).
+
+| # | What | Disposition |
+|---|---|---|
+| **CRIT** | the leading boundary failed open on five spellings, two of them live in scope | **Fixed** — exclusion class, direction stated, six red-direction fixtures + a mutation record |
+| **IMP** | the printed verdict still claimed ABSOLUTE over the heuristic half | **Fixed** — the two predicates report separately |
+| **IMP** | the status audit named `rev-list -n1 --all` as the positive test **after R4 removed it**, and omitted `symbolic-ref`, `show-ref`, `cat-file`, `tr\|cmp`, `_ancestor_link` | **Fixed** — table re-derived at HEAD with a derivation command, and the rule is now "re-derive when a mechanism changes, do not amend around it" |
+| **IMP** | `_ancestor_link` was ordered **after** `[ -L "$f" ]`, so an external leaf symlink won and the gate reported a K2 hit on bytes outside the tree | **Fixed** — the ancestor question is asked first |
+| **IMP** | *"THE WHOLE LIST … THE ONE PLACE IT IS STATED"* was stale: two rounds declared a non-coverage at its own site and a third created a new undecided class | **Fixed** — items 6 and 7 added, with the rule that a ⚠ beside the code is not the list |
+| **IMP** | *"Every other control here proves the wire can RED"* — false; **10 of 53** are green-direction, two added three lines above the claim | **Fixed** — replaced by a derivation, which itself had to be run before being written down (the first spelling printed the wrong awk field) |
+| **IMP** | §8 said **zero slots** while the loop had added obligations it was never reopened to see | **Fixed** — three slots, each with a fireable trigger and a date; own-deferral count 3, at the cap |
+| **IMP** | both files crossed **1000 lines** during the loop; §5 item 5's cohesion argument was made against a 786-line file | **Slot 1**, which is the discipline's own shape: CLAUDE.md requires the split to be *its own PR*, so doing it here is what the rule forbids |
+| **IMP** | `CLAUDE.md` still justified the ungated job with *"~1s"* while the measured figure is an order of magnitude higher — two SSoT statements disagreeing | **Fixed** — the justification is the absence of a setup step, and the stale figure is retired with the reason |
+
+⚠ **The lesson I take from this round is about the loop, not the wire.** I ran the root-check,
+wrote both mandated questions, reached a correct diagnosis — *the claim is the defect* — and
+then shipped a patch of exactly the kind the diagnosis forbade, in the same commit, under a
+heading saying I had not. **A correct root-check does not immunise the round it is written in**,
+and the thing that caught it was the mandated design re-gate firing *because the loop was still
+diverging* — the one guard that does not depend on my own judgement of my own work.

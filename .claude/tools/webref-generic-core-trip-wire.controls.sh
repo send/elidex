@@ -122,7 +122,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -280,6 +280,21 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/globspec/foo1.py"
 #      characters" instead of "one of these prose delimiters".
 printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
 
+#  (e) THE RED DIRECTION OF THE SAME BOUNDARY RULE, which nothing tested until
+#      the design re-gate measured it: every other red fixture writes its path
+#      after a SPACE or a QUOTE, so the leading class could be narrowed to
+#      almost nothing and stay green. Each line below is a spelling that is
+#      LIVE in the scanned tree — `--opt=<path>` is how `cli.py` writes its
+#      `--help` examples, and a backtick is how `DESIGN.md` (Markdown) writes a
+#      path — so a miss here is the gate silently ceasing to cover its own most
+#      likely violation.
+{ printf 'DEFAULT=%s\n' "$CONTROL_K2"
+  printf -- '--paths=%s\n' "$CONTROL_K2"
+  printf 'key:%s\n' "$CONTROL_K2"
+  printf 'see `%s` here\n' "$CONTROL_K2"
+  printf '**%s**\n' "$CONTROL_K2"
+  printf 'x,%s\n' "$CONTROL_K2"; } > "$CTL/bnd/control.py"
+
 # An ORPHAN branch with commits on another branch: HEAD is legitimately unborn
 # while the repository is not empty, which is the case that separates "this HEAD
 # has nothing committed" from "the repository has nothing committed".
@@ -389,7 +404,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -669,11 +684,20 @@ _control "$CTL/globspec" 1 "the inventory listed it but it is gone" "the vanishe
 _control "$CTL/badref" 1 "does not name a branch" "a malformed HEAD ref is not an unborn repository" || ctl_ok=1
 _control "$CTL/punctslash" 1 "K2: a" "punctuation BEFORE a slash is part of the path" || ctl_ok=1
 _control "$CTL/atclaude" 0 "PASSED" "a PATH character before .claude is not a prose boundary" || ctl_ok=1
+_control "$CTL/bnd" 1 "K2: a" "the leading boundary covers =, --opt=, :, a backtick, ** and ," || ctl_ok=1
 _control "$CTL/orphan" 0 "PASSED" "an orphan branch is an unborn HEAD, not a read failure" || ctl_ok=1
 _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree read does not traverse an ancestor symlink" || ctl_ok=1
-# ⚠ TWO GREEN-DIRECTION CONTROLS. Every other control here proves the wire can
-# RED; these two prove it does not red on a legitimate tree, which is the
-# failure mode that gets a required gate switched off rather than fixed.
+# ⚠ GREEN-DIRECTION CONTROLS — they prove the wire does NOT red on a legitimate
+# tree, which is the failure mode that gets a required gate switched off rather
+# than fixed. ⚠ An earlier version of this comment said "TWO" and added
+# "every other control here proves the wire can RED"; both halves were false
+# when written, and the second one still is — derive the count instead of
+# reading one:
+#     awk -F'"' '/^ *_control /{gsub(/ /,"",$3); print $3}' <this file> | sort | uniq -c
+# (`$3` is the EXPECTED-EXIT argument: 0 = green-direction, 1 = red, 2 = the
+# wire refusing to decide. ⚠ The first spelling of this command printed `$4`,
+# the expected MESSAGE, which counts nothing — a derivation offered in place of
+# a claim has to be run once before it is written down.)
 _control "$CTL/punct" 0 "PASSED" "closing punctuation is not a path segment" || ctl_ok=1
 _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not the host path" || ctl_ok=1
 # …and the self-test escape hatch, which must not be reachable from an
@@ -843,7 +867,8 @@ s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inv
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
 s/\[ "$_shrc" -eq 0 \]/false/	a failed HEAD PROBE is not an unborn HEAD
 s/\[ "$_shrc" -ne 1 \]/true/	an orphan branch is an unborn HEAD, not a read failure
-s/\[\[:space:\]\[:cntrl:\]/[@[:space:][:cntrl:]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.~+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_.~@+%-\]/[[:space:]"]/	the leading boundary covers =, --opt=, :, a backtick, ** and ,
 s/elif _ancestor_link "$rel"; then/elif false; then/	the worktree read does not traverse an ancestor symlink
 s/\[ "$_catrc" -ne 0 \]/false/	a failed staged-blob read is not a clean target
 s/)}>,;\]/]/g	closing punctuation is not a path segment

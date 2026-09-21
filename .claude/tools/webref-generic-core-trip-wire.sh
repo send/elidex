@@ -94,24 +94,39 @@
 # one — it turns "I could not find out" into "there is nothing to find", which
 # is exactly the direction that makes a gate green.
 #
-# ⚠ THE AUDIT, so "is there another site?" has an answer rather than a guess.
-# Every place this file reads a status, and what it concludes:
-#   * `rev-parse --verify --quiet HEAD` -> "unborn"        — INFERRED a negative.
-#     Fixed: exit 1 also covers a MALFORMED ref, so unborn is now established
-#     positively (`rev-list -n1 --all` exits 0 with no output) and anything else
-#     is an `err`.  Measured: unborn = rc 0/empty, malformed ref = rc 128.
-#   * `ls-files --error-unmatch` -> "untracked"            — INFERRED a negative.
-#     Fixed: `--literal-pathspecs`, because `$rel` was being read as a PATHSPEC,
-#     so a vanished untracked `foo[1].py` matched a tracked `foo1.py` and was
-#     reported as tracked.  Measured: rc 0 without the flag, rc 1 with it.
-#   * `grep` in `_content` / `_match_path` / `_classify`   — conclude only from
-#     grep's OWN documented contract (1 = no line selected, >= 2 = error), and
-#     every arm separates them.  Not an inference.
-#   * `cat` of a staged blob, `readlink`, the three `ls-files`/`ls-tree`
-#     inventories, `mktemp`, `rev-parse --local-env-vars`  — any non-zero is an
-#     ERROR.  No negative is inferred at all.
-# Two sites inferred; both are fixed above; the rest conclude nothing they were
-# not told.  A new `git` call added below joins this list or it is a defect.
+# ⚠ THE AUDIT — every status this file reads, and what it concludes. It is
+# re-derived, not appended to: an earlier version of this table named
+# `rev-list -n1 --all` as the positive test for unbornness, and a later round
+# replaced that mechanism entirely while the table went on describing it, so
+# the audit meant to stop site-by-site recurrence was itself stale one round
+# after it was written. Derive the population rather than trusting the list:
+#
+#     grep -n '=\$?\|^ *if ! _git\|elif ! _git\|)" || \|cmp -s' <this file>
+#
+#   INFERS A PARTICULAR NEGATIVE (each needs a positive test, and has one):
+#     * `rev-parse --verify --quiet HEAD` non-zero -> maybe unborn. Established
+#       positively by `symbolic-ref -q HEAD` naming a branch AND `show-ref
+#       --verify` reporting that branch ABSENT (its documented rc 1). Anything
+#       else is an `err`.
+#     * `symbolic-ref -q HEAD` non-zero -> HEAD names no branch. That is not
+#       read as "unborn": it is an `err`, because a malformed ref lands here
+#       (measured: rc 128).
+#     * `show-ref --verify --quiet` rc 1 -> the named ref is absent. ⚠ rc 1 is
+#       show-ref's documented "not found"; a ref file that EXISTS but holds
+#       malformed data also fails, which is why the malformed case is caught one
+#       level up by `symbolic-ref` rather than here.
+#     * `ls-files --error-unmatch --literal-pathspecs` non-zero -> untracked.
+#       `--literal-pathspecs` is what makes the question about THIS path.
+#     * `_ancestor_link` rc 1 -> no proper ancestor is a symlink. Pure shell,
+#       no external status; the negative is established by the walk itself.
+#   CONCLUDES ONLY FROM A DOCUMENTED CONTRACT (not an inference):
+#     * `grep` in `_content`, `_match_path` and `_classify` — 1 = no line
+#       selected, >= 2 = error, and every arm separates them.
+#   CONCLUDES NOTHING BUT "ERROR" (no negative is inferred at all):
+#     * `cat-file blob`, `tr -d '\000' | cmp -s`, `readlink`, the three
+#       `ls-files`/`ls-tree` inventories, `mktemp`, `rev-parse --local-env-vars`.
+# A new `git` call added below joins this table or it is a defect — and the
+# table is re-derived when a mechanism changes, not amended around it.
 #
 # THE K2 PREDICATE, verbatim from the memo's §2: no `.claude/(skills|tools)/`
 # plus two further path segments, anywhere in this tree.  NARROW — two fixed
@@ -142,6 +157,11 @@
 #
 # WHAT THIS WIRE DOES NOT DECIDE — THE WHOLE LIST, AND THIS IS THE ONE PLACE IT
 # IS STATED, so anything added to this list is added HERE.
+# ⚠ AND THAT RULE WAS BROKEN TWICE BEFORE IT WAS KEPT: two rounds added a
+# declared non-coverage at its own site (`_match_path`'s unpinned guard, the
+# ratchet's `wc -l`) and a third narrowed the leading boundary into a new
+# undecided class, none of which arrived here. Items 6 and 7 below are those.
+# The list is where a reader looks; a ⚠ beside the code is not the list.
 # ⚠ THAT CLAIM WAS FALSE WHEN FIRST WRITTEN, and the correction is the reason
 # to trust it now.  It said "A-i's memo §12(3) delegates here", citing that
 # row's phrase "its header says so" — which is scoped to the OPEN part and
@@ -186,6 +206,19 @@
 #      (e.g. "any one-segment path OTHER than this package's own entry") is a
 #      predicate change and belongs to whoever proposes it, with its own
 #      control.
+#
+#   6. A REFERENCE WHOSE LEADING CHARACTER IS ONE THIS PREDICATE TREATS AS PART
+#      OF A COMPONENT — `@`, `+`, `%`, `-` and the word characters. `foo@.claude
+#      /skills/team/rule.md` is not decided as a hit, on the reading that it
+#      continues the component `foo@.claude`.  ⚠ This class exists BECAUSE the
+#      leading boundary is an exclusion (see `$K2RE`): every character added to
+#      the exclusion set to kill a false positive lands here.  It is the price
+#      of failing safe, and it is listed rather than left implicit.
+#   7. TWO THINGS NO CONTROL PINS, named here so "the list" is the list:
+#      `_match_path`'s `|| return 4` (nothing external is left in `_onerec` for
+#      a shim to break) and the `wc -l` in the controls' ratchet (reaching an
+#      empty `.bare` needs every control to have a record).  Both are recorded
+#      at their sites and as defer slots in the plan memo's §8.
 #
 # ⚠ 3 AND 4 ARE NOT CLOSABLE BY ANY WIRE, and saying so is the point: both are
 # properties of a grep over arbitrary source text, so "later, with a better
@@ -364,19 +397,41 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 #     may not END in punctuation. Admits `team,inc` and `team,`; still refuses a
 #     bare `)`. The green control pins one direction and a red control the
 #     other; neither alone could have caught either of these.
-#   * A LEADING BOUNDARY is required, so `.claude` must start the string, follow
-#     a `/`, or follow a PROSE DELIMITER. Without it
-#     `https://example.claude/skills/team/rule.md` matched on the suffix of
-#     another host name. ⚠ The first spelling of this was "any character that is
-#     not `[A-Za-z0-9_.~-]`", which is the wrong shape: it admits PATH
-#     characters as boundaries, so `foo@.claude/skills/team/rule.md` matched on
-#     the suffix of the component `foo@.claude`. The list is POSITIVE now —
-#     whitespace, quotes, a backtick, an opening bracket, or `/` — because the
-#     question is "does prose end here?", and answering it by excluding a few
-#     path characters leaves every path character nobody thought of saying yes.
+#   * A LEADING BOUNDARY is required, so `.claude` must not continue another
+#     path component. Without it `https://example.claude/skills/team/rule.md`
+#     matched on the suffix of another host name.
+#
+#     ⚠ THE SHAPE OF THIS CLASS IS A SAFETY DECISION, NOT A TASTE ONE, and
+#     getting that backwards is the worst thing this file has done. Neither form
+#     can enumerate its complement — "which characters end prose" is open either
+#     way — so the question is not which list is complete but WHICH DIRECTION
+#     AN UNKNOWN CHARACTER FAILS IN:
+#
+#       an EXCLUSION class ("a boundary is anything that is not a path
+#       character") makes the unknown character a BOUNDARY -> over-matching ->
+#       a FALSE POSITIVE -> the gate reds, somebody looks, somebody fixes it.
+#
+#       a POSITIVE list ("a boundary is one of these") makes the unknown
+#       character NOT a boundary -> under-matching -> a FALSE NEGATIVE -> the
+#       gate is green and nobody ever finds out.
+#
+#     In a REQUIRED gate those are not symmetric, so this class is an EXCLUSION.
+#     ⚠ A revision replaced it with a positive list to close ONE contrived false
+#     positive (`foo@.claude/...`), and measured against the revision before it
+#     that traded the safe direction for the unsafe one: `DEFAULT=.claude/...`,
+#     `--paths=.claude/...`, `k:.claude/...`, `` `.claude/...` `` and
+#     `**.claude/...**` all stopped matching. TWO OF THOSE SHAPES ARE LIVE IN
+#     THE SCANNED TREE — `--opt=<path>` is how `cli.py` spells its `--help`
+#     examples, and a backtick is how `DESIGN.md`, which is Markdown, spells a
+#     path. The gate silently stopped covering its own most likely spelling,
+#     and no control could see it because every red fixture wrote the path
+#     after a space or a quote.
+#     The `@` false positive is handled where it belongs: INSIDE the exclusion
+#     set, beside the other characters that continue a component (`+`, `%`,
+#     `-`), so closing it cannot open anything.
 # The leading class is consumed by the match, so a record shows one extra
 # character; that is cheaper than a lookbehind ERE does not have.
-K2RE='(^|[[:space:][:cntrl:]"'"'"'`([{<]|/)\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]+/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
+K2RE='(^|[^A-Za-z0-9_.~@+%-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]+/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
@@ -717,6 +772,19 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
   fi
   # (B) THE WORKING TREE.
   if [ "$_src" != tree ]; then :
+  elif _ancestor_link "$rel"; then
+    # ⚠ BEFORE THE LEAF-TYPE ARMS, not after them. Placed after `[ -L "$f" ]`
+    # this guard lost whenever the external leaf was ITSELF a symlink:
+    # `dir -> /tmp/external` with `external/a.py -> .claude/skills/team/rule.md`
+    # was reported as a K2 hit on the DESCENDANT — a verdict about bytes outside
+    # this tree, dressed as a verdict about it. The ancestor question is about
+    # whether the path is reachable at all, so it is asked first.
+    # An ancestor being a symlink means what is on disk here is NOT what git
+    # would carry. The entry is not skipped — that is how things get passed over
+    # in silence — it is an `err`, because this run cannot say what the tree
+    # holds there.
+    printf 'err\t%s: an ancestor component is a symlink, so the worktree bytes here are not this tree'"'"'s\n' \
+      "$(_esc "$rel")"
   elif [ -L "$f" ]; then
     # A symlink's stored content IS its target string; git keeps it as the blob.
     # ⚠ AND `$( )` STRIPS TRAILING NEWLINES, so the plain substitution truncated
@@ -741,18 +809,6 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
       _read=1
       _stored "$tgt" "$rel" "symlink TARGET" "->"
     fi
-  elif _ancestor_link "$rel"; then
-    # ⚠ AN ANCESTOR COMPONENT IS A SYMLINK, so what is on disk here is NOT what
-    # git would carry. Reproduced: a tracked `dir/a.py` with `dir` replaced in
-    # the worktree by `dir -> /tmp/external` leaves the inventory holding both
-    # the untracked symlink and the formerly-tracked descendant, and `-f`
-    # followed the ancestor — so forbidden bytes in an EXTERNAL directory
-    # reddened a required gate over content `git add -A` would never stage.
-    # The entry is not skipped (that is how things get passed over in silence);
-    # it is an `err`, because this run genuinely cannot say what the tree holds
-    # there.
-    printf 'err\t%s: an ancestor component is a symlink, so the worktree bytes here are not this tree'"'"'s\n' \
-      "$(_esc "$rel")"
   elif [ -f "$f" ]; then
     if _content "$f" "$rel" "(worktree)"; then _read=1
     else printf 'err\t%s: unreadable, or the read failed\n' "$(_esc "$rel")"; fi
@@ -1012,7 +1068,14 @@ if [ -n "$K2_HITS" ]; then
   printf '%s\n' "$K2_HITS" | sed 's/^k2	/     /'
   failed=1
 else
-  echo "  K2: 0 \`.claude/(skills|tools)/<a>/<b>\` paths named here -- ABSOLUTE"
+  # ⚠ THE WORD THE HEADER RETRACTED MAY NOT SURVIVE IN THE LINE THE GATE PRINTS.
+  # This said `-- ABSOLUTE` over a count that is the UNION of both predicates,
+  # i.e. over the half the header calls a bounded heuristic — so a CI reader saw
+  # the exact claim that kept five rounds patching boundary examples. The
+  # retraction had been applied only where reviewers read.
+  echo "  K2: 0 \`.claude/(skills|tools)/<a>/<b>\` paths named here."
+  echo "     stored paths (entry names, symlink targets): ABSOLUTE — closed and decidable."
+  echo "     file content: a bounded heuristic over running text (see this wire's header)."
 fi
 
 if [ -n "$ERR_HITS" ]; then
