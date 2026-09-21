@@ -19,9 +19,16 @@
 #     "keep new generic behavior free of elidex-specific file paths and put
 #      elidex policy in adapter commands or documentation."
 #
-# ⚠ SO `DESIGN.md` DELIBERATELY SENDS ELIDEX-SPECIFIC WORK INTO ADAPTER
-# COMMANDS — and `_webref/commands/` and this entry script are adapter surfaces
-# INSIDE the scanned scope.  A review round put that as "the predicate forbids
+# …and its §Architecture (`:24-47`) is stronger still: it draws a two-column
+# boundary and NAMES the modules — "Generic core: upstream fetch/cache; semantic
+# inventory construction; semantic diff classification; stable JSON output
+# schema" versus "elidex adapter: repository citation scanning; …; impacted
+# `docs/`/`crates/` path heuristics; elidex-specific agent briefs", with
+# `commands/agent_brief.py` listed as the module that "scans elidex paths".
+#
+# ⚠ SO `DESIGN.md`'s "generic core" AND K2's ARE DIFFERENT SETS: five named
+# modules versus `_webref/` plus this entry script, which CONTAINS the adapter
+# `DESIGN.md` deliberately put there.  A review round put that as "the predicate forbids
 # something its own authority permits", a revision of this header answered it
 # by quoting the opening sentence with its subject changed from "its
 # drift-detection core" to "the package" and omitting the next sentence
@@ -191,6 +198,27 @@ SCOPE_FILE="$ROOT/.claude/tools/webref"
 # internal variable proves the classifier, not the thing the verdict does with it
 # — measured at #501 R70, where killing the verdict's error arm left a control
 # passing and the wire green.  The subject has to be the exit code.
+# ⚠ AND IT MAY ONLY BE ENTERED BY THIS WIRE'S OWN CONTROLS. `WEBREF_WIRE_SELFTEST`
+# left EXPORTED in a shell — after debugging a control by hand — is inherited by
+# the ordinary `scripts/trip-wires.sh` run, which then points `ROOT` at that
+# directory AND skips every control. Reproduced by the external reviewer: with a
+# forbidden untracked file in the real `_webref` tree, exporting this variable at
+# a clean initialised repository made the required gate exit 0, while scanning
+# the actual tree exited 1. Same class as the `WEBREF_WIRE_MUTANTS` bypass, on a
+# variable that predates it.
+# The companion token is what the controls set and a leftover does not have. It
+# is a fixed string, not a secret: the threat model is accident, not adversary
+# (a contributor who wants past this gate edits `REQUIRED_WIRES`), so the job is
+# to turn a silent redirect into a loud refusal.
+_SELFTEST_TOKEN='webref-wire-selftest/v1'
+if [ -n "${WEBREF_WIRE_SELFTEST:-}" ] && [ "${WEBREF_WIRE_SELFTEST_TOKEN:-}" != "$_SELFTEST_TOKEN" ]; then
+  echo "!! WEBREF_WIRE_SELFTEST is set in this environment, but this run was not started" >&2
+  echo "   by the controls beside this wire. In self-test mode the scan answers about" >&2
+  echo "   \$WEBREF_WIRE_SELFTEST instead of the checkout AND every control is skipped," >&2
+  echo "   so a leftover export would make the required gate report on the wrong tree." >&2
+  echo "   Unset it and run again; this run decided nothing." >&2
+  exit 2
+fi
 if [ -n "${WEBREF_WIRE_SELFTEST:-}" ]; then
   ROOT="$WEBREF_WIRE_SELFTEST"
   # A fixture may name a scope SUBDIRECTORY and an EXTRA ENTRY beside it, both
@@ -257,7 +285,18 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 # admits — `.claude/tools/@scope/policy.md` and `.claude/skills/日本語/rule.md`
 # both read GREEN.  ⚠ A segment containing WHITESPACE stays outside it — item 2 of
 # WHAT THIS WIRE DOES NOT DECIDE above, stated there and not restated here.
-K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
+# ⚠ TWO REPAIRS THE EXTERNAL REVIEWER FOUND, BOTH FALSE-POSITIVE DIRECTIONS —
+# which in a REQUIRED gate is the direction that gets gates switched off.
+#   * CLOSING PUNCTUATION is not a path segment. `)]}>,;` joined the
+#     terminators because the harmless prose `See (.claude/tools/foo/) for
+#     details` matched with `)` as the final segment — i.e. the gate rejected a
+#     ONE-segment directory reference, which is outside K2 entirely.
+#   * A LEADING BOUNDARY is required, so `.claude` must start the string or
+#     follow a `/`. Without it `https://example.claude/skills/team/rule.md`
+#     matched on the suffix of another host name.
+# The leading class is consumed by the match, so a record shows one extra
+# character; that is cheaper than a lookbehind ERE does not have.
+K2RE='(^|[^A-Za-z0-9_.~-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`)}>,;]+/[^]/[:space:]"'"'"'`)}>,;]+'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
@@ -275,7 +314,11 @@ K2RE='\.claude/(skills|tools)/[^/[:space:]"'"'"'`]+/[^/[:space:]"'"'"'`]+'
 # the content predicate's terminators cut it in half — measured, the wire read
 # that entry, reported K2 zero and exited 0 (#501 R87). Using the text
 # predicate on a name was not conservatism, it was the wrong predicate.
-K2RE_PATH='\.claude/(skills|tools)/[^/]+/[^/]+'
+# ⚠ AND THE SAME LEADING-BOUNDARY REPAIR. A stored path has only `/` as a
+# delimiter, so the class is wider — but `.claude` still may not be the SUFFIX
+# of another segment: a fixture named `_webref/fixtures/example.claude/skills/
+# team/rule.md` was reported as naming the top-level host path it does not.
+K2RE_PATH='(^|/)\.claude/(skills|tools)/[^/]+/[^/]+'
 
 # ⚠ Three superseded accounts of the scanner lived here until #501 R81 — one
 # describing `git grep --no-index` and `-a`/`-I`, one the `rc >= 2` arm, one
@@ -444,7 +487,12 @@ _onerec() { printf '%s' "${1//$'\n'/$_REC_SEP}"; }
 # `.claude/skills/team/rule.md` and a shim making only `grep -aEo` exit 2).
 # `grep` defines status 2 as an error, and the content arm and `_verdict` both
 # already separated it; these two were the arms that did not.
-_match_path() { _onerec "$1" | grep -aEo -- "$K2RE_PATH"; }
+# ⚠ NO PIPELINE. It was `_onerec "$1" | grep …`, and under `pipefail` the
+# status of a pipeline is its RIGHTMOST non-zero one — so a pre-processing
+# failure was reported as `grep`'s 1, i.e. as an ordinary "no match", and an
+# entry whose own name is a forbidden path passed the gate. Computing the value
+# first removes the masking channel rather than trying to read through it.
+_match_path() { _mp="$(_onerec "$1")"; grep -aEo -- "$K2RE_PATH" <<<"$_mp"; }
 
 # …AND THE ONE PLACE ITS ANSWER IS TURNED INTO RECORDS.  Three subjects reach
 # it: an entry's own name, a symlink's target in the worktree, and — since #501
@@ -537,8 +585,21 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
         printf 'err\t%s: its staged symlink target holds a NUL, which no path can, so it was not read as one\n' \
           "$(_esc "$rel")"
       else
-        _sb="$(cat "$_b"; printf 'R')"; _sb="${_sb%R}"
-        _stored "$_sb" "$rel" "staged symlink TARGET" "$_tag ->"
+        # ⚠ THE SENTINEL PRESERVES TRAILING NEWLINES; IT DOES NOT PRESERVE THE
+        # STATUS, and an earlier revision read the second from the first. A
+        # `cat` that fails makes the substitution succeed with an empty or
+        # partial value, which then goes to `_stored` as a successfully-read
+        # target — measured by the external reviewer: a staged forbidden target
+        # plus a clean worktree target plus a failing `cat` reported K2 zero and
+        # exited 0. `R%d` carries both.
+        _sb="$(cat "$_b" 2>/dev/null; printf 'R%d' "$?")"
+        _catrc="${_sb##*R}"; _sb="${_sb%R*}"
+        if [ "$_catrc" -ne 0 ]; then
+          printf 'err\t%s: its staged symlink blob could not be read (exit %d)\n' \
+            "$(_esc "$rel")" "$_catrc"
+        else
+          _stored "$_sb" "$rel" "staged symlink TARGET" "$_tag ->"
+        fi
       fi
       _read=1
     elif _content "$_b" "$rel" "$_tag"; then
@@ -648,7 +709,19 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # commits below it are not what this gate is about. An unborn HEAD — every
   # fixture here, and a fresh clone before its first commit — is not an error:
   # there is simply nothing committed to read.
-  if _git -C "$ROOT" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+  # ⚠ EXIT 1 IS "UNBORN"; ANYTHING ELSE IS A FAILURE, and collapsing the two
+  # made an operational error silently disable the whole HEAD pass. `--quiet`
+  # exits 1 for an unborn HEAD and 128 when git cannot answer at all (measured),
+  # so `if <probe>` alone read "no HEAD, nothing committed to check" for both —
+  # and a committed forbidden path cleaned in the index and worktree then read
+  # green. Found by the external reviewer, who reproduced it with a PATH wrapper
+  # returning 2 for this probe only.
+  _hrc=0
+  _git -C "$ROOT" rev-parse --verify --quiet HEAD >/dev/null 2>&1 || _hrc=$?
+  if [ "$_hrc" -gt 1 ]; then
+    printf 'err\tthe HEAD probe exited %d, so this run cannot tell an unborn HEAD from a failure\n' "$_hrc"
+  fi
+  if [ "$_hrc" -eq 0 ]; then
     _ls_rc=0
     _git -C "$ROOT" ls-tree -r -z HEAD \
         -- "$_dir" ${_extra:+"$_extra"} > "$_lh" 2>>"$_e" || _ls_rc=$?

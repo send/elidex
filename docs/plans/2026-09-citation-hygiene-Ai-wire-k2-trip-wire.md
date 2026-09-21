@@ -147,7 +147,26 @@ clause is disposed of in §12(3) **nowhere**; see §5 item 1.
 
 ### §2.0 The authority, quoted in full — and K2 is STRICTER than it
 
-`_webref/DESIGN.md` opens (`:3-5`, verbatim, both sentences):
+⚠ **AND THE CLOSING RULE IS NOT THE STRONGEST TEXT AGAINST THIS WIRE.** The
+external reviewer cited `DESIGN.md` **§Architecture** (`:24-47`), which does not
+describe the package as a generic core with some adapter prose in it — it draws
+an explicit two-column boundary and then **names the modules on each side**:
+
+> - Generic core: upstream fetch/cache; semantic inventory construction; semantic
+>   diff classification; stable JSON output schema.
+> - **elidex adapter**: repository citation scanning; review/plan workflow wording;
+>   **impacted `docs/` / `crates/` path heuristics**; elidex-specific agent briefs.
+
+…and lists `commands/agent_brief.py` as the module that *"scans elidex paths for
+citations affected by a semantic diff."*
+
+**So `DESIGN.md`'s "generic core" and K2's "generic core" are different sets.**
+`DESIGN.md`'s is five named modules; K2's (#501 §2) is `_webref/` **plus the entry
+script** — which contains the adapter `DESIGN.md` deliberately put there. That is
+not a reading anyone can reconcile by quoting harder, and this memo's earlier
+attempt to do so is withdrawn twice over.
+
+`_webref/DESIGN.md` also opens (`:3-5`, verbatim, both sentences):
 
 > `webref` is maintained inside elidex for now, but **its drift-detection core** should stay
 > generic enough to move to a standalone repository later. **elidex specific behavior belongs
@@ -179,11 +198,20 @@ not move whoever writes it, so the distinction `DESIGN.md` draws between core an
 not help a reader deciding whether the package can be lifted out. That is a program decision
 with a cost, and it is stated as one rather than dressed as exegesis.
 
-⚠ **The cost is real and is not hidden**: a thin adapter command that legitimately implements
-elidex policy may not spell a two-segment host path, and must reach the host some other way
-(a parameter, a caller-supplied default). Whether `DESIGN.md` should be amended to say so is
-**not this slice's**: it is an edit to `_webref/DESIGN.md`, the one file §1's boundary
-predicate genuinely covers. It is handed to whichever slice owns `_webref/`.
+⚠ **The cost is real, is not hidden, and now has a name.** `commands/agent_brief.py` is the
+module `DESIGN.md` designates as the elidex-path scanner, it is inside K2's scope, and if it
+ever needs to *spell* a `.claude/(skills|tools)/<a>/<b>` path the required gate reds a
+legitimate adapter. It does not today — its heuristics use bare `docs/` / `crates/` names,
+which are class 3 — so the tree is green for a reason that is a fact about the current code,
+not a guarantee.
+
+⚠ **This is raised, not settled here**, for the same reason §6's answer is. Two resolutions
+exist and both are somebody else's edit: narrow K2's scope to `DESIGN.md`'s named generic
+modules (an amendment to **#501 §2**, whose exit criterion quotes the wider definition), or
+amend `DESIGN.md` to say the path ban is package-wide (an edit to `_webref/DESIGN.md`, the one
+file §1's boundary predicate genuinely covers). Until one lands, the wire enforces K2 as #501
+defines it and says so in its header — the direction that can red a legitimate adapter but
+cannot miss a violation.
 
 ⚠ **The by-DIRECTORY approximation cuts both ways.** Draft 1 stated only the evidentiary
 direction (a green says nothing about `DESIGN.md` compliance) and added that the adapter-work
@@ -781,3 +809,30 @@ trusting a figure here — `/usr/bin/time -p bash scripts/trip-wires.sh`.
 | **Collapse `_verdict`'s three passes into one** | The three-way grep-status rule is this file's most-cited invariant. The duplication was real and is fixed by a `_classify` helper (one implementation, three calls); merging the *passes* would trade a decision surface for a subtler one. |
 | **A shared shell library for `_control` / `st_probe`** | They are genuinely two implementations of one idiom, and `st_probe` still lacks the watchdog `_control` has. But no `scripts/`-level shell library exists, and creating one is not this slice's to do. Recorded so the third copy does not have to rediscover it. |
 | **Replace the content scan with `git grep`** | The wire's own header records that `git grep -a --no-index` did **not** match inside a `.pyc` on this machine where plain `grep -a` does. A wire whose reach depends on which git is installed is not an absolute. |
+
+## §10 External review (Codex) — round 1
+
+Ten unresolved threads were already on #519 from a review of the carve commit, and this slice's
+own pre-push gate had not seen them. Eight were real at the head they were written against;
+**two fail-open classes and two false-positive classes survived to this head** and are fixed
+here. The two the loop did not change are answered, not waved away.
+
+| # | What | Disposition |
+|---|---|---|
+| **P1** | An inherited exported `WEBREF_WIRE_SELFTEST` redirects `ROOT` at an arbitrary fixture **and skips every control** — reproduced by the reviewer: exit 0 over a real tree holding a violation | **Fixed.** Self-test mode now requires a companion token the controls set; a leftover export makes the gate **refuse loudly** instead of answering about the wrong tree. Same class as the `WEBREF_WIRE_MUTANTS` bypass §9 records, on a variable that predates it. Control + record. |
+| **P1** | The HEAD probe treated **any** non-zero `rev-parse --verify --quiet` as "unborn", so an operational failure silently disabled the whole HEAD pass | **Fixed.** Measured: unborn is **1**, "git cannot answer" is **128**. `>1` is now an `err` record. Control (a `git` shim failing only `--verify`) + record. |
+| **P1** | *"Restrict K2 to the generic layer"* — `DESIGN.md` §Architecture assigns path heuristics to the **adapter**, and `commands/agent_brief.py` is inside K2's scope | **Answered in §2, and the memo's earlier answer withdrawn.** The two definitions of "generic core" genuinely differ; K2 is the wider one by deliberate choice. Raised as a cross-slice question with both resolutions named — not settled here. |
+| **P2** | The staged-symlink blob read: the trailing-newline sentinel preserved the value but **not the status**, so a failed `cat` became a successfully-read empty target | **Fixed.** `R%d` carries both. Control (a failing `cat` shim) + record. |
+| **P2** | `_match_path`'s pipeline: under `pipefail` a pre-processing failure is reported as `grep`'s 1, i.e. as "no match" | **Fixed.** No pipeline — the value is computed first. ⚠ §9's `_esc`/`_onerec` change had already removed the `tr` this could fail in, which narrowed the class without closing it. |
+| **P2** | Closing punctuation counted as a path segment: `See (.claude/tools/foo/) for details` reds the gate on a **one-segment** reference outside K2 | **Fixed.** `)]}>,;` joined the running-text terminators. ⚠ The first attempt put `]` in the middle of the bracket expression, which **closes it** — the predicate silently matched nothing and the `routed` control caught it. Green-direction control + record. |
+| **P2** | No leading boundary before `.claude`, so `https://example.claude/skills/team/rule.md` and an entry named `…/example.claude/skills/…` matched on a suffix | **Fixed** in both predicates. Green-direction control + record. |
+| **P2** | The `cachedir` control could pass from the **index arm alone**, so a regression in the worktree arm stayed green | **Fixed.** The staged blob is clean and the violation is worktree-only — verified by disabling the worktree content arm, which the control now catches and previously did not. |
+| **P1** | *"Complete the mandatory plan review before landing the wire"* | **Already true.** Written against the carve commit, before this memo existed; the memo is §4's first artifact and has had a plan-review round plus a five-axis design gate. |
+| **P2** | *"Track or close the host-path classes left outside the gate"* | **Answered in §8**, which the reviewer's head predates: no slots, with the argument (a slot records work owed; a blind spot records the reach of a predicate) and the reason a re-evaluation trigger could never fire for two of the classes. §5 item 1 also adds the **fifth** class the reviewer's list did not have. |
+
+⚠ **Two of these are the same shape as defects this slice found in itself** — a required gate
+exiting 0 over something it never read, because an environment variable put it in a mode it
+was never asked for. Three instances now (`WEBREF_WIRE_MUTANTS`, `WEBREF_WIRE_SELFTEST`, and
+the HEAD probe's collapsed status). The general lesson is recorded where the modes are entered
+rather than in a fourth ⚠ here: **a mode this wire can be put into from outside must be
+unreachable or loud, never silent.**

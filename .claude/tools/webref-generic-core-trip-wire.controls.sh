@@ -122,7 +122,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -165,7 +165,7 @@ printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cache/__pycache__"
 # both passes even when tracked (#501 R77).
 mkdir -p "$CTL/cachedir/__pycache__"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/ok.py"
-printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/cachedir/__pycache__/probe.txt"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/cachedir/__pycache__/probe.txt"
 # A CLEAN file whose own path is the forbidden hierarchy. A content search
 # contents, so without a name pass this reads as a file with nothing in it.
 mkdir -p "$CTL/name/$(dirname "$CONTROL_K2")"
@@ -198,6 +198,38 @@ printf '#!/bin/sh\ncase " $* " in *" ls-tree "*) printf "x\\000"; exit 1;; esac\
   "$(command -v git)" > "$CTL/fakegitls/git"
 chmod +x "$CTL/fakegitls/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lstreefail/ok.py"
+
+# ⚠ THE TWO FALSE-POSITIVE FIXTURES. A required gate that reds a legitimate
+# tree is the one people switch off, so both repairs the external reviewer
+# found get a control asserting the wire stays GREEN — the direction a
+# violation-shaped fixture can never test.
+#  (a) CLOSING PUNCTUATION: prose naming a ONE-segment directory in parentheses
+#      used to match, with `)` as the second segment.
+printf '# See (%s) for details\n' '.claude/tools/foo/' > "$CTL/punct/ok.py"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/punct/other.py"
+#  (b) A LEADING BOUNDARY: `.claude` as the SUFFIX of another segment is not
+#      the top-level host path. The subject here is the entry's own NAME, which
+#      is where the stored-path predicate reads.
+mkdir -p "$CTL/suffixpath/fixtures/example.claude/skills/team"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/suffixpath/fixtures/example.claude/skills/team/rule.md"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/suffixpath/ok.py"
+
+# A `git` that fails ONLY the HEAD existence probe, so "unborn" and "git could
+# not answer" can be told apart. ⚠ `--verify` is the discriminator: the wire
+# also runs `rev-parse --local-env-vars` at startup, and a shim matching
+# `rev-parse` alone would make the run exit 2 there for a different reason.
+mkdir -p "$CTL/headprobe"
+printf '#!/bin/sh\ncase " $* " in *" --verify "*) exit 2;; esac\nexec %s "$@"\n' \
+  "$(command -v git)" > "$CTL/headprobe/git"
+chmod +x "$CTL/headprobe/git"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
+
+# A `cat` that always fails, for the one read whose status used to be swallowed
+# by the trailing-newline sentinel.
+mkdir -p "$CTL/catfail"
+printf '#!/bin/sh\nexit 1\n' > "$CTL/catfail/cat"
+chmod +x "$CTL/catfail/cat"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
 # them all would abort in `_verdict` instead, for a different reason).
@@ -294,7 +326,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -313,10 +345,18 @@ done
 # this control GREEN and the wire exit 0. `.gitignore` first, then the ordinary
 # add — which must now SKIP the probe — then the force-add as the only thing
 # that can track it.
+# ⚠ THE VIOLATION IS IN THE WORKTREE ONLY, AND THE STAGED BLOB IS CLEAN. With
+# the forbidden content in both, this control passed from the INDEX arm alone —
+# so a regression that stopped scanning the worktree copy of a tracked file
+# beneath an ignored directory stayed green, which is the exact combination the
+# fixture exists to cover (external reviewer, P2). Order: `.gitignore` first (so
+# the ordinary add skips the probe), then the force-add of the CLEAN blob (the
+# only thing that can track it), then the worktree copy is made violating.
 ( cd "$CTL/cachedir" && _fgit init -q . >/dev/null 2>&1 \
   && printf '__pycache__/\n' > .gitignore \
   && _fgit add -A >/dev/null 2>&1 \
-  && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 ) || _fixture_failed cachedir
+  && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 \
+  && printf 'RULE = "%s"\n' "$CONTROL_K2" > __pycache__/probe.txt ) || _fixture_failed cachedir
 # THE THREE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
 # built AFTER the add loop above, because each needs the index to hold one
 # thing while the worktree holds another.
@@ -353,6 +393,11 @@ done
 # it never took.
 ( cd "$CTL/lstreefail" && _fgit add -A >/dev/null 2>&1 \
   && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed lstreefail
+# …and the same staged-symlink geometry for the `cat`-failure control: the blob
+# is what `cat` reads, so the fixture must HAVE one.
+( cd "$CTL/catfail" && ln -s '.claude/skills/team/rule.md' entry \
+  && _fgit add entry >/dev/null 2>&1 \
+  && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catfail
 # (2d) A violation COMMITTED and then fixed only in the index and worktree. A
 #      push sends the commit, so a gate that reads the index alone calls this
 #      clean while `git show HEAD:victim.py` still carries it (#501 R95).
@@ -437,7 +482,11 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
       return 1 ;;
   esac
   _out_f="$CTL/.control_out"
-  WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
+  # ⚠ THE TOKEN IS WHAT MAKES SELF-TEST MODE REACHABLE. The wire refuses to
+  # enter it without this, so an inherited `WEBREF_WIRE_SELFTEST` left exported
+  # in somebody's shell can no longer redirect the required gate at a fixture.
+  WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_TOKEN="$_SELFTEST_TOKEN" \
+    WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
     WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
     env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
@@ -512,6 +561,18 @@ _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" 
 _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
 _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
+_control "$CTL/headprobe" 1 "the HEAD probe exited" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
+_control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
+# ⚠ TWO GREEN-DIRECTION CONTROLS. Every other control here proves the wire can
+# RED; these two prove it does not red on a legitimate tree, which is the
+# failure mode that gets a required gate switched off rather than fixed.
+_control "$CTL/punct" 0 "PASSED" "closing punctuation is not a path segment" || ctl_ok=1
+_control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not the host path" || ctl_ok=1
+# …and the self-test escape hatch, which must not be reachable from an
+# inherited environment. `_ctl_env` overrides the token the harness passes, so
+# this is the one control that asks the wire to REFUSE to run.
+_ctl_env=("WEBREF_WIRE_SELFTEST_TOKEN=stale-from-somebody-s-shell")
+_control "$CTL/clean" 2 "by the controls beside this wire" "an inherited SELFTEST export cannot redirect the gate" || ctl_ok=1
 _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
@@ -659,7 +720,7 @@ s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a quote inside a name segment
 s|${1//$'\\n'/$_REC_SEP}|${1}|	a NEWLINE inside a name segment
 s/^  _stored "${rel#"$_dir"\/}"/  : /	an entry's own NAME is the hierarchy
 s/--exclude-per-directory=.gitignore/--exclude-standard/	per-clone info/exclude cannot hide an entry
-s/if _git -C "$ROOT" rev-parse --verify/if false \&\& _git -C "$ROOT" rev-parse --verify/	a COMMITTED violation fixed only in the index still fires
+s/\[ "$_hrc" -eq 0 \]/false/	a COMMITTED violation fixed only in the index still fires
 s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not a path
 s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
 s/export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1/export GIT_NO_LAZY_FETCH=1/	a replace ref cannot substitute the staged blob
@@ -672,6 +733,11 @@ s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION
 s/\[ "$_ls_rc" -eq 0 \]/[ 0 -eq 0 ]/	a failed inventory fails closed
 s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inventory fails closed
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
+s/\[ "$_hrc" -gt 1 \]/false/	a failed HEAD PROBE is not an unborn HEAD
+s/\[ "$_catrc" -ne 0 \]/false/	a failed staged-blob read is not a clean target
+s/)}>,;\]+/]+/g	closing punctuation is not a path segment
+s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
+s/\[ "${WEBREF_WIRE_SELFTEST_TOKEN:-}" != "$_SELFTEST_TOKEN" \]/false/	an inherited SELFTEST export cannot redirect the gate
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
