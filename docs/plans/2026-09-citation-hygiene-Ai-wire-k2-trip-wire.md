@@ -309,8 +309,9 @@ it.
 
 **The list is now five, not four.** Review found a class nobody had listed: a
 `.claude/(skills|tools)/` path with **one** further segment, of which this package's own entry
-script is the live case — **31 instances inside the scanned scope** (`cli.py` 22, `DESIGN.md` 7,
-`__init__.py` 1, `commands/refresh.py` 1; the derivation is in the wire's block). Unlike classes
+script is the live case — **non-zero in four files inside the scanned scope**, the bulk of it
+`cli.py`'s `--help` examples (the derivation is in the wire's block; the count moves with the
+package, so it is not written here). Unlike classes
 3 and 4 it **is** grep-decidable, so the block's own "not closable by any wire" justification
 does not reach it, and the honest statement — made in the block — is that the predicate never
 looked. It is listed, not closed: widening to one segment would red the package on every
@@ -712,3 +713,71 @@ make the arithmetic work; nothing is deleted here — the candidates were never 
 **Where the five are stated**: one block in the wire, `WHAT THIS WIRE DOES NOT DECIDE`. #501's
 memo used to restate two of them and to book all of them as slots on this PR; **both are swept
 in this diff** (§5 item 1), so the single site is now true rather than asserted.
+
+## §9 What the pre-push gate changed, and what it deliberately did not
+
+Six reviewers ran against the first two commits of this slice: `/code-review high` and
+`/elidex-review`'s five axes, then `/simplify`'s four angles. **0 CRIT**; the substance is in
+§5 and §8 above. This section records only the decisions a later reader would otherwise
+re-derive — including the ones that were *declined*, since an unexplained absence reads as an
+oversight.
+
+### The root the quality pass found
+
+Five controls had grown a hand-written **precondition** — a probe re-deriving, from a fixture's
+end state, the fact that its build had failed. They were added one at a time, each after a
+control was caught passing over a tree that never posed its question, and the comment
+introducing the first two declared the class closed at two. It was not: three more followed,
+**two of them added by the commit that wrote the sentence.**
+
+The fact all five probes reconstruct is free at the point of failure. Every fixture is now
+built as `( … ) || _fixture_failed <name>`, and `_control` refuses to report on a fixture whose
+chain did not succeed. **The population is therefore every control, not the five somebody
+noticed** — verified by breaking four fixture builds, including `staged`, which never had a
+bespoke probe and is now covered. Net −18 lines and five fewer ways to write one check.
+
+⚠ **One of those probes had to be subtle**, which is the second argument against writing them
+by hand: the run exports `GIT_NO_REPLACE_OBJECTS=1`, so the obvious probe for the `replaced`
+fixture would have read the violating bytes whether or not the replacement took — passing
+vacuously for the very reason its control exists. A build status has no such trap.
+
+### The mutation set's bookkeeping moved out of the mutation run
+
+The ratchet and the needle↔label correspondence are **static properties of the shipped file**
+that cost milliseconds, and they were sitting inside the opt-in harness that costs minutes — so
+a PR deleting a record or renaming a control stayed green until somebody ran it by hand. Both
+are now checked on every run.
+
+⚠ **And the ratchet changed shape**: a floor on the record *count* could not distinguish "one
+deleted, one added" from "unchanged", and said nothing about *which* control had been left
+bare. What is ratcheted now is **the number of controls with no record** — the gap, not the
+population — so adding a control without a record and deleting a record both red, by name.
+⚠ The direction that had been checked has **never had a violation**; the direction that had not
+is where both real gaps lived.
+
+⚠ **The standing negative control's edit is now comment text.** Its first version appended a
+space to an `rm -f` argument list — inert, but only *accidentally*, and that `rm` is itself
+dead. A negative control whose inertness depends on the current behaviour of the code it edits
+stops being one the moment that code changes, silently.
+
+### Taken on cost, since this job runs on every PR
+
+`_esc` and `_onerec` were `printf | sed | tr` pipelines called per entry per source — **306 of
+the scan's 592 process spawns**. They are parameter expansion now, output proven byte-identical
+on bash 3.2 and 5.x over backslashes, embedded newlines, tabs, `~`-leading strings and the
+empty string. ⚠ The form matters: a literal `~` replacement is **tilde-expanded**, and quoting
+the variable emits literal quote characters under bash 3.2 — `_T=$'~'` used *unquoted* is the
+one spelling correct on both. `_scan`'s five `mktemp` calls are gone too: `$SCRATCH` is already
+a per-process directory and `_scan` runs once per process. Derive the result rather than
+trusting a figure here — `/usr/bin/time -p bash scripts/trip-wires.sh`.
+
+### Declined, with grounds
+
+| declined | ground |
+|---|---|
+| **Run the 40 controls concurrently** (measured 3.5–4.4× on the harness's dominant cost) | The right change, at the wrong time. It restructures the output and ordering of the instrument whose correctness this PR exists to establish, and it needs a review round of its own. Recorded as a follow-up rather than smuggled into the PR that is stabilising it. |
+| **Skip the HEAD pass when its blob SHA equals the index's** (measured −37% of the scan) | Sound in principle — comparing object ids is a measurement, not an assumption. But every reproduced defect in this walk's history (#501 R92/R93/R95) came from reading one source and *inferring* another, and the wire's own account commits to reading each source rather than assuming two of them. Not worth re-opening for a gate that runs in single-digit seconds. |
+| **Compute the entry-NAME check once instead of per source** (redundant by construction) | Correct, but it requires restructuring the walk — the part of this instrument with the worst defect history — for ~0.3 s. |
+| **Collapse `_verdict`'s three passes into one** | The three-way grep-status rule is this file's most-cited invariant. The duplication was real and is fixed by a `_classify` helper (one implementation, three calls); merging the *passes* would trade a decision surface for a subtler one. |
+| **A shared shell library for `_control` / `st_probe`** | They are genuinely two implementations of one idiom, and `st_probe` still lacks the watchdog `_control` has. But no `scripts/`-level shell library exists, and creating one is not this slice's to do. Recorded so the third copy does not have to rediscover it. |
+| **Replace the content scan with `git grep`** | The wire's own header records that `git grep -a --no-index` did **not** match inside a `.pyc` on this machine where plain `grep -a` does. A wire whose reach depends on which git is installed is not an absolute. |

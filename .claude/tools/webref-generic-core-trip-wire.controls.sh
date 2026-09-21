@@ -77,6 +77,24 @@ if [ -n "$_ctl_missing" ]; then
   exit 2
 fi
 _fgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@"; }
+
+# ONE FACT, RECORDED ONCE: DID THIS FIXTURE'S BUILD CHAIN SUCCEED?
+# Every fixture below is built as `( cd … && … ) || _fixture_failed <name>`, and
+# `_control` refuses to report on a fixture whose chain did not.
+# ⚠ THIS REPLACES FIVE HAND-WRITTEN PRECONDITIONS, and the reason to prefer it
+# is not brevity. Each fixture is built under `|| true`, so a step that fails
+# leaves a TREE THAT LOOKS PLAUSIBLE — and for some fixtures that tree still
+# satisfies the control's own assertion, which then passes having tested
+# nothing. Five such sites were found one at a time, each fixed with a bespoke
+# probe re-deriving the same fact from the fixture's end state (was the blob
+# tracked? is there a replace ref? did `info/exclude` get written? is it a repo
+# at all?), and the comment introducing the first two called the class closed at
+# two. It was not: `cachedir`, `empty` and `lstreefail` followed, two of them
+# added by the commit that wrote the sentence. The fact those probes
+# reconstruct is available for free at the point of failure, for ALL of them —
+# so the population is every fixture, not the five somebody noticed.
+_FIX_FAILED=""
+_fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
 # the cleanup path is the absolute one it returned (#501 R55: an unchecked
@@ -278,8 +296,15 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
          extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
-    && _fgit add -A >/dev/null 2>&1 ) || true
+    && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
+# ⚠ TWO NAMES ARE ABSENT FROM THAT LIST ON PURPOSE, and both are now stated —
+# one of them was not, and "is this deliberate or a dropped word?" is exactly
+# what a hand-kept second list cannot answer. `cachedir` is built below, in the
+# only order that makes its force-add load-bearing. `lsfail` is NOT A REPOSITORY
+# by design: its control runs under a `git` shim that fails `ls-files` whatever
+# the directory is, so making it a repo would add a state the control does not
+# read.
 # …and the cache fixture's probe is FORCE-added under an ignored path, which
 # is the case `--cached` exists to keep (#501 R77).
 # ⚠ BUILT OUTSIDE THE LOOP ABOVE, AND THE ORDER IS THE WHOLE CONTROL. Inside
@@ -291,7 +316,7 @@ done
 ( cd "$CTL/cachedir" && _fgit init -q . >/dev/null 2>&1 \
   && printf '__pycache__/\n' > .gitignore \
   && _fgit add -A >/dev/null 2>&1 \
-  && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 ) || true
+  && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 ) || _fixture_failed cachedir
 # THE THREE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
 # built AFTER the add loop above, because each needs the index to hold one
 # thing while the worktree holds another.
@@ -299,13 +324,13 @@ done
 #     still carries it, so a pre-push run that reads only the worktree
 #     certifies the very commit that pushes it.
 ( cd "$CTL/staged" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || true
+  && _fgit add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || _fixture_failed staged
 # (2) A TRACKED path replaced by a FIFO. `--cached` still lists it, and
 #     opening it blocks forever with no writer — the local gate hangs instead
 #     of failing closed. Nothing here may open it.
 [ "$_fifo_ok" -eq 0 ] || \
 ( cd "$CTL/fifotracked" && printf '# %s\n' "$CONTROL_CLEAN" > sub.py \
-  && _fgit add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || true
+  && _fgit add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || _fixture_failed fifotracked
 # (2b) A STAGED SYMLINK whose target holds a SPACE inside a segment, with the
 #      worktree target since made clean. The index mode says it is a symlink,
 #      so its blob is a stored path; sent through the running-text predicate
@@ -313,7 +338,7 @@ done
 ( cd "$CTL/stagedlink" && ln -s '.claude/skills/team name/rule.md' entry \
   && _fgit add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry \
-  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || true
+  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed stagedlink
 # (2c) A mode-120000 index entry whose BLOB HOLDS A NUL. git will store and
 #      commit it; no filesystem can realise it as a symlink. It must red the
 #      gate as unreadable, not be quietly shortened into something clean.
@@ -322,12 +347,12 @@ done
   && _sha="$(_fgit hash-object -w --stdin < raw.bin)" \
   && command rm -f raw.bin \
   && _fgit update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
-  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || true
+  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed nulblob
 # The `ls-tree` shim only reaches its arm if the fixture HAS a HEAD — an unborn
 # HEAD skips the whole block, which would make the control green over a branch
 # it never took.
 ( cd "$CTL/lstreefail" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || true
+  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed lstreefail
 # (2d) A violation COMMITTED and then fixed only in the index and worktree. A
 #      push sends the commit, so a gate that reads the index alone calls this
 #      clean while `git show HEAD:victim.py` still carries it (#501 R95).
@@ -335,7 +360,7 @@ done
   && _fgit add victim.py >/dev/null 2>&1 \
   && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
   && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 ) || true
+  && _fgit add victim.py >/dev/null 2>&1 ) || _fixture_failed committed
 # (2e) A local `replace` ref pointing the staged blob at a clean one. What is
 #      committed is the object the index NAMES, so that is what must be read.
 ( cd "$CTL/replaced" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
@@ -343,15 +368,15 @@ done
   && _bad="$(_fgit rev-parse :0:victim.py)" \
   && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
   && _good="$(_fgit hash-object -w victim.py)" \
-  && _fgit replace "$_bad" "$_good" >/dev/null 2>&1 ) || true
+  && _fgit replace "$_bad" "$_good" >/dev/null 2>&1 ) || _fixture_failed replaced
 # (2f) `GIT_DIR`/`GIT_WORK_TREE` exported at another checkout. `-C` does not
 #      win over them, so the inventory described the decoy while the worktree
 #      arm read files here — one clean entry, exit 0, over a violation (#501
 #      R95). The decoy is a real repo holding nothing forbidden.
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/routed/probe.py"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
-( cd "$CTL/routed" && _fgit add -A >/dev/null 2>&1 ) || true
-( cd "$CTL/routeddecoy" && _fgit add -A >/dev/null 2>&1 ) || true
+( cd "$CTL/routed" && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed routed
+( cd "$CTL/routeddecoy" && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed routeddecoy
 # (2g) A checkout path holding a GLOB CHARACTER. Built outside the fixture
 #      loop on purpose: the loop's word list would itself glob the name.
 #      The violation sits BESIDE the scope, so a widened `REL_DIR` — the
@@ -359,7 +384,7 @@ printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
 mkdir -p "$CTL/glob[1]/scope"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/glob[1]/scope/ok.py"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
-( cd "$CTL/glob[1]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || true
+( cd "$CTL/glob[1]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "glob[1]"
 # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
 #     uncommitted state that `--exclude-standard` honours and no other clone
 #     of the same commit shares. (The machine-wide `core.excludesFile` is the
@@ -369,7 +394,7 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
 ( cd "$CTL/notcommitted" && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
   && _fgit add ok.py >/dev/null 2>&1 \
   && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \
-  && printf 'probe.txt\n' > .git/info/exclude ) || true
+  && printf 'probe.txt\n' > .git/info/exclude ) || _fixture_failed notcommitted
 
 # The real geometry: a scope directory and, BESIDE it, an entry script that
 # is itself a symlink holding a forbidden target.
@@ -399,6 +424,18 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # fix now produces a reported control failure rather than a wire that waits
   # forever. Backgrounded and `wait`ed rather than polled, so a healthy
   # control costs nothing; the killer is itself killed when the child returns.
+  # ⚠ THE FIXTURE'S BUILD STATUS, ASKED BEFORE ANYTHING ELSE. Every fixture is
+  # built under `|| _fixture_failed <name>`, so "did the tree this control is
+  # about actually get built?" is one lookup rather than a probe re-derived per
+  # site from the fixture's end state. Without it a broken build leaves a
+  # plausible-looking tree, and for several fixtures that tree still satisfies
+  # the assertion below — a control green over a question never posed.
+  case " $_FIX_FAILED " in
+    *" ${1##*/} "*)
+      echo "!! CONTROL NOT EXERCISED ($4): its fixture did not build, so this control" >&2
+      echo "   would be asserting over a tree that never posed the question." >&2
+      return 1 ;;
+  esac
   _out_f="$CTL/.control_out"
   WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
     WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
@@ -464,24 +501,7 @@ _control "$CTL/link"   1 "K2: a" "K2 fires on a symlink's target"    || ctl_ok=1
 _control "$CTL/nl"     1 "K2: a" "a newline in a filename is not a split" || ctl_ok=1
 _control "$CTL/seg"    1 "K2: a" "K2 covers @ and non-ASCII segments"     || ctl_ok=1
 _control "$CTL/cache"  1 "K2: a" "a regular file named __pycache__ is read" || ctl_ok=1
-# ⚠ A PRECONDITION, because this fixture's fallback state satisfies nothing.
-# The property under test is "IGNORED **and** TRACKED"; if the force-add did not
-# take, the probe is ignored and untracked, the fixture holds no violation to
-# find, and a green here would be a green over a question never posed. Asked of
-# git rather than of the filesystem — the two disagree exactly here.
-# ⚠ `check-ignore --no-index`: without it git answers about the INDEX, so a path
-# that IS ignored reads "not ignored" the moment it is tracked — the flag is off
-# exactly in the state this control requires, and the precondition would have
-# rejected its own correct fixture (measured while writing it).
-if ( cd "$CTL/cachedir" && _fgit check-ignore --no-index -q __pycache__/probe.txt \
-     && _fgit ls-files --error-unmatch __pycache__/probe.txt >/dev/null 2>&1 ); then
-  _control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
-else
-  echo "!! CONTROL NOT EXERCISED (a file UNDER a cache directory is read): the" >&2
-  echo "   fixture's probe is not both IGNORED and TRACKED, so it does not pose the" >&2
-  echo "   question this control exists to ask and would pass without testing it." >&2
-  ctl_ok=1
-fi
+_control "$CTL/cachedir" 1 "K2: a" "a file UNDER a cache directory is read"  || ctl_ok=1
 _control "$CTL/name"   1 "entry NAME" "an entry's own NAME is the hierarchy"  || ctl_ok=1
 _control "$CTL/emptyname" 1 "entry NAME" "an EMPTY entry's name is the hierarchy" || ctl_ok=1
 _control "$CTL/quotename" 1 "entry NAME" "a quote inside a name segment"          || ctl_ok=1
@@ -491,17 +511,7 @@ _control "$CTL/forge"  0 "PASSED" "a name cannot forge a verdict record"      ||
 _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
 _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
 _control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
-# ⚠ A PRECONDITION: the HEAD arm is skipped entirely when the fixture has no
-# HEAD, and this fixture's commit is built under `|| true` — so without this the
-# control would be green over a branch the run never entered.
-if ( cd "$CTL/lstreefail" && _fgit rev-parse --verify --quiet HEAD >/dev/null 2>&1 ); then
-  _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
-else
-  echo "!! CONTROL NOT EXERCISED (a failed HEAD inventory fails closed): the fixture" >&2
-  echo "   has no HEAD, so the arm under test is skipped and this control would pass" >&2
-  echo "   without entering it." >&2
-  ctl_ok=1
-fi
+_control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
 _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
@@ -523,42 +533,24 @@ else
             tracked path replaced by one is not opened — the second being the
             control whose original finding was a local gate that HUNG"
 fi
-if [ -s "$CTL/notcommitted/.git/info/exclude" ]; then
-  _control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
-else
-  echo "!! CONTROL NOT EXERCISED (per-clone info/exclude cannot hide an entry): the" >&2
-  echo "   fixture's info/exclude is empty, so the probe is visible either way." >&2
-  ctl_ok=1
-fi
+_control "$CTL/notcommitted" 1 "K2: a" "per-clone info/exclude cannot hide an entry" || ctl_ok=1
 _control "$CTL/committed" 1 "(in HEAD)" "a COMMITTED violation fixed only in the index still fires" || ctl_ok=1
-# ⚠ A FIXTURE THAT DID NOT BUILD MUST NOT PASS. Every fixture here is built
-# under `|| true`, and for some of them the FALLBACK STATE still satisfies the
-# control's own assertion — so a failed `git replace` (or a failed
-# `info/exclude` write) left the control green while testing nothing, and the
-# mutation it exists to catch would have survived it too (#501 R96, reproduced
-# with a `git` wrapper failing only `replace`).
-# ⚠ THE COUNT IS NOT TWO, AND SAYING "these two were the exceptions" IS HOW THE
-# NEXT ONE HID. That sentence stood here while `cachedir` (its force-add inert
-# because the shared loop tracked the probe first), `empty` (a non-repository
-# verdict byte-identical to an empty one) and `lstreefail` (an unborn HEAD skips
-# the arm) were all in the same state — three more, two of them added by the
-# very commit that wrote the sentence. Guarded sites are marked
-# `⚠ A PRECONDITION` and there are now FIVE; the population is every control
-# whose fixture can fail to build into a state its assertion still accepts, and
-# it is not closed.
-# ⚠ Asked as `replace -l`, not by reading the blob: this run exports
-# `GIT_NO_REPLACE_OBJECTS=1`, so a read here returns the violating bytes
-# whether or not the replacement took — the check would have passed vacuously
-# for the very reason the control exists. (Caught by the precondition firing
-# on a correctly-built fixture.)
-if [ -n "$(cd "$CTL/replaced" && _fgit replace -l 2>/dev/null)" ]; then
-  _control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
-else
-  echo "!! CONTROL NOT EXERCISED (a replace ref cannot substitute the staged blob):" >&2
-  echo "   the fixture's replacement never took, so the staged blob is the violating one" >&2
-  echo "   either way and this control would pass without testing anything." >&2
-  ctl_ok=1
-fi
+# ⚠ A FIXTURE THAT DID NOT BUILD MUST NOT PASS, and `_fixture_failed` is where
+# that is now decided — for every control, not for the five somebody noticed.
+# The history is worth keeping because it is what the general mechanism costs
+# to NOT have: a failed `git replace` left this control green while testing
+# nothing (#501 R96, reproduced with a `git` wrapper failing only `replace`);
+# the fix was a bespoke `replace -l` probe here; the comment introducing it
+# called the class closed at two sites; `cachedir`, `empty` and `lstreefail`
+# then turned up in the same state, two of them added by the commit that wrote
+# that sentence. Five hand-written probes, each re-deriving from the fixture's
+# END STATE a fact the BUILD already knew.
+# ⚠ AND ONE OF THOSE PROBES HAD TO BE SUBTLE, which is the other argument for
+# not writing them: this run exports `GIT_NO_REPLACE_OBJECTS=1`, so reading the
+# blob returns the violating bytes whether or not the replacement took — the
+# obvious probe would have passed vacuously for the very reason the control
+# exists, and only `replace -l` worked. A build status has no such trap.
+_control "$CTL/replaced" 1 "(staged)" "a replace ref cannot substitute the staged blob" || ctl_ok=1
 _ctl_env=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=safe.directory" "GIT_CONFIG_VALUE_0=*")
 _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the routing purge" "" "" "$CTL/fakegitcfg" || ctl_ok=1
 _ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
@@ -574,24 +566,14 @@ if [ "$_fifo_ok" -eq 1 ]; then
 fi
 # An empty scope must be an ERROR, not a pass: "no violations" and "nothing
 # read" are different answers and only one of them is green.
-# ⚠ A PRECONDITION, AND IT IS A THIRD EXCEPTION TO A SENTENCE ABOVE THAT CLAIMS
-# THERE ARE TWO. `empty`'s fixture is built in the `|| true` init loop, and a
-# `git init` that never ran produces a BYTE-IDENTICAL verdict: the
-# `SCANNED -eq 0` guard short-circuits before the `ERR_HITS` block, so even the
-# inventory-failure records are suppressed and both states print
-# `!! read 0 stored objects or files` and exit 2. Measured both ways. So this
-# control passed over a fixture that was not a repository at all — the exact
-# class the `replaced` / `notcommitted` guards were added for, at a site the
-# comment that introduced them called impossible.
-if ( cd "$CTL/empty" && _fgit rev-parse --git-dir >/dev/null 2>&1 \
-     && [ -z "$(_fgit ls-files)" ] ); then
-  _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" || ctl_ok=1
-else
-  echo "!! CONTROL NOT EXERCISED (an empty scope fails loudly): the fixture is not an" >&2
-  echo "   EMPTY REPOSITORY, and a non-repository produces the identical verdict — so" >&2
-  echo "   this control would pass without distinguishing the two." >&2
-  ctl_ok=1
-fi
+# ⚠ THIS ONE IS WHY THE BUILD STATUS IS RECORDED RATHER THAN PROBED. A `git
+# init` that never ran produces a BYTE-IDENTICAL verdict here: the
+# `SCANNED -eq 0` guard short-circuits before the `ERR_HITS` block, so a
+# non-repository and an empty repository both print
+# `!! read 0 stored objects or files` and exit 2. No end-state probe over the
+# fixture can tell them apart cheaply; the build's own exit status can, and
+# does, for this control and the other thirty-nine.
+_control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" || ctl_ok=1
 # ⚠ The line is built HERE, beside the decision that produces it. An earlier
 # shape decided here and described it in the summary below, so the two could
 # disagree — and an unconditional summary claimed exit-status evidence the run
@@ -606,8 +588,6 @@ else
   _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
   _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
 fi
-[ "$ctl_ok" -eq 0 ] || exit 1
-
 # ---- THE MUTATION SET ------------------------------------------------------
 # WHY IT IS HERE AND NOT IN A COMMIT LOG. Every control above proves a verdict
 # is REACHABLE. What it does not prove is that the verdict is PRODUCED BY THE
@@ -642,18 +622,31 @@ fi
 # nothing, so deleting a record shrank the set in silence and the run stayed
 # green. Three things now hold it up, and each is checked below rather than
 # described:
-#   * a RATCHET — `_MUT_FLOOR` is the count this set has reached; fewer entries
-#     reds. Raising it is the edit that adds a record.
-#   * a CORRESPONDENCE — every record's needle must be the label of an actual
-#     `_control` call in this file, in both directions' spirit: a record naming
-#     no control is a stale anchor that would report "wrong reason" forever.
+#   * a CORRESPONDENCE, IN BOTH DIRECTIONS AND ALWAYS-ON. Every record's needle
+#     must name an actual `_control` label in this file (a stale anchor would
+#     otherwise report "wrong reason" forever), AND the number of controls with
+#     NO record is ratcheted: `_MUT_UNRECORDED_MAX` may only come down.
+#     ⚠ THE SECOND DIRECTION IS THE ONE THAT CATCHES ANYTHING. The first has
+#     never had a violation; the second is where both real gaps lived — the
+#     `ls-tree` arm with no record, and a control whose fixture made its
+#     mutation inert. A count-only floor was tried first and is gone: it could
+#     not distinguish "one deleted, one added" from "unchanged", and it said
+#     nothing about WHICH control had been left bare. The gap is the quantity
+#     with meaning, so the gap is what is ratcheted.
 #   * a STANDING NEGATIVE CONTROL — one record whose expected outcome is
 #     SURVIVAL (`!survive`), so a harness that cannot distinguish a real kill
 #     from an environment failure reds. That distinction is not hypothetical:
 #     an inert entry run ONCE is what caught this harness reporting 18/18 when
 #     every mutant was in fact exiting 126 on a permission bit, and a control
 #     that is not standing cannot catch it twice.
-_MUT_FLOOR=20
+#     ⚠ ITS EDIT IS A COMMENT, AND THAT IS A REQUIREMENT, not a convenience.
+#     The first version appended a space to an `rm -f` argument list — inert,
+#     but only ACCIDENTALLY so, and that particular `rm` is itself dead (the
+#     scratch root's trap removes the whole directory). A negative control whose
+#     inertness depends on the current behaviour of the code it edits stops
+#     being a negative control the moment that code changes, silently. Comment
+#     text cannot alter a verdict by construction.
+_MUT_UNRECORDED_MAX=21
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -663,14 +656,14 @@ _mutants() { cat <<'MUTANTS'
 s/grep -aEn --/grep -En --/	K2 fires inside binary content, and the content is READ
 s/"$_mrc" -gt 1/"$_mrc" -gt 99/	a failed NAME matcher fails closed
 s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a quote inside a name segment
-s/| tr '\\n' '\\001'/| cat/	a NEWLINE inside a name segment
+s|${1//$'\\n'/$_REC_SEP}|${1}|	a NEWLINE inside a name segment
 s/^  _stored "${rel#"$_dir"\/}"/  : /	an entry's own NAME is the hierarchy
 s/--exclude-per-directory=.gitignore/--exclude-standard/	per-clone info/exclude cannot hide an entry
 s/if _git -C "$ROOT" rev-parse --verify/if false \&\& _git -C "$ROOT" rev-parse --verify/	a COMMITTED violation fixed only in the index still fires
 s/if ! tr -d .\\000. < "\$_b"/if false/	a NUL-bearing staged symlink blob is not a path
 s/readlink -n "$f"/readlink "$f"/	readlink's own newline is not read as stored content
 s/export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1/export GIT_NO_LAZY_FETCH=1/	a replace ref cannot substitute the staged blob
-s/| tr '\\n\\t' '~~'/| cat/	a name cannot forge a verdict record
+s|^_esc() .*|_esc() { printf '%s' "$1"; }|	a name cannot forge a verdict record
 s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/	a byte no UTF-8 locale can bracket
 s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
 s/\[ -e "$p" \] || \[ -L "$p" \]/[ -e "$p" ]/	a symlinked EXTRA entry is scanned
@@ -679,9 +672,48 @@ s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION
 s/\[ "$_ls_rc" -eq 0 \]/[ 0 -eq 0 ]/	a failed inventory fails closed
 s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inventory fails closed
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
-s/rm -f "$_lc" "$_lo" "$_lh" "$_b" "$_e"/rm -f "$_lc" "$_lo" "$_lh" "$_b" "$_e" /	!survive
+s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
+
+# ---- THE CORRESPONDENCE, CHECKED ON EVERY RUN ---------------------------------
+# ⚠ THESE TWO USED TO LIVE INSIDE THE MUTATION BLOCK, which is opt-in and costs
+# minutes — so a PR that deleted a record or renamed a control stayed green
+# until somebody happened to run the harness by hand. They are static
+# properties of this shipped file and cost milliseconds, so they belong where
+# every run sees them. (The mutation RUN stays opt-in; only its bookkeeping
+# moved.)
+_mutants > "$CTL/.mutants"
+_mut_orphan=0
+while IFS="$(printf '\t')" read -r _ _mwant; do
+  [ -n "${_mwant:-}" ] || continue
+  # `!survive` is the standing negative control; it names no control by design.
+  [ "$_mwant" != '!survive' ] || continue
+  grep -qF -- "\"$_mwant\"" "$_CONTROLS" || {
+    echo "!! mutation record needle \"$_mwant\" matches no _control label in this file." >&2
+    echo "   A record whose control was renamed reports \"wrong reason\" forever." >&2
+    _mut_orphan=1; }
+done < "$CTL/.mutants"
+[ "$_mut_orphan" -eq 0 ] || ctl_ok=1
+# …and the direction that actually finds things: controls with NO record.
+# The label is the third quoted argument of a `_control` call.
+_mut_bare=0
+awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS" | sed '/^$/d' | while IFS= read -r _lbl; do
+  grep -qF -- "	$_lbl" "$CTL/.mutants" || printf '%s\n' "$_lbl"
+done > "$CTL/.bare"
+_mut_bare="$(grep -c . "$CTL/.bare")"
+if [ "$_mut_bare" -gt "$_MUT_UNRECORDED_MAX" ]; then
+  echo "!! $_mut_bare controls have no mutation record, against a ratchet of $_MUT_UNRECORDED_MAX." >&2
+  echo "   Either the new control needs a record, or a record was deleted. The bare ones:" >&2
+  sed 's/^/     /' "$CTL/.bare" >&2
+  echo "   If a control genuinely cannot have one, say why and RAISE the ratchet in the" >&2
+  echo "   same edit — so widening the gap is a visible decision rather than a silence." >&2
+  ctl_ok=1
+fi
+command rm -f "$CTL/.bare"
+
+[ "$ctl_ok" -eq 0 ] || exit 1
+
 
 if [ -n "${WEBREF_WIRE_MUTANTS:-}" ]; then
   # The copy must sit BESIDE the wire: `$ROOT` is derived from `$0`, and the
@@ -717,26 +749,6 @@ if [ -n "${WEBREF_WIRE_MUTANTS:-}" ]; then
   # Through a FILE, not a pipe: the counters below must survive the loop, and a
   # `_mutants | while` runs the body in a subshell that discards them.
   _mutants > "$CTL/.mutants"
-  # THE RATCHET. Derived from the shipped table, compared against the floor.
-  _mut_have="$(grep -c . "$CTL/.mutants")"
-  if [ "$_mut_have" -lt "$_MUT_FLOOR" ]; then
-    echo "!! the mutation set has SHRUNK: $_mut_have entries against a floor of $_MUT_FLOOR." >&2
-    echo "   Records are only ever added. If one was deleted deliberately, say why and" >&2
-    echo "   lower _MUT_FLOOR in the same edit, so the shrink is a visible decision." >&2
-    exit 1
-  fi
-  # THE CORRESPONDENCE. Every needle must name a real control in this file.
-  # `!survive` is the standing negative control and names no control by design.
-  _mut_orphan=0
-  while IFS="$(printf '\t')" read -r _ _mwant; do
-    [ -n "${_mwant:-}" ] || continue
-    [ "$_mwant" != '!survive' ] || continue
-    grep -qF -- "\"$_mwant\"" "$_CONTROLS" || {
-      echo "!! mutation record needle \"$_mwant\" matches no _control label in this file." >&2
-      echo "   A record whose control was renamed reports \"wrong reason\" forever." >&2
-      _mut_orphan=1; }
-  done < "$CTL/.mutants"
-  [ "$_mut_orphan" -eq 0 ] || exit 1
   _mut_n=0; _mut_bad=0
   while IFS="$(printf '\t')" read -r _mx _mwant; do
     [ -n "$_mx" ] || continue
@@ -762,8 +774,8 @@ if [ -n "${WEBREF_WIRE_MUTANTS:-}" ]; then
     _mrc2=0
     _mout="$(env -u WEBREF_WIRE_MUTANTS bash "$_mut_wire" 2>&1)" || _mrc2=$?
     if [ "$_mwant" = '!survive' ]; then
-      # THE STANDING NEGATIVE CONTROL. This edit cannot change any verdict (it
-      # appends a space to an `rm -f` argument list), so the wire MUST still be
+      # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
+      # cannot change any verdict by construction and the wire MUST still be
       # green. If it reds, the harness is failing mutants for a reason that has
       # nothing to do with the mutation — a missing execute bit, a clobbered
       # copy, a full disk — and every "killed" above is unearned.

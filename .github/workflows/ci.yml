@@ -164,12 +164,16 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    # RE-DERIVED WHEN THE K2 WIRE LANDED, not inherited. That wire's fixture
-    # self-tests take the driver from ~3 s to ~20 s on a developer checkout
-    # (measure: `/usr/bin/time -p bash scripts/trip-wires.sh`), and a reviewer
-    # on this repo measured a hosted runner ~4x slower than a local one — so
-    # ~80 s against the old 120 s budget, i.e. 1.5x headroom where the figure
-    # this was sized against (~1 s) gave ~100x. 5 minutes restores ~15x.
+    # RE-DERIVED WHEN THE K2 WIRE LANDED, not inherited: that wire's fixture
+    # self-tests are the first thing in this job whose cost is a large multiple
+    # of the scan it guards, and 2 minutes was sized against a set that took
+    # about a second.
+    # ⚠ NO FIGURES HERE, for the reason the block above gives — and an earlier
+    # revision of THIS comment broke that rule twenty lines below it, quoting a
+    # before/after and a runner ratio whose baseline machine was named nowhere.
+    # Three reviewers measured the same checkout and got materially different
+    # numbers. Derive it instead:
+    #   /usr/bin/time -p bash scripts/trip-wires.sh
     # ⚠ THE RULE, so the next person does not have to rediscover it: a wire
     # that adds fixture self-tests re-derives this line in the same PR. Leaving
     # it while the job grows is how an always-run gate starts failing for time

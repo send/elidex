@@ -103,12 +103,14 @@
 #      program runs.
 #   5. A `.claude/(skills|tools)/` path with ONE further segment — of which
 #      `.claude/tools/webref`, this package's own entry script, is the live
-#      case.  Measured inside the scanned scope:
+#      case.  It is LIVE, not hypothetical — derive it rather than trusting a
+#      count here, since the count moves with the package:
 #
 #        LC_ALL=C grep -rc '\.claude/tools/webref\b' \
-#          .claude/tools/_webref .claude/tools/webref
-#        # cli.py 22 (the --help examples), DESIGN.md 7, __init__.py 1,
-#        # commands/refresh.py 1  = 31
+#          .claude/tools/_webref .claude/tools/webref | grep -v ':0$'
+#
+#      The bulk of it is `cli.py`'s `--help` examples; `DESIGN.md`,
+#      `__init__.py` and `commands/refresh.py` each carry some too.
 #
 #      ⚠ THIS ONE IS DECIDABLE AND IS STILL NOT DECIDED, which is why it is
 #      listed apart from 3 and 4.  §2's predicate takes TWO further segments,
@@ -408,11 +410,27 @@ _git() { ( for _v in $_GIT_LOCAL_VARS; do
            export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
            exec git "$@" ); }
 
-_esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' | tr '\n\t' '~~'; }
+# ⚠ PARAMETER EXPANSION, NOT A PIPELINE, and the reason is the always-run job.
+# These two are the hottest things in the file — called per entry per source —
+# and as `printf | sed | tr` / `printf | tr` they were **306 of the real scan's
+# 592 process spawns**. In-shell they cost none, and the scan measured ~25%
+# faster with byte-identical output (verified by diff over the whole record
+# stream, and by the `forge` / `nlname` / `quotename` controls, which exist
+# precisely to exercise these characters).
+# ⚠ THE REPLACEMENT MUST COME FROM A VARIABLE, UNQUOTED, and that is not
+# stylistic. A literal `${v//$'\n'/~}` is TILDE-EXPANDED — it substitutes the
+# home directory — and the obvious repair, quoting it as `"$_T"`, emits LITERAL
+# QUOTE CHARACTERS under bash 3.2, which this wire commits to. `_T=$'~'` used
+# unquoted is the one form correct on both; verified on 3.2.57 and 5.x over
+# `a\b`, an embedded LF, `safe<LF>k2<TAB>forged`, a TAB, `~home` and the empty
+# string.
+_ESC_T=$'~'
+_REC_SEP=$'\001'
+_esc() { _e="${1//\\/\\\\}"; _e="${_e//$'\n'/$_ESC_T}"; printf '%s' "${_e//$'\t'/$_ESC_T}"; }
 
 # A stored path as ONE record: newline is data inside a segment, not a
 # separator. `\001` is chosen because no predicate here mentions it.
-_onerec() { printf '%s' "$1" | tr '\n' '\001'; }
+_onerec() { printf '%s' "${1//$'\n'/$_REC_SEP}"; }
 
 # THE ONE PLACE A STORED PATH IS MATCHED.  Both stored-path subjects — an
 # entry's own name and a symlink's target — run this, so "did the matcher
@@ -568,11 +586,18 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
 }
 
 _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
-  _e="$(mktemp "$SCRATCH/errXXXXXX")" || { printf 'err\twalk: no temp file for the walk errors\n'; return 0; }
-  _lc="$(mktemp "$SCRATCH/lcXXXXXX")" || { rm -f "$_e"; printf 'err\twalk: no temp file for the tracked list\n'; return 0; }
-  _lo="$(mktemp "$SCRATCH/loXXXXXX")" || { rm -f "$_e" "$_lc"; printf 'err\twalk: no temp file for the worktree list\n'; return 0; }
-  _lh="$(mktemp "$SCRATCH/lhXXXXXX")" || { rm -f "$_e" "$_lc" "$_lo"; printf 'err\twalk: no temp file for the HEAD list\n'; return 0; }
-  _b="$(mktemp "$SCRATCH/blobXXXXXX")"  || { rm -f "$_e" "$_lc" "$_lo" "$_lh"; printf 'err\twalk: no temp file for the staged blob\n'; return 0; }
+  # ⚠ FIXED NAMES UNDER `$SCRATCH`, NOT `mktemp`. `$SCRATCH` is already this
+  # PROCESS's own `mktemp -d` (and the run refuses to start if it sits inside
+  # the scanned tree), and `_scan` is called exactly once per process — so five
+  # `mktemp` spawns per invocation bought uniqueness that was already
+  # guaranteed. At 41 invocations per gate run that was ~200 processes.
+  # ⚠ The creation is still CHECKED, because "could not write here" must not
+  # become a silent empty list — it becomes the same `err` record as before.
+  for _t in e lc lo lh b; do
+    : > "$SCRATCH/scan.$_t" || { printf 'err\twalk: no temp file (%s) for the walk\n' "$_t"; return 0; }
+  done
+  _e="$SCRATCH/scan.e"; _lc="$SCRATCH/scan.lc"; _lo="$SCRATCH/scan.lo"
+  _lh="$SCRATCH/scan.lh"; _b="$SCRATCH/scan.b"
   _dir="$1"; _extra="${2:-}"
   # THE LISTS ARE GIT'S ANSWER to what this tree HOLDS, in two halves because
   # the halves keep their bytes in different places (see `_entry`):
@@ -667,13 +692,24 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
 # error**; `|| true` collapsed both, so an operational failure here reported an
 # empty `K2_HITS` over a violation `_scan` had already found (#501 R88). Each
 # arm now distinguishes them and a status above 1 aborts rather than answering.
+# ONE IMPLEMENTATION OF THE THREE-WAY STATUS RULE, called three times — rather
+# than the rule written out three times, which is what `_verdict` used to be.
+# The rule is this file's most-cited invariant ("1 is no match, 2 or more is a
+# failure, and a failure may not be answered as an absence"), and an invariant
+# with three edit sites is three chances to fix two of them. The `-ac` variant
+# was also invisible without diffing the copies.
+# $1 = what failed (for the diagnostic), $2 = extra grep flags, $3 = pattern.
+_classify() {
+  _crc=0; _cout="$(printf '%s\n' "$_VERDICT_IN" | grep -a $2 -- "$3")" || _crc=$?
+  [ "$_crc" -le 1 ] || { echo "!! the $1 classifier failed (grep exit $_crc); this run decided nothing" >&2; exit 2; }
+  printf '%s' "$_cout"
+}
+
 _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
-  _vrc=0; K2_HITS="$(printf '%s\n' "$1" | grep -a '^k2	')" || _vrc=$?
-  [ "$_vrc" -le 1 ] || { echo "!! the K2 classifier failed (grep exit $_vrc); this run decided nothing" >&2; exit 2; }
-  _vrc=0; ERR_HITS="$(printf '%s\n' "$1" | grep -a '^err	')" || _vrc=$?
-  [ "$_vrc" -le 1 ] || { echo "!! the error classifier failed (grep exit $_vrc); this run decided nothing" >&2; exit 2; }
-  _vrc=0; SCANNED="$(printf '%s\n' "$1" | grep -ac '^ok	')" || _vrc=$?
-  [ "$_vrc" -le 1 ] || { echo "!! the count classifier failed (grep exit $_vrc); this run decided nothing" >&2; exit 2; }
+  _VERDICT_IN="$1"
+  K2_HITS="$(_classify K2 '' '^k2	')"
+  ERR_HITS="$(_classify error '' '^err	')"
+  SCANNED="$(_classify count -c '^ok	')"
 }
 
 # ---- CONTROLS: re-invoke THIS script over fixtures, assert the exit code ----
