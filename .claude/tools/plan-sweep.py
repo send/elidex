@@ -135,10 +135,21 @@ def main(argv=None):
         ap.error("the following arguments are required: memo")
 
     jobs = [(f"--pattern {p}", p) for p in (args.pattern or [])]
+    # The ids are what a caller types, so match them EXACTLY first: as a plain
+    # prefix, `--concept D1` also selects D10 and D11 and runs three sweeps under
+    # one name -- the caller reads the first and takes the other two for part of
+    # it. A prefix that is not an id still resolves, but only if it is
+    # unambiguous; ambiguity is an error rather than a silent fan-out.
+    by_id = {n.split()[0]: (n, p) for n, p in CONCEPTS.items()}
     for want in (args.concept or []):
+        if want in by_id:
+            jobs.append(by_id[want]); continue
         matched = [(n, p) for n, p in CONCEPTS.items() if n.startswith(want)]
         if not matched:
             ap.error(f"no preset starts with {want!r} (see --list-concepts)")
+        if len(matched) > 1:
+            ap.error(f"{want!r} is ambiguous: {', '.join(n.split()[0] for n, _ in matched)}"
+                     f" — name one exactly, or repeat --concept")
         jobs += matched
     if not jobs:  # no selector: replay every preset
         jobs = list(CONCEPTS.items())
