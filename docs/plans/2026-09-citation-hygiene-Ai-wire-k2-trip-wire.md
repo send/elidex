@@ -275,7 +275,8 @@ cross-document citation — goes with the table; there is no longer a citation a
 | Artifact | What it is |
 |---|---|
 | `.claude/tools/webref-generic-core-trip-wire.sh` | the scanner: population from git, content from git, verdict |
-| `.claude/tools/webref-generic-core-trip-wire.controls.sh` | the controls: one fixture per verdict the scanner can reach, **plus the mutation set** (§7 criterion 3) that shows each control is about the arm it names. Sourced by the wire; its interface is asserted at entry, and run on its own it exits 2 saying so |
+| `.claude/tools/webref-generic-core-trip-wire.controls.sh` | the controls: one fixture per verdict the scanner can reach. Sourced by the wire; its interface is asserted at entry, and run on its own it exits 2 saying so |
+| `.claude/tools/webref-generic-core-trip-wire.mutations.sh` | the mutation set (§7 criterion 3) and the correspondence between it and the controls — *is each control about the arm it names?*, which is a different question from the controls' own. Split out at R6; same entry contract |
 | `scripts/trip-wires.sh` | one line in `REQUIRED_WIRES`, plus the two driver comments its arrival falsified |
 | `.github/workflows/ci.yml` | the ungated-job rationale for the `trip-wires` job |
 | `CLAUDE.md` | the paragraph restating that rationale, which names the job comment as canonical |
@@ -727,7 +728,9 @@ instrument.
 
 ## §8 Defer slots
 
-**Three, and an earlier revision of this section said zero.** That was right about the four
+**Two, and this section has now been wrong in both directions.** An earlier revision said
+**zero** while the loop had added obligations it was never reopened to see; the revision that fixed
+that booked a **third** slot for work the rule required to be done, not deferred (R6, below). That was right about the four
 declared blind spots and wrong as a total: the loop added obligations §8 was never reopened to
 see. The distinction it draws still holds — *a defer slot records work the slice owes; a
 declared blind spot records the reach of a predicate* — and it is what sorts the list below.
@@ -740,20 +743,36 @@ For interpolation and bare top-level names, *"closable here"* is answerable only
 already rejects. ⚠ The list was **five** when this section was first written and is seven now;
 the two additions are recorded at §10.3 and §10.4.
 
-### Slot 1 — the touch-time split, and it is the discipline's own prescribed shape
+### ~~Slot 1 — the touch-time split~~ **WITHDRAWN and DONE (R6).** It was never a slot.
 
-| | |
-|---|---|
-| **Why deferred** | Both shell files crossed **1000 lines** during this converge loop (measure: `wc -l .claude/tools/webref-generic-core-trip-wire*.sh`). CLAUDE.md's touch-time discipline says a >1000-line file gets a **standalone prereq split** and — in the same sentence — that the split must be **its own PR / its own commit**, never bundled into the feature PR. So doing it here is what the rule forbids, not what it asks. |
-| **Re-evaluation trigger** | Immediately after #519 lands, before the next PR that edits either file. |
-| **Re-evaluation date** | 2026-09-28 |
+⚠ **The slot inverted the rule it cited, and the external reviewer caught it (P1).** CLAUDE.md's
+heading is literally *"1000-line debt = touch-time split (**defer しない**)"*, and *prereq* means
+**before**. The slot used the other half of the same sentence — *"split は単独 PR / 単独 commit"* —
+as permission to **merge the oversized files first and schedule the split afterwards**, which is
+the one ordering the rule exists to forbid. Reading a rule's constraint as a licence for the thing
+it constrains is the failure worth naming here; the sentence admits **単独 commit**, so the split
+lands *in* this PR, as its own commit, before merge.
 
-⚠ **This is not "the file got big".** It is an obligation created *by this PR's own review loop*:
-+240 and +186 lines across four rounds. And the seam question is genuinely reopened — §5 item 5's
-"one predicate, one walk, one verdict" argument was made against a 786-line file and has to be
-re-derived at 1026, where the header alone is now a third of it.
+**Done**: `.claude/tools/webref-generic-core-trip-wire.mutations.sh`, at the seam the reviewer
+named — fixture/control execution versus the opt-in mutation harness. The controls file goes
+**1031 → 810**.
 
-### Slot 2 — `_match_path`'s `|| return 4` is unpinned
+⚠ **And the memo's own counter-argument is answered rather than dropped.** §9 had argued against
+this seam because *"the two lists must be edited together, so splitting them puts the two halves
+of one assertion in two files"*. They must — and the correspondence check is what **enforces**
+that instead of hoping for it. Being cross-file is the point: it reads the controls for labels and
+the mutation file for records, and reds when they drift. The argument was for a version of the
+split that moved the *table* and left the *check* behind; that is not this split.
+
+**The wire is NOT split, and that is a cohesion judgement with its measurement attached.** At
+1089 lines it is **249 lines of code and 817 of comment** (`awk` split in §0). CLAUDE.md's
+discipline is explicit that the test is cohesion, not line count, and exempts *一枚岩の cohesive
+unit*: what is left is one predicate, one walk, one verdict, and the length is recorded incident
+rationale rather than logic. ⚠ **If that is wrong, the seam to propose is predicate-vs-walk** —
+"what counts as a hit" against "what is read" — and it is named here so the next reviewer argues
+against a position rather than a silence.
+
+### Slot 1 — `_match_path`'s `|| return 4` is unpinned
 
 | | |
 |---|---|
@@ -761,7 +780,7 @@ re-derived at 1026, where the header alone is now a third of it.
 | **Re-evaluation trigger** | Any change that puts an external command back into `_onerec`. |
 | **Re-evaluation date** | 2026-12-31 |
 
-### Slot 3 — the ratchet's `wc -l` path is unpinned
+### Slot 2 — the ratchet's `wc -l` path is unpinned
 
 | | |
 |---|---|
@@ -769,8 +788,8 @@ re-derived at 1026, where the header alone is now a third of it.
 | **Re-evaluation trigger** | `_MUT_UNRECORDED_MAX` reaching 0 — a condition the ratchet already makes monotone-downward, so it is fireable rather than notional. |
 | **Re-evaluation date** | 2026-12-31 |
 
-⚠ **Own-deferral count: 3, against a per-PR cap of 3.** At the cap, not over it. ⚠ And the
-honest note on slots 2 and 3: both are *"a code path the gate's own tests cannot reach"*, which
+⚠ **Own-deferral count: 2, against a per-PR cap of 3.** ⚠ And the
+honest note on both: both are *"a code path the gate's own tests cannot reach"*, which
 is a smaller admission than a blind spot but a real one, and the cap policy forbids deleting a
 slot to make arithmetic work — so if a fourth arrives, one of these has to be closed rather than
 re-labelled.
@@ -1050,3 +1069,34 @@ then shipped a patch of exactly the kind the diagnosis forbade, in the same comm
 heading saying I had not. **A correct root-check does not immunise the round it is written in**,
 and the thing that caught it was the mandated design re-gate firing *because the loop was still
 diverging* — the one guard that does not depend on my own judgement of my own work.
+
+### §10.5 Round 6 — one finding, and it was about a rule I had inverted
+
+**P1: *"Land the 1000-line split before this feature."*** R5's §8 had booked the touch-time split
+as a slot to be done **after** #519 lands. That inverts the rule it cites twice over: CLAUDE.md's
+heading is *"1000-line debt = touch-time split (**defer しない**)"*, and *prereq* means **before**.
+What the slot did was take the sentence's other half — *"split は単独 PR / 単独 commit"* — and use
+it as permission to merge the oversized files first.
+
+⚠ **Reading a rule's constraint as a licence for the thing it constrains** is the failure worth
+naming. The sentence admits **単独 commit**, which is exactly the shape available here: the split
+lands *in* this PR, as its own commit, before merge.
+
+**Done in this round**, at the seam the reviewer named: `…trip-wire.mutations.sh`, separating
+*"can the wire reach every verdict?"* (the controls) from *"is each control about the arm it
+names?"* (the mutation set and the correspondence between the two lists). Controls **1031 → 810**.
+
+⚠ **Two things the split had to get right, and the standing negative control caught the second:**
+- the **correspondence check moves with the mutation set**, not away from it — §9's argument
+  against this seam was aimed at a split that moved the table and left the check behind, and that
+  version would indeed have been worse.
+- the mutation runner copies the **controls** beside each mutant; it now copies this file too.
+  Without that, every mutant exited 2 (*"decided nothing"*) for a reason unrelated to its
+  mutation, and the harness reported it as the entry failing. **The `!survive` entry died and
+  said so** — a broken harness reporting itself, in the run that broke it.
+
+**The wire is not split**, and that is a judgement with its measurement attached: 1089 lines is
+**249 code / 817 comment**, and what remains is one predicate, one walk, one verdict — CLAUDE.md's
+*一枚岩の cohesive unit* exemption, which is a cohesion test and not a line count. If that is
+wrong the seam to propose is **predicate-vs-walk**, named in §8 so the next reviewer argues
+against a position rather than a silence.
