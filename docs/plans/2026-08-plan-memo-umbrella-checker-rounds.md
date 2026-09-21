@@ -6,6 +6,47 @@ round, every design re-gate, and the handoff each session resumes from. Carved o
 at PR #510 R47-3, which reported it — §6 had reached 1,790 lines by holding a stable ACCEPTANCE
 CONTRACT and an append-only HISTORY in one bullet, and the two have opposite lifetimes.
 
+▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21, head `799349db` PUSHED, tree clean, NO round in
+flight, and the converge loop is DELIBERATELY STOPPED).**
+
+**THE DECISION (user, 2026-09-21): option (B) — stop the review loop, take §8's carves to
+`/elidex-plan-review`.** Do NOT `/external-converge 510`. Do NOT re-trigger Codex. The loop was not
+failing; it was producing findings of a kind a loop cannot settle.
+
+**WHY, in one line each**: R47 3 findings → R48 2 → R49 2 → R50 1 → R51 dry → R52 1. Every round's
+findings were real and were fixed or carved. But the RESIDUE converged: **five §8 entries name
+"Slice 2's plan-review" as owner, and four of them are the same question — what is this gate's
+POPULATION.** Each of those four was reproduced, had a fix written and measured, and the fix was
+REVERTED because it overturns a control this plan ratified. That is plan-review work by CLAUDE.md's
+edge-dense rule, not another round.
+
+**⚠ AND A SECOND REASON, which is the one worth carrying forward**: across this session a Codex DRY
+verdict hid real defects **three times**. The three-agent enumeration attestation found 6 behind the
+first pair of dry rounds, 3 behind R47's, and 3 behind R51's. Every one was found by a FRESH AGENT
+ENUMERATING, never by my own re-reading. Two of the last three were *recurrences of the class the
+commit that introduced them claimed to have closed* — a ratchet keyed by NAME inside the control
+whose docstring warns against criterion-by-name, and an unswept retraction inside the commit titled
+"corrections that had not been swept". **A dry round bounds what the REVIEWER found, never what is
+there.**
+
+**STATE**: PR #510, branch `vm-p4-plan-memo-checker`, worktree `elidex-wt-vmp4checker`.
+**Gate at `799349db`**: 739 controls / 421 mutants 0 survived 0 crashed / trip-wires rc 0 / #506
+census `--worklist` site set byte-identical over 815 rows / this memo at the four-FATAL floor /
+largest `plan*.py` 983 / 22 census loops 0 unpinned / 7 kind-question call sites over 5 modules 0
+unsanctioned. **All Codex threads are resolved except the five that ARE the carves.**
+
+**▶ WHAT THE PLAN-REVIEW TAKES.** §8's entries, and the four that are one question first:
+(5) the id grammar releasing a rejected core's trailing decoration; (12) the §6.2 demotion tag
+recorded and never read; (14) the residue gate comparing PRESENCE where the property is kind AND
+attribution; (15) the declaration site that produces no table. Each entry already carries its
+reproduction, the fix that was written, and the measured reason it was reverted — the review should
+start from those measurements rather than re-deriving them. (6) Slice 3 (Phase 1 offsets) is the
+fifth and is a different subject.
+
+**▶ MERGE IS NOT PROPOSED AND IS THE USER'S CALL.** The head has moved since the last dry round, so
+if merge is ever raised it needs a fresh review of `799349db` first; the merge-head guard hook
+enforces that mechanically.
+
 ⚠ **A session resuming this work starts HERE**, at the block headed *"THE NEXT SESSION STARTS
 HERE"* below. The umbrella memo keeps the contract, the invariants, the spec coverage map, the
 slices and the defer ledger; nothing in this file is a commitment, only a record of how the
