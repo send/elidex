@@ -1856,11 +1856,31 @@ ground for either option; it is not cited.
   **Gate after the re-gate**: 657 controls / 364 mutants 0 survived 0 crashed / trip-wires rc 0 /
   census worklist byte-identical. ⚠ Four further mutant rows were retargeted where these fixes moved
   their substrings — one needed a wider anchor because the old one now matched twice.
-  ▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-20, head `e82d3324` PUSHED, tree clean).**
-  **State**: #510 reached **TERMINAL** at R37+R38 (two dry rounds on `cd1f973c`, all three channels
-  with denominators). The TERMINAL design re-gate then ran over `bc7cb013..cd1f973c` and its
-  findings are fixed and pushed — **so the head has MOVED past the dry rounds**.
-  **▶ DO FIRST, in order:**
+  ▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21, head `1bede857` PUSHED, tree clean, NO round in
+  flight — the trigger is deliberately unfired).**
+  **STATE**: everything the 2026-09-20 handoff listed below is DONE (items 0–3, the Axis 5 re-run,
+  the TERMINAL fix-delta re-gate over axes 3/4/5, and rounds R42 … R42-10). The loop did NOT
+  converge: it ran ten rounds, and from R42-6 on **every round's findings were opened by the
+  previous round's fix of mine**. R42-10 is the first where that stopped — one FP and one carve,
+  with essentially no code change.
+  **▶ THE DECISION THIS SESSION OWES, BEFORE ANY TRIGGER** — three things, and the third is new:
+  1. **Defer cap: 11 own against a cap of 3.** §8 classifies every entry and the policy's four
+     options are (a) fold / (b) narrow / (c) split / (d) accept with a written rationale. The
+     analysis is in §8's cap paragraph; the choice is the user's
+     (`memory/feedback_defer_cap_policy.md`'s PAUSE clause).
+  2. **Two spec-prose readings the vendored corpus cannot settle** (§8: §6.3-vs-Appendix, and §6.6
+     raw HTML in an alt). Both need a reference implementation — cmark or commonmark.js — which no
+     session so far has been able to execute. Until then neither is a defect.
+  3. **The linked-memo unbound table** (§8, new at R42-10): real, reproduced, and the obvious
+     predicate MEASURED as over-firing on the live population. It needs the gate's population
+     DEFINED, which is a design decision rather than a patch.
+  ⚠ **AND A QUESTION ABOUT HOW TO PROCEED AT ALL.** Over R42-6…R42-10 three of my changes turned a
+  shipped control or the census red, and three separate controls I wrote had a subject that was not
+  their claim — every one found by RUNNING the mutants, none by re-reading the control. Two readings
+  are open: the surface is converging (R42-10's shape supports it), or this surface wants
+  `/elidex-plan-review` before more of it is touched, which is what CLAUDE.md's edge-dense rule says
+  for a subsystem with no canonical algorithm. **The user was asked to choose and has not yet.**
+  **▶ WHAT THE 2026-09-20 HANDOFF SAID, kept because its items are the record of what was done:**
   0. ✅ **DISCHARGED (2026-09-20, the next session's first act).** The split is taken, recorded in
      §7's Slice 0 with the seam it actually used (the handoff's was refined — it would have split
      `dash_spelling_sweep_control` from the sibling its own docstring names), and the header's
