@@ -70,10 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog=".claude/tools/webref",
         description=(
-            "webref lookup helper — resolve a spec citation against "
-            "w3c/webref and the tc39 biblio: section numbers, anchor IDs, "
+            "webref lookup helper. Resolves a spec citation against "
+            "w3c/webref and the tc39 biblio — section numbers, anchor IDs, "
             "WebIDL fragments, concept dfn anchors, element-to-interface "
-            "mappings, CSS property metadata and section prose."
+            "mappings, CSS property metadata, section prose — and tracks the "
+            "specs themselves across refreshes: snapshot, semantic diff, and "
+            "the agent briefs derived from one."
         ),
         epilog=COMMON_SHORTNAMES,
         formatter_class=argparse.RawDescriptionHelpFormatter,

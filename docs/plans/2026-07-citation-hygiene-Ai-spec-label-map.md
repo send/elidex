@@ -4,8 +4,12 @@
 
 **Umbrella**: `docs/plans/2026-07-citation-hygiene-umbrella.md`, slice **A-i**. **Branch**:
 `webref-cite-audit-tool`. **Status**: **draft 5, implemented.** `/elidex-plan-review` closed the gate on merit
-at this draft; `/elidex-review` then returned 0 CRIT / 7 IMP / 15 MIN on the implementation plus this memo,
-and those dispositions are applied in the same commit set as this revision. **The draft number is
+at this draft, and `/elidex-review` has re-gated the implementation **five times** since. ⚠ **This line
+carried one gate's tally and said its dispositions landed "in the same commit set as this revision"; the
+figure was 119 commits and four re-gates stale by #501 design re-gate 5, and the same figure had a second
+home in a memory file that could not update it.** A tally here is a hostage to the next gate, so this line
+states none: derive with `git log --oneline <that revision>..HEAD | wc -l`, and read the gate history in
+`memory/project_citation-hygiene-program.md`, which is where it is owned. **The draft number is
 deliberately unchanged** — the **two** memory files that carry a draft number for this program
 (`project_citation-hygiene-program.md`, `active-lane-detail.md`) both say draft 5 (checklist item 1), and
 bumping it here would re-create the disagreement that item just cleared. ⚠ **This said "the three memory
@@ -96,14 +100,21 @@ or explicitly assigned, and the enumeration of those occurrences is **derived**,
   `.claude/tools/webref`**. ⚠ **That is a by-DIRECTORY approximation of `DESIGN.md`'s by-RESPONSIBILITY
   split, and the two are not co-extensive** — this memo called it "`DESIGN.md`'s by-responsibility
   definition" until #501 gate 4. `DESIGN.md:28-37` divides by responsibility and names no directory;
-  measured, two modules inside the approximation do adapter work (`commands/agent_brief.py`, which
-  `DESIGN.md:47` itself describes as scanning *elidex* paths, and `cli.py`'s `--paths` default
-  `["docs", "crates", "CLAUDE.md"]`, which is the "impacted `docs`/`crates` path heuristics" bullet as a
-  literal). Both are pre-existing, so they are evidence about the definition rather than A-i defects — but a
-  green from the wire is evidence about the directory, not about `DESIGN.md` compliance, and §12(3) must not
-  be read as more. ✅ **Redrawn at #501 R36** (the
+  measured with a predicate rather than by hand, **at least five sites** inside the approximation do
+  adapter work: `commands/agent_brief.py` (which `DESIGN.md:47` itself describes as scanning *elidex*
+  paths), `cli.py`'s `--paths` default and its `# plan-memo §3 skeleton` example, `commands/agent_policy.py`
+  (*"a Coding Agent is expected to update elidex artifacts"*), `commands/coverage_map.py` (plan-memo §3
+  skeleton, the split-decision verdict, its Japanese output) and `commands/refresh.py:52`. All are
+  pre-existing, so they are evidence about the definition rather than A-i defects. ⚠ **This said "two
+  modules" until #501 design re-gate 5**, naming the two the author had looked at — and an enumeration of
+  exemptions leaves every site outside it authoritative as "generic", which is the reading a maintainer
+  takes from a green wire. Re-derive rather than re-count: `grep -rniE 'plan-memo|plan memo|分割|Coding
+  Agent|--paths docs' -- .claude/tools/_webref .claude/tools/webref`.
+  ⚠ **A green from the trip-wire is evidence about the DIRECTORY, not about `DESIGN.md` compliance**, and
+  §12(3) must not be read as more — the five sites above are exactly what the wire cannot see, and they are
+  why the by-responsibility half stays a review obligation. ✅ **Redrawn at #501 R36** (the
   plan-review altitude for this memo is this PR's converge): an earlier revision bound it to all of
-  `.claude/tools/`, which measured bought zero evidence (both pre-existing sites lie inside `_webref/cli.py`
+  `.claude/tools/`, which measured bought zero evidence (the two instances K2 is about lie inside `_webref/cli.py`
   and `webref`) and imported five other-lane trip-wire artifacts into §12(3). The
   tool's own invocation path `.claude/tools/webref` is one segment and occurs **22** times in `origin/main`'s
   `cli.py`; excluding it is intended — an install path is not a path into elidex's tree — and
@@ -495,7 +506,8 @@ Every diff check names an explicit ref.
    **read the output of these two, both 0 at this head**:
 
    ```sh
-   git ls-files -z --cached --others --exclude-standard -- .claude/tools/_webref .claude/tools/webref \
+   git ls-files -z --cached --others --exclude-per-directory=.gitignore \
+     -- .claude/tools/_webref .claude/tools/webref \
      | tr '\0' '\n' | grep -cE 'cite.?audit|_catalog'      # the artifact as an entry NAME
    git grep --untracked -lE 'cite.?audit|_catalog' -- .claude/tools/_webref/ .claude/tools/webref | wc -l
    ```

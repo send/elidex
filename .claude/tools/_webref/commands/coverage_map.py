@@ -21,6 +21,10 @@ from ..spec_labels import label_for
 # pinning the spec in `SPECS` does not close it on its own: the verifier reads
 # its own reverse map, which this module does not feed. The fall-back stays as
 # it is so the map remains the only place the enumeration lives.
+# ⚠ TRACKED, and the route is here rather than left to be rediscovered:
+# `#11-preflight-css-module-labels` (owner Slice B, prerequisite A-ii) closes
+# it. A comment that names a live defect without naming where it is owned reads
+# as an accepted one.
 
 
 def _spec_label(shortname: str) -> str:

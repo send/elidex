@@ -24,16 +24,29 @@ from __future__ import annotations
 # test here can tell the difference: every pin below is an internal round-trip,
 # S7 forbids importing the upstream fetcher, and T-net poisons the network on
 # the import path. So a wrong label is unfalsifiable in-tree by construction.
-# Measured against the upstream index, five rows diverge from
-# `title`/`organization` deliberately:
+# The criterion is EVERY ROW WHOSE LABEL IS NOT THE UPSTREAM `title`, which is
+# seven — not the four whose titles merely differ. ⚠ It said FIVE until #501
+# design re-gate 5, and the two it omitted are the two that diverge hardest: a
+# count is not the same as a predicate, and this block is the ONLY record of
+# label correctness (see the warning above), so a row missing from it is a row
+# nothing states anything about.
 #   webidl       "Web IDL Standard"                   WHATWG  -> `Web IDL` (no prefix)
 #   xhr          "XMLHttpRequest Standard"            WHATWG  -> `WHATWG XHR` (abbreviated)
 #   selectors-4  "Selectors Level 4"                  W3C     -> `CSS Selectors L4`
 #   geometry-1   "Geometry Interfaces Module Level 1" W3C     -> `Geometry Interfaces L1`
-#   webcrypto    no such shortname upstream (series)  W3C     -> `Web Cryptography API`
-# Re-derive with `webref specs <shortname>`. A label is a published spelling:
-# changing one is a change to every citation already written against it, not a
-# local edit.
+#   webcrypto    no spec by that shortname; it is a SERIES whose current spec is
+#                `webcrypto-2` "Web Cryptography API Level 2" W3C
+#                                                     -> `Web Cryptography API`
+#   ecma262      ABSENT from the index as spec AND series -> `ECMA-262`
+#   ecma402      ABSENT from the index as spec AND series -> `ECMA-402`
+# Re-derive: `webref specs <shortname>` for the first five. ⚠ NOT for the last
+# two — `specs` searches w3c/webref's index only, and the tc39 pair are
+# shortnames this project coined (`sources/tc39.py`'s `TC39_FAMILY`), so `specs`
+# prints nothing for them AND prints nothing for a typo, which is the same
+# answer. Re-derive those two with `webref heading ecma262 1` (they resolve
+# against the tc39 biblio, and a wrong shortname does not).
+# A label is a published spelling: changing one is a change to every citation
+# already written against it, not a local edit.
 #
 # The canonical label is the display form `coverage-map` prints, and the
 # spelling any consumer should emit for that spec; the blurb is `cli.py`'s
@@ -109,6 +122,4 @@ def shortname_for(label: str) -> str | None:
     and source comments, where a stray leading space is not a different
     spec.
     """
-    if not label:
-        return None
     return LABEL_TO_SHORTNAME.get(label.strip().lower())
