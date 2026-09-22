@@ -667,7 +667,7 @@ instrument.
    directions, since a split that can silently skip its own controls is worse than no split.
    **Met**, and §5 item 5 added the other direction: the controls file run on its own now exits
    **2** naming what it is, instead of failing inside `mktemp`.
-3. **The mutation set is enumerated in the controls file itself, machine-readably, and each
+3. **The mutation set is enumerated in `…trip-wire.mutations.sh`, machine-readably, and each
    entry is shown to red when reverted. Met — the run prints the count and `not killed as
    named`, and the count is ratcheted rather than quoted here.**
 
@@ -685,7 +685,11 @@ instrument.
    ⚠ **The population is the point.** Draft 1 pointed at *"each fix this wire's history names"* —
    prose scattered across review commits that live on #501 and are **erased by its squash
    merge**, mixed with refactor commits whose revert reds nothing. This set ships in the file it
-   is about. ⚠ **It is a floor, not a census**: nothing can detect an arm that never had a
+   is about. ⚠ **Split out of the controls file at R6** — the criterion said "in the controls
+   file itself" while §4's table already assigned the records to the new file, i.e. the acceptance
+   criterion and the artifact table gave competing accounts of the seam. The property the
+   criterion is about is *ships with the thing it is about*, which the split preserves.
+   ⚠ **It is a floor, not a census**: nothing can detect an arm that never had a
    record, and the file says so.
 
    ⚠ **Three things the set found on its first honest run, each of which had been invisible:**
@@ -721,9 +725,9 @@ instrument.
    §4 includes this memo. ⚠ The artifact set is **not frozen**: §5 items 2, 5 and 6 can each
    change it, and draft 1's version forbade exactly those answers by fixing the set first.
    **Met — and the set DID change**, which is the criterion working rather than failing: items 5
-   and 6 were answered without adding a file, and criterion 3's mutation set ships **inside the
-   controls file**, but the design review found #501's memo contradicting §8 and the umbrella
-   missing the row its own repo-wide command needs. Both are now in §4's table. A version of this
+   and 6 were answered without adding a file; the design review found #501's memo contradicting
+   §8 and the umbrella missing the row its own repo-wide command needs; and R6 added
+   `…trip-wire.mutations.sh` when the touch-time split landed. Both are now in §4's table. A version of this
    criterion that froze the set at five would have forced those two defects to land.
 
 ## §8 Defer slots
@@ -1100,3 +1104,21 @@ names?"* (the mutation set and the correspondence between the two lists). Contro
 *一枚岩の cohesive unit* exemption, which is a cohesion test and not a line count. If that is
 wrong the seam to propose is **predicate-vs-walk**, named in §8 so the next reviewer argues
 against a position rather than a silence.
+
+### §10.6 Round 7 — five findings; two made by R6's split, one by the edit that retired a figure
+
+| # | What | Disposition |
+|---|---|---|
+| **P2** | **A caller's git configuration reached the fixtures.** `_git` deliberately preserves `GIT_CONFIG*` (#501 R97 — a checkout readable only through a caller's `safe.directory`), which is right for the **real scan** and wrong for the **fixtures**. Reproduced here and by the reviewer: `GIT_CONFIG_COUNT=1 core.excludesFile=*.py` made the fixtures' `git add` skip their own `.py` inputs → **ten** `CONTROL NOT EXERCISED` on a clean checkout | **Fixed.** `_fgit` is a subshell that unsets `GIT_CONFIG` / `GIT_CONFIG_PARAMETERS` / `GIT_CONFIG_COUNT`; re-measured **10 → 0**. The asymmetry — preserve for the repository, scrub for the fixtures — is why there are two helpers, and it is now stated at the one that scrubs |
+| **P2** | **One shim was failing both `ls-files` inventories.** `" ls-files "` is in the tracked (`--stage`) call *and* the worktree (`--cached --others`) one, so removing either arm's status check left the other's error to mask it — the reviewer deleted the worktree emission and the whole run stayed green. Mutation record 17 rewrote all three `_ls_rc` checks at once, so it only ever proved *at least one* remained | **Fixed.** `_ls_rc` → `_rc_tracked` / `_rc_worktree` / `_rc_head`, so each guard is individually addressable; the shim is narrowed to `--stage`; a `--others` shim, fixture, control and record are new, and the one collapsed record becomes three |
+| **P2** | The split fragment's interface omitted `$_MUTATIONS` (which `_mut_run` reads to copy itself) and **wrote the caller's `ctl_ok`** — so a rename in the controls would leave this file assigning an unused global while the caller stayed green | **Fixed.** `_mut_correspondence` **returns** a status and the caller decides; `$_MUTATIONS` joins the checked contract. ⚠ This is the cross-file drift the entry guard exists to prevent, **reintroduced by the split that added the guard** |
+| **P2** | `CLAUDE.md`'s `実測は一桁秒台` — a **new figure introduced by the edit that retired a stale one**, in a paragraph that says not to record elapsed time, and already false (the reviewer measured ~40 s) | **Fixed** by removing it, not replacing it. Third time this session a figure was introduced while retiring one; the rule is *derive it or omit it* |
+| **P2** | §7 criterion 3 still said the records are *"in the controls file itself"* after R6 moved them, while §4's table already named the new file — the acceptance criterion and the artifact table giving competing accounts of the seam | **Fixed.** The property the criterion is about is *ships with the thing it is about*, which the split preserves |
+
+⚠ **And one finding of my own, from fixing the second**: excluding `lsfail` from the fixture
+repository loop had been justified by *"its shim fails `ls-files` whatever the directory is"* —
+which **stopped being true the moment that shim was narrowed**. Its worktree inventory then ran
+for real against a non-repository and the control got `read 0 stored objects` instead of the
+inventory error it names. **An exclusion justified by another mechanism's breadth expires when
+that mechanism is narrowed, and nothing links the two but a note** — so the note is now at the
+exclusion.

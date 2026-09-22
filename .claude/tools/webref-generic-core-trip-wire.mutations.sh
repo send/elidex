@@ -24,13 +24,21 @@
 # rather than hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
-# WHAT IT CONSUMES: `$CTL` and `$_CONTROLS` (from the controls file), `$SELF`
-# and `$SCRATCH` (from the wire). WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`,
-# `_mutants`, `_mut_correspondence`, `_mut_run`.
+# WHAT IT CONSUMES: `$CTL`, `$_CONTROLS` and `$_MUTATIONS` (from the controls
+# file — the last is this file's own path, which `_mut_run` copies beside each
+# mutant), plus `$SELF` and `$SCRATCH` (from the wire).
+# WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_mutants`, `_mut_correspondence`,
+# `_mut_run`.
+# ⚠ AND IT WRITES NOTHING OF THE CALLER'S. `_mut_correspondence` used to set
+# `ctl_ok` — a variable owned by the controls file — so a rename there would
+# have left this file assigning an unused global while the caller's status
+# stayed green: the exact cross-file drift the entry guard exists to prevent,
+# reintroduced by the split that added the guard. It RETURNS a status now and
+# the caller decides, which is a contract a rename cannot silently break.
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in CTL _CONTROLS SELF SCRATCH; do
+for _n in CTL _CONTROLS _MUTATIONS SELF SCRATCH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
 if [ -n "$_mut_missing" ]; then
@@ -121,7 +129,9 @@ s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
 s/\[ -e "$p" \] || \[ -L "$p" \]/[ -e "$p" ]/	a symlinked EXTRA entry is scanned
 s/REL_DIR="${SCOPE_DIR#"$ROOT"\/}"/REL_DIR="${SCOPE_DIR#$ROOT\/}"/	a glob character in the checkout path does not widen the scope
 s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION survives the routing purge
-s/\[ "$_ls_rc" -eq 0 \]/[ 0 -eq 0 ]/	a failed inventory fails closed
+s/\[ "$_rc_tracked" -eq 0 \]/true/	a failed TRACKED inventory fails closed
+s/\[ "$_rc_worktree" -eq 0 \]/true/	a failed WORKTREE inventory fails closed
+s/\[ "$_rc_head" -eq 0 \]/true/	a failed HEAD inventory fails closed
 s/the HEAD inventory exited %d/the HEAD inventory was fine %d/	a failed HEAD inventory fails closed
 s/ls-files -z --stage/ls-files -z --cached/	a STAGED symlink target is a stored path
 s/\[ "$_shrc" -eq 0 \]/false/	a failed HEAD PROBE is not an unborn HEAD
@@ -163,7 +173,8 @@ _mut_correspondence() {
       echo "   A record whose control was renamed reports \"wrong reason\" forever." >&2
       _mut_orphan=1; }
   done < "$CTL/.mutants"
-  [ "$_mut_orphan" -eq 0 ] || ctl_ok=1
+  _mut_corr_bad=0
+  [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1
   # …and the direction that actually finds things: controls with NO record.
   # The label is the third quoted argument of a `_control` call.
   _mut_bare=0
@@ -181,9 +192,10 @@ _mut_correspondence() {
     sed 's/^/     /' "$CTL/.bare" >&2
     echo "   If a control genuinely cannot have one, say why and RAISE the ratchet in the" >&2
     echo "   same edit — so widening the gap is a visible decision rather than a silence." >&2
-    ctl_ok=1
+    _mut_corr_bad=1
   fi
   command rm -f "$CTL/.bare"
+  return "$_mut_corr_bad"
 
 }
 

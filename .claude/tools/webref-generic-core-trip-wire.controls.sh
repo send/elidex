@@ -76,7 +76,21 @@ if [ -n "$_ctl_missing" ]; then
   echo "   Run the wire instead — it sources this file and refuses to run without it." >&2
   exit 2
 fi
-_fgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@"; }
+# ⚠ AND IT SCRUBS THE ENVIRONMENT-PROVIDED CONFIG TOO, which `_git` deliberately
+# does NOT. `_git` keeps `GIT_CONFIG*` because clearing it broke a checkout that
+# was only readable through a caller's `safe.directory` (#501 R97) — right for
+# the REAL scan, wrong for the fixtures, which must be built from a known
+# configuration whatever the caller carries. Reproduced by the external
+# reviewer and here: invoking the gate with
+# `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.excludesFile
+#  GIT_CONFIG_VALUE_0=<file containing *.py>` made the fixtures' `git add` skip
+# their own `.py` inputs and produced **ten** `CONTROL NOT EXERCISED` failures
+# on a clean checkout. `GIT_CONFIG_GLOBAL`/`_SYSTEM` alone do not reach that
+# channel. The asymmetry is the point and it is why there are two helpers:
+# PRESERVE for the repository, SCRUB for the fixtures.
+# ⚠ In a subshell (`( … )`), so the unset cannot leak into the real scan.
+_fgit() ( unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+          GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@" )
 
 # ONE FACT, RECORDED ONCE: DID THIS FIXTURE'S BUILD CHAIN SUCCEED?
 # Every fixture below is built as `( cd … && … ) || _fixture_failed <name>`, and
@@ -122,7 +136,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -179,14 +193,27 @@ ln -s "$CTL/linkname/ok.py" "$CTL/linkname/$CONTROL_K2"
 # nonzero with nothing on stderr is the one signal a truncated population has,
 # and it was discarded (#501 R85).
 mkdir -p "$CTL/fakegit"
+# ⚠ ONLY THE TRACKED (`--stage`) INVENTORY FAILS, and the discriminator is that
+# flag. This matched `" ls-files "`, which is in BOTH the tracked call and the
+# worktree/untracked one — so one shim failed both, and the surviving error from
+# whichever arm remained MASKED the removal of the other's status check.
+# Measured by the external reviewer: deleting the worktree inventory's error
+# emission left the whole run green. A shim shims the one call it is about.
 # ⚠ ONLY `ls-files` FAILS. The shim used to answer every `git` invocation,
 # which made it a control for whatever the wire asked git next rather than for
 # a failing inventory — and #501 R95 added a `rev-parse` preflight that the
 # blanket shim then answered with the fixture's own bytes. Same shape as
 # `fakegrep`: a control shims the ONE call it is about.
-printf '#!/bin/sh\ncase " $* " in *" ls-files "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
+printf '#!/bin/sh\ncase " $* " in *" --stage "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
   "$(command -v git)" > "$CTL/fakegit/git"
 chmod +x "$CTL/fakegit/git"
+# …and its sibling for the WORKTREE/untracked inventory, which had no shim and
+# therefore no control of its own.
+mkdir -p "$CTL/fakegitwt"
+printf '#!/bin/sh\ncase " $* " in *" --others "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
+  "$(command -v git)" > "$CTL/fakegitwt/git"
+chmod +x "$CTL/fakegitwt/git"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # …AND THE SAME FOR `ls-tree`, because the HEAD inventory is a THIRD list with a
 # status check of its own and nothing exercised it: `fakegit` fails `ls-files`
 # only, so the `ls-tree` arm added at #501 R95 could be deleted and every
@@ -404,17 +431,19 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforg
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
-# ⚠ TWO NAMES ARE ABSENT FROM THAT LIST ON PURPOSE, and both are now stated —
-# one of them was not, and "is this deliberate or a dropped word?" is exactly
-# what a hand-kept second list cannot answer. `cachedir` is built below, in the
-# only order that makes its force-add load-bearing. `lsfail` is NOT A REPOSITORY
-# by design: its control runs under a `git` shim that fails `ls-files` whatever
-# the directory is, so making it a repo would add a state the control does not
-# read.
+# ⚠ ONE NAME IS ABSENT FROM THAT LIST ON PURPOSE: `cachedir`, built below in the
+# only order that makes its force-add load-bearing.
+# ⚠ `lsfail` USED TO BE ABSENT TOO, on the ground that its shim failed
+# `ls-files` "whatever the directory is" — which stopped being true the moment
+# that shim was narrowed to the TRACKED call alone. Its worktree inventory then
+# ran for real against a non-repository, both lists came back empty, and the
+# control got `read 0 stored objects` (exit 2) instead of the inventory error it
+# names. **An exclusion justified by another mechanism's breadth expires when
+# that mechanism is narrowed**, and nothing links the two but this note.
 # …and the cache fixture's probe is FORCE-added under an ignored path, which
 # is the case `--cached` exists to keep (#501 R77).
 # ⚠ BUILT OUTSIDE THE LOOP ABOVE, AND THE ORDER IS THE WHOLE CONTROL. Inside
@@ -675,7 +704,8 @@ _control "$CTL/rawbyte" 1 "K2: a"      "a byte no UTF-8 locale can bracket"     
 _control "$CTL/forge"  0 "PASSED" "a name cannot forge a verdict record"      || ctl_ok=1
 _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" || ctl_ok=1
 _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
-_control "$CTL/lsfail" 1 "population is incomplete" "a failed inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
+_control "$CTL/lsfail" 1 "the tracked inventory exited" "a failed TRACKED inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
+_control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE inventory fails closed" "" "" "$CTL/fakegitwt" || ctl_ok=1
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
 _control "$CTL/headprobe" 1 "that ref EXISTS, so this HEAD is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
 _control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
@@ -795,7 +825,7 @@ if [ ! -r "$_MUTATIONS" ]; then
 fi
 # shellcheck source=/dev/null
 . "$_MUTATIONS"
-_mut_correspondence
+_mut_correspondence || ctl_ok=1
 
 [ "$ctl_ok" -eq 0 ] || exit 1
 

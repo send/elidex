@@ -877,7 +877,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # inventory has when it fails silently — a partial list then gives SCANNED > 0,
   # no error record, and a green verdict over a population that was cut short
   # (#501 R85, reproduced with a `git` that printed one entry and exited 1).
-  _ls_rc=0
+  _rc_tracked=0
   # `--stage`, not a bare `--cached`: the INDEX MODE is what says a staged blob
   # is a symlink target rather than file content, and asking the worktree
   # instead gets it wrong exactly when the two disagree (#501 R93).
@@ -885,16 +885,16 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # once and `:0:` cannot resolve it — each copy becomes an `err`, which is the
   # right answer: nothing here can say what such a tree would commit.
   _git -C "$ROOT" ls-files -z --stage \
-      -- "$_dir" ${_extra:+"$_extra"} > "$_lc" 2>>"$_e" || _ls_rc=$?
-  [ "$_ls_rc" -eq 0 ] || \
-    printf 'err\tthe tracked inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+      -- "$_dir" ${_extra:+"$_extra"} > "$_lc" 2>>"$_e" || _rc_tracked=$?
+  [ "$_rc_tracked" -eq 0 ] || \
+    printf 'err\tthe tracked inventory exited %d, so the population is incomplete\n' "$_rc_tracked"
   # THE WORKING TREE's half is tracked AND untracked together: every path that
   # has bytes on disk right now, whichever list git files it under.
-  _ls_rc=0
+  _rc_worktree=0
   _git -C "$ROOT" ls-files -z --cached --others --exclude-per-directory=.gitignore \
-      -- "$_dir" ${_extra:+"$_extra"} > "$_lo" 2>>"$_e" || _ls_rc=$?
-  [ "$_ls_rc" -eq 0 ] || \
-    printf 'err\tthe worktree inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+      -- "$_dir" ${_extra:+"$_extra"} > "$_lo" 2>>"$_e" || _rc_worktree=$?
+  [ "$_rc_worktree" -eq 0 ] || \
+    printf 'err\tthe worktree inventory exited %d, so the population is incomplete\n' "$_rc_worktree"
   # …AND HEAD, because a push sends the COMMIT, not the index (#501 R95). A
   # violation committed and then fixed only in the index read green while
   # `git show HEAD:victim` still held it. Bounded at the TIP and no further:
@@ -945,11 +945,11 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
     fi
   fi
   if [ "$_hrc" -eq 0 ]; then
-    _ls_rc=0
+    _rc_head=0
     _git -C "$ROOT" ls-tree -r -z HEAD \
-        -- "$_dir" ${_extra:+"$_extra"} > "$_lh" 2>>"$_e" || _ls_rc=$?
-    [ "$_ls_rc" -eq 0 ] || \
-      printf 'err\tthe HEAD inventory exited %d, so the population is incomplete\n' "$_ls_rc"
+        -- "$_dir" ${_extra:+"$_extra"} > "$_lh" 2>>"$_e" || _rc_head=$?
+    [ "$_rc_head" -eq 0 ] || \
+      printf 'err\tthe HEAD inventory exited %d, so the population is incomplete\n' "$_rc_head"
   fi
   [ -s "$_e" ] && printf 'err\tthe walk reported errors, so part of the scope went unread: %s\n' \
     "$(tr '\n' ';' < "$_e" | cut -c1-200)"
