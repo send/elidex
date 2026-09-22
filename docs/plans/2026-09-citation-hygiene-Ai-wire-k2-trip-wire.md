@@ -806,6 +806,12 @@ Six reviewers ran against the first two commits of this slice: `/code-review hig
 re-derive — including the ones that were *declined*, since an unexplained absence reads as an
 oversight.
 
+⚠ **The pre-push gate's Stage 5 `/review` did not run as a separate stage, and that is not a
+skip.** Since Claude Code v2.1.223 `/review` is an alias of `/code-review`
+(https://code.claude.com/docs/en/code-review.md, "Review a diff locally"), so Stage 5 and the
+`/code-review high` above are the same command. The gate's own definition is corrected in a
+separate PR (`skills-pre-push-review-alias`).
+
 ### The root the quality pass found
 
 Five controls had grown a hand-written **precondition** — a probe re-deriving, from a fixture's
@@ -1122,3 +1128,14 @@ for real against a non-repository and the control got `read 0 stored objects` in
 inventory error it names. **An exclusion justified by another mechanism's breadth expires when
 that mechanism is narrowed, and nothing links the two but a note** — so the note is now at the
 exclusion.
+
+### §10.7 Round 8 — two findings; the self-test entry moved off the environment
+
+| # | What | Disposition |
+|---|---|---|
+| **P2** | **Self-test mode was reachable from a parent shell.** A shell that exports `WEBREF_WIRE_SELFTEST` and `WEBREF_WIRE_SELFTEST_PPID=$$` is the parent of every wire it later launches, so the PID check passed and an ordinary run skipped every control and scanned the fixture. Reproduced here in a `git clone --local` sandbox with a violation planted in `_webref/`: the wire at `0ba1ed2c` printed `PASSED` over the fixture; the fixed wire scanned the checkout and exited 1 | **Fixed at the mechanism, not the value.** This was the third authorization this entry had carried — a literal token (R1's fix), then the parent's PID (R3's fix), now broken the same way — and the root is that the **environment is inherited by definition**, so no value in it separates "the controls started this" from "a shell with the export started this". Self-test mode is now `--selftest <root> [dir] [extra]`: arguments are not inherited and the driver passes none, and the old names are no longer read at all. The control is R8's reproduction verbatim (both names exported, the companion equal to the real parent, pointing at the clean fixture, while the argument names a violating one); a second control pins the missing-root refusal. One mutation record each |
+| **P2** | The umbrella's A-i-wire row **copied** this memo's artifact list, slot verdict and blind-spot count, and all three had moved on | **Fixed by removing the copy**: the row now points at §4 and §8 instead of restating them. The same sweep found no other copy — the A-i memo's §8 passage states the blind-spot/slot argument, which still holds, and its §0 record of what A-i once carried is history |
+
+⚠ **Neither finding came from R7's fixes**, which is the stop condition set for this round. Both
+are older self-introduced defects: the PID check was R3's fix, and the row went stale when R5/R6 changed what it copied.
+

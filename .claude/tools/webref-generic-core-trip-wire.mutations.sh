@@ -147,7 +147,8 @@ s/\[ "$_hrc" -ne 0 \]/false/	a malformed HEAD ref is not an unborn repository
 s/\]*\[^\]\/\[:space:\]"'"'"'`)}>,;\]'/]*]'/	punctuation BEFORE a slash is part of the path
 s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
 s#^K2RE_PATH=.*#K2RE_PATH='\\.claude/(skills|tools)/[^/]+/[^/]+'#	a segment merely ENDING in .claude is not the host path
-s/\[ "${WEBREF_WIRE_SELFTEST_PPID:-}" != "$PPID" \]/false/	an inherited SELFTEST export cannot redirect the gate
+s/_SELFTEST="$2"/_SELFTEST="${WEBREF_WIRE_SELFTEST:-$2}"/	an exported SELFTEST cannot redirect the scan
+s/\[ ! -d "${2:-}" \]/false/	a missing self-test root decides nothing
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }

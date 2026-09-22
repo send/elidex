@@ -289,39 +289,37 @@ SCOPE_FILE="$ROOT/.claude/tools/webref"
 # internal variable proves the classifier, not the thing the verdict does with it
 # — measured at #501 R70, where killing the verdict's error arm left a control
 # passing and the wire green.  The subject has to be the exit code.
-# ⚠ AND IT MAY ONLY BE ENTERED BY THIS WIRE'S OWN CONTROLS. `WEBREF_WIRE_SELFTEST`
-# left EXPORTED in a shell — after debugging a control by hand — is inherited by
-# the ordinary `scripts/trip-wires.sh` run, which then points `ROOT` at that
-# directory AND skips every control. Reproduced by the external reviewer: with a
-# forbidden untracked file in the real `_webref` tree, exporting this variable at
-# a clean initialised repository made the required gate exit 0, while scanning
-# the actual tree exited 1. Same class as the `WEBREF_WIRE_MUTANTS` bypass, on a
-# variable that predates it.
-# ⚠ THE COMPANION VALUE IS THE PARENT'S LIVE PID, NOT A LITERAL. A fixed token
-# was the first attempt and it does not work: the string is in this file, so a
-# debugging shell that exports BOTH variables — which is exactly what copying
-# the two lines out of the controls produces — still redirected a later normal
-# run and skipped every control (reproduced by the external reviewer). A PID
-# cannot be satisfied by copying: the child's own `$PPID` must equal it, so only
-# a process actually started by this wire passes, and a leftover export carries
-# a PID from a shell that is no longer anybody's parent.
-if [ -n "${WEBREF_WIRE_SELFTEST:-}" ] && [ "${WEBREF_WIRE_SELFTEST_PPID:-}" != "$PPID" ]; then
-  echo "!! WEBREF_WIRE_SELFTEST is set in this environment, but this run was not started" >&2
-  echo "   by the controls beside this wire. In self-test mode the scan answers about" >&2
-  echo "   \$WEBREF_WIRE_SELFTEST instead of the checkout AND every control is skipped," >&2
-  echo "   so a leftover export would make the required gate report on the wrong tree." >&2
-  echo "   Unset it and run again; this run decided nothing." >&2
-  exit 2
-fi
-if [ -n "${WEBREF_WIRE_SELFTEST:-}" ]; then
-  ROOT="$WEBREF_WIRE_SELFTEST"
+# ⚠ ENTERED BY ARGUMENT, NEVER BY ENVIRONMENT. Self-test mode points `ROOT` at
+# a fixture AND skips every control, so it must be unreachable from an ordinary
+# run. It used to be entered by exporting `WEBREF_WIRE_SELFTEST`, and every
+# companion value meant to prove "the controls started this" was satisfied by a
+# shell that exported both: first a literal token (it is in this file, so
+# copying the lines reproduced it), then the parent's PID (a long-lived shell
+# that exports `$$` IS the parent of everything it later launches, including
+# `scripts/trip-wires.sh` — reproduced by the external reviewer, PR519 R8:
+# every control skipped, a clean fixture scanned, `PASSED`). The environment is
+# inherited by definition, so no value placed in it can tell those apart;
+# arguments are not inherited, and the driver passes none. A leftover export
+# of the old names is now simply not read.
+# ⚠ THE RULE FOR EVERY MODE THIS WIRE CAN BE PUT INTO FROM OUTSIDE: unreachable
+# or loud, never silent. This one is now unreachable; `WEBREF_WIRE_MUTANTS` is
+# loud (it runs before the verdict, not instead of it — see the mutation file).
+_SELFTEST=""
+if [ "${1:-}" = "--selftest" ]; then
+  if [ ! -d "${2:-}" ]; then
+    echo "!! --selftest needs a fixture root that is a directory (got '${2:-}')." >&2
+    echo "   This run decided nothing." >&2
+    exit 2
+  fi
+  _SELFTEST="$2"
+  ROOT="$_SELFTEST"
   # A fixture may name a scope SUBDIRECTORY and an EXTRA ENTRY beside it, both
   # relative to the root, so a control can reproduce the real geometry — the
   # scope directory and the `webref` entry script are SIBLINGS, and an extra
   # entry inside the scope would be caught by the directory walk anyway, proving
   # nothing about its own arm.
-  SCOPE_DIR="$ROOT/${WEBREF_WIRE_SELFTEST_DIR:-.}"
-  SCOPE_FILE="${WEBREF_WIRE_SELFTEST_EXTRA:+$ROOT/$WEBREF_WIRE_SELFTEST_EXTRA}"
+  SCOPE_DIR="$ROOT/${3:-.}"
+  SCOPE_FILE="${4:+$ROOT/$4}"
 fi
 # ONE SCRATCH ROOT, AND IT MUST NOT BE INSIDE WHAT WE ARE ABOUT TO SCAN.
 # `mktemp` follows `TMPDIR`, and a workspace-confined sandbox may reasonably put
@@ -1028,7 +1026,7 @@ CONTROL_TOOLS='.claude/tools/some-other-lane/artifact.tsv'
 CONTROL_BINARY='.claude/skills/new-policy/rule.md'
 CONTROL_CLEAN='a label map and nothing that looks like a host path'
 
-if [ -z "${WEBREF_WIRE_SELFTEST:-}" ]; then
+if [ -z "$_SELFTEST" ]; then
   # THE CONTROLS LIVE BESIDE THIS FILE. Split out when the wire crossed 1000
   # lines, at the seam that was already there: this file ANSWERS, that one
   # proves the answers are reachable (CLAUDE.md touch-time split; #501 R96).

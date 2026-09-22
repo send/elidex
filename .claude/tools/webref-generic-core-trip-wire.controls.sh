@@ -357,8 +357,8 @@ printf '#!/bin/sh\nif [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-
 chmod +x "$CTL/fakegitcfg/git"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakemktemp"
-printf '#!/bin/sh\nd="${WEBREF_WIRE_SELFTEST}/scratch"\nmkdir -p "$d"\nprintf %%s "$d"\n' \
-  > "$CTL/fakemktemp/mktemp"
+printf '#!/bin/sh\nd="%s/scratch"\nmkdir -p "$d"\nprintf %%s "$d"\n' \
+  "$CTL/inscope" > "$CTL/fakemktemp/mktemp"
 chmod +x "$CTL/fakemktemp/mktemp"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
@@ -617,11 +617,8 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
       return 1 ;;
   esac
   _out_f="$CTL/.control_out"
-  # ⚠ OUR OWN PID IS WHAT MAKES SELF-TEST MODE REACHABLE. The child is started
-  # from this shell, so its `$PPID` is `$$`; a leftover export carries a PID
-  # that is nobody's parent any more. A fixed token was tried first and failed
-  # for the obvious reason — the string is in this file, so exporting both
-  # variables reproduced the redirect.
+  # ⚠ SELF-TEST MODE IS AN ARGUMENT (see the wire, beside `_SELFTEST`): it is
+  # the one channel a shell cannot leave behind for a later ordinary run.
   # ⚠ `set -m` SO THE CHILD IS ITS OWN PROCESS GROUP. Without it the watchdog's
   # `kill -9 "$_cpid"` reaches only the wire's own bash; a command substitution
   # or a `grep` BLOCKED beneath it — precisely the FIFO hang this watchdog
@@ -629,10 +626,9 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # the timeout, so repeated local runs accumulate permanent orphans. Measured
   # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
   set -m
-  WEBREF_WIRE_SELFTEST="$1" WEBREF_WIRE_SELFTEST_PPID="$$" \
-    WEBREF_WIRE_SELFTEST_DIR="${5:-}" \
-    WEBREF_WIRE_SELFTEST_EXTRA="${6:-}" PATH="${7:+$7:}$PATH" \
-    env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" > "$_out_f" 2>&1 & _cpid=$!
+  PATH="${7:+$7:}$PATH" \
+    env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" --selftest "$1" "${5:-}" "${6:-}" \
+    > "$_out_f" 2>&1 & _cpid=$!
   set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is
   # the subshell; killing only that reparents the `sleep` to PID 1, where it
@@ -730,11 +726,14 @@ _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree r
 # a claim has to be run once before it is written down.)
 _control "$CTL/punct" 0 "PASSED" "closing punctuation is not a path segment" || ctl_ok=1
 _control "$CTL/suffixpath" 0 "PASSED" "a segment merely ENDING in .claude is not the host path" || ctl_ok=1
-# …and the self-test escape hatch, which must not be reachable from an
-# inherited environment. `_ctl_env` overrides the token the harness passes, so
-# this is the one control that asks the wire to REFUSE to run.
-_ctl_env=("WEBREF_WIRE_SELFTEST_PPID=1")
-_control "$CTL/clean" 2 "by the controls beside this wire" "an inherited SELFTEST export cannot redirect the gate" || ctl_ok=1
+# …and the self-test escape hatch, which must not be reachable from the
+# environment. This is PR519 R8's reproduction, exactly: both old names
+# exported, the companion set to the PID that IS the wire's parent here, and
+# pointing at the CLEAN fixture. The argument names a violating one; an
+# environment channel would scan the clean tree and exit 0.
+_ctl_env=("WEBREF_WIRE_SELFTEST=$CTL/clean" "WEBREF_WIRE_SELFTEST_PPID=$$")
+_control "$CTL/committed" 1 "(in HEAD)" "an exported SELFTEST cannot redirect the scan" || ctl_ok=1
+_control "$CTL/no-such-fixture" 2 "--selftest needs a fixture root" "a missing self-test root decides nothing" || ctl_ok=1
 _control "$CTL/grepfail" 1 "the entry NAME went unchecked" "a failed NAME matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/grepfaillink" 1 "the symlink TARGET went unchecked" "a failed TARGET matcher fails closed" "" "" "$CTL/fakegrep" || ctl_ok=1
 _control "$CTL/nltarget" 1 "K2: a" "a NEWLINE-terminated symlink target is not truncated" || ctl_ok=1
