@@ -276,7 +276,7 @@ cross-document citation — goes with the table; there is no longer a citation a
 | `.claude/tools/webref-generic-core-trip-wire.sh` | the scanner: population from git, content from git, verdict |
 | `.claude/tools/webref-generic-core-trip-wire.controls.sh` | the controls: a fixture tree per assertion, each made by re-invoking the scanner over it — **not** one per verdict site; the sites with none are `#11-k2-wire-verdict-site-controls` in §8. Sourced by the wire; its interface is asserted at entry, and run on its own it exits 2 saying so |
 | `.claude/tools/webref-generic-core-trip-wire.harness.sh` | the control harness: how a control runs — the fixture scratch root, the fixture git helper, the shim quoting, the FIFO probe, `_control`. Sourced by the controls file, which asserts the wire's interface first |
-| `.claude/tools/webref-generic-core-trip-wire.mutations.sh` | the mutation set (§7 criterion 3) and the correspondence between it and the controls — *is each control about the arm it names?*, which is a different question from the controls' own. Split out at R6; same entry contract |
+| `.claude/tools/webref-generic-core-trip-wire.mutations.sh` | the mutation set (§7 criterion 3) and the correspondence between it and the controls — *is each control about the arm it names?*, which is a different question from the controls' own. Split out at R6; same entry contract. It carries a second population beside the hand-written one: the boundary mutants **derived** from `$K2RE` and `$K2RE_PATH`, with the equivalence table that is their only escape from "must be killed" |
 | `scripts/trip-wires.sh` | one line in `REQUIRED_WIRES`, plus the two driver comments its arrival falsified |
 | `.github/workflows/ci.yml` | the ungated-job rationale for the `trip-wires` job |
 | `CLAUDE.md` | the paragraph restating that rationale, which names the job comment as canonical |
@@ -547,13 +547,13 @@ once there, with `trip-wire(s) ran but are not registered`. Both are loud and ne
 a naming near-miss. Measured:
 
 ```sh
-for w in .claude/tools/*-trip-wire.sh; do echo "$w"; done   # the driver's glob: 5, controls absent
+for w in .claude/tools/*-trip-wire.sh; do echo "$w"; done   # the driver's glob; controls absent
 bash .claude/tools/webref-generic-core-trip-wire.controls.sh; echo "rc=$?"   # 2, and says why
 ```
 
 ⚠ **Round 1's supporting claim does not survive measurement and is withdrawn**: *"this memo's
 own §0 command and the driver's disagree"*. They do not — §0's `wc -l .claude/tools/*-trip-wire.sh`
-**is** the driver's glob and returns the same five files. What §0 does is name the two artifacts
+**is** the driver's glob and returns the same files. What §0 does is name the two artifacts
 **explicitly** in its first command, because the proportionality question is about the artifact
 pair while the driver's question is about the registered set. Two questions, two commands, both
 correct; the near-miss name is what made them look like one question with two answers.
@@ -689,6 +689,15 @@ instrument.
    ⚠ **It is a floor, not a census**: nothing can detect an arm that never had a
    record, and the file says so.
 
+   ⚠ **…which is why the two regexes' own population is no longer a list.** The same run also
+   generates, from `$K2RE` and `$K2RE_PATH` as the wire assigns them, one mutant per
+   bracket-expression member and one per quantifier, and requires each to red the control set or
+   to carry an argument in the file's equivalence table. That is the half a hand-written set
+   cannot supply — a floor cannot see the entry nobody thought of — and it is what makes
+   §11.7's corrected item 6 checkable rather than asserted. The boundary is stated at both
+   sites: the hand records name **which** control catches a rule; the generated set asserts
+   **that** every rule those two regexes spell is caught by one.
+
    ⚠ **Three things the set found on its first honest run, each of which had been invisible:**
    - **The harness's own probe had the wrong subject.** `sed` writes mode 644 and `_control`
      invokes `"$SELF"` *directly*, so every mutant exited 126 for every control — which reds the
@@ -731,7 +740,7 @@ instrument.
 
 ## §8 Defer slots
 
-**Three of three** — slots 1 and 2 below, and `#11-k2-wire-verdict-site-controls` (§11.4; registered in the defer ledger). **This section has been wrong in both directions before.** An earlier revision said
+**The slots this slice owns are slots 1 and 2 below, plus `#11-k2-wire-verdict-site-controls`** (§11.4; registered in the defer ledger) — named rather than tallied, because the tally is what went wrong. **This section has been wrong in both directions before.** An earlier revision said
 **zero** while the loop had added obligations it was never reopened to see; the revision that fixed
 that booked a **third** slot for work the rule required to be done, not deferred (R6, below). That was right about the four
 declared blind spots and wrong as a total: the loop added obligations §8 was never reopened to
@@ -798,7 +807,7 @@ against a position rather than a silence.
 | **Re-evaluation trigger** | An edit that takes `_MUT_UNRECORDED_MAX` to 0. ⚠ **Nothing makes that arrive on its own**, and an earlier wording said the ratchet did: the constant is hand-edited, and the harness's own diagnostic offers *raising* it in the same breath as lowering it. So this trigger is a decision someone takes, not a state the instrument drifts into — which is also the argument for closing the slot instead, by pinning the path with a control that empties `.bare`. |
 | **Re-evaluation date** | 2026-12-31 |
 
-⚠ **Own-deferral count: 3, at the per-PR cap of 3** (the third is `#11-k2-wire-verdict-site-controls`). ⚠ And the
+⚠ **This slice's own deferrals are exactly the slots named at the head of this section, and the policy caps a PR's own deferrals at three** — so one more means closing one of these rather than re-labelling it. ⚠ And the
 honest note on both: both are *"a code path the gate's own tests cannot reach"*, which
 is a smaller admission than a blind spot but a real one, and the cap policy forbids deleting a
 slot to make arithmetic work — so if a fourth arrives, one of these has to be closed rather than
@@ -1211,9 +1220,12 @@ decides each row.
 | `PATH` (D12) | **either direction** — the wire names its external tools and does not resolve them, so `PATH` decides which binary each name reaches, and a substituted one can answer wrongly without saying so | **bounded in practice by the controls, not by the wire**: they re-invoke this wire with the caller's `PATH` over fixtures whose answers are known, so a substituted tool that changes an answer a fixture pins reds the gate before the real scan. The residual is closable only where bash is started — slot `#11-trip-wire-launch-environment`. Not closable in the wire: absolute paths would be a second, hand-kept inventory of the same kind this file keeps retiring |
 | `BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*`, `core.fsmonitor` via `GIT_CONFIG*` | whatever the person running the gate makes it do | out of this wire's reach (startup) or an environment subverting its own gate; **declared** where bash is started — slot `#11-trip-wire-launch-environment` |
 
-**Own vs pre-existing**, per the defer policy: every row above is reachable in this PR's wire, so
-the silent ones are closed here and the loud ones are accepted under the wire's own rule, not
-deferred. What **is** carved is pre-existing on `main` and not this PR's to fix: the sibling wires'
+**Own vs pre-existing**, per the defer policy: the rows this wire itself decides are closed here
+when they fail silently and accepted under the wire's own rule when they fail loudly — not
+deferred. ⚠ **Two rows are not the wire's to reach at all**, and an earlier wording of this
+sentence said every row was: the startup row (`BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*`, read
+before this file's first line runs) and the residual half of `PATH`, which the controls bound
+in practice and which closes only where bash is started. Both are carved, below. What **is** carved is pre-existing on `main` and not this PR's to fix: the sibling wires'
 ambient `grep`, the driver's environment-entered `TRIP_WIRES_SELFTEST` (D9, from #496), and the
 startup declaration, `PATH` included — one slot, `#11-trip-wire-launch-environment`, registered in the defer ledger
 with an owner route, trigger and date. It does not count against this PR's own-deferral cap.
@@ -1357,7 +1369,7 @@ position rather than a silence.
 | 3 | how the fsmonitor control proves anything where a hook cannot run | It is not a `_control` (the question is whether a command RAN). The hook is first shown to run under a plain `git ls-files` over the same fixture; if it does not, the block reports **CONTROL NOT EXERCISED** and reds, rather than passing because nothing happened |
 | 4 | `-c core.untrackedCache=false` has no control | Stated at the site and in the wire's list of what no control pins. It is caller state of the same kind as `core.fsmonitor`, and turning it off costs nothing this gate needs |
 | 5 | what "counts records per needle" means for the correspondence check | Two checks rather than a per-needle table, which would be a hand-kept list of the kind this file keeps retiring: the `!survive` record must be present exactly once, and the record count has a floor (`_MUT_RECORDS_MIN`) that an edit must lower deliberately. ⚠ What neither sees is a deletion and an addition in the same edit; the added record still has to kill |
-| 6 | D10's population after D3 | Each rule of `$K2RE` and `$K2RE_PATH` was mutated against the control set as it stood; the survivors are what the new controls answer — the `^` half of the leading boundary, the members of the leading exclusion class that `atclaude` and `suffixpath` did not already cover, both root sets, the `.` of `.claude`, whitespace and empty segments in a segment followed by `/`, the final segment's terminators other than `)` and whitespace, `$K2RE_PATH`'s `/` alternative and its first segment's non-emptiness. The mutants are the records beside those controls |
+| 6 | D10's population after D3 | ⚠ **The answer written here was that *each* rule of `$K2RE` and `$K2RE_PATH` had been mutated against the control set, and it was false.** The enumeration was by hand, and successive attestations each declared it complete and each missed members of it — the leading `/`, the class's `A-Z` and a one-character final segment first; then, on the head that closed those, the stored first segment's minimum length (under which `.claude/skills/a/rule.md`, an entry whose own NAME is the forbidden hierarchy, reads K2 zero on a required gate) and members of the final segment's middle class, which the existing green lines could not see because they end in `)`. What now stands in place of the claim is a **mechanism**: `_mut_gen_run` in `…trip-wire.mutations.sh` **derives** the population from the wire's own two assignment lines — one mutant per bracket-expression member, one per quantifier — splices each back over that line, and requires every one to red the control set or to be named in the **equivalence table `_mut_equivalent`, in that same file**, beside the argument why it cannot change a verdict. A generated mutant that is neither fails the run; so does an assignment it cannot read back, and so does an equivalence entry naming a mutant the generator no longer produces. It runs with the hand-written set, under the same opt-in. It found rules neither attestation had named, and the one equivalence argument that had been offered is refuted at that table. The hand records still say **which** control catches a rule; the generator says **that** no rule is unwatched, which is the half a list cannot do |
 | 7 | the controls file's size | It would have passed the threshold, so the touch-time split landed first, as its own commit: the control **harness** (how a control runs) out of the control **catalogue** (which controls exist). §4 and §8 carry it |
 
 ⚠ **What this implementation did NOT do**: the PR body (§11.2's last line) and the defer-ledger

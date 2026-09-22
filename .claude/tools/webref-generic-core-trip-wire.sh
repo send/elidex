@@ -19,7 +19,7 @@
 #     "keep new generic behavior free of elidex-specific file paths and put
 #      elidex policy in adapter commands or documentation."
 #
-# …and its §Architecture (`:24-47`) is stronger still: it draws a two-column
+# …and its §Architecture (`:24-63`) is stronger still: it draws a two-column
 # boundary and NAMES the modules — "Generic core: upstream fetch/cache; semantic
 # inventory construction; semantic diff classification; stable JSON output
 # schema" versus "elidex adapter: repository citation scanning; …; impacted
@@ -251,11 +251,28 @@
 #      entry putting one anywhere else, so a stream with exactly one terminal
 #      record has it in last position; `-c
 #      core.untrackedCache=false` in `_git`; the terminal record on `_scan`'s
-#      early return (no control makes `$SCRATCH` unwritable); and the verdict
+#      early return (no control makes `$SCRATCH` unwritable); the QUOTING of
+#      `_entry`'s `${rel#"$_dir"/}` — a path is data there too, and the sibling
+#      site `${SCOPE_DIR#"$ROOT"/}` IS pinned (the `glob[1]` fixture), but
+#      `$_dir` is this repository's own relative scope path, which holds no
+#      pattern character, so THE REAL SCAN CANNOT REACH IT and only a fixture
+#      naming a scope subdirectory with a glob character would; the
+#      boundary-mutant generator's own fail-closed arms (an assignment line missing,
+#      duplicated or reading back as something else, a bracket expression its
+#      scanner cannot account for, a mutant killed by the real tree rather than
+#      by a control) — nothing a control does makes this wire's own assignments
+#      unparseable; and the verdict
 #      sites with no control of their own.  Each is recorded at its own site as
 #      well.  Of these, `|| return 4`, the `wc -l` and the verdict sites are
 #      booked as defer slots in the plan memo's §8; the others are accepted
 #      where they stand, with the reason beside them.
+#      ⚠ AND THIS LIST IS HAND-KEPT, which is the one thing about it that is
+#      not like the rest of the instrument: the population of `$K2RE` and
+#      `$K2RE_PATH` rules is now DERIVED (see the mutation file's generator),
+#      and this list is not derived from anything. It is a floor. Two
+#      successive attestations called a hand-enumerated population complete and
+#      each missed members of it, so read this as what is known, not as what
+#      there is.
 #
 # ⚠ 3 AND 4 ARE NOT CLOSABLE BY ANY WIRE, and saying so is the point: both are
 # properties of a grep over arbitrary source text, so "later, with a better
@@ -827,6 +844,10 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
   # direct violation there is, and content search cannot see it. Matched
   # relative to the SCOPE: relative to the repo every file here would match,
   # since the generic core itself lives under `.claude/tools/`.
+  # ⚠ QUOTED, for the reason `${SCOPE_DIR#"$ROOT"/}` is — and UNPINNED, for a
+  # reason that one is not: `$_dir` is this repository's own relative scope
+  # path, which holds no pattern character, so the real scan can never reach
+  # the unquoted behaviour. Item 7 of WHAT THIS WIRE DOES NOT DECIDE carries it.
   _stored "${rel#"$_dir"/}" "$rel" "entry NAME" "(the entry NAME is itself)"
   # (A) A STORED OBJECT — the index's, or HEAD's.
   if [ "$_src" != tree ]; then
@@ -1108,8 +1129,11 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
 # error**; `|| true` collapsed both, so an operational failure here reported an
 # empty `K2_HITS` over a violation `_scan` had already found (#501 R88). Each
 # arm now distinguishes them and a status above 1 aborts rather than answering.
-# ONE IMPLEMENTATION OF THE THREE-WAY STATUS RULE, called three times — rather
-# than the rule written out three times, which is what `_verdict` used to be.
+# ONE IMPLEMENTATION OF THE THREE-WAY STATUS RULE, called by every arm of
+# `_verdict` — rather than the rule written out once per arm, which is what
+# `_verdict` used to be. ⚠ The count that stood here said THREE and the arms
+# were four; it is dropped rather than corrected, because it moves with the
+# next arm and nothing re-derives it.
 # The rule is this file's most-cited invariant ("1 is no match, 2 or more is a
 # failure, and a failure may not be answered as an absence"), and an invariant
 # with three edit sites is three chances to fix two of them. The `-ac` variant
