@@ -109,7 +109,10 @@ composer `OWNS_TWO` reads `_stream`, a P12 consumer in the SEED); no round revie
 - The ledger's resume pointer (`grep -n 'STARTS HERE (2026-09-21, head .799349db' <ledger>`) — docs PR — #510
   merge — Re-eval 2026-12-31.
 - `MEMORY.md` VM P4 Active-state line (`grep -n 'VM P4 lane — carve PR' ~/.claude/projects/-Users-kazuaki-repos-send-sh-elidex/memory/MEMORY.md`) — the session that records this plan's approval — approval of this plan — Re-eval 2026-12-31.
-- Premise 12 surfaced to the user — the session that delivers this memo — this memo's delivery — Re-eval 2026-12-31.
+- ✅ Premise 12 surfaced to the user (2026-09-22). The user chose to correct the option-(d) rationale INSIDE #510
+  before merge (lens: head already past the last review, so no added cost): #510 local commit `00dfd095`,
+  NOT pushed, because a push auto-triggers Codex (`git -C ../elidex-wt-vmp4checker log --oneline -1`).
+  It corrects the (12) reason and (15)(ii)'s rc / "FOUR" particulars. The other premises stay in the row above.
 - The §8 enumeration and counts as each carve closes (§6 sweep) — each slice — its landing — Re-eval 2026-12-31.
 
 ## §1 Reproductions at `4e46d95f`
