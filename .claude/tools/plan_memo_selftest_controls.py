@@ -26,8 +26,8 @@ tree), which merges `plan_memo_selftest_properties.py` (PR #510 R25), which
 merges `plan_memo_selftest_invariants.py` (R29) -- the sentence, the checker as
 written and the checker run -- and, beside them, `plan_memo_selftest_ratchets.py`
 (R49); those fragments are exactly the entries named `PROPERTY: ...`, which
-`property_family_control` checks (⚠ this sentence omitted the ratchets from R49
-until the fifth attestation's concept sweep).  This module imports no work witness and reads
+`property_family_control` checks against `_FAMILY` (⚠ this sentence omitted the
+ratchets from R49 until the fifth attestation's concept sweep).  This module imports no work witness and reads
 no module source, AST or code object -- it imports neither `ast` nor the
 harness's `MODULES` / `SOURCES` / `GRAMMAR` -- and those two import lists are
 the two seams' statement.
@@ -40,20 +40,16 @@ module) is exec'd from patched text
 the PATCHED module's registry, merged over the unpatched rest
 (`plan_memo_selftest_mutants.SELFTEST`).
 
-Import direction, one way: the runner imports this module; this module
-imports the harness (`plan_memo_selftest_harness.py`), the case registry, the
-property registry and the work registry.
+Import direction: stated as a RULE and checked by
+`plan_memo_selftest_records.import_direction_control`, not listed here (⚠ this
+paragraph listed four imports and omitted the ratchets, the population and the
+conformance modules).
 """
 
 import pathlib
 import tempfile
 
-from plan_memo_selftest_cases import CASES, VIOLATION, build
-import plan_memo_selftest_cases_pr510  # noqa: F401 -- appends the review-round controls to CASES
-import plan_memo_selftest_cases_inline  # noqa: F401 -- appends the Phase-2 inline rounds to the same CASES
-import plan_memo_selftest_cases_sibling  # noqa: F401 -- appends the sibling-resolver family to the same CASES
-import plan_memo_selftest_cases_r26  # noqa: F401 -- appends R26's rounds to the same CASES
-import plan_memo_selftest_cases_r42  # noqa: F401 -- appends R42's round to the same CASES
+from plan_memo_selftest_cases import VIOLATION, build, cases
 from plan_memo_selftest_harness import control, run_on
 from plan_memo_selftest_records import registry as property_registry
 from plan_memo_selftest_work import registry as work_registry
@@ -636,25 +632,40 @@ def multiline_span_locator_control(M):
                 % (naming, want, opener, len(seeds), res.rc))
 
 
+# The property family: the fragments whose entries are named `PROPERTY: ...`.
+# A stated set, and CHECKED in both directions by the control below.
+_FAMILY = ("plan_memo_selftest_records", "plan_memo_selftest_ratchets",
+           "plan_memo_selftest_population")
+
+
+def _family_verdict(family, names):
+    """(unnamed, stray): family entries not named `PROPERTY:`, and entries so
+    named from outside the family."""
+    named = {n for n in names if n.startswith("PROPERTY:")}
+    return sorted(set(family) - named), sorted(named - set(family))
+
+
 def property_family_control(M):
     """PROPERTY: the entries named `PROPERTY: ...` are exactly the property
-    family's fragments -- `records.registry()` (which merges the properties and
-    invariants modules') and `ratchets.registry()` -- in both directions.
+    family's fragments (`_FAMILY`), in both directions.
 
     Written for the fifth attestation's concept sweep: three docstrings said
     "the three property modules", and the ratchets module, carved at R49, was a
-    fourth that none of them named.  A claim about which modules a family is
-    goes stale under every split, so it is a control and not a sentence."""
-    from plan_memo_selftest_ratchets import registry as ratchet_registry
-    family = set(property_registry()) | set(ratchet_registry())
-    named = {n for n in registry() if n.startswith("PROPERTY:")}
-    unnamed = sorted(family - named)
-    stray = sorted(named - family)
-    return not unnamed and not stray, ("%d family entr(ies), %d named PROPERTY:; %d not so named, "
-                                       "%d named but outside the family%s"
-                                       % (len(family), len(named), len(unnamed), len(stray),
-                                          ("; " + "; ".join((unnamed + stray)[:3])) if unnamed or stray
-                                          else ""))
+    fourth that none of them named.  ⚠ And its STRAY direction had no partner
+    (the sixth attestation: `stray = []` survived), so both directions are now
+    also asked of a planted table: a family entry without the prefix, and a
+    prefixed entry from outside the family."""
+    import importlib
+    family = set()
+    for mod in _FAMILY:
+        family |= set(importlib.import_module(mod).registry())
+    unnamed, stray = _family_verdict(family, registry())
+    p_unnamed, p_stray = _family_verdict({"PROPERTY: a", "b"}, {"PROPERTY: a", "b", "PROPERTY: c"})
+    arms = [p_unnamed == ["b"], p_stray == ["PROPERTY: c"]]
+    return not unnamed and not stray and all(arms), (
+        "%d family entr(ies); %d not so named, %d named but outside the family%s; probe arms %s"
+        % (len(family), len(unnamed), len(stray),
+           ("; " + "; ".join((unnamed + stray)[:3])) if unnamed or stray else "", arms))
 
 
 def registry():
@@ -666,7 +677,9 @@ def registry():
     reg.update(property_registry())
     from plan_memo_selftest_ratchets import registry as ratchet_registry
     reg.update(ratchet_registry())
-    for c in CASES:
+    from plan_memo_selftest_population import registry as population_registry
+    reg.update(population_registry())
+    for c in cases():
         assert c.name not in reg, "duplicate control name %r" % c.name
         reg[c.name] = (c.kind, control(c))
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
@@ -679,7 +692,7 @@ def registry():
     reg["CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts inside `<code>` (line endings converted, then the one-space trim)"] = ("CONTROL", code_span_reading_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
-    reg["the entries named `PROPERTY: ...` are exactly the property family's fragments (records and ratchets), both directions"] = ("CONTROL", property_family_control)
+    reg["the entries named `PROPERTY: ...` are exactly the property family's fragments (`_FAMILY`), both directions"] = ("CONTROL", property_family_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)

@@ -14,14 +14,15 @@ read this first; the block is kept as written.** Since it was written: `4e46d95f
 pushed, and `00dfd095` is the pushed head; Codex answered `00dfd095` with a 👍 (dry,
 2026-09-22T01:36Z); a fresh-agent attestation over `9b2e1fa9..00dfd095` then found **6 IMP + 5 MIN
 behind that dry verdict** — the fourth time a dry round hid real defects — fixed in the LOCAL,
-UNPUSHED commit that adds this note (`79309486`); a fifth attestation over that commit found 5 IMP +
-3 MIN more (four of its eleven fixes had not closed their class), fixed in the local, unpushed commit
-after it; and the carves' plan-review produced its sub-umbrella memo on
+UNPUSHED commit that adds this note (`79309486`); further attestations over the local commits kept
+finding defects, each fixed in a further local, unpushed commit on top (`git log --oneline
+origin/vm-p4-plan-memo-checker..HEAD` is the list — not restated here, since a count of them went
+stale at the next commit); and the carves' plan-review produced its sub-umbrella memo on
 the stacked local branch `vm-p4-gate-population-plan` (worktree `elidex-wt-gatepop`, not pushed).
 So "head `799349db` PUSHED" and "a fresh review of `799349db`" below no longer name the head: a merge
 needs a fresh review of whatever head is pushed when merge is raised. Gate at the fix commit: see its
-message (the ratchets now read 22 census loops = 16 pinned + 6 exempt, and 7 kind-question call
-sites over the checker half of the one module population, which is derived from the disk).
+message of the newest local commit (the ratchets' figures are printed by `--self-test` every run, so
+they are not transcribed here).
 
 **THE DECISION (user, 2026-09-21): option (B) — stop the review loop, take §8's carves to
 `/elidex-plan-review`.** Do NOT `/external-converge 510`. Do NOT re-trigger Codex. The loop was not
@@ -66,7 +67,10 @@ unsanctioned. **All Codex threads are resolved except the five that ARE the carv
 recorded and never read; (14) the residue gate comparing PRESENCE where the property is kind AND
 attribution; (15) the declaration site that produces no table. Each entry already carries its
 reproduction, the fix that was written, and the measured reason it was reverted — the review should
-start from those measurements rather than re-deriving them. (6) Slice 3 (Phase 1 offsets) is the
+start from those measurements rather than re-deriving them. ⚠ *(the sixth attestation)* That is
+not true of **(12)** as written: its entry says "NOT fixed here" — nothing was committed and reverted;
+it carries a reproduction, the measured effect of the one-line fix on a ratified control, and (since
+`00dfd095`) a PROTOTYPE fix described in prose, with the reason it is not folded. (6) Slice 3 (Phase 1 offsets) is the
 fifth and is a different subject.
 ⚠ **(6) IS NOT THE FIFTH** (2026-09-22, the fourth attestation): its owner is its own PR under the
 edge-dense rule, not Slice 2's plan-review. The fifth entry that names Slice 2's plan-review as owner

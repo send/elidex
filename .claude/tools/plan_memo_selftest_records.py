@@ -96,9 +96,10 @@ def module_map_completeness_control(M):
     HONESTLY, what it cannot catch.  It checks that the map NAMES every module,
     not that what it says about one is TRUE: a description that has gone stale,
     or is attached to the wrong module, reads exactly like a fresh one here.
-    It is also blind to a module outside the `plan_memo*.py` glob (a helper
-    named otherwise would be swept by nothing in this file), and it takes the
-    map's own `(this file)` for the entry point on trust."""
+    A module outside the population (`plan_memo_selftest_harness.GLOB`) is
+    not its subject -- `plan_memo_selftest_population.registry_membership_control`
+    reports one that the population imports or that imports it -- and it takes
+    the map's own `(this file)` for the entry point on trust."""
     mapped, why = _mapped_modules()
     if mapped is None:
         return False, why
@@ -341,7 +342,7 @@ _WORK = {"plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py"}
 _IMPORT_SEAMS = {
     "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
                     "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py",
-                    "plan_memo_selftest_harness.py"}, None),
+                    "plan_memo_selftest_harness.py", "plan_memo_selftest_population.py"}, None),
     "the harness's module-set handles": (
         ("MODULES", "SOURCES", "GRAMMAR", "HERE"),
         {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",

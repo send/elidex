@@ -38,10 +38,10 @@ rounds R17-R25 (the Phase-2 inline construct family) and
 what it assumes about its host, and what it costs) -- the cases modules' own
 seams -- and later modules at later seams.
 THE RULE, not a count (a count here said "four" while there were six): the
-registry is every module the harness's population classifies as a mutants
-module (`plan_memo_selftest_harness.is_mutants`, a file-name rule), each
-holding its OWN `MUTANTS` list, and `mutants()` below is the ONE step that
-imports them and concatenates the lists.  ⚠ Until the fifth attestation each
+registry is every self-test module holding its OWN top-level `MUTANTS` list,
+gathered by the ONE step `plan_memo_selftest_registry.collect` (which
+`mutants()` below calls); this module's list is SEALED (a tuple) at the end of
+its own import, so no other module can extend it.  ⚠ Until the fifth attestation each
 appender extended THIS module's list at import time, and three readers
 imported the appenders -- the runner by a hand list, the loop ratchet by a
 glob -- so which rows existed depended on what had been imported before, and
@@ -59,9 +59,6 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
     "plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py",
     "plan_memo_selftest_growth.py", "plan_memo_umbrella_selftest.py",
     "plan_memo_selftest_conformance.py", "plan_memo_selftest_ratchets.py")
-
-# This module's own file: a row against `mutants()` (a LEAF -- it owns no controls).
-BASE = "plan_memo_selftest_mutants.py"
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
@@ -531,32 +528,18 @@ MUTANTS = [
      ["(c-seed) a sibling of the SAME basename in another directory, whose Deps cell at the "
       "same line names the party, does not discharge the main memo's row"]),
 ]
+# SEALED: the base rows are a tuple from here on, so a module that imported
+# this list and extends it fails at ITS import, whatever the import order (the
+# sixth attestation: a length sampled at call time missed an appender imported
+# earlier).  `plan_memo_selftest_registry.collect` reads it.
+MUTANTS = tuple(MUTANTS)
 
 
 def mutants(names=None):
-    """EVERY mutant row: this module's list, then each other mutants module's
-    OWN list, in the harness's population order -- a new list, built in ONE
-    explicit step, so no reader's answer depends on what another reader
-    happened to import first.  A registry module that appends to THIS list
-    instead of holding its own is refused: that was the side channel.
-    `names` (default: the harness's `MUTANT_MODULES`) lets the partner control
-    plant a module; `plan_memo_selftest_ratchets.registry_step_control`."""
-    import importlib
-    from plan_memo_selftest_harness import MUTANT_MODULES
-    base_n = len(MUTANTS)
-    rows = list(MUTANTS)
-    for name in (MUTANT_MODULES if names is None else names):
-        if name == __name__.replace("_patched", ""):
-            continue
-        mod = importlib.import_module(name)
-        own = getattr(mod, "MUTANTS", None)
-        if own is None or own is MUTANTS:
-            raise RuntimeError("mutants module %s holds no MUTANTS list of its own" % name)
-        rows += own
-    if len(MUTANTS) != base_n:
-        raise RuntimeError("a mutants module appended to plan_memo_selftest_mutants.MUTANTS "
-                           "instead of holding its own list")
-    return rows
+    """EVERY mutant row, gathered by the one collection step
+    (`plan_memo_selftest_registry.collect`)."""
+    from plan_memo_selftest_registry import collect
+    return collect("MUTANTS", "plan_memo_selftest_mutants", names)
 
 
 def run(reg):

@@ -20,9 +20,11 @@ the record shape and every PRE-converge control; the controls written against
 PR #510's review rounds live in `plan_memo_selftest_cases_pr510.py` (Codex
 R1-R16 and the design re-gates -- the lexical substrate and the block grammar)
 and `plan_memo_selftest_cases_inline.py` (R17 on -- the Phase-2 inline
-construct family), each importing the spellings from here and appending to this
-same `CASES` -- one list, filled by three modules, read at one import site (the
-controls module, `plan_memo_selftest_controls.py`).
+construct family), and later modules at later seams.  THE RULE, not a count
+(a count here said "three modules" while there were five): every cases module
+holds its OWN `CASES` and binds its own spellings (`spellings(CASES)`); this
+module's list is sealed at the end of its import; `cases()` -- the one
+collection step, `plan_memo_selftest_registry.collect` -- is the only reader.
 """
 
 from collections import namedtuple
@@ -87,19 +89,29 @@ def build(**kw):
     f.update(kw)
     return HEADER.format(**f)
 
-CASES = []
+def spellings(into, sealed=lambda: False):
+    """`case` / `acase` / `rcase` bound to ONE module's own list `into`.  Every
+    cases module holds its own `CASES` and binds its own spellings; the base
+    module's refuse once it is sealed, so a module still calling the base's
+    `case` fails at its import instead of losing its rows."""
+    def case(kind, name, text, prose, expect, sibling=None, files=None, measure="sites"):
+        if sealed():
+            raise RuntimeError("a cases module called the BASE module's `case` after it was "
+                               "sealed: hold your own `CASES` and bind `spellings(CASES)`")
+        into.append(Case(kind, name, text, prose, sibling, files or {}, measure, expect))
+
+    def acase(kind, name, text, code, expect, prose="", sibling=None):
+        case(kind, name, text, prose, expect, sibling, measure=("finding", code))
+
+    def rcase(kind, name, text, prose, rc, sibling=None, files=None):
+        case(kind, name, text, prose, rc, sibling, files, measure="rc")
+
+    return case, acase, rcase
 
 
-def case(kind, name, text, prose, expect, sibling=None, files=None, measure="sites"):
-    CASES.append(Case(kind, name, text, prose, sibling, files or {}, measure, expect))
-
-
-def acase(kind, name, text, code, expect, prose="", sibling=None):
-    case(kind, name, text, prose, expect, sibling, measure=("finding", code))
-
-
-def rcase(kind, name, text, prose, rc, sibling=None, files=None):
-    case(kind, name, text, prose, rc, sibling, files, measure="rc")
+_OWN = []
+_SEALED = [False]
+case, acase, rcase = spellings(_OWN, lambda: _SEALED[0])
 
 
 # ---------------------------------------------------------------- POSITIVE --
@@ -598,7 +610,7 @@ acase("POSITIVE", "(c-seed) a sibling of the SAME basename in another directory,
       build(s7z="Terminal.  Lands second behind Slice **Qx** and behind Slice **9z**.",
             d7z="**Qx**"),
       "ORDER-PROSE?", 1, prose="See [the twin](sub/fixture.md).")
-CASES[-1] = CASES[-1]._replace(files={"sub/fixture.md": SAME_NAME_SIB})
+_OWN[-1] = _OWN[-1]._replace(files={"sub/fixture.md": SAME_NAME_SIB})
 
 # #15: §6.3 label classes are space / tab / line ending, not Unicode whitespace
 case("POSITIVE-NOVEL", "(link) a label holding only a non-breaking space is a label (§6.3: "
@@ -612,3 +624,16 @@ acase("NEGATIVE", "(stream) ordering vocabulary in a link TITLE is the link's ta
       build(s7z='Terminal.  The probe must return 3.  See [the walk](slice-9z-sib.md "lands before").',
             d7z="—"),
       "ORDER-PROSE?", 0)
+
+# SEALED at the end of this module's import: `CASES` is a tuple and this
+# module's spellings refuse from here on, so no other module can add to it in
+# any import order (the sixth attestation).  `plan_memo_selftest_registry.
+# collect` gathers it with every other cases module's own list.
+CASES = tuple(_OWN)
+_SEALED[0] = True
+
+
+def cases(names=None):
+    """EVERY case record, gathered by the one collection step."""
+    from plan_memo_selftest_registry import collect
+    return collect("CASES", "plan_memo_selftest_cases", names)

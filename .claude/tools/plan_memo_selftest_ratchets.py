@@ -40,7 +40,7 @@ against it takes its controls from the PATCHED text.
 
 import ast
 
-from plan_memo_selftest_harness import checker_files, files
+from plan_memo_selftest_harness import files
 from plan_memo_selftest_properties import _swept_sources
 
 CENSUS = "plan_memo_population.py"
@@ -248,9 +248,11 @@ def population_scope_control(M):
     truncating mutant EXISTS for each loop; the mutation proof separately
     asserts that every mutant's named control goes red.  The two together are
     the behavioural property at no extra runtime."""
-    text = dict(_swept_sources()).get(CENSUS, "")
-    if not text:
-        return False, "the census module is not in the swept population"
+    # ⚠ An `if not text: return False, "not in the swept population"` guard
+    # stood here and is DELETED as dead (the sixth attestation, probed first):
+    # the census module is in `files()` by the glob, and a run whose census
+    # module is absent or empty never reaches a control -- `load()` execs it.
+    text = dict(_swept_sources())[CENSUS]
     bad, n, n_pinned, n_exempt, n_unpinned = _scope_verdict(text, _census_rows(), _SCOPE_EXEMPT)
     return not bad, ("%d loop(s) = %d pinned by a truncating mutant + %d exempt with a reason "
                      "+ %d unpinned%s"
@@ -270,8 +272,15 @@ _PARTNER_TEXT = ("for top in zs:\n    pass\n"
                  "    for x in xs:\n        pass\n"
                  "    for x in xs:\n        pass\n"
                  "    for x in ys:\n        for y in x:\n            pass\n"
-                 "class C:\n    def g(self, xs):\n        for x in xs:\n            pass\n")
-_PARTNER_LOOPS = {("<module>", 1), ("f", 1), ("f", 2), ("f", 3), ("f", 4), ("C.g", 1)}
+                 "class C:\n    def g(self, xs):\n        for x in xs:\n            pass\n"
+                 "async def k(xs):\n    async for x in xs:\n        pass\n"
+                 "def h(zs):\n"
+                 "    for a in zs:\n        pass\n"
+                 "    for b in zs:\n        pass\n"
+                 "    for c in zs:\n        pass\n"
+                 "    for d in zs:\n        pass\n")
+_PARTNER_LOOPS = {("<module>", 1), ("f", 1), ("f", 2), ("f", 3), ("f", 4), ("C.g", 1), ("k", 1),
+                  ("h", 1), ("h", 2), ("h", 3), ("h", 4)}
 _PARTNER_ROWS = [("truncate the first",
                   "    for x in xs:\n        pass\n    for x in xs:",
                   "    for x in xs[:1]:\n        pass\n    for x in xs:"),
@@ -280,7 +289,17 @@ _PARTNER_ROWS = [("truncate the first",
                   "    for x in xs[:1]:\n        for y"),
                  ("truncate the method's",
                   "        for x in xs:\n            pass\n",
-                  "        for x in list(xs)[:1]:\n            pass\n")]
+                  "        for x in list(xs)[:1]:\n            pass\n"),
+                 # the criteria `_is_truncation` states, one row each: none of
+                 # these is a truncation to the first element, so none credits
+                 ("slice to TWO", "    for a in zs:", "    for a in zs[:2]:"),
+                 ("slice with a LOWER bound", "    for b in zs:", "    for b in zs[1:1]:"),
+                 ("slice with a STEP", "    for c in zs:", "    for c in zs[:1:2]:"),
+                 ("truncate a CALL that is not `list`", "    for d in zs:",
+                  "    for d in sorted(zs)[:1]:"),
+                 # a find that is NOT unique applies to nothing
+                 ("an ambiguous find", "    for x in xs:\n        pass\n",
+                  "    for x in xs[:1]:\n        pass\n")]
 
 
 def population_scope_partner_control(M):
@@ -314,64 +333,15 @@ def population_scope_partner_control(M):
     guard = (any("is `for x in ys:`" in b for b in moved)
              and any("names no loop" in b for b in gone))
     want = {("f", 1): ["truncate the first"], ("C.g", 1): ["truncate the method's"]}
-    ok = (loops == _PARTNER_LOOPS and credit == want and orphans == ["re-point the third"]
-          and n == 6 and n_pinned == 2 and n_unpinned == 4 and len(bad) == 5
+    want_orphans = ["re-point the third", "truncate a CALL that is not `list`", "an ambiguous find"]
+    ok = (loops == _PARTNER_LOOPS and credit == want and orphans == want_orphans
+          and n == 11 and n_pinned == 2 and n_unpinned == 9 and len(bad) == 12
           and not empty and not no_orphans and guard)
     return ok, ("population %s (want %s); credit %s (want %s); orphans %s; %d of %d pinned, %d "
                 "unpinned, %d bad; no row credits %s; the exempt guard %s"
                 % (sorted(loops), sorted(_PARTNER_LOOPS), sorted(credit), sorted(want), orphans,
                    n_pinned, n, n_unpinned, len(bad), sorted(empty),
                    "reports a moved and a vanished position" if guard else "is SILENT"))
-
-
-_PLANT_OWNLESS = "MUTANTS = __import__('plan_memo_selftest_mutants').MUTANTS\n"
-_PLANT_APPENDER = ("MUTANTS = []\n"
-                   "__import__('plan_memo_selftest_mutants').MUTANTS.append(('planted', '', '', '', []))\n")
-
-
-def registry_step_control(M):
-    """PROPERTY: the mutation registry is gathered in ONE step that REFUSES a
-    module appending to the base list -- the side channel the fifth
-    attestation closed, planted both ways.
-
-    The loop ratchet reads `mutants()`, so its answer is only as good as that
-    step's refusal: a module that extends the base list at import time makes
-    the registry depend on import order again (the inert runner list, the
-    ratchet's glob).  Two plants, each written to a temporary directory and
-    imported by name: one whose `MUTANTS` IS the base list (no list of its
-    own), and one that holds its own list but also appends to the base.  Each
-    must raise; the unplanted call must not.  The base list is restored
-    whatever happens, since the second plant really does append."""
-    import importlib
-    import pathlib
-    import sys
-    import tempfile
-    mm = importlib.import_module("plan_memo_selftest_mutants")
-    base_n = len(mm.MUTANTS)
-    refused = []
-    with tempfile.TemporaryDirectory() as d:
-        sys.path.insert(0, d)
-        try:
-            for label, body in (("ownless", _PLANT_OWNLESS), ("appender", _PLANT_APPENDER)):
-                name = "plan_memo_selftest_mutants_plant_%s" % label
-                (pathlib.Path(d) / (name + ".py")).write_text(body, encoding="utf-8")
-                try:
-                    mm.mutants([name])
-                    refused.append(False)
-                except RuntimeError:
-                    refused.append(True)
-                finally:
-                    sys.modules.pop(name, None)
-                    del mm.MUTANTS[base_n:]
-        finally:
-            sys.path.remove(d)
-    clean = True
-    try:
-        mm.mutants([])
-    except RuntimeError:
-        clean = False
-    return all(refused) and clean, ("planted (ownless, appender) refused %s; the unplanted call "
-                                    "%s" % (refused, "succeeds" if clean else "RAISES"))
 
 
 # -- the kind-question ratchet -----------------------------------------------
@@ -415,9 +385,9 @@ _KIND_QUESTION_SITES = {
 
 
 def _kind_question_modules(here=None):
-    """THE POPULATION: every module of the CHECKER set, read off the harness's
-    ONE population (`plan_memo_selftest_harness.checker_files`, a glob over the
-    directory and a file-name partition) and never written here.  `here` lets
+    """THE POPULATION: EVERY module of the harness's ONE population
+    (`plan_memo_selftest_harness.files`), self-test modules included, and
+    never written here.  `here` lets
     the partner ask it of a directory holding a module the real one does not.
 
     ⚠ IT WAS A HAND-WRITTEN 5-TUPLE (799349db, for PR #510 R52),
@@ -429,8 +399,12 @@ def _kind_question_modules(here=None):
     authoritative.md`); the population is now the set itself.
     ⚠ And "the set" was itself a hand list -- the harness's `MODULES` -- until
     the fifth attestation, so a NEW `plan_memo_extra.py` calling `pop._claims`
-    was outside it; it is derived from the disk now."""
-    return checker_files(here)
+    was outside it; it is derived from the disk now.
+    ⚠ And the self-test half was EXCLUDED "by design: they call the questions
+    to test them" -- which, measured (the sixth attestation), no self-test
+    module does: 0 calls.  An exclusion with no measured reason is a hole (a
+    self-test-named helper calling `_claims` went unread), so it is gone."""
+    return files(here)
 
 
 def _qualified_callers(text):
@@ -498,7 +472,7 @@ def kind_question_site_control(M):
     fourth, in `plan_memo_roles.py`.
     ⚠ So the question has ONE implementation (`Population._claims`), and this
     control makes any other caller visible.  THE POPULATION is every call, in
-    every module of the checker half of the harness's ONE population
+    every module of the harness's ONE population, self-test included
     (`_kind_question_modules`, derived from the disk), to any of the three names `_KIND_QUESTION_SITES`
     keys -- `_phrases`, `kind_disagreements`, `_claims`.  THE COMPLEMENT is
     that table, keyed on (module, qualified function): a caller not written
@@ -516,9 +490,7 @@ def kind_question_site_control(M):
         (the R49-1 control went red), so the class is covered by a control
         even though it is not covered here;
       * a call made under ANOTHER name (an alias, `getattr`, a bound method
-        passed as a value) is not a call to the name;
-      * the self-test modules are outside the population, by design: they
-        call the questions to test them."""
+        passed as a value) is not a call to the name."""
     bad, n = _kind_question_verdict(dict(_swept_sources()), _kind_question_modules(),
                                     _KIND_QUESTION_SITES)
     return not bad, ("%d call site(s) over %d question(s) in %d module(s), %d unsanctioned%s"
@@ -542,6 +514,7 @@ _KIND_PROBES = (
 
 
 _EXTRA = "plan_memo_extra.py"
+_EXTRA_SELFTEST = "plan_memo_selftestx_helper.py"
 
 
 def kind_question_partner_control(M):
@@ -581,15 +554,40 @@ def kind_question_partner_control(M):
         for f in files():
             (d / f).write_text("", encoding="utf-8")
         (d / _EXTRA).write_text(extra, encoding="utf-8")
+        (d / _EXTRA_SELFTEST).write_text(extra, encoding="utf-8")
         grown = _kind_question_modules(d)
-    bad, _n = _kind_question_verdict(dict(sources, **{_EXTRA: extra}), grown, _KIND_QUESTION_SITES)
+    bad, _n = _kind_question_verdict(dict(sources, **{_EXTRA: extra, _EXTRA_SELFTEST: extra}),
+                                     grown, _KIND_QUESTION_SITES)
     if not any(("in %s," % _EXTRA) in b for b in bad):
         quiet.append("a caller in a module that exists on disk only")
+    if not any(("in %s," % _EXTRA_SELFTEST) in b for b in bad):
+        quiet.append("a caller in a SELF-TEST-named module")
     return not base and not quiet and gone, (
         "unprobed: %d unsanctioned; %d of %d probe(s) reported%s; a stale sanction is %s"
-        % (len(base), len(_KIND_PROBES) + 1 - len(quiet), len(_KIND_PROBES) + 1,
+        % (len(base), len(_KIND_PROBES) + 2 - len(quiet), len(_KIND_PROBES) + 2,
            ("; NOT reported: " + ", ".join(quiet)) if quiet else "",
            "reported" if gone else "SILENT"))
+
+
+def criteria_rows_control(M):
+    """PROPERTY: every criterion the two ratchets state names an existing
+    killing row -- the table is DATA (`plan_memo_selftest_mutants_ratchets.
+    CRITERIA`), because a comment that said "the criteria are enumerated in the
+    commit" pointed at an enumeration that did not exist (the sixth
+    attestation)."""
+    import importlib
+    table = importlib.import_module("plan_memo_selftest_mutants_ratchets").CRITERIA
+    names = [r[0] for r in importlib.import_module("plan_memo_selftest_mutants").mutants()]
+    missing = _criteria_missing(table, names)
+    planted = _criteria_missing([("planted", "no row is named like this")], names)
+    return bool(table) and not missing and planted == ["planted"], (
+        "%d criteri(a), %d without a row%s; a planted criterion is %s"
+        % (len(table), len(missing), ("; " + "; ".join(missing[:3])) if missing else "",
+           "reported" if planted == ["planted"] else "SILENT"))
+
+
+def _criteria_missing(table, names):
+    return [c for c, row in table if not any(n.startswith(row) for n in names)]
 
 
 def registry():
@@ -600,8 +598,8 @@ def registry():
             ("CONTROL", population_scope_control),
         "PROPERTY: the loop ratchet credits a loop by POSITION: one row truncating one of two loops that share a header pins that loop and no other":
             ("CONTROL", population_scope_partner_control),
-        "PROPERTY: the mutation registry is gathered in ONE step that refuses a module appending to the base list (planted twice: a module with no list of its own, and one that appends while holding one)":
-            ("CONTROL", registry_step_control),
+        "PROPERTY: every criterion the two ratchets state names an existing killing row (the table is data in plan_memo_selftest_mutants_ratchets.CRITERIA)":
+            ("CONTROL", criteria_rows_control),
         "PROPERTY: the kind-phrase questions are asked at their sanctioned sites only -- \"which kind does this field DECLARE\" and \"does this cell CLAIM one, under either reading\" are two questions with one site each, and a third caller asking either one directly is the shape three rounds of findings had":
             ("CONTROL", kind_question_site_control),
         "PROPERTY: the kind-question ratchet reports a caller in ANY module of the checker set, judged by (module, qualified function) -- not a caller outside a listed subset, not one whose bare name is sanctioned elsewhere":

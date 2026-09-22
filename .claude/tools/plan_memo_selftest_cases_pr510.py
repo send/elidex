@@ -10,13 +10,18 @@ PR #510's Codex R1-R16 and the design re-gates over R4-R9 -- the lexical
 substrate, the block grammar and the one pipeline -- indexed by round.  The
 rounds from R17 on, which closed the Phase-2 INLINE construct family, are
 `plan_memo_selftest_cases_inline.py` (split off here at the same seam when this
-module reached 949 lines).  All three append to the SAME `CASES` list through
-the same `case` / `acase` / `rcase` spellings -- one registry, one import site
-(the controls module imports both for their side effect).  A control's mutant
+module reached 949 lines).  every cases module holds its OWN `CASES` and binds its own spellings
+(`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
+step -- gathers them, and the base module's list is sealed.  A control's mutant
 lives in `plan_memo_selftest_mutants.py` under the same round label.
 """
 
-from plan_memo_selftest_cases import SIB, VIOLATION, acase, build, case, rcase
+from plan_memo_selftest_cases import SIB, VIOLATION, build, spellings
+
+# This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
+# every cases module's list in one step, and the base module's list is sealed.
+CASES = []
+case, acase, rcase = spellings(CASES)
 
 # ------------------------------------------------- PR #510 Codex R1 controls --
 

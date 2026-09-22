@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PR #510 Codex R42's fixture controls -- the fifth module of the one `CASES` list.
+"""PR #510 Codex R42's fixture controls -- a cases module carved at the R42 seam.
 
 Carved from `plan_memo_selftest_cases_r26.py` at the REVIEW-ROUND seam this
 suite already splits on four times (`_cases_pr510.py` / `_cases_inline.py` /
@@ -22,11 +22,18 @@ to, row by row of §3.0b's closed inline list, plus the two contradictions a
 blank id cell can carry.  Its mutants are `plan_memo_selftest_mutants_r30.py`'s,
 which imports the control names from here.
 
-Appends to the SAME `CASES` list; the runner is the one import site.
+every cases module holds its OWN `CASES` and binds its own spellings
+(`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
+step -- gathers them, and the base module's list is sealed.
 """
 
-from plan_memo_selftest_cases import CASES, LINK, SIB_TABLE, acase, build, case, rcase
+from plan_memo_selftest_cases import LINK, SIB_TABLE, build, spellings
 from plan_memo_selftest_cases_r26 import idcell, kindcell
+
+# This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
+# every cases module's list in one step, and the base module's list is sealed.
+CASES = []
+case, acase, rcase = spellings(CASES)
 
 # -- R42: a blank id cell and an umbrella marker contradict each other.
 # The reviewer's shape: the row is keyed by nothing, so it is absent from

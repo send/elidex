@@ -11,9 +11,10 @@ platform-independent reading of the decoded name (anchors, DOS devices,
 trailing dots and spaces, the characters Windows does not read as letters of a
 name), (d) the `.md` suffix, (e) the join beside the memo.
 
-WHY A SUBJECT AND NOT A ROUND.  The other three modules are indexed by review
+WHY A SUBJECT AND NOT A ROUND.  The other cases modules are indexed by review
 round (`plan_memo_selftest_cases.py` pre-converge, `_cases_pr510.py` R1-R16,
-`_cases_inline.py` R17 on), and the reason is that a round is a coherent slice
+`_cases_inline.py` R17 on, and the later rounds' modules -- "the other three"
+stood here and went stale at the fourth), and the reason is that a round is a coherent slice
 of the converge.  This family is not: the resolver was reported at R3, R4, R5,
 R8, R19, R22 and R25, each round adding a stage or a clause to the SAME
 function, and its controls were scattered across two of those modules with the
@@ -23,14 +24,19 @@ to find both.  Collecting them is what makes the stage list checkable at one
 sitting -- and it is what shows, for instance, that stage (a) and stage (c) now
 answer the same way on every scheme-ful destination (PR #510 R25-1).
 
-All four modules append to the SAME `CASES` list through the same `case` /
-`acase` / `rcase` spellings -- one registry, one import site (the controls
-module imports each for its side effect).  A control's mutant lives in
+every cases module holds its OWN `CASES` and binds its own spellings
+(`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
+step -- gathers them, and the base module's list is sealed.  A control's mutant lives in
 `plan_memo_selftest_mutants*.py` under its round label, keyed by the control's
 NAME, so a control moving between modules moves nothing else.
 """
 
-from plan_memo_selftest_cases import CASES, VIOLATION, build, case, rcase
+from plan_memo_selftest_cases import VIOLATION, build, spellings
+
+# This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
+# every cases module's list in one step, and the base module's list is sealed.
+CASES = []
+case, acase, rcase = spellings(CASES)
 
 
 # R3-2: a root-relative destination is a site URL, never a sibling on disk

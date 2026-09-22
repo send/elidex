@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The PR #510 Phase-2 INLINE-construct rounds of the control registry.
 
-The third module of the one `CASES` list, split from
+A cases module, split from
 `plan_memo_selftest_cases_pr510.py` at the same review-round seam that module
 was split from `plan_memo_selftest_cases.py` at (touch-time 1000-line rule:
 `_cases_pr510.py` had reached 949 lines before the R21 controls).  The seam is
@@ -14,8 +14,9 @@ HTML, R19 6.4 images, R21 6.5 autolinks and the closed 6.1-6.9 list of plan
 sibling resolver's path syntax, R20's row-kind grammar and file token, R21's
 out-of-field marker / KIND-SPELLING / schema id kinds).
 
-Same spellings (`case` / `acase` / `rcase`), same `CASES` list, one import
-site: the controls module imports this module for its side effect.  A
+every cases module holds its OWN `CASES` and binds its own spellings
+(`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
+step -- gathers them, and the base module's list is sealed.  A
 control's mutant lives in `plan_memo_selftest_mutants_inline.py` under the
 same round label -- the mutant registry is split at THIS module's seam, so
 `_mutants_pr510.py` is the R1-R16 half and holds no mutant of a control here.
@@ -23,8 +24,13 @@ same round label -- the mutant registry is split at THIS module's seam, so
 the R17-on mutants were split out of that file at `18c65884`.)
 """
 
-from plan_memo_selftest_cases import SIB, VIOLATION, acase, build, case, rcase
+from plan_memo_selftest_cases import SIB, VIOLATION, build, spellings
 from plan_memo_selftest_cases_pr510 import CHILD, SLOT4
+
+# This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
+# every cases module's list in one step, and the base module's list is sealed.
+CASES = []
+case, acase, rcase = spellings(CASES)
 
 # ------------------------------------------------ PR #510 Codex R17 controls --
 # #1 (IMP): a reference definition keeps the RUN open, so a lazy table header

@@ -300,7 +300,7 @@ MUTANTS += [
      "\"only importer\" nobody can violate is a sentence about nothing)", RECORDS,
      '    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",\n'
      '                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py",\n'
-     '                    "plan_memo_selftest_harness.py"}, None),',
+     '                    "plan_memo_selftest_harness.py", "plan_memo_selftest_population.py"}, None),',
      '    "ast": ("ast", set(), None),',
      [R32_SEAMS]),
     # The OTHER direction, and the one the first row cannot report: a seam whose

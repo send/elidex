@@ -53,13 +53,15 @@ cannot:
   moduleS", plural, and the invariants module is not among its imports.  Written
   in the same commit that built `import_seam_control` for exactly this class --
   and that control cannot reach it, because it checks SYMBOL-level seams ("the
-  only importer of X") and this is a MODULE-DIRECTION claim.  The tree states
-  fourteen of those; a re-gate tested all fourteen and this one, the only one
-  that commit authored, was the only false one.
+  only importer of X") and this is a MODULE-DIRECTION claim.  The tree stated
+  fourteen of those at R38; a re-gate tested all fourteen and this one, the
+  only one that commit authored, was the only false one.
 
-  MUTANTS follow the cases modules' seams -- a review round, or (for the rows
-  against the ratchets) a subject -- and append to one `MUTANTS` list, read at
-  one import site (the runner).
+  CASES and MUTANTS modules are carved at a review round or a subject; each
+  holds its OWN list, and the one collection step
+  (`plan_memo_selftest_registry.collect`) gathers them -- no list of modules is
+  spelled anywhere (⚠ this said "append to one `MUTANTS` list, read at one
+  import site" after that mechanism was replaced).
 
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """

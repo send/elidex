@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PR #510 R26's fixture controls -- the fourth module of the one `CASES` list.
+"""PR #510 R26's fixture controls -- a cases module carved at the R26 seam.
 
 The mutant registry is split at THIS module's seam (`_cases_inline.py` says so
 of its own), and `plan_memo_selftest_mutants_r26.py` was carved one commit
@@ -22,7 +22,12 @@ mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
 ("R26 on").  R27's fixture-shaped control is below.
 """
 
-from plan_memo_selftest_cases import CASES, LINK, SIB_TABLE, acase, build, case, rcase
+from plan_memo_selftest_cases import LINK, SIB_TABLE, build, spellings
+
+# This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
+# every cases module's list in one step, and the base module's list is sealed.
+CASES = []
+case, acase, rcase = spellings(CASES)
 
 # ------------------------------------------------ PR #510 Codex R26 controls --
 # R26-2: the bare file-name token and `plan_memo_sibling.sibling_path`

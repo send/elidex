@@ -30,8 +30,8 @@ whose preferred encoding is not UTF-8 the suite raised `UnicodeDecodeError` in
 `load()` -- before a single control ran -- because these sources hold non-ASCII
 text (`PYTHONUTF8=0 LC_ALL=C python3 plan-memo-umbrella-check.py --self-test`
 reproduced it).  A proof that cannot start is worse than a red one: it is
-indistinguishable from a broken interpreter.  The rule is a CLASS, not these
-four call sites, and `plan_memo_selftest_properties.encoding_sweep_control`
+indistinguishable from a broken interpreter.  The rule is a CLASS, not the
+call sites that were first fixed, and `plan_memo_selftest_properties.encoding_sweep_control`
 enforces it over every module of this checker -- the checker set and the
 self-test both -- so the next module's first `write_text` arrives already
 covered.
@@ -59,21 +59,29 @@ HERE = pathlib.Path(__file__).resolve().parent
 # left a new checker module outside both the load set and the kind-question
 # ratchet (a `plan_memo_extra.py` calling `pop._claims` was reported by
 # nothing).  So the population is DERIVED here, once, from the directory, and
-# every reader consumes it: `files()` is the set, `is_selftest` /
-# `is_mutants` the partition (a FILE-NAME rule, not a list), `MODULES` the
-# checker half in import order, `MUTANT_MODULES` the registry's appenders.
+# every reader consumes it: `files()` is the set, `is_selftest` the self-test
+# partition (a FILE-NAME rule), `registry_modules` the row-registry partition
+# (by CONTENT: a module holding its own list), `MODULES` the checker half in
+# import order.
 # The second and third spellings are deleted, not cross-checked.
 
 ENTRY = "plan-memo-umbrella-check.py"
 ENTRY_NAME = "plan_memo_umbrella_check"
 
 
+GLOB = "plan_memo*.py"
+"""THE glob, spelled once: every docstring that describes the population
+points here rather than restating it (⚠ it was narrowed to `plan_memo_*.py` at
+`b325c668`, and `plan_memo.py` / `plan_memoize.py` left the population in
+silence -- the sixth attestation)."""
+
+
 def files(here=None):
-    """THE POPULATION: every `plan_memo_*.py` beside this file, plus the entry
-    point (whose file name is not an import name), globbed -- so a module a
-    touch-time split carves out is in it the day it lands."""
+    """THE POPULATION: every `GLOB` file beside this one, plus the entry point
+    (whose file name is not an import name) -- so a module a touch-time split
+    carves out is in it the day it lands."""
     here = HERE if here is None else here
-    return sorted(p.name for p in here.glob("plan_memo_*.py")) + [ENTRY]
+    return sorted(p.name for p in here.glob(GLOB)) + [ENTRY]
 
 
 def is_selftest(file):
@@ -81,9 +89,31 @@ def is_selftest(file):
     return "selftest" in file
 
 
-def is_mutants(file):
-    """The mutation registry's modules, by file name."""
-    return file.startswith("plan_memo_selftest_mutants")
+def _assigns(here, file, name):
+    """Does `file` bind `name` at module level?  The registry partition is
+    decided by CONTENT, not by file name."""
+    import ast
+    tree = ast.parse((here / file).read_text(encoding="utf-8"), filename=file)
+    for node in tree.body:
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AnnAssign) else [])
+        if any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            return True
+    return False
+
+
+def registry_modules(name, here=None):
+    """The import names of every self-test module that holds its OWN `name`
+    list (`"MUTANTS"` / `"CASES"`), read off each module's top level.
+
+    ⚠ BY CONTENT, NOT BY FILE NAME (the sixth attestation): the first rule was
+    a name prefix, and renaming a mutants module out of it dropped 38 rows at
+    rc 0 -- a row can leave a registry only by its module ceasing to hold the
+    list, and that is what this reads.  `registry_membership_control` holds the
+    other direction (a file outside the population that the population imports
+    or that imports it)."""
+    here = HERE if here is None else here
+    return [import_name(f) for f in files(here) if is_selftest(f) and _assigns(here, f, name)]
 
 
 def import_name(file):
@@ -126,7 +156,6 @@ def _import_order(here=None):
 
 
 MODULES = _import_order()
-MUTANT_MODULES = [import_name(f) for f in files() if is_mutants(f)]
 
 # The id grammar module: the ONE file that may spell an id character class;
 # the spelling sweep (`id_spelling_sweep_control`) reads every other module

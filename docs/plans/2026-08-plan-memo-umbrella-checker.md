@@ -881,7 +881,10 @@ once, the hand-written table three times)
 at `90ed781a` — and (12)–(15) after it — renumbered the list and not the prose, so WHY (b) called the
 unbound table's narrowing "(10)" and WHY (a) / (c) gave the hand-written table's negative-control
 requirement to "(11)". Every `(N)` in this section was enumerated against the `^- \*\*` list; those
-four were the mismatches, and they now read (11) / (16). A citation by POSITION goes stale under any
+four were the mismatches. WHY (b)'s now reads (11); WHY (a)'s two and WHY (c)'s one were re-indexed to
+(16) at `79309486` and then replaced at `b325c668` — WHY (a)'s by the set its entries' own text
+supports, WHY (c)'s by a rule with no number (⚠ this sentence said "they now read (11) / (16)" and went
+stale under `b325c668`'s own edit — the sixth attestation). A citation by POSITION goes stale under any
 insertion above it, which is why the enumeration names each entry beside its number.
 ⚠ **The re-index was checked against TODAY's numbering only, and that is half the check** (2026-09-22,
 the fifth attestation). A `(N)` is right or wrong in the numbering IN FORCE WHEN ITS SENTENCE WAS

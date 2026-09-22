@@ -108,6 +108,10 @@ MODULES
                           ratchets, carved on a SUBJECT like the sibling cases) /
                           _selftest_mutants_population.py (the rows against the
                           module population's rules, the same kind of seam) /
+                          _selftest_population.py (the partner controls of the
+                          population and of the two row registries) /
+                          _selftest_registry.py (the ONE collection step of
+                          the case and mutant registries) /
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)

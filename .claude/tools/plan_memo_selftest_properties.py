@@ -463,7 +463,8 @@ def encoding_sweep_control(M):
     have left standing.  So the fix is the predicate, not the list.
 
     THE POPULATION IS DISCOVERED, NOT LISTED: `_swept_sources()`, which is
-    every `plan_memo*.py` beside this file plus the entry point, globbed.
+    the harness's one population (`plan_memo_selftest_harness.files`; its glob
+    is `plan_memo_selftest_harness.GLOB`, stated there once).
 
     A LOWER BOUND IS PART OF THE VERDICT: a sweep that finds no call at all is
     red, because "no site without an encoding" is also what a broken walk, an
@@ -672,8 +673,8 @@ def line_bound_control(M):
 
     HONESTLY, what it cannot see: the two vendored CommonMark corpora, which are
     generated data and outside the cohesion test -- they are `.json`, and the
-    population is `plan_memo*.py` plus the entry point, so they are excluded by
-    the glob rather than by a name; and cohesion itself, which is the judgement
+    population is the harness's (`plan_memo_selftest_harness.files`, by its
+    `GLOB`), so they are excluded by the glob rather than by a name; and cohesion itself, which is the judgement
     the bound is a proxy for.  A 999-line file with no seam passes here and a
     600-line file with an obvious one is not reported -- this control holds the
     floor, not the ceiling."""
