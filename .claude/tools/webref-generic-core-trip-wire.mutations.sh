@@ -28,8 +28,8 @@
 # `$_MUTATIONS` (from the controls file — the last is this file's own path),
 # and `$SELF`, `$SCRATCH` and `$_CONTROLS` (from the wire). `_mut_run` copies
 # the controls, the harness and this file beside each mutant.
-# WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_mutants`, `_mut_correspondence`,
-# `_mut_run`.
+# WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_mutants`,
+# `_mut_correspondence`, `_mut_run`.
 # ⚠ AND IT ASSIGNS NO VARIABLE THE CALLER OWNS. `_mut_correspondence` used to set
 # `ctl_ok` — a variable owned by the controls file — so a rename there would
 # have left this file assigning an unused global while the caller's status

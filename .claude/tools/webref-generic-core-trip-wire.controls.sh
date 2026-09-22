@@ -19,8 +19,10 @@
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
 # was: it named `$CTL`, `_fgit`, `_control`, `_ctl_env`, `$_perm_line`,
 # `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
-# them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|_fgit\|\$CTL\|ctl_ok'` over
-# the wire → **0**). They belong to the controls — defined here or in the
+# them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|_fgit\|\$CTL\|ctl_ok\|\b_control\b'`
+# over the wire → **0**; the earlier spelling of this command left `_control`
+# out, and it needs `\b` because a comment there names the sibling wire's
+# `ban_control`). They belong to the controls — defined here or in the
 # harness beside this file; `ctl_ok` is consumed three lines from where it is
 # set. The data flow is one-way, and saying otherwise invented a contract
 # nobody could break.

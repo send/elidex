@@ -94,7 +94,7 @@
 # one — it turns "I could not find out" into "there is nothing to find", which
 # is exactly the direction that makes a gate green.
 #
-# ⚠ THE AUDIT — every status this file reads, and what it concludes. It is
+# ⚠ THE AUDIT — what this file concludes from the statuses it reads. It is
 # re-derived, not appended to: an earlier version of this table named
 # `rev-list -n1 --all` as the positive test for unbornness, and a later round
 # replaced that mechanism entirely while the table went on describing it, so
@@ -119,6 +119,10 @@
 #       no external status; the negative is established by the walk itself.
 #     * `_absent` rc 0 -> the path is absent, established by a walk to the
 #       nearest existing ancestor; rc 1 is "not established", i.e. an `err`.
+#     * `[ -s "$_e" ]` false -> the inventories wrote no stderr. The walk
+#       truncates that file before the first inventory and only their three
+#       redirections append to it, so emptiness is a fact about them and not a
+#       read that failed.
 #   INFERS A PARTICULAR NEGATIVE FROM A DOCUMENTED FAILURE, WITH NO SEPARATE
 #   TEST — so the arm carries whatever else can fail that way:
 #     * `ls-files --error-unmatch --literal-pathspecs` non-zero -> untracked.
@@ -129,13 +133,19 @@
 #     * `[ -L ]`, `[ -f ]`, `[ -e ]` on the worktree path -> "not that kind of
 #       entry". Their JOINT failure is NOT read as absence (it is EACCES too);
 #       `_absent` above is what answers that.
+#       ⚠ The SCOPE PREFLIGHT near the top of this file runs `[ -e ]` and
+#       `[ -L ]` over `$SCOPE_DIR` and `$SCOPE_FILE`, and infers nothing from
+#       their joint failure either: whichever it was, the run refuses (exit 2)
+#       — which is why its message no longer says "does not exist".
 #   CONCLUDES ONLY FROM A DOCUMENTED CONTRACT (not an inference):
 #     * `grep` in `_content`, `_match_path` and `_classify` — 1 = no line
 #       selected, >= 2 = error, and every arm separates them.
 #     * `cat` of a staged symlink blob — its status travels in the `R%d`
 #       sentinel, because the substitution's own status is the sentinel's.
 #   CONCLUDES NOTHING BUT "ERROR" (no negative is inferred at all):
-#     * `cat-file blob`, `tr -d '\000' | cmp -s`, `readlink`, the three
+#     * `cat-file blob`, `tr -d '\000' | cmp -s`, `readlink`, `_match_path`'s
+#       `|| return 4` (which `_stored` reads as "the matcher failed", never as
+#       "no match"), the three
 #       `ls-files`/`ls-tree` inventories, `mktemp`, `rev-parse --local-env-vars`,
 #       `_phys` (a `cd` that fails leaves an empty value and the run refuses),
 #       and `: >` on each of the walk's temp files.
@@ -199,9 +209,7 @@
 #      arbitrary text nothing says where it ends without quoting rules.  ⚠ A
 #      STORED path has no such ambiguity and IS covered — see `$K2RE_PATH`.
 #   3. A BARE TOP-LEVEL NAME with no separator (`"docs"`, `"crates"`,
-#      `"CLAUDE.md"` as standalone tokens).  Two instances pre-exist at this
-#      slice's base: `cli.py`'s `--paths` default and `refresh.py`'s usage
-#      string.
+#      `"CLAUDE.md"` as standalone tokens).
 #   4. INTERPOLATION — `docs/${x}/y.md`, where the path exists only once the
 #      program runs.
 #   5. A `.claude/(skills|tools)/` path with ONE further segment — of which
@@ -237,7 +245,11 @@
 #      `_match_path`'s `|| return 4` (nothing external is left in `_onerec` for
 #      a shim to break); the `wc -l` in the controls' ratchet (reaching an
 #      empty `.bare` needs every control to have a record); the `-a` on
-#      `_verdict`'s arms (a NUL cannot reach a shell string); `-c
+#      `_verdict`'s arms (a NUL cannot reach a shell string); the `$_last`
+#      half of `_verdict`'s terminal test, which no INPUT can reach — the
+#      terminal record is printed after the last source, and `_esc` stops an
+#      entry putting one anywhere else, so a stream with exactly one terminal
+#      record has it in last position; `-c
 #      core.untrackedCache=false` in `_git`; the terminal record on `_scan`'s
 #      early return (no control makes `$SCRATCH` unwritable); and the verdict
 #      sites with no control of their own.  Each is recorded at its own site as
@@ -1115,7 +1127,10 @@ _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
   # lost, and a subshell killed mid-walk (reproduced with `POSIXLY_CORRECT=1`
   # and a failing `cat`) handed over only what it had emitted before dying —
   # which read as a verdict (plan memo §11, D4). Exactly one terminal record,
-  # in last position, or this run decided nothing. Asked BEFORE anything is
+  # in last position, or this run decided nothing. ⚠ The POSITION half is not
+  # reachable by any input — see item 7 of WHAT THIS WIRE DOES NOT DECIDE — and
+  # is kept for a `_scan` that emits after its terminal record.
+  # Asked BEFORE anything is
   # counted, so a walk killed before its first record says "did not complete"
   # rather than "read 0".
   _ENDS="$(_classify terminal -c '^end	')"

@@ -177,8 +177,7 @@ policy in adapter commands or documentation."*
 
 ⚠ **A previous revision of this section quoted only the first half of the first sentence, with
 its subject replaced** — "the package *should stay generic enough to move*" — and never quoted
-the second sentence at all (`grep -rn "thin adapter\|drift-detection core"` over this memo and
-both shell files returned **0** before this revision). That substitution is exactly what made
+the second sentence at all. That substitution is exactly what made
 the conclusion "clause one is unqualified over the package, adapter commands included" appear
 to follow from the authority. It does not follow, and the sentence it omitted says the
 opposite: `DESIGN.md` deliberately sends elidex-specific behaviour **into** adapter commands,
@@ -275,7 +274,7 @@ cross-document citation — goes with the table; there is no longer a citation a
 | Artifact | What it is |
 |---|---|
 | `.claude/tools/webref-generic-core-trip-wire.sh` | the scanner: population from git, content from git, verdict |
-| `.claude/tools/webref-generic-core-trip-wire.controls.sh` | the controls: one fixture per verdict the scanner can reach. Sourced by the wire; its interface is asserted at entry, and run on its own it exits 2 saying so |
+| `.claude/tools/webref-generic-core-trip-wire.controls.sh` | the controls: a fixture tree per assertion, each made by re-invoking the scanner over it — **not** one per verdict site; the sites with none are `#11-k2-wire-verdict-site-controls` in §8. Sourced by the wire; its interface is asserted at entry, and run on its own it exits 2 saying so |
 | `.claude/tools/webref-generic-core-trip-wire.harness.sh` | the control harness: how a control runs — the fixture scratch root, the fixture git helper, the shim quoting, the FIFO probe, `_control`. Sourced by the controls file, which asserts the wire's interface first |
 | `.claude/tools/webref-generic-core-trip-wire.mutations.sh` | the mutation set (§7 criterion 3) and the correspondence between it and the controls — *is each control about the arm it names?*, which is a different question from the controls' own. Split out at R6; same entry contract |
 | `scripts/trip-wires.sh` | one line in `REQUIRED_WIRES`, plus the two driver comments its arrival falsified |
@@ -1209,13 +1208,14 @@ decides each row.
 | `CDPATH` (D8) | loud — exit 1 with a `cd` error | stays loud (the exit code is the violation code, not "decided nothing" — noted, not changed) |
 | a restrictive `umask` (half of D5) | loud once D5 makes the guard reachable (exit 2 with a message) | D5, §11.2 |
 | `XDG_CONFIG_HOME` / `SUDO_UID` (`safe.directory`) | loud — a refusal (exit 2) | stays loud |
+| `PATH` (D12) | **either direction** — the wire names its external tools and does not resolve them, so `PATH` decides which binary each name reaches, and a substituted one can answer wrongly without saying so | **bounded in practice by the controls, not by the wire**: they re-invoke this wire with the caller's `PATH` over fixtures whose answers are known, so a substituted tool that changes an answer a fixture pins reds the gate before the real scan. The residual is closable only where bash is started — slot `#11-trip-wire-launch-environment`. Not closable in the wire: absolute paths would be a second, hand-kept inventory of the same kind this file keeps retiring |
 | `BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*`, `core.fsmonitor` via `GIT_CONFIG*` | whatever the person running the gate makes it do | out of this wire's reach (startup) or an environment subverting its own gate; **declared** where bash is started — slot `#11-trip-wire-launch-environment` |
 
 **Own vs pre-existing**, per the defer policy: every row above is reachable in this PR's wire, so
 the silent ones are closed here and the loud ones are accepted under the wire's own rule, not
 deferred. What **is** carved is pre-existing on `main` and not this PR's to fix: the sibling wires'
 ambient `grep`, the driver's environment-entered `TRIP_WIRES_SELFTEST` (D9, from #496), and the
-startup declaration — one slot, `#11-trip-wire-launch-environment`, registered in the defer ledger
+startup declaration, `PATH` included — one slot, `#11-trip-wire-launch-environment`, registered in the defer ledger
 with an owner route, trigger and date. It does not count against this PR's own-deferral cap.
 
 ### §11.2 Point fixes in #519
@@ -1259,7 +1259,8 @@ is next updated.
 A fresh agent, on a frozen snapshot, enumerates **every** member of each population — one line per
 member, each backed by the command that produced it, marked OK or DEFECT:
 
-* **P1 — quantities and universals in prose**: the comments of the three `.sh` files and of
+* **P1 — quantities and universals in prose**: the comments of this wire's `.sh` files — the wire,
+  its controls, the control harness and the mutation set — and of
   `scripts/trip-wires.sh`; this memo's header and §0–§11 (§10 as provenance); every umbrella row and
   paragraph naming this slice; the `CLAUDE.md` and `ci.yml` paragraphs. Every figure describing current state,
   and every "every / all / only / no / none / never / the one place" with its complement measured.
