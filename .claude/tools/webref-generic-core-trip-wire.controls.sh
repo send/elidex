@@ -79,7 +79,7 @@ fi
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -249,8 +249,10 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/globspec/foo1.py"
 #      admitted it, because it was written as "not one of these few path
 #      characters" instead of "one of these prose delimiters".
 printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
-#      …and the rest of that exclusion set, one line per member group.
-{ for _c in '~' '+' '%' '-' '.' '_' '0' 'o'; do
+#      …and the rest of that exclusion set, one line per member group. ⚠ `A-Z`
+#      was the member group with no line here: removing it from the class made
+#      an upper-case letter a prose boundary, and every control stayed green.
+{ for _c in '~' '+' '%' '-' '.' '_' '0' 'o' 'O'; do
     printf '# fo%s.claude/skills/team/rule.md\n' "$_c"
   done; } >> "$CTL/atclaude/ok.py"
 
@@ -295,6 +297,18 @@ mkdir -p "$CTL/pathgreen/.claude/hooks/team" "$CTL/pathgreen/_claude/skills/team
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/.claude/hooks/team/rule.md"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/_claude/skills/team/rule.md"
 ln -s '.claude/skills//rule.md' "$CTL/pathgreen/entry"
+#  (j) A reference written after a `/` — the OTHER half of the leading boundary,
+#      in running text. `$K2RE_PATH` spells the same rule as `(^|/)` and
+#      `slashname` pins it there; nothing pinned it here, so adding `/` to the
+#      exclusion class survived the whole control set. Alone in its own fixture:
+#      `bnd`'s other spellings would keep that fixture red and prove nothing
+#      about this one.
+printf 'see elidex/%s here\n' "$CONTROL_K2" > "$CTL/slashtext/control.md"
+#  (k) A FINAL SEGMENT OF ONE CHARACTER. The final segment is `[…]*[…]`, so its
+#      minimum length is one; raising that to two survived the whole control set
+#      because every red fixture's last segment was longer. Alone in its own
+#      fixture, for the reason (j) gives.
+printf 'X = %s\n' '.claude/tools/a/b' > "$CTL/finalone/control.py"
 
 # An ORPHAN branch with commits on another branch: HEAD is legitimately unborn
 # while the repository is not empty, which is the case that separates "this HEAD
@@ -435,7 +449,7 @@ printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
          extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
          catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
-         slashname pathgreen; do
+         slashname pathgreen slashtext finalone; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -678,6 +692,8 @@ _control "$CTL/linestart" 1 "K2: a" "a reference at the start of a line fires" |
 _control "$CTL/textgreen" 0 "PASSED" "running text that only looks like a two-segment reference stays green" || ctl_ok=1
 _control "$CTL/slashname" 1 "entry NAME" "a stored path naming .claude after a slash, under tools, fires" || ctl_ok=1
 _control "$CTL/pathgreen" 0 "PASSED" "a stored path that only looks like one stays green" || ctl_ok=1
+_control "$CTL/slashtext" 1 "K2: a" "a reference written after a slash fires" || ctl_ok=1
+_control "$CTL/finalone" 1 "K2: a" "a ONE-character final segment fires" || ctl_ok=1
 _control "$CTL/bnd" 1 "K2: a" "the leading boundary covers =, --opt=, :, a backtick, ** and ," || ctl_ok=1
 _control "$CTL/orphan" 0 "PASSED" "an orphan branch is an unborn HEAD, not a read failure" || ctl_ok=1
 _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree read does not traverse an ancestor symlink" || ctl_ok=1

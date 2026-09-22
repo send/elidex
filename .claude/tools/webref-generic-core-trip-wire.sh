@@ -400,7 +400,12 @@ for p in "$SCOPE_DIR" ${SCOPE_FILE:+"$SCOPE_FILE"}; do
   # `-e` FOLLOWS a symlink, so a dangling link reads as "does not exist" — and a
   # dangling link is still an entry whose stored target this wire must read
   # (#501 R75, found by the control for the symlinked entry script).
-  [ -e "$p" ] || [ -L "$p" ] || { echo "!! $p does not exist — this wire would pass over a tree it never read" >&2; exit 2; }
+  # ⚠ AND THE MESSAGE DOES NOT SAY "does not exist", which it used to: these
+  # two tests fail on EACCES as readily as on absence, and the whole point of
+  # the invariant above is that a failure is not a particular negative. Nothing
+  # here needs to know which it was — either way the run refuses — so the
+  # refusal is what is stated.
+  [ -e "$p" ] || [ -L "$p" ] || { echo "!! $p is not there, or cannot be seen from here — this wire would pass over a tree it never read" >&2; exit 2; }
 done
 # `git ls-files` takes pathspecs relative to the directory it runs in.
 # ⚠ `${var#"$prefix"/}` — QUOTED. Unquoted, the operand after `#` is a PATTERN,
