@@ -113,9 +113,11 @@ def sweep(name, pattern, lines, sections, width):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+    ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("memo", help="path to the plan-memo")
+    # optional so `--list-concepts` works on its own: that branch returns before
+    # reading the memo, but a required positional made argparse exit 2 first.
+    ap.add_argument("memo", nargs="?", help="path to the plan-memo")
     ap.add_argument("--pattern", action="append", metavar="RE",
                     help="ad-hoc regex to sweep (repeatable); the primary interface")
     ap.add_argument("--concept", action="append", metavar="ID",
@@ -129,12 +131,25 @@ def main(argv=None):
         for name, pat in CONCEPTS.items():
             print(f"{name}\n    {pat}")
         return 0
+    if args.memo is None:
+        ap.error("the following arguments are required: memo")
 
     jobs = [(f"--pattern {p}", p) for p in (args.pattern or [])]
+    # The ids are what a caller types, so match them EXACTLY first: as a plain
+    # prefix, `--concept D1` also selects D10 and D11 and runs three sweeps under
+    # one name -- the caller reads the first and takes the other two for part of
+    # it. A prefix that is not an id still resolves, but only if it is
+    # unambiguous; ambiguity is an error rather than a silent fan-out.
+    by_id = {n.split()[0]: (n, p) for n, p in CONCEPTS.items()}
     for want in (args.concept or []):
+        if want in by_id:
+            jobs.append(by_id[want]); continue
         matched = [(n, p) for n, p in CONCEPTS.items() if n.startswith(want)]
         if not matched:
             ap.error(f"no preset starts with {want!r} (see --list-concepts)")
+        if len(matched) > 1:
+            ap.error(f"{want!r} is ambiguous: {', '.join(n.split()[0] for n, _ in matched)}"
+                     f" — name one exactly, or repeat --concept")
         jobs += matched
     if not jobs:  # no selector: replay every preset
         jobs = list(CONCEPTS.items())
