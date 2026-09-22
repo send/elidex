@@ -912,7 +912,9 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
     # ⚠ INVENTORIED, THEN GONE — AND UNTRACKED, so nothing else answers for it.
     # The arms above all test the path as it is NOW, and a path that vanished
     # between `ls-files` and this read matched none of them: no `ok`, no `err`,
-    # no record at all. The final guard only requires the AGGREGATE `SCANNED`
+    # no record at all. ⚠ THAT IT IS GONE IS `_absent`'s answer, not these
+    # arms' joint failure — which is EACCES as readily as absence, and is why
+    # the arm above exists. The final guard only requires the AGGREGATE `SCANNED`
     # to be non-zero, so its siblings carried the run to green. Reproduced by
     # the external reviewer: a forbidden untracked file removed immediately
     # after the inventory and restored afterwards gave exit 0.
