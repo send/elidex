@@ -24,14 +24,14 @@ which imports the control names from here.
 
 every cases module holds its OWN `CASES` and binds its own spellings
 (`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
-step -- gathers them, and the base module's list is sealed.
+step -- gathers them, and every case is a line of the golden manifest.
 """
 
 from plan_memo_selftest_cases import LINK, SIB_TABLE, build, spellings
 from plan_memo_selftest_cases_r26 import idcell, kindcell
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
-# every cases module's list in one step, and the base module's list is sealed.
+# every cases module's list in one step; every case is a line of the golden manifest.
 CASES = []
 case, acase, rcase = spellings(CASES)
 

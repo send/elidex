@@ -564,7 +564,8 @@ _KIND_PROBES = (
 )
 
 
-_KV_SRC = {"m.py": "def a(p):\n    p._claims(1)\n    p._phrases(2)\n_claims(0)\n", "n.py": ""}
+_KV_SRC = {"m.py": "def a(p):\n    p._claims(1)\n    p._phrases(2)\n_claims(0)\n", "n.py": "",
+           "o.py": "def a(p):\n    p._claims(1)\n"}
 _KV_SITES = {"_phrases": {("m.py", "b"): "x"},
              "_claims": {("m.py", "a"): "x", ("n.py", "a"): "x"},
              "kind_disagreements": {("m.py", "a"): "x"}}
@@ -572,7 +573,8 @@ _KV_WANT = ("`_phrases` is called from `a` in m.py,",
             "`_claims` is called from `<module>` in m.py,",
             "the sanctioned site `b` in m.py makes no call to `_phrases`",
             "the sanctioned site `a` in n.py makes no call to `_claims`",
-            "the sanctioned site `a` in m.py makes no call to `kind_disagreements`")
+            "the sanctioned site `a` in m.py makes no call to `kind_disagreements`",
+            "`_claims` is called from `a` in o.py,")
 
 _EXTRA = "plan_memo_extra.py"
 _EXTRA_SELFTEST = "plan_memo_selftestx_helper.py"

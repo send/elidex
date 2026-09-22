@@ -39,6 +39,12 @@ covered.
 Import direction, one way: the runner (`plan_memo_umbrella_selftest.py`)
 imports the controls, the controls import this module, and this module
 imports nothing of either.
+
+WORKFLOW RULE (the golden manifest, `plan_memo_selftest_manifest`): adding,
+removing or changing a mutation row, a control or a case requires
+regenerating the manifest -- `python3 .claude/tools/plan-memo-umbrella-check.py
+--write-manifest` -- and committing its diff; `--self-test` fails on ANY
+difference between the collection it executes and the committed manifest.
 """
 
 import importlib.util
@@ -165,9 +171,10 @@ class Registry(dict):
     """A control table that REFUSES a name it already holds -- by item and by
     `update` alike -- so one fragment's control cannot silently shadow
     another's (the sixth-pass attestation's N-1: a duplicated key left 747
-    controls and rc 0, the shadowed one never run).  `merge` builds one; every
-    `registry()` merges through it (`plan_memo_selftest_population.
-    registry_merge_control` checks that no `registry()` builds a plain dict)."""
+    controls and rc 0, the shadowed one never run).  `merge` builds one.  It
+    is the generation-time "duplicate control name" validation of the golden
+    manifest (`plan_memo_selftest_manifest`); a merge that bypasses it is a
+    removed or changed manifest line, whatever its spelling."""
 
     def __setitem__(self, key, value):
         if key in self:
@@ -299,7 +306,7 @@ def run_on(M, text, prose="", sibling=None, files=None):
         # its name carries an id so the destination-masking control keeps its
         # subject.
         (pathlib.Path(d) / "slice-9z-sib.md").write_text((sibling or "") + "\n", encoding="utf-8")
-        for name, content in (files or {}).items():
+        for name, content in dict(files or ()).items():
             f = pathlib.Path(d) / name
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(content, encoding="utf-8")

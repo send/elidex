@@ -110,6 +110,9 @@ MODULES
                           module population's rules, the same kind of seam) /
                           _selftest_population.py (the partner controls of the
                           population and of the two row registries) /
+                          _selftest_manifest.py (the golden manifest: the
+                          collection compared against the committed
+                          plan_memo_selftest_manifest.txt, and `--write-manifest`) /
                           _selftest_registry.py (the ONE collection step of
                           the case and mutant registries) /
                           _selftest_conformance.py (the
@@ -171,6 +174,7 @@ questions above, not the file names.
 
 Usage:  plan-memo-umbrella-check.py <memo> [--worklist]   (linked memos = the population)
         plan-memo-umbrella-check.py --self-test [--mutants]
+        plan-memo-umbrella-check.py --write-manifest   (regenerate the self-test's golden manifest)
 """
 
 import sys
@@ -678,6 +682,7 @@ def printable(text):
 # accepts, and how many positional arguments.
 MODES = (
     ("--self-test", frozenset(("--self-test", "--mutants")), 0),
+    ("--write-manifest", frozenset(("--write-manifest",)), 0),
     (None,          frozenset(("--worklist",)),              1),
 )
 OPTIONS = frozenset(f for _sel, flags, _n in MODES for f in flags)
@@ -718,6 +723,9 @@ def main(argv):
     if sel == "--self-test":
         import plan_memo_umbrella_selftest as st  # noqa
         return st.run(mutants="--mutants" in argv)
+    if sel == "--write-manifest":
+        import plan_memo_umbrella_selftest as st  # noqa -- the ONE self-test dispatch
+        return st.write_manifest()
     res = check(paths[0])
     if res.rc == 2:
         for code, file, lineno, msg in res.findings:

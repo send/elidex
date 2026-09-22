@@ -16,7 +16,7 @@ out-of-field marker / KIND-SPELLING / schema id kinds).
 
 every cases module holds its OWN `CASES` and binds its own spellings
 (`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
-step -- gathers them, and the base module's list is sealed.  A
+step -- gathers them, and every case is a line of the golden manifest.  A
 control's mutant lives in `plan_memo_selftest_mutants_inline.py` under the
 same round label -- the mutant registry is split at THIS module's seam, so
 `_mutants_pr510.py` is the R1-R16 half and holds no mutant of a control here.
@@ -28,7 +28,7 @@ from plan_memo_selftest_cases import SIB, VIOLATION, build, spellings
 from plan_memo_selftest_cases_pr510 import CHILD, SLOT4
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
-# every cases module's list in one step, and the base module's list is sealed.
+# every cases module's list in one step; every case is a line of the golden manifest.
 CASES = []
 case, acase, rcase = spellings(CASES)
 

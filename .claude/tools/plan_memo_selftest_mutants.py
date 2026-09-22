@@ -40,8 +40,8 @@ seams -- and later modules at later seams.
 THE RULE, not a count (a count here said "four" while there were six): the
 registry is every self-test module holding its OWN top-level `MUTANTS` list,
 gathered by the ONE step `plan_memo_selftest_registry.collect` (which
-`mutants()` below calls); this module's list is SEALED (a tuple) at the end of
-its own import, so no other module can extend it.  ⚠ Until the fifth attestation each
+`mutants()` below calls), which freezes it; every row is a line of the golden
+manifest (`plan_memo_selftest_manifest`).  ⚠ Until the fifth attestation each
 appender extended THIS module's list at import time, and three readers
 imported the appenders -- the runner by a hand list, the loop ratchet by a
 glob -- so which rows existed depended on what had been imported before, and
@@ -528,46 +528,24 @@ MUTANTS = [
      ["(c-seed) a sibling of the SAME basename in another directory, whose Deps cell at the "
       "same line names the party, does not discharge the main memo's row"]),
 ]
-# SEALED: the base rows are a tuple from here on, so a module that imported
-# this list and extends it fails at ITS import, whatever the import order (the
-# sixth attestation: a length sampled at call time missed an appender imported
-# earlier).  `plan_memo_selftest_registry.collect` reads it.
-MUTANTS = tuple(MUTANTS)
 
 
-def mutants(names=None):
-    """EVERY mutant row, gathered by the one collection step
+def mutants():
+    """EVERY mutant row, gathered (and frozen) by the one collection step
     (`plan_memo_selftest_registry.collect`)."""
     from plan_memo_selftest_registry import collect
-    return collect("MUTANTS", "plan_memo_selftest_mutants", names)
+    return collect("MUTANTS", "plan_memo_selftest_mutants")
 
 
-def row_problems(rows):
-    """Every accidental defect of the row list itself, before any row runs:
-    a row naming NO control (it would count as killed having proved nothing:
-    the sixth-pass attestation's MIN-5), a LABEL used twice, and the same
-    (file, find, replace) edit twice (MIN-6's aliased list)."""
-    bad, labels, edits = [], set(), set()
-    for name, file, find, replace, controls in rows:
-        if not controls:
-            bad.append("MUTANT %r names no control -- it can only be counted as killed" % name)
-        if name in labels:
-            bad.append("MUTANT label %r is used twice" % name)
-        labels.add(name)
-        if (file, find, replace) in edits:
-            bad.append("MUTANT %r repeats another row's edit" % name)
-        edits.add((file, find, replace))
-    return bad
-
-
-def run(reg):
-    """Apply each mutant to a fresh module set and re-run its controls.
+def run(reg, rows):
+    """Apply each mutant row of `rows` -- the SNAPSHOT the runner took and the
+    manifest check compared (`plan_memo_selftest_manifest.snapshot`), never a
+    second collection -- to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
     import plan_memo_selftest_harness as h
-    rows = mutants()
     printable = h.load().printable    # the ONE escape, owned by the report boundary
 
-    fails = [printable(p) for p in row_problems(rows)]
+    fails = []
     print()
     print("mutants (each must turn its control red):")
     for name, file, find, replace, controls in rows:

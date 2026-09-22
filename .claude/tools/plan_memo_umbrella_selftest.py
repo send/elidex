@@ -66,8 +66,9 @@ cannot:
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
 
-from plan_memo_selftest_controls import empty_registry_fails, registry
+from plan_memo_selftest_controls import empty_registry_fails, registry  # noqa: F401 -- `registry` is what makes this module patchable by a mutation row (`plan_memo_selftest_mutants.run`)
 from plan_memo_selftest_harness import load, unload
+import plan_memo_selftest_manifest as manifest
 
 
 def run(mutants=False):
@@ -86,7 +87,16 @@ def run(mutants=False):
     print(printable("=" * 74))
     print("plan-memo-umbrella-check  --  self-test")
     print(printable("=" * 74))
-    reg = registry()
+    # THE ONE COLLECTION, compared against the committed golden manifest BEFORE
+    # anything runs, and then executed as it was compared: the control table
+    # and the mutation rows below are this snapshot's, never a second call.
+    # WORKFLOW RULE: adding, removing or changing a row, a control or a case
+    # requires `--write-manifest` and committing the manifest's diff.
+    snap = manifest.snapshot()
+    for line in manifest.verify(snap):
+        print(printable(line))
+        fails.append(printable(line))
+    reg = snap.table
     for name, (kind, control) in reg.items():
         counts[kind] = counts.get(kind, 0) + 1
         ok, detail = control(M)
@@ -109,8 +119,8 @@ def run(mutants=False):
         # the registry is gathered by `mutants()`, the ONE step that imports its
         # modules -- no list of them is spelled here (it was, and it was inert)
         import plan_memo_selftest_mutants as mm
-        fails += mm.run(reg)
-        n_mutants = len(mm.mutants())
+        fails += mm.run(reg, snap.rows)
+        n_mutants = len(snap.rows)
     fails += empty_registry_fails(len(reg), n_mutants)
     if fails:
         print()
@@ -119,3 +129,15 @@ def run(mutants=False):
         return 1
     print("all controls behaved as declared.")
     return 0
+
+
+def write_manifest():
+    """`--write-manifest`: regenerate the golden manifest from the ONE
+    collection (`plan_memo_selftest_manifest.write`), printed through the
+    report boundary's escape."""
+    printable = load().printable
+    unload()
+    rc, messages = manifest.write()
+    for m in messages:
+        print(printable(m))
+    return rc

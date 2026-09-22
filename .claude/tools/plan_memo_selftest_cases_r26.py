@@ -25,7 +25,7 @@ mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
 from plan_memo_selftest_cases import LINK, SIB_TABLE, build, spellings
 
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
-# every cases module's list in one step, and the base module's list is sealed.
+# every cases module's list in one step; every case is a line of the golden manifest.
 CASES = []
 case, acase, rcase = spellings(CASES)
 

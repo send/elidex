@@ -22,9 +22,9 @@ R1-R16 and the design re-gates -- the lexical substrate and the block grammar)
 and `plan_memo_selftest_cases_inline.py` (R17 on -- the Phase-2 inline
 construct family), and later modules at later seams.  THE RULE, not a count
 (a count here said "three modules" while there were five): every cases module
-holds its OWN `CASES` and binds its own spellings (`spellings(CASES)`); this
-module's list is sealed at the end of its import; `cases()` -- the one
-collection step, `plan_memo_selftest_registry.collect` -- is the only reader.
+holds its OWN `CASES` and binds its own spellings (`spellings(CASES)`);
+`cases()` -- the one collection step, `plan_memo_selftest_registry.collect` --
+is the only reader, and every case is a line of the golden manifest.
 """
 
 from collections import namedtuple
@@ -89,29 +89,13 @@ def build(**kw):
     f.update(kw)
     return HEADER.format(**f)
 
-def spellings(into, sealed=lambda: False):
+def spellings(into):
     """`case` / `acase` / `rcase` bound to ONE module's own list `into`.  Every
-    cases module holds its own `CASES` and binds its own spellings; the base
-    module's refuse once it is sealed, so a module still calling the base's
-    `case` fails at its import instead of losing its rows.
-
-    ⚠ `into` must BE the calling module's own `CASES` (the base module binds
-    its private list): `spellings([])`, or any list the collection step will
-    not read, is refused at the caller's import.  Until the sixth-pass
-    attestation a module holding `CASES = []` could bind its spellings to a
-    throwaway list and every case it wrote was silently never run (IMP-4) --
-    an ACCIDENTAL edit (a wrong argument) reaches that, so it is in the threat
-    model (`plan_memo_selftest_registry`)."""
-    import sys
-    caller = sys._getframe(1).f_globals
-    if caller is not globals() and caller.get("CASES") is not into:
-        raise RuntimeError("spellings(...) in %s must bind that module's own `CASES` list"
-                           % caller.get("__name__"))
-
+    cases module holds its own `CASES` and binds its own spellings.  (Which
+    cases exist is not checked here: every case is a line of the golden
+    manifest, `plan_memo_selftest_manifest`, and a case bound to a list nobody
+    collects is a removed line there.)"""
     def case(kind, name, text, prose, expect, sibling=None, files=None, measure="sites"):
-        if sealed():
-            raise RuntimeError("a cases module called the BASE module's `case` after it was "
-                               "sealed: hold your own `CASES` and bind `spellings(CASES)`")
         into.append(Case(kind, name, text, prose, sibling, files or {}, measure, expect))
 
     def acase(kind, name, text, code, expect, prose="", sibling=None):
@@ -123,9 +107,8 @@ def spellings(into, sealed=lambda: False):
     return case, acase, rcase
 
 
-_OWN = []
-_SEALED = [False]
-case, acase, rcase = spellings(_OWN, lambda: _SEALED[0])
+CASES = []
+case, acase, rcase = spellings(CASES)
 
 
 # ---------------------------------------------------------------- POSITIVE --
@@ -624,7 +607,7 @@ acase("POSITIVE", "(c-seed) a sibling of the SAME basename in another directory,
       build(s7z="Terminal.  Lands second behind Slice **Qx** and behind Slice **9z**.",
             d7z="**Qx**"),
       "ORDER-PROSE?", 1, prose="See [the twin](sub/fixture.md).")
-_OWN[-1] = _OWN[-1]._replace(files={"sub/fixture.md": SAME_NAME_SIB})
+CASES[-1] = CASES[-1]._replace(files={"sub/fixture.md": SAME_NAME_SIB})
 
 # #15: §6.3 label classes are space / tab / line ending, not Unicode whitespace
 case("POSITIVE-NOVEL", "(link) a label holding only a non-breaking space is a label (§6.3: "
@@ -639,15 +622,8 @@ acase("NEGATIVE", "(stream) ordering vocabulary in a link TITLE is the link's ta
             d7z="—"),
       "ORDER-PROSE?", 0)
 
-# SEALED at the end of this module's import: `CASES` is a tuple and this
-# module's spellings refuse from here on, so no other module can add to it in
-# any import order (the sixth attestation).  `plan_memo_selftest_registry.
-# collect` gathers it with every other cases module's own list.
-CASES = tuple(_OWN)
-_SEALED[0] = True
 
-
-def cases(names=None):
-    """EVERY case record, gathered by the one collection step."""
+def cases():
+    """EVERY case record, gathered (and frozen) by the one collection step."""
     from plan_memo_selftest_registry import collect
-    return collect("CASES", "plan_memo_selftest_cases", names)
+    return collect("CASES", "plan_memo_selftest_cases")
