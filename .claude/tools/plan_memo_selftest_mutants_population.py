@@ -161,7 +161,27 @@ MUTANTS += [
 
 # -- the golden manifest: each part of the mechanism, against the arm of
 # `manifest_control` that kills it.
+AXIS5_CHANNEL = ("PROPERTY: every line the run REPORTS goes through the escape -- measured over the "
+                 "EMIT SITES, the subject the escape function's own control cannot reach")
+
 MUTANTS += [
+    ("report channel: a raised `ManifestError` is a report channel (drop it -- the manifest diff "
+     "reaches stderr unescaped, which is where three raw NULs went)", RECORDS,
+     '        if name == "ManifestError":\n            return node.exc.args[0]',
+     "        if False:\n            return node.exc.args[0]",
+     [AXIS5_CHANNEL]),
+    ("report channel: a raised CRASH is not a report channel (take every raise -- the population "
+     "then holds developer-facing invariant messages)", RECORDS,
+     '        name = getattr(node.exc.func, "id", None) or getattr(node.exc.func, "attr", None)\n'
+     '        if name == "ManifestError":',
+     '        name = "ManifestError"\n        if name == "ManifestError":',
+     [AXIS5_CHANNEL]),
+    ("cases: a module that writes a case but holds no list is REFUSED (ignore it -- its cases go "
+     "nowhere, and a case that was never collected is what the manifest cannot compare)",
+     "plan_memo_selftest_cases.py",
+     "        if not isinstance(rows, list):",
+     "        if False:",
+     [MANIFEST_CTL]),
     ("manifest: a difference is reported (skip the comparison)", MANIFEST_MOD,
      "    if removed or added or changed:",
      "    if False:",
@@ -225,17 +245,35 @@ MUTANTS += [
 MUTANTS += [
     ("manifest: `take` RAISES on a difference (return the table anyway -- the runner would "
      "execute a collection it had not compared)", MANIFEST_MOD,
-     "    if bad:\n        raise ManifestError",
-     "    if False:\n        raise ManifestError",
+     "    snap = _snapshot()\n    bad = verify(snap)",
+     "    snap = _snapshot()\n    bad = []",
      [MANIFEST_CTL]),
-    ("manifest: `finish` reports the verified controls a run did not execute (drop the audit)",
+    ("manifest: `finish` refuses a run that did not execute the verified table (drop the audit)",
      MANIFEST_MOD,
-     "    missing = sorted(name for name, _k, _f in taken.entries if name not in taken.seen)",
-     "    missing = []",
+     "    wrong = audit(verified, seen)",
+     "    wrong = []",
      [MANIFEST_CTL]),
-    ("manifest: the wrapper RECORDS the control that ran (drop the record -- every control then "
+    ("manifest: `finish` refuses a table this module did not make (accept any)", MANIFEST_MOD,
+     "    if held is None or held[0] is not taken:",
+     "    if False:",
+     [MANIFEST_CTL]),
+    ("manifest: the audit is EXACTLY once (accept any number of runs)", MANIFEST_MOD,
+     "             if seen.get(name, 0) != 1]",
+     "             if False]",
+     [MANIFEST_CTL]),
+    ("manifest: the audit reports a control that ran and is not in the table (drop that half)",
+     MANIFEST_MOD,
+     '            + ["%s is not in the verified table" % name[:60] for name in sorted(seen)\n'
+     '               if name not in known])',
+     "            + [])",
+     [MANIFEST_CTL]),
+    ("manifest: the counts are of what RAN (count the verified table instead)", MANIFEST_MOD,
+     "        out[kind] = out.get(kind, 0) + seen.get(name, 0)",
+     "        out[kind] = out.get(kind, 0) + 1",
+     [MANIFEST_CTL]),
+    ("manifest: the wrapper COUNTS the control that ran (drop the record -- every control then "
      "reads as never executed)", MANIFEST_MOD,
-     "        seen.add(name)",
+     "        seen[name] = seen.get(name, 0) + 1",
      "        pass",
      [MANIFEST_CTL]),
     ("manifest: the snapshot enumerates the cases ONCE (take them twice -- the table collects its "
@@ -248,16 +286,35 @@ MUTANTS += [
      "    CALLS.append(listname)",
      "    pass",
      [MANIFEST_CTL]),
-    ("manifest: a control's line carries its BODY digest (name and qualname alone -- a control "
-     "re-pointed to a stub reads the same)", MANIFEST_MOD,
+    ("manifest: a control's line carries its SOURCE digest (name and qualname alone -- a control "
+     "re-pointed to a stub, or re-bodied, reads the same)", MANIFEST_MOD,
      '    return "%s.%s#%s" % (getattr(fn, "__module__", "?"), getattr(fn, "__qualname__", "?"),\n'
-     '                         _code_digest(code) if code is not None else "nocode")',
+     '                         _source_digest(fn.__code__))',
      '    return "%s.%s" % (getattr(fn, "__module__", "?"), getattr(fn, "__qualname__", "?"))',
      [MANIFEST_CTL]),
-    ("manifest: a NESTED body is digested too (stop recursing -- a body hidden one lambda deeper "
+    ("manifest: the digest is of the DEFINITION BLOCK (digest the whole module text instead -- "
+     "every control in one file then reads the same)", MANIFEST_MOD,
+     '        block = "".join(inspect.getblock(text.splitlines(True)[code.co_firstlineno - 1:]))',
+     "        block = text",
+     [MANIFEST_CTL]),
+    ("manifest: the digest reads the text the module was EXEC'D from (read the file on disk "
+     "always -- a patched control digests the unpatched text)", MANIFEST_MOD,
+     "    text = harness.SOURCES.get(file)",
+     "    text = None",
+     [MANIFEST_CTL]),
+    ("manifest: an unreachable source is an ERROR (fall back to a constant -- every such control "
      "reads the same)", MANIFEST_MOD,
-     "        if hasattr(const, \"co_code\"):\n            parts.append(_code_digest(const))",
-     "        if False:\n            parts.append(_code_digest(const))",
+     "        except OSError as e:\n            raise ManifestError(printable(",
+     '        except OSError as e:\n            return "nosource"\n            raise ManifestError(printable(',
+     [MANIFEST_CTL]),
+    ("manifest: the snapshot is built ONCE per process (build it per call)", MANIFEST_MOD,
+     "    if not _SNAP:\n        _SNAP.append(_build())",
+     "    if True:\n        _SNAP.append(_build())",
+     [MANIFEST_CTL]),
+    ("manifest: the `|` between control names is ESCAPED (leave it -- a row naming `a|b` and one "
+     "naming `a` and `b` read the same)", MANIFEST_MOD,
+     '            .replace("|", "\\\\p"))',
+     "            )",
      [MANIFEST_CTL]),
     ("manifest: a row's line carries its EDIT digest (drop it -- two rows' replacements can be "
      "swapped)", MANIFEST_MOD,

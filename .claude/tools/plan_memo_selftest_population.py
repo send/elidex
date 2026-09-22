@@ -153,29 +153,89 @@ def manifest_control(M):
     arms["(a) each kind of difference ALONE fails the check"] = all(
         mf.verify(snap, want) for want in (got + [extra], got[1:], [got[0] + "-changed"] + got[1:]))
     taken = mf.take()
-    arms["(b) `take` returns the verified table, and raises on a difference"] = (
-        len(taken.entries) == len(snap.table) and _raises(lambda: mf.take(planted)))
-    counts, audit = mf.finish(taken)
-    arms["(b) `finish` reports the controls the run has not executed"] = (
-        bool(audit) and sum(counts.values()) == len(snap.table))
-    marks = set()
+    arms["(b) `take` returns the verified table (and has no `want` to hand it)"] = (
+        len(taken.entries) == len(snap.table)
+        and "want" not in mf.take.__code__.co_varnames)
+    arms["(b) `finish` refuses a table nothing has run"] = _raises(lambda: mf.finish(taken))
+    forged = mf.Taken(taken.entries, taken.rows)
+    arms["(b) `finish` refuses a table this module did not make"] = _manifest_raises(
+        mf, lambda: mf.finish(forged))
+    marks = {}
     mf._wrap("x", lambda M: (True, ""), marks)(None)
-    arms["(b) the wrapper records the control that ran"] = marks == {"x"}
-    for _name, _kind, fn in taken.entries:
-        taken.seen.add(_name)
-    arms["(b) a control that RAN is not reported"] = not mf.finish(taken)[1]
+    mf._wrap("x", lambda M: (True, ""), marks)(None)
+    arms["(b) the wrapper COUNTS the runs of each control"] = marks == {"x": 2}
+    one = [("a", "CONTROL")]
+    arms["(b) the audit is: exactly once, and nothing else"] = (
+        mf.audit(one, {"a": 1}) == []
+        and any("ran 2 time" in q for q in mf.audit(one, {"a": 2}))
+        and any("ran 0 time" in q for q in mf.audit(one, {}))
+        and any("not in the verified table" in q for q in mf.audit(one, {"a": 1, "b": 1})))
+    arms["(b) the counts are of what RAN"] = (mf.counts(one, {"a": 1}) == {"CONTROL": 1}
+                                              and mf.counts(one, {}) == {"CONTROL": 0})
     # ONE enumeration per registry: the collection step records its calls
     reg_mod = importlib.import_module("plan_memo_selftest_registry")
-    before = len(reg_mod.CALLS)
-    mf._snapshot()
-    arms["(c) the snapshot collects each registry ONCE"] = reg_mod.CALLS[before:] == ["CASES", "MUTANTS"]
-    stub = mf._fn_id(lambda M: (True, "stub")) != mf._fn_id(lambda M: M.check(M))
-    nested = mf._fn_id(lambda M: (lambda: 1)()) != mf._fn_id(lambda M: (lambda: 2)())
+    del reg_mod.CALLS[:]
+    mf._build()          # the BUILDER: `_snapshot` serves the one already built
+    built = list(reg_mod.CALLS)
+    del reg_mod.CALLS[:]
+    importlib.import_module("plan_memo_selftest_mutants").mutants()
+    arms["(c) the snapshot collects each registry ONCE, by its own name"] = (
+        built == ["CASES", "MUTANTS"] and reg_mod.CALLS == ["MUTANTS"])
+    del reg_mod.CALLS[:]
+    same = mf._snapshot() is mf._snapshot()
+    arms["(c) the snapshot is built ONCE per process"] = same and reg_mod.CALLS == []
+    # one definition per LINE: the source block of a `lambda` is its line, so
+    # two lambdas sharing a line share a digest (stated in `_source_digest`)
+    def _body_a(M):
+        return True, "stub"
+
+    def _body_b(M):
+        return M.check(M)
+
+    def _nest_a(M):
+        return (lambda: "a")()
+
+    def _nest_b(M):
+        return (lambda: "b")()
+
+    stub = mf._fn_id(_body_a) != mf._fn_id(_body_b)
+    nested = mf._fn_id(_nest_a) != mf._fn_id(_nest_b)
     arms["(c) a control's BODY is in its line, nested bodies included"] = stub and nested
     arms["(c) a row's find/replace is in its line"] = (
         mf.lines(mf.Snapshot({}, (("a", "f.py", "x", "y", ()),), ()))
         != mf.lines(mf.Snapshot({}, (("a", "f.py", "y", "x", ()),), ())))
     with tempfile.TemporaryDirectory() as d:
+        # the DOOR, driven with a planted committed manifest: `take()` reads
+        # `PATH`, so pointing it at a corrupt file must make it raise
+        corrupt = pathlib.Path(d) / "corrupt.txt"
+        corrupt.write_text("CONTROL\tCONTROL\tplanted\tx\n", encoding="utf-8")
+        real_path = mf.PATH
+        try:
+            mf.PATH = corrupt
+            arms["(b) `take` RAISES when the committed manifest differs"] = _manifest_raises(
+                mf, mf.take)
+        finally:
+            mf.PATH = real_path
+        # the DIGEST, driven with a planted module: it must read the text the
+        # module was EXEC'D from (`SOURCES`), and refuse an unreachable source
+        H_mod = _h()
+        probe_file = pathlib.Path(d) / "plan_memo_selftest_plant_src.py"
+        probe_file.write_text("def g(M):\n    return 1\n", encoding="utf-8")
+        sys.path.insert(0, d)
+        try:
+            src_mod = importlib.import_module("plan_memo_selftest_plant_src")
+            before = mf._fn_id(src_mod.g)
+            H_mod.SOURCES["plan_memo_selftest_plant_src.py"] = "def g(M):\n    return 2\n"
+            arms["(c) the digest reads the text the module was exec'd from"] = (
+                mf._fn_id(src_mod.g) != before)
+        finally:
+            H_mod.SOURCES.pop("plan_memo_selftest_plant_src.py", None)
+            sys.path.remove(d)
+            sys.modules.pop("plan_memo_selftest_plant_src", None)
+        gone = {}
+        exec(compile("def g(M):\n    return 1\n", "plan_memo_no_such_file.py", "exec"), gone)
+        arms["(c) an unreachable source is an ERROR, never a constant"] = _manifest_raises(
+            mf, lambda: mf._fn_id(gone["g"]))
         target = pathlib.Path(d) / "m.txt"
         rc, _msgs = mf.write(target)
         written = (sorted(ln for ln in target.read_text(encoding="utf-8").split("\n")
@@ -194,7 +254,14 @@ def manifest_control(M):
         faults["unreadable"] = unreadable
         shapes = {k: _manifest_error(mf, v) for k, v in faults.items()}
         unreadable.chmod(0o600)
+        # ⚠ `chmod(0)` does not stop root, so the unreadable arm is asked only
+        # when it really is unreadable -- otherwise it is a false red for a
+        # root runner, not a finding (M6)
+        if _readable(unreadable):
+            shapes.pop("unreadable")
+            arms["(f) the unreadable shape was ASKED"] = None
         arms["(f) every fault shape names the regenerate command"] = all(shapes.values())
+        arms.pop("(f) the unreadable shape was ASKED", None)
     # (d) on a FRESHLY planted base module: the real modules were frozen by the
     # first collection of this run, so only a module collected now can show
     # whether the collection step freezes
@@ -227,6 +294,10 @@ def manifest_control(M):
         and _raises(lambda: H.merge({"k": 1}).update({"k": 2})))
     twice = mf.Snapshot({}, (row, row), ())
     arms["(g) a row collected twice is two lines"] = len(mf.lines(twice)) == 2
+    # the separator is escaped, so the control list is injective
+    one_pipe = mf.Snapshot({}, (("a", "f.py", "x", "y", ("c|d",)),), ())
+    two_names = mf.Snapshot({}, (("a", "f.py", "x", "y", ("c", "d")),), ())
+    arms["(g) a `|` inside a control name is escaped"] = mf.lines(one_pipe) != mf.lines(two_names)
     with tempfile.TemporaryDirectory() as d:
         empty = "plan_memo_selftest_plant_empty_base"
         (pathlib.Path(d) / (empty + ".py")).write_text("MUTANTS = []\n", encoding="utf-8")
@@ -234,12 +305,77 @@ def manifest_control(M):
         try:
             arms["(h) a registry module holding an EMPTY list is refused"] = _raises(
                 lambda: reg_mod.collect("MUTANTS", empty))
+            sys.modules.pop(empty, None)     # or the next collection would find it
+            # the NEGATIVE half: a module holding rows is collected, so the
+            # refusal above is not "every plant is refused"
+            full = "plan_memo_selftest_plant_full_base"
+            (pathlib.Path(d) / (full + ".py")).write_text(
+                "MUTANTS = [('planted', 'f.py', 'x', 'y', ['c'])]\n", encoding="utf-8")
+            arms["(h) a registry module holding ROWS is collected"] = (
+                len(reg_mod.collect("MUTANTS", full)) > len(snap.rows))
+            sys.modules.pop(full, None)
+            # the CASES constructors write where the collector reads: a planted
+            # module's own list, not a captured or a base one (CRIT-2)
+            probe = "plan_memo_selftest_plant_cases_probe"
+            (pathlib.Path(d) / (probe + ".py")).write_text(
+                "from plan_memo_selftest_cases import build, spellings\n"
+                "CASES = []\n"
+                "case, acase, rcase = spellings()\n"
+                "case('POSITIVE', 'planted', build(), '', 1)\n"
+                "rcase('POSITIVE', 'planted rc', build(), '', 0)\n", encoding="utf-8")
+            base_cases = len(importlib.import_module("plan_memo_selftest_cases").CASES)
+            mod = importlib.import_module(probe)
+            arms["(h) the case constructors write into the CALLING module's list"] = (
+                len(mod.CASES) == 2
+                and len(importlib.import_module("plan_memo_selftest_cases").CASES) == base_cases)
+            sys.modules.pop(probe, None)
+            # a module that WRITES a case but holds no list is refused at its
+            # import: its cases would otherwise go nowhere, and a case that was
+            # never collected is the one thing the manifest cannot compare
+            listless = "plan_memo_selftest_plant_cases_listless"
+            (pathlib.Path(d) / (listless + ".py")).write_text(
+                "from plan_memo_selftest_cases import build, spellings\n"
+                "case, acase, rcase = spellings()\n"
+                "case('POSITIVE', 'planted', build(), '', 1)\n", encoding="utf-8")
+            arms["(h) a module that writes a case but holds no list is refused"] = _refuses(
+                "holds no `CASES` list", lambda: importlib.import_module(listless))
+            sys.modules.pop(listless, None)
         finally:
             sys.path.remove(d)
             sys.modules.pop(empty, None)
     failed = [k for k, v in arms.items() if not v]
     return not failed, ("%d manifest line(s), 0 difference(s); arms: %s"
                         % (len(got), "all hold" if not failed else "FAILED " + "; ".join(failed)))
+
+
+def _manifest_raises(mf, fn):
+    """True when `fn` raises the manifest's OWN error -- any other exception is
+    a crash, not a refusal."""
+    try:
+        fn()
+    except mf.ManifestError:
+        return True
+    except Exception:
+        return False
+    return False
+
+
+def _refuses(message, fn):
+    """True when `fn` raises with `message` in it -- a REFUSAL, not whatever
+    exception a missing check happens to produce downstream."""
+    try:
+        fn()
+    except Exception as e:
+        return message in str(e)
+    return False
+
+
+def _readable(path):
+    try:
+        path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return True
 
 
 def _manifest_error(mf, path):

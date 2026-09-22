@@ -539,7 +539,7 @@ def mutants():
 
 def run(reg, rows):
     """Apply each mutant row of `rows` -- the SNAPSHOT the runner took and the
-    manifest check compared (`plan_memo_selftest_manifest.snapshot`), never a
+    manifest check compared (`plan_memo_selftest_manifest.take`), never a
     second collection -- to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
     import plan_memo_selftest_harness as h

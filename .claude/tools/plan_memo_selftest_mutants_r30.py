@@ -322,6 +322,9 @@ MUTANTS += [
     ("R32 attribution: a stale `module.symbol` is found (put back the pre-split spelling of the "
      "disposition, which moved to `plan_memo_stream.py` at `e7b49ed4`)", TOKENS,
      "(`plan_memo_stream.dispose`, stage 2) hands it the",
+     # ⚠ the STALE spelling this row re-injects: it is data, not a reference
+     # (a dotted-reference sweep reads it as a broken one -- it is the defect
+     # the row exists to plant)
      "(`plan_memo_tables.dispose`, stage 2) hands it the",
      [R32_ATTRIB]),
 ]

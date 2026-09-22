@@ -39,7 +39,13 @@ proof-gap fixes of `679b6634` that are not shape detectors (the sanction-key arm
 reachability, the membership partner driving the real function) stand. **Workflow rule**: adding, removing
 or changing a row, control or case requires regenerating the manifest and committing its diff.
 
-## Threat model
+## Threat model, and what the manifest does not promise
 
-Its one home is the docstring of `.claude/tools/plan_memo_selftest_registry.py` ("THE THREAT MODEL"); it is
-not copied here.
+Its one home is the docstring of `.claude/tools/plan_memo_selftest_registry.py` ("THE THREAT MODEL"); the
+workflow rule's one home is `plan_memo_selftest_manifest.py`'s docstring. Neither is copied here.
+
+**The open gap, recorded rather than closed**: the manifest pins every control's identity, kind, defining
+function and source digest — but not that a control CAN GO RED. **254 of the 747 controls are named by no
+mutation row** (130 POSITIVE, 95 NEGATIVE, 24 POSITIVE-NOVEL fixture cases, 2 KNOWN-MISS and 3 CONTROL: the
+§6.4 demotion linearity, the SyntaxWarning sweep and `degenerate_control`), so `--mutants` does not
+exercise them. Closing it means a row per control, which is a program of its own.

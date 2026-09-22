@@ -28,7 +28,12 @@ user on 2026-09-23 and instrumented by the golden manifest
     is refused;
   * the ONE out-of-model case is a deliberate edit that ALSO regenerates the
     manifest: that is not silent, because the manifest's own diff is in the
-    commit, which is the review surface.
+    commit, which is the review surface;
+  * WHAT IT DOES NOT PROMISE: that a control can go RED.  The manifest pins a
+    control's identity, kind, defining function and source digest; 254 of the
+    747 are named by no mutation row, so nothing proves they would fail if
+    their subject broke.  The workflow rule and this boundary have ONE home,
+    `plan_memo_selftest_manifest`'s docstring.
 
 A LEAF: it owns no controls, and every caller imports it at call time, so a
 row against it is reached.
@@ -36,9 +41,11 @@ row against it is reached.
 
 
 CALLS = []
-"""Every `collect` call, by list name, in order -- the instrument the manifest
-partner reads to hold "one collection call per registry, and no second
-enumeration" (the manifest attestation's I3)."""
+"""The LAST few `collect` calls, by list name, in order -- the instrument the
+manifest partner reads to hold "one collection call per registry, and no
+second enumeration" (I3).  Bounded, because an unbounded global that grows
+with every call is a leak, not an instrument."""
+_CALLS_KEPT = 8
 
 
 def _freeze(x):
@@ -58,10 +65,27 @@ def collect(listname, base):
     module's own list, in population order -- frozen, and each module's list
     attribute replaced by its frozen copy."""
     import importlib
+    import sys
     harness = importlib.import_module("plan_memo_selftest_harness")
+    import plan_memo_selftest_manifest as manifest
+    ManifestError = manifest.ManifestError
     CALLS.append(listname)
+    del CALLS[:-_CALLS_KEPT]
+    # THE POPULATION IS WHAT THE MODULES HOLD AT RUNTIME.  The file-name and
+    # assignment-shape rules only say which modules to IMPORT; membership is
+    # then decided by the attribute each imported module actually has -- the
+    # same object the constructors appended to.  ⚠ The AST rule alone was a
+    # SECOND, NARROWER population (the CI attestation's CRIT-2): `globals()
+    # ["CASES"] = []`, `CASES, _X = [], 1` and `for CASES in ([],)` all bind a
+    # list the constructors write to and `ast` does not see as an assignment,
+    # so those cases were collected by nothing and no manifest line was made.
+    for name in harness.registry_modules(listname):
+        importlib.import_module(name)
+    holders = sorted(n for n, m in list(sys.modules.items())
+                     if n.startswith("plan_memo") and "selftest" in n and n != base
+                     and isinstance(getattr(m, listname, None), (list, tuple)))
     rows = []
-    for name in [base] + [n for n in harness.registry_modules(listname) if n != base]:
+    for name in [base] + holders:
         mod = importlib.import_module(name)
         frozen = _freeze(getattr(mod, listname))
         if not frozen:
@@ -69,7 +93,8 @@ def collect(listname, base):
             # manifest cannot see it (it compares what WAS collected, and an
             # empty module contributes nothing to compare), so it is refused
             # here -- the manifest attestation's I1, a regression this restores.
-            raise RuntimeError("registry module %s holds an EMPTY %s list" % (name, listname))
+            raise ManifestError(manifest.printable(
+                "registry module %s holds an EMPTY %s list" % (name, listname)))
         setattr(mod, listname, frozen)
         rows += frozen
     return tuple(rows)

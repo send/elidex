@@ -6,8 +6,36 @@ round, every design re-gate, and the handoff each session resumes from. Carved o
 at PR #510 R47-3, which reported it — §6 had reached 1,790 lines by holding a stable ACCEPTANCE
 CONTRACT and an append-only HISTORY in one bullet, and the two have opposite lifetimes.
 
-▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21, head `799349db` PUSHED, tree clean, NO round in
-flight, and the converge loop is DELIBERATELY STOPPED).**
+▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-23).** Pushed head: `00dfd095`. On top of it, LOCAL and
+UNPUSHED on `vm-p4-plan-memo-checker` (worktree `elidex-wt-vmp4checker`), each commit a fresh-agent
+attestation's findings closed:
+
+| commit | what it closed |
+|---|---|
+| `79309486` | the 4th attestation: both ratchets keyed a loop / a caller by a RESEMBLANCE (header text, bare name); positional identity, qualified sanctions |
+| `b325c668` | the 5th: three spellings of the module population → one derivation from disk; the registries' collection step |
+| `3545f944` | the kind ratchet's dead guard; the registry step's refusal pinned |
+| `3edb6c91` | the 6th: both row registries collected in ONE sealed step, every mechanism with a partner and a killing row |
+| `43865000` / `cf18de7e` | the registry plan, drafts 1 and 2 (plan-review R1 → R2; WITHDRAWN, see below) |
+| `679b6634` | the threat model decided (accidental drift + proof gaps, not deliberate tampering); the in-model findings closed |
+| `1a231335` | the SHAPE DETECTORS replaced by the GOLDEN MANIFEST (`.claude/tools/plan_memo_selftest_manifest.txt`) |
+| `baa06e59` | the verified collection is the only one that can run; the case constructors write where the collector reads |
+| this commit | the CI attestation: the digest is SOURCE TEXT (the bytecode digest made the manifest 3.14-only and would have turned the always-run wire red), membership by the runtime attribute, one snapshot per process |
+
+**THE WORKFLOW RULE** (one home: `plan_memo_selftest_manifest.py`'s docstring): adding, removing or
+changing a mutation row, a control or a case — a control's body, docstring or comments included —
+requires `python3 .claude/tools/plan-memo-umbrella-check.py --write-manifest` and committing the
+manifest's diff. `--self-test` fails on ANY difference.
+
+**OPEN, not closed here**: (1) **254 of the 747 controls are named by no mutation row**, so
+`--mutants` does not prove they can go red — recorded in
+`docs/plans/2026-09-plan-memo-selftest-registry.md`; (2) the **A-iii wire move** (the self-test wire
+goes to the `tools` job, whose budget is undecided — the `--self-test --mutants` wall clock is an
+input to it); (3) the **cap PAUSE question** for #510's merge (§8's option (d) rationale stands, and
+the head has moved since the last Codex round, so a merge needs a fresh review of whatever head is
+pushed then).
+
+⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 
 ⚠ **THE REGISTRY PLAN IS WITHDRAWN (user, 2026-09-23)** — the self-test registry guards against
 accidental drift and proof gaps, not deliberate tampering; the by-construction redesign is replaced by

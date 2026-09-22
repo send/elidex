@@ -354,7 +354,7 @@ def leading_run_scan_control(M):
     pattern that begins with an unbounded repeat -- the shape whose cost is
     quadratic in a run its subject happens to hold.
 
-    WHY A SWEEP AND NOT A WITNESS (PR #510 R29-2).  `plan_memo_ids._TOKEN` was
+    WHY A SWEEP AND NOT A WITNESS (PR #510 R29-2).  `plan_memo_ids._DECOR_TOKENS` was
     `decorated_id`'s composition handed to `finditer`, and that composition
     begins with `DECOR`.  Over `!` followed by N backticks the engine consumed
     the run at every position inside it, failed to find an id after it and
@@ -450,7 +450,7 @@ def encoding_sweep_control(M):
 
     WHY IT IS A PROPERTY AND NOT TWO FIXES (PR #510 R26-4).  The checker
     advertises Python 3.9+ with only the standard library and reads production
-    memos as explicit UTF-8 (`plan_memo_memo.Memo.read`), while the SELF-TEST
+    memos as explicit UTF-8 (`plan_memo_memo.Memo.__init__`), while the SELF-TEST
     read its own module sources and wrote its fixtures with the locale default.
     On a host whose preferred encoding is not UTF-8 that raised
     `UnicodeDecodeError` inside `load()` before a single control ran --

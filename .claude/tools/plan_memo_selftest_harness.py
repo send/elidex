@@ -24,7 +24,7 @@ MECHANISM the controls share:
 
 EVERY TEXT I/O CALL HERE NAMES ITS ENCODING (PR #510 R26-4).  The checker
 advertises "Python 3.9+, standard library only" and reads production memos as
-explicit UTF-8 (`plan_memo_memo.Memo.read`); the self-test read its own module
+explicit UTF-8 (`plan_memo_memo.Memo.__init__`); the self-test read its own module
 sources and wrote its fixtures with the LOCALE default instead, so on a host
 whose preferred encoding is not UTF-8 the suite raised `UnicodeDecodeError` in
 `load()` -- before a single control ran -- because these sources hold non-ASCII
@@ -40,11 +40,11 @@ Import direction, one way: the runner (`plan_memo_umbrella_selftest.py`)
 imports the controls, the controls import this module, and this module
 imports nothing of either.
 
-WORKFLOW RULE (the golden manifest, `plan_memo_selftest_manifest`): adding,
-removing or changing a mutation row, a control or a case requires
-regenerating the manifest -- `python3 .claude/tools/plan-memo-umbrella-check.py
---write-manifest` -- and committing its diff; `--self-test` fails on ANY
-difference between the collection it executes and the committed manifest.
+WORKFLOW RULE (the golden manifest): adding, removing or changing a mutation row, a control or a case -- INCLUDING editing a
+control's body, its docstring or a comment inside it, and a row's find/replace, all of
+which are digested -- requires regenerating the golden manifest
+(`python3 .claude/tools/plan-memo-umbrella-check.py --write-manifest`) and committing its
+diff.  ONE HOME: `plan_memo_selftest_manifest`'s docstring; every other mention points there.
 """
 
 import importlib.util
@@ -98,16 +98,32 @@ def is_selftest(file):
     return "selftest" in file
 
 
+_ASSIGNS = {}
+
+
 def _assigns(here, file, name):
     """Does `file` bind `name` at module level?  The registry partition is
-    decided by CONTENT, not by file name."""
+    decided by CONTENT, not by file name.  Answered once per (file, size,
+    mtime, name): the collection asks it for every file on every collect."""
     import ast
-    tree = ast.parse((here / file).read_text(encoding="utf-8"), filename=file)
+    path = here / file
+    try:
+        stat = path.stat()
+        key = (str(path), stat.st_size, stat.st_mtime, name)
+    except OSError:
+        key = None
+    if key is not None and key in _ASSIGNS:
+        return _ASSIGNS[key]
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=file)
     for node in tree.body:
         targets = (node.targets if isinstance(node, ast.Assign)
                    else [node.target] if isinstance(node, ast.AnnAssign) else [])
         if any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            if key is not None:
+                _ASSIGNS[key] = True
             return True
+    if key is not None:
+        _ASSIGNS[key] = False
     return False
 
 

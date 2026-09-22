@@ -440,14 +440,43 @@ def _report_modules(sources):
     control landed, which is where a declared-by-enumeration population always
     puts the next finding
     (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`).
-    The population is now the PROPERTY: a module with a `print` call."""
+    ⚠ AND IT WAS `print` ALONE UNTIL THE CI ATTESTATION (IMP-3): the manifest
+    diff reaches the operator through a RAISED error, whose message carries
+    memo-derived control names -- three raw NULs reached stderr, past the
+    escape this control exists to enforce, because a `raise` was not a report
+    channel to it.  The property is "text that reaches a report channel", and
+    a raised message is one."""
     out = []
     for file, src in sources:
         for node in ast.walk(ast.parse(src)):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+            if _emit_argument(node) is not None:
                 out.append(file)
                 break
     return out
+
+
+def _emit_argument(node):
+    """The text a node puts on a REPORT CHANNEL: a `print(...)` argument, or
+    the message of a raised `ManifestError`.
+
+    ⚠ THE BOUNDARY, stated rather than assumed.  Every `print` is a report.  A
+    RAISE is a report when the design routes it to the operator as a VERDICT --
+    which is what `ManifestError` is: the manifest diff, carrying control names
+    taken from the memos, printed by the interpreter itself (the CI
+    attestation measured three raw NULs on stderr through exactly that path).
+    Every other `raise` in this tree is a crash whose text is developer-facing
+    and whose subject is the program, not a memo; those are not reports, and
+    the behavioural control below -- which runs a memo carrying a NUL and reads
+    the RUN's output -- is what holds that half."""
+    if isinstance(node, ast.Call) and node.args:
+        f = node.func
+        if isinstance(f, ast.Name) and f.id == "print":
+            return node.args[0]
+    if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) and node.exc.args:
+        name = getattr(node.exc.func, "id", None) or getattr(node.exc.func, "attr", None)
+        if name == "ManifestError":
+            return node.exc.args[0]
+    return None
 
 
 def report_channel_control(M):
@@ -536,7 +565,8 @@ def report_channel_control(M):
         if file not in report:
             continue
         for node in ast.walk(ast.parse(src)):
-            if not isinstance(node, ast.Call) or not node.args:
+            arg = _emit_argument(node)
+            if arg is None:
                 continue
             # ⚠ `print` ONLY, and that is the BOUNDARY rather than an
             # exemption (PR #510 R42-4).  Written over `.append` too, this
@@ -548,16 +578,14 @@ def report_channel_control(M):
             # is the one call that puts one there, so it is the one this reads.
             # The buffers are covered by the behavioural control below, which
             # asks the property directly instead of a proxy for it.
-            f = node.func
-            if not (isinstance(f, ast.Name) and f.id == "print"):
-                continue
+
             # ⚠ THE POPULATION IS EVERY `print`, both states.  Counting only
             # the non-compliant shape makes the denominator go to zero exactly
             # when the property holds, and the emptiness guard then reports a
             # clean suite as a broken control -- measured, on this control's
             # first run.
             sites += 1
-            if not compliant(node.args[0]):
+            if not compliant(arg):
                 bad.append("%s:%d" % (file, node.lineno))
     # ⚠ AND THE PREDICATE ITSELF HAS CONTROLS (PR #510 R42-8).  A `compliant`
     # that WIDENS calls an unescaped site clean, which the ratchet below cannot
@@ -571,6 +599,19 @@ def report_channel_control(M):
         '"\t".join(printable(f) for f in g)': True,
         '"x %s" % y': False, '("x %s" % y) if c else "z"': False, 'f"x{y}"': False,
     }
+    # ⚠ AND THE POPULATION HAS PROBES TOO: a `raise ManifestError` is a report
+    # channel and a `raise RuntimeError` is a crash, and `_emit_argument` must
+    # answer each -- otherwise widening it to raises could be reverted with no
+    # control noticing (the CI attestation's IMP-3).
+    channels = {'print(x % y)': True, 'raise ManifestError("a %s" % b)': True,
+                'raise RuntimeError("a %s" % b)': False, 'notes.append("a %s" % b)': False}
+    missed = [src for src, want in channels.items()
+              if (_emit_argument(ast.parse(src).body[0].value
+                                 if not src.startswith("raise") else ast.parse(src).body[0])
+                  is not None) is not want]
+    if missed:
+        return False, ("the report-channel population answers wrongly on %d of its own %d probes "
+                       "(%s)" % (len(missed), len(channels), "; ".join(missed[:3])))
     wrong = [src for src, want in probe.items()
              if compliant(ast.parse(src, mode="eval").body) is not want]
     if wrong:

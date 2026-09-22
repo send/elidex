@@ -89,8 +89,10 @@ def run(mutants=False):
     # THE ONE COLLECTION, compared against the committed golden manifest BEFORE
     # anything runs, and then executed as it was compared: the control table
     # and the mutation rows below are this snapshot's, never a second call.
-    # WORKFLOW RULE: adding, removing or changing a row, a control or a case
-    # requires `--write-manifest` and committing the manifest's diff.
+    # WORKFLOW RULE (one home: `plan_memo_selftest_manifest`'s docstring):
+    # adding, removing or changing a row, a control or a case -- a control's
+    # body, docstring or comments included -- requires `--write-manifest` and
+    # committing the manifest's diff.
     # `take()` verifies against the committed manifest and RAISES on any
     # difference: there is no other way to obtain the table, so a run that does
     # not compare cannot run at all.  `finish()` below reports any verified
@@ -110,13 +112,13 @@ def run(mutants=False):
         print(printable("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90])))
     unload()
 
-    counts, audit = manifest.finish(taken)
-    for line in audit:
-        print(printable(line))
-    fails += [printable(line) for line in audit]
+    # the counts printed are of what RAN: `finish` RAISES when that is not
+    # exactly the verified table, each control once
+    counts = manifest.finish(taken)
     print()
     print(printable("%d control(s): %s."
-                    % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts)))))
+                    % (sum(counts.values()),
+                       ", ".join("%d %s" % (counts[k], k) for k in sorted(counts)))))
     n_mutants = None
     if mutants:
         # the registry is gathered by `mutants()`, the ONE step that imports its
