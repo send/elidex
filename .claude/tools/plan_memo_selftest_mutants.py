@@ -40,7 +40,7 @@ seams.  All four append to this same `MUTANTS` -- one list, filled by four
 modules, read at one import site (the runner).
 """
 
-IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER, CONFORMANCE = (
+IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER, CONFORMANCE, RATCHETS = (
     "plan_memo_ids.py", "plan_memo_emphasis.py", "plan_memo_tokens.py", "plan_memo_html.py",
     "plan_memo_lexer.py", "plan_memo_links.py", "plan_memo_blocks.py", "plan_memo_stream.py",
     "plan_memo_tables.py", "plan_memo_sibling.py", "plan_memo_memo.py",
@@ -50,7 +50,7 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
     "plan_memo_selftest_invariants.py",
     "plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py",
     "plan_memo_selftest_growth.py", "plan_memo_umbrella_selftest.py",
-    "plan_memo_selftest_conformance.py")
+    "plan_memo_selftest_conformance.py", "plan_memo_selftest_ratchets.py")
 
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
@@ -72,8 +72,13 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
 # the proof in both directions.  It was one: the `.html` demoted filter was
 # added there without sweeping `.code` and `.autolinks` in the same function,
 # and the corpus cannot reach the difference.
+# ⚠ `RATCHETS` is the same shape a third time (the fourth attestation over
+# `9b2e1fa9..00dfd095`): carved at R49, it held the two controls that decide
+# whether a CLASS is ratcheted, and no row could name it -- so reverting either
+# ratchet to the criterion it had replaced left the proof green.  It arrives
+# with its rows (`plan_memo_selftest_mutants_ratchets.py`).
 SELFTEST = frozenset((CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER,
-                      CONFORMANCE))
+                      CONFORMANCE, RATCHETS))
 
 # The GENERATED growth property (PR #510 R27): the corpus is derived from the
 # grammar rather than written by hand, so it is the control a cost mutant names
@@ -275,7 +280,12 @@ MUTANTS = [
       "reported ONCE (`[text][label]` re-scans `[label]`)"]),
     # -- I-F one population, one pipeline
     ("population: every memo's rows are declared (census)", POPULATION,
-     '        for memo in self.memos:\n            self._declare(memo)', '        self._declare(self.main)',
+     # ⚠ spelled as a TRUNCATION, not as `self._declare(self.main)` (same
+     # semantics: `main` is `memos[0]`), because a row that REMOVES the loop is
+     # not a truncation to `population_scope_control`, and this loop was
+     # reported pinned only through a header alias until the fourth attestation
+     '        for memo in self.memos:\n            self._declare(memo)',
+     '        for memo in self.memos[:1]:\n            self._declare(memo)',
      ["(population) an umbrella declared in a linked memo is in the census"]),
     ("population: every memo's ids are in the keep-set", POPULATION,
      '        return set(self.ids)',

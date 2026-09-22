@@ -54,8 +54,9 @@ cannot:
   fourteen of those; a re-gate tested all fourteen and this one, the only one
   that commit authored, was the only false one.
 
-  MUTANTS follow the cases modules' review-round seams and append to one
-  `MUTANTS` list, read at one import site (the runner).
+  MUTANTS follow the cases modules' seams -- a review round, or (for the rows
+  against the ratchets) a subject -- and append to one `MUTANTS` list, read at
+  one import site (the runner).
 
 Run:  python3 .claude/tools/plan-memo-umbrella-check.py --self-test [--mutants]
 """
@@ -105,6 +106,7 @@ def run(mutants=False):
         import plan_memo_selftest_mutants_inline  # noqa: F401 -- appends R17-R25's mutants to MUTANTS
         import plan_memo_selftest_mutants_r26  # noqa: F401 -- appends R26-R29's mutants to MUTANTS
         import plan_memo_selftest_mutants_r30  # noqa: F401 -- appends R30-on's mutants to MUTANTS
+        import plan_memo_selftest_mutants_ratchets  # noqa: F401 -- appends the ratchets' mutants
         fails += mm.run(reg)
         n_mutants = len(mm.MUTANTS)
     fails += empty_registry_fails(len(reg), n_mutants)

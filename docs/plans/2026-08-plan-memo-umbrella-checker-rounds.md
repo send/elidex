@@ -9,6 +9,18 @@ CONTRACT and an append-only HISTORY in one bullet, and the two have opposite lif
 ▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21, head `799349db` PUSHED, tree clean, NO round in
 flight, and the converge loop is DELIBERATELY STOPPED).**
 
+⚠ **THE STATE IN THIS BLOCK'S HEADER, ITS GATE LINE AND ITS MERGE PARAGRAPH IS STALE (2026-09-22) —
+read this first; the block is kept as written.** Since it was written: `4e46d95f` and `00dfd095` were
+pushed, and `00dfd095` is the pushed head; Codex answered `00dfd095` with a 👍 (dry,
+2026-09-22T01:36Z); a fresh-agent attestation over `9b2e1fa9..00dfd095` then found **6 IMP + 5 MIN
+behind that dry verdict** — the fourth time a dry round hid real defects — fixed in the LOCAL,
+UNPUSHED commit that adds this note; and the carves' plan-review produced its sub-umbrella memo on
+the stacked local branch `vm-p4-gate-population-plan` (worktree `elidex-wt-gatepop`, not pushed).
+So "head `799349db` PUSHED" and "a fresh review of `799349db`" below no longer name the head: a merge
+needs a fresh review of whatever head is pushed when merge is raised. Gate at the fix commit: see its
+message (the ratchets now read 22 census loops = 16 pinned + 6 exempt, and 7 kind-question call
+sites over the 14 modules of the checker set).
+
 **THE DECISION (user, 2026-09-21): option (B) — stop the review loop, take §8's carves to
 `/elidex-plan-review`.** Do NOT `/external-converge 510`. Do NOT re-trigger Codex. The loop was not
 failing; it was producing findings of a kind a loop cannot settle.
@@ -19,6 +31,15 @@ findings were real and were fixed or carved. But the RESIDUE converged: **five �
 POPULATION.** Each of those four was reproduced, had a fix written and measured, and the fix was
 REVERTED because it overturns a control this plan ratified. That is plan-review work by CLAUDE.md's
 edge-dense rule, not another round.
+⚠ **"REVERTED because it overturns a control this plan ratified" is true of ONE of the four**
+(2026-09-22, the fourth attestation). (14)'s count fix was reverted because it turns the R23
+NEGATIVE control red, and that control is right. (5)'s fix was reverted because it **broke a shipped
+invariant** (`id_scan_grammar_agreement_control`; the defect is in the grammar). (12) had no fix
+reverted — it was never fixed here — and `00dfd095` corrected its "overturns R42's twin" reason in
+§8: a keep-free kind reading fixes it without the overturn. (15)'s arm was reverted for two
+independent reasons, and `00dfd095` corrected (ii)'s particulars (one of the four measures `rc`;
+"FOUR" is a floor). The conclusion does not move: all four are plan-review work by the edge-dense
+rule, and that — not the overturn — is the reason.
 
 **⚠ AND A SECOND REASON, which is the one worth carrying forward**: across this session a Codex DRY
 verdict hid real defects **three times**. The three-agent enumeration attestation found 6 behind the
@@ -42,6 +63,10 @@ attribution; (15) the declaration site that produces no table. Each entry alread
 reproduction, the fix that was written, and the measured reason it was reverted — the review should
 start from those measurements rather than re-deriving them. (6) Slice 3 (Phase 1 offsets) is the
 fifth and is a different subject.
+⚠ **(6) IS NOT THE FIFTH** (2026-09-22, the fourth attestation): its owner is its own PR under the
+edge-dense rule, not Slice 2's plan-review. The fifth entry that names Slice 2's plan-review as owner
+is **(11)**, the unbound table that makes no kind claim; (6) is a different subject AND a different
+owner.
 
 **▶ MERGE IS NOT PROPOSED AND IS THE USER'S CALL.** The head has moved since the last dry round, so
 if merge is ever raised it needs a fresh review of `799349db` first; the merge-head guard hook

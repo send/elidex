@@ -104,6 +104,8 @@ MODULES
                           _selftest_mutants_inline.py /
                           _selftest_mutants_r26.py /
                           _selftest_mutants_r30.py /
+                          _selftest_mutants_ratchets.py (the rows against the
+                          ratchets, carved on a SUBJECT like the sibling cases) /
                           _selftest_conformance.py (the
                           CommonMark 0.31.2 spec examples, vendored in
                           commonmark-0.31.2-block-examples.json, through Phase 1)

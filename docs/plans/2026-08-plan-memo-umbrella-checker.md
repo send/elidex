@@ -873,6 +873,14 @@ table with no detector. **Fourteen own and two pre-existing** — (9) and (10) a
 pre-existing ones, each with its grounding stated where the policy asks for it. Count the list
 rather than trusting this sentence: `awk` the `^- \*\*` lines of this section and you must get
 sixteen.
+⚠ **THE PROSE BELOW CITED THREE ENTRIES BY A NUMBERING THE LIST NO LONGER HAS, AND IS RE-INDEXED**
+(2026-09-22, the fourth attestation over `9b2e1fa9..00dfd095`). WHY (a) / (b) / (c) were written at
+`f87dd8f2`, when the list ended (10) unbound table, (11) hand-written table; inserting (10) `self_id`
+at `90ed781a` — and (12)–(15) after it — renumbered the list and not the prose, so WHY (b) called the
+unbound table's narrowing "(10)" and WHY (a) / (c) gave the hand-written table's negative-control
+requirement to "(11)". Every `(N)` in this section was enumerated against the `^- \*\*` list; those
+four were the mismatches, and they now read (11) / (16). A citation by POSITION goes stale under any
+insertion above it, which is why the enumeration names each entry beside its number.
 ⚠ **(12) AND (13) ARRIVED AT R47 AND BOTH MOVE THE OWN COUNT**, from ten to twelve. Neither is a
 deferral of convenience: (12)'s one-line fix overturns a control this plan RATIFIED — the direction
 cmark supports is the one the ratified control rejects — and (13) changes what the conformance proof
@@ -906,24 +914,24 @@ split folded because the work was done; the GFM splitter re-classified own on a 
 できるが念のため defer 化" — is the case for folding, and this PR has already taken it **twice by
 measurement**: the §6.4 carve folded at R42-5 once the fix measured ≈45 lines across two modules with
 one reader each, and the §6.6 reading folded this session at ~20 lines once a reference implementation
-settled it. What is left does not fit that shape. (5), (6) and (11) are each explicitly
+settled it. What is left does not fit that shape. (5), (6) and (16) are each explicitly
 `/elidex-plan-review`-before-implementation **by CLAUDE.md's edge-dense rule, not by judgment** — (5)
 intersects the id grammar, the grammar↔scan agreement property, the `_glued` boundary rule, the
 decoration-run cost contract and both mention passes; (6) intersects the block grammar, both container
-passes, the raw-extent seed and the Phase-1 cost contract; (11) needs a negative control that is RED
+passes, the raw-extent seed and the Phase-1 cost contract; (16) needs a negative control that is RED
 before the mechanism exists. Folding any of them here is precisely the *single PR + skipped
 plan-review* that `memory/feedback_edge-dense-mandatory-plan-review-and-split.md` exists to prevent.
 (1), (2) and (3) are in the ratified plan from BEFORE implementation and were reviewed as design.
 
 **WHY (b) NARROW SCOPE IS NOT AVAILABLE — AND WHERE IT WAS TAKEN.** Narrowing removes a deferral only
-when the narrowed remainder is empty. It was taken where it could be: (10) is a narrowing, its
+when the narrowed remainder is empty. It was taken where it could be: (11) is a narrowing, its
 census-claim half shipped with four controls and five mutants and only the no-claim residual carried.
 Narrowing the rest does not reduce the list — (4) is the wire's own budget with a measured trigger,
 (7) is blocked on §3's `(NEW)` / `✗ (absent)` conventions, (8) is trigger-only on a condition
 (`two of them on main`) that is measurably not met.
 
 **WHY (c) SPLIT THE PR IS NOT AVAILABLE.** (c) is already the shape of three entries — (5), (6) and
-(11) are re-sliced to a named owner with an EVENT trigger and a re-eval date, which is what
+(16) are re-sliced to a named owner with an EVENT trigger and a re-eval date, which is what
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for. Splitting what remains
 would mean cutting the checker itself, and the pieces do not separate: every entry names the SAME
 program, and the split this PR could take at a real seam it has taken **six times** already as
@@ -931,9 +939,15 @@ standalone touch-time commits (§7 Slice 0). A further split would be a split of
 not of the work — which changes no reader's decision and loses the one home that ties the entries to
 the design they came from.
 
-⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **Ten of the fourteen own
-entries** were produced by the REVIEW LOOP rather than by the plan — (4)–(8) and (11)–(15) — and
-that is the honest reading of why the cap is breached:
+⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **The own entries whose
+own text names a review round, a design re-gate or a review axis as their origin** — (4)–(7) and
+(11)–(16), ten of the fourteen — were produced by the REVIEW LOOP rather than by the plan, and that is
+the honest reading of why the cap is breached:
+⚠ **THE SET THAT STOOD HERE, "(4)–(8) and (11)–(15)", FOLLOWED NO STATED RULE** (2026-09-22, the fourth
+attestation). It counted (8), whose text names no round — it is own because a MEASUREMENT reclassified
+it — and left out (16), which names Axis 5; the total happened to be ten either way, and the set was
+not re-derivable from anything. The rule is now the sentence's first clause, so a reader re-derives
+the set from each entry's parenthesis rather than trusting it.
 ⚠ **THIS SENTENCE WAS STALE IN THREE WAYS AT ONCE AND IS CORRECTED HERE** (PR #510 R51 audit). It
 read *"Six of the ten own entries … (4, 5, 6, 7, 10 and the row splitter)"*: the headline had moved
 to fourteen own two commits earlier; it listed **(10)**, which the enumeration above classifies
@@ -1203,8 +1217,11 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   control rejects.
   ⚠ **That is a reason about THIS fix, not about every fix** (2026-09-22, the carves' plan-review): the
   root is that the KIND is read off a stream whose decoration exception depends on the keep-set —
-  outside any image, `UMBRELLA, not **a** terminal unit` exits 0 when `a` is declared and 1 when it is
-  not — and a keep-free kind reading fixes it without touching R42 (prototype). Not folded here all
+  outside any image, a declaring field reading `UMBRELLA, not **a** terminal unit` makes the row
+  TERMINAL when `a` is in the keep-set and UMBRELLA when it is not; the rc shows the flip only when the
+  row carries a `Deps` edge (0 declared / 1 undeclared), and without one both exit 0 (⚠ restated: the
+  first wording put the difference in the rc, which holds only with the edge) — and a keep-free kind
+  reading fixes it without touching R42 (prototype). Not folded here all
   the same: edge-dense, as the next line says.
   ⚠ **Edge-dense by CLAUDE.md's own test**: it intersects the id-grammar decoration exception, §6.4's
   demotion, `MARKER_RE`, the residue gate (`kind_disagreements` cannot see it — both readings agree,

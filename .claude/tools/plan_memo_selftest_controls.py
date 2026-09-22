@@ -641,7 +641,7 @@ def registry():
     several modules" the cases and the mutants already use."""
     reg = dict(work_registry())
     reg.update(property_registry())
-    from plan_memo_selftest_ratchets import ratchet_registry
+    from plan_memo_selftest_ratchets import registry as ratchet_registry
     reg.update(ratchet_registry())
     for c in CASES:
         assert c.name not in reg, "duplicate control name %r" % c.name
