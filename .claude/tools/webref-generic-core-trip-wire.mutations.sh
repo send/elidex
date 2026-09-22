@@ -29,21 +29,30 @@
 # and `$SELF`, `$SCRATCH` and `$_CONTROLS` (from the wire). `_mut_run` copies
 # the controls, the harness and this file beside each mutant.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_mutants`,
-# `_mut_equivalent`, `_mut_correspondence`, `_mut_run`.
+# `_mut_equivalent`, `_mut_correspondence`, `_mut_assign_value`,
+# `_mut_regex_mutants`, `_mut_splice`, `_mut_trial`, `_mut_gen_run`,
+# `_mut_run`.
 #
-# TWO POPULATIONS, AND THE BOUNDARY BETWEEN THEM IS STATED AT BOTH ENDS.
-#   * `_mutants` — HAND-WRITTEN, one record per ARM, STATUS or WALK BEHAVIOUR,
-#     and each record names the control that must catch it. Its claim is
-#     *THAT* control is about *THAT* arm.
-#   * `_mut_gen_run` — GENERATED from `$K2RE` and `$K2RE_PATH` themselves, one
-#     mutant per character-class member and per quantifier. Its claim is
-#     weaker and its population is not a list anybody keeps: *every rule those
-#     two regexes spell is pinned by SOME control, or is argued equivalent.*
-# A new edit of a bracket expression or a quantifier in either regex belongs to
-# the generator and must not be hand-written here — the generator already makes
-# it, and a second copy is the duplicated decision surface this instrument
-# keeps retiring. Records for those rules that PRE-DATE the generator stay,
-# because they carry the control attribution the generator cannot.
+# TWO POPULATIONS, AND THE BOUNDARY IS WHAT EACH ONE'S UNIT IS.
+#   * `_mutants` — HAND-WRITTEN, and its unit is a CONTROL. Every control has
+#     to be named by some record (`_MUT_UNRECORDED_MAX` below is what enforces
+#     that), and the record says which edit that control is about. Its claim:
+#     *THAT* control is about *THAT* edit. It is a floor and cannot be a
+#     census — a record exists only for something somebody thought of.
+#   * `_mut_gen_run` — GENERATED from `$K2RE` and `$K2RE_PATH` themselves, and
+#     its unit is a RULE of those two regexes: one mutant per
+#     bracket-expression member, one per quantifier. Its claim: *every* such
+#     rule is caught by SOME control, or is argued equivalent. It cannot say
+#     which control.
+# NEITHER IS DERIVABLE FROM THE OTHER, so where they overlap that is not two
+# copies of one claim: a regex rule whose fixture needs a NEW CONTROL gets a
+# record as well, because the control has to be named by one.
+# ⚠ WHAT DOES NOT BELONG HERE is a record for a regex rule that needed no new
+# control — that is the generator's population, and hand-listing it would be
+# the second spelling of a class this file keeps collapsing. The lines added to
+# `textgreen` and `pathgreen` for the intermediate-segment and stored-path
+# widenings are exactly that case: a fixture, no record, the generator the only
+# thing asserting them.
 # ⚠ AND IT ASSIGNS NO VARIABLE THE CALLER OWNS. `_mut_correspondence` used to set
 # `ctl_ok` — a variable owned by the controls file — so a rename there would
 # have left this file assigning an unused global while the caller's status
@@ -91,12 +100,12 @@ fi
 #
 #     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
 #
-# ⚠ ADDING AN ARM MEANS ADDING A RECORD — AN ARM, A STATUS OR A WALK
-# BEHAVIOUR. A rule spelled INSIDE `$K2RE` or `$K2RE_PATH` (a member of a
-# bracket expression, a quantifier) does not belong here: `_mut_gen_run` below
-# derives those from the assignments themselves, so a hand-written copy would
-# be a second spelling of the same class. The boundary is restated at that
-# function.
+# ⚠ ADDING A CONTROL MEANS ADDING A RECORD, whatever the control is about —
+# the ratchet below is what makes that true. What does NOT belong here is a
+# record for a rule of `$K2RE` or `$K2RE_PATH` that needed no new control:
+# `_mut_gen_run` derives that population from the assignments themselves, so a
+# hand-written copy would be a second spelling of the same class. The boundary
+# is stated in full at the head of this file and again at that function.
 # ⚠ Nothing here can detect an arm that
 # never had one — this set is a floor, not a census. ⚠ AND A DECLARED FLOOR IS
 # NOT A DETECTOR: this file used to say exactly the sentence above and assert
@@ -393,11 +402,9 @@ _mut_splice() {
   _MUT_GEN_LINE="$1='$_sp_v'" _MUT_GEN_VAR="$1" awk '
     BEGIN { v = ENVIRON["_MUT_GEN_VAR"] "="; l = ENVIRON["_MUT_GEN_LINE"] }
     index($0, v) == 1 { print l; next }
-    { print }' "$SELF" > "$_mut_wire"
+    { print }' "$SELF" > "$_mut_wire" || return 1
 }
 
-# The opt-in half: actually apply each record. Costs one full control pass
-# per entry, so it is gated — but its BOOKKEEPING above is not.
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
 # `$_mut_wire`. $1 = how to name it in a diagnostic, $2 = what is required:
 # a NEEDLE the output must contain, `!survive`, or `!kill` (red, raised by a
@@ -481,7 +488,11 @@ _mut_gen_run() {
     [ -n "${_gr_re:-}" ] || continue
     _mut_gen_n=$((_mut_gen_n + 1))
     printf '%s\n' "$_gr_name" >> "$CTL/.genseen"
-    _mut_splice "${_gr_name%% *}" "$_gr_re"
+    if ! _mut_splice "${_gr_name%% *}" "$_gr_re"; then
+      echo "!! MUTANT $_gr_name: the mutated assignment could not be written, so" >&2
+      echo "   this rule was not tested. Unknown fails closed here as everywhere." >&2
+      _mut_gen_bad=$((_mut_gen_bad + 1)); continue
+    fi
     _gr_rc=0; _mut_trial "$_gr_name" '!kill' || _gr_rc=$?
     [ "$_gr_rc" -ne 2 ] || { _mut_gen_bad=$((_mut_gen_bad + 1)); continue; }
     [ "$_gr_rc" -eq 1 ] || continue

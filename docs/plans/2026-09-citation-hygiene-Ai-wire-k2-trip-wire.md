@@ -1225,7 +1225,8 @@ when they fail silently and accepted under the wire's own rule when they fail lo
 deferred. ⚠ **Two rows are not the wire's to reach at all**, and an earlier wording of this
 sentence said every row was: the startup row (`BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*`, read
 before this file's first line runs) and the residual half of `PATH`, which the controls bound
-in practice and which closes only where bash is started. Both are carved, below. What **is** carved is pre-existing on `main` and not this PR's to fix: the sibling wires'
+in practice and which closes only where bash is started — and both are in the carve the next
+sentence names. What **is** carved is pre-existing on `main` and not this PR's to fix: the sibling wires'
 ambient `grep`, the driver's environment-entered `TRIP_WIRES_SELFTEST` (D9, from #496), and the
 startup declaration, `PATH` included — one slot, `#11-trip-wire-launch-environment`, registered in the defer ledger
 with an owner route, trigger and date. It does not count against this PR's own-deferral cap.

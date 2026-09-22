@@ -1136,7 +1136,8 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
 # next arm and nothing re-derives it.
 # The rule is this file's most-cited invariant ("1 is no match, 2 or more is a
 # failure, and a failure may not be answered as an absence"), and an invariant
-# with three edit sites is three chances to fix two of them. The `-ac` variant
+# written out once per arm is one chance per arm to fix all but one of them.
+# ⚠ That sentence carried the same stale THREE as the one above it. The `-ac` variant
 # was also invisible without diffing the copies.
 # $1 = what failed (for the diagnostic), $2 = extra grep flags, $3 = pattern.
 _classify() {

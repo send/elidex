@@ -336,7 +336,8 @@ printf 'X = %s\n' '.claude/tools/a/b' > "$CTL/finalone/control.py"
 #      segment's minimum length; the OTHER reading of the same group —
 #      `<seg>/`, taken when the final one cannot start here — has a minimum
 #      length of its own, and raising it to two survived the whole control set
-#      because every red fixture's intermediate segment was longer. The `]`
+#      — measured; the reds that reach this arm at all (`d3m1`…`d3m4`) name a
+#      longer segment there. The `]`
 #      matters: it is what stops the final-segment reading, so this line can
 #      only match through the `<seg>/` arm. Alone in its own fixture, for the
 #      reason (j) gives.
@@ -355,8 +356,10 @@ printf 'X = %s\n' '.claude/tools/xx/]/y' > "$CTL/interone/control.py"
   done; } > "$CTL/midclass/ok.md"
 #  (n) A ONE-CHARACTER FIRST SEGMENT IN A STORED PATH. `$K2RE_PATH`'s first
 #      `[^/]+` has a minimum length of one, and raising it to two survived the
-#      whole control set: every stored-path fixture here names a longer first
-#      segment. A required gate then reads `.claude/skills/a/rule.md` — an
+#      whole control set — measured. ⚠ A fixture here DOES name a
+#      one-character first segment (`linkslash`, target `.claude/skills/a/`),
+#      and it cannot see this: it is green for a different reason, its final
+#      segment being empty. A required gate then reads `.claude/skills/a/rule.md` — an
 #      entry whose own NAME is the forbidden hierarchy — as K2 zero, and says
 #      so in the line it prints. Alone in its own fixture, for the reason (j)
 #      gives; `ok.py` is clean and keeps the run off the zero-read guard.
