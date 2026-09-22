@@ -182,6 +182,16 @@ MUTANTS += [
      "        if not isinstance(rows, list):",
      "        if False:",
      [MANIFEST_CTL]),
+    ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
+     "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
+     "    return _ESCAPE[0](text) if _ESCAPE else text",
+     "    return text",
+     [MANIFEST_CTL]),
+    ("manifest: `take` hands back the VERIFIED rows (hand back fewer -- the mutation proof then "
+     "runs a smaller registry and says nothing)", MANIFEST_MOD,
+     "    taken = Taken(entries, snap.rows)",
+     "    taken = Taken(entries, snap.rows[:-1])",
+     [MANIFEST_CTL]),
     ("manifest: a difference is reported (skip the comparison)", MANIFEST_MOD,
      "    if removed or added or changed:",
      "    if False:",

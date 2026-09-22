@@ -55,7 +55,6 @@ can name it -- a row's target must be a module the harness loads or patches.
 """
 
 import collections
-import functools
 import hashlib
 import importlib
 import pathlib
@@ -78,15 +77,12 @@ A `Taken` built by anything else is not in here, so `finish()` refuses it: the
 accounting is not reachable, let alone writable, from outside."""
 
 
-class Taken(object):
-    """The verified collection: the entries to run and the rows to mutate.
-    No `seen` to forge -- the accounting lives in `_TAKEN`, keyed on identity."""
-
-    __slots__ = ("entries", "rows")
-
-    def __init__(self, entries, rows):
-        self.entries = entries
-        self.rows = rows
+Taken = collections.namedtuple("Taken", "entries rows")
+"""The verified collection: the entries to run and the rows to mutate.
+IMMUTABLE -- a `__slots__` class stood here for one commit and a runner could
+then FILTER what it had taken (`taken.entries = ...`) and run a smaller table
+at rc 0.  The accounting lives in `_TAKEN`, keyed on identity, so there is no
+`seen` to forge either."""
 
 
 class ManifestError(RuntimeError):
@@ -305,7 +301,7 @@ def take():
     seen = {}
     entries = tuple((name, kind, _wrap(name, fn, seen)) for name, (kind, fn) in snap.table.items())
     taken = Taken(entries, snap.rows)
-    _TAKEN[id(taken)] = (taken, seen)
+    _TAKEN[id(taken)] = (taken, seen, snap.rows)
     return taken
 
 
@@ -319,6 +315,10 @@ def finish(taken):
             "manifest: this collection was not taken from the manifest -- `take()` is the only "
             "door, and `%s` says what to do when it refuses one" % REGENERATE))
     seen = held[1]
+    if taken.rows is not held[2]:
+        raise ManifestError(printable(
+            "manifest: the rows handed to the mutation proof are not the verified ones -- %d of "
+            "%d rows would run" % (len(taken.rows), len(held[2]))))
     verified = [(name, kind) for name, kind, _fn in taken.entries]
     wrong = audit(verified, seen)
     if wrong:
@@ -347,14 +347,25 @@ def counts(verified, seen):
     return out
 
 
+_ESCAPE = []
+
+
 def printable(text):
-    """The report boundary's escape, taken from the LOADED checker so this
-    module does not spell a second one: a manifest diff carries memo-derived
-    control names, and a raw C0 in them reached stderr through the raised
-    error until the CI attestation (IMP-3)."""
+    """The report boundary's escape, taken from the checker -- this module does
+    not spell a second one -- and REMEMBERED, so it does not depend on load
+    state.
+
+    ⚠ IT WAS "the loaded checker, or the identity" for one commit, and the
+    runner `unload()`s before it reports: a control name carrying a BEL then
+    reached stderr RAW through the raised error, which is the class the escape
+    exists to close.  The escape is captured the first time the checker is
+    loaded (every path that reports loads it first) and used from then on."""
     import sys as _sys
     checker = _sys.modules.get("plan_memo_umbrella_check")
-    return checker.printable(text) if checker is not None else text
+    if checker is not None:
+        del _ESCAPE[:]
+        _ESCAPE.append(checker.printable)
+    return _ESCAPE[0](text) if _ESCAPE else text
 
 
 def verify(snap, want=None):

@@ -27,13 +27,41 @@ changing a mutation row, a control or a case — a control's body, docstring or 
 requires `python3 .claude/tools/plan-memo-umbrella-check.py --write-manifest` and committing the
 manifest's diff. `--self-test` fails on ANY difference.
 
-**OPEN, not closed here**: (1) **254 of the 747 controls are named by no mutation row**, so
-`--mutants` does not prove they can go red — recorded in
-`docs/plans/2026-09-plan-memo-selftest-registry.md`; (2) the **A-iii wire move** (the self-test wire
-goes to the `tools` job, whose budget is undecided — the `--self-test --mutants` wall clock is an
-input to it); (3) the **cap PAUSE question** for #510's merge (§8's option (d) rationale stands, and
-the head has moved since the last Codex round, so a merge needs a fresh review of whatever head is
-pushed then).
+**THE FIX LOOP IS STOPPED** after four attestation passes, each of which closed the reported
+findings **and introduced a CRIT of its own** (`1a231335` → `baa06e59` → `10d02095` → this one: a
+bytecode digest that made the manifest interpreter-specific, an escape that fell back to the
+identity after `unload()`, a handle that became mutable). The close-out commit fixes exactly the two
+CRITs and two one-line items; everything below is KNOWN and UNFIXED, recorded as open defects with
+their measurement — not as mechanisms to build next.
+
+**OPEN — the self-test's own machinery**
+- **254 of the 747 controls are named by no mutation row**, so `--mutants` does not prove they can go
+  red (the figure is hand-written in 4 homes and will drift). Recorded also in
+  `docs/plans/2026-09-plan-memo-selftest-registry.md`.
+- **The runtime-membership claim is worded too widely**: `collect` takes every ALREADY-IMPORTED
+  self-test module holding the list. A population file nobody imports is caught by
+  `registry_membership_control` (reachability), not by the collection — the docstrings say
+  "what the modules hold at runtime" without that qualifier.
+- **`harness._assigns`'s `(path, size, mtime)` cache has no killing row**, and returns stale text for
+  a same-size, same-mtime rewrite (a 1-second-granularity filesystem makes that reachable).
+- **The source digest's blind spots**: a decorator-wrapped body digests as the decorator's block; two
+  lambdas on one line share one fn-id; `functools.partial` and builtin callables have no `__code__`
+  and raise `AttributeError` rather than `ManifestError`; module-level DATA a control reads is
+  outside the digest (stated in the manifest docstring, not detected).
+- **`harness.SOURCES` is keyed by basename and `unload()` leaves a patched module's text behind**, so
+  a digest taken after a mutation row can read the patched text of an unrelated run.
+- **Two partner arms are weaker than they read**: the door arm tests `"want" not in co_varnames` (a
+  NAME, not the behaviour), and the plants in `manifest_control` are cleaned up outside a `finally`,
+  so an arm that raises leaves a planted module in `sys.modules`.
+- **Module docstrings drift** against the mechanisms they describe (measured repeatedly; the dotted
+  `module.symbol` references are checked, the prose is not).
+
+**OPEN — the lane**
+- The **A-iii wire move**: the self-test wire goes to the `tools` job, whose budget is undecided; the
+  `--self-test --mutants` wall clock is an input (min-of-3, load ~3: `00dfd095` 26.8 s, `3edb6c91`
+  31.7 s, head 32.6 s).
+- The **cap PAUSE question** for #510's merge: §8's option (d) rationale stands, the head has moved
+  since the last Codex round, so a merge needs a fresh review of whatever head is pushed then.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 

@@ -153,9 +153,18 @@ def manifest_control(M):
     arms["(a) each kind of difference ALONE fails the check"] = all(
         mf.verify(snap, want) for want in (got + [extra], got[1:], [got[0] + "-changed"] + got[1:]))
     taken = mf.take()
-    arms["(b) `take` returns the verified table (and has no `want` to hand it)"] = (
-        len(taken.entries) == len(snap.table)
+    arms["(b) `take` returns the verified table and the verified ROWS"] = (
+        len(taken.entries) == len(snap.table) and taken.rows is snap.rows
         and "want" not in mf.take.__code__.co_varnames)
+    arms["(b) the handle cannot be re-pointed at a smaller table"] = _raises(
+        lambda: setattr(taken, "entries", taken.entries[1:]))
+    saved = sys.modules.pop("plan_memo_umbrella_check", None)
+    try:
+        arms["(b) the escape does not depend on the checker being loaded"] = (
+            mf.printable("\x07") != "\x07")
+    finally:
+        if saved is not None:
+            sys.modules["plan_memo_umbrella_check"] = saved
     arms["(b) `finish` refuses a table nothing has run"] = _raises(lambda: mf.finish(taken))
     forged = mf.Taken(taken.entries, taken.rows)
     arms["(b) `finish` refuses a table this module did not make"] = _manifest_raises(
@@ -252,16 +261,17 @@ def manifest_control(M):
         unreadable.write_text("x\n", encoding="utf-8")
         unreadable.chmod(0)
         faults["unreadable"] = unreadable
+        # ⚠ `chmod(0)` does not stop root, so the unreadable shape is asked
+        # only when the file really is unreadable -- and that is measured HERE,
+        # while the mode is still 0, not after restoring it (measured after,
+        # it was always readable and the shape was silently never asked)
+        really_unreadable = not _readable(unreadable)
         shapes = {k: _manifest_error(mf, v) for k, v in faults.items()}
         unreadable.chmod(0o600)
-        # ⚠ `chmod(0)` does not stop root, so the unreadable arm is asked only
-        # when it really is unreadable -- otherwise it is a false red for a
-        # root runner, not a finding (M6)
-        if _readable(unreadable):
+        if not really_unreadable:
             shapes.pop("unreadable")
-            arms["(f) the unreadable shape was ASKED"] = None
-        arms["(f) every fault shape names the regenerate command"] = all(shapes.values())
-        arms.pop("(f) the unreadable shape was ASKED", None)
+        arms["(f) every fault shape (%d of them) names the regenerate command"
+             % len(shapes)] = all(shapes.values())
     # (d) on a FRESHLY planted base module: the real modules were frozen by the
     # first collection of this run, so only a module collected now can show
     # whether the collection step freezes
