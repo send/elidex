@@ -22,10 +22,13 @@ R1-R16 and the design re-gates -- the lexical substrate and the block grammar)
 and `plan_memo_selftest_cases_inline.py` (R17 on -- the Phase-2 inline
 construct family), and later modules at later seams.  THE RULE, not a count
 (a count here said "three modules" while there were five): every cases module
-holds its OWN `CASES` and binds its own spellings (`spellings(CASES)`);
+holds its OWN `CASES` and binds its own spellings (`spellings()`, which appends
+to the CALLING module's list at call time);
 `cases()` -- the one collection step, `plan_memo_selftest_registry.collect` --
 is the only reader, and every case is a line of the golden manifest.
 """
+
+import sys
 
 from collections import namedtuple
 
@@ -89,14 +92,31 @@ def build(**kw):
     f.update(kw)
     return HEADER.format(**f)
 
-def spellings(into):
-    """`case` / `acase` / `rcase` bound to ONE module's own list `into`.  Every
-    cases module holds its own `CASES` and binds its own spellings.  (Which
-    cases exist is not checked here: every case is a line of the golden
-    manifest, `plan_memo_selftest_manifest`, and a case bound to a list nobody
-    collects is a removed line there.)"""
+def spellings():
+    """`case` / `acase` / `rcase` for the CALLING module, appending to THAT
+    module's `CASES` list -- looked up at call time, never captured.
+
+    ⚠ THE CAPTURE WAS THE DEFECT (the manifest attestation's CRIT-2).  With
+    `spellings(CASES)` the closure held the list object, so a module that
+    re-bound its `CASES` (a mid-file `CASES = list(CASES)`), or passed a
+    throwaway (`spellings([])`), or reached for the BASE module's `case`, wrote
+    its cases into an object the collection step never reads: the cases
+    vanished and no manifest line was generated for them, which is the one
+    thing the manifest cannot see (it compares what WAS collected).  Resolving
+    the sink at call time makes all three write into the module's own list, so
+    they are collected and the manifest diff reports them."""
+    def _sink():
+        f = sys._getframe(1)
+        while f.f_code in helpers:           # skip the spellings' own frames
+            f = f.f_back
+        rows = f.f_globals.get("CASES")
+        if not isinstance(rows, list):
+            raise RuntimeError("%s writes a case but holds no `CASES` list (the case constructors "
+                               "append to the calling module's own list)" % f.f_globals.get("__name__"))
+        return rows
+
     def case(kind, name, text, prose, expect, sibling=None, files=None, measure="sites"):
-        into.append(Case(kind, name, text, prose, sibling, files or {}, measure, expect))
+        _sink().append(Case(kind, name, text, prose, sibling, files or {}, measure, expect))
 
     def acase(kind, name, text, code, expect, prose="", sibling=None):
         case(kind, name, text, prose, expect, sibling, measure=("finding", code))
@@ -104,11 +124,12 @@ def spellings(into):
     def rcase(kind, name, text, prose, rc, sibling=None, files=None):
         case(kind, name, text, prose, rc, sibling, files, measure="rc")
 
+    helpers = {case.__code__, acase.__code__, rcase.__code__}
     return case, acase, rcase
 
 
 CASES = []
-case, acase, rcase = spellings(CASES)
+case, acase, rcase = spellings()
 
 
 # ---------------------------------------------------------------- POSITIVE --

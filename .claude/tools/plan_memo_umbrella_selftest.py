@@ -73,7 +73,6 @@ import plan_memo_selftest_manifest as manifest
 
 def run(mutants=False):
     fails = []
-    counts = {}
     # ⚠ THE SET IS LOADED BEFORE THE BANNER, and that ordering is the escape's
     # (PR #510 R42-8).  `printable` belongs to the report boundary, which is the
     # entry point, so the runner takes it off the LOADED module -- and the two
@@ -92,13 +91,13 @@ def run(mutants=False):
     # and the mutation rows below are this snapshot's, never a second call.
     # WORKFLOW RULE: adding, removing or changing a row, a control or a case
     # requires `--write-manifest` and committing the manifest's diff.
-    snap = manifest.snapshot()
-    for line in manifest.verify(snap):
-        print(printable(line))
-        fails.append(printable(line))
-    reg = snap.table
-    for name, (kind, control) in reg.items():
-        counts[kind] = counts.get(kind, 0) + 1
+    # `take()` verifies against the committed manifest and RAISES on any
+    # difference: there is no other way to obtain the table, so a run that does
+    # not compare cannot run at all.  `finish()` below reports any verified
+    # control this loop did not execute, and returns the counts it reports.
+    taken = manifest.take()
+    reg = {name: (kind, fn) for name, kind, fn in taken.entries}
+    for name, kind, control in taken.entries:
         ok, detail = control(M)
         if kind == "KNOWN-MISS":
             # `ok` means "reported 0": the site IS wrong, so the control stays red
@@ -111,6 +110,10 @@ def run(mutants=False):
         print(printable("  %-4s [%s] %s (%s)" % ("ok" if ok else "FAIL", kind, name, detail[:90])))
     unload()
 
+    counts, audit = manifest.finish(taken)
+    for line in audit:
+        print(printable(line))
+    fails += [printable(line) for line in audit]
     print()
     print(printable("%d control(s): %s."
                     % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts)))))
@@ -119,8 +122,8 @@ def run(mutants=False):
         # the registry is gathered by `mutants()`, the ONE step that imports its
         # modules -- no list of them is spelled here (it was, and it was inert)
         import plan_memo_selftest_mutants as mm
-        fails += mm.run(reg, snap.rows)
-        n_mutants = len(snap.rows)
+        fails += mm.run(reg, taken.rows)
+        n_mutants = len(taken.rows)
     fails += empty_registry_fails(len(reg), n_mutants)
     if fails:
         print()

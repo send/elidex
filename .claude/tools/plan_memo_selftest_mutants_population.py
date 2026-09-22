@@ -30,8 +30,8 @@ MEMBERSHIP = ("PROPERTY: no module can leave a run unnoticed -- every file relat
 POPMOD = "plan_memo_selftest_population.py"
 
 MANIFEST_CTL = ("PROPERTY: the live collection is exactly the committed golden manifest, and the "
-                "manifest mechanism holds (comparison, one source, deep immutability, "
-                "generation-time validations)")
+                "manifest mechanism holds (the one door, the comparison, one source, deep "
+                "immutability, the generation-time validations and the file's fault shapes)")
 MANIFEST_MOD = "plan_memo_selftest_manifest.py"
 
 MUTANTS += [
@@ -180,13 +180,13 @@ MUTANTS += [
      "    return (removed, added, changed)",
      [MANIFEST_CTL]),
     ("manifest: `read` reads the file it is given (read the committed one always)", MANIFEST_MOD,
-     '    text = (PATH if path is None else path).read_text(encoding="utf-8")',
-     '    text = PATH.read_text(encoding="utf-8")',
+     "    target = PATH if path is None else path\n    try:",
+     "    target = PATH\n    try:",
      [MANIFEST_CTL]),
     ("manifest: the generator writes the RUNNER's collection (write a different one -- the rows "
      "dropped)", MANIFEST_MOD,
-     "    snap = snapshot()\n    problems = validate(snap)",
-     "    snap = snapshot()._replace(rows=())\n    problems = validate(snap)",
+     "    snap = _snapshot()\n    problems = validate(snap)",
+     "    snap = _snapshot()._replace(rows=())\n    problems = validate(snap)",
      [MANIFEST_CTL]),
     ("manifest: the collection FREEZES what it reads (return it as it is)", REGISTRY,
      "        frozen = _freeze(getattr(mod, listname))",
@@ -217,5 +217,76 @@ MUTANTS += [
     ("manifest: a case name used twice is refused at generation (drop the check)", MANIFEST_MOD,
      '    bad += ["case name %r is used %d times"',
      '    bad += [] and ["case name %r is used %d times"',
+     [MANIFEST_CTL]),
+]
+
+# -- the manifest attestation (CRIT 2 / IMP 5 / MIN 4): the door, the sink, the
+# restored validations and the digests, each against the arm that kills it.
+MUTANTS += [
+    ("manifest: `take` RAISES on a difference (return the table anyway -- the runner would "
+     "execute a collection it had not compared)", MANIFEST_MOD,
+     "    if bad:\n        raise ManifestError",
+     "    if False:\n        raise ManifestError",
+     [MANIFEST_CTL]),
+    ("manifest: `finish` reports the verified controls a run did not execute (drop the audit)",
+     MANIFEST_MOD,
+     "    missing = sorted(name for name, _k, _f in taken.entries if name not in taken.seen)",
+     "    missing = []",
+     [MANIFEST_CTL]),
+    ("manifest: the wrapper RECORDS the control that ran (drop the record -- every control then "
+     "reads as never executed)", MANIFEST_MOD,
+     "        seen.add(name)",
+     "        pass",
+     [MANIFEST_CTL]),
+    ("manifest: the snapshot enumerates the cases ONCE (take them twice -- the table collects its "
+     "own)", MANIFEST_MOD,
+     "    table = importlib.import_module(\"plan_memo_selftest_controls\").registry(case_rows)",
+     "    table = importlib.import_module(\"plan_memo_selftest_controls\").registry()",
+     [MANIFEST_CTL]),
+    ("manifest: the collection step RECORDS its calls (drop the record -- the one-enumeration arm "
+     "sees nothing)", REGISTRY,
+     "    CALLS.append(listname)",
+     "    pass",
+     [MANIFEST_CTL]),
+    ("manifest: a control's line carries its BODY digest (name and qualname alone -- a control "
+     "re-pointed to a stub reads the same)", MANIFEST_MOD,
+     '    return "%s.%s#%s" % (getattr(fn, "__module__", "?"), getattr(fn, "__qualname__", "?"),\n'
+     '                         _code_digest(code) if code is not None else "nocode")',
+     '    return "%s.%s" % (getattr(fn, "__module__", "?"), getattr(fn, "__qualname__", "?"))',
+     [MANIFEST_CTL]),
+    ("manifest: a NESTED body is digested too (stop recursing -- a body hidden one lambda deeper "
+     "reads the same)", MANIFEST_MOD,
+     "        if hasattr(const, \"co_code\"):\n            parts.append(_code_digest(const))",
+     "        if False:\n            parts.append(_code_digest(const))",
+     [MANIFEST_CTL]),
+    ("manifest: a row's line carries its EDIT digest (drop it -- two rows' replacements can be "
+     "swapped)", MANIFEST_MOD,
+     '        edit = hashlib.sha256(("%s\\x00%s" % (find, replace)).encode("utf-8")).hexdigest()[:16]',
+     '        edit = ""',
+     [MANIFEST_CTL]),
+    ("manifest: two rows repeating ONE edit are refused at generation (drop the check)",
+     MANIFEST_MOD,
+     '    bad += ["mutation rows repeat one edit in %s %d times" % (f, k)',
+     '    bad += [] and ["mutation rows repeat one edit in %s %d times" % (f, k)',
+     [MANIFEST_CTL]),
+    ("manifest: an UNDECODABLE manifest is the one error (let it escape as a traceback)",
+     MANIFEST_MOD,
+     "    except (OSError, UnicodeDecodeError) as e:",
+     "    except OSError as e:",
+     [MANIFEST_CTL]),
+    ("manifest: an EMPTY manifest is the one error (accept it -- every line then reads as removed)",
+     MANIFEST_MOD,
+     "    if not body:",
+     "    if False:",
+     [MANIFEST_CTL]),
+    ("manifest: `lines` keeps DUPLICATES (drop them -- a row collected twice reads as one)",
+     MANIFEST_MOD,
+     "    return sorted(out)",
+     "    return sorted(set(out))",
+     [MANIFEST_CTL]),
+    ("registry: a module holding an EMPTY list is refused (drop the check -- a list emptied "
+     "elsewhere, or a name collision, contributes nothing and says nothing)", REGISTRY,
+     "        if not frozen:",
+     "        if False:",
      [MANIFEST_CTL]),
 ]

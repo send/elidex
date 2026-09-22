@@ -15,7 +15,7 @@ sibling resolver's path syntax, R20's row-kind grammar and file token, R21's
 out-of-field marker / KIND-SPELLING / schema id kinds).
 
 every cases module holds its OWN `CASES` and binds its own spellings
-(`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
+(`spellings()`); `plan_memo_selftest_cases.cases()` -- the one collection
 step -- gathers them, and every case is a line of the golden manifest.  A
 control's mutant lives in `plan_memo_selftest_mutants_inline.py` under the
 same round label -- the mutant registry is split at THIS module's seam, so
@@ -30,7 +30,7 @@ from plan_memo_selftest_cases_pr510 import CHILD, SLOT4
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
 # every cases module's list in one step; every case is a line of the golden manifest.
 CASES = []
-case, acase, rcase = spellings(CASES)
+case, acase, rcase = spellings()
 
 # ------------------------------------------------ PR #510 Codex R17 controls --
 # #1 (IMP): a reference definition keeps the RUN open, so a lazy table header

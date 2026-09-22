@@ -25,7 +25,7 @@ sitting -- and it is what shows, for instance, that stage (a) and stage (c) now
 answer the same way on every scheme-ful destination (PR #510 R25-1).
 
 every cases module holds its OWN `CASES` and binds its own spellings
-(`spellings(CASES)`); `plan_memo_selftest_cases.cases()` -- the one collection
+(`spellings()`); `plan_memo_selftest_cases.cases()` -- the one collection
 step -- gathers them, and every case is a line of the golden manifest.  A control's mutant lives in
 `plan_memo_selftest_mutants*.py` under its round label, keyed by the control's
 NAME, so a control moving between modules moves nothing else.
@@ -36,7 +36,7 @@ from plan_memo_selftest_cases import VIOLATION, build, spellings
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
 # every cases module's list in one step; every case is a line of the golden manifest.
 CASES = []
-case, acase, rcase = spellings(CASES)
+case, acase, rcase = spellings()
 
 
 # R3-2: a root-relative destination is a site URL, never a sibling on disk

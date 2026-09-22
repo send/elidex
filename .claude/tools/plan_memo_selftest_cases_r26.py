@@ -27,7 +27,7 @@ from plan_memo_selftest_cases import LINK, SIB_TABLE, build, spellings
 # This module's OWN rows and spellings; `plan_memo_selftest_cases.cases()` gathers
 # every cases module's list in one step; every case is a line of the golden manifest.
 CASES = []
-case, acase, rcase = spellings(CASES)
+case, acase, rcase = spellings()
 
 # ------------------------------------------------ PR #510 Codex R26 controls --
 # R26-2: the bare file-name token and `plan_memo_sibling.sibling_path`

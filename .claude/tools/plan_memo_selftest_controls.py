@@ -668,15 +668,19 @@ def property_family_control(M):
            ("; " + "; ".join((unnamed + stray)[:3])) if unnamed or stray else "", arms))
 
 
-def registry():
+def registry(case_rows=None):
     """name -> (kind, control): the ONE table the runner and the mutation
     proof read, this module's controls MERGED with the work module's fragment
     (`plan_memo_selftest_work.registry`) -- the same "one list, filled by
-    several modules" the cases and the mutants already use."""
+    several modules" the cases and the mutants already use.
+
+    `case_rows` is the case collection the caller already took, so the
+    manifest's snapshot enumerates the cases ONCE (the manifest attestation's
+    I3); it defaults to taking them here."""
     from plan_memo_selftest_ratchets import registry as ratchet_registry
     from plan_memo_selftest_population import registry as population_registry
     reg = merge(work_registry(), property_registry(), ratchet_registry(), population_registry())
-    for c in cases():
+    for c in (cases() if case_rows is None else case_rows):
         reg[c.name] = (c.kind, control(c))     # a duplicated case name is refused by `Registry`
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
     reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "

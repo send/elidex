@@ -112,26 +112,38 @@ def _mf():
 
 def manifest_control(M):
     """PROPERTY: the live collection is exactly the committed golden manifest,
-    and the manifest mechanism itself holds -- asked of the real collection and
-    of planted inputs:
+    and every part of the manifest mechanism holds -- asked of the real
+    collection and of planted inputs:
 
       (a) the COMPARISON: a manifest with one line removed, one added and one
-          changed is reported as exactly that;
-      (b) ONE SOURCE: `write()` into a scratch file produces exactly
-          `lines(snapshot())` -- the call the runner executes;
-      (c) DEEP IMMUTABILITY: `.pop()` on a collected row's control list, on the
-          row list, on a registry module's list and on a case's files RAISES;
-      (d) the generation-time VALIDATIONS: a planted snapshot with a row naming
-          no control, a label used twice, a row naming a missing control and a
-          case name used twice reports each; and a control name used twice is
-          refused while a table is built (`harness.merge`).
-
-    The comparison itself also runs in the runner, before any control, on the
-    value it then executes (`plan_memo_umbrella_selftest.run`)."""
+          changed is reported as exactly that, and each kind of difference
+          ALONE fails the check;
+      (b) ONE DOOR: `take()` raises on a difference, so a run that does not
+          compare has no table; `finish()` reports a verified control the run
+          did not execute, and the wrapper records the ones it did;
+      (c) ONE SOURCE: `write()` into a scratch file produces exactly
+          `lines(_snapshot())`, `read` reads the file it is given, each
+          registry is collected ONCE per snapshot, and a control's body (its
+          code, nested bodies included -- not its constants) and a row's
+          find/replace are in their lines;
+      (d) DEEP IMMUTABILITY: `.pop()` on a collected row, a row's control list,
+          a registry module's list and a case's files RAISES;
+      (e) the generation-time VALIDATIONS: a row naming no control, a label
+          used twice, a row naming a missing control, a case name used twice
+          and two rows repeating one edit are each reported; a duplicated
+          control name is refused while the table is built;
+      (f) the manifest FILE's fault shapes -- missing, a directory,
+          unreadable, empty, undecodable -- are one `ManifestError` naming the
+          regenerate command, never a traceback;
+      (g) `lines()` keeps DUPLICATES: a row collected twice is two lines."""
     mf, H = _mf(), _h()
-    snap = mf.snapshot()
+    snap = mf._snapshot()
     real = mf.verify(snap)
     got = mf.lines(snap)
+    if real:
+        # the live collection already differs: that IS this control's claim,
+        # and the arms below take a verified table, which `take` refuses
+        return False, "%d difference(s) from the committed manifest: %s" % (len(real), real[0][:160])
     arms = {}
     extra = "CONTROL\tCONTROL\tplanted\tx"
     planted = got[1:] + [extra]
@@ -140,15 +152,50 @@ def manifest_control(M):
         mf.diff(planted, got) == ([extra], [got[0]], [(got[1] + "-changed", got[1])]))
     arms["(a) each kind of difference ALONE fails the check"] = all(
         mf.verify(snap, want) for want in (got + [extra], got[1:], [got[0] + "-changed"] + got[1:]))
+    taken = mf.take()
+    arms["(b) `take` returns the verified table, and raises on a difference"] = (
+        len(taken.entries) == len(snap.table) and _raises(lambda: mf.take(planted)))
+    counts, audit = mf.finish(taken)
+    arms["(b) `finish` reports the controls the run has not executed"] = (
+        bool(audit) and sum(counts.values()) == len(snap.table))
+    marks = set()
+    mf._wrap("x", lambda M: (True, ""), marks)(None)
+    arms["(b) the wrapper records the control that ran"] = marks == {"x"}
+    for _name, _kind, fn in taken.entries:
+        taken.seen.add(_name)
+    arms["(b) a control that RAN is not reported"] = not mf.finish(taken)[1]
+    # ONE enumeration per registry: the collection step records its calls
+    reg_mod = importlib.import_module("plan_memo_selftest_registry")
+    before = len(reg_mod.CALLS)
+    mf._snapshot()
+    arms["(c) the snapshot collects each registry ONCE"] = reg_mod.CALLS[before:] == ["CASES", "MUTANTS"]
+    stub = mf._fn_id(lambda M: (True, "stub")) != mf._fn_id(lambda M: M.check(M))
+    nested = mf._fn_id(lambda M: (lambda: 1)()) != mf._fn_id(lambda M: (lambda: 2)())
+    arms["(c) a control's BODY is in its line, nested bodies included"] = stub and nested
+    arms["(c) a row's find/replace is in its line"] = (
+        mf.lines(mf.Snapshot({}, (("a", "f.py", "x", "y", ()),), ()))
+        != mf.lines(mf.Snapshot({}, (("a", "f.py", "y", "x", ()),), ())))
     with tempfile.TemporaryDirectory() as d:
         target = pathlib.Path(d) / "m.txt"
         rc, _msgs = mf.write(target)
         written = (sorted(ln for ln in target.read_text(encoding="utf-8").split("\n")
                           if ln and not ln.startswith("#")) if target.exists() else None)
-        arms["(b) the generator writes exactly the runner's collection"] = rc == 0 and written == got
+        arms["(c) the generator writes exactly the runner's collection"] = rc == 0 and written == got
         target.write_text("# a comment\nB\nA\n", encoding="utf-8")
-        arms["(b) `read` reads the file it is given, comments dropped"] = mf.read(target) == ["A", "B"]
-    # (c) on a FRESHLY planted base module: the real modules were frozen by the
+        arms["(c) `read` reads the file it is given, comments dropped"] = mf.read(target) == ["A", "B"]
+        faults = {"missing": pathlib.Path(d) / "nope.txt", "a directory": pathlib.Path(d),
+                  "empty": pathlib.Path(d) / "empty.txt",
+                  "undecodable": pathlib.Path(d) / "bytes.txt"}
+        faults["empty"].write_text("", encoding="utf-8")
+        faults["undecodable"].write_bytes(b"\xff\xfe\x00rows")
+        unreadable = pathlib.Path(d) / "locked.txt"
+        unreadable.write_text("x\n", encoding="utf-8")
+        unreadable.chmod(0)
+        faults["unreadable"] = unreadable
+        shapes = {k: _manifest_error(mf, v) for k, v in faults.items()}
+        unreadable.chmod(0o600)
+        arms["(f) every fault shape names the regenerate command"] = all(shapes.values())
+    # (d) on a FRESHLY planted base module: the real modules were frozen by the
     # first collection of this run, so only a module collected now can show
     # whether the collection step freezes
     name = "plan_memo_selftest_plant_manifest_base"
@@ -157,28 +204,54 @@ def manifest_control(M):
             "MUTANTS = [('planted', 'f.py', 'x', 'y', ['c']), {'k': [1]}]\n", encoding="utf-8")
         sys.path.insert(0, d)
         try:
-            rows = importlib.import_module("plan_memo_selftest_registry").collect("MUTANTS", name)
+            rows = reg_mod.collect("MUTANTS", name)
             mod = importlib.import_module(name)
             pops = [lambda: rows[0][4].pop(), lambda: rows.pop(), lambda: mod.MUTANTS.pop(),
                     lambda: mod.MUTANTS[1].pop("k"), lambda: mod.MUTANTS[1][0][1].pop(),
                     lambda: snap.rows[0][4].pop(), lambda: snap.cases[0].files.pop()]
-            arms["(c) every collected value refuses `.pop()`"] = all(_raises(f) for f in pops)
+            arms["(d) every collected value refuses `.pop()`"] = all(_raises(f) for f in pops)
         finally:
             sys.path.remove(d)
             sys.modules.pop(name, None)
+    row = ("a", "f.py", "x", "y", ("c",))
     fake = mf.Snapshot({"c": ("CONTROL", None)},
-                       (("e", "f.py", "x", "y", ()), ("a", "f.py", "x", "y", ("c",)),
-                        ("a", "f.py", "x2", "y2", ("gone",))),
+                       (("e", "f.py", "p", "q", ()), row, ("a", "f.py", "x2", "y2", ("gone",)),
+                        ("b", "f.py", "x", "y", ("c",))),
                        (snap.cases[0], snap.cases[0]))
     probs = mf.validate(fake)
-    arms["(d) each validation reports its planted defect"] = (
+    arms["(e) each validation reports its planted defect"] = (
         any("'e' names no control" in q for q in probs) and any("'a' is used 2 times" in q for q in probs)
         and any("names 'gone'" in q for q in probs) and any("case name" in q for q in probs)
-        and _raises(lambda: H.merge({"k": 1}, {"k": 2})) and _raises(lambda: H.merge({"k": 1}).update({"k": 2})))
+        and any("repeat one edit" in q for q in probs)
+        and _raises(lambda: H.merge({"k": 1}, {"k": 2}))
+        and _raises(lambda: H.merge({"k": 1}).update({"k": 2})))
+    twice = mf.Snapshot({}, (row, row), ())
+    arms["(g) a row collected twice is two lines"] = len(mf.lines(twice)) == 2
+    with tempfile.TemporaryDirectory() as d:
+        empty = "plan_memo_selftest_plant_empty_base"
+        (pathlib.Path(d) / (empty + ".py")).write_text("MUTANTS = []\n", encoding="utf-8")
+        sys.path.insert(0, d)
+        try:
+            arms["(h) a registry module holding an EMPTY list is refused"] = _raises(
+                lambda: reg_mod.collect("MUTANTS", empty))
+        finally:
+            sys.path.remove(d)
+            sys.modules.pop(empty, None)
     failed = [k for k, v in arms.items() if not v]
-    return not real and not failed, ("%d manifest line(s), %d difference(s)%s; arms: %s"
-                                     % (len(got), len(real), ("; " + "; ".join(real[:3])) if real else "",
-                                        "all hold" if not failed else "FAILED " + "; ".join(failed)))
+    return not failed, ("%d manifest line(s), 0 difference(s); arms: %s"
+                        % (len(got), "all hold" if not failed else "FAILED " + "; ".join(failed)))
+
+
+def _manifest_error(mf, path):
+    """True when reading `path` raises the ONE manifest error, with the
+    regenerate command in its message."""
+    try:
+        mf.read(path)
+    except mf.ManifestError as e:
+        return mf.REGENERATE in str(e)
+    except Exception:
+        return False
+    return False
 
 
 def _raises(fn):
@@ -298,7 +371,7 @@ def registry_membership_control(M):
 def registry():
     """name -> (kind, control), this module's fragment of the one table."""
     return {
-        "PROPERTY: the live collection is exactly the committed golden manifest, and the manifest mechanism holds (comparison, one source, deep immutability, generation-time validations)":
+        "PROPERTY: the live collection is exactly the committed golden manifest, and the manifest mechanism holds (the one door, the comparison, one source, deep immutability, the generation-time validations and the file's fault shapes)":
             ("CONTROL", manifest_control),
         "PROPERTY: the harness DERIVES the population from a directory (glob, self-test partition, registry-by-content, import order, cycle) -- asked of a planted directory":
             ("CONTROL", population_partner_control),
