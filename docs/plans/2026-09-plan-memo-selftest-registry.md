@@ -1,310 +1,343 @@
 # Plan — the self-test's row registries: no row or case can leave, duplicate or go inert without a red
 
-**Status**: DRAFT for `/elidex-plan-review` — no implementation until it converges. Branch
-`vm-p4-plan-memo-checker` (worktree `elidex-wt-vmp4checker`, PR #510), written at local head `3edb6c91`.
+**Status**: draft 2, revised after plan-review R1 (IMP 29 / MIN 17 / CRIT 0 raw, deduplicated to
+S1–S11 / P1–P5 / MIN in the R1 decision record). R1 was STRUCTURAL, so this draft goes to a full re-review.
+Branch `vm-p4-plan-memo-checker` (worktree `elidex-wt-vmp4checker`, PR #510), measured at `3edb6c91`.
 Parent: `docs/plans/2026-08-plan-memo-umbrella-checker.md` (§7 / §8). **Subject**: the machinery that
-decides WHICH rows the self-test runs — the case records, the mutation rows and the control table they
-feed. **Not the subject**: the checker's gates; no attestation has found a live hole in them.
+decides WHICH rows the self-test runs — case records, mutation rows, and the control table they feed.
+**Not the subject**: the checker's gates (no attestation found a live hole in them).
 
-⚠ Every figure below carries the command that produced it. `T=.claude/tools`; `P=` the attestation's
-scratch probes (`…/scratchpad/attest3ed/`, NOT committed — each probe's edit is restated in §6 so it
-survives the scratch directory). "Measured" means re-run for this memo on 2026-09-22 against `3edb6c91`.
+⚠ Every figure carries its command. `T=.claude/tools`, `S=` the session scratchpad
+(`/private/tmp/claude-501/-Users-kazuaki-repos-send-sh-elidex/a522c74c-…/scratchpad`, NOT committed).
+Probe edits are restated in §6 so they outlive `S`. "Measured" = re-run on 2026-09-22 against `3edb6c91`
+on a host that was running other self-test jobs (the absolute times are ±20 %; umbrella §8 (4)).
 
-## §0 Why a plan and not a fifth fix pass
+## §0 Why a plan, and what "deletion" means here
 
-Four fix passes on this machinery (`79309486`, `b325c668`, `3545f944`, `3edb6c91`) were each attested
-by a fresh adversary; IMP findings ran **6 → 5 → 7 → 4**. Every pass ADDED a mechanism — membership by
-content, a sealed base tuple, one `collect` step, the `CRITERIA` table, a population module — and every
-next attestation found holes INSIDE the mechanism the previous pass added. That is the signature of
-`memory/feedback_defer-accumulation-signals-mis-drawn-slice.md`: the boundary is wrong, not the patches.
-By CLAUDE.md's edge-dense rule (≥3 intersecting invariants — §2 has seven — and no canonical algorithm
-for "which rows exist"), the design is reviewed before any further code. The direction of this plan is
-**deletion**: each mechanism below either makes an invariant true by construction or is not added.
+Four fix passes (`79309486`, `b325c668`, `3545f944`, `3edb6c91`) were each attested by a fresh adversary
+and IMP findings ran **6 → 5 → 7 → 4**. Every pass ADDED a mechanism, and every later attestation found
+holes inside the mechanism the previous pass had added (`memory/feedback_defer-accumulation-signals-mis-drawn-slice.md`).
+CLAUDE.md's edge-dense rule applies: §2 has eight invariants and there is no canonical algorithm.
+"Deletion" is a count, not a mood: §4's ledger deletes **12** mechanism units and adds **10**.
 
 ## §1 The property (one sentence per invariant)
 
-**Definition — DECLARED.** A row is *declared* by the self-test file that constructs it, when that file
-is executed in isolation (a fresh `plan_memo*` module namespace); construction IS declaration, and no
-list binding, file name or import order enters the definition.
+**DECLARED.** A row is declared by the self-test file whose code constructs it, when that file runs in
+its OWN child interpreter whose `plan_memo*` imports are served from `SOURCES ∪ disk` text (§4 M2).
 
-- **I1 MEMBERSHIP** — the set of rows run equals the set declared on disk.
-- **I2 ONCE** — each declared row runs exactly once: row identity `(file, ordinal)` is unique, mutation
-  labels and control-table keys are unique.
-- **I3 KILL SET** — every mutation row names a non-empty set of controls, each of which exists; every
-  case is exactly one entry of the control table.
-- **I4 ISOLATION** — the collected value is a function of each file's own text: no import order and no
-  other module's import-time effect can change it.
-- **I5 ONE VALUE** — the rows are collected exactly once per process into a hashable (hence deep-
-  immutable) value, and every reader receives that one object.
-- **I6 PATCHABLE** — the mutation proof can patch each mechanism of I1–I5 (constructors, collector,
-  partners) and the named control runs the PATCHED mechanism.
-- **I7 PINNED** — every criterion of the mechanism is killable: each partner drives the real control's
-  own code path, and the derived clause / key sweeps (§4 M8) leave no unexplained survivor.
+- **I1 MEMBERSHIP**: the set of rows run equals the set declared.
+- **I2 ONCE**: each declared row runs exactly once. Identity `(co_filename, ordinal)` is unique, and
+  mutation labels and control-table keys are unique.
+- **I3 KILL SET**: every mutation row names a non-empty set of existing controls, and every case is exactly one
+  table entry.
+- **I4 ISOLATION**: a file's collected rows are a function of the texts its child imports. Scope, stated
+  as exactly what M2 isolates: interpreter state (`sys.modules`, builtins, stdlib module attributes,
+  `sys.path`, environment variables) between files. It does NOT isolate the filesystem, a file's own import
+  closure within its child, or anything outside the process.
+- **I5 ONE VALUE**: the value is a `Rows` whose leaves are all `str` / `int` / `None` / `tuple`, and it is
+  computed once per distinct input key (M3).
+- **I6 PATCHABLE**: every mechanism of I1–I5 (constructors, collector, child bootstrap, partners) can be
+  patched by a mutation row, and the patched TEXT is what executes.
+- **I7 PINNED**: each partner drives the real control's own function, and the derived sweeps (M8) leave
+  every survivor with an arm or with an in-code structural reason.
+- **I8 REACHED** (S7): every file of the self-test population is either collected or reached from a
+  root. The roots are the collector's population, and the import graph includes literal-string `import_module` edges.
 
-## §2 Coupled invariants — every pair, one line each
+## §2 Coupled invariants — all C(8,2) = 28 pairs, each naming its mechanism
 
-Intersecting pairs (the mechanism that sits on the intersection):
-
-- **I1×I2** — identity `(constructing file, ordinal)` makes "the set" and "once" the same object; a
-  helper that constructs rows and is imported by two files must not count twice → keep a row iff its
-  constructing file is the file under collection.
-- **I1×I3** — a row with an empty kill set is declared but inert → refused at CONSTRUCTION, so
-  "declared" implies "runnable" (MIN-5).
-- **I1×I4** — without isolation "declared" depends on who imported whom first (IMP-3: 472 then 422).
-- **I1×I5** — the declared set is materialised once; a reader that re-collects may see another set.
-- **I1×I6** — a row against the collector must be able to drop a declared row and be killed → the
-  collector takes `here`, and its partner plants a directory.
-- **I1×I7** — the membership control's own disk read must be what its partner exercises (IMP-2).
-- **I2×I3** — a duplicate case name collapses two table entries into one → one case has no entry; the
-  control table's merge must refuse a repeated key (N-1, measured in §5).
-- **I2×I4** — isolation re-executes shared modules once per sandbox; rows they construct would appear
-  once per importer → the provenance filter of I1×I2 is also I2's guard.
-- **I2×I5** — uniqueness is checked once, on the one value; re-collection cannot manufacture duplicates.
-- **I2×I6** — `patched_module`'s `table.update(pm.registry())` OVERRIDES keys on purpose; the refusing
-  merge governs the unpatched build only, and the override stays confined to the patched row.
-- **I2×I7** — the refusing merge and the label check are themselves in the sweep population (M8).
-- **I3×I4** — rows come from sandboxes, controls from the main process: a row names controls by
-  STRING, resolved at run time (the existing "unknown control" FAIL), never by object.
-- **I3×I5** — a kill set frozen as a tuple cannot be cleared at import (MIN-5's probe E3c').
-- **I3×I6** — a row naming a control of a patched module resolves against the merged table (existing).
-- **I3×I7** — the constructor's non-empty precondition is a clause the sweep drops.
-- **I4×I5** — the one value is memoised in the collector module, which no row module can reach in the
-  main process (M4: row modules are leaves, executed only inside sandboxes).
-- **I4×I6** — the sandbox purges `plan_memo*` modules, which would evict a leaf the harness installed
-  for the current row (`_INSTALLED_LEAVES`) → the sandbox reads each file's text through the harness's
-  per-row `SOURCES`, so a patched constructor or collector is what the sandbox executes.
-- **I4×I7** — the isolation partner plants a module that tampers with another and asserts the victim's
-  rows are unchanged.
-- **I5×I6** — the memo lives on the module INSTANCE: a patched collector computes its own value and
-  the unpatched memo cannot leak into that row.
-- **I5×I7** — `rows() is rows()` and `hash(rows())` are partner arms.
-- **I6×I7** — the derived sweeps are mutation rows generated in-process through the same patch path;
-  a survivor must be killable through the ordinary row path, not through a sweep-only hook.
-
-Non-intersecting pairs: none — the 21 above are all C(7,2) pairs.
+- I1×I2 **identity key** `(co_filename, ordinal)` recorded by the constructor; a row is kept iff its
+  `co_filename` is the collected file (a helper's rows are its own, never its importer's).
+- I1×I3 **constructor precondition** (M6): a row cannot be constructed without a non-empty kill set.
+- I1×I4 **child per file** (M2): a row's presence depends only on texts that child imports.
+- I1×I5 **`rows()` key** (M3): one value per (here, closure texts); readers never collect.
+- I1×I6 **text map** (M2): the child imports `SOURCES ∪ disk`, so a patched collector or constructor drops or
+  adds rows in the run that patched it.
+- I1×I7 **same-function partner** (M7): the partner calls `collect(planted_here)`, the real call is `collect(HERE)`.
+- I1×I8 **root = collector population** (S7): a population file is collected or reached; neither is red.
+- I2×I3 **refusing merge** (M5): one merge site; a repeated key raises.
+- I2×I4 **provenance filter** (M1): a shared module re-executed in N children yields its rows only in its own child.
+- I2×I5 **uniqueness on the value**: labels are checked once, on `Rows`.
+- I2×I6 **patched-row override**: `patched_module`'s fragment REPLACES keys only for its own row. The
+  refusing merge governs the unpatched table.
+- I2×I7 **sweep over the merge**: the refusing merge's clauses are in M8's population.
+- I2×I8 **one population derivation**: rows and fragments both range over `files()` (S6), so no file is
+  counted by two predicates.
+- I3×I4 **names as data**: a row carries control NAMES (str) across the process boundary. Names resolve in
+  the parent at run time (the existing unknown-control FAIL).
+- I3×I5 **leaf-type walk** (S2): the kill set is a tuple of str, so nothing can clear it after collection.
+- I3×I6 **merged table resolution**: a row naming a patched module's control resolves against that row's table.
+- I3×I7 **precondition swept**: M6's non-empty clause is an M8 clause-drop site.
+- I3×I8 **fragment totality** (S6): every non-row population file returns `registry()`, so no control
+  module is unmerged.
+- I4×I5 **key = closure texts**: the child reports the `plan_memo*` modules it imported. The cache key is
+  their texts, so an unrelated patch hits the cache.
+- I4×I6 **bootstrap in the map**: the child's bootstrap is collector-module text sent through the same map.
+- I4×I7 **builtins arm** (§6): a planted file mutates `builtins.sorted` and `ast.dump`; the others' rows are unchanged.
+- I4×I8 **string edges**: a non-collector literal `import_module` of a row file is red. Otherwise it would
+  execute a row file in the parent.
+- I5×I6 **key includes SOURCES**: a patched run cannot read the unpatched value.
+- I5×I7 **leaf-walk arm**: the partner hands the walk a tuple holding a list and a plain object (both refused).
+- I5×I8 **per_file**: `Rows.per_file` lists every collected file, including those with zero rows, so I8 reads the same value.
+- I6×I7 **sweep rows are data** (S8): generated rows are produced by a generator the collector runs, counted
+  in `rows()`, and patched through the ordinary path.
+- I6×I8 **call-time import form**: the partners' call-time reach of the harness becomes a function-local
+  `import` statement (not a string), so S7's string rule stays total.
+- I7×I8 **membership partner**: M7's planted directory carries an unreached file and a string-imported row file.
 
 ## §3. Spec coverage map
 
-No external spec governs this subject; every row is local policy. Input = repository Python source.
+No web spec governs this subject. The rows cite the Python 3 documentation (docs.python.org; section
+numbers NOT webref-verifiable, checked by hand) for the semantics the mechanisms rely on, plus local policy.
 
 | Spec section | Step | Branch | Touch (compile/dispatch site) | Full enum? | User-input flow |
 |---|---|---|---|---|---|
-| Local policy, no external spec (this plan §1 I1) | declare | a row is constructed at import of a self-test file | `plan_memo_selftest_cases.py` `case`/`acase`/`rcase`; `mutant` (NEW) | ✓ (§4 M1) | no |
-| Local policy, no external spec (this plan §1 I1) | collect | every self-test file on disk is executed once, in isolation | `plan_memo_selftest_registry.py` collector (rewritten) | ✓ (§4 M2) | no |
-| Local policy, no external spec (this plan §1 I1) | provenance | a row constructed by a file outside the self-test population | collector | ✓ red | no |
-| Local policy, no external spec (this plan §1 I2) | uniqueness | repeated label; repeated control-table key | collector; `plan_memo_selftest_controls.py` `registry` | ✓ red | no |
-| Local policy, no external spec (this plan §1 I3) | kill set | empty / unknown control names | `mutant` (NEW); `plan_memo_selftest_mutants.py` `run` | ✓ red | no |
-| Local policy, no external spec (this plan §1 I4) | isolation | a module that imports or tampers with a row module | collector sandbox; leaf rule over the import graph | ✗ dynamic reach (§4 M4) | no |
-| Local policy, no external spec (this plan §1 I5) | handoff | every reader of rows | runner, `run`, loop ratchet, partner | ✓ (§4 M3) | no |
-| Local policy, no external spec (this plan §1 I7) | fidelity | partner vs real control code path | `plan_memo_selftest_population.py` | ✓ (§4 M7) | no |
-| Local policy, no external spec (this plan §1 I7) | criteria | BoolOp / Compare operands; `in`-test key components | ratchets, collector, harness, population | ✗ (§4 M8 blind classes) | no |
+| Python Language Reference §5.3.4 The meta path | serve text | `plan_memo*` names from `SOURCES ∪ disk`; others fall through | child bootstrap (NEW) | ✓ | no |
+| Python Language Reference §5.4.1 Loaders `exec_module` | execute | patched text executes (probe §4 M2) | child bootstrap (NEW) | ✓ | no |
+| Python Data Model §3.3.1 `__hash__` | immutability | hash is not immutability (S2 probe) | leaf-type walk (NEW) | ✓ | no |
+| Python Data Model §3.2 standard type hierarchy, code objects `co_filename` / `co_name` | attribution | top level vs lambda / genexpr / def | constructor (M1) | ✗ listcomp reads `<module>` (PEP 709) | no |
+| Local policy (this plan §1 I1/I2) | declare | construction in an allowed ancestor | constructors; static allowlist | ✓ (§4 M1) | no |
+| Local policy (this plan §1 I3) | kill set | empty / unknown names | `mutant` (NEW); `run` | ✓ | no |
+| Local policy (this plan §1 I4) | isolation | builtins / stdlib / `sys.modules` | child per file | ✗ filesystem (§8 D-3) | no |
+| Local policy (this plan §1 I5) | handoff | every reader; per patched run | `rows()` | ✓ | no |
+| Local policy (this plan §1 I7) | criteria | BoolOp / Compare / key tuples | sweep generator (R2) | ✗ residue counted (M8) | no |
+| Local policy (this plan §1 I8) | reach | unreached file; string import | membership control | ✓ | no |
 
-**Breadth**: K=0 external specs (preflight counts the local-policy label as K=1), M=9 rows. **Split decision**: two slices (§7), each plan-reviewed.
+**Breadth**: no web spec, and M=10 rows. The slices are set by §2 counts (§7), not by breadth.
 
 ### §3.1 User-input touch audit
 
-None. The self-test reads only files in `.claude/tools/`; no memo text reaches any mechanism here.
+None. The mechanisms read only `.claude/tools/` text; no memo text reaches them.
 
-## §4 Mechanisms — each with what it deletes, closes, and leaves
+## §4 Mechanisms and the deleted/added ledger
 
-Measured baseline (`python3 $T/plan-memo-umbrella-check.py --self-test --mutants` at `3edb6c91`):
-747 controls, 472 mutation rows, rc 0. Row modules (verified 2026-09-22 via `H.registry_modules`):
-MUTANTS 7 files (79/101/22/110/38/93/29 rows), CASES 6 files (164/192/154/59/71/26) — per-module
-`len(X.MUTANTS)` / `len(X.CASES)` after import.
+Baseline (`python3 $T/plan-memo-umbrella-check.py --self-test --mutants` at `3edb6c91`): 747 controls,
+472 rows, rc 0. Row files (verified 2026-09-22, `len(X.MUTANTS)` / `len(X.CASES)` over
+`H.registry_modules`): MUTANTS in 7 files (79/101/22/110/38/93/29), CASES in 6 files (164/192/154/59/71/26).
 
-**M1 — Construction is declaration.** `case` / `acase` / `rcase` (existing names) and `mutant` (NEW)
-append to a SINK owned by the collector and RETURN the row; the calling file is read from the first
-frame outside the constructor module. **Deletes**: every module-level `CASES` / `MUTANTS` list,
-`spellings(into)`, `_OWN`, `_SEALED`, both tuple seals, `registry_modules` / `_assigns` (the by-content
-partition), `collect`, `cases()`, `mutants()`, and the `CRITERIA` table (M8). A row that references an
-earlier one takes the constructor's return value (`R42_BLANK_MARKER = rcase(…).name`), not `CASES[-1]`.
-*Closes by construction*: IMP-4 (no list to leave empty; `spellings([])` has no target to rebind),
-MIN-6 (no list to alias), MIN-7 D/L/N (the partition they mutate is deleted). *Leaves*: a row constructed
-only inside a def or a conditional that never runs at import → M1's static rule: outside the constructor
-module, a constructor call under `def` / `if` / `while` / `try` / `with` / a comprehension is red.
-Measured today: 0 such calls outside the base spellings' own two bodies (AST walk over
-`$T/plan_memo_selftest_cases*.py` flagging those ancestors → `plan_memo_selftest_cases.py` lines 104 /
-107 only, both `acase`/`rcase` calling `case`). ⚠ Why not count rows statically instead (verified 2026-09-22): 4 of the 6
-cases modules construct rows in top-level `for` loops (syntactic calls vs rows: inline 174 / 192, r26
-51 / 59, r42 49 / 71, sibling 20 / 26, by the same AST walk against `len(X.CASES)`), so a static count
-is not the declared set.
+**M2 — collection: chosen by MEASUREMENT (S1).** Draft 1's in-process purge + `import_module` is refuted
+by three probes:
+- **Disk text, not patched text**: `cd $S/reg-ax2/model && python3 sandbox.py` prints `sink held by
+  collector before purge: []`. The rows land in the purged copy's sink, and the helper-lambda row is
+  dropped silently.
+- **Builtins leak**: `cd $S/reg-ax4/sinkp` then `pm_col.collect('pm_rowb')` gives `(0, 4, False, False)`. That
+  is 0 rows in the collector's sink and 4 in the fresh copy's. `collect('pm_evil')` then leaves
+  `builtins.sorted` replaced after restore, and `sorted([3,1,2])` returns `[1, 2]`.
+- **The subprocess rejection was unsound**: patched texts are data and can be sent to a child.
 
-**M2 — Isolated collection, once.** The collector executes EVERY self-test file of `H.files(here)`
-(the one population; 26 at head, `is_selftest` over `files()`) in a sandbox: `sys.modules` stripped of
-`plan_memo*`, the file imported, the sink read, the namespace restored. Keep a row iff its constructing
-file is the file under collection; a row constructed by any file outside the self-test population is
-red; an import error is red (never skipped). Measured cost of the full-purge sandbox (purge +
-`importlib.import_module` per module, timed in-process): 0.22 s for the 13 row modules, 0.50 s for all
-26 self-test modules (verified 2026-09-22). *Closes by construction*:
-IMP-3 (no base list exists to reassign; a module's import touches only its own sandbox's copies of
-other modules), M/O-shaped order effects (the value is sorted by `(file, ordinal)`). *Leaves*: a file
-that reaches ANOTHER sandbox's objects by introspection (`gc`, frames, closures) — declared out of scope,
-not guarded; a file that erases its own rows through the sink — a self-authored edit to that file,
-visible in its diff, and M4's seam table makes naming the sink's internals red.
+Prototypes `$S/regplan/s1/{loader,child,cand,toy,cost}.py` implement:
+(a) a child per file, fed the `SOURCES ∪ disk` text map through a `sys.meta_path` finder, with rows returned as JSON;
+(b) an in-process finder over the same map, with the sink in a module outside the purged prefix;
+(b+) = (b) plus a `builtins.__dict__` snapshot and restore.
+The four probes are `python3 $S/regplan/s1/toy.py`, and cost is `python3 $S/regplan/s1/cost.py $T` (26 self-test
+files, verified 2026-09-22 as `is_selftest` over `files()`; the real tree's full text map, twice):
 
-**M3 — One frozen value.** `rows()` returns a memoised `Rows(cases, mutants, per_file)`; every row is a
-tuple of `str` / `int` / tuples (a case's `files` dict becomes sorted pairs), so `hash(rows())` succeeds
-iff nothing mutable remains. Every reader — runner, `run`, `_census_rows`, the partner — calls `rows()`
-and nothing else. *Closes by construction*: IMP-3's "re-collects per caller (472 then 422)" (measured:
-`mutants()` twice in one process with probe E3a' applied → 472, then 422), MIN-5's clear-at-import
-(E3c'). *Leaves*: nothing of I5 that M4 does not cover.
+| candidate | patched text executes | sink owner | builtins leak | stdlib leak (`ast.dump`) | cost, 26 files |
+|---|---|---|---|---|---|
+| (a) child per file | True (3/3 rows `PATCHED:`) | child; rows as data | False | False | 1.14 s / 1.12 s |
+| (b) in-process finder | True | collector's `SINK` | **True** | **True** | 0.36 s / 0.36 s |
+| (b+) builtins restore | True | collector's `SINK` | False | **True** | not measured (≈ b) |
 
-**M4 — Row modules are leaves.** No module imports a file that constructs rows (the full import graph
-`registry_membership_control` already builds, function-local imports included); shared vocabulary
-(`build`, `Case`, the file-name constants, `run`) moves to non-row modules, so the main process never
-executes a row module's code. The sink's private name joins `_IMPORT_SEAMS` with the collector as its
-only importer. *Closes*: the main-process half of IMP-3 (a row module cannot reach the memo).
-*Leaves (declared blind, shared with the membership and seam controls)*: dynamic import by string
-(`importlib.import_module("plan_memo_" + …)`, `__import__`, `sys.modules[…]`).
+**Chosen: (a).** It is the only candidate with no leak, and I4's scope (§1) is written to what (a) isolates.
 
-**M5 — Count and compare at the consumers.** The control table is built by ONE flat, refusing merge
-over the fragment modules DERIVED from disk (every self-test file whose top level defines `registry`),
-replacing the nested `update` chains (`controls` → records / work / ratchets / population, records →
-properties → invariants, work → growth / pipeline — the `import registry as` lines): `len(table) == Σ len(fragment) +
-len(rows().cases)`; mutation labels are unique; `run` asserts its verdict count equals
-`len(rows().mutants)`. *Closes by construction*: MIN-6's missing label check, N-1 (a fragment key that
-shadows another's), N-4 (a fragment nobody merges). *Leaves*: a control function its own module
-defines but does not return from `registry()` — blind, as today.
+**Cost of re-collection per patched run.** 66 mutation rows patch a self-test file (loading `mutants()`, counting
+`r[1] in SELFTEST`). With the cache keyed on closure texts, each of those rows re-runs only the files whose import
+closure holds its file. The measured closures give 236 child runs, about 10 s. That figure is an ESTIMATE:
+236 × the 1.12 s / 26 per-file mean. R1a measures it. The budget is the tools job's, not the wire's (P1).
 
-**M6 — Constructor preconditions.** `mutant(name, file, find, replace, controls)` refuses an empty
-`controls`, a non-`str` control name, an empty `find`; `case` refuses a measure outside the
-harness's `measure` domain. *Closes by construction*: MIN-5.
+**M3 — the value (S2, S3).** `Rows = (cases, mutants, per_file)`. `cases` holds `Case` tuples whose `files`
+is sorted `(name, text)` pairs, which changes one reader: `run_on` iterates pairs. `mutants` holds 5-tuples
+whose last element is a tuple of str. Immutability is checked by a leaf-type walk (only str / int / None /
+tuple are allowed), because hashability is not immutability.
+`python3 $S/reg-ax4/hashprobe.py` shows that a tuple holding a plain object with a list attribute hashes OK,
+and so does one holding a function. Today's rows also carry `None` (`sibling=None`, `$T/plan_memo_selftest_cases.py:97`).
+`hash` is kept as one partner arm, not as the definition. `rows(here=HERE)` is memoised per (here, closure
+texts ∪ SOURCES), on the collector module instance. Readers resolve the collector at CALL time
+(a function-local `import`). Partners call `collect(planted_here)` directly, because they test the
+collector, while the runner, `run` and `_census_rows` call `rows()`.
 
-**M7 — Partner = the control's own function over a planted directory.** Every population / membership
-control becomes `verdict(here)`; its control calls `verdict(HERE)`, its partner calls the SAME
-`verdict(planted_dir)` — never a hand-built `{file: text}` dict. The planted directory carries the
-shapes each criterion excludes: a non-glob `memo_extra.py` imported by the population (IMP-2), a
-`from plan_memo_b import x` edge (MIN-8), an `import` edge (existing). **Derived backstop**: the lines
-of each mechanism function executed by the real control must be a subset of those executed by its
-partner (`_count_line_sites`, the existing witness); a line only the real control runs is red — that is
-IMP-2's class, not its instance. *Leaves*: a line both run whose VALUE the partner does not discriminate
-(M8's subject).
+**M1 — declaration by construction (S4, S5).** `case` / `acase` / `rcase` / `mutant` (NEW) append
+`(co_filename, ordinal, row)` to the child's sink and RETURN the row. Attribution is by `co_filename`,
+never `co_name`. Base rows leave the constructor module: `python3 -c` over `$S/reg-ax4/sinkp/pm_selfcons.py`
+attributes a constructor-module top-level row to `<frozen importlib._bootstrap>`.
 
-**M8 — Criteria completeness is DERIVED; `CRITERIA` is deleted.** Two operators, generated from the AST
-of the mechanism functions (the functions M7's backstop records as executed by the self-test's
-mechanism controls — ratchets, collector, harness population, partners), each applied through the
-ordinary patch path (I6). ⚠ "The mechanism controls" is a STATED set (today's `_FAMILY` plus the
-collector's partner); UNREVIEWED whether it is complete — a mechanism whose control is outside it is
-swept by nothing:
-  * **clause-drop** — each `BoolOp` operand and each `Compare` forced `True` and `False`;
-  * **key-projection** — at each `x in R` / `x not in R` whose `x` is a tuple, drop one component
-    (`x' in {e[…] for e in R}`); whose `R` is a subscript `V[k]`, union over the dimension
-    (`x in set().union(*V.values())`).
-Each generated mutant must turn a control red; a survivor gets a partner arm, or an entry in a stated
-EQUIVALENCE complement keyed by (function, operand source text) that is itself checked to name an
-existing site. Cost: the ratchets clause-drop alone took 57 s wall for 96 mutants (`time`), so the
-five rows below (162 mutants) extrapolate to ~1.6 min — an EXTRAPOLATION, measured at R2. Measured
-survivors today (prototypes `$P/clausedrop2.py` and
-`…/scratchpad/regplan/keyproj.py`, not committed, against the unmodified tree):
+Names derived from rows (`X = CASES[-1].name`: 53 top-level assignments, r26 19 + r42 34) become explicit
+`name=` string constants in a NON-row vocabulary module. The 92 names (verified 2026-09-22) the mutants modules import from cases
+modules (AST count of `ImportFrom` names, module `plan_memo_selftest_cases*`, in `plan_memo_selftest_mutants*`:
+r26 23, inline 2, r30 67) move there too. That vocabulary set is DERIVED by measuring those import edges,
+not by a hand list.
 
-| module (operator) | sites | mutants | survivors |
-|---|---|---|---|
-| ratchets core (clause-drop) | 48 | 96 | 11 |
-| ratchets core (key-projection) | 6 | 6 | 4 — incl. IMP-1's union |
-| collector `collect` (clause-drop) | 6 | 12 | 1 |
-| harness population fns (clause-drop) | 19 | 38 | 4 |
-| population verdict fns (clause-drop) | 5 | 10 | 3 |
+Post-construction replacement (`_OWN[-1] = _OWN[-1]._replace(files=…)`, `$T/plan_memo_selftest_cases.py:613`)
+is forbidden, because the constructor takes every field.
 
-**Classes neither operator sees (the complement, stated)**: literal / constant edits (a glob string,
-`[:1]` → `[:2]`); argument substitution (IMP-2's `"*.py"` → `H.GLOB` — M7's backstop covers it);
-statement deletion and early `return`; ordering and tie-breaks (M, O — equivalent under I4's sort);
-a key compared by `==` or looked up by `d[k]` rather than `in`; coarsening in a DATA table rather than in
-code; non-termination (the survivor `_membership_verdict` `u in seen` → `False` is a loop that revisits
-— terminating on the acyclic probe, unbounded on a cycle); anything outside the mechanism functions.
+**Static rule, inverted to an ALLOWLIST**: a constructor call's ancestors may be only `Module`, a
+top-level `For`, `Expr` or `Assign`. `python3 $S/reg-ax4/staticrule.py` prints `flagged_by_rule=False`
+for all 6 of draft 1's escape shapes (lambda, IfExp, BoolOp, empty for, match, assert).
 
-**Rejected candidates.** *Seal harder* (a module `__setattr__` guard, `MappingProxyType`) — adds
-mechanism, and E3a' shows a seal is bypassed by reassignment; *subprocess per module* — breaks I6 (a
-patched collector is not what a child process runs); *static row counting* — measured infeasible (M1);
-*pinned expected counts* (a committed "472") — a figure that every row-adding commit must edit, the
-shape the umbrella's §8 records going stale three times.
+**Runtime backstop**: the constructor refuses a caller frame whose `co_name != '<module>'`.
+`python3 $S/reg-ax4/frameprobe.py` on 3.14.6 reads `<lambda>` and `<genexpr>`, but a list comprehension
+reads `<module>` (PEP 709, inlined). The static allowlist is therefore what refuses comprehensions.
+
+*Closes by construction*: IMP-4, MIN-6, MIN-7 D/L/N (the lists and the partition are deleted).
+
+**M4 — row files are import-terminal (not "leaf": the harness already uses "leaf" for a self-test
+module without `registry()`).** No file imports a row file except through the collector's child. This is
+checked over the full import graph: function-local imports and literal-string `import_module` edges,
+6 today (`grep -n 'import_module("plan_memo' $T/plan_memo_selftest_*.py`: population 30/130/131, ratchets 579/580, registry 34).
+Four of the six (rows / `CRITERIA`) are deleted with M1/M3. The two call-time harness reaches become
+function-local `import` statements.
+
+**M5 — one merge, one population (S6).** Every non-row file of `files()` defines `registry()` returning ONLY
+its own keys; a missing `registry` is red. That is totality, not a second predicate. The row files are
+`Rows.per_file`'s non-empty entries, so there is one derivation. The runner is the ONE merge site and it refuses
+a repeated key. The nested merges are deleted: 57 keys appear in more than one fragment's `registry()` today (verified
+2026-09-22: a `Counter` over the 9 fragment modules' `registry()` keys; R1's record said 31, by another count).
+
+**M6 — constructor preconditions**: `mutant` refuses empty or non-str `controls` and an empty `find`.
+
+**M7 — same-function partners over planted directories.** Every population, membership and collection
+control is `verdict(here)`. The partner calls the same function over a FRESH temporary directory per arm, so
+no stale `__pycache__` answers for a re-planted name (MIN: bytecode). The planted shapes are: a non-glob
+`memo_extra.py`, a `from` edge, an unreached file and a string-imported row file.
+
+Backstop: the lines of each mechanism function that the real control executes must be a subset of those its
+partner executes (`_count_line_sites`).
+
+**M8 — criteria completeness, derived (R2; S8, S9, S10).** The population is the functions M7's backstop
+records as executed by partners, so there is no hand tuple and `_FAMILY` goes. The operators are:
+- **clause-drop**: each `BoolOp` operand and `Compare`, forced `True` and `False`;
+- **key-projection**: at `x in R` / `x not in R`, drop one component of a tuple `x`, or union over
+  `V[k]`; widened to `==` with a tuple operand and to a subscript with a tuple key.
+
+Generated rows are DATA from a generator the collector runs, counted in `rows()`. There is NO equivalence table:
+a survivor gets an arm, or the operator is not applied at that site with a structural reason written in the code.
+Non-termination (`_membership_verdict` `u in seen` → `False`) gets a cycle-planted arm under `_WorkExceeded`.
+
+Residue outside the widened operator, over the prototype's function set: 10 `==`/`!=` compares and 12
+non-constant subscripts with non-tuple keys. One tuple-key subscript (`$T/plan_memo_selftest_ratchets.py:77`)
+is inside. Count: AST walk over `_loops … _kind_question_verdict`, `collect`, harness `files … _import_order`
+and population `_imports … _roots`.
+
+Prototype survivors (the scripts are not committed; args in full):
+- `cd $S/attest3ed && python3 clausedrop2.py plan_memo_selftest_ratchets plan_memo_selftest_ratchets _loops,_header,_is_truncation,_intends_truncation,_credit,_scope_verdict,_qualified_callers,_kind_question_verdict`
+  → 48 sites (verified 2026-09-22) / 96 / **11** (57 s wall, host busy);
+- the same script over `plan_memo_selftest_registry … collect` → 6 / 12 / **1**;
+- harness `files,is_selftest,_assigns,registry_modules,import_name,_import_order` → 19 / 38 / **4**;
+- population `_imports,_membership_verdict,_roots` → 5 / 10 / **3**;
+- `python3 $S/regplan/keyproj.py $S/attest3ed/t/.claude/tools plan_memo_selftest_ratchets plan_memo_selftest_ratchets <same 8>`
+  → 6 / **4**, including IMP-1's union.
+
+Classes neither operator sees: literal edits, argument substitution (M7 covers IMP-2's), statement deletion,
+tie order (M/O), the residue above, and data-table coarsening.
+
+**Deleted / added ledger** (units of mechanism; "modify" is neither):
+
+| deleted (12) | added (10) |
+|---|---|
+| D1 13 per-file `CASES`/`MUTANTS` bindings | A1 child bootstrap + text finder |
+| D2 `spellings(into)` target | A2 closure-keyed `rows()` cache |
+| D3 `_OWN` / `_SEALED` | A3 child sink |
+| D4 both tuple seals | A4 `mutant` constructor |
+| D5 `registry_modules` + `_assigns` (content partition) | A5 leaf-type walk |
+| D6 `collect` (in-process) | A6 ancestor allowlist + `co_name` backstop |
+| D7 `cases()` / `mutants()` | A7 one refusing merge site |
+| D8 `CRITERIA` | A8 vocabulary module for row-derived names |
+| D9 `criteria_rows_control` + its row | A9 partner line-subset backstop |
+| D10 the nested fragment merges (8 `update` sites) | A10 sweep generator (2 operators) |
+| D11 `_FAMILY` hand tuple | |
+| D12 `patched_module`'s leaf / owner fork | |
+
+Modified, not added: `_roots` (S7), the import graph (string edges), and `_IMPORT_SEAMS` handles (S11: derived from
+the harness's exports, and an unlisted importer of an export is red).
+
+**Rejected**: seal harder (E3a' bypasses a seal); static row counting (verified 2026-09-22: 4 of 6 cases files construct in
+top-level `for` loops: 174/192, 51/59, 49/71, 20/26 syntactic calls vs rows); pinned counts (stale per commit).
 
 ## §5 Finding map — no finding without a mechanism or a stated exclusion
 
-| # | Finding (measured) | Closed by | By construction? | Residue |
-|---|---|---|---|---|
-| IMP-1 | e1 probe A (sanction keyed per question → union): rc 0, 747 controls | M8 key-projection (and its 3 sibling survivors, N-2) | derived detector | keys compared by `==` / `d[k]` |
-| IMP-2 | e1 probe G (`here.glob("*.py")` → `H.GLOB`): rc 0 | M7 same-function partner + line-subset backstop | yes (partner) + derived | a line both run, value undiscriminated (M8) |
-| IMP-3 | e23b E3a' (reassign base, 422 rows) and E3d' (clear sibling, 371 rows): rc 0 with `--mutants` | M1 (no lists) + M2 (isolation) + M3 (once) + M4 (leaves) | yes | introspective reach; dynamic import (M2/M4) |
-| IMP-4 | e23b E2b (own `CASES = []`, rows via `spellings([])`): rc 0 | M1 | yes | construction under a conditional (M1 static rule) |
-| MIN-5 | E3c' (100 base rows' controls cleared): rc 0 | M6 + M3 | yes | — |
-| MIN-6 | E2c (alias of r26's list): 510 rows, rc 0; no label check | M1 (no lists) + M5 (labels unique) | yes | — |
-| MIN-7 | e1 D / L / N: rc 0 | M1 deletes the partition; arms in §6 | yes (deleted) | — |
-| MIN-8 | e1 F: rc 0 without `--mutants`; e1f with `--mutants`: rc 1, 110 survived — caught only incidentally | M7 plants the `from` edge | yes (partner) | — |
-| MIN-9 | e1 C / E / H: rc 0 | M8 clause-drop (all three are in the 11 ratchet survivors) | derived | — |
-| MIN-10 | "file-name rule decides" in 6 mutants docstrings (verified 2026-09-22: `grep -c 'file-name rule decides' $T/plan_memo_selftest_mutants_*.py` → 6 files) | deleted with the headers M1 rewrites | yes (deleted) | prose: no detector (below) |
-| MIN-11 | `_IMPORT_SEAMS` label "module-set handles" omits `files` — the population handle since `b325c668`, imported by ratchets / properties / records (`grep -n 'from plan_memo_selftest_harness import' $T/*.py`) | clerical, slice R1 | no | prose |
-| MIN-12 | printable control says "the two report modules"; its own output says 4 (`--self-test` line `41 emit site(s) over 4 report module(s)`) | clerical, slice R1 | no | prose |
-| N-1 | NEW: a fragment key equal to another fragment's replaces it silently — planted in the population fragment over a ratchets key: rc 0, still 747 controls | M5 refusing merge | yes | — |
-| N-2 | NEW: key-projection survivors beyond IMP-1 — `(mod, caller) in sites[name]` drop-caller; `(name, mod, caller) not in seen` drop-name and drop-module | M8 + partner arms | derived | as IMP-1 |
-| N-3 | NEW: population verdict clause-drop 3 / 10 survive (`_imports` `node.module`; `_membership_verdict` `r in inside`, `u in seen`) | M8 + arms, or equivalence entries with reasons | derived | non-termination class |
-| N-4 | NEW: the control table is merged through hand-written `update` chains; deleting `reg.update(document_registry())` from `plan_memo_selftest_work.py` drops 7 controls (740) at `--self-test` rc 0. Dropping the ratchets / population / records (imported as `property_registry`) merge in `controls` IS red, but only through `property_family_control`'s hand tuple `_FAMILY` (`--mutants` not run for these probes) | M5's refusing merge ranges over the fragment modules DERIVED from disk (self-test files defining a top-level `registry`) | yes | — |
-| M, O | e1 M (collection order reversed), O (checker import ties reversed): rc 0 | declared equivalent: I4 sorts by `(file, ordinal)`; O is two valid topological orders | — | — |
+| # | Finding (measured) | Closed by | Slice |
+|---|---|---|---|
+| IMP-1 | e1 probe A (per-question sanction → union): rc 0 | M8 key-projection | R2 |
+| IMP-2 | e1 probe G (`"*.py"` → `H.GLOB`): rc 0 | M7 partner + line backstop | R2 |
+| IMP-3 | e23b E3a' 422 rows / E3d' 371 rows, rc 0 with `--mutants`; 472 then 422 on re-collection | M2 + M3 | R1a |
+| IMP-4 | e23b E2b (own `CASES = []`, rows via `spellings([])`): rc 0 | M1 | R1b |
+| MIN-5 | E3c' (100 rows' controls cleared): rc 0 | M6 + M3 leaf walk | R1b |
+| MIN-6 | E2c alias: 510 rows rc 0; no label check | M1 + M5 | R1b |
+| MIN-7 | e1 D / L / N: rc 0 | M1 deletes the partition | R1b |
+| MIN-8 | e1 F: rc 0 (e1f `--mutants`: rc 1, 110 survived, only incidentally) | M7 `from` edge | R2 |
+| MIN-9 | e1 C / E / H: rc 0 | M8 clause-drop (all three among the 11) | R2 |
+| MIN-10 | 6 mutants docstrings "file-name rule decides" (`grep -c`) | deleted with D1's headers | R1b |
+| MIN-11 | a DATA-TABLE gap (S11): `files` is imported by ratchets / properties / records and by `plan_memo_selftest_mutants.py:93`, outside the seam | `_IMPORT_SEAMS` handles derived | R1b |
+| MIN-12 | printable docstring "two report modules" vs output `over 4 report module(s)` | clerical | R1b |
+| N-1 | a fragment key shadowing another: rc 0, 747 | M5 | R1b |
+| N-2 | 3 more key-projection survivors | M8 | R2 |
+| N-3 | population clause-drop 3 / 10 | M8 + S10 cycle arm | R2 |
+| N-4 | `work` merge of `document_registry` dropped: 740, rc 0 (also `$S/reg-ax3-p1/p1.out`: `740 control(s)`, `all controls behaved`) | M5 totality | R1b |
+| M, O | e1 order reversals: rc 0 | equivalent: `Rows` sorted by `(co_filename, ordinal)`; O is two valid topological orders | — |
 
-**Prose staleness (MIN-10..12) is not closed by any mechanism here** — it is the class
-`memory/feedback_prose-rules-cannot-fix-unexecuted-claims.md` names; this plan deletes the stale
-sentences it can and corrects the other two by hand. No detector is proposed: UNREVIEWED whether one
-belongs in this subject at all.
+## §6 Acceptance — every hole-showing probe becomes a permanent arm or row
 
-## §6 Acceptance — every probe that showed a hole becomes a permanent control or kill row
+- **A** → generated key-projection row; arm: a caller sanctioned for `_claims` that calls `_phrases` is red.
+- **C / E / H** → generated clause-drop rows + arms (a credited-and-exempt loop is exempt; a non-`for`
+  `[:1]` line does not intend truncation; a module-level `_claims` call is red).
+- **D / L / N** → deleted subject; arms: rows built in a top-level `for` are collected; a file binding no list is
+  collected by its constructions; a non-self-test file constructing a row is red.
+- **F / G** → M7 planted `from` edge / `memo_extra.py`.
+- **E2b** → arm: rows constructed with no own list are collected.
+- **E2c** → arms: importing a row file is red (M4); one label from two files is red (M5).
+- **E3a' / E3b / E3f' / E3d' / E3h** → arm: a string-imported row file is red (M4). Arm: a planted file
+  mutating another's module attributes, `builtins.sorted` and `ast.dump` leaves the other's rows equal (M2, from `toy.py`).
+- **E3c'** → row: drop M6's precondition; arm: `mutant(…, ())` raises.
+- **dupfrag / N-4** → rows: an `update` merge in place of the refusing one; a fragment returning a sibling's keys.
+- **ax2 sandbox** → arm: a helper lambda's row is refused by the backstop rather than dropped silently.
+- **ax4 hashprobe / selfcons / staticrule** → arms: the leaf walk refuses a plain object and a list; a
+  constructor-module row is red; each of the 6 escape shapes is refused.
+- **M8 survivors (23)** → arms or in-code structural reasons.
+- **Not converted**: `$S/attest3ed/probe3` (rc 0, a permitted edge); e1 B / I / J / K (already red); e23 E2a / E2b' /
+  E2d / E2e (crashes; E2d stays loud because an import error in a child is red).
 
-Each line: probe (edit) → what it becomes. "arm" = an assertion in the partner over a planted
-directory; "row" = a mutation row whose control is named.
+**Gates on each slice head**: `--self-test --mutants` rc 0; `bash $T/plan-memo-umbrella-selftest-trip-wire.sh`
+rc 0; `bash scripts/trip-wires.sh` rc 0; every probe above re-applied WITH `--mutants` is rc 1; M8 has 0
+unexplained survivors (R2); the tools-job wall clock before and after (P1: M8's cost is an input to
+A-iii item 2, the suite scheduler, and does not move to a `--mutants` fallback, because the wire already runs
+`--mutants`); and a fresh-agent attestation by enumeration with §2's 28 pairs as its checklist.
 
-- **A** (`if (mod, caller) in sites[name]` → `… in set().union(*sites.values())`) → generated
-  key-projection row; arm: a caller sanctioned for `_claims` that calls `_phrases` is red.
-- **C** (bucket order: pinned decided before exempt) → generated clause-drop row + arm: a loop both
-  credited and exempt is counted exempt.
-- **D / L / N** (partition read by `ast.walk` / Assign-only / any module) → the partition is deleted;
-  arms: rows constructed inside a top-level `for` are collected; a file binding no list is collected by
-  its constructions alone; a non-self-test file constructing a row is red.
-- **E** (`_intends_truncation` any line with `[:1]`) → generated clause-drop row + arm.
-- **F** (drop the `from X import` order edge) → arm: the planted directory's `from` edge orders.
-- **G** (`here.glob("*.py")` → `here.glob(H.GLOB)`) → row, killed by the M7 partner's `memo_extra.py`.
-- **H** (module-level calls not counted) → generated clause-drop row + arm: a module-level `_claims`
-  call is red.
-- **E2b** (own `CASES` empty, rows bound to a throwaway list) → arm: a planted module whose rows reach no
-  list of its own still contributes them.
-- **E2c** (`MUTANTS = _r.MUTANTS`) → arms: a planted module importing a row module is red (M4); two files
-  constructing one label is red (M5).
-- **E3b** (`setattr` extends the base: 473 rows) went red (verified 2026-09-22, e23 re-run) only through the MODULES-map
-  control over its NEW file — the existing-module variant is E3a''s shape → same arm as below.
-- **E3a' / E3f'** (an existing module reassigns the base list: 422 rows rc 0; for CASES 747 rc 0 —
-  no loss only because `collect` read the base first, i.e. order luck) and **E3d' / E3h** (clears a
-  sibling's: 371 rows rc 0; the CASES variant rc 1 only incidentally, through unknown-control names) → arm: a planted module that imports another row module is red (M4), and, reached by string through
-  `sys.modules` inside its own sandbox, leaves the victim's collected rows equal (M2).
-- **E3c'** (clear 100 rows' controls) → row: drop M6's non-empty precondition; arm: `mutant(…, [])`
-  raises.
-- **dupfrag** (a fragment key shadowing another) → row: replace the refusing merge with `update`.
-- **M8 survivors** (the §4 table's 23) → each a generated row killed by an arm, or an equivalence entry
-  with its reason; the equivalence list is checked to name existing sites.
-- **Not converted**: `$P/probe3/` (a module-level `from plan_memo_selftest_harness import files` appended
-  to the controls module) is rc 0 at head and adds an edge every stated rule permits — no hole shown;
-  e1 **B / I / J / K** were already rc 1 through a control; e23 **E2a / E2b' / E2d / E2e** were rc 1 by
-  CRASH (unpack / index / import / attribute error) — loud, and in the new design M2's "an import error
-  is red" keeps E2d loud; E2a / E2b' / E2e test list shapes that M1 deletes. e23's other rc 1s were the
-  MODULES-map control over the planted file, which is why e23b re-ran them mapped.
+## §7 Slices and PR boundary
 
-**Gates (all, on the slice head)**: `python3 $T/plan-memo-umbrella-check.py --self-test --mutants` rc 0
-with every arm and row above present; `bash $T/plan-memo-umbrella-selftest-trip-wire.sh` rc 0;
-`bash scripts/trip-wires.sh` rc 0; M8 reports 0 unexplained survivors; the wire's wall clock before and
-after, stated with its command (the sweeps run under `--mutants` only if the always-run cost exceeds
-the umbrella §8 (4) budget); every §6 probe whose target text still exists, re-applied to the slice head through a
-`$P/mut.py`-shaped runner WITH `--mutants`, must be rc 1; a fresh-agent attestation by ENUMERATION
-(`memory/feedback_attestation-by-enumeration-not-assertion.md`) with the §2 pairs as its checklist.
+By CLAUDE.md's edge-dense rule, **R1 and R2 are separate PRs, not #510 commits** (P4).
 
-## §7 Slices
+**Split of R1, decided by counting §2 pairs among the invariants each slice's mechanisms change:**
+- R1 whole = {I1, I2, I3, I4, I5, I6, I8}: 7 invariants, **21 pairs**.
+- R1a collection (M2, M3 over TODAY's lists: the child returns a file's own list as data) =
+  {I1, I2, I4, I5, I6}: **10 pairs**.
+- R1b declaration / terminal (M1, M4, M5, M6, S7) = {I1, I2, I3, I6, I8}: **10 pairs**.
+- The two slices share 3 pairs (among I1, I2, I6), which is their interface: the row key and the text map.
 
-- **R1 — declaration, collection, value** (M1–M6 + MIN-10..12 clerical). Touches every row module
-  (mechanical: tuple rows → `mutant(…)`, base rows moved to leaf modules) plus the collector, the
-  runner, `run` and the partner. Its per-slice plan fixes the leaf split's file names and the frozen
-  `Case` shape.
-- **R2 — pinning** (M7–M8). Depends on R1 (the sweep population includes R1's collector).
-Each slice is plan-reviewed on its own before implementation; this memo is their shared design.
-⚠ **Open (user)**: whether R1 / R2 land as commits on #510 or as a follow-up PR. The edge-dense rule
-forbids bundling unreviewed work; it does not decide the PR boundary.
+**Decision: split.** Each part is under half of the whole (10 vs 21). R1a is independently landable (it
+closes IMP-3 on the existing lists). R1b then deletes the lists. Under R1a the content partition (D5)
+still names the files; R1b deletes it, so the interim lasts exactly one PR.
+Order: **R1a → R1b → R2**. Each is plan-reviewed on its own.
 
-## §8 Defer
+- R1a owns the umbrella amendment row (P3): the ratified "`MUTANTS` table" wording at umbrella line 320
+  (`grep -n 'a \`MUTANTS\` table' <umbrella>`) and §7's slice list.
+- R2 owns umbrella §8 (4) and (16), whose triggers fired (M8 adds rows and a table).
 
-None proposed by this plan. The blind classes of M2 / M4 / M8 are stated scope limits, not deferrals;
-if the review judges any of them in scope, it becomes a slice here rather than an entry in the
-umbrella's §8.
+**P2, ordering against the gate-population sub-umbrella** (`elidex-wt-gatepop`,
+`docs/plans/2026-09-plan-memo-gate-population.md`): registry R1a/R1b land BEFORE its ρ/α/β/γ slices
+(all post-#510). The reason is that β touches `plan_memo_selftest_ratchets.py`, and every slice adds controls
+and mutants in new modules that R1b's constructors must serve. The mirror sentence in that memo's §7 is
+owed by R1a's PR, because that memo is on another branch and is not edited by this commit.
+
+**The one user question.** If R1a / R1b / R2 are follow-up PRs, #510 merges carrying attest3ed's
+IMP-1..4. That is an OWN deferral, moving the umbrella's count **14 → 15**, which the defer policy routes to
+a cap PAUSE. Merge #510 under that pause (with this memo as the deferral's owner), or hold #510 until R1a lands?
+
+## §8 Defer and open defects (every blind spot, each with cover or owner)
+
+- **D-1** a control function a module defines but does not return from `registry()`: no cover. Owner: R1b's
+  plan-review decides whether totality extends to functions.
+- **D-2** prose staleness (MIN-10..12's class): no detector. Open, and not owned by this program. Trigger: the
+  next prose-only finding.
+- **D-3** I4 outside interpreter state (filesystem writes, a file's own closure): stated scope, open.
+- **D-4** a non-literal string import (`import_module("plan_memo_" + x)`): M4's graph cannot see it. Open.
+- **D-5** M8's residue (10 `==`, 12 subscripts) and its blind classes: counted in R2, open beyond it.
+- M8's population is covered by R2 (derived); M2 / M4's remaining residue is D-3 / D-4.
