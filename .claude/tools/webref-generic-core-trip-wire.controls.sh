@@ -111,8 +111,8 @@ _FIX_FAILED=""
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
-# the cleanup path is the absolute one it returned (#501 R55: an unchecked
-# `mktemp` made an `rm -rf` expand to the repo root).
+# the cleanup path is the physical absolute one the wire resolves it to (#501
+# R55: an unchecked `mktemp` made an `rm -rf` expand to the repo root).
 if ! CTL="$(mktemp -d "$SCRATCH/ctlXXXXXX")" || [ -z "$CTL" ] || [ ! -d "$CTL" ]; then
   echo "!! could not create a scratch dir for the controls (TMPDIR/disk?)," >&2
   echo "   so this run's assertions were never proved able to fire." >&2
@@ -192,6 +192,26 @@ ln -s "$CTL/linkname/ok.py" "$CTL/linkname/$CONTROL_K2"
 # An inventory that fails AFTER printing something. `git ls-files` exiting
 # nonzero with nothing on stderr is the one signal a truncated population has,
 # and it was discarded (#501 R85).
+# ⚠ A PATH EMBEDDED IN A GENERATED SCRIPT IS QUOTED, BY ONE HELPER. Every shim
+# below writes a real tool's path into `/bin/sh` source; spliced in bare, a path
+# holding a space or a shell metacharacter split into words and every shim went
+# invalid, so the controls using them exited for the wrong reason (PR519,
+# reproduced by the external reviewer with git at `/tmp/tool space/git`). Same
+# lesson as #501 R96 on `_ctl_env`: a path is data. Single quotes are the one
+# `/bin/sh` quoting with no expansion inside; an embedded `'` is closed, escaped
+# and reopened.
+_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+_REAL_GIT="$(_shq "$(command -v git)")"
+_REAL_GREP="$(_shq "$(command -v grep)")"
+# ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
+# wire, so the mutation set (which edits the wire) has nothing to aim at. It is
+# checked by round-tripping a path that holds each thing that broke it.
+_shq_probe="/tool dir/it's \$HOME \`x\`"
+if [ "$(sh -c "printf %s $(_shq "$_shq_probe")")" != "$_shq_probe" ]; then
+  echo "!! the shim-quoting helper does not round-trip a path through /bin/sh, so every" >&2
+  echo "   shim built with it may exec the wrong thing. This run decided nothing." >&2
+  exit 2
+fi
 mkdir -p "$CTL/fakegit"
 # ⚠ ONLY THE TRACKED (`--stage`) INVENTORY FAILS, and the discriminator is that
 # flag. This matched `" ls-files "`, which is in BOTH the tracked call and the
@@ -205,13 +225,13 @@ mkdir -p "$CTL/fakegit"
 # blanket shim then answered with the fixture's own bytes. Same shape as
 # `fakegrep`: a control shims the ONE call it is about.
 printf '#!/bin/sh\ncase " $* " in *" --stage "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$(command -v git)" > "$CTL/fakegit/git"
+  "$_REAL_GIT" > "$CTL/fakegit/git"
 chmod +x "$CTL/fakegit/git"
 # …and its sibling for the WORKTREE/untracked inventory, which had no shim and
 # therefore no control of its own.
 mkdir -p "$CTL/fakegitwt"
 printf '#!/bin/sh\ncase " $* " in *" --others "*) printf "ok.py\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$(command -v git)" > "$CTL/fakegitwt/git"
+  "$_REAL_GIT" > "$CTL/fakegitwt/git"
 chmod +x "$CTL/fakegitwt/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # …AND THE SAME FOR `ls-tree`, because the HEAD inventory is a THIRD list with a
@@ -222,7 +242,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/wtlsfail/ok.py"
 # was enough to red the run).
 mkdir -p "$CTL/fakegitls"
 printf '#!/bin/sh\ncase " $* " in *" ls-tree "*) printf "x\\000"; exit 1;; esac\nexec %s "$@"\n' \
-  "$(command -v git)" > "$CTL/fakegitls/git"
+  "$_REAL_GIT" > "$CTL/fakegitls/git"
 chmod +x "$CTL/fakegitls/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lstreefail/ok.py"
 
@@ -261,7 +281,7 @@ printf '# see https://example.claude/skills/team/rule.md for the upstream note\n
 # git — the failure a glob makes look like a passing fixture.
 mkdir -p "$CTL/headprobe"
 printf '#!/bin/sh\ncase " $* " in *" rev-parse --verify "*) exit 2;; esac\nexec %s "$@"\n' \
-  "$(command -v git)" > "$CTL/headprobe/git"
+  "$_REAL_GIT" > "$CTL/headprobe/git"
 chmod +x "$CTL/headprobe/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/headprobe/ok.py"
 
@@ -278,7 +298,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catfail/ok.py"
 # reliably; this shim poses the same question to the same arm.
 mkdir -p "$CTL/fakegitphantom"
 printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "phantom-gone.py\\000"; exit 0;; esac\nexec %s "$@"\n' \
-  "$(command -v git)" "$(command -v git)" > "$CTL/fakegitphantom/git"
+  "$_REAL_GIT" "$_REAL_GIT" > "$CTL/fakegitphantom/git"
 chmod +x "$CTL/fakegitphantom/git"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/phantom/ok.py"
 
@@ -333,7 +353,7 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/orphan/ok.py"
 printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/external/a.py"
 mkdir -p "$CTL/fakegitglob"
 printf '#!/bin/sh\ncase " $* " in *" --others "*) %s "$@"; printf "foo[1].py\\000"; exit 0;; esac\nexec %s "$@"\n' \
-  "$(command -v git)" "$(command -v git)" > "$CTL/fakegitglob/git"
+  "$_REAL_GIT" "$_REAL_GIT" > "$CTL/fakegitglob/git"
 chmod +x "$CTL/fakegitglob/git"
 # A `grep` that fails ONLY for the stored-path predicate's invocation, so the
 # control discriminates that arm rather than every grep in the run (shadowing
@@ -353,17 +373,23 @@ chmod +x "$CTL/fakegitglob/git"
 # the property under test, and that is constructible; the ownership is not.
 mkdir -p "$CTL/fakegitcfg"
 printf '#!/bin/sh\nif [ -z "${GIT_CONFIG_COUNT:-}" ]; then case " $* " in *" ls-files "*) exit 0;; esac; fi\nexec %s "$@"\n' \
-  "$(command -v git)" > "$CTL/fakegitcfg/git"
+  "$_REAL_GIT" > "$CTL/fakegitcfg/git"
 chmod +x "$CTL/fakegitcfg/git"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/cfgkept/probe.py"
 mkdir -p "$CTL/fakemktemp"
-printf '#!/bin/sh\nd="%s/scratch"\nmkdir -p "$d"\nprintf %%s "$d"\n' \
-  "$CTL/inscope" > "$CTL/fakemktemp/mktemp"
+printf '#!/bin/sh\nd=%s/scratch\nmkdir -p "$d"\nprintf %%s "$d"\n' \
+  "$(_shq "$CTL/inscope")" > "$CTL/fakemktemp/mktemp"
 chmod +x "$CTL/fakemktemp/mktemp"
+# A `mktemp` that answers with a RELATIVE path, as GNU `mktemp -d` does under a
+# relative `TMPDIR` (macOS's ignores a relative `TMPDIR`, so the real tool
+# cannot pose this question here).
+mkdir -p "$CTL/relcwd" "$CTL/fakerelmktemp"
+printf '#!/bin/sh\nd=relscratch.$$\nmkdir "$d" && printf %%s "$d"\n' > "$CTL/fakerelmktemp/mktemp"
+chmod +x "$CTL/fakerelmktemp/mktemp"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/inscope/ok.py"
 mkdir -p "$CTL/fakegrep"
 printf '#!/bin/sh\ncase " $* " in *" -aEo "*) exit 2;; esac\nexec %s "$@"\n' \
-  "$(command -v grep)" > "$CTL/fakegrep/grep"
+  "$_REAL_GREP" > "$CTL/fakegrep/grep"
 chmod +x "$CTL/fakegrep/grep"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/lsfail/ok.py"
 mkdir -p "$CTL/grepfail/.claude/skills/team"
@@ -702,6 +728,20 @@ _control "$CTL/linkname" 1 "entry NAME" "a SYMLINK's own name is the hierarchy" 
 _control "$CTL/ignored" 0 "PASSED" "an IGNORED generated artefact does not fire" || ctl_ok=1
 _control "$CTL/lsfail" 1 "the tracked inventory exited" "a failed TRACKED inventory fails closed" "" "" "$CTL/fakegit" || ctl_ok=1
 _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE inventory fails closed" "" "" "$CTL/fakegitwt" || ctl_ok=1
+# Not a `_control`: the question is what the run leaves BEHIND, which its exit
+# status and output cannot say. Run from a directory of its own, so a leaked
+# relative scratch lands where this block can see it.
+_rel_lbl="a relative scratch dir is removed on exit"
+if ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
+  if [ -n "$(ls -A "$CTL/relcwd")" ]; then
+    echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
+    ls -A "$CTL/relcwd" | sed 's/^/     /' >&2
+    ctl_ok=1
+  fi
+else
+  echo "!! CONTROL FAILED ($_rel_lbl): the run itself did not pass" >&2
+  ctl_ok=1
+fi
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
 _control "$CTL/headprobe" 1 "that ref EXISTS, so this HEAD is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
 _control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
@@ -794,7 +834,7 @@ fi
 # non-repository and an empty repository both print
 # `!! read 0 stored objects or files` and exit 2. No end-state probe over the
 # fixture can tell them apart cheaply; the build's own exit status can, and
-# does, for this control and the other thirty-nine.
+# does, for this control and every other.
 _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" || ctl_ok=1
 # ⚠ The line is built HERE, beside the decision that produces it. An earlier
 # shape decided here and described it in the summary below, so the two could

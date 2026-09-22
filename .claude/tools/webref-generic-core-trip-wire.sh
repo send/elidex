@@ -332,10 +332,23 @@ fi
 # answer whenever it cannot trust its own reading.
 # ⚠ Physical paths on both sides (`pwd -P`), or a symlinked `TMPDIR` walks
 # straight past a textual prefix test.
-SCRATCH="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so nothing here was proved" >&2; exit 2; }
-trap 'case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+# ⚠ RESOLVED BEFORE THE TRAP IS INSTALLED. GNU `mktemp -d` returns a RELATIVE
+# path when `TMPDIR` is relative, and the trap's `/*/*` guard (which keeps an
+# empty or root-ish value away from `rm -rf`) then matched nothing, so every
+# run left its scratch — and in a normal run the whole controls fixture tree —
+# behind (PR519, reproduced by the external reviewer with `TMPDIR=tmp`). The
+# trap only ever sees the physical absolute path, which is also what the
+# in-tree check below compares.
 _phys() { ( cd "$1" 2>/dev/null && pwd -P ); }
-_scratch_p="$(_phys "$SCRATCH")"
+_raw_scratch="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so nothing here was proved" >&2; exit 2; }
+SCRATCH="$(_phys "$_raw_scratch")"
+trap 'case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+if [ -z "$SCRATCH" ]; then
+  rmdir "$_raw_scratch" 2>/dev/null || true
+  echo "!! could not resolve the scratch dir ($_raw_scratch) to a physical path, so nothing here was proved" >&2
+  exit 2
+fi
+_scratch_p="$SCRATCH"
 _root_p="$(_phys "$ROOT")"
 if [ -z "$_scratch_p" ] || [ -z "$_root_p" ]; then
   echo "!! could not resolve the scratch dir or the root to a physical path," >&2
@@ -842,7 +855,7 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # PROCESS's own `mktemp -d` (and the run refuses to start if it sits inside
   # the scanned tree), and `_scan` is called exactly once per process — so five
   # `mktemp` spawns per invocation bought uniqueness that was already
-  # guaranteed. At 41 invocations per gate run that was ~200 processes.
+  # guaranteed, once per control.
   # ⚠ The creation is still CHECKED, because "could not write here" must not
   # become a silent empty list — it becomes the same `err` record as before.
   for _t in e lc lo lh b; do

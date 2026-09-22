@@ -149,6 +149,7 @@ s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host 
 s#^K2RE_PATH=.*#K2RE_PATH='\\.claude/(skills|tools)/[^/]+/[^/]+'#	a segment merely ENDING in .claude is not the host path
 s/_SELFTEST="$2"/_SELFTEST="${WEBREF_WIRE_SELFTEST:-$2}"/	an exported SELFTEST cannot redirect the scan
 s/\[ ! -d "${2:-}" \]/false/	a missing self-test root decides nothing
+s/^SCRATCH="$(_phys "$_raw_scratch")"/SCRATCH="$_raw_scratch"/	a relative scratch dir is removed on exit
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
@@ -256,7 +257,7 @@ _mut_run() {
       # through `bash`, so a copy written by `sed` (mode 644) exits 126
       # "Permission denied" for EVERY control — which reds the run, prints every
       # control's diagnostic, and therefore satisfies a "did it name the right
-      # control?" test VACUOUSLY. Measured: all 18 entries below "passed" that
+      # control?" test VACUOUSLY. Measured: every entry the set then held "passed" that
       # way, and a deliberately inert entry (a comment-only edit that cannot
       # change any verdict) was the negative control that exposed it. The probe's
       # subject was the permission bit, not the mutation.

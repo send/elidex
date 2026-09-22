@@ -865,11 +865,11 @@ trusting a figure here — `/usr/bin/time -p bash scripts/trip-wires.sh`.
 
 | declined | ground |
 |---|---|
-| **Run the 40 controls concurrently** (measured 3.5–4.4× on the harness's dominant cost) | The right change, at the wrong time. It restructures the output and ordering of the instrument whose correctness this PR exists to establish, and it needs a review round of its own. Recorded as a follow-up rather than smuggled into the PR that is stabilising it. |
-| **Skip the HEAD pass when its blob SHA equals the index's** (measured −37% of the scan) | Sound in principle — comparing object ids is a measurement, not an assumption. But every reproduced defect in this walk's history (#501 R92/R93/R95) came from reading one source and *inferring* another, and the wire's own account commits to reading each source rather than assuming two of them. Not worth re-opening for a gate that runs in single-digit seconds. |
-| **Compute the entry-NAME check once instead of per source** (redundant by construction) | Correct, but it requires restructuring the walk — the part of this instrument with the worst defect history — for ~0.3 s. |
+| **Run the controls concurrently** (the harness's dominant cost) | It restructures the output and ordering of the instrument whose correctness this PR exists to establish, and it would need a review round of its own. **Not owed, so not a slot**: the gate is correct without it, and nobody is committed to doing it. Whoever next finds the runtime a problem starts from `/usr/bin/time -p bash scripts/trip-wires.sh`, not from a figure recorded here. |
+| **Skip the HEAD pass when its blob SHA equals the index's** | Sound in principle — comparing object ids is a measurement, not an assumption. But every reproduced defect in this walk's history (#501 R92/R93/R95) came from reading one source and *inferring* another, and the wire's own account commits to reading each source rather than assuming two of them. Declined on that ground alone; the runtime it would save is not an argument this memo can make without a figure, and it records none. |
+| **Compute the entry-NAME check once instead of per source** (redundant by construction) | Correct, but it requires restructuring the walk — the part of this instrument with the worst defect history — for a saving too small to trade that risk for. |
 | **Collapse `_verdict`'s three passes into one** | The three-way grep-status rule is this file's most-cited invariant. The duplication was real and is fixed by a `_classify` helper (one implementation, three calls); merging the *passes* would trade a decision surface for a subtler one. |
-| **A shared shell library for `_control` / `st_probe`** | They are genuinely two implementations of one idiom, and `st_probe` still lacks the watchdog `_control` has. But no `scripts/`-level shell library exists, and creating one is not this slice's to do. Recorded so the third copy does not have to rediscover it. |
+| **A shared shell library for `_control` / `st_probe`** | They are genuinely two implementations of one idiom, and `st_probe` still lacks the watchdog `_control` has. But no `scripts/`-level shell library exists, and creating one is not this slice's to do. **Not owed, so not a slot** — this row is a pointer for whoever writes a third copy, not an obligation anyone holds. |
 | **Replace the content scan with `git grep`** | The wire's own header records that `git grep -a --no-index` did **not** match inside a `.pyc` on this machine where plain `grep -a` does. A wire whose reach depends on which git is installed is not an absolute. |
 
 ## §10 External review (Codex) — round 1
@@ -1139,3 +1139,26 @@ exclusion.
 ⚠ **Neither finding came from R7's fixes**, which is the stop condition set for this round. Both
 are older self-introduced defects: the PID check was R3's fix, and the row went stale when R5/R6 changed what it copied.
 
+
+### §10.8 Round 9 — five findings on one head, and the loop stops here
+
+Five threads on `0c0187b4`: three from a review Codex ran on the R8 push by itself (02:34Z), and
+two from the R9 trigger. ⚠ **The first three sat unread for six hours**: the landing probe
+counted only items newer than the R9 trigger, so a review that arrived before it was invisible
+to it. Found by the full thread fetch, which is unscoped.
+
+| # | What | Disposition |
+|---|---|---|
+| **P2** | §9 still dismissed an optimisation with *"a gate that runs in single-digit seconds"* — the figure R7 retired from `CLAUDE.md`, surviving in this memo | **Removed**, with every other figure in that table (a speed-up factor, a percentage, a duration). The ground each row gives no longer rests on a number |
+| **P2** | §9 called two declined items *"the right change … recorded as a follow-up"* and *"recorded so the third copy does not have to rediscover it"* — obligations by their wording, absent from §8 | **Rejected as obligations, and now worded as such**: both rows say *not owed, so not a slot*. Nobody is committed to either; the gate is correct without them |
+| **P2** | Under a **relative** `TMPDIR`, GNU `mktemp -d` returns a relative path, the trap's `/*/*` guard matched nothing, and every run left its scratch (a normal run: the whole fixture tree) behind | **Fixed by construction**: the scratch path is resolved to its physical absolute form before the trap is installed. macOS's `mktemp` ignores a relative `TMPDIR`, so the control uses a shim that answers the way GNU does and checks what the run leaves behind. Record + control |
+| **P2** | *"Run the 40 controls"* here and *"41 invocations"* in the wire — both stale | **Removed**, and the same sweep found a third (*"the other thirty-nine"*) and a fourth (*"all 18 entries below"*) in the controls and mutation files |
+| **P2** | A real tool's path was spliced **unquoted** into every generated shim, so a git or grep under a path with a space made the shims invalid | **Fixed at one helper**: `_shq` single-quotes every path written into shim source (every shim, the `mktemp` one included). The helper is the harness's own part, not an arm of the wire, so it gets no mutation record (the set edits the wire): it is asserted instead, by round-tripping a path holding a space, a quote, `$` and a backtick through `/bin/sh`, and the run refuses to continue if that fails. A first version added a `_control` plus a record aimed at the helper; the record could never match, because the mutation set edits the wire, and the run said so |
+
+⚠ **The stop condition set before R8 fired.** Finding 1 is a sweep miss of R7's own fix, which
+makes four consecutive rounds whose findings include one of this loop's own fixes. Per that
+condition the Codex loop is **not re-triggered**. What stands in for its remaining rounds is an
+enumeration by a fresh agent over the populations these findings came from — figures and
+universals in prose, every shim and what it wraps, every status site, every boundary rule in
+both directions, and what the fixtures inherit from the caller's environment — with anything
+it finds either fixed or listed for the merge decision.
