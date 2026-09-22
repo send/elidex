@@ -50,7 +50,7 @@ import pathlib
 import tempfile
 
 from plan_memo_selftest_cases import VIOLATION, build, cases
-from plan_memo_selftest_harness import control, run_on
+from plan_memo_selftest_harness import control, merge, run_on
 from plan_memo_selftest_records import registry as property_registry
 from plan_memo_selftest_work import registry as work_registry
 
@@ -673,15 +673,11 @@ def registry():
     proof read, this module's controls MERGED with the work module's fragment
     (`plan_memo_selftest_work.registry`) -- the same "one list, filled by
     several modules" the cases and the mutants already use."""
-    reg = dict(work_registry())
-    reg.update(property_registry())
     from plan_memo_selftest_ratchets import registry as ratchet_registry
-    reg.update(ratchet_registry())
     from plan_memo_selftest_population import registry as population_registry
-    reg.update(population_registry())
+    reg = merge(work_registry(), property_registry(), ratchet_registry(), population_registry())
     for c in cases():
-        assert c.name not in reg, "duplicate control name %r" % c.name
-        reg[c.name] = (c.kind, control(c))
+        reg[c.name] = (c.kind, control(c))     # a duplicated case name is refused by `Registry`
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
     reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
         "with the html"] = ("CONTROL", inline_examples_control)

@@ -12,8 +12,8 @@ and `plan_memo_selftest_mutants_inline.py` those of R17 on, the rounds that
 closed the Phase-2 INLINE construct family.  The seam is the cases modules'
 exactly: `_cases_pr510.py` here, `_cases_inline.py` there.
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
-gathers every mutants module's list (the harness's file-name rule decides which
-modules those are) in one explicit step.
+gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
+decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.
 The rules are the first module's: the substring must occur EXACTLY ONCE in its
 file, every named control must go red, a crash is a FAIL.  A mutant's control
 lives in `plan_memo_selftest_cases_pr510.py` under the same round label.

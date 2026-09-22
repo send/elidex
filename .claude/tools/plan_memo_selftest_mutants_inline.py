@@ -11,8 +11,8 @@ what landed beside them (R19's display name and path syntax, R20's row-kind
 grammar and file token, R21's out-of-field marker, KIND-SPELLING and schema id
 kinds, design re-gate 4's rendered-text stream).
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
-gathers every mutants module's list (the harness's file-name rule decides which
-modules those are) in one explicit step.  The rules are
+gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
+decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.  The rules are
 `plan_memo_selftest_mutants.py`'s: the substring must occur EXACTLY ONCE in its
 file, every named control must go red, a crash is a FAIL.  A mutant's control
 lives in `plan_memo_selftest_cases_inline.py` under the same round label.

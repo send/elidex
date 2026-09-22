@@ -7,8 +7,8 @@ the IMPORT DIRECTION rule (`plan_memo_selftest_records.import_direction_control`
 each row disables one of its clauses, against the control's probe arms.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
-gathers every mutants module's list (the harness's file-name rule decides which
-modules those are) in one explicit step.
+gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
+decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.
 """
 
 from plan_memo_selftest_mutants import CONTROLS, RECORDS
@@ -77,10 +77,6 @@ MUTANTS += [
      "        if name == base:\n            continue\n",
      "",
      [STEP]),
-    ("registry: a module whose list IS the base's is refused (drop the check)", REGISTRY,
-     "        if own is None or own is base_rows:",
-     "        if own is None:",
-     [STEP]),
     ("registry: `names` plants a module (ignore it -- the partner cannot plant)", REGISTRY,
      "    for name in (harness.registry_modules(listname) if names is None else names):",
      "    for name in harness.registry_modules(listname):",
@@ -113,7 +109,7 @@ MUTANTS += [
     ("membership: every module is reached from a root (drop the clause -- a module on disk never "
      "runs)", "plan_memo_selftest_population.py",
      '    bad += ["%s is in the population and reached from no root -- on disk, never run" % stem[n]\n'
-     '            for n in sorted(inside - seen)]',
+     '            for n in sorted(inside - reached)]',
      "    pass",
      [MEMBERSHIP]),
     ("direction: the harness imports nothing of the population (drop the clause)", RECORDS,
@@ -138,4 +134,103 @@ MUTANTS += [
      "        for node in ast.walk(ast.parse(src, filename=file)):\n            if isinstance(node, ast.ImportFrom) and node.module in names:",
      "        for node in ast.parse(src, filename=file).body:\n            if isinstance(node, ast.ImportFrom) and node.module in names:",
      [DIRECTION]),
+]
+
+ROWS_CTL = ("PROPERTY: the mutant rows carry no accidental defect of their own (a row naming no "
+            "control, a label used twice, an edit repeated)")
+MERGE_CTL = ("PROPERTY: no control name can shadow another -- every `registry()` merges through "
+             "`Registry` and no fragment literal repeats a key")
+TOTAL_CTL = ("PROPERTY: every self-test module's `registry()` fragment is merged into the one table "
+             "(a fragment nobody merges drops its controls at rc 0)")
+POPMOD = "plan_memo_selftest_population.py"
+
+# -- the sixth-pass attestation: every mechanism that pass added or found
+# unpinned, each with the partner arm that kills it.
+MUTANTS += [
+    ("population: a registry module binds its list at TOP LEVEL (read every assignment -- a list "
+     "bound inside a function makes a module a registry)", HARNESS,
+     "    for node in tree.body:\n        targets = (node.targets",
+     "    for node in ast.walk(tree):\n        targets = (node.targets",
+     [POPULATION_CTL]),
+    ("population: an ANNOTATED assignment binds the list (read `Assign` alone)", HARNESS,
+     "                   else [node.target] if isinstance(node, ast.AnnAssign) else [])",
+     "                   else [])",
+     [POPULATION_CTL]),
+    ("population: a registry module is a SELF-TEST module (drop it -- a checker module holding "
+     "a `MUTANTS` becomes one)", HARNESS,
+     "if is_selftest(f) and _assigns(here, f, name)]",
+     "if _assigns(here, f, name)]",
+     [POPULATION_CTL]),
+    ("population: a `from X import` is an order edge (drop it)", HARNESS,
+     "            if isinstance(node, ast.ImportFrom) and node.module in by_name:\n"
+     "                got.add(node.module)",
+     "            if False:\n                got.add(node.module)",
+     [POPULATION_CTL]),
+    ("merge: `Registry` refuses a name it holds (drop the refusal)", HARNESS,
+     "        if key in self:\n            raise KeyError(",
+     "        if False:\n            raise KeyError(",
+     [MERGE_CTL]),
+    ("merge: `Registry.update` goes through the refusal (bypass it)", HARNESS,
+     "        for key, value in dict(*args, **kw).items():\n            self[key] = value",
+     "        dict.update(self, *args, **kw)",
+     [MERGE_CTL]),
+    ("merge: a `registry()` building a plain dict is reported (drop the clause)", POPMOD,
+     '            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict":',
+     "            if False:",
+     [MERGE_CTL]),
+    ("merge: a fragment literal repeating a key is reported (drop the clause)", POPMOD,
+     "                dup = sorted({k for k in keys if keys.count(k) > 1})",
+     "                dup = []",
+     [MERGE_CTL]),
+    ("totality: an unmerged fragment is reported (drop the report)", POPMOD,
+     "            for m, k in sorted(fragments.items()) if k - final]",
+     "            for m, k in sorted(fragments.items()) if False]",
+     [TOTAL_CTL]),
+    ("registry: a module holding an EMPTY list is refused (drop the check -- a list emptied by "
+     "another module, or a name collision, passes)", REGISTRY,
+     "        if not own:\n",
+     "        if False:\n",
+     [STEP]),
+    ("registry: a module ALIASING another's list is refused (drop the check -- its rows are "
+     "counted twice)", REGISTRY,
+     "        if id(own) in held:",
+     "        if False:",
+     [STEP]),
+    ("registry: `spellings` binds only the caller's own CASES (drop the check -- cases written "
+     "to a throwaway list never run)", CASES_BASE,
+     '    if caller is not globals() and caller.get("CASES") is not into:',
+     "    if False:",
+     [STEP]),
+    ("rows: a row naming NO control is a problem (drop the check -- it counts as killed)",
+     MUTANTS_BASE,
+     "        if not controls:",
+     "        if False:",
+     [ROWS_CTL]),
+    ("rows: a label used twice is a problem (drop the check)", MUTANTS_BASE,
+     "        if name in labels:",
+     "        if False:",
+     [ROWS_CTL]),
+    ("rows: an edit repeated is a problem (drop the check -- an aliased list's rows run twice)",
+     MUTANTS_BASE,
+     "        if (file, find, replace) in edits:",
+     "        if False:",
+     [ROWS_CTL]),
+    ("membership: the disk is EVERY `.py` beside the checker (read the population glob alone -- "
+     "a helper outside it is never seen)", POPMOD,
+     '    disk = {q.name: q.read_text(encoding="utf-8") for q in sorted(here.glob("*.py"))}',
+     '    disk = {q.name: q.read_text(encoding="utf-8") for q in sorted(here.glob(H.GLOB))}',
+     [MEMBERSHIP]),
+    ("membership: a FUNCTION-LOCAL import is an edge (read top-level statements only -- the "
+     "runner, imported inside the entry point's dispatch, is then reached by nothing)", POPMOD,
+     "    for node in ast.walk(ast.parse(src, filename=file)):\n        if isinstance(node, ast.ImportFrom):",
+     "    for node in ast.parse(src, filename=file).body:\n        if isinstance(node, ast.ImportFrom):",
+     [MEMBERSHIP]),
+    ("membership: a root outside the population reaches nothing (take every root)", POPMOD,
+     "    reached = {r for r in roots if r in inside}",
+     "    reached = set(roots)",
+     [MEMBERSHIP]),
+    ("membership: reachability follows the import graph (stop after the roots)", POPMOD,
+     "    for _round in range(len(inside)):",
+     "    for _round in range(0):",
+     [MEMBERSHIP]),
 ]

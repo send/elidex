@@ -47,7 +47,7 @@ import pathlib
 import tempfile
 
 from plan_memo_selftest_cases import build
-from plan_memo_selftest_harness import ENTRY, HERE, files, import_name, is_selftest
+from plan_memo_selftest_harness import ENTRY, HERE, files, import_name, is_selftest, merge
 from plan_memo_selftest_properties import _swept_sources, registry as property_registry
 
 # The module map lives in the entry point's docstring, between these two
@@ -343,10 +343,17 @@ _IMPORT_SEAMS = {
     "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
                     "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py",
                     "plan_memo_selftest_harness.py", "plan_memo_selftest_population.py"}, None),
-    "the harness's module-set handles": (
-        ("MODULES", "SOURCES", "GRAMMAR", "HERE"),
+    # ⚠ The label said "module-set handles" and listed four constants after the
+    # population became a DERIVATION with its own API (`files`, `import_name`,
+    # ...), which `plan_memo_selftest_mutants` imports function-locally -- a
+    # seam that described less than the harness exports (the sixth-pass
+    # attestation, MIN-11).  Both halves are the seam now.
+    "the harness's module-set handles and population API": (
+        ("MODULES", "SOURCES", "GRAMMAR", "HERE", "ENTRY", "GLOB", "files", "import_name",
+         "is_selftest", "registry_modules", "checker_files"),
         {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
-         "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py"}, None),
+         "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py",
+         "plan_memo_selftest_mutants.py"}, None),
     "the fixture runner": (("run_on",),
                            {"plan_memo_selftest_invariants.py", "plan_memo_selftest_controls.py"}, None),
     "the work witnesses": (
@@ -461,7 +468,10 @@ def report_channel_control(M):
     emit sites, of which three were wrapped.
 
     THE POPULATION IS THE EMIT SITE, NOT THE NAME.  Every `print(...)` and every
-    `<list>.append(...)` in the two report modules whose argument is a `%`
+    `<list>.append(...)` in a REPORT module (`_report_modules`: every source
+    with a `print` call, derived, and the run's detail names how many; ⚠ this
+    said "the two report modules" while the derived set was four) whose
+    argument is a `%`
     formatting expression over a literal format string must be wrapped in
     `printable(...)`.  That predicate is structural: it does not ask whether the
     arguments happen to carry a control name today, which is the symptom
@@ -471,10 +481,7 @@ def report_channel_control(M):
     the next class's hiding place, and escaping a number costs nothing.
 
     HONESTLY, what it cannot see: a line built by concatenation or an f-string
-    rather than `%`; a third report module (the population is the two named
-    here, and a new one would be invisible until it is added -- the same open
-    edge every enumerated table in this suite has, and the reason the count is
-    reported); and output written by something other than `print` / `append`.
+    rather than `%`; and output written by something other than `print` / `append`.
 
     ⚠ AND ONE STRUCTURAL LIMIT ON THE PROOF, not on the control.  Both mutants
     that kill this control patch the RUNNER; none patches
@@ -747,7 +754,7 @@ def import_direction_control(M):
 def registry():
     """name -> (kind, control), this module's fragment of the one table, merged
     over the property module's (invariants included)."""
-    reg = dict(property_registry())
+    reg = merge(property_registry())
     reg.update({
         "PROPERTY: every module of this checker is NAMED in the entry point's MODULES map (the map is checked, not asked to be kept)":
             ("CONTROL", module_map_completeness_control),

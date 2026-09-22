@@ -13,7 +13,7 @@ one whose measure is a COST is `plan_memo_selftest_work.py`'s, and one whose
 subject is a SENTENCE somebody wrote about this module set is
 `plan_memo_selftest_records.py`'s (carved at 1,110 lines; its header states
 that seam).  In the imports: who may import `ast`, the harness's module-set
-handles (`MODULES` / `SOURCES` / `GRAMMAR` / `HERE`), the fixture runner
+handles and population API, the fixture runner
 `run_on` and the work witnesses is the table
 `plan_memo_selftest_records._IMPORT_SEAMS`, which `import_seam_control`
 enforces -- it is not restated here, because the restatement is what went
@@ -53,7 +53,7 @@ module and the harness, and nothing of either.
 import ast
 import re
 
-from plan_memo_selftest_harness import ENTRY, GRAMMAR, HERE, MODULES, SOURCES, files
+from plan_memo_selftest_harness import ENTRY, GRAMMAR, HERE, MODULES, SOURCES, files, merge
 from plan_memo_selftest_invariants import registry as invariant_registry
 
 def _swept_sources():
@@ -690,7 +690,7 @@ def line_bound_control(M):
 def registry():
     """name -> (kind, control), the PROPERTY fragment of the one table: this
     module's source sweeps merged with the invariants module's."""
-    reg = dict(invariant_registry())
+    reg = merge(invariant_registry())
     reg.update({
         "PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)":
             ("CONTROL", id_spelling_sweep_control),

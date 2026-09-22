@@ -17,8 +17,8 @@ places where one reading of a text disagreed with another.  A row here answers
 lex?".
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
-gathers every mutants module's list (the harness's file-name rule decides which
-modules those are) in one explicit step.
+gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
+decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.
 """
 
 from plan_memo_selftest_cases_r26 import (

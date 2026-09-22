@@ -93,7 +93,21 @@ def spellings(into, sealed=lambda: False):
     """`case` / `acase` / `rcase` bound to ONE module's own list `into`.  Every
     cases module holds its own `CASES` and binds its own spellings; the base
     module's refuse once it is sealed, so a module still calling the base's
-    `case` fails at its import instead of losing its rows."""
+    `case` fails at its import instead of losing its rows.
+
+    ⚠ `into` must BE the calling module's own `CASES` (the base module binds
+    its private list): `spellings([])`, or any list the collection step will
+    not read, is refused at the caller's import.  Until the sixth-pass
+    attestation a module holding `CASES = []` could bind its spellings to a
+    throwaway list and every case it wrote was silently never run (IMP-4) --
+    an ACCIDENTAL edit (a wrong argument) reaches that, so it is in the threat
+    model (`plan_memo_selftest_registry`)."""
+    import sys
+    caller = sys._getframe(1).f_globals
+    if caller is not globals() and caller.get("CASES") is not into:
+        raise RuntimeError("spellings(...) in %s must bind that module's own `CASES` list"
+                           % caller.get("__name__"))
+
     def case(kind, name, text, prose, expect, sibling=None, files=None, measure="sites"):
         if sealed():
             raise RuntimeError("a cases module called the BASE module's `case` after it was "

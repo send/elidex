@@ -54,7 +54,7 @@ controls.
 """
 
 from plan_memo_selftest_growth import registry as growth_registry
-from plan_memo_selftest_harness import _WorkExceeded, _count_calls, _count_lines
+from plan_memo_selftest_harness import _WorkExceeded, _count_calls, _count_lines, merge
 from plan_memo_selftest_pipeline import registry as document_registry
 
 
@@ -601,7 +601,7 @@ def registry():
     """name -> (kind, control), the WORK fragment of the one table: this
     module's per-shape witnesses merged with the growth module's generated
     sweep."""
-    reg = dict(growth_registry())
+    reg = merge(growth_registry())
     reg.update(document_registry())
     reg.update({
         "the §6.4 demotion of code spans and autolinks is LINEAR in the nesting depth (a retag loop per image close re-walks every descendant)":

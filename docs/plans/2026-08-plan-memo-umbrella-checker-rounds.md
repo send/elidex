@@ -9,6 +9,9 @@ CONTRACT and an append-only HISTORY in one bullet, and the two have opposite lif
 ▶▶▶▶ **THE NEXT SESSION STARTS HERE (2026-09-21, head `799349db` PUSHED, tree clean, NO round in
 flight, and the converge loop is DELIBERATELY STOPPED).**
 
+⚠ **THE REGISTRY PLAN IS WITHDRAWN (user, 2026-09-23)** — the self-test registry guards against
+accidental drift and proof gaps, not deliberate tampering; the by-construction redesign is replaced by
+fixes in the existing mechanism. Record: `docs/plans/2026-09-plan-memo-selftest-registry.md`.
 ⚠ **THE STATE IN THIS BLOCK'S HEADER, ITS GATE LINE AND ITS MERGE PARAGRAPH IS STALE (2026-09-22) —
 read this first; the block is kept as written.** Since it was written: `4e46d95f` and `00dfd095` were
 pushed, and `00dfd095` is the pushed head; Codex answered `00dfd095` with a 👍 (dry,

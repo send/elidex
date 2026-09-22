@@ -39,6 +39,7 @@ against it takes its controls from the PATCHED text.
 """
 
 import ast
+import functools
 
 from plan_memo_selftest_harness import files
 from plan_memo_selftest_properties import _swept_sources
@@ -154,10 +155,13 @@ def _scope_verdict(text, rows, exempt):
             "has" % n for n in orphans]
     # ⚠ DISJOINT, because the first version's three numbers summed to 21 over 20
     # loops -- a loop that is exempt AND pinned was counted twice.  Exempt is
-    # decided first, so each loop lands in exactly one bucket.
+    # decided first, so each loop lands in exactly one bucket; the partner's
+    # exempt-and-credited arm pins it.  (An `assert` of the partition stood
+    # here and was DELETED: it restated the arithmetic of the three lines above
+    # and no input could make it fire -- the sixth-pass attestation's clause
+    # drop found it unkillable.)
     n_exempt = sum(1 for k in loops if k in exempt)
     n_pinned = sum(1 for k in loops if k not in exempt and k in credit)
-    assert n_exempt + n_pinned + len(unpinned) == len(loops), "the three buckets must partition"
     return bad, len(loops), n_pinned, n_exempt, len(unpinned)
 
 
@@ -302,7 +306,40 @@ _PARTNER_ROWS = [("truncate the first",
                   "    for x in xs[:1]:\n        pass\n")]
 
 
+# The SECOND fixture: one loop per criterion `_is_truncation` and
+# `_intends_truncation` state that the first fixture does not reach.  None of
+# these rows truncates a loop to its first element, so none credits; the three
+# whose replacement is a `for ... in ...[:1]:` header are orphans.
+_P2_TEXT = ("def j(zs, m, n):\n"
+            "    for e in zs:\n        pass\n"
+            "    for f_ in zs:\n        pass\n"
+            "    for g in zs:\n        pass\n"
+            "    for i in zs:\n        pass\n"
+            "    w = 0\n")
+_P2_ROWS = [("a non-constant upper bound", "    for e in zs:", "    for e in zs[:n]:"),
+            ("a `list` reached through an attribute", "    for f_ in zs:",
+             "    for f_ in m.list(zs)[:1]:"),
+            ("`list` with two arguments", "    for g in zs:", "    for g in list(zs, 0)[:1]:"),
+            ("`list` with a keyword", "    for i in zs:", "    for i in list(zs, key=0)[:1]:"),
+            ("a `[:1]` on a line that is not a loop header", "    w = 0\n",
+             "    w = [v for v in zs][:1]\n"),
+            ("a `for` with no ` in `", "    for e in zs:\n        pass\n    for f_",
+             "    for e[:1]:\n        pass\n    for f_")]
+_P2_ORPHANS = ["a `list` reached through an attribute", "`list` with two arguments",
+               "`list` with a keyword"]
+
+
 def population_scope_partner_control(M):
+    """(See `_scope_partner`; an exception from the core is this control going
+    red, not a crash -- a mutated criterion that raises on a fixture it used to
+    decide has failed that fixture.)"""
+    try:
+        return _scope_partner()
+    except Exception as e:
+        return False, "the ratchet's core RAISED on its partner fixture: %s: %s" % (type(e).__name__, e)
+
+
+def _scope_partner():
     """PROPERTY (the loop ratchet's partner): one row truncating one of two
     loops that share a header credits THAT loop and no other -- and every
     other criterion the ratchet states, each with a fixture arm (the
@@ -334,14 +371,22 @@ def population_scope_partner_control(M):
              and any("names no loop" in b for b in gone))
     want = {("f", 1): ["truncate the first"], ("C.g", 1): ["truncate the method's"]}
     want_orphans = ["re-point the third", "truncate a CALL that is not `list`", "an ambiguous find"]
+    # exempt AND credited: exempt is decided first, so the loop is exempt, not pinned
+    _b, _n, both_pinned, both_exempt, _u = _scope_verdict(
+        _PARTNER_TEXT, _PARTNER_ROWS, {("f", 1): ("for x in xs:", "exempt and credited")})
+    credit2, orphans2 = _credit(_P2_TEXT, _P2_ROWS)
     ok = (loops == _PARTNER_LOOPS and credit == want and orphans == want_orphans
           and n == 11 and n_pinned == 2 and n_unpinned == 9 and len(bad) == 12
-          and not empty and not no_orphans and guard)
+          and not empty and not no_orphans and guard
+          and (both_pinned, both_exempt) == (1, 1)
+          and not credit2 and orphans2 == _P2_ORPHANS)
     return ok, ("population %s (want %s); credit %s (want %s); orphans %s; %d of %d pinned, %d "
-                "unpinned, %d bad; no row credits %s; the exempt guard %s"
+                "unpinned, %d bad; no row credits %s; the exempt guard %s; exempt-and-credited "
+                "(pinned, exempt) = %s (want (1, 1)); second fixture credits %s, orphans %s"
                 % (sorted(loops), sorted(_PARTNER_LOOPS), sorted(credit), sorted(want), orphans,
                    n_pinned, n, n_unpinned, len(bad), sorted(empty),
-                   "reports a moved and a vanished position" if guard else "is SILENT"))
+                   "reports a moved and a vanished position" if guard else "is SILENT",
+                   (both_pinned, both_exempt), sorted(credit2), orphans2))
 
 
 # -- the kind-question ratchet -----------------------------------------------
@@ -407,8 +452,14 @@ def _kind_question_modules(here=None):
     return files(here)
 
 
+@functools.lru_cache(maxsize=None)
 def _qualified_callers(text):
-    """(call name, qualified enclosing def) for every call in a module."""
+    """(call name, qualified enclosing def) for every call in a module.
+    CACHED on the text: it is a pure function of it, and the kind ratchet
+    and its partner ask it of the whole population once per probe (the
+    population grew to include the self-test half at the sixth attestation,
+    and re-parsing every module per probe per mutant row was the wall-clock
+    cost of that)."""
     out = []
 
     def walk(node, qual):
@@ -423,7 +474,7 @@ def _qualified_callers(text):
             walk(ch, qual)
 
     walk(ast.parse(text), ())
-    return out
+    return tuple(out)
 
 
 def _kind_question_verdict(sources, modules, sites):
@@ -513,6 +564,16 @@ _KIND_PROBES = (
 )
 
 
+_KV_SRC = {"m.py": "def a(p):\n    p._claims(1)\n    p._phrases(2)\n_claims(0)\n", "n.py": ""}
+_KV_SITES = {"_phrases": {("m.py", "b"): "x"},
+             "_claims": {("m.py", "a"): "x", ("n.py", "a"): "x"},
+             "kind_disagreements": {("m.py", "a"): "x"}}
+_KV_WANT = ("`_phrases` is called from `a` in m.py,",
+            "`_claims` is called from `<module>` in m.py,",
+            "the sanctioned site `b` in m.py makes no call to `_phrases`",
+            "the sanctioned site `a` in n.py makes no call to `_claims`",
+            "the sanctioned site `a` in m.py makes no call to `kind_disagreements`")
+
 _EXTRA = "plan_memo_extra.py"
 _EXTRA_SELFTEST = "plan_memo_selftestx_helper.py"
 
@@ -535,11 +596,19 @@ def kind_question_partner_control(M):
     sources = dict(_swept_sources())
     modules = _kind_question_modules()
     base, _n = _kind_question_verdict(sources, modules, _KIND_QUESTION_SITES)
+    quiet = []
+    # THE KEY, asked of a synthetic module (the sixth-pass attestation's IMP-1
+    # and N-2): each question's sanction is ITS OWN (a site sanctioned for
+    # `_claims` asking `_phrases` is red), keyed on BOTH module and caller in
+    # both directions, and a module-level call is named `<module>`.
+    kv, _n = _kind_question_verdict(_KV_SRC, sorted(_KV_SRC), _KV_SITES)
+    for want in _KV_WANT:
+        if not any(want in b for b in kv):
+            quiet.append("synthetic: %s" % want)
     stale = dict(_KIND_QUESTION_SITES)
     stale["_claims"] = {**stale["_claims"], (CENSUS, "Population._gone"): "no such caller"}
     gone, _n = _kind_question_verdict(sources, modules, stale)
     gone = any("`Population._gone`" in b and "makes no call" in b for b in gone)
-    quiet = []
     for label, file, tail in _KIND_PROBES:
         probed = dict(sources)
         probed[file] = sources.get(file, "") + tail

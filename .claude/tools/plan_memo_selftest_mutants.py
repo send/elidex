@@ -542,6 +542,24 @@ def mutants(names=None):
     return collect("MUTANTS", "plan_memo_selftest_mutants", names)
 
 
+def row_problems(rows):
+    """Every accidental defect of the row list itself, before any row runs:
+    a row naming NO control (it would count as killed having proved nothing:
+    the sixth-pass attestation's MIN-5), a LABEL used twice, and the same
+    (file, find, replace) edit twice (MIN-6's aliased list)."""
+    bad, labels, edits = [], set(), set()
+    for name, file, find, replace, controls in rows:
+        if not controls:
+            bad.append("MUTANT %r names no control -- it can only be counted as killed" % name)
+        if name in labels:
+            bad.append("MUTANT label %r is used twice" % name)
+        labels.add(name)
+        if (file, find, replace) in edits:
+            bad.append("MUTANT %r repeats another row's edit" % name)
+        edits.add((file, find, replace))
+    return bad
+
+
 def run(reg):
     """Apply each mutant to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
@@ -549,7 +567,7 @@ def run(reg):
     rows = mutants()
     printable = h.load().printable    # the ONE escape, owned by the report boundary
 
-    fails = []
+    fails = [printable(p) for p in row_problems(rows)]
     print()
     print("mutants (each must turn its control red):")
     for name, file, find, replace, controls in rows:

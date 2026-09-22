@@ -15,8 +15,8 @@ not a sentence.  `_mutants_r30.py` (981 lines) could not take them without
 crossing the 1000-line bound, and a subject is the seam these rows share.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
-gathers every mutants module's list (the harness's file-name rule decides which
-modules those are) in one explicit step.
+gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
+decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.
 """
 
 from plan_memo_selftest_mutants import RATCHETS
@@ -210,6 +210,69 @@ MUTANTS += [
      [CRITERIA_CONTROL]),
 ]
 
+# -- the sixth-pass attestation: the kind key's projections (IMP-1 / N-2), the
+# truncation and intent criteria the second fixture pins, and the bucket order.
+MUTANTS += [
+    ("ratchets: each question's sanction is ITS OWN (union the sites over every question -- a site "
+     "sanctioned for `_claims` may ask `_phrases`)", RATCHETS,
+     "            if (mod, caller) in sites[name]:",
+     "            if (mod, caller) in set().union(*sites.values()):",
+     [KIND_PARTNER]),
+    ("ratchets: a sanction names the CALLER, not only the module (key it on the module alone)",
+     RATCHETS,
+     "            if (mod, caller) in sites[name]:",
+     "            if mod in {m for m, _c in sites[name]}:",
+     [KIND_PARTNER]),
+    ("ratchets: a stale sanction is judged PER QUESTION (drop the question from the seen key -- a "
+     "site seen for `_claims` hides its stale `kind_disagreements` sanction)", RATCHETS,
+     "            if (name, mod, caller) not in seen:",
+     "            if (mod, caller) not in {(m, c) for _q, m, c in seen}:",
+     [KIND_PARTNER]),
+    ("ratchets: a stale sanction is judged PER MODULE (drop the module from the seen key -- a "
+     "caller of the same name elsewhere hides it)", RATCHETS,
+     "            if (name, mod, caller) not in seen:",
+     "            if (name, caller) not in {(q, c) for q, _m, c in seen}:",
+     [KIND_PARTNER]),
+    ("ratchets: a MODULE-LEVEL call is a call, named `<module>` (drop it)", RATCHETS,
+     '                out.append((name, ".".join(qual) or "<module>"))',
+     '                if qual:\n                    out.append((name, ".".join(qual)))',
+     [KIND_PARTNER]),
+    ("ratchets: only a `list` NAME is unwrapped (accept any callee -- `m.list(zs)[:1]` raises on "
+     "`.id`)", RATCHETS,
+     'isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "list"',
+     'isinstance(v, ast.Call) and v.func.id == "list"',
+     [SCOPE_PARTNER]),
+    ("ratchets: only a ONE-argument `list(...)` is unwrapped (drop the count -- `list(zs, 0)[:1]` "
+     "is credited)", RATCHETS,
+     "            and len(v.args) == 1 and not v.keywords):",
+     "            and not v.keywords):",
+     [SCOPE_PARTNER]),
+    ("ratchets: only a keyword-free `list(...)` is unwrapped (drop the check -- `list(zs, key=0)[:1]` "
+     "is credited)", RATCHETS,
+     "            and len(v.args) == 1 and not v.keywords):",
+     "            and len(v.args) == 1):",
+     [SCOPE_PARTNER]),
+    ("ratchets: the upper bound must be a CONSTANT (drop the type check -- `zs[:n]` raises on "
+     "`.value`)", RATCHETS,
+     "isinstance(sl.upper, ast.Constant) and sl.upper.value == 1)",
+     "sl.upper.value == 1)",
+     [SCOPE_PARTNER]),
+    ("ratchets: a truncating INTENT needs a `for` header (any `[:1]` line intends -- a non-loop "
+     "line becomes an orphan)", RATCHETS,
+     'return any(ln.strip().startswith("for ") and " in " in ln and "[:1]" in ln',
+     'return any("[:1]" in ln',
+     [SCOPE_PARTNER]),
+    ("ratchets: a truncating INTENT needs ` in ` (drop it -- `for e[:1]:` becomes an orphan)",
+     RATCHETS,
+     'return any(ln.strip().startswith("for ") and " in " in ln and "[:1]" in ln',
+     'return any(ln.strip().startswith("for ") and "[:1]" in ln',
+     [SCOPE_PARTNER]),
+    ("ratchets: EXEMPT is decided first (count an exempt-and-credited loop as pinned too)", RATCHETS,
+     "    n_pinned = sum(1 for k in loops if k not in exempt and k in credit)",
+     "    n_pinned = sum(1 for k in loops if k in credit)",
+     [SCOPE_PARTNER]),
+]
+
 # THE CRITERIA TABLE: each criterion the two ratchets' docstrings state, and the
 # PREFIX of the row that kills it.  DATA, checked by
 # `plan_memo_selftest_ratchets.criteria_rows_control` (every prefix names an
@@ -252,4 +315,16 @@ CRITERIA = (
     ("kind: a sanctioned site that makes no call is red",
      "ratchets: a sanctioned site that makes no call"),
     ("criteria: every criterion names an existing row", "ratchets: every criterion of `CRITERIA`"),
+    ("kind: each question's sanction is its own", "ratchets: each question's sanction is ITS OWN"),
+    ("kind: a sanction names the caller", "ratchets: a sanction names the CALLER"),
+    ("kind: a stale sanction is judged per question", "ratchets: a stale sanction is judged PER QUESTION"),
+    ("kind: a stale sanction is judged per module", "ratchets: a stale sanction is judged PER MODULE"),
+    ("kind: a module-level call is a call", "ratchets: a MODULE-LEVEL call is a call"),
+    ("truncation: only a `list` name is unwrapped", "ratchets: only a `list` NAME is unwrapped"),
+    ("truncation: only a one-argument `list` is unwrapped", "ratchets: only a ONE-argument"),
+    ("truncation: only a keyword-free `list` is unwrapped", "ratchets: only a keyword-free"),
+    ("truncation: the upper bound is a constant", "ratchets: the upper bound must be a CONSTANT"),
+    ("loop: intent needs a `for` header", "ratchets: a truncating INTENT needs a `for` header"),
+    ("loop: intent needs ` in `", "ratchets: a truncating INTENT needs ` in `"),
+    ("loop: exempt is decided first", "ratchets: EXEMPT is decided first"),
 )

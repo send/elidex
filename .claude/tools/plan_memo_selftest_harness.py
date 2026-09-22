@@ -65,6 +65,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 # import order.
 # The second and third spellings are deleted, not cross-checked.
 
+# THE THREAT MODEL of the population and the registries has one home: the
+# docstring of `plan_memo_selftest_registry`.
+
 ENTRY = "plan-memo-umbrella-check.py"
 ENTRY_NAME = "plan_memo_umbrella_check"
 
@@ -156,6 +159,32 @@ def _import_order(here=None):
 
 
 MODULES = _import_order()
+
+
+class Registry(dict):
+    """A control table that REFUSES a name it already holds -- by item and by
+    `update` alike -- so one fragment's control cannot silently shadow
+    another's (the sixth-pass attestation's N-1: a duplicated key left 747
+    controls and rc 0, the shadowed one never run).  `merge` builds one; every
+    `registry()` merges through it (`plan_memo_selftest_population.
+    registry_merge_control` checks that no `registry()` builds a plain dict)."""
+
+    def __setitem__(self, key, value):
+        if key in self:
+            raise KeyError("duplicate control name %r" % (key,))
+        dict.__setitem__(self, key, value)
+
+    def update(self, *args, **kw):
+        for key, value in dict(*args, **kw).items():
+            self[key] = value
+
+
+def merge(*fragments):
+    """ONE table from registry fragments, refusing a duplicated name."""
+    reg = Registry()
+    for fragment in fragments:
+        reg.update(fragment)
+    return reg
 
 # The id grammar module: the ONE file that may spell an id character class;
 # the spelling sweep (`id_spelling_sweep_control`) reads every other module
