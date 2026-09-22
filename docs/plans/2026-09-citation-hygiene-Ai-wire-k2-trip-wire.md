@@ -1162,3 +1162,82 @@ enumeration by a fresh agent over the populations these findings came from — f
 universals in prose, every shim and what it wraps, every status site, every boundary rule in
 both directions, and what the fixtures inherit from the caller's environment — with anything
 it finds either fixed or listed for the merge decision.
+
+## §11 Design revision — after the enumeration attestation (plan-review required before implementation)
+
+The Codex loop was stopped at R9 (§10.8) and replaced by an enumeration over the populations its
+findings came from, run by a fresh agent on a frozen snapshot (`d5dcad1c`). It returned **3 CRIT,
+7 IMP and about 30 MIN**. Nine rounds of external review had been sampling that population one
+member at a time. This section is the revision the result calls for; it is **edge-dense** (it
+intersects the environment the wire runs in, the environment the controls inject on purpose, the
+deliberate `GIT_CONFIG*` preservation and the PATH shims), so CLAUDE.md requires a plan-review of it
+before any of it is implemented.
+
+### §11.1 The root: the wire trusts its ambient environment
+
+Most CRIT/IMP findings are one class: an input the caller's environment supplies reaches the scan
+or the fixtures and changes a verdict.
+
+| # | input | effect | reproduced by |
+|---|---|---|---|
+| D1 (CRIT) | `GREP_OPTIONS` | BSD grep (macOS) honours it; `--exclude=*.md` makes a named file read as "no match", so the local gate goes green over an untracked `.md` violation. GNU grep ≥3.6 ignores it, so CI is unaffected | the auditor, and independently the author with `/usr/bin/grep` 2.6.0-FreeBSD |
+| D4 (IMP) | `BASHOPTS=inherit_errexit`, `POSIXLY_CORRECT` | a failing `cat`/`readlink` kills the `_scan` subshell; the verdict is taken over a truncated record stream (green in `--selftest`) | the auditor |
+| D6 (IMP) | `GIT_TEMPLATE_DIR` | fixture repos are seeded from the caller's template; controls go unexercised | the auditor |
+| D7 (IMP) | `GIT_TRACE*` | git's stderr chatter reads as a walk error | the auditor |
+| D8 (IMP) | `CDPATH` | `cd` prints and resolves elsewhere; the run dies with the violation exit code | the auditor |
+| D5 (IMP) | `umask` | a restrictive umask leaks a mode-000 scratch dir; the resolution guards are dead under `set -e` | the auditor |
+| — | `BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*` | arbitrary code / tracing / function overrides of `grep`, `cat`, `git` | reasoned; `SHELLOPTS=xtrace` reproduced (loud) |
+
+Every earlier fix to this class — `WEBREF_WIRE_MUTANTS`, `WEBREF_WIRE_SELFTEST`, the `_git` purge,
+`_fgit` — was a **denylist**: name the dangerous input, neutralise it. A denylist's unknown member
+lands on the unsafe side, which is §10.4's lesson in a different population.
+
+**Proposal: re-exec under an allowlist.** The wire's first action is
+`exec env -i <allowlist> "$BASH" --noprofile --norc "$SELF" --hermetic "$@"` unless `$1` is
+`--hermetic`. Allowlisted: `PATH` (the controls shim through it), `HOME` (the real scan reads the
+user's git config on purpose), `TMPDIR`, and the `GIT_CONFIG*` family (preserved on purpose, #501
+R97). `LC_ALL=C` and a fixed `umask` are set after the re-exec. Everything else — including every
+variable nobody has thought of yet — is gone. `--hermetic` is an argument, so, like `--selftest`,
+it cannot be inherited; the driver passes none.
+
+Questions for the plan-review:
+1. Is the allowlist complete for the *real* scan, and does anything on it reopen the class (`PATH`
+   carries the shims, so a hostile `PATH` still chooses `grep`; is that in scope)?
+2. The controls **inject** environment on purpose (`_ctl_env`: a routed `GIT_DIR`, a
+   `GIT_CONFIG_COUNT`, the old self-test names). Under the re-exec, a non-allowlisted injection is
+   stripped before the wire sees it. Each such control must be re-read: does it still test what it
+   names, or does it now test the allowlist?
+3. `$BASH` vs `bash` from `PATH` for the re-exec: the controls run the wire under 3.2 and 5.x on
+   purpose.
+
+### §11.2 Point defects outside that class
+
+| # | defect | proposal |
+|---|---|---|
+| D4 (residual) | scan completion is never asserted — `_verdict "$(_scan …)"` discards `_scan`'s status | `_scan` ends its stream with a terminal record; `_verdict` refuses a stream without it (by construction, whatever killed the subshell) |
+| D2 (CRIT, low reach) | a tracked file under a read-but-not-search (0444) directory: `[ -L/-f/-e ]` all fail with EACCES, the path reads as "tracked and gone", no record is written, green | a tracked path that is neither a file, a link nor provably absent becomes an `err`; "absent" needs a positive test |
+| D3 (CRIT, heuristic half) | `]`, a quote and a backtick inside a segment end it, so `.claude/tools/team]inc/rule.md` is a miss — and the wire's own list of what it does not decide omits it | declare it in that list (the running-text half is a heuristic by the header's own account) rather than widen the class; the stored-path half is unaffected |
+| D5 | the scratch-resolution guards are unreachable (`x=$(…)` under `set -e` exits first, before the trap on the first one) | `x=$(…) || x=""`, so the guard that prints the diagnostic is the one that runs |
+| D9 | `scripts/trip-wires.sh`'s `TRIP_WIRES_SELFTEST`, exported, silently skips the driver's own self-test — R8's class, in the driver | an argument, as R8 did for the wire |
+| D10 | seven boundary rules have a control in one direction only (the stored-path `/` arm, `^`, leading `~` and `+ % -`, both root sets, a final-segment `}`); every one's mutant survives | one control per missing direction, one record each |
+
+### §11.3 The comment layer is a generator
+
+About thirty MIN findings are claims in comments and in §0–§9 of this memo that were true when
+written and are not now (counts, "every"/"only"/"the one place", a moved line range, a list that
+grew). Most of the wire is comment, and most of that is
+history — why a line is the way it is, round by round. That is the same altitude problem #374
+ended by removing a layer rather than correcting it: history is **provenance**, and §10 of this
+memo already holds it.
+
+**Proposal:** the wire's comments state invariants and the reason each exists in one sentence, with
+a pointer to the §10 round that established it; the round-by-round narrative leaves the code.
+§0–§9 of this memo are either brought to the current state or marked as the state at a named
+commit. The enumeration's P1 is re-run afterwards — prose rules do not stop unexecuted claims, an
+executed enumeration does.
+
+### §11.4 What this does to the loop
+
+The Codex loop stays stopped. The terminator for this revision is: plan-review of §11 → implement →
+the same six-population enumeration by a fresh agent on the new head (no CRIT/IMP) → merge decision
+to the user. Codex may review the pushed head as a second opinion; it is not the terminator.
