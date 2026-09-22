@@ -879,6 +879,14 @@ cmark supports is the one the ratified control rejects — and (13) changes what
 asserts by giving it a second ground truth. The user's option-(d) acceptance was given at ten; this
 records the movement rather than absorbing it, because the policy's whole point is that the number
 is a classification and not an edit.
+⚠ **THE (12) HALF OF THE SENTENCE ABOVE IS A FALSE REASON FOR A DECISION THAT STANDS** (2026-09-22,
+found by the §8 carves' plan-review). The one-line fix does overturn R42's twin; the implication that
+fixing (12) REQUIRES overturning it does not hold. Asking the kind question of a keep-free reading
+while the attribution subject stays on the naming reading fixes the reproduction and leaves R42's twin
+untouched — a PROTOTYPE, not shipped: the reproduction exits 0 today (below) and the prototype makes
+it 1. So (12) is still not a fold, but for the edge-dense reason (the fix changes the kind READING
+and the residue MEASURE together and needs readings to be values first), not the overturn. The
+classification and the count are unchanged: (12) remains own.
 ⚠ **(10) ARRIVED BY AUDIT, NOT BY REVIEW** (PR #510 R45). It is a real deferral of this PR's subject
 that a reader auditing §8 could not find, because its home (§4) has no trigger column and no date
 — so the enumeration was complete over §8 and incomplete over the PR. Adding it moves the total and
@@ -1193,6 +1201,11 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   SHIPPED control red, the `**` twin R42 ratified as reporting TWO ids. Changing it is overturning a
   recorded decision, not patching a slip, and the direction cmark supports is the one the ratified
   control rejects.
+  ⚠ **That is a reason about THIS fix, not about every fix** (2026-09-22, the carves' plan-review): the
+  root is that the KIND is read off a stream whose decoration exception depends on the keep-set —
+  outside any image, `UMBRELLA, not **a** terminal unit` exits 0 when `a` is declared and 1 when it is
+  not — and a keep-free kind reading fixes it without touching R42 (prototype). Not folded here all
+  the same: edge-dense, as the next line says.
   ⚠ **Edge-dense by CLAUDE.md's own test**: it intersects the id-grammar decoration exception, §6.4's
   demotion, `MARKER_RE`, the residue gate (`kind_disagreements` cannot see it — both readings agree,
   measured) and the `keep` set. `/elidex-plan-review` before implementation, BY RULE.
@@ -1251,7 +1264,12 @@ boundary — not for reasoning the number down, which the policy forbids outrigh
   control (`` `\t| Slot | … |` over `\t|---|…|` ``) went red. The population must be "lines where a
   table could have been admitted", which is a Phase-1 block-context question and not a `"|" in line`
   test. That is the population-by-symptom-vocabulary trap the §8 entry below this one names.
-  **(ii) It requires overturning FOUR ratified controls.** "(table) header and delimiter of unequal
+  **(ii) It requires overturning FOUR ratified controls.** ⚠ *Two particulars below are false, and the
+  reason (a design question) stands* (2026-09-22): only one of the four measures `rc` (the `rcase`);
+  the other three measure `sites` / `id` and carry the harness's implicit rc half
+  (`grep -n 'res.rc != 2' .claude/tools/plan_memo_selftest_harness.py`); and "FOUR" is a floor, not
+  the count — a prototype of the arm (on a per-line reading since rejected) turned more red, so the
+  count is for the owning slice to re-derive on the arm it adopts. "(table) header and delimiter of unequal
   width are not a table", "(table) a delimiter cell is ≥1 hyphen; `:` alone is not", "(rc) a slice
   header over a one-cell delimiter row is not a table…", and the lazy-quote header control all
   assert **rc 0** beside their own subject. Their subject (is this a table?) survives the change and
