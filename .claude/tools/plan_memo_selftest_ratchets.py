@@ -324,6 +324,56 @@ def population_scope_partner_control(M):
                    "reports a moved and a vanished position" if guard else "is SILENT"))
 
 
+_PLANT_OWNLESS = "MUTANTS = __import__('plan_memo_selftest_mutants').MUTANTS\n"
+_PLANT_APPENDER = ("MUTANTS = []\n"
+                   "__import__('plan_memo_selftest_mutants').MUTANTS.append(('planted', '', '', '', []))\n")
+
+
+def registry_step_control(M):
+    """PROPERTY: the mutation registry is gathered in ONE step that REFUSES a
+    module appending to the base list -- the side channel the fifth
+    attestation closed, planted both ways.
+
+    The loop ratchet reads `mutants()`, so its answer is only as good as that
+    step's refusal: a module that extends the base list at import time makes
+    the registry depend on import order again (the inert runner list, the
+    ratchet's glob).  Two plants, each written to a temporary directory and
+    imported by name: one whose `MUTANTS` IS the base list (no list of its
+    own), and one that holds its own list but also appends to the base.  Each
+    must raise; the unplanted call must not.  The base list is restored
+    whatever happens, since the second plant really does append."""
+    import importlib
+    import pathlib
+    import sys
+    import tempfile
+    mm = importlib.import_module("plan_memo_selftest_mutants")
+    base_n = len(mm.MUTANTS)
+    refused = []
+    with tempfile.TemporaryDirectory() as d:
+        sys.path.insert(0, d)
+        try:
+            for label, body in (("ownless", _PLANT_OWNLESS), ("appender", _PLANT_APPENDER)):
+                name = "plan_memo_selftest_mutants_plant_%s" % label
+                (pathlib.Path(d) / (name + ".py")).write_text(body, encoding="utf-8")
+                try:
+                    mm.mutants([name])
+                    refused.append(False)
+                except RuntimeError:
+                    refused.append(True)
+                finally:
+                    sys.modules.pop(name, None)
+                    del mm.MUTANTS[base_n:]
+        finally:
+            sys.path.remove(d)
+    clean = True
+    try:
+        mm.mutants([])
+    except RuntimeError:
+        clean = False
+    return all(refused) and clean, ("planted (ownless, appender) refused %s; the unplanted call "
+                                    "%s" % (refused, "succeeds" if clean else "RAISES"))
+
+
 # -- the kind-question ratchet -----------------------------------------------
 
 # The sanctioned callers of each kind-phrase question: QUESTION -> {(module,
@@ -407,10 +457,15 @@ def _kind_question_verdict(sources, modules, sites):
     {file: text}, population and complement.  A call is sanctioned when its
     (module, qualified caller) is written under its question; a written
     site that makes no such call is red too, since a complement that names
-    what no longer exists is how a stale sanction outlives its caller."""
-    missing = [m for m in modules if m not in sources]
-    if missing:
-        return ["modules absent from the swept population: %s" % missing], 0
+    what no longer exists is how a stale sanction outlives its caller.
+
+    ⚠ A "module absent from the swept population" guard stood here and is
+    DELETED as dead code (the sixth pass): since the population is one
+    derivation, `sources` and `modules` come from the same `files()` in the
+    real control, and from the same temporary directory plus the one planted
+    file in the partner -- probed both ways, and with a new file on disk, the
+    difference is empty.  Only a caller that hand-builds an inconsistent pair
+    could reach it, and that caller now gets a KeyError, which is louder."""
     bad, seen, n = [], set(), 0
     for mod in modules:
         for name, caller in _qualified_callers(sources[mod]):
@@ -545,6 +600,8 @@ def registry():
             ("CONTROL", population_scope_control),
         "PROPERTY: the loop ratchet credits a loop by POSITION: one row truncating one of two loops that share a header pins that loop and no other":
             ("CONTROL", population_scope_partner_control),
+        "PROPERTY: the mutation registry is gathered in ONE step that refuses a module appending to the base list (planted twice: a module with no list of its own, and one that appends while holding one)":
+            ("CONTROL", registry_step_control),
         "PROPERTY: the kind-phrase questions are asked at their sanctioned sites only -- \"which kind does this field DECLARE\" and \"does this cell CLAIM one, under either reading\" are two questions with one site each, and a third caller asking either one directly is the shape three rounds of findings had":
             ("CONTROL", kind_question_site_control),
         "PROPERTY: the kind-question ratchet reports a caller in ANY module of the checker set, judged by (module, qualified function) -- not a caller outside a listed subset, not one whose bare name is sanctioned elsewhere":

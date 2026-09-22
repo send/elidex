@@ -60,6 +60,9 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
     "plan_memo_selftest_growth.py", "plan_memo_umbrella_selftest.py",
     "plan_memo_selftest_conformance.py", "plan_memo_selftest_ratchets.py")
 
+# This module's own file: a row against `mutants()` (a LEAF -- it owns no controls).
+BASE = "plan_memo_selftest_mutants.py"
+
 # The SELF-TEST modules: a mutant row naming one of these patches the proof,
 # not the checker set.  A SET, not a comparison against `CONTROLS`, so the
 # next self-test module a touch-time split carves out arrives here rather
@@ -530,17 +533,19 @@ MUTANTS = [
 ]
 
 
-def mutants():
+def mutants(names=None):
     """EVERY mutant row: this module's list, then each other mutants module's
     OWN list, in the harness's population order -- a new list, built in ONE
     explicit step, so no reader's answer depends on what another reader
     happened to import first.  A registry module that appends to THIS list
-    instead of holding its own is refused: that was the side channel."""
+    instead of holding its own is refused: that was the side channel.
+    `names` (default: the harness's `MUTANT_MODULES`) lets the partner control
+    plant a module; `plan_memo_selftest_ratchets.registry_step_control`."""
     import importlib
     from plan_memo_selftest_harness import MUTANT_MODULES
     base_n = len(MUTANTS)
     rows = list(MUTANTS)
-    for name in MUTANT_MODULES:
+    for name in (MUTANT_MODULES if names is None else names):
         if name == __name__.replace("_patched", ""):
             continue
         mod = importlib.import_module(name)

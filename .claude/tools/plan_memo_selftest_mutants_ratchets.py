@@ -19,7 +19,7 @@ gathers every mutants module's list (the harness's file-name rule decides which
 modules those are) in one explicit step.
 """
 
-from plan_memo_selftest_mutants import RATCHETS
+from plan_memo_selftest_mutants import BASE, RATCHETS
 
 # This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
 # registry module's list in one explicit step, and none appends to another's.
@@ -162,4 +162,25 @@ MUTANTS += [
      '                walk(ch, qual + (ch.name,))',
      '                walk(ch, (ch.name,))',
      [KIND]),
+]
+
+# -- the sixth pass: the registry step's refusal, both branches, against the
+# control that plants an appending module.  The rows patch the BASE mutants
+# module, a leaf, which `patched_module` installs under its real name for the
+# row -- so the control's call-time import reaches the patched `mutants()`.
+STEP = ("PROPERTY: the mutation registry is gathered in ONE step that refuses a module appending to "
+        "the base list (planted twice: a module with no list of its own, and one that appends while "
+        "holding one)")
+
+MUTANTS += [
+    ("registry step: a module whose MUTANTS IS the base list is refused (drop the check -- its rows "
+     "are the base rows again, counted twice)", BASE,
+     '        if own is None or own is MUTANTS:',
+     '        if False:',
+     [STEP]),
+    ("registry step: a module that appends to the base list is refused (drop the check -- the "
+     "registry depends on import order again)", BASE,
+     '    if len(MUTANTS) != base_n:',
+     '    if False:',
+     [STEP]),
 ]
