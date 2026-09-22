@@ -1342,3 +1342,23 @@ review stops and the implementation's own gates take over.
 | prototype | D2's nearest existing ancestor being a regular file (a tracked directory replaced by a file) is ENOTDIR — a positive absence — but the rule made it an `err` | a non-directory nearest ancestor is absence |
 | prototype | D4's "remove the check" record contained the tag's TAB, which splits the record | the record edits the check without the TAB |
 | prototype | D4's early-return terminal record has no discriminating control | accepted: both paths exit 2 and differ only in message; stated at the arm |
+
+### §11.7 What the implementation decided where §11 did not say
+
+Implemented over `996ec177`. The dispositions above are the specification; these are the points
+it left open, answered in the code and recorded here so the attestation §11.5 calls for reads a
+position rather than a silence.
+
+| # | Left open | Decided |
+|---|---|---|
+| 1 | `_absent`'s remaining shapes: a nearest existing ancestor that is a dangling symlink, and a walk that runs off the top of `$ROOT` | Absence is claimed only for a searchable directory or a non-directory (ENOTDIR). Anything else — including the walk exhausting its components — returns "not established", i.e. an `err`. Unknown lands on red, as everywhere else here |
+| 2 | how the two re-aimed records are re-aimed | `quotename`'s mutant now excludes `"` from `$K2RE_PATH`'s segments, which is the claim its label makes; the old `K2RE_PATH="$K2RE"` mutant is kept and re-needled to `stagedlink`, whose staged target holds a space — the shape that still separates the two predicates after D3. `punctslash`'s mutant now adds the closing-punctuation exclusion to the FIRST segment, which is the over-reach it was written against |
+| 3 | how the fsmonitor control proves anything where a hook cannot run | It is not a `_control` (the question is whether a command RAN). The hook is first shown to run under a plain `git ls-files` over the same fixture; if it does not, the block reports **CONTROL NOT EXERCISED** and reds, rather than passing because nothing happened |
+| 4 | `-c core.untrackedCache=false` has no control | Stated at the site and in the wire's list of what no control pins. It is caller state of the same kind as `core.fsmonitor`, and turning it off costs nothing this gate needs |
+| 5 | what "counts records per needle" means for the correspondence check | Two checks rather than a per-needle table, which would be a hand-kept list of the kind this file keeps retiring: the `!survive` record must be present exactly once, and the record count has a floor (`_MUT_RECORDS_MIN`) that an edit must lower deliberately. ⚠ What neither sees is a deletion and an addition in the same edit; the added record still has to kill |
+| 6 | D10's population after D3 | Each rule of `$K2RE` and `$K2RE_PATH` was mutated against the control set as it stood; the survivors are what the new controls answer — the `^` half of the leading boundary, the members of the leading exclusion class that `atclaude` and `suffixpath` did not already cover, both root sets, the `.` of `.claude`, whitespace and empty segments in a segment followed by `/`, the final segment's terminators other than `)` and whitespace, `$K2RE_PATH`'s `/` alternative and its first segment's non-emptiness. The mutants are the records beside those controls |
+| 7 | the controls file's size | It would have passed the threshold, so the touch-time split landed first, as its own commit: the control **harness** (how a control runs) out of the control **catalogue** (which controls exist). §4 and §8 carry it |
+
+⚠ **What this implementation did NOT do**: the PR body (§11.2's last line) and the defer-ledger
+registration of `#11-trip-wire-launch-environment` (§11.1) are not in this diff — they are
+written where the PR and the ledger live.

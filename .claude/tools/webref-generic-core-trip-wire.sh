@@ -582,8 +582,9 @@ K2RE_PATH='(^|/)\.claude/(skills|tools)/[^/]+/[^/]+'
 # way into a record; the escape is lossy on purpose, since what a reader needs
 # is to find the entry, not to round-trip its bytes.
 # EVERY `git` CALL THAT READS THE TREE GOES THROUGH HERE — the exception is the
-# `rev-parse --local-env-vars` call just below, which runs before this function
-# can exist, since it is what builds the list the function uses — because
+# `rev-parse --local-env-vars` call just below, which has to run before this
+# function can work, since it is what builds the list the function purges —
+# because
 # `-C "$ROOT"` does NOT
 # win over the repository-routing environment: with `GIT_DIR`/`GIT_WORK_TREE`
 # exported — a wrapper, a hook — the inventory described ANOTHER CHECKOUT while
