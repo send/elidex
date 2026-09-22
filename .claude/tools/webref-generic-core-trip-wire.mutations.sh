@@ -24,9 +24,10 @@
 # rather than hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
-# WHAT IT CONSUMES: `$CTL`, `$_CONTROLS` and `$_MUTATIONS` (from the controls
-# file — the last is this file's own path, which `_mut_run` copies beside each
-# mutant), plus `$SELF` and `$SCRATCH` (from the wire).
+# WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_CONTROLS`,
+# `$_HARNESS` and `$_MUTATIONS` (from the controls file — the last is this
+# file's own path; `_mut_run` copies all three beside each mutant), plus `$SELF`
+# and `$SCRATCH` (from the wire).
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_mutants`, `_mut_correspondence`,
 # `_mut_run`.
 # ⚠ AND IT WRITES NOTHING OF THE CALLER'S. `_mut_correspondence` used to set
@@ -38,7 +39,7 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in CTL _CONTROLS _MUTATIONS SELF SCRATCH; do
+for _n in CTL _CONTROLS _HARNESS _MUTATIONS SELF SCRATCH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
 if [ -n "$_mut_missing" ]; then
@@ -230,6 +231,8 @@ _mut_run() {
     # — which the harness then reports as the entry failing. Caught by the
     # standing negative control in the same run that split this file out.
     _mut_mut="${SELF%.sh}.mutant.$$.mutations.sh"
+    # …and the harness the copied controls source, for the same reason.
+    _mut_hns="${SELF%.sh}.mutant.$$.harness.sh"
     # ⚠ A LEFTOVER IS A REPORT, NOT A FILE TO CLEAN UP. `trap` does not run on
     # SIGKILL, so a killed run leaves mode-755 artifacts in `.claude/tools/`
     # where a `git add -A` would stage them. Say so; do not delete another run's.
@@ -239,9 +242,10 @@ _mut_run() {
       echo "  note: a previous mutation run left $_stale behind (SIGKILL?); it is" >&2
       echo "        not this run's to remove. Delete it once no run is using it." >&2
     done
-    trap 'command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut"; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+    trap 'command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
     cp "$_CONTROLS" "$_mut_ctl"
     cp "$_MUTATIONS" "$_mut_mut"
+    cp "$_HARNESS" "$_mut_hns"
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$CTL/.mutants"
@@ -295,7 +299,7 @@ _mut_run() {
            _mut_bad=$((_mut_bad + 1)) ;;
       esac
     done < "$CTL/.mutants"
-    command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut"
+    command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"
     echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named"
     [ "$_mut_bad" -eq 0 ] || exit 1
     echo "  every entry above was shown to red, and to red for its own reason"
