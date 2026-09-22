@@ -29,7 +29,21 @@
 # and `$SELF`, `$SCRATCH` and `$_CONTROLS` (from the wire). `_mut_run` copies
 # the controls, the harness and this file beside each mutant.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_mutants`,
-# `_mut_correspondence`, `_mut_run`.
+# `_mut_equivalent`, `_mut_correspondence`, `_mut_run`.
+#
+# TWO POPULATIONS, AND THE BOUNDARY BETWEEN THEM IS STATED AT BOTH ENDS.
+#   * `_mutants` — HAND-WRITTEN, one record per ARM, STATUS or WALK BEHAVIOUR,
+#     and each record names the control that must catch it. Its claim is
+#     *THAT* control is about *THAT* arm.
+#   * `_mut_gen_run` — GENERATED from `$K2RE` and `$K2RE_PATH` themselves, one
+#     mutant per character-class member and per quantifier. Its claim is
+#     weaker and its population is not a list anybody keeps: *every rule those
+#     two regexes spell is pinned by SOME control, or is argued equivalent.*
+# A new edit of a bracket expression or a quantifier in either regex belongs to
+# the generator and must not be hand-written here — the generator already makes
+# it, and a second copy is the duplicated decision surface this instrument
+# keeps retiring. Records for those rules that PRE-DATE the generator stay,
+# because they carry the control attribution the generator cannot.
 # ⚠ AND IT ASSIGNS NO VARIABLE THE CALLER OWNS. `_mut_correspondence` used to set
 # `ctl_ok` — a variable owned by the controls file — so a rename there would
 # have left this file assigning an unused global while the caller's status
@@ -77,7 +91,13 @@ fi
 #
 #     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
 #
-# ⚠ ADDING AN ARM MEANS ADDING A RECORD. Nothing here can detect an arm that
+# ⚠ ADDING AN ARM MEANS ADDING A RECORD — AN ARM, A STATUS OR A WALK
+# BEHAVIOUR. A rule spelled INSIDE `$K2RE` or `$K2RE_PATH` (a member of a
+# bracket expression, a quantifier) does not belong here: `_mut_gen_run` below
+# derives those from the assignments themselves, so a hand-written copy would
+# be a second spelling of the same class. The boundary is restated at that
+# function.
+# ⚠ Nothing here can detect an arm that
 # never had one — this set is a floor, not a census. ⚠ AND A DECLARED FLOOR IS
 # NOT A DETECTOR: this file used to say exactly the sentence above and assert
 # nothing, so deleting a record shrank the set in silence and the run stayed
@@ -117,7 +137,7 @@ fi
 #     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
 #     shrinking is what is caught; the added record still has to kill.
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=84
+_MUT_RECORDS_MIN=92
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -188,6 +208,14 @@ s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z_.~@+%-]/	a PATH character before .claude is not
 s/\[^A-Za-z0-9_.~@+%-\]/[^a-z0-9_.~@+%-]/	a PATH character before .claude is not a prose boundary
 s|\[^A-Za-z0-9_.~@+%-\]|[^A-Za-z0-9_.~@+%/-]|	a reference written after a slash fires
 s|`\]\*\[^\]|`]+[^]|	a ONE-character final segment fires
+s#(\[^/\[:space:\]\]+/|#([^/[:space:]]{2,}/|#	a ONE-character intermediate segment fires
+s#^K2RE_PATH='\(.*\)/\[^/\]+/\[^/\]+'#K2RE_PATH='\1/[^/]{2,}/[^/]+'#	a ONE-character first segment in a STORED path fires
+s|\[^\]/\[:space:\]"'"'"'`\]\*|[^/[:space:]"'"'"'`]*|	the final segment's middle stops where its last character does
+s|\[^\]/\[:space:\]"'"'"'`\]\*|[^][:space:]"'"'"'`]*|	the final segment's middle stops where its last character does
+s|\[^\]/\[:space:\]"'"'"'`\]\*|[^]/"'"'"'`]*|	the final segment's middle stops where its last character does
+s|\[^\]/\[:space:\]"'"'"'`\]\*|[^]/[:space:]'"'"'`]*|	the final segment's middle stops where its last character does
+s|\[^\]/\[:space:\]"'"'"'`\]\*|[^]/[:space:]"`]*|	the final segment's middle stops where its last character does
+s|\[^\]/\[:space:\]"'"'"'`\]\*|[^]/[:space:]"'"'"']*|	the final segment's middle stops where its last character does
 s/^K2RE='\(.*\)(skills|tools)/K2RE='\1[a-z]+/	running text that only looks like a two-segment reference stays green
 s|\[^/\[:space:\]\]+/(|[^/]+/(|	running text that only looks like a two-segment reference stays green
 s|\[^/\[:space:\]\]+/(|[^/[:space:]]*/(|	running text that only looks like a two-segment reference stays green
@@ -211,6 +239,274 @@ s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	
 MUTANTS
 }
 
+# ---- THE GENERATED SET: THE TWO REGEXES' OWN STRUCTURE ----------------------
+# WHY IT IS GENERATED AND THE SET ABOVE IS NOT. Every boundary defect this wire
+# has had was a member of a bracket expression or the reach of a quantifier,
+# and each was found the same way: somebody enumerated the population BY HAND
+# and missed part of it. Two attestations in a row declared that population
+# complete; the first missed the leading `/`, the class's `A-Z` and a
+# one-character final segment, and the second — on the head that fixed those —
+# found six more. A hand list is exactly the instrument that cannot see what it
+# forgot, so the population here is DERIVED from the assignments and the
+# derivation is the criterion:
+#
+#   for every member of every bracket expression in `$K2RE` and `$K2RE_PATH`,
+#   the value with that member DROPPED (a widening: over-match, false
+#   positive); and for every quantifier, the value TIGHTENED (`*`->`+`,
+#   `+`->`{2,}`: under-match, false negative). Each must red the control set,
+#   or appear in `_mut_equivalent` with the argument why it cannot change a
+#   verdict. A mutant that is neither is a failure.
+#
+# ⚠ THE CLASSES ARE NOT RE-SPELLED HERE. The values come from the wire's own
+# assignment lines, and a mutated value is spliced back over that same line; if
+# either line is missing, duplicated, or cannot be read back as the value the
+# running wire holds, the run SAYS SO AND REDS rather than testing a regex
+# nobody wrote.
+# ⚠ WHAT IT DOES NOT CLAIM, and the hand set above does: WHICH control kills.
+# The generator knows the rule, not the fixture, so it requires only that a
+# CONTROL caught the mutant — a red raised by the real tree instead is reported
+# as a kill by the wrong subject. Naming the control stays the hand records'
+# job, which is why the two sets are not the same list and neither replaces the
+# other.
+# ⚠ AND IT IS OPT-IN WITH THE SET ABOVE, under the same `WEBREF_WIRE_MUTANTS`,
+# for the same reason: one control pass per mutant.
+
+# THE EQUIVALENCE TABLE — the only escape from "must be killed", and each entry
+# carries the argument, not a name. One record per line, TAB-separated:
+#   <the generated rule, exactly as the generator names it>  <why it cannot
+#   change a verdict>
+# ⚠ AN ENTRY THAT NAMES NO GENERATED MUTANT IS A FAILURE, not a comment: the
+# names embed the class text, so any edit to a class retires every argument
+# made about it and the next reader has to make them again.
+# ⚠ IT IS EMPTY, AND THAT IS A MEASUREMENT. Every rule these two regexes
+# spell is pinned by a fixture; none has been shown unable to change a verdict.
+# ⚠ ONE ARGUMENT WAS OFFERED FOR THIS TABLE AND IT IS FALSE — recorded so it
+# is not offered again. It said that widening the FIRST SEGMENT's class by
+# dropping `/` cannot change a verdict, "because any mutant match implies a
+# baseline match at the same start". It does not: the first segment may then
+# END at a later `/`, which lets a match START where `[^/[:space:]]+` could
+# not — measured, `.claude/tools/foo//x` reads GREEN at baseline and RED with
+# that one member dropped, and it is the `midclass` fixture's `/` line. An
+# equivalence argument is a claim about every input, so what it needs is the
+# counter-example searched for, not the regex reread.
+_mut_equivalent() { cat <<'EQUIV'
+EQUIV
+}
+
+# $1 = variable name. Puts the value the WIRE'S OWN assignment line holds into
+# `$_mut_av_out`. Fails, setting `$_mut_gen_fail`, unless there is exactly one
+# such line and it can be read back.
+# ⚠ IT SETS A VARIABLE RATHER THAN PRINTING. Called as `$(…)` it would run in a
+# subshell, and every diagnostic it writes — the whole point of failing closed
+# here — would be discarded with it.
+_mut_assign_value() {
+  _av_n="$(grep -c "^$1='" "$SELF")" || _av_n=0
+  if [ "$_av_n" -ne 1 ]; then
+    _mut_gen_fail="\$$1 has $_av_n assignment line(s) matching \`^$1='\` in the wire, not exactly one"
+    return 1
+  fi
+  _mut_av_out="$( ( unset "$1"; eval "$(grep "^$1='" "$SELF")" 2>/dev/null || exit 1
+                    eval "printf '%s' \"\${$1-}\"" ) )" || {
+      _mut_gen_fail="\$$1's assignment line could not be read back as a value"
+      return 1; }
+}
+
+# THE SCANNER. $1 = variable name (for the diagnostics), $2 = the ERE. Prints
+# one mutant per line, TAB-separated: <the rule it dropped or tightened>
+# <the whole mutated value>. Fails, setting `$_mut_gen_fail`, on anything it
+# cannot account for — an unterminated bracket expression, an unterminated
+# `[: :]`, or a drop that would leave a class matching nothing.
+# ⚠ THE MEMBERS ARE POSIX BRACKET MEMBERS, NOT BYTES: a leading `]` is literal,
+# `[:space:]` is one member, and `a-z` is one member. Byte-wise dropping would
+# make `A-Z` three edits and `[:space:]` nine, and none of those nine is a rule
+# anybody wrote.
+_mut_regex_mutants() {
+  _rm_v="$1"; _rm_re="$2"; _rm_len=${#_rm_re}; _rm_i=0; _rm_bi=0; _rm_qi=0
+  while [ "$_rm_i" -lt "$_rm_len" ]; do
+    _rm_ch="${_rm_re:$_rm_i:1}"
+    if [ "$_rm_ch" = '\' ]; then _rm_i=$((_rm_i + 2)); continue; fi
+    if [ "$_rm_ch" = '*' ] || [ "$_rm_ch" = '+' ]; then
+      _rm_qi=$((_rm_qi + 1))
+      if [ "$_rm_ch" = '*' ]; then _rm_rep='+'; else _rm_rep='{2,}'; fi
+      printf '%s\t%s\n' "$_rm_v quant#$_rm_qi $_rm_ch tightened to $_rm_rep" \
+        "${_rm_re:0:$_rm_i}$_rm_rep${_rm_re:$((_rm_i + 1))}"
+      _rm_i=$((_rm_i + 1)); continue
+    fi
+    if [ "$_rm_ch" != '[' ]; then _rm_i=$((_rm_i + 1)); continue; fi
+    _rm_bs=$_rm_i; _rm_bi=$((_rm_bi + 1)); _rm_j=$((_rm_i + 1))
+    [ "${_rm_re:$_rm_j:1}" != '^' ] || _rm_j=$((_rm_j + 1))
+    _rm_first=1; _rm_ms=(); _rm_ml=()
+    while :; do
+      if [ "$_rm_j" -ge "$_rm_len" ]; then
+        _mut_gen_fail="$_rm_v: unterminated bracket expression at offset $_rm_bs"; return 1
+      fi
+      _rm_mc="${_rm_re:$_rm_j:1}"
+      if [ "$_rm_mc" = ']' ] && [ "$_rm_first" -eq 0 ]; then break; fi
+      _rm_first=0
+      if [ "${_rm_re:$_rm_j:2}" = '[:' ]; then
+        _rm_k=$((_rm_j + 2))
+        while [ "$_rm_k" -lt "$_rm_len" ] && [ "${_rm_re:$_rm_k:2}" != ':]' ]; do _rm_k=$((_rm_k + 1)); done
+        if [ "$_rm_k" -ge "$_rm_len" ]; then
+          _mut_gen_fail="$_rm_v: unterminated [: :] class at offset $_rm_j"; return 1
+        fi
+        _rm_mlen=$(( _rm_k + 2 - _rm_j ))
+      elif [ "${_rm_re:$((_rm_j + 1)):1}" = '-' ] && [ -n "${_rm_re:$((_rm_j + 2)):1}" ] \
+           && [ "${_rm_re:$((_rm_j + 2)):1}" != ']' ]; then
+        _rm_mlen=3
+      else
+        _rm_mlen=1
+      fi
+      _rm_ms[${#_rm_ms[@]}]=$_rm_j; _rm_ml[${#_rm_ml[@]}]=$_rm_mlen
+      _rm_j=$(( _rm_j + _rm_mlen ))
+    done
+    _rm_be=$_rm_j
+    _rm_bt="${_rm_re:$_rm_bs:$(( _rm_be - _rm_bs + 1 ))}"
+    _rm_n=0
+    while [ "$_rm_n" -lt "${#_rm_ms[@]}" ]; do
+      _rm_s=${_rm_ms[$_rm_n]}; _rm_l=${_rm_ml[$_rm_n]}
+      _rm_nb="${_rm_re:$_rm_bs:$(( _rm_s - _rm_bs ))}${_rm_re:$(( _rm_s + _rm_l )):$(( _rm_be - _rm_s - _rm_l + 1 ))}"
+      # ⚠ A NEGATED CLASS WITH ONE MEMBER BECOMES `.`, NOT `[^]`. `[^]` is not a
+      # class at all (POSIX reads the `]` as a literal member and keeps
+      # looking), so spelling the widening that way would test a regex nobody
+      # means. "Not `/`" widened by dropping `/` IS "any character".
+      case "$_rm_nb" in
+        '[^]') _rm_nb='.' ;;
+        '[]')  _mut_gen_fail="$_rm_v: dropping ${_rm_re:$_rm_s:$_rm_l} from $_rm_bt leaves a class matching nothing"; return 1 ;;
+      esac
+      printf '%s\t%s\n' "$_rm_v class#$_rm_bi $_rm_bt without ${_rm_re:$_rm_s:$_rm_l}" \
+        "${_rm_re:0:$_rm_bs}$_rm_nb${_rm_re:$(( _rm_be + 1 ))}"
+      _rm_n=$((_rm_n + 1))
+    done
+    _rm_i=$((_rm_be + 1))
+  done
+}
+
+# Splice a mutated value back over the wire's own assignment line, into
+# `$_mut_wire`. $1 = variable name, $2 = the value.
+# ⚠ NOT `sed`: the value holds `/`, `&`, `\` and both quotes, so every
+# replacement would need escaping in a second dialect — one more spelling of
+# the thing this generator exists to stop spelling twice. The whole line is
+# rewritten instead, and the value reaches `awk` through the environment, which
+# interprets nothing.
+_mut_splice() {
+  _sp_v="${2//\'/\'\"\'\"\'}"
+  _MUT_GEN_LINE="$1='$_sp_v'" _MUT_GEN_VAR="$1" awk '
+    BEGIN { v = ENVIRON["_MUT_GEN_VAR"] "="; l = ENVIRON["_MUT_GEN_LINE"] }
+    index($0, v) == 1 { print l; next }
+    { print }' "$SELF" > "$_mut_wire"
+}
+
+# The opt-in half: actually apply each record. Costs one full control pass
+# per entry, so it is gated — but its BOOKKEEPING above is not.
+# ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
+# `$_mut_wire`. $1 = how to name it in a diagnostic, $2 = what is required:
+# a NEEDLE the output must contain, `!survive`, or `!kill` (red, raised by a
+# control, with no control named).
+# Returns 0 = as required, 1 = SURVIVED (the caller decides what that means),
+# 2 = failed some other way, already reported.
+_mut_trial() {
+  # ⚠ AND IT MUST BE EXECUTABLE. `_control` invokes `"$SELF"` DIRECTLY, not
+  # through `bash`, so a copy written by `sed` (mode 644) exits 126
+  # "Permission denied" for EVERY control — which reds the run, prints every
+  # control's diagnostic, and therefore satisfies a "did it name the right
+  # control?" test VACUOUSLY. Measured: every entry the set then held "passed" that
+  # way, and a deliberately inert entry (a comment-only edit that cannot
+  # change any verdict) was the negative control that exposed it. The probe's
+  # subject was the permission bit, not the mutation.
+  chmod +x "$_mut_wire"
+  if cmp -s "$_mut_wire" "$SELF"; then
+    echo "!! MUTANT $1: the edit MATCHED NOTHING, so this entry tested a copy" >&2
+    echo "   identical to the wire." >&2
+    return 2
+  fi
+  _mt_rc=0
+  _mt_out="$(env -u WEBREF_WIRE_MUTANTS bash "$_mut_wire" 2>&1)" || _mt_rc=$?
+  if [ "$2" = '!survive' ]; then
+    # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
+    # cannot change any verdict by construction and the wire MUST still be
+    # green. If it reds, the harness is failing mutants for a reason that has
+    # nothing to do with the mutation — a missing execute bit, a clobbered
+    # copy, a full disk — and every "killed" above is unearned.
+    [ "$_mt_rc" -ne 0 ] || return 0
+    echo "!! THE NEGATIVE CONTROL DIED (exit $_mt_rc). An edit that changes no verdict" >&2
+    echo "   reddened the wire, so this run cannot tell a real kill from a broken" >&2
+    echo "   harness, and every kill reported above is unearned. Output:" >&2
+    printf '%s\n' "$_mt_out" | sed 's/^/     /' >&2
+    return 2
+  fi
+  [ "$_mt_rc" -eq 0 ] && return 1
+  if [ "$2" = '!kill' ]; then
+    case "$_mt_out" in
+      *"CONTROL FAILED ("*) return 0 ;;
+      *) echo "!! MUTANT $1 was killed BY THE WRONG SUBJECT (exit $_mt_rc): no control" >&2
+         echo "   failed, so what reddened the run was the real tree or a refusal, not" >&2
+         echo "   a fixture posing the question this rule is about." >&2
+         return 2 ;;
+    esac
+  fi
+  case "$_mt_out" in
+    *"$2"*) return 0 ;;
+    *) echo "!! MUTANT $1 killed for the WRONG REASON (exit $_mt_rc): the output" >&2
+       echo "   does not name \"$2\", so another check masked the one under test." >&2
+       return 2 ;;
+  esac
+}
+
+# The generated half of the run. Sets `_mut_gen_n` / `_mut_gen_bad`.
+_mut_gen_run() {
+  _mut_gen_fail=""
+  : > "$CTL/.genmutants"
+  for _gr_v in K2RE K2RE_PATH; do
+    _mut_assign_value "$_gr_v" || { _mut_gen_bad=1; break; }
+    _gr_val="$_mut_av_out"
+    # …and the line must hold what the RUNNING wire holds, or the generator is
+    # mutating a spelling that is no longer live.
+    eval "_gr_live=\"\${$_gr_v-}\""
+    if [ "$_gr_val" != "$_gr_live" ]; then
+      _mut_gen_fail="\$$_gr_v's assignment line reads back as a different value than the running wire holds"
+      _mut_gen_bad=1; break
+    fi
+    _mut_regex_mutants "$_gr_v" "$_gr_val" >> "$CTL/.genmutants" || { _mut_gen_bad=1; break; }
+  done
+  if [ -n "$_mut_gen_fail" ]; then
+    echo "!! the boundary-mutant generator could not read the wire's regexes:" >&2
+    echo "   $_mut_gen_fail" >&2
+    echo "   No rule of \$K2RE or \$K2RE_PATH was tested, so this run decided nothing" >&2
+    echo "   about either predicate's structure." >&2
+    return 0
+  fi
+  _mut_equivalent > "$CTL/.genequiv"
+  : > "$CTL/.genseen"
+  while IFS="$(printf '\t')" read -r _gr_name _gr_re; do
+    [ -n "${_gr_re:-}" ] || continue
+    _mut_gen_n=$((_mut_gen_n + 1))
+    printf '%s\n' "$_gr_name" >> "$CTL/.genseen"
+    _mut_splice "${_gr_name%% *}" "$_gr_re"
+    _gr_rc=0; _mut_trial "$_gr_name" '!kill' || _gr_rc=$?
+    [ "$_gr_rc" -ne 2 ] || { _mut_gen_bad=$((_mut_gen_bad + 1)); continue; }
+    [ "$_gr_rc" -eq 1 ] || continue
+    # SURVIVED. The only way that is not a gap is an argued equivalence.
+    _gr_why="$(awk -F'\t' -v n="$_gr_name" '$1==n{print $2; exit}' "$CTL/.genequiv")"
+    if [ -z "$_gr_why" ]; then
+      echo "!! GENERATED MUTANT SURVIVED: $_gr_name" >&2
+      echo "   The wire still exited 0 with that rule widened or tightened, so no" >&2
+      echo "   control poses the question it answers. Either add the control, or —" >&2
+      echo "   if the mutant cannot change ANY verdict — say why in \`_mut_equivalent\`." >&2
+      echo "   The mutated predicate was: $_gr_re" >&2
+      _mut_gen_bad=$((_mut_gen_bad + 1))
+    fi
+  done < "$CTL/.genmutants"
+  # …and an argument nobody is making any more is not documentation.
+  while IFS="$(printf '\t')" read -r _gr_name _; do
+    [ -n "${_gr_name:-}" ] || continue
+    grep -qxF -- "$_gr_name" "$CTL/.genseen" || {
+      echo "!! \`_mut_equivalent\` claims \"$_gr_name\", which this run's generator does" >&2
+      echo "   not produce. The class or quantifier it argued about was edited, so the" >&2
+      echo "   argument has to be made again against what is there now." >&2
+      _mut_gen_bad=$((_mut_gen_bad + 1)); }
+  done < "$CTL/.genequiv"
+  command rm -f "$CTL/.genmutants" "$CTL/.genequiv" "$CTL/.genseen"
+}
 
 # The always-on half: static properties of the two shipped lists.
 _mut_correspondence() {
@@ -332,52 +628,28 @@ _mut_run() {
         echo "!! MUTANT $_mut_n: the expression is not a valid sed script: $_mx" >&2
         _mut_bad=$((_mut_bad + 1)); continue
       fi
-      # ⚠ AND IT MUST BE EXECUTABLE. `_control` invokes `"$SELF"` DIRECTLY, not
-      # through `bash`, so a copy written by `sed` (mode 644) exits 126
-      # "Permission denied" for EVERY control — which reds the run, prints every
-      # control's diagnostic, and therefore satisfies a "did it name the right
-      # control?" test VACUOUSLY. Measured: every entry the set then held "passed" that
-      # way, and a deliberately inert entry (a comment-only edit that cannot
-      # change any verdict) was the negative control that exposed it. The probe's
-      # subject was the permission bit, not the mutation.
-      chmod +x "$_mut_wire"
-      if cmp -s "$_mut_wire" "$SELF"; then
-        echo "!! MUTANT $_mut_n ($_mwant): the expression MATCHED NOTHING, so this entry" >&2
-        echo "   tested a copy identical to the wire: $_mx" >&2
-        _mut_bad=$((_mut_bad + 1)); continue
-      fi
-      _mrc2=0
-      _mout="$(env -u WEBREF_WIRE_MUTANTS bash "$_mut_wire" 2>&1)" || _mrc2=$?
-      if [ "$_mwant" = '!survive' ]; then
-        # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
-        # cannot change any verdict by construction and the wire MUST still be
-        # green. If it reds, the harness is failing mutants for a reason that has
-        # nothing to do with the mutation — a missing execute bit, a clobbered
-        # copy, a full disk — and every "killed" above is unearned.
-        [ "$_mrc2" -eq 0 ] || {
-          echo "!! THE NEGATIVE CONTROL DIED (exit $_mrc2). An edit that changes no verdict" >&2
-          echo "   reddened the wire, so this run cannot tell a real kill from a broken" >&2
-          echo "   harness, and every kill reported above is unearned. Output:" >&2
-          printf '%s\n' "$_mout" | sed 's/^/     /' >&2
-          _mut_bad=$((_mut_bad + 1)); }
-        continue
-      fi
-      if [ "$_mrc2" -eq 0 ]; then
+      # ⚠ `|| _rc=$?`, NOT `cmd; _rc=$?`: under `set -e` a simple command that
+      # returns non-zero ends the run THERE, with no diagnostic at all — which
+      # is what a survived mutant did while this refactor was being written.
+      _mrc2=0; _mut_trial "$_mut_n ($_mwant)" "$_mwant" || _mrc2=$?
+      [ "$_mrc2" -ne 2 ] || { _mut_bad=$((_mut_bad + 1)); continue; }
+      [ "$_mrc2" -ne 1 ] || {
         echo "!! MUTANT $_mut_n ($_mwant) SURVIVED: the wire still exited 0 with this" >&2
         echo "   applied, so nothing above is testing it: $_mx" >&2
-        _mut_bad=$((_mut_bad + 1)); continue
-      fi
-      case "$_mout" in
-        *"$_mwant"*) ;;
-        *) echo "!! MUTANT $_mut_n killed for the WRONG REASON (exit $_mrc2): the output" >&2
-           echo "   does not name \"$_mwant\", so another check masked the one under test." >&2
-           _mut_bad=$((_mut_bad + 1)) ;;
-      esac
+        _mut_bad=$((_mut_bad + 1)); }
     done < "$CTL/.mutants"
-    command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"
+    command rm -f "$CTL/.mutants"
     echo "  mutation set: $_mut_n entr(ies), $_mut_bad not killed as named"
-    [ "$_mut_bad" -eq 0 ] || exit 1
-    echo "  every entry above was shown to red, and to red for its own reason"
+    # …and the population the wire's own regexes define, which no list here
+    # enumerates. Run whatever the hand set did, so one run answers both
+    # questions and a failure in either is reported before the exit.
+    _mut_gen_n=0; _mut_gen_bad=0
+    _mut_gen_run
+    echo "  generated boundary set: $_mut_gen_n mutant(s) from \$K2RE and \$K2RE_PATH, $_mut_gen_bad neither killed nor argued equivalent"
+    command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"
+    [ "$_mut_bad" -eq 0 ] && [ "$_mut_gen_bad" -eq 0 ] || exit 1
+    echo "  every entry above was shown to red, and to red for its own reason;"
+    echo "  every rule those two regexes spell is pinned by a control"
     # ⚠ NO `exit 0` HERE, AND THAT IS THE WHOLE POINT. This block used to end the
     # run — so `WEBREF_WIRE_MUTANTS` merely PRESENT IN THE ENVIRONMENT (exported
     # once, in a shell that later runs `mise run trip-wires`) made the required

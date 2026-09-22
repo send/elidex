@@ -81,7 +81,7 @@ fi
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -285,10 +285,22 @@ printf '%s\n' "$CONTROL_K2" > "$CTL/linestart/control.md"
 #      `cli.py`'s `--help` text uses.
 { printf '%s\n' '.claude/hooks/team/rule.md' 'see _claude/skills/team/rule.md' \
     '  .claude/tools/webref snapshot html --output /tmp/html-old.json' \
-    '.claude/skills//rule.md' 'see .claude/tools/foo/ and/or more' '.claude/tools/foo//'
+    '.claude/skills//rule.md' 'see .claude/tools/foo/ and/or more' '.claude/tools/foo//' \
+    '.claude/tools/foo//bar/x'
   for _c in '}' '>' ',' ';' '"' "'" '`' ']'; do
     printf '(%s.claude/tools/foo/%s)\n' "$_c" "$_c"
   done; } > "$CTL/textgreen/ok.md"
+#      ⚠ THE `)` IS WHY THOSE LOOP LINES PIN ONLY THE LAST CHARACTER. The final
+#      segment is `<middle>*<last>`, and a line ending `/<c>)` cannot match
+#      however the MIDDLE class is widened, because the `)` after `<c>` is
+#      still not a legal LAST character. Dropping `]`, `/`, `"`, `'` or a
+#      backtick from the middle class therefore survived every one of them —
+#      see `midclass` below, whose lines end in an ordinary character instead.
+#      The `//bar/x` line above is the other half of the same blind spot, one
+#      element earlier: an intermediate segment is `<seg>/`, and nothing here
+#      held a `/` where that `<seg>` starts, so letting `<seg>` span `/` was
+#      invisible too. Neither was found by reading the list; both came out of
+#      the generator that derives the population from `$K2RE` itself.
 #  (h) A STORED path naming `.claude` after a `/`, under the `tools` root.
 mkdir -p "$CTL/slashname/sub/.claude/tools/team"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/slashname/sub/.claude/tools/team/rule.md"
@@ -299,6 +311,15 @@ mkdir -p "$CTL/pathgreen/.claude/hooks/team" "$CTL/pathgreen/_claude/skills/team
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/.claude/hooks/team/rule.md"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/_claude/skills/team/rule.md"
 ln -s '.claude/skills//rule.md' "$CTL/pathgreen/entry"
+#      …and the two shapes that pin `[^/]` on BOTH of `$K2RE_PATH`'s segments.
+#      Widening either to "any character" lets the segment swallow a `/`, and
+#      each of these is green only because it does not: an EMPTY FIRST segment
+#      (`//a/b`, the first `[^/]+`) and an EMPTY SECOND one (`a//b`, the
+#      second). Nothing here held either shape, so both widenings survived the
+#      whole control set. Both are symlink TARGETS because a filesystem
+#      collapses `//` in a name, and a stored target is kept verbatim.
+ln -s '.claude/skills//a/b' "$CTL/pathgreen/emptyfirst"
+ln -s '.claude/skills/a//b' "$CTL/pathgreen/emptylast"
 #  (j) A reference written after a `/` — the OTHER half of the leading boundary,
 #      in running text. `$K2RE_PATH` spells the same rule as `(^|/)` and
 #      `slashname` pins it there; nothing pinned it here, so adding `/` to the
@@ -311,6 +332,37 @@ printf 'see elidex/%s here\n' "$CONTROL_K2" > "$CTL/slashtext/control.md"
 #      because every red fixture's last segment was longer. Alone in its own
 #      fixture, for the reason (j) gives.
 printf 'X = %s\n' '.claude/tools/a/b' > "$CTL/finalone/control.py"
+#  (l) A ONE-CHARACTER INTERMEDIATE SEGMENT. `finalone` above pins the FINAL
+#      segment's minimum length; the OTHER reading of the same group —
+#      `<seg>/`, taken when the final one cannot start here — has a minimum
+#      length of its own, and raising it to two survived the whole control set
+#      because every red fixture's intermediate segment was longer. The `]`
+#      matters: it is what stops the final-segment reading, so this line can
+#      only match through the `<seg>/` arm. Alone in its own fixture, for the
+#      reason (j) gives.
+printf 'X = %s\n' '.claude/tools/xx/]/y' > "$CTL/interone/control.py"
+#  (m) THE FINAL SEGMENT'S MIDDLE CLASS, one line per member. The final segment
+#      is `<middle>*<last>`, two classes that differ only in the closing
+#      punctuation `<last>` also refuses — so `textgreen`'s lines, which end in
+#      `)`, discriminate `<last>` and nothing else. These end in an ORDINARY
+#      character, so each is green only because its leading `<c>` is in neither
+#      class, and dropping `<c>` from the middle reds exactly this line.
+#      Green-direction, so the members share one fixture: any line that fires
+#      reds it, which is the opposite of (j)'s red-direction case, where a
+#      second line would keep the fixture red and prove nothing.
+{ for _mc in ']' '/' ' ' '"' "'" '`'; do
+    printf 'X = .claude/tools/foo/%sx\n' "$_mc"
+  done; } > "$CTL/midclass/ok.md"
+#  (n) A ONE-CHARACTER FIRST SEGMENT IN A STORED PATH. `$K2RE_PATH`'s first
+#      `[^/]+` has a minimum length of one, and raising it to two survived the
+#      whole control set: every stored-path fixture here names a longer first
+#      segment. A required gate then reads `.claude/skills/a/rule.md` — an
+#      entry whose own NAME is the forbidden hierarchy — as K2 zero, and says
+#      so in the line it prints. Alone in its own fixture, for the reason (j)
+#      gives; `ok.py` is clean and keeps the run off the zero-read guard.
+mkdir -p "$CTL/pathfirstone/.claude/skills/a"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathfirstone/.claude/skills/a/rule.md"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathfirstone/ok.py"
 
 # An ORPHAN branch with commits on another branch: HEAD is legitimately unborn
 # while the repository is not empty, which is the case that separates "this HEAD
@@ -451,7 +503,7 @@ printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
          extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
          catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
-         slashname pathgreen slashtext finalone; do
+         slashname pathgreen slashtext finalone interone midclass pathfirstone; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -696,6 +748,9 @@ _control "$CTL/slashname" 1 "entry NAME" "a stored path naming .claude after a s
 _control "$CTL/pathgreen" 0 "PASSED" "a stored path that only looks like one stays green" || ctl_ok=1
 _control "$CTL/slashtext" 1 "K2: a" "a reference written after a slash fires" || ctl_ok=1
 _control "$CTL/finalone" 1 "K2: a" "a ONE-character final segment fires" || ctl_ok=1
+_control "$CTL/interone" 1 "K2: a" "a ONE-character intermediate segment fires" || ctl_ok=1
+_control "$CTL/pathfirstone" 1 "entry NAME" "a ONE-character first segment in a STORED path fires" || ctl_ok=1
+_control "$CTL/midclass" 0 "PASSED" "the final segment's middle stops where its last character does" || ctl_ok=1
 _control "$CTL/bnd" 1 "K2: a" "the leading boundary covers =, --opt=, :, a backtick, ** and ," || ctl_ok=1
 _control "$CTL/orphan" 0 "PASSED" "an orphan branch is an unborn HEAD, not a read failure" || ctl_ok=1
 _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree read does not traverse an ancestor symlink" || ctl_ok=1
