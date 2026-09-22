@@ -6,21 +6,24 @@
 # touch-time split discipline says to split at a real cohesion seam when you
 # touch such a file — not to defer it. This is that seam, and it was visible
 # well before the line count: the wire ANSWERS about a tree, and everything here
-# exists to prove the wire can reach every answer it claims. One green run of
-# the scanner tells you nothing this file has not earned.
+# exists to show those answers are reachable. Not all of them are covered — the
+# verdict sites with no control are a defer slot in the plan memo's §8. One
+# green run of the scanner tells you nothing this file has not earned.
 #
 # THE INTERFACE, AND IT IS ASSERTED BELOW RATHER THAN DESCRIBED. What this file
-# (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per control), `$SCRATCH` (the one
-# scratch root, whose trap also cleans up `$CTL`), `$_CONTROLS` (this file's own
-# path, which the mutation harness copies), the five `CONTROL_*` sample strings,
-# and the `_git` helper. That list — and only that list — is checked at entry.
+# (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
+# control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
+# `$_CONTROLS` (this file's own path, which the mutation harness copies), the
+# five `CONTROL_*` sample strings, and the `_git` helper. That list — and only
+# that list — is checked at entry.
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
 # was: it named `$CTL`, `_fgit`, `_control`, `_ctl_env`, `$_perm_line`,
 # `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
 # them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|_fgit\|\$CTL\|ctl_ok'` over
 # the wire → **0**). They belong to the controls — defined here or in the
-# harness beside this file; `ctl_ok` is consumed three lines from where it is set. The data flow is one-way, and saying otherwise
-# invented a contract nobody could break.
+# harness beside this file; `ctl_ok` is consumed three lines from where it is
+# set. The data flow is one-way, and saying otherwise invented a contract
+# nobody could break.
 # ⚠ AND THE CONSUMES LIST HAS BEEN WRONG TWICE. It first claimed `$ROOT` and
 # `_phys`, which this file did not then mention; the revision that said so also
 # added a mutation harness that consumes `$_CONTROLS`, which the same revision
@@ -194,7 +197,7 @@ printf '# see https://example.claude/skills/team/rule.md for the upstream note\n
 # `--verify` alone breaks `show-ref --verify` — which is the very command that
 # now establishes unbornness, so the shim silently became a control for the
 # wrong arm and reported the wrong message. A shim shims the ONE call it is
-# about, and "one call" means the verb AND the flag.
+# about, which here takes the verb AND the flag to pin down.
 # ⚠ AS ONE ADJACENT SEQUENCE, not two globs. `*" rev-parse "*" --verify "*`
 # cannot match: the first half consumes the space that the second half needs,
 # so the shim matched nothing and the control silently exercised an unshimmed
@@ -252,13 +255,11 @@ printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
   done; } >> "$CTL/atclaude/ok.py"
 
 #  (e) THE RED DIRECTION OF THE SAME BOUNDARY RULE, which nothing tested until
-#      the design re-gate measured it: every other red fixture writes its path
-#      after a SPACE or a QUOTE, so the leading class could be narrowed to
-#      almost nothing and stay green. Each line below is a spelling that is
-#      LIVE in the scanned tree — `--opt=<path>` is how `cli.py` writes its
-#      `--help` examples, and a backtick is how `DESIGN.md` (Markdown) writes a
-#      path — so a miss here is the gate silently ceasing to cover its own most
-#      likely violation.
+#      the design re-gate measured it: the red fixtures then in place wrote
+#      their paths after a SPACE or a QUOTE, so the leading class could be
+#      narrowed to almost nothing and stay green. The lines below are the
+#      spellings a contributor can write; which of them the scanned tree holds
+#      today is derived at `$K2RE`, not claimed here.
 { printf 'DEFAULT=%s\n' "$CONTROL_K2"
   printf -- '--paths=%s\n' "$CONTROL_K2"
   printf 'key:%s\n' "$CONTROL_K2"
@@ -438,8 +439,8 @@ for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
-# ⚠ ONE NAME IS ABSENT FROM THAT LIST ON PURPOSE: `cachedir`, built below in the
-# only order that makes its force-add load-bearing.
+# ⚠ `cachedir` IS ABSENT FROM THAT LIST ON PURPOSE, built below in the only
+# order that makes its force-add load-bearing.
 # ⚠ `lsfail` USED TO BE ABSENT TOO, on the ground that its shim failed
 # `ls-files` "whatever the directory is" — which stopped being true the moment
 # that shim was narrowed to the TRACKED call alone. Its worktree inventory then
@@ -467,7 +468,7 @@ done
   && _fgit add -A >/dev/null 2>&1 \
   && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 \
   && printf 'RULE = "%s"\n' "$CONTROL_K2" > __pycache__/probe.txt ) || _fixture_failed cachedir
-# THE THREE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
+# THE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
 # built AFTER the add loop above, because each needs the index to hold one
 # thing while the worktree holds another.
 # (1) A violation STAGED and reverted in the worktree. `git show :victim.py`

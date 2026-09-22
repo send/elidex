@@ -22,7 +22,8 @@ fi
 # ⚠ THE FIXTURES ARE BUILT WITH GIT, so whoever runs this must not be able to
 # change what they contain (#501 R92). A global `core.excludesFile` of `*.py`
 # made `git add -A` skip the fixtures' own files, and an `init.templateDir`
-# could seed `info/exclude`. `_fgit` neutralises both config layers.
+# could seed `info/exclude`. `_fgit` is what the fixtures are built with; the
+# channels it closes are named at its definition below.
 # ⚠ PER CALL, NOT `export` (#501 R94). Exported, it applied to the REAL scan
 # too and took `safe.directory` with it — measured: a checkout owned by
 # another UID, readable only because of a global `safe.directory` entry, went
@@ -91,8 +92,9 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-# ⚠ A PATH EMBEDDED IN A GENERATED SCRIPT IS QUOTED, BY ONE HELPER. Every shim
-# the controls file builds writes a real tool's path into `/bin/sh` source; spliced in bare, a path
+# ⚠ A PATH EMBEDDED IN A GENERATED SCRIPT IS QUOTED, BY ONE HELPER. A shim that
+# embeds a path — a real tool's, or a fixture's — writes it into `/bin/sh`
+# source; spliced in bare, a path
 # holding a space or a shell metacharacter split into words and every shim went
 # invalid, so the controls using them exited for the wrong reason (PR519,
 # reproduced by the external reviewer with git at `/tmp/tool space/git`). Same

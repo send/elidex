@@ -6,7 +6,8 @@
 returned 2 CRIT / 25 IMP / 19 MIN**, whose disposition is this memo. The one fork the
 disposition left open — where this instrument should live at all — was **decided on 2026-09-21
 (§1.1, option (a))**, and this revision answers §5's eight items, §6's interpreter question and
-§7's mutation-set criterion. **Nothing in §5, §6 or §7 is open.**
+§7's mutation-set criterion. What those sections leave open is booked in §8, and §11 is the
+revision that followed them.
 
 ⚠ **This memo states no quantity that moves with a commit.** Where a number matters it
 appears as the command that produces it. Historical quantities (review-round numbers, gate
@@ -68,9 +69,8 @@ git log --oneline origin/main..webref-cite-audit-tool -- \
 ```
 
 ⚠ **Run them before arguing about size.** Review round 1 did, and the result is not what
-draft 1 implied: the scanner's own code is smaller than the largest existing wire, and the
-disproportion — in code, in fixtures and in runtime — is in the **controls**, not the
-scanner. Any argument about whether this instrument is too large has to start there.
+draft 1 implied: the disproportion — in code, in fixtures and in runtime — is in the
+**controls**, not the scanner. Any argument about whether this instrument is too large has to start there.
 
 ⚠ **The asymmetry is a separate argument from the size**, and draft 1 conflated them by
 ruling the size out of scope right after handing the reader the commands. Both are in scope:
@@ -81,8 +81,8 @@ unenforced is what *"a slice may not carry another slice's concern"* forbids (um
 
 ## §1 What this slice is, and is not
 
-**Is**: one predicate, one instrument, one registration, and the two policy paragraphs that
-registration needs — the artifacts §4 tables.
+**Is**: one invariant (K2, over running text and over stored paths), one instrument, one
+registration, and the two policy paragraphs that registration needs — the artifacts §4 tables.
 
 **Is not**: any change to the generic core, the spec-label map, or the suite.
 
@@ -161,7 +161,7 @@ an explicit two-column boundary and then **names the modules on each side**:
 citations affected by a semantic diff."*
 
 **So `DESIGN.md`'s "generic core" and K2's "generic core" are different sets.**
-`DESIGN.md`'s is five named modules; K2's (#501 §2) is `_webref/` **plus the entry
+`DESIGN.md`'s is the modules it names; K2's (#501 §2) is `_webref/` **plus the entry
 script** — which contains the adapter `DESIGN.md` deliberately put there. That is
 not a reading anyone can reconcile by quoting harder, and this memo's earlier
 attempt to do so is withdrawn twice over.
@@ -276,6 +276,7 @@ cross-document citation — goes with the table; there is no longer a citation a
 |---|---|
 | `.claude/tools/webref-generic-core-trip-wire.sh` | the scanner: population from git, content from git, verdict |
 | `.claude/tools/webref-generic-core-trip-wire.controls.sh` | the controls: one fixture per verdict the scanner can reach. Sourced by the wire; its interface is asserted at entry, and run on its own it exits 2 saying so |
+| `.claude/tools/webref-generic-core-trip-wire.harness.sh` | the control harness: how a control runs — the fixture scratch root, the fixture git helper, the shim quoting, the FIFO probe, `_control`. Sourced by the controls file, which asserts the wire's interface first |
 | `.claude/tools/webref-generic-core-trip-wire.mutations.sh` | the mutation set (§7 criterion 3) and the correspondence between it and the controls — *is each control about the arm it names?*, which is a different question from the controls' own. Split out at R6; same entry contract |
 | `scripts/trip-wires.sh` | one line in `REQUIRED_WIRES`, plus the two driver comments its arrival falsified |
 | `.github/workflows/ci.yml` | the ungated-job rationale for the `trip-wires` job |
@@ -336,11 +337,10 @@ decision surface this instrument spent R76 / R80 / R81 collapsing, one level dow
 one place the list is stated and that anything added is added there. The other sites point at
 it.
 
-**The list is now five, not four.** Review found a class nobody had listed: a
-`.claude/(skills|tools)/` path with **one** further segment, of which this package's own entry
-script is the live case — **non-zero in four files inside the scanned scope**, the bulk of it
-`cli.py`'s `--help` examples (the derivation is in the wire's block; the count moves with the
-package, so it is not written here). Unlike classes
+**Review added a class nobody had listed**: a `.claude/(skills|tools)/` path with **one**
+further segment, of which this package's own entry script is the live case — live rather than
+hypothetical, and the derivation is in the wire's block, since the count moves with the
+package. Unlike classes
 3 and 4 it **is** grep-decidable, so the block's own "not closable by any wire" justification
 does not reach it, and the honest statement — made in the block — is that the predicate never
 looked. It is listed, not closed: widening to one segment would red the package on every
@@ -404,11 +404,9 @@ then the ordinary add (which must now skip the probe), then the force-add as the
 can track it — with a precondition asserting the probe is **ignored *and* tracked**, which is
 the property under test. **Re-measured after the fix: the same deletion now gives `rc=1` with
 `CONTROL NOT EXERCISED`.**
-⚠ The precondition needs `git check-ignore --no-index`; without it git answers about the
-**index**, so an ignored path reads *"not ignored"* the moment it is tracked — i.e. the flag is
-off exactly in the state the control requires, and the first version of this precondition
-rejected its own correct fixture. Recorded in the controls, because the next person to write a
-tracked-and-ignored assertion will hit it too.
+⚠ **SUPERSEDED**: the per-fixture precondition described here was replaced by the build-status
+mechanism (`_fixture_failed`), which answers the same question for every fixture rather than
+re-deriving it from one fixture's end state.
 
 **`odd` and `fifotracked`** are one machine capability, so they get **one probe and one report
 line**, built beside the decision that produces it. Previously each created its FIFO under
@@ -502,8 +500,8 @@ no contract. Three changes:
 
 1. The header's stated interface **was wider than the truth** — it claimed `$ROOT` and `_phys`,
    neither of which this file mentions, and attributed `_fgit` to the wire, which does not
-   define it. Corrected to what the file consumes (`$SELF`, `$SCRATCH`, the five `CONTROL_*`
-   strings, `_git`) and what it defines.
+   define it. Corrected to what the file consumes and what it defines — and the list that
+   matters is the guard's, in the file, not this one.
 2. That list is now **asserted at entry**, name by name, rather than described.
 3. A direct invocation therefore says what this file is and what to run instead — **measured,
    `rc=2`** — instead of failing inside `mktemp` with a message about a read-only root.
@@ -514,12 +512,12 @@ both halves of the same run.
 
 ⚠ **And no second seam is taken — as judged at the time. That judgement is now SUPERSEDED; see
 §8.** Re-derive the sizes rather than reading them (§0's first command): when this was written
-the scanner was in the 700-line band CLAUDE.md's touch-time discipline says to look at *while
-writing*, and four external-review rounds have since carried both files past **1000**, which is
-the hard trigger rather than the band. The reasoning below is kept because it is what a re-derivation
-at 1000 has to argue against, not because it still concludes. Looked at then, the answer was no: the split rule is a
-**cohesion** judgement, not a line count, and what is left is one predicate, one walk, one
-verdict — a monolithic cohesive unit, mostly rationale (§0's first command prints the
+the scanner was in the band CLAUDE.md's touch-time discipline says to look at *while writing*,
+and review rounds have since carried both files past the threshold. The reasoning below is kept
+because it is what a re-derivation at that size has to argue against, not because it still
+concludes. Looked at then, the answer was no: the split rule is a **cohesion** judgement, not a
+line count, and what is left is the predicates, one walk, one verdict — a monolithic cohesive
+unit, mostly rationale (§0's first command prints the
 code/comment split; a previous revision put a fraction here, and it was both a quantity that
 moves and wrong). The cut that existed was the one already taken. This is recorded rather than
 left implicit, because "the file is in the band and nobody said why it stayed" is how the
@@ -527,12 +525,12 @@ discipline degrades into a count.
 
 ⚠ **And the same judgement is owed for the CONTROLS file, which a previous revision did not
 give.** It carries two subjects — the fixture controls, and the mutation harness the wire gates
-behind `WEBREF_WIRE_MUTANTS` — and that looks like a seam. It is not taken, for the reason the
-harness exists: **the mutation set's whole claim is that each control is about the arm it
-names**, so the two lists must be edited together and are checked against each other in the same
-run (the correspondence check reds on a record naming no control). Splitting them puts the two
-halves of one assertion in two files and makes the check cross-file for no gain. The seam that
-would be real — fixtures vs. controls — runs through every entry rather than between two blocks.
+behind `WEBREF_WIRE_MUTANTS` — and that looks like a seam. ⚠ **SUPERSEDED: it was taken (§8),
+and a second seam with it** — the control *harness* (how a control runs) from the control
+*catalogue* (which controls exist), when §11's new controls took the catalogue past the
+threshold. The argument recorded here was against a split that moved the *table* and left the
+*check* behind; the correspondence check moved with its table, and reds cross-file, which is
+what §8 says.
 
 ---
 
@@ -561,9 +559,9 @@ own §0 command and the driver's disagree"*. They do not — §0's `wc -l .claud
 pair while the driver's question is about the registered set. Two questions, two commands, both
 correct; the near-miss name is what made them look like one question with two answers.
 
-⚠ **Mode 755 is kept.** The file is invoked as `bash "$_CONTROLS"`, so the bit is not
-load-bearing either way, and after item 5 it is no longer misleading: the file *is* a program
-that reports what it is when run.
+⚠ **Mode 755 is kept.** The file is *sourced*, not executed, so the bit decides nothing about
+how the wire reads it; after item 5 it is no longer misleading either, since running the file
+directly reports what it is.
 
 ---
 
@@ -605,9 +603,8 @@ them once already). It rewrote that paragraph to say the wire set needs *"no too
 no network"* — the "no" answer, landed on a repo-wide surface. Draft 1 claimed the six items
 were *"deliberately not fixed in the carried commit"*; for this one that was not true. §5
 item 4 has since rewritten all four sites to the **property** rather than the shorthand, and
-that rewrite is deliberately **silent on the interpreter question**: it says what the wires
-*do* need (the shell, `git`, `grep`, nothing to install) and does not say what a future wire
-may not need. The answer below is the memo's, not a paragraph's.
+that rewrite is deliberately **silent on the interpreter question**: it states the property the
+ungated job rests on (there is no setup step) and does not say what a future wire may not need. The answer below is the memo's, not a paragraph's.
 
 Derive the contending set rather than listing it — and note what the command can and cannot
 say:
@@ -634,7 +631,7 @@ floor**. With that job in the plan, "one issue, one way" gives each job one rule
 
 | job | floor | occupant |
 |---|---|---|
-| `trip-wires` (ungated, exists today) | the shell, `git`, `grep` — nothing to install | checks that need no interpreter |
+| `trip-wires` (ungated, exists today) | no setup step — nothing to install | checks that need no interpreter |
 | `tools` (ungated, A-iii) | an interpreter, declared | checks that need one |
 
 The alternative — letting `trip-wires` acquire an interpreter floor — buys nothing A-iii's job
@@ -666,7 +663,8 @@ instrument.
 2. Removing the controls file ends the run at exit 2, *"decided nothing"* — verified in both
    directions, since a split that can silently skip its own controls is worse than no split.
    **Met**, and §5 item 5 added the other direction: the controls file run on its own now exits
-   **2** naming what it is, instead of failing inside `mktemp`.
+   **2** naming what it is, instead of failing inside `mktemp`. The harness split carries the
+   same guard in both directions (measured).
 3. **The mutation set is enumerated in `…trip-wire.mutations.sh`, machine-readably, and each
    entry is shown to red when reverted. Met — the run prints the count and `not killed as
    named`, and the count is ratcheted rather than quoted here.**
@@ -726,9 +724,11 @@ instrument.
    change it, and draft 1's version forbade exactly those answers by fixing the set first.
    **Met — and the set DID change**, which is the criterion working rather than failing: items 5
    and 6 were answered without adding a file; the design review found #501's memo contradicting
-   §8 and the umbrella missing the row its own repo-wide command needs; and R6 added
-   `…trip-wire.mutations.sh` when the touch-time split landed. Both are now in §4's table. A version of this
-   criterion that froze the set at five would have forced those two defects to land.
+   §8 and the umbrella missing the row its own repo-wide command needs; R6 added
+   `…trip-wire.mutations.sh` when the touch-time split landed, and §11's implementation added
+   `…trip-wire.harness.sh` when the new controls took that file back to the threshold. All are
+   now in §4's table. A version of this criterion that froze the set at five would have forced
+   those defects to land.
 
 ## §8 Defer slots
 
@@ -741,11 +741,11 @@ declared blind spot records the reach of a predicate* — and it is what sorts t
 
 ### Not slots, and why (unchanged)
 
-The **seven** classes in the wire's `WHAT THIS WIRE DOES NOT DECIDE` block are reach, not work.
+The classes in the wire's `WHAT THIS WIRE DOES NOT DECIDE` block are reach, not work.
 For interpolation and bare top-level names, *"closable here"* is answerable only as **no**, so a
 `Re-evaluation trigger` could never fire — worse than the undated trigger the lane's precedent
-already rejects. ⚠ The list was **five** when this section was first written and is seven now;
-the two additions are recorded at §10.3 and §10.4.
+already rejects. ⚠ Two classes were added after this section was first written, and they are
+recorded at §10.3 and §10.4.
 
 ### ~~Slot 1 — the touch-time split~~ **WITHDRAWN and DONE (R6).** It was never a slot.
 
@@ -758,8 +758,13 @@ it constrains is the failure worth naming here; the sentence admits **単独 com
 lands *in* this PR, as its own commit, before merge.
 
 **Done**: `.claude/tools/webref-generic-core-trip-wire.mutations.sh`, at the seam the reviewer
-named — fixture/control execution versus the opt-in mutation harness. The controls file goes
-**1031 → 810**.
+named — fixture/control execution versus the opt-in mutation harness.
+
+**And again in §11's implementation**, when the new controls took the controls file back to the
+threshold: `.claude/tools/webref-generic-core-trip-wire.harness.sh`, at the seam between **how a
+control runs** (the fixture scratch root, the fixture git helper, the shim quoting, the FIFO
+capability probe, `_control` itself) and **which controls exist** (each fixture and the assertion
+over it). Its own commit, before the fixes that needed it.
 
 ⚠ **And the memo's own counter-argument is answered rather than dropped.** §9 had argued against
 this seam because *"the two lists must be edited together, so splitting them puts the two halves
@@ -768,11 +773,13 @@ that instead of hoping for it. Being cross-file is the point: it reads the contr
 the mutation file for records, and reds when they drift. The argument was for a version of the
 split that moved the *table* and left the *check* behind; that is not this split.
 
-**The wire is NOT split, and that is a cohesion judgement with its measurement attached.** At
-1089 lines it is **249 lines of code and 817 of comment** (`awk` split in §0). CLAUDE.md's
-discipline is explicit that the test is cohesion, not line count, and exempts *一枚岩の cohesive
-unit*: what is left is one predicate, one walk, one verdict, and the length is recorded incident
-rationale rather than logic. ⚠ **If that is wrong, the seam to propose is predicate-vs-walk** —
+**The wire is NOT split, and that is a cohesion judgement** (§0's first command prints its
+code/comment split; the figures are not carried here, because they move with every commit).
+CLAUDE.md's discipline is explicit that the test is cohesion, not line count, and exempts
+*一枚岩の cohesive unit*: what is left is **two predicates** — `$K2RE` over running text and
+`$K2RE_PATH` over stored paths — over one walk into one verdict, and the length is recorded
+incident rationale rather than logic. ⚠ **If that is wrong, the seam to propose is
+predicate-vs-walk** —
 "what counts as a hit" against "what is read" — and it is named here so the next reviewer argues
 against a position rather than a silence.
 
@@ -788,8 +795,8 @@ against a position rather than a silence.
 
 | | |
 |---|---|
-| **Why deferred** | The bug it fixes (`grep -c .` exiting 1 on an empty file) fires only when **every** control has a mutation record, i.e. when `_MUT_UNRECORDED_MAX` reaches 0. That state is not reachable today. |
-| **Re-evaluation trigger** | `_MUT_UNRECORDED_MAX` reaching 0 — a condition the ratchet already makes monotone-downward, so it is fireable rather than notional. |
+| **Why deferred** | The bug it fixes (`grep -c .` exiting 1 on an empty file) fires only when `.bare` is empty — when every control has a mutation record. No run reaches that state today. |
+| **Re-evaluation trigger** | An edit that takes `_MUT_UNRECORDED_MAX` to 0. ⚠ **Nothing makes that arrive on its own**, and an earlier wording said the ratchet did: the constant is hand-edited, and the harness's own diagnostic offers *raising* it in the same breath as lowering it. So this trigger is a decision someone takes, not a state the instrument drifts into — which is also the argument for closing the slot instead, by pinning the path with a control that empties `.bare`. |
 | **Re-evaluation date** | 2026-12-31 |
 
 ⚠ **Own-deferral count: 3, at the per-PR cap of 3** (the third is `#11-k2-wire-verdict-site-controls`). ⚠ And the
@@ -1094,7 +1101,7 @@ lands *in* this PR, as its own commit, before merge.
 
 **Done in this round**, at the seam the reviewer named: `…trip-wire.mutations.sh`, separating
 *"can the wire reach every verdict?"* (the controls) from *"is each control about the arm it
-names?"* (the mutation set and the correspondence between the two lists). Controls **1031 → 810**.
+names?"* (the mutation set and the correspondence between the two lists).
 
 ⚠ **Two things the split had to get right, and the standing negative control caught the second:**
 - the **correspondence check moves with the mutation set**, not away from it — §9's argument
@@ -1105,11 +1112,11 @@ names?"* (the mutation set and the correspondence between the two lists). Contro
   mutation, and the harness reported it as the entry failing. **The `!survive` entry died and
   said so** — a broken harness reporting itself, in the run that broke it.
 
-**The wire is not split**, and that is a judgement with its measurement attached: 1089 lines is
-**249 code / 817 comment**, and what remains is one predicate, one walk, one verdict — CLAUDE.md's
-*一枚岩の cohesive unit* exemption, which is a cohesion test and not a line count. If that is
-wrong the seam to propose is **predicate-vs-walk**, named in §8 so the next reviewer argues
-against a position rather than a silence.
+**The wire is not split**, and that is a cohesion judgement (§0's first command prints the
+code/comment split; no figure is kept here): two predicates over one walk into one verdict —
+CLAUDE.md's *一枚岩の cohesive unit* exemption, which is a cohesion test and not a line count.
+If that is wrong the seam to propose is **predicate-vs-walk**, named in §8 so the next reviewer
+argues against a position rather than a silence.
 
 ### §10.6 Round 7 — five findings; two made by R6's split, one by the edit that retired a figure
 

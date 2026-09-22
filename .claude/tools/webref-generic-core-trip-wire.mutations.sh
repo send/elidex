@@ -24,13 +24,13 @@
 # rather than hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
-# WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_CONTROLS`,
-# `$_HARNESS` and `$_MUTATIONS` (from the controls file — the last is this
-# file's own path; `_mut_run` copies all three beside each mutant), plus `$SELF`
-# and `$SCRATCH` (from the wire).
+# WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_HARNESS` and
+# `$_MUTATIONS` (from the controls file — the last is this file's own path),
+# and `$SELF`, `$SCRATCH` and `$_CONTROLS` (from the wire). `_mut_run` copies
+# the controls, the harness and this file beside each mutant.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_mutants`, `_mut_correspondence`,
 # `_mut_run`.
-# ⚠ AND IT WRITES NOTHING OF THE CALLER'S. `_mut_correspondence` used to set
+# ⚠ AND IT ASSIGNS NO VARIABLE THE CALLER OWNS. `_mut_correspondence` used to set
 # `ctl_ok` — a variable owned by the controls file — so a rename there would
 # have left this file assigning an unused global while the caller's status
 # stayed green: the exact cross-file drift the entry guard exists to prevent,
@@ -84,9 +84,12 @@ fi
 # green. Three things now hold it up, and each is checked below rather than
 # described:
 #   * a CORRESPONDENCE, IN BOTH DIRECTIONS AND ALWAYS-ON. Every record's needle
-#     must name an actual `_control` label in this file (a stale anchor would
-#     otherwise report "wrong reason" forever), AND the number of controls with
-#     NO record is ratcheted: `_MUT_UNRECORDED_MAX` may only come down.
+#     must appear in the controls file as a QUOTED STRING — a `_control` label,
+#     or the label a block that is not a `_control` prints (the umask and
+#     fsmonitor ones) — since a stale anchor would otherwise report "wrong
+#     reason" forever. It is a grep for the quoted text, not a parse of the
+#     call. AND the number of controls with NO record is ratcheted:
+#     `_MUT_UNRECORDED_MAX` may only come down.
 #     ⚠ THE SECOND DIRECTION IS THE ONE THAT CATCHES ANYTHING. The first has
 #     never had a violation; the second is where both real gaps lived — the
 #     `ls-tree` arm with no record, and a control whose fixture made its
@@ -222,8 +225,9 @@ _mut_correspondence() {
     # `!survive` is the standing negative control; it names no control by design.
     [ "$_mwant" != '!survive' ] || continue
     grep -qF -- "\"$_mwant\"" "$_CONTROLS" || {
-      echo "!! mutation record needle \"$_mwant\" matches no _control label in this file." >&2
-      echo "   A record whose control was renamed reports \"wrong reason\" forever." >&2
+      echo "!! mutation record needle \"$_mwant\" appears nowhere in the controls file" >&2
+      echo "   as a quoted label. A record whose control was renamed reports" >&2
+      echo "   \"wrong reason\" forever." >&2
       _mut_orphan=1; }
   done < "$CTL/.mutants"
   _mut_corr_bad=0

@@ -26,8 +26,8 @@
 # `docs/`/`crates/` path heuristics; elidex-specific agent briefs", with
 # `commands/agent_brief.py` listed as the module that "scans elidex paths".
 #
-# ⚠ SO `DESIGN.md`'s "generic core" AND K2's ARE DIFFERENT SETS: five named
-# modules versus `_webref/` plus this entry script, which CONTAINS the adapter
+# ⚠ SO `DESIGN.md`'s "generic core" AND K2's ARE DIFFERENT SETS: the modules
+# quoted above versus `_webref/` plus this entry script, which CONTAINS the adapter
 # `DESIGN.md` deliberately put there.  A review round put that as "the predicate forbids
 # something its own authority permits", a revision of this header answered it
 # by quoting the opening sentence with its subject changed from "its
@@ -79,11 +79,8 @@
 # Naming it a heuristic does not weaken what the wire DOES — it still reds on
 # anything shaped like a host path — it stops the next boundary case being
 # evidence that the file is broken, and makes the real requirement explicit:
-# **every boundary rule carries a control in BOTH directions**, because each of
-# those four was invisible to a control that only tested the other way.
-#
-# What is un-negotiable in both halves: this wire makes no un-asserted report,
-# and it never answers green over something it did not read.
+# **a boundary rule needs a control in BOTH directions**, because each of those
+# four was invisible to a control that only tested the other way.
 #
 # A NON-ZERO STATUS IS NOT A SPECIFIC NEGATIVE.  This is the invariant three
 # rounds of external review kept finding violations of, one site at a time, so
@@ -106,7 +103,7 @@
 #
 #     grep -n '=\$?\|^ *if ! _git\|elif ! _git\|)" || \|cmp -s' <this file>
 #
-#   INFERS A PARTICULAR NEGATIVE (each needs a positive test, and has one):
+#   INFERS A PARTICULAR NEGATIVE, WITH A POSITIVE TEST FOR IT:
 #     * `rev-parse --verify --quiet HEAD` non-zero -> maybe unborn. Established
 #       positively by `symbolic-ref -q HEAD` naming a branch AND `show-ref
 #       --verify` reporting that branch ABSENT (its documented rc 1). Anything
@@ -118,16 +115,35 @@
 #       show-ref's documented "not found"; a ref file that EXISTS but holds
 #       malformed data also fails, which is why the malformed case is caught one
 #       level up by `symbolic-ref` rather than here.
-#     * `ls-files --error-unmatch --literal-pathspecs` non-zero -> untracked.
-#       `--literal-pathspecs` is what makes the question about THIS path.
 #     * `_ancestor_link` rc 1 -> no proper ancestor is a symlink. Pure shell,
 #       no external status; the negative is established by the walk itself.
+#     * `_absent` rc 0 -> the path is absent, established by a walk to the
+#       nearest existing ancestor; rc 1 is "not established", i.e. an `err`.
+#   INFERS A PARTICULAR NEGATIVE FROM A DOCUMENTED FAILURE, WITH NO SEPARATE
+#   TEST — so the arm carries whatever else can fail that way:
+#     * `ls-files --error-unmatch --literal-pathspecs` non-zero -> untracked.
+#       `--literal-pathspecs` is what makes the question about THIS path. A
+#       repository this call cannot read at all lands in the same arm; what
+#       keeps that from becoming a green is that the arm emits an `err` either
+#       way.
+#     * `[ -L ]`, `[ -f ]`, `[ -e ]` on the worktree path -> "not that kind of
+#       entry". Their JOINT failure is NOT read as absence (it is EACCES too);
+#       `_absent` above is what answers that.
 #   CONCLUDES ONLY FROM A DOCUMENTED CONTRACT (not an inference):
 #     * `grep` in `_content`, `_match_path` and `_classify` — 1 = no line
 #       selected, >= 2 = error, and every arm separates them.
+#     * `cat` of a staged symlink blob — its status travels in the `R%d`
+#       sentinel, because the substitution's own status is the sentinel's.
 #   CONCLUDES NOTHING BUT "ERROR" (no negative is inferred at all):
 #     * `cat-file blob`, `tr -d '\000' | cmp -s`, `readlink`, the three
-#       `ls-files`/`ls-tree` inventories, `mktemp`, `rev-parse --local-env-vars`.
+#       `ls-files`/`ls-tree` inventories, `mktemp`, `rev-parse --local-env-vars`,
+#       `_phys` (a `cd` that fails leaves an empty value and the run refuses),
+#       and `: >` on each of the walk's temp files.
+#       ⚠ The `tr | cmp` arm's MESSAGE names a NUL; any other failure of that
+#       pipeline lands there too. The verdict (an `err`) holds either way.
+#   NOT READ AT ALL:
+#     * `$(_scan …)` — a substitution's status is its own; that the walk
+#       finished is asserted from the terminal record in `_verdict`.
 # A new `git` call added below joins this table or it is a defect — and the
 # table is re-derived when a mechanism changes, not amended around it.
 #
@@ -158,8 +174,7 @@
 #     file carrying `.claude/skills/elidex-plan-review/preflight.py` passed
 #     this wire GREEN.
 #
-# WHAT THIS WIRE DOES NOT DECIDE — THE WHOLE LIST, AND THIS IS THE ONE PLACE IT
-# IS STATED, so anything added to this list is added HERE.
+# WHAT THIS WIRE DOES NOT DECIDE. Anything added to this list is added HERE.
 # ⚠ AND THAT RULE WAS BROKEN TWICE BEFORE IT WAS KEPT: two rounds added a
 # declared non-coverage at its own site (`_match_path`'s unpinned guard, the
 # ratchet's `wc -l`) and a third narrowed the leading boundary into a new
@@ -172,10 +187,10 @@
 # not these classes.  Meanwhile §12(3) restated two of them itself and §12(4)
 # booked all four as defer slots.  The stacked PR that owns this header swept
 # all three sites, so the delegation the sentence asserted now exists.
-# None of these is a deferred obligation: they are the reach of a predicate,
-# not work someone owes later.  What covers them is the diff — every line
-# entering this tree passes review, and `git diff origin/main...HEAD --
-# .claude/` is finite.
+# Items 1-6 are the reach of a predicate, not work someone owes later; item 7
+# is the part that is owed, and it is booked in the plan memo's §8.  What
+# covers the rest is the diff: `git diff origin/main...HEAD -- .claude/` is
+# finite, and it is what a reviewer reads.
 #
 #   1. THE POLICY CLAUSE of `DESIGN.md`'s closing rule (above).  Not a path
 #      question at all; no grep decides it.
@@ -211,17 +226,24 @@
 #      control.
 #
 #   6. A REFERENCE WHOSE LEADING CHARACTER IS ONE THIS PREDICATE TREATS AS PART
-#      OF A COMPONENT — `@`, `+`, `%`, `-` and the word characters. `foo@.claude
+#      OF A COMPONENT — the exclusion class in `$K2RE` is the list, and it is
+#      not restated here. `foo@.claude
 #      /skills/team/rule.md` is not decided as a hit, on the reading that it
 #      continues the component `foo@.claude`.  ⚠ This class exists BECAUSE the
 #      leading boundary is an exclusion (see `$K2RE`): every character added to
 #      the exclusion set to kill a false positive lands here.  It is the price
 #      of failing safe, and it is listed rather than left implicit.
-#   7. TWO THINGS NO CONTROL PINS, named here so "the list" is the list:
+#   7. WHAT NO CONTROL PINS, named here so "the list" is the list:
 #      `_match_path`'s `|| return 4` (nothing external is left in `_onerec` for
-#      a shim to break) and the `wc -l` in the controls' ratchet (reaching an
-#      empty `.bare` needs every control to have a record).  Both are recorded
-#      at their sites and as defer slots in the plan memo's §8.
+#      a shim to break); the `wc -l` in the controls' ratchet (reaching an
+#      empty `.bare` needs every control to have a record); the `-a` on
+#      `_verdict`'s arms (a NUL cannot reach a shell string); `-c
+#      core.untrackedCache=false` in `_git`; the terminal record on `_scan`'s
+#      early return (no control makes `$SCRATCH` unwritable); and the verdict
+#      sites with no control of their own.  Each is recorded at its own site as
+#      well.  Of these, `|| return 4`, the `wc -l` and the verdict sites are
+#      booked as defer slots in the plan memo's §8; the others are accepted
+#      where they stand, with the reason beside them.
 #
 # ⚠ 3 AND 4 ARE NOT CLOSABLE BY ANY WIRE, and saying so is the point: both are
 # properties of a grep over arbitrary source text, so "later, with a better
@@ -244,10 +266,9 @@
 # broke that premise (#501 R69), which is the concrete thing to avoid here.
 # ⚠ STATED AS A PROPERTY, NOT A LIST, because two lists have already been wrong
 # at these same sites: "the wires are grep-only" (this wire calls `git`
-# constantly) and then "the shell, `git` and `grep`" (it also calls `sed`,
-# `tr`, `cmp`, `readlink`, `mktemp`, `mkfifo`, `chmod`, `env`, `cut`, `ln`,
-# `cp` — and the sibling wires add `awk`, `sort`, `comm`, `wc`).  The second
-# was written by the edit retiring the first.
+# constantly) and then "the shell, `git` and `grep`" (both left out tools these
+# files call).  The second was written by the edit retiring the first, which is
+# why no third list is offered.
 # ⚠ AND THIS PARAGRAPH IS ABOUT THIS WIRE, NOT THE WIRE SET.  A revision of it
 # ended "anything needing more than the shell, git and grep belongs in a test,
 # not here", which — sitting beside a sentence about the job — reads as a rule
@@ -281,8 +302,8 @@ unset GREP_OPTIONS
 # there the outer one was the live copy and the inner was redundant. One value,
 # stated twice, load-bearing at a different level each time — which is why the
 # mutation aimed at the outer `GIT_NO_REPLACE_OBJECTS=1` SURVIVED: the line it
-# changed decided nothing. Every git call in this file goes through `_git`, so
-# after the purge is the one place that holds for all of them.
+# changed decided nothing. Every git call that READS THE TREE goes through
+# `_git`, so after the purge is the one place that holds for all of them.
 
 # `$0` as given may have no slash (`bash webref-generic-core-trip-wire.sh` from
 # this directory), and the controls re-invoke it — through PATH, where it is not.
@@ -393,7 +414,8 @@ done
 REL_DIR="${SCOPE_DIR#"$ROOT"/}"; [ "$REL_DIR" != "$SCOPE_DIR" ] || REL_DIR="."
 REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 
-# §2's K2 predicate. Fixed ERE, `grep -E`. The one thing this wire asserts.
+# §2's K2 predicate over running text. Fixed ERE, `grep -E`. This and
+# `$K2RE_PATH` below are what this wire asserts.
 #
 # A segment FOLLOWED BY `/` runs to that `/`, stopping only at whitespace: a
 # `]`, a quote or a backtick inside it is part of the path, and while they ended
@@ -447,15 +469,19 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 #     positive (`foo@.claude/...`), and measured against the revision before it
 #     that traded the safe direction for the unsafe one: `DEFAULT=.claude/...`,
 #     `--paths=.claude/...`, `k:.claude/...`, `` `.claude/...` `` and
-#     `**.claude/...**` all stopped matching. TWO OF THOSE SHAPES ARE LIVE IN
-#     THE SCANNED TREE — `--opt=<path>` is how `cli.py` spells its `--help`
-#     examples, and a backtick is how `DESIGN.md`, which is Markdown, spells a
-#     path. The gate silently stopped covering its own most likely spelling,
-#     and no control could see it because every red fixture wrote the path
-#     after a space or a quote.
+#     `**.claude/...**` all stopped matching, and no control saw it. ⚠ WHICH
+#     SPELLINGS THE SCANNED TREE ACTUALLY USES IS NOT A LIST HERE — an earlier
+#     revision named `--opt=` and a Markdown backtick, and neither is in the
+#     tree. Derive it:
+#
+#       LC_ALL=C grep -rnoE '.{0,3}\.claude/(skills|tools)/' \
+#         .claude/tools/_webref .claude/tools/webref | sort | uniq -c
+#
+#     The fixtures cover those shapes regardless, because what the tree spells
+#     today is not what a contributor writes tomorrow.
 #     The `@` false positive is handled where it belongs: INSIDE the exclusion
 #     set, beside the other characters that continue a component (`+`, `%`,
-#     `-`), so closing it cannot open anything.
+#     `-`).
 # The leading class is consumed by the match, so a record shows one extra
 # character; that is cheaper than a lookbehind ERE does not have.
 K2RE='(^|[^A-Za-z0-9_.~@+%-])\.claude/(skills|tools)/[^/[:space:]]+/([^/[:space:]]+/|[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;])'
@@ -545,16 +571,20 @@ K2RE_PATH='(^|/)\.claude/(skills|tools)/[^/]+/[^/]+'
 # anyway. Every "unknown fails closed" decision in this file is that same
 # decision.
 #
-# A permission failure is an ERROR, not an absence: `git ls-files` and `grep`
-# both report it on stderr while exiting 0, so a non-empty stderr and a `grep`
-# status above 1 each fail the run.
+# A permission failure is an ERROR, not an absence: `git ls-files` reports it
+# on stderr while exiting 0, so the inventories' stderr is collected and a
+# non-empty one becomes an `err` record. `grep`'s own stderr is discarded; what
+# carries its failures is its status above 1.
 # A PATH IS DATA, NOT PROTOCOL. The records below are newline-separated and
 # tab-tagged, and a tracked filename may contain both — so a file named
 # `safe<LF>k2<TAB>forged` injected a synthetic K2 hit and the wire reported
 # `forged` and exited 1 (#501 R80, reproduced). Every path is escaped on its
 # way into a record; the escape is lossy on purpose, since what a reader needs
 # is to find the entry, not to round-trip its bytes.
-# EVERY `git` CALL IN THIS FILE GOES THROUGH HERE, because `-C "$ROOT"` does NOT
+# EVERY `git` CALL THAT READS THE TREE GOES THROUGH HERE — the exception is the
+# `rev-parse --local-env-vars` call just below, which runs before this function
+# can exist, since it is what builds the list the function uses — because
+# `-C "$ROOT"` does NOT
 # win over the repository-routing environment: with `GIT_DIR`/`GIT_WORK_TREE`
 # exported — a wrapper, a hook — the inventory described ANOTHER CHECKOUT while
 # the worktree arm read files under `$ROOT`, and a fixture holding a forbidden
@@ -852,10 +882,11 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
     # reproduced). `-n` stops `readlink` adding its own newline, and the `R%d`
     # sentinel keeps the substitution from ending in one — so nothing is stripped
     # and the exit status still reaches us.
-    # ⚠ Every OTHER stored value here avoids `$( )` already: the entry name comes
-    # from `read -r -d ''`, and the two match captures hold `grep -o` output whose
-    # records cannot end in a newline because `_onerec` removed them. This was the
-    # one raw stored value that went through a substitution.
+    # ⚠ The other stored values reach the predicate by other routes: the entry
+    # name comes from `read -r -d ''`, the two match captures hold `grep -o`
+    # output whose records cannot end in a newline because `_onerec` removed
+    # them, and the staged symlink blob goes through the same `R%d` sentinel
+    # above.
     # If some `readlink` lacks `-n` it exits non-zero here and the entry becomes an
     # `err` record: unknown fails closed, which is the only safe direction for a
     # portability question inside an absolute.
@@ -964,9 +995,9 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # violation committed and then fixed only in the index read green while
   # `git show HEAD:victim` still held it. Bounded at the TIP and no further:
   # elidex squash-merges, so what lands on main is the tip's tree, and the
-  # commits below it are not what this gate is about. An unborn HEAD — every
-  # fixture here, and a fresh clone before its first commit — is not an error:
-  # there is simply nothing committed to read.
+  # commits below it are not what this gate is about. An unborn HEAD — a fresh
+  # clone before its first commit, and any fixture here that was never
+  # committed to — is not an error: there is nothing committed to read.
   # ⚠ EXIT 1 IS "UNBORN"; ANYTHING ELSE IS A FAILURE, and collapsing the two
   # made an operational error silently disable the whole HEAD pass. `--quiet`
   # exits 1 for an unborn HEAD and 128 when git cannot answer at all (measured),
@@ -1094,9 +1125,9 @@ _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
 # The samples are spelled out a SECOND time on purpose. They are the independent
 # subject each check is tested against, exactly as `layout-box-reader-trip-wire.sh`'s
 # `ban_control` passes a hand-written sample line beside the pattern. If someone
-# edits $PIN or $K2RE to a different spelling, the two stop agreeing and THAT is
+# edits $K2RE to a different spelling, the two stop agreeing and THAT is
 # the signal — the failure a pattern-derived fixture cannot see.
-# Two fixtures for the one predicate, on purpose: the path A-i actually removed
+# Two fixtures for the content predicate, on purpose: the path A-i actually removed
 # (the case the wire exists for) and a path that never existed here (the general
 # case). If $K2RE is edited to a different shape, both stop agreeing with it.
 CONTROL_REMOVED='.claude/skills/elidex-review/axes.md'
