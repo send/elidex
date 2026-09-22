@@ -732,7 +732,7 @@ instrument.
 
 ## §8 Defer slots
 
-**Two, and this section has now been wrong in both directions.** An earlier revision said
+**Three of three** — slots 1 and 2 below, and `#11-k2-wire-verdict-site-controls` (§11.4; registered in the defer ledger). **This section has been wrong in both directions before.** An earlier revision said
 **zero** while the loop had added obligations it was never reopened to see; the revision that fixed
 that booked a **third** slot for work the rule required to be done, not deferred (R6, below). That was right about the four
 declared blind spots and wrong as a total: the loop added obligations §8 was never reopened to
@@ -792,7 +792,7 @@ against a position rather than a silence.
 | **Re-evaluation trigger** | `_MUT_UNRECORDED_MAX` reaching 0 — a condition the ratchet already makes monotone-downward, so it is fireable rather than notional. |
 | **Re-evaluation date** | 2026-12-31 |
 
-⚠ **Own-deferral count: 2, against a per-PR cap of 3.** ⚠ And the
+⚠ **Own-deferral count: 3, at the per-PR cap of 3** (the third is `#11-k2-wire-verdict-site-controls`). ⚠ And the
 honest note on both: both are *"a code path the gate's own tests cannot reach"*, which
 is a smaller admission than a blind spot but a real one, and the cap policy forbids deleting a
 slot to make arithmetic work — so if a fourth arrives, one of these has to be closed rather than
@@ -1173,8 +1173,8 @@ listed in §11.4 — nine rounds of external review had been sampling that popul
 time.
 
 * **Rev 1** (`470d7fcc`) re-executed this wire under `env -i` and an allowlist. Its plan-review
-  measured why that cannot work: bash consumes `BASH_ENV`, `SHELLOPTS`, `BASHOPTS`, `BASH_FUNC_*` and
-  `POSIXLY_CORRECT` at startup, before a script's first line; an allowlisted `GIT_CONFIG*` carries any
+  measured why that cannot work: bash consumes `BASH_ENV`, `SHELLOPTS` and `BASH_FUNC_*` at startup,
+  before a script's first line (`SHELLOPTS=noexec` and an exported `exec` both stopped the re-exec); an allowlisted `GIT_CONFIG*` carries any
   git config key (`core.fsmonitor` ran a command inside this wire's own `ls-files` call); and the
   class reaches the sibling wires too. Rev 1 also proposed *declaring* D3 — the fail-safe error §10.4
   records.
@@ -1189,8 +1189,9 @@ time.
 
 ### §11.1 The environment findings, by failure direction
 
-The wire's own rule (header, beside `_SELFTEST`) is that a mode or input reachable from outside is
-*unreachable or loud, never silent*. That rule, not a list of variable names, decides each row.
+The wire's rule for modes reachable from outside (beside `_SELFTEST`) is *unreachable or loud,
+never silent*; this section applies the same rule to inputs. It, not a list of variable names,
+decides each row.
 
 | input | fails | disposition |
 |---|---|---|
@@ -1252,8 +1253,8 @@ A fresh agent, on a frozen snapshot, enumerates **every** member of each populat
 member, each backed by the command that produced it, marked OK or DEFECT:
 
 * **P1 — quantities and universals in prose**: the comments of the three `.sh` files and of
-  `scripts/trip-wires.sh`; this memo's header and §0–§11 (§10 as provenance); both umbrella rows that
-  name this slice; the `CLAUDE.md` and `ci.yml` paragraphs. Every figure describing current state,
+  `scripts/trip-wires.sh`; this memo's header and §0–§11 (§10 as provenance); every umbrella row and
+  paragraph naming this slice; the `CLAUDE.md` and `ci.yml` paragraphs. Every figure describing current state,
   and every "every / all / only / no / none / never / the one place" with its complement measured.
   Enumerated with an unfiltered word grep; context read separately.
 * **P2 — shims**: every generated script — what it intercepts, whether its pattern is verb and flag
@@ -1306,3 +1307,31 @@ fix once, then re-run the touched populations on the fixed head. A finding that 
 revision's own edits (its diff touches the line the finding cites) stops the loop and is reported
 rather than fixed in a second round. MIN findings from the re-run are deleted per §11.2 or listed in
 the PR body. Then the merge decision, with the land order against #501, goes to the user.
+
+### §11.6 Rev 3's review — three focused passes, and where they leave the design
+
+Rev 3 was reviewed with a changed instrument, because both earlier plan-review rounds had been reset
+by text the previous revision itself introduced: a disposal check of rev 2's findings, an audit of
+every claim rev 3 newly wrote, and a prototype of §11.2 in a `git clone --local`, run on bash 5.3 and
+3.2 with the mutation set. **No CRIT.** Every mechanism worked as specified; the real tree stays
+`K2: 0` under the widened class; each new red control fails on the pre-fix wire. What remains is
+implementation detail, most of it caught by the mutation harness itself — which is where this plan
+review stops and the implementation's own gates take over.
+
+| from | finding | disposition |
+|---|---|---|
+| disposal | `core.fsmonitor` (via the deliberately kept `GIT_CONFIG*`) was routed to the launch slot, but it reaches this PR's own `ls-files` calls, and a globally enabled fsmonitor changes which files git reports | **own, closed in #519**: `_git` passes `-c core.fsmonitor=false -c core.untrackedCache=false` on every call; control: an injected fsmonitor hook must not run |
+| disposal, audit | §8 still counted two own deferrals | §8 lists `#11-k2-wire-verdict-site-controls` and reads **3 of 3** |
+| audit | the ledger routed `POSIXLY_CORRECT`/`BASHOPTS` to the launch slot as "closable only where bash starts" — a script can undo both, and D4 closes their effect here | dropped from the slot; D4 is their owner |
+| audit | "the wire's rule … a mode **or input**" — the wire's sentence covers modes | §11.1 says the rule is the wire's rule for modes, applied here to inputs |
+| audit | P1 said "both umbrella rows" — more rows name this slice | P1 reads "every umbrella row and paragraph naming this slice" |
+| audit | §11.0 counted `POSIXLY_CORRECT`/`BASHOPTS` among what defeats a re-exec; what was measured to defeat it was `SHELLOPTS=noexec` and an exported `exec` | worded to what was measured |
+| prototype | D3 re-aims two existing records: one's sed anchor no longer matches the widened assignment; one now dies for the wrong reason (the widened first segment admits `"`, so `quotename` no longer separates the two predicates) | both re-aimed in the implementing commit; the mutation set's own "matched nothing" / "wrong reason" checks are what found them |
+| prototype | D3 as worded leaves `…/a/]x/` (a trailing slash) undetermined between "intermediate" and "final" | the fail-safe reading: an alternation — a segment followed by `/`, **or** the old final-segment class — so it matches |
+| prototype | D3's later-segment red controls only discriminate with the character **leading** that segment (`a/]inc/…`; `a/team]inc/…` already reds pre-fix) | that geometry |
+| prototype | D3 listed controls per character but records per class | one record per control (the ratchet does not move) |
+| prototype | D1 had no control and no record; deleting `unset GREP_OPTIONS` survived | control: `_ctl_env` `GREP_OPTIONS=--exclude=*` on a violating fixture (discriminates on BSD grep; on GNU grep it passes trivially — stated at the control); one record |
+| prototype | the D5 umask block and mode-000 root cannot fail where permissions are not enforced (root) | both inside the `$_perm_line` gate, NOT EXERCISED otherwise |
+| prototype | D2's nearest existing ancestor being a regular file (a tracked directory replaced by a file) is ENOTDIR — a positive absence — but the rule made it an `err` | a non-directory nearest ancestor is absence |
+| prototype | D4's "remove the check" record contained the tag's TAB, which splits the record | the record edits the check without the TAB |
+| prototype | D4's early-return terminal record has no discriminating control | accepted: both paths exit 2 and differ only in message; stated at the arm |
