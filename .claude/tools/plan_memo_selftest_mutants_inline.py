@@ -9,8 +9,10 @@ round from R17 on, which closed the Phase-2 INLINE construct family (R17 §6.6
 raw HTML, R19 §6.4 images, R21 §6.5 autolinks and the §3.0b closed list) with
 what landed beside them (R19's display name and path syntax, R20's row-kind
 grammar and file token, R21's out-of-field marker, KIND-SPELLING and schema id
-kinds, design re-gate 4's rendered-text stream).  It appends to the SAME
-`MUTANTS` list -- one registry, one import site (the runner).  The rules are
+kinds, design re-gate 4's rendered-text stream).
+`MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
+gathers every mutants module's list (the harness's file-name rule decides which
+modules those are) in one explicit step.  The rules are
 `plan_memo_selftest_mutants.py`'s: the substring must occur EXACTLY ONCE in its
 file, every named control must go red, a crash is a FAIL.  A mutant's control
 lives in `plan_memo_selftest_cases_inline.py` under the same round label.
@@ -18,9 +20,13 @@ lives in `plan_memo_selftest_cases_inline.py` under the same round label.
 
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
 from plan_memo_selftest_mutants import (
-    CHECK, CONTROLS, EMPHASIS, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, MUTANTS, POPULATION,
+    CHECK, CONTROLS, EMPHASIS, HTML, IDS, INLINE_EXAMPLES, LEXER, MEMO, POPULATION,
     R27_GROWTH, ROLES, SEQUENCE, SIBLING, STAGE_C, STREAM, TABLES, TOKENS,
 )
+
+# This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
+# registry module's list in one explicit step, and none appends to another's.
+MUTANTS = []
 
 # The R25-1 control names are COMPOSED by the cases module (one per member of
 # `_RESERVED_CHARS`, from one format string), so they are read from there

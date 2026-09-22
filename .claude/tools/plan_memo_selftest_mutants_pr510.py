@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PR #510 Codex R1-R16 mutants for `plan-memo-umbrella-check.py --self-test --mutants`.
 
-The second of three mutant modules, split from `plan_memo_selftest_mutants.py`
+The second mutant module carved, split from `plan_memo_selftest_mutants.py`
 at the review-round seam the control registry is split at
 (`plan_memo_selftest_cases.py` / `_cases_pr510.py` / `_cases_inline.py`): that
 module holds the row shape, the runner `run` and every PRE-converge mutant (the
@@ -10,17 +10,23 @@ Stage-6 fixes); this one holds the mutants of PR #510 review rounds R1-R16 and
 the design re-gates over R4-R9 -- the LEXICAL SUBSTRATE and the BLOCK grammar --
 and `plan_memo_selftest_mutants_inline.py` those of R17 on, the rounds that
 closed the Phase-2 INLINE construct family.  The seam is the cases modules'
-exactly: `_cases_pr510.py` here, `_cases_inline.py` there.  All three append to
-the SAME `MUTANTS` list -- one registry, read at one import site (the runner).
+exactly: `_cases_pr510.py` here, `_cases_inline.py` there.
+`MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
+gathers every mutants module's list (the harness's file-name rule decides which
+modules those are) in one explicit step.
 The rules are the first module's: the substring must occur EXACTLY ONCE in its
 file, every named control must go red, a crash is a FAIL.  A mutant's control
 lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
 """
 
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, IDS, LEXER, LINKS, MEMO, MUTANTS, PIPELINE, POPULATION, ROLES,
+    BLOCKS, CHECK, CONTROLS, IDS, LEXER, LINKS, MEMO, PIPELINE, POPULATION, ROLES,
     SEQUENCE, SIBLING, SPEC_EXAMPLES, STAGE_C, STREAM, TABLES, TOKENS,
 )
+
+# This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
+# registry module's list in one explicit step, and none appends to another's.
+MUTANTS = []
 
 # The pre-mask two mutants below re-inject.  It is spelled HERE, in the mutant
 # registry, because the checker has no such function any more: since design

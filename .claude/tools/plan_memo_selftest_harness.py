@@ -48,27 +48,85 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 
-# Import name -> file, in dependency order.  The checker's file name is not an
-# import name, so it is loaded under a fixed one.
-MODULES = [
-    ("plan_memo_ids", "plan_memo_ids.py"),
-    ("plan_memo_emphasis", "plan_memo_emphasis.py"),
-    ("plan_memo_tokens", "plan_memo_tokens.py"),
-    ("plan_memo_html", "plan_memo_html.py"),
-    # ⚠ BEFORE the lexer: the edge is one way (the lexer imports §6.3's
-    # grammar, never the reverse), and this list is exec'd in order, so a
-    # module that arrives after its importer is a NameError at load time.
-    ("plan_memo_links", "plan_memo_links.py"),
-    ("plan_memo_lexer", "plan_memo_lexer.py"),
-    ("plan_memo_blocks", "plan_memo_blocks.py"),
-    ("plan_memo_stream", "plan_memo_stream.py"),
-    ("plan_memo_tables", "plan_memo_tables.py"),
-    ("plan_memo_sibling", "plan_memo_sibling.py"),
-    ("plan_memo_memo", "plan_memo_memo.py"),
-    ("plan_memo_population", "plan_memo_population.py"),
-    ("plan_memo_roles", "plan_memo_roles.py"),
-    ("plan_memo_umbrella_check", "plan-memo-umbrella-check.py"),
-]
+# -- THE MODULE POPULATION: one derivation, read by every reader ------------
+#
+# ⚠ IT WAS SPELLED IN THREE PLACES (the fifth attestation, over `79309486`):
+# a hand-written `MODULES` list here that nothing compared with the disk, the
+# runner's list of mutant modules to import, and a glob inside the loop
+# ratchet.  The runner's list was INERT -- removing two of its imports still
+# gave "430 mutants, 0 survived", because the ratchet's glob had filled the
+# registry as a side effect of a control running earlier -- and the hand list
+# left a new checker module outside both the load set and the kind-question
+# ratchet (a `plan_memo_extra.py` calling `pop._claims` was reported by
+# nothing).  So the population is DERIVED here, once, from the directory, and
+# every reader consumes it: `files()` is the set, `is_selftest` /
+# `is_mutants` the partition (a FILE-NAME rule, not a list), `MODULES` the
+# checker half in import order, `MUTANT_MODULES` the registry's appenders.
+# The second and third spellings are deleted, not cross-checked.
+
+ENTRY = "plan-memo-umbrella-check.py"
+ENTRY_NAME = "plan_memo_umbrella_check"
+
+
+def files(here=None):
+    """THE POPULATION: every `plan_memo_*.py` beside this file, plus the entry
+    point (whose file name is not an import name), globbed -- so a module a
+    touch-time split carves out is in it the day it lands."""
+    here = HERE if here is None else here
+    return sorted(p.name for p in here.glob("plan_memo_*.py")) + [ENTRY]
+
+
+def is_selftest(file):
+    """The partition, by file name: a self-test module says so in its name."""
+    return "selftest" in file
+
+
+def is_mutants(file):
+    """The mutation registry's modules, by file name."""
+    return file.startswith("plan_memo_selftest_mutants")
+
+
+def import_name(file):
+    return ENTRY_NAME if file == ENTRY else file[:-len(".py")]
+
+
+def checker_files(here=None):
+    """The CHECKER half of the population: every file that is not self-test."""
+    return [f for f in files(here) if not is_selftest(f)]
+
+
+def _import_order(here=None):
+    """(import name, file) for the checker half, in DEPENDENCY order derived
+    from each module's top-level imports (Kahn, ties by name).  The order was
+    part of the hand list ("this list is exec'd in order, so a module that
+    arrives after its importer is a NameError"); it is now a property of the
+    import graph, and a cycle is an error rather than a silent misorder."""
+    import ast
+    here = HERE if here is None else here
+    by_name = {import_name(f): f for f in checker_files(here)}
+    deps = {}
+    for name, file in by_name.items():
+        tree = ast.parse((here / file).read_text(encoding="utf-8"), filename=file)
+        got = set()
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module in by_name:
+                got.add(node.module)
+            elif isinstance(node, ast.Import):
+                got |= {a.name for a in node.names if a.name in by_name}
+        deps[name] = got - {name}
+    order, done = [], set()
+    while len(order) < len(by_name):
+        ready = [n for n in sorted(by_name) if n not in done and deps[n] <= done]
+        if not ready:
+            raise RuntimeError("the checker modules' imports form a cycle: %s"
+                               % sorted(set(by_name) - done))
+        order.append(ready[0])
+        done.add(ready[0])
+    return [(n, by_name[n]) for n in order]
+
+
+MODULES = _import_order()
+MUTANT_MODULES = [import_name(f) for f in files() if is_mutants(f)]
 
 # The id grammar module: the ONE file that may spell an id character class;
 # the spelling sweep (`id_spelling_sweep_control`) reads every other module
@@ -99,7 +157,6 @@ def load(patches=None):
     patches = patches or {}
     unload()
     SOURCES.clear()
-    mod = None
     for name, file in MODULES:
         src = patches.get(file)
         if file not in _TEXT:
@@ -116,7 +173,7 @@ def load(patches=None):
         mod.__file__ = str(HERE / file)
         sys.modules[name] = mod
         exec(code, mod.__dict__)
-    return mod
+    return sys.modules[ENTRY_NAME]
 
 
 _INSTALLED_LEAVES = []
@@ -128,7 +185,7 @@ def unload():
     for name, _ in MODULES:
         sys.modules.pop(name, None)
     while _INSTALLED_LEAVES:
-        # RESTORE, never merely delete: one of the four installs in a full run
+        # RESTORE, never merely delete: one of the leaf installs in a full run
         # replaces a module that was already there, and `load()` calls
         # `unload()`, so a nested load inside a control would otherwise EVICT
         # the patch mid-row and silently turn that mutant into a no-op.

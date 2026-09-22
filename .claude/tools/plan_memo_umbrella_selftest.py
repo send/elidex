@@ -35,15 +35,18 @@ record, one of which silently stopped being maintained -- so the record has one
 home now, and what stays here is the only thing this file can say that the map
 cannot:
 
-  IMPORT DIRECTION, one way and no cycles: this runner imports the controls
-  module; the controls module imports the RECORDS module (not the properties or
-  invariants module -- those two reach the table through `records.registry()`,
-  which merges `properties.registry()`, which merges the invariants module's),
-  the work module, the case registry and, at three function-local sites, the
-  conformance module; the work module imports the pipeline and growth modules.
-  Every module of the set but the conformance module imports the harness, and
-  the harness imports none of them.  A registry fragment is merged UPWARDS
-  along that chain into the one name -> (kind, control) table the runner reads.
+  IMPORT DIRECTION, as a RULE over the imports (module-level and
+  function-local alike), checked by `plan_memo_selftest_records.
+  import_direction_control` rather than listed: the import graph of the one
+  population has NO CYCLE; the harness imports nothing of it; and no checker
+  module imports a self-test module except the entry point's `--self-test`
+  dispatch into this runner.  A registry fragment is merged UPWARDS along the
+  graph into the one name -> (kind, control) table the runner reads.
+  ⚠ Until the fifth attestation this was an INVENTORY of edges, and false: it
+  said the controls module imports the conformance module at three
+  function-local sites (four), omitted its import of the ratchets module, and
+  said every self-test module but the conformance module imports the harness
+  (ten others do not).
 
   ⚠ THIS PARAGRAPH REPLACED A STALE INVENTORY AT R32 AND WAS ITSELF FALSE until
   R38's design re-gate: it said "the controls module imports the property
@@ -101,14 +104,11 @@ def run(mutants=False):
                     % (len(reg), ", ".join("%d %s" % (counts[k], k) for k in sorted(counts)))))
     n_mutants = None
     if mutants:
+        # the registry is gathered by `mutants()`, the ONE step that imports its
+        # modules -- no list of them is spelled here (it was, and it was inert)
         import plan_memo_selftest_mutants as mm
-        import plan_memo_selftest_mutants_pr510  # noqa: F401 -- appends R1-R16's mutants to MUTANTS
-        import plan_memo_selftest_mutants_inline  # noqa: F401 -- appends R17-R25's mutants to MUTANTS
-        import plan_memo_selftest_mutants_r26  # noqa: F401 -- appends R26-R29's mutants to MUTANTS
-        import plan_memo_selftest_mutants_r30  # noqa: F401 -- appends R30-on's mutants to MUTANTS
-        import plan_memo_selftest_mutants_ratchets  # noqa: F401 -- appends the ratchets' mutants
         fails += mm.run(reg)
-        n_mutants = len(mm.MUTANTS)
+        n_mutants = len(mm.mutants())
     fails += empty_registry_fails(len(reg), n_mutants)
     if fails:
         print()

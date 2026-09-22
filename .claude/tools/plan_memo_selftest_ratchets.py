@@ -40,7 +40,8 @@ against it takes its controls from the PATCHED text.
 
 import ast
 
-from plan_memo_selftest_properties import HERE, MODULES, _swept_sources
+from plan_memo_selftest_harness import checker_files, files
+from plan_memo_selftest_properties import _swept_sources
 
 CENSUS = "plan_memo_population.py"
 
@@ -193,19 +194,19 @@ _SCOPE_EXEMPT = {
 
 def _census_rows():
     """(name, find, replace) of every mutant row against the census module,
-    read off the ONE registry after every appending module is imported."""
-    import importlib
+    read off the ONE registry (`plan_memo_selftest_mutants.mutants()`).
+
+    ⚠ It globbed the registry's modules and imported them itself, a THIRD
+    spelling of that population (the harness's hand list and the runner's
+    import list were the others), and its imports filled the runner's
+    registry as a side effect -- which is why deleting two of the runner's
+    imports changed nothing (the fifth attestation).  A control whose
+    population depends on what else was imported is not a control
+    (`memory/feedback_derived-populations-shrink-in-silence.md`); it now asks
+    the one step that builds the registry and holds no spelling of its own."""
     import plan_memo_selftest_mutants as mm
-    # ⚠ The review-round modules APPEND to `mm.MUTANTS`, and a plain
-    # `--self-test` never imports them -- so reading the base module alone gave
-    # an EMPTY registry and every loop read as unpinned.  A control whose
-    # population depends on whether something else happened to be imported is
-    # not a control (`memory/feedback_derived-populations-shrink-in-silence.md`),
-    # so the appenders are imported here, by the same glob that finds them.
-    for name in sorted(q.stem for q in HERE.glob("plan_memo_selftest_mutants*.py")):
-        importlib.import_module(name)
     return [(name, find, replace)
-            for name, file, find, replace, _controls in mm.MUTANTS if file == CENSUS]
+            for name, file, find, replace, _controls in mm.mutants() if file == CENSUS]
 
 
 def population_scope_control(M):
@@ -232,7 +233,7 @@ def population_scope_control(M):
         comprehensions and generator expressions and the `while queue:` walk
         of this module, and every loop in every other module.  Truncating
         `_phrases`' own comprehension CRASHES (held by construction), and
-        truncating `data_rows`' is caught by 8 controls, so there is no live
+        truncating `data_rows`' is caught by controls (measured: the outer half turns 8 red, the inner 80), so there is no live
         hole by that route today;
       * `map` / `filter` / `next` / recursion are not loops to `ast`;
       * a row that removes a loop instead of truncating it credits nothing,
@@ -257,20 +258,38 @@ def population_scope_control(M):
                         ("; " + "; ".join(bad[:5])) if bad else ""))
 
 
-# Three loops: two with ONE header, and a third sharing only its target
-# prefix.  One row truncates the FIRST, and its find text contains the second.
-_PARTNER_TEXT = ("def f(xs, ys):\n"
+# Six loops, one per criterion `_loops` / `_credit` state: a module-level
+# loop; in `f`, two with ONE header, a third sharing only its target prefix,
+# and a loop NESTED in the third; and a loop in a METHOD, whose identity must
+# carry its class.  Three rows: one truncates the first of the pair (its find
+# text contains the second), one RE-POINTS the third to the truncation of a
+# DIFFERENT iterable (the shape of a truncation, the population of none: an
+# orphan), and one truncates the method's loop in the `list(...)[:1]` form.
+_PARTNER_TEXT = ("for top in zs:\n    pass\n"
+                 "def f(xs, ys):\n"
                  "    for x in xs:\n        pass\n"
                  "    for x in xs:\n        pass\n"
-                 "    for x in ys:\n        pass\n")
+                 "    for x in ys:\n        for y in x:\n            pass\n"
+                 "class C:\n    def g(self, xs):\n        for x in xs:\n            pass\n")
+_PARTNER_LOOPS = {("<module>", 1), ("f", 1), ("f", 2), ("f", 3), ("f", 4), ("C.g", 1)}
 _PARTNER_ROWS = [("truncate the first",
                   "    for x in xs:\n        pass\n    for x in xs:",
-                  "    for x in xs[:1]:\n        pass\n    for x in xs:")]
+                  "    for x in xs[:1]:\n        pass\n    for x in xs:"),
+                 ("re-point the third",
+                  "    for x in ys:\n        for y",
+                  "    for x in xs[:1]:\n        for y"),
+                 ("truncate the method's",
+                  "        for x in xs:\n            pass\n",
+                  "        for x in list(xs)[:1]:\n            pass\n")]
 
 
 def population_scope_partner_control(M):
     """PROPERTY (the loop ratchet's partner): one row truncating one of two
-    loops that share a header credits THAT loop and no other.
+    loops that share a header credits THAT loop and no other -- and every
+    other criterion the ratchet states, each with a fixture arm (the
+    population is every `for` statement, nested and in methods; a re-point to
+    ANOTHER iterable's `[:1]` credits nothing and is an orphan; the
+    `list(...)[:1]` form is a truncation).
 
     A criterion keyed on the find text, on the target prefix or on the header
     line credits two or all three loops of `_PARTNER_TEXT` from one row, so
@@ -284,20 +303,24 @@ def population_scope_partner_control(M):
     exempt entry whose position now holds a DIFFERENT header, and one whose
     position holds no loop, are both red -- the two ways an edit that shifts
     the ordinals would otherwise exempt the wrong loop in silence."""
+    loops = set(_loops(_PARTNER_TEXT))
     credit, orphans = _credit(_PARTNER_TEXT, _PARTNER_ROWS)
     bad, n, n_pinned, _n_exempt, n_unpinned = _scope_verdict(_PARTNER_TEXT, _PARTNER_ROWS, {})
-    empty, _o = _credit(_PARTNER_TEXT, [])
+    empty, no_orphans = _credit(_PARTNER_TEXT, [])
     moved, _n, _p, _e, _u = _scope_verdict(_PARTNER_TEXT, _PARTNER_ROWS,
                                            {("f", 3): ("for x in xs:", "a moved position")})
     gone, _n, _p, _e, _u = _scope_verdict(_PARTNER_TEXT, _PARTNER_ROWS,
                                           {("f", 9): ("for x in xs:", "no such position")})
     guard = (any("is `for x in ys:`" in b for b in moved)
              and any("names no loop" in b for b in gone))
-    ok = (sorted(credit) == [("f", 1)] and not orphans and n == 3 and n_pinned == 1
-          and n_unpinned == 2 and len(bad) == 2 and not empty and guard)
-    return ok, ("one row credits %s (want [('f', 1)]); %d of %d loop(s) pinned, %d unpinned; "
-                "no row credits %s; the exempt guard %s"
-                % (sorted(credit), n_pinned, n, n_unpinned, sorted(empty),
+    want = {("f", 1): ["truncate the first"], ("C.g", 1): ["truncate the method's"]}
+    ok = (loops == _PARTNER_LOOPS and credit == want and orphans == ["re-point the third"]
+          and n == 6 and n_pinned == 2 and n_unpinned == 4 and len(bad) == 5
+          and not empty and not no_orphans and guard)
+    return ok, ("population %s (want %s); credit %s (want %s); orphans %s; %d of %d pinned, %d "
+                "unpinned, %d bad; no row credits %s; the exempt guard %s"
+                % (sorted(loops), sorted(_PARTNER_LOOPS), sorted(credit), sorted(want), orphans,
+                   n_pinned, n, n_unpinned, len(bad), sorted(empty),
                    "reports a moved and a vanished position" if guard else "is SILENT"))
 
 
@@ -341,9 +364,11 @@ _KIND_QUESTION_SITES = {
 }
 
 
-def _kind_question_modules():
+def _kind_question_modules(here=None):
     """THE POPULATION: every module of the CHECKER set, read off the harness's
-    `MODULES` -- the list `load()` execs -- and never written here.
+    ONE population (`plan_memo_selftest_harness.checker_files`, a glob over the
+    directory and a file-name partition) and never written here.  `here` lets
+    the partner ask it of a directory holding a module the real one does not.
 
     ⚠ IT WAS A HAND-WRITTEN 5-TUPLE (799349db, for PR #510 R52),
     under a comment that said "THE POPULATION IS THE WHOLE MODULE SET" while
@@ -351,8 +376,11 @@ def _kind_question_modules():
     point was outside it, the exact "caller in another module" class the tuple
     had been widened to close.  Widening a list is the enumerated-population
     shape again (`memory/feedback_enumerated-exemptions-leave-the-next-class-
-    authoritative.md`); the population is now the set itself."""
-    return [file for _name, file in MODULES]
+    authoritative.md`); the population is now the set itself.
+    ⚠ And "the set" was itself a hand list -- the harness's `MODULES` -- until
+    the fifth attestation, so a NEW `plan_memo_extra.py` calling `pop._claims`
+    was outside it; it is derived from the disk now."""
+    return checker_files(here)
 
 
 def _qualified_callers(text):
@@ -415,8 +443,8 @@ def kind_question_site_control(M):
     fourth, in `plan_memo_roles.py`.
     ⚠ So the question has ONE implementation (`Population._claims`), and this
     control makes any other caller visible.  THE POPULATION is every call, in
-    every module of the checker set (`_kind_question_modules`, read off the
-    harness's `MODULES`), to any of the three names `_KIND_QUESTION_SITES`
+    every module of the checker half of the harness's ONE population
+    (`_kind_question_modules`, derived from the disk), to any of the three names `_KIND_QUESTION_SITES`
     keys -- `_phrases`, `kind_disagreements`, `_claims`.  THE COMPLEMENT is
     that table, keyed on (module, qualified function): a caller not written
     there is red, and so is a written site that no longer calls.
@@ -458,9 +486,16 @@ _KIND_PROBES = (
 )
 
 
+_EXTRA = "plan_memo_extra.py"
+
+
 def kind_question_partner_control(M):
     """PROPERTY (the kind-question ratchet's partner): each probe caller is
-    reported, and the unprobed module set is clean.
+    reported, and the unprobed module set is clean -- including a caller in a
+    module that EXISTS ON DISK ONLY: a directory holding every current file
+    plus `plan_memo_extra.py` must yield a population that contains it, and
+    its `pop._claims(lx)` must be reported (a hand-written population, however
+    complete today, misses it).
 
     A population narrower than the module set misses the first two probes; a
     sanction keyed on the bare function name misses the next two -- the two
@@ -483,9 +518,21 @@ def kind_question_partner_control(M):
         bad, _n = _kind_question_verdict(probed, modules, _KIND_QUESTION_SITES)
         if not any(("in %s," % file) in b for b in bad):
             quiet.append(label)
+    import pathlib
+    import tempfile
+    extra = _PROBE % ("helper", "_claims")
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        for f in files():
+            (d / f).write_text("", encoding="utf-8")
+        (d / _EXTRA).write_text(extra, encoding="utf-8")
+        grown = _kind_question_modules(d)
+    bad, _n = _kind_question_verdict(dict(sources, **{_EXTRA: extra}), grown, _KIND_QUESTION_SITES)
+    if not any(("in %s," % _EXTRA) in b for b in bad):
+        quiet.append("a caller in a module that exists on disk only")
     return not base and not quiet and gone, (
         "unprobed: %d unsanctioned; %d of %d probe(s) reported%s; a stale sanction is %s"
-        % (len(base), len(_KIND_PROBES) - len(quiet), len(_KIND_PROBES),
+        % (len(base), len(_KIND_PROBES) + 1 - len(quiet), len(_KIND_PROBES) + 1,
            ("; NOT reported: " + ", ".join(quiet)) if quiet else "",
            "reported" if gone else "SILENT"))
 

@@ -12,20 +12,23 @@ verdict is read.  A control whose question needs the checker RUN is
 one whose measure is a COST is `plan_memo_selftest_work.py`'s, and one whose
 subject is a SENTENCE somebody wrote about this module set is
 `plan_memo_selftest_records.py`'s (carved at 1,110 lines; its header states
-that seam).  In the imports: this module, `plan_memo_selftest_growth.py` and
-the records module are the only importers of `ast` and of the harness's
-module-set handles (`MODULES` / `SOURCES` / `GRAMMAR` / `HERE`), the fixture
-runner `run_on` is imported only by the invariants module and the controls
-module, and the harness's work witnesses only by the three WORK modules.  ⚠ Those three sentences said "ONLY this module" and "only the
+that seam).  In the imports: who may import `ast`, the harness's module-set
+handles (`MODULES` / `SOURCES` / `GRAMMAR` / `HERE`), the fixture runner
+`run_on` and the work witnesses is the table
+`plan_memo_selftest_records._IMPORT_SEAMS`, which `import_seam_control`
+enforces -- it is not restated here, because the restatement is what went
+stale (it named three importers of `ast` while there were five).  ⚠ Those three sentences said "ONLY this module" and "only the
 invariants module" until PR #510 R32, and all three were FALSE -- the growth
 module had imported `ast` and the handles since R27, and `build` is imported by
 seven modules.  They are now a table `import_seam_control` enforces
 (`_IMPORT_SEAMS`), because an "only importer" is a claim about the COMPLEMENT
 and the complement is the half nobody re-reads -- and the records split above is
 the first change that had to widen that table rather than a prose sentence.  In
-the registry: every control the three property modules contribute is named
-`PROPERTY: ...` and every `PROPERTY: ...` entry of the one table comes from one
-of them.
+the registry: every control the property family contributes is named
+`PROPERTY: ...` and every `PROPERTY: ...` entry comes from it --
+`plan_memo_selftest_controls.property_family_control` checks it (⚠ "the three
+property modules" stood here, and the ratchets module had been a fourth since
+R49).
 
 WHY THE SOURCE IS EVER THE SUBJECT.  Three of the defects this checker has had
 run no Python line and pass through no module binding a witness can watch --
@@ -50,16 +53,12 @@ module and the harness, and nothing of either.
 import ast
 import re
 
-from plan_memo_selftest_harness import GRAMMAR, HERE, MODULES, SOURCES
+from plan_memo_selftest_harness import ENTRY, GRAMMAR, HERE, MODULES, SOURCES, files
 from plan_memo_selftest_invariants import registry as invariant_registry
-
-# The entry point's file name, which is not an import name.
-ENTRY = "plan-memo-umbrella-check.py"
-
 
 def _swept_sources():
     """THE POPULATION EVERY SOURCE SWEEP OF THIS MODULE READS, as (file, text):
-    every `plan_memo*.py` beside this file plus the entry point, GLOBBED -- the
+    the harness's ONE population (`plan_memo_selftest_harness.files`) -- the
     checker set and the self-test both, so a module a later touch-time split
     carves out is swept the day it lands and not the day somebody remembers it.
 
@@ -69,7 +68,7 @@ def _swept_sources():
     sweeps ask the same question and a second spelling of "every source of this
     checker" is a second answer waiting to drift."""
     out = []
-    for file in sorted(p.name for p in HERE.glob("plan_memo*.py")) + [ENTRY]:
+    for file in files():
         src = SOURCES.get(file)
         if src is None:
             src = (HERE / file).read_text(encoding="utf-8")

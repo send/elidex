@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""PR #510 R30-on mutation-proof rows -- the FIFTH module of the ONE `MUTANTS`
-list, carved at the same review-round seam the registry has now used four times
+"""PR #510 R30-on mutation-proof rows -- the FIFTH mutants module
+carved at the same review-round seam the registry has now used four times
 (`plan_memo_selftest_mutants` holds the row shape, `run` and the pre-converge
 rows; `_pr510` R1-R16 and the design re-gates; `_inline` R17-R25; `_r26` R26-R29).
 
@@ -29,8 +29,9 @@ and named by exactly one row, which is in this half (measured, not assumed --
 the seam check reported it as the ONE name crossing the boundary, and moving it
 leaves ZERO).
 
-`MUTANTS` is imported and appended to, exactly as the other four do; the runner
-reads the one list at one import site.
+`MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
+gathers every mutants module's list (the harness's file-name rule decides which
+modules those are) in one explicit step.
 """
 
 from plan_memo_selftest_cases_r26 import ( R30_3_DEMOTED_TAIL, R30_3_IMAGE_OPENER,
@@ -54,9 +55,13 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CHECK, CONFORMANCE, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS,
-    MEMO, MUTANTS, POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, RUNNER, SIBLING, STREAM,
+    MEMO, POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, RUNNER, SIBLING, STREAM,
     TABLES, TOKENS,
 )
+
+# This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
+# registry module's list in one explicit step, and none appends to another's.
+MUTANTS = []
 
 R31_EMPHASIS_LINEAR = ("emphasis matching is linear: N unmatched delimiter runs cost O(N) work (the "
                        "Appendix's openers_bottom)")
@@ -294,7 +299,8 @@ MUTANTS += [
     ("R32 seams: a seam's allow-list is the set that may import it (widen one to every module: an "
      "\"only importer\" nobody can violate is a sentence about nothing)", RECORDS,
      '    "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",\n'
-     '                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py"}, None),',
+     '                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py",\n'
+     '                    "plan_memo_selftest_harness.py"}, None),',
      '    "ast": ("ast", set(), None),',
      [R32_SEAMS]),
     # The OTHER direction, and the one the first row cannot report: a seam whose

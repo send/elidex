@@ -36,8 +36,16 @@ rounds R1-R16 and the design re-gates, `plan_memo_selftest_mutants_inline.py`
 rounds R17-R25 (the Phase-2 inline construct family) and
 `plan_memo_selftest_mutants_r26.py` R26 on (the checker's operating envelope:
 what it assumes about its host, and what it costs) -- the cases modules' own
-seams.  All four append to this same `MUTANTS` -- one list, filled by four
-modules, read at one import site (the runner).
+seams -- and later modules at later seams.
+THE RULE, not a count (a count here said "four" while there were six): the
+registry is every module the harness's population classifies as a mutants
+module (`plan_memo_selftest_harness.is_mutants`, a file-name rule), each
+holding its OWN `MUTANTS` list, and `mutants()` below is the ONE step that
+imports them and concatenates the lists.  ⚠ Until the fifth attestation each
+appender extended THIS module's list at import time, and three readers
+imported the appenders -- the runner by a hand list, the loop ratchet by a
+glob -- so which rows existed depended on what had been imported before, and
+the runner's list was inert (deleting two of its imports changed nothing).
 """
 
 IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO, POPULATION, ROLES, CHECK, CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER, CONFORMANCE, RATCHETS = (
@@ -77,8 +85,16 @@ IDS, EMPHASIS, TOKENS, HTML, LEXER, LINKS, BLOCKS, STREAM, TABLES, SIBLING, MEMO
 # whether a CLASS is ratcheted, and no row could name it -- so reverting either
 # ratchet to the criterion it had replaced left the proof green.  It arrives
 # with its rows (`plan_memo_selftest_mutants_ratchets.py`).
-SELFTEST = frozenset((CONTROLS, PROPERTIES, RECORDS, INVARIANTS, WORK, PIPELINE, GROWTH, RUNNER,
-                      CONFORMANCE, RATCHETS))
+# ⚠ AND THE SET ITSELF WAS THE HAND-WRITTEN LIST each arrival above had to
+# extend (the fifth attestation).  It is now the harness's partition rule --
+# every file of the one population whose name says self-test -- so the next
+# carve is patchable the day it lands, with or without its first row.
+def _selftest():
+    from plan_memo_selftest_harness import files, is_selftest
+    return frozenset(f for f in files() if is_selftest(f))
+
+
+SELFTEST = _selftest()
 
 # The GENERATED growth property (PR #510 R27): the corpus is derived from the
 # grammar rather than written by hand, so it is the control a cost mutant names
@@ -514,16 +530,41 @@ MUTANTS = [
 ]
 
 
+def mutants():
+    """EVERY mutant row: this module's list, then each other mutants module's
+    OWN list, in the harness's population order -- a new list, built in ONE
+    explicit step, so no reader's answer depends on what another reader
+    happened to import first.  A registry module that appends to THIS list
+    instead of holding its own is refused: that was the side channel."""
+    import importlib
+    from plan_memo_selftest_harness import MUTANT_MODULES
+    base_n = len(MUTANTS)
+    rows = list(MUTANTS)
+    for name in MUTANT_MODULES:
+        if name == __name__.replace("_patched", ""):
+            continue
+        mod = importlib.import_module(name)
+        own = getattr(mod, "MUTANTS", None)
+        if own is None or own is MUTANTS:
+            raise RuntimeError("mutants module %s holds no MUTANTS list of its own" % name)
+        rows += own
+    if len(MUTANTS) != base_n:
+        raise RuntimeError("a mutants module appended to plan_memo_selftest_mutants.MUTANTS "
+                           "instead of holding its own list")
+    return rows
+
+
 def run(reg):
     """Apply each mutant to a fresh module set and re-run its controls.
     Returns the list of FAIL strings (empty = every mutant was killed)."""
     import plan_memo_selftest_harness as h
+    rows = mutants()
     printable = h.load().printable    # the ONE escape, owned by the report boundary
 
     fails = []
     print()
     print("mutants (each must turn its control red):")
-    for name, file, find, replace, controls in MUTANTS:
+    for name, file, find, replace, controls in rows:
         src = (h.HERE / file).read_text(encoding="utf-8")
         n = src.count(find)
         if n != 1:
@@ -572,6 +613,6 @@ def run(reg):
         print(printable("  %-4s [MUTANT] %s%s" % ("FAIL" if (survived or crash) else "ok", name,
                                         " (crash: %s)" % crash if crash else "")))
     print(printable("%d mutant(s), %d survived, %d crashed."
-                    % (len(MUTANTS), sum(1 for f in fails if "SURVIVED" in f),
+                    % (len(rows), sum(1 for f in fails if "SURVIVED" in f),
                        sum(1 for f in fails if " crash: " in f))))
     return fails

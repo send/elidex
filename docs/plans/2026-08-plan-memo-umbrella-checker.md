@@ -873,7 +873,9 @@ table with no detector. **Fourteen own and two pre-existing** — (9) and (10) a
 pre-existing ones, each with its grounding stated where the policy asks for it. Count the list
 rather than trusting this sentence: `awk` the `^- \*\*` lines of this section and you must get
 sixteen.
-⚠ **THE PROSE BELOW CITED THREE ENTRIES BY A NUMBERING THE LIST NO LONGER HAS, AND IS RE-INDEXED**
+⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
+RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
+once, the hand-written table three times)
 (2026-09-22, the fourth attestation over `9b2e1fa9..00dfd095`). WHY (a) / (b) / (c) were written at
 `f87dd8f2`, when the list ended (10) unbound table, (11) hand-written table; inserting (10) `self_id`
 at `90ed781a` — and (12)–(15) after it — renumbered the list and not the prose, so WHY (b) called the
@@ -881,6 +883,14 @@ unbound table's narrowing "(10)" and WHY (a) / (c) gave the hand-written table's
 requirement to "(11)". Every `(N)` in this section was enumerated against the `^- \*\*` list; those
 four were the mismatches, and they now read (11) / (16). A citation by POSITION goes stale under any
 insertion above it, which is why the enumeration names each entry beside its number.
+⚠ **The re-index was checked against TODAY's numbering only, and that is half the check** (2026-09-22,
+the fifth attestation). A `(N)` is right or wrong in the numbering IN FORCE WHEN ITS SENTENCE WAS
+WRITTEN, so every `(N)` in this memo that names a §8 entry was re-checked by `git blame` against the
+list at that commit (`f87dd8f2`: (10) unbound, (11) hand-written; `90ed781a` → `799349db`: (10)
+`self_id`, (11) unbound, and (12)–(16) as today). Outside §8 the memo cites no §8 entry by number (its
+other `(N)` are spec-example counts). Inside it, one sentence was wrong at birth rather than stale: the
+R51 audit note under WHAT THE SHAPE SAYS, which judged an `f87dd8f2` sentence by `799349db`'s numbering
+— corrected there. And WHY (a)'s set was wrong by CONTENT once re-indexed — corrected there too.
 ⚠ **(12) AND (13) ARRIVED AT R47 AND BOTH MOVE THE OWN COUNT**, from ten to twelve. Neither is a
 deferral of convenience: (12)'s one-line fix overturns a control this plan RATIFIED — the direction
 cmark supports is the one the ratified control rejects — and (13) changes what the conformance proof
@@ -914,12 +924,19 @@ split folded because the work was done; the GFM splitter re-classified own on a 
 できるが念のため defer 化" — is the case for folding, and this PR has already taken it **twice by
 measurement**: the §6.4 carve folded at R42-5 once the fix measured ≈45 lines across two modules with
 one reader each, and the §6.6 reading folded this session at ~20 lines once a reference implementation
-settled it. What is left does not fit that shape. (5), (6) and (16) are each explicitly
+settled it. What is left does not fit that shape. (5), (6), (12) and (14) — the entries whose OWN
+text puts them under the edge-dense rule — are each explicitly
 `/elidex-plan-review`-before-implementation **by CLAUDE.md's edge-dense rule, not by judgment** — (5)
 intersects the id grammar, the grammar↔scan agreement property, the `_glued` boundary rule, the
 decoration-run cost contract and both mention passes; (6) intersects the block grammar, both container
-passes, the raw-extent seed and the Phase-1 cost contract; (16) needs a negative control that is RED
-before the mechanism exists. Folding any of them here is precisely the *single PR + skipped
+passes, the raw-extent seed and the Phase-1 cost contract; (12) intersects the id-grammar decoration
+exception, §6.4's demotion, `MARKER_RE`, the residue gate and the `keep` set; (14) intersects the gate,
+`_kind`'s ordering, the attribution pass, I-A's straddle rule and a ratified control.
+⚠ **This set read "(5), (6) and (16)" at `79309486`** (re-indexed from "(11)", which at `f87dd8f2` was
+the hand-written table), and (16)'s own text claims neither edge-dense nor plan-review, while (12) and
+(14) — added after the sentence — say BY RULE. Re-derived from the entries' text (the fifth
+attestation); (11) and (15) name Slice 2's plan-review as OWNER but not by the rule, so they are not
+in it. Folding any of them here is precisely the *single PR + skipped
 plan-review* that `memory/feedback_edge-dense-mandatory-plan-review-and-split.md` exists to prevent.
 (1), (2) and (3) are in the ratified plan from BEFORE implementation and were reviewed as design.
 
@@ -930,8 +947,10 @@ Narrowing the rest does not reduce the list — (4) is the wire's own budget wit
 (7) is blocked on §3's `(NEW)` / `✗ (absent)` conventions, (8) is trigger-only on a condition
 (`two of them on main`) that is measurably not met.
 
-**WHY (c) SPLIT THE PR IS NOT AVAILABLE.** (c) is already the shape of three entries — (5), (6) and
-(16) are re-sliced to a named owner with an EVENT trigger and a re-eval date, which is what
+**WHY (c) SPLIT THE PR IS NOT AVAILABLE.** (c) is already the shape of every entry that is re-sliced
+to a named owner with a trigger and a re-eval date — read off each entry's own **Owner** / **Trigger**
+/ **Re-eval** lines, not restated here (⚠ this said "three entries — (5), (6) and (16)" until the fifth
+attestation, a hand-written set that the entries added since had outgrown) — which is what
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for. Splitting what remains
 would mean cutting the checker itself, and the pieces do not separate: every entry names the SAME
 program, and the split this PR could take at a real seam it has taken **six times** already as
@@ -960,6 +979,14 @@ anticipates. That is an argument for (d) here, and an argument for
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` being applied to the NEXT slice
 boundary — not for reasoning the number down, which the policy forbids outright
 ("数合わせのための slot 削除 / merge は禁止: 判定は分類であって編集ではない").
+⚠ **TWO OF THE R51 NOTE'S THREE "WAYS" ARE FALSE — it judged an `f87dd8f2` sentence by `799349db`'s
+numbering** (2026-09-22, the fifth attestation). When *"Six of the ten own entries … (4, 5, 6, 7, 10 and
+the row splitter)"* was written, at `f87dd8f2`, the list's (10) was the UNBOUND TABLE — own, and derived
+from review round R42-10 — so listing it was right, and the `self_id` entry the note measured it against
+did not yet exist (it was inserted as (10) at `90ed781a`). What the note had right is the first way
+only: the count was stale (ten own at birth, fourteen when the note was written). The sentence went
+stale by RENUMBERING, not by misclassifying — which is the very failure a citation by position invites,
+committed here by the note that corrected it.
 
 - **(own)** Acceptance half of assertion (b) — "not implementable here"; slot
   `#11-plan-memo-acceptance-falsifiability-check` is minted in #506's memo (§5 mention `190d2adb:…:1218`, §8 row `:2711`)

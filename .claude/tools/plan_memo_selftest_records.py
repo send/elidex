@@ -47,8 +47,8 @@ import pathlib
 import tempfile
 
 from plan_memo_selftest_cases import build
-from plan_memo_selftest_harness import HERE
-from plan_memo_selftest_properties import ENTRY, _swept_sources, registry as property_registry
+from plan_memo_selftest_harness import ENTRY, HERE, files, import_name, is_selftest
+from plan_memo_selftest_properties import _swept_sources, registry as property_registry
 
 # The module map lives in the entry point's docstring, between these two
 # headings.  A name is spelled either in full or relative to the `plan_memo`
@@ -162,7 +162,7 @@ def _defining_module():
                 yield from names(e)
 
     for file, src in _swept_sources():
-        mod = "plan_memo_umbrella_check" if file == ENTRY else file[:-3]
+        mod = import_name(file)
         for node in ast.parse(src).body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 home.setdefault(node.name, set()).add(mod)
@@ -335,9 +335,13 @@ _WORK = {"plan_memo_selftest_work.py", "plan_memo_selftest_pipeline.py"}
 # §8's "the HAND-WRITTEN TABLE has no detector" entry: the table's own reach is
 # asserted rather than derived, so it is correct only as long as someone
 # re-reads it.
+# ⚠ `plan_memo_selftest_harness.py` joined the `ast` seam at the fifth
+# attestation, when the module population stopped being a hand list and became
+# a derivation: the load order is now read off each checker module's imports.
 _IMPORT_SEAMS = {
     "ast": ("ast", {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
-                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py"}, None),
+                    "plan_memo_selftest_records.py", "plan_memo_selftest_ratchets.py",
+                    "plan_memo_selftest_harness.py"}, None),
     "the harness's module-set handles": (
         ("MODULES", "SOURCES", "GRAMMAR", "HERE"),
         {"plan_memo_selftest_properties.py", "plan_memo_selftest_growth.py",
@@ -654,6 +658,91 @@ def option_set_control(M):
                         ("; " + "; ".join(bad)) if bad else ""))
 
 
+RUNNER_NAME = "plan_memo_umbrella_selftest"
+
+
+def _import_graph(sources):
+    """{import name: {import names it imports}} over the ONE population, every
+    import counted -- module-level and function-local alike, since a
+    function-local import is how a cycle is usually hidden."""
+    names = {import_name(f) for f, _src in sources}
+    graph = {}
+    for file, src in sources:
+        got = set()
+        for node in ast.walk(ast.parse(src, filename=file)):
+            if isinstance(node, ast.ImportFrom) and node.module in names:
+                got.add(node.module)
+            elif isinstance(node, ast.Import):
+                got |= {a.name for a in node.names if a.name in names}
+        graph[import_name(file)] = got - {import_name(file)}
+    return graph
+
+
+def _direction_violations(graph, selftest):
+    """The IMPORT DIRECTION rule's violations over any graph: (1) no cycle;
+    (2) the harness imports nothing of the population; (3) no checker module
+    imports a self-test module, except the entry point's `--self-test`
+    dispatch into the runner."""
+    bad = []
+    harness = "plan_memo_selftest_harness"
+    if graph.get(harness):
+        bad.append("the harness imports %s" % sorted(graph[harness]))
+    for mod, deps in sorted(graph.items()):
+        if mod in selftest:
+            continue
+        for dep in sorted(deps & selftest):
+            if (mod, dep) != (import_name(ENTRY), RUNNER_NAME):
+                bad.append("checker module %s imports self-test module %s" % (mod, dep))
+    state = {}
+
+    def visit(u, path):
+        state[u] = 1
+        for v in sorted(graph.get(u, ())):
+            if state.get(v) == 1:
+                bad.append("cycle: %s" % " -> ".join(path[path.index(v):] + [v]))
+            elif v not in state:
+                visit(v, path + [v])
+        state[u] = 2
+
+    for u in sorted(graph):
+        if u not in state:
+            visit(u, [u])
+    return bad
+
+
+def import_direction_control(M):
+    """PROPERTY: the IMPORT DIRECTION rule `plan_memo_umbrella_selftest.py`
+    states holds of the imports, read off the AST of the one population.
+
+    ⚠ THE PARAGRAPH IT REPLACES WAS AN INVENTORY AND WAS FALSE TWICE OVER (the
+    fifth attestation): "at three function-local sites, the conformance module"
+    (there are four), and "every module of the set but the conformance module
+    imports the harness" (ten others do not).  An inventory of edges goes stale
+    under every split; a RULE over the graph does not, and it is checked here
+    rather than re-read.  The negative arm feeds the same core a graph with
+    one violation of each clause, so a clause that stops reporting is red."""
+    sources = _swept_sources()
+    selftest = {import_name(f) for f, _src in sources if is_selftest(f)}
+    bad = _direction_violations(_import_graph(sources), selftest)
+    probe = {"plan_memo_selftest_harness": {"plan_memo_selftest_controls"},
+             "plan_memo_selftest_controls": {"plan_memo_selftest_work"},
+             "plan_memo_selftest_work": {"plan_memo_selftest_controls"},
+             "plan_memo_roles": {"plan_memo_selftest_controls"},
+             import_name(ENTRY): {RUNNER_NAME}}
+    seen = _direction_violations(probe, {"plan_memo_selftest_harness", "plan_memo_selftest_controls",
+                                         "plan_memo_selftest_work", RUNNER_NAME})
+    local = _import_graph([("plan_memo_a.py", "def f():\n    import plan_memo_b\n"),
+                           ("plan_memo_b.py", "")])
+    arms = [any(s.startswith("the harness imports") for s in seen),
+            any(s.startswith("checker module plan_memo_roles") for s in seen),
+            any(s.startswith("cycle:") for s in seen),
+            not any(import_name(ENTRY) in s for s in seen),
+            local.get("plan_memo_a") == {"plan_memo_b"}]
+    return not bad and all(arms), ("%d module(s), %d violation(s)%s; the probe arms %s"
+                                   % (len(sources), len(bad), ("; " + "; ".join(bad[:3])) if bad else "",
+                                      arms))
+
+
 def registry():
     """name -> (kind, control), this module's fragment of the one table, merged
     over the property module's (invariants included)."""
@@ -667,6 +756,8 @@ def registry():
             ("CONTROL", symbol_attribution_control),
         "PROPERTY: every import-graph seam this suite states in prose is true of the imports (an \"only importer of X\" is a claim about the COMPLEMENT)":
             ("CONTROL", import_seam_control),
+        "PROPERTY: the self-test's IMPORT DIRECTION rule holds of the imports (no cycle, the harness imports nothing of the set, no checker module imports the self-test but the entry point's dispatch) -- a rule over the AST, not an inventory of edges":
+            ("CONTROL", import_direction_control),
         "PROPERTY: every line the run REPORTS goes through the escape -- measured over the EMIT SITES, the subject the escape function's own control cannot reach":
             ("CONTROL", report_channel_control),
         "PROPERTY: the entry point's CLI contract is per MODE -- a closed option set whose complement is refused, and for each mode the flags it accepts and the positional count it takes (a known flag in the wrong mode returned 0 for the wrong operation)":

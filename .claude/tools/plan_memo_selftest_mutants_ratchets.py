@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The mutation-proof rows against the RATCHETS (`plan_memo_selftest_ratchets.py`)
--- the sixth module of the ONE `MUTANTS` list, and the first carved on a
+-- the sixth mutants module carved, and the first carved on a
 SUBJECT rather than a review round (the shape `plan_memo_selftest_cases_sibling.py`
 set for the controls).
 
@@ -14,14 +14,20 @@ ratchet's discriminating partner, so the next reversion is a killed mutant and
 not a sentence.  `_mutants_r30.py` (981 lines) could not take them without
 crossing the 1000-line bound, and a subject is the seam these rows share.
 
-`MUTANTS` is imported and appended to, exactly as the other five do; the runner
-reads the one list at one import site.
+`MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
+gathers every mutants module's list (the harness's file-name rule decides which
+modules those are) in one explicit step.
 """
 
-from plan_memo_selftest_mutants import MUTANTS, RATCHETS
+from plan_memo_selftest_mutants import RATCHETS
+
+# This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
+# registry module's list in one explicit step, and none appends to another's.
+MUTANTS = []
 
 SCOPE_PARTNER = ("PROPERTY: the loop ratchet credits a loop by POSITION: one row truncating one of two "
                  "loops that share a header pins that loop and no other")
+SCOPE = "PROPERTY: every loop in the census module that walks a POPULATION is pinned by a mutant that truncates THAT loop (the ratchet is derived from the code, not a list somebody extends when a reviewer names one)"
 KIND = "PROPERTY: the kind-phrase questions are asked at their sanctioned sites only -- \"which kind does this field DECLARE\" and \"does this cell CLAIM one, under either reading\" are two questions with one site each, and a third caller asking either one directly is the shape three rounds of findings had"
 KIND_PARTNER = ("PROPERTY: the kind-question ratchet reports a caller in ANY module of the checker set, "
                 "judged by (module, qualified function) -- not a caller outside a listed subset, not "
@@ -63,13 +69,13 @@ MUTANTS += [
      [SCOPE_PARTNER]),
     ("ratchets: the kind-question population is the WHOLE checker set (re-inject the census "
      "module alone -- the population before 799349db)", RATCHETS,
-     '    return [file for _name, file in MODULES]',
+     '    return checker_files(here)',
      '    return ["plan_memo_population.py"]',
      [KIND, KIND_PARTNER]),
     ("ratchets: the kind-question population is DERIVED from the module set (re-inject 799349db's "
      "hand-written five-tuple -- a caller in the sibling resolver or the entry point is outside "
      "it)", RATCHETS,
-     '    return [file for _name, file in MODULES]',
+     '    return checker_files(here)',
      '    return ["plan_memo_population.py", "plan_memo_roles.py", "plan_memo_tables.py",\n'
      '            "plan_memo_memo.py", "plan_memo_stream.py"]',
      [KIND_PARTNER]),
@@ -83,4 +89,77 @@ MUTANTS += [
      '            if (name, mod, caller) not in seen:',
      '            if False:',
      [KIND_PARTNER]),
+]
+
+# -- the fifth attestation: every criterion the two docstrings state, each with
+# a row.  The list of criteria and their killers is enumerated in the commit
+# that added these rows; a criterion without a row here is a finding.
+_CHECKER_14 = ('    return ["plan_memo_blocks.py", "plan_memo_emphasis.py", "plan_memo_html.py",\n'
+               '            "plan_memo_ids.py", "plan_memo_lexer.py", "plan_memo_links.py",\n'
+               '            "plan_memo_memo.py", "plan_memo_population.py", "plan_memo_roles.py",\n'
+               '            "plan_memo_sibling.py", "plan_memo_stream.py", "plan_memo_tables.py",\n'
+               '            "plan_memo_tokens.py", "plan-memo-umbrella-check.py"]')
+
+MUTANTS += [
+    ("ratchets: a truncation is recognised on the TREE (make `_is_truncation` answer True -- every "
+     "loop a row's patched text still has reads as truncated)", RATCHETS,
+     '    CONTAINS the original\'s spelling is not one."""\n',
+     '    CONTAINS the original\'s spelling is not one."""\n    return True\n',
+     [SCOPE_PARTNER]),
+    ("ratchets: the truncated iterable must BE the original (drop the comparison -- a re-point to "
+     "another iterable's `[:1]` pins a loop whose population it never touches)", RATCHETS,
+     '    return ast.dump(v) == ast.dump(original)',
+     '    return True',
+     [SCOPE_PARTNER]),
+    ("ratchets: `list(...)[:1]` is a truncation (drop the unwrap -- every row in that form, most "
+     "of the census rows, credits nothing)", RATCHETS,
+     '        v = v.args[0]\n',
+     '        pass\n',
+     [SCOPE_PARTNER]),
+    ("ratchets: a truncating row that credits NO loop is an orphan (drop the direction -- a row "
+     "whose edit truncates nothing the module has is a silent no-op)", RATCHETS,
+     '        if not hits and _intends_truncation(replace):',
+     '        if False:',
+     [SCOPE_PARTNER]),
+    ("ratchets: an unpinned loop is red (drop the report -- the buckets still add up and the "
+     "verdict is clean)", RATCHETS,
+     '    bad += ["%d `%s` (%s #%d) is neither pinned',
+     '    _ = ["%d `%s` (%s #%d) is neither pinned',
+     [SCOPE_PARTNER]),
+    ("ratchets: the population is EVERY `for`, nested ones too (stop descending into a loop's "
+     "body -- an inner loop leaves the population)", RATCHETS,
+     '                out[(".".join(qual) or "<module>", n)] = ch\n',
+     '                out[(".".join(qual) or "<module>", n)] = ch\n                continue\n',
+     [SCOPE_PARTNER]),
+    ("ratchets: a loop's position is WITHIN its def or class (stop separating bodies -- a method's "
+     "loop takes an ordinal in the enclosing body and every later ordinal shifts)", RATCHETS,
+     '                body(ch, qual + (ch.name,))\n                continue\n',
+     '                pass\n',
+     [SCOPE_PARTNER]),
+    ("ratchets: the loop ratchet reads the WHOLE registry (read the base module's list alone -- "
+     "every loop a later module's row pins reads as unpinned)", RATCHETS,
+     'for name, file, find, replace, _controls in mm.mutants() if file == CENSUS]',
+     'for name, file, find, replace, _controls in mm.MUTANTS if file == CENSUS]',
+     [SCOPE]),
+    ("ratchets: the kind-question population is read off the DISK (re-inject a hand list complete "
+     "today -- a new checker module is outside it)", RATCHETS,
+     '    return checker_files(here)',
+     _CHECKER_14,
+     [KIND_PARTNER]),
+    ("ratchets: all THREE question names are read (drop `_phrases` -- a caller asking which kind a "
+     "field declares is not seen)", RATCHETS,
+     '            if name not in sites:\n                continue',
+     '            if name not in sites or name == "_phrases":\n                continue',
+     [KIND_PARTNER]),
+    ("ratchets: a call by bare NAME is a call (read attribute calls only -- `kind_disagreements(...)` "
+     "leaves the population and its sanctions read as stale)", RATCHETS,
+     '                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)',
+     '                name = f.attr if isinstance(f, ast.Attribute) else None',
+     [KIND]),
+    ("ratchets: a caller's identity carries its CLASS (keep the innermost def alone -- "
+     "`Population._kind` becomes `_kind`, which is what a same-named function elsewhere is)",
+     RATCHETS,
+     '                walk(ch, qual + (ch.name,))',
+     '                walk(ch, (ch.name,))',
+     [KIND]),
 ]

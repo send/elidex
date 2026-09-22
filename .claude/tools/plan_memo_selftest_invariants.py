@@ -7,12 +7,10 @@ The seam against `plan_memo_selftest_properties.py` is the SUBJECT, and it is
 mechanical rather than a taste.  A control there reads the checker AS WRITTEN
 -- its source text, its AST, the docstring of its entry point, the code object
 of one of its methods -- and calls nothing of it; a control here CALLS it, and
-reads what comes back.  In the imports: that module, the growth
-module and the records module are the only importers of `ast` and of the
-harness's module-set handles,
-this one and the controls module the only importers of the fixture runner
-(`run_on`), and the three WORK modules the only importers of the work
-witnesses.  ⚠ This sentence claimed `build` / `run_on` for this module ALONE
+reads what comes back.  Which modules may import `ast`, the harness's
+module-set handles, the fixture runner (`run_on`) and the work witnesses is
+the table `plan_memo_selftest_records._IMPORT_SEAMS` -- enforced there and not
+restated here, since the restatement went stale.  ⚠ This sentence claimed `build` / `run_on` for this module ALONE
 until PR #510 R32 and was false -- `build` has seven importers.  The seams are
 a table now (`plan_memo_selftest_records._IMPORT_SEAMS`), enforced rather
 than asserted.
@@ -39,7 +37,8 @@ table; `plan_memo_selftest_properties.registry()` merges it,
 `plan_memo_selftest_records.registry()` merges that and
 `plan_memo_selftest_controls.registry()` merges THAT, so the runner and the
 mutation proof still read ONE table, and every entry of it named
-`PROPERTY: ...` still comes from the three property modules.  A mutant row whose
+`PROPERTY: ...` still comes from the property family (`property_family_control`
+in the controls module states and checks which fragments those are).  A mutant row whose
 file is THIS module patches the self-test, not the checker set
 (`plan_memo_selftest_mutants.SELFTEST`).
 

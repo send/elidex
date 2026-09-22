@@ -24,8 +24,10 @@ one of which enumerates its own population and sweeps it, reach this module
 through `plan_memo_selftest_records.py` (the written record held against the
 tree), which merges `plan_memo_selftest_properties.py` (PR #510 R25), which
 merges `plan_memo_selftest_invariants.py` (R29) -- the sentence, the checker as
-written and the checker run -- and they are exactly the entries named
-`PROPERTY: ...`.  This module imports no work witness and reads
+written and the checker run -- and, beside them, `plan_memo_selftest_ratchets.py`
+(R49); those fragments are exactly the entries named `PROPERTY: ...`, which
+`property_family_control` checks (⚠ this sentence omitted the ratchets from R49
+until the fifth attestation's concept sweep).  This module imports no work witness and reads
 no module source, AST or code object -- it imports neither `ast` nor the
 harness's `MODULES` / `SOURCES` / `GRAMMAR` -- and those two import lists are
 the two seams' statement.
@@ -634,6 +636,27 @@ def multiline_span_locator_control(M):
                 % (naming, want, opener, len(seeds), res.rc))
 
 
+def property_family_control(M):
+    """PROPERTY: the entries named `PROPERTY: ...` are exactly the property
+    family's fragments -- `records.registry()` (which merges the properties and
+    invariants modules') and `ratchets.registry()` -- in both directions.
+
+    Written for the fifth attestation's concept sweep: three docstrings said
+    "the three property modules", and the ratchets module, carved at R49, was a
+    fourth that none of them named.  A claim about which modules a family is
+    goes stale under every split, so it is a control and not a sentence."""
+    from plan_memo_selftest_ratchets import registry as ratchet_registry
+    family = set(property_registry()) | set(ratchet_registry())
+    named = {n for n in registry() if n.startswith("PROPERTY:")}
+    unnamed = sorted(family - named)
+    stray = sorted(named - family)
+    return not unnamed and not stray, ("%d family entr(ies), %d named PROPERTY:; %d not so named, "
+                                       "%d named but outside the family%s"
+                                       % (len(family), len(named), len(unnamed), len(stray),
+                                          ("; " + "; ".join((unnamed + stray)[:3])) if unnamed or stray
+                                          else ""))
+
+
 def registry():
     """name -> (kind, control): the ONE table the runner and the mutation
     proof read, this module's controls MERGED with the work module's fragment
@@ -656,6 +679,7 @@ def registry():
     reg["CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts inside `<code>` (line endings converted, then the one-space trim)"] = ("CONTROL", code_span_reading_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
+    reg["the entries named `PROPERTY: ...` are exactly the property family's fragments (records and ratchets), both directions"] = ("CONTROL", property_family_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)
     reg["a site after an escaped pipe is reported at its raw column"] = ("CONTROL", raw_offset_control)

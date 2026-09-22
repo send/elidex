@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""PR #510 R26's mutation-proof rows -- the fourth module of the ONE `MUTANTS`
-list, carved at the review-round seam the registry has used three times
+"""PR #510 R26's mutation-proof rows -- the fourth mutants module
+carved at the review-round seam the registry has used three times
 (`plan_memo_selftest_mutants` holds the row shape, `run` and the pre-converge
 rows; `_pr510` R1-R16 and the design re-gates; `_inline` R17-R25).
 
@@ -16,8 +16,9 @@ places where one reading of a text disagreed with another.  A row here answers
 "is this checker still portable and still linear?", never "does this construct
 lex?".
 
-`MUTANTS` is imported and appended to, exactly as the other three do; the
-runner reads the one list at one import site.
+`MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
+gathers every mutants module's list (the harness's file-name rule decides which
+modules those are) in one explicit step.
 """
 
 from plan_memo_selftest_cases_r26 import (
@@ -28,9 +29,12 @@ from plan_memo_selftest_cases_r26 import (
     R35_FRAGMENT_ID, R35_QUERY_ID, R38_CD_BLANK, R38_CD_MASKED,
 )
 from plan_memo_selftest_mutants import (
-    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS, MEMO, MUTANTS,
-    POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, SIBLING, STREAM, TABLES, TOKENS,
+    BLOCKS, CHECK, CONTROLS, EMPHASIS, GROWTH, HTML, IDS, INLINE_EXAMPLES, LEXER, LINKS, MEMO, POPULATION, PROPERTIES, R27_GROWTH, RECORDS, ROLES, SIBLING, STREAM, TABLES, TOKENS,
 )
+
+# This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
+# registry module's list in one explicit step, and none appends to another's.
+MUTANTS = []
 
 R26_ENCODING = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
                 "(the checker set and the self-test both, globbed)")
