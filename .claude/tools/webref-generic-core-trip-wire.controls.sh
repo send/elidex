@@ -76,7 +76,7 @@ fi
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -246,6 +246,10 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/globspec/foo1.py"
 #      admitted it, because it was written as "not one of these few path
 #      characters" instead of "one of these prose delimiters".
 printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
+#      …and the rest of that exclusion set, one line per member group.
+{ for _c in '~' '+' '%' '-' '.' '_' '0' 'o'; do
+    printf '# fo%s.claude/skills/team/rule.md\n' "$_c"
+  done; } >> "$CTL/atclaude/ok.py"
 
 #  (e) THE RED DIRECTION OF THE SAME BOUNDARY RULE, which nothing tested until
 #      the design re-gate measured it: every other red fixture writes its path
@@ -261,6 +265,35 @@ printf '# %s\n' 'foo@.claude/skills/team/rule.md' > "$CTL/atclaude/ok.py"
   printf 'see `%s` here\n' "$CONTROL_K2"
   printf '**%s**\n' "$CONTROL_K2"
   printf 'x,%s\n' "$CONTROL_K2"; } > "$CTL/bnd/control.py"
+
+# THE BOUNDARY RULES' OTHER DIRECTIONS (plan memo §11, D10). Each was shown
+# missing by a mutant that survived the control set as it then stood; the
+# record beside each rule is that mutant.
+#  (f) A reference at the very START of a line: the `^` half of the leading
+#      boundary.
+printf '%s\n' "$CONTROL_K2" > "$CTL/linestart/control.md"
+#  (g) Running text that only LOOKS like a two-segment reference, one line per
+#      rule it pins: another `.claude` root; `.claude` without its dot;
+#      whitespace or an empty segment where a segment followed by `/` would
+#      be; and a one-segment reference directly followed by a character the
+#      final segment may not end in. The whitespace line is the shape
+#      `cli.py`'s `--help` text uses.
+{ printf '%s\n' '.claude/hooks/team/rule.md' 'see _claude/skills/team/rule.md' \
+    '  .claude/tools/webref snapshot html --output /tmp/html-old.json' \
+    '.claude/skills//rule.md' 'see .claude/tools/foo/ and/or more' '.claude/tools/foo//'
+  for _c in '}' '>' ',' ';' '"' "'" '`' ']'; do
+    printf '(%s.claude/tools/foo/%s)\n' "$_c" "$_c"
+  done; } > "$CTL/textgreen/ok.md"
+#  (h) A STORED path naming `.claude` after a `/`, under the `tools` root.
+mkdir -p "$CTL/slashname/sub/.claude/tools/team"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/slashname/sub/.claude/tools/team/rule.md"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/slashname/ok.py"
+#  (i) Stored paths that only LOOK like one: another `.claude` root, `.claude`
+#      without its dot, and a symlink target whose first segment is empty.
+mkdir -p "$CTL/pathgreen/.claude/hooks/team" "$CTL/pathgreen/_claude/skills/team"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/.claude/hooks/team/rule.md"
+printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/pathgreen/_claude/skills/team/rule.md"
+ln -s '.claude/skills//rule.md' "$CTL/pathgreen/entry"
 
 # An ORPHAN branch with commits on another branch: HEAD is legitimately unborn
 # while the repository is not empty, which is the case that separates "this HEAD
@@ -372,12 +405,36 @@ printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/emptyname/ok.py"
 # A CLEAN file whose NAME carries a record separator and a classifier tag.
 # Unescaped, the continuation became a synthetic K2 hit (#501 R80).
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nk2\tforged')"
+# …and one carrying the TERMINAL tag, which `_verdict` requires exactly once.
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/forge/$(printf 'safe\nend\tscan')"
+# A WALK KILLED MID-SCAN: the `catfail` geometry (built below) plus a tracked
+# entry that sorts BEFORE the one whose read kills the walk, so the walk has
+# emitted an `ok` before it dies. Run under `POSIXLY_CORRECT=1`.
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catkill/ok.py"
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/catkill/a.py"
+# A clean repository for the injected-`core.fsmonitor` control.
+printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/fsmon/ok.py"
+# A `]`, a quote or a backtick inside a segment FOLLOWED BY `/`: as the first
+# segment, and LEADING a later intermediate one (`a/team]inc/…` already matched
+# before the widening, through its `a/team` prefix, so only the leading position
+# discriminates there).
+_d3i=0
+for _d3c in ']' '"' "'" '`'; do
+  _d3i=$((_d3i + 1))
+  printf 'X = %s\n' ".claude/tools/team${_d3c}inc/rule.md" > "$CTL/d3f$_d3i/c.py"
+  printf 'X = %s\n' ".claude/tools/a/${_d3c}inc/rule.md"  > "$CTL/d3m$_d3i/c.py"
+done
+# …and the boundary that widening opens: a quoted ONE-segment reference followed
+# directly by a `/`-bearing token now matches. Red is the fail-safe direction.
+printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
 
 # Every fixture is a repository, because the population is git's answer:
 # tracked, plus untracked minus ignored. A fixture that is not a repo cannot
 # reproduce that distinction — and the distinction is now load-bearing.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
-         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail; do
+         extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
+         catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
+         slashname pathgreen; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -451,6 +508,31 @@ done
 ( cd "$CTL/catfail" && ln -s '.claude/skills/team/rule.md' entry \
   && _fgit add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catfail
+( cd "$CTL/catkill" && ln -s '.claude/skills/team/rule.md' entry \
+  && _fgit add entry >/dev/null 2>&1 \
+  && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catkill
+# A TRACKED file under a directory with read but NOT search permission, its
+# worktree copy made violating, and no untracked sibling beside it. The
+# geometry is the plan memo's (§11.2), chosen to discriminate: with an
+# untracked sibling, or with the violation in the index blob, another arm reds
+# the run and `_absent` is not what is under test.
+( cd "$CTL/d2red" && _fgit init -q . >/dev/null 2>&1 && mkdir sub \
+  && printf '# %s\n' "$CONTROL_CLEAN" > sub/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
+  && _fgit add -A >/dev/null 2>&1 \
+  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py && chmod 0444 sub ) || _fixture_failed d2red
+# …and its green partners: a tracked directory deleted wholesale (every
+# ancestor below the root is missing), and one replaced by a regular FILE (the
+# nearest existing ancestor is not a directory).
+( cd "$CTL/d2green" && _fgit init -q . >/dev/null 2>&1 && mkdir -p dir/deep \
+  && printf '# %s\n' "$CONTROL_CLEAN" > dir/deep/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
+  && _fgit add -A >/dev/null 2>&1 && command rm -rf dir ) || _fixture_failed d2green
+( cd "$CTL/d2file" && _fgit init -q . >/dev/null 2>&1 && mkdir dir \
+  && printf '# %s\n' "$CONTROL_CLEAN" > dir/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
+  && _fgit add -A >/dev/null 2>&1 && command rm -rf dir \
+  && printf '# %s\n' "$CONTROL_CLEAN" > dir ) || _fixture_failed d2file
+# A `--selftest` root that IS a directory but cannot be resolved to a physical
+# path.
+chmod 000 "$CTL/d5root" || _fixture_failed d5root
 # …the orphan-branch fixture: commit on one branch, then check out an orphan.
 ( cd "$CTL/orphan" && _fgit init -q . >/dev/null 2>&1 \
   && printf 'x\n' > seed.txt && _fgit add seed.txt >/dev/null 2>&1 \
@@ -591,6 +673,10 @@ _control "$CTL/globspec" 1 "the inventory listed it but it is gone" "the vanishe
 _control "$CTL/badref" 1 "does not name a branch" "a malformed HEAD ref is not an unborn repository" || ctl_ok=1
 _control "$CTL/punctslash" 1 "K2: a" "punctuation BEFORE a slash is part of the path" || ctl_ok=1
 _control "$CTL/atclaude" 0 "PASSED" "a PATH character before .claude is not a prose boundary" || ctl_ok=1
+_control "$CTL/linestart" 1 "K2: a" "a reference at the start of a line fires" || ctl_ok=1
+_control "$CTL/textgreen" 0 "PASSED" "running text that only looks like a two-segment reference stays green" || ctl_ok=1
+_control "$CTL/slashname" 1 "entry NAME" "a stored path naming .claude after a slash, under tools, fires" || ctl_ok=1
+_control "$CTL/pathgreen" 0 "PASSED" "a stored path that only looks like one stays green" || ctl_ok=1
 _control "$CTL/bnd" 1 "K2: a" "the leading boundary covers =, --opt=, :, a backtick, ** and ," || ctl_ok=1
 _control "$CTL/orphan" 0 "PASSED" "an orphan branch is an unborn HEAD, not a read failure" || ctl_ok=1
 _control "$CTL/ancestorlink" 1 "ancestor component is a symlink" "the worktree read does not traverse an ancestor symlink" || ctl_ok=1
@@ -677,19 +763,78 @@ fi
 # fixture can tell them apart cheaply; the build's own exit status can, and
 # does, for this control and every other.
 _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" || ctl_ok=1
+# A WALK KILLED MID-SCAN is not a verdict: `POSIXLY_CORRECT` plus the failing
+# `cat` ends the `_scan` subshell after it has emitted `a.py`'s record.
+_ctl_env=("POSIXLY_CORRECT=1")
+_control "$CTL/catkill" 2 "did not complete" "a walk killed mid-scan is not a verdict" "" "" "$CTL/catfail" || ctl_ok=1
+_control "$CTL/d2green" 0 "PASSED" "a tracked directory deleted wholesale stays green" || ctl_ok=1
+_control "$CTL/d2file" 0 "PASSED" "a tracked directory replaced by a file stays green" || ctl_ok=1
+_control "$CTL/d3f1" 1 "K2: a" "a ] inside a first segment" || ctl_ok=1
+_control "$CTL/d3f2" 1 "K2: a" "a double quote inside a first segment" || ctl_ok=1
+_control "$CTL/d3f3" 1 "K2: a" "a single quote inside a first segment" || ctl_ok=1
+_control "$CTL/d3f4" 1 "K2: a" "a backtick inside a first segment" || ctl_ok=1
+_control "$CTL/d3m1" 1 "K2: a" "a ] inside an intermediate segment" || ctl_ok=1
+_control "$CTL/d3m2" 1 "K2: a" "a double quote inside an intermediate segment" || ctl_ok=1
+_control "$CTL/d3m3" 1 "K2: a" "a single quote inside an intermediate segment" || ctl_ok=1
+_control "$CTL/d3m4" 1 "K2: a" "a backtick inside an intermediate segment" || ctl_ok=1
+_control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash token fails safe" || ctl_ok=1
+# A caller's `GREP_OPTIONS` over a violating file. BSD grep honours it, so
+# without the wire's `unset` the file reads as "no match". ⚠ GNU grep — CI's —
+# does not honour it (plan memo §11.1; not measured here), and there this
+# control passes whatever the wire does.
+_ctl_env=("GREP_OPTIONS=--exclude=*")
+_control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl_ok=1
+# A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
+# wire keeps. Not a `_control`: the question is whether a command RAN, which the
+# verdict cannot say. ⚠ The hook is first shown to run under a plain git call
+# over the same fixture, or its not running under the wire would prove nothing.
+# The hook's path goes through `_shq`, as every embedded path here does.
+_fsm_lbl="a caller's fsmonitor hook does not run"
+_fsm_mark="$CTL/.fsmonitor_ran"
+printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$CTL/fsmhook"
+chmod +x "$CTL/fsmhook"
+_fsm_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.fsmonitor" "GIT_CONFIG_VALUE_0=$(_shq "$CTL/fsmhook")")
+( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE; cd "$CTL/fsmon" \
+  && env "${_fsm_cfg[@]}" git ls-files >/dev/null 2>&1 ) || true
+if [ ! -e "$_fsm_mark" ]; then
+  echo "!! CONTROL NOT EXERCISED ($_fsm_lbl): the hook did not run under a plain" >&2
+  echo "   git call either, so its not running under the wire would prove nothing." >&2
+  ctl_ok=1
+else
+  command rm -f "$_fsm_mark"
+  _fsm_rc=0
+  env "${_fsm_cfg[@]}" "$SELF" --selftest "$CTL/fsmon" "" "" > "$CTL/.fsm_out" 2>&1 || _fsm_rc=$?
+  if [ "$_fsm_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
+    echo "!! CONTROL FAILED ($_fsm_lbl): exit $_fsm_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
+    sed 's/^/     /' "$CTL/.fsm_out" >&2
+    ctl_ok=1
+  fi
+fi
 # ⚠ The line is built HERE, beside the decision that produces it. An earlier
 # shape decided here and described it in the summary below, so the two could
 # disagree — and an unconditional summary claimed exit-status evidence the run
 # had not obtained (#501 R78). One site, one truth.
-_perm_line="            ⚠ NOT EXERCISED on this machine: the unreadable-file and
-          unsearchable-directory controls (this user can read a mode-000 file),
-          so this run carries no evidence for those two"
+_perm_line="            ⚠ NOT EXERCISED on this machine: the controls that need file
+          permissions enforced (this user can read a mode-000 file), so this
+          run carries no evidence for them"
 if [ -r "$CTL/err/control.py" ]; then
   :
 else
-  _perm_line="            an unreadable file and an unsearchable directory also fail closed"
+  _perm_line="            the controls that need file permissions enforced ran too"
   _control "$CTL/err"  1 "could not be read" "an unreadable file fails closed" || ctl_ok=1
   _control "$CTL/walk" 1 "could not be read" "an unsearchable dir fails closed" || ctl_ok=1
+  _control "$CTL/d2red" 1 "not provably absent" "a tracked file under an unsearchable dir is not absent" || ctl_ok=1
+  _control "$CTL/d5root" 2 "or the root to a physical path" "an unresolvable self-test root decides nothing" || ctl_ok=1
+  # Not a `_control`: `_control` has no umask channel. A umask that leaves the
+  # scratch dir unsearchable makes it unresolvable to a physical path.
+  _umask_lbl="a restrictive umask decides nothing"
+  _um_rc=0
+  ( umask 777; "$SELF" --selftest "$CTL/clean" "" "" ) > "$CTL/.umask_out" 2>&1 || _um_rc=$?
+  if [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$CTL/.umask_out"; then
+    echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
+    sed 's/^/     /' "$CTL/.umask_out" >&2
+    ctl_ok=1
+  fi
 fi
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
 # Two subjects, two files: this one proves the wire can reach every verdict;

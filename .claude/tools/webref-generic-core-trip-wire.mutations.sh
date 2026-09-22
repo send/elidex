@@ -107,7 +107,14 @@ fi
 #     inertness depends on the current behaviour of the code it edits stops
 #     being a negative control the moment that code changes, silently. Comment
 #     text cannot alter a verdict by construction.
+#   * A RECORD FLOOR AND A STANDING-CONTROL CHECK, because the two directions
+#     above are both blind to a DELETED record: several needles are named by
+#     more than one record, so removing one leaves its control covered, and the
+#     `!survive` entry names no control at all — nothing looked for it.
+#     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
+#     shrinking is what is caught; the added record still has to kill.
 _MUT_UNRECORDED_MAX=21
+_MUT_RECORDS_MIN=81
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -116,7 +123,8 @@ _MUT_UNRECORDED_MAX=21
 _mutants() { cat <<'MUTANTS'
 s/grep -aEn --/grep -En --/	K2 fires inside binary content, and the content is READ
 s/"$_mrc" -gt 1/"$_mrc" -gt 99/	a failed NAME matcher fails closed
-s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a quote inside a name segment
+s#^K2RE_PATH=.*#K2RE_PATH='(^|/)\\.claude/(skills|tools)/[^/"]+/[^/]+'#	a quote inside a name segment
+s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a STAGED symlink target is a stored path
 s|${1//$'\\n'/$_REC_SEP}|${1}|	a NEWLINE inside a name segment
 s/^  _stored "${rel#"$_dir"\/}"/  : /	an entry's own NAME is the hierarchy
 s/--exclude-per-directory=.gitignore/--exclude-standard/	per-clone info/exclude cannot hide an entry
@@ -145,12 +153,54 @@ s/)}>,;\]/]/g	closing punctuation is not a path segment
 s/elif ! _git -C "$ROOT" --literal-pathspecs/elif false \&\& ! _git -C "$ROOT" --literal-pathspecs/	an inventoried path that vanished is not silently skipped
 s/--literal-pathspecs ls-files --error-unmatch/ls-files --error-unmatch/	the vanished-path question is asked of a LITERAL path
 s/\[ "$_hrc" -ne 0 \]/false/	a malformed HEAD ref is not an unborn repository
-s/\]*\[^\]\/\[:space:\]"'"'"'`)}>,;\]'/]*]'/	punctuation BEFORE a slash is part of the path
+s|\[^/\[:space:\]\]+/(|[^/[:space:])}>,;]+/(|	punctuation BEFORE a slash is part of the path
 s/(^|\/)\\.claude/\\.claude/	a segment merely ENDING in .claude is not the host path
 s#^K2RE_PATH=.*#K2RE_PATH='\\.claude/(skills|tools)/[^/]+/[^/]+'#	a segment merely ENDING in .claude is not the host path
 s/_SELFTEST="$2"/_SELFTEST="${WEBREF_WIRE_SELFTEST:-$2}"/	an exported SELFTEST cannot redirect the scan
 s/\[ ! -d "${2:-}" \]/false/	a missing self-test root decides nothing
 s/^SCRATCH="$(_phys "$_raw_scratch")"/SCRATCH="$_raw_scratch"/	a relative scratch dir is removed on exit
+s/if \[ "$_ENDS" -ne 1 \] || /if false \&\& /	a walk killed mid-scan is not a verdict
+s/\[ -x "$_ab_p" \] && return 0/return 0/	a tracked file under an unsearchable dir is not absent
+s/|| \[ -L "$_ab_p" \] || continue/|| [ -L "$_ab_p" ] || return 1/	a tracked directory deleted wholesale stays green
+s/\[ -d "$_ab_p" \] || return 0/[ -d "$_ab_p" ] || return 1/	a tracked directory replaced by a file stays green
+s|\[^/\[:space:\]\]+/|[^]/[:space:]]+/|	a ] inside a first segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a double quote inside a first segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]'"'"']+/|	a single quote inside a first segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]`]+/|	a backtick inside a first segment
+s|\[^/\[:space:\]\]+/|[^]/[:space:]]+/|2	a ] inside an intermediate segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|2	a double quote inside an intermediate segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]'"'"']+/|2	a single quote inside an intermediate segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]`]+/|2	a backtick inside an intermediate segment
+s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a quoted one-segment reference before a slash token fails safe
+s/SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""/SCRATCH="$(_phys "$_raw_scratch")"/	a restrictive umask decides nothing
+s/_root_p="$(_phys "$ROOT")" || _root_p=""/_root_p="$(_phys "$ROOT")"/	an unresolvable self-test root decides nothing
+s/^unset GREP_OPTIONS$/:/	a caller's GREP_OPTIONS cannot hide a file
+s/exec git -c core.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
+s/^K2RE='(^|\[/K2RE='([/	a reference at the start of a line fires
+s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.@+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.~@]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_~@+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9.~@+%-]/	a PATH character before .claude is not a prose boundary
+s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z_.~@+%-]/	a PATH character before .claude is not a prose boundary
+s/^K2RE='\(.*\)(skills|tools)/K2RE='\1[a-z]+/	running text that only looks like a two-segment reference stays green
+s|\[^/\[:space:\]\]+/(|[^/]+/(|	running text that only looks like a two-segment reference stays green
+s|\[^/\[:space:\]\]+/(|[^/[:space:]]*/(|	running text that only looks like a two-segment reference stays green
+s#(\[^/\[:space:\]\]+/|#([^/]+/|#	running text that only looks like a two-segment reference stays green
+s#(\[^/\[:space:\]\]+/|#([^/[:space:]]*/|#	running text that only looks like a two-segment reference stays green
+s/)}>,;\])'$/)>,;])'/	running text that only looks like a two-segment reference stays green
+s/)}>,;\])'$/)},;])'/	running text that only looks like a two-segment reference stays green
+s/)}>,;\])'$/)}>;])'/	running text that only looks like a two-segment reference stays green
+s/)}>,;\])'$/)}>,])'/	running text that only looks like a two-segment reference stays green
+s/\[^\]\/\[:space:\]"'"'"'`)}>,;\])'$/[^]\/[:space:]'"'"'`)}>,;])'/	running text that only looks like a two-segment reference stays green
+s/\[^\]\/\[:space:\]"'"'"'`)}>,;\])'$/[^]\/[:space:]"`)}>,;])'/	running text that only looks like a two-segment reference stays green
+s/\[^\]\/\[:space:\]"'"'"'`)}>,;\])'$/[^]\/[:space:]"'"'"')}>,;])'/	running text that only looks like a two-segment reference stays green
+s/\[^\]\/\[:space:\]"'"'"'`)}>,;\])'$/[^\/[:space:]"'"'"'`)}>,;])'/	running text that only looks like a two-segment reference stays green
+s/^K2RE='\(.*\)\\\.claude/K2RE='\1.claude/	running text that only looks like a two-segment reference stays green
+s#^K2RE_PATH='(^|/)#K2RE_PATH='^#	a stored path naming .claude after a slash, under tools, fires
+s#^K2RE_PATH='(^|/)\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/(skills)#	a stored path naming .claude after a slash, under tools, fires
+s#^K2RE_PATH='(^|/)\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/[a-z]+#	a stored path that only looks like one stays green
+s#^K2RE_PATH='\(.*\)/\[^/\]+/\[^/\]+'#K2RE_PATH='\1/[^/]*/[^/]+'#	a stored path that only looks like one stays green
+s#^K2RE_PATH='(^|/)\\.claude#K2RE_PATH='(^|/).claude#	a stored path that only looks like one stays green
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
@@ -178,6 +228,24 @@ _mut_correspondence() {
   done < "$CTL/.mutants"
   _mut_corr_bad=0
   [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1
+  # …the standing negative control must BE there, and the set may not shrink.
+  # ⚠ `awk`, NOT `grep -c`: `grep` exits 1 when it selects nothing, and under
+  # `pipefail` that aborts the required gate — the same trap as the `wc -l`
+  # below, and the failing case would be exactly the one being reported.
+  _mut_surv="$(awk -F'\t' '$2=="!survive"{n++} END{print n+0}' "$CTL/.mutants")"
+  if [ "$_mut_surv" -ne 1 ]; then
+    echo "!! the standing negative control (\`!survive\`) is not in the mutation set" >&2
+    echo "   exactly once (found $_mut_surv), so a broken harness cannot be told" >&2
+    echo "   from a real kill." >&2
+    _mut_corr_bad=1
+  fi
+  _mut_recs="$(awk -F'\t' 'NF>1{n++} END{print n+0}' "$CTL/.mutants")"
+  if [ "$_mut_recs" -lt "$_MUT_RECORDS_MIN" ]; then
+    echo "!! the mutation set holds $_mut_recs records, against a floor of $_MUT_RECORDS_MIN." >&2
+    echo "   A record was deleted. If that is deliberate, say why and LOWER the floor" >&2
+    echo "   in the same edit — so a smaller set is a visible decision." >&2
+    _mut_corr_bad=1
+  fi
   # …and the direction that actually finds things: controls with NO record.
   # The label is the third quoted argument of a `_control` call.
   _mut_bare=0

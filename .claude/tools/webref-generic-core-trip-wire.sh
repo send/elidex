@@ -64,8 +64,11 @@
 #     absolute is what kept this file wrong.  "Does a path reference start and
 #     end here?" cannot be decided without knowing the language the bytes are
 #     in — prose, code, Markdown, a URL, a `.pyc` — so the predicate encodes
-#     two stated rules (a prose delimiter before it; no closing punctuation
-#     ending its final segment) and both are approximations.
+#     stated rules, each an approximation: a prose delimiter before it; no
+#     closing punctuation ending its final segment; and a segment FOLLOWED BY
+#     `/` runs to that `/`, so a quoted one-segment reference directly followed
+#     by a `/`-bearing token (`".claude/tools/webref","/tmp"`) reads as a hit —
+#     the safe direction, and pinned by a control.
 #
 # ⚠ THE CLAIM WAS THE DEFECT, NOT THE REGEX.  Four rounds ran as "the predicate
 # is absolute, so this counter-example is a bug to repair", and each repair was
@@ -264,6 +267,11 @@ set -euo pipefail
 # governs binary-file *handling*; it does not change multibyte regex semantics.
 # So the locale is pinned for the whole run rather than per call site.
 export LC_ALL=C
+# ⚠ AND NO CALLER-SUPPLIED GREP ARGUMENTS. BSD grep (macOS) places
+# `GREP_OPTIONS` at the start of its argument list (`man grep`, ENVIRONMENT),
+# so `GREP_OPTIONS=--exclude=*` makes a named file read as "no match" (measured
+# on this grep) and a local run went green over a violation (plan memo §11, D1).
+unset GREP_OPTIONS
 # ⚠ THE TWO GIT READING SWITCHES LIVE IN `_git`, NOT HERE, and that is the
 # whole of it — see the `export` inside it. They were stated at BOTH levels
 # until the mutation set (below) measured what each level is worth, and the
@@ -341,7 +349,9 @@ fi
 # in-tree check below compares.
 _phys() { ( cd "$1" 2>/dev/null && pwd -P ); }
 _raw_scratch="$(mktemp -d)" || { echo "!! no scratch dir (TMPDIR/disk?), so nothing here was proved" >&2; exit 2; }
-SCRATCH="$(_phys "$_raw_scratch")"
+# ⚠ `|| SCRATCH=""`: under `set -e` a failing substitution exits HERE, before
+# the guard below can say why (a restrictive umask does it — plan memo §11, D5).
+SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""
 trap 'case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
 if [ -z "$SCRATCH" ]; then
   rmdir "$_raw_scratch" 2>/dev/null || true
@@ -349,7 +359,8 @@ if [ -z "$SCRATCH" ]; then
   exit 2
 fi
 _scratch_p="$SCRATCH"
-_root_p="$(_phys "$ROOT")"
+# …and the same for the root, for the same reason.
+_root_p="$(_phys "$ROOT")" || _root_p=""
 if [ -z "$_scratch_p" ] || [ -z "$_root_p" ]; then
   echo "!! could not resolve the scratch dir or the root to a physical path," >&2
   echo "   so this run could not prove it was not scanning its own workings." >&2
@@ -384,9 +395,14 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 
 # §2's K2 predicate. Fixed ERE, `grep -E`. The one thing this wire asserts.
 #
-# A segment is "anything up to the next separator", where the separators are `/`
-# and the characters that end a path in running text: whitespace, quotes and a
-# backtick.  It was `[A-Za-z0-9_.-]` until #501 R74, which excluded segments §2
+# A segment FOLLOWED BY `/` runs to that `/`, stopping only at whitespace: a
+# `]`, a quote or a backtick inside it is part of the path, and while they ended
+# it `.claude/tools/team]inc/rule.md` was missed (plan memo §11, D3). Only the
+# segment that ENDS the match stops at the characters that end a path in
+# running text — whitespace, `]`, quotes and a backtick. Past the first segment
+# the pattern is an ALTERNATION of those two readings, so a segment that could
+# be either (`…/a/]x/`) matches: the fail-safe reading.  The segment class was
+# `[A-Za-z0-9_.-]` until #501 R74, which excluded segments §2
 # admits — `.claude/tools/@scope/policy.md` and `.claude/skills/日本語/rule.md`
 # both read GREEN.  ⚠ A segment containing WHITESPACE stays outside it — item 2 of
 # WHAT THIS WIRE DOES NOT DECIDE above, stated there and not restated here.
@@ -442,7 +458,7 @@ REL_FILE=""; [ -z "$SCOPE_FILE" ] || REL_FILE="${SCOPE_FILE#"$ROOT"/}"
 #     `-`), so closing it cannot open anything.
 # The leading class is consumed by the match, so a record shows one extra
 # character; that is cheaper than a lookbehind ERE does not have.
-K2RE='(^|[^A-Za-z0-9_.~@+%-])\.claude/(skills|tools)/[^]/[:space:]"'"'"'`]+/[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;]'
+K2RE='(^|[^A-Za-z0-9_.~@+%-])\.claude/(skills|tools)/[^/[:space:]]+/([^/[:space:]]+/|[^]/[:space:]"'"'"'`]*[^]/[:space:]"'"'"'`)}>,;])'
 
 # …and the SAME invariant over a STORED PATH — an entry's own name, or a
 # symlink's target — where the only delimiter is `/`.
@@ -597,7 +613,16 @@ _git() { ( for _v in $_GIT_LOCAL_VARS; do
            # assignment kills. Anyone "switching this off" to debug has to
            # unset it.
            export GIT_NO_LAZY_FETCH=1 GIT_NO_REPLACE_OBJECTS=1
-           exec git "$@" ); }
+           # ⚠ AND NO FILESYSTEM MONITOR OR UNTRACKED CACHE. `GIT_CONFIG*`
+           # survives the purge above on purpose, so it can carry
+           # `core.fsmonitor`, which names a command git RUNS during this
+           # wire's own `ls-files` and `cat-file` calls (measured) and whose
+           # answer git takes for what the worktree holds (plan memo §11.6).
+           # `-c` wins over `GIT_CONFIG_COUNT` (measured), so the caller's
+           # other keys, such as `safe.directory`, still reach git. The
+           # untracked cache is caller state of the same kind; it is turned off
+           # here on that ground, and no control pins that half.
+           exec git -c core.fsmonitor=false -c core.untrackedCache=false "$@" ); }
 
 # ⚠ PARAMETER EXPANSION, NOT A PIPELINE, and the reason is the always-run job.
 # These two are the hottest things in the file — called per entry per source —
@@ -623,6 +648,28 @@ _ancestor_link() {
     _al_head="${_al_rest%%/*}"; _al_rest="${_al_rest#*/}"
     _al_pre="${_al_pre:+$_al_pre/}$_al_head"
     [ ! -L "$ROOT/$_al_pre" ] || return 0
+  done
+  return 1
+}
+
+# IS $1 (relative to $ROOT) PROVABLY ABSENT? rc 0 = yes, 1 = not established.
+# `[ -L ] / [ -f ] / [ -e ]` all answer "no" when the lookup fails with EACCES,
+# so their joint failure is not a negative (plan memo §11, D2: a tracked file
+# under a directory with read but no search permission read as tracked-and-gone,
+# with no record, green). The negative is established here instead: walk up to
+# the NEAREST EXISTING ancestor. If it is a directory it must be searchable, and
+# then the component below it failing lstat is a real absence; if it exists and
+# is NOT a directory (a tracked directory replaced by a file), the lookup below
+# it is ENOTDIR, which is an absence too. Walking past missing ancestors is what
+# keeps a tracked directory deleted wholesale — a routine unstaged state — green.
+_absent() {
+  _ab_p="$ROOT/$1"
+  while _ab_up="${_ab_p%/*}"; [ "$_ab_up" != "$_ab_p" ] && [ -n "$_ab_up" ]; do
+    _ab_p="$_ab_up"
+    [ -e "$_ab_p" ] || [ -L "$_ab_p" ] || continue
+    [ -d "$_ab_p" ] || return 0
+    [ -x "$_ab_p" ] && return 0
+    return 1
   done
   return 1
 }
@@ -826,6 +873,10 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
   elif [ -e "$f" ]; then
     printf 'err\t%s: in the worktree but neither a regular file nor a symlink, so it was NOT opened\n' \
       "$(_esc "$rel")"
+  elif ! _absent "$rel"; then
+    # Neither a file, a link, nor PROVABLY absent (see `_absent`).
+    printf 'err\t%s: not a file or a link here, and not provably absent (its nearest existing ancestor is not a searchable directory), so this run never read it\n' \
+      "$(_esc "$rel")"
   elif ! _git -C "$ROOT" --literal-pathspecs ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
     # ⚠ INVENTORIED, THEN GONE — AND UNTRACKED, so nothing else answers for it.
     # The arms above all test the path as it is NOW, and a path that vanished
@@ -859,7 +910,10 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   # ⚠ The creation is still CHECKED, because "could not write here" must not
   # become a silent empty list — it becomes the same `err` record as before.
   for _t in e lc lo lh b; do
-    : > "$SCRATCH/scan.$_t" || { printf 'err\twalk: no temp file (%s) for the walk\n' "$_t"; return 0; }
+    # ⚠ The terminal record here too (see `_verdict`). No control reaches this
+    # arm — nothing here makes `$SCRATCH` unwritable — and both of its shapes
+    # exit 2, differing only in the message.
+    : > "$SCRATCH/scan.$_t" || { printf 'err\twalk: no temp file (%s) for the walk\n' "$_t"; printf 'end\tscan\n'; return 0; }
   done
   _e="$SCRATCH/scan.e"; _lc="$SCRATCH/scan.lc"; _lo="$SCRATCH/scan.lo"
   _lh="$SCRATCH/scan.lh"; _b="$SCRATCH/scan.b"
@@ -980,6 +1034,10 @@ _scan() { # $1 = scope dir, $2 = extra file, both RELATIVE to $ROOT
   done < "$_lh"
   while IFS= read -r -d '' rel; do _entry tree "" "$rel"; done < "$_lo"
   rm -f "$_lc" "$_lo" "$_lh" "$_b" "$_e"
+  # THE TERMINAL RECORD, after the last source. A path cannot forge it: `_esc`
+  # maps LF and TAB, so no entry can put `end<TAB>` at the start of a line —
+  # the `forge` fixture holds one named `safe<LF>end<TAB>scan`.
+  printf 'end\tscan\n'
   return 0
 }
 
@@ -1014,6 +1072,19 @@ _classify() {
 
 _verdict() { # $1 = _scan output; sets K2_HITS / ERR_HITS / SCANNED
   _VERDICT_IN="$1"
+  # ⚠ DID THE WALK COMPLETE? `_scan` runs inside `$( )`, so its status is
+  # lost, and a subshell killed mid-walk (reproduced with `POSIXLY_CORRECT=1`
+  # and a failing `cat`) handed over only what it had emitted before dying —
+  # which read as a verdict (plan memo §11, D4). Exactly one terminal record,
+  # in last position, or this run decided nothing. Asked BEFORE anything is
+  # counted, so a walk killed before its first record says "did not complete"
+  # rather than "read 0".
+  _ENDS="$(_classify terminal -c '^end	')"
+  _last="${1##*$'\n'}"
+  if [ "$_ENDS" -ne 1 ] || [ "$_last" != "end	scan" ]; then
+    echo "!! the scan did not complete (terminal records: $_ENDS; last record: '${_last%%	*}'), so this run decided nothing" >&2
+    exit 2
+  fi
   K2_HITS="$(_classify K2 '' '^k2	')"
   ERR_HITS="$(_classify error '' '^err	')"
   SCANNED="$(_classify count -c '^ok	')"
@@ -1057,11 +1128,10 @@ if [ -z "$_SELFTEST" ]; then
 fi
 
 # ---- THE REAL TREE ----------------------------------------------------------
-# No `|| true` here. It was redundant — `_scan` returns 0 unconditionally and
-# reports every failure as an `err` record — but it is exactly the token that
-# made the stored-path arms' statuses look deliberately discarded (#501 R89),
-# and a swallow that currently swallows nothing is the one that stops being
-# noticed when it starts to.
+# No `|| true` here: it is exactly the token that made the stored-path arms'
+# statuses look deliberately discarded (#501 R89). `_scan`'s status does not
+# survive the substitution either way; whether the walk completed is what
+# `_verdict` asserts, from the terminal record.
 _verdict "$(_scan "$REL_DIR" ${REL_FILE:+"$REL_FILE"})"
 if [ "$SCANNED" -eq 0 ]; then
   echo "!! read 0 stored objects or files; this wire would report no violation for a reason that is not 'there are none'" >&2
