@@ -331,7 +331,8 @@ _mut_assign_value() {
 # one mutant per line, TAB-separated: <the rule it dropped or tightened>
 # <the whole mutated value>. Fails, setting `$_mut_gen_fail`, on anything it
 # cannot account for — an unterminated bracket expression, an unterminated
-# `[: :]`, or a drop that would leave a class matching nothing.
+# `[: :]`, a drop that would leave a class matching nothing, or a quantifier
+# outside the two it knows how to tighten.
 # ⚠ THE MEMBERS ARE POSIX BRACKET MEMBERS, NOT BYTES: a leading `]` is literal,
 # `[:space:]` is one member, and `a-z` is one member. Byte-wise dropping would
 # make `A-Z` three edits and `[:space:]` nine, and none of those nine is a rule
@@ -348,6 +349,19 @@ _mut_regex_mutants() {
         "${_rm_re:0:$_rm_i}$_rm_rep${_rm_re:$((_rm_i + 1))}"
       _rm_i=$((_rm_i + 1)); continue
     fi
+    # ⚠ AND THE OTHER QUANTIFIERS FAIL CLOSED, rather than being walked past as
+    # ordinary characters. POSIX ERE's quantifier set is CLOSED — `*`, `+`, `?`
+    # and `{…}` — so this is the COMPLEMENT of the two handled above, not a
+    # list of things somebody thought of. Passing them over silently is the one
+    # failure direction this generator must not have: a `?` or a `{n,m}` added
+    # to either regex would be a rule nothing tightens, and the run would go on
+    # printing "every rule those two regexes spell is pinned by a control".
+    # Neither regex holds one today, which is exactly when the arm is cheap.
+    case "$_rm_ch" in
+      '?'|'{')
+        _mut_gen_fail="$_rm_v: quantifier \`$_rm_ch\` at offset $_rm_i is one this scanner does not tighten"
+        return 1 ;;
+    esac
     if [ "$_rm_ch" != '[' ]; then _rm_i=$((_rm_i + 1)); continue; fi
     _rm_bs=$_rm_i; _rm_bi=$((_rm_bi + 1)); _rm_j=$((_rm_i + 1))
     [ "${_rm_re:$_rm_j:1}" != '^' ] || _rm_j=$((_rm_j + 1))
