@@ -1186,9 +1186,9 @@ it finds either fixed or listed for the merge decision.
 ### §11.0 How this section got here
 
 The Codex loop stopped at R9 (§10.8). A fresh agent then enumerated the populations defined in §11.4
-over a frozen snapshot (`d5dcad1c`) and found **3 CRIT and 7 IMP** (D1–D10 below) plus the MIN items
-listed in §11.4 — nine rounds of external review had been sampling that population one member at a
-time.
+over a frozen snapshot (`d5dcad1c`) and found the CRIT and IMP items disposed of below, plus the MIN
+items listed in §11.4 — nine rounds of external review had been sampling that population one member
+at a time.
 
 * **Rev 1** (`470d7fcc`) re-executed this wire under `env -i` and an allowlist. Its plan-review
   measured why that cannot work: bash consumes `BASH_ENV`, `SHELLOPTS` and `BASH_FUNC_*` at startup,
