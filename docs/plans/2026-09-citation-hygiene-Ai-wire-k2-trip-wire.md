@@ -436,9 +436,9 @@ SETUP STEP"*); the other three sites had not.
 
 ⚠ **AND THE FIRST REPLACEMENT WAS FALSE IN THE SAME SHAPE.** This item's first attempt wrote
 *"the shell, `git` and `grep` a bare checkout already has"* at all four sites. Four reviewers
-measured it independently: the wire and its controls also call `sed`, `tr`, `cmp`, `readlink`,
-`mktemp`, `mkfifo`, `chmod`, `env`, `cut`, `ln`, `cp`, and the four **sibling** wires in the same
-job add `awk`, `sort`, `comm`, `wc`. A narrower-than-true enumeration, written by the edit
+measured it independently: the wires in that job also call `sed`, `tr`, `cmp`, `readlink`,
+`mktemp`, `mkfifo`, `chmod`, `env`, `cut`, `ln`, `cp`, `awk`, `sort`, `comm` and `wc`.
+A narrower-than-true enumeration, written by the edit
 retiring a narrower-than-true enumeration — which is what "a check defined by the symptom
 vocabulary" costs: the residue command below *used to* grep for the retired **phrase**
 (`grep-only`), so it could not see the new one.
