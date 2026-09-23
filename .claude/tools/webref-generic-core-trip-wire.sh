@@ -253,7 +253,8 @@
 #      core.untrackedCache=false` in `_git`; the terminal record on `_scan`'s
 #      early return (no control makes `$SCRATCH` unwritable); the QUOTING of
 #      `_entry`'s `${rel#"$_dir"/}` — a path is data there too, and the sibling
-#      site `${SCOPE_DIR#"$ROOT"/}` IS pinned (the `glob[1]` fixture), but
+#      sites that strip `$ROOT` from a scope path ARE pinned, each by a fixture
+#      whose own checkout path holds a pattern character, but
 #      `$_dir` is this repository's own relative scope path, which holds no
 #      pattern character, so THE REAL SCAN CANNOT REACH IT and only a fixture
 #      naming a scope subdirectory with a glob character would; the

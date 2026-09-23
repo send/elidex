@@ -679,6 +679,23 @@ mkdir -p "$CTL/glob[1]/scope"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/glob[1]/scope/ok.py"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
 ( cd "$CTL/glob[1]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "glob[1]"
+# (2g') …and the SECOND site that strips `$ROOT` from a scope path: the EXTRA
+#      ENTRY's. `glob[1]` passes no extra entry, so nothing asked this half —
+#      and `[1]` is the wrong shape for it anyway: the strip then fails
+#      outright and leaves an ABSOLUTE pathspec, which git resolves to the same
+#      entry, so the mutant survives. Measured on the pre-fix wire, with an
+#      extra entry added to `glob[1]`'s own geometry: exit 0, PASSED.
+#      ⚠ THE NAME IS THE FIXTURE. What discriminates is a pattern that matches
+#      a LONGER prefix than the literal it came from: `*[e]` cannot match
+#      `*[e]`, but `*` can absorb up to `sid` and `[e]` take the `e` of
+#      `side/` — so the unquoted strip removes `…/side/` and hands git `entry`,
+#      a path that does not exist. The entry is then absent from the inventory
+#      and its violation is never read: silently green, which is why the
+#      fixture's violation lives THERE and not beside it.
+mkdir -p "$CTL/globextra*[e]/scope" "$CTL/globextra*[e]/side"
+printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/globextra*[e]/scope/ok.py"
+printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
+( cd "$CTL/globextra*[e]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "globextra*[e]"
 # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
 #     uncommitted state that `--exclude-standard` honours and no other clone
 #     of the same commit shares. (The machine-wide `core.excludesFile` is the
@@ -836,6 +853,7 @@ _control "$CTL/cfgkept" 1 "K2: a" "the caller's git CONFIGURATION survives the r
 _ctl_env=("GIT_DIR=$CTL/routeddecoy/.git" "GIT_WORK_TREE=$CTL/routeddecoy")
 _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || ctl_ok=1
 _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1
+_control "$CTL/globextra*[e]" 1 "K2: a" "a pattern character in the checkout path does not misplace the entry script" "scope" "side/entry" || ctl_ok=1
 _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
 _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/headlink" 1 "(in HEAD) ->" "a COMMITTED symlink target is a stored path" || ctl_ok=1

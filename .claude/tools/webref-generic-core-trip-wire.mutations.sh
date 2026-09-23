@@ -146,7 +146,7 @@ fi
 #     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
 #     shrinking is what is caught; the added record still has to kill.
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=93
+_MUT_RECORDS_MIN=94
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -170,6 +170,7 @@ s/^export LC_ALL=C$/export LC_ALL=C.UTF-8/	a byte no UTF-8 locale can bracket
 s/"$SCANNED" -eq 0/"$SCANNED" -eq -1/	an empty scope fails loudly
 s/\[ -e "$p" \] || \[ -L "$p" \]/[ -e "$p" ]/	a symlinked EXTRA entry is scanned
 s/REL_DIR="${SCOPE_DIR#"$ROOT"\/}"/REL_DIR="${SCOPE_DIR#$ROOT\/}"/	a glob character in the checkout path does not widen the scope
+s/REL_FILE="${SCOPE_FILE#"$ROOT"\/}"/REL_FILE="${SCOPE_FILE#$ROOT\/}"/	a pattern character in the checkout path does not misplace the entry script
 s/GIT_CONFIG\*) : ;;/GIT_CONFIG*) unset "$_v" ;;/	the caller's git CONFIGURATION survives the routing purge
 s/\[ "$_rc_tracked" -eq 0 \]/true/	a failed TRACKED inventory fails closed
 s/\[ "$_rc_worktree" -eq 0 \]/true/	a failed WORKTREE inventory fails closed
