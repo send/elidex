@@ -430,8 +430,7 @@ unfixed in the carried commit (the carried commit had already written one answer
 `CLAUDE.md`).
 
 **The property the decision rests on** is not "grep", and it is not a runtime figure. It is the
-**absence of a setup step**: the wires run on what a bare checkout already has — the shell,
-`git` and `grep` — with nothing to install, no cache and no network. The `trip-wires` job's own
+**absence of a setup step**: nothing to install, no cache, no network. The `trip-wires` job's own
 comment had already reached that formulation (*"What the decision rests on is the ABSENCE OF A
 SETUP STEP"*); the other three sites had not.
 
