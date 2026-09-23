@@ -9,8 +9,8 @@ disposition left open — where this instrument should live at all — was **dec
 §7's mutation-set criterion. What those sections leave open is booked in §8, and §11 is the
 revision that followed them.
 
-⚠ **This memo states no quantity that moves with a commit.** Where a number matters it
-appears as the command that produces it. Historical quantities (review-round numbers, gate
+⚠ **The rule for this memo is to state no quantity that moves with a commit.** Where a number
+matters it appears as the command that produces it. Historical quantities (review-round numbers, gate
 tallies) are provenance and are cited to the lane SSoT
 `memory/project_citation-hygiene-program.md`, which owns them; they are not re-derived here.
 ⚠ **Draft 1 broke that rule in its own §1**, with a file count that was false when it was
