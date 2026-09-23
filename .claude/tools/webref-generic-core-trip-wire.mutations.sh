@@ -26,8 +26,15 @@
 #
 # WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_HARNESS` and
 # `$_MUTATIONS` (from the controls file — the last is this file's own path),
-# and `$SELF`, `$SCRATCH` and `$_CONTROLS` (from the wire). `_mut_run` copies
+# and `$SELF`, `$SCRATCH`, `$_CONTROLS`, `$K2RE` and `$K2RE_PATH` (from the
+# wire). `_mut_run` copies
 # the controls, the harness and this file beside each mutant.
+# ⚠ THE TWO REGEXES ARE CONSUMED AS VALUES, not just named in a `for` list:
+# `_mut_gen_run` compares what the wire's assignment LINE reads back as against
+# what the RUNNING wire HOLDS, and that second half is these variables. They
+# were left off this list and out of the guard by the commit that added the
+# generator — the same drift the guard exists to catch, in the edit that
+# widened what there is to drift.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_mutants`,
 # `_mut_equivalent`, `_mut_correspondence`, `_mut_assign_value`,
 # `_mut_regex_mutants`, `_mut_splice`, `_mut_trial`, `_mut_gen_run`,
@@ -62,7 +69,7 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in CTL _CONTROLS _HARNESS _MUTATIONS SELF SCRATCH; do
+for _n in CTL _CONTROLS _HARNESS _MUTATIONS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
 if [ -n "$_mut_missing" ]; then
