@@ -1059,11 +1059,6 @@ revision before it:
 | `` `.claude/skills/a/b.md` `` | HIT | **MISS** |
 | `**.claude/skills/a/b.md**` | HIT | **MISS** |
 
-⚠ **Two of those shapes are live in the scanned tree**: `--opt=<path>` is how `cli.py` spells
-its `--help` examples, and a backtick is how `DESIGN.md` — which is Markdown — spells a path.
-**The gate silently stopped covering its own most likely violation**, and no control could see
-it because every red-direction fixture writes its path after a space or a quote.
-
 **What was actually missing was not a better list — it was a stated failure DIRECTION.**
 Neither form can enumerate its complement; the question is where an unknown character lands:
 
@@ -1086,7 +1081,7 @@ the *consequence* (the verdict line).
 
 | # | What | Disposition |
 |---|---|---|
-| **CRIT** | the leading boundary failed open on five spellings, two of them live in scope | **Fixed** — exclusion class, direction stated, six red-direction fixtures + a mutation record |
+| **CRIT** | the leading boundary failed open on five spellings | **Fixed** — exclusion class, direction stated, six red-direction fixtures + a mutation record |
 | **IMP** | the printed verdict still claimed ABSOLUTE over the heuristic half | **Fixed** — the two predicates report separately |
 | **IMP** | the status audit named `rev-list -n1 --all` as the positive test **after R4 removed it**, and omitted `symbolic-ref`, `show-ref`, `cat-file`, `tr\|cmp`, `_ancestor_link` | **Fixed** — table re-derived at HEAD with a derivation command, and the rule is now "re-derive when a mechanism changes, do not amend around it" |
 | **IMP** | `_ancestor_link` was ordered **after** `[ -L "$f" ]`, so an external leaf symlink won and the gate reported a K2 hit on bytes outside the tree | **Fixed** — the ancestor question is asked first |
