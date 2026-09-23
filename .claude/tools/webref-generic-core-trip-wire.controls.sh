@@ -23,9 +23,8 @@
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
-# harness beside this file; `ctl_ok` is consumed three lines from where it is
-# set. The data flow is one-way, and saying otherwise invented a contract
-# nobody could break.
+# harness beside this file. The data flow is one-way, and saying otherwise
+# invented a contract nobody could break.
 # ⚠ AND THE CONSUMES LIST HAS BEEN WRONG TWICE. It first claimed `$ROOT` and
 # `_phys`, which this file did not then mention; the revision that said so also
 # added a mutation harness that consumes `$_CONTROLS`, which the same revision
