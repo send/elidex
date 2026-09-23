@@ -166,8 +166,7 @@ jobs:
     name: Layering trip-wires
     # RE-DERIVED WHEN THE K2 WIRE LANDED, not inherited: that wire's fixture
     # self-tests are the first thing in this job whose cost is a large multiple
-    # of the scan it guards, and 2 minutes was sized against a set that took
-    # about a second.
+    # of the scan it guards.
     # ⚠ NO FIGURES HERE, for the reason the block above gives — and an earlier
     # revision of THIS comment broke that rule twenty lines below it, quoting a
     # before/after and a runner ratio whose baseline machine was named nowhere.
