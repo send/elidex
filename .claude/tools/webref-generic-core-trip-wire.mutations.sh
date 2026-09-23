@@ -309,12 +309,16 @@ EQUIV
 # subshell, and every diagnostic it writes — the whole point of failing closed
 # here — would be discarded with it.
 _mut_assign_value() {
-  _av_n="$(grep -c "^$1='" "$SELF")" || _av_n=0
+  # $2 = the file to read (default: the wire). The generated half reads its own
+  # spliced copy back through this same parser, so "what the mutant says" and
+  # "what the mutant is" cannot drift apart.
+  _av_f="${2:-$SELF}"
+  _av_n="$(grep -c "^$1='" "$_av_f")" || _av_n=0
   if [ "$_av_n" -ne 1 ]; then
-    _mut_gen_fail="\$$1 has $_av_n assignment line(s) matching \`^$1='\` in the wire, not exactly one"
+    _mut_gen_fail="\$$1 has $_av_n assignment line(s) matching \`^$1='\` in $_av_f, not exactly one"
     return 1
   fi
-  _mut_av_out="$( ( unset "$1"; eval "$(grep "^$1='" "$SELF")" 2>/dev/null || exit 1
+  _mut_av_out="$( ( unset "$1"; eval "$(grep "^$1='" "$_av_f")" 2>/dev/null || exit 1
                     eval "printf '%s' \"\${$1-}\"" ) )" || {
       _mut_gen_fail="\$$1's assignment line could not be read back as a value"
       return 1; }
@@ -398,11 +402,27 @@ _mut_regex_mutants() {
 # rewritten instead, and the value reaches `awk` through the environment, which
 # interprets nothing.
 _mut_splice() {
-  _sp_v="${2//\'/\'\"\'\"\'}"
+  # ⚠ THE QUOTING IS BUILT AS DATA, NOT WRITTEN AS SOURCE. Spelled inline as
+  # backslash escapes, the replacement text is read differently by bash 3.2 and
+  # 5.x: 3.2 keeps the backslashes, so the spliced line carried `\'` where it
+  # meant `'"'"'`, the mutant's predicate was NOT the one the entry names, and
+  # every generated mutant "SURVIVED" under 3.2 while none did under 5.3
+  # (measured, PR519 — the wire is run under both on purpose). Both strings come
+  # from `printf` so the shell never re-reads them.
+  _sp_q="$(printf "'")"; _sp_r="$(printf "'\"'\"'")"
+  _sp_v="${2//$_sp_q/$_sp_r}"
   _MUT_GEN_LINE="$1='$_sp_v'" _MUT_GEN_VAR="$1" awk '
     BEGIN { v = ENVIRON["_MUT_GEN_VAR"] "="; l = ENVIRON["_MUT_GEN_LINE"] }
     index($0, v) == 1 { print l; next }
     { print }' "$SELF" > "$_mut_wire" || return 1
+  # ⚠ AND IT IS READ BACK. A copy that holds a DIFFERENT value than the entry
+  # names tests a different question, and when that value happens to change no
+  # verdict the trial reports "survived" — sending a reader to add a control
+  # that is not missing. Same class as the shipped set's "MATCHED NOTHING".
+  _mut_assign_value "$1" "$_mut_wire" || return 1
+  [ "$_mut_av_out" = "$2" ] || {
+    _mut_gen_fail="$1: the spliced copy reads back as a different value than this entry names"
+    return 1; }
 }
 
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
