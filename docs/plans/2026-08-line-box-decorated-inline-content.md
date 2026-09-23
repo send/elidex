@@ -155,7 +155,7 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, **62** at rev 60 and **63** at rev 65 by `plan-xcheck.py` (R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c — ledger A54, A59, A60, A70); rev 63 adds none (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, **62** at rev 60, **63** at rev 65 and **65** at rev 66 by `plan-xcheck.py` (R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d — ledger A54, A59, A60, A70, A71, A72); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -725,6 +725,9 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A68 | R30 | §8's end-of-line white-space block leaving the intrinsic/layout trailing-space mismatch **ownerless** — "pre-existing, stated rather than owned … each plan states what its change does to it" (rev 63's instance 4) — and, with it, the memo carrying **two** `A67` rows | an ownerless defect is a defect no PR closes: an `auto`-width inline-block still takes a used width from intrinsic sizes that disagree with the layout both prerequisites produce, because `max_content_inline_size` sums `measure_text(&run.text)` untrimmed (`inline/measure.rs:52-58` at `154bac3f`) while layout measures a segment by its trimmed width (`pack/mod.rs:690`) and css-text-3 §4.1.2 step 3 removes the trailing collapsible space at the line's end — and a max-content size is the width of a single unbroken line (css-sizing-3 §2.1), so its end is exactly that position. **No new slot**: this is the min-content prereq's own defect seen in the other pass, so that block gains instance **5** and its scope is stated — the name is historical, the PR owns the **segmentation and trimming of both intrinsic passes** (instances 2–5), the end-of-line white-space prereq owns the rule about which trailing spaces layout removes or hangs, and PR-1b owns the edge terms (**A58**). The block is **not** renamed: the label reaches the front matter, §3, §5.2, §5.3, §8 and §9, and a rename buys nothing the scope sentence does not. Swept at the sites that described its scope rather than naming it: §5.2's `measure.rs` row, §9's intrinsic bullet and §8's PR-1b clause; M8's Decision, frozen, still says "cross-item joining" — a subset, not a contradiction. ⚠ The duplicate `A67` row (rev 63 wrote the narrowed row and left the superseded one beside it) is deleted here; the surviving row is the one naming the third **and** fourth decisions. Found by Codex on #515 |
 | A69 | R31-F1 | the end-of-line white-space and min-content prereqs as **not ordered against each other** (rev 63's carve, kept through rev 64) | rev 64 gave the min-content prereq the intrinsic passes' **trimming** while the end-of-line prereq owns the **rule** that trimming applies — for `pre`/`pre-wrap` and the non-ASCII separators especially — so with no order between them the min-content PR may implement an undecided rule, and the later PR then moves layout without it, recreating the mismatch the carve exists to remove (**A68**). **Ordered**: end-of-line white-space prereq → min-content prereq → PR-1b. The order is read off the ownership rev 64 already states rather than added to it — trimming applies a rule, so the rule lands first — and the alternative, one PR owning both, would re-merge two defects the memo carved apart (**A66**). Swept: both §8 prereq blocks' ordering lines, the topology paragraph's two sentences and §8's PR-1b dependency, which now names the pair in order. **A66's "not ordered against the min-content prereq" is superseded here**, being committed. Found by Codex on #515 |
 | A70 | R31-F2 | §6 cell 25's single-word fixture (`<span style="padding:10px">x</span>`) as the memo's whole statement of the edge terms under shrink-to-fit | with one word there is one min-content segment, so the cell cannot say **where** a decorated inline's two edges land when its content has several: both edges on the widest segment, one edge on each adjacent segment, or the pair on every segment all give the same number on `x`. That is M8's territory and PR-1b's, not the handed-off white-space domain, so freeze discipline 5's main rule applies and the umbrella pins it. **Derived from the spec, not from a reading**: css-sizing-3 §2.1 takes "all soft wrap opportunities within the box", css-text-3 §5.5 adds none at the box's boundaries, and css-break-3 §5.4's initial `box-decoration-break: slice` inserts "no border and no padding … at a break" — so the inline-start edge sits on the first segment and the inline-end edge on the last. New PR-1b cell **25c** asserts `max(10 + |a|, |verylongword|, |b| + 10)` as a relation over `measure_width`, with the long word asserted widest as its precondition, and names the two readings it rejects; §6, §5.3 and §8 route it and the freeze's cell figure goes **62 → 63**. Found by Codex on #515 |
+| A71 | R32-F1 | the matrix's coverage of `border` in the **inline-axis advance** and in **both intrinsic sizes** — measured, there was none | cell 2 stops at marker emission and the existence flip, 13c asserts the separate `LayoutBox.border` field (PR-1c), §8's end-to-end clause reads `LayoutBox.border == 5` without an advance or an intrinsic size, and every M8 cell (25, 25b, 25c) is padding — so a producer that drops `border` from M3's inline-axis sum and M8's edge term while M1, M5 and M4 keep it passes the whole matrix, leaving following text over the border and shrink-to-fit 20px narrow. Closed by new PR-1b cell **3c**, two markups of its own — `b` displaced 20px, and both intrinsic sizes 20px wider than the same box without the border — stated as relations over the fixtures, not literals, with the resolved `EdgeSizes` set on `ComputedStyle` as cell 2's ⚠ establishes. Routed in §6, §5.3 and §8; the freeze's cell figure moves with **A72**. Found by Codex on #515 |
+| A72 | R32-F2 | M8 and cells 25/25b/25c leaving an edge-only box's **negative** contribution unnormalised — `<span style="margin:-10px">` in an `auto`-width inline-block gives `−20`, which `shrink_to_fit_width` would propagate as a containing width | the spec settles **where** the floor sits, so the umbrella pins it rather than handing it over: css-sizing-3 §2.2 floors a box's max-content contribution by its min-content contribution, "e.g. due to the use of negative margins"; §5.2's Note floors the min-content contribution "by the minimum size in its own axis"; and for this `inline-block` that minimum is `min-width: auto`, which §3.2 gives "a used value of 0". So the floor belongs to **the box whose size is being computed**, and **nothing clamps the inner inline box's own −20** — a producer clamping per marker is wrong in the other direction. New PR-1b cell **25d** asserts both intrinsic sizes non-negative (0 on that markup) and the used width 0, naming the consumer it observes — `elidex-layout/src/intrinsic/mod.rs:134` through `layout/mod.rs:57`, **not** the `positioned/constraints.rs:318` homonym, which reads max-content alone. How the floor is applied is PR-1b's. Found by Codex on #515 |
+| A73 | R32-F3 | §6 cell 13d as an `elidex-render` test on that crate's `consumes_relpos_inline_subflow_with_gap` harness | that harness **hand-sets the very `LayoutBox` padding and border PR-1c produces**, so the cell passed before PR-1c and could not catch a positioned inline omitted from marker emission or from the edge assignment — the defect it exists for; 13c covers a static span's fields and §8's end-to-end clause a static `border:5px solid` without looking at painted output, so nothing else reached it. **Re-stated against the real producer**: the markup runs through `elidex-shell`'s pipeline, which drives HTML + CSS to a display list (`crates/shell/elidex-shell/src/tests.rs:41`) and already matches `DisplayItem::SolidRect` (`:127`, both verified at `154bac3f`), and the cell asserts the painted geometry as a relation over the `LayoutBox` layout produced — background at `border_box()`, four border segments of `LayoutBox.border` thickness, five rects where the pipeline emits one today. The crate row in §5.2 moves with it: `elidex-render` tests are now a negative row **without exception**, and `elidex-shell` is also the only site where a producer and the display list are jointly observable. A6 is untouched — the cell still adds no `elidex-render` pass or member. Found by Codex on #515 |
 
 ---
 
@@ -1355,10 +1358,10 @@ never emitted at all — a separate, engine-wide gap this umbrella does not own
 | `crates/layout/elidex-layout-block/src/inline/pack/boxes.rs` | `assign_inline_layout_boxes` (`:48`) — writes `LayoutBox.content` from bounds and, per M4, the three edge fields, **with no `ComputedStyle` fetch** (`:57` stays the `is_err()` guard it is today). ⚠ **Which structure carries the edges to this function — a widened `EntityBounds` (`:30-41`), a second entity-keyed map, or the `&[InlineItem]` slice — is PR-1c's plan-memo's decision, not this memo's** (M4 states the four invariants it must satisfy and the two measured facts that constrain it); this row therefore names the *write target* and not the carrier, and does not promise the signature is unchanged. The `InlineClientRects` write (`:102-126`) is untouched either way: both keep content spans, and the per-fragment border-area inflation is `#11-inline-box-decoration-splits`'s (M4). |
 | `crates/layout/elidex-layout-block/src/inline/tests/mod.rs` | The test harness. `collect_styled_runs` (the whole `fn`, `:11-25`) is a `collect_inline_items` caller — the call itself is `:17`, the coordinate the `collect.rs` row above cites — whose `filter_map`'s `match item` (`:20-23`) gains marker arms in PR-1a — but it `filter_map`s to `Vec<StyledRun>`, so those arms are `None` and it **cannot observe a marker**; PR-1a adds a sibling returning the `InlineItem`s (cell 6b). Also the `mod decorated_inline;` declaration and **PR-1a's `setup_inline_test` (`:54`) change** giving the harness a deterministic way to force `any_font == false` (cell 12d). |
 | `inline/tests/decorated_inline/{stream,advance,geometry,existence}.rs` (NEW) | The four per-PR test modules §6 routes cells to. |
-| `elidex-render` tests — **a negative row from R4, with exactly one exception from R11: cell 13d, and no other cell of this program, lands here** | The crate *could* host one (it depends on `elidex-layout-block`, `crates/core/elidex-render/Cargo.toml`, so a cell there can run layout). There is nothing to assert: **a static inline box's background and border are never emitted**. Three measurements at `22de3078`. (i) `paint_non_sc` (`builder/walk.rs:638`) pushes a non-positioned **inline** child into `inline_run` and passes only a **block** child to `walk` (`:648-676`), so a static inline never reaches the painting function. (ii) `emit_background` / `emit_borders` have exactly two non-test callers, `walk.rs:356` and `:366` — `grep -rn "emit_background(\|emit_borders(" crates/core/elidex-render/src/ \| grep -v "fn emit_"`. (iii) `InlineFlowRun` (`crates/core/elidex-ecs/src/components/inline_flow.rs:131`) has exactly two variants, `Text` and `AtomicBox`, and `builder/inline_flow.rs` consumes only those — no member carries an inline box's chrome. Corroborated end-to-end on the **post-PR-1c shape** (a `<span>` given `background: red` and a `LayoutBox` with real 10px padding under a block `<div>`, display list built by `build_display_list`): red rects **0** for `display:inline`, **1** for `display:block`, **1** for `position:relative` — so the uncovered population is exactly the *static* inline, and it is `#11-inline-decoration-paint-path`'s (§5.3), not this program's. ⚠⚠ **That corroboration is a *count*, and R11 measured what it could not see**: on the `position:relative` arm the **rect moves** — and the count only *looks* invariant because this corroboration used a background-only span: give the same span a `border`, and it goes 1 → **5**, `emit_borders` taking each side's thickness from `LayoutBox.border`. Layer 6/7 reaches such a box through `walk` (`:614-629`, `:728`) and `emit_background` / `emit_borders` read `lb.border_box()` (`builder/paint/mod.rs:68`, `:382`) — the box M4 puts real `EdgeSizes` on at PR-1c (this table's `pack/boxes.rs` row). Measured on this crate's own `consumes_relpos_inline_subflow_with_gap` harness (`crates/core/elidex-render/src/builder/tests/inline_flow/relpos.rs`): `SolidRect (24.0, 0.0) 16.0 x 20.0` today, `SolidRect (12.0, -12.0) 40.0 x 44.0` with padding 10 and border 2; re-measured with the style's `border` decoupled from the `LayoutBox`'s, a `border: 2px solid` span gives **1** rect today (background only — the border paints nothing) against **5** after. So the row is negative for the **static** arm only, cell **13d** lands here to assert the positioned one, and A6 is not crossed — 13d reads this crate's existing output and adds no pass or member (ledger **A8** narrowed, **A33**). What the crate **also** sees is PR-1b moving the `Text` runs' `inline_start`; §7 and §8's PR-1b DoD dispose its existing `border_box()`-reading tests. |
+| `elidex-render` tests — **a negative row from R4, and since rev 66 without exception: no cell of this program lands here** (13d was that exception until R32 moved it to `elidex-shell`, the only host that runs the producer and reads the display list; ledger **A73**) | The crate *could* host one (it depends on `elidex-layout-block`, `crates/core/elidex-render/Cargo.toml`, so a cell there can run layout). There is nothing to assert: **a static inline box's background and border are never emitted**. Three measurements at `22de3078`. (i) `paint_non_sc` (`builder/walk.rs:638`) pushes a non-positioned **inline** child into `inline_run` and passes only a **block** child to `walk` (`:648-676`), so a static inline never reaches the painting function. (ii) `emit_background` / `emit_borders` have exactly two non-test callers, `walk.rs:356` and `:366` — `grep -rn "emit_background(\|emit_borders(" crates/core/elidex-render/src/ \| grep -v "fn emit_"`. (iii) `InlineFlowRun` (`crates/core/elidex-ecs/src/components/inline_flow.rs:131`) has exactly two variants, `Text` and `AtomicBox`, and `builder/inline_flow.rs` consumes only those — no member carries an inline box's chrome. Corroborated end-to-end on the **post-PR-1c shape** (a `<span>` given `background: red` and a `LayoutBox` with real 10px padding under a block `<div>`, display list built by `build_display_list`): red rects **0** for `display:inline`, **1** for `display:block`, **1** for `position:relative` — so the uncovered population is exactly the *static* inline, and it is `#11-inline-decoration-paint-path`'s (§5.3), not this program's. ⚠⚠ **That corroboration is a *count*, and R11 measured what it could not see**: on the `position:relative` arm the **rect moves** — and the count only *looks* invariant because this corroboration used a background-only span: give the same span a `border`, and it goes 1 → **5**, `emit_borders` taking each side's thickness from `LayoutBox.border`. Layer 6/7 reaches such a box through `walk` (`:614-629`, `:728`) and `emit_background` / `emit_borders` read `lb.border_box()` (`builder/paint/mod.rs:68`, `:382`) — the box M4 puts real `EdgeSizes` on at PR-1c (this table's `pack/boxes.rs` row). Measured on this crate's own `consumes_relpos_inline_subflow_with_gap` harness (`crates/core/elidex-render/src/builder/tests/inline_flow/relpos.rs`): `SolidRect (24.0, 0.0) 16.0 x 20.0` today, `SolidRect (12.0, -12.0) 40.0 x 44.0` with padding 10 and border 2; re-measured with the style's `border` decoupled from the `LayoutBox`'s, a `border: 2px solid` span gives **1** rect today (background only — the border paints nothing) against **5** after. So the row is negative for the **static** arm only, cell **13d** lands here to assert the positioned one, and A6 is not crossed — 13d reads this crate's existing output and adds no pass or member (ledger **A8** narrowed, **A33**). What the crate **also** sees is PR-1b moving the `Text` runs' `inline_start`; §7 and §8's PR-1b DoD dispose its existing `border_box()`-reading tests. |
 | `elidex-layout-block/src/inline/tests/` — **not `elidex-dom-api`** | Cells 17b/17c/17d. ⚠ `elidex-dom-api` has **no** dependency on any layout crate and no `[dev-dependencies]` at all, so a cell there cannot run inline layout — its existing `layout_query.rs` tests hand-insert `LayoutBox` literals, which would assert the marshalling and nothing about M4's producer. Every existing `InlineClientRects` assertion already lives under `elidex-layout-block/src/inline/tests/inline_flow/`, and that is where M4's two channels are jointly observable. §8's PR-1c `getBoundingClientRect` obligation is discharged the same way — against the `LayoutBox` border box the DOM API reads — not by a cell in `elidex-dom-api`. |
 | the seam-3 module — `inline/reconcile.rs`, created by #508 (`7e256029`) | `layout_inline_context_fragmented`'s reconcile block, moved out of `inline/mod.rs`. §7's `clear_inline_flows` gating lives here (`:417-418` at `22de3078`, already `!env.is_probe`-gated) — a **path-selection consequence** of PR-1d's flips in `inline/mod.rs`, **not an edit: none of PR-1a–1d writes this file** (`awk '/^## §6\./,/^## §7\./' <memo> \| grep -c reconcile` → 0; §8's PR-1d DoD → 0; the prereq #511 *did*, this table's dead-arm row), so `:637` is a pre-move coordinate and the successor slot's disjunct 3 is fired by **no PR after #511** (§10's last row; earlier draftings of this row said "PR-1d fires it" and then "no umbrella PR fired it" — #511 did). |
-| `elidex-shell` tests — **the only site where a layout producer and a DOM-API reader are jointly observable** | §8's PR-1c end-to-end clause. Ground: `elidex-shell` depends on **both** `elidex-dom-api` and `elidex-layout` (→ `elidex-layout-block`), so it reaches the producer and the reader at one hop — the reachability an earlier revision denied by measuring adjacency instead. `build_pipeline_interactive` (`crates/shell/elidex-shell/src/pipeline.rs:563`) returns a `PipelineResult` carrying **`dom: EcsDom`** (`lib.rs:199-204`), so the test reads the span's real `LayoutBox` from the post-layout world **and** exercises the **four** `client*` members (R7-c widened §8's clause from `clientTop` alone) — either by invoking the registered handlers (`clientTop.get`, `crates/dom/elidex-dom-api/src/registry.rs:168`) or through a `<script>`, which that suite already does (`src/tests.rs:52` mutates the DOM from JS). ⚠ This row exists because §8 took on an obligation no other §5.2 row covers; the memo's other cross-crate rows (the `elidex-render` negative row, and the `— **not** elidex-dom-api` one) answer narrower questions. |
+| `elidex-shell` tests — **the only site where a layout producer and a DOM-API reader are jointly observable, and since rev 66 the only site where a layout producer and the *display list* are** | §8's PR-1c end-to-end clause, and §6 cell **13d** (ledger **A73**): its suite drives HTML + CSS to a display list (`src/tests.rs:41`) and already matches `DisplayItem::SolidRect` (`:127`). Ground: `elidex-shell` depends on **both** `elidex-dom-api` and `elidex-layout` (→ `elidex-layout-block`), so it reaches the producer and the reader at one hop — the reachability an earlier revision denied by measuring adjacency instead. `build_pipeline_interactive` (`crates/shell/elidex-shell/src/pipeline.rs:563`) returns a `PipelineResult` carrying **`dom: EcsDom`** (`lib.rs:199-204`), so the test reads the span's real `LayoutBox` from the post-layout world **and** exercises the **four** `client*` members (R7-c widened §8's clause from `clientTop` alone) — either by invoking the registered handlers (`clientTop.get`, `crates/dom/elidex-dom-api/src/registry.rs:168`) or through a `<script>`, which that suite already does (`src/tests.rs:52` mutates the DOM from JS). ⚠ This row exists because §8 took on an obligation no other §5.2 row covers; the memo's other cross-crate rows (the `elidex-render` negative row, and the `— **not** elidex-dom-api` one) answer narrower questions. |
 | `elidex-text` (facade over `elidex-shaping`) | `FontDatabase::query` (`crates/text/elidex-shaping/src/database.rs:60`) + `font_metrics` (`:101`) — M7's strut A/D, taken without shaping a string. |
 
 ### §5.3 Program slicing
@@ -1391,8 +1394,8 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   The shared line-occupancy core with markers passing `contributes_content = false`,
   inline-axis advance, shaping break at a decorated boundary, a marker not ending a trailing
   space's line-finality (ledger **A63**), and the
-  max-content contribution. §6 cells 3, 3b, 4, 12b, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 16,
-  16b, 25, 25b and 25c land here — cells 3, 3b, 4, 12b, 12c, 12f and 12e among them because each asserts a
+  max-content contribution. §6 cells 3, 3b, 3c, 4, 12b, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 16,
+  16b, 25, 25b, 25c and 25d land here — cells 3, 3b, 3c, 4, 12b, 12c, 12f and 12e among them because each asserts a
   *payload* fact
   (negative margin, the cancelling pair, the percentage basis, the physical→logical side mapping)
   that M1's PR-1a variants, carrying `entity` only, give no channel to observe, and that the advance
@@ -2379,6 +2382,24 @@ task's (§9).
    same gate fires on a margin-sourced edge. The **negative** arm is the same markup with
    `margin:-10px`: the advance is the signed sum, and the break still fires, the gate testing
    non-zeroness and not sign.
+3c. **`border` alone, in the advance and in both intrinsic sizes** (M3, M8; R32) — the one
+    edge kind no cell of the advance or intrinsic path carries: cell 2 stops at marker emission
+    and the existence flip, 13c asserts the separate `LayoutBox.border` **field** (PR-1c), and
+    every M8 cell — 25, 25b, 25c — is padding. Two markups of its own, because the two
+    observables are not on one:
+    * **advance** — `<p>a<span style="border:10px solid"></span>b</p>`: `b` is displaced by
+      **20px**, the same relation cell 3 asserts for `margin` and cell 14b's negative arm for
+      "no inline-axis component".
+    * **intrinsic** — `<div style="display:inline-block"><span style="border:10px solid">x</span></div>`,
+      `width` left `auto`: its **max-content** and **min-content** inline sizes are each 20px
+      wider than the same box with the span's `border` removed, the test computing both boxes and
+      comparing them as cell 25 does rather than stating literals.
+    **Rejects** the one producer the rest of the matrix admits: `border` dropped from M3's
+    inline-axis sum and from M8's edge term while M1, M5 and M4 keep it — markers still emitted
+    (cell 2), the line still kept (cell 2 is the flip set's border member), `LayoutBox.border` still real (13c), and yet
+    the following text overlaps the border and shrink-to-fit comes out 20px too narrow. ⚠ The
+    fixture sets the resolved `EdgeSizes` on the span's `ComputedStyle` directly, as cell 2's ⚠
+    establishes for border (`border-style` resolution is `elidex-style`'s).
 3b. **Cancelling pair, the sum/disjunction contrast on the advance side** — the edge pair is
     `margin:-10px;padding:10px`, so that **each** inline-axis side cancels: the side's components
     sum to zero while every component is non-zero, which is M3's **sum** against M5's
@@ -2630,6 +2651,25 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     an assertion on max-content alone passes while the box overflows at a small available width.
     An earlier drafting pinned "min-content knowingly unchanged" against the withdrawn slot
     (ledger **A47**).
+25d. **An edge-only box with negative margins does not push an intrinsic size below zero**
+    (M8; R32) — `<div style="display:inline-block"><span style="margin:-10px"></span></div>`,
+    `width` left `auto`: the span's inline-axis edge sum is `−20`, and **neither intrinsic size
+    the passes report is negative** — both are **0** on this markup — so the used width
+    `shrink_to_fit_width` derives (`elidex-layout/src/intrinsic/mod.rs:134`, consumed at
+    `elidex-layout/src/layout/mod.rs:57`; **not** the `positioned/constraints.rs:318` homonym,
+    which reads max-content alone) is 0 and no negative containing width reaches layout.
+    Ground, and it fixes **where** the floor sits rather than leaving it to taste: css-sizing-3
+    §2.2 floors the box's **max-content contribution by its min-content contribution** ("If the
+    ideal max-content contribution would be smaller than the min-content contribution (e.g. due to
+    the use of negative margins) the effective max-content contribution is floored by the
+    min-content contribution"), and §5.2's Note floors the min-content one by the box's own
+    minimum ("The min-content contribution is, as always, also floored by the minimum size in its
+    own axis") — which for this `inline-block` is `min-width: auto`, "a used value of 0"
+    (css-sizing-3 §3.2). So the floor belongs to **the box whose size is being computed**, here
+    the `inline-block`, and **nothing clamps the inner inline box's own −20 contribution**: that
+    is what the cell asserts and what a producer clamping per marker would get wrong in the other
+    direction. **Rejects** propagating `−20` into `shrink_to_fit_width`. How the floor is applied
+    is PR-1b's.
 25c. **Where a decorated inline's two edges land when its content has several min-content
     segments** (M8) — `<div style="display:inline-block"><span
     style="padding-left:10px;padding-right:10px">a verylongword b</span></div>` (LTR
@@ -2775,17 +2815,23 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
 13d. **A `position:relative` decorated inline's *painted rect* moves, and this is the one cell
     that reads the renderer's output** (M4; R11) —
     `<p>a<span style="position:relative;background:red;padding:10px;border:2px solid">b</span>c</p>`.
-    Expected — asserted as a **relation**, with the harness's instance beside it so the numbers
-    are reproducible rather than quoted: the background is painted at `border_box()`, i.e. at the
-    content box inflated by padding and border on all four sides, and each border side is painted
-    at a thickness `emit_borders` takes from **`LayoutBox.border`** and not from the computed
-    `border-width`. With the harness's hand-set `content` of `(24.0, 0.0) 16.0 x 20.0`:
-    **today, 1 `SolidRect`** — the background at `(24.0, 0.0) 16.0 x 20.0`, the *content* box,
-    and **no border at all**, because the inline's `LayoutBox` carries `EdgeSizes::default()` and
-    so the 2px `border-style: solid` in the markup paints nothing; **after PR-1c, 5** — the
-    background at `(12.0, -12.0) 40.0 x 44.0` plus four 2px segments
-    (`(12,-12) 40x2`, `(12,30) 40x2`, `(50,-10) 2x40`, `(12,-10) 2x40`).
-    ⚠ **So on this markup both the rect *and* the count move** — the count only looked invariant
+    **Run through the real producer** (R32): the markup goes through `elidex-shell`'s pipeline —
+    HTML + CSS to a display list, `crates/shell/elidex-shell/src/tests.rs:41`, whose suite already
+    matches `DisplayItem::SolidRect` (`:127`) — so the `LayoutBox` the paint reads is the one
+    **PR-1c's M4 produced**, not one the test set. Expected, as a **relation** over that box:
+    the background is a `SolidRect` at the span's `border_box()`, i.e. its `LayoutBox.content`
+    inflated by its `padding` and `border` on all four sides, and **four** border segments, each
+    of the thickness `emit_borders` takes from **`LayoutBox.border`** and not from the computed
+    `border-width` — **five** `SolidRect`s where today's pipeline emits **one**, the background at
+    the bare content box, the 2px `border-style: solid` painting nothing because the inline's
+    `LayoutBox` carries `EdgeSizes::default()`. ⚠ **A hand-set box cannot carry this cell** (R32):
+    the earlier drafting built it on `elidex-render`'s `consumes_relpos_inline_subflow_with_gap`
+    harness, which sets the `LayoutBox` padding and border PR-1c is meant to produce, so it passed
+    **before** PR-1c and could not catch a positioned inline omitted from marker emission or from
+    the edge assignment — the defect this cell exists for. 13c covers a *static* span's fields and
+    §8's end-to-end clause a static `border:5px solid` without looking at painted output, so
+    nothing else reaches it.
+    ⚠ **The count moves with the rect on this markup** — the count only looked invariant
     because the earlier claim measured a *background-only* span, the one markup of the family
     where 1 → 1 (measured: with `background` and no border, `(24,0) 16x20` → `(14,-10) 36x40`,
     one rect either way). A count taken on one member of a family is not a measurement of the
@@ -2804,10 +2850,10 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     not re-litigated elsewhere. ⚠ It asserts **nothing** about a *static* inline, whose 0 rects
     stay 0 (measured, same probe) and whose gap is `#11-inline-decoration-paint-path` (§5.3).
     ⚠ It is also the **one** bounded exception to the test-placement paragraph below: it is an
-    `elidex-render` test, built on that crate's `consumes_relpos_inline_subflow_with_gap` harness
-    (`crates/core/elidex-render/src/builder/tests/inline_flow/relpos.rs`), which sets `LayoutBox`
-    directly and so isolates render from layout — `elidex-layout-block` cannot observe a display
-    list, and a layout-side cell could only re-assert cell 13c's edges.
+    `elidex-shell` test, that crate being the only host that runs the producer and observes the
+    display list together (`crates/shell/elidex-shell/src/tests.rs:41`, `:127`) —
+    `elidex-layout-block` cannot observe a display list, and a layout-side cell could only
+    re-assert cell 13c's edges.
 14c. **The empty decorated inline gains a `LayoutBox` it never had** (§7's presence change) —
     `<p>a<span style="padding:1px"></span>b</p>`: today that span has **no** `LayoutBox`
     (`assign_inline_layout_boxes` iterates `entity_bounds`, which only `place_item` populates, and
@@ -3346,7 +3392,7 @@ variant**, and nothing here needs one: the memo's only relpos content **in the `
 is the sub-flow keying, which §2's pair 2×6 and §5.3 route out to
 `#11-inline-box-decoration-splits`, so that question is that slot's. An earlier drafting said "the
 relpos facet of cells 10/11 lands with the new module too", naming a facet no cell has (round 24
-audit). ⚠ **Cell 13d is not a counter-example to that sentence** (R11): it is a *paint-geometry*
+audit). ⚠ **Cell 13d is not a counter-example to that sentence** (R11; an `elidex-shell` test since rev 66): it is a *paint-geometry*
 relpos cell — `position:relative` is what routes the box to `walk`, hence to `border_box()`, hence
 to a painted rect at all — and it says nothing about sub-flow keying, which is the facet the
 sentence is about. Two different questions share the word; the sentence stands for its own.
@@ -3698,8 +3744,8 @@ reader of the same triple, not a second producer of it: it carries the payload's
 `LayoutBox`, which is why §5.1 M4's invariant (i) is one `resolve_box_model` call per pass rather
 than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says nothing about it.
 
-**PR-1b** (inline-axis advance): cells 3, 3b, 4, 12b, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 16,
-16b, 25, 25b and 25c. **It owes two dependencies**: it is not cut from `origin/main` until the
+**PR-1b** (inline-axis advance): cells 3, 3b, 3c, 4, 12b, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d,
+16, 16b, 25, 25b, 25c and 25d. **It owes two dependencies**: it is not cut from `origin/main` until the
 end-of-line white-space and min-content prereqs have landed, in that order (ledger **A69**) —
 cells 25 and 25c assert the intrinsic sizes on the min-content prereq's base (the cross-item joining the prerequisite's, **both edge terms this PR's**;
 ledger **A58**), and cell 16 asserts step 3's removal (`white-space: normal`), which the second makes conformant.
