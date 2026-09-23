@@ -155,7 +155,7 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, **62** at rev 60 by `plan-xcheck.py` (R22's 10c, R26's 25b, rev 60's 10d and 17g — ledger A54, A59, A60); rev 63 adds none (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, **62** at rev 60 and **63** at rev 65 by `plan-xcheck.py` (R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c — ledger A54, A59, A60, A70); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -723,6 +723,8 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A66 | user, 2026-09-23 | the end-of-line white-space domain — css-text-3 §4.1.2 for every `white-space` value — settled inside M3 (rev 63's second draft), and `#11-prewrap-forced-break-conditional-hang`, the slot that draft opened for step 4's forced-break branch | **Carved into a sixth prerequisite, the end-of-line white-space prereq PR, in `main` before PR-1b, by user decision**: the domain is a pre-existing, decoration-independent engine defect that decoration only makes visible. Its §8 block follows the min-content prereq's shape — a defect statement with measured instances, an ordering line, no `PR-1x` letter and no §10 row — and it is **not ordered against the min-content prereq**, the two touching one fact from different sides. The slot is **withdrawn, never committed**, absorbed by the carve, and removed from §5.3, the pre-existing list (back to thirteen), §3's step-4 row and §10 (35 actions). Every prereq enumeration is re-derived: the front matter (six prereqs; four relocate no code), the crate-PR count (**ten**, at both sites), §5.3's open-none sentence and its check-9 text (**ten** `opens` statements by owner — the published harvest command returns **eleven** tuples, and §5.3 keeps the two counts apart), §8's PR-1b dependency (two), the ordering and topology paragraphs (six branch from `main`, three pending), the sibling counts (five) and §9's review count (nine). ⚠ **None of the four carves carries a §10 row**; check 13's closed alternation is the *reason* for three of them, the predicate prereq — which the alternation does admit — carrying none anyway, and that is the precedent |
 | A67 | user, 2026-09-23 (third and fourth decisions on this topic); scoped plan-review of rev 63c, and an independent reading of memo and code | the umbrella stating the **whole** end-of-line white-space domain's outcomes (rev 63's three attempts: "trimmed or hung"; removal plus a §8.2-bounded hang with cells 16(a)–(h) and a PR-1c border-box cell; the same, carved to a prereq while the umbrella kept the finer outcomes) — **and then handing the whole domain away**, which the fourth decision measured as an over-generalisation | each of the three attempts was reviewed and each review found its defects **in that revision's own new text** — three consecutive self-introduced resets (1 CRIT / 15 IMP; 1 CRIT / 4 IMP; 1 CRIT / ~14 IMP) — because those outcomes cannot be authored without choosing a mechanism, which is the one thing the umbrella must not choose. The hand-off that followed went too far: the defect it generalised from was **placement** (the withdrawn border-box arm asserted a PR-1c value inside a PR-1b cell), and for `white-space: normal` no mechanism has to be chosen at all — css-text-3 §4.1.2 step 3 removes the trailing collapsible space, full stop. **Final shape.** The umbrella keeps four things: the M3 amendment (a box marker does not make a trailing space non-line-final, whatever its edges); the **`normal` outcome** — step 3 removes the space, so it reaches neither the aligned line width nor the position of what follows (cells 16, 16b, under freeze discipline 5's main rule); the **defect**, as measured instances with no invariant; and the **ordering** (the prereq in `main` before PR-1b, not ordered against the min-content prereq). It hands over the **mechanism** and the **non-`normal` values** — `pre-wrap`'s hang and what css-text-3 §8.2 lets block it, `pre`, `break-spaces` — with the cells that would assert them (arms (c) and (e)–(h), withdrawn; the border-box-end cell, whose label `16c` is recorded as withdrawn at cell 16), M4's end-cursor sentence and the §2 3×7 clause, and M8's and §8's "a §8.2-blocked space counts in the trimmed width". The prereq's instance 4 is a **statement of a pre-existing disagreement**, not an invariant: `split_whitespace` drops every `char::is_whitespace` separator (U+00A0, U+3000) where layout's trim strips `' ' | '\t'` alone (`inline/whitespace.rs:162`), and `max_content_inline_size` measures `run.text` whole (`inline/measure.rs:52-58`). Freeze discipline 5 carries the exception, scoped to those two things |
 | A68 | R30 | §8's end-of-line white-space block leaving the intrinsic/layout trailing-space mismatch **ownerless** — "pre-existing, stated rather than owned … each plan states what its change does to it" (rev 63's instance 4) — and, with it, the memo carrying **two** `A67` rows | an ownerless defect is a defect no PR closes: an `auto`-width inline-block still takes a used width from intrinsic sizes that disagree with the layout both prerequisites produce, because `max_content_inline_size` sums `measure_text(&run.text)` untrimmed (`inline/measure.rs:52-58` at `154bac3f`) while layout measures a segment by its trimmed width (`pack/mod.rs:690`) and css-text-3 §4.1.2 step 3 removes the trailing collapsible space at the line's end — and a max-content size is the width of a single unbroken line (css-sizing-3 §2.1), so its end is exactly that position. **No new slot**: this is the min-content prereq's own defect seen in the other pass, so that block gains instance **5** and its scope is stated — the name is historical, the PR owns the **segmentation and trimming of both intrinsic passes** (instances 2–5), the end-of-line white-space prereq owns the rule about which trailing spaces layout removes or hangs, and PR-1b owns the edge terms (**A58**). The block is **not** renamed: the label reaches the front matter, §3, §5.2, §5.3, §8 and §9, and a rename buys nothing the scope sentence does not. Swept at the sites that described its scope rather than naming it: §5.2's `measure.rs` row, §9's intrinsic bullet and §8's PR-1b clause; M8's Decision, frozen, still says "cross-item joining" — a subset, not a contradiction. ⚠ The duplicate `A67` row (rev 63 wrote the narrowed row and left the superseded one beside it) is deleted here; the surviving row is the one naming the third **and** fourth decisions. Found by Codex on #515 |
+| A69 | R31-F1 | the end-of-line white-space and min-content prereqs as **not ordered against each other** (rev 63's carve, kept through rev 64) | rev 64 gave the min-content prereq the intrinsic passes' **trimming** while the end-of-line prereq owns the **rule** that trimming applies — for `pre`/`pre-wrap` and the non-ASCII separators especially — so with no order between them the min-content PR may implement an undecided rule, and the later PR then moves layout without it, recreating the mismatch the carve exists to remove (**A68**). **Ordered**: end-of-line white-space prereq → min-content prereq → PR-1b. The order is read off the ownership rev 64 already states rather than added to it — trimming applies a rule, so the rule lands first — and the alternative, one PR owning both, would re-merge two defects the memo carved apart (**A66**). Swept: both §8 prereq blocks' ordering lines, the topology paragraph's two sentences and §8's PR-1b dependency, which now names the pair in order. **A66's "not ordered against the min-content prereq" is superseded here**, being committed. Found by Codex on #515 |
+| A70 | R31-F2 | §6 cell 25's single-word fixture (`<span style="padding:10px">x</span>`) as the memo's whole statement of the edge terms under shrink-to-fit | with one word there is one min-content segment, so the cell cannot say **where** a decorated inline's two edges land when its content has several: both edges on the widest segment, one edge on each adjacent segment, or the pair on every segment all give the same number on `x`. That is M8's territory and PR-1b's, not the handed-off white-space domain, so freeze discipline 5's main rule applies and the umbrella pins it. **Derived from the spec, not from a reading**: css-sizing-3 §2.1 takes "all soft wrap opportunities within the box", css-text-3 §5.5 adds none at the box's boundaries, and css-break-3 §5.4's initial `box-decoration-break: slice` inserts "no border and no padding … at a break" — so the inline-start edge sits on the first segment and the inline-end edge on the last. New PR-1b cell **25c** asserts `max(10 + |a|, |verylongword|, |b| + 10)` as a relation over `measure_width`, with the long word asserted widest as its precondition, and names the two readings it rejects; §6, §5.3 and §8 route it and the freeze's cell figure goes **62 → 63**. Found by Codex on #515 |
 
 ---
 
@@ -1390,7 +1392,7 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   inline-axis advance, shaping break at a decorated boundary, a marker not ending a trailing
   space's line-finality (ledger **A63**), and the
   max-content contribution. §6 cells 3, 3b, 4, 12b, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 16,
-  16b, 25 and 25b land here — cells 3, 3b, 4, 12b, 12c, 12f and 12e among them because each asserts a
+  16b, 25, 25b and 25c land here — cells 3, 3b, 4, 12b, 12c, 12f and 12e among them because each asserts a
   *payload* fact
   (negative margin, the cancelling pair, the percentage basis, the physical→logical side mapping)
   that M1's PR-1a variants, carrying `entity` only, give no channel to observe, and that the advance
@@ -2628,6 +2630,27 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     an assertion on max-content alone passes while the box overflows at a small available width.
     An earlier drafting pinned "min-content knowingly unchanged" against the withdrawn slot
     (ledger **A47**).
+25c. **Where a decorated inline's two edges land when its content has several min-content
+    segments** (M8) — `<div style="display:inline-block"><span
+    style="padding-left:10px;padding-right:10px">a verylongword b</span></div>` (LTR
+    `horizontal-tb`, so those are the inline-start and inline-end edges — the mapping itself is
+    cell 12e's; `padding-inline` is not a property this engine parses), `width` left `auto`: its **min-content** inline size is
+    `max(10 + measure_width("a"), measure_width("verylongword"), measure_width("b") + 10)`, the
+    test computing the three from the harness's `measure_width` (`tests/mod.rs:31`) and comparing
+    rather than stating literals, with `measure_width("verylongword")` asserted larger than the
+    other two as the precondition that makes the arms distinguishable. Ground: css-sizing-3 §2.1
+    makes the min-content inline size the one "that would fit around its contents if all soft wrap
+    opportunities within the box were taken", so the three words are three segments; css-text-3
+    §5.5 adds none at the box's own boundaries ("Out-of-flow boxes and inline box boundaries do not
+    introduce a forced line break or soft wrap opportunity in the flow"); and css-break-3 §5.4's
+    initial `box-decoration-break: slice` puts the edges only at the unbroken box's own two ends —
+    "no border and no padding are inserted at a break" — so the inline-start edge is on the first
+    segment and the inline-end edge on the last. **Rejects the two readings cell 25's single-word
+    fixture cannot separate**: both edges on the widest segment
+    (`measure_width("verylongword") + 20`), and the pair added to every segment
+    (`max(measure_width(w) + 20)`). ⚠ It pins **placement**, not the edge term itself — that is
+    cell 25's — and it sits on the min-content prereq's cross-item accumulator like cell 25
+    (§8; ledger **A58**, **A70**).
 25b. **A percentage edge under shrink-to-fit contributes zero to both intrinsic sizes** (M8;
     css-sizing-3 §5.2.1 rule 4; R26) — `<div style="display:inline-block"><span
     style="padding-left:10%">x</span></div>`, `width` left `auto`: its **min-content** and
@@ -3676,9 +3699,9 @@ reader of the same triple, not a second producer of it: it carries the payload's
 than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says nothing about it.
 
 **PR-1b** (inline-axis advance): cells 3, 3b, 4, 12b, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 16,
-16b, 25 and 25b. **It owes two dependencies**: it is not cut from `origin/main` until the
-min-content and end-of-line white-space prereqs have landed — cell 25 asserts both intrinsic sizes
-on the first's base (the cross-item joining the prerequisite's, **both edge terms this PR's**;
+16b, 25, 25b and 25c. **It owes two dependencies**: it is not cut from `origin/main` until the
+end-of-line white-space and min-content prereqs have landed, in that order (ledger **A69**) —
+cells 25 and 25c assert the intrinsic sizes on the min-content prereq's base (the cross-item joining the prerequisite's, **both edge terms this PR's**;
 ledger **A58**), and cell 16 asserts step 3's removal (`white-space: normal`), which the second makes conformant.
 `note_line_occupancy` is the only **occupancy-raising** writer of the five line-state fields,
 called **at this stage** by `place_item` and the marker path and by nothing else — the third
@@ -4460,9 +4483,12 @@ own plan-review. What that change is, what it costs, what pins it and what it to
 PR's plan-memo's and that review's. ⚠⚠ **Rev 53 stated an obligation and four named risks here
 instead; they are withdrawn** (ledger **A48**).
 
-Ordered **in `main` before PR-1b**, against nothing else here — the seam-3 and dead-arm prereqs
-have landed, and it is ordered against neither the predicate nor the reconciler prereq, nor the
-end-of-line white-space prereq, with which it shares one fact (that block). Found by
+Ordered **in `main` after the end-of-line white-space prereq and before PR-1b** (rev 65; ledger
+**A69**) — the trimming this PR gives the intrinsic passes applies the rule that prereq decides,
+so implementing it first would implement an undecided rule and let the later PR move layout out
+from under it, which is the mismatch the carve exists to remove. Against nothing else here: the
+seam-3 and dead-arm prereqs have landed, and it is ordered against neither the predicate nor the
+reconciler prereq. Found by
 Codex on #515 (R17; instance 2's classification R18's). No `PR-1x` letter, like its five
 siblings.
 
@@ -4521,11 +4547,13 @@ intrinsic-size sentences included). Measured instances, at `154bac3f`:
    space at the line end. **This PR owns the rule** — which trailing spaces layout removes or hangs
    — and that prereq owns its application in both intrinsic passes.
 
-**How it relates to the min-content prereq**: not ordered against it, and the ownership is
-stated rather than shared — **this PR owns the rule** (which trailing spaces layout removes or
-hangs), the **min-content prereq owns both intrinsic passes' segmentation and trimming**
-(this block's instance 4; ledger **A68**), and **PR-1b owns the edge terms** (ledger **A58**). **Ordered in `main` before PR-1b**,
-against nothing else here. What the change is, what pins it and what it touches are its own
+**How it relates to the min-content prereq**: **ordered before it** (rev 65; ledger **A69**),
+and the ownership is stated rather than shared — **this PR owns the rule** (which trailing spaces
+layout removes or hangs), the **min-content prereq owns both intrinsic passes' segmentation and
+trimming** (this block's instance 4; ledger **A68**), and **PR-1b owns the edge terms** (ledger
+**A58**). The order follows from that split: trimming applies a rule, so the rule lands first.
+**Ordered in `main` before the min-content prereq and therefore before PR-1b**, against nothing
+else here. What the change is, what pins it and what it touches are its own
 plan-memo's and `/elidex-plan-review`'s, and so are the cells for everything but the `normal`
 outcome this umbrella keeps (cells 16 and 16b; ledger **A67**): the undecorated path (a lone
 `<span>abc </span>` at a line end, `pre`, `pre-wrap` before a forced break), where a marker's
@@ -4569,9 +4597,9 @@ PR**: against none of the other prereqs, and **in `main` before PR-1c** and **be
 respectively — PR-1c's M4 write has no reconciliation hook without the first, and PR-1b's line
 advance has no intrinsic size that fits it without the second. Each touch set is likewise its own
 plan-review's (§8's *Reconciler prereq PR* and *Min-content prereq PR* paragraphs), so this memo
-claims no disjointness for either. The **end-of-line white-space prereq** is ordered like the
-min-content one — before PR-1b, against no other prereq — and is coupled to it by one shared fact
-rather than ordered against it (its §8 block).
+claims no disjointness for either. The **end-of-line white-space prereq** is ordered **before the
+min-content prereq**, which is itself before PR-1b: it decides the rule whose application the
+min-content prereq gives the intrinsic passes (rev 65; ledger **A69**; its §8 block).
 All six branch from `main`;
 whichever lands second takes `git merge origin/main` (⚠ **not** `rebase` — an opened PR branch
 cannot be rebased without a force-push, which `~/.claude/hooks/` denies; #511 needed no merge —
@@ -4582,9 +4610,10 @@ ahead as #518, §8 above); the **approval PR**
 is cut from `origin/main` at TERMINAL carrying the memo alone (§8 above); PR-1a branches off `main` after **three** of them
 *and the approval PR* have *landed* — the two `elidex-layout-block` ones (**both landed**) because they move code PR-1a edits, and
 the predicate PR (**pending**) because PR-1a's M1 consumes what it establishes. The remaining three
-are **pending** and are ordered against a later PR rather than PR-1a: the **min-content** and
-**end-of-line white-space PRs** against **PR-1b** and the **reconciler PR** against **PR-1c**, so
-each may land any time before its own. ⚠ Whether the
+are **pending** and are ordered against a later PR rather than PR-1a: the **end-of-line
+white-space** and **min-content PRs** against **PR-1b** — in that order, the first before the
+second (ledger **A69**) — and the **reconciler PR** against **PR-1c**, so each may land any time
+before its own and after whatever it follows. ⚠ Whether the
 predicate prereq is ordered against the other five depended on its touch set, which §9 hands over;
 the two `elidex-layout-block` prereqs having landed, that question is now moot for ordering and
 survives only as the predicate PR's own re-anchoring against `22de3078`, and the same holds for
