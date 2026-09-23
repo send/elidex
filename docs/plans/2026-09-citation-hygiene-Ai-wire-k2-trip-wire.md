@@ -450,13 +450,21 @@ because the list has now been wrong twice. What makes it checkable is the job's 
 ```sh
 # the whole claim, derived: the trip-wires job has ONE `uses:`, the checkout.
 sed -n '/^  trip-wires:/,/^  [a-z]/p' .github/workflows/ci.yml | grep -c 'uses:'   # -> 1
-# and nothing in the wire set shells out to a language runtime. ⚠ The second
-# filter is not decoration: without it the only hit is a COMMENT recording that
-# an earlier revision used python3 — i.e. the bare grep cannot tell the history
-# of the rule from a violation of it.
+# ⚠ A SEED, NOT THE CHECK. The line below names five runtimes; a sixth passes
+# it in silence, and silence is this list's green — the wrong side for a rule
+# in a required job, and the third time an enumeration has stood in for this
+# property in this section. It is kept because it does catch the regression
+# that actually happened (#501 R69, python3), and it is NOT widened: this
+# wire's own header carries the rule that a predicate which cannot return its
+# population is a seed, and that lengthening its regex is the wrong repair.
+# What is authoritative is the derivation above — one `uses:`, so there is no
+# setup step — and §6, which decides what the ungated set may require.
+# ⚠ The second filter is not decoration either: without it the only hit is a
+# COMMENT recording that an earlier revision used python3, so the bare grep
+# cannot tell the history of the rule from a violation of it.
 grep -rnE '\b(python3?|node|ruby|perl|cargo)\b' \
      .claude/tools/*-trip-wire*.sh scripts/trip-wires.sh \
-  | grep -vE ':[0-9]+:[[:space:]]*#'          # -> no output
+  | grep -vE ':[0-9]+:[[:space:]]*#'          # -> no output, for those five
 ```
 
 | site | now says |

@@ -694,10 +694,12 @@ _git() { ( for _v in $_GIT_LOCAL_VARS; do
 # ⚠ PARAMETER EXPANSION, NOT A PIPELINE, and the reason is the always-run job.
 # These two are the hottest things in the file — called per entry per source —
 # and as `printf | sed | tr` / `printf | tr` each call spawned processes.
-# In-shell they cost none, and the scan measured ~25%
-# faster with byte-identical output (verified by diff over the whole record
-# stream, and by the `forge` / `nlname` / `quotename` controls, which exist
-# precisely to exercise these characters).
+# In-shell they cost none, and the output is byte-identical (verified by diff
+# over the whole record stream, and by the `forge` / `nlname` / `quotename`
+# controls, which exist precisely to exercise these characters).  ⚠ A SPEEDUP
+# FIGURE STOOD HERE and is gone with the spawn counts beside it: it named no
+# baseline and carried no command, which is the defect this file spends its
+# `ci.yml` sibling arguing against.  Derive it if you need it.
 # ⚠ THE REPLACEMENT MUST COME FROM A VARIABLE, UNQUOTED, and that is not
 # stylistic. A literal `${v//$'\n'/~}` is TILDE-EXPANDED — it substitutes the
 # home directory — and the obvious repair, quoting it as `"$_T"`, emits LITERAL
