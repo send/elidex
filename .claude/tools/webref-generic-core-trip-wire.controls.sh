@@ -960,10 +960,11 @@ else
   fi
 fi
 # ---- THE MUTATION SET, WHICH LIVES BESIDE THIS FILE -------------------------
-# Two subjects, two files: this one proves the wire can reach every verdict;
-# that one proves each control is about the arm it names. Its absence is not a
-# skipped check — the correspondence between the two lists is what keeps either
-# list honest, so the run ends at "decided nothing" rather than without it.
+# Two subjects, two files: this one runs the wire over a fixture and asserts the
+# exit status; that one proves each control is about the arm it names. Its
+# absence is not a skipped check — the correspondence between the two lists is
+# what keeps either list honest, so the run ends at "decided nothing" rather
+# than without it.
 _MUTATIONS="${SELF%.sh}.mutations.sh"
 if [ ! -r "$_MUTATIONS" ]; then
   echo "!! the mutation set beside these controls ($_MUTATIONS) is missing or" >&2
