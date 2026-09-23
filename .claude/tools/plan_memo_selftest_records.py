@@ -550,6 +550,11 @@ def report_channel_control(M):
         Everything else is red."""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return True
+        if isinstance(node, ast.Name) and node.id == "__doc__":
+            # a module's own docstring is a LITERAL of this program (the
+            # compiler's constant), not text a memo can reach: escaping it
+            # printed the 13 KB usage as one physical line
+            return True
         if escaped(node):
             return True
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
@@ -595,7 +600,8 @@ def report_channel_control(M):
     # the predicate is run against six hand-built nodes, three of each verdict:
     # this is the `empty_registry_control` idea applied to a predicate.
     probe = {
-        '"x"': True, 'printable("x" % y)': True, 'M.printable("x")': True,
+        '"x"': True, 'printable("x" % y)': True, 'M.printable("x")': True, '__doc__': True,
+        'other_name': False,
         '"\t".join(printable(f) for f in g)': True,
         '"x %s" % y': False, '("x %s" % y) if c else "z"': False, 'f"x{y}"': False,
     }
@@ -632,6 +638,22 @@ def report_channel_control(M):
         return False, ("%d print site(s) over %s, below the recorded floor of %d: the predicate has "
                        "NARROWED -- a control that asks less is not a control that passed"
                        % (sites, ", ".join(report), FLOOR))
+    # ⚠ AND THE TWO HALVES ARE ASKED OF THE RUN, not only of the AST: a report
+    # LINE still escapes a newline (a finding carrying one must not break a
+    # line-oriented consumer), and the USAGE text keeps its line structure (it
+    # is this program's own static text; escaping it printed 13 KB as one
+    # physical line -- Codex's finding on `f183cc6a`).
+    import contextlib
+    import io as _io
+    buf = _io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        M.main(["plan-memo-umbrella-check.py", "--definitely-invalid"])
+    usage = buf.getvalue()
+    arms = [M.printable("a\nb") == "a<U+000A>b",
+            len(usage.split("\n")) > 5 and "<U+000A>" not in usage]
+    if not all(arms):
+        return False, ("a report line escapes its newline: %s; the usage text keeps its %d line(s) "
+                       "unescaped: %s" % (arms[0], len(usage.split("\n")), arms[1]))
     return not bad, ("%d emit site(s) over %d report module(s), %d not escaped%s"
                      % (sites, len(report), len(bad),
                         ("; " + "; ".join(sorted(bad)[:4])) if bad else ""))

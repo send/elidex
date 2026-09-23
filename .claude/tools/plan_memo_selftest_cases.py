@@ -536,6 +536,23 @@ rcase("NEGATIVE", "(rc) a memo whose every row is terminal is rc 0, not a schema
 case("NEGATIVE", "(rc) an all-terminal memo reports a zero census",
      ALL_TERMINAL, "", 1, measure=("note", "[CENSUS] 0 no-owner"))
 
+# A citation id is a §6.3 LINK LABEL: `[C1]` and `[c1]` are ONE id, so a second
+# row spelling it either way is the duplicate-declaration miss.  The case
+# variant was NOT (Codex on `f183cc6a`): the population map keyed the raw
+# spelling while link resolution matched the canonical label.
+def _cite_twice(spelling):
+    """The fixture with the citation row repeated, the copy's id spelled
+    `spelling`."""
+    row = [ln for ln in build().split("\n") if ln.startswith("| [C1] |")][0]
+    return build().replace(row, row + "\n" + row.replace("[C1]", spelling, 1), 1)
+
+
+rcase("POSITIVE", "(id) a citation id declared TWICE, the same spelling, is the duplicate miss: rc 2",
+      _cite_twice("[C1]"), "", 2)
+rcase("POSITIVE-NOVEL", "(id) a citation id declared twice differing only in CASE is the same miss "
+      "-- `[C1]` and `[c1]` are one §6.3 label, which is how the link resolver already reads them: rc 2",
+      _cite_twice("[c1]"), "", 2)
+
 # F9: a backslash-escaped backtick is literal (CommonMark §2.4 / §6.1)
 case("POSITIVE", "(span) a backtick behind a backslash is literal and opens no span",
      build(), "Slice 9z owns \\`x` and then `Slice 9z` lands first", 2)

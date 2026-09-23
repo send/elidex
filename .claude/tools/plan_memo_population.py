@@ -30,7 +30,7 @@ from collections import deque
 from plan_memo_memo import Memo
 from plan_memo_sibling import _resolve
 from plan_memo_stream import KIND_PHRASES, dispose, kind_disagreements, stream
-from plan_memo_tables import SCHEMAS, attributed_to_other, is_blank_id_cell
+from plan_memo_tables import SCHEMAS, attributed_to_other, is_blank_id_cell, population_key
 
 
 class Population:
@@ -153,6 +153,7 @@ class Population:
                 rid = row.self_id
                 if rid is None:
                     continue
+                rid = population_key(rid)     # a citation id is a §6.3 label
                 if rid in self.ids:
                     r2 = self.ids[rid]
                     self.misses.append((self.display(memo.path), row.lineno,
@@ -469,5 +470,8 @@ class Population:
                 for r in self.data_rows(s.name)]
 
     def keep(self):
-        """The code-span keep-set: every declared id, from every memo."""
-        return set(self.ids)
+        """The code-span keep-set: every declared id, from every memo -- both
+        the key it is declared under and the spelling it was WRITTEN with,
+        since a citation id is keyed by its canonical §6.3 label and a code
+        span may hold either spelling."""
+        return set(self.ids) | {r.self_id for r in self.ids.values()}

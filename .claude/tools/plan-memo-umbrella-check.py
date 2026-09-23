@@ -718,7 +718,13 @@ def main(argv):
         else:
             print(printable("%s mode takes %d positional argument(s), got %d"
                             % (mode, want, len(paths))))
-        print(printable(__doc__))
+        # ⚠ THE USAGE TEXT IS THIS PROGRAM'S OWN STATIC TEXT, not a report
+        # line: routing it through the escape turned the help into ONE
+        # physical line (its line endings became `<U+000A>`), which is what
+        # widening the escape to every emit site did to it.  Report LINES
+        # stay escaped -- a finding whose text carries a newline must not
+        # break a line-oriented consumer -- and trusted literals do not.
+        print(__doc__)
         return 2
     if sel == "--self-test":
         import plan_memo_umbrella_selftest as st  # noqa

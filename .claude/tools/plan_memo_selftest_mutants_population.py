@@ -182,6 +182,16 @@ MUTANTS += [
      "        if not isinstance(rows, list):",
      "        if False:",
      [MANIFEST_CTL]),
+    ("usage: the help text is NOT routed through the report escape (re-inject it -- the 13 KB "
+     "usage prints as one physical line)", "plan-memo-umbrella-check.py",
+     "        print(__doc__)",
+     "        print(printable(__doc__))",
+     [AXIS5_CHANNEL]),
+    ("report: a line's embedded NEWLINE is escaped (leave line endings alone -- a finding whose "
+     "text carries one then breaks a line-oriented consumer)", "plan-memo-umbrella-check.py",
+     'if c < " " or c == "\\x7f"',
+     'if (c < " " and c != "\\n") or c == "\\x7f"',
+     [AXIS5_CHANNEL]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",

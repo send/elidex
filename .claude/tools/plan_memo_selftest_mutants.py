@@ -304,7 +304,7 @@ MUTANTS = [
      '        for memo in self.memos[:1]:\n            self._declare(memo)',
      ["(population) an umbrella declared in a linked memo is in the census"]),
     ("population: every memo's ids are in the keep-set", POPULATION,
-     '        return set(self.ids)',
+     '        return set(self.ids) | {r.self_id for r in self.ids.values()}',
      '        return {rid for rid, r in self.ids.items() if r.memo is self.main}',
      ["(population) a terminal id declared in a linked memo is in the keep-set, so `Tq / 9z` is "
       "an id-only run, not code"]),
@@ -323,6 +323,12 @@ MUTANTS = [
     ("gate: an unmatched schema is a schema miss", POPULATION,
      '                if s.name not in matched:', '                if False:',
      ["(rc) a schema with no matching table is rc 2"]),
+    ("id: a citation id is keyed by its canonical §6.3 LABEL (key the raw spelling -- two rows "
+     "differing only in case declare one id twice and nothing says so)", TABLES,
+     '    return "[%s]" % normalize_label(rid[1:-1]) if rid.startswith("[") and rid.endswith("]") else rid',
+     "    return rid",
+     ["(id) a citation id declared twice differing only in CASE is the same miss "
+      "-- `[C1]` and `[c1]` are one §6.3 label, which is how the link resolver already reads them: rc 2"]),
     ("gate: a duplicate declaration is a schema miss", POPULATION,
      '                if rid in self.ids:', '                if False:',
      ["(rc) the same id declared in two memos is rc 2"]),

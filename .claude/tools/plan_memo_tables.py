@@ -39,6 +39,7 @@ import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
 from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
+from plan_memo_links import normalize_label
 from plan_memo_stream import MARKER_RE, rendered
 
 # A cell that carries nothing: the one predicate every reader of an optional
@@ -378,6 +379,25 @@ def admit_table(memo, lines, linenos, i, lazy):
 # --------------------------------------------------------------------------
 # Row identity
 # --------------------------------------------------------------------------
+
+def population_key(rid):
+    """The key an id takes in the population map: a CITATION id is a §6.3 LINK
+    LABEL, so `[C1]` and `[c1]` are one id and it is keyed by the canonical
+    label -- through `plan_memo_links.normalize_label`, the ONE function link
+    resolution already matches with, never a second case fold.
+
+    ⚠ The map keyed the RAW spelling until Codex's finding on `f183cc6a`, so a
+    citation declared twice differing only in case was not the "declared twice"
+    miss and its population was scanned as if it held two ids, at rc 0 -- while
+    the same two spellings resolve one link.
+
+    EVERY OTHER KIND IS VERBATIM, measured: a slug (`plan_memo_ids.SLUG_ID` =
+    `#11-[a-z0-9-]+`) admits no upper case at all, so it has no case variants
+    to fold; a short id (`ALNUM{1,4}`) does (`9z` / `9Z`), and it is NOT
+    bracketed, so §6.3 label matching does not reach it -- a slice or slot id
+    is the document's own identifier and stays case-sensitive."""
+    return "[%s]" % normalize_label(rid[1:-1]) if rid.startswith("[") and rid.endswith("]") else rid
+
 
 def bare_id(cell_text, kinds):
     """The row id an id cell declares: the grammar's first bounded token when

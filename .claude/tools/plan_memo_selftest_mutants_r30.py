@@ -677,9 +677,9 @@ MUTANTS += [
     ("R42-8 channel: narrow the predicate back to a `%` over a literal (the list of shapes it was "
      "written against: every other way of building a line goes unread)", RECORDS,
      '        if isinstance(node, ast.Constant) and isinstance(node.value, str):\n'
-     '            return True\n        if escaped(node):',
+     '            return True\n        if isinstance(node, ast.Name) and node.id == "__doc__":',
      '        if not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod)):\n'
-     '            return True\n        if escaped(node):',
+     '            return True\n        if isinstance(node, ast.Name) and node.id == "__doc__":',
      [AXIS5_CHANNEL]),
 ]
 
