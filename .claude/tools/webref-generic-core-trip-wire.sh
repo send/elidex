@@ -693,7 +693,7 @@ _git() { ( for _v in $_GIT_LOCAL_VARS; do
 
 # ⚠ PARAMETER EXPANSION, NOT A PIPELINE, and the reason is the always-run job.
 # These two are the hottest things in the file — called per entry per source —
-# and as `printf | sed | tr` / `printf | tr` every record cost processes.
+# and as `printf | sed | tr` / `printf | tr` each call spawned processes.
 # In-shell they cost none, and the scan measured ~25%
 # faster with byte-identical output (verified by diff over the whole record
 # stream, and by the `forge` / `nlname` / `quotename` controls, which exist
