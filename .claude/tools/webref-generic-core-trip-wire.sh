@@ -548,7 +548,7 @@ K2RE_PATH='(^|/)\.claude/(skills|tools)/[^/]+/[^/]+'
 # two of the next change, and each produced a finding of its own (R76, R80,
 # R81).  They are deleted rather than corrected: the block below is the one
 # account, the same collapse §12(3) made for the memo.
-# THE WALK IS GIT'S, AND SO ARE THE BYTES.  Eight review rounds (#501 R69-R79)
+# THE WALK IS GIT'S, AND SO ARE THE BYTES.  #501's review
 # found ten ways for a hand-rolled walk to certify K2 over something it had not
 # examined — a file it could not read, one whose content `grep -I` skipped, a
 # subtree `find` could not descend into, a symlink, an entry of some other type,
