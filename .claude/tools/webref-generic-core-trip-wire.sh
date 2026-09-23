@@ -747,9 +747,10 @@ _esc() { _e="${1//\\/\\\\}"; _e="${_e//$'\n'/$_ESC_T}"; printf '%s' "${_e//$'\t'
 # separator. `\001` is chosen because no predicate here mentions it.
 _onerec() { printf '%s' "${1//$'\n'/$_REC_SEP}"; }
 
-# THE ONE PLACE A STORED PATH IS MATCHED.  Both stored-path subjects — an
-# entry's own name and a symlink's target — run this, so "did the matcher
-# fail?" is decided once instead of per arm.  Prints the matches, one per line.
+# THE ONE PLACE A STORED PATH IS MATCHED.  Every stored-path subject runs this
+# — they are enumerated at `_stored` below, and not again here — so "did the
+# matcher fail?" is decided once instead of per arm.  Prints the matches, one
+# per line.
 # Status: 0 = matched, 1 = did not, **2 or more = the matcher failed**.
 # ⚠ THAT LAST CASE IS THE WHOLE POINT (#501 R89).  These arms used to be bare
 # `_onerec … | grep … | while …` pipelines inside a `_scan` the caller invokes
