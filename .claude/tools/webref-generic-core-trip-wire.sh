@@ -99,9 +99,7 @@
 # `rev-list -n1 --all` as the positive test for unbornness, and a later round
 # replaced that mechanism entirely while the table went on describing it, so
 # the audit meant to stop site-by-site recurrence was itself stale one round
-# after it was written. Derive the population rather than trusting the list:
-#
-#     grep -n '=\$?\|^ *if ! _git\|elif ! _git\|)" || \|cmp -s' <this file>
+# after it was written.
 #
 #   INFERS A PARTICULAR NEGATIVE, WITH A POSITIVE TEST FOR IT:
 #     * `rev-parse --verify --quiet HEAD` non-zero -> maybe unborn. Established
