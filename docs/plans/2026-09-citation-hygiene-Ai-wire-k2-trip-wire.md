@@ -14,8 +14,9 @@ appears as the command that produces it. Historical quantities (review-round num
 tallies) are provenance and are cited to the lane SSoT
 `memory/project_citation-hygiene-program.md`, which owns them; they are not re-derived here.
 ⚠ **Draft 1 broke that rule in its own §1**, with a file count that was false when it was
-written and unsatisfiable forever after, and four review axes found it independently. The
-rule is easy to state and was not easy to keep.
+written and unsatisfiable forever after, and four review axes found it independently. **§9
+broke it a second time**, with a process-spawn count of the scan, and the enumeration
+attestation found that one. The rule is easy to state and was not easy to keep.
 
 ---
 
@@ -867,8 +868,8 @@ stops being one the moment that code changes, silently.
 
 ### Taken on cost, since this job runs on every PR
 
-`_esc` and `_onerec` were `printf | sed | tr` pipelines called per entry per source — **306 of
-the scan's 592 process spawns**. They are parameter expansion now, output proven byte-identical
+`_esc` and `_onerec` were `printf | sed | tr` pipelines called per entry per source, so every
+record cost processes. They are parameter expansion now, output proven byte-identical
 on bash 3.2 and 5.x over backslashes, embedded newlines, tabs, `~`-leading strings and the
 empty string. ⚠ The form matters: a literal `~` replacement is **tilde-expanded**, and quoting
 the variable emits literal quote characters under bash 3.2 — `_T=$'~'` used *unquoted* is the
