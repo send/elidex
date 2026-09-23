@@ -81,7 +81,7 @@ fi
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -506,7 +506,7 @@ printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
          extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
          catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
-         slashname pathgreen slashtext finalone interone midclass pathfirstone headlink; do
+         slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -584,6 +584,19 @@ done
   && command rm -f raw.bin \
   && _fgit update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
   && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed nulblob
+# (2c') A SCOPE WHOSE EVERY ENTRY GOES UNREAD, which is the state that tells
+#      `SCANNED` apart from the size of the inventory. The one entry's index
+#      blob is a sha that was COMPUTED BUT NEVER WRITTEN, so `cat-file` fails;
+#      it has no worktree copy, so the worktree pass answers for it with no
+#      record either. Both sources therefore leave `_read` at 0 and the run
+#      must stop at "read 0" — whereas an `ok` printed for every entry
+#      regardless makes `SCANNED` the inventory's LENGTH, and the zero-read
+#      guard stops guarding anything.
+#      ⚠ `empty` cannot pose this: with no entries at all `SCANNED` is 0 either
+#      way. The entries have to EXIST and go unread.
+( cd "$CTL/unread" \
+  && _sha="$(printf 'computed, never written\n' | _fgit hash-object --stdin)" \
+  && _fgit update-index --add --cacheinfo "100644,$_sha,victim.py" >/dev/null 2>&1 ) || _fixture_failed unread
 # The `ls-tree` shim only reaches its arm if the fixture HAS a HEAD — an unborn
 # HEAD skips the whole block, which would make the control green over a branch
 # it never took.
@@ -873,6 +886,7 @@ fi
 # fixture can tell them apart cheaply; the build's own exit status can, and
 # does, for this control and every other.
 _control "$CTL/empty" 2 "read 0 stored objects" "an empty scope fails loudly" || ctl_ok=1
+_control "$CTL/unread" 2 "read 0 stored objects" "an inventoried entry that was never read is not counted as scanned" || ctl_ok=1
 # A WALK KILLED MID-SCAN is not a verdict: `POSIXLY_CORRECT` plus the failing
 # `cat` ends the `_scan` subshell after it has emitted `a.py`'s record.
 _ctl_env=("POSIXLY_CORRECT=1")
