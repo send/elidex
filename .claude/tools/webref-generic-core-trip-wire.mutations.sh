@@ -146,7 +146,7 @@ fi
 #     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
 #     shrinking is what is caught; the added record still has to kill.
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=92
+_MUT_RECORDS_MIN=93
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -157,6 +157,7 @@ s/grep -aEn --/grep -En --/	K2 fires inside binary content, and the content is R
 s/"$_mrc" -gt 1/"$_mrc" -gt 99/	a failed NAME matcher fails closed
 s#^K2RE_PATH=.*#K2RE_PATH='(^|/)\\.claude/(skills|tools)/[^/"]+/[^/]+'#	a quote inside a name segment
 s/^K2RE_PATH=.*/K2RE_PATH="$K2RE"/	a STAGED symlink target is a stored path
+s/elif \[ "$_mode" = 120000 \]; then/elif [ "$_mode" = 120000 ] \&\& [ "$_src" = index ]; then/	a COMMITTED symlink target is a stored path
 s|${1//$'\\n'/$_REC_SEP}|${1}|	a NEWLINE inside a name segment
 s/^  _stored "${rel#"$_dir"\/}"/  : /	an entry's own NAME is the hierarchy
 s/--exclude-per-directory=.gitignore/--exclude-standard/	per-clone info/exclude cannot hide an entry

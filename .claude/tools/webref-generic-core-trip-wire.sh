@@ -858,8 +858,15 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
       printf 'err\t%s: git lists it in %s, but its blob could not be read (exit %d)\n' \
         "$(_esc "$rel")" "$_src" "$_brc"
     elif [ "$_mode" = 120000 ]; then
-      # A STAGED SYMLINK's blob IS its target string — a stored path, so it
-      # takes the stored-path predicate (#501 R93). Read with a sentinel
+      # A SYMLINK IN A STORED SOURCE — the index's or HEAD's — has a blob that
+      # IS its target string, a stored path, so it takes the stored-path
+      # predicate (#501 R93). BOTH sources reach here: the mode comes from
+      # `ls-files --stage` for one and from `ls-tree` for the other, and the
+      # mode is the whole question. ⚠ WHICH IS WHY THE DIAGNOSTICS BELOW NAME
+      # `$_tag` RATHER THAN THE WORD "staged", which they carried while the
+      # index was the only source with a fixture: a reader sent to look at the
+      # index for a target that only the COMMIT holds looks in the wrong place.
+      # Read with a sentinel
       # because `$( )` strips trailing newlines (#501 R90's lesson, one arm on).
       # ⚠ A NUL FIRST. `$( )` drops NUL bytes, so a blob holding
       # `.claude/skills/<NUL>/rule.md` reached `_stored` as
@@ -871,8 +878,8 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
       # threat model is accident, not adversary (see the header); a blob crafted
       # to be unreadable reds the gate rather than passing it.
       if ! tr -d '\000' < "$_b" | cmp -s - "$_b"; then
-        printf 'err\t%s: its staged symlink target holds a NUL, which no path can, so it was not read as one\n' \
-          "$(_esc "$rel")"
+        printf 'err\t%s: its symlink target %s holds a NUL, which no path can, so it was not read as one\n' \
+          "$(_esc "$rel")" "$_tag"
       else
         # ⚠ THE SENTINEL PRESERVES TRAILING NEWLINES; IT DOES NOT PRESERVE THE
         # STATUS, and an earlier revision read the second from the first. A
@@ -884,10 +891,10 @@ _entry() { # $1 = source (index|head|tree), $2 = its MODE there (empty for tree)
         _sb="$(cat "$_b" 2>/dev/null; printf 'R%d' "$?")"
         _catrc="${_sb##*R}"; _sb="${_sb%R*}"
         if [ "$_catrc" -ne 0 ]; then
-          printf 'err\t%s: its staged symlink blob could not be read (exit %d)\n' \
-            "$(_esc "$rel")" "$_catrc"
+          printf 'err\t%s: its symlink blob %s could not be read (exit %d)\n' \
+            "$(_esc "$rel")" "$_tag" "$_catrc"
         else
-          _stored "$_sb" "$rel" "staged symlink TARGET" "$_tag ->"
+          _stored "$_sb" "$rel" "symlink TARGET $_tag" "$_tag ->"
         fi
       fi
       _read=1

@@ -81,7 +81,7 @@ fi
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -506,7 +506,7 @@ printf 'ARGS = [".claude/tools/webref","/tmp"]\n' > "$CTL/d3nb/c.py"
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
          extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
          catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
-         slashname pathgreen slashtext finalone interone midclass pathfirstone; do
+         slashname pathgreen slashtext finalone interone midclass pathfirstone headlink; do
   ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
     && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
@@ -561,6 +561,20 @@ done
   && _fgit add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry \
   && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed stagedlink
+# (2b') …and the same stored-target question asked of HEAD, which is the source
+#      `stagedlink` cannot pose. The symlink is COMMITTED and then replaced, in
+#      the index AND the worktree, by a clean regular file — so mode 120000
+#      reaches the blob arm only from `ls-tree`, and an arm that asks for the
+#      index before reading the blob as a path goes green over the commit a
+#      push sends. ⚠ The target holds a SPACE for the reason (2b)'s does: it is
+#      what separates the stored-path predicate from the running-text one, so a
+#      mutant that routes this blob to `_content` cannot be caught by `$K2RE`
+#      finding the same string anyway.
+( cd "$CTL/headlink" && ln -s '.claude/skills/team name/rule.md' entry \
+  && _fgit add entry >/dev/null 2>&1 \
+  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && command rm -f entry && printf '# %s\n' "$CONTROL_CLEAN" > entry \
+  && _fgit add entry >/dev/null 2>&1 ) || _fixture_failed headlink
 # (2c) A mode-120000 index entry whose BLOB HOLDS A NUL. git will store and
 #      commit it; no filesystem can realise it as a symlink. It must red the
 #      gate as unreadable, not be quietly shortened into something clean.
@@ -739,7 +753,7 @@ else
 fi
 _control "$CTL/lstreefail" 1 "the HEAD inventory exited" "a failed HEAD inventory fails closed" "" "" "$CTL/fakegitls" || ctl_ok=1
 _control "$CTL/headprobe" 1 "that ref EXISTS, so this HEAD is not unborn" "a failed HEAD PROBE is not an unborn HEAD" "" "" "$CTL/headprobe" || ctl_ok=1
-_control "$CTL/catfail" 1 "staged symlink blob could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
+_control "$CTL/catfail" 1 "symlink blob (staged) could not be read" "a failed staged-blob read is not a clean target" "" "" "$CTL/catfail" || ctl_ok=1
 _control "$CTL/phantom" 1 "the inventory listed it but it is gone" "an inventoried path that vanished is not silently skipped" "" "" "$CTL/fakegitphantom" || ctl_ok=1
 _control "$CTL/globspec" 1 "the inventory listed it but it is gone" "the vanished-path question is asked of a LITERAL path" "" "" "$CTL/fakegitglob" || ctl_ok=1
 _control "$CTL/badref" 1 "does not name a branch" "a malformed HEAD ref is not an unborn repository" || ctl_ok=1
@@ -824,6 +838,7 @@ _control "$CTL/routed" 1 "K2: a" "exported GIT_DIR cannot redirect the scan" || 
 _control "$CTL/glob[1]" 0 "PASSED" "a glob character in the checkout path does not widen the scope" "scope" || ctl_ok=1
 _control "$CTL/nulblob" 1 "holds a NUL" "a NUL-bearing staged symlink blob is not a path" || ctl_ok=1
 _control "$CTL/stagedlink" 1 "(staged) ->" "a STAGED symlink target is a stored path" || ctl_ok=1
+_control "$CTL/headlink" 1 "(in HEAD) ->" "a COMMITTED symlink target is a stored path" || ctl_ok=1
 _control "$CTL/inscope" 2 "INSIDE the tree" "scratch inside the scanned tree decides nothing" "" "" "$CTL/fakemktemp" || ctl_ok=1
 _control "$CTL/extra"  1 "K2: a" "a symlinked EXTRA entry is scanned" "sub" "entry" || ctl_ok=1
 # …the second of the pair `$_fifo_line` above reports on.
