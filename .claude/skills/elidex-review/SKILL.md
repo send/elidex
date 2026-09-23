@@ -6,7 +6,7 @@ user-invocable: true
 
 # elidex-review — pre-push diff review
 
-`/code-review` **の上に重ねる** elidex 専門 design review。`/pre-push` gate の最終段 = design 最終 gate。post-push の 非-Claude reviewer は single-shot second opinion (`/external-review`、現 Codex/Plus) になったので、この gate と Stage 4 の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
+`/code-review` **の上に重ねる** elidex 専門 design review。`/pre-push` gate の最終段 = design 最終 gate。post-push の 非-Claude reviewer は single-shot second opinion (`/external-review`、現 Codex/Plus) になったので、この gate と `/code-review` 段の blast-radius effort が design review の主担。「後続 loop が残りを拾う」前提で圧縮するのでなく、ここで取り切る。
 
 - **Axis SSoT**: `./axes.md` (5 axis 定義、`elidex-plan-review` と共有)
 - **Workflow SSoT**: `./workflow.md` (Step 1.5 / 1.6 rename-propagation sweep / 2 agent prompt template / 3 / 3.5 / 4 / 4.5 + anti-patterns)
