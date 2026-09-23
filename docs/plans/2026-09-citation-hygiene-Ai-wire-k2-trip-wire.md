@@ -1263,8 +1263,9 @@ is next updated.
 * **New controls × the harness budget** — `ci.yml`'s `timeout-minutes` line is re-derived in the same
   PR, as that line requires.
 * **New controls × the mutation ratchet** — every new control ships with its record.
-* **New controls × the controls file's size** — it is below 1000 lines today; if this PR takes it
-  past, the touch-time split is its own commit first, at a seam named then.
+* **New controls × the controls file's size** — if this PR takes it past CLAUDE.md's threshold,
+  the touch-time split is its own commit first, at a seam named then. It did; §11.7 row 7 records
+  the seam. Whether it is past the threshold again is `wc -l` on the file, not a figure here.
 * **D5 × trap order** — the trap is installed after `SCRATCH`'s assignment and before its guard; an
   empty value is a no-op in the trap's `/*/*` case, and the guard removes the raw directory itself.
 
