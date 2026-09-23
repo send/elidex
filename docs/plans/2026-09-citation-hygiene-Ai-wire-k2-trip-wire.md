@@ -519,8 +519,8 @@ both halves of the same run.
 
 ⚠ **And no second seam is taken — as judged at the time. That judgement is now SUPERSEDED; see
 §8.** Re-derive the sizes rather than reading them (§0's first command): when this was written
-the scanner was in the band CLAUDE.md's touch-time discipline says to look at *while writing*,
-and review rounds have since carried both files past the threshold. The reasoning below is kept
+the scanner was in the band CLAUDE.md's touch-time discipline says to look at *while writing*.
+The reasoning below is kept
 because it is what a re-derivation at that size has to argue against, not because it still
 concludes. Looked at then, the answer was no: the split rule is a **cohesion** judgement, not a
 line count, and what is left is the predicates, one walk, one verdict — a monolithic cohesive
