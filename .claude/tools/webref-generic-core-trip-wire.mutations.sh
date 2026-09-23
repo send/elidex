@@ -48,9 +48,11 @@
 #     census — a record exists only for something somebody thought of.
 #   * `_mut_gen_run` — GENERATED from `$K2RE` and `$K2RE_PATH` themselves, and
 #     its unit is a RULE of those two regexes: one mutant per
-#     bracket-expression member, one per quantifier. Its claim: *every* such
-#     rule is caught by SOME control, or is argued equivalent. It cannot say
-#     which control.
+#     bracket-expression member, one per quantifier, one per alternation
+#     branch, one per escape. Its claim: *every* such rule is caught by SOME
+#     control, or is argued equivalent. It cannot say which control, and a
+#     direction needing a payload it would have to invent — widening a branch
+#     list, say — is not in its population and stays with the hand records.
 # NEITHER IS DERIVABLE FROM THE OTHER, so where they overlap that is not two
 # copies of one claim: a regex rule whose fixture needs a NEW CONTROL gets a
 # record as well, because the control has to be named by one.
@@ -297,8 +299,8 @@ MUTANTS
 # ⚠ AN ENTRY THAT NAMES NO GENERATED MUTANT IS A FAILURE, not a comment: the
 # names embed the class text, so any edit to a class retires every argument
 # made about it and the next reader has to make them again.
-# ⚠ IT IS EMPTY, AND THAT IS A MEASUREMENT. Every rule these two regexes
-# spell is pinned by a fixture; none has been shown unable to change a verdict.
+# ⚠ IT IS EMPTY, AND THAT IS A MEASUREMENT. Every mutant the generator returns
+# is pinned by a fixture; none has been shown unable to change a verdict.
 # ⚠ ONE ARGUMENT WAS OFFERED FOR THIS TABLE AND IT IS FALSE — recorded so it
 # is not offered again. It said that widening the FIRST SEGMENT's class by
 # dropping `/` cannot change a verdict, "because any mutant match implies a
@@ -338,17 +340,26 @@ _mut_assign_value() {
 # one mutant per line, TAB-separated: <the rule it dropped or tightened>
 # <the whole mutated value>. Fails, setting `$_mut_gen_fail`, on anything it
 # cannot account for — an unterminated bracket expression, an unterminated
-# `[: :]`, a drop that would leave a class matching nothing, or a quantifier
-# outside the two it knows how to tighten.
+# `[: :]`, a drop that would leave a class matching nothing, a quantifier
+# outside the two it knows how to tighten, a `|` outside any group, an
+# unmatched `)`, or a group left open at the end.
 # ⚠ THE MEMBERS ARE POSIX BRACKET MEMBERS, NOT BYTES: a leading `]` is literal,
 # `[:space:]` is one member, and `a-z` is one member. Byte-wise dropping would
 # make `A-Z` three edits and `[:space:]` nine, and none of those nine is a rule
 # anybody wrote.
 _mut_regex_mutants() {
   _rm_v="$1"; _rm_re="$2"; _rm_len=${#_rm_re}; _rm_i=0; _rm_bi=0; _rm_qi=0
+  _rm_ei=0; _rm_ai=0; _rm_gd=0
   while [ "$_rm_i" -lt "$_rm_len" ]; do
     _rm_ch="${_rm_re:$_rm_i:1}"
-    if [ "$_rm_ch" = '\' ]; then _rm_i=$((_rm_i + 2)); continue; fi
+    if [ "$_rm_ch" = '\' ]; then
+      # UNESCAPE. `\.` means the character; `.` means any. The edit is
+      # structural — the backslash is removed and nothing is invented.
+      _rm_ei=$((_rm_ei + 1))
+      printf '%s\t%s\n' "$_rm_v escape#$_rm_ei \\${_rm_re:$((_rm_i + 1)):1} unescaped" \
+        "${_rm_re:0:$_rm_i}${_rm_re:$((_rm_i + 1))}"
+      _rm_i=$((_rm_i + 2)); continue
+    fi
     if [ "$_rm_ch" = '*' ] || [ "$_rm_ch" = '+' ]; then
       _rm_qi=$((_rm_qi + 1))
       if [ "$_rm_ch" = '*' ]; then _rm_rep='+'; else _rm_rep='{2,}'; fi
@@ -369,6 +380,45 @@ _mut_regex_mutants() {
         _mut_gen_fail="$_rm_v: quantifier \`$_rm_ch\` at offset $_rm_i is one this scanner does not tighten"
         return 1 ;;
     esac
+    # ALTERNATION. `(` and `|` used to be walked past as ordinary characters,
+    # so every branch of both regexes was outside the generated population. A
+    # fail-closed arm is not available: both regexes hold them. The edit is
+    # DROP-A-BRANCH — structural, inventing no vocabulary. The opposite
+    # direction, widening a branch list, needs a payload this scanner would
+    # have to make up, and stays with the hand-written records.
+    # ⚠ A `|` OUTSIDE A GROUP FAILS CLOSED, as the unhandled quantifiers do:
+    # its branches are the whole expression and dropping one is not this edit.
+    # Neither regex holds one today.
+    if [ "$_rm_ch" = '(' ]; then
+      _rm_gs[$_rm_gd]=$_rm_i; _rm_gb[$_rm_gd]=''; _rm_gd=$((_rm_gd + 1))
+      _rm_i=$((_rm_i + 1)); continue
+    fi
+    if [ "$_rm_ch" = '|' ]; then
+      if [ "$_rm_gd" -eq 0 ]; then
+        _mut_gen_fail="$_rm_v: alternation \`|\` at offset $_rm_i is outside any group"
+        return 1
+      fi
+      _rm_gb[$((_rm_gd - 1))]="${_rm_gb[$((_rm_gd - 1))]} $_rm_i"
+      _rm_i=$((_rm_i + 1)); continue
+    fi
+    if [ "$_rm_ch" = ')' ]; then
+      if [ "$_rm_gd" -eq 0 ]; then
+        _mut_gen_fail="$_rm_v: unmatched \`)\` at offset $_rm_i"; return 1
+      fi
+      _rm_gd=$((_rm_gd - 1)); _rm_os=${_rm_gs[$_rm_gd]}; _rm_bl=${_rm_gb[$_rm_gd]}
+      if [ -n "$_rm_bl" ]; then
+        _rm_ai=$((_rm_ai + 1)); _rm_prev=$_rm_os; _rm_k=0
+        for _rm_sep in $_rm_bl "$_rm_i"; do
+          if [ "$_rm_k" -eq 0 ]; then _rm_a=$((_rm_prev + 1)); _rm_b=$_rm_sep
+          else _rm_a=$_rm_prev; _rm_b=$((_rm_sep - 1)); fi
+          printf '%s\t%s\n' \
+            "$_rm_v alt#$_rm_ai without branch \`${_rm_re:$((_rm_prev + 1)):$(( _rm_sep - _rm_prev - 1 ))}\`" \
+            "${_rm_re:0:$_rm_a}${_rm_re:$((_rm_b + 1))}"
+          _rm_prev=$_rm_sep; _rm_k=$((_rm_k + 1))
+        done
+      fi
+      _rm_i=$((_rm_i + 1)); continue
+    fi
     if [ "$_rm_ch" != '[' ]; then _rm_i=$((_rm_i + 1)); continue; fi
     _rm_bs=$_rm_i; _rm_bi=$((_rm_bi + 1)); _rm_j=$((_rm_i + 1))
     [ "${_rm_re:$_rm_j:1}" != '^' ] || _rm_j=$((_rm_j + 1))
@@ -416,6 +466,9 @@ _mut_regex_mutants() {
     done
     _rm_i=$((_rm_be + 1))
   done
+  if [ "$_rm_gd" -ne 0 ]; then
+    _mut_gen_fail="$_rm_v: $_rm_gd group(s) left open at the end of the expression"; return 1
+  fi
 }
 
 # Splice a mutated value back over the wire's own assignment line, into
@@ -704,7 +757,9 @@ _mut_run() {
     command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"
     [ "$_mut_bad" -eq 0 ] && [ "$_mut_gen_bad" -eq 0 ] || exit 1
     echo "  every entry above was shown to red, and to red for its own reason;"
-    echo "  every rule those two regexes spell is pinned by a control"
+    echo "  generated: every class member, quantifier, alternation branch and"
+    echo "  escape of those two regexes is pinned by a control. Widening a branch"
+    echo "  list is not generated — only the hand records above reach it"
     # ⚠ NO `exit 0` HERE, AND THAT IS THE WHOLE POINT. This block used to end the
     # run — so `WEBREF_WIRE_MUTANTS` merely PRESENT IN THE ENVIRONMENT (exported
     # once, in a shell that later runs `mise run trip-wires`) made the required

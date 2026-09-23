@@ -257,8 +257,8 @@
 #      pattern character, so THE REAL SCAN CANNOT REACH IT and only a fixture
 #      naming a scope subdirectory with a glob character would; the
 #      boundary-mutant generator's own fail-closed arms (an assignment line missing,
-#      duplicated or reading back as something else, a bracket expression or a
-#      quantifier its
+#      duplicated or reading back as something else, a bracket expression, a
+#      quantifier or a grouping its
 #      scanner cannot account for, a mutant killed by the real tree rather than
 #      by a control) — nothing a control does makes this wire's own assignments
 #      unparseable; and the verdict
