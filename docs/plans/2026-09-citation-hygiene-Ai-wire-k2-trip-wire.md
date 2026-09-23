@@ -699,12 +699,14 @@ instrument.
 
    ⚠ **…which is why the two regexes' own population is no longer a list.** The same run also
    generates, from `$K2RE` and `$K2RE_PATH` as the wire assigns them, one mutant per
-   bracket-expression member and one per quantifier, and requires each to red the control set or
+   bracket-expression member, quantifier, alternation branch and escape, and requires each to red
+   the control set or
    to carry an argument in the file's equivalence table. That is the half a hand-written set
    cannot supply — a floor cannot see the entry nobody thought of — and it is what makes
    §11.7's corrected item 6 checkable rather than asserted. The boundary is stated at both
    sites: the hand records name **which** control catches a rule; the generated set asserts
-   **that** every rule those two regexes spell is caught by one.
+   **that** every member of the population it returns is caught by one. Widening a branch list
+   needs a payload the scanner would have to invent, so it is not in that population.
 
    ⚠ **Three things the set found on its first honest run, each of which had been invisible:**
    - **The harness's own probe had the wrong subject.** `sed` writes mode 644 and `_control`

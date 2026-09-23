@@ -273,10 +273,15 @@ MUTANTS
 #
 #   for every member of every bracket expression in `$K2RE` and `$K2RE_PATH`,
 #   the value with that member DROPPED (a widening: over-match, false
-#   positive); and for every quantifier, the value TIGHTENED (`*`->`+`,
-#   `+`->`{2,}`: under-match, false negative). Each must red the control set,
-#   or appear in `_mut_equivalent` with the argument why it cannot change a
-#   verdict. A mutant that is neither is a failure.
+#   positive); for every quantifier, the value TIGHTENED (`*`->`+`,
+#   `+`->`{2,}`: under-match, false negative); for every alternation, the
+#   value with one BRANCH DROPPED, once per branch (a narrowing); and for
+#   every escape, the value with the BACKSLASH REMOVED (a widening). Each must
+#   red the control set, or appear in `_mut_equivalent` with the argument why
+#   it cannot change a verdict. A mutant that is neither is a failure.
+#   ⚠ AND THAT IS NOT EVERY DIRECTION. Widening a branch list
+#   (`(skills|tools)` -> `(skills|tools|hooks)`) needs a payload this scanner
+#   would have to invent, so it stays with the hand-written set above.
 #
 # ⚠ THE CLASSES ARE NOT RE-SPELLED HERE. The values come from the wire's own
 # assignment lines, and a mutated value is spliced back over that same line; if
@@ -373,7 +378,7 @@ _mut_regex_mutants() {
     # list of things somebody thought of. Passing them over silently is the one
     # failure direction this generator must not have: a `?` or a `{n,m}` added
     # to either regex would be a rule nothing tightens, and the run would go on
-    # printing "every rule those two regexes spell is pinned by a control".
+    # printing that every quantifier of those two regexes is pinned.
     # Neither regex holds one today, which is exactly when the arm is cheap.
     case "$_rm_ch" in
       '?'|'{')
