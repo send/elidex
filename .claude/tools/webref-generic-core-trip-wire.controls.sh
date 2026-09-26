@@ -80,7 +80,7 @@ fi
 # shellcheck source=/dev/null
 . "$_HARNESS"
 
-for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do mkdir -p "$CTL/$d"; done
+for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread envscrub; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
 printf '# %s\n' "$CONTROL_CLEAN"  > "$CTL/clean/control.py"
@@ -711,13 +711,40 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
 #     uncommitted state that `--exclude-standard` honours and no other clone
 #     of the same commit shares. (The machine-wide `core.excludesFile` is the
-#     same code path; it is reproduced in #501 R92's thread rather than given
-#     a fixture, because neutralising the config layer above would also
-#     neutralise the fixture that tried to set it.)
+#     same code path, and it now has a fixture too — (3') below.)
 ( cd "$CTL/notcommitted" && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
   && _fgit add ok.py >/dev/null 2>&1 \
   && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \
   && printf 'probe.txt\n' > .git/info/exclude ) || _fixture_failed notcommitted
+# (3') …and the complement of (3): the exclude channels the CALLER carries, over
+#     a fixture built with them exported — the only build here that runs in a
+#     hostile environment (`grep -c '^( export GIT_' <this file>`; anchored, so it
+#     does not count this line), and building one
+#     at all was long held to be
+#     impossible here — "neutralising the config layer above would also
+#     neutralise the fixture that tried to set it" stood where the line above
+#     now points. It is not: the hostility belongs to this build's own subshell,
+#     which is smaller than the layer `_fgit` neutralises.
+#     ⚠ THE VIOLATION IS STAGED ONLY, and that is what makes a leak visible. The
+#     wire's worktree inventory uses `--exclude-per-directory`, so it reads the
+#     file whatever these channels say (that is (3)'s own finding) — so keeping
+#     it out of `git add` is the only way a leaked variable can change the
+#     answer, and the answer it changes it to is GREEN over a plausible tree.
+#     ⚠ TWO CHANNELS, NOT REDUNDANTLY. `GIT_TEMPLATE_DIR` is in neither
+#     `git rev-parse --local-env-vars` nor the hand-written unset list that
+#     preceded `_fgit`'s sweep, so it is the half that DISCRIMINATES. The
+#     `GIT_CONFIG_COUNT` trio is what #501 R97 closed by adding three names to
+#     that list; its `unset` is now part of the sweep, so this is what still
+#     pins it.
+mkdir -p "$CTL/envtpl/info"
+printf '*.py\n' > "$CTL/envtpl/info/exclude"
+printf '*.py\n' > "$CTL/envexcludes"
+( export GIT_TEMPLATE_DIR="$CTL/envtpl" GIT_CONFIG_COUNT=1 \
+         GIT_CONFIG_KEY_0=core.excludesFile GIT_CONFIG_VALUE_0="$CTL/envexcludes"
+  cd "$CTL/envscrub" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
+  && _fgit init -q . >/dev/null 2>&1 \
+  && _fgit add -A >/dev/null 2>&1 \
+  && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || _fixture_failed envscrub
 
 # The real geometry: a scope directory and, BESIDE it, an entry script that
 # is itself a symlink holding a forbidden target.
@@ -907,6 +934,16 @@ _control "$CTL/d3nb" 1 "K2: a" "a quoted one-segment reference before a slash to
 # control passes whatever the wire does.
 _ctl_env=("GREP_OPTIONS=--exclude=*")
 _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl_ok=1
+# …and the same question asked of the FIXTURE BUILDS rather than of the scan.
+# ⚠ NO `_ctl_env` HERE, and that is not an oversight: `_ctl_env` sets the
+# environment of the wire this control RE-INVOKES, and a re-invoked wire only
+# READS a fixture — `_fgit` runs in the OUTER process, at build time. So the
+# hostile environment is exported around the build instead ((3') above), and what
+# this line asserts is that the tree it produced still poses the question.
+# ⚠ THE LABEL NAMES THE PROPERTY, NOT EITHER VARIABLE. The fix it is about is a
+# complement, so a control named after one member would go green the moment a
+# third channel turned up — which is how this arm was reached twice.
+_control "$CTL/envscrub" 1 "(staged)" "a hostile caller git environment cannot change what a fixture holds" || ctl_ok=1
 # A `core.fsmonitor` hook injected through the caller's `GIT_CONFIG*`, which the
 # wire keeps. Not a `_control`: the question is whether a command RAN, which the
 # verdict cannot say. ⚠ The hook is first shown to run under a plain git call

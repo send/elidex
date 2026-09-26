@@ -21,9 +21,9 @@ fi
 #
 # ⚠ THE FIXTURES ARE BUILT WITH GIT, so whoever runs this must not be able to
 # change what they contain (#501 R92). A global `core.excludesFile` of `*.py`
-# made `git add -A` skip the fixtures' own files, and an `init.templateDir`
-# could seed `info/exclude`. `_fgit` is what the fixtures are built with; the
-# channels it closes are named at its definition below.
+# made `git add -A` skip the fixtures' own files, and a template directory seeds
+# `.git/info/exclude` at `init` to the same effect. `_fgit` is what the fixtures
+# are built with, and it builds them from a KNOWN-EMPTY git environment.
 # ⚠ PER CALL, NOT `export` (#501 R94). Exported, it applied to the REAL scan
 # too and took `safe.directory` with it — measured: a checkout owned by
 # another UID, readable only because of a global `safe.directory` entry, went
@@ -32,21 +32,79 @@ fi
 # repository needs the user's. The inventory is made machine-independent by
 # `--exclude-per-directory` instead (see `_scan`), which is why nothing has to
 # be stripped for the real read.
-# ⚠ AND IT SCRUBS THE ENVIRONMENT-PROVIDED CONFIG TOO, which `_git` deliberately
-# does NOT. `_git` keeps `GIT_CONFIG*` because clearing it broke a checkout that
-# was only readable through a caller's `safe.directory` (#501 R97) — right for
-# the REAL scan, wrong for the fixtures, which must be built from a known
-# configuration whatever the caller carries. Reproduced by the external
-# reviewer and here: invoking the gate with
+# ⚠ AND IT SCRUBS THE CALLER'S GIT ENVIRONMENT, which `_git` deliberately does
+# NOT. `_git` keeps `GIT_CONFIG*` because clearing it broke a checkout that was
+# only readable through a caller's `safe.directory` (#501 R97) — right for the
+# REAL scan, wrong for the fixtures, which must be built from a known
+# configuration whatever the caller carries. The asymmetry is the point and it is
+# why there are two helpers: PRESERVE for the repository, SCRUB for the fixtures.
+# ⚠ AND THE SCRUB IS THE COMPLEMENT OF A KEEP-SET, NOT A LIST OF NAMES TO DROP.
+# It is the SECOND failure of that enumeration that says it has to be. Pointing
+# `GIT_CONFIG_GLOBAL`/`_SYSTEM` at `/dev/null` did not reach
 # `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.excludesFile
-#  GIT_CONFIG_VALUE_0=<file containing *.py>` made the fixtures' `git add` skip
-# their own `.py` inputs and produced **ten** `CONTROL NOT EXERCISED` failures
-# on a clean checkout. `GIT_CONFIG_GLOBAL`/`_SYSTEM` alone do not reach that
-# channel. The asymmetry is the point and it is why there are two helpers:
-# PRESERVE for the repository, SCRUB for the fixtures.
-# ⚠ In a subshell (`( … )`), so the unset cannot leak into the real scan.
-_fgit() ( unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+#  GIT_CONFIG_VALUE_0=<file holding *.py>`, which made the fixtures' `git add`
+# skip their own `.py` inputs on a clean checkout (#501 R97) — so three names
+# were then unset by hand. That list did not hold `GIT_TEMPLATE_DIR`, which is in
+# neither it nor `git rev-parse --local-env-vars`, so a caller's template reached
+# every `_fgit init` (PR501, external reviewer; reproduced here):
+#
+#     mkdir -p /tmp/tpl/info && printf '*.py\n' > /tmp/tpl/info/exclude
+#     GIT_TEMPLATE_DIR=/tmp/tpl bash .claude/tools/webref-generic-core-trip-wire.sh
+#
+# A list that leaves the next variable authoritative twice is not a list to
+# extend a third time. In a REQUIRED gate an unknown must fall on the side that
+# is NEUTRALISED, not the side that leaks in — so every `GIT_*` the caller
+# carries goes, and what the fixtures NEED is what gets enumerated. The
+# assignment below IS the keep-set; the arm over it is the control named
+# `a hostile caller git environment cannot change what a fixture holds`.
+# ⚠ AND THE KEEP-SET IS MEASURED, NOT REASONED. `GIT_CONFIG_GLOBAL=/dev/null`:
+# remove it and run this gate with `HOME` pointing at a directory whose
+# `.gitconfig` sets `core.excludesFile` to a file holding `*.py` — `HOME` is not
+# a `GIT_*`, so the sweep cannot reach that layer — and the controls red.
+# `GIT_CONFIG_SYSTEM=/dev/null`: point it at that same `.gitconfig` instead of
+# `/dev/null` and they red too, which is what says the system layer is read
+# during a fixture build and that `/dev/null` there is load-bearing. Nothing
+# else had to be added, and the run this file ends in is what says so.
+# ⚠ `${!GIT_@}` IS THE ENUMERATOR, on both shells this wire is run under rather
+# than on whichever one is to hand: bash 3.2.57 — the stock macOS shell it commits
+# to — supports the prefix form, and the QUOTED spelling is the one used, because
+# it yields one word per name whatever `IFS` holds and zero words under `set -u`
+# when nothing matches.
+# ⚠ In a subshell (`( … )`), so neither the unsets nor the assignments can leak
+# into the real scan.
+_fgit() ( for _fv in "${!GIT_@}"; do unset "$_fv"; done
           GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@" )
+
+# CAN EVERY `GIT_*` THIS SHELL CARRIES ACTUALLY BE REMOVED? Asked once, before a
+# fixture is built, because the sweep above is worth exactly what the answer is.
+# ⚠ MEASURED, AND IT IS NOT ALWAYS YES:
+#
+#     env 'GIT_X-Y=1' /bin/bash .claude/tools/webref-generic-core-trip-wire.sh
+#
+# bash 3.2 LISTS that entry and then refuses to `unset` it ("not a valid
+# identifier"); 5.3 does not list it at all; in both it reaches git's environment.
+# Without this block 3.2 printed that refusal five times — from the `_fgit` calls
+# whose stderr is not redirected — and still exited 0, because `set -e` is
+# suspended inside the `&&` chains the fixtures are built as. A sweep that
+# silently did not sweep, reported as a pass, is the defect this helper is about
+# one level up; so an entry that cannot be removed ends the run at "decided
+# nothing" instead.
+# ⚠ ASSERTED, NOT A `_control`, for the same reason `_shq`'s probe below is: the
+# question is about THIS process's own environment, and a `_control` can only set
+# the environment of a wire it RE-INVOKES.
+# ⚠ AND IT SEES WHAT THE SHELL SEES. On 5.3 the entry above is invisible here, so
+# what this establishes is that the sweep is complete over the names bash exposes
+# — not over every byte of the environment block. The rest is left unclaimed.
+_fgit_unremovable=""
+for _fv in "${!GIT_@}"; do
+  ( unset "$_fv" ) 2>/dev/null || _fgit_unremovable="$_fgit_unremovable $_fv"
+done
+if [ -n "$_fgit_unremovable" ]; then
+  echo "!! these environment entries match \`GIT_*\` and cannot be unset:$_fgit_unremovable" >&2
+  echo "   so the fixtures could not be built from a known-empty git environment," >&2
+  echo "   and a green below would be over trees this run does not control." >&2
+  exit 2
+fi
 
 # ONE FACT, RECORDED ONCE: DID THIS FIXTURE'S BUILD CHAIN SUCCEED?
 # Every fixture below is built as `( cd … && … ) || _fixture_failed <name>`, and
@@ -105,8 +163,10 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 _REAL_GIT="$(_shq "$(command -v git)")"
 _REAL_GREP="$(_shq "$(command -v grep)")"
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
-# wire, so the mutation set (which edits the wire) has nothing to aim at. It is
-# checked by round-tripping a path that holds each thing that broke it.
+# wire, so there is no fixture to pose the question over. (The reason used to be
+# that the mutation set edits only the wire; it is no longer wire-only — see its
+# `harness:` prefix — but a record has to name a control, and this is not one.) It
+# is checked by round-tripping a path that holds each thing that broke it.
 _shq_probe="/tool dir/it's \$HOME \`x\`"
 if [ "$(sh -c "printf %s $(_shq "$_shq_probe")")" != "$_shq_probe" ]; then
   echo "!! the shim-quoting helper does not round-trip a path through /bin/sh, so every" >&2

@@ -37,8 +37,8 @@
 # widened what there is to drift.
 # WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_mutants`,
 # `_mut_equivalent`, `_mut_correspondence`, `_mut_assign_value`,
-# `_mut_regex_mutants`, `_mut_splice`, `_mut_trial`, `_mut_gen_run`,
-# `_mut_run`.
+# `_mut_regex_mutants`, `_mut_splice`, `_mut_restore_copies`, `_mut_trial`,
+# `_mut_gen_run`, `_mut_run`.
 #
 # TWO POPULATIONS, AND THE BOUNDARY IS WHAT EACH ONE'S UNIT IS.
 #   * `_mutants` — HAND-WRITTEN, and its unit is a CONTROL. Every control has
@@ -106,10 +106,31 @@ fi
 #
 #   one record per line, TAB-separated:  <sed expression>  <substring the run must print>
 #
-# The expression is applied to a COPY of the wire; the copy must (a) differ from
+# The expression is applied to a COPY of the file it names — the wire, unless the
+# record says otherwise (below); the copy must (a) differ from
 # the original — a stale anchor that matches nothing is a FAILED entry, not a
 # passing one — (b) exit non-zero, and (c) print the named control's own
 # diagnostic, so an entry that reds for an unrelated reason is caught too.
+#
+# ⚠ AND THE FILE IT EDITS IS PART OF THE RECORD. An expression may carry the
+# prefix `harness:`, which aims it at the CONTROL HARNESS instead of the wire.
+# What that closes is a blind spot this file used to DECLARE rather than fix: the
+# harness said of its own `_shq` probe that "the mutation set (which edits the
+# wire) has nothing to aim at", and the next defect to land was in `_fgit`, three
+# lines below that sentence. The run already copies all four shipped files beside
+# each mutant, so the only thing missing was saying which one to `sed`. Two
+# targets are implemented, the wire and the harness; a third would be one arm in
+# `_mut_run`'s `case` and one `cp` in `_mut_restore_copies`.
+# The two `harness:` records undo the fixture scrub the two ways it can be undone:
+# one drops it, the other restores the ENUMERATION that stood there before it —
+# the patch the defect invites, and the one that leaves `GIT_TEMPLATE_DIR`
+# authoritative — so the control has to red on both, not only on the deletion.
+# ⚠ AND THAT NOTE IS HERE RATHER THAN BESIDE THOSE RECORDS, because `_mutants` is
+# a `cat` of a quoted here-document: every line inside it is DATA. Four comment
+# lines placed there became four entries whose needle was empty, which
+# `_mut_correspondence` skipped (it drops empty needles) while `_mut_run` dutifully
+# applied them and reported `MATCHED NOTHING` — caught by the mutation run, which
+# is the one reader of that block that does not skip anything.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
 # minutes rather than seconds), and a required check nobody can afford to run is
@@ -163,7 +184,7 @@ fi
 #     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
 #     shrinking is what is caught; the added record still has to kill.
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=95
+_MUT_RECORDS_MIN=97
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -227,6 +248,8 @@ s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a quoted one-segment reference before a 
 s/SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""/SCRATCH="$(_phys "$_raw_scratch")"/	a restrictive umask decides nothing
 s/_root_p="$(_phys "$ROOT")" || _root_p=""/_root_p="$(_phys "$ROOT")"/	an unresolvable self-test root decides nothing
 s/^unset GREP_OPTIONS$/:/	a caller's GREP_OPTIONS cannot hide a file
+harness:s/for _fv in "${!GIT_@}"; do unset "$_fv"; done/:/	a hostile caller git environment cannot change what a fixture holds
+harness:s/for _fv in "${!GIT_@}"; do unset "$_fv"; done/unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT/	a hostile caller git environment cannot change what a fixture holds
 s/exec git -c core.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
 s/^K2RE='(^|\[/K2RE='([/	a reference at the start of a line fires
 s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.@+%-]/	a PATH character before .claude is not a prose boundary
@@ -514,6 +537,13 @@ _mut_splice() {
     return 1; }
 }
 
+# EVERY MUTABLE COPY BACK TO THE SHIPPED BYTES, before an entry is applied.
+# ⚠ ONE OWNER, BECAUSE THE COPIES USED TO BE MADE ONCE above the hand loop — sound
+# only while every entry edited the same file. The moment one edits another, its
+# mutation is still in place for every entry after it, and what those entries
+# report is a tree of two edits. Both loops call this; neither keeps its own list.
+_mut_restore_copies() { cp "$SELF" "$_mut_wire" && cp "$_HARNESS" "$_mut_hns"; }
+
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
 # `$_mut_wire`. $1 = how to name it in a diagnostic, $2 = what is required:
 # a NEEDLE the output must contain, `!survive`, or `!kill` (red, raised by a
@@ -530,9 +560,13 @@ _mut_trial() {
   # change any verdict) was the negative control that exposed it. The probe's
   # subject was the permission bit, not the mutation.
   chmod +x "$_mut_wire"
-  if cmp -s "$_mut_wire" "$SELF"; then
+  # ⚠ THE PAIR COMPARED IS THE FILE THIS ENTRY EDITS, not always the wire. With
+  # `$SELF` hard-coded here, a `harness:` entry that matched nothing compared two
+  # files that are never equal, so "MATCHED NOTHING" could not fire for it — the
+  # one check that catches a stale anchor, blind on the target it was added for.
+  if cmp -s "$_mut_tgt" "$_mut_src"; then
     echo "!! MUTANT $1: the edit MATCHED NOTHING, so this entry tested a copy" >&2
-    echo "   identical to the wire." >&2
+    echo "   identical to the file it edits." >&2
     return 2
   fi
   _mt_rc=0
@@ -570,6 +604,11 @@ _mut_trial() {
 
 # The generated half of the run. Sets `_mut_gen_n` / `_mut_gen_bad`.
 _mut_gen_run() {
+  # This half only ever edits the wire, and it says so rather than inheriting
+  # whatever the last hand record left behind — the target it compares against
+  # AND the harness copy, which a `harness:` entry above may have left mutated.
+  _mut_src="$SELF"; _mut_tgt="$_mut_wire"
+  _mut_restore_copies || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
   _mut_gen_fail=""
   : > "$CTL/.genmutants"
   for _gr_v in K2RE K2RE_PATH; do
@@ -639,8 +678,21 @@ _mut_correspondence() {
   # moved.)
   _mutants > "$CTL/.mutants"
   _mut_orphan=0
-  while IFS="$(printf '\t')" read -r _ _mwant; do
-    [ -n "${_mwant:-}" ] || continue
+  while IFS="$(printf '\t')" read -r _mline _mwant; do
+    [ -n "${_mline:-}" ] || continue
+    # ⚠ A LINE THAT IS NOT A RECORD IS AN ERROR HERE, NOT SOMETHING TO SKIP, and
+    # the asymmetry it replaces is why: this loop dropped every line with no
+    # needle, so a comment written inside `_mutants` — whose body is a `cat` of a
+    # quoted here-document, i.e. DATA — passed this check in silence while
+    # `_mut_run` applied it as a sed script and reported MATCHED NOTHING. Four such
+    # lines were added and shipped that way; what caught them was the opt-in run,
+    # minutes long, and what should have is this, which costs nothing.
+    if [ -z "${_mwant:-}" ]; then
+      echo "!! mutation set line \"$_mline\" has no TAB-separated needle, so it is not a" >&2
+      echo "   record. The body of _mutants is a here-document: a comment line there is" >&2
+      echo "   data, and the mutation run applies it as a sed expression." >&2
+      _mut_orphan=1; continue
+    fi
     # `!survive` is the standing negative control; it names no control by design.
     [ "$_mwant" != '!survive' ] || continue
     grep -qF -- "\"$_mwant\"" "$_CONTROLS" || {
@@ -734,9 +786,10 @@ _mut_run() {
       echo "        not this run's to remove. Delete it once no run is using it." >&2
     done
     trap 'command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+    # …the two copies nothing edits, made once. The wire's and the harness's are
+    # `_mut_restore_copies`'s, per entry, because entries edit them.
     cp "$_CONTROLS" "$_mut_ctl"
     cp "$_MUTATIONS" "$_mut_mut"
-    cp "$_HARNESS" "$_mut_hns"
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$CTL/.mutants"
@@ -744,7 +797,20 @@ _mut_run() {
     while IFS="$(printf '\t')" read -r _mx _mwant; do
       [ -n "$_mx" ] || continue
       _mut_n=$((_mut_n + 1))
-      if ! sed "$_mx" "$SELF" > "$_mut_wire" 2>/dev/null; then
+      # WHICH OF THE FOUR SHIPPED FILES THIS ENTRY EDITS — the wire unless the
+      # expression says otherwise. The prefix is stripped before `sed` sees it,
+      # and it cannot collide with a real expression (`sed 'harness:p' /dev/null`
+      # → "extra characters at the end of h command").
+      _mut_src="$SELF"; _mut_tgt="$_mut_wire"
+      case "$_mx" in
+        harness:*) _mx="${_mx#harness:}"; _mut_src="$_HARNESS"; _mut_tgt="$_mut_hns" ;;
+      esac
+      _mut_restore_copies || {
+        echo "!! MUTANT $_mut_n: the shipped files could not be re-copied, so this" >&2
+        echo "   entry would have run against another entry's edit." >&2
+        _mut_bad=$((_mut_bad + 1)); continue
+      }
+      if ! sed "$_mx" "$_mut_src" > "$_mut_tgt" 2>/dev/null; then
         echo "!! MUTANT $_mut_n: the expression is not a valid sed script: $_mx" >&2
         _mut_bad=$((_mut_bad + 1)); continue
       fi
