@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """webref CLI — see _webref/ package for implementation.
 
-Backs the Axis 4 (Spec citation discipline) verification recipe in
-.claude/skills/elidex-review/axes.md. Resolves section numbers, anchor IDs,
-WebIDL fragments, concept dfn anchors, element-to-interface mappings, CSS
-property metadata, and section prose against w3c/webref + tc39 biblio.
+Resolves a spec citation against w3c/webref + tc39 biblio — section numbers,
+anchor IDs, WebIDL fragments, concept dfn anchors, element-to-interface
+mappings, CSS property metadata, section prose — and tracks the specs
+themselves across refreshes: snapshot, semantic diff, and agent briefs.
 """
 import sys
 from pathlib import Path
