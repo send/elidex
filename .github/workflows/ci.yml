@@ -126,8 +126,97 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
-  # the whole set, no toolchain, no cache), so a filter would buy nothing and cost the
+  # are filtered because each pays for a Rust toolchain; the wires need none (the layering
+  # wires ~1s; the self-test wire's mutant run is plain python3 -- measured at
+  # 29dc1eb7: local 49 s / Codex's runner 211 s, all of it ONE mutant whose call
+  # counter watched the wrong module and was killed only by a quadratic wall-clock
+  # ratio; after the PR #510 R12 fix `--self-test --mutants` was 4.2 s locally and
+  # the whole `scripts/trip-wires.sh` 5.8 s, so the same 4.3x-slower runner was
+  # ~25 s. ⚠ PR #510 R27 raised it, because R27 answered "is this program
+  # linear?" with a corpus GENERATED from the grammar instead of another
+  # hand-written shape, and that sweep runs once in `--self-test` plus once per
+  # mutant naming it. PR #510 R29 raised it again, by
+  # about a second, for the exhaustive id-scan corpus and two new sweeps, and
+  # R30 by about two, for ten id-cell controls and four mutants (a mutant costs
+  # a fresh module set plus its controls, so a row is dearer than a control).
+  # MEASURED, WITH THE CONDITION STATED, because the first R27 figure here was
+  # neither. ⚠ PR #510 R31 ADDED 12 CONTROLS AND 17 MUTANTS AND DID NOT
+  # RE-MEASURE, so this block -- which R30 had just made the SINGLE home, after
+  # deleting the copies in CLAUDE.md and on the `timeout-minutes` line -- stood
+  # ~2x stale for two rounds. That is the failure the one-home move was supposed
+  # to make impossible and did not: one home stops two numbers disagreeing, it
+  # does not make anybody re-measure.
+  # ⚠ THE LABEL IS PART OF THE NUMBER, and this block taught that lesson before
+  # breaking it again: the pair below was "CURRENT, re-measured at R32" while
+  # R33-R36 then added 27 controls and 15 mutants (625/347 -> 652/362) with no
+  # re-measurement -- the very failure the paragraph above names ("one home
+  # stops two numbers disagreeing; it does not make anybody re-measure").
+  # Re-measured at R38 on alternating clean extracts, one host: `7d43d7cd`
+  # 44.16 / 41.38 s against `cd1f973c` 41.51 / 43.12 s -- NO MATERIAL DRIFT, so
+  # the pair below still holds and only its label was stale. It is attributed to
+  # the head it describes now, rather than to the round that took it.
+  #
+  # ⚠ THE FIGURES BELOW COVER THIS WIRE ALONE, not the job (PR #510 Axis 5).
+  # `scripts/trip-wires.sh` runs every wire in `REQUIRED_WIRES`, and the
+  # `stale-claim-detector` lane is adding a second heavy one
+  # (`claim-provenance-trip-wire.sh`, ~6 s measured on the same host as the
+  # ~26 s below).  The headroom stated here is therefore an upper bound on
+  # THIS wire's share; when the second lands, the ratio is re-derived against
+  # the JOB, and the plan's §1 carries the merge obligation on the inventory.
+  # MEASURED at R32 and re-confirmed at R38, on ONE clean `git clone --local`,
+  # same session, minutes apart, nothing else of this project running -- the
+  # pair, never the later number alone:
+  #   2c713e51 (the commit the ~16.0 s figure describes)  11.80 / 12.13 / 12.19
+  #   7d43d7cd (R32)                                      26.05 / 26.04 / 27.25
+  # This host runs the base at ~12.0 s where the recorded figure was ~16.0 s, so
+  # it is ~1.33x faster and the HOST-INDEPENDENT number is the ratio: the wire
+  # is **2.2x** what it was at R30. Scaled back to the host that recorded 16.0 s
+  # the head is ~35 s, and the same 4.3x runner is ~152 s -- **~2.0x** against
+  # the `timeout-minutes` below, down from 4.4x.
+  # THE BLOCK'S OWN RULE THEREFORE FIRED ("when it nears 2x, split the wire or
+  # re-derive the timeout deliberately"), and the timeout is re-derived: 10
+  # minutes restores ~4x on the measured 152 s. It is re-derived rather than the
+  # wire split because the growth has ONE driver and splitting would not remove
+  # it -- the generated corpus (~3.6 s) runs once in `--self-test` plus once per
+  # mutant naming it, and SIX rows name it (measured by loading `MUTANTS`, not by
+  # grepping: a `grep -c` counts the constant's definition and import lines too
+  # and says ten). Self-test alone is ~6.5 s of the ~29 s; the mutant phase is
+  # the rest.
+  # ⚠ THE `~29 s` ABOVE IS STALE, AND THE VERDICT THAT SAID OTHERWISE WAS WRONG
+  # (PR #510, 2026-09-20). It was re-measured, declared an FP ("28.53 / 29.34 /
+  # 27.46, both figures hold"), and a review axis then measured 25.67-26.80 at
+  # the SAME head under the SAME stated condition -- ranges that do not overlap.
+  # Arbitrated on a third clean `git clone --local` at `7121476e`, sequential,
+  # nothing else of this project running:
+  #   this wire alone      24.88 / 24.93 / 25.05 s
+  #   the whole job (5)    26.10 / 26.22 / 26.73 s
+  #   self-test alone      ~6.5 s  (this figure has reproduced every time)
+  # So the wire is **~25 s**, the job ~26 s, and the self-test is ~6.5 s of the
+  # wire -- the RATIO is the part that has never moved.
+  # ⚠ WHAT THE EPISODE ACTUALLY SHOWS is that the absolute is not reproducible
+  # on this host to better than ~20%: three "quiet clean clone" runs of the same
+  # command at nearby heads gave 24.9, 26.1 and 28.5 s. The earlier block
+  # attributed a 31.9-39.9 s set to CONCURRENCY; the whole job measured quiet
+  # lands at 26-34 depending on the run, so SUBJECT (one wire vs five) explains
+  # as much as load does and the concurrency claim was not supported.
+  # Therefore: derive the timeout from the RATIO and the trend, never from one
+  # point value, and when an absolute is written, name the SUBJECT beside the
+  # condition. A number this noisy is an argument unless both are stated
+  # (`memory/feedback_convention-dependent-figures-are-argument.md`). ⚠ So the budget is spent by REVIEW ROUNDS, not by the program:
+  # every round that adds a mutant naming the growth property costs ~3.6 s of it.
+  # Making that not grow is a change to the proof's own strength and is deferred
+  # with a trigger in the plan's §8, not done here.
+  # The budget, round over round: ~10x (R12) -> 5.9x (R27) -> 5.1x (R29) ->
+  # 4.4x (R30) -> ~2.0x (R32, before this re-derivation) -> ~4x (R32, after).
+  # ⚠ THE CONDITION IS PART OF THE NUMBER: the same script measured 26.2 / 27.2 s
+  # in a busy worktree minutes earlier, 2.2x this, and that inflated figure was
+  # committed here for one round as "2.6x headroom". A timing in this comment
+  # without a stated condition is not reproducible and will drift with whatever
+  # the machine happens to be doing; re-measure on a clean clone. That sweep is
+  # what caught two defects in R27 before the reviewer's shapes were written, so
+  # the cost buys the property; no Rust
+  # toolchain, no cache; the self-test wire needs only the `python3` already on
+  # `ubuntu-latest`), so a filter would buy nothing and cost the
   # one property the wires exist for. Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
@@ -143,12 +232,29 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    timeout-minutes: 2
+    # 10 minutes. The headroom multiple and the measurement behind it live in the
+    # comment above and are NOT restated here: this line carried its own copy and
+    # went stale the moment that block was re-measured -- the same two-live-copies
+    # defect PR #510 R30 removed from CLAUDE.md, repeated inside the file that is
+    # supposed to be the single home. One home for a number that moves.
+    # ⚠ And it moves one way, because every round's new controls and mutants land
+    # in an always-run job: that is a budget, not a constant. When it nears 2x,
+    # split the wire or re-derive the timeout deliberately -- do not discover it
+    # when a runner cancels a green job, which is exactly what the 2 this
+    # replaced did at 211 s. The RULE is here; the SERIES it is read off lives
+    # with the measurement above and is not copied here -- it was, it stopped at
+    # R30, and R32 found it two rounds stale while the line right above it said
+    # the number is not restated here. This 10 is the deliberate re-derivation
+    # that rule asked for, derived at R32 from the measured pair above.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       # The same script `mise run trip-wires` runs, so the local gate and CI
-      # cannot diverge. No toolchain step: the wires are grep-only.
+      # cannot diverge. No toolchain step: the wires are grep-only except
+      # `plan-memo-umbrella-selftest-trip-wire.sh`, which needs `python3`
+      # (stdlib only, no packages) — present on `ubuntu-latest`; that wire
+      # FAILs rather than skips if the interpreter is absent.
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh

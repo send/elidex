@@ -1,0 +1,747 @@
+#!/usr/bin/env python3
+"""Phase 2 of CommonMark 0.31.2 "Appendix: A parsing strategy" -- INLINE
+structure -- for `plan-memo-umbrella-check.py`: a subset of CommonMark
+0.31.2 and GFM 0.29, lexed by construction from the clauses
+`docs/plans/2026-08-plan-memo-umbrella-checker.md` §3 lists.  Block
+structure (Phase 1: fences, block starts, the one `block_end` predicate,
+table rows, reference definitions) is `plan_memo_blocks.py`, which imports
+this module's inline grammar; the order is plan §2 "Lexing order".
+
+Per block inline content (a paragraph or a cell): code spans (CommonMark
+§6.1, backtick strings of equal length), raw HTML (§6.6: an open tag, a
+closing tag, an HTML comment, a processing instruction, a declaration or a
+CDATA section -- ONE tag grammar, `_HTML_TAG`, which lives with §6.5's
+`_AUTOLINK` in `plan_memo_html.py` because BOTH phases read it: its open /
+closing tag bodies `OPEN_TAG` / `CLOSING_TAG` are also §4.6 start condition
+7's, read by `plan_memo_blocks.py`) and links / images (§6.3 / §6.4) are lexed by ONE
+left-to-right pass (`inline_pass`): a code span or a raw HTML span is
+skipped as met (neither is inline-parsed: a bracket inside an attribute
+value or a comment is not a link delimiter, PR #510 R17), an inline-link
+tail is parsed by lookahead on the raw text -- there is no pre-mask of any
+kind.  An image's bracket structure is parsed so that it is not a link and
+a link may wrap it; its destination never joins the population, its alt
+text is prose, its tail is masked, and when it RESOLVES its description is
+plain text (§6.4): a link recorded inside it is demoted to a masked tail,
+never a memo link (PR #510 R19).  A §6.5 autolink is ONE masked token, tried
+at a `<` before the tag grammar (R21): its contents are not inline syntax and
+its text is its own URL, so nothing inside it is a link, a naming site or a
+sibling.  §6.2 emphasis and GFM strikethrough are LEXED too (design re-gate
+4): the runs are pushed as the pass meets them and paired by
+`plan_memo_emphasis.py` where the Appendix pairs them -- when a link or an
+image closes, over the delimiters inside it, and once at the block's end --
+because a matched delimiter renders no character at all and an unmatched one
+renders itself, and only §6.2's own rules tell them apart.  A §2.4 escape and
+a §2.5 character reference are recorded as SUBSTITUTIONS (`subst`), the two
+spellings of "this text renders as that character", in PROSE as in a link
+DESTINATION (where `normalize_destination` reads the same grammar over the
+destination's own text, PR #510 R16).  A §6.7 HARD LINE BREAK is lexed too
+(PR #510 R25): its backslash is markup and renders nothing, so the line ending
+beside it stands as itself and the break reaches the stream as the §6.8 SOFT
+break does -- one line ending, whichever of the three spellings the document
+uses.  What is left outside the lexed clauses -- §6.8 soft line breaks, §6.9
+textual content -- is read as
+written, each with its cost MEASURED by a control named in the plan's §3.0b
+CLOSED list; the block types not modelled are the plan's §3.0 table.
+
+`Lexed` is the one Phase-2 value per block: code spans, raw HTML spans,
+links, images, and
+the two bare tokens the scanners must not read an id out of (`[C19]`-style
+citation ids, `.md` file names).  Nothing in this module knows what a ROW
+id is: the citation shape and the ASCII boundary it composes are the id
+grammar's (`plan_memo_ids.py`, below this module), and the disposition
+exception (an id-only code span is the document spelling an id, not code)
+is applied over a `Lexed` by `plan_memo_tables.py`.
+"""
+
+import bisect
+import re
+import string
+from html.entities import html5
+from plan_memo_links import (  # §6.3's grammar, carved at R42-7; the edge is one-way
+    _CHAR_REF, _escaped, _inline_tail, _is_escape, _is_image, _reference,
+    _reference_tail, _skip_ws, link_destination, link_label, link_title,
+    normalize_label,
+)
+
+import plan_memo_emphasis as emphasis
+from plan_memo_html import _AUTOLINK, _HTML_TAG, required_closer
+
+
+
+# --------------------------------------------------------------------------
+# CommonMark §6.1 code spans: a backtick string (a run of one or more
+# backticks) opens a span closed by the NEXT backtick string of equal length;
+# a string with no equal-length partner is literal, and scanning resumes after
+# it.  A span may contain line endings, so the unit is the block's inline
+# content, never a line.  Code spans and brackets are recognised by ONE
+# left-to-right pass (`inline_pass`, below the link grammar).
+# --------------------------------------------------------------------------
+
+_BACKTICKS = re.compile(r"`+")
+
+
+
+
+# --------------------------------------------------------------------------
+# CommonMark §6.3 links and §4.7 link reference definitions
+# --------------------------------------------------------------------------
+
+
+
+
+
+# "The document https://html.spec.whatwg.org/entities.json is used as an
+# authoritative source for the valid entity references and their
+# corresponding code points" -- the stdlib ships that list as
+# `html.entities.html5` (imported above), keyed WITH the `;` for the names
+# CommonMark recognises and without it for HTML's legacy semicolon-less
+# forms (`copy`), which §2.5 excludes: "Although HTML5 does accept some entity
+# references without a trailing semicolon (such as `&copy`), these are not
+# recognized here, because it makes the grammar too ambiguous" (Example
+# 29).  Looked up with the `;`, so the legacy forms are never found.  NOT
+# `html.unescape`: it decodes the legacy forms, and it is a second pass over
+# text this module has already read once.
+
+
+
+
+
+
+
+
+
+
+def _is_hard_break(s, j):
+    """Whether the backslash at `s[j]` opens a §6.7 HARD LINE BREAK: "A
+    backslash at the end of the line is a hard line break" (§2.4, vendored
+    Example 16: `foo\\` + a line ending + `bar` renders `<p>foo<br />\\nbar</p>`).
+
+    A DISTINCT construct from the §2.4 escape beside it, and not a widening of
+    it: a line ending is not ASCII punctuation, so `_is_escape` reads none, and
+    it must not -- `_is_escape` is also the link grammars' (`link_label`,
+    `link_title`, `link_destination`, `normalize_destination`), where a
+    backslash before a line ending escapes nothing.  Hence a predicate of its
+    own, read by `inline_pass` alone, which is the only reader that holds a
+    line ending a backslash can precede (a cell is one line; a destination
+    ends at one).
+
+    Only the inline pass can ask it, and only inside a block: at the END of a
+    block the backslash is literal (`Foo\\` under a setext underline renders
+    `<h2>Foo\\</h2>`, vendored block Example 90), which falls out of `j + 1 <
+    len(s)` -- a paragraph's text is its lines JOINED, with no trailing line
+    ending (`plan_memo_memo.Paragraph`), so the last line's trailing backslash
+    has no `\\n` after it.
+
+    The two-space spelling of the same break (§6.7's first form) needs no
+    clause here, but NOT for the reason this said until PR #510 R32 ("its
+    spaces render as whitespace").  ⚠ That is the inverse of the spec: block
+    Example 226 renders `aaa     ` + an ending as `<p>aaa<br />`, so the
+    trailing run renders NOTHING -- it is markup consumed by the break, exactly
+    like the backslash this function drops, which is also what this file's own
+    central rule says ("a construct's markup renders what the construct
+    renders").  The clause is unnecessary because the LINE ENDING still stands
+    where the run was, and a line ending is already a whitespace boundary to
+    every reader here; the spaces' own disposition never comes up.  The outcome
+    survived its stated reason being false, which is this round's recurring
+    shape (`break_equivalence_control` measures all three spellings)."""
+    return s[j] == "\\" and j + 1 < len(s) and s[j + 1] == "\n"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def _match_tag(s, i):
+    """The ONE site that runs the §6.6 grammar, named so that the number of
+    ATTEMPTS is a thing a control can count (PR #510 R26-3).
+
+    The cost this round bounded is invisible to the two deterministic work
+    witnesses: four of `_HTML_TAG`'s six alternatives reach their closer by an
+    unbounded lazy scan, and that scan runs inside the C `re` engine, where
+    neither `_count_lines` (which traces Python frames) nor `_count_calls` on
+    anything the lexer binds can see it.  What IS countable, and is exactly
+    what the fix claims, is that an attempt which cannot succeed is not MADE:
+    over `<!--`xN the grammar is tried once, not N times.  A wall clock would
+    have measured the other half and is not admissible here."""
+    return _HTML_TAG.match(s, i)
+
+
+class _Closers:
+    """THE index of "does this literal stand at or after this offset", one per
+    `inline_pass` call over one block (PR #510 R26-3).
+
+    ONE mechanism, because the two lookaheads that can scan away the whole
+    remaining text on their way to failing need the same answer about different
+    literals: §6.6's four closers (`-->`, `?>`, `]]>`, `>` --
+    `plan_memo_html.required_closer` says which), and, in the same spirit,
+    §6.1's backtick runs, which are indexed by LENGTH instead because their
+    question carries one (`backtick_runs`).
+
+    A CURSOR, not a sorted list, and that is the whole trick: `inline_pass`
+    scans left to right and never goes back, so the queries for one literal
+    arrive at non-decreasing offsets.  `str.find` from the offset therefore
+    scans forward only, each search resuming no earlier than the last one
+    found, so the searches for one literal are at most one per OCCURRENCE of
+    it, plus one.  A miss is recorded as -1 and never searched for again --
+    there is none ahead of a later offset either.
+
+    The search goes through `_find_from` so that a control can count it: like
+    the regex attempt, the scan itself happens in C and no deterministic
+    witness can see inside it, but how MANY times it is started is exactly the
+    claim the cursor makes."""
+
+    __slots__ = ("s", "_at")
+
+    def __init__(self, s):
+        self.s, self._at = s, {}
+
+    def reachable(self, lit, i):
+        j = self._at.get(lit)
+        if j is None or 0 <= j < i:
+            j = self._at[lit] = _find_from(self.s, lit, i)
+        return j >= 0
+
+
+def _find_from(s, lit, i):
+    """The ONE site that searches for a closer, named so the number of SEARCHES
+    is countable (`_Closers`, PR #510 R26-3)."""
+    return s.find(lit, i)
+
+
+def backtick_runs(s):
+    """Every §6.1 backtick string of `s`, indexed BY LENGTH: {k: [(start, end)]},
+    each list in order.  Built once per block by `inline_pass`, read by
+    `_code_closer`.
+
+    By length and not in one list, because "the first backtick string of length
+    k at or after `a1`" is the only question ever asked of it (PR #510 R26-3).
+    A single ordered list answered it by bisecting to `a1` and then WALKING for
+    a run of the right length, and a run with no closer walked to the end.
+
+    THE COST OF THAT WALK IS SUPERLINEAR, and stating the exponent honestly
+    took two measurements.  A run may fail at most once per LENGTH (a second
+    run of length k would close the first), so at most D distinct lengths fail,
+    each walking over as many as R runs; successful walks are disjoint in the
+    run index, since the scan jumps past the span it closed.  D is bounded by
+    the text, because D distinct lengths cost at least 1+2+...+D characters --
+    which is why the obvious witness (runs of lengths 1, 2, 3, ... , none
+    closing any other) measures 3.9x per doubling of the RUN COUNT and yet
+    1.0x per doubling of the LENGTH: that shape's text grows quadratically
+    with its own parameter, so it is linear and the first reading of it was an
+    artifact of the parameter, not a defect.  The witness that does degrade
+    puts D unclosable runs FIRST and D^2/2 short runs after them for the walks
+    to cross: measured at 650 / 2,500 / 9,800 / 38,800 characters, the walk
+    takes 4,290 / 33,180 / 260,760 / 2,067,120 steps -- 7.9x per 3.9x of
+    length, a flat 0.27 x L^1.5 across a 60x range.  Indexed by length, the
+    same four shapes cost 120 / 440 / 1,680 / 6,560: one bisect per lookup."""
+    by_len = {}
+    for m in _BACKTICKS.finditer(s):
+        by_len.setdefault(m.end() - m.start(), []).append((m.start(), m.end()))
+    return by_len
+
+
+def _code_closer(by_len, a1, k):
+    """The end offset of the first backtick string of length `k` starting at
+    or after `a1` (§6.1: a code span "ends with a backtick string of equal
+    length"), or None.  `by_len` = `backtick_runs(s)`."""
+    same = by_len.get(k)
+    if not same:
+        return None
+    j = bisect.bisect_left(same, (a1, 0))
+    return same[j][1] if j < len(same) else None
+
+
+def _line_endings_to_spaces(s, code, subst):
+    """§6.1 STEP ONE for the spans §6.4 now reads: "first, line endings are
+    converted to spaces".
+
+    A MASK CANNOT EXPRESS IT -- `\r\n` renders as ONE space, two source
+    characters for one -- so it is a SUBSTITUTION, the mechanism this lexer
+    already has for "this span renders as that character".  Only DEMOTED spans
+    need it: a masked code span's content is not read at all.  One pass over
+    the demoted entries, linear.
+
+    ⚠ IT IS A FUNCTION OF ITS OWN, AND THAT IS LOAD-BEARING (PR #510 R42-7).
+    Written inline in `inline_pass`, its `" "` payload became a single-character
+    constant of that function's CODE OBJECT -- and `render_equivalence_control`
+    derives its EXCLUDED set from exactly those constants, on the reading that a
+    character `inline_pass` holds is one it BRANCHES on.  A substitution payload
+    is not a branch, so the space silently joined the excluded set, fifteen
+    positions of the §2.5 re-spelling sweep stopped being swept, and the mutant
+    that guards the rendered file/cite reading SURVIVED.  Nothing was red: the
+    control simply asked less.  Keeping the payload out of `inline_pass` keeps
+    that derivation meaning what it says."""    # §6.1 STEP ONE, for the spans §6.4 now reads (PR #510 R42-7): "first, line
+    # endings are converted to spaces".  A mask cannot express that -- `\r\n`
+    # renders as ONE space, two source characters for one -- so it is a
+    # SUBSTITUTION, which is the mechanism this lexer already has for "this span
+    # renders as that character".  Only demoted spans need it: a masked code
+    # span's content is not read at all.  One pass over the demoted entries,
+    # linear.
+    for a, b, tag in code:
+        if tag != "demoted":
+            continue
+        k = len(s[a:b]) - len(s[a:b].lstrip("`"))
+        j = a + k
+        while j < b - k:
+            if s.startswith("\r\n", j):
+                subst.append((j, j + 2, " ")); j += 2
+            elif s[j] in "\r\n":
+                subst.append((j, j + 1, " ")); j += 1
+            else:
+                j += 1
+
+
+def inline_pass(s, defs):
+    """ONE left-to-right pass over a block's inline content -- CommonMark
+    0.31.2 "Appendix: A parsing strategy", Phase 2 "inline structure" --
+    recognising backtick strings (§6.1), autolinks (§6.5), raw HTML (§6.6)
+    and brackets (§6.3 / §6.4) together, and resolving references through
+    `defs` (normalised label -> destination).  Returns (code, links, images,
+    unresolved, html, autolinks).
+
+    Autolinks (§6.5, PR #510 R21): at a `<` the autolink grammar is tried
+    first (the spec's order; `_AUTOLINK`), and a match is ONE token the scan
+    jumps past -- its contents are not inline syntax, so
+    `<https://example.com/[child](absent.md)>` is one autolink and `absent.md`
+    is no memo link (commonmark.js 0.31.2 measured; until R21 the brackets
+    were scanned and the missing sibling was a false rc-2 miss).  Backslash
+    escapes do not work inside one, so the span is matched raw.
+
+    Backtick strings: a run opens a code span closed by the next run of
+    equal length; the scan jumps past the span (brackets inside it are never
+    delimiters: `` `[a](x.md)` `` is code); an unmatched run is literal and
+    the scan resumes after it.  Inside a span backslashes are literal (§6.1:
+    "backslash escapes do not work in code spans"), so a closer is read raw.
+    An escaped backtick (`\\` + `` ` ``, §2.4) is a literal character and
+    opens nothing.
+
+    Raw HTML (§6.6, PR #510 R17): at a `<` the ONE tag grammar `_HTML_TAG`
+    is tried; a match is a span the scan jumps past -- its text is never
+    inline-parsed, so a bracket inside an attribute value or a comment is
+    not a link delimiter (`<span title="[x](y.md)">` links nothing and a
+    `]` inside it closes nothing; the tail `[x](absent.md)` there once made
+    a false unavailable-memo miss, rc 2) and its content is not prose (an
+    id inside an attribute is no naming site; the memo records the span
+    for the LEX-UNSUPPORTED? seed, the disposition the plan's §3.0 gives
+    every raw line); a `<` the grammar refuses is literal text and the
+    brackets after it are read (`<3 [x](y.md)` and `<a href="x"
+    [x](y.md)>` link `y.md`; `\\<span …>` is an escaped `<`).  The three
+    delimiters are read left to right as met, commonmark.js's order:
+    `<a href="`">b` c` is a tag and then a literal backtick, `` `x <span
+    title="`">b `` a code span and then text; `[<span>](y.md)` is a link
+    wrapping a tag (each measured).
+
+    Brackets, per the Appendix's "look for link or image": a stack of `[` /
+    `![` openers, each "active"; on `]` the nearest opener is popped -- "if
+    we do find one, but it's not active, we remove the inactive delimiter
+    from the stack, and return a literal text node ]"; if active, "we parse
+    ahead to see if we have an inline link/image, reference link/image,
+    collapsed reference link/image, or shortcut reference link/image" -- the
+    inline tail is parsed by LOOKAHEAD ON THE RAW TEXT and the scan jumps
+    past it, so a backtick inside a destination (`[sib](slice`x`.md)`) is
+    consumed by the link, while a backtick BEFORE the `]` (`[not a
+    `link](/foo`)`) opens a span that swallows the `]` and no link forms.
+    "If we don't, then we remove the opening delimiter from the delimiter
+    stack and return a literal text node ]"; if we do, the link or image is
+    emitted and "if we have a link (and not an image), we also set all [
+    delimiters before the opening delimiter to inactive.  (This will prevent
+    us from getting links within links.)"  That last rule deactivates EVERY
+    link opener still on the stack, since every one of them stands before the
+    opening delimiter, and an opener is never reactivated -- so it is a
+    COUNTER and not a walk: each entry records how many links had closed when
+    it was pushed (`closed`), and it is active exactly while that figure is
+    still current.  Writing the flag into each entry instead re-visited the
+    whole stack at every link, which is quadratic over a paragraph of
+    unmatched `![` openers followed by resolved links (PR #510 R27-1, and the
+    entry stops being mutable with the walk).
+
+    A RESOLVED image's description is plain text (§6.4: "the image
+    description" is rendered as the `alt` attribute's "plain string
+    content"), so in ONE rule at the point the image closes every bracket
+    construct recorded inside its description -- the entries appended since
+    the image's `[`, an index range the stack carries (`img_bottom` /
+    `pair_bottom`) rather than one the close searches for -- is the
+    description's:
+    a link there is DEMOTED to a masked tail in `images` (not a link -- its
+    destination never joins the population -- and not prose either: the
+    alt text is the link's TEXT, `![alt [docs](x.md)](i.png)` renders `<img
+    alt="alt docs">`), a nested image stays masked, a failed reference there
+    names no lost memo (resolved, it would have been demoted).  An
+    UNRESOLVED image is the literal text `![…]` and the link inside it IS a
+    link: `![alt [docs](x.md)][missing]` renders `![alt <a href="x.md">docs
+    </a>][missing]` (commonmark.js 0.31.2, each shape measured; PR #510 R19
+    -- until then the inner link joined the population as it closed, and
+    `absent.md` inside a resolved image's description was a false rc-2
+    miss).  The mirror case needs no rule: a link inside a LINK deactivates
+    the outer opener as it closes (above), so `[a [b](x.md)](y.md)` links
+    `x.md` and leaves `](y.md)` literal, as commonmark.js does.
+
+    LINEAR, and the claim has been falsified six times, so it is now made
+    clause by clause with a control on each rather than as a sentence -- and,
+    since R27, with a control that does not need the clause to have been
+    thought of first: `generated_growth_control` sweeps a corpus generated
+    from this grammar and requires no source line to grow worse than its
+    input.  No substring is re-parsed and no entry re-visited: a close records
+    its demotion as an index RANGE and `_demote` applies the union once,
+    because nested images cover one descendant N deep N times and writing the
+    tag at each close is quadratic in the depth (PR #510 R23); and a link's
+    deactivation of the openers below it is a COUNTER on the entry rather than
+    a flag written into each of them, because every one of them is deactivated
+    and there are N of them (R27-1, the sixth falsification -- `![`xN followed
+    by N resolved links).  And no LOOKAHEAD may
+    scan away the text it is going to fail on (R26-3, three more members of the
+    same class, of which the reviewer reported one):
+
+      * a §6.3 inline tail at a `]` -- bounded by `link_destination`'s
+        `DESTINATION_NESTING_LIMIT`, which is what §6.3's own parenthetical
+        exists to permit;
+      * a §6.6 tag at a `<` -- four of the six alternatives reach their closer
+        by an unbounded lazy scan, so the grammar is not RUN unless the closer
+        that alternative needs stands ahead of it (`plan_memo_html`'s
+        `required_closer` says which, `_Closers` answers whether);
+      * a §6.1 code closer -- found in an index of the runs BY LENGTH
+        (`backtick_runs`) rather than by walking them.
+
+    The three are one shape and one rule (a lookahead that cannot succeed is
+    not attempted, and one that can is bounded), and the reason R23 fixing one
+    left the sentence standing is that the sentence was about substrings while
+    the cost was in the lookaheads.  `code` =
+    [(start, end)] backticks included; `html` = [(start, end, kind)] of every raw
+    HTML span, `<` and `>` included, `kind` = "html" or "demoted" (§6.4:
+    inside a resolved image's description a raw HTML span is not markup but
+    its own source text); `links` = [(tail_start, end,
+    destination)] with `tail_start` the `]` closing the link text, so a
+    caller masking the tail leaves the visible text -- prose -- in the
+    scanned stream; `images` = [(tail_start, end)], every tail that is NOT a
+    link's: a resolved image's (§6.4: its destination never joins the
+    population, its alt text is prose, its tail is masked) and a demoted
+    link's inside one; `unresolved` = [(offset, label, form, is_image)], every
+    reference whose label `defs` does not define, with its FORM (`"full"` /
+    `"collapsed"` / `"shortcut"`) decided by this one escape-honouring parse
+    -- a caller never re-walks the raw text -- and whether the opener was an
+    image (literal image syntax under §6.4, never a memo the author meant to
+    link).  Such a LINK site is prose under §6.3, and a population the
+    author meant to link is silently lost unless the caller reports it; the
+    memo exempts a shortcut (every `[C19]` citation is one) unless a
+    definition of its label exists somewhere the grammar cannot read it.
+
+    Each failed reference is recorded ONCE.  After a failed FULL reference
+    `[text][label]` (an image's too) the scan resumes after the literal
+    `]`, so `[label]` is re-scanned -- it must be: §6.3 Example 571,
+    `[foo][bar][baz]` with only `baz` defined, links `[bar][baz]`, and
+    commonmark.js renders `![alt][missing][baz]` as `![alt]` plus that
+    link.  When that re-scan closes as a SHORTCUT it fails for the very
+    reason the full form did (same label, same `defs`) and is the same
+    site, not a second one: it is not recorded, so `![alt][missing]` never
+    leaves a bare `[missing]` behind for the orphan rule to read (§6.4: an
+    undefined image reference is literal text, never a memo the author
+    meant to link).
+    """
+    runs, closers = backtick_runs(s), _Closers(s)
+    code, out, images, unresolved, html, auto = [], [], [], [], [], []
+    marks, subst, delims, opens, pairs = [], [], [], [], []
+    # the demotion RANGES, as index slices of `images` / `pairs` -- one per
+    # resolved image, recorded in O(1) and applied once at the end (`_demote`)
+    dem_img, dem_pair, dem_code, dem_auto, dem_html = [], [], [], [], []
+    # the number of LINKS that have closed; an opener recorded a smaller one
+    # is inactive (the Appendix's "set all [ delimiters before the opening
+    # delimiter to inactive", asked in O(1) rather than written N times)
+    closed = 0
+    stack, i, n = [], 0, len(s)
+    relabel = -1        # the `[` of the label of the last failed full reference
+    while i < n:
+        c = s[i]
+        if _is_escape(s, i):
+            subst.append((i, i + 2, s[i + 1]))  # §2.4: `\[` renders the character alone
+            i += 2
+            continue
+        if _is_hard_break(s, i):
+            # §6.7: the backslash is the MARKUP that makes the break hard; the
+            # break itself is rendered by the line ending, which stands as
+            # itself right after this -- so a hard break and a §6.8 soft break
+            # reach the stream as the SAME character, by the same mechanism
+            # rather than by a second spelling of it.  Disjoint from the escape
+            # above (a line ending is not ASCII punctuation) and reached only
+            # when that branch did not consume this backslash, so `foo\\` +
+            # a line ending is the literal backslash of §2.4 and then a soft
+            # break, as commonmark.js renders it.
+            marks.append((i, i + 1))
+            i += 1
+            continue
+        if c == "&":
+            m = _CHAR_REF.match(s, i)
+            r = _reference(m) if m is not None else None
+            if r is not None:
+                subst.append((i, m.end(), r))   # §2.5: the reference renders its character
+                i = m.end()
+            else:
+                i += 1                  # no reference: a literal `&` (§2.5 Examples 29-30)
+            continue
+        if c in emphasis.DELIMS:
+            d = emphasis.run_at(s, i)   # §6.2 / GFM strikethrough: one run, read whole
+            delims.append(d)
+            i = d.end
+            continue
+        if c == "<":
+            m = _AUTOLINK.match(s, i)   # §6.5 before §6.6, the spec's order
+            if m is not None:
+                auto.append((i, m.end(), "autolink"))
+                i = m.end()             # an autolink is one token, never inline-parsed
+                continue
+            lit, at = required_closer(s, i)
+            # §6.6 cannot match without its own closer ahead of it, and asking
+            # the index is O(1) amortised where letting the grammar find out
+            # costs a scan to the end of the text (PR #510 R26-3)
+            m = _match_tag(s, i) if closers.reachable(lit, at) else None
+            if m is None:
+                i += 1                  # neither §6.5 nor §6.6, so a literal `<`
+            else:
+                html.append((i, m.end(), "html"))
+                i = m.end()             # a raw HTML span is never inline-parsed
+            continue
+        if c == "`":
+            a1 = i
+            while a1 < n and s[a1] == "`":
+                a1 += 1
+            close = _code_closer(runs, a1, a1 - i)
+            if close is None:
+                i = a1                  # an unmatched backtick string is literal
+            else:
+                code.append((i, close, "code"))
+                i = close
+            continue
+        if c == "[":
+            # the BOTTOMS of every list a resolved image demotes, recorded at
+            # the `[` exactly as the Appendix's `delim_bottom` is: what this
+            # bracket encloses is what is appended after it, which is an O(1)
+            # fact of the stack and not something to search the lists for
+            stack.append((i, _is_image(s, i), closed, len(delims), len(images), len(pairs),
+                          len(code), len(auto), len(html)))
+            i += 1
+            continue
+        if c != "]" or not stack:
+            i += 1
+            continue
+        (pos, is_img, was_closed, delim_bottom, img_bottom, pair_bottom, code_bottom,
+         auto_bottom, html_bottom) = stack.pop()
+        # an IMAGE opener is never deactivated (the Appendix deactivates the
+        # `[` delimiters only); a link opener is, by any link that closed after
+        # it was pushed
+        if not is_img and was_closed != closed:
+            i += 1                      # literal `]`; the opener is gone
+            continue
+        dest, end, form = None, None, None
+        if i + 1 < n and s[i + 1] == "(":
+            r = _inline_tail(s, i + 2)
+            if r is not None:
+                dest, end = r
+        if end is None:
+            end, dest, form, label = _reference_tail(s, pos, i, defs)
+            if dest is None:
+                if form is not None and not (form == "shortcut" and pos == relabel):
+                    unresolved.append((pos, label, form, is_img))
+                if form == "full":
+                    relabel = i + 1     # `[label]` is re-scanned next (Example 571), not re-recorded
+                i += 1                  # literal `]`; the opener is gone; the tail is NOT consumed
+                continue
+        if is_img:
+            # §6.4: the description of a RESOLVED image is plain text, so
+            # every bracket construct recorded inside it (the entries
+            # appended since this image's `[`) is the description's -- ONE
+            # rule, here, where the image closes: a link is demoted to a
+            # masked tail (never a memo link, never prose), a nested image
+            # is demoted with it (it renders no `<img>` of its own -- its
+            # alt text is folded into this one's), a failed reference names
+            # no lost memo.  The nested IMAGES are demoted by index RANGE
+            # (`_demote`, once, at the end); a link is CONVERTED here rather
+            # than re-tagged, and is appended AFTER the range, so that
+            # conversion stays the one site saying a demoted link is not an
+            # image of its own.
+            # ⚠ A DEMOTED LINK'S `[` STAYS A MARK.  It used to be POPPED off
+            # `opens` here, on the reasoning that the opener "is inside the
+            # description" -- but being inside one says nothing about what it
+            # renders, and §6.4 reduces the description to the plain string
+            # content of its inline children, where a link contributes its
+            # TEXT and neither of its brackets.  The literal `[` was left
+            # standing in the stream, so `![KIND [UNDETERMINED](x)](img.png)`
+            # -- which renders the alt text `KIND UNDETERMINED` -- read as
+            # `KIND [UNDETERMINED`, the kind phrase was not there, and a row
+            # with a nonempty `Deps` left the census at rc 0 (PR #510 R30-3 --
+            # R30's THIRD finding, which the round's own fetch did not page
+            # far enough to see; the disposition that called R30 two findings
+            # is corrected at R31).
+            # ⚠ AND THE SAME RULE FOR THE TWO REMAINING FAMILIES OF §3.0b's
+            # CLOSED LIST (PR #510 R42-1 / R42-5a).  §6.4 reduces the
+            # description to the plain string content of its inline children,
+            # and the branch above demoted links, nested images and emphasis
+            # but left `code` (§6.1) and `auto` (§6.5) masked -- so a code span
+            # there blanked a kind MARKER (rc 0 where the link form is rc 1) and
+            # an autolink contributed NOTHING at all (0 reported sites where
+            # every other family gives 1).  The entries are retagged rather than
+            # removed: the DISPOSITION decides what a demoted span renders, and
+            # for a code span that decision needs `keep` (the id-only exception
+            # must survive into alt text exactly as the `**` one does, which is
+            # the precedent `dispose` already sets) -- so the lexer records the
+            # fact and `code_mask` reads it.  Retagged in place by index range,
+            # like `dem_img` beside it, so the §6.4 pass stays linear in the
+            # nesting depth (the R23 contract `_demote` exists for).
+            # ⚠ RANGES, APPLIED ONCE -- not a retag loop per close (PR #510
+            # R42-7).  Written as two `for j in range(bottom, len(...))` loops
+            # this re-walked every descendant at every enclosing image close, so
+            # N nested images with one code span each cost O(N^2): measured
+            # 0.09 / 0.32 / 1.26 s over 9 / 18 / 36 KB.  That is exactly the
+            # contract `_demote` exists for and exactly what the commit adding
+            # those loops claimed held "by construction" -- it did not.  The
+            # union is applied once below, like `dem_img` and `dem_pair`.
+            dem_code.append((code_bottom, len(code)))
+            dem_auto.append((auto_bottom, len(auto)))
+            dem_html.append((html_bottom, len(html)))
+            dem_img.append((img_bottom, len(images)))
+            while out and out[-1][0] > pos:
+                images.append(out.pop()[:2] + ("demoted",))
+            while unresolved and unresolved[-1][0] > pos:
+                unresolved.pop()
+            images.append((i, end, "image"))
+            # AND THE IMAGE'S OWN `![` IS RECORDED TOO, with the same
+            # disposition as its own tail -- the one rule, stated once: a
+            # construct's markup renders what the construct renders.  A
+            # resolved image puts a picture in the flow rather than the
+            # letters of its description, so its tail is a BLANK and so is
+            # its opener (`open` here, `image` after `dispose` reads the
+            # tag), which keeps the two sides of it apart exactly as the tail
+            # does; demoted into an enclosing description it renders nothing
+            # at all, and `_demote` retags it with everything else so it
+            # becomes a drop by the same range.  Recorded here rather than at
+            # the `[` because only a RESOLVED image has an opener to record:
+            # `![x]` that resolves nothing is literal text, `!` included.
+            images.append((pos - 1, pos + 1, "open"))
+        else:
+            out.append((i, end, dest))
+            opens.append((pos, pos + 1))    # a link's `[` renders as nothing
+            closed += 1                 # links may not contain links: every
+            # link opener still on the stack was pushed before this close, and
+            # its recorded figure is now stale, which is what says it is
+            # inactive.  ⚠ Counted where the LINK closes and nowhere else: a
+            # resolved image demotes the links inside its description
+            # (`_demote` below), and un-counting one there would REACTIVATE
+            # openers this close had already deactivated -- the Appendix
+            # deactivates at the close, and demotion is about what the entry
+            # renders as, not about what it did to the stack.
+        # the Appendix processes the emphasis inside the construct that just
+        # closed, over the delimiters pushed since its `[`, and drops them:
+        # emphasis never crosses a link's or an image's text boundary
+        new = emphasis.process(delims, delim_bottom)
+        del delims[delim_bottom:]
+        # §6.4 again: the description of a RESOLVED image is plain string
+        # content, so emphasis inside it renders its characters away and no
+        # `<em>` at all -- demoted, as a link inside one is; the pairs the
+        # description's own nested constructs already appended are demoted by
+        # the SAME range, which is why it is closed after this append
+        pairs += new
+        if is_img:
+            dem_pair.append((pair_bottom, len(pairs)))
+        i = end
+    pairs += emphasis.process(delims)
+    marks += opens
+    code = _demote(code, dem_code, 2)
+    auto = _demote(auto, dem_auto, 2)
+    html = _demote(html, dem_html, 2)
+    _line_endings_to_spaces(s, code, subst)
+    return (code, out, _demote(images, dem_img, 2), unresolved, html, auto, marks, subst,
+            _demote(pairs, dem_pair, 6))
+
+
+def _demote(entries, ranges, width):
+    """`entries` with every index in the UNION of `ranges` re-tagged
+    "demoted" (its first `width` fields kept), in O(len(entries) +
+    len(ranges)) -- a difference array, never a re-walk.
+
+    The demotion is deferred to here rather than written at each image's
+    close because the ranges NEST: `![![![x](i)](i)](i)` closes three images
+    over the same descendant, and re-tagging it at each close is quadratic in
+    the nesting depth (measured at PR #510 R23: 24 KB of `![`-nesting took
+    0.4 s, four times the 12 KB figure, against this function's stated linear
+    contract).  Nothing inside `inline_pass` reads an entry's tag, so the
+    tag's only observer is the caller and deferring it is not observable."""
+    if not ranges:
+        return entries
+    edge = [0] * (len(entries) + 1)
+    for a, b in ranges:
+        edge[a] += 1
+        edge[b] -= 1
+    depth = 0
+    for j, e in enumerate(entries):
+        depth += edge[j]
+        if depth:
+            entries[j] = e[:width] + ("demoted",)
+    return entries
+
+
+
+class Lexed:
+    """The lexical facts of one block's INLINE content (a paragraph or a
+    cell) -- Phase 2 of "Appendix: A parsing strategy"; block structure
+    (fences, reference definitions, tables, paragraphs) is Phase 1, decided
+    over raw lines by `plan_memo_memo.py::Memo`, and a reference
+    definition is never inline content.  `tokens` = [(start, end, "cite" |
+    "file")] in SOURCE coordinates, read off the block's rendering and set by
+    the disposition's stage 2 (`plan_memo_stream.dispose`), never here: the
+    reading needs a rendering, and a `Lexed` has none until it is disposed.
+    `resolve(defs)` runs `inline_pass` and sets
+    `code` = code spans, `html` = raw HTML spans (§6.6) with the same
+    "html" / "demoted" kind, `autolinks` =
+    [(start, end)] of every §6.5 autolink span (`<` and `>` included; masked
+    whole, its destination never joining the population -- an autolink's URL
+    carries a scheme or is a `mailto:`, so it is never a sibling on disk),
+    `links` =
+    [(tail_start, end, destination)], `images` = [(tail_start, end, kind)]
+    (every tail that is not a link's, `kind` = "image" for a resolved
+    image's own tail and "demoted" for a link or a nested image demoted
+    inside a resolved image's description, §6.4) and
+    `marks` = [(start, end)] of every span that renders NO character (a §2.4
+    escape's backslash is not one -- an escape SUBSTITUTES, below -- but a
+    link's `[` is, and so is the backslash of a §6.7 HARD LINE BREAK, whose
+    break is rendered by the line ending standing beside it);
+    `subst` = [(start, end, text)], the two spellings of "this renders
+    as that character": a §2.4 escape and a §2.5 character reference;
+    `emphasis` = [(open_start, open_end, close_start, close_end, char, use,
+    kind)] of every §6.2 / GFM delimiter pair, `kind` = "em" or, inside a
+    resolved image's description, "demoted" (§6.4: plain string content, no
+    tag -- the R19 rule, one more construct);
+    `unresolved` = [(offset, label, form, is_image)] of the references no
+    definition answers; `mask` is set by the disposition step in
+    `plan_memo_tables.py` once the row ids are known."""
+
+    __slots__ = ("text", "code", "html", "autolinks", "tokens", "links", "images", "unresolved",
+                 "marks", "subst", "emphasis", "mask")
+
+    def __init__(self, text):
+        self.text = text
+        self.tokens = []
+        self.code, self.html, self.autolinks = [], [], []
+        self.links, self.images, self.unresolved = [], [], []
+        self.marks, self.subst, self.emphasis = [], [], []
+        self.mask = None
+
+    def resolve(self, defs):
+        """The inline pass over the RAW text (code spans, autolinks, raw HTML
+        and brackets together; no pre-mask), with `defs` = normalised label ->
+        destination."""
+        (self.code, self.links, self.images, self.unresolved, self.html, self.autolinks,
+         self.marks, self.subst, self.emphasis) = inline_pass(self.text, defs)

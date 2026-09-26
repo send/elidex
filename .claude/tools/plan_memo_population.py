@@ -1,0 +1,478 @@
+#!/usr/bin/env python3
+"""The memo SET reachable from one memo -- for `plan-memo-umbrella-check.py`.
+
+`Population` is the transitive closure over the memos a memo links (a visited
+set, so a cycle is not an error) and the ONE map `ids` every scan and
+assertion reads.  ONE memo -- its block structure and its lexing -- is
+`plan_memo_memo.py`'s `Memo`, imported here and never the reverse; the
+destination -> sibling resolver a memo's links are walked through is
+`plan_memo_sibling.py`'s; the row grammar, the table schemas and the mask
+disposition are `plan_memo_tables.py`'s.
+
+Two rules decided here, once:
+  * a memo that cannot be opened, read or decoded is an UNAVAILABLE linked
+    memo -- the documented exit-2 miss at the population's one I/O
+    chokepoint, never an exception out of the population; an exception
+    from PARSING it is a crash out of the population (crash = FAIL), never
+    that miss -- the chokepoint catches `OSError` and `UnicodeDecodeError`
+    and nothing else (⚠ until PR #510 R16 it caught `RuntimeError` too,
+    for the py<=3.12 symlink-loop case that `plan_memo_sibling._resolve` alone
+    guards, and a `RecursionError` -- a `RuntimeError` -- out of ~500 nested
+    `>` markers was reported as "linked memo unavailable", rc 2, no census);
+  * the population is transitive over the memos a memo links; the same id
+    declared twice, and a reference no definition answers (the memo it meant
+    to link is outside the population), are schema misses.
+"""
+
+import pathlib
+from collections import deque
+
+from plan_memo_memo import Memo
+from plan_memo_sibling import _resolve
+from plan_memo_stream import KIND_PHRASES, dispose, kind_disagreements, stream
+from plan_memo_tables import SCHEMAS, attributed_to_other, is_blank_id_cell, population_key
+
+
+class Population:
+    """The memo set reachable from one memo through its links (visited set, so
+    a cycle is not an error), with ONE map `ids`: id -> its declaring `Row`
+    (`row.kind` = "umbrella" / "undetermined" / "pointer" / "terminal").  `misses` holds
+    every schema miss (absent memo, unresolved reference, unmatched schema, row
+    width, duplicate declaration, unkeyed schema row); a non-empty `misses`
+    is exit 2 -- never a clean run.
+    """
+
+    def __init__(self, main_path):
+        self.memos = []
+        self.misses = []            # [(file, lineno, message)]
+        self.spellings = set()
+        self.attributed = []        # [(file, table, lineno, row name (`Row.name`), other)]
+        self.ids = {}
+        start = _resolve(pathlib.Path(main_path))
+        # THE WALK, and the two rules that bound it (PR #510 R28-1).  A memo
+        # enters the queue AT MOST ONCE -- `seen` is written where a path is
+        # SCHEDULED, not where it is popped -- so the queue never holds more
+        # entries than there are memos, however many memos link the same one;
+        # it stood the other way round until R28, and a family where N memos
+        # each link the same K accumulated N*K pending paths to drain N+K
+        # memos.  And the queue is a `deque`, drained from its FRONT in O(1):
+        # `list.pop(0)` shifts every remaining element, which is quadratic in
+        # the queue's length and invisible to every work witness this suite
+        # has (the shift is a C memmove and runs no Python line -- see
+        # `plan_memo_selftest_properties.front_drain_sweep_control`, which is
+        # why that half is a SOURCE claim rather than a measurement).
+        #
+        # The schedule-time `seen` is also what TERMINATES the walk: there is
+        # no second guard at the pop, so a cycle is not an error because a
+        # path is never scheduled twice, not because a repeat pop is skipped.
+        queue, seen = deque([start]), {start}
+        self.root = start.parent        # the root memo's directory: what `display` names relative to
+        while queue:
+            p = queue.popleft()
+            # the ONE I/O chokepoint: a memo that cannot be opened, read or
+            # decoded (absent, a directory, over-long, invalid UTF-8, not a regular
+            # file -- `Memo` refuses a device or a FIFO before reading it) is an
+            # UNAVAILABLE linked memo -- the documented exit-2 miss, never an
+            # exception out of the population.  I/O ONLY: `Memo(p)` also
+            # PARSES, and a parser exception must surface as a crash (crash =
+            # FAIL), never as this miss -- so no `RuntimeError` here (its one
+            # legitimate source, the py<=3.12 symlink-loop `resolve()`, is
+            # guarded at `_resolve`; a `RecursionError` IS a `RuntimeError`,
+            # and PR #510 R16 found ~500 nested `>` reported as "unavailable")
+            try:
+                memo = Memo(p)
+            except (OSError, UnicodeDecodeError) as e:
+                self.misses.append((self.display(p), 0, "linked memo unavailable (%s) -- its population "
+                                    "is unscanned" % type(e).__name__))
+                continue
+            self.memos.append(memo)
+            for f in memo.linked_files():
+                if f not in seen:
+                    seen.add(f)
+                    queue.append(f)
+            # a reference no definition answers is prose under §6.3, and the
+            # memo it meant to link is NOT in the population: never a clean run
+            for lineno, label in memo.unresolved_references():
+                self.misses.append((self.display(memo.path), lineno,
+                                    "unresolved reference %r -- no definition answers it, so a memo "
+                                    "it meant to link is NOT in the population" % label))
+        self.main = self.memos[0] if self.memos else None
+        if self.main is not None:
+            matched = {t.schema.name for t in self.main.tables if t.schema is not None}
+            for s in SCHEMAS:
+                if s.name not in matched:
+                    self.misses.append((self.display(self.main.path), 0,
+                                        "no table matched schema %r -- its whole population is unscanned" % s.name))
+        for memo in self.memos:
+            for t in memo.tables:
+                for lineno, msg in t.misses:
+                    self.misses.append((self.display(memo.path), lineno, msg))
+        # ids first (the keep-set the disposition needs), then masks, then the
+        # readings: the unkeyed-row miss and the kinds both read a RENDERING,
+        # so both come after `dispose` and neither can move before it
+        for memo in self.memos:
+            self._declare(memo)
+        keep = self.keep()
+        for memo in self.memos:
+            for lx in memo.lexed():
+                dispose(lx, keep)
+        self._unbound_claims()
+        for memo in self.memos:
+            self._unkeyed(memo)
+        for row in self.declaring_rows():
+            row.field = stream(row.cells[row.schema.decl].lexed)
+        for row in self.ids.values():
+            row.kind = self._kind(row)
+            self._kind_residue(row)
+
+    def display(self, path):
+        """The ONE display name of a memo, for every printer -- a finding's
+        file column, the worklist, the population summary: the memo's
+        resolved `path` RELATIVE to the root memo's directory (`root`), or
+        the resolved absolute path when it is not under that directory.
+        Identity is `Memo.key`; a basename is neither -- two memos in
+        different directories may share one, and `a/child.md:1` and
+        `b/child.md:1` printed as `child.md:1` named two sites as one (PR
+        #510 R19)."""
+        try:
+            return str(path.relative_to(self.root))
+        except ValueError:
+            return str(path)
+
+    # -- declarations ------------------------------------------------------
+
+    def _declare(self, memo):
+        """The declarations: `ids`, and the duplicate-declaration miss.  A row
+        whose id cell declares nothing is passed over HERE and judged in
+        `_unkeyed` -- it enters `ids` under neither verdict, so the blank
+        question decides no declaration, gates no keep-set, and can wait for
+        the disposition the reading it is asked of needs."""
+        for s in SCHEMAS:
+            if s.idc is None:
+                continue
+            for row in memo.schema_rows(s.name):
+                rid = row.self_id
+                if rid is None:
+                    continue
+                rid = population_key(rid)     # a citation id is a §6.3 label
+                if rid in self.ids:
+                    r2 = self.ids[rid]
+                    self.misses.append((self.display(memo.path), row.lineno,
+                                        "row %s is declared twice (also %s:%d in %r); a population "
+                                        "with two declarations of one id cannot be scanned"
+                                        % (row.name(), self.display(r2.memo.path), r2.lineno, r2.schema.name)))
+                    continue
+                self.ids[rid] = row
+
+    def _unbound_claims(self):
+        """Every table in the POPULATION that binds to no schema and yet makes
+        a CENSUS CLAIM -- a cell carrying a `KIND_PHRASES` phrase -- is a miss.
+
+        The schema-miss gate above asks only of `main`, deliberately: a linked
+        detail memo may hold no slot ledger, and requiring one of every memo
+        would red half the family.  The hole that left (PR #510 R42-10, real
+        and reproduced): a LINKED memo whose slice table's header reads `No.`
+        instead of `#` binds to nothing, so its umbrella row and that row's
+        `Deps` edge leave the census with no diagnostic at all and the run
+        exits 0 -- the I-C class this checker exists for.
+
+        ⚠ THE PREDICATE IS THE CLAIM, NOT THE SHAPE, and that distinction was
+        MEASURED rather than reasoned.  The first predicate tried was "EVERY
+        BODY ROW's first cell tokenises as a row id" -- the reading matters and
+        a loose statement of it is three different numbers (every body row =
+        151, any body row = 333, any row including the header = more) -- which
+        is exactly right on the four fixtures and reported **151** unbound
+        tables over the corpus below -- a landing record's review-round tables (`obj`, `R1`...`R7`)
+        are id-shaped and entirely legitimate.  A header NEAR-MISS was the
+        other candidate and it is weaker for a reason no corpus count shows:
+        it fires on a renamed header whose table declares NOTHING (measured on
+        a two-fixture pair -- it reports the negative control, this predicate
+        does not).  A kind phrase is a claim ABOUT THE CENSUS, so a table
+        carrying one and binding to nothing is a contradiction the way an
+        umbrella row with a blank id cell is.
+        Measured over those same memos: this predicate fires **0** times,
+        while the phrases themselves DO occur in that corpus (in bound tables
+        and in prose) -- so the zero is a silence, not an empty population.
+
+        ⚠ THE OCCURRENCE COUNT IS DELIBERATELY NOT WRITTEN HERE, and the reason
+        is that it has now been falsified TWICE by the commits asserting it:
+        77 when first written, 76 one memo edit later, 78 a session after that.
+        This document family is IN the corpus, so the number moves whenever any
+        of it is edited -- and the round that "removed" it removed it from the
+        memo and left it standing in this docstring, which is why it moved
+        again unnoticed. What the argument needs is NONZERO, which the command
+        settles at read time.
+
+        ⚠ EVERY FIGURE HERE IS A DATED MEASUREMENT, NOT A STANDING CLAIM, and
+        it is written with its corpus because that corpus is not reproducible
+        elsewhere: 2026-09-21, the 141 `docs/plans/*.md` of this worktree and
+        of `elidex-wt-vmp4plan`, 511 tables of which 507 bind to nothing.  A
+        reader re-derives it by running this checker over each of those files
+        and counting the `binding to NO schema` line; what is authoritative is
+        the PREDICATE below and that command, never the number
+        (`memory/feedback_document-landing-invalidates-its-own-measurements.md`).
+
+        ⚠ HONESTLY, WHAT IT CANNOT SEE: an unbound table making NO kind claim.
+        Its ordinary rows are lost just as silently, and no predicate measured
+        here separates one from a documentation table that happens to key its
+        rows -- which is the 151 above.  That half is §8's, narrowed to it;
+        this half is closed."""
+        for memo in self.memos:
+            for t in memo.tables:
+                if t.schema is not None:
+                    continue
+                for row in [t.header] + t.rows:
+                    # ⚠ BOTH READINGS, not the stream alone (PR #510 R47-2, a
+                    # hole in this gate as first written).  A claim spelled
+                    # ACROSS a masked span -- `` **UMBRELLA, not a `terminal`
+                    # unit.** `` -- is what a READER sees and what the disposed
+                    # stream does not, so a stream-only search found nothing,
+                    # the run emitted a non-gating `LEX-SPLIT?` seed and exited
+                    # 0 with the table's declarations and `Deps` edges gone.
+                    # That is the same I-C silent skip this gate exists to
+                    # close, one construct further in.
+                    # ⚠ Asked through `kind_disagreements`, which is the
+                    # CANONICAL question `_kind_residue` already gates a BOUND
+                    # row with -- not a second rule written here.  Reusing it
+                    # keeps the I-A arm by construction: a phrase quoted WHOLE
+                    # (`` `UMBRELLA, not a terminal unit` ``) makes the two
+                    # readings differ but does not STRADDLE, so it stays what
+                    # I-A says it is -- not a declaration, not a miss -- and
+                    # the negative control over that case needs no exemption
+                    # here to stay green.
+                    hit = next((n for c in row.cells
+                                for n, claimed in self._claims(c).items() if claimed), None)
+                    if hit is None:
+                        continue
+                    self.misses.append((
+                        self.display(memo.path), t.header.lineno,
+                        "a table binding to NO schema carries a %s kind phrase at :%d -- it makes a "
+                        "census claim and its whole population is unscanned; the header is %r"
+                        % (hit, row.lineno, [c.text for c in t.header.cells])))
+                    break
+
+    def _unkeyed(self, memo):
+        """The rows that declared nothing, sorted into the two verdicts -- run
+        AFTER the disposition, because the question is about what the cell
+        RENDERS (`plan_memo_tables.is_blank_id_cell`, which carries the
+        reading and why it is that one).
+
+        A LITERAL blank id cell is a deliberate non-row; anything else that is
+        not an id THIS TABLE KEYS (`Schema.kinds`, applied in `bare_id`) is an
+        UNKEYED row: it was dropped from `ids`, so assertion (b) would never
+        see its Deps edge -- the I-C silent-skip class, and a schema miss.  ONE
+        message for both shapes, since they are one question: a
+        citation-shaped id in a slice table keys no slice row, and both mention
+        passes ignore it, so its ownership text could never be checked (PR
+        #510 R21).  The unmatched decoration run `**` was in the first class
+        and belongs to the second (PR #510 R30)."""
+        for s in SCHEMAS:
+            if s.idc is None:
+                continue
+            for row in memo.schema_rows(s.name):
+                if row.self_id is not None:
+                    continue
+                if not is_blank_id_cell(stream(row.cells[s.idc].lexed, reader=True)):
+                    self.misses.append((self.display(memo.path), row.lineno,
+                                        "the %r row's id cell does not start with an id of a kind this "
+                                        "table keys (%s): %r; the row declares nothing and is unkeyed, "
+                                        "so its cells would go unasserted"
+                                        % (s.name, " / ".join(s.kinds), row.id_cell()[:60])))
+                    continue
+                # ⚠ A BLANK ID CELL AND A KIND MARKER CONTRADICT EACH OTHER, and
+                # the pair used to be accepted in silence (PR #510 R42).  The
+                # blank-cell exemption above says "this is a DELIBERATE non-row",
+                # which is why it is not a miss; a declaring field that spells
+                # `**UMBRELLA, not a terminal unit.**` says the opposite -- it is
+                # a row, and one whose `Deps` assertion (b) exists to read.  With
+                # both, the row is keyed by nothing, so it is absent from `ids`,
+                # assertion (a) sees a marker and emits no missing-marker seed,
+                # and assertion (b) skips it on `self_id is None`: every gate
+                # declines it for a different reason and the run exits 0.
+                # Reported rather than resolved either way, because which half
+                # the author meant is not decidable here -- delete the marker or
+                # give the row an id.
+                # ⚠ `row.field` is not written until AFTER this pass, so the
+                # field is read here from the same disposed cell the later loop
+                # reads (the disposition has already run -- see this method's
+                # docstring), through the ONE `KIND_PHRASES` site.
+                # ⚠ BOTH READINGS, through the ONE contradiction site (PR
+                # #510 R49-1): this asked the disposed stream alone, so a
+                # blank-id row whose field spells the marker ACROSS a masked
+                # span exited 0 while the clean spelling exited 2.
+                hit = (self._claims(row.cells[s.decl]) if s.decl is not None
+                       else {n: False for n, _rx in KIND_PHRASES})
+                # ⚠ NOT EVERY KIND PHRASE -- AND NOT THE MARKER ALONE EITHER
+                # (PR #510 R42, narrowed; R42-9, widened back by one).  Written
+                # first over all three, this flagged the #506 memo's
+                # `Function`/`eval` row (`:1985`), an empty-id row whose field
+                # spells the POINTER phrase -- the legitimate shape
+                # `declaring_rows` names this exemption for: a pointer says
+                # "another row owns this", which is exactly what an unkeyed row
+                # is for.  ⚠ The correction then went PAST the evidence and kept
+                # only the marker, though nothing had refuted the UNDETERMINED
+                # phrase: §5 puts an undetermined row IN the naming population
+                # with the same no-owner obligation as an umbrella, so a blank
+                # id contradicts it for the same reason -- and the row with a
+                # `Deps` cell exited 0 with no gate reporting it.  A predicate
+                # narrowed to the one case that was shown, rather than to the
+                # complement of what was REFUTED, is the shape this checker
+                # keeps finding in the documents it reads.
+                spelled = [n for n in ("marker", "undetermined") if hit.get(n)]
+                if spelled:
+                    self.misses.append((self.display(memo.path), row.lineno,
+                                        "the %r row's id cell is blank -- a DELIBERATE non-row -- but its "
+                                        "declaring field spells a kind (%s): a row cannot be both, and "
+                                        "keyed by nothing it leaves the census with no gate reporting it "
+                                        "(absent from `ids`; assertion (a) sees the marker; assertion (b) "
+                                        "skips a row whose id is None). Delete the marker or give the row "
+                                        "an id: %r"
+                                        % (s.name, "/".join(spelled), row.id_cell()[:60])))
+
+    @staticmethod
+    def _claims(cell):
+        """The kind phrases a CELL claims under EITHER reading -- the stream's
+        matches plus the ones the two readings disagree about across a blank.
+        The ONE site of the contradiction question.
+
+        ⚠ IT IS ONE SITE BECAUSE THE QUESTION WAS ASKED IN THREE PLACES AND
+        FIXED IN ONE AT A TIME (PR #510 R47-2, then R49-1).  `_kind_residue`
+        gates a BOUND row this way; `_unbound_claims` was taught to at R47-2
+        after a round reported it; and the blank-id contradiction was still
+        asking the disposed stream alone, so a blank-id row whose field spells
+        ``**UMBRELLA, not a `terminal` unit.**`` exited **0** with a
+        non-gating seed while the clean spelling exited 2 -- the same silent
+        skip, at the third site, one round later.
+        ⚠ So the fix is not a third patch: a caller that asks "does this cell
+        claim a kind" gets both readings BY CONSTRUCTION, and cannot forget the
+        arm. `_kind` deliberately does NOT use this -- it decides which kind a
+        field DECLARES, which is a question about the rendering, and the doubt
+        is `_kind_residue`'s to report."""
+        field = stream(cell.lexed)
+        hit = {name: bool(ms) for name, ms in Population._phrases(field).items()}
+        for name in kind_disagreements(cell.lexed):
+            hit[name] = True
+        return hit
+
+    @staticmethod
+    def _phrases(field):
+        """{name: match} over `KIND_PHRASES` for one declaring field -- the ONE
+        site that applies that tuple to a text.
+
+        It exists because the blank-id contradiction below needs the same
+        question `_kind` asks ("does this field spell a kind?") at a moment
+        when `row.field` has not been written yet, and a second spelling of
+        "does this field declare a kind" is a second answer waiting to drift --
+        the defect this checker has recorded three times (the row-kind test's
+        two spellings at R22, the dash class's three at R33-2, the blank-cell
+        test's two). Read-only: no membership decision and no side effect, so
+        `_kind`'s ORDER between the members stays `_kind`'s alone.
+
+        ⚠ EVERY OCCURRENCE, not the first (PR #510 R48-2).  This returned
+        `rx.search(...)` -- one `Match` per phrase -- and `_kind` then added
+        `hit["undetermined"].group(0)` to `spellings`.  A field spelling BOTH
+        supported forms, `KIND UNDETERMINED and KIND -- UNDETERMINED`,
+        therefore contributed ONE spelling, the KIND-SPELLING consistency gate
+        saw a set of size one, and the run exited 0 on a document using two --
+        the exact condition that gate exists to report, invisible because the
+        reader of the field stopped at the first match.  The same two spellings
+        in two different ROWS were reported, which is what made it look
+        covered.
+        ⚠ This is the SAME defect class as a loop truncated to its first
+        element -- "take the first" where the property is about all of them --
+        expressed without a loop, so `population_scope_control`'s `ast.For`
+        population cannot see it.  That limit is stated in the control.
+        """
+        return {name: list(rx.finditer(field or "")) for name, rx in KIND_PHRASES}
+
+    def _kind(self, row):
+        """The kind the row's masked declaring field declares.  The
+        undetermined SPELLING is collected independently of the marker (a row
+        can carry both; its kind stays umbrella, its spelling still joins
+        `spellings`).  A row whose marker is attributed to another row is a
+        POINTER (§5: a pointer slot carries no marker of its own -- assertion
+        (a) reports it), as is a row that says so in words.
+
+        Every phrase read here comes from `KIND_PHRASES` and none is matched
+        directly, so a phrase that decides a kind is necessarily a member --
+        and so is necessarily gated by `_kind_residue`, which iterates the
+        same tuple.  The ORDER between the members is this function's (the
+        marker outranks the undetermined spelling, which outranks the pointer
+        phrase); their MEMBERSHIP is not."""
+        if row.field is None:
+            return "terminal"
+        hit = self._phrases(row.field)
+        for _m in hit["undetermined"]:
+            self.spellings.add(_m.group(0))
+        if hit["marker"]:
+            other = attributed_to_other(row.field, row.self_id)
+            if other:
+                self.attributed.append((self.display(row.memo.path), row.schema.name, row.lineno, row.name(), other))
+                return "pointer"
+            return "umbrella"
+        if hit["undetermined"]:
+            return "undetermined"
+        if hit["pointer"]:
+            return "pointer"
+        return "terminal"
+
+    def _kind_residue(self, row):
+        """The one place the residue GATES (`plan_memo_stream.split_units`),
+        for EVERY member of `KIND_PHRASES` and not for the one member that
+        was in front of me when I wrote it.  A declaring field that spells a
+        kind phrase ACROSS a span the checker does not read as prose --
+        `**UMBRELLA, not a `terminal` unit.**`, `KIND UNDETER`MINED`` -- is
+        read here as no such declaration, so the row would leave the umbrella
+        census as an active terminal, silently, at rc 0: §1's "never a clean
+        exit for could not scan" over the census this program exists to take.
+        The row is a schema miss instead, and a reader decides whether the
+        code span is a quotation or a typo (a kind phrase QUOTED WHOLE stays
+        what I-A says it is: not a declaration, not a straddle, no miss).
+
+        The other direction is the same miss and is gated by the same call:
+        `KIND `x` UNDETERMINED` is the undetermined kind to the STREAM only
+        because a blank stands as spaces, and no kind at all to a reader --
+        the kind this row was just assigned is then the one nobody reads.
+        `kind_disagreements` asks both directions per phrase, so neither the
+        phrase nor the direction is enumerated here."""
+        if row.field is None:
+            return
+        for name in kind_disagreements(row.cells[row.schema.decl].lexed):
+            self.misses.append((self.display(row.memo.path), row.lineno,
+                                "row %s spells the %s kind phrase in its declaring field ACROSS a "
+                                "span this checker does not read as prose (a code span, an autolink, "
+                                "a citation id or a file name): the two readings of the field "
+                                "disagree about the phrase, so the row's kind cannot be decided"
+                                % (row.name(), name)))
+
+    # -- inventories -------------------------------------------------------
+
+    def ids_of_kind(self, kind):
+        return {rid: r for rid, r in self.ids.items() if r.kind == kind}
+
+    def no_owner_ids(self):
+        """Every row that carries no owner and no ordering -- the property §5's
+        naming rule is stated over (umbrella + kind-undetermined)."""
+        return {rid: r for rid, r in self.ids.items() if r.kind in ("umbrella", "undetermined")}
+
+    def data_rows(self, name):
+        """[Row] over every memo, for schema `name`."""
+        return [r for memo in self.memos for r in memo.schema_rows(name)]
+
+    def declaring_rows(self):
+        """Every row of a schema with a declaring field and an id column, over
+        every memo -- the set `field` is written for and read over (assertion
+        (a)).  It is NOT `ids.values()`: a row whose id cell is EMPTY (`**—**`)
+        is a deliberate non-row, unkeyed and outside `ids`, but its declaring
+        field is still read (the #506 memo has one such row, the
+        `Function`/`eval` row); a non-empty non-id cell is a schema miss, so
+        after `misses` those two sets differ by exactly the empty-id rows."""
+        return [r for s in SCHEMAS if s.decl is not None and s.idc is not None
+                for r in self.data_rows(s.name)]
+
+    def keep(self):
+        """The code-span keep-set: every declared id, from every memo -- both
+        the key it is declared under and the spelling it was WRITTEN with,
+        since a citation id is keyed by its canonical §6.3 label and a code
+        span may hold either spelling."""
+        return set(self.ids) | {r.self_id for r in self.ids.values()}
