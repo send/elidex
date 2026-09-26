@@ -136,6 +136,17 @@ _fgit() ( _fgit_scrub; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _
 # the environment of a wire it RE-INVOKES. Each re-invocation runs this block
 # again over its own environment, which is how the hostile fixture's child is
 # covered too.
+# ⚠ AND IT REFUSES WITHOUT CLAIMING THE RESIDUAL IS DANGEROUS — that distinction
+# is load-bearing, because "it reaches git's environment" invites the next reader
+# to try to HANDLE `GIT_X-Y`, and there is nothing there to handle. A name bash
+# cannot `unset` is not a valid shell identifier, and the names git reads are:
+# measured at git 2.55, every `GIT*` environment variable named in git(1), in
+# git-config(1) and by `git rev-parse --local-env-vars` is spelled `[A-Z0-9_]+`,
+# with no exception in the complement (the only non-conforming token either page
+# holds is the man-page title `GIT-CONFIG`). So the two sets are DISJOINT and the
+# live exposure is nil. What is nevertheless unproven is the sweep's own claim to
+# be complete over the environment block — and reporting a pass over an unproven
+# sweep is the defect this helper is about, one level up. So the run stops.
 _fgit_block="$( ( for _fv in "${!GIT_@}"; do unset "$_fv" 2>/dev/null || true; done
                   command env ) )" || _fgit_block=""
 if [ -z "$_fgit_block" ]; then
@@ -156,14 +167,14 @@ if [ -n "$_fgit_leak" ]; then
   echo "!! THIS RUN CANNOT PROVE THE FIXTURE GIT SCRUB DID WHAT IT CLAIMS. After" >&2
   echo "   sweeping every name bash lists as \`GIT_*\`, \`env\` still reports:" >&2
   printf '%s\n' "$_fgit_leak" | sed 's/^/     /' >&2
-  echo "   The claim is not that those entries are dangerous — they are not: every" >&2
-  echo "   name git reads is spelled [A-Z0-9_]+, so a name bash cannot unset is one" >&2
-  echo "   git cannot read either, and the live exposure is nil. The claim that fails" >&2
-  echo "   is the sweep's own: it is a COMPLETE sweep of the environment block, and" >&2
-  echo "   this run cannot show that. Reporting a pass over an unproven sweep is the" >&2
-  echo "   defect this helper exists to close, one level up — so the run ends at" >&2
-  echo "   \"decided nothing\" instead. (A non-\`GIT_*\` entry whose value holds a line" >&2
-  echo "   beginning \`GIT_\` lands here too: an unknown falls on the side that stops.)" >&2
+  echo "   Those entries are NOT a channel into git and there is nothing to handle in" >&2
+  echo "   them: a name bash cannot unset is not a shell identifier, and every variable" >&2
+  echo "   git reads IS one (measured — see the note above this block). What fails is" >&2
+  echo "   the sweep's own claim — to be COMPLETE over the environment block — and" >&2
+  echo "   reporting a pass over an unproven sweep is the defect this helper is about," >&2
+  echo "   one level up. So the run ends at \"decided nothing\" instead. (An entry that" >&2
+  echo "   is not a \`GIT_*\` but whose VALUE holds a line beginning \`GIT_\` lands here" >&2
+  echo "   too: an unknown falls on the side that stops.)" >&2
   exit 2
 fi
 
