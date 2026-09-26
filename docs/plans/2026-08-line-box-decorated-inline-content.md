@@ -161,7 +161,7 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i (ledger A54, A59, A60, A70, A71, A72, A76, A79, A86, A90, A94, A95, A101) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), and **rev 75's 25c**, which gains a second markup (A108); rev 63 adds none (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i, rev 76's 15f and 25g (ledger A54, A59, A60, A70, A71, A72, A76, A79, A86, A90, A94, A95, A101, A111, A112) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), and **rev 75's 25c**, which gains a second markup (A108); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -779,6 +779,8 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A108 | R42-F1 | cell **25c**'s precondition — `measure_width("verylongword")` asserted larger than the other two candidates — as what makes its arms distinguishable, and with it the cell's claim to cover the edges under multiple segments | the precondition makes the maximum a **middle** segment that carries no edge, so the conformant value and a producer that drops the edges from the multi-segment path agree: `max(10 + |a|, |verylongword|, |b| + 10)` and `max(|a|, |verylongword|, |b|)` are both `measure_width("verylongword")`. Cells 25 and 25e cannot catch it either — in both the box's two edges sit on the only segment there is — so nothing exercised carrying an edge across segments. **Fixed by a second arm rather than by re-choosing the first arm's words**, on A77's precedent for cell 25d: the first arm is what separates the two *placement* readings under its own precondition, and re-lettering its words would trade one coverage for the other, while the freeze's cell-history convention already admits an added markup. The second arm is `<div style="display:inline-block"><span style="padding-left:100px;padding-right:100px">aaaa bb c</span></div>`, asserting `100 + measure_width("aaaa")` with `measure_width("aaaa") > measure_width("bb")` and `> measure_width("c")` as preconditions, so the winner is an edge-bearing boundary candidate: edges dropped reports `measure_width("aaaa")`, both-on-widest and pair-on-every each report `measure_width("aaaa") + 200`. **Swept for the same shape** — an asserted `max` whose winning term does not carry the feature under test — over `/usr/bin/grep -n 'max(' <memo>` at `12e29f64`, **27 lines**, of which the ones that are a cell's asserted value are 25c and **25f**; 25f's winner is one of the two candidates the atomic boundary separates and the rejected producer reports `measure_width("ab")`, so it discriminates. ⚠ **The class has one earlier instance and this is the second**: A77 found cell 25d's first arm reporting 0 under three implementations, and the remedy there was also a second arm — an assertion a producer that ignores the feature also satisfies. ⚠ **Provenance, recorded because it matters for the next one**: the "long word asserted widest" precondition came from the review brief rev 65 answered (R31-F2), not from the memo's own derivation — **A70**'s spec reasoning fixes *where* the edges go (css-sizing-3 §2.1, css-text-3 §5.5, css-break-3 §5.4), not which term wins the maximum, and the cell was written to a precondition the brief supplied. Found by Codex on #515 |
 | A109 | R42-F2 | §7's test-placement paragraph — "the exception that returns is **13d** and only 13d", with PR-1b's cells sent to `…/advance.rs` | rev 73 added three cells whose assertions read `DisplayItem::Text` glyph positions from a display list, which `elidex-layout-block` cannot observe, and the paragraph named none of them. **Replaced by the property instead of extending the list**: a cell whose assertion reads a display list is hosted by `elidex-shell`'s suite, and the population is `grep -n 'DisplayItem' <memo>` — so the next painted cell needs no edit here. The three excluded hosts and their grounds are unchanged (**A73**, **A74**). ⚠ **Same class as R41-F1 and R41-F3** — a cell or prereq added without its placement or count following (**A105**, **A107**) — and the third instance in three rounds, which is why the remedy is a property this time rather than a corrected enumeration. Found by Codex on #515 |
 | A110 | R42-F3 | the **item-boundary opportunity** and **min-content** prereqs left unordered against each other while both need the same construction — the item stream concatenated, offsets mapped back to items, atomic boundaries preserved | the memo already assigns the API to one of them, so the ownership follows rather than being picked: §5.3's item-boundary slot bullet states "the fix is an API there over the concatenated paragraph (or a stateful one) that the packer consumes" with `elidex-linebreak` as the owner and the `elidex-text` facade as the consumption edge, and §8's item-boundary block repeats it; the min-content block hands its *joining mechanism* to its own plan-review and names item boundaries as the other slot's defect, "not this oracle's". So the **item-boundary prereq owns the canonical API and lands first; the min-content prereq consumes it** — the same shape as A69's end-of-line → min-content ordering, and for the same reason: whichever landed first would otherwise build the construction locally and leave the other to duplicate it or rewrite a prerequisite already called done. The two PR-1b predecessors of min-content are unordered against each other; the reconciler prereq stays unordered against all three. Carried at §8's two blocks, the topology, PR-1b's DoD and the front matter. Found by Codex on #515 |
+| A111 | R43-F1 (two byte-identical threads) | both of cell **25c**'s markups wrapping the whole text in **one** decorated inline, and with that the memo's claim to cover the intersection of cross-item joining and marker-edge accumulation | the intersection was **stated but unasserted**: §8's min-content prereq instance 2 (`a<b style="padding:10px">b</b>c`, whose contribution is `|abc| + 20`) has owned it since rev 52, and no cell asserted it — so a producer that joins across items but **commits its candidate whenever it meets a marker** passed 25, 25c, 25e and the undecorated joining coverage alike. Because the defect is that instance's, the remedy is **coverage, not a new instance**: §6 cell **25g** asserts `measure_width("b") + 200 + measure_width("c")` for `<div style="display:inline-block"><span style="padding-right:100px">b</span><span style="padding-left:100px">c</span></div>`, where the committing-at-a-marker producer reports `max(measure_width("b") + 100, 100 + measure_width("c"))`, an edge-dropping joiner reports `measure_width("b") + measure_width("c")` and today's per-item function reports `max(measure_width("b"), measure_width("c"))`. Verified against the spec rather than assumed: css-text-3 §5.5's "Out-of-flow boxes and inline box boundaries do not introduce a forced line break or soft wrap opportunity in the flow" (`body css-text-3 line-break-details`), so both boundaries between the letters supply none and the candidate is one. A **new cell** rather than a third arm of 25c, because 25c's subject is where the box's **outer** two edges land across segments, while this is edges **internal** to one candidate — and instance 2's own text now names the cell, as instances 1 and 6 already named theirs. Found by Codex on #515 |
+| A112 | R43-F2 | §8's suite-level break invariant licensing **every** offset the string-only `find_break_opportunities` returns, and the memo's treatment of within-run breaks as covered | nothing between the oracle and the flush guard filters by `white-space`, measured at `154bac3f`: `build_pack_items` splits each `InlineItem::Text` at every returned offset with no such test (`pack/items.rs:63-91`, call at `:72`), and the packer's only `white_space` read is `contributes_content`'s `Pre \| PreWrap` test (`pack/mod.rs:556-568`). css-text-3 §3 withholds the licence — `nowrap` is "Like `normal`, this value collapses white space; but like `pre`, it does not allow wrapping" and `pre` is "Lines only break at forced line breaks" (`body css-text-3 white-space-property`) — so the class is **pre-existing** (a `nowrap` run wider than its line wraps today) and **newly reachable through PR-1b's advance**, which makes the guard fire at widths where the run alone fits. **Folded into the item-boundary opportunity prereq as its second grant rather than carved as a ninth prerequisite**: the fix is a filter on the canonical opportunity API that PR already owns (**A110**), which sees each item's run and so its `white_space`, and a separate prereq would put a second filter at one seam — the duplicated decision surface *one issue, one way* refuses. Ordering unchanged (before PR-1b, and before the min-content prereq that consumes the API); the prereq's plan-review owns the mechanism for both grants. §6 cell **15f** pins it as an invariance across PR-1b (`line_count == 1` at `W` in `[measure_width("a b"), measure_width("a b") + 20)`), distinct from 15e, whose offset the oracle never returns at all. **The invariant's wording is corrected with it**: the licensed set is the oracle's offsets *as the run they fall in admits a soft wrap*, not the raw UAX #14 result. Found by Codex on #515 |
 
 ---
 
@@ -1461,7 +1463,7 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   inline-axis advance, shaping break at a decorated boundary, a marker not ending a trailing
   space's line-finality (ledger **A63**), and the
   max-content contribution. §6 cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 15e, 16,
-  16b, 25, 25b, 25c, 25d, 25e and 25f land here — cells 3, 3b, 3c, 4, 12b, 12c, 12f and 12e among them because each asserts a
+  15f, 16b, 25, 25b, 25c, 25d, 25e, 25f and 25g land here — cells 3, 3b, 3c, 4, 12b, 12c, 12f and 12e among them because each asserts a
   *payload* fact
   (negative margin, the cancelling pair, the percentage basis, the physical→logical side mapping)
   that M1's PR-1a variants, carrying `entity` only, give no channel to observe, and that the advance
@@ -2735,6 +2737,24 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     the PR, not a change**, so §5.3's PR-1b universal ("no cell pins a `line_count` change") holds:
     the count is 1 on `154bac3f` for this `W` and 1 after, and the cell exists because PR-1b is what
     would otherwise move it.
+15f. **A run whose `white-space` forbids wrapping must not break inside it** (M3; R43-F2) —
+    `<p style="width:W"><span style="white-space:nowrap;padding-left:20px">a b</span></p>` with `W`
+    in `[measure_width("a b"), measure_width("a b") + 20)`, both bounds computed from the harness's
+    `measure_width` (`inline/tests/mod.rs:31`) as cell 15e does: `line_count` is **1**, before and
+    after PR-1b. css-text-3 §3 defines `nowrap` as "Like `normal`, this value collapses white
+    space; but like `pre`, it does not allow wrapping" (`body css-text-3 white-space-property`), and
+    `pre` as "Lines only break at forced line breaks", so the space inside the run is **not** a
+    licensed soft wrap opportunity. **Rejects** the pipeline as it stands: `build_pack_items` splits
+    every `InlineItem::Text` at every offset `find_break_opportunities` returns with no
+    `white-space` test at all (`pack/items.rs:63-91`, the call at `:72`), the packer's only
+    `white_space` read being `contributes_content`'s `Pre | PreWrap` test (`pack/mod.rs:556-568`),
+    so with PR-1b's 20px in `current_inline` the `:690` guard flushes before `b` and the count
+    becomes 2. That is the **item-boundary opportunity prereq**'s second grant, in `main` before
+    PR-1b (§8; ledger **A112**). ⚠ **The assertion is an invariance across the PR**, like 15e's: at
+    this `W` the run is unbroken on `154bac3f` and must stay unbroken, and the cell exists because
+    PR-1b's advance is what would otherwise move it. ⚠ Distinct from **15e**, whose offset is an
+    **item boundary** the oracle never returns; here the offset is inside one run and the oracle
+    does return it — what the spec withholds is the *licence* to take it.
 15b. **A leading marker must not let the first segment soft-wrap** (M3's ⚠): `<p style="width:10px">`
     `<span style="padding-left:20px">verylongword</span></p>` — the first content segment reaches
     `:690` with a cursor the marker has already inflated to 20, and the line must **not** be
@@ -2951,6 +2971,25 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     wrongly, the second from **not carrying them across segments at all**. ⚠ It pins **placement**,
     not the edge term itself — that is cell 25's — and both arms sit on the min-content prereq's
     cross-item accumulator like cell 25 (§8; ledger **A58**, **A70**, **A108**).
+25g. **One min-content candidate carries both text advances and both internal edges** (M8; R43-F1)
+    — `<div style="display:inline-block"><span style="padding-right:100px">b</span><span
+    style="padding-left:100px">c</span></div>`, `width` left `auto`: the **min-content** inline size
+    is `measure_width("b") + 200 + measure_width("c")`, computed from the harness's `measure_width`
+    (`inline/tests/mod.rs:31`) rather than stated as a literal. css-text-3 §5.5 puts no opportunity
+    at either of the two inline box boundaries between the letters — "Out-of-flow boxes and inline
+    box boundaries do not introduce a forced line break or soft wrap opportunity in the flow" — so
+    the whole of it is **one** candidate, and the two edges facing each other inside it (the first
+    span's inline-end, the second's inline-start) are inside that candidate. **What each rejected
+    producer reports**: one that **commits its candidate at a marker** gives
+    `max(measure_width("b") + 100, 100 + measure_width("c"))` — short by the smaller text advance
+    plus 100; one that joins the texts but **drops the edges** gives
+    `measure_width("b") + measure_width("c")`, short by 200; today's function, which walks each
+    `InlineItem::Text` alone, gives `max(measure_width("b"), measure_width("c"))`. ⚠ **Not a
+    statement about shaping across the boundary**: the value is the two runs' own advances summed,
+    which is what the accumulator adds, and whether the pair should instead measure as `"bc"`
+    shaped whole is css-text-3 §7.3's question and `#11-intra-word-shaping-across-line-break`'s
+    (§5.3). ⚠ It sits on the min-content prereq's cross-item accumulator like cells 25 and 25c, and
+    it is that PR's **instance 2** (§8; ledger **A111**) — the one instance no cell asserted.
 25b. **A percentage edge under shrink-to-fit contributes zero to both intrinsic sizes** (M8;
     css-sizing-3 §5.2.1 rule 4; R26) — `<div style="display:inline-block"><span
     style="padding-left:10%">x</span></div>`, `width` left `auto`: its **min-content** and
@@ -4094,7 +4133,7 @@ reader of the same triple, not a second producer of it: it carries the payload's
 than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says nothing about it.
 
 **PR-1b** (inline-axis advance): cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d,
-15e, 16, 16b, 25, 25b, 25c, 25d, 25e and 25f. **It owes four dependencies, named here rather than
+15e, 15f, 16, 16b, 25, 25b, 25c, 25d, 25e, 25f and 25g. **It owes four dependencies, named here rather than
 counted anywhere else** (ledger **A107**): it is not cut from `origin/main` until the
 end-of-line white-space and **item-boundary opportunity** prereqs have landed and the
 **min-content prereq** after both of them (ledger **A69**, **A94**, **A110** — the item-boundary
@@ -4145,8 +4184,11 @@ min-content half past PR-1b — and **A58**).
 per-cell vigilance** (R5). For **every** fixture the `decorated_inline` modules lay out, the set
 of realised line-break offsets must be a **subset** of
 `find_break_opportunities(<the fixture's text with every atomic item encoded as U+FFFC>)`,
-mapped back to item-stream offsets, ∪ **an atomic boundary whose adjacent character is
-U+00A0** ∪ any forced break; a shared
+mapped back to item-stream offsets **and kept only where the run they fall in admits a soft
+wrap** — css-text-3 §3 allows none under `nowrap` or `pre` ("it does not allow wrapping"; "Lines
+only break at forced line breaks"), so an offset inside such a run is **not** in the licensed set
+even though the raw UAX #14 result contains it (rev 76; ledger **A112**, §6 cell 15f) — ∪ **an
+atomic boundary whose adjacent character is U+00A0** ∪ any forced break; a shared
 helper asserts it and every cell's test runs through it. A fixture whose line structure comes
 from `place_item`'s per-item flush — the pre-existing divergence
 `#11-inline-item-boundary-soft-wrap` records (§5.3), which this program must not pin as expected
@@ -4865,6 +4907,9 @@ that instance is a **guard on this PR's own base** against the joining losing it
    returns `max(|a|, |b|, |c|)`: three text nodes are three `InlineItem::Text`s and each is walked
    alone. **An edge term alone does not close this** — `max(|a|, |b|+20, |c|)` is still not
    `|abc|+20` — so the joining is what instance 1's edge term needs to land on, not a follow-up.
+   §6 cell **25g** pins it (rev 76; ledger **A111**): until then this instance was the only
+   statement of the coupling and no cell asserted it, so a producer that joins across items but
+   **commits its candidate whenever it meets a marker** passed every intrinsic cell.
 3. **NBSP splits a segment layout keeps whole.** U+00A0 has the `White_Space` property, so
    `'\u{A0}'.is_whitespace()` is `true` and `"a\u{A0}b".split_whitespace()` yields `["a", "b"]`,
    while `find_break_opportunities("a\u{A0}b")` returns `[]` — no opportunity, as css-text-3 §5.5
@@ -5024,7 +5069,9 @@ outcome this umbrella keeps (cells 16 and 16b; ledger **A67**): the undecorated 
 edges block a hang, how a hanging space sits in its box, and where the box's border-box end falls
 once the space is removed or hung. No `PR-1x` letter, like its siblings.
 
-**Item-boundary opportunity prereq PR** — **the gap**: `place_item` flushes the line whenever the
+**Item-boundary opportunity prereq PR** — **two grants the packer takes and the spec withholds, at
+one seam** (the second added at rev 76; ledger **A112**). **The gap, first grant**: `place_item`
+flushes the line whenever the
 next placed item does not fit (`pack/mod.rs:690` at `154bac3f`,
 `if self.current_inline + trimmed_width > containing_inline_size && self.on_line`), so an **item**
 boundary acts as a break opportunity where css-text-3 §5.5 grants none — neither between adjacent
@@ -5041,7 +5088,25 @@ fires for every `W` in
 widths at which the line is correctly unbroken today. §6 cell **15e** pins the outcome. The fix's
 layer is the one §5.3's slot bullet measures — an `elidex-linebreak` API over the concatenated
 paragraph, consumed through the `elidex-text` facade — and what it is, what it costs and what it
-touches are its own plan-memo's and `/elidex-plan-review`'s. ⚠⚠ **This PR owns that API, and is
+touches are its own plan-memo's and `/elidex-plan-review`'s.
+⚠⚠ **The gap, second grant: an offset *inside* a run whose `white-space` forbids wrapping.**
+`build_pack_items` splits every `InlineItem::Text` at every offset the oracle returns with no
+`white-space` test (`pack/items.rs:63-91`, the call at `:72`), and the packer reads `white_space`
+only for `contributes_content` (`pack/mod.rs:556-568`, a `Pre | PreWrap` test) — nothing between
+the oracle and the `:690` guard filters by it. css-text-3 §3 gives `nowrap` as "Like `normal`, this
+value collapses white space; but like `pre`, it does not allow wrapping" and `pre` as "Lines only
+break at forced line breaks", so under either value a soft wrap offset is unlicensed. **Pre-existing**
+— a `nowrap` run wider than its line wraps today with no marker involved — and **newly reachable
+through PR-1b** by §5.3's disposition rule: the advance makes the same guard fire at widths where
+the run alone fits, `[measure_width("a b"), measure_width("a b") + 20)` for
+`<span style="white-space:nowrap;padding-left:20px">a b</span>`. §6 cell **15f** pins it.
+**Why here rather than in a prerequisite of its own** (ledger **A112**): the fix is a filter on the
+same canonical API this PR already owns — the API sees each item's run and therefore its
+`white_space` — so a second prereq would put a second filter at one seam, which is the duplicated
+decision surface CLAUDE.md's *one issue, one way* refuses. The ordering is unchanged: before PR-1b,
+and before the min-content prereq that consumes the API. ⚠ **This PR's plan-review owns the
+mechanism for both grants**; the umbrella states only what the API must not license.
+⚠⚠ **This PR owns that API, and is
 therefore ordered in `main` before the min-content prereq** (rev 75; ledger **A110**). The
 min-content prereq's joining needs the same construction — the item stream concatenated, offsets
 mapped back to items, atomic boundaries preserved as U+FFFC (§8's suite-level break invariant,
