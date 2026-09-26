@@ -860,6 +860,13 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
+✅ **RE-ACCEPTED AT THE CURRENT COUNT — BY THE USER, ON 2026-09-26, FOR THIS PR.** The 2026-09-21
+acceptance was given at ten own; the list below has since grown (the notes further down record each
+movement). Asked again at the enumeration below — sixteen `^- \*\*` entries at `7b074847`, fourteen
+own and two pre-existing — the user kept (d) for #510. This settles the cap question for #510's merge;
+it does not settle the merge, which still waits on the wire move to A-iii's `tools` job and a fresh
+review of the head pushed then. A later change to the list re-opens the question.
+
 ⚠ **THE COUNT IS GIVEN AS AN ENUMERATION, NOT AS A FIGURE** — a bare number here has gone stale three
 times in this document (`memory/feedback_attestation-by-enumeration-not-assertion.md`). The entries
 below, in order: (1) acceptance half of assertion (b); (2) the four assertions' single-home slot;

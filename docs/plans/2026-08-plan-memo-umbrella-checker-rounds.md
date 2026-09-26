@@ -88,8 +88,10 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - The **A-iii wire move**: the self-test wire goes to the `tools` job, whose budget is undecided; the
   `--self-test --mutants` wall clock is an input (min-of-3, load ~3: `00dfd095` 26.8 s, `3edb6c91`
   31.7 s, head 32.6 s).
-- The **cap PAUSE question** for #510's merge: §8's option (d) rationale stands, the head has moved
-  since the last Codex round, so a merge needs a fresh review of whatever head is pushed then.
+- ~~The **cap PAUSE question** for #510's merge~~ — **SETTLED 2026-09-26**: the user re-accepted
+  option (d) at the current enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
+  record is at the top of the umbrella memo's §8. A later change to §8's list re-opens it. The merge
+  itself still waits on the A-iii wire move, and needs a fresh review of whatever head is pushed then.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 
