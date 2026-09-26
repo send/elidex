@@ -203,8 +203,32 @@ MUTANTS += [
      "device is read to EOF: `/dev/zero` never ends)", "plan_memo_memo.py",
      "        if not stat.S_ISREG(os.stat(self.path).st_mode):",
      "        if False:",
-     ["a linked `.md` whose target is not a regular file (a device) is the unavailable-memo miss at rc 2, "
-      "refused before it is read"]),
+     ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
+      "at rc 2, refused before it is read"]),
+    ("report: the surrogate arm stops at U+D800 (widen it down one -- U+D7FF, the code point just below "
+     "the range, is then mangled)", "plan-memo-umbrella-check.py",
+     ' or "\\ud800" <= c <= "\\udfff"',
+     ' or "\\ud7ff" <= c <= "\\udfff"',
+     ["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, "
+      "never a UnicodeEncodeError from the strict UTF-8 channel"]),
+    ("report: the surrogate arm stops at U+DFFF (drop the upper bound -- U+E000 and everything above "
+     "it, the fullwidth forms included, is then mangled)", "plan-memo-umbrella-check.py",
+     ' or "\\ud800" <= c <= "\\udfff"',
+     ' or "\\ud800" <= c',
+     ["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, "
+      "never a UnicodeEncodeError from the strict UTF-8 channel"]),
+    ("report: only the surrogates are escaped above DEL (escape all non-ASCII -- every Japanese "
+     "line becomes <U+XXXX> soup)", "plan-memo-umbrella-check.py",
+     ' or "\\ud800" <= c <= "\\udfff"',
+     ' or c > "\\x7f"',
+     ["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, "
+      "never a UnicodeEncodeError from the strict UTF-8 channel"]),
+    ("memo: the guard asks REGULAR, not one non-regular kind (narrow it to a char device -- a FIFO "
+     "then blocks the run again)", "plan_memo_memo.py",
+     "        if not stat.S_ISREG(os.stat(self.path).st_mode):",
+     "        if stat.S_ISCHR(os.stat(self.path).st_mode):",
+     ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
+      "at rc 2, refused before it is read"]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",

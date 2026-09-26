@@ -226,10 +226,17 @@ def surrogate_report_control(M):
     with both streams replaced by a strict UTF-8 buffer, the configuration
     `_utf8_streams` gives every run; and the escape's own half is asked of the
     WHOLE class, all 2,048 surrogates, not the one byte that was found.
-    An exception here is red."""
+    AND THE OTHER DIRECTION (the 3ee149e1 attestation): the code points just
+    outside the range -- U+D7FF, U+E000 -- and ordinary non-ASCII text must
+    come through UNCHANGED, or an arm widened past the range, or one that
+    escapes everything above DEL, passes the class check and mangles every
+    Japanese line the memos carry.  An exception here is red."""
     import io
     import sys
     bad = [n for n in range(0xD800, 0xE000) if M.printable("a%sb" % chr(n)) != "a<U+%04X>b" % n]
+    kept_text = "\ud7ff \ue000 \u00e9 \u65e5\u672c \u00a0"
+    if M.printable(kept_text) != kept_text:
+        bad.append("the neighbours were altered: %r" % M.printable(kept_text))
     buf = io.BytesIO()
     out = io.TextIOWrapper(buf, encoding="utf-8", errors="strict", newline="\n")
     saved = sys.stdout, sys.stderr
@@ -244,8 +251,9 @@ def surrogate_report_control(M):
         sys.stdout, sys.stderr = saved
     text = buf.getvalue().decode("utf-8")
     ok = rc == 2 and not bad and "memo<U+DCFF>.md" in text and "linked memo unavailable" in text
-    return ok, ("rc %d, %d surrogate(s) of 2048 not escaped, escaped name printed %s (must be rc 2, 0, True)"
-                % (rc, len(bad), "memo<U+DCFF>.md" in text))
+    return ok, ("rc %d, %d defect(s) in the escape (2048 surrogates + the neighbours), escaped name printed %s "
+                "(must be rc 2, 0, True)%s" % (rc, len(bad), "memo<U+DCFF>.md" in text,
+                                            ("; " + "; ".join(bad[:2])) if bad else ""))
 
 
 def non_regular_memo_control(M):
@@ -254,17 +262,44 @@ def non_regular_memo_control(M):
     to `/dev/zero` read forever).  The fixture is `/dev/null` -- a device like
     `/dev/zero` whose read ENDS, so with the guard removed this control goes
     red (an empty memo, no miss) instead of hanging the run that proves it.
+    ⚠ THE OTHER NON-REGULAR KINDS ARE INJECTED (the 3ee149e1 attestation: a
+    guard narrowed to `S_ISCHR` survived with `/dev/null` alone).  A FIFO
+    cannot be the fixture -- with the guard broken it blocks the proving run
+    -- so a REGULAR sibling is reported to `Memo` as a FIFO, a socket and a
+    block device through the module's `os.stat`, the way
+    `unavailable_sibling_control` injects `resolve`: each must be the miss.
     An exception here is red."""
-    try:
-        with tempfile.TemporaryDirectory() as d:
-            p = pathlib.Path(d) / "fixture.md"
-            p.write_text(build() + "\nSee [dev](dev.md).\n", encoding="utf-8")
-            (pathlib.Path(d) / "dev.md").symlink_to("/dev/null")
-            res = M.check(str(p))
-    except Exception as e:       # noqa: BLE001 -- the defect under test
-        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
-    miss = any(f[0] == "SCHEMA" and "linked memo unavailable (OSError)" in f[3] for f in res.findings)
-    return res.rc == 2 and miss, "rc %d, non-regular-memo miss %s (must be rc 2 with the miss)" % (res.rc, miss)
+    import collections
+    import stat as stat_mod
+    import sys
+    memo_mod = sys.modules["plan_memo_memo"]
+    report = []
+    for kind, mode in (("char device (/dev/null)", None), ("FIFO", stat_mod.S_IFIFO),
+                       ("socket", stat_mod.S_IFSOCK), ("block device", stat_mod.S_IFBLK)):
+        real_os = memo_mod.os
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                p = pathlib.Path(d) / "fixture.md"
+                p.write_text(build() + "\nSee [dev](dev.md).\n", encoding="utf-8")
+                dev = pathlib.Path(d) / "dev.md"
+                if mode is None:
+                    dev.symlink_to("/dev/null")
+                else:
+                    dev.write_text("# a regular file reported as another kind\n", encoding="utf-8")
+                    fake = collections.namedtuple("St", "st_mode")(mode | 0o644)
+                    memo_mod.os = type("OsShim", (), {"stat": staticmethod(
+                        lambda path, *a, _dev=dev, **kw: fake if pathlib.Path(path).name == _dev.name
+                        else real_os.stat(path, *a, **kw))})
+                res = M.check(str(p))
+        except Exception as e:       # noqa: BLE001 -- the defect under test
+            return False, "%s: check() raised %s: %s" % (kind, type(e).__name__, str(e)[:60])
+        finally:
+            memo_mod.os = real_os
+        miss = any(f[0] == "SCHEMA" and "linked memo unavailable (OSError)" in f[3] for f in res.findings)
+        if res.rc != 2 or not miss:
+            return False, "%s: rc %d, non-regular-memo miss %s (must be rc 2 with the miss)" % (kind, res.rc, miss)
+        report.append(kind)
+    return True, "rc 2 + the miss for: " + ", ".join(report)
 
 
 def spec_examples_control(M):
@@ -752,7 +787,7 @@ def registry(case_rows=None):
     reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
     reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
     reg["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, never a UnicodeEncodeError from the strict UTF-8 channel"] = ("CONTROL", surrogate_report_control)
-    reg["a linked `.md` whose target is not a regular file (a device) is the unavailable-memo miss at rc 2, refused before it is read"] = ("CONTROL", non_regular_memo_control)
+    reg["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss at rc 2, refused before it is read"] = ("CONTROL", non_regular_memo_control)
     reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)

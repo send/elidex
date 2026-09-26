@@ -43,7 +43,7 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - **Controls named by no mutation row**, so `--mutants` does not prove they can go red. The figure's
   one home, with the command that re-measures it, is
   `docs/plans/2026-09-plan-memo-selftest-registry.md` (it had been hand-written in 4 homes and had
-  already drifted: `254 of 747` there, `255 of 749` measured). **[CLOSED: the claim]** — the figure now
+  already drifted: `254 of 747` there, `255 of 749` measured at `7b074847`). **[CLOSED: the claim]** — the figure now
   has one home. **[LIMIT: the gap]** — a row per control is a program of its own, not #510's.
 - **The runtime-membership claim is worded too widely**: `collect` takes every ALREADY-IMPORTED
   self-test module holding the list. A population file nobody imports is caught by
@@ -66,12 +66,17 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - **`harness.SOURCES` is keyed by basename and `unload()` leaves a patched module's text behind**, so
   a digest taken after a mutation row can read the patched text of an unrelated run. **[LIMIT]** —
   measured 2026-09-26 by wrapping `_source_digest` over a full `--self-test --mutants`: digests ARE
-  taken under patched text (10,688, all of `plan_memo_selftest_harness.py`, all from
-  `manifest_control`), so "no digest after a row" is FALSE. The risk that makes it matter is a
-  SPURIOUS kill: a harness row whose patch reaches `control.<locals>.run` (the defining block of 668
-  controls) would turn `manifest_control` red with no bearing on the mutation. Today no row does: the
-  two rows killed by `manifest_control` alone (`merge: Registry …`) go red on arm (e) with **0 manifest
-  differences**, and a no-op patch of the harness under the same path leaves it green. A fix edits
+  taken while a mutation row is active (10,688 of `plan_memo_selftest_harness.py`'s, from
+  `manifest_control`), so "no digest after a row" is FALSE. ⚠ **The first statement of this said those
+  digests READ THE PATCHED TEXT; that was false** (the 3ee149e1 attestation, re-measured here): every
+  harness digest of a full run reads the DISK text (48,764 of 48,764), because `_module_text` asks the
+  harness module `import_module` returns, and under a harness row that is the patched module, whose own
+  `SOURCES` holds no entry for the harness file. The probe that produced "patched" had compared the
+  ORIGINAL module's `SOURCES` instead. So the digest cannot see a harness row's patch at all — which is
+  why no spurious kill is reachable from it, and why `_module_text`'s docstring now states that
+  exception. What stays true: the two rows killed by `manifest_control` alone (`merge: Registry …`) go
+  red on arm (e) with **0 manifest differences**, and a no-op patch of the harness under the same path
+  leaves it green. A fix edits
   `unload`/`SOURCES` lifetime — where R26-4 and a CRIT of the last pass came from — so it stays a limit,
   with this as its re-check condition: a new harness row naming `manifest_control`.
 - **Two partner arms are weaker than they read**: the door arm tests `"want" not in co_varnames` (a

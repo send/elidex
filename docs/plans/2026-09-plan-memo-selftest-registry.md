@@ -45,13 +45,17 @@ Its one home is the docstring of `.claude/tools/plan_memo_selftest_registry.py` 
 workflow rule's one home is `plan_memo_selftest_manifest.py`'s docstring. Neither is copied here.
 
 **The open gap, recorded rather than closed**: the manifest pins every control's identity, kind, defining
-function and source digest — but not that a control CAN GO RED. **255 of the 749 controls are named by no
-mutation row** (131 POSITIVE, 95 NEGATIVE, 24 POSITIVE-NOVEL fixture cases, 2 KNOWN-MISS and 3 CONTROL: the
-§6.4 demotion linearity, the SyntaxWarning sweep and `degenerate_control`), so `--mutants` does not
-exercise them. This is the figure's ONE home; it is a measurement at the manifest committed with it,
-re-run by reading the manifest (a MUTANT line's 5th field is its `|`-separated control labels, a CONTROL
-line's 3rd is its label):
+function and source digest — but not that a control CAN GO RED. Measured **at `3ee149e1`: 255 of the 751
+controls are named by no mutation row** (131 POSITIVE, 95 NEGATIVE, 24 POSITIVE-NOVEL fixture cases, 2
+KNOWN-MISS and 3 CONTROL: the §6.4 demotion linearity, the SyntaxWarning sweep and `degenerate_control`), so
+`--mutants` does not exercise them. This is the figure's ONE home, and it is a measurement AT THE COMMIT
+NAMED, not a claim about the head that carries it — a later commit that adds a control moves the
+denominator (`7b074847` wrote "at the manifest committed with it", and `3ee149e1`, one commit later in
+the same push, made that 749 false). Re-run it at any head by reading the manifest (a MUTANT line's 5th
+field is its `|`-separated control labels, a CONTROL line's 3rd is its label):
 
 ```sh
 python3 -c 'import collections as C;L=[l.rstrip("\n").split("\t") for l in open(".claude/tools/plan_memo_selftest_manifest.txt") if not l.startswith("#")];n={x for f in L if f[0]=="MUTANT" for x in f[4].split("|")};u=[f[1] for f in L if f[0]=="CONTROL" and f[2] not in n];print(sum(f[0]=="CONTROL" for f in L),len(u),C.Counter(u))'
-``` Closing it means a row per control, which is a program of its own.
+```
+
+Closing it means a row per control, which is a program of its own.

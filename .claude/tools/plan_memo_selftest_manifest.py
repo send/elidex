@@ -145,6 +145,12 @@ def _module_text(code):
     `SOURCES` map when it holds the file (a mutation row's patched text lives
     there), the file on disk otherwise.
 
+    ⚠ EXCEPT A ROW THAT PATCHES THE HARNESS ITSELF: `import_module` then returns
+    the patched harness, whose own `SOURCES` holds no entry for the harness
+    file, so its functions are digested from DISK (measured 2026-09-26 over a
+    full `--mutants` run: every harness digest; the count is in the ledger).  The digest does not
+    see a harness row's patch; no control relies on it doing so.
+
     ⚠ Not `inspect.getsource`, which reads the FILE: a module the harness
     exec'd from patched text would then digest the text on disk, and a module
     with no file at all would fall back to a constant -- both of them the
