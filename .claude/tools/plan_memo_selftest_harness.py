@@ -103,28 +103,27 @@ _ASSIGNS = {}
 
 def _assigns(here, file, name):
     """Does `file` bind `name` at module level?  The registry partition is
-    decided by CONTENT, not by file name.  Answered once per (file, size,
-    mtime, name): the collection asks it for every file on every collect."""
+    decided by CONTENT, not by file name.  The file is read on every call and
+    the answer cached on (TEXT, name): the key is the content itself, so no
+    rewrite can be answered from a stale entry.  (It was keyed on `(path,
+    size, mtime)`, which answered stale for a same-size rewrite within the
+    filesystem's mtime granularity.  Dropping the cache instead cost ~36 s ->
+    ~45 s of `--self-test --mutants`, measured 2026-09-26: the collection asks
+    for every file on every collect.)"""
     import ast
-    path = here / file
-    try:
-        stat = path.stat()
-        key = (str(path), stat.st_size, stat.st_mtime, name)
-    except OSError:
-        key = None
-    if key is not None and key in _ASSIGNS:
+    text = (here / file).read_text(encoding="utf-8")
+    key = (text, name)
+    if key in _ASSIGNS:
         return _ASSIGNS[key]
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=file)
+    tree = ast.parse(text, filename=file)
+    _ASSIGNS[key] = False
     for node in tree.body:
         targets = (node.targets if isinstance(node, ast.Assign)
                    else [node.target] if isinstance(node, ast.AnnAssign) else [])
         if any(isinstance(t, ast.Name) and t.id == name for t in targets):
-            if key is not None:
-                _ASSIGNS[key] = True
-            return True
-    if key is not None:
-        _ASSIGNS[key] = False
-    return False
+            _ASSIGNS[key] = True
+            break
+    return _ASSIGNS[key]
 
 
 def registry_modules(name, here=None):

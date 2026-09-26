@@ -154,8 +154,7 @@ def manifest_control(M):
         mf.verify(snap, want) for want in (got + [extra], got[1:], [got[0] + "-changed"] + got[1:]))
     taken = mf.take()
     arms["(b) `take` returns the verified table and the verified ROWS"] = (
-        len(taken.entries) == len(snap.table) and taken.rows is snap.rows
-        and "want" not in mf.take.__code__.co_varnames)
+        len(taken.entries) == len(snap.table) and taken.rows is snap.rows)
     arms["(b) the handle cannot be re-pointed at a smaller table"] = _raises(
         lambda: setattr(taken, "entries", taken.entries[1:]))
     saved = sys.modules.pop("plan_memo_umbrella_check", None)

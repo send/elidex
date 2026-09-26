@@ -30,9 +30,9 @@ user on 2026-09-23 and instrumented by the golden manifest
     manifest: that is not silent, because the manifest's own diff is in the
     commit, which is the review surface;
   * WHAT IT DOES NOT PROMISE: that a control can go RED.  The manifest pins a
-    control's identity, kind, defining function and source digest; 254 of the
-    747 are named by no mutation row, so nothing proves they would fail if
-    their subject broke.  The workflow rule and this boundary have ONE home,
+    control's identity, kind, defining function and source digest; a control
+    named by no mutation row has nothing proving it would fail if its subject
+    broke.  The workflow rule and this boundary have ONE home,
     `plan_memo_selftest_manifest`'s docstring.
 
 A LEAF: it owns no controls, and every caller imports it at call time, so a
@@ -71,10 +71,14 @@ def collect(listname, base):
     ManifestError = manifest.ManifestError
     CALLS.append(listname)
     del CALLS[:-_CALLS_KEPT]
-    # THE POPULATION IS WHAT THE MODULES HOLD AT RUNTIME.  The file-name and
-    # assignment-shape rules only say which modules to IMPORT; membership is
-    # then decided by the attribute each imported module actually has -- the
-    # same object the constructors appended to.  ⚠ The AST rule alone was a
+    # THE POPULATION IS WHAT THE IMPORTED MODULES HOLD AT RUNTIME.  The
+    # file-name and assignment-shape rules only say which modules to IMPORT;
+    # membership is then decided by the attribute each module ALREADY IN
+    # `sys.modules` actually has -- the same object the constructors appended
+    # to.  ⚠ So a population file that nothing imports and whose list the
+    # assignment-shape rule does not see is collected by nothing: that
+    # direction is held by `registry_membership_control` (reachability), not
+    # by this step.  ⚠ The AST rule alone was a
     # SECOND, NARROWER population (the CI attestation's CRIT-2): `globals()
     # ["CASES"] = []`, `CASES, _X = [], 1` and `for CASES in ([],)` all bind a
     # list the constructors write to and `ast` does not see as an assignment,

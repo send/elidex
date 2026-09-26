@@ -37,10 +37,11 @@ that does not change with the interpreter.
 
 WHAT THE MANIFEST DOES NOT PROMISE, and where the boundary runs.
   * It pins every control's identity, kind, defining function and SOURCE
-    digest -- not that a control CAN GO RED.  254 of the 747 controls are
-    named by no mutation row, so nothing proves they would fail if their
-    subject broke; that gap is recorded in
-    `docs/plans/2026-09-plan-memo-selftest-registry.md` and is not closed here.
+    digest -- not that a control CAN GO RED.  Controls named by no mutation
+    row have nothing proving they would fail if their subject broke; that gap,
+    its current size and the command that measures it are in
+    `docs/plans/2026-09-plan-memo-selftest-registry.md`, and it is not closed
+    here.
   * The digest covers a control's DEFINITION BLOCK.  MODULE-LEVEL DATA a
     control reads -- a fixture table, a planted directory's file map, a
     complement -- is outside it: weakening such a table changes no manifest
