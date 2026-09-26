@@ -442,7 +442,7 @@ def leading_run_scan_control(M):
 # this list.  The carve-out is that ONE shape -- the attribute `open` on the
 # name `os` -- and nothing else bound to an `open` (`Path.open`, `io.open`,
 # `codecs.open`) leaves the sweep; `encoding_sweep_control`'s planted arm
-# holds both directions.
+# holds both directions (`io.open`, `Path.open`, the builtin, and an `o.open`).
 _ENCODED_IO = frozenset((
     "open",             # builtin / io / codecs / gzip / bz2 / lzma / Path.open
     "read_text", "write_text",
@@ -514,13 +514,18 @@ def encoding_sweep_control(M):
         calls += n
         hits += bad
     # the carve-out, both directions, on a planted source: `os.open` leaves the
-    # sweep, and every OTHER `open` -- an attribute on another receiver, the
-    # builtin -- stays in it
-    _, planted = sweep("<planted>", "import os, pathlib\n"
+    # sweep, and every OTHER `open` stays in it -- an attribute on another
+    # receiver (`Path`, `io`, and a receiver that merely STARTS like `os`),
+    # and the builtin (the de16b03b attestation: with only the first two
+    # planted, a carve-out widened to `io` or to any `o...` name survived)
+    _, planted = sweep("<planted>", "import os, pathlib, io\n"
+                                    "import os as o\n"
                                     "os.open('p', 0)\n"
                                     "pathlib.Path('p').open()\n"
-                                    "open('p')\n")
-    if sorted(h.split()[0] for h in planted) != ["<planted>:3", "<planted>:4"]:
+                                    "open('p')\n"
+                                    "io.open('p')\n"
+                                    "o.open('p')\n")
+    if sorted(h.split()[0] for h in planted) != ["<planted>:4", "<planted>:5", "<planted>:6", "<planted>:7"]:
         hits.append("the os.open carve-out is not exactly one shape: planted hits %s" % planted)
     return (not hits and calls > 0,
             "%d text-I/O call site(s) in %d source(s) swept, %d naming no encoding%s"

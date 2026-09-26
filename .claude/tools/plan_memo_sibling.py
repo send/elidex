@@ -82,7 +82,9 @@ def sibling_path(directory, dest):
           Its result is BYTES, and turning bytes into a file name is this
           checker's policy, not the URL standard's: the name IS those
           bytes, as a POSIX file name is, so a byte that is not UTF-8
-          becomes its surrogate escape (`os.fsencode` round-trips it).
+          becomes its surrogate escape (`os.fsencode` round-trips it; on
+          Windows, whose names are UTF-16, it stays a name no file can
+          have, which the chokepoint reports the same way).
           ⚠ `urllib.parse.unquote` WAS used here and is NOT that
           operation: it decodes with `errors="replace"`, so `child%FF.md`
           and `child%EF%BF%BD.md` -- two different byte names -- were both

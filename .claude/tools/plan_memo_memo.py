@@ -203,15 +203,24 @@ class Memo:
         # open), the descriptor is `fstat`-ed, and that same descriptor is
         # read.  The `OSError` raised here, like a missing file's, is the
         # population chokepoint's unavailable-memo miss (rc 2).
-        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        # ⚠ WHAT THE ORDER COSTS (the de16b03b attestation): a non-regular
+        # target is now OPENED before it is refused -- a FIFO writer blocked
+        # in its own `open()` is released and then meets a closed pipe
+        # (EPIPE), which the path-`stat` guard never did.  That is the price
+        # of asking the object that is read; a memo link to a live pipe is
+        # not a case this checker serves.  `O_BINARY` (Windows only) keeps
+        # the descriptor out of the C runtime's text mode, so `newline=""`
+        # above still receives the file's own line endings there.
+        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise OSError(errno.EINVAL, "not a regular file", str(self.path))
-            fh = os.fdopen(fd, encoding="utf-8", newline="")
         except BaseException:
             os.close(fd)
             raise
-        with fh:
+        # `os.fdopen` owns the descriptor from here: if building the wrapper
+        # fails it has closed it already, so it is not closed a second time
+        with os.fdopen(fd, encoding="utf-8", newline="") as fh:
             self.text = _preprocess(fh.read())
         self.lines = self.text.split("\n")
         if len(self.lines) > 1 and self.lines[-1] == "":

@@ -239,8 +239,8 @@ MUTANTS += [
       "at rc 2, refused before it is read"]),
     ("memo: the memo is opened NON-BLOCKING (drop the flag -- a FIFO with no writer blocks the "
      "open itself, before any check can run)", "plan_memo_memo.py",
-     '        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))',
-     "        fd = os.open(self.path, os.O_RDONLY)",
+     '        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))',
+     '        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_BINARY", 0))',
      ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
       "at rc 2, refused before it is read"]),
     ("encoding sweep: `os.open` is the ONE carve-out (drop it -- the descriptor opens of the memo read "
@@ -258,6 +258,22 @@ MUTANTS += [
      '    name = unquote_to_bytes(raw).decode("utf-8", "surrogateescape")  # (b)',
      '    name = unquote_to_bytes(raw).decode("utf-8", "replace")  # (b)',
      ["a percent-encoded byte that is not UTF-8 names its own file, never the U+FFFD file another spelling names: `child%FF.md` beside a decoy `child\ufffd.md` is rc 2 and the decoy is not scanned"]),
+    ("memo: a refused descriptor is CLOSED (drop the close -- every non-regular link leaks a "
+     "descriptor)", "plan_memo_memo.py",
+     "        except BaseException:\n            os.close(fd)\n            raise",
+     "        except BaseException:\n            raise",
+     ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
+      "at rc 2, refused before it is read"]),
+    ("encoding sweep: the carve-out is not `io.open` (widen it to `io` too -- `io.open` without an "
+     "encoding then passes)", "plan_memo_selftest_properties.py",
+     '                    and isinstance(f.value, ast.Name) and f.value.id == "os"):',
+     '                    and isinstance(f.value, ast.Name) and f.value.id in ("os", "io")):',
+     [R26_ENCODING_LABEL]),
+    ("encoding sweep: the carve-out is the NAME `os`, not a prefix (widen it to `o...` -- an `o.open` "
+     "without an encoding then passes)", "plan_memo_selftest_properties.py",
+     '                    and isinstance(f.value, ast.Name) and f.value.id == "os"):',
+     '                    and isinstance(f.value, ast.Name) and f.value.id.startswith("o")):',
+     [R26_ENCODING_LABEL]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",

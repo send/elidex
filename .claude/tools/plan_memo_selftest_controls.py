@@ -280,6 +280,10 @@ def non_regular_memo_control(M):
     memo_mod = sys.modules["plan_memo_memo"]
     real_os = memo_mod.os
     report = []
+    # EVERY refusal closes its descriptor (the de16b03b attestation: a guard
+    # that raised without `os.close` survived): the process's open
+    # descriptors are counted around the four arms and must match
+    fds_before = len(real_os.listdir("/dev/fd"))
     for kind, mode in (("char device (/dev/null)", None), ("FIFO (real)", "fifo"),
                        ("socket", stat_mod.S_IFSOCK), ("block device", stat_mod.S_IFBLK)):
         out = {}
@@ -331,7 +335,10 @@ def non_regular_memo_control(M):
         if res.rc != 2 or not miss:
             return False, "%s: rc %d, non-regular-memo miss %s (must be rc 2 with the miss)" % (kind, res.rc, miss)
         report.append(kind)
-    return True, "rc 2 + the miss for: " + ", ".join(report)
+    leaked = len(real_os.listdir("/dev/fd")) - fds_before
+    if leaked:
+        return False, "%d descriptor(s) left open by the refusals (must be 0)" % leaked
+    return True, "rc 2 + the miss for: " + ", ".join(report) + "; 0 descriptors leaked"
 
 
 def percent_bytes_control(M):
