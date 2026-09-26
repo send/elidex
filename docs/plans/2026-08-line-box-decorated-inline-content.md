@@ -168,7 +168,9 @@ internal-opportunity arm, restates its window in the packer's segment sum and re
 committed-width assertion no PR-1b channel reports with run placement (A122), **rev 80's 15f**, whose
 first markup's window is restated in the same segment sum with no change of outcome (A122 (iv)), and
 **rev 81's 15g**, which gains six arms, (c)–(h), in seven markups — (e) has a `nowrap` and a `pre`
-one — one per row of the unit's edge matrix that follows it that names an arm, and states flip or invariance per arm (A123); rev 63 adds none (R2 adds
+one — one per row of the unit's edge matrix that follows it that names an arm, and states flip or invariance per arm (A123), and
+**rev 82's 15g**, which loses arms (c), (d), (f), (g) and (h) and the matrix to §5.3's seed list for
+PR-1b's plan-review, keeping (a), (b) and (e) in both its markups (A124); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -799,6 +801,7 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A121 | R46-F3 | §5.3's PR-1b universal "**no cell pins a `line_count` change**", left standing by rev 78 in the same block that routes cell **15g** | the universal is falsified by its own block's routing — 15g pins `line_count` 1 → 2 and §8 calls it PR-1b's flip — and three cells' notes (15e, 15d, 24e) leaned on it. **Replaced by a per-cell statement rather than a narrower universal**, because this is the third time a universal has been falsified by the delta that added its counter-example (**A17**'s markup-vs-cells narrowing, **A100(a)**'s M8 enumeration, and now this): each PR-1b cell states its own width regime and what its count does there, so nothing needs maintaining as cells are added — 15g is the one that pins a change, and the others pin their counts unchanged by putting `W` below today's own wrap point or by having no opportunity to take. The three dependent notes now state their own regime instead of citing the universal. **Swept line-oriented and de-wrapped** for the phrase and for appeals to it. Found by Codex on #515 |
 | A122 | R47-F1 (P1); self-introduced by rev 78 (**A116**) | §5.3's PR-1b outcome as rev 78 stated it — the break goes to an earlier licensed opportunity "and the box moves **whole** to the next line" — and §1.3's "the third case is the one this program reaches" | on `<p style="width:W"><span style="padding-right:20px">a b</span></p>`, with `W` where `a b` fits undecorated, `b` plus the end edge fits alone and the whole decorated line does not, the only licensed opportunity is the space **inside** the span, so css-inline-3 §2.1 splits the box there and only `b` and the inline-end edge move; the universal moved the whole span, and cell 15g could not see it because its one opportunity lies outside the box. **Replaced by a derivation rather than a narrower universal**, because this is the **fourth** universal falsified by the delta that added its counter-example (**A17**, **A100(a)**, **A121**, and now this — and the second in this very bullet, A121's being the first): the outcome is only that the line breaks at an earlier licensed opportunity instead of committing over-width (css-text-3 §5's "must minimize the amount of content overflowing a line", now quoted beside §3's), and the box's fate is read off the opportunity's position by rules the memo already carries — before the box's first character, §5.5's margin-edge bullet moves it whole (15g(a)); inside it, §2.1 splits it and the end edge rides the last fragment (css-break-3 §5.4's `slice`) (15g(b)); after its last character it stays wholly before the break, which the trigger never selects. Cell **15g** gains arm **(b)**, a flip (1 → 2) routed to PR-1b with (a) and outside §8's flip partition on the same ground; each arm carries **exactly one** licensed opportunity because css-text-3 §5.5 says "CSS does not define prioritization of soft wrap opportunities", so an arm with one outside and one inside would pin the packer's greedy choice. **No amendment to M3 or M4**: the internal opportunity is a UAX #14 opportunity in the box's own text, not a boundary (M3's ground), and M4 already gives a box a rect on each line it has a fragment on. **Four further defects, found while re-deriving it — (i)–(iii) in rev 78's text, (iv) in rev 76's**: (i) its grounds bolded §5.5's "or after the last character" half and called 15g the start-edge answer's "end-edge mirror", but 15g(a)'s opportunity is **before** the span's first character — the **same** half as OQ-1 and 17c; (ii) 15g's window was stated in `measure_width("a b")`, which the packer never computes — `place_item` accumulates the two segments' own advances (split at `pack/items.rs:63-91`, each measured alone at `pack/mod.rs:544`, compared and advanced at `:690`/`:695`), the form cells 15d and 15f's second markup already use — so both arms now state it as `S = measure_width("a ") + measure_width("b")`; **(iv)** cell **15f**'s first markup (rev 76) and its copy in §8's item-boundary block carried the same `measure_width("a b")` window, restated in the same `S` (**A112**'s committed copy of that window stands and is superseded here; the run splits at `find_break_opportunities("a b") == [(2, Allowed)]`, measured at `154bac3f`). In the harness the two forms are **equal** — `22.242188` in Arial and `25.408` in Hiragino Sans at 16 px, through `elidex-shaping`'s `measure_text` — so no test outcome moves under (ii) or (iv); the restatement is kept because the windows' arguments name the quantity the `:690` guard compares, and only `S` is that quantity by construction (a font kerning across the space would separate them). A de-wrapped sweep of every `measure_width("…")` argument in the memo found no other live window in the whole-run form: 25f and 25g name `measure_width("ab")` / `measure_width("bc")` only as the rejected value, 15f's second markup as rejected `measure_width("a\u{A0}b")`, and `measure_width("aaaab")` survives only in R6-b's history and A16/A18; (iii) 15g asserted "line 1's committed width is ≤ `W`", a quantity no PR-1b channel reports (`InlineFlowLine` has no width field and the over-running edge sits in no run), replaced by which run lies on which line. **§3's css-inline-3 §2.1 row now states what its ✗ covers**, since 15g(b) grounds on the same sentence: the edge-bearing fragment facets §5.3's `#11-inline-box-decoration-splits` bullet lists (css-break-3 §5.4 attribution, per-fragment border areas, content-order identity, bidi fragments), not the content split across line boxes that the packer already performs and cells 17, 17g and 15g(b) assert; its ✗ and routing are unchanged. **A116's mechanism fact is walked for arm (b), not measured**: the scoped shape yields (b)'s expectation provided the end of the content terminates the scan for the next licensed opportunity; stated at §5.3 for PR-1b's plan-review to measure. A116 is committed and stands; its outcome sentence is superseded by this row. **Swept line-oriented and de-wrapped** for `moves whole` / `box moves` / `whole box` and for appeals to 15g as the outcome's whole. Found by Codex on #515 |
 | A123 | R49-F1, R49-F2, R49-F3 (three P2s) and an enumeration attestation of rev 80; the §5.3 PR-1b end-edge outcome had then drawn findings in R45, R46, R47 and R49, so the round was a pause and not a per-finding patch | rev 78's framing of the outcome as a **pending inline-end edge** found by a lookback (A116's "end edges of boxes closing before the next licensed opportunity"), carried by rev 80 into two arms of cell 15g — and, with it, rev 80's "it adds no cell" for an opportunity after the box's last character | **Root, stated once**: rev 78 introduced a new consumer of break opportunities without enumerating what it consumes, so each round found the next corner — R46-F3 and R47-F1 before this, R49-F2 (two end edges closing together: a nearest-`InlineBoxEnd` evaluation passed both arms) and R49-F3 (an end edge in a `nowrap` run: a lookback reading raw UAX #14 splits where the spec forbids and passed everything) now. **There is no separate lookback**: once the item-boundary opportunity prereq withdraws the packer's two unlicensed grants, a break lands only at a licensed opportunity, so a content item is tested against the whole **unit** up to the next licensed opportunity as the prereq's canonical API reports it (**A110**: `white-space`-filtered per **A112**, atomic boundaries per **A37**/**A120**, a forced break ending the unit), and PR-1b's contribution is only that every edge a marker inside the unit advances is in the unit's width. One opportunity source, so R49-F3 cannot arise from a conforming shape — *one issue, one way* — and a cell still pins it because a second source is exactly what would pass every other arm. **Enumerated once**, as a table after cell 15g: sixteen rows, each to an arm or to the reason none is needed — nine rows to 15g's markups, four to other cells, three to reasons. The enumeration found two corners no reviewer had raised — the **start** edge of a box opening inside the unit (15g(d)), which A116's shape, counting closing boxes only, misses; and an `InlineBoxEnd` sitting **at** the offset of an opportunity after the box's last character (15g(h)), which css-text-3 §5.5 puts before the break and an offset-based "closing before the opportunity" puts after it — so rev 80's "it adds no cell" is withdrawn. New arms (c) (R49-F2), (d), (e) (R49-F3, with a second markup under `pre` so that the matrix's `pre` row is pinned rather than declared), (f) (forced break ends the unit, 17h's `font-size: 0` device so no LF metric is read, **A106**), (g) (atomic boundary via U+FFFC), (h); windows in the packer's segment sums, each asserted non-empty and measured at `154bac3f`; flip or invariance stated per arm (**A121**). **R49-F1** → new PR-1b cell **25h**, two mirror-image markups on a `pre` forced break (the fixture shape §8's instance 7 already uses, not `<br>`, whose forced break is not implemented — cell 19), pinning each edge to its own forced line in both intrinsic sizes; every one of seven rejected producers fails at least one arm. It **contradicts no prior decision**: **A91** folded the forced-break segmentation into the min-content prereq (instance 7) and flagged M8's "matching that pass's existing `total +=` shape" as going stale, recording that "No M8 cell contains a mandatory break"; it decided nothing about where the edges land, which is the gap R49-F1 names. **No frozen column amended**: M3's marker path stays checkless (the unit is evaluated at content items, and no boundary becomes an opportunity); M4 is untouched; M8's "each marker adds its inline-axis edge sum to the running total" holds per forced line, and its stale tail stays **A91**'s flag for the user. **Attestation defects, all authored in rev 80**: (1) cell 15f's rev-80 note made `build_pack_items` the subject of "measures each alone" — measuring is the packer's, `pack/mod.rs:544` — though rev 80 had fixed the same sentence in 15g; (2) §5.3's `#11-inline-box-decoration-splits` bullet still named "css-inline-3 §2.1 box splitting across line boxes" while §3's row had been narrowed to "the facets §5.3's slot bullet lists", so PR-1b's plan-review could read 15g(b)'s split as deferred — the bullet now names the edge-bearing facets and excludes the content split; (3) **A116**'s grounds sentence — css-text-3 §5.5's bullet "before the first **or after the last character** of a box … at its margin edge", "which covers both directions — so the end edge needs no clause of its own" — is **superseded by this row** as well as its outcome sentence (A122 named the outcome only; A116 and A122 are committed and stand): the half that grounds 15g(a) is "before the first", and the "after the last character" half is 15g(h)'s; (4) **A122**'s "the **fourth** universal falsified by the delta that added its counter-example (**A17**, **A100(a)**, **A121**, …" misclassifies it — in A121's class one delta both left the universal standing and added the cell falsifying it, whereas here rev 78 authored the universal and a reviewer (R47) supplied the counter-example; the accurate relation is that it was a universal written without the edge matrix of the consumer it described, which is this row's root; (5) the freeze paragraph's rev-80 15g edit carried no ledger id, the trailing "(A122 (iv))" attaching to 15f — it now reads (A122); and, not an attestation item but the same surface, (6) A122's "each arm carries **exactly one** licensed opportunity" no longer holds of arm (h), which carries two on its first line — the property the arms keep is **one opportunity that avoids overflow per asserted line**, which is what css-text-3 §5.5's unspecified prioritization requires, and 15g and §5.3 now say that. **Swept line-oriented and de-wrapped** for `pending inline-end edge`, `lookback`, `measures each alone`, `box splitting across line boxes`, `it adds no cell` and `both arms`. Found by Codex on #515 and by the attestation |
+| A124 | R50-F1, R50-F2 (two P2s) and an enumeration attestation of rev 81 (nine items); the `external-converge` overlay's generator-layer check, run before any per-finding patch | rev 81's **per-arm characterization of PR-1b's unit evaluation** in this memo — cell 15g's arms (c), (d), (f), (g) and (h) and the sixteen-row edge matrix after it — and correcting that layer in place | **The layer was the generator.** Findings on the §5.3 PR-1b end-edge outcome went **1 → 6 → 11** over R47 (**A122**), R49 with rev 80's attestation (**A123**) and R50 with rev 81's; all eleven sit in text rev 81 wrote (`git diff --shortstat 0af77e7f~1 0af77e7f`: 286 insertions, 79 deletions), and of R49's six only R49-F1 (intrinsic, cell 25h) lay outside revs 78–80's surface. The shape hopped sub-areas — box fate; nesting and `nowrap`; signed edges, marker-only boxes, a marker at an opportunity's offset, the evaluation point — and is one shape, *a wrong evaluator passes every arm*: wrong evaluators are not a finite list, so each arm was new surface to find one around. That layer is PR-1b's mechanism, which **A116** already assigned ("The choice is PR-1b's plan-review's"), and that plan-review is mandatory. **Altitude correction, not a scope cut and not an outcome hand-off** (freeze discipline 5, **A59**; unlike **A67**): the outcome stays, restated as a property of the committed lines (§5.3's O1–O3), and answers the new findings at that altitude — edges **signed** (R50-F1) and counted **whether or not the box holds text** (R50-F2), and O3, 17c's deviation as the one exemption: a start edge M3 leaves before a break neither counts against that line nor moves the break (the attestation's first item: rev 81's row 11 and 15g's closing ⚠ called it "not an evaluation question", false — its `InlineBoxStart` sits at the opportunity's offset, (h)'s question). **A123's unit model stays as the ground** of O1–O2 and of the single opportunity source (**A110**/**A112**); the instances move to §5.3's seed list, whose cells PR-1b's plan-review writes with layouts **derived** from the clauses. **Why they were N, and where each went**: (c) rejected a nearest-`InlineBoxEnd` evaluation → item 2; (d) closing-only and opening-only shapes → item 3, with the attestation's second item (a back-up evaluation makes (d) vacuous) as item 4; (f) a unit running past a forced break → item 8; (g) a text-only source missing atomic boundaries (**A37**) → item 9; (h) an offset-`InlineBoxEnd` given to the following unit → item 7, with the start-edge case; matrix rows 1–2 are (a)/(b), 5–6 (e), 11 O3, 12 item 1, 14 the prioritization ⚠, and 10, 13, 15, 16 the list's closing sentence. **Kept as cells**: (a), (b) — the box's fate derived from the opportunity's position (**A122**), and the flip; (e) in both markups — O1, whose wrong layout breaks where css-text-3 §3 forbids; 25h, M8's. Each removed arm's wrong layout is an O2 violation, an instance of the property. ⚠ **Found by the restructure**: rev 81's (f) and R50-F1's seed are observable only as a line broken **earlier** than needed, which the clauses allow (css-text-3 §5.5 does not prioritise), so a cell on either could only pin greedy fill, which this memo declines to pin (its standing prioritization decision, not a call for PR-1b) — (f) had two overflow-avoiding choices on line 1 against 15g's own rule; items 5 and 8 record that no cell is written on those shapes. The restructure found no negative-edge shape whose wrong layout violates the per-line O2 — the closest, `<span style="margin-right:-40px">a</span> bbbbbb`, overruns only a line that has no opportunity — and a cell pinning its correct layout would pin greedy fill as well, which this memo does not adopt. **Attestation items 3–9**: "exactly one" overflow-avoiding opportunity, false of (e) → "at most one"; **A116** misquoted in §5.3 and **A123** as "end edges of boxes closing before …" → §5.3 quotes "scopes the pending edges to boxes closing before the next licensed opportunity", A123's copy superseded here; "the only shape that breaks **no** existing cell", false once 15g(d) existed → paragraph removed; (e)'s "15f quotes the `nowrap` and `pre` definitions whole" → `pre`'s clause on breaking only; "every second line here is produced by edges", false of (f) → of (a) and (b); matrix row 10 citing cell 15, which asserts no wrap → gone. **Superseded, rows standing**: **A91**'s "No M8 cell contains a mandatory break" (false since 25h, which A123 did not note); **A116**'s "**§6 cell 15g** pins the outcome as a **flip** (`line_count` 1 → 2)" (invariance in (e)); **A123**'s "sixteen rows … nine rows to 15g's markups". No frozen column touched; 17c's text is unedited. **Swept de-wrapped** for `15g(c)`–`15g(h)`, `eight arms`, `nine markups`, `six arms`, `(c)–(h)`, `matrix row`, `unit's edge matrix`, `exactly one`. Found by Codex on #515 and by the attestation |
 
 ---
 
@@ -912,8 +915,8 @@ and only what follows the opportunity moves — §6 cell 15g(b)); with neither, 
 opportunity is before the box's first character in both — so 15g(a) is not that half's end-edge
 mirror, which rev 78 called it: the bullet's "after the last character" half is the position where
 the box stays **wholly before** the break, its end edge with it — including when the box's last
-character is a space and its `InlineBoxEnd` sits at the opportunity's own offset (§6 cell 15g(h);
-rev 81, ledger **A123**).
+character is a space and its `InlineBoxEnd` sits at the opportunity's own offset (rev 81, ledger
+**A123**; §5.3's PR-1b seed list, item 7, since rev 82's **A124**).
 
 ### §1.4 Shaping — `css-text-3` §7.3 *Shaping Across Element Boundaries*
 
@@ -1502,9 +1505,25 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   max-content contribution.
   ⚠⚠ **Outcome — a line whose content fits but whose edges do not takes the earlier licensed
   opportunity** (rev 78; R45-F2; ledger **A116**; generalised from the inline-end edge at rev 81,
-  ledger **A123**). Where the inline-axis edges inside the unit being placed — the unit the next
-  ⚠⚠ below defines — make the line unable to hold it, the break goes to a **licensed opportunity
-  earlier in the line**, rather than the line committing over-width. css-text-3 §5 — "When wrapping is enabled (see
+  ledger **A123**; stated as a property of the committed lines at rev 82, ledger **A124**). What
+  every line PR-1b commits satisfies — a property of the result, not a procedure for finding it:
+  * **O1 — it ends at a licensed opportunity, a forced break or the end of the content**, licensed as
+     the item-boundary opportunity prereq's canonical API reports it and by nothing else (ledger
+     **A110**; `white-space`-filtered, **A112**; atomic boundaries included, **A37** with
+     **A120**'s NBSP term).
+  * **O2 — its inline extent is at most the available width, unless no licensed opportunity on the
+     line avoids overflow**, and then the line overflows (CSS 2 §9.4.2's "cannot be split …
+     overflows") — the extent being its content plus every inline-axis edge, **signed**, of every
+     box fragment on it, **whether or not the box holds text**. Which opportunity is taken where
+     several avoid overflow is **not** part of it (the prioritization ⚠ below).
+  * **O3 — one exemption, the registered deviation PR-1c's 17c observes** (ledger **A60**): css-text-3 §5.5 puts a box that opens
+     right after the line's break on the next line, its start edge included, and M3 advances that
+     start edge on this line instead (§3's *adjacent soft wrap opportunity* row, ✗;
+     `#11-inline-box-decoration-splits`). That edge is **not** counted against this line's width
+     **and does not move the break**: the break is selected as if the edge were on the next line,
+     where css-text-3 §5.5 puts it, so the deviation remains one of edge placement and never becomes one of break selection — that
+     PR-1c cell asserts the same in its own regime ("the 5px start edge does not move the break").
+  css-text-3 §5 — "When wrapping is enabled (see
   white-space), the UA must minimize the amount of content overflowing a line by wrapping the line at
   a soft wrap opportunity, if one exists" (`body css-text-3 line-breaking`) — and css-text-3 §3 on
   `normal` — "Lines may wrap at allowed soft wrap opportunities, as determined by the line-breaking
@@ -1532,40 +1551,36 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   * **Opportunity after the box's last character** — the same §5.5 bullet's other half: the box is
     wholly **before** the break, its end edge with it, so that edge is counted on the earlier line and
     the box does not move. Selecting it cannot relieve a line that cannot hold that edge, so it is
-    never the opportunity the trigger sends the break to. ⚠ **It still needs an arm** (rev 81;
-    **A123** — rev 80 wrote "it adds no cell"): when the box's last character is a space, the
-    `InlineBoxEnd` sits **at** that opportunity's offset, and the edge belongs to the unit **before**
-    it; an evaluation assigning it to the following unit keeps the box on a line that cannot hold
-    its edge. §6 cell **15g(h)**.
+    never the opportunity the trigger sends the break to. ⚠ When the box's last character is a
+    space, its `InlineBoxEnd` sits **at** that opportunity's offset and the edge is still on this
+    side (rev 81, **A123**) — O2 counts it on the earlier line; the evaluation that assigns it
+    to the following unit is item 7 of the hand-off below.
   ⚠ **Which licensed opportunity is selected, where several avoid overflow, is not specified** —
   css-text-3 §5.5: "CSS does not define prioritization of soft wrap opportunities" (`body css-text-3
-  line-break-details`). That is why each 15g arm leaves **exactly one** licensed opportunity that
-  avoids overflow on each line it asserts: an arm with an opportunity both outside and inside the
-  box would pin the packer's greedy choice, which the spec leaves open, and not the outcome. §1.3 states the three positions beside
+  line-break-details`). That is why each 15g arm leaves **at most one** licensed opportunity that
+  avoids overflow on each line it asserts — one in (a) and (b), none in (e) (rev 82, **A124**: rev
+  81 wrote "exactly one", false of (e)): an arm with two would pin the packer's greedy choice,
+  which the spec leaves open, and not the outcome. §1.3 states the three positions beside
   its dichotomy. ⚠ **Stated with its complement**: the outcome turns on there *being* an earlier
   licensed opportunity — outside the box or inside it — so where the line carries none the box
   overflows instead — CSS 2 §9.4.2's "cannot be split … overflows", which a PR-1c cell already pins
   on a fixture whose text has no UAX #14 opportunity at all.
-  ⚠⚠ **What the break test fits, stated once: the unit up to the next licensed opportunity, edges
-  included — not a separate end-edge lookback** (rev 81; R49-F2, R49-F3; ledger **A123**). Once the
-  item-boundary opportunity prereq, in `main` before PR-1b, withdraws the packer's two unlicensed
-  grants (§8), a break can land only at a licensed opportunity, so what a content item is tested
-  against is the whole **unit** from that item to the next licensed opportunity; and the licensed
-  opportunities are the ones that prereq's canonical API reports (ledger **A110**) —
-  `white-space`-filtered (its second grant, **A112**), atomic boundaries included (**A37**, with
-  **A120**'s NBSP term), a forced break ending the unit and the end of the content ending the last.
-  PR-1b's whole contribution to that test is that **every inline-axis edge a marker inside the unit
-  advances is part of the unit's width** — inline-start and inline-end, any number of boxes, any
-  nesting — since M3 puts those advances on the line in item order and nothing else does. There is
-  **no second opportunity source**: a lookback that reads UAX #14 over raw text to find the earlier
+  ⚠⚠ **Why the property is stated over units, from one opportunity source** (rev 81; R49-F2,
+  R49-F3; ledger **A123** — kept at rev 82 as the ground of O1–O2, its per-arm layer handed
+  off, **A124**). Once the item-boundary opportunity prereq, in `main` before PR-1b, withdraws the
+  packer's two unlicensed grants (§8), a break can land only at a licensed opportunity, so what
+  decides a break is the **unit** between consecutive licensed opportunities — a forced break ending
+  a unit and the end of the content ending the last — and its width carries **every inline-axis
+  edge a marker inside it advances**: start and end, signed, any number of boxes, any nesting,
+  since M3 puts those advances on the line in item order and nothing else does. There is **no
+  second opportunity source**: a lookback that reads UAX #14 over raw text to find the earlier
   opportunity would be a second consumer of the question the canonical API answers, the duplicated
   decision surface CLAUDE.md's *one issue, one way* refuses, and R49-F3's `nowrap` hole is what it
-  would reopen. Rev 78's "pending inline-end edge" — and A116's "end edges of boxes closing before
-  the next licensed opportunity" — is the end-edge half of this and nothing more; the start-edge
-  half, a box **opening** inside the unit after the tested item, was unstated until rev 81. The
-  unit's axes are enumerated **once**, in the table after §6 cell 15g, each row to the arm that pins
-  it or the reason no arm is needed; how the packer evaluates the unit (a lookahead over it, or
-  another shape) stays PR-1b's plan-review's, on the prereq's API.
+  would reopen (§6 cell 15g(e) pins it). Rev 78's "pending inline-end edge" — and the shape A116
+  recorded, which "scopes the pending edges to boxes closing before the next licensed opportunity"
+  — is the end-edge half of this and nothing more. **How** the packer evaluates a unit — at which
+  item, by a lookahead or another shape — is PR-1b's plan-review's, on the prereq's API; what the
+  evaluation must not ship is seeded in the hand-off two paragraphs below.
   ⚠ **This needs no amendment to M3, and the reason is in M3's own ground**: M3 forbids a soft-wrap
   check **on the marker path** because "a box boundary is not a break opportunity" (its Grounds
   column, citing §1.3). The outcome above breaks at an **earlier licensed** opportunity, never at the
@@ -1576,30 +1591,59 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   item-boundary prereq's `white-space` filter keeps under `normal` — it is neither a boundary nor new — and M4's
   "a box has a rect on each line it has a fragment on" already covers the fragment it produces, as it
   does every soft-wrapped box PR-1c's cells read.
-  ⚠ **What the measurement found about the mechanism, as facts and not as a requirement** (R45-F2,
-  measured at `154bac3f`): the only shape that breaks **no** existing cell is the one that counts the
-  end edges of boxes closing **before the next licensed opportunity**, which means consuming the
-  canonical opportunity API the **item-boundary opportunity prereq** owns (ledger **A110**) — and that
-  prereq is *already* ordered in `main` before PR-1b, so the outcome needs no new ordering. The
-  cheaper shape, a running sum of **every** open box's end edge added to `place_item`'s guard
-  (`pack/mod.rs:690`), is **over-conservative** and measured breaks three of PR-1c's cells: on the
-  wrapping-box markup `<p style="width:80px">aaa <span style="padding:10px">bbb ccc</span></p>` it
-  flushes before `bbb`, moving the whole box to line N+1 and destroying the two-fragment geometry the
-  three PR-1c cells on that markup read off one geometry (named in ledger **A116**). A rollback after the marker's advance is the third shape, and it would make
-  `place_item`'s five-write sequence reversible, which M3's one-owner core is not built for. **Which
-  shape ships is PR-1b's plan-review's**; the umbrella states the outcome and the cell.
-  ⚠ **The scoped shape was measured against the cells that existed at rev 78; for 15g(b) it is walked, not measured**
-  (rev 80; **A122**): placing `"a "` inside the span, the span closes **after** the next licensed
-  opportunity (the one `"a "` ends at), so no edge is pending and `"a "` stays; placing `"b"`, the span
-  closes before the next licensed opportunity — there is none before the end of the content, so the
-  scan's terminator is the end of the paragraph, which the shape must treat as one — and the pending
-  20px sends the break to the opportunity after `"a "`, splitting the box there. The walk yields
-  15g(b)'s expectation, so the fact above stands for the internal-opportunity case with that
-  terminator made explicit; PR-1b's plan-review measures it. ⚠ **The fact names end edges only**
-  (rev 81; **A123**): by the ⚠⚠ above, the unit's width also carries the inline-start edge of a box
-  opening inside it, and a shape counting closing boxes alone fails §6 cell 15g(d) — and 15g(h) as
-  well if it reads "closing before the opportunity" by text offset, the `InlineBoxEnd` there sitting
-  **at** the opportunity's offset.
+  ⚠⚠ **Handed to PR-1b's plan-review — the defects a unit evaluation can ship, a seed and not an
+  inventory** (rev 82; ledger **A124**, which records why rev 81's per-arm layer left this memo).
+  The outcome is O1–O3 above. Each item names a defect and a seed shape; PR-1b's plan-review
+  enumerates the evaluation's axes itself and turns the items into cells whose expected layout is
+  **derived from O1–O3, not chosen** (freeze discipline 5), each with at most one
+  overflow-avoiding opportunity per asserted line. Kept from rev 78's measurement at `154bac3f`: a
+  rollback after the marker's advance would make `place_item`'s five-write sequence reversible,
+  which M3's one-owner core is not built for; and the shape A116 recorded is incomplete by items
+  3, 6 and 7.
+  1. **Counting the end edge of a box that closes after the next licensed opportunity** — a running
+     sum of every open box's end edge on the `:690` guard: on `<p style="width:80px">aaa <span
+     style="padding:10px">bbb ccc</span></p>` it flushes before `bbb` and moves the whole box to
+     the next line; three of PR-1c's cells already fail it (measured, rev 78; named in ledger **A116**).
+  2. **Counting only the nearest closing edge** — `a <span style="padding-right:10px"><span
+     style="padding-right:10px">b</span></span>`: the outer edge overruns (R49-F2).
+  3. **Counting only boxes that close in the unit, or only boxes that open in it** — `a b<span
+     style="padding-left:10px;padding-right:10px">c</span>d`: `b`, `c` and `d` are one unit and
+     both edges lie in it, so where the edges alone overrun, `a` stands alone on line 1.
+  4. **Writing item 3's cell for the wrong evaluation point** — its rejection argument holds only if
+     the unit is tested at its head item; an evaluation that backs up to the last licensed
+     opportunity when a mid-unit item does not fit gives the advance alone, the closing-only and
+     the opening-only shapes item 3's correct layout, so the cell is written against the point the
+     chosen evaluation tests (attestation of rev 81).
+  5. **Clamping or omitting a negative edge** (R50-F1) — **no cell**. The defect is real as a
+     measurement defect but no shape found shows it as an O1–O3 violation: on R50-F1's
+     `a <span style="margin-right:-20px">bbbb</span>c` the wrong layout breaks after `a ` onto lines
+     that each fit, and on `<span style="margin-right:-40px">a</span> bbbbbb` it leaves `bbbbbb`
+     overrunning a line that has no opportunity — both conform line by line. A cell asserting either
+     layout would pin greedy fill, which this memo declines to pin (the prioritization ⚠ above), so
+     PR-1b's plan-review writes none on these shapes.
+  6. **Associating edges only with text-bearing boxes** — `a b<span style="padding:10px"></span>c`
+     at a width where `a b` and `c` fit together, `b`, `c` and the 20px fit together, and all of
+     it does not: `a` alone on line 1, `b` and `c` on line 2 (R50-F2).
+  7. **Assigning a marker at an opportunity's offset to the wrong side** — an end edge: `a <span
+     style="padding-right:20px">b </span>c`, whose `InlineBoxEnd` sits at the opportunity after
+     `b ` and belongs before it (three lines); a start edge: `x aaaa <span
+     style="padding-left:20px">cccc</span>`, whose `InlineBoxStart` sits at the opportunity after
+     `aaaa ` — counting it there moves the break back to after `x `, which O3 forbids, at
+     widths outside the precondition of the PR-1c cell O3 names (attestation of rev 81).
+  8. **Running a unit past a forced break** — `white-space: pre-line`, `a <span
+     style="padding-right:20px">b<i style="font-size:0">\nA</i>c</span>`: the edge is the next
+     line's. ⚠ Its wrong layout under-fills rather than overruns — line 1 also admits the break
+     after `a `, and every line of it fits — so it conforms to O1–O3 and a cell on this markup
+     could only pin greedy fill, which this memo declines to pin: rev 81's arm on it did, and no
+     cell is written on this shape. A seed that separates the defect needs a markup whose wrong
+     layout overruns a line.
+  9. **Reading opportunities from the concatenated text alone** — `<span
+     style="display:inline-block;width:10px"></span><span style="padding-right:20px">b</span>`: the
+     atomic boundary is licensed (**A37**, U+FFFC), and missing it overflows.
+  Pinned elsewhere or deliberately unpinned: no licensed opportunity at all (PR-1c's 15c, and 15e — overflow);
+  a second opportunity source under `nowrap` or `pre` (15g(e), 15f); a characterless box beside an
+  opportunity (undetermined, ledger **A19**); `direction: rtl` and vertical writing modes (12b,
+  12c, 12e, 12f pin the side mapping the unit reads); a forced break in the intrinsic passes (25h).
   §6 cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 15e, 15g, 16,
   15f, 16b, 25, 25b, 25c, 25d, 25e, 25f, 25g and 25h land here — cells 3, 3b, 3c, 4, 12b, 12c, 12f and 12e among them because each asserts a
   *payload* fact
@@ -1624,7 +1668,8 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   observable). ⚠ **The count is a per-cell fact, not a universal** (rev 79; ledger **A121**): each
   PR-1b cell states its own width regime and what its count does there, so nothing here has to be
   maintained as revisions add cells — **15g** is the one that pins a change, per arm as its closing
-  ⚠ states (six arms change the count and two do not, rev 81; §8 calls the changes PR-1b's flips), and every other width-constrained PR-1b cell pins its count
+  ⚠ states (two arms change the count and the third, in both its markups, does not — rev 82, **A124**;
+  §8 calls the changes PR-1b's flips), and every other width-constrained PR-1b cell pins its count
   **unchanged** by putting `W` below today's own wrap point or by having no opportunity to take.
   An earlier drafting said cells 3, 12b and 15 pin a change (round 22, Axes 3/5), and rev 78 left
   the universal standing while routing 15g, which falsified it (**A121**). ⚠ **Cell 15d is the cell that
@@ -2952,11 +2997,12 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     second regime of one subject in a second markup (cells 3c, 25c, 25d).
 15g. **The inline-axis edges inside a unit send the break to an earlier licensed opportunity rather
     than overflowing, and where that opportunity lies decides what moves** (M3; R45-F2, rev 78 —
-    ledger **A116**; arm (b) R47-F1, rev 80 — ledger **A122**; arms (c)–(h) R49-F2/F3, rev 81 —
-    ledger **A123**). **Eight arms in nine markups** — (e) carries two — one markup for each row of the matrix after
-    this cell that names an arm, each
-    carrying **exactly one** licensed opportunity that avoids overflow on each line it asserts, so
-    that none pins the choice among several, which css-text-3 §5.5 leaves undefined ("CSS does not
+    ledger **A116**; arm (b) R47-F1, rev 80 — ledger **A122**; arm (e) R49-F3, rev 81 — ledger
+    **A123**; rev 81's arms (c), (d), (f), (g) and (h) and the edge matrix after this cell handed to
+    PR-1b's plan-review at rev 82 as §5.3's seed list, their letters not reused — ledger **A124**).
+    **Three arms in four markups** — (e) carries two — each carrying **at most one** licensed
+    opportunity that avoids overflow on each line it asserts, so that none pins the choice among
+    several, which css-text-3 §5.5 leaves undefined ("CSS does not
     define prioritization of soft wrap opportunities"). **Every window is stated in the packer's
     segment sums**: `build_pack_items` splits the text at the oracle's offsets
     (`pack/items.rs:63-91`), the packer measures each segment alone (`pack/mod.rs:544`,
@@ -2965,22 +3011,21 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     multi-segment string is never the compared quantity. All bounds are computed by the test from
     the harness's `measure_width` (`inline/tests/mod.rs:31`), each window asserted non-empty, and
     `M(x)` below abbreviates `measure_width("x")`. **Rejects PR-1b as the advance alone would leave
-    it**, in arms (a)–(d), (g) and (h): the edges reach `current_inline` through the marker path
+    it**, in arms (a) and (b): the edges reach `current_inline` through the marker path
     with no check (§5.1 M3), the guard tests content only (`:690`), and `finish()` commits whatever is
-    on the line (`:786-790`, no width test), so the line overruns `W`; arms (e) and (f) are the
-    matrix's **invariance** rows, where the advance alone is correct and the arm rejects a wrong
-    **unit** instead. ⚠ **No committed-width assertion**: PR-1b's channels are `lines.len()`, the
+    on the line (`:786-790`, no width test), so the line overruns `W`; arm (e) is the
+    **invariance** arm, where the advance alone is correct and the arm rejects a second
+    opportunity source instead. ⚠ **No committed-width assertion**: PR-1b's channels are `lines.len()`, the
     runs' `inline_start` and text, `block_start` and `InlineLayoutResult.height` — `InlineFlowLine`
     carries no width, and an over-running edge sits in no run — so every arm asserts `line_count`
     and which run lies on which line (rev 78's "line 1's committed width is ≤ `W`" named a quantity
     no PR-1b channel reports; **A122**). Run texts on a line that ends at a soft wrap are compared
     **trimmed**, the line-final space's disposition being the end-of-line white-space prereq's (§8)
     and M3's outcome (cell 16). ⚠ **§6's tagless control does not apply to these arms and is not
-    what grounds them**: every second line here is produced by edges, so at the arm's `W` the
-    tagless text does not wrap at all; what makes each break genuine is §8's suite-level break
-    invariant, which the realised offsets satisfy — after the space in `"a "` in (a)–(d) and (h),
-    the atomic boundary in (g), the preserved break in (f), none in (e) — and (h)'s second break is
-    the licensed offset after the span's own trailing space.
+    what grounds them**: the second line of (a) and (b) is produced by edges, so at the arm's `W`
+    the tagless text does not wrap at all; what makes each break genuine is §8's suite-level break
+    invariant, which the realised offsets satisfy — after the space in `"a "` in (a) and (b), none
+    in (e).
     (a) **Opportunity before the box** — `<p style="width:W">a <span style="padding-right:20px">b</span></p>`,
     `W` in `[max(S, M(b) + 20), S + 20)` for `S = M(a␠) + M(b)` (`␠` a space: `M(a␠)` is
     `measure_width("a ")`), non-empty since `M(b) < S`. **Asserted**: `line_count == 2`; line 1 holds
@@ -3008,44 +3053,20 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     PR-1c's to observe (cell 17 is the two-sided multi-fragment case, and the multi-fragment
     channel's edge inflation is `#11-inline-box-decoration-splits`'s, cell 17d(b)); this arm asserts
     only what PR-1b's channels carry.
-    (c) **Two end edges closing together** (R49-F2) — `<p style="width:W">a <span
-    style="padding-right:10px"><span style="padding-right:10px">b</span></span></p>`, `W` in
-    `[max(S + 10, M(b) + 20), S + 20)` for `S = M(a␠) + M(b)`, non-empty since `M(b) < S`.
-    **Asserted**: `line_count == 2`; line 1 holds one text run, the `<p>`'s, reading `"a"`; line 2
-    holds one text run, the **inner** span's, `"b"`, at `inline_start` 0. The unit after the space is
-    `b` and **both** closing edges. **The lower bound `S + 10` is the discriminating one**: an
-    evaluation that counts only the nearest `InlineBoxEnd` sees `S + 10 ≤ W`, keeps `b` on line 1 and
-    then overruns by the outer edge — `line_count == 1` — while the unit's width, `S + 20`, does not
-    fit. Below `S + 10` both would break and the arm would not separate them.
-    (d) **A start edge opening inside the unit, and an end edge closing mid-unit** — `<p
-    style="width:W">a b<span style="padding-left:10px;padding-right:10px">c</span>d</p>`, `W` in
-    `[max(T + 10, U + 20), T + 20)` for `T = M(a␠) + M(b) + M(c) + M(d)` and
-    `U = M(b) + M(c) + M(d)`, non-empty since `U < T`. **Asserted**: `line_count == 2`; line 1 holds
-    one text run, the `<p>`'s, reading `"a"`; line 2 holds three text runs — the `<p>`'s `"b"` at
-    `inline_start` 0, the span's `"c"` at `M(b) + 10`, the `<p>`'s `"d"` at `M(b) + 10 + M(c) + 10`.
-    `b`, `c` and `d` are **one** unit — css-text-3 §5.5: "Out-of-flow boxes and inline box
-    boundaries do not introduce a forced line break or soft wrap opportunity in the flow" — and both
-    of the span's edges lie inside it, **after** the tested item `b`. **What each rejected shape
-    produces**: one counting only boxes that **close** in the unit (A116's measured fact read
-    literally) sees `T + 10 ≤ W`, keeps `b`, and overruns at `d` — `line_count == 1`; one counting
-    only **opening** boxes does the same; the advance alone overruns by 20 — `line_count == 1`; and
-    `154bac3f`'s per-item guard, which the item-boundary prereq withdraws, flushes before `d` at an
-    **unlicensed** boundary — `line_count == 2` with `"a b"` and `"c"` on line 1, which the line-1
-    assertion rejects and §8's suite invariant reports. The run positions on line 2 pin that both
-    edges travel with the unit.
     (e) **The only candidate opportunity is in a `nowrap` run** (R49-F3) — `<p style="width:W"><span
     style="white-space:nowrap;padding-right:20px">a b</span></p>`, `W` in `[S, S + 20)` for
     `S = M(a␠) + M(b)`. **Asserted**: `line_count == 1`, the line holding one text run, the span's,
     `"a b"` (the two segments coalesced, cell 15's mechanism). css-text-3 §3: `nowrap` "does not
-    allow wrapping" (cell 15f quotes the `nowrap` and `pre` definitions whole), so no licensed opportunity
+    allow wrapping" (cell 15f quotes `nowrap`'s definition whole and `pre`'s clause on where lines
+    break), so no licensed opportunity
     exists and css-text-3 §5's "if one exists" leaves the line to overflow. **Rejects** an
     evaluation that finds its earlier opportunity in raw UAX #14 output rather than through the
     item-boundary prereq's filtered API (**A112**): it breaks at the space — `line_count == 2` —
-    and passes arms (a)–(d). An **invariance** row: 1 on `154bac3f`, 1 after PR-1b. ⚠ Its
+    and passes arms (a) and (b). An **invariance** arm: 1 on `154bac3f`, 1 after PR-1b. ⚠ Its
     start-edge twin is 15f's first markup, where the **guard** reaches the same unlicensed offset;
     here only the unit's evaluation can, the edge coming after the content.
-    (e)(ii) **The same under `pre`** (rev 81; closes the matrix's row 6 rather than leaving it
-    declared) — `<p style="width:W"><span style="white-space:pre;padding-right:20px">a b</span></p>`,
+    (e)(ii) **The same under `pre`** (rev 81; `nowrap` and `pre` are one predicate in the
+    item-boundary prereq's filter, and this markup is what a source filtering only one fails) — `<p style="width:W"><span style="white-space:pre;padding-right:20px">a b</span></p>`,
     `W` and `S` as in (e). css-text-3 §3 gives `pre` "Lines only break at forced line breaks", and
     the markup has none, so again no licensed opportunity exists. **Asserted**: `line_count == 1`,
     one text run, the span's, `"a b"`. **What `pre` changes and what it does not, measured at
@@ -3060,86 +3081,16 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     so the space's line-end disposition — which differs under `pre` — is not reached. **Rejects** an
     opportunity source that filters `nowrap` and not `pre`: it breaks at the space —
     `line_count == 2` — and passes every other arm, (e)'s first markup included. An **invariance**
-    row: 1 on `154bac3f`, 1 after PR-1b.
-    (f) **A forced break ends the unit** — `<p style="width:W;white-space:pre-line">a <span
-    style="padding-right:20px">b<i style="font-size:0">\nA</i>c</span></p>`, `W` in
-    `[max(S, M(c) + 20), S + 20)` for `S = M(a␠) + M(b)`, with `M(c) < S` asserted as the
-    precondition that makes it non-empty (Arial: `8.0 < 22.24`; Hiragino Sans: `9.456 < 25.408`,
-    measured at `154bac3f`). **Asserted**: `line_count == 2`; the span's `"b"` run on line 1 and its
-    `"c"` run on line 2 at `inline_start` 0. The preserved `"\n"` is a forced line break (§5.5,
-    "Preserved segment breaks … must be treated as forced line breaks"), so the unit holding `b`
-    ends there and the span's inline-end edge, which closes after `c`, belongs to line 2's unit.
-    The `<i>`'s `font-size: 0` makes the break's advance 0 by style — cell 17h's device, whose
-    frame facts this reuses (`find_break_opportunities("\nA") == [(1, Mandatory)]`, measured) — so
-    no assertion reads a font's metric for LF (ledger **A106**). **Rejects** a unit that runs past a
-    forced break to the next soft opportunity or the end of the content: at `b` it counts the 20px,
-    `M(a␠) + M(b) + M(c) + 20 > W`, breaks after `"a "` — `line_count == 3`, `b` on line 2. An
-    **invariance** row: 2 on `154bac3f`, 2 after PR-1b.
-    (g) **The opportunity is an atomic boundary** — `<p style="width:W"><span
-    style="display:inline-block;width:10px"></span><span style="padding-right:20px">b</span></p>`,
-    `W` in `[M(b) + 20, M(b) + 30)` — the general `[max(S, M(b) + 20), S + 20)` with
-    `S = 10 + M(b)`, the atomic's margin-box advance plus `b`'s. **Asserted**: `line_count == 2`;
-    line 1 holds one member, the inline-block's `AtomicBox`; line 2 holds one text run, the span's,
-    `"b"`, at `inline_start` 0. The boundary after the atomic is licensed by css-text-3 §5.5's
-    atomic bullet, which the canonical API reproduces by encoding the atomic as U+FFFC
-    (`find_break_opportunities("\u{FFFC}b") == [(3, Allowed)]`, measured; **A37**). **Rejects** an
-    evaluation whose opportunities come from the concatenated **text** alone: it finds none before
-    `b` and overflows — `line_count == 1`. ⚠ The realised break coincides with the span's start
-    boundary, so an implementation treating that **boundary** as an opportunity also passes here;
-    arm (b) and cell 15c are what reject that one.
-    (h) **An end edge at the offset of an opportunity belongs to the unit before it** — `<p
-    style="width:W">a <span style="padding-right:20px">b </span>c</p>`, `W` in
-    `[max(M(a␠) + M(b␠) + M(c), M(b) + 20), min(M(a␠) + M(b) + 20, M(b␠) + 20 + M(c)))`, with the
-    window's non-emptiness asserted as the precondition — it holds iff `M(b␠) + M(c) < M(b) + 20` and
-    `M(a␠) < 20` — (Arial `[34.69, 41.34)`, Hiragino Sans `[40.19, 45.39)`, measured through
-    `elidex-shaping`'s `measure_text` at `154bac3f`).
-    **Asserted**: `line_count == 3`; line 1 holds one text run, the `<p>`'s, reading `"a"`; line 2
-    one text run, the span's, reading `"b"`, at `inline_start` 0; line 3 one text run, the `<p>`'s,
-    `"c"`, at `inline_start` 0. The opportunity after `"b "` lies **after the box's last
-    character**, so css-text-3 §5.5's "the break occurs immediately before/after the box (at its
-    margin edge)" puts that break after the box, the edge **before** it: the `InlineBoxEnd` sits at the opportunity's offset and belongs
-    to the unit ending there. That unit — `b` plus 20, the space removed at the line end (M3's
-    outcome, cell 16) — overruns line 1, so the break retreats to the space in `"a "`; on line 2 the
-    same unit fits, and `c` cannot join it (the cursor's `M(b␠) + 20 + M(c)` exceeds `W`), so line 2
-    breaks at the opportunity after the box. Each line has one choice that avoids overflow, so the
-    arm pins no prioritization. **Rejects** an evaluation that assigns a marker at an opportunity's
-    offset to the **following** unit: at `b` it sees `M(a␠) + M(b) ≤ W`, keeps `b` on line 1 with
-    the 20px after it, and breaks before `c` — `line_count == 2`, line 1 over `W`. A116's measured
-    fact, read by text offsets, is that evaluation: the span closes **at**, not before, the
-    opportunity. `154bac3f` lays it out on one line.
+    arm: 1 on `154bac3f`, 1 after PR-1b.
     ⚠ **Flip or invariance, per arm, stated here rather than inherited** (**A121**): `line_count` is
-    **1 → 2** in (a), (b), (c), (d) and (g), **1 → 3** in (h), and **unchanged** in (e), both markups
-    (1), and (f) (2) — on `154bac3f` no edge is in effect and every window's lower bound keeps today's text on
-    today's lines. ⚠ **It is not in §8's flip partition**, which is **PR-1d's** existence flip over
-    PR-1a's characterization cells; these flips are PR-1b's own — the edges first exist there — and
-    §8's PR-1b block names them as such. ⚠ **The start-edge case at a unit's *head*** — a box whose
-    start edge immediately follows the opportunity — **is not an arm**: M3 advances that edge on the
-    line before the break, cell 17c's registered deviation (`#11-inline-box-decoration-splits`), so
-    the guard already sees it and no unit evaluation is involved; (d) is the start edge **inside**
-    a unit, which is the one the evaluation must count.
-
-*The unit's edge matrix, enumerated once* (rev 81; ledger **A123**; §5.3's PR-1b ⚠⚠ defines the
-unit). One row per combination that changes which answer is correct or which wrong shape can pass;
-a row with no arm says why none is needed.
-
-| # | Unit shape | Correct outcome | Pinned by / why no arm |
-|---|---|---|---|
-| 1 | one end edge closing at the unit's end; opportunity before the box, in-run, `normal` | break at it; the box moves whole | 15g(a) |
-| 2 | one end edge; opportunity inside the box | the box splits there; only the suffix and the end edge move | 15g(b) |
-| 3 | several end edges closing together (nesting) | the unit carries their sum | 15g(c) |
-| 4 | a start edge opening inside the unit after the tested item; an end edge closing mid-unit with text after it | both are in the unit's width | 15g(d) |
-| 5 | the only candidate offset lies in a `nowrap` run (end edge) | no licensed opportunity: one over-wide line | 15g(e); the start-edge twin, reached by the guard, is 15f's first markup |
-| 6 | the same under `pre` | as row 5 | 15g(e)(ii) — `nowrap` and `pre` are one predicate in the item-boundary prereq's filter (§8's invariant names both), and the second markup is what an opportunity source filtering only one of them fails |
-| 7 | a forced break before the box closes | the unit ends at the break; the edge is the next line's | 15g(f) |
-| 8 | the opportunity is an atomic boundary | break there | 15g(g); the NBSP-adjacent atomic under `nowrap` is 15f's second markup |
-| 9 | an end edge at the offset of an opportunity after the box's last character | the edge is in the unit **before** the opportunity | 15g(h) |
-| 10 | no licensed opportunity anywhere on the line (`normal`) | overflow; a box boundary is never an opportunity | 15c (PR-1c, both edges on a characterless box), 15e (start edge, the guard), 15 |
-| 11 | a start edge at a unit's head | on the line before the break under M3 — a registered deviation, not an evaluation question | 17c (PR-1c, accepted divergence) |
-| 12 | a box closing **after** the next licensed opportunity | its end edge is not in this unit | 17, 17d(b), 17f — A116's over-conservative running sum fails them |
-| 13 | a characterless box beside an opportunity | undetermined by css-text-3 §5.5 | no arm — ledger **A19** |
-| 14 | more than one licensed opportunity avoids overflow | unspecified — "CSS does not define prioritization of soft wrap opportunities" | no arm, deliberately: every arm above has one choice per line |
-| 15 | `direction: rtl` / `writing-mode: vertical-rl` | the unit is logical; M1 supplies the logical sides | no arm of this cell: 12b, 12c, 12e, 12f pin the side mapping the unit reads |
-| 16 | a forced break in the **intrinsic** passes | each edge on its own forced line's candidate | 25h |
+    **1 → 2** in (a) and (b), and **unchanged** in (e), both markups (1) — on `154bac3f` no edge is
+    in effect and every window's lower bound keeps today's text on today's lines. ⚠ **It is not in
+    §8's flip partition**, which is **PR-1d's** existence flip over PR-1a's characterization cells;
+    these flips are PR-1b's own — the edges first exist there — and §8's PR-1b block names them as
+    such. ⚠ **What this cell does not carry** (rev 82; **A124**): the evaluation's other axes —
+    nesting, an edge opening or closing inside a unit, signed and marker-only edges, a marker at an
+    opportunity's offset (start edge included, where §5.3's O3 decides), a forced break, an
+    atomic boundary — are §5.3's seed list, which PR-1b's plan-review turns into cells.
 
 15b. **A leading marker must not let the first segment soft-wrap** (M3's ⚠): `<p style="width:10px">`
     `<span style="padding-left:20px">verylongword</span></p>` — the first content segment reaches
@@ -4613,8 +4564,8 @@ than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says no
 
 **PR-1b** (inline-axis advance): cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d,
 15e, 15f, 15g, 16, 16b, 25, 25b, 25c, 25d, 25e, 25f, 25g and 25h. ⚠ **One of them, 15g, carries this PR's *flips***: `line_count`
-changes across this PR in six of its arms and is invariant in two, each arm stating which (rev 80, ledger **A122**;
-rev 81, ledger **A123**) — and it is *not* in the flip partition below, which is PR-1d's
+changes across this PR in two of its arms, (a) and (b), and is invariant in the third, (e), each arm stating which (rev 80, ledger **A122**;
+rev 82, ledger **A124**, which hands rev 81's other five arms to this PR's plan-review as §5.3's seed list) — and it is *not* in the flip partition below, which is PR-1d's
 existence flip over PR-1a's characterization cells (ledger **A116**). **It owes four dependencies, named here rather than
 counted anywhere else** (ledger **A107**): it is not cut from `origin/main` until the
 end-of-line white-space and **item-boundary opportunity** prereqs have landed and the
