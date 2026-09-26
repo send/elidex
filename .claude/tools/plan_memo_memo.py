@@ -192,16 +192,26 @@ class Memo:
         # the text arrives as written and `_preprocess` -- not an I/O default
         # -- owns every transformation between the file and the document.
         # `utf-8`, never the locale's codec.
-        # ⚠ A MEMO IS A REGULAR FILE, asked BEFORE the read (Codex on
-        # `100462db`): a `.md` name whose target is a device, a FIFO or a
-        # socket was opened and read as a memo, and the run hung instead of
-        # reporting (measured: a symlink to `/dev/zero` and a FIFO each hung
-        # past 4 s at `100462db`; both are rc 2 with the miss here).  `os.stat`
-        # follows the link, and the `OSError` it raises here, like a missing
-        # file's, is the population chokepoint's unavailable-memo miss (rc 2).
-        if not stat.S_ISREG(os.stat(self.path).st_mode):
-            raise OSError(errno.EINVAL, "not a regular file", str(self.path))
-        with open(self.path, encoding="utf-8", newline="") as fh:
+        # ⚠ A MEMO IS A REGULAR FILE, asked OF THE DESCRIPTOR THAT IS READ
+        # (Codex on `100462db`, then on `d3d53c0f`).  A `.md` name whose target
+        # is a device, a FIFO or a socket was read as a memo and the run hung
+        # (measured: a symlink to `/dev/zero` and a FIFO each hung past 4 s at
+        # `100462db`).  The first guard `os.stat`-ed the PATH and then opened
+        # it -- a check and a use of two different things, so a target swapped
+        # in between (a FIFO) reopened the hang.  Now there is one object: the
+        # path is opened NON-BLOCKING (a FIFO with no writer does not block the
+        # open), the descriptor is `fstat`-ed, and that same descriptor is
+        # read.  The `OSError` raised here, like a missing file's, is the
+        # population chokepoint's unavailable-memo miss (rc 2).
+        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError(errno.EINVAL, "not a regular file", str(self.path))
+            fh = os.fdopen(fd, encoding="utf-8", newline="")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
             self.text = _preprocess(fh.read())
         self.lines = self.text.split("\n")
         if len(self.lines) > 1 and self.lines[-1] == "":

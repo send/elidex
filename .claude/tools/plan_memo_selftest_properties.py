@@ -434,6 +434,15 @@ def leading_run_scan_control(M):
 # (`plan_memo_selftest_invariants.line_ending_control` writes its three fixtures
 # that way ON PURPOSE, so that the endings under test survive); `json.load` / `json.dump` take a file
 # object somebody else opened, and that opener is in this list.
+#
+# ⚠ AND `os.open` IS NOT TEXT I/O, although its name is `open` (Codex on
+# `d3d53c0f`: the memo read opens NON-BLOCKING, which only `os.open` can).  It
+# returns an integer descriptor and has no `encoding` parameter at all, so the
+# argument it "names no" cannot exist; text begins at `os.fdopen`, which IS in
+# this list.  The carve-out is that ONE shape -- the attribute `open` on the
+# name `os` -- and nothing else bound to an `open` (`Path.open`, `io.open`,
+# `codecs.open`) leaves the sweep; `encoding_sweep_control`'s planted arm
+# holds both directions.
 _ENCODED_IO = frozenset((
     "open",             # builtin / io / codecs / gzip / bz2 / lzma / Path.open
     "read_text", "write_text",
@@ -479,9 +488,9 @@ def encoding_sweep_control(M):
     half of this finding is checked outside the suite by the command above,
     because a control cannot change the preferred encoding of the interpreter
     it is already running in."""
-    hits, calls = [], 0
-    files = _swept_sources()
-    for file, src in files:
+    def sweep(file, src):
+        """(text-I/O calls, the ones naming no encoding) of one source."""
+        n, bad = 0, []
         for node in ast.walk(ast.parse(src, filename=file)):
             if not isinstance(node, ast.Call):
                 continue
@@ -490,9 +499,29 @@ def encoding_sweep_control(M):
                     else f.id if isinstance(f, ast.Name) else None)
             if name not in _ENCODED_IO:
                 continue
-            calls += 1
+            if (name == "open" and isinstance(f, ast.Attribute)
+                    and isinstance(f.value, ast.Name) and f.value.id == "os"):
+                continue        # a DESCRIPTOR, not text: see the note above `_ENCODED_IO`
+            n += 1
             if not any(k.arg == "encoding" for k in node.keywords):
-                hits.append("%s:%d %s() names no encoding" % (file, node.lineno, name))
+                bad.append("%s:%d %s() names no encoding" % (file, node.lineno, name))
+        return n, bad
+
+    hits, calls = [], 0
+    files = _swept_sources()
+    for file, src in files:
+        n, bad = sweep(file, src)
+        calls += n
+        hits += bad
+    # the carve-out, both directions, on a planted source: `os.open` leaves the
+    # sweep, and every OTHER `open` -- an attribute on another receiver, the
+    # builtin -- stays in it
+    _, planted = sweep("<planted>", "import os, pathlib\n"
+                                    "os.open('p', 0)\n"
+                                    "pathlib.Path('p').open()\n"
+                                    "open('p')\n")
+    if sorted(h.split()[0] for h in planted) != ["<planted>:3", "<planted>:4"]:
+        hits.append("the os.open carve-out is not exactly one shape: planted hits %s" % planted)
     return (not hits and calls > 0,
             "%d text-I/O call site(s) in %d source(s) swept, %d naming no encoding%s"
             % (calls, len(files), len(hits), (": " + "; ".join(hits[:3])) if hits else ""))

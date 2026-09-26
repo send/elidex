@@ -48,8 +48,8 @@ MUTANTS += [
     # held all fifteen defects.
     ("R26-4 encoding: the production memo read names its encoding (drop it -- the checker set half of "
      "the sweep's population)", MEMO,
-     '        with open(self.path, encoding="utf-8", newline="") as fh:',
-     '        with open(self.path, newline="") as fh:',
+     '            fh = os.fdopen(fd, encoding="utf-8", newline="")',
+     '            fh = os.fdopen(fd, newline="")',
      [R26_ENCODING]),
     ("R26-4 encoding: a self-test fixture write names its encoding (drop it -- the SELF-TEST half of "
      "the sweep's population, which `load()` alone would not show)", CONTROLS,

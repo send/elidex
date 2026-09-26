@@ -28,6 +28,8 @@ MEMBERSHIP = ("PROPERTY: no module can leave a run unnoticed -- every file relat
               "is in it, and every module in it is reached from a root")
 
 POPMOD = "plan_memo_selftest_population.py"
+R26_ENCODING_LABEL = ("PROPERTY: no source of this checker performs text I/O without naming its encoding "
+                      "(the checker set and the self-test both, globbed)")
 
 MANIFEST_CTL = ("PROPERTY: the live collection is exactly the committed golden manifest, and the "
                 "manifest mechanism holds (the one door, the comparison, one source, deep "
@@ -201,8 +203,8 @@ MUTANTS += [
       "never a UnicodeEncodeError from the strict UTF-8 channel"]),
     ("memo: a memo is a REGULAR file, asked before the read (drop the guard -- a `.md` link to a "
      "device is read to EOF: `/dev/zero` never ends)", "plan_memo_memo.py",
-     "        if not stat.S_ISREG(os.stat(self.path).st_mode):",
-     "        if False:",
+     "            if not stat.S_ISREG(os.fstat(fd).st_mode):",
+     "            if False:",
      ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
       "at rc 2, refused before it is read"]),
     ("report: the surrogate arm stops at U+D800 (widen it down one -- U+D7FF, the code point just below "
@@ -225,10 +227,32 @@ MUTANTS += [
       "never a UnicodeEncodeError from the strict UTF-8 channel"]),
     ("memo: the guard asks REGULAR, not one non-regular kind (narrow it to a char device -- a FIFO "
      "then blocks the run again)", "plan_memo_memo.py",
-     "        if not stat.S_ISREG(os.stat(self.path).st_mode):",
-     "        if stat.S_ISCHR(os.stat(self.path).st_mode):",
+     "            if not stat.S_ISREG(os.fstat(fd).st_mode):",
+     "            if stat.S_ISCHR(os.fstat(fd).st_mode):",
      ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
       "at rc 2, refused before it is read"]),
+    ("memo: the regular-file question is asked of the DESCRIPTOR that is read (ask the path "
+     "instead -- a target swapped in between the check and the open is read unasked)", "plan_memo_memo.py",
+     "            if not stat.S_ISREG(os.fstat(fd).st_mode):",
+     "            if not stat.S_ISREG(os.stat(self.path).st_mode):",
+     ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
+      "at rc 2, refused before it is read"]),
+    ("memo: the memo is opened NON-BLOCKING (drop the flag -- a FIFO with no writer blocks the "
+     "open itself, before any check can run)", "plan_memo_memo.py",
+     '        fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))',
+     "        fd = os.open(self.path, os.O_RDONLY)",
+     ["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss "
+      "at rc 2, refused before it is read"]),
+    ("encoding sweep: `os.open` is the ONE carve-out (drop it -- the descriptor opens of the memo read "
+     "and the FIFO control are reported as text I/O naming no encoding)", "plan_memo_selftest_properties.py",
+     '                    and isinstance(f.value, ast.Name) and f.value.id == "os"):',
+     '                    and False):',
+     [R26_ENCODING_LABEL]),
+    ("encoding sweep: the carve-out is `os.open` ONLY (widen it to every attribute `open` -- "
+     "`Path.open` without an encoding then passes)", "plan_memo_selftest_properties.py",
+     '                    and isinstance(f.value, ast.Name) and f.value.id == "os"):',
+     '                    ):',
+     [R26_ENCODING_LABEL]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",

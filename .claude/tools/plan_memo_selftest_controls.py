@@ -262,21 +262,27 @@ def non_regular_memo_control(M):
     to `/dev/zero` read forever).  The fixture is `/dev/null` -- a device like
     `/dev/zero` whose read ENDS, so with the guard removed this control goes
     red (an empty memo, no miss) instead of hanging the run that proves it.
-    ⚠ THE OTHER NON-REGULAR KINDS ARE INJECTED (the 3ee149e1 attestation: a
-    guard narrowed to `S_ISCHR` survived with `/dev/null` alone).  A FIFO
-    cannot be the fixture -- with the guard broken it blocks the proving run
-    -- so a REGULAR sibling is reported to `Memo` as a FIFO, a socket and a
-    block device through the module's `os.stat`, the way
-    `unavailable_sibling_control` injects `resolve`: each must be the miss.
-    An exception here is red."""
+    ⚠ A REAL FIFO, BOUNDED (Codex on `d3d53c0f`: the guard must ask the
+    descriptor it reads, and a FIFO must not block the open).  The check runs
+    in a thread; if it has not returned in 5 s it is blocked in `open()`, and
+    this control opens the FIFO's WRITE end itself, which releases the reader,
+    so the proving run is red instead of hung.
+    ⚠ THE SOCKET AND BLOCK-DEVICE KINDS ARE INJECTED (the 3ee149e1
+    attestation: a guard narrowed to `S_ISCHR` survived with `/dev/null`
+    alone): a REGULAR sibling is reported to `Memo` as that kind through the
+    module's `os.fstat` -- the way `unavailable_sibling_control` injects
+    `resolve` -- so a guard that asks the PATH (`os.stat`) instead of the
+    descriptor is not asked at all, and is red.  An exception here is red."""
     import collections
     import stat as stat_mod
     import sys
+    import threading
     memo_mod = sys.modules["plan_memo_memo"]
+    real_os = memo_mod.os
     report = []
-    for kind, mode in (("char device (/dev/null)", None), ("FIFO", stat_mod.S_IFIFO),
+    for kind, mode in (("char device (/dev/null)", None), ("FIFO (real)", "fifo"),
                        ("socket", stat_mod.S_IFSOCK), ("block device", stat_mod.S_IFBLK)):
-        real_os = memo_mod.os
+        out = {}
         try:
             with tempfile.TemporaryDirectory() as d:
                 p = pathlib.Path(d) / "fixture.md"
@@ -284,17 +290,43 @@ def non_regular_memo_control(M):
                 dev = pathlib.Path(d) / "dev.md"
                 if mode is None:
                     dev.symlink_to("/dev/null")
+                elif mode == "fifo":
+                    real_os.mkfifo(str(dev))
                 else:
                     dev.write_text("# a regular file reported as another kind\n", encoding="utf-8")
+                    ino = real_os.stat(dev).st_ino
                     fake = collections.namedtuple("St", "st_mode")(mode | 0o644)
-                    memo_mod.os = type("OsShim", (), {"stat": staticmethod(
-                        lambda path, *a, _dev=dev, **kw: fake if pathlib.Path(path).name == _dev.name
-                        else real_os.stat(path, *a, **kw))})
-                res = M.check(str(p))
-        except Exception as e:       # noqa: BLE001 -- the defect under test
-            return False, "%s: check() raised %s: %s" % (kind, type(e).__name__, str(e)[:60])
+
+                    class _Os:
+                        def __getattr__(self, name):
+                            return getattr(real_os, name)
+
+                        @staticmethod
+                        def fstat(fd):
+                            got = real_os.fstat(fd)
+                            return fake if got.st_ino == ino else got
+                    memo_mod.os = _Os()
+
+                def run():
+                    try:
+                        out["res"] = M.check(str(p))
+                    except Exception as e:   # noqa: BLE001 -- the defect under test
+                        out["exc"] = e
+                t = threading.Thread(target=run, daemon=True)
+                t.start()
+                t.join(5)
+                if t.is_alive():
+                    import os
+                    w = os.open(str(dev), os.O_WRONLY | os.O_NONBLOCK)
+                    os.close(w)
+                    t.join()
+                    return False, "%s: check() BLOCKED in open() for 5 s (released by this control)" % kind
         finally:
             memo_mod.os = real_os
+        if "exc" in out:
+            e = out["exc"]
+            return False, "%s: check() raised %s: %s" % (kind, type(e).__name__, str(e)[:60])
+        res = out["res"]
         miss = any(f[0] == "SCHEMA" and "linked memo unavailable (OSError)" in f[3] for f in res.findings)
         if res.rc != 2 or not miss:
             return False, "%s: rc %d, non-regular-memo miss %s (must be rc 2 with the miss)" % (kind, res.rc, miss)
