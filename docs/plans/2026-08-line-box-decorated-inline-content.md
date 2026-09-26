@@ -17,8 +17,10 @@ block of
 and both have landed. **The others relocate no code**, and each touch set is its own
 plan-review's to determine, so this note makes no claim about them:
 the **predicate** PR (§9) and the **replaced-origin pseudo** PR (rev 72) are required before
-PR-1a, and the **end-of-line white-space**, **min-content**, **reconciler** and
-**item-boundary opportunity** PRs before PR-1b (ledger **A80**, **A88**, **A94**, **A95**). The memo does **not** re-anchor
+PR-1a — the pseudo PR **after** the predicate PR, whose replacedness half it consumes (rev 74) —
+and the **end-of-line white-space**, **min-content**, **reconciler** and
+**item-boundary opportunity** PRs before PR-1b (ledger **A80**, **A88**, **A94**, **A95**,
+**A105**). The memo does **not** re-anchor
 after each: its coordinates exist to prove claims about the code as it stands today. **Each PR's
 own plan-memo re-anchors against its actual base**, and §8's DoDs name behaviours and call sites
 wherever they can — a DoD that still carries a coordinate carries a `154bac3f` one and inherits
@@ -771,6 +773,9 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A102 | R40-F2; user decision, 2026-09-26 | **A93**'s rule as stated at rev 72 — newly reachable ⇒ ordered before the PR that makes it so — applied without the exception it needs, which left **A24** (route the bidi loss to another lane's slot) and **A94** (order the item-boundary defect as a prerequisite) disposed differently on the same "newly reachable" footing with nothing written down between them | the missing clause is a rule, not a one-off: **a pre-existing defect whose repair is another lane's whole deferred program is recorded as an accepted, cell-pinned divergence rather than ordered**, even where this program makes it newly reachable. The separator is the owner and size of the repair: A94's is a bounded `elidex-linebreak` API inside this program's own crates and lands as a prerequisite PR; the bidi one is `#11-bidi-full-uba-fidelity`'s program, an existing slot of another lane with its own umbrella, so ordering it would make this program wait on that lane — the gate the user declined. Written into §5.3's disposition paragraph with its first instance named. **A93 is committed and stands**; this row is its amendment, and A24's disposition is what the rule now licenses rather than tolerates. Found by Codex on #515, decided by the user |
 | A103 | R40-F2; user decision, 2026-09-26 | §7's scope universal — "**every** site of this memo saying the glyphs after the box move states the identity half" — read as leaving the identity path conformant, and **A24**'s scope with it ("the identity control paints each at its own position") | true of glyph *displacement* and false of the box's own *edges*: on the identity path an `rtl` box's edges are painted on the mirrored physical side (cell 12b's new painted assertion), so "identity half" cannot stand for "unaffected". Swept by the property rather than by the phrase — `/usr/bin/grep -n 'identity-order\|identity half' <memo>` returns **7 lines** at `41c80928`, every one read in full: §7's statement (two of them) and §5.3's copy of it made the claim and are corrected; §9's bullet now states the divergence once, on the renderer's predicate, with both halves; the freeze's user-visible-subject clause, §4.3's displacement sentence and §7's reader item 1 are pointers to that scope and inherit the correction (rule 2); cell 13b's copy says "this cell's markup is LTR, so it is on it", which stays true. The three sites saying cell 12b "asserts no painted position" (`grep -n 'no painted position' <memo>` → 3) are corrected with the cell. **A24 is committed and stands**; its scope is superseded here. Found by Codex on #515 |
 | A104 | R40-F2; user decision, 2026-09-26 — **flagged, not applied** | the absence, from §5.1, of the statement that makes the mirrored identity half legible: that M1 puts the inline-**start** edges on `InlineBoxStart` and the inline-**end** edges on `InlineBoxEnd`, and M3 advances the cursor by them in that order, with **no direction-dependent swap of which physical side each lands on** | the statement belongs in M1's and M3's **Decision** columns, which are frozen, so it is recorded here instead of amended in place. What the correct statement would be, in the row's own terms: *M1 converts the box's physical edges once, with `LogicalEdges::from_physical` on the box's own `direction` (§5.1 M1), and the two markers carry the logical **sides** — start on `InlineBoxStart`, end on `InlineBoxEnd`; M3 adds them to `current_inline`, which is a physical-left-origin cursor (`InlineFlowRun::Text.inline_start` is a physical x, `crates/core/elidex-ecs/src/components/inline_flow.rs:35-42`), and neither mechanism swaps which physical side a logical side lands on. Under `direction: rtl` that is why the inline-end edge is painted physically right of the content — §6 cell 12b's registered divergence, `#11-bidi-full-uba-fidelity`'s (§9).* Nothing in the mechanism changes; only the sentence is missing. Found by Codex on #515 |
+| A105 | R41-F1 | the replaced-origin pseudo prereq (**A95**) ordered only **before PR-1a**, with its input — the predicate prereq's canonical replacedness — ordered before PR-1a too and against nothing else, while §8's topology called the predicate prereq's ordering against the other prerequisites moot | two constraints with the same deadline are not an order: the pseudo PR consumes the predicate PR's replacedness half and promises to derive none of its own (§8), so on any interleaving where it lands first its input does not exist. Made a **direct predecessor**: the pseudo prereq is ordered in `main` **after** the predicate prereq and before PR-1a, the same shape as the min-content prereq behind the end-of-line white-space one (**A69**). Swept by the property rather than the phrase — `/usr/bin/grep -nE 'before PR-1a\|ordered against\|branch(es)? (off\|from) .main.' <memo>` returns **29 lines** at `7172dc3a`, each read in full. The ones corrected are §8's pseudo-prereq block, §8's approval summary, the topology's two statements (the predicate prereq's own ordering and the moot-for-ordering clause) and the front matter's prereq sentence — no count is carried for them (**A87**); the rest are history, slot bullets or cells that point at §8 rather than restating it. ⚠ **A count claim rides in the same sweep and a line-oriented grep cannot see it**: "like its five siblings" is wrapped across two lines, so the phrase search misses it and a de-wrapped one finds it — corrected with A107's figures. Found by Codex on #515 |
+| A106 | R41-F2; the reviewer's point on **A97**'s own premise | cell **17g**'s dependence on `measure_text("\n") > 0` — the fixture whose outer box owned nothing on line 1, so its cursor span was the preserved break's advance alone | **A97**'s premise was the mirror image of **A92**'s: A92 assumed the advance was zero without measuring it, A97 read it off the fonts one machine resolved. Neither is a property of the suite. The harness takes the **first available** of six families — `TEST_FAMILIES` (`inline/tests/mod.rs:43-50`) handed to `FontDatabase::query`, "Returns the first match found, or `None` if no font matches" (`crates/text/elidex-shaping/src/database.rs:58-84`) — and its own comment calls the metrics "not knowable at write-time" (`inline/tests/mod.rs:27-30`), while `measure_width` returns `0.0` when nothing resolves (`:31-41`), so another supported environment may resolve a zero-advance LF — and the end-of-line white-space prereq may stop shaping the control character altogether. **The cell moves, not the rule**: M4's emit rule stays frozen and A97's withdrawal stands. 17g's fixture becomes `<pre><span style="padding-left:10px">a<span>\nx</span></span></pre>`, where the outer box owns `a` on line 1, so its span there is non-empty whatever the break measures. Verified before re-fixturing, not assumed: a text child's run is keyed to the innermost enclosing **element** — `StyledRun::from_style(parent_entity, …)` (`inline/collect.rs:302-315`, push at `:309-314`) — and `place_item` gives that entity a rect because it is not the IFC root's (`pack/mod.rs:703-714`), so `a`'s run carries the **outer** span. A55's inner-element shape survives: the run that crosses the break is still the inner span's, and the outer still owns no run **across** it. Line 1's **extent** is deliberately unasserted, since the break's advance is inside it. **The residual coupling is recorded at the end-of-line white-space prereq** as a consequence of its decision, not a requirement on it: a zero-advance or unshaped break leaves an open box whose line-1 span is the break alone with an empty span, which the frozen filter emits nothing for — and after this row no cell has that shape. Found by Codex on #515 |
+| A107 | R41-F3 | §8's PR-1b block — "**It owes three dependencies**", listing the end-of-line white-space, min-content and reconciler PRs — and the approval summary's copy of that list, both left behind by rev 72's promotion of the item-boundary opportunity prereq (**A94**) | the item-boundary prereq is the fourth, and §8 is where PR-1b's DoD is read: the block now names four and says the count lives nowhere else (**A87**), the approval summary names the pseudo prereq for PR-1a and the item-boundary one for PR-1b and PR-1c ("those same four"), and the topology stops counting PR-1a's predecessors and names them instead. Swept by the property on **de-wrapped** text, because two of the three claims are wrapped across lines and a line-oriented grep misses them: numbers adjacent to `of them / siblings / prereqs / prerequisites / dependencies / pending` return **three** claims at `7172dc3a` — §8's "owes three dependencies", the min-content block's "like its five siblings" and the topology's "after **three** of them" — plus "The remaining three are **pending**" in the same sentence as the last. All four figures are gone rather than corrected, since the memo carries no running totals. ⚠ **This is the fourth ordering site a promotion has left behind** (A80, A89, A100 (c), and now this), which is why the sweep is de-wrapped and by property from here on. Found by Codex on #515 |
 
 ---
 
@@ -3313,28 +3318,48 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     inline-axis edge** owns an extreme — for a block-axis-only decorated inline the two coincide. The cell asserts elidex's value, in the shape cell 23 uses; the comparison
     is `#11-inline-box-decoration-splits`'s to settle, with cell 17d(b) as its other half.
 17g. **A forced break inside a box whose own content has no run across it** (M4; A55's
-    inner-element shape; rev 60, ledger **A60**) — `<pre><span style="padding-left:10px"><span>\nx</span></span></pre>`.
+    inner-element shape; rev 60, ledger **A60**; re-fixtured at rev 74, ledger **A106**) —
+    `<pre><span style="padding-left:10px">a<span>\nx</span></span></pre>`.
     The preserved `"\n"` is a *forced line break* (css-text-3 §5, `dfn css-text-3 'forced line
     break'`; §5.5: "Preserved segment breaks … must be treated as forced line breaks") inside the
     outer span, so css-inline-3
-    §2.1 splits the box into a fragment per line (css-break-3 §2 *box fragment*); every run inside
-    it is keyed to the **inner**, undecorated span, so the outer owns no run on either line.
+    §2.1 splits the box into a fragment per line (css-break-3 §2 *box fragment*); the run that
+    crosses the break is keyed to the **inner**, undecorated span, so the outer owns **no run
+    across it** — which is A55's shape — while its own `a` sits wholly on line 1. Runs key to the
+    innermost enclosing **element**, not to the text node: `collect_inline_items_inner` builds a
+    text child's run as `StyledRun::from_style(parent_entity, …)` (`inline/collect.rs:302-315`,
+    the push at `:309-314`), and `place_item` gives it a rect because that entity is not the IFC
+    root's (`pack/mod.rs:703-714`), so `a`'s run carries the **outer** span and line 1's entry for
+    it is non-empty by construction.
     **Asserted**: the outer span's `line_rects.len() == 2`; line 1's rect starts at the outer's
-    content-start, `padding-left`; line 2's starts at 0 and encloses the inner span's `x` on the inline axis. The cell
+    content-start, `padding-left`, and encloses its own `a` on the inline axis; line 2's starts at 0
+    and encloses the inner span's `x` on the inline axis. ⚠ **No assertion reads
+    `measure_text("\n")`, and line 1's *extent* is deliberately not asserted** — the preserved
+    break's advance is inside it, and that advance is a system-font metric the harness itself calls
+    unknowable at write-time (`inline/tests/mod.rs:27-30`). The cell
     asserts stored `line_rects` as **content** spans and a count — the same exposure cell 17
     already has; which side of each fragment is the **broken** edge — the side `slice` inserts no
     border or padding at (css-break-3 §5.4, quoted whole in §3) — and the border areas
     `getClientRects` reports for more than one fragment, stay
     `#11-inline-box-decoration-splits`'s (cell 17d(b)).
-    How the producer meets line 1 is PR-1c's. ⚠ **`len == 2` needs no amendment to M4's frozen
-    emit rule**, which rev 71 thought it did (ledger **A92**, withdrawn by **A97**): line 1's outer
-    entry is **not** empty. `is_collapsible_space` is `matches!(c, ' ' | '\t')`
-    (`inline/whitespace.rs:162-164`), so the preserved `"\n"` is never trimmed and advances the
-    cursor by `measure_text("\n")` — non-zero in every `TEST_FAMILIES` font installed here (Arial
-    **12.0** at `font-size: 16px`, Helvetica **4.445**, Hiragino Sans **5.328**), nothing in the
-    shaping path filtering control characters (`crates/text/elidex-shaping/src/shaping.rs:121`'s
-    `buffer.push_str(text)`, summed into `total_advance` and returned by `measure_text`,
-    `measurement.rs:56`, `:66`). So the frozen non-empty filter emits line 1's rect on its own.
+    How the producer meets line 1 is PR-1c's. ⚠⚠ **`len == 2` needs no amendment to M4's frozen
+    emit rule, and since rev 74 it does not need a font either** (ledger **A92**, withdrawn by
+    **A97**; the fixture moved by **A106**). The frozen filter emits for an open box whose cursor
+    span on the line is non-empty, and on line 1 that span contains the outer span's own `a`
+    whatever the preserved break measures. ⚠ **Why the fixture moved**: until rev 74 the
+    outer box owned nothing on line 1, so the span was the break's advance alone and the cell
+    stood on `measure_text("\n") > 0` — true of the fonts one machine resolved (Arial 12.0 at
+    `font-size: 16px`, Helvetica 4.445, Hiragino Sans 5.328) and not a property of the harness,
+    which takes the **first available** of six families — `TEST_FAMILIES`
+    (`inline/tests/mod.rs:43-50`) handed to `FontDatabase::query`, whose own doc is "Returns the
+    first match found, or `None` if no font matches" (`crates/text/elidex-shaping/src/database.rs:58-84`) —
+    and whose `measure_width` returns `0.0` when none resolves (`inline/tests/mod.rs:31-41`,
+    `map_or(0.0, …)`). A97's withdrawal stands on its own
+    grounds; what rev 74 removes is the cell's dependence on an environment. ⚠ **The coupling that
+    remains is the end-of-line white-space prereq's** and is stated there: if that PR gives the
+    preserved break a zero advance, or stops shaping it, then an open box whose line-1 span is the
+    break **alone** has an empty span and the frozen filter emits nothing for it. After rev 74 no
+    cell has that shape.
 
 **PR-1d existence:**
 
@@ -4035,8 +4060,11 @@ reader of the same triple, not a second producer of it: it carries the payload's
 than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says nothing about it.
 
 **PR-1b** (inline-axis advance): cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d,
-15e, 16, 16b, 25, 25b, 25c, 25d, 25e and 25f. **It owes three dependencies**: it is not cut from `origin/main` until the
-end-of-line white-space and min-content prereqs have landed, in that order (ledger **A69**), and
+15e, 16, 16b, 25, 25b, 25c, 25d, 25e and 25f. **It owes four dependencies, named here rather than
+counted anywhere else** (ledger **A107**): it is not cut from `origin/main` until the
+end-of-line white-space and min-content prereqs have landed, in that order (ledger **A69**), the
+**item-boundary opportunity prereq** (ledger **A94**: PR-1b's marker advance widens the set of
+widths at which `place_item` flushes at an item boundary, which §6 cell 15e pins), and
 the **reconciler prereq** with them (ledger **A80**: PR-1b moves `LayoutBox.content`'s position
 while `assign_inline_layout_boxes` skips an entity that already has one, so a restyled
 `position:relative` inline's background would paint at the first-layout box while its glyphs
@@ -4448,9 +4476,10 @@ landed copies back as rev 57 predicted — the two checkers add/add, resolved to
 `origin/main` and takes the memo with `git checkout layout-decorated-inline -- <memo>`, so its
 DoD, **its diff against `origin/main` is exactly one file**, holds by construction; this branch
 is retired after it lands. PR-1a
-branches off `main` only after the approval PR and the predicate prereq have landed, PR-1b only
-after the end-of-line white-space, min-content **and reconciler** prereqs have (ledger **A80**),
-and PR-1c after the same three, inheriting PR-1b's (topology
+branches off `main` only after the approval PR, the predicate prereq **and the replaced-origin
+pseudo prereq that follows it** have landed (ledger **A95**, **A105**), PR-1b only after the
+end-of-line white-space, min-content, **reconciler** and **item-boundary opportunity** prereqs have
+(ledger **A80**, **A94**), and PR-1c after those same four, inheriting PR-1b's (topology
 below).
 **Ordering — done as fixed: the checkers landed first (#518), the approval PR after.** The ground
 was a dependency, not a schedule preference (R6-c; the unordered reading is ledger **A21**): §3's
@@ -4859,7 +4888,7 @@ so implementing it first would implement an undecided rule and let the later PR 
 from under it, which is the mismatch the carve exists to remove. Against nothing else here: the
 seam-3 and dead-arm prereqs have landed, and it is ordered against neither the predicate nor the
 reconciler prereq. Found by
-Codex on #515 (R17; instance 2's classification R18's). No `PR-1x` letter, like its five
+Codex on #515 (R17; instance 2's classification R18's). No `PR-1x` letter, like its
 siblings.
 
 ⚠⚠ **Ownership is split, and it is settled** (R25; ledger **A58**). **This PR owns every instance but the first — the
@@ -4888,7 +4917,16 @@ contribution (ledger **A90**). It is **registered**, not dismissed (Codex R27; l
 whose trigger is this PR's plan-review — the accumulator an atomic term would land on is built
 here — without being bundled into it.
 
-**End-of-line white-space prereq PR** — **the gap**: elidex's end-of-line white-space processing
+**End-of-line white-space prereq PR** — ⚠ **a consequence this PR carries for M4's emit rule**
+(rev 74; ledger **A106**): if the treatment it settles gives a preserved segment break a **zero**
+inline advance, or stops shaping the control character at all, then an open box whose cursor span on
+a line is that break **alone** has an empty span, and M4's frozen flush-time filter — which emits
+only for a non-empty span — emits nothing for it. This is a consequence of that decision, not a
+requirement on it: the umbrella asks nothing of the choice, and §6 cell **17g**, the one cell that
+stood on the break's advance, was re-fixtured at rev 74 so that the outer box owns content of its
+own on line 1 and no cell depends on the advance now. Any later cell of that shape would have to
+answer the emit question rev 72 closed (**A92**, **A97**), which is why the shape is named here.
+**The gap**: elidex's end-of-line white-space processing
 is not css-text-3's. One trim serves every case: `measure_segment_widths` strips trailing ASCII
 space and tab whatever `white-space` is (`inline/measure.rs:79`, `is_collapsible_space` being
 `' ' | '\t'`, `inline/whitespace.rs:162`), `place_item` records `full − trimmed`
@@ -4978,9 +5016,11 @@ means that generated content is suppressed when their parent, the originating el
 what makes an **empty** `content` reach the line as nothing). **Ordered in `main` before PR-1a** on the same rule (ledger **A93**, **A95**): PR-1a
 brackets that branch with a marker pair evaluated on the pseudo's own style (§5.1 M1, §8
 requirement 7), and PR-1d then commits a line and PR-1c a `LayoutBox` for a box §4.1 says must not
-exist. Its **input is already ordered before PR-1a**: the replacedness half of the canonical
-predicate the predicate prereq establishes (§9), which is why this PR adds no classification of its
-own. §6 cell **6j** pins the outcome. What the change is and where it lands are its own plan-memo's
+exist. **Ordered in `main` after the predicate prereq** as well (rev 74; ledger **A105**): its
+input is that PR's canonical replacedness half (§9), and this PR promises to derive none of its own,
+so landing first would leave it with no predicate to consume — the same shape as the min-content
+prereq's ordering behind the end-of-line white-space one (**A69**), and the reason "both before
+PR-1a" was not enough. §6 cell **6j** pins the outcome. What the change is and where it lands are its own plan-memo's
 and `/elidex-plan-review`'s. No `PR-1x` letter, like its siblings.
 
 **Ordering — done as fixed: seam-3 landed first (#508, 2026-08-23), the dead-arm PR second
@@ -5009,9 +5049,11 @@ claimed; the conclusion survives on the single-term form, which at that base ret
 two sites named), and in full it is
 round 20's question ([[feedback_plan-ratified-surface-is-a-design-change]]). One consequence is
 already known: the successor slot's disjunct 3 fired (§5.2, §10).
-⚠ **The predicate prereq is ordered against neither of them, but is ordered against PR-1a.** Its
+⚠ **The predicate prereq is ordered against neither of them, is ordered against PR-1a, and since
+rev 74 is a direct predecessor of the replaced-origin pseudo prereq** (ledger **A105**). Its
 constraint is **in `main` before PR-1a**, because M1's emit test consumes the predicate (§5.1 M1,
-§6 cell 6c). ⚠ This memo does **not** claim it is disjoint from the other five: its touch set
+§6 cell 6c); the pseudo prereq consumes the same predicate's replacedness half, so it follows this
+one rather than merely sharing its deadline. ⚠ This memo does **not** claim it is disjoint from the other five: its touch set
 follows
 from its own plan-review's choice of home (§9), so disjointness is a question it answers, not a
 premise this memo may use. What the umbrella owns is the ordering.
@@ -5037,17 +5079,21 @@ it was cut from `origin/main` after #508 landed). **Branch topology**: the
 the prereqs branch off `main`, as does the **tooling PR** (approval-independent, ordered on
 its §9 trigger — #510's resolution or TERMINAL — and against nothing else here; its files landed
 ahead as #518, §8 above); the **approval PR**
-is cut from `origin/main` at TERMINAL carrying the memo alone (§8 above); PR-1a branches off `main` after **three** of them
-*and the approval PR* have *landed* — the two `elidex-layout-block` ones (**both landed**) because they move code PR-1a edits, and
-the predicate PR (**pending**) because PR-1a's M1 consumes what it establishes, and the **replaced-origin pseudo** PR (**pending**) because PR-1a's markers are what would give that pseudo a box (A95). The remaining three
-are **pending** and ordered against a later PR rather than PR-1a — all against
-PR-1b: the **end-of-line white-space** and **min-content PRs** in that order, the first before the
-second (ledger **A69**), and the **reconciler** and **item-boundary opportunity** PRs beside them
-(ledger **A80**, **A94**), so each may land any time before PR-1b and after whatever it follows. ⚠ Whether the
-predicate prereq is ordered against the other five depended on its touch set, which §9 hands over;
-the two `elidex-layout-block` prereqs having landed, that question is now moot for ordering and
-survives only as the predicate PR's own re-anchoring against `22de3078`, and the same holds for
-the reconciler, min-content and end-of-line white-space PRs. PR-1b,
+is cut from `origin/main` at TERMINAL carrying the memo alone (§8 above); PR-1a branches off `main`
+*after the approval PR* and after the prereqs named here rather than a count of them (ledger
+**A87**) — the two `elidex-layout-block` ones (**both landed**) because they move code PR-1a edits,
+the **predicate** PR (**pending**) because PR-1a's M1 consumes what it establishes, and the
+**replaced-origin pseudo** PR (**pending**) because PR-1a's markers are what would give that pseudo
+a box (**A95**), itself ordered **after the predicate PR** whose replacedness half it consumes
+(rev 74, **A105**). The rest are **pending** and ordered against a later PR rather than PR-1a — all
+against PR-1b: the **end-of-line white-space** and **min-content PRs** in that order, the first
+before the second (ledger **A69**), and the **reconciler** and **item-boundary opportunity** PRs
+beside them (ledger **A80**, **A94**), so each may land any time before PR-1b and after whatever it
+follows. ⚠ Whether the predicate prereq is ordered against the others depended on its touch set,
+which §9 hands over; the two `elidex-layout-block` prereqs having landed, that question is moot for
+ordering **except against the pseudo prereq, which rev 74 settles by data flow rather than by touch
+set** (A105), and otherwise survives only as the predicate PR's own re-anchoring against
+`22de3078`, as it does for the reconciler, min-content and end-of-line white-space PRs. PR-1b,
 PR-1c and PR-1d each depend on their predecessor's mechanism, and because CLAUDE.md mandates **squash** merge
 a stacked branch's base commits are rewritten when its parent lands — which cannot be repaired on
 an *opened* PR without the force-push the hooks deny. So they are **not opened as a stack**: each
