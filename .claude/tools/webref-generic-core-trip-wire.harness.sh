@@ -57,14 +57,31 @@ fi
 # carries goes, and what the fixtures NEED is what gets enumerated. The
 # assignment below IS the keep-set; the arm over it is the control named
 # `a hostile caller git environment cannot change what a fixture holds`.
-# ⚠ AND THE KEEP-SET IS MEASURED, NOT REASONED. `GIT_CONFIG_GLOBAL=/dev/null`:
-# remove it and run this gate with `HOME` pointing at a directory whose
-# `.gitconfig` sets `core.excludesFile` to a file holding `*.py` — `HOME` is not
-# a `GIT_*`, so the sweep cannot reach that layer — and the controls red.
-# `GIT_CONFIG_SYSTEM=/dev/null`: point it at that same `.gitconfig` instead of
-# `/dev/null` and they red too, which is what says the system layer is read
-# during a fixture build and that `/dev/null` there is load-bearing. Nothing
-# else had to be added, and the run this file ends in is what says so.
+# ⚠ AND THE KEEP-SET IS GROUNDED IN GIT'S CONFIGURATION LAYERS, NOT IN A
+# PER-VARIABLE MEASUREMENT. It used to say "MEASURED, NOT REASONED", which makes
+# membership empirical one name at a time — and a member with no available test
+# then has to be written up as an exception. An exception inside a keep-set is the
+# enumeration shape the paragraph above just abandoned.
+# The layers are a closed list (`git help config`, FILES and ENVIRONMENT; read at
+# git 2.55): system `$(prefix)/etc/gitconfig`; global `$XDG_CONFIG_HOME/git/config`
+# and `~/.gitconfig`; local `$GIT_DIR/config`; worktree `$GIT_DIR/config.worktree`;
+# `-c` on the command line; and the env-carried pairs `GIT_CONFIG_COUNT` /
+# `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_VALUE_<n>`. Of those, the sweep reaches the
+# env-carried layer and only that one: local and worktree belong to the repository
+# `_fgit` itself creates, `-c` is this file's own argv, and system and global are
+# named by PATHS OUTSIDE THE ENVIRONMENT — reachable only through git's own two
+# overrides. So the keep-set is exactly the overrides for the layers the sweep
+# cannot reach, which is why it has two members and not a third.
+# ⚠ AND ONE UNIFORM METHOD CONFIRMS BOTH: SUBSTITUTION. Point either at a
+# `.gitconfig` whose `core.excludesFile` names a file holding `*.py`, instead of
+# at `/dev/null`, and the controls red — measured separately for each, 12 control
+# failures and exit 1 both times. REMOVAL is not the method and cannot be for the
+# system layer: `/etc/gitconfig` needs root to make hostile, so a removal test
+# there decides nothing. Substitution shows git reads the variable and that the
+# layer is live during a fixture build, which is the whole claim being made.
+# ⚠ AND A LAYER GIT ADDS LATER HAS A RULE, NOT A PRECEDENT: its override joins
+# the keep-set iff the sweep cannot reach that layer, and is confirmed the same
+# way. The two members here are not older or better-tested than a third would be.
 # ⚠ `${!GIT_@}` IS THE ENUMERATOR, on both shells this wire is run under rather
 # than on whichever one is to hand: bash 3.2.57 — the stock macOS shell it commits
 # to — supports the prefix form, and the QUOTED spelling is the one used, because
