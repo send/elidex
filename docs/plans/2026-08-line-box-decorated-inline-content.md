@@ -161,7 +161,7 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i, rev 76's 15f and 25g (ledger A54, A59, A60, A70, A71, A72, A76, A79, A86, A90, A94, A95, A101, A111, A112) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), and **rev 75's 25c**, which gains a second markup (A108); rev 63 adds none (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i, rev 76's 15f and 25g, rev 77's 17h (ledger A54, A59, A60, A70, A71, A72, A76, A79, A86, A90, A94, A95, A101, A111, A112) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), and **rev 75's 25c**, which gains a second markup (A108); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -781,6 +781,8 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A110 | R42-F3 | the **item-boundary opportunity** and **min-content** prereqs left unordered against each other while both need the same construction — the item stream concatenated, offsets mapped back to items, atomic boundaries preserved | the memo already assigns the API to one of them, so the ownership follows rather than being picked: §5.3's item-boundary slot bullet states "the fix is an API there over the concatenated paragraph (or a stateful one) that the packer consumes" with `elidex-linebreak` as the owner and the `elidex-text` facade as the consumption edge, and §8's item-boundary block repeats it; the min-content block hands its *joining mechanism* to its own plan-review and names item boundaries as the other slot's defect, "not this oracle's". So the **item-boundary prereq owns the canonical API and lands first; the min-content prereq consumes it** — the same shape as A69's end-of-line → min-content ordering, and for the same reason: whichever landed first would otherwise build the construction locally and leave the other to duplicate it or rewrite a prerequisite already called done. The two PR-1b predecessors of min-content are unordered against each other; the reconciler prereq stays unordered against all three. Carried at §8's two blocks, the topology, PR-1b's DoD and the front matter. Found by Codex on #515 |
 | A111 | R43-F1 (two byte-identical threads) | both of cell **25c**'s markups wrapping the whole text in **one** decorated inline, and with that the memo's claim to cover the intersection of cross-item joining and marker-edge accumulation | the intersection was **stated but unasserted**: §8's min-content prereq instance 2 (`a<b style="padding:10px">b</b>c`, whose contribution is `|abc| + 20`) has owned it since rev 52, and no cell asserted it — so a producer that joins across items but **commits its candidate whenever it meets a marker** passed 25, 25c, 25e and the undecorated joining coverage alike. Because the defect is that instance's, the remedy is **coverage, not a new instance**: §6 cell **25g** asserts `measure_width("b") + 200 + measure_width("c")` for `<div style="display:inline-block"><span style="padding-right:100px">b</span><span style="padding-left:100px">c</span></div>`, where the committing-at-a-marker producer reports `max(measure_width("b") + 100, 100 + measure_width("c"))`, an edge-dropping joiner reports `measure_width("b") + measure_width("c")` and today's per-item function reports `max(measure_width("b"), measure_width("c"))`. Verified against the spec rather than assumed: css-text-3 §5.5's "Out-of-flow boxes and inline box boundaries do not introduce a forced line break or soft wrap opportunity in the flow" (`body css-text-3 line-break-details`), so both boundaries between the letters supply none and the candidate is one. A **new cell** rather than a third arm of 25c, because 25c's subject is where the box's **outer** two edges land across segments, while this is edges **internal** to one candidate — and instance 2's own text now names the cell, as instances 1 and 6 already named theirs. Found by Codex on #515 |
 | A112 | R43-F2 | §8's suite-level break invariant licensing **every** offset the string-only `find_break_opportunities` returns, and the memo's treatment of within-run breaks as covered | nothing between the oracle and the flush guard filters by `white-space`, measured at `154bac3f`: `build_pack_items` splits each `InlineItem::Text` at every returned offset with no such test (`pack/items.rs:63-91`, call at `:72`), and the packer's only `white_space` read is `contributes_content`'s `Pre \| PreWrap` test (`pack/mod.rs:556-568`). css-text-3 §3 withholds the licence — `nowrap` is "Like `normal`, this value collapses white space; but like `pre`, it does not allow wrapping" and `pre` is "Lines only break at forced line breaks" (`body css-text-3 white-space-property`) — so the class is **pre-existing** (a `nowrap` run wider than its line wraps today) and **newly reachable through PR-1b's advance**, which makes the guard fire at widths where the run alone fits. **Folded into the item-boundary opportunity prereq as its second grant rather than carved as a ninth prerequisite**: the fix is a filter on the canonical opportunity API that PR already owns (**A110**), which sees each item's run and so its `white_space`, and a separate prereq would put a second filter at one seam — the duplicated decision surface *one issue, one way* refuses. Ordering unchanged (before PR-1b, and before the min-content prereq that consumes the API); the prereq's plan-review owns the mechanism for both grants. §6 cell **15f** pins it as an invariance across PR-1b (`line_count == 1` at `W` in `[measure_width("a b"), measure_width("a b") + 20)`), distinct from 15e, whose offset the oracle never returns at all. **The invariant's wording is corrected with it**: the licensed set is the oracle's offsets *as the run they fall in admits a soft wrap*, not the raw UAX #14 result. Found by Codex on #515 |
+| A113 | R43-F3 (the fourth thread); an independent design-lens pass; user decision, 2026-09-26 | the ground on which R43-F3 was held open — "a layout fixture cannot deterministically produce an empty span", carried in the R43 hand-off as the reason the remedy needed either a frozen-column amendment or a condition on another PR | the premise was false, and so were the two before it in the same place: every witness in this history routed the empty span through **a font's advance for LF** — **A92** assumed it was zero without measuring, **A97** measured it non-zero on one machine's fonts, **A106** removed the cell's dependence on it — while the reachable route is a zero **size**. Measured at `154bac3f`, four sites: `font-size: 0` parses as a zero length (`elidex-css/src/values.rs:19`) and reaches `ComputedStyle` unclamped (`elidex-style/src/resolve/font.rs:108-128`); shaping rejects only `!font_size.is_finite() \|\| font_size < 0.0` (`crates/text/elidex-shaping/src/shaping.rs:109`); `pixel_scale` is `font_size / upem` (`database.rs:29-32`), so every advance scales to 0 for any face including `.notdef`; and `measure_segment_widths` maps a `None` to `0.0` regardless (`inline/measure.rs:78`, `:85`). **So the settlement is a cell, not an owner**: M4's rev-60 outcome already says a forced break inside a box fragments it "so it has a rect on both lines", and its Decision subordinates its own mechanism where the two diverge ("the outcome governs and the producer is PR-1c's plan-review's"), which is freeze discipline 5 — the umbrella pins the outcome, the predicate is the per-PR review's. §6 cell **17h** pins it, asserting the inline axis only and naming why (line 1's block extent moves between PR-1c and PR-1d), with the harness's size-taking `measure_width` variant landing as that cell's own change on cell 12d's precedent. **Why neither of the two tools that were reached for**: **A93**/**A102**'s subject is a *pre-existing* defect this program makes reachable, and nothing on `main` emits partial rects at all — the flush-time hook is PR-1c's, so there is no pre-existing behaviour to order a prerequisite against; and `#11-inline-box-decoration-splits`'s subject is fragment **attribution** (which side of a fragment is the broken edge, per-fragment border areas), not fragment **existence**, so routing it there would have widened a slot's subject to hide a cell-shaped gap. **The instructive part, recorded because it cost a round**: the fixture first proposed for this cell put the `"\n"` alone inside the zero-size element, which makes its only break offset the run's end — `find_break_opportunities` filters `offset >= text.len()` (`crates/text/elidex-linebreak/src/lib.rs:31`), so no `Mandatory` reaches the packer and `force_break` never runs. **The memo already documents that trap** at cell 19's ⚠ (`<pre>\n</pre>`, the same shape one level down), and the brief walked into it anyway; the repair is one character after the break (`"\nA"`), and the lesson is that a fixture's break must be shown to be *interior to its run*, which this cell now states as a fact of the frame. ⚠ **A106's closing claim is superseded here**: "after this row no cell has that shape" held until rev 77, and cell 17h is now that shape — by style rather than by a font's advance, which is why it can be asserted at all. Found by Codex on #515, corrected by an independent design-lens pass, decided by the user |
+| A114 | R43-F3; user decision, 2026-09-26 — **recorded, not edited** | M4's frozen paragraph listing where its mechanism and its outcome diverge — "(10c, 10d, **17g's first line**, and 17c …)" — read as an inventory | it is a **seed**, and the property governs: the divergence is *wherever the rev-59 mechanism and the rev-60 outcome disagree*, and the list shrank in silence when rev 74 re-fixtured 17g so that its first line is non-empty by construction and no longer diverges at all. The live instance is §6 cell **17h**, whose line-1 span is empty by style, and it has no entry because the list sits in a **frozen Decision column** — so this row is the record rather than an edit. **What the list would say if it were editable**: "(10c, 10d, 17h's first line — 17g's until rev 74 re-fixtured it — and 17c, whose rebase this text grounds on an inversion a hull cannot produce)". ⚠ This is the shape [[feedback_enumerated-exemptions-leave-the-next-class-authoritative]] names: an enumeration inside a frozen column cannot be maintained, so what governs has to be the property, and any later cell of this class is covered by it without an amendment. Found by Codex on #515 |
 
 ---
 
@@ -1535,7 +1537,7 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   Measured for hit-testing on PR-1c's own shape: with the span's 10px padding real, the point
   (12, 20) inside the padding ring hits the **span**; with the padding zeroed, as today, the same
   point hits the `<p>`. §6 cells 6, 10b, 10c, 10d, 13, 13b, 13c, 13d, 14c, 15c, 17, 17b, 17c, 17d,
-  17f and 17g land here.
+  17f, 17g and 17h land here.
   ⚠ **The predicate prereq PR (§9) is already in `main` by this point** — it lands before PR-1a —
   which is what keeps PR-1c honest: PR-1c makes an inline's `LayoutBox.border` real, and
   cssom-view-1 §6 step 1 requires **all four** `client*` members to stay **zero** for an inline
@@ -3420,11 +3422,60 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     first match found, or `None` if no font matches" (`crates/text/elidex-shaping/src/database.rs:58-84`) —
     and whose `measure_width` returns `0.0` when none resolves (`inline/tests/mod.rs:31-41`,
     `map_or(0.0, …)`). A97's withdrawal stands on its own
-    grounds; what rev 74 removes is the cell's dependence on an environment. ⚠ **The coupling that
-    remains is the end-of-line white-space prereq's** and is stated there: if that PR gives the
-    preserved break a zero advance, or stops shaping it, then an open box whose line-1 span is the
-    break **alone** has an empty span and the frozen filter emits nothing for it. After rev 74 no
-    cell has that shape.
+    grounds; what rev 74 removes is the cell's dependence on an environment. ⚠ **The empty-span shape this
+    fixture used to carry is cell 17h's since rev 77** (ledger **A113**): it reaches an empty line-1
+    span by **style** — `font-size: 0` on the element that owns the break — so the shape no longer
+    depends on how any font measures the break, and the end-of-line white-space prereq carries a
+    pointer to that cell rather than the consequence rev 74 recorded there.
+17h. **A forced break inside a box whose line-1 span is *empty*, made empty by style rather than by
+    a font** (M4; R43-F3, settled 2026-09-26 — ledger **A113**) —
+    `<pre><span style="padding-left:10px"><i style="font-size:0">\nA</i>x</span></pre>`.
+    **Asserted**: the outer span's `line_rects.len() == 2`; line 1's rect starts at the outer's
+    content-start — after its `padding-left` — with an inline size of **zero**; line 2's rect starts
+    at 0 and encloses `x` on the inline axis. **Grounds**: css-inline-3 §2.1 splits a box that
+    "contains a forced line break" into "several fragments [CSS-BREAK-3], which are partitioned
+    across multiple line boxes"; css-break-3 §2 makes each a *box fragment* with "its own share of
+    the box's border, padding, and margin"; and cssom-view-1 §6's `getClientRects()` step 3 asks for
+    one rect per box fragment "describing its border area **(including those with a height or width
+    of zero)**" — so a fragment whose own span is empty is still a fragment with a rect. This is
+    M4's rev-60 outcome in its own words, "a box has a rect on each line it has a fragment on".
+    **Why the span is empty, deterministically and in any environment**: the `<i>`'s
+    `font-size: 0` parses as a zero length (`elidex-css/src/values.rs:19`, unitless `0` →
+    `Length(0.0, Px)`) and reaches `ComputedStyle` unclamped
+    (`elidex-style/src/resolve/font.rs:108-128`); shaping accepts it, rejecting only
+    `!font_size.is_finite() || font_size < 0.0` (`crates/text/elidex-shaping/src/shaping.rs:109`),
+    and `pixel_scale` is `font_size / upem` (`database.rs:29-32`), so **every** advance scales to 0
+    for any face including `.notdef`; and if any step returned `None`,
+    `measure_segment_widths` maps it to `0.0` anyway (`inline/measure.rs:78`, `:85`). The break's
+    advance is therefore 0 by style, not by a font's metric for LF — which is where every earlier
+    attempt at this shape went (ledger **A92**, **A97**, **A106**).
+    **Why two lines, as facts about the frame**: the `<i>`'s run is `"\nA"`, so the oracle returns
+    `(1, Mandatory)` — offset 1 is below the run's length, which is what keeps it out of the
+    `offset >= text.len()` filter (`crates/text/elidex-linebreak/src/lib.rs:31`) — `place_item`
+    runs first (`pack/mod.rs:591-600`) and the `Mandatory` guard then calls `force_break()`
+    (`:602-603`), which sets `any_rendered_content` and enters `flush_line(FlushReason::Forced)`
+    (`:775-783`); the `"\n"` segment is rendered content because `white-space: pre` makes
+    `contributes_content` `!text.is_empty()` (`:556-568`). Both segments are keyed to the `<i>`,
+    since a text child's run carries its innermost enclosing **element**
+    (`inline/collect.rs:302-315`), so the **outer** span owns no run on line 1 and `x` — its own
+    run — is what line 2's rect encloses. The `<i>` carries no edge, so M1 emits no marker for it.
+    ⚠ **A test-harness change lands with this cell, and it is this cell's**, the way cell 12d's did:
+    the precondition — that the preserved break measures **0** at `font-size: 0` — is asserted by
+    the test, and the existing helper fixes the size (`measure_width` builds its
+    `TextMeasureParams` with `ComputedStyle::default().font_size`, `inline/tests/mod.rs:31-41`), so
+    a size-taking variant of it arrives here.
+    ⚠ **The inline axis only, deliberately**: like cells 17 and 17g this asserts stored `line_rects`
+    as **content** spans and a count, and **not** a block extent — line 1's height moves between
+    PR-1c, where it comes from the zero-size run, and PR-1d, where M6's marker `line_height` raises
+    it, so a block assertion here would pin a number this program changes one PR later. A rect that
+    is zero-sized on both axes is what cssom-view-1 step 3's parenthetical contemplates, so the
+    omission is the spec's shape and not a gap.
+    ⚠ **The expected result is the whole of the cell; the predicate is PR-1c's plan-review's.** M4's
+    Decision subordinates its own mechanism where the two diverge — "the outcome governs and the
+    producer is PR-1c's plan-review's" — and the flush-time filter as written emits nothing for an
+    empty span, which is why this cell is what makes the outcome observable for this case. What the
+    hook's forced arm tests is that review's to choose; `FlushReason::Forced` already reaching
+    `flush_line` is a **fact** of the frame, not a requirement placed on it.
 
 **PR-1d existence:**
 
@@ -4273,7 +4324,7 @@ re-checks §7's reader family, and `elidex-render`'s existing `border_box()`-rea
 named and dispositioned here. `note_line_occupancy`, `pack/inline_box.rs` and M8's contribution
 carry docstring citations to their §3 rows.
 
-**PR-1c** (box geometry): cells 6, 10b, 10c, 10d, 13, 13b, 13c, 13d, 14c, 15c, 17, 17b, 17c, 17d, 17f and 17g —
+**PR-1c** (box geometry): cells 6, 10b, 10c, 10d, 13, 13b, 13c, 13d, 14c, 15c, 17, 17b, 17c, 17d, 17f, 17g and 17h —
 ⚠⚠ **Cell 13c is new at R6, and the argument for it is at the level of the *set*, not of any
 cell** (R6-d). M4's invariant (iii) is that padding, border and margin stay three **independent**
 `LayoutBox` fields; the discrimination question is therefore not "does some cell assert an edge"
@@ -5002,15 +5053,12 @@ contribution (ledger **A90**). It is **registered**, not dismissed (Codex R27; l
 whose trigger is this PR's plan-review — the accumulator an atomic term would land on is built
 here — without being bundled into it.
 
-**End-of-line white-space prereq PR** — ⚠ **a consequence this PR carries for M4's emit rule**
-(rev 74; ledger **A106**): if the treatment it settles gives a preserved segment break a **zero**
-inline advance, or stops shaping the control character at all, then an open box whose cursor span on
-a line is that break **alone** has an empty span, and M4's frozen flush-time filter — which emits
-only for a non-empty span — emits nothing for it. This is a consequence of that decision, not a
-requirement on it: the umbrella asks nothing of the choice, and §6 cell **17g**, the one cell that
-stood on the break's advance, was re-fixtured at rev 74 so that the outer box owns content of its
-own on line 1 and no cell depends on the advance now. Any later cell of that shape would have to
-answer the emit question rev 72 closed (**A92**, **A97**), which is why the shape is named here.
+**End-of-line white-space prereq PR** — ⚠ **What rev 74 recorded here as a consequence for M4's
+emit rule is §6 cell 17h's as of rev 77** (ledger **A106**, **A113**): the empty-span fragment at a
+forced break no longer waits on what this PR decides about a preserved break's advance or shaping,
+because that cell reaches the shape by **style** — `font-size: 0` — and so in any environment. This
+PR carries nothing for it; the pointer stands in place of the consequence so that no reader infers a
+coupling that rev 77 removed.
 **The gap**: elidex's end-of-line white-space processing
 is not css-text-3's. One trim serves every case: `measure_segment_widths` strips trailing ASCII
 space and tab whatever `white-space` is (`inline/measure.rs:79`, `is_collapsible_space` being
