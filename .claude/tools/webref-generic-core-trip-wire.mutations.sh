@@ -35,10 +35,10 @@
 # were left off this list and out of the guard by the commit that added the
 # generator — the same drift the guard exists to catch, in the edit that
 # widened what there is to drift.
-# WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_mutants`,
-# `_mut_equivalent`, `_mut_correspondence`, `_mut_assign_value`,
-# `_mut_regex_mutants`, `_mut_splice`, `_mut_restore_copies`, `_mut_trial`,
-# `_mut_gen_run`, `_mut_run`.
+# WHAT IT DEFINES: `_MUT_UNRECORDED_MAX`, `_MUT_RECORDS_MIN`, `_MUT_TARGETS`,
+# `_mutants`, `_mut_equivalent`, `_mut_correspondence`, `_mut_assign_value`,
+# `_mut_regex_mutants`, `_mut_splice`, `_mut_target`, `_mut_restore_copies`,
+# `_mut_trial`, `_mut_gen_run`, `_mut_run`.
 #
 # TWO POPULATIONS, AND THE BOUNDARY IS WHAT EACH ONE'S UNIT IS.
 #   * `_mutants` — HAND-WRITTEN, and its unit is a CONTROL. Every control has
@@ -119,8 +119,9 @@ fi
 # wire) has nothing to aim at", and the next defect to land was in `_fgit`, three
 # lines below that sentence. The run already copies all four shipped files beside
 # each mutant, so the only thing missing was saying which one to `sed`. Two
-# targets are implemented, the wire and the harness; a third would be one arm in
-# `_mut_run`'s `case` and one `cp` in `_mut_restore_copies`.
+# targets are implemented, the wire and the harness, and they are spelled ONCE —
+# `_MUT_TARGETS` plus `_mut_target`, below — so a third is one word and one arm
+# in two adjacent lines rather than three sites that have to agree.
 # The two `harness:` records undo the fixture scrub the two ways it can be undone:
 # one drops it, the other restores the ENUMERATION that stood there before it —
 # the patch the defect invites, and the one that leaves `GIT_TEMPLATE_DIR`
@@ -537,12 +538,65 @@ _mut_splice() {
     return 1; }
 }
 
+# WHICH FILES A RECORD MAY EDIT — THE INVENTORY, SPELLED ONCE.
+# ⚠ IT USED TO BE SPELLED THREE TIMES: the `cp` pair in `_mut_restore_copies`,
+# `_mut_gen_run`'s restatement of the default, and `_mut_run`'s default plus its
+# `case` arm. Adding a target to the `case` and forgetting the `cp` leaves that
+# target's mutation in place for every entry after it — PRECISELY the defect
+# `_mut_restore_copies` was introduced to kill, reachable again through the
+# inventory it did not own. One list, one resolver: a name here with no arm
+# below reds at the first restore, and an arm with no name here is never
+# recognised as a prefix, so its records reach `sed` with the prefix still on
+# them and fail as invalid expressions. Both directions are loud.
+# ⚠ THE FIRST WORD IS THE DEFAULT — the file a record edits when it carries no
+# prefix — AND IT IS THE ONE NAME THAT IS NOT A PREFIX. A target name must not be
+# a valid sed command prefix, or a record whose expression legitimately begins
+# with it would be silently re-aimed. The rule is decidable from sed's command
+# syntax rather than per name: POSIX `h` takes NO argument, so `harness:` is a
+# syntax error (`sed 'harness:p' /dev/null` → "extra characters at the end of h
+# command", measured here on BSD sed), while POSIX `w` takes a wfile operand, so
+# `wire:` is a VALID write to a file called `ire:`. So `wire` is reached
+# only as the default and never stripped, and the rule is one sentence checked
+# against one list instead of an argument made per name.
+_MUT_TARGETS="wire harness"
+# …and the resolver: $1 = a target name, out = `$_mut_src` (the shipped file) and
+# `$_mut_tgt` (the mutable copy `sed` writes and `_mut_trial` compares).
+_mut_target() {
+  case "$1" in
+    wire)    _mut_src="$SELF";     _mut_tgt="$_mut_wire" ;;
+    harness) _mut_src="$_HARNESS"; _mut_tgt="$_mut_hns"  ;;
+    *) return 1 ;;
+  esac
+}
+
 # EVERY MUTABLE COPY BACK TO THE SHIPPED BYTES, before an entry is applied.
 # ⚠ ONE OWNER, BECAUSE THE COPIES USED TO BE MADE ONCE above the hand loop — sound
 # only while every entry edited the same file. The moment one edits another, its
 # mutation is still in place for every entry after it, and what those entries
 # report is a tree of two edits. Both loops call this; neither keeps its own list.
-_mut_restore_copies() { cp "$SELF" "$_mut_wire" && cp "$_HARNESS" "$_mut_hns"; }
+# ⚠ AND IT OWNS THE REPORT, NOT ONLY THE COPY. One caller printed nothing and
+# merely incremented a counter, so a `cp` that failed on a disk or a permission
+# bit was reported as `generated boundary set: 0 mutant(s) …, 1 neither killed
+# nor argued equivalent` — BLAMING THE MUTATION POPULATION for an environment
+# failure, the misattribution this file calls out at `_mut_run`'s per-run names.
+# Whoever knows what went wrong says so; both call sites reduce to a counter.
+# ⚠ A SUBSHELL FUNCTION, so the resolver's writes to `$_mut_src`/`$_mut_tgt` are
+# discarded while the copies happen for real. Without that, restoring would
+# clobber the pair its caller had already resolved, and the order of two lines
+# would decide which file an entry tested.
+_mut_restore_copies() (
+  for _mut_t in $_MUT_TARGETS; do
+    _mut_target "$_mut_t" || {
+      echo "!! \"$_mut_t\" is in \`_MUT_TARGETS\` with no arm in \`_mut_target\`, so this run" >&2
+      echo "   cannot restore it and every entry after the first would test two edits." >&2
+      return 1; }
+    cp "$_mut_src" "$_mut_tgt" || {
+      echo "!! the shipped $_mut_t could not be re-copied to \"$_mut_tgt\", so the entry about" >&2
+      echo "   to run would have run against another entry's edit. This is a disk," >&2
+      echo "   permission or path failure, NOT a gap in the mutation population." >&2
+      return 1; }
+  done
+)
 
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
 # `$_mut_wire`. $1 = how to name it in a diagnostic, $2 = what is required:
@@ -604,11 +658,12 @@ _mut_trial() {
 
 # The generated half of the run. Sets `_mut_gen_n` / `_mut_gen_bad`.
 _mut_gen_run() {
-  # This half only ever edits the wire, and it says so rather than inheriting
-  # whatever the last hand record left behind — the target it compares against
-  # AND the harness copy, which a `harness:` entry above may have left mutated.
-  _mut_src="$SELF"; _mut_tgt="$_mut_wire"
+  # This half only ever edits the wire, and it NAMES that target through the one
+  # resolver rather than restating the pair — so it cannot inherit whatever the
+  # last hand record left behind, and cannot drift from the restore above either.
+  # Restore FIRST: the resolver's output is what an entry is measured against.
   _mut_restore_copies || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
+  _mut_target wire || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
   _mut_gen_fail=""
   : > "$CTL/.genmutants"
   for _gr_v in K2RE K2RE_PATH; do
@@ -797,17 +852,29 @@ _mut_run() {
     while IFS="$(printf '\t')" read -r _mx _mwant; do
       [ -n "$_mx" ] || continue
       _mut_n=$((_mut_n + 1))
-      # WHICH OF THE FOUR SHIPPED FILES THIS ENTRY EDITS — the wire unless the
-      # expression says otherwise. The prefix is stripped before `sed` sees it,
-      # and it cannot collide with a real expression (`sed 'harness:p' /dev/null`
-      # → "extra characters at the end of h command").
-      _mut_src="$SELF"; _mut_tgt="$_mut_wire"
-      case "$_mx" in
-        harness:*) _mx="${_mx#harness:}"; _mut_src="$_HARNESS"; _mut_tgt="$_mut_hns" ;;
-      esac
-      _mut_restore_copies || {
-        echo "!! MUTANT $_mut_n: the shipped files could not be re-copied, so this" >&2
-        echo "   entry would have run against another entry's edit." >&2
+      # WHICH OF THE FOUR SHIPPED FILES THIS ENTRY EDITS — the default unless the
+      # expression carries a target's name as a prefix, which is stripped before
+      # `sed` sees it.
+      # ⚠ ANCHORED ON THE KNOWN NAMES IN `$_MUT_TARGETS`, NEVER A GENERIC
+      # `<word>:` PARSE: `sed 'y/a:/b;/'` is a valid expression whose
+      # `${_mx%%:*}` is `y/a`, so a parse would re-aim a record at a target that
+      # does not exist and then report the failure as the record's. The default
+      # (the list's first word) is deliberately NOT strippable — see the rule at
+      # `_MUT_TARGETS`.
+      _mt_default="${_MUT_TARGETS%% *}"
+      _mt_which="$_mt_default"
+      for _mut_t in $_MUT_TARGETS; do
+        [ "$_mut_t" != "$_mt_default" ] || continue
+        case "$_mx" in
+          "$_mut_t":*) _mt_which="$_mut_t"; _mx="${_mx#"$_mut_t":}"; break ;;
+        esac
+      done
+      # …restore BEFORE resolving: the restore walks every target and the
+      # resolver's output must be the pair THIS entry is measured against.
+      _mut_restore_copies || { _mut_bad=$((_mut_bad + 1)); continue; }
+      _mut_target "$_mt_which" || {
+        echo "!! MUTANT $_mut_n: no target named \"$_mt_which\", so this entry was not" >&2
+        echo "   applied to anything." >&2
         _mut_bad=$((_mut_bad + 1)); continue
       }
       if ! sed "$_mx" "$_mut_src" > "$_mut_tgt" 2>/dev/null; then
