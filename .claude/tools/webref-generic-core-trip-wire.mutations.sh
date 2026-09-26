@@ -175,7 +175,7 @@ fi
 #     ⚠ WHAT IT DOES NOT SEE: a deletion and an addition in one edit. The set
 #     shrinking is what is caught; the added record still has to kill.
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=97
+_MUT_RECORDS_MIN=96
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -260,12 +260,24 @@ s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a quoted one-segment reference before a 
 s/SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""/SCRATCH="$(_phys "$_raw_scratch")"/	a restrictive umask decides nothing
 s/_root_p="$(_phys "$ROOT")" || _root_p=""/_root_p="$(_phys "$ROOT")"/	an unresolvable self-test root decides nothing
 s/^unset GREP_OPTIONS$/:/	a caller's GREP_OPTIONS cannot hide a file
-# The two `harness:` records undo the fixture scrub the two ways it can be undone:
-# one drops it, the other restores the ENUMERATION that stood there before it —
-# the patch the defect invites, and the one that leaves `GIT_TEMPLATE_DIR`
-# authoritative — so the control has to red on both, not only on the deletion.
-harness:s/for _fv in "${!GIT_@}"; do unset "$_fv"; done/:/	a hostile caller git environment cannot change what a fixture holds
-harness:s/for _fv in "${!GIT_@}"; do unset "$_fv"; done/unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT/	a hostile caller git environment cannot change what a fixture holds
+# The `harness:` record restores the ENUMERATION that stood before the fixture
+# scrub — the patch the defect invites, and the one that leaves `GIT_TEMPLATE_DIR`
+# authoritative — so the control has to red on it.
+# ⚠ THERE USED TO BE A SECOND, REPLACING THE SWEEP WITH `:`, and it was DOMINATED.
+# Measured as single mutants: both produced the identical line — `!! CONTROL FAILED
+# (a hostile caller git environment cannot change what a fixture holds): expected
+# exit 1, got 0.` — with rc 1 and exactly one control failing. So the drop could
+# not fail while the weaker sweep passed, and the two diagnostics were
+# indistinguishable. Deleting the sweep outright is caught by THIS record's own
+# anchor, as `MATCHED NOTHING`. A record is priced at one full control pass, so a
+# dominated one doubles the cost of pinning this control for zero detection.
+# ⚠ AND THE ANCHOR IS `_fgit_scrub`'s DEFINITION LINE, `^`-anchored, because the
+# probe beside it holds the same loop on its own line: an unanchored expression
+# rewrites BOTH, the probe then refuses at the top of the run, and this record
+# would report `killed for the WRONG REASON` instead of naming its control.
+# ⚠ AND THE DELIMITER IS `#`, NOT `|`: the pattern holds `||`, which GNU sed reads
+# as alternation where BSD sed reads an escaped delimiter.
+harness:s#^_fgit_scrub() { for _fv in "${!GIT_@}"; do unset "$_fv" 2>/dev/null || true; done; }#_fgit_scrub() { unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT; }#	a hostile caller git environment cannot change what a fixture holds
 s/exec git -c core.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
 s/^K2RE='(^|\[/K2RE='([/	a reference at the start of a line fires
 s/\[^A-Za-z0-9_.~@+%-\]/[^A-Za-z0-9_.@+%-]/	a PATH character before .claude is not a prose boundary

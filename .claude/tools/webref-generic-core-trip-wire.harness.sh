@@ -87,39 +87,83 @@ fi
 # to — supports the prefix form, and the QUOTED spelling is the one used, because
 # it yields one word per name whatever `IFS` holds and zero words under `set -u`
 # when nothing matches.
+# ⚠ `2>/dev/null || true` PER NAME. bash 3.2 LISTS an entry like `GIT_X-Y` and
+# then refuses to `unset` it ("not a valid identifier"); without this the refusal
+# printed five times — once per `_fgit` call whose stderr is not redirected — and
+# the run still exited 0, because `set -e` is suspended inside the `&&` chains the
+# fixtures are built as. Whether such an entry is present is not this sweep's
+# question to answer; it is the probe's, below, and the probe must survive the
+# sweep in order to answer it.
 # ⚠ In a subshell (`( … )`), so neither the unsets nor the assignments can leak
 # into the real scan.
-_fgit() ( for _fv in "${!GIT_@}"; do unset "$_fv"; done
-          GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@" )
+_fgit_scrub() { for _fv in "${!GIT_@}"; do unset "$_fv" 2>/dev/null || true; done; }
+_fgit() ( _fgit_scrub; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _git "$@" )
 
-# CAN EVERY `GIT_*` THIS SHELL CARRIES ACTUALLY BE REMOVED? Asked once, before a
+# DOES THAT SWEEP ACTUALLY EMPTY THE ENVIRONMENT BLOCK? Asked once, before a
 # fixture is built, because the sweep above is worth exactly what the answer is.
-# ⚠ MEASURED, AND IT IS NOT ALWAYS YES:
+# ⚠ `env` IS THE AUTHORITY, NOT `${!GIT_@}`. This used to be a precondition that
+# walked bash's own list and asked whether each member could be unset — i.e. it
+# verified the sweep against THE VERY ENUMERATOR UNDER TEST, which is the defect
+# the sweep above was written to fix, one level up. Measured with
 #
-#     env 'GIT_X-Y=1' /bin/bash .claude/tools/webref-generic-core-trip-wire.sh
+#     env 'GIT_X-Y=1' GIT_TEMPLATE_DIR=/tmp/tpl bash -c 'echo "${!GIT_@}"; command env'
 #
-# bash 3.2 LISTS that entry and then refuses to `unset` it ("not a valid
-# identifier"); 5.3 does not list it at all; in both it reaches git's environment.
-# Without this block 3.2 printed that refusal five times — from the `_fgit` calls
-# whose stderr is not redirected — and still exited 0, because `set -e` is
-# suspended inside the `&&` chains the fixtures are built as. A sweep that
-# silently did not sweep, reported as a pass, is the defect this helper is about
-# one level up; so an entry that cannot be removed ends the run at "decided
-# nothing" instead.
+# bash 3.2.57 lists `GIT_EDITOR GIT_TEMPLATE_DIR GIT_X-Y` and the old block fired;
+# bash 5.3.20 lists only the first two and it was BLIND — blind on the shell where
+# the residual survives. `env` reports all three on both. So the question is put
+# the other way round: sweep, then ask the environment block what is left.
+# ⚠ AND IT ASKS IN BASH, NOT THROUGH `grep`. `grep` on `PATH` is whatever `PATH`
+# resolves (the wire's D12 row), this file runs under `pipefail` where a `grep`
+# selecting nothing exits 1, and hard-coding `/usr/bin/grep` would start a second
+# absolute-path inventory of external tools. A `case` needs none of them.
+# ⚠ AND `env` PRODUCING NOTHING IS "DECIDED NOTHING", not "nothing leaked": a
+# probe whose observer failed must not read as a clean sweep.
+# ⚠ AND THE PROBE KEEPS ITS OWN COPY OF THE LOOP rather than calling
+# `_fgit_scrub`, which is the one thing it would be tidier to do. Measured: with
+# the probe calling `_fgit_scrub`, rewriting that function to the three-name
+# `unset` it replaced makes THIS BLOCK exit 2 at the top of the run — so the
+# mutation record that pins this sweep reported `killed for the WRONG REASON`
+# instead of naming its control, and whether it did so depended on whether the
+# caller's environment happened to carry a removable `GIT_*` (`GIT_EDITOR=true`
+# here). A check that is a detector for the payload of the thing it checks
+# pre-empts the control that proves that payload end to end, nondeterministically.
+# The loop below is therefore the ENUMERATOR UNDER TEST, not a call into
+# production; the two are kept identical, and the `harness:` mutation record's
+# anchor IS `_fgit_scrub`'s body, so editing the sweep without editing the probe
+# reds as `MATCHED NOTHING`.
 # ⚠ ASSERTED, NOT A `_control`, for the same reason `_shq`'s probe below is: the
 # question is about THIS process's own environment, and a `_control` can only set
-# the environment of a wire it RE-INVOKES.
-# ⚠ AND IT SEES WHAT THE SHELL SEES. On 5.3 the entry above is invisible here, so
-# what this establishes is that the sweep is complete over the names bash exposes
-# — not over every byte of the environment block. The rest is left unclaimed.
-_fgit_unremovable=""
-for _fv in "${!GIT_@}"; do
-  ( unset "$_fv" ) 2>/dev/null || _fgit_unremovable="$_fgit_unremovable $_fv"
-done
-if [ -n "$_fgit_unremovable" ]; then
-  echo "!! these environment entries match \`GIT_*\` and cannot be unset:$_fgit_unremovable" >&2
-  echo "   so the fixtures could not be built from a known-empty git environment," >&2
-  echo "   and a green below would be over trees this run does not control." >&2
+# the environment of a wire it RE-INVOKES. Each re-invocation runs this block
+# again over its own environment, which is how the hostile fixture's child is
+# covered too.
+_fgit_block="$( ( for _fv in "${!GIT_@}"; do unset "$_fv" 2>/dev/null || true; done
+                  command env ) )" || _fgit_block=""
+if [ -z "$_fgit_block" ]; then
+  echo "!! \`env\` reported nothing about this process's own environment block, so the" >&2
+  echo "   fixture git scrub could not be checked at all and this run decided nothing." >&2
+  exit 2
+fi
+# ⚠ `(GIT_*)`, WITH THE LEADING PAREN. Inside `$( … )` bash 3.2.57 takes the `)`
+# that closes a bare `case` pattern as the one that closes the substitution:
+# "syntax error near unexpected token `newline'", then `_fl: unbound variable`.
+# `bash -n` does NOT catch it — the substitution is parsed at execution — so it
+# reached a run, the same class as the `_mutants` note in the mutation set.
+# The balanced form parses on both; measured 3.2.57 and 5.3.20.
+_fgit_leak="$(printf '%s\n' "$_fgit_block" | while IFS= read -r _fl; do
+  case "$_fl" in (GIT_*) printf '%s\n' "$_fl" ;; esac
+done)"
+if [ -n "$_fgit_leak" ]; then
+  echo "!! THIS RUN CANNOT PROVE THE FIXTURE GIT SCRUB DID WHAT IT CLAIMS. After" >&2
+  echo "   sweeping every name bash lists as \`GIT_*\`, \`env\` still reports:" >&2
+  printf '%s\n' "$_fgit_leak" | sed 's/^/     /' >&2
+  echo "   The claim is not that those entries are dangerous — they are not: every" >&2
+  echo "   name git reads is spelled [A-Z0-9_]+, so a name bash cannot unset is one" >&2
+  echo "   git cannot read either, and the live exposure is nil. The claim that fails" >&2
+  echo "   is the sweep's own: it is a COMPLETE sweep of the environment block, and" >&2
+  echo "   this run cannot show that. Reporting a pass over an unproven sweep is the" >&2
+  echo "   defect this helper exists to close, one level up — so the run ends at" >&2
+  echo "   \"decided nothing\" instead. (A non-\`GIT_*\` entry whose value holds a line" >&2
+  echo "   beginning \`GIT_\` lands here too: an unknown falls on the side that stops.)" >&2
   exit 2
 fi
 
