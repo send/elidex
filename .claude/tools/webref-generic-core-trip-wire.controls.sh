@@ -722,17 +722,19 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 #     neutralise the fixture that tried to set it" stood where this paragraph
 #     is. It is not: the hostility belongs to this build's own subshell, which
 #     is smaller than the layer `_fgit` neutralises.
-#     ⚠ AND IT IS THE ONLY BUILD HERE THAT RUNS IN A HOSTILE ENVIRONMENT — a
+#     ⚠ AND IT IS THE ONLY BUILD HERE THAT RUNS IN A HOSTILE ENVIRONMENT — A
 #     SEED, NOT AN INVENTORY, and it says so because it cannot say otherwise.
 #     What makes a build hostile is an `export` or assignment of any `GIT_*`
-#     inside a fixture subshell, and no expression this file could carry decides
-#     that over shell source. The seed that found this one was
-#     `grep -c '^( export GIT_' <this file>` — one spelling, which a build
-#     written `( GIT_TEMPLATE_DIR=… _fgit …`, or with its `export` on a line
-#     that does not open the subshell, walks straight past while the count stays
-#     put. Widening the expression is the wrong repair (it just moves the next
-#     unseen spelling), so the predicate above is the authority and the sentence
-#     is a claim about what has been LOOKED at, not a census.
+#     reaching a fixture's own subshell, and no expression this file can carry
+#     decides that over shell source. The figure used to be offered as
+#     `grep -c '^( export GIT_' <this file>` — a count that recognised one
+#     spelling, so a build written `( GIT_TEMPLATE_DIR=… _fgit …`, or with its
+#     `export` on a line that does not open the subshell, walked straight past
+#     while the number stayed put. The command is retired rather than widened:
+#     widening only moves the next unseen spelling, and this commit is the
+#     demonstration — the build below now `export`s two ARRAYS and does not hold
+#     the names at all, which that expression cannot see. The predicate above is
+#     the authority; the sentence is a claim about what has been LOOKED at.
 #     ⚠ THE VIOLATION IS STAGED ONLY, and that is what makes a leak visible. The
 #     wire's worktree inventory uses `--exclude-per-directory`, so it reads the
 #     file whatever these channels say (that is (3)'s own finding) — so keeping
