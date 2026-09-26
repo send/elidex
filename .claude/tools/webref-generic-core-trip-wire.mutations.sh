@@ -617,8 +617,10 @@ _mut_target() {
 # ORDER ANY MORE. Both used to say the restore had to come FIRST, "so the
 # resolver's output is the pair THIS entry is measured against" — the opposite
 # of the paragraph above, and both cannot be true. Measured rather than reread:
-# with the restore and the resolve SWAPPED at both sites, the mutation run
-# produces a byte-identical log (53 entries, same verdicts, same counts). The
+# with the restore and the resolve SWAPPED at both sites, the run produces a
+# byte-identical log — done on a copy with the hand set cut to three records (one
+# `wire`, the `harness:` one and `!survive`) plus the 50 generated mutants, so
+# that both target resolvers were exercised at a cost worth paying twice. The
 # subshell is what buys that, so the subshell is what says so.
 _mut_restore_copies() (
   for _mut_t in $_MUT_TARGETS; do
