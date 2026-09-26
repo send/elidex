@@ -116,8 +116,6 @@ _fgit() ( _fgit_scrub; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _
 # resolves (the wire's D12 row), this file runs under `pipefail` where a `grep`
 # selecting nothing exits 1, and hard-coding `/usr/bin/grep` would start a second
 # absolute-path inventory of external tools. A `case` needs none of them.
-# ⚠ AND `env` PRODUCING NOTHING IS "DECIDED NOTHING", not "nothing leaked": a
-# probe whose observer failed must not read as a clean sweep.
 # ⚠ AND THE PROBE KEEPS ITS OWN COPY OF THE LOOP rather than calling
 # `_fgit_scrub`, which is the one thing it would be tidier to do. Measured: with
 # the probe calling `_fgit_scrub`, rewriting that function to the three-name
@@ -133,9 +131,17 @@ _fgit() ( _fgit_scrub; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _
 # reds as `MATCHED NOTHING`.
 # ⚠ ASSERTED, NOT A `_control`, for the same reason `_shq`'s probe below is: the
 # question is about THIS process's own environment, and a `_control` can only set
-# the environment of a wire it RE-INVOKES. Each re-invocation runs this block
-# again over its own environment, which is how the hostile fixture's child is
-# covered too.
+# the environment of a wire it RE-INVOKES.
+# ⚠ AND A RE-INVOCATION DOES NOT ASK IT AGAIN. This note used to claim it did —
+# "each re-invocation runs this block again over its own environment" — and that
+# is false: the wire sources the controls, and through them this harness, ONLY
+# when `_SELFTEST` is empty (`if [ -z "$_SELFTEST" ]`, in the wire), while
+# `_control` re-invokes with `--selftest`. Measured:
+# `env 'GIT_X-Y=1' bash …trip-wire.sh --selftest <dir>` prints no refusal and
+# proceeds, where the same variable at top level exits 2. The conclusion above is
+# unaffected — a `_control` still could not pose this question — but the coverage
+# is this process's own environment and nothing else's, which is all it needs to
+# be: the child reads a fixture, it does not build one.
 # ⚠ AND IT REFUSES WITHOUT CLAIMING THE RESIDUAL IS DANGEROUS — that distinction
 # is load-bearing, because "it reaches git's environment" invites the next reader
 # to try to HANDLE `GIT_X-Y`, and there is nothing there to handle. A name bash
@@ -147,34 +153,65 @@ _fgit() ( _fgit_scrub; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _
 # live exposure is nil. What is nevertheless unproven is the sweep's own claim to
 # be complete over the environment block — and reporting a pass over an unproven
 # sweep is the defect this helper is about, one level up. So the run stops.
-_fgit_block="$( ( for _fv in "${!GIT_@}"; do unset "$_fv" 2>/dev/null || true; done
-                  command env ) )" || _fgit_block=""
-if [ -z "$_fgit_block" ]; then
-  echo "!! \`env\` reported nothing about this process's own environment block, so the" >&2
-  echo "   fixture git scrub could not be checked at all and this run decided nothing." >&2
+# ⚠ AND IT ASKS PER RECORD, NOT PER LINE — `env -0`. Plain `env` is ambiguous
+# about where one entry ends: an entry whose VALUE holds a newline followed by
+# `GIT_DIR=/tmp/x` made this block refuse NAMING `GIT_DIR` while
+# `printenv GIT_DIR` was empty (measured, PR501 reviewer, reproduced here). The
+# direction was right — an unknown stops the run — but the diagnostic sent the
+# reader hunting a variable the caller does not have, and a refusal that
+# misnames its subject is how a fail-closed gate gets read as broken. NUL is the
+# one byte an environment value cannot hold, so `-0` makes the record boundary
+# decidable. Measured on both shells this wire commits to, 3.2.57 and 5.3.20:
+# `env -0` is accepted and `read -r -d ''` walks its output, with the
+# newline-in-value entry arriving as ONE record that does not match.
+# ⚠ THROUGH A FILE, NOT `$( … )`. Command substitution cannot carry NUL — bash
+# discards those bytes — so the records would run back together into exactly the
+# single stream this replaces. `$SCRATCH` is the wire's own per-run `mktemp -d`,
+# already checked and already trapped, so this adds no cleanup owner.
+# ⚠ AND A FAILED OR EMPTY READ IS "DECIDED NOTHING", not "nothing leaked": a
+# probe whose observer failed must not read as a clean sweep.
+_fgit_env0="$SCRATCH/.fgit_env0"
+_fgit_rc=0
+( for _fv in "${!GIT_@}"; do unset "$_fv" 2>/dev/null || true; done
+  command env -0 ) > "$_fgit_env0" 2>/dev/null || _fgit_rc=$?
+if [ "$_fgit_rc" -ne 0 ] || [ ! -s "$_fgit_env0" ]; then
+  command rm -f "$_fgit_env0"
+  echo "!! \`env -0\` reported nothing about this process's own environment block, so" >&2
+  echo "   the fixture git scrub could not be checked at all and this run decided" >&2
+  echo "   nothing." >&2
   exit 2
 fi
-# ⚠ `(GIT_*)`, WITH THE LEADING PAREN. Inside `$( … )` bash 3.2.57 takes the `)`
-# that closes a bare `case` pattern as the one that closes the substitution:
-# "syntax error near unexpected token `newline'", then `_fl: unbound variable`.
-# `bash -n` does NOT catch it — the substitution is parsed at execution — so it
-# reached a run, the same class as the `_mutants` note in the mutation set.
-# The balanced form parses on both; measured 3.2.57 and 5.3.20.
-_fgit_leak="$(printf '%s\n' "$_fgit_block" | while IFS= read -r _fl; do
-  case "$_fl" in (GIT_*) printf '%s\n' "$_fl" ;; esac
-done)"
+# ⚠ `|| [ -n "$_fl" ]`, SO A RECORD WITHOUT ITS TERMINATOR IS STILL SCANNED.
+# `env -0` terminates every record, the last one included, so this arm should
+# never run — but a short write is precisely the case where dropping the tail
+# would be fail-OPEN, and everything else here falls the other way. `_fl=""`
+# closes the loop after that tail has been looked at.
+# ⚠ `(GIT_*)`, WITH THE LEADING PAREN, KEPT THOUGH THIS `case` NO LONGER SITS
+# INSIDE A `$( … )`. There, bash 3.2.57 took the `)` closing a bare pattern as
+# the one closing the substitution ("syntax error near unexpected token
+# `newline'", then `_fl: unbound variable`), and `bash -n` does NOT catch it —
+# the substitution is parsed at execution — so it reached a run, the same class
+# as the `_mutants` note in the mutation set. The balanced form parses in both
+# positions; one spelling, no trap to walk back into.
+_fgit_leak=""
+_fl=""
+while IFS= read -r -d '' _fl || [ -n "$_fl" ]; do
+  case "$_fl" in (GIT_*) _fgit_leak="${_fgit_leak:+$_fgit_leak
+}$_fl" ;; esac
+  _fl=""
+done < "$_fgit_env0"
+command rm -f "$_fgit_env0"
 if [ -n "$_fgit_leak" ]; then
   echo "!! THIS RUN CANNOT PROVE THE FIXTURE GIT SCRUB DID WHAT IT CLAIMS. After" >&2
-  echo "   sweeping every name bash lists as \`GIT_*\`, \`env\` still reports:" >&2
+  echo "   sweeping every name bash lists as \`GIT_*\`, \`env -0\` still reports these" >&2
+  echo "   environment entries:" >&2
   printf '%s\n' "$_fgit_leak" | sed 's/^/     /' >&2
   echo "   Those entries are NOT a channel into git and there is nothing to handle in" >&2
   echo "   them: a name bash cannot unset is not a shell identifier, and every variable" >&2
   echo "   git reads IS one (measured — see the note above this block). What fails is" >&2
   echo "   the sweep's own claim — to be COMPLETE over the environment block — and" >&2
   echo "   reporting a pass over an unproven sweep is the defect this helper is about," >&2
-  echo "   one level up. So the run ends at \"decided nothing\" instead. (An entry that" >&2
-  echo "   is not a \`GIT_*\` but whose VALUE holds a line beginning \`GIT_\` lands here" >&2
-  echo "   too: an unknown falls on the side that stops.)" >&2
+  echo "   one level up. So the run ends at \"decided nothing\" instead." >&2
   exit 2
 fi
 
