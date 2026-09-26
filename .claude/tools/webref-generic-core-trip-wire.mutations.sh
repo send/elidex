@@ -53,9 +53,17 @@
 #     control, or is argued equivalent. It cannot say which control, and a
 #     direction needing a payload it would have to invent — widening a branch
 #     list, say — is not in its population and stays with the hand records.
-# NEITHER IS DERIVABLE FROM THE OTHER, so where they overlap that is not two
-# copies of one claim: a regex rule whose fixture needs a NEW CONTROL gets a
-# record as well, because the control has to be named by one.
+# OVERLAP IS PERMITTED, and where they overlap that is not two copies of one
+# claim: a regex rule whose fixture needs a NEW CONTROL gets a record as well,
+# because the control has to be named by one. ⚠ This used to say neither set is
+# derivable from the other. At set level that holds; per record it does not —
+# four hand records pin a group-drop or an unescape the generator now derives
+# too — and the ambiguity is the kind this file exists to remove.
+# ⚠ THOSE FOUR ARE ALSO EVIDENCE OF A GAP IN THE GENERATOR, and it has no
+# control: a hand record existed for a group-drop and for an unescape before
+# the scanner could derive either, so the data to notice that the scanner was
+# walking `(`, `|` and `\` past as ordinary characters was already in this
+# file, unread, for four review rounds.
 # ⚠ WHAT DOES NOT BELONG HERE is a record for a regex rule that needed no new
 # control — that is the generator's population, and hand-listing it would be
 # the second spelling of a class this file keeps collapsing. The lines added to
@@ -262,8 +270,7 @@ MUTANTS
 
 # ---- THE GENERATED SET: THE TWO REGEXES' OWN STRUCTURE ----------------------
 # WHY IT IS GENERATED AND THE SET ABOVE IS NOT. Every boundary defect this wire
-# has had was a member of a bracket expression or the reach of a quantifier,
-# and each was found the same way: somebody enumerated the population BY HAND
+# has had was found the same way: somebody enumerated the population BY HAND
 # and missed part of it. Two attestations in a row declared that population
 # complete; the first missed the leading `/`, the class's `A-Z` and a
 # one-character final segment, and the second — on the head that fixed those —
