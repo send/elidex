@@ -122,16 +122,6 @@ fi
 # targets are implemented, the wire and the harness, and they are spelled ONCE —
 # `_MUT_TARGETS` plus `_mut_target`, below — so a third is one word and one arm
 # in two adjacent lines rather than three sites that have to agree.
-# The two `harness:` records undo the fixture scrub the two ways it can be undone:
-# one drops it, the other restores the ENUMERATION that stood there before it —
-# the patch the defect invites, and the one that leaves `GIT_TEMPLATE_DIR`
-# authoritative — so the control has to red on both, not only on the deletion.
-# ⚠ AND THAT NOTE IS HERE RATHER THAN BESIDE THOSE RECORDS, because `_mutants` is
-# a `cat` of a quoted here-document: every line inside it is DATA. Four comment
-# lines placed there became four entries whose needle was empty, which
-# `_mut_correspondence` skipped (it drops empty needles) while `_mut_run` dutifully
-# applied them and reported `MATCHED NOTHING` — caught by the mutation run, which
-# is the one reader of that block that does not skip anything.
 #
 # RUN IT — it is NOT part of the gate (it costs one full control pass per entry,
 # minutes rather than seconds), and a required check nobody can afford to run is
@@ -191,7 +181,28 @@ _MUT_RECORDS_MIN=97
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
 # the records below aborted the WHOLE FILE with `_v: unbound variable`, on every
 # run, mutation mode or not. Measured: 3.2 red, 5.3 green.
-_mutants() { cat <<'MUTANTS'
+# ⚠ AND THE FORMAT HAS A COMMENT SYNTAX — a `#` in column 1 — dropped HERE, at
+# the single materialiser both readers go through, so one filter covers both.
+# What that replaces is a prohibition: four explanatory lines written among the
+# records became four records whose needle was empty, and the response was to
+# FORBID comments and move the note 65 lines away from what it is about. A format
+# whose notes cannot live beside its data is a format that will keep losing them.
+# `^#` is safe to reserve: a record's expression cannot begin with a literal `#`
+# except as a sed comment, which is inert. The always-on validator below stays —
+# a line that is neither a comment nor a record is still an error, not a skip.
+# ⚠ FILTERED IN BASH, NOT THROUGH `grep -v`. This file runs under `pipefail`:
+# `grep` exits 1 when it selects nothing, so a set that happened to be all
+# comments — or a grep on `PATH` that answers differently — would abort the
+# required gate from inside the thing reporting it. Same trap as the `wc -l`
+# and `awk` notes below. Measured byte-identical to the `grep -v '^#'` pipe on
+# bash 3.2.57 and 5.3, with status 0 at EOF on both.
+_mutants() {
+  while IFS= read -r _mu_line; do
+    case "$_mu_line" in
+      '#'*) : ;;
+      *) printf '%s\n' "$_mu_line" ;;
+    esac
+  done <<'MUTANTS'
 s/grep -aEn --/grep -En --/	K2 fires inside binary content, and the content is READ
 s/"$_mrc" -gt 1/"$_mrc" -gt 99/	a failed NAME matcher fails closed
 s#^K2RE_PATH=.*#K2RE_PATH='(^|/)\\.claude/(skills|tools)/[^/"]+/[^/]+'#	a quote inside a name segment
@@ -249,6 +260,10 @@ s|\[^/\[:space:\]\]+/|[^/[:space:]"]+/|	a quoted one-segment reference before a 
 s/SCRATCH="$(_phys "$_raw_scratch")" || SCRATCH=""/SCRATCH="$(_phys "$_raw_scratch")"/	a restrictive umask decides nothing
 s/_root_p="$(_phys "$ROOT")" || _root_p=""/_root_p="$(_phys "$ROOT")"/	an unresolvable self-test root decides nothing
 s/^unset GREP_OPTIONS$/:/	a caller's GREP_OPTIONS cannot hide a file
+# The two `harness:` records undo the fixture scrub the two ways it can be undone:
+# one drops it, the other restores the ENUMERATION that stood there before it —
+# the patch the defect invites, and the one that leaves `GIT_TEMPLATE_DIR`
+# authoritative — so the control has to red on both, not only on the deletion.
 harness:s/for _fv in "${!GIT_@}"; do unset "$_fv"; done/:/	a hostile caller git environment cannot change what a fixture holds
 harness:s/for _fv in "${!GIT_@}"; do unset "$_fv"; done/unset GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT/	a hostile caller git environment cannot change what a fixture holds
 s/exec git -c core.fsmonitor=false /exec git /	a caller's fsmonitor hook does not run
@@ -737,15 +752,17 @@ _mut_correspondence() {
     [ -n "${_mline:-}" ] || continue
     # ⚠ A LINE THAT IS NOT A RECORD IS AN ERROR HERE, NOT SOMETHING TO SKIP, and
     # the asymmetry it replaces is why: this loop dropped every line with no
-    # needle, so a comment written inside `_mutants` — whose body is a `cat` of a
-    # quoted here-document, i.e. DATA — passed this check in silence while
-    # `_mut_run` applied it as a sed script and reported MATCHED NOTHING. Four such
-    # lines were added and shipped that way; what caught them was the opt-in run,
-    # minutes long, and what should have is this, which costs nothing.
+    # needle, so a line the here-document turns into DATA passed this check in
+    # silence while `_mut_run` applied it as a sed script and reported MATCHED
+    # NOTHING. Four such lines were added and shipped that way; what caught them
+    # was the opt-in run, minutes long, and what should have is this, which costs
+    # nothing. `_mutants` now drops `#` comments at its own materialiser, so what
+    # reaches here is a line that is neither — prose with no `#`, or a record
+    # whose TAB an editor ate.
     if [ -z "${_mwant:-}" ]; then
       echo "!! mutation set line \"$_mline\" has no TAB-separated needle, so it is not a" >&2
-      echo "   record. The body of _mutants is a here-document: a comment line there is" >&2
-      echo "   data, and the mutation run applies it as a sed expression." >&2
+      echo "   record. Write a note as a \`#\` comment; anything else in that" >&2
+      echo "   here-document is data, and the mutation run applies it as a sed expression." >&2
       _mut_orphan=1; continue
     fi
     # `!survive` is the standing negative control; it names no control by design.
