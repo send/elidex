@@ -126,9 +126,30 @@ jobs:
         run: cargo deny check
 
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
-  # are filtered because each pays for a Rust toolchain; the wires need none (~1s for
-  # the whole set, no toolchain, no cache), so a filter would buy nothing and cost the
-  # one property the wires exist for. Gating them would mean listing BOTH
+  # are filtered because each pays for a Rust toolchain; the wires need NOTHING
+  # INSTALLED — no language runtime, no package manager, no cache, no network —
+  # so a filter would buy nothing and cost the one property the wires exist for.
+  # ⚠ THE PROPERTY IS "NOTHING TO INSTALL", NOT A LIST OF TOOLS. Two wordings
+  # have now been retired here for being enumerations narrower than the truth:
+  # "the wires are grep-only" (they call `git` constantly) and "the shell, `git`
+  # and `grep`" (they call a good deal more than that, and no third list is
+  # offered here). Both were false in the same shape, and the second was
+  # written while retiring the first. What is checkable, and what the gating
+  # decision rests on, is that this job has NO SETUP STEP — one `uses:`, the
+  # checkout:
+  #   yq '.jobs["trip-wires"].steps[].uses' .github/workflows/ci.yml
+  #   # or: sed -n '/^  trip-wires:/,/^  [a-z]/p' .github/workflows/ci.yml | grep -c 'uses:'
+  # ⚠ DELIBERATELY NO RUNTIME FIGURE EITHER. This said "~1s for the whole set"
+  # until a wire grew fixture self-tests and the number stopped being true, and
+  # then carried a cross-machine RATIO ("two to three times this checkout's")
+  # whose baseline was stated nowhere — the same defect one level down, inside
+  # the block whose thesis is that such figures do not belong here. Derive it
+  # if you need it (`/usr/bin/time -p bash scripts/trip-wires.sh`); the
+  # `timeout-minutes` below is the one number with a consequence, and it is
+  # re-derived when a wire lands, not tracked here. The time that is spent goes
+  # to the wires' own fixture self-tests rather than to the tree they scan, so
+  # it tracks the number of controls, not the size of the repo.
+  # Gating them would mean listing BOTH
   # `.claude/tools/**` (the wires and `layout-box-reader-allowlist.tsv`) and
   # `scripts/**` (this job's entry point) in a filter — i.e. the tamper path of an
   # allowlist gate would itself be an allowlist entry someone must remember to keep
@@ -143,12 +164,32 @@ jobs:
   # eyeballing CI before squashing.
   trip-wires:
     name: Layering trip-wires
-    timeout-minutes: 2
+    # RE-DERIVED WHEN THE K2 WIRE LANDED, not inherited: that wire's fixture
+    # self-tests are the first thing in this job whose cost is a large multiple
+    # of the scan it guards.
+    # ⚠ NO FIGURES HERE, for the reason the block above gives — and an earlier
+    # revision of THIS comment broke that rule twenty lines below it, quoting a
+    # before/after and a runner ratio whose baseline machine was named nowhere.
+    # Three reviewers measured the same checkout and got materially different
+    # numbers. Derive it instead:
+    #   /usr/bin/time -p bash scripts/trip-wires.sh
+    # ⚠ THE RULE, so the next person does not have to rediscover it: a wire
+    # that adds fixture self-tests re-derives this line in the same PR. Leaving
+    # it while the job grows is how an always-run gate starts failing for time
+    # instead of for what it asserts.
+    # ⚠ RE-DERIVED AGAIN when the K2 wire's rev-3 controls landed (that PR added
+    # fixture self-tests, so the rule above applies): run the command above on
+    # this branch and on its base, three times each, and compare — the run-to-run
+    # spread on one machine was wider than the difference between them, and both
+    # sit far enough under this budget that it is unchanged. Re-derive; do not
+    # trust this sentence.
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
       # The same script `mise run trip-wires` runs, so the local gate and CI
-      # cannot diverge. No toolchain step: the wires are grep-only.
+      # cannot diverge. No setup step — nothing to install; see the block above
+      # for why this is stated as a property and not as a list of tools.
       - name: Run layering trip-wires
         run: bash scripts/trip-wires.sh
