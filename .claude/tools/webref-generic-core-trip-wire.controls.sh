@@ -717,14 +717,22 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
   && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \
   && printf 'probe.txt\n' > .git/info/exclude ) || _fixture_failed notcommitted
 # (3') …and the complement of (3): the exclude channels the CALLER carries, over
-#     a fixture built with them exported — the only build here that runs in a
-#     hostile environment (`grep -c '^( export GIT_' <this file>`; anchored, so it
-#     does not count this line), and building one
-#     at all was long held to be
-#     impossible here — "neutralising the config layer above would also
-#     neutralise the fixture that tried to set it" stood where the line above
-#     now points. It is not: the hostility belongs to this build's own subshell,
-#     which is smaller than the layer `_fgit` neutralises.
+#     a fixture built with them exported. Building one at all was long held to
+#     be impossible here — "neutralising the config layer above would also
+#     neutralise the fixture that tried to set it" stood where this paragraph
+#     is. It is not: the hostility belongs to this build's own subshell, which
+#     is smaller than the layer `_fgit` neutralises.
+#     ⚠ AND IT IS THE ONLY BUILD HERE THAT RUNS IN A HOSTILE ENVIRONMENT — a
+#     SEED, NOT AN INVENTORY, and it says so because it cannot say otherwise.
+#     What makes a build hostile is an `export` or assignment of any `GIT_*`
+#     inside a fixture subshell, and no expression this file could carry decides
+#     that over shell source. The seed that found this one was
+#     `grep -c '^( export GIT_' <this file>` — one spelling, which a build
+#     written `( GIT_TEMPLATE_DIR=… _fgit …`, or with its `export` on a line
+#     that does not open the subshell, walks straight past while the count stays
+#     put. Widening the expression is the wrong repair (it just moves the next
+#     unseen spelling), so the predicate above is the authority and the sentence
+#     is a claim about what has been LOOKED at, not a census.
 #     ⚠ THE VIOLATION IS STAGED ONLY, and that is what makes a leak visible. The
 #     wire's worktree inventory uses `--exclude-per-directory`, so it reads the
 #     file whatever these channels say (that is (3)'s own finding) — so keeping
@@ -739,8 +747,98 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 mkdir -p "$CTL/envtpl/info"
 printf '*.py\n' > "$CTL/envtpl/info/exclude"
 printf '*.py\n' > "$CTL/envexcludes"
-( export GIT_TEMPLATE_DIR="$CTL/envtpl" GIT_CONFIG_COUNT=1 \
-         GIT_CONFIG_KEY_0=core.excludesFile GIT_CONFIG_VALUE_0="$CTL/envexcludes"
+#     ⚠ AND EACH CHANNEL IS SHOWN LIVE, UNDER A PLAIN `git`, BEFORE THE BUILD
+#     THAT USES IT. Same ground as the fsmonitor block below — "its not running
+#     under the wire would prove nothing" — and this arm needed it: it asserted
+#     only that the built tree still yields `(staged)`, never that the exported
+#     names reached git at all. Measured on a clone of the head this was written
+#     against, where the four still stood on the build lines, with all four
+#     MISSPELLED there and nowhere else
+#     (`GIT_TEMPLAT_DIR`, `GIT_CONFIG_XOUNT`, `GIT_CONFIG_XEY_0`,
+#     `GIT_CONFIG_XALUE_0`): exit 0, zero `CONTROL FAILED`, zero
+#     `CONTROL NOT EXERCISED` — fully green over a question never posed. A typo,
+#     an `$CTL/envtpl` that failed to be written, or a future git that stops
+#     honouring a channel all read the same way.
+#     ⚠ AND THE NAMES ARE SPELLED ONCE, IN THE TWO ARRAYS BELOW, WHICH IS WHAT
+#     MAKES THE PROBE REACH THE BUILD. A probe with its own copy of the four
+#     names proves the CHANNEL is live and says nothing about whether the
+#     fixture used it — measured: with the probe written that way, the
+#     misspelling above stayed green. The build `export`s the same arrays the
+#     probe passes to `env`, so a name can only be wrong in both places at once,
+#     and then the probe's hostile half fails.
+#     ⚠ ONE PROBE PER CHANNEL, NEVER ONE COMBINED. The two are independent and
+#     both load-bearing — a template seeds `.git/info/exclude` at `init`,
+#     `core.excludesFile` acts at `add` — so a combined probe would pass with
+#     only one of them live and put the same vacuity back one level down. They
+#     get a throwaway repo each, and `$_env_dead` names whichever failed.
+#     ⚠ AND EACH IS A PAIR, because the hostile half ALONE is vacuous too: on a
+#     machine whose own git configuration already excludes `*.py` it would pass
+#     having shown nothing. WITHOUT the channel `victim.py` must be TRACKED;
+#     WITH it, SKIPPED. Only the difference is evidence, and a machine that
+#     cannot show it REFUSES here rather than reporting a pass.
+#     ⚠ AND THE PAIR RUNS FROM `env -i`, WHICH IS WHY BOTH HALVES MEAN ANYTHING.
+#     The first version let the probe inherit the caller's environment, and then
+#     the very environment the fixture is ABOUT broke it: with the reviewer's
+#     `GIT_TEMPLATE_DIR=<template holding *.py>` exported, the baseline half was
+#     skipped too and the gate refused over a live channel (measured, exit 1 on
+#     both shells). `env -i` is a COMPLEMENT, not a list of names to drop — the
+#     same reason `_fgit`'s sweep is one — and `GIT_CONFIG_GLOBAL`/`_SYSTEM` are
+#     pinned at `/dev/null` beside it so the two layers no environment variable
+#     can reach cannot decide the answer either. It is still a plain `git`: what
+#     changes between the halves is one channel and nothing else.
+#     ⚠ AND THE REFUSAL GOES THROUGH `_fixture_failed`, not a second copy of the
+#     control's label: `_control` then prints `CONTROL NOT EXERCISED` naming it,
+#     which is the same fact ("the tree never posed the question") the build
+#     status already exists to carry.
+_env_tpl=("GIT_TEMPLATE_DIR=$CTL/envtpl")
+_env_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.excludesFile" \
+          "GIT_CONFIG_VALUE_0=$CTL/envexcludes")
+# $1 = probe dir, $2 = `init` or `add` (where the channel acts), $3.. = the
+# channel's environment assignments; none of them is the baseline half. Prints
+# what git ended up tracking.
+_envlive() {
+  _el_d="$1"; _el_when="$2"; shift 2
+  command rm -rf "$_el_d"; mkdir -p "$_el_d"
+  printf 'x\n' > "$_el_d/victim.py"
+  _el_pre=(env -i "PATH=$PATH" "HOME=${HOME:-}" \
+           GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null)
+  ( cd "$_el_d" || exit 1
+    if [ "$_el_when" = init ]; then
+      "${_el_pre[@]}" "$@" git init -q . >/dev/null 2>&1 || exit 1
+      "${_el_pre[@]}" git add -A >/dev/null 2>&1 || exit 1
+    else
+      "${_el_pre[@]}" git init -q . >/dev/null 2>&1 || exit 1
+      "${_el_pre[@]}" "$@" git add -A >/dev/null 2>&1 || exit 1
+    fi
+    "${_el_pre[@]}" git ls-files ) 2>/dev/null
+}
+# ⚠ `|| _el_…=""` ON EVERY ONE. A probe that could not build its repo exits
+# non-zero, and under `set -e` a bare assignment from `$( … )` would end the run
+# THERE, with no diagnostic — where an empty answer is exactly what has to reach
+# the comparison below and be reported as "not discriminating".
+_env_dead=""
+_el_base="$(_envlive "$CTL/envlive1" init)" || _el_base=""
+_el_host="$(_envlive "$CTL/envlive1" init "${_env_tpl[@]}")" || _el_host=""
+[ "$_el_base" = victim.py ] && [ -z "$_el_host" ] \
+  || _env_dead="$_env_dead GIT_TEMPLATE_DIR(without=[$_el_base] with=[$_el_host])"
+_el_base="$(_envlive "$CTL/envlive2" add)" || _el_base=""
+_el_host="$(_envlive "$CTL/envlive2" add "${_env_cfg[@]}")" || _el_host=""
+[ "$_el_base" = victim.py ] && [ -z "$_el_host" ] \
+  || _env_dead="$_env_dead core.excludesFile(without=[$_el_base] with=[$_el_host])"
+if [ -n "$_env_dead" ]; then
+  echo "!! a hostile channel the (3') fixture is built under does not suppress" >&2
+  echo "   anything under a plain \`git\` either, so its not suppressing under" >&2
+  echo "   \`_fgit\` would prove nothing. Each channel is asked on its own throwaway" >&2
+  echo "   repo, both halves: WITHOUT it \`victim.py\` must be tracked, WITH it it" >&2
+  echo "   must be skipped. Not discriminating:$_env_dead" >&2
+  _fixture_failed envscrub
+fi
+# ⚠ `export "${…[@]}"`, NOT A SECOND SPELLING OF THE FOUR NAMES: these are the
+# arrays the liveness probe above just showed to discriminate, so the build and
+# the proof cannot be about different variables. `env` cannot wrap this one —
+# the hostility has to reach `_fgit`, a shell function, through the subshell's
+# own environment.
+( export "${_env_tpl[@]}" "${_env_cfg[@]}"
   cd "$CTL/envscrub" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
   && _fgit init -q . >/dev/null 2>&1 \
   && _fgit add -A >/dev/null 2>&1 \
