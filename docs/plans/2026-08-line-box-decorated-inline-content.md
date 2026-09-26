@@ -163,7 +163,10 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
 behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i, rev 76's 15f and 25g, rev 77's 17h, rev 78's 15g — **each cell's own ledger row names its id and this list no longer restates them** (it drifted twice: it stopped at A112 while rev 77's cell is A113's and rev 78's is A116's; rev 78, ledger **A117**) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), **rev 75's 25c**, which gains a second markup (A108), and **rev 79's 15f**, which gains one for the
-atomic/`nowrap` arm (A120); rev 63 adds none (R2 adds
+atomic/`nowrap` arm (A120), and **rev 80's 15g**, which gains a second markup for the
+internal-opportunity arm, restates its window in the packer's segment sum and replaces a
+committed-width assertion no PR-1b channel reports with run placement, and **rev 80's 15f**, whose
+first markup's window is restated in the same segment sum with no change of outcome (A122 (iv)); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -792,6 +795,7 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A119 | R46-F1 | rev 78's ⚠ booking **cell 12e's markup** — an `ltr` span inside an `rtl` paragraph — as a second `#11-bidi-full-uba-fidelity` divergence, on the ground that elidex maps sides from the box's **own** `direction` while css-writing-modes-4 §2.4.5.2 and css-break-3 §5.4 key on the **parent's** | the two rules have different subjects, and the booking inverted the correct one. For an **unfragmented** box the side mapping *is* the box's own used direction: css-writing-modes-4 §6.2 defines "inline-start … For boxes with a used `direction` value of `ltr`, this means the line-left side. For boxes with a used `direction` value of `rtl`, this means the line-right side", with the Note that the inline sides "depend not only on the writing-mode property but also the direction property", and §6.4's table is "based on the used direction and writing-mode" (`body css-writing-modes-4 logical-directions`, `logical-to-physical`, both read whole). §2.4.5.2 instead tells a UA to "take the **fragments** of each inline box and assign the margins, borders and padding in visual order", and css-break-3 §5.4 fixes "which side of a **fragment** is considered the broken edge" — **fragment edge selection**, which arises only once the box is broken. So cell 12e pins conformant behaviour and the classification is **withdrawn**; left standing it would have licensed the later program to replace correct own-direction mapping with parent-direction mapping. **The divergence rev 73 measured is untouched and is now stated so the two cannot be confused**: what is wrong is not which logical side `padding-left` maps to (elidex gets that right) but **where the advance lands physically** — `InlineFlowRun::Text.inline_start` is a physical x and the packer's cursor runs left-to-right whatever the direction, so an `rtl` box's inline-end edge is laid down after the content in physical order. **Swept for the same reasoning**: cells **12b**, **12h** and **12i** each stated their *conformant* value on §2.4.5.2 while their boxes are unfragmented; all three now lead with §6.2 (the side) and keep §2.4.5.2 only for what it governs — 12h's and 12i's visual-order placement against a reordered run — and each says the parent-direction clause is not its ground. No cell's asserted value moves, and §9's own worked example is regrounded on §6.2 with a pointer to this row, since **A101** states it on §2.4.5.2 and is committed. ⚠ **Provenance**: the over-correction came from the revs 72–77 attestation's hygiene list by way of the brief, and the previous error on this same surface (rev 73's) was in the **opposite** direction — the memo has now been wrong both ways about which direction governs, which is why the two questions are stated apart rather than in one sentence. Found by Codex on #515 |
 | A120 | R46-F2 | the `white-space` filter rev 76 put on the break invariant's licensed set as covering it — "the oracle's offsets as the run they fall in admits a soft wrap" | the invariant's licensed set has a second term the filter does not reach: the **NBSP-adjacent atomic boundary**, unioned in manually because the oracle cannot express it (ledger **A37**'s measurement; it entered with **A32**'s atomic bullets and was narrowed to the NBSP case by A37). css-text-3 §3 suppresses **all** soft wrapping under `nowrap` — "it does not allow wrapping" — so that term is licensed only where the surrounding regime admits a wrap, and without the filter an implementation that flushes at exactly that boundary under `nowrap` passes the subset check while violating §3. Cell 15f covered only an offset **inside** a text run. **Both fixed**: the invariant's atomic term now carries the same `white-space` filter, and cell 15f gains a **second markup** — `a&#160;` + a zero-width `inline-block` + `b` inside a `nowrap` span with a 20px start edge, `line_count == 1` before and after PR-1b — which rejects an implementation that filters only the oracle's offsets. **Arm rather than cell**, by the memo's convention: the subject is the *licence* `nowrap` withholds, which both markups test, and a second regime of one subject goes in a second markup (cells 3c, 25c, 25d). The cell count is unchanged and the freeze's cell-edit history records the added markup. Found by Codex on #515 |
 | A121 | R46-F3 | §5.3's PR-1b universal "**no cell pins a `line_count` change**", left standing by rev 78 in the same block that routes cell **15g** | the universal is falsified by its own block's routing — 15g pins `line_count` 1 → 2 and §8 calls it PR-1b's flip — and three cells' notes (15e, 15d, 24e) leaned on it. **Replaced by a per-cell statement rather than a narrower universal**, because this is the third time a universal has been falsified by the delta that added its counter-example (**A17**'s markup-vs-cells narrowing, **A100(a)**'s M8 enumeration, and now this): each PR-1b cell states its own width regime and what its count does there, so nothing needs maintaining as cells are added — 15g is the one that pins a change, and the others pin their counts unchanged by putting `W` below today's own wrap point or by having no opportunity to take. The three dependent notes now state their own regime instead of citing the universal. **Swept line-oriented and de-wrapped** for the phrase and for appeals to it. Found by Codex on #515 |
+| A122 | R47-F1 (P1); self-introduced by rev 78 (**A116**) | §5.3's PR-1b outcome as rev 78 stated it — the break goes to an earlier licensed opportunity "and the box moves **whole** to the next line" — and §1.3's "the third case is the one this program reaches" | on `<p style="width:W"><span style="padding-right:20px">a b</span></p>`, with `W` where `a b` fits undecorated, `b` plus the end edge fits alone and the whole decorated line does not, the only licensed opportunity is the space **inside** the span, so css-inline-3 §2.1 splits the box there and only `b` and the inline-end edge move; the universal moved the whole span, and cell 15g could not see it because its one opportunity lies outside the box. **Replaced by a derivation rather than a narrower universal**, because this is the **fourth** universal falsified by the delta that added its counter-example (**A17**, **A100(a)**, **A121**, and now this — and the second in this very bullet, A121's being the first): the outcome is only that the line breaks at an earlier licensed opportunity instead of committing over-width (css-text-3 §5's "must minimize the amount of content overflowing a line", now quoted beside §3's), and the box's fate is read off the opportunity's position by rules the memo already carries — before the box's first character, §5.5's margin-edge bullet moves it whole (15g(a)); inside it, §2.1 splits it and the end edge rides the last fragment (css-break-3 §5.4's `slice`) (15g(b)); after its last character it stays wholly before the break, which the trigger never selects. Cell **15g** gains arm **(b)**, a flip (1 → 2) routed to PR-1b with (a) and outside §8's flip partition on the same ground; each arm carries **exactly one** licensed opportunity because css-text-3 §5.5 says "CSS does not define prioritization of soft wrap opportunities", so an arm with one outside and one inside would pin the packer's greedy choice. **No amendment to M3 or M4**: the internal opportunity is a UAX #14 opportunity in the box's own text, not a boundary (M3's ground), and M4 already gives a box a rect on each line it has a fragment on. **Four further defects, found while re-deriving it — (i)–(iii) in rev 78's text, (iv) in rev 76's**: (i) its grounds bolded §5.5's "or after the last character" half and called 15g the start-edge answer's "end-edge mirror", but 15g(a)'s opportunity is **before** the span's first character — the **same** half as OQ-1 and 17c; (ii) 15g's window was stated in `measure_width("a b")`, which the packer never computes — `place_item` accumulates the two segments' own advances (split at `pack/items.rs:63-91`, each measured alone at `pack/mod.rs:544`, compared and advanced at `:690`/`:695`), the form cells 15d and 15f's second markup already use — so both arms now state it as `S = measure_width("a ") + measure_width("b")`; **(iv)** cell **15f**'s first markup (rev 76) and its copy in §8's item-boundary block carried the same `measure_width("a b")` window, restated in the same `S` (**A112**'s committed copy of that window stands and is superseded here; the run splits at `find_break_opportunities("a b") == [(2, Allowed)]`, measured at `154bac3f`). In the harness the two forms are **equal** — `22.242188` in Arial and `25.408` in Hiragino Sans at 16 px, through `elidex-shaping`'s `measure_text` — so no test outcome moves under (ii) or (iv); the restatement is kept because the windows' arguments name the quantity the `:690` guard compares, and only `S` is that quantity by construction (a font kerning across the space would separate them). A de-wrapped sweep of every `measure_width("…")` argument in the memo found no other live window in the whole-run form: 25f and 25g name `measure_width("ab")` / `measure_width("bc")` only as the rejected value, 15f's second markup as rejected `measure_width("a\u{A0}b")`, and `measure_width("aaaab")` survives only in R6-b's history and A16/A18; (iii) 15g asserted "line 1's committed width is ≤ `W`", a quantity no PR-1b channel reports (`InlineFlowLine` has no width field and the over-running edge sits in no run), replaced by which run lies on which line. **§3's css-inline-3 §2.1 row now states what its ✗ covers**, since 15g(b) grounds on the same sentence: the edge-bearing fragment facets §5.3's `#11-inline-box-decoration-splits` bullet lists (css-break-3 §5.4 attribution, per-fragment border areas, content-order identity, bidi fragments), not the content split across line boxes that the packer already performs and cells 17, 17g and 15g(b) assert; its ✗ and routing are unchanged. **A116's mechanism fact is walked for arm (b), not measured**: the scoped shape yields (b)'s expectation provided the end of the content terminates the scan for the next licensed opportunity; stated at §5.3 for PR-1b's plan-review to measure. A116 is committed and stands; its outcome sentence is superseded by this row. **Swept line-oriented and de-wrapped** for `moves whole` / `box moves` / `whole box` and for appeals to 15g as the outcome's whole. Found by Codex on #515 |
 
 ---
 
@@ -888,13 +892,22 @@ second the bare `[CSS-BREAK-3]` reference that follows "fragments" — ⚠ an ea
 the first and dropped the second unmarked; rev-33 gate.) Splitting happens at opportunities *inside* the box,
 never at its edges. Overflow is the **exception**, for a box with no internal opportunity —
 CSS 2 §9.4.2: "If an inline box **cannot be split** … then the inline box overflows the line box."
-⚠⚠ **Those two are not the whole of it, and the third case is the one this program reaches** (rev 78;
-ledger **A116**): a licensed opportunity **outside** the box — earlier in the line — is taken and the
-box moves **whole** to the next line. That is not splitting at an edge and it is not overflow, and the
-memo already adopted it for the **start** edge: css-text-3 §5.5's bullet puts a soft wrap before a box's first
-character at the box's margin edge, which is OQ-1's answer and §6 cell 17c's subject. Its **end-edge
-mirror** is the same bullet's other half, and §5.3's PR-1b bullet states the outcome with §6 cell 15g
-pinning it.
+⚠⚠ **Those two are not the whole of it** (rev 78; ledger **A116**): a licensed opportunity
+**outside** the box — earlier in the line, before the box's first character — can be taken, and then
+the box moves **whole** to the next line. That is not splitting at an edge and it is not overflow, and
+the memo already adopted it for the **start** edge: css-text-3 §5.5's bullet puts a soft wrap before a
+box's first character at the box's margin edge, which is OQ-1's answer and §6 cell 17c's subject.
+⚠ **Which of the three happens is not a property of the box; it is read off where the line's selected
+opportunity lies** (rev 80; ledger **A122** — rev 78 wrote "the third case is the one this program
+reaches", and R47 found the program reaches the **first** as well): the program's new trigger — a
+pending inline-end edge the line cannot hold (§5.3's PR-1b bullet) — sends the break to an earlier
+licensed opportunity, and that opportunity may lie **before** the box (the box moves whole, §5.5's
+margin-edge bullet — §6 cell 15g(a)) or **inside** it (the box is split there, css-inline-3 §2.1,
+and only what follows the opportunity moves — §6 cell 15g(b)); with neither, the box overflows
+(CSS 2 §9.4.2, cell 15c). ⚠ The **same** half of §5.5's bullet grounds 15g(a) and 17c — the
+opportunity is before the box's first character in both — so 15g(a) is not that half's end-edge
+mirror, which rev 78 called it: the bullet's "after the last character" half is the position where
+the box stays **wholly before** the break, its end edge with it.
 
 ### §1.4 Shaping — `css-text-3` §7.3 *Shaping Across Element Boundaries*
 
@@ -1182,7 +1195,7 @@ Ledger **A50**.
 |---|---|---|---|---|---|
 | CSS Inline 3 §2 Inline Layout Model | inline-axis edges respected between boxes | start/end edge advance | M3 shared core (`note_line_occupancy`, NEW) — **PR-1b** | ✓ | yes |
 | CSS Inline 3 §2 Inline Layout Model | root inline box | block container's anonymous inline box | **NOT implemented — M6, `#11-inline-root-inline-box`** | ✗ (pre-existing, disclosed) | yes |
-| CSS Inline 3 §2.1 Layout of Line Boxes | box exceeding the line, or containing a forced break | split into fragments across line boxes | **`#11-inline-box-decoration-splits`** | ✗ (deliberate, §5.3) | yes |
+| CSS Inline 3 §2.1 Layout of Line Boxes | box exceeding the line, or containing a forced break | split into fragments across line boxes. ⚠ **What the ✗ covers** (rev 80; ledger **A122**, because §6 cell 15g(b) grounds on this sentence): the fragment as an **edge-bearing box** — which fragment carries which inline-axis edge and on which physical side (css-break-3 §5.4, keyed on the parent's inline progression), the per-fragment border area `getClientRects` owes (cell 17d(b)'s accepted divergence), fragment identity in content order under paging/multicol, and same-line bidi fragments — the facets §5.3's slot bullet lists. **Not** covered, because it is delivered: the split of the box's **content** across line boxes at a licensed soft wrap opportunity or a forced break, which the packer already performs (`find_break_opportunities`' split of one run, cell 17's tagless control, measured) and which cells 17, 17g and 15g(b) assert on the channels their PRs own — per-line runs at PR-1b (15g(b), where the logically last `InlineBoxEnd` puts the end edge's advance on the last fragment's line by item order), per-line content-span rects at PR-1c (M4: "a box has a rect on each line it has a fragment on") | **`#11-inline-box-decoration-splits`** | ✗ (deliberate, §5.3) | yes |
 | CSS Inline 3 §2.1 Layout of Line Boxes | the line box's logical width | "floating boxes or initial letter boxes can come between the containing block edge and the line box edge, reducing the space available to, and thus the logical width of, any such impacted line boxes" (`body css-inline-3 line-boxes`; the section cross-references CSS 2 §9.4.2 and CSS 2 §9.5 for it) | ⚠ **no line box in this engine is ever narrowed by a float, and the cause is at the IFC's entry point rather than in the packer.** `flush_inline_run` (`crates/layout/elidex-layout-block/src/block/children/helpers.rs:37`) computes the IFC's `inline_size` as `input.containing.width` — the whole containing width, `:54-58` — and hands it to `layout_inline_context_fragmented` (`:79-87`) with no float argument of any kind; `git grep -n float_ctx 154bac3f -- crates/layout/elidex-layout-block/src/inline/` returns **eight** hits, seven under `inline/tests/` and the one production hit `atomic.rs:52` being the literal `None`, and `FloatContext` probed on its own returns nothing there. ⚠ **The audit's own reachability caveat, kept because it is the part that is easy to get backwards**: a float *sibling* blockifies (`resolve/mod.rs:185`), so `children_are_block` is true and `stack_block_children` wraps the inline runs in anonymous blocks — but that is not what removes the band, since `flush_inline_run` is the same entry point for those anonymous blocks and passes the same un-narrowed width. The divergence is structural rather than a wrong number on one line. **Pre-existing** and engine-wide, and named here because M3's advance and M4's geometry are computed against that width — **`#11-line-box-float-narrowing`** (§9, §10) | ✗ (pre-existing → slot) | yes |
 | CSS 2 §9.4.2 Inline formatting contexts | box that **cannot** be split | overflows the line box | M3 — no wrap check on the marker path; §6 cell 15c (PR-1c; cell 15 asserts the advance) | ✓ | yes |
 | CSS Break 3 §5.4 Fragmented Borders and Backgrounds: the `box-decoration-break` property | `slice` (initial) and `clone` | verbatim (apostrophes are the source's): "For inline elements, which side of a fragment is considered the broken edge is determined by the parent element’s inline progression direction. … (Note in particular that neither the element’s own direction nor its containing block’s direction is used.)" — ⚠ **the `…` was unidentified under a "verbatim" label until R22**, against this memo's own convention two rows down (css-display-3 §A, where the elision is named); it drops the section's worked example, "For example, if an inline element whose parent has `direction: rtl` breaks across two lines, the left edge of the fragment on the first line will be the broken edge.", and the trailing "See [CSS3-WRITING-MODES]." — and the section extends itself to two further break kinds in **one** sentence, quoted whole at R20 after the memo had carried its first clause alone: "UAs should also apply `box-decoration-break` to control rendering at bidi-imposed breaks — i.e. when bidi reordering causes an inline to split into non-contiguous fragments — **and/or at display-type–imposed breaks — i.e. when a higher-level display type (such as a block-level box / column spanner) splits an incompatible ancestor (such as an inline box / block container). Otherwise such breaks must be handled as `slice`**". ⚠ **The display-type half is reachable on markup §5.1 M1 already measures for another purpose**: `children_are_block` (`crates/layout/elidex-layout-block/src/block/mod.rs:70`) tests **direct** children only, so `<p>a<span><div style="padding:10px"></div></span>b</p>` takes the IFC path. No destination of its own is opened for it, and the reason is that both halves are already owned: the split that would produce the fragments is `#11-block-in-inline-anonymous-block-split`'s (§9), and decoration at a fragment's broken edges is this row's own slot's. The trailing "Otherwise … `slice`" clause is the one part elidex satisfies today, `slice` being the initial value and `clone` having no implementation to diverge into. ⚠ "no visual effect where the split occurs" is **CSS 2 §9.4.2**'s sentence and occurs nowhere in css-break-3 (checked across every css-break-3 §5.x anchor) | **`#11-inline-box-decoration-splits`** — the source of a fragment's edge attribution differs from M1's own-direction side mapping, so it belongs with the rule that owns it | ✗ (deliberate, §5.3) | yes |
@@ -1484,24 +1497,55 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   ⚠⚠ **Outcome — a line whose content fits but whose pending inline-end edge does not takes the
   earlier licensed opportunity** (rev 78; R45-F2; ledger **A116**). Where an inline-end edge closes on
   the line and the line cannot hold it, the break goes to a **licensed opportunity earlier in the
-  line** and the box moves **whole** to the next line, rather than the line committing over-width.
-  Quoted grounds: css-text-3 §5.5 — "For soft wrap opportunities before the first **or after the last
-  character** of a box, the break occurs immediately before/after the box (at its margin edge) rather
-  than breaking the box between its content edge and the content" (`body css-text-3
-  line-break-details`), one bullet covering both directions, so the end edge needs no second clause and
-  stands on the same sentence as OQ-1's start-edge answer; and css-text-3 §3 on `normal` — "Lines may
-  wrap at allowed soft wrap opportunities, as determined by the line-breaking rules in effect, **in
-  order to minimize inline-axis overflow**" (`body css-text-3 white-space-property`), which is why the
-  earlier break is preferred over an over-width line. §6 cell **15g** pins it, and §1.3 states the case
-  the dichotomy there used to omit. ⚠ **Stated with its complement**: the outcome turns on there
-  *being* an earlier licensed opportunity, so where the line carries none the box overflows instead —
-  CSS 2 §9.4.2's "cannot be split … overflows", which a PR-1c cell already pins on a fixture whose
-  text has no UAX #14 opportunity at all.
+  line**, rather than the line committing over-width. css-text-3 §5 — "When wrapping is enabled (see
+  white-space), the UA must minimize the amount of content overflowing a line by wrapping the line at
+  a soft wrap opportunity, if one exists" (`body css-text-3 line-breaking`) — and css-text-3 §3 on
+  `normal` — "Lines may wrap at allowed soft wrap opportunities, as determined by the line-breaking
+  rules in effect, **in order to minimize inline-axis overflow**" (`body css-text-3
+  white-space-property`) — are why the earlier break is preferred over an over-width line.
+  ⚠⚠ **What happens to the box is not part of the outcome; it is derived from where the selected
+  opportunity lies, by rules this memo already carries** (rev 80; R47-F1; ledger **A122** — rev 78
+  wrote "the box moves **whole** to the next line" here as the outcome, a universal the
+  internal-opportunity case falsifies). What moves to the next line is the content **after** the
+  selected opportunity, and each edge goes with the side of the break its box's content is on:
+  * **Opportunity before the box's first character** — css-text-3 §5.5: "For soft wrap opportunities
+    before the first or after the last character of a box, the break occurs immediately before/after
+    the box (at its margin edge) rather than breaking the box between its content edge and the
+    content" (`body css-text-3 line-break-details`) — so the box, both edges included, moves
+    **whole**. §6 cell **15g(a)**. This is the half of the bullet OQ-1's answer already rests on (§1.3 names its cell),
+    not a mirror of it (rev 78 called it one, bolding the "after the last character" half; §1.3).
+  * **Opportunity inside the box** — the box is split there: css-inline-3 §2.1, "When an inline box
+    exceeds the logical width of a line box, or contains a forced line break, it is split (see CSS
+    Text 3 § 5 Line Breaking and Word Boundaries) into several fragments [CSS-BREAK-3], which are
+    partitioned across multiple line boxes" (`body css-inline-3 line-boxes`; §1.3 quotes it with its
+    two elisions). Only the suffix after the opportunity moves, and the inline-end edge moves with the
+    **last** fragment: under `box-decoration-break: slice` (initial) "no border and no padding are
+    inserted at a break" (css-break-3 §5.4, `body css-break-3 break-decoration`; PR-1c's multi-line `getBoundingClientRect` cell quotes the sentence whole), so the fragment left
+    on the earlier line carries no inline-end edge. §6 cell **15g(b)**.
+  * **Opportunity after the box's last character** — the same §5.5 bullet's other half: the box is
+    wholly **before** the break, its end edge with it, so that edge is counted on the earlier line and
+    the box does not move. Selecting it cannot relieve a line that cannot hold that edge, so it is
+    never the opportunity the trigger sends the break to; it is stated so that the derivation covers
+    every position, and it adds no cell.
+  ⚠ **Which licensed opportunity is selected, where several avoid overflow, is not specified** —
+  css-text-3 §5.5: "CSS does not define prioritization of soft wrap opportunities" (`body css-text-3
+  line-break-details`). That is why each 15g arm carries **exactly one** licensed opportunity on the
+  line: an arm with an opportunity both outside and inside the box would pin the packer's greedy
+  choice, which the spec leaves open, and not the outcome. §1.3 states the three positions beside
+  its dichotomy. ⚠ **Stated with its complement**: the outcome turns on there *being* an earlier
+  licensed opportunity — outside the box or inside it — so where the line carries none the box
+  overflows instead — CSS 2 §9.4.2's "cannot be split … overflows", which a PR-1c cell already pins
+  on a fixture whose text has no UAX #14 opportunity at all.
   ⚠ **This needs no amendment to M3, and the reason is in M3's own ground**: M3 forbids a soft-wrap
   check **on the marker path** because "a box boundary is not a break opportunity" (its Grounds
   column, citing §1.3). The outcome above breaks at an **earlier licensed** opportunity, never at the
   boundary, so the marker path stays checkless and no boundary becomes an opportunity — M3 as written
-  is consistent with it, and the frozen column is untouched.
+  is consistent with it, and the frozen column is untouched. ⚠ **That holds for both of the positions
+  the derivation above selects** (rev 80; **A122**): an opportunity inside the box is a UAX #14
+  opportunity in the box's own text, which `find_break_opportunities` already returns and the
+  item-boundary prereq's `white-space` filter keeps under `normal` — it is neither a boundary nor new — and M4's
+  "a box has a rect on each line it has a fragment on" already covers the fragment it produces, as it
+  does every soft-wrapped box PR-1c's cells read.
   ⚠ **What the measurement found about the mechanism, as facts and not as a requirement** (R45-F2,
   measured at `154bac3f`): the only shape that breaks **no** existing cell is the one that counts the
   end edges of boxes closing **before the next licensed opportunity**, which means consuming the
@@ -1514,6 +1558,14 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   three PR-1c cells on that markup read off one geometry (named in ledger **A116**). A rollback after the marker's advance is the third shape, and it would make
   `place_item`'s five-write sequence reversible, which M3's one-owner core is not built for. **Which
   shape ships is PR-1b's plan-review's**; the umbrella states the outcome and the cell.
+  ⚠ **The scoped shape was measured against the cells that existed at rev 78; for 15g(b) it is walked, not measured**
+  (rev 80; **A122**): placing `"a "` inside the span, the span closes **after** the next licensed
+  opportunity (the one `"a "` ends at), so no edge is pending and `"a "` stays; placing `"b"`, the span
+  closes before the next licensed opportunity — there is none before the end of the content, so the
+  scan's terminator is the end of the paragraph, which the shape must treat as one — and the pending
+  20px sends the break to the opportunity after `"a "`, splitting the box there. The walk yields
+  15g(b)'s expectation, so the fact above stands for the internal-opportunity case with that
+  terminator made explicit; PR-1b's plan-review measures it.
   §6 cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d, 15e, 15g, 16,
   15f, 16b, 25, 25b, 25c, 25d, 25e, 25f and 25g land here — cells 3, 3b, 3c, 4, 12b, 12c, 12f and 12e among them because each asserts a
   *payload* fact
@@ -1537,8 +1589,8 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   pin the advance as a cursor position (cell 3 pins the payload sourcing the advance makes
   observable). ⚠ **The count is a per-cell fact, not a universal** (rev 79; ledger **A121**): each
   PR-1b cell states its own width regime and what its count does there, so nothing here has to be
-  maintained as revisions add cells — **15g** is the one that pins a change (`line_count` 1 → 2,
-  §8 calls it PR-1b's flip), and every other width-constrained PR-1b cell pins its count
+  maintained as revisions add cells — **15g** is the one that pins a change (`line_count` 1 → 2 in
+  both of its arms, rev 80; §8 calls it PR-1b's flip), and every other width-constrained PR-1b cell pins its count
   **unchanged** by putting `W` below today's own wrap point or by having no opportunity to take.
   An earlier drafting said cells 3, 12b and 15 pin a change (round 22, Axes 3/5), and rev 78 left
   the universal standing while routing 15g, which falsified it (**A121**). ⚠ **Cell 15d is the cell that
@@ -2811,9 +2863,21 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     the one that pins a change is 15g.)
 15f. **A run whose `white-space` forbids wrapping must not break inside it** (M3; R43-F2) —
     `<p style="width:W"><span style="white-space:nowrap;padding-left:20px">a b</span></p>` with `W`
-    in `[measure_width("a b"), measure_width("a b") + 20)`, both bounds computed from the harness's
-    `measure_width` (`inline/tests/mod.rs:31`) as cell 15e does: `line_count` is **1**, before and
-    after PR-1b. css-text-3 §3 defines `nowrap` as "Like `normal`, this value collapses white
+    in `[S, S + 20)` for `S = measure_width("a ") + measure_width("b")`, both bounds computed from the
+    harness's `measure_width` (`inline/tests/mod.rs:31`) as cell 15e does: `line_count` is **1**,
+    before and after PR-1b. ⚠ **`S` is the quantity the guard compares, which is why the window is
+    written in it** (rev 80; ledger **A122**): `build_pack_items` splits the run at the oracle's one
+    offset, `find_break_opportunities("a b") == [(2, Allowed)]`, into the segments `"a "` and `"b"`
+    and measures each alone (`pack/mod.rs:544`, `measure_segment_widths`), and at `"b"` the `:690`
+    guard tests `current_inline + trimmed("b")` against a cursor advanced by `"a "`'s **full** width
+    (`:695`) — `S` on `154bac3f`, `20 + S` from PR-1b (the first segment itself is never flushed,
+    the start marker raising the line only to `BoxEdgeOnly`, cell 15b). So the lower bound keeps
+    today's run unbroken and the upper bound is exactly where PR-1b's guard would flush before `b`.
+    Rev 76 wrote `measure_width("a b")`, the run shaped whole, which the packer never computes; in
+    the harness's first resolving family the two are **equal** — Arial at 16 px gives `22.242188`
+    for both, and so does Hiragino Sans (`25.408`), measured through `elidex-shaping`'s
+    `measure_text` at `154bac3f` — so no test outcome changes, but the argument holds by
+    construction only in `S`: a font that kerns across the space would separate them. css-text-3 §3 defines `nowrap` as "Like `normal`, this value collapses white
     space; but like `pre`, it does not allow wrapping" (`body css-text-3 white-space-property`), and
     `pre` as "Lines only break at forced line breaks", so the space inside the run is **not** a
     licensed soft wrap opportunity. **Rejects** the pipeline as it stands: `build_pack_items` splits
@@ -2847,23 +2911,63 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     term licenses what `white-space` withholds. ⚠ An **arm** rather than a cell of its own: the subject
     is the *licence* `nowrap` withholds, which both markups test, and the memo's convention puts a
     second regime of one subject in a second markup (cells 3c, 25c, 25d).
-15g. **A pending inline-end edge moves the box to the next line rather than overflowing** (M3;
-    R45-F2, rev 78 — ledger **A116**) — `<p style="width:W">a <span style="padding-right:20px">b</span></p>`
-    with `W` in `[max(measure_width("a b"), measure_width("b") + 20), measure_width("a b") + 20)`,
-    the bounds computed from the harness's `measure_width` (`inline/tests/mod.rs:31`) and the window
-    asserted non-empty — which it is, since `measure_width("b") < measure_width("a b")`.
-    **Asserted**: `line_count == 2`; the span's fragment is on line **2**; and line 1's committed
-    width is **≤ `W`**. The break is the space in `"a "`, a licensed UAX #14 opportunity, and taking
-    it puts the span — its `padding-right` included — on line 2, where the window's lower bound
-    guarantees it fits. **Rejects PR-1b as the advance alone would leave it**: `place_item` accepts
-    `b` because its own guard tests content only (`pack/mod.rs:690`), the `InlineBoxEnd` advance then
-    adds 20px with no check (§5.1 M3's marker path), and `finish()` commits whatever is on the line
-    (`:786-790`, no width test) — `line_count == 1` with a committed width of
-    `measure_width("a b") + 20`, which exceeds `W` throughout the window.
-    ⚠ **A flip cell, not an invariance one**: `line_count` is **1** on `154bac3f` — correctly, since
-    no edge is in effect there — and **2** after PR-1b, so unlike cells 15e and 15f this asserts a
-    change. ⚠ **It is not in §8's flip partition**, which is **PR-1d's** existence flip over PR-1a's
-    characterization cells; this flip is PR-1b's own, and §8's PR-1b block names it as such.
+15g. **A pending inline-end edge sends the break to an earlier licensed opportunity rather than
+    overflowing, and where that opportunity lies decides what moves** (M3; R45-F2, rev 78 — ledger
+    **A116**; arm (b) R47-F1, rev 80 — ledger **A122**). Two markups, one per position §5.3's PR-1b
+    bullet derives the box's fate from, each carrying **exactly one** licensed opportunity so that
+    neither pins the choice among several, which css-text-3 §5.5 leaves undefined. In both, write
+    `S` for `measure_width("a ") + measure_width("b")` — the **sum of the two segments' own
+    advances**, which is what `place_item` accumulates (`build_pack_items` splits the text into
+    segments, `pack/items.rs:63-91`, and each is measured alone, `pack/mod.rs:544`; the guard adds the next segment's trimmed width to a cursor
+    advanced by the previous one's full width, `pack/mod.rs:690`/`:695`), rather than
+    `measure_width("a b")`, which the packer never computes — and `W` ranges over
+    `[max(S, measure_width("b") + 20), S + 20)`, the bounds computed from the harness's
+    `measure_width` (`inline/tests/mod.rs:31`) and the window asserted non-empty — which it is,
+    since `measure_width("b") < S`. The lower bound's first term says `a b` fits undecorated, its
+    second that `b` plus the end edge fits on a line of its own; the upper bound says the whole
+    decorated line does not fit. **Rejects PR-1b as the advance alone would leave it**, in both arms:
+    `place_item` accepts `b` because its own guard tests content only (`pack/mod.rs:690`), the
+    `InlineBoxEnd` advance then adds 20px with no check (§5.1 M3's marker path), and `finish()`
+    commits whatever is on the line (`:786-790`, no width test) — `line_count == 1`, the line
+    extending `S + 20 > W` throughout the window. ⚠ **No committed-width assertion**: PR-1b's
+    channels are `lines.len()`, the runs' `inline_start` and text, `block_start` and
+    `InlineLayoutResult.height` — `InlineFlowLine` carries no width, and the over-running 20px sits
+    in no run — so the rejection is asserted through `line_count` and which run lies on which line
+    (rev 78's "line 1's committed width is ≤ `W`" named a quantity no PR-1b channel reports; **A122**).
+    (a) **Opportunity before the box** — `<p style="width:W">a <span style="padding-right:20px">b</span></p>`.
+    **Asserted**: `line_count == 2`; line 1 holds one text run, the `<p>`'s, whose text with trailing
+    white space trimmed is `"a"`; line 2 holds one text run, the span's, text `"b"`, at
+    `inline_start` 0. The break is the space in `"a "`, a licensed UAX #14 opportunity before the
+    span's first character, so css-text-3 §5.5's margin-edge bullet puts the whole span — its
+    `padding-right` included — on line 2, where the window's lower bound guarantees it fits. ⚠ The
+    span has **no** inline-start edge, so cell 17c's registered deviation (M3 advancing a start edge
+    on the line before a soft wrap) is not engaged and no assertion here depends on it.
+    (b) **Opportunity inside the box** — `<p style="width:W"><span style="padding-right:20px">a b</span></p>`.
+    **Asserted**: `line_count == 2`; line 1 holds one text run, **the span's**, whose text with
+    trailing white space trimmed is `"a"`; line 2 holds one text run, the span's, text `"b"`, at
+    `inline_start` 0. The only licensed opportunity is the space **inside** the span, so the span is
+    split there (css-inline-3 §2.1): its first fragment, holding `a`, stays on line 1, and only the
+    suffix after the opportunity — `b` and the inline-end edge — moves, the edge on the **last**
+    fragment because `slice` inserts no padding at a break (css-break-3 §5.4); the window's lower
+    bound is what lets line 2 hold `b` plus that edge. ⚠ **What discriminates the two wrong
+    answers**: the overflow answer (the advance alone) gives `line_count == 1`; a "moves whole"
+    answer — rev 78's universal, which this arm falsifies — has no opportunity before the box to
+    take, so it either overflows the same way or empties line 1 and puts `a` on line 2; the
+    assertion that line 1 carries a span run reading `"a"` fails under both. ⚠ `"a"` is compared
+    **trimmed** because the line-final space's disposition is the end-of-line white-space prereq's
+    (§8) and M3's outcome (cell 16), not this cell's subject. ⚠ **Not cell 15f's complement by
+    accident**: 15f's first markup puts the same text `a b` in a decorated span under
+    `white-space: nowrap` (its edge on the start side), where the space is **not** licensed and the
+    count stays 1; here it is licensed under `normal`, and the count goes to 2. ⚠ Whether the span's **rects** follow — one per line, the end edge on line 2's — is
+    M4's and PR-1c's to observe (cell 17 is the two-sided multi-fragment case, and the
+    multi-fragment channel's edge inflation is `#11-inline-box-decoration-splits`'s, cell 17d(b));
+    this arm asserts only what PR-1b's channels carry.
+    ⚠ **A flip cell, not an invariance one**, in both arms: `line_count` is **1** on `154bac3f` —
+    correctly, since no edge is in effect there and `S ≤ W` — and **2** after PR-1b, so unlike cells
+    15e and 15f this asserts a change. ⚠ **It is not in §8's flip partition**, which is **PR-1d's**
+    existence flip over PR-1a's characterization cells; this flip is PR-1b's own, and §8's PR-1b
+    block names it as such — arm (b) with it, on the same ground: PR-1b's advance is what first
+    makes the end edge exist, so it is where the outcome is first constructible and first true.
     ⚠ **The end edge is what makes it constructible**: with `padding-left` instead, the advance lands
     before the content and `place_item`'s existing guard already sees it, which is cell 15e's subject.
 15b. **A leading marker must not let the first segment soft-wrap** (M3's ⚠): `<p style="width:10px">`
@@ -4302,7 +4406,8 @@ than two. **What carries them is PR-1c's memo's choice**, so PR-1a's DoD says no
 
 **PR-1b** (inline-axis advance): cells 3, 3b, 3c, 4, 12b, 12h, 12i, 12c, 12f, 12e, 14, 14b, 15, 15b, 15d,
 15e, 15f, 15g, 16, 16b, 25, 25b, 25c, 25d, 25e, 25f and 25g. ⚠ **One of them, 15g, is a *flip* cell**: `line_count`
-is 1 before this PR and 2 after, and it is *not* in the flip partition below, which is PR-1d's
+is 1 before this PR and 2 after — in **both** arms, the box moving whole in (a) and split at the
+opportunity inside it in (b) (rev 80; ledger **A122**) — and it is *not* in the flip partition below, which is PR-1d's
 existence flip over PR-1a's characterization cells (ledger **A116**). **It owes four dependencies, named here rather than
 counted anywhere else** (ledger **A107**): it is not cut from `origin/main` until the
 end-of-line white-space and **item-boundary opportunity** prereqs have landed and the
@@ -5272,7 +5377,8 @@ value collapses white space; but like `pre`, it does not allow wrapping" and `pr
 break at forced line breaks", so under either value a soft wrap offset is unlicensed. **Pre-existing**
 — a `nowrap` run wider than its line wraps today with no marker involved — and **newly reachable
 through PR-1b** by §5.3's disposition rule: the advance makes the same guard fire at widths where
-the run alone fits, `[measure_width("a b"), measure_width("a b") + 20)` for
+the run alone fits, `[S, S + 20)` with `S = measure_width("a ") + measure_width("b")` — the two
+segments' own advances, which is what the guard accumulates (§6 cell 15f states why) — for
 `<span style="white-space:nowrap;padding-left:20px">a b</span>`. §6 cell **15f** pins it.
 **Why here rather than in a prerequisite of its own** (ledger **A112**): the fix is a filter on the
 same canonical API this PR already owns — the API sees each item's run and therefore its
