@@ -730,11 +730,11 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 #     `grep -c '^( export GIT_' <this file>` — a count that recognised one
 #     spelling, so a build written `( GIT_TEMPLATE_DIR=… _fgit …`, or with its
 #     `export` on a line that does not open the subshell, walked straight past
-#     while the number stayed put. The command is retired rather than widened:
-#     widening only moves the next unseen spelling, and this commit is the
-#     demonstration — the build below now `export`s two ARRAYS and does not hold
-#     the names at all, which that expression cannot see. The predicate above is
-#     the authority; the sentence is a claim about what has been LOOKED at.
+#     while the number stayed put. The command is retired rather than widened,
+#     and the build below is the demonstration of why: it `export`s two ARRAYS
+#     and does not hold the names at all, which that expression cannot see.
+#     Widening only moves the next unseen spelling. The predicate above is the
+#     authority; the sentence is a claim about what has been LOOKED at.
 #     ⚠ THE VIOLATION IS STAGED ONLY, and that is what makes a leak visible. The
 #     wire's worktree inventory uses `--exclude-per-directory`, so it reads the
 #     file whatever these channels say (that is (3)'s own finding) — so keeping
@@ -746,9 +746,18 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 #     `GIT_CONFIG_COUNT` trio is what #501 R97 closed by adding three names to
 #     that list; its `unset` is now part of the sweep, so this is what still
 #     pins it.
+#     ⚠ AND THE PATTERN AND THE FILE IT MUST HIDE ARE ONE SPELLING EACH, for
+#     the same reason the variable names are. With `*.py` in the exclude files
+#     and the fixture's own file renamed to anything else, the channels are
+#     present and INERT: `git add` stages the violation whatever they say, the
+#     control reads `(staged)` and passes. `$_env_glob` is what both exclude
+#     files hold and `$_env_file` is what the probe and the fixture both write,
+#     so the agreement the question rests on cannot drift.
+_env_glob='*.py'
+_env_file=victim.py
 mkdir -p "$CTL/envtpl/info"
-printf '*.py\n' > "$CTL/envtpl/info/exclude"
-printf '*.py\n' > "$CTL/envexcludes"
+printf '%s\n' "$_env_glob" > "$CTL/envtpl/info/exclude"
+printf '%s\n' "$_env_glob" > "$CTL/envexcludes"
 #     ⚠ AND EACH CHANNEL IS SHOWN LIVE, UNDER A PLAIN `git`, BEFORE THE BUILD
 #     THAT USES IT. Same ground as the fsmonitor block below — "its not running
 #     under the wire would prove nothing" — and this arm needed it: it asserted
@@ -775,7 +784,7 @@ printf '*.py\n' > "$CTL/envexcludes"
 #     get a throwaway repo each, and `$_env_dead` names whichever failed.
 #     ⚠ AND EACH IS A PAIR, because the hostile half ALONE is vacuous too: on a
 #     machine whose own git configuration already excludes `*.py` it would pass
-#     having shown nothing. WITHOUT the channel `victim.py` must be TRACKED;
+#     having shown nothing. WITHOUT the channel `$_env_file` must be TRACKED;
 #     WITH it, SKIPPED. Only the difference is evidence, and a machine that
 #     cannot show it REFUSES here rather than reporting a pass.
 #     ⚠ AND THE PAIR RUNS FROM `env -i`, WHICH IS WHY BOTH HALVES MEAN ANYTHING.
@@ -801,7 +810,7 @@ _env_cfg=("GIT_CONFIG_COUNT=1" "GIT_CONFIG_KEY_0=core.excludesFile" \
 _envlive() {
   _el_d="$1"; _el_when="$2"; shift 2
   command rm -rf "$_el_d"; mkdir -p "$_el_d"
-  printf 'x\n' > "$_el_d/victim.py"
+  printf 'x\n' > "$_el_d/$_env_file"
   _el_pre=(env -i "PATH=$PATH" "HOME=${HOME:-}" \
            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null)
   ( cd "$_el_d" || exit 1
@@ -821,17 +830,17 @@ _envlive() {
 _env_dead=""
 _el_base="$(_envlive "$CTL/envlive1" init)" || _el_base=""
 _el_host="$(_envlive "$CTL/envlive1" init "${_env_tpl[@]}")" || _el_host=""
-[ "$_el_base" = victim.py ] && [ -z "$_el_host" ] \
+[ "$_el_base" = "$_env_file" ] && [ -z "$_el_host" ] \
   || _env_dead="$_env_dead GIT_TEMPLATE_DIR(without=[$_el_base] with=[$_el_host])"
 _el_base="$(_envlive "$CTL/envlive2" add)" || _el_base=""
 _el_host="$(_envlive "$CTL/envlive2" add "${_env_cfg[@]}")" || _el_host=""
-[ "$_el_base" = victim.py ] && [ -z "$_el_host" ] \
+[ "$_el_base" = "$_env_file" ] && [ -z "$_el_host" ] \
   || _env_dead="$_env_dead core.excludesFile(without=[$_el_base] with=[$_el_host])"
 if [ -n "$_env_dead" ]; then
   echo "!! a hostile channel the (3') fixture is built under does not suppress" >&2
   echo "   anything under a plain \`git\` either, so its not suppressing under" >&2
   echo "   \`_fgit\` would prove nothing. Each channel is asked on its own throwaway" >&2
-  echo "   repo, both halves: WITHOUT it \`victim.py\` must be tracked, WITH it it" >&2
+  echo "   repo, both halves: WITHOUT it \`$_env_file\` must be tracked, WITH it it" >&2
   echo "   must be skipped. Not discriminating:$_env_dead" >&2
   _fixture_failed envscrub
 fi
@@ -841,10 +850,10 @@ fi
 # the hostility has to reach `_fgit`, a shell function, through the subshell's
 # own environment.
 ( export "${_env_tpl[@]}" "${_env_cfg[@]}"
-  cd "$CTL/envscrub" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
+  cd "$CTL/envscrub" && printf 'X = "%s"\n' "$CONTROL_K2" > "$_env_file" \
   && _fgit init -q . >/dev/null 2>&1 \
   && _fgit add -A >/dev/null 2>&1 \
-  && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || _fixture_failed envscrub
+  && printf '# %s\n' "$CONTROL_CLEAN" > "$_env_file" ) || _fixture_failed envscrub
 
 # The real geometry: a scope directory and, BESIDE it, an entry script that
 # is itself a symlink holding a forbidden target.
