@@ -162,7 +162,8 @@ rule was retired, and `git log -p` on this file holds it. What a round *decided*
    defects the compiler and the existing suite find in seconds.
 
 **What is frozen**: the **Decision** column of §5.1's eight rows, and the **markup + expected
-behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i, rev 76's 15f and 25g, rev 77's 17h, rev 78's 15g — **each cell's own ledger row names its id and this list no longer restates them** (it drifted twice: it stopped at A112 while rev 77's cell is A113's and rev 78's is A116's; rev 78, ledger **A117**) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), and **rev 75's 25c**, which gains a second markup (A108); rev 63 adds none (R2 adds
+behaviour** of §6's cells — 49 at rev 34, **58** after the amendments recorded next, and from there **no total is restated**: `python3 .claude/tools/plan-xcheck.py <memo>` prints it (ledger **A87**). What is history rather than a total is which revision added which cell: R22's 10c, R26's 25b, rev 60's 10d and 17g, rev 65's 25c, rev 66's 3c and 25d, rev 67's 12g, rev 68's 25e, rev 70's 24g, rev 71's 25f, rev 72's 6j and 15e, rev 73's 12h and 12i, rev 76's 15f and 25g, rev 77's 17h, rev 78's 15g — **each cell's own ledger row names its id and this list no longer restates them** (it drifted twice: it stopped at A112 while rev 77's cell is A113's and rev 78's is A116's; rev 78, ledger **A117**) — and the edits to frozen cells are **rev 73's 12b**, which gains a painted assertion (A101), **rev 74's 17g**, re-fixtured so that nothing in it reads a font metric (A106), **rev 75's 25c**, which gains a second markup (A108), and **rev 79's 15f**, which gains one for the
+atomic/`nowrap` arm (A120); rev 63 adds none (R2 adds
 three cells; R3 changes three markups and adds none; R4 adds one cell and edits six; R5 adds none,
 edits three and withdraws one cell's second arm; R6 adds one cell and edits two; R7 adds one cell
 and edits three, and is the **first amendment to change a Decision column** — four of them; R8
@@ -788,6 +789,9 @@ restated. Rows are append-only, and one decision is one row however many sites i
 | A116 | R45-F2 (the session's first P1); measured, then decided without a freeze amendment, 2026-09-26 | PR-1b's advance as unable to commit a line wider than its containing width, and §1.3's dichotomy — splitting at opportunities inside the box, "never at its edges", with overflow as the exception for a box with no internal opportunity — as exhaustive | measured at `154bac3f`, the advance **can** commit an over-width line: `place_item`'s guard tests content only (`pack/mod.rs:690-692`), the marker path adds its advance through `note_line_occupancy` (`:695`) with no wrap check (§5.1 M3), and `finish()` commits an occupied line with no width test (`:786-790`) — so where nothing follows the `InlineBoxEnd`, the inline-end edge pushes the committed line past `W`. **Outcome, stated in §5.3's PR-1b bullet**: the line takes the **earlier licensed opportunity** and the box moves whole to the next line. Grounds quoted there: css-text-3 §5.5's single bullet, "before the first **or after the last character** of a box … at its margin edge", which covers both directions — so the end edge needs no clause of its own and rests on the same sentence as OQ-1's start-edge answer — and **css-text-3** §3's `normal`, lines "may wrap at allowed soft wrap opportunities … **in order to minimize inline-axis overflow**". §1.3 now carries the third case the dichotomy omitted: a break **outside** the box at a licensed opportunity, which is neither splitting at an edge nor overflow, and which the memo already adopted for the start edge (cell 17c, OQ-1). **No amendment to M3 was needed, and that is the decisive measurement**: M3 forbids a wrap check *on the marker path* on the ground that "a box boundary is not a break opportunity", while this outcome breaks at an earlier **licensed** opportunity — the marker path stays checkless, no boundary becomes an opportunity, and M3 as written is consistent with the outcome. M3 also has no subordination clause (`governs` occurs zero times in the row, unlike M4's "the outcome governs"), so had an amendment been needed it would have gone to the user. **Mechanism facts, recorded as facts**: the only shape that breaks no existing cell scopes the pending edges to boxes closing before the next licensed opportunity, which consumes the canonical opportunity API the item-boundary prereq owns (**A110**) and is already ordered before PR-1b — no new ordering; the cheaper running-sum-of-all-open-boxes shape is over-conservative and breaks cells **17**, **17d(b)** and **17f** (on `width:80px` with `padding:10px`, it flushes before `bbb` and moves the whole box to line N+1, destroying the two-fragment geometry those three read off one geometry); a rollback would make `place_item`'s five-write sequence reversible. The choice is PR-1b's plan-review's. **§6 cell 15g** pins the outcome as a **flip** (`line_count` 1 → 2), and it is deliberately not in §8's flip partition, which is PR-1d's. ⚠ **Not A19 re-raised**: **A19** (R6-b) withdrew the near-identical `aaaa ` + box + `b` fixture because css-text-3 §5.5's bullet is undetermined for a **characterless** box — "an empty decorated inline has no characters, so which side of it the break falls on is undetermined" — and this fixture's span **has** a character, so the bullet is determinate and the case is new. ⚠ Round 26's CRIT on this same guard settled its **rung** (an order test at-or-above `Content`, cell 15d discriminating it) and says nothing about when the guard runs, so the timing question was untouched until now. Found by Codex on #515, measured this round, decided without reopening the freeze |
 | A117 | enumeration attestation of revs 72–77 | eight defects, **all eight authored inside revs 72–77 and five inside the revision that was fixing the previous batch**, grouped because none changes a decision | **(D1)** a **fabricated verbatim quotation**: §8's replaced-origin pseudo block quoted css-pseudo-4 §4.1 as "this means that **generated content is** suppressed when their parent …" where the spec reads "the `::before` and `::after` **pseudo-elements are** suppressed when their parent …" (`body css-pseudo-4 generated-content`) — the rewrite also left "their parent" dangling, and §3's row already carried the correct sentence, so the memo held two inconsistent "verbatim" copies of one sentence. Corrected to the spec's words. **Every spec quotation added in revs 72–78 was then pulled and diffed against `webref body`, not read**: **21** quotations checked against ten fetched section bodies, **1** differed — this one. ⚠ Three further "differences" were the **checker's** fault and are recorded because the shape recurs: `unicodedata.normalize('NFKC', …)` rewrites `…` to `...`, so splitting an elided quote on `…` silently produced one unsplittable part and reported a miss; the fix is to split after normalising. **(D2)** §9's "they carry no §10 row" is false of `#11-bidi-full-uba-fidelity` since rev 73 added its enrichment row; check 8 is one-directional, so the tool asserts no absence — the sentence now says the absence is a **seed** and gives the intersection that is checkable. **(D3)** **A107** contradicts itself — "the block now names four" beside "All four figures are gone rather than corrected" — and §8 reads "It owes four dependencies". Measured at `4767086a`: of the four figures, **three were removed** (the min-content block's "like its five siblings", the topology's "after **three** of them" and "The remaining three are **pending**") and **one was corrected** (§8's PR-1b "owes three" → "owes four", which is the authoritative site and says the count lives nowhere else). A107 is committed and stands; this is its correction. **(D4)** the published command `git grep -n 'generate_pseudo_entity(' 154bac3f -- crates/css/elidex-style/src/walk.rs` returns **four** lines, not five: `:14` is the `use` import and matches only without the trailing `(`. The **figure** was changed, not the command, and the import is now named as not a call site. **(D5)** the freeze's cell-add history carried a ledger-id parenthetical that had drifted twice (it stopped at A112 while rev 77's cell is A113's and rev 78's A116's); the list is **removed** and the property stated — each cell's own row names its id. **(D6)** **A100(g)**'s "(M=53)" is a derivable total in prose with no head and went stale at rev 73, when the checker began printing 54; A100 is committed, so it is corrected here rather than edited, and the figure belongs to `plan-xcheck`'s output per **A87** and **A98**. **(D7)** the front matter said the prereq PRs are "counted there" in §8, which provides blocks and no count; it now says one block each and no count anywhere. **(D8)** two doubled words straddling line breaks ("and / and", "the / the"), both invisible to a line-oriented grep; a **de-wrapped** sweep over the whole memo found those two and nothing else — five apparent hits are the `webref css <module> <name>` command form and one is a grammatical "that that". **Hygiene taken with them**: the bare coordinates after a `builder/bidi.rs` path in cell 12b and §9 now name `builder/inline_flow.rs`, whose lines they are; cell 12h no longer claims the crate's `converged_bidi_reorders_runs` has runs with differing entities (both carry `entity: div`, `:42` and `:47`) and separates its own fixture's entities from the test's reordering shape; cell 12i's "through `direction == Rtl` alone" now says that holds only in the `||`'s evaluation order, since `reorder_by_levels` is identity for two level-2 runs; §9's bidi half no longer says "a box whose **own** direction is `rtl`" flatly but names the **two** directions — elidex's own-direction mapping against css-writing-modes-4 §2.4.5.2's "the parent's `direction`" and css-break-3 §5.4's "the parent element's inline progression direction" — and books the mismatch as a second divergence on the same slot; §3's css-break-3 §2 row's Purpose now claims the **term** rather than the per-line rule its ⚠ refers away, and names the section's third normative sentence (bidi and display-type splitting) rather than leaving it unquoted and unaccounted; and the live bare `§N` that mean a spec section are qualified — one of them, a bare `§5.4` in **A100**, is committed and stays flagged, and it collides with this memo's own §5.4. ⚠ **Not touched**: the frozen M4 column's eight bare coordinates, flagged as A100(f) leaves them. Found by an enumeration attestation of revs 72–77 |
 | A118 | the same attestation; two tooling findings and one premise correction | the brief's framing of the delta as **A86–A114**, and `plan-xcheck`'s coverage as reaching every ledger-integrity property | **(a)** the delta is **A93–A114** — A86–A92 predate rev 72 — so **A92**, the row rev 72 withdraws, is a *previously attested* row whose committed wording is outside this delta's authored surface; the withdrawal (A97) and this batch stand, but nothing in revs 72–78 authored A92's text. **(b)** a **second checker blind spot, planted and measured**: a duplicate ledger id goes undetected — a planted second `A113` in place of `A114` returned **0 contradictions** — alongside the known blindness to a **bolded** `cell **N**` reference. The memo's own duplicate-id check is the shell one-liner the battery runs (`grep -o '^| A[0-9]* ' <memo> | sort | uniq -d`), which is not in the tool, so a revision that skips the battery loses it. **Both blind spots are added to the tooling task's scope** (§9): a duplicate-id check and a bold-aware cell-reference scan. ⚠ The pattern behind both is the one this memo keeps recording — the checker's populations are what it parses, and a property nobody parsed is a property nobody checks. Found by an enumeration attestation of revs 72–77 |
+| A119 | R46-F1 | rev 78's ⚠ booking **cell 12e's markup** — an `ltr` span inside an `rtl` paragraph — as a second `#11-bidi-full-uba-fidelity` divergence, on the ground that elidex maps sides from the box's **own** `direction` while css-writing-modes-4 §2.4.5.2 and css-break-3 §5.4 key on the **parent's** | the two rules have different subjects, and the booking inverted the correct one. For an **unfragmented** box the side mapping *is* the box's own used direction: css-writing-modes-4 §6.2 defines "inline-start … For boxes with a used `direction` value of `ltr`, this means the line-left side. For boxes with a used `direction` value of `rtl`, this means the line-right side", with the Note that the inline sides "depend not only on the writing-mode property but also the direction property", and §6.4's table is "based on the used direction and writing-mode" (`body css-writing-modes-4 logical-directions`, `logical-to-physical`, both read whole). §2.4.5.2 instead tells a UA to "take the **fragments** of each inline box and assign the margins, borders and padding in visual order", and css-break-3 §5.4 fixes "which side of a **fragment** is considered the broken edge" — **fragment edge selection**, which arises only once the box is broken. So cell 12e pins conformant behaviour and the classification is **withdrawn**; left standing it would have licensed the later program to replace correct own-direction mapping with parent-direction mapping. **The divergence rev 73 measured is untouched and is now stated so the two cannot be confused**: what is wrong is not which logical side `padding-left` maps to (elidex gets that right) but **where the advance lands physically** — `InlineFlowRun::Text.inline_start` is a physical x and the packer's cursor runs left-to-right whatever the direction, so an `rtl` box's inline-end edge is laid down after the content in physical order. **Swept for the same reasoning**: cells **12b**, **12h** and **12i** each stated their *conformant* value on §2.4.5.2 while their boxes are unfragmented; all three now lead with §6.2 (the side) and keep §2.4.5.2 only for what it governs — 12h's and 12i's visual-order placement against a reordered run — and each says the parent-direction clause is not its ground. No cell's asserted value moves, and §9's own worked example is regrounded on §6.2 with a pointer to this row, since **A101** states it on §2.4.5.2 and is committed. ⚠ **Provenance**: the over-correction came from the revs 72–77 attestation's hygiene list by way of the brief, and the previous error on this same surface (rev 73's) was in the **opposite** direction — the memo has now been wrong both ways about which direction governs, which is why the two questions are stated apart rather than in one sentence. Found by Codex on #515 |
+| A120 | R46-F2 | the `white-space` filter rev 76 put on the break invariant's licensed set as covering it — "the oracle's offsets as the run they fall in admits a soft wrap" | the invariant's licensed set has a second term the filter does not reach: the **NBSP-adjacent atomic boundary**, unioned in manually because the oracle cannot express it (ledger **A37**'s measurement; it entered with **A32**'s atomic bullets and was narrowed to the NBSP case by A37). css-text-3 §3 suppresses **all** soft wrapping under `nowrap` — "it does not allow wrapping" — so that term is licensed only where the surrounding regime admits a wrap, and without the filter an implementation that flushes at exactly that boundary under `nowrap` passes the subset check while violating §3. Cell 15f covered only an offset **inside** a text run. **Both fixed**: the invariant's atomic term now carries the same `white-space` filter, and cell 15f gains a **second markup** — `a&#160;` + a zero-width `inline-block` + `b` inside a `nowrap` span with a 20px start edge, `line_count == 1` before and after PR-1b — which rejects an implementation that filters only the oracle's offsets. **Arm rather than cell**, by the memo's convention: the subject is the *licence* `nowrap` withholds, which both markups test, and a second regime of one subject goes in a second markup (cells 3c, 25c, 25d). The cell count is unchanged and the freeze's cell-edit history records the added markup. Found by Codex on #515 |
+| A121 | R46-F3 | §5.3's PR-1b universal "**no cell pins a `line_count` change**", left standing by rev 78 in the same block that routes cell **15g** | the universal is falsified by its own block's routing — 15g pins `line_count` 1 → 2 and §8 calls it PR-1b's flip — and three cells' notes (15e, 15d, 24e) leaned on it. **Replaced by a per-cell statement rather than a narrower universal**, because this is the third time a universal has been falsified by the delta that added its counter-example (**A17**'s markup-vs-cells narrowing, **A100(a)**'s M8 enumeration, and now this): each PR-1b cell states its own width regime and what its count does there, so nothing needs maintaining as cells are added — 15g is the one that pins a change, and the others pin their counts unchanged by putting `W` below today's own wrap point or by having no opportunity to take. The three dependent notes now state their own regime instead of citing the universal. **Swept line-oriented and de-wrapped** for the phrase and for appeals to it. Found by Codex on #515 |
 
 ---
 
@@ -1531,8 +1535,13 @@ Each PR gets its own plan-memo and `/elidex-plan-review`.
   content-overflowing paragraphs gain lines. That is the correct consequence of §1.1's
   "inline-axis … respected between inline-level boxes", not a regression; cells 12b and 15
   pin the advance as a cursor position (cell 3 pins the payload sourcing the advance makes
-  observable), and **no cell pins a `line_count` change** (an earlier
-  drafting said cells 3, 12b and 15 pin it; round 22, Axes 3/5). ⚠ **Cell 15d is the cell that
+  observable). ⚠ **The count is a per-cell fact, not a universal** (rev 79; ledger **A121**): each
+  PR-1b cell states its own width regime and what its count does there, so nothing here has to be
+  maintained as revisions add cells — **15g** is the one that pins a change (`line_count` 1 → 2,
+  §8 calls it PR-1b's flip), and every other width-constrained PR-1b cell pins its count
+  **unchanged** by putting `W` below today's own wrap point or by having no opportunity to take.
+  An earlier drafting said cells 3, 12b and 15 pin a change (round 22, Axes 3/5), and rev 78 left
+  the universal standing while routing 15g, which falsified it (**A121**). ⚠ **Cell 15d is the cell that
   comes closest and the one this universal has to be checked against** (round 26, Axis 3,
   Gate A): its second segment *does* reach the guard, so its width constraint is pinned into the
   regime where **today's count is already 2** — the cell asserts `lines.len() == 2` before and
@@ -2630,13 +2639,19 @@ task's (§9).
     is that baked `inline_start`, and the 10px is the **trailing** part of the line's inline advance,
     so it lies physically to the glyph's **right**; `InlineFlowRun::Text.inline_start` is an absolute
     **physical x** (`crates/core/elidex-ecs/src/components/inline_flow.rs:35-42`) and the packer's
-    cursor runs left-to-right whatever the box's direction. Read through `elidex-shell`'s pipeline
+    cursor runs left-to-right whatever the box's direction — which is the whole of the divergence:
+    the **side mapping** is right (`padding-left` *is* the inline-end edge here, css-writing-modes-4
+    §6.2's own-used-direction rule, cell 12e's subject), and what is wrong is **where that edge is
+    laid down**. Read through `elidex-shell`'s pipeline
     (`crates/shell/elidex-shell/src/tests.rs:41`) off `DisplayItem::Text`'s `glyphs`
     (`crates/core/elidex-render/src/display_list.rs:190-200`, `GlyphEntry.position` at `:12-19`), the
     crate row §5.2 allows for a painted assertion. **The conformant value, named and not asserted**:
-    css-writing-modes-4 §2.4.5.2 — "When the parent's `direction` property is `rtl`, … the left-most
-    fragment of the last line box in which the box appears has the left margin, left border and left
-    padding" — puts the 10px physically **left** of the glyph. **Registered divergence**,
+    css-writing-modes-4 §6.2 puts the inline-end side of an `rtl` box on its **line-left**, so the
+    10px belongs physically **left** of the glyph (§6.4's table maps it the same way, "based on the
+    used direction and writing-mode"). ⚠ **§2.4.5.2 is not the ground here**: this box has one
+    fragment, so its "assign … in visual order" reduces to "the box's own two edges", and the
+    parent-direction clause it carries selects *which fragment* takes which edge — a question that
+    arises only once the box is broken (rev 79; ledger **A119**). **Registered divergence**,
     `#11-bidi-full-uba-fidelity` (§9): it flips when that program mirrors the IFC cursor for an `rtl`
     line, which no PR of this program does. Ledger **A24**, **A101**.
 12h. **A line the renderer reorders paints the program's gap away — LTR IFC** (M3; R40-F2, user
@@ -2653,9 +2668,11 @@ task's (§9).
     with the `padding-left` removed**. `text_has_rtl` puts the line on the reorder branch
     (`builder/inline_flow.rs:140-143`), and that branch repaints from `min(inline_start)` advancing by
     shaped width (`:169-173`), so M3's 10px never reaches the screen. **The conformant value, named
-    and not asserted**: css-writing-modes-4 §2.4.5.2 assigns the start edge's padding to the
-    **start-most fragment in visual order**, which after the reorder is `"ב"`'s, so `"ב"` should paint
-    10px inward of the line's visual start with `"אא"` after it. **Registered divergence**,
+    and not asserted**: the span has one fragment, so the edge is its own — css-writing-modes-4 §6.2
+    puts an `ltr` box's inline-start on its line-left — and css-writing-modes-4 §2.4.5.2's "assign
+    the margins, borders and padding in **visual** order (not logical order)" is what places that
+    edge against the **reordered** run, so `"ב"` should paint 10px inward of the line's visual start
+    with `"אא"` after it. **Registered divergence**,
     `#11-bidi-full-uba-fidelity` (§9), in cell 17c's idiom: it flips when that program carries
     layout's per-run offsets through the reorder — the branch's own comment says so at `:159-168` —
     and no PR of this program moves it. ⚠ **The assertion is an invariance**, true before and after
@@ -2675,9 +2692,11 @@ task's (§9).
     routing, not the paint**: under `rtl` the `padding-left` is the span's inline-**end** edge, so the
     advance rides `InlineBoxEnd`, and the reorder branch drops it just the same — the loss is
     indifferent to which marker carries the edge. **The conformant value, named and not asserted**:
-    css-writing-modes-4 §2.4.5.2's `rtl` bullet gives the left padding to the **left-most fragment of
-    the last line box**, which after the reorder is `"ב"`'s — so the conformant paint coincides with
-    12h's while the logical side does not, and the pair is what shows that. **Registered divergence**,
+    under `rtl` the same `padding-left` is the box's inline-**end** side (css-writing-modes-4 §6.2),
+    and §2.4.5.2's visual-order assignment again places it against the reordered run — so the
+    conformant paint coincides with 12h's while the logical side does not, and the pair is what shows
+    that. ⚠ Neither cell rests on §2.4.5.2's **parent-direction** clause: both boxes are unfragmented,
+    and that clause selects which *fragment* takes which edge (rev 79; ledger **A119**). **Registered divergence**,
     `#11-bidi-full-uba-fidelity` (§9); same flip condition as 12h.
 12c. **`writing-mode: vertical-rl`** (M1): `<p style="writing-mode:vertical-rl">`
     `<span style="padding-top:10px">x</span></p>` — the property is on the **containing block**,
@@ -2787,9 +2806,9 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     against a cursor the marker has advanced by 20, so it flushes before `bbbb` and the line count
     becomes 2 — a break at an item boundary, which is the **item-boundary opportunity prereq**'s
     defect, in `main` before PR-1b (§8; ledger **A94**). ⚠ **The assertion is an invariant across
-    the PR, not a change**, so §5.3's PR-1b universal ("no cell pins a `line_count` change") holds:
-    the count is 1 on `154bac3f` for this `W` and 1 after, and the cell exists because PR-1b is what
-    would otherwise move it.
+    the PR, not a change**: the count is 1 on `154bac3f` for this `W` and 1 after, and the cell exists
+    because PR-1b is what would otherwise move it. (The count each cell pins is stated per cell, §5.3;
+    the one that pins a change is 15g.)
 15f. **A run whose `white-space` forbids wrapping must not break inside it** (M3; R43-F2) —
     `<p style="width:W"><span style="white-space:nowrap;padding-left:20px">a b</span></p>` with `W`
     in `[measure_width("a b"), measure_width("a b") + 20)`, both bounds computed from the harness's
@@ -2808,6 +2827,26 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     PR-1b's advance is what would otherwise move it. ⚠ Distinct from **15e**, whose offset is an
     **item boundary** the oracle never returns; here the offset is inside one run and the oracle
     does return it — what the spec withholds is the *licence* to take it.
+    ⚠⚠ **Second markup, because the licence and not the offset is this cell's subject** (rev 79;
+    ledger **A120**): `<p style="width:W"><span style="white-space:nowrap;padding-left:20px">a&#160;<span
+    style="display:inline-block;width:0"></span>b</span></p>` with `W` in
+    `[measure_width("a\u{A0}") + measure_width("b"), measure_width("a\u{A0}") + measure_width("b") + 20)`
+    — the **sum of the two runs' own advances**, which is what the packer accumulates, rather than
+    `measure_width("a\u{A0}b")`, because the engine measures each `StyledRun` alone and the atomic
+    stands between them (cell 25f states its relation the same way). ⚠ Whether a conforming engine
+    must also break **shaping** at that atomic is css-text-3 §7.3's question and not this cell's —
+    the atomic here carries no edge, so §7.3's first bullet does not decide it — on the same
+    footing as the first markup — `line_count` is **1**, before and after PR-1b. The atomic's boundary beside a no-break
+    space is the **one** opportunity css-text-3 §5.5 licenses by name ("For Web-compatibility there is
+    a soft wrap opportunity before and after each replaced element or other atomic inline, even when
+    adjacent to a character that would normally suppress them, including U+00A0 NO-BREAK SPACE"), and
+    §8's break invariant unions it in **manually** rather than reading it off the oracle (ledger
+    **A37**) — so the `white-space` filter rev 76 added to the oracle's offsets left this term
+    unconditional, and `nowrap` suppresses it too. **Rejects** an implementation that filters only the
+    oracle's offsets: it flushes at the atomic boundary and the subset check still passes, because the
+    term licenses what `white-space` withholds. ⚠ An **arm** rather than a cell of its own: the subject
+    is the *licence* `nowrap` withholds, which both markups test, and the memo's convention puts a
+    second regime of one subject in a second markup (cells 3c, 25c, 25d).
 15g. **A pending inline-end edge moves the box to the next line rather than overflowing** (M3;
     R45-F2, rev 78 — ledger **A116**) — `<p style="width:W">a <span style="padding-right:20px">b</span></p>`
     with `W` in `[max(measure_width("a b"), measure_width("b") + 20), measure_width("a b") + 20)`,
@@ -2860,9 +2899,8 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     **trimmed** one, the second segment's guard arithmetic is `M("bbb ") + M("ccc") > W` today and
     `20 + M("bbb ") + M("ccc") > W` from PR-1b. The `20 +` form of the bound therefore admits a
     regime — `M("bbb ") + M("ccc") ≤ W < 20 + M("bbb ") + M("ccc")` — in which **today's
-    `line_count` is 1 and PR-1b's is 2**, and §5.3's PR-1b bullet says in terms that "**no cell
-    pins a `line_count` change**". Dropping the `20 +` pins `W` **below** today's own wrap point,
-    so the count is **2 before and after PR-1b** and §5.3's universal survives untouched, while
+    `line_count` is 1 and PR-1b's is 2**, which is not what this cell is for. Dropping the `20 +`
+    pins `W` **below** today's own wrap point, so the count is **2 before and after PR-1b**, while
     the discrimination is undisturbed: at the second segment the arithmetic is true in *both*
     regimes, so under PR-1d `>= Content` flushes (2 lines) and `== Content` does not (1 line).
     That the cell sits in the already-wrapping regime is the whole of its PR-1b content — it is a
@@ -3285,7 +3323,7 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     cells on a wrapping box read three channels off **one** geometry — `line_rects` here,
     `getClientRects` at 17d(b), `getBoundingClientRect` at 17f — and the width condition is stated
     once, at 17d(b), as a relation over `measure_width`. `line_count` is **2 both today and
-    after PR-1b**, so §5.3's PR-1b universal is untouched. ⚠ **The wrap is genuine under the
+    after PR-1b** — the count this cell pins, stated here rather than inherited (rev 79; **A121**). ⚠ **The wrap is genuine under the
     preamble's control, measured**: tagged the lines are `"aaa "`+`"bbb "` / `"ccc"`, and with the
     span's tags removed (`<p style="width:80px">aaa bbb ccc</p>`) they are `"aaa bbb "` / `"ccc"`
     — the **same break point**, `find_break_opportunities`' split of one run (`pack/items.rs:74-83`),
@@ -3382,7 +3420,7 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     `measure_width` like the two relations above, is therefore
     `measure_width("aaaa") + 5 > measure_width("cccc")`. So the cell asserts the extent,
     not the orientation. `line_count` is **2 before and after PR-1b**: the 5px start edge does
-    not move the break, so §5.3's PR-1b universal is untouched. ⚠ **The second line is a genuine
+    not move the break — the count this cell pins, stated here rather than inherited (rev 79; **A121**). ⚠ **The second line is a genuine
     opportunity, by the preamble's tagless control, measured**: today the markup lays out
     `"aaaa "` / `"cccc"`, and the tags-removed `<p style="width:60px">aaaa cccc</p>` lays out the
     **same split**, so the break is UAX #14's at the space. The fixture this cell carried until
@@ -3829,8 +3867,8 @@ carries four css-text-3 §5.5 rows, two ✓ and two ✗ (round 24 audit).)*
     rather than against a constant — and a fixture whose two `line-height`s were equal would pass
     under either mechanism, the shape cell 13b's own ⚠ warns about.
     ⚠ **The upper bound drops the marker's 1px deliberately**, exactly as 15d's drops its 20:
-    it pins `W` below today's own wrap point, so `line_count` is **2 before and after PR-1b** and
-    §5.3's PR-1b universal ("no cell pins a `line_count` change") is untouched. The window is
+    it pins `W` below today's own wrap point, so `line_count` is **2 before and after PR-1b** — the
+    count this cell pins, stated here rather than inherited from a universal (rev 79; **A121**). The window is
     non-empty iff `1 < measure_width(" ") + measure_width("bbb")`, which the test evaluates rather
     than this memo.
     ⚠ **The baseline half of the replay is not observable on this fixture — and, since R10, not
@@ -4320,7 +4358,11 @@ mapped back to item-stream offsets **and kept only where the run they fall in ad
 wrap** — css-text-3 §3 allows none under `nowrap` or `pre` ("it does not allow wrapping"; "Lines
 only break at forced line breaks"), so an offset inside such a run is **not** in the licensed set
 even though the raw UAX #14 result contains it (rev 76; ledger **A112**, §6 cell 15f) — ∪ **an
-atomic boundary whose adjacent character is U+00A0** ∪ any forced break; a shared
+atomic boundary whose adjacent character is U+00A0, under the same `white-space` filter** (rev 79;
+ledger **A120**: the manually unioned term is A37's, and `nowrap` and `pre` suppress *that*
+opportunity as much as an in-run one, so it is licensed only where the surrounding regime admits a
+soft wrap — without the filter an implementation that flushes at exactly that boundary under
+`nowrap` passes the subset check) ∪ any forced break; a shared
 helper asserts it and every cell's test runs through it. A fixture whose line structure comes
 from `place_item`'s per-item flush — the pre-existing divergence
 `#11-inline-item-boundary-soft-wrap` records (§5.3), which this program must not pin as expected
@@ -5801,20 +5843,36 @@ canonical one, and R14 took half of it twice** (R15's self-root-check). The repa
   (`builder/tests/inline_flow/bidi.rs:18-70`, a block whose `ComputedStyle` leaves `direction` at its
   default and whose text is `"אאב"`). §6 cells **12h** (LTR IFC) and **12i** (RTL IFC) pin it.
   — **Any box on a line the renderer does *not* reorder, where the direction that decides its sides
-  is `rtl`, has its edges mirrored.** ⚠ **Two directions, and they are not the same one**: elidex
-  maps the sides from the **box's own** computed `direction` (M1's `WritingModeContext`), while
-  css-writing-modes-4 §2.4.5.2 keys on "the parent's `direction` property" and css-break-3 §5.4 on
-  "the parent element's inline progression direction" — §3's css-break-3 §5.4 row carries that
-  sentence in full. Where the two differ (`<p dir="rtl"><span dir="ltr">`) the mismatch is a second
-  divergence, cell 12e's markup, and it belongs to this same slot. `InlineFlowRun::Text.inline_start` holds the absolute **physical x**
+  is `rtl`, has its edges mirrored.** ⚠⚠ **What is mirrored is *where the advance lands physically*, not which logical side the edge maps
+  to** (rev 79; ledger **A119**), and rev 78 mis-stated this. The side mapping of an **unfragmented**
+  box is css-writing-modes-4 §6.2's and §6.4's, by the box's **own used direction** — §6.2:
+  "inline-start … For boxes with a used `direction` value of `ltr`, this means the line-left side.
+  For boxes with a used `direction` value of `rtl`, this means the line-right side", with the Note
+  that the inline sides "depend not only on the writing-mode property but also the direction
+  property"; §6.4's table is "based on the used direction and writing-mode" (`body
+  css-writing-modes-4 logical-directions`, `logical-to-physical`). elidex does that correctly, on
+  the box's own `direction`, and §6 cell 12e is the cell that pins it — the only residue there is
+  *used* vs *computed*, which `#11-used-direction-text-orientation-upright` owns (§9). **The
+  parent-direction rules are about fragment edge *selection* and reach a box only once it is
+  broken**: css-writing-modes-4 §2.4.5.2 tells a UA to "take the **fragments** of each inline box
+  and assign the margins, borders and padding in visual order", and css-break-3 §5.4 fixes "which
+  side of a **fragment** is considered the broken edge" (§3's row carries that sentence in full).
+  ⚠ **So cell 12e's markup is *not* a divergence of this slot** — rev 78 booked it as one, from the
+  attestation's hygiene list by way of the brief, and it is **withdrawn here**: an unfragmented box's
+  sides are its own direction's by §6.2, so treating the parent's direction as governing would
+  replace correct mapping with incorrect mapping. What remains, and what rev 73 measured, is the
+  **physical placement** below. `InlineFlowRun::Text.inline_start` holds the absolute **physical x**
   (`crates/core/elidex-ecs/src/components/inline_flow.rs:35-42`) and the packer's cursor runs
   physically left-to-right whatever the box's direction, while M1 assigns the physical edges to logical
   sides — so `<p dir="rtl"><span style="padding-left:10px">שלום</span></p>` paints `[שלום][10px]` where
-  css-writing-modes-4 §2.4.5.2 requires `[10px][שלום]`: "When the parent's `direction` property is
-  `rtl`, the right-most fragment of the first line box in which the box appears has the right padding,
-  right border and right margin, and the left-most fragment of the last line box in which the box
-  appears has the left margin, left border and left padding" (`body css-writing-modes-4
-  bidi-fragment-boxes`). §6 cell **12b** pins it. ⚠ **The fixture offered for this half at R40 does not
+  conformance requires `[10px][שלום]` — by **§6.2**, since the box's own used `direction` is `rtl`
+  its inline-end side is its **line-left**, and `padding-left` is that side's edge here, so the 10px
+  belongs left of the glyph; §6.4's table maps it the same way. ⚠ **§2.4.5.2 is the rule for a box
+  that is *broken*** — "the right-most fragment of the first line box in which the box appears has
+  the right padding … and the left-most fragment of the last line box … has the left margin, left
+  border and left padding" (`body css-writing-modes-4 bidi-fragment-boxes`) — and this box has one
+  fragment, so it selects nothing here. ⚠ Ledger **A101** grounds this example on §2.4.5.2; that row
+  is committed and **A119** is its correction. §6 cell **12b** pins it. ⚠ **The fixture offered for this half at R40 does not
   reach the reorder branch**: in `<p dir="rtl">a<span style="padding-left:10px">x</span></p>` the
   concatenated `Text` runs are `"ax"`, one bidi run at level **2** — even, so `is_rtl` is false — the
   fast path returns identity and the gap **is** painted. Right class, wrong example.
