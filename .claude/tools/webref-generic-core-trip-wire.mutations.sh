@@ -572,9 +572,11 @@ _mut_splice() {
 # target's mutation in place for every entry after it — PRECISELY the defect
 # `_mut_restore_copies` was introduced to kill, reachable again through the
 # inventory it did not own. One list, one resolver: a name here with no arm
-# below reds at the first restore, and an arm with no name here is never
-# recognised as a prefix, so its records reach `sed` with the prefix still on
-# them and fail as invalid expressions. Both directions are loud.
+# below reds at the first restore (measured), and an arm with no name here is
+# never recognised as a prefix, so its records reach `sed` with the prefix still
+# attached — where they either fail to parse (measured on BSD sed: `controls:`,
+# `driver:` and `harness:` each exit 1) or edit the DEFAULT target in a way that
+# cannot produce the control its needle names. Loud either way, never silent.
 # ⚠ THE FIRST WORD IS THE DEFAULT — the file a record edits when it carries no
 # prefix — AND IT IS THE ONE NAME THAT IS NOT A PREFIX. A target name must not be
 # a valid sed command prefix, or a record whose expression legitimately begins
