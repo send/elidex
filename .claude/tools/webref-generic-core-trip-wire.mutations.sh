@@ -628,7 +628,10 @@ _mut_restore_copies() (
 )
 
 # ONE TRIAL, SHARED BY BOTH POPULATIONS. The mutated copy is already at
-# `$_mut_wire`. $1 = how to name it in a diagnostic, $2 = what is required:
+# `$_mut_tgt` and the file it came from at `$_mut_src` — whichever target the
+# caller resolved, which for a `harness:` entry is NOT the wire; it is the wire
+# copy that gets EXECUTED either way.
+# $1 = how to name it in a diagnostic, $2 = what is required:
 # a NEEDLE the output must contain, `!survive`, or `!kill` (red, raised by a
 # control, with no control named).
 # Returns 0 = as required, 1 = SURVIVED (the caller decides what that means),

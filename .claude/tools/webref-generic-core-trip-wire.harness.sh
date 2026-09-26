@@ -139,7 +139,7 @@ _fgit() ( _fgit_scrub; GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null _
 # ⚠ AND IT REFUSES WITHOUT CLAIMING THE RESIDUAL IS DANGEROUS — that distinction
 # is load-bearing, because "it reaches git's environment" invites the next reader
 # to try to HANDLE `GIT_X-Y`, and there is nothing there to handle. A name bash
-# cannot `unset` is not a valid shell identifier, and the names git reads are:
+# cannot `unset` is not a valid shell identifier, and every name git reads IS one:
 # measured at git 2.55, every `GIT*` environment variable named in git(1), in
 # git-config(1) and by `git rev-parse --local-env-vars` is spelled `[A-Z0-9_]+`,
 # with no exception in the complement (the only non-conforming token either page
