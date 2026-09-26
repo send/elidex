@@ -613,6 +613,13 @@ _mut_target() {
 # discarded while the copies happen for real. Without that, restoring would
 # clobber the pair its caller had already resolved, and the order of two lines
 # would decide which file an entry tested.
+# ⚠ AND THAT IS THE OPERATIVE REASON, WHICH IS WHY NEITHER CALL SITE ARGUES THE
+# ORDER ANY MORE. Both used to say the restore had to come FIRST, "so the
+# resolver's output is the pair THIS entry is measured against" — the opposite
+# of the paragraph above, and both cannot be true. Measured rather than reread:
+# with the restore and the resolve SWAPPED at both sites, the mutation run
+# produces a byte-identical log (53 entries, same verdicts, same counts). The
+# subshell is what buys that, so the subshell is what says so.
 _mut_restore_copies() (
   for _mut_t in $_MUT_TARGETS; do
     _mut_target "$_mut_t" || {
@@ -693,9 +700,22 @@ _mut_gen_run() {
   # This half only ever edits the wire, and it NAMES that target through the one
   # resolver rather than restating the pair — so it cannot inherit whatever the
   # last hand record left behind, and cannot drift from the restore above either.
-  # Restore FIRST: the resolver's output is what an entry is measured against.
+  # ⚠ THE ORDER OF THESE TWO IS IMMATERIAL — see `_mut_restore_copies`, which is
+  # a subshell precisely so that it is.
+  # ⚠ AND `_mut_target wire` IS NOT A SECOND CHECK OF THE LINE ABOVE. The restore
+  # walks `$_MUT_TARGETS`; this names `wire` as a LITERAL, and the two agree only
+  # while the default target keeps that name. Measured — renaming the `wire` arm
+  # and leaving this line alone reaches this branch — and it used to reach it
+  # SILENTLY, printing `generated boundary set: 0 mutant(s) …, 1 neither killed
+  # nor argued equivalent`: the mutation population blamed for a bookkeeping
+  # failure, which is the misattribution `_mut_restore_copies` exists to refuse.
   _mut_restore_copies || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
-  _mut_target wire || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
+  _mut_target wire || {
+    echo "!! this half names \"wire\" as its target and \`_mut_target\` has no arm" >&2
+    echo "   for it, so NO generated mutant was applied to anything. The default" >&2
+    echo "   target was renamed without renaming this line. This is a bookkeeping" >&2
+    echo "   failure, NOT a gap in the population of \$K2RE / \$K2RE_PATH rules." >&2
+    _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
   _mut_gen_fail=""
   : > "$CTL/.genmutants"
   for _gr_v in K2RE K2RE_PATH; do
@@ -903,8 +923,19 @@ _mut_run() {
           "$_mut_t":*) _mt_which="$_mut_t"; _mx="${_mx#"$_mut_t":}"; break ;;
         esac
       done
-      # …restore BEFORE resolving: the restore walks every target and the
-      # resolver's output must be the pair THIS entry is measured against.
+      # …every mutable copy back to the shipped bytes, and the pair THIS entry is
+      # measured against.
+      # ⚠ THE ORDER OF THESE TWO IS IMMATERIAL, and the note here used to claim
+      # the opposite. See `_mut_restore_copies`: it is a subshell precisely so
+      # that the order cannot decide which file an entry tested, and swapping
+      # these two lines was measured to change nothing.
+      # ⚠ AND THE RESOLVE STILL NEEDS ITS FAILURE ARM. `$_mt_which` is a member
+      # of `$_MUT_TARGETS`, or the list's first word, so the restore has just
+      # shown it resolves — UNLESS the list is empty or opens with whitespace,
+      # when `${_MUT_TARGETS%% *}` is the empty string, the restore loops over
+      # nothing and succeeds, and this is the only thing left that notices.
+      # Measured with `_MUT_TARGETS=""`: `no target named ""`, once per entry,
+      # and the run exits 1.
       _mut_restore_copies || { _mut_bad=$((_mut_bad + 1)); continue; }
       _mut_target "$_mt_which" || {
         echo "!! MUTANT $_mut_n: no target named \"$_mt_which\", so this entry was not" >&2
