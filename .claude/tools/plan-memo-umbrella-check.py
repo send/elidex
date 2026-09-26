@@ -643,8 +643,9 @@ def _utf8_streams():
 
 
 def printable(text):
-    """One line of run output with every C0 control character and DEL rendered
-    as `<U+XXXX>`, so the run's verdict can be read by `grep`.
+    """One line of run output with every C0 control character, DEL and lone
+    surrogate rendered as `<U+XXXX>`, so the run's verdict can be read by
+    `grep` and written to a strict UTF-8 stream.
 
     WHY THE PRINTER AND NOT THE ONE CONTROL THAT CARRIES A NUL (PR #510 Axis 5; moved here from the self-test at R42-4).
     A control name may legitimately BE its fixture -- the R24 NUL control spells
@@ -663,8 +664,17 @@ def printable(text):
 
     HONESTLY, what it does not do: the fixture text itself is unchanged (the
     controls still build and parse real NULs -- only the REPORT is escaped), and
-    a non-C0 character that a terminal happens to swallow is not its business."""
-    return "".join("<U+%04X>" % ord(c) if c < " " or c == "\x7f" else c for c in text)
+    a non-C0 character that a terminal happens to swallow is not its business.
+
+    ⚠ AND EVERY LONE SURROGATE (U+D800-U+DFFF; Codex on `100462db`).  On POSIX
+    a filename byte that is not UTF-8 reaches Python as a surrogate escape, and
+    the streams are strict UTF-8 (`_utf8_streams`), so a report line naming such
+    a memo raised `UnicodeEncodeError` part-way through the run -- a traceback
+    at rc 1, the FINDINGS code, where the documented result is the unavailable-
+    memo miss at rc 2.  The rule is still about the CHANNEL: a surrogate is a
+    code point the channel cannot carry, the same class as a NUL it cannot
+    grep."""
+    return "".join("<U+%04X>" % ord(c) if c < " " or c == "\x7f" or "\ud800" <= c <= "\udfff" else c for c in text)
 
 
 # The options this entry point accepts, spelled ONCE.  ⚠ A CLOSED SET whose

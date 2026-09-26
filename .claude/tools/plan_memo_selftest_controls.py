@@ -218,6 +218,55 @@ def undecodable_sibling_control(M):
     return res.rc == 2 and miss, "rc %d, unreadable-sibling miss %s (must be rc 2 with the miss)" % (res.rc, miss)
 
 
+def surrogate_report_control(M):
+    """A memo path carrying a LONE SURROGATE -- how POSIX hands Python a
+    filename byte that is not UTF-8 -- is reported, escaped, as the
+    unavailable-memo miss at rc 2, never a `UnicodeEncodeError` out of the
+    strict UTF-8 report channel (Codex on `100462db`).  END TO END: `main` runs
+    with both streams replaced by a strict UTF-8 buffer, the configuration
+    `_utf8_streams` gives every run; and the escape's own half is asked of the
+    WHOLE class, all 2,048 surrogates, not the one byte that was found.
+    An exception here is red."""
+    import io
+    import sys
+    bad = [n for n in range(0xD800, 0xE000) if M.printable("a%sb" % chr(n)) != "a<U+%04X>b" % n]
+    buf = io.BytesIO()
+    out = io.TextIOWrapper(buf, encoding="utf-8", errors="strict", newline="\n")
+    saved = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = out
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            rc = M.main(["plan-memo-umbrella-check.py", str(pathlib.Path(d) / "memo\udcff.md")])
+        out.flush()
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "main() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    finally:
+        sys.stdout, sys.stderr = saved
+    text = buf.getvalue().decode("utf-8")
+    ok = rc == 2 and not bad and "memo<U+DCFF>.md" in text and "linked memo unavailable" in text
+    return ok, ("rc %d, %d surrogate(s) of 2048 not escaped, escaped name printed %s (must be rc 2, 0, True)"
+                % (rc, len(bad), "memo<U+DCFF>.md" in text))
+
+
+def non_regular_memo_control(M):
+    """A `.md` link whose target is not a REGULAR file is the unavailable-memo
+    miss, rc 2, asked before anything is read (Codex on `100462db`: a symlink
+    to `/dev/zero` read forever).  The fixture is `/dev/null` -- a device like
+    `/dev/zero` whose read ENDS, so with the guard removed this control goes
+    red (an empty memo, no miss) instead of hanging the run that proves it.
+    An exception here is red."""
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "fixture.md"
+            p.write_text(build() + "\nSee [dev](dev.md).\n", encoding="utf-8")
+            (pathlib.Path(d) / "dev.md").symlink_to("/dev/null")
+            res = M.check(str(p))
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    miss = any(f[0] == "SCHEMA" and "linked memo unavailable (OSError)" in f[3] for f in res.findings)
+    return res.rc == 2 and miss, "rc %d, non-regular-memo miss %s (must be rc 2 with the miss)" % (res.rc, miss)
+
+
 def spec_examples_control(M):
     """The CommonMark 0.31.2 spec's own block examples through Phase 1
     (`plan_memo_selftest_conformance`): every vendored example aligned with
@@ -702,6 +751,8 @@ def registry(case_rows=None):
     reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
     reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
     reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
+    reg["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, never a UnicodeEncodeError from the strict UTF-8 channel"] = ("CONTROL", surrogate_report_control)
+    reg["a linked `.md` whose target is not a regular file (a device) is the unavailable-memo miss at rc 2, refused before it is read"] = ("CONTROL", non_regular_memo_control)
     reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)
     reg["container nesting is off the call stack: 1,000 nested quotes / items parse as commonmark.js nests them"] = ("CONTROL", deep_nesting_control)
     reg["a RuntimeError raised while PARSING a memo is a crash out of check(), never the unavailable-memo miss"] = ("CONTROL", parse_runtime_error_control)

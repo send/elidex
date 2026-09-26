@@ -502,12 +502,12 @@ AXIS5_PRINTABLE = ("the runner's report channel escapes every C0 control charact
 MUTANTS += [
     ("Axis 5 report channel: drop the C0 arm of the escape (only DEL is escaped: the NUL a control "
      "name carries reaches the wire's command substitution and is stripped there)", CHECK,
-     'if c < " " or c == "\\x7f" else c',
-     'if c == "\\x7f" else c',
+     'if c < " " or c == "\\x7f" or "\\ud800" <= c <= "\\udfff" else c',
+     'if c == "\\x7f" or "\\ud800" <= c <= "\\udfff" else c',
      [AXIS5_PRINTABLE]),
     ("Axis 5 report channel: escape EVERYTHING (a printable line is mangled too: a green run over an "
      "unreadable report is the other direction of the same defect)", CHECK,
-     'if c < " " or c == "\\x7f" else c',
+     'if c < " " or c == "\\x7f" or "\\ud800" <= c <= "\\udfff" else c',
      'if True else c',
      [AXIS5_PRINTABLE]),
 ]

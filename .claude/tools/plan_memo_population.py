@@ -70,7 +70,8 @@ class Population:
         while queue:
             p = queue.popleft()
             # the ONE I/O chokepoint: a memo that cannot be opened, read or
-            # decoded (absent, a directory, over-long, invalid UTF-8) is an
+            # decoded (absent, a directory, over-long, invalid UTF-8, not a regular
+            # file -- `Memo` refuses a device or a FIFO before reading it) is an
             # UNAVAILABLE linked memo -- the documented exit-2 miss, never an
             # exception out of the population.  I/O ONLY: `Memo(p)` also
             # PARSES, and a parser exception must surface as a crash (crash =

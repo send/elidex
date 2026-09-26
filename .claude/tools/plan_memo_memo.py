@@ -22,8 +22,11 @@ reverse; the block grammar is `plan_memo_blocks.py`'s.
 """
 
 import bisect
+import errno
+import os
 import pathlib
 import re
+import stat
 
 from plan_memo_blocks import (
     _is_lazy, _same_list, block_end, definition_block, indentation, is_blank, item_marker,
@@ -189,6 +192,15 @@ class Memo:
         # the text arrives as written and `_preprocess` -- not an I/O default
         # -- owns every transformation between the file and the document.
         # `utf-8`, never the locale's codec.
+        # ⚠ A MEMO IS A REGULAR FILE, asked BEFORE the read (Codex on
+        # `100462db`): a `.md` name whose target is a device, a FIFO or a
+        # socket was opened and read as a memo, and the run hung instead of
+        # reporting (measured: a symlink to `/dev/zero` and a FIFO each hung
+        # past 4 s at `100462db`; both are rc 2 with the miss here).  `os.stat`
+        # follows the link, and the `OSError` it raises here, like a missing
+        # file's, is the population chokepoint's unavailable-memo miss (rc 2).
+        if not stat.S_ISREG(os.stat(self.path).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(self.path))
         with open(self.path, encoding="utf-8", newline="") as fh:
             self.text = _preprocess(fh.read())
         self.lines = self.text.split("\n")

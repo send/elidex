@@ -192,6 +192,19 @@ MUTANTS += [
      'if c < " " or c == "\\x7f"',
      'if (c < " " and c != "\\n") or c == "\\x7f"',
      [AXIS5_CHANNEL]),
+    ("report: every LONE SURROGATE is escaped (drop the arm -- a non-UTF-8 POSIX filename then "
+     "raises UnicodeEncodeError from the strict UTF-8 channel, a traceback at the findings code)",
+     "plan-memo-umbrella-check.py",
+     ' or "\\ud800" <= c <= "\\udfff"',
+     "",
+     ["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, "
+      "never a UnicodeEncodeError from the strict UTF-8 channel"]),
+    ("memo: a memo is a REGULAR file, asked before the read (drop the guard -- a `.md` link to a "
+     "device is read to EOF: `/dev/zero` never ends)", "plan_memo_memo.py",
+     "        if not stat.S_ISREG(os.stat(self.path).st_mode):",
+     "        if False:",
+     ["a linked `.md` whose target is not a regular file (a device) is the unavailable-memo miss at rc 2, "
+      "refused before it is read"]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",
