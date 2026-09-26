@@ -334,6 +334,50 @@ def non_regular_memo_control(M):
     return True, "rc 2 + the miss for: " + ", ".join(report)
 
 
+def percent_bytes_control(M):
+    """A percent-encoded byte that is not UTF-8 names ITS OWN file, never the
+    U+FFFD file another spelling names (Codex on `d3d53c0f`: `unquote()`
+    decoded `child%FF.md` and `child%EF%BF%BD.md` to one name, so a link to the
+    first silently scanned the second).  Two halves:
+      (i) the pure reading: the two destinations resolve to DIFFERENT paths,
+          `child%FF.md` to the surrogate-escaped byte name, and valid UTF-8 --
+          `slice%20sib.md`, `caf%C3%A9.md` -- reads exactly as it always has;
+      (ii) end to end, a memo linking `child%FF.md` beside an existing DECOY
+          `child\ufffd.md`: rc 2 with the unavailable-memo miss, and the decoy
+          is not in the population.
+    What this host cannot show: the byte-named file EXISTING and being read
+    (APFS refuses the name, measured) -- on Linux it opens like any sibling,
+    which is the same `Memo` path every other control drives.
+    An exception here is red."""
+    import sys
+    sib = sys.modules["plan_memo_sibling"].sibling_path
+    bad = []
+    with tempfile.TemporaryDirectory() as d:
+        d = pathlib.Path(d)
+        a, b = sib(d, "child%FF.md"), sib(d, "child%EF%BF%BD.md")
+        if a == b or a is None or not str(a).endswith("child\udcff.md"):
+            bad.append("child%%FF.md -> %r, child%%EF%%BF%%BD.md -> %r (must differ; the first child\\udcff.md)"
+                       % (a, b))
+        for dest, want in (("slice%20sib.md", "slice sib.md"), ("caf%C3%A9.md", "caf\u00e9.md")):
+            got = sib(d, dest)
+            if got is None or got.name != want:
+                bad.append("%s -> %r (must be %r)" % (dest, got, want))
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            p = pathlib.Path(d) / "fixture.md"
+            p.write_text(build() + "\nSee [x](child%FF.md).\n", encoding="utf-8")
+            (pathlib.Path(d) / "child\ufffd.md").write_text(build(), encoding="utf-8")
+            res = M.check(str(p))
+            scanned = [m.path.name for m in res.population.memos]
+    except Exception as e:       # noqa: BLE001 -- the defect under test
+        return False, "check() raised %s: %s" % (type(e).__name__, str(e)[:60])
+    miss = any(f[0] == "SCHEMA" and "linked memo unavailable" in f[3] for f in res.findings)
+    if res.rc != 2 or not miss or "child\ufffd.md" in scanned:
+        bad.append("e2e: rc %d, miss %s, decoy scanned %s (must be rc 2, True, False)"
+                   % (res.rc, miss, "child\ufffd.md" in scanned))
+    return not bad, "; ".join(bad) if bad else "distinct byte names; valid UTF-8 unchanged; e2e rc 2, decoy unscanned"
+
+
 def spec_examples_control(M):
     """The CommonMark 0.31.2 spec's own block examples through Phase 1
     (`plan_memo_selftest_conformance`): every vendored example aligned with
@@ -818,6 +862,7 @@ def registry(case_rows=None):
     reg["a decoded destination with a C0 control character is rejected, never resolved"] = ("CONTROL", control_char_destination_control)
     reg["an OSError from resolve() is the unavailable-sibling schema miss, never an exception"] = ("CONTROL", unavailable_sibling_control)
     reg["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"] = ("CONTROL", undecodable_sibling_control)
+    reg["a percent-encoded byte that is not UTF-8 names its own file, never the U+FFFD file another spelling names: `child%FF.md` beside a decoy `child\ufffd.md` is rc 2 and the decoy is not scanned"] = ("CONTROL", percent_bytes_control)
     reg["a memo path with a lone surrogate (a non-UTF-8 POSIX filename byte) is reported escaped at rc 2, never a UnicodeEncodeError from the strict UTF-8 channel"] = ("CONTROL", surrogate_report_control)
     reg["a linked `.md` whose target is not a regular file (a device, a FIFO, a socket) is the unavailable-memo miss at rc 2, refused before it is read"] = ("CONTROL", non_regular_memo_control)
     reg["an orphan definition exempts its OWN bracket only: `[sib]: child.md \"[sib]\"` is the documented miss, rc 2, child.md not walked"] = ("CONTROL", orphan_offset_control)

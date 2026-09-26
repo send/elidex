@@ -137,8 +137,8 @@ MUTANTS += [
      ["(image) an undefined reference image `![diagram][missing-image]` is literal syntax, not an "
       "unresolved memo reference: rc 0"]),
     ("R4-2 population: the destination path is percent-decoded", SIBLING,
-     '    name = unquote(raw)                                          # (b)',
-     '    name = raw                                                   # (b)',
+     '    name = unquote_to_bytes(raw).decode("utf-8", "surrogateescape")  # (b)',
+     '    name = raw  # (b)',
      ["(link) a percent-encoded destination `slice%20sib.md` links the file `slice sib.md`, as "
       "`<slice sib.md>` does"]),
     ("R4-3 pass: one inline pass over the RAW text (re-introduce the code pre-mask)", LEXER,

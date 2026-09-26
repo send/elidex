@@ -253,6 +253,11 @@ MUTANTS += [
      '                    and isinstance(f.value, ast.Name) and f.value.id == "os"):',
      '                    ):',
      [R26_ENCODING_LABEL]),
+    ("sibling: percent-decoding is LOSSLESS (decode with errors=\"replace\" again -- `child%FF.md` "
+     "and `child%EF%BF%BD.md` are one name, and a link to the first scans the second)", "plan_memo_sibling.py",
+     '    name = unquote_to_bytes(raw).decode("utf-8", "surrogateescape")  # (b)',
+     '    name = unquote_to_bytes(raw).decode("utf-8", "replace")  # (b)',
+     ["a percent-encoded byte that is not UTF-8 names its own file, never the U+FFFD file another spelling names: `child%FF.md` beside a decoy `child\ufffd.md` is rc 2 and the decoy is not scanned"]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",

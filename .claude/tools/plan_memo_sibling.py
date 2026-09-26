@@ -22,7 +22,7 @@ carved on the same subject.
 
 import pathlib
 import re
-from urllib.parse import unquote
+from urllib.parse import unquote_to_bytes
 
 from plan_memo_tokens import FILE_SUFFIX
 
@@ -78,8 +78,21 @@ def sibling_path(directory, dest):
           bytes", *percent-decode* on a string
           (https://url.spec.whatwg.org/#string-percent-decode: "Let bytes
           be the UTF-8 encoding of input. Return the percent-decoding of
-          bytes"), the operation a consumer applies to a parsed path;
-          `urllib.parse.unquote` is that operation;
+          bytes"), the operation a consumer applies to a parsed path.
+          Its result is BYTES, and turning bytes into a file name is this
+          checker's policy, not the URL standard's: the name IS those
+          bytes, as a POSIX file name is, so a byte that is not UTF-8
+          becomes its surrogate escape (`os.fsencode` round-trips it).
+          ⚠ `urllib.parse.unquote` WAS used here and is NOT that
+          operation: it decodes with `errors="replace"`, so `child%FF.md`
+          and `child%EF%BF%BD.md` -- two different byte names -- were both
+          `child\ufffd.md`, and a link to the first silently read the
+          second (Codex on `d3d53c0f`).  On valid UTF-8 the two readings
+          are identical; on invalid UTF-8 the name now reaches (e) as the
+          byte name it spells, and a file that is not there -- or that the
+          filesystem cannot spell (APFS refuses the byte) -- is the
+          chokepoint's unavailable-memo miss, printed escaped
+          (`child<U+DCFF>.md`);
       (c) the DECODED name must be RELATIVE on every platform, and hold
           no C0 control / DEL (`child%00.md` would make `resolve()`
           raise).  ONE platform-independent reading of the name:
@@ -142,7 +155,7 @@ def sibling_path(directory, dest):
     raw = re.split(r"[#?]", dest, 1)[0]
     if _SCHEME.match(raw):                                       # (a)
         return None
-    name = unquote(raw)                                          # (b)
+    name = unquote_to_bytes(raw).decode("utf-8", "surrogateescape")  # (b)
     p = pathlib.PureWindowsPath(name)
     if (_CONTROL.search(name) or p.anchor                        # (c)
             or any(_is_reserved_component(s) for s in p.parts)):
