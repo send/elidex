@@ -434,6 +434,12 @@ def bare_id(cell_text, kinds):
 # `Slice 9z&nbsp;— **UMBRELLA, …**` attributed nothing and lost the
 # `UMBRELLA-MARK` at rc 0, while a U+000B, which cmark does not read as
 # whitespace, stood in for a gap.
+# ⚠ KNOWN COST, NOT FIXED: after the dash, a whitespace run followed by a
+# failing tail is QUADRATIC (`(?:GAP+)?`, then `DECOR`, which may match empty,
+# then `(?:GAP+)?$`: every split of the run is tried) -- 0.6 s at 10k and 2.4 s at 20k under
+# 3.14, 0.45 s / 1.8 s at 94281cd7, so older than the R22 composer; polynomial,
+# not exponential, and the atomic-group remedy needs Python 3.11 (this tool
+# supports 3.9).  Measure: `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_tables as t; f="Slice 9z \u2014"+" "*20000+"x"; s=time.perf_counter(); t._APPOSITIVE.search(f); print(time.perf_counter()-s)'`
 _APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
                          re.ASCII)
 

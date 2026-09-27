@@ -746,6 +746,8 @@ def registry():
             ("CONTROL", line_bound_control),
         "PROPERTY: every source of this checker compiles with SyntaxWarning as an error (an invalid escape in a docstring is a future SyntaxError, and this PR shipped one)":
             ("CONTROL", syntax_warning_control),
+        "PROPERTY: the checker spells a reader's gap ONE way -- no string literal holds `\\s` / `\\S`, no `.isspace()` is called, and no pattern literal handed to `re` holds a U+0020 outside a character class unless it went through `plan_memo_stream.phrase` (unknown sites are red; the exemptions are keyed on function and expression)":
+            ("CONTROL", gap_spelling_sweep_control),
     })
     return reg
 
@@ -855,3 +857,129 @@ def syntax_warning_control(M):
     return not bad, ("%d source(s) compiled, %d with a SyntaxWarning%s"
                      % (len(_swept_sources()), len(bad),
                         ("; " + "; ".join(bad[:4])) if bad else ""))
+
+
+# The sites where the checker asks PYTHON's whitespace on purpose, keyed on
+# (file, enclosing function, the expression as `ast.unparse` spells it) -- never
+# on a line number, so a moved line keeps its key and a NEW call in the same
+# function is a different expression, hence red.  Each carries its reason.
+_GAP_SPELLING_EXEMPT = {
+    ("plan_memo_tokens.py", "_run_end_from", "text[j].isspace()"):
+        "the file-name run's end: Python's set on purpose -- a wider boundary SPLITS a run and "
+        "reports the ids beside it (`plan_memo_tokens._NAME_BOUNDARY` says why)",
+    ("plan_memo_tokens.py", "file_and_cite_spans", "c.isspace()"):
+        "the file-name run's start (segment reset): the same boundary as `_run_end_from`",
+}
+
+_RE_PATTERN_FUNCS = frozenset(("compile", "match", "search", "fullmatch", "sub", "subn", "split",
+                               "findall", "finditer"))
+
+
+def _space_outside_class(text):
+    """Whether `text` holds a U+0020 outside a `[...]` class -- the classes a
+    spec spells in ASCII (`[ \t]`, `[ \t\r\n]`) are sets, not word gaps."""
+    i, depth = 0, False
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            i += 2
+            continue
+        if depth:
+            if c == "]":
+                depth = False
+        elif c == "[":
+            depth = True
+            if text[i + 1:i + 2] == "]":
+                i += 1              # `[]...]`: a leading `]` is a member
+        elif c == " ":
+            return True
+        i += 1
+    return False
+
+
+def gap_spelling_sweep_control(M):
+    """PROPERTY: the checker spells "a gap a reader sees" ONE way.  Over the
+    AST of every CHECKER module (the self-test is prose about whitespace, not
+    a reader of it):
+
+      * no string literal (bare string statements -- docstrings -- excepted) holds `\\s` or `\\S` -- a
+        regex whitespace class other than `plan_memo_stream.GAP`;
+      * no `.isspace()` is called, except at `_GAP_SPELLING_EXEMPT`'s sites;
+      * no string literal inside the PATTERN argument of a `re.compile` /
+        `match` / `search` / ... call holds a U+0020 outside a `[...]` class,
+        unless it sits inside a `phrase(...)` / `_phrase(...)` call or is
+        `re.escape`d -- a literal space there is a word gap that bypassed the
+        composer.
+
+    WHY (PR #510 Codex R22 of 2026-09-27 and its pre-push review).  The kind
+    phrases' gap was Python's whitespace, the roles vocabularies spelled theirs
+    as `\\s` under `re.ASCII` and as literal U+0020, and the composer's
+    docstring promised that "a new vocabulary cannot arrive with its own
+    spelling of a space" with nothing behind it.  This is what is behind it.
+    AN UNKNOWN SITE IS RED: the exemptions are an explicit set keyed on
+    (file, enclosing function, expression), so a new `.isspace()` -- even in
+    an exempt function -- is a new key.
+
+    HONESTLY, what it cannot see: a pattern held in a module constant and
+    passed to `re` by NAME (only literals lexically inside the call are read
+    for the U+0020 rule -- a constant is still read for `\\s`); a literal
+    space inside a class (`[ \t]` is exempt by construction, and a word gap
+    spelled `[ ]` would pass); `str.split()` / `str.strip()` with no argument
+    (Python's whitespace, used here only for report formatting); and a gap
+    built at runtime from `chr(32)`."""
+    checker = {file for _name, file in MODULES}
+    bad, seen_exempt, n_literals = [], set(), 0
+    for file, src in _swept_sources():
+        if file not in checker:
+            continue
+        tree = ast.parse(src)
+        # a bare string STATEMENT is prose wherever it stands (a docstring, or
+        # the attribute docstring under a module constant such as `GAP`'s)
+        docs = {id(n.value) for n in ast.walk(tree)
+                if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)
+                and isinstance(n.value.value, str)}
+        parents = {}
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                parents[id(child)] = node
+
+        def where(node):
+            p = parents.get(id(node))
+            while p is not None and not isinstance(p, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                p = parents.get(id(p))
+            return p.name if p is not None else "<module>"
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs:
+                n_literals += 1
+                if "\\s" in node.value or "\\S" in node.value:
+                    bad.append("%s:%d a literal spells `\\s` (%r)" % (file, node.lineno, node.value[:40]))
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "isspace"):
+                key = (file, where(node), ast.unparse(node))
+                if key in _GAP_SPELLING_EXEMPT:
+                    seen_exempt.add(key)
+                else:
+                    bad.append("%s:%d `%s` in %s asks Python's whitespace" % (file, node.lineno, key[2], key[1]))
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "re"
+                    and node.func.attr in _RE_PATTERN_FUNCS and node.args):
+                stack = [node.args[0]]
+                while stack:
+                    sub = stack.pop()
+                    if isinstance(sub, ast.Call):
+                        name = (sub.func.id if isinstance(sub.func, ast.Name)
+                                else sub.func.attr if isinstance(sub.func, ast.Attribute) else None)
+                        if name in ("phrase", "_phrase", "escape"):
+                            continue
+                    if (isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+                            and _space_outside_class(sub.value)):
+                        bad.append("%s:%d a pattern literal holds a U+0020 outside a class and "
+                                   "outside `phrase` (%r)" % (file, sub.lineno, sub.value[:40]))
+                    stack.extend(ast.iter_child_nodes(sub))
+    stale = sorted(set(_GAP_SPELLING_EXEMPT) - seen_exempt)
+    if stale:
+        bad.append("exemption(s) naming no site: %s" % stale)
+    return not bad, ("%d literal(s) in %d checker module(s) swept, %d exempt site(s) seen; %d spelling(s) "
+                     "of the gap outside GAP%s" % (n_literals, len(checker), len(seen_exempt), len(bad),
+                                                   ("; " + "; ".join(bad[:4])) if bad else ""))

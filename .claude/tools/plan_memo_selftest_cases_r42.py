@@ -699,6 +699,42 @@ for _fam, _label, _cell, _field, _code in (
           build(**_kw), _code, 0)
     R22_WS_ROLES[_fam].append(CASES[-1].name)
 
+# The file-name BOUNDARY is Python's whitespace on purpose (`plan_memo_tokens.
+# _NAME_BOUNDARY`): a wider boundary SPLITS a run, so the id beside a name is
+# reported rather than masked.  Nothing pinned that until the R22 pre-push
+# review, and swapping both `isspace()` sites to the §2.1 predicate left the
+# self-test green while `9z<U+001C>notes.md` went from one site to none.  One
+# POSITIVE per character that leaves §2.1's set by a different route, at the
+# run's START (the segment reset), and one NEGATIVE at its END (the run
+# boundary `_run_end_from` finds).
+R22_FILE_BOUNDARY = []
+for _label, _c in (("U+001C", "\x1c"), ("U+000B", "\x0b"), ("U+2028", " ")):
+    case("POSITIVE", "(R22 file) `9z` + %s + `notes.md`: the file-name run STARTS after the %s, which "
+                     "`str.isspace()` calls whitespace, so `9z` stands outside the name and is a naming "
+                     "site -- read with §2.1's narrower set the run would swallow it" % (_label, _label),
+         build(), "The close rule is in 9z%snotes.md here." % _c, 1)
+    R22_FILE_BOUNDARY.append(CASES[-1].name)
+case("NEGATIVE", "(R22 file) `9z-notes.md` + U+001C: the run ENDS at the U+001C, so the suffix ends the "
+                 "name and `9z` stays masked inside it -- read with §2.1's set the run would continue "
+                 "past the suffix, no name would stand, and `9z` would be reported",
+     build(), "The close rule is in 9z-notes.md\x1c here.", 0)
+R22_FILE_BOUNDARY_END = CASES[-1].name
+
+# §6.2 READS §2.1, NOT `str.isspace()` (the same review): cmark treats U+000B as
+# NON-whitespace for flanking -- `printf 'The close rule is 9**z\x0b** here.' |
+# cmark` gives `9<strong>z\v</strong>` -- so the closer, preceded by U+000B, is
+# right-flanking and the pair renders nothing: the reader reads `9z`.  Under
+# `isspace()` the closer cannot close, the `**` stay literal, and `9**z` names
+# no row.  The U+00A0 twin is whitespace to both, so it never closes.
+case("POSITIVE", "(R22 §6.2) `9**z` + U+000B + `**`: the closer is preceded by U+000B, which §2.1 and "
+                 "cmark do not read as whitespace, so it closes, the pair renders nothing and the "
+                 "reader reads `9z` -- a naming site",
+     build(), "The close rule is 9**z\x0b** here.", 1)
+R22_FLANK_VT = CASES[-1].name
+case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is not right-flanking (both "
+                 "readings call it whitespace), the `**` stay literal and `9**z` names nothing",
+     build(), "The close rule is 9**z ** here.", 0)
+
 
 # -- R47-5: the loops the DERIVED scope ratchet found unpinned.  Three of the
 # twelve survived truncation with every control green -- measured, one loop at

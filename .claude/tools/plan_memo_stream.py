@@ -89,7 +89,7 @@ none of which cmark reads as whitespace -- so `KIND<U+001C>UNDETERMINED`,
 which a reader sees as `KINDUNDETERMINED`, declared the kind, and with a
 nonempty `Deps` cell raised a gating `UMBRELLA-CELL` (rc 1). The marker and
 the pointer compose the same gap and read the same eight as one.
-The class needs no `(?u:...)` scope: its members are `\uXXXX` escapes, which
+The class needs no `(?u:...)` scope: its members are `\UXXXXXXXX` escapes, which
 `re.ASCII` leaves alone, so `UNDETERMINED` keeps `re.ASCII` for its case
 folding and the gap is still every §2.1 member. The folding reaches two
 places. In the LETTERS, under `a` the U+212A KELVIN SIGN never
@@ -108,8 +108,14 @@ def phrase(pattern):
     `GAP` one-or-more; an OPTIONAL gap is written `(?: )?`.  Every phrase
     vocabulary in the checker is spelled through it -- the kind phrases here,
     the appositive in `plan_memo_tables`, and the licensing, ranking and seed
-    vocabularies in `plan_memo_roles` -- so a new vocabulary cannot arrive
-    with its own spelling of a space.
+    vocabularies in `plan_memo_roles`.  That a new vocabulary cannot arrive
+    with its own spelling of a space is a CONTROL, not this sentence
+    (`plan_memo_selftest_properties.gap_spelling_sweep_control`): it is red on
+    any `\\s` / `\\S` in a checker literal, on any `.isspace()` outside two
+    keyed file-name-boundary sites, and on a U+0020 outside a `[...]` class in a
+    pattern literal handed to `re` that did not go through this function.  It
+    cannot see a pattern held in a constant and passed to `re` by name, or a
+    gap spelled as the class `[ ]` -- its docstring lists the rest.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
     composer served the three kind phrases; `plan_memo_roles` wrote its gaps

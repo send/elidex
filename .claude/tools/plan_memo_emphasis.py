@@ -92,16 +92,18 @@ def is_unicode_whitespace(ch):
 
 _BMP_END = 0x10000
 
-UNICODE_WHITESPACE = "[%s]" % "".join("\\u%04x" % c for c in range(_BMP_END)
+UNICODE_WHITESPACE = "[%s]" % "".join("\\U%08x" % c for c in range(_BMP_END)
                                       if is_unicode_whitespace(chr(c)))
 """`is_unicode_whitespace` as a regex CHARACTER CLASS, DERIVED from it: every
-code point the predicate accepts, each spelled as a `\\uXXXX` escape, so the
+code point the predicate accepts, each spelled as an eight-digit `\\UXXXXXXXX`
+escape -- correct for ANY code point, so raising `_BMP_END` is a one-constant
+change (a four-digit `\\uXXXX` would be wrong above U+FFFF) -- and the
 class is plain text under any flags (measured: it matches the same code points
 with no flag, with `re.IGNORECASE`, and with `re.IGNORECASE | re.ASCII`).
 Twenty-one members under the `unicodedata` of Python 3.9.6 (UCD 13.0.0), 3.12
 (15.0.0) and 3.14 (16.0.0) alike, and byte-identical text under all three --
 measured by
-`python3 -c 'import sys; sys.path.insert(0, ".claude/tools"); import plan_memo_emphasis as e; print(e.UNICODE_WHITESPACE.count("\\\\u"))'`.
+`python3 -c 'import sys; sys.path.insert(0, ".claude/tools"); import plan_memo_emphasis as e; print(e.UNICODE_WHITESPACE.count("\\\\U"))'`.
 
 ⚠ THE ENUMERATION STOPS AT THE BMP, AND THAT IS A MEASURED FACT, NOT A
 GUARANTEE.  The four ASCII members are in it by construction; Zs is a general

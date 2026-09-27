@@ -363,6 +363,13 @@ def _row_key(x):
 # An owner is a row of any row kind: the grammar's `ROW_ID` (slug | short),
 # the same alternation the appositive and the anchored reading compose --
 # a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
+# ⚠ KNOWN COST, NOT FIXED: a whitespace run between the first owner and a
+# failing tail is QUADRATIC (optional gap, then a gap inside the alternation:
+# the engine tries every split of the run) -- measured 1.0 s at 10k and 4.3 s at
+# 20k characters under 3.14, and 0.8 s / 3.2 s at 94281cd7, so it is older than
+# the R22 composer; polynomial, not exponential.  The remedy, an atomic group or
+# possessive quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
+# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; s="owned by **7z**"+" "*20000+"x"; t=time.perf_counter(); r.OWNS_TWO.search(s); print(time.perf_counter()-t)'`
 OWNS_TWO = re.compile(
     phrase(r"\b(?:owns?|owned by|owner is|carries|carried by) ")
     + decorated_id(ROW_ID, "a")
