@@ -376,8 +376,8 @@ MUTANTS += [
      [R33_2_NON_DASH]),
     ("R33-2 sweep: a second dash class in a checker module is found (re-inject one at the reader that "
      "had it)", STREAM,
-     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),',
-     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*[\\u2014-]?" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+[\\u2014-]?|[\\u2014-])" + GAP + "*UNDETERMINED"),',
      [R33_DASH_SWEEP]),
 ]
 
@@ -876,8 +876,8 @@ MUTANTS += [
      [R47_4_NBSP, R47_4_TAB]),
     ("R47-4 gap: the UNDETERMINED phrase composes the SAME gap (re-spell its `\\s` under `re.ASCII`, "
      "which is ASCII whitespace and not U+00A0)", STREAM,
-     'bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED")',
-     'bounded(r"KIND\\s*" + DASH_CLASS + r"?\\s*UNDETERMINED")',
+     'bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED")',
+     'bounded(r"KIND(?:\\s+" + DASH_CLASS + r"?|" + DASH_CLASS + r")\\s*UNDETERMINED")',
      [R47_4_UNDET_NBSP]),
     ("R47-4 gap: the gap is a WHITESPACE class, not a wildcard (widen it to `.` -- every arm above "
      "still passes, and only the word-boundary negative catches it)", STREAM,

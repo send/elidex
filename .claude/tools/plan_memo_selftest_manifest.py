@@ -141,10 +141,14 @@ def _esc(text):
     still answers "Binary file ... matches" for a file whose NUL comes early --
     so the diff this file exists to be read as was not readable with every grep
     at every size.)
+    So is every LONE SURROGATE, as `\\uNNNN` (Codex on `0a5ab700`: a name
+    holding one -- the non-UTF-8 filename fixtures make that natural -- raised
+    `UnicodeEncodeError` from `--write-manifest`'s UTF-8 write).
     The backslash is escaped FIRST, so no escape can collide with text."""
     s = (str(text).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
          .replace("|", "\\p"))
-    return "".join("\\x%02x" % ord(c) if c < " " or c == "\x7f" else c for c in s)
+    return "".join("\\x%02x" % ord(c) if c < " " or c == "\x7f"
+                   else "\\u%04x" % ord(c) if "\ud800" <= c <= "\udfff" else c for c in s)
 
 
 def _case_digest(c):

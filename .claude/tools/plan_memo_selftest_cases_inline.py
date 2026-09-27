@@ -602,6 +602,9 @@ rcase("NEGATIVE", "(kind) `The KIND UNDETERMINEDNESS metric must be recorded` de
 rcase("NEGATIVE", "(kind) nor does `MANKIND UNDETERMINED by the probe` -- the boundary is on BOTH sides, "
                   "and the left one is the half a right-only fix would leave authoritative",
       build(suz="MANKIND UNDETERMINED by the probe; must be recorded.", duz="**7z**"), "", 0)
+# Codex on `0a5ab700`: the two words need a separator, or a concatenated word declares the kind
+rcase("NEGATIVE", '(kind) nor does `The KINDUNDETERMINED metric must be recorded` -- a separator between the two words is required: with a nonempty `Deps` cell the separator-free reading made the row no-owner and forced `UMBRELLA-CELL`, rc 1',
+      build(suz="The KINDUNDETERMINED metric must be recorded.", duz="**7z**"), "", 0)
 rcase("POSITIVE", "(kind) `KIND — UNDETERMINED` still declares it, and the same nonempty `Deps` cell is "
                   "still `UMBRELLA-CELL`, rc 1 -- the discriminating half: the boundary must not have "
                   "silenced the phrase it bounds",

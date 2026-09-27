@@ -317,6 +317,13 @@ def manifest_control(M):
         not any(any(c < " " or c == "\x7f" for c in mf._esc("a%sb" % r)) for r in raw)
         and len({mf._esc(x) for x in raw + tricky}) == len(set(raw + tricky))
         and mf._esc("ok") == "ok")
+    # every LONE SURROGATE is escaped too, injectively against its literal spelling
+    # (Codex on `0a5ab700`: `--write-manifest` writes UTF-8, which cannot carry one)
+    sur = ["\ud800", "\udcff", "\udfff", "\\udcff", "a\udcffb", "\ud7ff", "\ue000"]
+    arms["(g) every lone surrogate is escaped, injectively, and its neighbours are not"] = (
+        not any("\ud800" <= c <= "\udfff" for x in sur for c in mf._esc(x))
+        and len({mf._esc(x) for x in sur}) == len(set(sur))
+        and mf._esc("\ud7ff\ue000") == "\ud7ff\ue000")
     with tempfile.TemporaryDirectory() as d:
         empty = "plan_memo_selftest_plant_empty_base"
         (pathlib.Path(d) / (empty + ".py")).write_text("MUTANTS = []\n", encoding="utf-8")

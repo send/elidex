@@ -276,13 +276,17 @@ MUTANTS += [
      [R26_ENCODING_LABEL]),
     ("manifest: the serialization escapes every C0 character and DEL (drop it -- a case name "
      "carrying a NUL writes a literal NUL and `grep` reads the manifest as binary)", MANIFEST_MOD,
-     '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
-     "    return s",
+     '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f"',
+     '    return "".join(c if False',
      [MANIFEST_CTL]),
     ("manifest: the escape is FIXED-WIDTH (drop the zero-pad -- `\\x1` followed by the text `a` "
      "then spells the escape of `\\x1a`, and two different names serialize alike)", MANIFEST_MOD,
-     '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
-     '    return "".join("\\\\x%x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
+     '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f"',
+     '    return "".join("\\\\x%x" % ord(c) if c < " " or c == "\\x7f"',
+     [MANIFEST_CTL]),
+    ("manifest: the serialization escapes every LONE SURROGATE (drop it -- a name holding one makes `--write-manifest` raise UnicodeEncodeError)", MANIFEST_MOD,
+     '                   else "\\\\u%04x" % ord(c) if "\\ud800" <= c <= "\\udfff" else c for c in s)',
+     '                   else c for c in s)',
      [MANIFEST_CTL]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,

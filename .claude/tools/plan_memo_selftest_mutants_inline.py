@@ -681,9 +681,13 @@ MUTANTS += [
     # ⚠ THESE SUBSTRINGS MOVED AT R33-2, when the dash set stopped being written
     # out at each reader and became `plan_memo_ids.DASH_CLASS`.
     ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", STREAM,
-     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),',
-     'UNDETERMINED = re.compile("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED",',
+     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED",',
      [R22_UNDET_NESS, R22_MANKIND]),
+    ("kind phrase: a SEPARATOR is required between KIND and UNDETERMINED (make both gaps and the dash optional again -- `KINDUNDETERMINED` declares the kind)", STREAM,
+     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),',
+     ['(kind) nor does `The KINDUNDETERMINED metric must be recorded` -- a separator between the two words is required: with a nonempty `Deps` cell the separator-free reading made the row no-owner and forced `UMBRELLA-CELL`, rc 1']),
     ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", STREAM,
      'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
      'POINTER = re.compile(_phrase("is a pointer rather than a slice"))',

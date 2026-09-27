@@ -99,8 +99,11 @@ never a change to the phrase."""
 # else -- no ordering, no owner, no acceptance -- which is the same obligation
 # the naming rule enforces against umbrellas.  Two spellings are in use; both
 # are tolerated and the divergence is reported (a kind with two spellings is a
-# kind no program can enumerate).
-UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),
+# kind no program can enumerate).  ⚠ A SEPARATOR IS REQUIRED between the two
+# words -- whitespace (then an optional dash) or a dash -- since Codex on
+# `0a5ab700`: with both gaps and the dash optional, `KINDUNDETERMINED` in an
+# unrelated word declared the kind.
+UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),
                           re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
