@@ -22,7 +22,7 @@ from plan_memo_selftest_cases_gap import (
     R22_GAP, R22_GAP_MIXED, R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
     R22_WS_ID_RUN_VT, R22_WS_IDEOGRAPHIC, R22_WS_OUTSIDE, R22_WS_ROLES, R22_WS_ROW_NOUN,
 )
-from plan_memo_selftest_mutants import EMPHASIS, RATCHETS, ROLES, STREAM, TABLES, TOKENS
+from plan_memo_selftest_mutants import EMPHASIS, ROLES, STREAM, TABLES, TOKENS
 
 # This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
 # registry module's list in one explicit step, and none appends to another's.
@@ -132,13 +132,20 @@ MUTANTS += [
 # THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` -- U+000B in,
 # U+00A0 out -- whatever flags the pattern is compiled with, so the ONE edit
 # turns every read arm AND every refuse arm of the pattern red.  WHICH patterns
-# have rows is a hand enumeration, not a guarantee: the table was enumerated BY HAND at 87f361c6 (the ranking's rows moved into it
-# at f85f4e1b) and covers the 13 gap-bearing patterns found then -- MARKER_RE,
-# UNDETERMINED, POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER,
+# have rows is a hand enumeration, not a guarantee: the table was built BY
+# HAND at 22f6a2a2 (70 rows over 10 compiled patterns); 87f361c6 added
+# NOUN_ANCHOR's row after a since-removed namespace walk counted 13
+# gap-bearing patterns, and f85f4e1b moved the ranking's rows (ROLE_ORDERING /
+# ROLE_OWNER) in, so today it covers those 13 -- MARKER_RE, UNDETERMINED,
+# POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER,
 # NOUN_ANCHOR, ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  NO
-# control enforces that a NEW gap-bearing pattern gets rows; that enforcement is
-# carved to §8 of `docs/plans/2026-08-plan-memo-umbrella-checker.md` ("gap-pattern
-# population completeness is not enforced").
+# control enforces that a NEW gap-bearing pattern gets rows; that enforcement
+# is carved to §8 (17) of `docs/plans/2026-08-plan-memo-umbrella-checker.md`.
+# Per-gap reach is MEASURED, not enforced: re-spelling each of the 71 gaps of
+# the 13 patterns alone flips at least one arm, except ORDER_WORDS' `ordered
+# before` / `sequenced after` gaps, which are behaviour-neutral and have no
+# rows (the measurement and the proof are in the table comment of
+# `plan_memo_selftest_cases_gap`).
 # The rows for `NOUN_ANCHOR` and the id run are below.
 _ASCII_GAP = '(lambda p: p.replace(" ", r"(?a:\\s)+"))('
 MUTANTS += [
@@ -218,4 +225,21 @@ MUTANTS += [
      '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
      '    + r"(?:(?a:\\s)+)?" + phrase(r"(?:,(?: )?| and | or |(?: )?/(?: )?)")',
      list(R22_GAP_MIXED) + [n for n in R22_GAP["OWNS_TWO join"] if "owner|," in n]),
+]
+
+# -- the net-delta review of 900c16eb..f7326182: the role measure's -1 branch.
+# Every role row expects 1 or 0, so a measure that said 0 for "no site" passed
+# them all; the row is on the HARNESS and names the function control (a
+# `case(...)` record's measure is bound when it is built, so this mutant never
+# reaches one).
+# The control's name is spelled here, as the population rows spell theirs (an
+# unknown name is a FAIL of the run, never a silent pass).
+ROLE_MEASURE = ("the harness's `(\"role\", r)` measure is -1 when the run reports no site or several, "
+                "1 / 0 on exactly one")
+MUTANTS += [
+    ("R22 gap: the role measure says -1, not 0, when no site or several are reported (map it to 0)",
+     "plan_memo_selftest_harness.py",
+     '            return -1, "%d reported site(s), not exactly one" % len(reported)',
+     '            return 0, "%d reported site(s), not exactly one" % len(reported)',
+     [ROLE_MEASURE]),
 ]

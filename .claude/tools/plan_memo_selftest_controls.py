@@ -836,6 +836,32 @@ def property_family_control(M):
            ("; " + "; ".join((unnamed + stray)[:3])) if unnamed or stray else "", arms))
 
 
+ROLE_MEASURE = ("the harness's `(\"role\", r)` measure is -1 when the run reports no site or several, "
+                "1 / 0 on exactly one")
+
+
+def role_measure_control(M):
+    """The harness's `("role", r)` measure over 0, 1 and 2 reported sites:
+    -1 for none and for two, 1 for the one ranked site, 0 for the one site the
+    ranking does not rank `r`.  It reads the harness BY NAME at call time, so a
+    mutant against the harness (installed under its real name for its row)
+    reaches it -- the `case(...)` records cannot: their measure is bound when
+    they are built."""
+    import importlib
+    h = importlib.import_module("plan_memo_selftest_harness")
+    want = (("The close rule waits on here.", -1),
+            ("The close rule waits on **9z** here.", 1),
+            ("The close rule is plain about **9z** here.", 0),
+            ("The close rule waits on **9z** here.\n\nThe close rule waits on **9z** there.", -1))
+    bad = []
+    for text, expect in want:
+        res, reported = h.run_on(M, build(), text)
+        got, detail = h.measure(res, reported, ("role", "ordering"))
+        if got != expect:
+            bad.append("%r: %r (%s), want %r" % (text[:40], got, detail, expect))
+    return not bad, "; ".join(bad) or "-1 / 1 / 0 / -1 over 0 / 1 ranked / 1 unranked / 2 sites"
+
+
 def registry(case_rows=None):
     """name -> (kind, control): the ONE table the runner and the mutation
     proof read, this module's controls MERGED with every fragment in the
@@ -861,6 +887,7 @@ def registry(case_rows=None):
     reg["CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts inside `<code>` (line endings converted, then the one-space trim)"] = ("CONTROL", code_span_reading_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
+    reg[ROLE_MEASURE] = ("CONTROL", role_measure_control)
     reg["the entries named `PROPERTY: ...` are exactly the property family's fragments (`_FAMILY`), both directions"] = ("CONTROL", property_family_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)

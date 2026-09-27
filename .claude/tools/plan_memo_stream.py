@@ -110,19 +110,25 @@ def phrase(pattern):
     the appositive in `plan_memo_tables`, and the licensing, ranking and seed
     vocabularies in `plan_memo_roles`.
 
-    ⚠ THAT IS A CONVENTION, NOT A GUARANTEE. Each vocabulary above has rows in
-    `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` that read
-    its gaps across U+00A0 and refuse them across U+000B, and an "R22 gap"
-    mutant re-spelling its gaps as `(?a:\\s)` turns them red. But the table
-    was enumerated BY HAND at 87f361c6 (the ranking's rows moved into it at
-    f85f4e1b) and covers the 13 gap-bearing patterns found then -- MARKER_RE,
+    ⚠ THAT IS A CONVENTION, NOT A GUARANTEE.  Each vocabulary above has rows
+    in `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` that
+    read its gaps across U+00A0 and refuse them across U+000B, and an "R22
+    gap" mutant re-spelling its gaps as `(?a:\\s)` turns them red.  But the
+    table was built BY HAND at 22f6a2a2 (70 rows over 10 compiled patterns);
+    87f361c6 added NOUN_ANCHOR's row after a since-removed namespace walk
+    counted 13 gap-bearing patterns, and f85f4e1b moved the ranking's rows
+    (ROLE_ORDERING / ROLE_OWNER) in, so today it covers those 13 -- MARKER_RE,
     UNDETERMINED, POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE,
     LICENSE_AFTER, NOUN_ANCHOR, ROLE_ORDERING, ROLE_OWNER, OWNS_TWO,
-    ORDER_WORDS, DECLARES. NO control enforces that a NEW gap-bearing pattern
-    gets rows; that enforcement is carved to §8 of
-    `docs/plans/2026-08-plan-memo-umbrella-checker.md` ("gap-pattern
-    population completeness is not enforced"). A vocabulary that writes `\\s`
-    or a literal U+0020 instead of calling this function is not seen either.
+    ORDER_WORDS, DECLARES.  NO control enforces that a NEW gap-bearing pattern
+    gets rows; that enforcement is carved to §8 (17) of
+    `docs/plans/2026-08-plan-memo-umbrella-checker.md`.  Per-gap reach is
+    MEASURED, not enforced: re-spelling each of the 71 gaps of the 13 patterns
+    alone flips at least one arm, except ORDER_WORDS' `ordered before` /
+    `sequenced after` gaps, which are behaviour-neutral and have no rows (the
+    measurement and the proof are in the table comment of
+    `plan_memo_selftest_cases_gap`).  A vocabulary that writes `\\s` or a
+    literal U+0020 instead of calling this function is not seen either.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
     composer served the three kind phrases; `plan_memo_roles` wrote its gaps

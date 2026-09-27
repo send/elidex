@@ -184,23 +184,35 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # review of f85f4e1b: a reused arm was checked by its number only, and a row
 # whose arms were both reused never ran its own template).
 #
-# WHICH PATTERNS HAVE ROWS is an enumeration, not a guarantee: the table was enumerated BY HAND at 87f361c6 (the ranking's rows moved into it
-# at f85f4e1b) and covers the 13 gap-bearing patterns found then -- MARKER_RE,
-# UNDETERMINED, POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER,
-# NOUN_ANCHOR, ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  NO
-# control enforces that a NEW gap-bearing pattern gets rows; that enforcement is
-# carved to §8 of `docs/plans/2026-08-plan-memo-umbrella-checker.md` ("gap-pattern
-# population completeness is not enforced").
-# WHICH GAPS inside a pattern the rows reach was MEASURED once, at 87f361c6, by
-# re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
-# and running every row of its pattern with U+00A0, U+000B and both mixed runs:
-# each gap flips at least one arm below, except the two that are NEUTRAL --
-# ORDER_WORDS' `ordered before` / `sequenced after`, because ORDER_WORDS is read
-# only as a boolean `.search` and `before` / `after` match on their own:
+# WHICH PATTERNS HAVE ROWS is an enumeration, not a guarantee.  The table was
+# built BY HAND at 22f6a2a2: 70 rows over 16 row patterns, which reach 10
+# compiled patterns (`ROW_NOUN_SEP` is reached through `_APPOSITIVE`).
+# 87f361c6 added `NOUN_ANCHOR`'s row -- after a since-removed namespace walk
+# counted 13 gap-bearing patterns -- with the appositive's decor|marker row
+# and `_R22_GAP_MIXED`; f85f4e1b moved the ranking's rows in (`ROLE_ORDERING`
+# / `ROLE_OWNER`).  So today it covers those 13: MARKER_RE, UNDETERMINED,
+# POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER,
+# NOUN_ANCHOR, ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.
+# Each commit is the one `git log --reverse -S` names for its row:
+# `_R22_GAP_TABLE = (`, `("NOUN_ANCHOR", "noun|id"` and `("ROLE ordering",
+# "waits|on"` over this file.  NO control enforces that a NEW gap-bearing
+# pattern gets rows; that enforcement is carved to §8 (17) of
+# `docs/plans/2026-08-plan-memo-umbrella-checker.md`.
+# WHICH GAPS inside a pattern the rows reach is MEASURED, not enforced
+# (GAP-REACH SCRIPT).  Re-measured at the tree of the commit that wrote this
+# sentence, whose message holds the script (`git log -1 --format=%B
+# -S'GAP-REACH SCRIPT' -- .claude/tools/plan_memo_selftest_cases_gap.py`):
+# each of the 71 regex gaps of the 13 patterns re-spelled ALONE as `(?a:\s)`,
+# every arm of its pattern re-run -- every gap flips at least one arm, except
+# ORDER_WORDS' `ordered before` / `sequenced after` (#4 / #5), which flip
+# none.  Those two are
+# BEHAVIOUR-NEUTRAL and have no rows: ORDER_WORDS is read only as a boolean
+# `.search`, and `before` / `after` match on their own:
 #   python3 -c 'import sys; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; print([bool(r.ORDER_WORDS.search(s)) for s in ("ordered\x0bbefore", "sequenced\x0bafter")])'
-# prints [True, True] -- the same verdict whatever that gap is spelled.  That
-# per-gap measurement is NOT a control; a new gap in an existing pattern needs
-# its own row and nothing turns red until it has one.
+# prints [True, True] -- the same verdict whatever that gap is spelled.
+# ⚠ THE TABLE'S OWN ROW INVARIANTS (the checks after `_R22_GAP_MIXED`) HAVE
+# NO MUTANT -- a mutant that makes one raise crashes the loader, which the
+# mutation proof counts as a failure, not a kill; they are checks only.
 _R22_GAP_TABLE = (
     # (pattern, position, fixture, template with {g}, read expectation, refuse expectation)
     # fixture: "prose" = a prose line, measured in naming sites; ("role", r) = a
@@ -355,3 +367,13 @@ for _pat, _pos, _fix, _tpl, _arm, _gap, _label, _want, _mixed in _ARMS:
             _cells["d7z"] = "—"
         acase(_kind, _name, build(**_cells), _fix[1], _want)
     (R22_GAP_MIXED if _mixed else R22_GAP.setdefault(_pat, [])).append(_name)
+
+# The role measure's -1 branch: the table's role rows only ever expect 1 or 0,
+# so a measure that returned 0 for "no site" would pass every one of them.
+# This record states the -1; the MUTANT that maps -1 to 0 is killed by
+# `plan_memo_selftest_controls.role_measure_control`, not by this record -- a
+# record's measure is bound when the case is built, so a patched harness never
+# reaches it (the row names the function control alone).
+case("NEGATIVE", "(R22 gap) the role measure is -1, never 0, when the run reports NO site "
+     "(`The close rule waits on here.` -- nothing is ranked because nothing is reported)",
+     build(), "The close rule waits on here.", -1, measure=("role", "ordering"))

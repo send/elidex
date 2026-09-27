@@ -314,8 +314,8 @@ def classify(m):
 # --------------------------------------------------------------------------
 
 # The two ranking entries whose vocabulary holds a word gap are NAMED, so the
-# gap table maps its rows to them by name, not by their position in the list
-# (a reorder would otherwise move coverage in silence -- the review of f85f4e1b).
+# "R22 gap" rows in `plan_memo_selftest_mutants_gap.py` find their compile lines
+# by name rather than by their position in the list.
 ROLE_ORDERING = re.compile(phrase(
     r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
     r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"
