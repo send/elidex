@@ -1,6 +1,13 @@
 # Predicate prereq program: one canonical answer to css-display-3's *inline box*
 
-**Revision 37** (2026-09-28) — folds Codex R7 on #526 (`a42ca1fe`; IMP 3). (1) F1 encodes §0.6 item 3's conclusion:
+**Revision 38** (2026-09-28) — folds Codex R8 on #526 (`9809cdfe`; IMP 2). (1) F14's `iframe` input: no natural
+dimensions (300×150 fallback), not `IframeData`'s `width`/`height` — those are content attributes, i.e. HTML
+presentational hints, which elidex generates only on the compat path, so the move exposes core-mode attribute
+sizing; `IBP-layout` places it by the cell test (repair: core-path dimension hints). (2) IBP-observer: *calculate box
+size* answers 0×0 for every observed box of an inline box (F1), not only the §3.3.1 content rect — §1's "do not fire
+for non-replaced inline Elements", confirmed against Chromium in its plan.
+
+Revision 37 (2026-09-28) — folds Codex R7 on #526 (`a42ca1fe`; IMP 3). (1) F1 encodes §0.6 item 3's conclusion:
 it answers false for a button-layout element (F7's class) whatever its computed `display` — §15.5.3 coerces an
 inline `button` to `inline-block` and gives every button-layout element a new formatting context. (2) Resize Observer
 §3.4.8's `device-pixel-content-box` branch is ✗, routed to the existing `#11-resize-observer-device-pixel-box`
@@ -858,8 +865,14 @@ Cross-sub-PR pairs:
   class: available `img` (`image_request_state`) → F5's `ImageData` dims; pending `img` → none yet (the probe decides the used size);
   rule-(4) `img` → 0×0; `input` Image Button → §15.4.2's button whose content is the alt text ("about one line in
   height and whatever width is necessary to render the text on one line"), elidex loading no `input` image
-  (`#11-input-image-state`); `canvas` → its bitmap dimensions from `width`/`height`, not F5; `iframe` →
-  `IframeData`; widgets → `form_intrinsic_size`; `video` / `embed` / outermost `svg` / exposing `audio` → the
+  (`#11-input-image-state`); `canvas` → its bitmap dimensions from `width`/`height`, not F5; `iframe` → no
+  natural dimensions (CSS 2's 300×150 fallback), **not** `IframeData`'s `width`/`height`, which are its content
+  attributes (default 300/150, `elidex-ecs/src/components.rs`, read as intrinsic size at `helpers.rs:421`) and
+  HTML's presentational hints (§15.4.3 dimension attributes) — hints elidex generates only on the compat path
+  (`presentational.rs:111`, `elidex-shell/src/lib.rs:126-136`), so moving sizing off `IframeData` drops a core-mode
+  `<iframe width=600>`'s size: an exposure `IBP-layout`'s plan places by §0.6 item 7's cell test, the repair being
+  the dimension-attribute hints on the core path (rendering-section hints, as Appendix D notes for §15.5.9);
+  widgets → `form_intrinsic_size`; `video` / `embed` / outermost `svg` / exposing `audio` → the
   contract IBP-layout's memo fixes.
 - **IBP-layout × pseudo prereq** (I1, I6): generation reads F4 every style pass, after the presence sites
   converge; F8 is computed by the cascade before generation reads F4 in the same pass; F5/F6
@@ -1137,7 +1150,7 @@ fixed-descendant scan); any `content-visibility` cell it fires is pinned (§0.6 
 `#11-transform-family-3d-and-containing-block`. Input lines: G10 the double-layout test's expected value and what
 happens if it reproduces; `elidex-plugin/src/computed_style/tests.rs` (947 lines) placement.
 
-**IBP-observer** (appendix F): §3.3.1 empty content rect for an inline box; isActive compares each observation's
+**IBP-observer** (appendix F): §3.3.1 empty content rect for an inline box; *calculate box size* (§3.4.8) answers 0×0 for **every** observed box of an inline box (F1) — its normative "border area"/"content area" is undefined for a fragmented non-replaced inline, and §1 states "Observations do not fire for non-replaced inline Elements", so after PR-1c gives inline boxes a `LayoutBox` no border or padding change activates an observation; the outcome is spec-silent in its letter, so IBP-observer's plan confirms it against Chromium, with a `border-box` cell; isActive compares each observation's
 **observed** box; the observed box's writer transition — `observe()` on an already-observed target replaces its
 observation (Resize Observer `observe()` steps 1–4: `unobserve()`, then a new `ResizeObservation` with the new box
 and fresh last-reported sizes), where `ResizeObserverRegistry::observe` today keeps the old one
@@ -1444,7 +1457,7 @@ re-export `lib.rs:24`, import `elidex-layout-flex/src/fragment.rs:8`, body `help
 `elidex-layout-multicol/src/fill.rs:418`. Natural-size contract ideas: available `img` → `ImageData` dims;
 rule-(4) `img` → 0×0; rule-(2) `img` → probe; `canvas` → bitmap from `width`/`height` (300×150 default,
 §4.12.5); `video` → default object size 300×150 (§4.8.8: "The default object size is a width of 300 CSS pixels
-and a height of 150 CSS pixels"); `iframe` → `IframeData`; `embed`, `audio` with a UI, outermost `svg` → to
+and a height of 150 CSS pixels"); `iframe` → no natural dimensions (§2, not `IframeData`); `embed`, `audio` with a UI, outermost `svg` → to
 decide; widgets → `form_intrinsic_size`. Cell ideas: L1 `alt=""` img 0×0; L2 no-`alt`/pending by probe; L3/L4
 canvas; L5 pending img monolithic, `output` splittable; L6 `output` non-replaced; L7 `img alt=x` non-replaced;
 L8 multicol `iframe` and transformed `div` monolithic; L9 `video` 300×150; L10–L12 `embed`/`audio`/`svg`.
