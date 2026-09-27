@@ -111,9 +111,11 @@ def phrase(pattern):
     vocabularies in `plan_memo_roles`.
 
     ⚠ THAT IS A CONVENTION, NOT AN ENFORCED RULE.  Each vocabulary that uses
-    it today is pinned BEHAVIOURALLY, at every gap position it has
-    (`plan_memo_selftest_cases_gap._R22_GAP_TABLE`, enumerated at the STOP-CLEAN
-    attestation of 900c16eb): one case READS the position across U+00A0, one
+    it today is pinned BEHAVIOURALLY, at every gap position whose spelling
+    changes a verdict (`plan_memo_selftest_cases_gap._R22_GAP_TABLE`,
+    enumerated at the STOP-CLEAN attestation of 900c16eb; the positions it
+    leaves out as behaviour-neutral, and why, are listed beside it): one case
+    READS the position across U+00A0, one
     REFUSES it across U+000B, and an "R22 gap" mutant that re-spells that
     vocabulary's gaps as Python's `(?a:\\s)` turns every one of them red.  The
     role ranking's gap entries are pinned the same way by
