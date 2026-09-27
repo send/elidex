@@ -194,8 +194,8 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # `("ROLE ordering", "waits|on"` over this file, `ROLE_ORDERING = ` over
 # `plan_memo_roles.py`; over `plan_memo_selftest_controls.py` it names
 # ea497230 then f85f4e1b for the ranking control's `def` line (added, then
-# removed).  These are PR #510 branch commits; after the squash, run the
-# commands against `git fetch origin pull/510/head`.  The 13: MARKER_RE, UNDETERMINED, POINTER,
+# removed).  These are PR #510 branch commits; after the squash, run
+# `git fetch origin pull/510/head` and the commands against `FETCH_HEAD`.  The 13: MARKER_RE, UNDETERMINED, POINTER,
 # _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER, NOUN_ANCHOR,
 # ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  No control
 # enforces rows for a new gap-bearing pattern: §8 (17) of

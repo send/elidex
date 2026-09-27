@@ -1,7 +1,8 @@
 # Umbrella plan — `plan-memo-umbrella-check` carved out of #506 into a 2-slice prerequisite program
 
-> Commit ids cited in this memo and in the checker's comments are PR #510 branch commits. After the
-> squash merge they resolve from the PR ref: `git fetch origin pull/510/head`, then run the cited
+> Commit ids cited in this memo and in the checker's comments are PR #510 branch commits, except
+> `190d2adb` (PR #506's: `git fetch origin pull/506/head`) and `4394af4c` (on `main`). After the squash
+> merge the #510 ones resolve from the PR ref: `git fetch origin pull/510/head`, then run the cited
 > `git show` / `git archive` / `git log -S` against `FETCH_HEAD`.
 
 **Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
