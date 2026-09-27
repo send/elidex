@@ -1362,10 +1362,11 @@ committed here by the note that corrected it.
   are a **SEED, not an inventory**. The four that fired so far:
   `_IMPORT_SEAMS` (which import seams are checked), `_ATTRIB_SPELLINGS` (which attribution spellings
   are read), `_TRAILING` (which trailing characters are decoration) and `_ID_SPELLINGS` (which id
-  character classes the sweep knows). The first two and the last are read by a control that states its own
-  "HONESTLY, what it cannot see" — for the two spelling tables that sentence is *a shape this table does
-  not list*, and for `_IMPORT_SEAMS` it is a different blind spot, *a name reached without an import*
-  (`__import__`, an attribute off an already-imported module); `_TRAILING` states none — its comment argues instead which direction a missing
+  character classes the sweep knows). The first two and the last are read by a control whose docstring
+  has a HONESTLY paragraph stating what it cannot see (read each there): each of the three paragraphs names
+  *a shape its table does not list*, and `import_seam_control`'s paragraph leads with a second blind spot,
+  *a name reached without an import* (`__import__`, an attribute off an already-imported module);
+  `_TRAILING` states none — its comment argues instead which direction a missing
   character errs in. The
   INSTANCES found so far are fixed; the CLASS has no mechanism, and
   `memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md` says a declared blind
