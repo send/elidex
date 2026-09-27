@@ -202,8 +202,10 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 _R22_GAP_TABLE = (
     # (pattern, position, fixture, template with {g}, read expectation, refuse expectation)
     # fixture: "prose" = a prose line, measured in naming sites; ("role", r) = a
-    # prose line, measured in reported sites the RANKING gives role r; (cell,
-    # code) = a cell of the fixture memo, measured in `code` findings (None = sites).
+    # prose line, measured by the RANKING's verdict on the ONE reported site --
+    # 1 if it ranks r, 0 if it does not, -1 if the run reports no site or
+    # several; (cell, code) = a cell of the fixture memo, measured in `code`
+    # findings (None = sites).
     ("LICENCE child", "child|of", "prose", "The drain is the child{g}of **9z** in this plan.", 0, 1),
     ("LICENCE child", "of|mention", "prose", "The drain is the child of{g}**9z** in this plan.", 0, 1),
     ("LICENCE derivation", "derivation|that", "prose", "It is the derivation{g}that **9z** runs.", 0, 1),

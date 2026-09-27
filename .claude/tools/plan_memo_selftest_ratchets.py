@@ -666,40 +666,55 @@ def _criteria_missing(table, names):
 
 # -- the gap-pattern ratchet --------------------------------------------------
 
+def _gap_step(x):
+    """A STABLE path step for a member of an unordered collection or a
+    mapping key: a pattern is named by its source and flags, anything else by
+    its type and repr -- never by its position in an iteration, which for a
+    set follows the hash seed (the review of e39996ad measured the same
+    frozenset's members at indices 0 / 2 / 1 under three seeds)."""
+    import re as _re
+    if isinstance(x, _re.Pattern):
+        return (x.pattern, x.flags)
+    return "%s:%r" % (type(x).__name__, x)
+
+
 def _gap_population(modules, gap, depth=3):
-    """{id: (pattern, [keys])} for every compiled pattern whose source holds
-    `gap` that a module's NAMESPACE reaches: bound to a name, or held -- up to
-    `depth` levels below a name -- in any `collections.abc.Collection` other
-    than str / bytes (its members) or any `collections.abc.Mapping` (its keys
-    AND its values).  `modules` is [(module, namespace)]; a key is (module,
-    name, step ...), a step being an index, a mapping key, `("key", i)` for a
-    mapping's i-th key, or `("member", i)` for an unordered collection's.  ONE
-    entry per OBJECT, carrying every key that reaches it, so an imported name,
-    an alias and a second name `re` cached into the same object are more keys
-    of one pattern.  Nothing that is not a collection is looked INTO -- no
-    attribute, closure, default, `functools.partial`, generator or iterator
-    (walking an iterator would consume it).  PURE."""
+    """{id: (pattern, [keys])} for every compiled STR pattern whose source
+    holds `gap` that a module's NAMESPACE reaches: bound to a name, or held --
+    up to `depth` levels below a name -- in a `collections.abc.Sequence` (by
+    index), a `collections.abc.Mapping` (its keys, as `("key", step)`, and its
+    values, by key) or any other `collections.abc.Collection` (as
+    `("member", step)`), where a step is `_gap_step`'s, independent of
+    iteration order.  str / bytes / bytearray and `range` are not walked (they
+    hold no pattern), nor is anything that is a `collections.abc.Iterator`
+    (walking it would consume it), nor anything that is not a collection -- no
+    attribute, closure, default, `functools.partial` or generator.  ONE entry
+    per OBJECT, carrying every key that reaches it, so an imported name, an
+    alias and a second name `re` cached into the same object are more keys of
+    one pattern.  PURE."""
     import collections.abc as _abc
     import re as _re
     out = {}
 
     def walk(key, v, d):
         if isinstance(v, _re.Pattern):
-            if gap in v.pattern:
+            if isinstance(v.pattern, str) and gap in v.pattern:
                 out.setdefault(id(v), (v, []))[1].append(key)
             return
-        if d >= depth or isinstance(v, (str, bytes, bytearray)):
+        if d >= depth or isinstance(v, (str, bytes, bytearray, range)):
+            return
+        if isinstance(v, _abc.Iterator):
             return
         if isinstance(v, _abc.Mapping):
-            for i, (k, x) in enumerate(list(v.items())):
-                walk(key + (("key", i),), k, d + 1)
+            for k, x in list(v.items()):
+                walk(key + (("key", _gap_step(k)),), k, d + 1)
                 walk(key + (k,), x, d + 1)
         elif isinstance(v, _abc.Sequence):
             for i, x in enumerate(v):
                 walk(key + (i,), x, d + 1)
         elif isinstance(v, _abc.Collection):
-            for i, x in enumerate(list(v)):
-                walk(key + (("member", i),), x, d + 1)
+            for x in list(v):
+                walk(key + (("member", _gap_step(x)),), x, d + 1)
 
     for mod, ns in modules:
         for name, v in sorted(ns.items()):
@@ -713,7 +728,10 @@ def _gap_problems(population, rows, mixed, mapping, arms, expect_of):
     `_R22_GAP_TABLE` / `_R22_GAP_MIXED` tuples; `mapping` table pattern ->
     key; `arms` the (pattern, position, arm, expectation, case name) records
     the generator wrote; `expect_of` collected case name -> expectation."""
+    import collections
     out = []
+    counts = collections.Counter((r[0], r[1]) for r in list(rows) + list(mixed))
+    out += [("duplicate-row", "%s %s" % k) for k, n in sorted(counts.items()) if n > 1]
     if not population:
         out.append(("empty-population", "no gap-bearing pattern is reachable"))
     declared, has_read = [], set()
@@ -741,55 +759,76 @@ def _gap_problems(population, rows, mixed, mapping, arms, expect_of):
     record = {(pat, pos, arm): (want, name) for pat, pos, arm, want, name in arms}
     for pat, pos, arm, want in declared:
         got = record.get((pat, pos, arm))
-        if want is not None and (got is None or got[0] != want or expect_of.get(got[1], object()) != want):
-            out.append(("arm-not-generated", "%s %s %s" % (pat, pos, arm)))
+        where = "%s %s %s" % (pat, pos, arm)
+        if want is None:
+            continue
+        if got is None:
+            out.append(("arm-not-generated", "%s: no generated arm recorded" % where))
+        elif got[0] != want:
+            out.append(("arm-not-generated", "%s: the RECORD expects %r, the row %r" % (where, got[0], want)))
+        elif expect_of.get(got[1], object()) != want:
+            out.append(("arm-not-generated", "%s: the collected CASE expects %r, the row %r"
+                        % (where, expect_of.get(got[1]), want)))
     return out
 
 
 def gap_pattern_population_control(M):
     """PROPERTY, over the running module set.
 
-    THE POPULATION is every compiled pattern whose source holds
+    THE POPULATION is every compiled str pattern whose source holds
     `plan_memo_stream.GAP` that a checker module's namespace reaches: bound to
-    a module-level name, or held up to three levels below one in a collection
-    (any `collections.abc.Collection` but str / bytes) or a mapping (its keys
-    and its values) -- one entry per object, with every key that reaches it.
-    A pattern is COVERED when a row of `plan_memo_selftest_cases_gap.
-    _R22_GAP_TABLE` or `_R22_GAP_MIXED` maps (through `_R22_GAP_PATTERN`) to
-    one of its keys.  It is RED on each of these, and nothing else (the
-    condition names `_gap_problems` reports):
+    a module-level name, or held up to three levels below one in a sequence,
+    a mapping (its keys and its values) or any other collection -- not
+    str / bytes / bytearray, not `range`, not an iterator -- one entry per
+    object, with every key that reaches it (`_gap_population`).  A KEY is
+    COVERED when a row of `plan_memo_selftest_cases_gap._R22_GAP_TABLE` or
+    `_R22_GAP_MIXED` maps to it (through `_R22_GAP_PATTERN`); a pattern is
+    covered when one of its keys is.  It is RED on each of these, and on
+    nothing else (the condition names `_gap_problems` reports); an exception
+    raised by the walk or the checks is a crash of the control -- loud, never
+    a pass:
 
       empty-population    no gap-bearing pattern is reachable;
-      uncovered           a population pattern no row reaches;
-      stale-key           a key a row maps to that reaches no gap-bearing pattern;
+      uncovered           a population pattern none of whose keys is covered;
+      stale-key           a covered key that reaches no gap-bearing pattern;
       unmapped-row        a row pattern `_R22_GAP_PATTERN` does not map;
       unused-mapping      a mapping entry no row uses;
-      no-read-arm         a covered pattern no `_R22_GAP_TABLE` row gives a READ arm
-                          (only `_R22_GAP_MIXED`'s refuse-only rows reach it);
+      no-read-arm         a covered KEY that no `_R22_GAP_TABLE` row gives a
+                          READ arm.  Per key, not per object: a pattern reached
+                          by a table row through one key and by a MIXED row
+                          through another is red on the second -- the
+                          fail-safe direction (a false red, never a false pass);
       missing-column      a `_R22_GAP_TABLE` row without both expectations;
       equal-expectations  a `_R22_GAP_TABLE` row expecting the same on both arms;
       mixed-missing-arm   a `_R22_GAP_MIXED` row without its refuse expectation;
-      arm-not-generated   a declared arm with no generated case recorded in
-                          `R22_GAP_ARMS`, or whose case `plan_memo_selftest_cases.
-                          cases()` does not collect with that expectation.
+      duplicate-row       two rows (either table) with one (pattern, position);
+      arm-not-generated   a declared arm with no generated arm recorded in
+                          `R22_GAP_ARMS`, or whose record expects another
+                          value, or whose recorded case `plan_memo_selftest_
+                          cases.cases()` collects with another expectation.
 
-    A pattern whose rows give it a READ arm always has a REFUSE arm too: a
-    table row missing one is `missing-column`, so there is no separate
-    refuse condition.  `gap_pattern_population_partner_control` holds one
-    fixture per condition and asserts it reports exactly that condition.
+    A key with a READ arm always has a REFUSE arm too: a table row missing one
+    is `missing-column`, so there is no separate refuse condition.
+    `gap_pattern_population_partner_control` holds one fixture per condition
+    (two for `arm-not-generated`'s expectation halves) and asserts it reports
+    exactly that condition.
 
     HONESTLY, what it cannot see: a pattern compiled inside a function or
-    class body, or lazily; one deeper than three collections below a name; one
-    held only inside something that is not a collection -- an object's
+    class body, or lazily; one deeper than three collections below a name;
+    one held only inside something that is not a collection -- an object's
     attribute, a closure, a default argument, a `functools.partial`, a
     generator or iterator; a pattern in a SELF-TEST module; a gap-bearing
     regex kept as a STRING and compiled at the call; a vocabulary that spells
     its gap without `GAP` (`\\s`, a literal U+0020); and a second NAME `re`
-    cached into the same object as a covered one -- it is the same pattern,
-    pinned by the first name's rows.  It does not check that the rows reach
-    every gap inside a pattern, nor that a fixture exercises its pattern: the
-    "R22 gap" mutants show a pattern's rows go red when its gaps are
-    re-spelled."""
+    cached into the same object as a covered one -- the same pattern, pinned
+    by the first name's rows.  Its HAZARDS: a custom collection or mapping
+    whose iteration is lazy or unbounded is walked, and could be slow or never
+    return (none is in the checker; `range` and iterators are skipped for this
+    reason); and a mapping key equal to a `("key", step)` tuple would share a
+    path with that step -- keys are names for reporting, and a shared path
+    changes no verdict.  It does not check that the rows reach every gap
+    inside a pattern, nor that a fixture exercises its pattern: the "R22 gap"
+    mutants show a pattern's rows go red when its gaps are re-spelled."""
     import importlib
     import sys as _sys
     import plan_memo_selftest_cases_gap as cg
@@ -810,14 +849,19 @@ def gap_pattern_population_partner_control(M):
     """PROPERTY: the gap ratchet's cores, fed a fixture per behaviour.
 
     `_gap_population`: a pattern held in a frozenset, as a dict KEY, in a deque
-    and in a MappingProxyType is found; an imported name, a cache-identical
-    second name and a container entry that is also a name are more KEYS of one
-    pattern; a pattern without the gap, a pattern inside a generator and one
-    inside an object's attribute are not found.
+    and in a MappingProxyType is found; a frozenset's members are keyed by
+    their SOURCE, never their iteration position; an imported name, a
+    cache-identical second name and a container entry that is also a name are
+    more KEYS of one pattern; a pattern without the gap, a bytes pattern, a
+    pattern inside a generator, one inside an object's attribute and one inside
+    a collection that is also an ITERATOR are not found -- and that iterator is
+    not consumed; a `range` of 10**12 is not walked (the call returns).
 
-    `_gap_problems`: a valid configuration reports nothing, and each of the
-    ten conditions has ONE fixture that reports exactly that condition."""
+    `_gap_problems`: a valid configuration reports nothing, and each condition
+    has a fixture that reports exactly that condition -- two for
+    `arm-not-generated`'s expectation halves, told apart by the detail."""
     import collections
+    import collections.abc as _abc
     import re as _re
     import types
     gap = "[\\u0020]"
@@ -825,20 +869,40 @@ def gap_pattern_population_partner_control(M):
     b = _re.compile("p" + gap + "q")
     hidden = _re.compile("h" + gap + "i")
     plain = _re.compile("z")
+    trio = [_re.compile(w + gap + "t") for w in ("a", "b", "c")]
 
     class Holder:
         pass
     obj = Holder()
     obj.p = hidden
+
+    class IterCollection(_abc.Collection, _abc.Iterator):
+        def __init__(self, items):
+            self.items, self.taken = list(items), 0
+        def __len__(self):
+            return len(self.items)
+        def __contains__(self, x):
+            return x in self.items
+        def __iter__(self):
+            return self
+        def __next__(self):
+            if self.taken >= len(self.items):
+                raise StopIteration
+            self.taken += 1
+            return self.items[self.taken - 1]
+    it = IterCollection([hidden])
     mods = [("m1", {"Z": a, "Z2": a, "P": plain, "K": (("a", a),), "F": frozenset([b]),
                     "DK": {b: 1}, "Q": collections.deque([b]), "MP": types.MappingProxyType({"k": b}),
-                    "G": (x for x in [hidden]), "O": obj}),
+                    "G": (x for x in [hidden]), "O": obj, "BY": _re.compile(b"x y"), "IT": it,
+                    "R": range(10 ** 12), "T3": frozenset(trio)}),
             ("m2", {"Z": a})]
     pop = _gap_population(mods, gap)
     got_pop = sorted(sorted(str(k) for k in keys) for _p, keys in pop.values())
+    step = lambda p: (p.pattern, p.flags)
     want_pop = sorted([sorted(str(k) for k in [("m1", "K", 0, 1), ("m1", "Z"), ("m1", "Z2"), ("m2", "Z")]),
-                       sorted(str(k) for k in [("m1", "F", ("member", 0)), ("m1", "DK", ("key", 0)),
-                                               ("m1", "Q", 0), ("m1", "MP", "k")])])
+                       sorted(str(k) for k in [("m1", "F", ("member", step(b))), ("m1", "DK", ("key", step(b))),
+                                               ("m1", "Q", 0), ("m1", "MP", "k")])]
+                      + [[str(("m1", "T3", ("member", step(p))))] for p in trio])
 
     key = ("m", "A")
     one = {1: (a, [key])}
@@ -847,30 +911,46 @@ def gap_pattern_population_partner_control(M):
     exp = {"n1": 1, "n2": 0}
     base = (one, [row], [], {"t": key}, arms, exp)
     fixtures = {
-        "valid": base,
-        "empty-population": ({}, [], [], {}, [], {}),
-        "uncovered": ({1: (a, [key]), 2: (b, [("m", "B")])}, [row], [], {"t": key}, arms, exp),
-        "stale-key": (one, [row, ("u", "p", "prose", "{g}", 1, 0)], [], {"t": key, "u": ("m", "GONE")},
-                      arms + [("u", "p", "read", 1, "n1"), ("u", "p", "refuse", 0, "n2")], exp),
-        "unmapped-row": (one, [row, ("u", "p", "prose", "{g}", 1, 0)], [], {"t": key},
-                         arms + [("u", "p", "read", 1, "n1"), ("u", "p", "refuse", 0, "n2")], exp),
-        "unused-mapping": (one, [row], [], {"t": key, "v": key}, arms, exp),
-        "no-read-arm": (one, [], [("t", "p", "prose", "{g}", 0, "\\x0b")], {"t": key},
-                        [("t", "p", "refuse", 0, "n2")], exp),
-        "missing-column": (one, [("t", "p", "prose", "{g}", 1, None)], [], {"t": key}, arms[:1], exp),
-        "equal-expectations": (one, [("t", "p", "prose", "{g}", 1, 1)], [], {"t": key},
-                               [("t", "p", "read", 1, "n1"), ("t", "p", "refuse", 1, "n1")], exp),
-        "mixed-missing-arm": (one, [row], [("t", "q", "prose", "{g}", None, "\\x0b")], {"t": key}, arms, exp),
-        "arm-not-generated": (one, [row], [], {"t": key}, arms[:1], exp),
+        # name: (arguments, the ONE condition, a substring its detail must hold)
+        "valid": (base, None, ""),
+        "empty-population": (({}, [], [], {}, [], {}), "empty-population", ""),
+        "uncovered": (({1: (a, [key]), 2: (b, [("m", "B")])}, [row], [], {"t": key}, arms, exp),
+                      "uncovered", ""),
+        "stale-key": ((one, [row, ("u", "p", "prose", "{g}", 1, 0)], [], {"t": key, "u": ("m", "GONE")},
+                       arms + [("u", "p", "read", 1, "n1"), ("u", "p", "refuse", 0, "n2")], exp),
+                      "stale-key", ""),
+        "unmapped-row": ((one, [row, ("u", "p", "prose", "{g}", 1, 0)], [], {"t": key},
+                          arms + [("u", "p", "read", 1, "n1"), ("u", "p", "refuse", 0, "n2")], exp),
+                         "unmapped-row", ""),
+        "unused-mapping": ((one, [row], [], {"t": key, "v": key}, arms, exp), "unused-mapping", ""),
+        "no-read-arm": ((one, [], [("t", "p", "prose", "{g}", 0, "\x0b")], {"t": key},
+                         [("t", "p", "refuse", 0, "n2")], exp), "no-read-arm", ""),
+        "missing-column": ((one, [("t", "p", "prose", "{g}", 1, None)], [], {"t": key}, arms[:1], exp),
+                           "missing-column", ""),
+        "equal-expectations": ((one, [("t", "p", "prose", "{g}", 1, 1)], [], {"t": key},
+                                [("t", "p", "read", 1, "n1"), ("t", "p", "refuse", 1, "n1")], exp),
+                               "equal-expectations", ""),
+        "mixed-missing-arm": ((one, [row], [("t", "q", "prose", "{g}", None, "\x0b")], {"t": key}, arms, exp),
+                              "mixed-missing-arm", ""),
+        "duplicate-row": ((one, [row, row], [], {"t": key}, arms, exp), "duplicate-row", ""),
+        "arm-not-generated (no record)": ((one, [row], [], {"t": key}, arms[:1], exp),
+                                          "arm-not-generated", "no generated arm"),
+        "arm-not-generated (record)": ((one, [row], [], {"t": key},
+                                        [arms[0], ("t", "p", "refuse", 1, "n2")], exp),
+                                       "arm-not-generated", "the RECORD expects"),
+        "arm-not-generated (case)": ((one, [row], [], {"t": key}, arms, {"n1": 1, "n2": 1}),
+                                     "arm-not-generated", "the collected CASE expects"),
     }
     bad = []
-    for want, args in fixtures.items():
-        codes = sorted({c for c, _d in _gap_problems(*args)})
-        if codes != ([] if want == "valid" else [want]):
-            bad.append("%s -> %s" % (want, codes))
-    ok = got_pop == want_pop and not bad
-    return ok, "population %s (want %s); conditions: %s" % (
-        got_pop, want_pop, "; ".join(bad) if bad else "each fixture reports exactly its own")
+    for name, (args, want, detail) in fixtures.items():
+        got = _gap_problems(*args)
+        codes = sorted({c for c, _d in got})
+        if codes != ([] if want is None else [want]) or not all(detail in d for _c, d in got):
+            bad.append("%s -> %s" % (name, got))
+    consumed = it.taken
+    ok = got_pop == want_pop and not bad and consumed == 0
+    return ok, "population %s (want %s); iterator-collection consumed %d; conditions: %s" % (
+        got_pop, want_pop, consumed, "; ".join(bad) if bad else "each fixture reports exactly its own")
 
 
 def registry():
@@ -889,6 +969,6 @@ def registry():
             ("CONTROL", kind_question_partner_control),
         "PROPERTY: every compiled pattern holding plan_memo_stream.GAP that a checker module's namespace reaches through names, collections and mappings has rows in plan_memo_selftest_cases_gap with a READ and a REFUSE arm, each row's declared expectations present and distinct, and every declared arm generated as a collected case":
             ("CONTROL", gap_pattern_population_control),
-        "PROPERTY: the gap ratchet's cores, one fixture per behaviour -- every collection and mapping key is walked and nothing else is, one object is one pattern, and each of the ten red conditions is reported by exactly its own fixture":
+        "PROPERTY: the gap ratchet's cores, one fixture per behaviour -- every collection and mapping key is walked and nothing else is, one object is one pattern, and each of the eleven red conditions is reported by exactly its own fixture":
             ("CONTROL", gap_pattern_population_partner_control),
     }

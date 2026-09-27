@@ -116,8 +116,9 @@ def phrase(pattern):
     namespace reaches (a module-level name, or up to three collections or
     mappings below one), and is red on one that no row of
     `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` reaches,
-    and on a covered one no table row gives a READ arm; its docstring lists
-    all ten conditions and what it cannot see.  That each row's fixture
+    and on a covered KEY no table row gives a READ arm (per key, the fail-safe
+    direction); its docstring lists all eleven conditions, what it cannot see
+    and its hazards.  That each row's fixture
     exercises its pattern, and that re-spelling the pattern's gaps turns its
     rows red, is what the "R22 gap" mutants show, one pattern at a time,
     re-spelling its gaps as `(?a:\\s)`; the ratchet does not check it.  That the rows reach every gap INSIDE a pattern

@@ -208,7 +208,7 @@ GAP_RATCHET = ("PROPERTY: every compiled pattern holding plan_memo_stream.GAP th
                "present and distinct, and every declared arm generated as a collected case")
 GAP_RATCHET_PARTNER = ("PROPERTY: the gap ratchet's cores, one fixture per behaviour -- every collection and "
                        "mapping key is walked and nothing else is, one object is one pattern, and each of the "
-                       "ten red conditions is reported by exactly its own fixture")
+                       "eleven red conditions is reported by exactly its own fixture")
 MUTANTS += [
     ("R22 gap: the anchored naming pass composes GAP (re-spell NOUN_ANCHOR's gap `(?a:\\s)` -- "
      "`Slice&nbsp;C` names nothing, `Slice<U+000B>C` names C)", ROLES,
@@ -274,15 +274,15 @@ MUTANTS += [
 # killed by the partner's fixture for that condition.
 _RETIRED = 'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)'
 _WALK = ('        if isinstance(v, _abc.Mapping):\n'
-         '            for i, (k, x) in enumerate(list(v.items())):\n'
-         '                walk(key + (("key", i),), k, d + 1)\n'
+         '            for k, x in list(v.items()):\n'
+         '                walk(key + (("key", _gap_step(k)),), k, d + 1)\n'
          '                walk(key + (k,), x, d + 1)\n'
          '        elif isinstance(v, _abc.Sequence):\n'
          '            for i, x in enumerate(v):\n'
          '                walk(key + (i,), x, d + 1)\n'
          '        elif isinstance(v, _abc.Collection):\n'
-         '            for i, x in enumerate(list(v)):\n'
-         '                walk(key + (("member", i),), x, d + 1)\n')
+         '            for x in list(v):\n'
+         '                walk(key + (("member", _gap_step(x)),), x, d + 1)\n')
 MUTANTS += [
     ("R22 ratchet: a gap pattern held only in a FROZENSET is red", ROLES,
      _RETIRED, _RETIRED + '\n_ZF = frozenset([re.compile(phrase("left right"))])',
@@ -302,7 +302,7 @@ MUTANTS += [
      [GAP_RATCHET_PARTNER]),
     ("R22 ratchet: the walk descends at all (stop at the name -- every container-held fixture falls out)",
      RATCHETS,
-     '        if d >= depth or isinstance(v, (str, bytes, bytearray)):',
+     '        if d >= depth or isinstance(v, (str, bytes, bytearray, range)):',
      '        if True:',
      [GAP_RATCHET_PARTNER]),
     ("R22 ratchet: an arm the generator skips is red (drop the second mixed-run arm)",
@@ -323,6 +323,22 @@ MUTANTS += [
         ("no-read-arm", "if k not in has_read]", "if False]"),
         ("stale-key", "if k not in reachable]", "if False]"),
         ("uncovered", "            if not covered.intersection(keys)]", "            if False]"),
-        ("arm-not-generated", "        if want is not None and (got is None", "        if False and (got is None"),
+        ("duplicate-row", "for k, n in sorted(counts.items()) if n > 1]", "for k, n in sorted(counts.items()) if False]"),
+        ("arm-not-generated (no record)",
+         '            out.append(("arm-not-generated", "%s: no generated arm recorded" % where))',
+         "            pass"),
+        ("arm-not-generated (the record's expectation)", "        elif got[0] != want:\n", "        elif False:\n"),
+        ("arm-not-generated (the collected case's expectation)",
+         "        elif expect_of.get(got[1], object()) != want:\n", "        elif False:\n"),
     )
+] + [
+    ("R22 ratchet: an ITERATOR is never walked, even one that is a collection (drop the skip -- the "
+     "partner's iterator-collection is consumed)", RATCHETS,
+     "        if isinstance(v, _abc.Iterator):\n            return\n", "",
+     [GAP_RATCHET_PARTNER]),
+    ("R22 ratchet: an unordered collection's members are keyed by SOURCE, not iteration position "
+     "(key them by index -- the frozenset keys then follow the hash seed)", RATCHETS,
+     '            for x in list(v):\n                walk(key + (("member", _gap_step(x)),), x, d + 1)\n',
+     '            for i, x in enumerate(list(v)):\n                walk(key + (("member", i),), x, d + 1)\n',
+     [GAP_RATCHET_PARTNER]),
 ]
