@@ -44,10 +44,13 @@
 # `_mut_splice`, `_mut_gen_run` — is in `…trip-wire.mutgen.sh`, sourced below.
 #
 # TWO POPULATIONS, AND THE BOUNDARY IS WHAT EACH ONE'S UNIT IS.
-#   * `_mutants` — HAND-WRITTEN, and its unit is a CONTROL. Every control has
-#     to be named by some record (`_MUT_UNRECORDED_MAX` below is what enforces
-#     that), and the record says which edit that control is about. Its claim:
-#     *THAT* control is about *THAT* edit. It is a floor and cannot be a
+#   * `_mutants` — HAND-WRITTEN, and its unit is a LABEL: every `_control`'s
+#     label and every `_lbl="…"` definition in the controls file (the labels of
+#     the blocks that are not `_control`s, and of the fixture build window's
+#     producers). Every label has to be named by some record
+#     (`_MUT_UNRECORDED_MAX` below is what enforces that), and the record says
+#     which edit that label is about. Its claim: *THAT* label is about *THAT*
+#     edit. It is a floor and cannot be a
 #     census — a record exists only for something somebody thought of.
 #   * `_mut_gen_run` (in `…trip-wire.mutgen.sh`) — GENERATED from `$K2RE` and
 #     `$K2RE_PATH` themselves, and its unit is a RULE of those two regexes: one
@@ -139,8 +142,8 @@ fi
 #
 #     WEBREF_WIRE_MUTANTS=1 bash .claude/tools/webref-generic-core-trip-wire.sh
 #
-# ⚠ ADDING A CONTROL MEANS ADDING A RECORD, whatever the control is about —
-# the ratchet below is what makes that true. What does NOT belong here is a
+# ⚠ ADDING A LABEL MEANS ADDING A RECORD — a `_control` or an `_lbl="…"`
+# definition, whatever it is about — the ratchet below is what makes that true. What does NOT belong here is a
 # record for a rule of `$K2RE` or `$K2RE_PATH` that needed no new control:
 # `_mut_gen_run` derives that population from the assignments themselves, so a
 # hand-written copy would be a second spelling of the same class. The boundary
@@ -153,10 +156,11 @@ fi
 # described:
 #   * a CORRESPONDENCE, IN BOTH DIRECTIONS AND ALWAYS-ON. Every record's needle
 #     must appear in the controls file as a QUOTED STRING — a `_control` label,
-#     or the label a block that is not a `_control` prints (the umask and
-#     fsmonitor ones) — since a stale anchor would otherwise report "wrong
-#     reason" forever. It is a grep for the quoted text, not a parse of the
-#     call. AND the number of controls with NO record is ratcheted:
+#     or an `_lbl="…"` definition (the blocks that are not `_control`s, and the
+#     fixture build window's producers) — since a stale anchor would otherwise
+#     report "wrong reason" forever. It is a grep for the quoted text, not a
+#     parse of the call. AND the number of LABELS with NO record — `_control`
+#     labels and `_lbl="…"` definitions alike — is ratcheted:
 #     `_MUT_UNRECORDED_MAX` may only come down.
 #     ⚠ THE SECOND DIRECTION IS THE ONE THAT CATCHES ANYTHING. The first has
 #     never had a violation; the second is where both real gaps lived — the
@@ -204,7 +208,7 @@ fi
 # So `wire` is reached only as the default and is never stripped.
 _MUT_TARGETS="wire harness fixtures"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=95
+_MUT_RECORDS_MIN=115
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -326,6 +330,33 @@ s#^K2RE_PATH='(^|/)\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/(skills)#	
 s#^K2RE_PATH='(^|/)\\.claude/(skills|tools)#K2RE_PATH='(^|/)\\.claude/[a-z]+#	a stored path that only looks like one stays green
 s#^K2RE_PATH='\(.*\)/\[^/\]+/\[^/\]+'#K2RE_PATH='\1/[^/]*/[^/]+'#	a stored path that only looks like one stays green
 s#^K2RE_PATH='(^|/)\\.claude#K2RE_PATH='(^|/).claude#	a stored path that only looks like one stays green
+# THE FIXTURE BUILD WINDOW's records (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §6).
+# One or more per label; most edit the harness, where the window's producers
+# live, and the rest the fixtures file, whose own shape the window checks.
+harness:s/^    [.] "[$]1"$/    . "$1"; exit 0/	the fixture build window completed
+harness:s/printf 'set -euo pipefail\\n'/printf 'set -eo pipefail\\n'/	the fixture build window completed
+harness:s/printf 'set -euo pipefail\\n'/printf 'set -eu\\n'/	the fixture build window completed
+harness:s/printf 'set -euo pipefail\\n'/printf 'set -uo pipefail\\n'/	the fixture build window completed
+fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/return 0/	the fixture build window completed
+fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture build window completed
+# W2's record removes the incomplete-window exit AND leaves the window
+# incomplete (its `done` marker renamed), in one harness expression: a record
+# edits one file. It pins that W2 is reported when the exit is gone; it does not
+# tell `_control`'s first-statement check from the one after the controls.
+harness:/^_fgit_window_incomplete_exit()/,/^}/s/^  exit 2$/  :/;s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete fixture build window
+fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
+harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
+harness:s/git -c a[.]b=c config --list/git config --list/	this git reports a non-local configuration scope
+harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_ATTR_NOSYSTEM=1 /	the fixture git has no system or global layer outside the void
+harness:s/GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var/git var/	this git names its system files through git var
+harness:s/^mkdir "[$]_FGIT_VOID" || exit 2$/mkdir "$_FGIT_VOID" \&\& : > "$_FGIT_VOID\/k2plant" || exit 2/	nothing is written into the fixture git's void
+harness:s/ "GIT_TEMPLATE_DIR=[$]_FGIT_VOID"//	the fixture git copies no template
+harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_EXEC_PATH=\/nonexistent-k2)/	the fixture git is the git the wire reads with
+harness:s/"[$]_FGIT_ENVBIN" -i /"$_FGIT_ENVBIN" /	the fixture build window's environment holds only its allowlist
+fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^( cd "[$]CTL\/cachedir" && git init -q [.] /( cd "$CTL\/cachedir" \&\& git init -q --separate-git-dir="$CTL\/.gd-cachedir" . /	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zz\/inner" \&\& cd "$CTL\/zz\/inner" \&\& git init -q . \&\& git config core.excludesFile \/nonexistent-k2 ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/^  _pg_declared=".*"$/  _pg_declared=""/	every fixture repo persists only the configuration a plain git init writes
 s/^# Run from anywhere\./# Run from anywhere (edited by the negative control)./	!survive
 MUTANTS
 }
@@ -487,10 +518,14 @@ _mut_correspondence() {
     echo "   in the same edit — so a smaller set is a visible decision." >&2
     _mut_corr_bad=1
   fi
-  # …and the direction that actually finds things: controls with NO record.
-  # The label is the third quoted argument of a `_control` call.
+  # …and the direction that actually finds things: labels with NO record. A
+  # label is the third quoted argument of a `_control` call, or the value of an
+  # `_lbl="…"` definition — a block that is not a `_control` prints one, and so
+  # does each of the fixture build window's producers.
   _mut_bare=0
-  awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS" | sed '/^$/d' | while IFS= read -r _lbl; do
+  { awk -F'"' '/^ *_control /{print $6}' "$_CONTROLS"
+    awk -F'"' '/^ *_[A-Za-z0-9_]+_lbl="/{print $2}' "$_CONTROLS"; } \
+    | sed '/^$/d' | while IFS= read -r _lbl; do
     grep -qF -- "	$_lbl" "$CTL/.mutants" || printf '%s\n' "$_lbl"
   done > "$CTL/.bare"
   # ⚠ `wc -l`, NOT `grep -c .`. `grep` exits 1 when no line is selected, so on an
@@ -499,10 +534,10 @@ _mut_correspondence() {
   # comparison ran. The success case was the one that broke it.
   _mut_bare="$(wc -l < "$CTL/.bare" | tr -d '[:space:]')"
   if [ "$_mut_bare" -gt "$_MUT_UNRECORDED_MAX" ]; then
-    echo "!! $_mut_bare controls have no mutation record, against a ratchet of $_MUT_UNRECORDED_MAX." >&2
-    echo "   Either the new control needs a record, or a record was deleted. The bare ones:" >&2
+    echo "!! $_mut_bare labels have no mutation record, against a ratchet of $_MUT_UNRECORDED_MAX." >&2
+    echo "   Either the new label needs a record, or a record was deleted. The bare ones:" >&2
     sed 's/^/     /' "$CTL/.bare" >&2
-    echo "   If a control genuinely cannot have one, say why and RAISE the ratchet in the" >&2
+    echo "   If a label genuinely cannot have one, say why and RAISE the ratchet in the" >&2
     echo "   same edit — so widening the gap is a visible decision rather than a silence." >&2
     _mut_corr_bad=1
   fi

@@ -6,10 +6,16 @@
 # WHY IT IS A SEPARATE FILE. The controls file crossed 1000 lines, and the seam
 # was already there: this half BUILDS the trees, that half ASSERTS over them
 # (CLAUDE.md touch-time split; docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §8.1).
-# What it consumes comes from the controls file and the harness it sources:
-# `$CTL`, the five `CONTROL_*` samples, `_fgit`, `_fixture_failed`, `_shq`,
-# `$_REAL_GIT`, `$_REAL_GREP` and `$_fifo_ok`. The controls file refuses to run
-# without it, as it refuses without the harness.
+# ⚠ IT RUNS IN THE FIXTURE BUILD WINDOW, NOT IN THE WIRE'S SHELL: the harness
+# sources it in a child started with `env -i` and an allowlist
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3), so the git it calls is plain
+# `git` and inherits nothing the caller carries. What it can read is what the
+# window's prelude hands it: `$CTL`, the five `CONTROL_*` samples, `$_REAL_GIT`,
+# `$_REAL_GREP`, `$_fifo_ok`, `_fixture_failed` and `_shq`. The controls file
+# refuses to run without it, as it refuses without the harness.
+# ⚠ ITS LAST LINE IS LOAD-BEARING: it writes the `built` marker, so a window in
+# which this file returned or exited early is reported as incomplete (W) and
+# no control runs.
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"
@@ -23,7 +29,8 @@ ln -s "$CONTROL_K2" "$CTL/link/forbidden-target"
 # An entry git cannot store. ⚠ This fixture's expected verdict CHANGED at
 # #501 R74: it used to require exit 1 ("the wire cannot say what this holds"),
 # and now requires exit 0 with the sibling still read. The reason is the
-# wording of 2026-07-citation-hygiene-Ai-spec-label-map.md §2, not convenience — K2 is about a path this tree *names*, i.e. stored
+# wording of 2026-07-citation-hygiene-Ai-spec-label-map.md §2, not convenience —
+# K2 is about a path this tree *names*, i.e. stored
 # text, and a fifo holds none: it cannot be committed and cannot survive a
 # checkout. What the control still pins is that such an entry neither hangs
 # the walk nor suppresses the verdict over its siblings.
@@ -438,8 +445,8 @@ for d in clean pin k2 tools binary err empty walk link odd nl seg cache \
          extra name emptyname quotename nlname rawbyte forge linkname ignored lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec atclaude bnd wtlsfail lsfail \
          catkill d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb fsmon linestart textgreen \
          slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do
-  ( cd "$CTL/$d" 2>/dev/null && _fgit init -q . >/dev/null 2>&1 \
-    && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
+  ( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \
+    && git add -A >/dev/null 2>&1 ) || _fixture_failed "$d"
 done
 # ⚠ `cachedir` IS ABSENT FROM THAT LIST ON PURPOSE, built below in the only
 # order that makes its force-add load-bearing.
@@ -465,10 +472,10 @@ done
 # fixture exists to cover (external reviewer, P2). Order: `.gitignore` first (so
 # the ordinary add skips the probe), then the force-add of the CLEAN blob (the
 # only thing that can track it), then the worktree copy is made violating.
-( cd "$CTL/cachedir" && _fgit init -q . >/dev/null 2>&1 \
+( cd "$CTL/cachedir" && git init -q . >/dev/null 2>&1 \
   && printf '__pycache__/\n' > .gitignore \
-  && _fgit add -A >/dev/null 2>&1 \
-  && _fgit add -f __pycache__/probe.txt >/dev/null 2>&1 \
+  && git add -A >/dev/null 2>&1 \
+  && git add -f __pycache__/probe.txt >/dev/null 2>&1 \
   && printf 'RULE = "%s"\n' "$CONTROL_K2" > __pycache__/probe.txt ) || _fixture_failed cachedir
 # THE WAYS THE INDEX AND THE WORKING TREE DISAGREE (#501 R92). Each is
 # built AFTER the add loop above, because each needs the index to hold one
@@ -477,21 +484,21 @@ done
 #     still carries it, so a pre-push run that reads only the worktree
 #     certifies the very commit that pushes it.
 ( cd "$CTL/staged" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || _fixture_failed staged
+  && git add victim.py >/dev/null 2>&1 && printf '# %s\n' "$CONTROL_CLEAN" > victim.py ) || _fixture_failed staged
 # (2) A TRACKED path replaced by a FIFO. `--cached` still lists it, and
 #     opening it blocks forever with no writer — the local gate hangs instead
 #     of failing closed. Nothing here may open it.
 [ "$_fifo_ok" -eq 0 ] || \
 ( cd "$CTL/fifotracked" && printf '# %s\n' "$CONTROL_CLEAN" > sub.py \
-  && _fgit add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || _fixture_failed fifotracked
+  && git add sub.py >/dev/null 2>&1 && command rm -f sub.py && mkfifo sub.py ) || _fixture_failed fifotracked
 # (2b) A STAGED SYMLINK whose target holds a SPACE inside a segment, with the
 #      worktree target since made clean. The index mode says it is a symlink,
 #      so its blob is a stored path; sent through the running-text predicate
 #      the space terminated the match and the wire read GREEN (#501 R93).
 ( cd "$CTL/stagedlink" && ln -s '.claude/skills/team name/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
+  && git add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry \
-  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed stagedlink
+  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && git add ok.py >/dev/null 2>&1 ) || _fixture_failed stagedlink
 # (2b') …and the same stored-target question asked of HEAD, which is the source
 #      `stagedlink` cannot pose. The symlink is COMMITTED and then replaced, in
 #      the index AND the worktree, by a clean regular file — so mode 120000
@@ -502,19 +509,19 @@ done
 #      mutant that routes this blob to `_content` cannot be caught by `$K2RE`
 #      finding the same string anyway.
 ( cd "$CTL/headlink" && ln -s '.claude/skills/team name/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && git add entry >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
   && command rm -f entry && printf '# %s\n' "$CONTROL_CLEAN" > entry \
-  && _fgit add entry >/dev/null 2>&1 ) || _fixture_failed headlink
+  && git add entry >/dev/null 2>&1 ) || _fixture_failed headlink
 # (2c) A mode-120000 index entry whose BLOB HOLDS A NUL. git will store and
 #      commit it; no filesystem can realise it as a symlink. It must red the
 #      gate as unreadable, not be quietly shortened into something clean.
 ( cd "$CTL/nulblob" \
   && printf '.claude/skills/\000/rule.md' > raw.bin \
-  && _sha="$(_fgit hash-object -w --stdin < raw.bin)" \
+  && _sha="$(git hash-object -w --stdin < raw.bin)" \
   && command rm -f raw.bin \
-  && _fgit update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
-  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && _fgit add ok.py >/dev/null 2>&1 ) || _fixture_failed nulblob
+  && git update-index --add --cacheinfo "120000,$_sha,entry" >/dev/null 2>&1 \
+  && printf '# %s\n' "$CONTROL_CLEAN" > ok.py && git add ok.py >/dev/null 2>&1 ) || _fixture_failed nulblob
 # (2c') A SCOPE WHOSE EVERY ENTRY GOES UNREAD, which is the state that tells
 #      `SCANNED` apart from the size of the inventory. The one entry's index
 #      blob is a sha that was COMPUTED BUT NEVER WRITTEN, so `cat-file` fails;
@@ -526,20 +533,20 @@ done
 #      ⚠ `empty` cannot pose this: with no entries at all `SCANNED` is 0 either
 #      way. The entries have to EXIST and go unread.
 ( cd "$CTL/unread" \
-  && _sha="$(printf 'computed, never written\n' | _fgit hash-object --stdin)" \
-  && _fgit update-index --add --cacheinfo "100644,$_sha,victim.py" >/dev/null 2>&1 ) || _fixture_failed unread
+  && _sha="$(printf 'computed, never written\n' | git hash-object --stdin)" \
+  && git update-index --add --cacheinfo "100644,$_sha,victim.py" >/dev/null 2>&1 ) || _fixture_failed unread
 # The `ls-tree` shim only reaches its arm if the fixture HAS a HEAD — an unborn
 # HEAD skips the whole block, which would make the control green over a branch
 # it never took.
-( cd "$CTL/lstreefail" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed lstreefail
+( cd "$CTL/lstreefail" && git add -A >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed lstreefail
 # …and the same staged-symlink geometry for the `cat`-failure control: the blob
 # is what `cat` reads, so the fixture must HAVE one.
 ( cd "$CTL/catfail" && ln -s '.claude/skills/team/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
+  && git add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catfail
 ( cd "$CTL/catkill" && ln -s '.claude/skills/team/rule.md' entry \
-  && _fgit add entry >/dev/null 2>&1 \
+  && git add entry >/dev/null 2>&1 \
   && command rm -f entry && ln -s 'harmless/target' entry ) || _fixture_failed catkill
 # A TRACKED file under a directory with read but NOT search permission, its
 # worktree copy made violating, and no untracked sibling beside it. The
@@ -547,35 +554,35 @@ done
 # to discriminate: with an
 # untracked sibling, or with the violation in the index blob, another arm reds
 # the run and `_absent` is not what is under test.
-( cd "$CTL/d2red" && _fgit init -q . >/dev/null 2>&1 && mkdir sub \
+( cd "$CTL/d2red" && git init -q . >/dev/null 2>&1 && mkdir sub \
   && printf '# %s\n' "$CONTROL_CLEAN" > sub/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add -A >/dev/null 2>&1 \
+  && git add -A >/dev/null 2>&1 \
   && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py && chmod 0444 sub ) || _fixture_failed d2red
 # …and its green partners: a tracked directory deleted wholesale (every
 # ancestor below the root is missing), and one replaced by a regular FILE (the
 # nearest existing ancestor is not a directory).
-( cd "$CTL/d2green" && _fgit init -q . >/dev/null 2>&1 && mkdir -p dir/deep \
+( cd "$CTL/d2green" && git init -q . >/dev/null 2>&1 && mkdir -p dir/deep \
   && printf '# %s\n' "$CONTROL_CLEAN" > dir/deep/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add -A >/dev/null 2>&1 && command rm -rf dir ) || _fixture_failed d2green
-( cd "$CTL/d2file" && _fgit init -q . >/dev/null 2>&1 && mkdir dir \
+  && git add -A >/dev/null 2>&1 && command rm -rf dir ) || _fixture_failed d2green
+( cd "$CTL/d2file" && git init -q . >/dev/null 2>&1 && mkdir dir \
   && printf '# %s\n' "$CONTROL_CLEAN" > dir/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add -A >/dev/null 2>&1 && command rm -rf dir \
+  && git add -A >/dev/null 2>&1 && command rm -rf dir \
   && printf '# %s\n' "$CONTROL_CLEAN" > dir ) || _fixture_failed d2file
 # A `--selftest` root that IS a directory but cannot be resolved to a physical
 # path.
 chmod 000 "$CTL/d5root" || _fixture_failed d5root
 # …the orphan-branch fixture: commit on one branch, then check out an orphan.
-( cd "$CTL/orphan" && _fgit init -q . >/dev/null 2>&1 \
-  && printf 'x\n' > seed.txt && _fgit add seed.txt >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && _fgit checkout -q --orphan fresh >/dev/null 2>&1 \
-  && command rm -f seed.txt && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed orphan
+( cd "$CTL/orphan" && git init -q . >/dev/null 2>&1 \
+  && printf 'x\n' > seed.txt && git add seed.txt >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && git checkout -q --orphan fresh >/dev/null 2>&1 \
+  && command rm -f seed.txt && git add -A >/dev/null 2>&1 ) || _fixture_failed orphan
 # …and the ancestor-symlink fixture: commit `dir/a.py` clean, then replace `dir`
 # with a link to a directory outside the tree whose `a.py` is NOT clean.
-( cd "$CTL/ancestorlink" && _fgit init -q . >/dev/null 2>&1 \
+( cd "$CTL/ancestorlink" && git init -q . >/dev/null 2>&1 \
   && mkdir -p dir && printf '# %s\n' "$CONTROL_CLEAN" > dir/a.py \
-  && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && git add -A >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
   && command rm -rf dir && ln -s "$CTL/external" dir ) || _fixture_failed ancestorlink
 # ⚠ THE HEAD-PROBE FIXTURE NEEDS A COMMIT, and did not have one until the rule
 # it encodes was corrected. R2 asserted "a failed probe is an error"; R3 showed
@@ -583,39 +590,39 @@ chmod 000 "$CTL/d5root" || _fixture_failed d5root
 # be a repository that DOES have a commit — otherwise the probe failing and the
 # repository being unborn are the same situation and the control cannot tell
 # the two apart. A control written against a rule outlives the rule.
-( cd "$CTL/headprobe" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed headprobe
+( cd "$CTL/headprobe" && git add -A >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 ) || _fixture_failed headprobe
 # …and the malformed-ref fixture: commit, then overwrite the branch ref with
 # data git cannot resolve. ⚠ Built after the add loop, because it needs a HEAD
 # to break.
-( cd "$CTL/badref" && _fgit add -A >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
-  && _br="$(_fgit symbolic-ref --short HEAD)" \
+( cd "$CTL/badref" && git add -A >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && _br="$(git symbolic-ref --short HEAD)" \
   && printf 'deadbeef\n' > ".git/refs/heads/$_br" ) || _fixture_failed badref
 # (2d) A violation COMMITTED and then fixed only in the index and worktree. A
 #      push sends the commit, so a gate that reads the index alone calls this
 #      clean while `git show HEAD:victim.py` still carries it (#501 R95).
 ( cd "$CTL/committed" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 \
-  && _fgit -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
+  && git add victim.py >/dev/null 2>&1 \
+  && git -c user.name=w -c user.email=w@e commit -q -m c >/dev/null 2>&1 \
   && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 ) || _fixture_failed committed
+  && git add victim.py >/dev/null 2>&1 ) || _fixture_failed committed
 # (2e) A local `replace` ref pointing the staged blob at a clean one. What is
 #      committed is the object the index NAMES, so that is what must be read.
 ( cd "$CTL/replaced" && printf 'X = "%s"\n' "$CONTROL_K2" > victim.py \
-  && _fgit add victim.py >/dev/null 2>&1 \
-  && _bad="$(_fgit rev-parse :0:victim.py)" \
+  && git add victim.py >/dev/null 2>&1 \
+  && _bad="$(git rev-parse :0:victim.py)" \
   && printf '# %s\n' "$CONTROL_CLEAN" > victim.py \
-  && _good="$(_fgit hash-object -w victim.py)" \
-  && _fgit replace "$_bad" "$_good" >/dev/null 2>&1 ) || _fixture_failed replaced
+  && _good="$(git hash-object -w victim.py)" \
+  && git replace "$_bad" "$_good" >/dev/null 2>&1 ) || _fixture_failed replaced
 # (2f) `GIT_DIR`/`GIT_WORK_TREE` exported at another checkout. `-C` does not
 #      win over them, so the inventory described the decoy while the worktree
 #      arm read files here — one clean entry, exit 0, over a violation (#501
 #      R95). The decoy is a real repo holding nothing forbidden.
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/routed/probe.py"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
-( cd "$CTL/routed" && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed routed
-( cd "$CTL/routeddecoy" && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed routeddecoy
+( cd "$CTL/routed" && git add -A >/dev/null 2>&1 ) || _fixture_failed routed
+( cd "$CTL/routeddecoy" && git add -A >/dev/null 2>&1 ) || _fixture_failed routeddecoy
 # (2g) A checkout path holding a GLOB CHARACTER. Built outside the fixture
 #      loop on purpose: the loop's word list would itself glob the name.
 #      The violation sits BESIDE the scope, so a widened `REL_DIR` — the
@@ -623,7 +630,7 @@ printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/routeddecoy/ok.py"
 mkdir -p "$CTL/glob[1]/scope"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/glob[1]/scope/ok.py"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
-( cd "$CTL/glob[1]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "glob[1]"
+( cd "$CTL/glob[1]" && git init -q . >/dev/null 2>&1 && git add -A >/dev/null 2>&1 ) || _fixture_failed "glob[1]"
 # (2g') …and the SECOND site that strips `$ROOT` from a scope path: the EXTRA
 #      ENTRY's. `glob[1]` passes no extra entry, so nothing asked this half —
 #      and `[1]` is the wrong shape for it anyway: the strip then fails
@@ -640,7 +647,7 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/glob[1]/outside.py"
 mkdir -p "$CTL/globextra*[e]/scope" "$CTL/globextra*[e]/side"
 printf '# %s\n' "$CONTROL_CLEAN"         > "$CTL/globextra*[e]/scope/ok.py"
 printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
-( cd "$CTL/globextra*[e]" && _fgit init -q . >/dev/null 2>&1 && _fgit add -A >/dev/null 2>&1 ) || _fixture_failed "globextra*[e]"
+( cd "$CTL/globextra*[e]" && git init -q . >/dev/null 2>&1 && git add -A >/dev/null 2>&1 ) || _fixture_failed "globextra*[e]"
 # (3) An untracked violation hidden by `$GIT_DIR/info/exclude` — per-clone,
 #     uncommitted state that `--exclude-standard` honours and no other clone
 #     of the same commit shares. (The machine-wide `core.excludesFile` is the
@@ -648,9 +655,9 @@ printf 'SRC = "%s"\n' "$CONTROL_K2"      > "$CTL/globextra*[e]/side/entry"
 #     a fixture, because neutralising the config layer above would also
 #     neutralise the fixture that tried to set it.)
 ( cd "$CTL/notcommitted" && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
-  && _fgit add ok.py >/dev/null 2>&1 \
+  && git add ok.py >/dev/null 2>&1 \
   && printf 'SRC = "%s"\n' "$CONTROL_K2" > probe.txt \
-  && printf 'probe.txt\n' > .git/info/exclude ) || _fixture_failed notcommitted
+  && mkdir -p .git/info && printf 'probe.txt\n' > .git/info/exclude ) || _fixture_failed notcommitted
 
 # The real geometry: a scope directory and, BESIDE it, an entry script that
 # is itself a symlink holding a forbidden target.
@@ -663,5 +670,8 @@ printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/err/readable.py"
 printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/walk/sub/hidden.py"
 chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
-
-
+# THE LAST LINE: the window certifies that THIS FILE ran to its end, not merely
+# that the child shell did (a top-level `return` would otherwise complete it).
+# The fixtures' own `notcommitted` needs `mkdir -p .git/info` above because the
+# window's template directory is empty, so `git init` no longer creates it.
+: > "$_FW_DIR/built"

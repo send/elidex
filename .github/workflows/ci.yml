@@ -183,6 +183,12 @@ jobs:
     # spread on one machine was wider than the difference between them, and both
     # sit far enough under this budget that it is unchanged. Re-derive; do not
     # trust this sentence.
+    # ⚠ RE-DERIVED AGAIN when the K2 wire's fixtures moved into a build window
+    # constructed from nothing, with postconditions checked inside it (that PR
+    # added fixture self-tests, so the rule above applies): the command above,
+    # three runs on this branch and three on its base, alternated on one
+    # machine. The branch is slower, and both stay far enough under this budget
+    # that it is unchanged. Re-derive; do not trust this sentence.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:

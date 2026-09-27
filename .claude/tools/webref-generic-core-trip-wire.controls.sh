@@ -18,9 +18,9 @@
 # five `CONTROL_*` sample strings, and the `_git` helper. That list — and only
 # that list — is checked at entry.
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
-# was: it named `$CTL`, `_fgit`, `_control`, `_ctl_env`, `$_perm_line`,
+# was: it named `$CTL`, `_control`, `_ctl_env`, `$_perm_line`,
 # `$_fifo_line` and `ctl_ok` "for the wire to read", and the wire reads NONE of
-# them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|_fgit\|\$CTL\|ctl_ok\|\b_control\b'`
+# them (`grep -c '_perm_line\|_fifo_line\|_ctl_env\|\$CTL\|ctl_ok\|\b_control\b'`
 # over the wire → **0**; the earlier spelling of this command left `_control`
 # out, and it needs `\b` because a comment there names the sibling wire's
 # `ban_control`). They belong to the controls — defined here or in the
@@ -83,15 +83,32 @@ fi
 
 # THE FIXTURE BUILD LIVES BESIDE THIS FILE: that one builds the trees, this one
 # asserts over them. Its absence ends the run at "decided nothing", as the
-# harness's does.
+# harness's does. It is NOT sourced here: the harness runs it in the fixture
+# build window (`_fgit_window`), a child built from nothing, and checks the
+# window's postconditions inside it.
 _FIXTURES="${SELF%.sh}.fixtures.sh"
 if [ ! -r "$_FIXTURES" ]; then
   echo "!! the fixture build beside these controls ($_FIXTURES) is missing or" >&2
   echo "   unreadable, so no control here has a tree to run over. This run decided nothing." >&2
   exit 2
 fi
-# shellcheck source=/dev/null
-. "$_FIXTURES"
+# ONE LABEL PER PRODUCER, each the text its diagnostic prints, and each named by
+# a mutation record (the ratchet counts every `_lbl="…"` definition as well as
+# every `_control` label). What each asserts is tabled in
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §4.
+_fw_lbl="the fixture build window completed"
+_fw2_lbl="no control runs over an incomplete fixture build window"
+_fwd_lbl="the fixtures file ran without a shell diagnostic"
+_pa_lbl="a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file"
+_pal_lbl="this git reports a non-local configuration scope"
+_pb_lbl="the fixture git has no system or global layer outside the void"
+_pbl_lbl="this git names its system files through git var"
+_pc_lbl="nothing is written into the fixture git's void"
+_pd_lbl="the fixture git copies no template"
+_pe_lbl="the fixture git is the git the wire reads with"
+_pf_lbl="the fixture build window's environment holds only its allowlist"
+_pg_lbl="every fixture repo persists only the configuration a plain git init writes"
+_fgit_window "$_FIXTURES" "$_pa_lbl" "$_pal_lbl" "$_pb_lbl" "$_pbl_lbl" "$_pc_lbl" "$_pd_lbl" "$_pe_lbl" "$_pf_lbl" "$_pg_lbl"
 
 
 # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
@@ -99,6 +116,17 @@ fi
 # non-zero and the remaining arms would never run.
 ctl_ok=0
 _ctl_env=()   # per-control environment; `_control` clears it after each use
+# THE WINDOW'S VERDICT, WRITTEN AFTER `ctl_ok=0`. An incomplete window built
+# nothing, so it ends the run here with W alone ("decided nothing"); `_control`
+# itself refuses over an unbuilt tree too (W2), wherever this line sits.
+_fgit_window_incomplete_exit "$_fw_lbl"
+_fgit_window_verdict || ctl_ok=1
+# A shell diagnostic located in the fixtures file means a line of it was
+# skipped: an arithmetic-expansion error does not stop a sourced file.
+if [ -n "$_fw_diag" ]; then
+  echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
+  ctl_ok=1
+fi
 _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1
 _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
 _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
@@ -339,6 +367,8 @@ fi
 . "$_MUTATIONS"
 _mut_correspondence || ctl_ok=1
 
+# …and once more after the controls, for the blocks that are not `_control`s.
+_fw_built_or_w2 || ctl_ok=1
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run
