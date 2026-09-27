@@ -187,9 +187,12 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 #
 # WHICH PATTERNS NEED ROWS is not this comment's to say: it is
 # `plan_memo_selftest_ratchets.gap_pattern_population_control`, which enumerates
-# every module-level compiled pattern of the checker whose source holds `GAP`
-# and is red on one that `_R22_GAP_PATTERN` does not map a row to (and on a row
-# naming a pattern that no longer holds it).  WHICH GAPS inside a pattern the
+# every compiled pattern a checker module assigns whose source holds `GAP`, and
+# counts coverage FROM THESE ROWS: it is red on such a pattern that no row here
+# or in `_R22_GAP_MIXED` reaches (through `_R22_GAP_PATTERN`) with at least one
+# read arm and one refuse arm, and on a row pattern `_R22_GAP_PATTERN` does not
+# map, a mapping no row uses, a covered pattern that no longer holds `GAP`, and
+# an `R22_GAP_ELSEWHERE` control the registry does not hold.  WHICH GAPS inside a pattern the
 # rows reach was MEASURED once, at the commit that wrote this sentence, by
 # re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
 # and running every row of its pattern with U+00A0, U+000B and both mixed runs:

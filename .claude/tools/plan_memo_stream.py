@@ -112,11 +112,15 @@ def phrase(pattern):
 
     ⚠ THAT IS A CONVENTION, AND WHAT IS ENFORCED IS NAMED HERE.
     `plan_memo_selftest_ratchets.gap_pattern_population_control` enumerates
-    every module-level compiled pattern whose source holds `GAP` and is red on
-    one without rows in `plan_memo_selftest_cases_gap._R22_GAP_TABLE` (or a
-    named function control); those rows read each pattern across U+00A0 and
-    refuse it across U+000B, and an "R22 gap" mutant re-spelling its gaps as
-    `(?a:\\s)` turns them red.  That the rows reach every gap INSIDE a pattern
+    every compiled pattern a checker module assigns (to a name, or inside a
+    container up to three deep) whose source holds `GAP`, and is red on one
+    that has no READ row and no REFUSE row in
+    `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` -- counted
+    from the rows, not from the mapping -- unless a function control the live
+    registry holds is named for it.  That each row's fixture exercises its
+    pattern, and that re-spelling the pattern's gaps turns its rows red, is
+    what the "R22 gap" mutants show, one pattern at a time, re-spelling its
+    gaps as `(?a:\\s)`; the ratchet does not check it.  That the rows reach every gap INSIDE a pattern
     was measured once and is recorded beside the table, not enforced.  And the
     ratchet keys on `GAP`: a NEW vocabulary that writes `\\s` or a literal
     U+0020 instead of calling this function holds no `GAP` and is invisible to

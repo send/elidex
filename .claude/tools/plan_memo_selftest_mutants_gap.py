@@ -137,8 +137,10 @@ MUTANTS += [
 # THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` -- U+000B in,
 # U+00A0 out -- whatever flags the pattern is compiled with, so the ONE edit
 # turns every read arm AND every refuse arm of the pattern red.  Which patterns
-# need a row is `plan_memo_selftest_ratchets.gap_pattern_population_control`'s
-# to say, not this list's; the rows for `NOUN_ANCHOR` and the id run are below.
+# need table rows is `plan_memo_selftest_ratchets.gap_pattern_population_control`'s
+# to say (it counts the rows, not this list: a pattern with no "R22 gap" row
+# here is not red on that account); the rows for `NOUN_ANCHOR` and the id run
+# are below.
 _ASCII_GAP = '(lambda p: p.replace(" ", r"(?a:\\s)+"))('
 MUTANTS += [
     ("R22 gap: `child of` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
@@ -204,13 +206,14 @@ MUTANTS += [
 # run's own "R22 gap" row (so the rule has no exception), the one optional gap
 # only a mixed run reaches, and the ratchet that makes the population a
 # derivation instead of a list.
-GAP_RATCHET = ("PROPERTY: every module-level compiled pattern whose source holds plan_memo_stream.GAP has "
-               "a row in plan_memo_selftest_cases_gap (or a named function control), and every row names a "
-               "pattern that still holds it -- the population is derived from the running module set, not "
-               "listed")
-GAP_RATCHET_PARTNER = ("PROPERTY: the gap-pattern ratchet finds a pattern held in a container, keys an "
-                       "imported alias at its defining module, and reports both an unpinned pattern and a "
-                       "stale row")
+GAP_RATCHET = ("PROPERTY: every compiled pattern a checker module assigns whose source holds "
+               "plan_memo_stream.GAP has a READ row and a REFUSE row in plan_memo_selftest_cases_gap (or a "
+               "registered function control), every covered pattern still holds GAP, and every row and "
+               "mapping entry pairs up -- coverage is counted from the rows, not the mapping")
+GAP_RATCHET_PARTNER = ("PROPERTY: the gap-pattern ratchet's cores answer the fixture a generous core gets "
+                       "wrong -- container-held, imported, aliased and cache-identical patterns for the "
+                       "population; unmapped rows, unused mappings, a missing arm and an unregistered "
+                       "control for the coverage")
 MUTANTS += [
     ("R22 gap: the anchored naming pass composes GAP (re-spell NOUN_ANCHOR's gap `(?a:\\s)` -- "
      "`Slice&nbsp;C` names nothing, `Slice<U+000B>C` names C)", ROLES,
@@ -235,17 +238,46 @@ MUTANTS += [
      'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
      'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice")))',
      [GAP_RATCHET]),
-    ("R22 ratchet: a name binding is preferred over a container path (drop pass 1 -- `MARKER_RE` "
-     "would be keyed as `KIND_PHRASES[0][1]`)", RATCHETS,
-     '    for name, namespace in modules:          # pass 1: names\n'
-     '        for attr, v in sorted(namespace.items()):\n'
-     '            if isinstance(v, _re.Pattern):\n'
-     '                walk((name, attr), v, 0)\n',
-     '',
+    ("R22 ratchet: a container entry that is also an assigned name is keyed by the NAME (forget the "
+     "names -- `KIND_PHRASES[0][1]` becomes a second, uncovered `MARKER_RE`)", RATCHETS,
+     '                named.add(id(v))\n',
+     '                pass\n',
      [GAP_RATCHET_PARTNER, GAP_RATCHET]),
+    ("R22 ratchet: EVERY assigned name is a key, even one `re` cached into the same object as another "
+     "(dedup the names by identity -- the second name needs no rows)", RATCHETS,
+     '            if isinstance(v, _re.Pattern):\n                named.add(id(v))\n',
+     '            if isinstance(v, _re.Pattern) and id(v) not in named:\n                named.add(id(v))\n',
+     [GAP_RATCHET_PARTNER]),
+    ("R22 ratchet: an alias `X = Y` is not an assigned pattern (drop the skip -- the partner's `B = A` "
+     "becomes a key)", RATCHETS,
+     '            if isinstance(node.value, (ast.Name, ast.Attribute)):\n                continue\n',
+     '',
+     [GAP_RATCHET_PARTNER]),
     ("R22 ratchet: a pattern held in a container is found (stop the walk at the top level -- "
      "`ROLE_PATTERNS` leaves the population)", RATCHETS,
      '        if d < depth and isinstance(v, (tuple, list)):',
      '        if False:',
      [GAP_RATCHET_PARTNER, GAP_RATCHET]),
+]
+
+# -- the review of 87f361c6: the ratchet counted the MAPPING.  Two rows that
+# change only the TABLE -- the self-test module `plan_memo_selftest_cases_gap`,
+# installed under its own name, so the mutants module keeps its import-time
+# `R22_GAP` and the NOUN_ANCHOR "R22 gap" row still imports -- and must turn
+# the ratchet red.
+MUTANTS += [
+    ("R22 ratchet: a pattern whose ROWS are gone is red even while its mapping stays (delete "
+     "NOUN_ANCHOR's table row)", "plan_memo_selftest_cases_gap.py",
+     '    ("NOUN_ANCHOR", "noun|id", "prose", "The close rule is Slice{g}C here.", 1, 0),\n',
+     '',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a pattern with no REFUSE arm is red (drop the id run's refuse arm)",
+     "plan_memo_selftest_cases_gap.py",
+     '    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, 0),',
+     '    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, None),',
+     [GAP_RATCHET]),    ("R22 ratchet: a function control named for a pattern must be REGISTERED (misspell the ranking's "
+     "control name)", "plan_memo_selftest_cases_gap.py",
+     '    ("plan_memo_roles", "ROLE_PATTERNS", 0, 1): "role_rank_gap_control",',
+     '    ("plan_memo_roles", "ROLE_PATTERNS", 0, 1): "role_rank_gap_controls",',
+     [GAP_RATCHET]),
 ]
