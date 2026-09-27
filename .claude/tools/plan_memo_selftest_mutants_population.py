@@ -274,6 +274,11 @@ MUTANTS += [
      '                    and isinstance(f.value, ast.Name) and f.value.id == "os"):',
      '                    and isinstance(f.value, ast.Name) and f.value.id.startswith("o")):',
      [R26_ENCODING_LABEL]),
+    ("manifest: the serialization escapes every C0 character and DEL (drop it -- a case name "
+     "carrying a NUL writes a literal NUL and `grep` reads the manifest as binary)", MANIFEST_MOD,
+     '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
+     "    return s",
+     [MANIFEST_CTL]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",
@@ -415,8 +420,8 @@ MUTANTS += [
      [MANIFEST_CTL]),
     ("manifest: the `|` between control names is ESCAPED (leave it -- a row naming `a|b` and one "
      "naming `a` and `b` read the same)", MANIFEST_MOD,
-     '            .replace("|", "\\\\p"))',
-     "            )",
+     '         .replace("|", "\\\\p"))',
+     '         )',
      [MANIFEST_CTL]),
     ("manifest: a row's line carries its EDIT digest (drop it -- two rows' replacements can be "
      "swapped)", MANIFEST_MOD,

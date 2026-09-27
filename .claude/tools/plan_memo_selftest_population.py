@@ -307,6 +307,15 @@ def manifest_control(M):
     one_pipe = mf.Snapshot({}, (("a", "f.py", "x", "y", ("c|d",)),), ())
     two_names = mf.Snapshot({}, (("a", "f.py", "x", "y", ("c", "d")),), ())
     arms["(g) a `|` inside a control name is escaped"] = mf.lines(one_pipe) != mf.lines(two_names)
+    # every C0 character and DEL leaves the serialization escaped, and the
+    # escape stays INJECTIVE against the texts that spell an escape literally
+    # (Codex on `def01d3c`: literal NULs made the file unreadable to `grep`)
+    raw = [chr(n) for n in list(range(0x20)) + [0x7F]]
+    tricky = ["\x00", "\\x00", "|", "\\p", "\t", "\\t", "\n", "\\n", "\\", "a\x7fb", "ok"]
+    arms["(g) every C0 character and DEL is escaped, injectively"] = (
+        not any(any(c < " " or c == "\x7f" for c in mf._esc("a%sb" % r)) for r in raw)
+        and len({mf._esc(x) for x in raw + tricky}) == len(set(raw + tricky))
+        and mf._esc("ok") == "ok")
     with tempfile.TemporaryDirectory() as d:
         empty = "plan_memo_selftest_plant_empty_base"
         (pathlib.Path(d) / (empty + ".py")).write_text("MUTANTS = []\n", encoding="utf-8")

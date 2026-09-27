@@ -181,7 +181,7 @@ HERE"* below. The umbrella memo keeps the contract, the invariants, the spec cov
 slices and the defer ledger; nothing in this file is a commitment, only a record of how the
 commitments were met and what each round cost.
 
-⚠ **This file is 1,766 lines and is NOT split further, deliberately.** CLAUDE.md's touch-time rule
+⚠ **This file is well over 1,000 lines (`wc -l` it — it grows by a round's entry at a time, so no count is written here; this line said 1,766 while the file was 1,944, Codex on `def01d3c`) and is NOT split further, deliberately.** CLAUDE.md's touch-time rule
 is a COHESION judgement and not a line count, and it exempts "一枚岩の cohesive unit・巨大 generated
 table・flat な case table". A chronological ledger is that shape: its only remaining seam is the
 round boundary, and cutting there would scatter one continuous argument — a finding, its fix, the

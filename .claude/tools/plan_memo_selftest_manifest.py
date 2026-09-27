@@ -127,9 +127,14 @@ def _snapshot():
 def _esc(text):
     """INJECTIVE: every separator this format uses is escaped (16 control names
     hold a `|`, which the row line uses between control names -- the manifest
-    attestation's M4)."""
-    return (str(text).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
-            .replace("|", "\\p"))
+    attestation's M4), and so is every OTHER C0 character and DEL, as `\\xNN`
+    (Codex on `def01d3c`: three R24 case names carry a literal NUL, and with it
+    in the file `grep '^CASE'` answered "binary file matches" instead of the
+    668 records -- the diff this file exists to be read as could not be read).
+    The backslash is escaped FIRST, so no escape can collide with text."""
+    s = (str(text).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+         .replace("|", "\\p"))
+    return "".join("\\x%02x" % ord(c) if c < " " or c == "\x7f" else c for c in s)
 
 
 def _case_digest(c):

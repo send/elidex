@@ -19,8 +19,9 @@ open: a raw extent, a table, a run) and recurses into a container's content
 -- a block quote's, a list item's -- with the same pass; this module holds
 no state and looks at no previous line.  The inline grammar a definition's
 label, destination and title reuse (`link_label`, `link_destination`,
-`link_title`, `_skip_ws`, `_escaped`) is Phase 2's, in
-`plan_memo_lexer.py`, which this module imports and never the reverse.  §4.6
+`link_title`, `_skip_ws`, `_escaped`) is the §6.3 grammar's, in
+`plan_memo_links.py` (which declares itself that grammar's owner), imported
+here and never the reverse.  §4.6
 start condition 7's tag bodies (`OPEN_TAG` / `CLOSING_TAG`) come from
 `plan_memo_html.py`, which belongs to NEITHER phase: both read it (PR #510
 R26; until then Phase 1 imported its own grammar back out of the Phase-2
