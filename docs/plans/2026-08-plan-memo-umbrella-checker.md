@@ -1,5 +1,9 @@
 # Umbrella plan — `plan-memo-umbrella-check` carved out of #506 into a 2-slice prerequisite program
 
+> Commit ids cited in this memo and in the checker's comments are PR #510 branch commits. After the
+> squash merge they resolve from the PR ref: `git fetch origin pull/510/head`, then run the cited
+> `git show` / `git archive` / `git log -S` against `FETCH_HEAD`.
+
 **Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
 carry commit `5e9439b4`** (`git diff --quiet 5e9439b4 190d2adb -- .claude/tools/` = identical there, not
@@ -1489,10 +1493,10 @@ committed here by the note that corrected it.
   | `notes.md#frag)9z` | yes | `[(0, 16, 'file')]` — `9z` masked |
   | `notes.md#a)b` | yes | `[(0, 12, 'file')]` |
 
-  Sibling sweep, `notes.md#frag<c>9z owns it.` and `?q`: only an unmatched `)` differs from the
-  space-after reading (0 against 1), and `(notes.md#frag)9z` is the same class (0 against 1); each of
-  `[`, `]`, `<`, `>`, `` ` ``, `|`, space, tab, U+000B and U+00A0 reports 1 either way. `(` and `()` report 0, and
-  neither ends a segment in the main scan, so they are not a divergence between the two scans. The
+  Sibling sweep, `notes.md#frag<c>9z owns it.` and `?q`: an unmatched `)` reports 0 against the
+  space-after reading's 1, and `(notes.md#frag)9z` is the same class; `(` and `()` also report 0 against 1,
+  but neither ends a segment in the main scan, so they are no divergence between the two scans; each of
+  `[`, `]`, `<`, `>`, `` ` ``, `|`, space, tab, U+000B and U+00A0 reports 1 either way. The
   probe is in the body of the first commit whose message contains R30 PAREN PROBE: `git log
   --reverse --grep='R30 PAREN PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`. A
   one-predicate prototype (the segment rule stepped for the tail too; its diff, verbatim, is in the body of

@@ -219,7 +219,8 @@ jobs:
   #   gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="Layering trip-wires")|[.startedAt,.completedAt]'
   # ⚠ THE CONDITION IS PART OF THE NUMBER: the same script measured 26.2 / 27.2 s
   # in a busy worktree minutes earlier, 2.2x R27's clean-clone 11.8 s (`git show
-  # 7b931db4:.github/workflows/ci.yml`), and that inflated figure was
+  # 7b931db4:.github/workflows/ci.yml`; a PR #510 branch commit -- after the
+  # squash, `git fetch origin pull/510/head` first), and that inflated figure was
   # committed here for one round as "2.6x headroom". A timing in this comment
   # without a stated condition is not reproducible and will drift with whatever
   # the machine happens to be doing; re-measure on a clean clone. That sweep is
