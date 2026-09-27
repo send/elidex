@@ -27,8 +27,7 @@ The Codex R22 of 2026-09-08 rows ("R22 #1" - "R22 #3": phrase boundaries,
 device names, the seed's shared spans) are in `_mutants_inline.py`.  The Codex
 R22 of 2026-09-27 rows are all in `_mutants_gap.py`: "R22 ws", "R22 ws roles",
 "R22 file" and "R22 §6.2" were appended here first and moved there when it was
-carved on that SUBJECT (c04d8042); "R22 gap" and "R22 ratchet" were written
-there.  What stays here of the gap is
+carved on that SUBJECT (c04d8042); "R22 gap" rows were written there.  What stays here of the gap is
 R47-4's four rows, which predate both.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
@@ -150,8 +149,8 @@ MUTANTS += [
 MUTANTS += [
     ("R47-4 gap: a word gap is what a READER sees (re-spell the marker as a `re.escape`d literal -- "
      "U+0020 and nothing else, so `&nbsp;` drops the claim at rc 0)", STREAM,
-     'MARKER_RE = compile_gap("MARKER_RE", bounded(_phrase(MARKER)))',
-     'MARKER_RE = compile_gap("MARKER_RE", bounded(re.escape(MARKER)))',
+     'MARKER_RE = re.compile(bounded(_phrase(MARKER)))',
+     'MARKER_RE = re.compile(bounded(re.escape(MARKER)))',
      [R47_4_NBSP, R47_4_TAB]),
     ("R47-4 gap: the UNDETERMINED phrase composes the SAME gap (re-spell its `\\s` under `re.ASCII`, "
      "which is ASCII whitespace and not U+00A0)", STREAM,

@@ -9,17 +9,16 @@ ADDED the second ratchet, so `line_bound_control` reported its own author.
 `plan_memo_selftest_properties.py` sweeps the source for a property the code
 must HAVE -- an anchored pattern is not also width-bounded, text I/O names its
 encoding, no list is popped from the front, the dash set is spelled once, every
-source compiles without a SyntaxWarning.  The THREE here ask a different
+source compiles without a SyntaxWarning.  The two here ask a different
 question: **is this CLASS ratcheted at all** -- is every loop that walks a
 population pinned by a mutant that truncates it, is every kind-phrase question
-asked at its one sanctioned site, is every registered gap pattern pinned by
-read and refuse rows.  The first two are derived from the checker's AST and
-each carries a STATED COMPLEMENT (`_SCOPE_EXEMPT`, `_KIND_QUESTION_SITES`); the
-third reads the registry `plan_memo_stream.compile_gap` builds at import.  They
-are the family that grows as more classes get a ratchet -- which is exactly
-why they should not grow inside a module whose subject is something else.
+asked at its one sanctioned site.  They are derived from the checker's AST,
+each carries a STATED COMPLEMENT (`_SCOPE_EXEMPT`, `_KIND_QUESTION_SITES`)
+rather than a list of what exists, and they are the family that grows as more
+classes get a ratchet -- which is exactly why they should not grow inside a
+module whose subject is something else.
 
-All three exist because the same defect arrived three or four rounds running, each
+Both exist because the same defect arrived three or four rounds running, each
 time fixed at the site a reviewer had just named.  A ratchet is what turns
 "fix the instance" into "the class is covered or the suite is red".
 
@@ -28,10 +27,9 @@ time fixed at the site a reviewer had just named.  A ratchet is what turns
 precise criterion from a generous one: both print "0 unpinned" while nothing
 is wrong, so reverting either ratchet to the keying it replaced left every
 control green and no mutant row named this module.  The partners feed each
-ratchet's PURE core a fixture the generous criterion gets wrong.
-`plan_memo_selftest_mutants_ratchets.py` re-injects each reverted criterion of
-the first two against them; the gap ratchet's rows are in
-`plan_memo_selftest_mutants_gap.py`, with the rest of the reader-gap rows.
+ratchet's PURE core a fixture the generous criterion gets wrong, and
+`plan_memo_selftest_mutants_ratchets.py` re-injects each reverted criterion
+against them.
 
 `registry()` is merged by `plan_memo_selftest_controls.registry()`, the same
 way the records and work fragments are, so nothing here is referenced by the
@@ -666,205 +664,6 @@ def _criteria_missing(table, names):
     return [c for c, row in table if not any(n.startswith(row) for n in names)]
 
 
-# -- the gap-pattern ratchet --------------------------------------------------
-
-def _unregistered(modules, registered, gap):
-    """[(module, name)] of every module-level name bound to a compiled STR
-    pattern whose source holds `gap` that is not, by identity, one of
-    `registered` -- a gap pattern compiled with plain `re.compile`.  DEPTH 0
-    ONLY: the names themselves, never anything inside a collection or an
-    object.  `modules` is [(module, namespace)].  PURE."""
-    import re as _re
-    ids = {id(r) for r in registered}
-    return [(mod, name) for mod, ns in modules for name, v in sorted(ns.items())
-            if isinstance(v, _re.Pattern) and isinstance(v.pattern, str) and gap in v.pattern
-            and id(v) not in ids]
-
-
-def _gap_problems(registry, gap, unregistered, rows, mixed, mapping, arms, expect_of):
-    """[(condition, detail)] -- every red condition of the gap ratchet, PURE.
-    `registry` label -> pattern (`GAP_PATTERNS`); `gap` the class text; `unregistered` `_unregistered`'s list;
-    `rows` / `mixed` the `_R22_GAP_TABLE` / `_R22_GAP_MIXED` tuples; `mapping`
-    table pattern -> label; `arms` the (pattern, position, arm, expectation,
-    case name) records the generator wrote; `expect_of` collected case name ->
-    expectation."""
-    import collections
-    out = []
-    labels = set(registry)
-    if not labels:
-        out.append(("empty-registry", "no gap pattern is registered"))
-    out += [("gapless-label", lab) for lab in sorted(labels) if gap not in registry[lab].pattern]
-    out += [("unregistered-pattern", "%s.%s" % k) for k in unregistered]
-    counts = collections.Counter((r[0], r[1]) for r in list(rows) + list(mixed))
-    out += [("duplicate-row", "%s %s" % k) for k, n in sorted(counts.items()) if n > 1]
-    declared, has_read = [], set()
-    for pat, pos, _fix, _tpl, read, refuse in rows:
-        if read is None or refuse is None:
-            out.append(("missing-column", "%s %s" % (pat, pos)))
-        elif read == refuse:
-            out.append(("equal-expectations", "%s %s expects %r on both arms" % (pat, pos, read)))
-        declared += [(pat, pos, "read", read), (pat, pos, "refuse", refuse)]
-        if read is not None and pat in mapping:
-            has_read.add(mapping[pat])
-    for pat, pos, _fix, _tpl, refuse, _run in mixed:
-        if refuse is None:
-            out.append(("mixed-missing-arm", "%s %s" % (pat, pos)))
-        declared.append((pat, pos, "refuse", refuse))
-    used = {r[0] for r in rows} | {m[0] for m in mixed}
-    out += [("unmapped-row", pat) for pat in sorted(used) if pat not in mapping]
-    out += [("unused-mapping", pat) for pat in sorted(mapping) if pat not in used]
-    covered = {mapping[pat] for pat in used if pat in mapping}
-    out += [("unknown-label", lab) for lab in sorted(covered) if lab not in labels]
-    out += [("uncovered-label", lab) for lab in sorted(labels) if lab not in covered]
-    out += [("no-read-arm", lab) for lab in sorted(covered) if lab not in has_read]
-    record = {(pat, pos, arm): (want, name) for pat, pos, arm, want, name in arms}
-    for pat, pos, arm, want in declared:
-        got = record.get((pat, pos, arm))
-        where = "%s %s %s" % (pat, pos, arm)
-        if want is None:
-            continue
-        if got is None:
-            out.append(("arm-not-generated", "%s: no generated arm recorded" % where))
-        elif got[0] != want:
-            out.append(("arm-not-generated", "%s: the RECORD expects %r, the row %r" % (where, got[0], want)))
-        elif expect_of.get(got[1], object()) != want:
-            out.append(("arm-not-generated", "%s: the collected CASE expects %r, the row %r"
-                        % (where, expect_of.get(got[1]), want)))
-    return out
-
-
-def gap_registry_control(M):
-    """PROPERTY: every gap pattern the checker registers is pinned by rows,
-    and no module-level gap pattern escapes the registry.
-
-    THE POPULATION is `plan_memo_stream.GAP_PATTERNS`: every pattern compiled
-    through `plan_memo_stream.compile_gap`, keyed by the LABEL it was compiled
-    under -- recorded at construction, not searched for.  Rows of
-    `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` name a
-    label through `_R22_GAP_PATTERN`.  It is RED on each of these, and on
-    nothing else (the condition names `_gap_problems` reports); an exception
-    in the checks is a crash of the control -- loud, never a pass:
-
-      empty-registry        no pattern is registered;
-      gapless-label         a registered pattern whose source holds no `GAP`;
-      unregistered-pattern  a checker module has a MODULE-LEVEL name bound to a
-                            compiled str pattern whose source holds `GAP` that
-                            is not, by identity, a registered one (the depth-0
-                            backstop, `_unregistered`);
-      uncovered-label       a registered label no row maps to;
-      unknown-label         a label a row maps to that is not registered;
-      unmapped-row          a row pattern `_R22_GAP_PATTERN` does not map;
-      unused-mapping        a mapping entry no row uses;
-      no-read-arm           a label rows map to but no `_R22_GAP_TABLE` row
-                            gives a READ arm (only `_R22_GAP_MIXED` reaches it);
-      missing-column        a `_R22_GAP_TABLE` row without both expectations;
-      equal-expectations    a `_R22_GAP_TABLE` row expecting the same on both arms;
-      mixed-missing-arm     a `_R22_GAP_MIXED` row without its refuse expectation;
-      duplicate-row         two rows (either table) with one (pattern, position);
-      arm-not-generated     a declared arm with no generated arm recorded in
-                            `R22_GAP_ARMS`, or whose record expects another
-                            value, or whose recorded case `plan_memo_selftest_
-                            cases.cases()` collects with another expectation.
-
-    A label with a READ arm always has a REFUSE arm too: a table row missing
-    one is `missing-column`.  `gap_registry_partner_control` holds one fixture
-    per condition (three for `arm-not-generated`) and asserts it reports
-    exactly that condition; it also holds `compile_gap`'s two refusals.
-
-    HONESTLY, what it cannot see: a gap pattern compiled with plain
-    `re.compile` and held only inside a collection, an object or a function
-    (the backstop reads module-level names, nothing below them); a pattern
-    compiled through `compile_gap` inside a function no import runs; a
-    pattern in a SELF-TEST module; a gap regex kept as a STRING and compiled
-    at the call; and a vocabulary that spells its gap without `GAP` (`\\s`, a
-    literal U+0020).  It does not check that the rows reach every gap inside
-    a pattern, nor that a fixture exercises its pattern: the "R22 gap"
-    mutants show a pattern's rows go red when its gaps are re-spelled."""
-    import importlib
-    import sys as _sys
-    import plan_memo_selftest_cases_gap as cg
-    from plan_memo_selftest_harness import MODULES as _MODULES
-    stream = _sys.modules["plan_memo_stream"]
-    registry = stream.GAP_PATTERNS
-    loose = _unregistered([(n, vars(_sys.modules[n])) for n, _ in _MODULES], registry.values(), stream.GAP)
-    expect_of = {c.name: c.expect
-                 for c in importlib.import_module("plan_memo_selftest_cases").cases()}
-    problems = _gap_problems(registry, stream.GAP, loose, cg._R22_GAP_TABLE, cg._R22_GAP_MIXED,
-                             cg._R22_GAP_PATTERN, cg.R22_GAP_ARMS, expect_of)
-    return not problems, ("%d registered gap pattern(s): %s; %d problem(s)%s"
-                          % (len(registry), ", ".join(sorted(registry)), len(problems),
-                             (": %s" % "; ".join("%s %s" % p for p in problems)) if problems else ""))
-
-
-def gap_registry_partner_control(M):
-    """PROPERTY: the gap ratchet's cores and `compile_gap`, a fixture per
-    behaviour.  `compile_gap` refuses a label already registered.  `_unregistered` reports a module-level gap pattern
-    that is not registered, and not: a registered one, one held in a tuple
-    (depth 0 only), a bytes pattern, a pattern without the gap.
-    `_gap_problems`: a valid configuration reports nothing, and each condition
-    has a fixture that reports exactly that condition -- three for
-    `arm-not-generated`, told apart by the detail."""
-    import re as _re
-    import sys as _sys
-    stream = _sys.modules["plan_memo_stream"]
-    refusals = []
-    label = next(iter(stream.GAP_PATTERNS))
-    try:
-        stream.compile_gap(label, stream.GAP)
-        refusals.append("%s ACCEPTED twice" % label)
-    except ValueError:
-        pass
-    gap = "[\\u0020]"
-    a = _re.compile("x" + gap + "y")
-    b = _re.compile("p" + gap + "q")
-    loose_got = _unregistered([("m", {"A": a, "B": b, "T": (b,), "BY": _re.compile(b"x y"),
-                                      "P": _re.compile("z")})], [a], gap)
-    rows = [("t", "p", "prose", "{g}", 1, 0)]
-    arms = [("t", "p", "read", 1, "n1"), ("t", "p", "refuse", 0, "n2")]
-    exp = {"n1": 1, "n2": 0}
-    two = [("u", "p", "read", 1, "n1"), ("u", "p", "refuse", 0, "n2")]
-    L = {"L": a}
-    fixtures = {
-        # name: (arguments, the ONE condition, a substring its detail must hold)
-        "valid": ((L, gap, [], rows, [], {"t": "L"}, arms, exp), None, ""),
-        "empty-registry": (({}, gap, [], [], [], {}, [], {}), "empty-registry", ""),
-        "gapless-label": (({"L": _re.compile("x y")}, gap, [], rows, [], {"t": "L"}, arms, exp),
-                          "gapless-label", ""),
-        "unregistered-pattern": ((L, gap, [("m", "B")], rows, [], {"t": "L"}, arms, exp), "unregistered-pattern", ""),
-        "uncovered-label": (({"L": a, "M": b}, gap, [], rows, [], {"t": "L"}, arms, exp), "uncovered-label", ""),
-        "unknown-label": ((L, gap, [], rows + [("u", "p", "prose", "{g}", 1, 0)], [], {"t": "L", "u": "GONE"},
-                           arms + two, exp), "unknown-label", ""),
-        "unmapped-row": ((L, gap, [], rows + [("u", "p", "prose", "{g}", 1, 0)], [], {"t": "L"}, arms + two, exp),
-                         "unmapped-row", ""),
-        "unused-mapping": ((L, gap, [], rows, [], {"t": "L", "v": "L"}, arms, exp), "unused-mapping", ""),
-        "no-read-arm": ((L, gap, [], [], [("t", "p", "prose", "{g}", 0, "\x0b")], {"t": "L"},
-                         arms[1:], exp), "no-read-arm", ""),
-        "missing-column": ((L, gap, [], [("t", "p", "prose", "{g}", 1, None)], [], {"t": "L"}, arms[:1], exp),
-                           "missing-column", ""),
-        "equal-expectations": ((L, gap, [], [("t", "p", "prose", "{g}", 1, 1)], [], {"t": "L"},
-                                [("t", "p", "read", 1, "n1"), ("t", "p", "refuse", 1, "n1")], exp),
-                               "equal-expectations", ""),
-        "mixed-missing-arm": ((L, gap, [], rows, [("t", "q", "prose", "{g}", None, "\x0b")], {"t": "L"}, arms, exp),
-                              "mixed-missing-arm", ""),
-        "duplicate-row": ((L, gap, [], rows + rows, [], {"t": "L"}, arms, exp), "duplicate-row", ""),
-        "arm-not-generated (no record)": ((L, gap, [], rows, [], {"t": "L"}, arms[:1], exp),
-                                          "arm-not-generated", "no generated arm"),
-        "arm-not-generated (record)": ((L, gap, [], rows, [], {"t": "L"}, [arms[0], ("t", "p", "refuse", 1, "n2")],
-                                        exp), "arm-not-generated", "the RECORD expects"),
-        "arm-not-generated (case)": ((L, gap, [], rows, [], {"t": "L"}, arms, {"n1": 1, "n2": 1}),
-                                     "arm-not-generated", "the collected CASE expects"),
-    }
-    bad = []
-    for name, (args, want, detail) in fixtures.items():
-        got = _gap_problems(*args)
-        codes = sorted({c for c, _d in got})
-        if codes != ([] if want is None else [want]) or not all(detail in d for _c, d in got):
-            bad.append("%s -> %s" % (name, got))
-    ok = not refusals and loose_got == [("m", "B")] and not bad
-    return ok, "compile_gap refusal %s; unregistered %s (want [('m', 'B')]); conditions: %s" % (
-        refusals or "held", loose_got, "; ".join(bad) if bad else "each fixture reports exactly its own")
-
-
 def registry():
     """name -> (kind, control) for the ratchets -- this module's fragment of
     the one registry, merged by `plan_memo_selftest_controls.registry()`."""
@@ -879,8 +678,4 @@ def registry():
             ("CONTROL", kind_question_site_control),
         "PROPERTY: the kind-question ratchet reports a caller in ANY module of the checker set, judged by (module, qualified function) -- not a caller outside a listed subset, not one whose bare name is sanctioned elsewhere":
             ("CONTROL", kind_question_partner_control),
-        "PROPERTY: every gap pattern registered through plan_memo_stream.compile_gap has rows in plan_memo_selftest_cases_gap with a READ and a REFUSE arm, each row's expectations present and distinct and every declared arm generated, and no module-level gap pattern escapes the registry":
-            ("CONTROL", gap_registry_control),
-        "PROPERTY: the gap ratchet's cores and compile_gap, one fixture per behaviour -- compile_gap's duplicate-label refusal, the depth-0 backstop, and each red condition reported by exactly its own fixture":
-            ("CONTROL", gap_registry_partner_control),
     }

@@ -14,10 +14,8 @@ every gap-bearing pattern -- more than that module could take under the
 1000-line bound.  The older R47-4 kind-phrase gap controls (U+00A0, tab, LF,
 the ASCII fold) stay in `_cases_r42.py`, where their round put them.  This
 module holds every reader-gap CASE of the 2026-09-27 round; that round's
-FUNCTION controls live with their kind -- the class oracle
-`unicode_whitespace_class_control` in `plan_memo_selftest_invariants.py`, and
-the registry ratchet `gap_registry_control` in
-`plan_memo_selftest_ratchets.py`.  Its mutants are
+FUNCTION control lives with its kind -- the class oracle
+`unicode_whitespace_class_control` in `plan_memo_selftest_invariants.py`.  Its mutants are
 `plan_memo_selftest_mutants_gap.py`'s.
 
 This module holds its OWN `CASES` and binds its own spellings (`spellings()`);
@@ -186,10 +184,13 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # review of f85f4e1b: a reused arm was checked by its number only, and a row
 # whose arms were both reused never ran its own template).
 #
-# WHICH PATTERNS NEED ROWS is not this comment's to say: they are the ones
-# registered through `plan_memo_stream.compile_gap`, and
-# `plan_memo_selftest_ratchets.gap_registry_control` -- whose docstring lists
-# every condition it is red on -- holds these rows against that registry.
+# WHICH PATTERNS HAVE ROWS is an enumeration, not a guarantee: the table was enumerated BY HAND at 87f361c6 (the ranking's rows moved into it
+# at f85f4e1b) and covers the 13 gap-bearing patterns found then -- MARKER_RE,
+# UNDETERMINED, POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER,
+# NOUN_ANCHOR, ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  NO
+# control enforces that a NEW gap-bearing pattern gets rows; that enforcement is
+# carved to §8 of `docs/plans/2026-08-plan-memo-umbrella-checker.md` ("gap-pattern
+# population completeness is not enforced").
 # WHICH GAPS inside a pattern the rows reach was MEASURED once, at 87f361c6, by
 # re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
 # and running every row of its pattern with U+00A0, U+000B and both mixed runs:
@@ -303,39 +304,29 @@ _R22_GAP_MIXED = (
     ("OWNS_TWO join", "optional|or, mixed run", ("s9z", "TWO-OWNERS?"),
      "charter.  The drain is owned by **7z**{g}or **Qx**.", 0, "\x0b\u00a0"),
 )
-_R22_GAP_PATTERN = {
-    # table pattern -> the LABEL of the registered pattern it pins: the label
-    # `plan_memo_stream.compile_gap` recorded it under in `GAP_PATTERNS`
-    "LICENCE child": "LICENSE_BEFORE",
-    "LICENCE derivation": "LICENSE_BEFORE",
-    "LICENCE naming": "LICENSE_BEFORE",
-    "LICENCE mint": "LICENSE_BEFORE",
-    "LICENCE the": "LICENSE_BEFORE",
-    "LICENSE_AFTER": "LICENSE_AFTER",
-    "OWNS_TWO keyword": "OWNS_TWO",
-    "OWNS_TWO join": "OWNS_TWO",
-    "ORDER_WORDS": "ORDER_WORDS",
-    "DECLARES": "DECLARES",
-    "NOUN_ANCHOR": "NOUN_ANCHOR",
-    "MARKER_RE": "MARKER_RE",
-    "UNDETERMINED": "UNDETERMINED",
-    "POINTER": "POINTER",
-    "_ID_RUN_TOKEN": "_ID_RUN_TOKEN",
-    "_APPOSITIVE": "_APPOSITIVE",
-    "ROW_NOUN_SEP": "_APPOSITIVE",     # the union, reached through the appositive
-    "ROLE ordering": "ROLE_ORDERING",
-    "ROLE owner": "ROLE_OWNER",
-}
 R22_GAP = {}
 """pattern -> the names of its read and refuse cases, every position -- what each
 pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn red."""
 R22_GAP_MIXED = []
 """the MIXED-run refuse arms, which only a re-spelling of the ONE optional gap
 turns red (re-spelling every gap of the half refuses the run anyway)."""
-R22_GAP_ARMS = []
-"""(pattern, position, arm, expectation, case name) for EVERY arm the two tables
-declare -- the record `gap_registry_control` holds against the
-collected cases, so an arm the loop below did not generate is red."""
+# THE TABLE'S OWN INVARIANTS, checked where it is defined and LOUD at import
+# (a bad row stops the self-test from loading): every `_R22_GAP_TABLE` row
+# declares both expectations and they differ, every `_R22_GAP_MIXED` row
+# declares its refuse expectation, and no (pattern, position) appears twice
+# across the two tables.  Each needs nothing but the tables themselves.
+_SEEN = set()
+for _row in _R22_GAP_TABLE + _R22_GAP_MIXED:
+    if (_row[0], _row[1]) in _SEEN:
+        raise ValueError("gap table: %s %s appears twice" % (_row[0], _row[1]))
+    _SEEN.add((_row[0], _row[1]))
+for _row in _R22_GAP_TABLE:
+    if _row[4] is None or _row[5] is None or _row[4] == _row[5]:
+        raise ValueError("gap table: %s %s must declare two different expectations, not %r / %r"
+                         % (_row[0], _row[1], _row[4], _row[5]))
+for _row in _R22_GAP_MIXED:
+    if _row[4] is None:
+        raise ValueError("gap table: mixed row %s %s declares no refuse expectation" % (_row[0], _row[1]))
 _ARMS = ([(p, pos, fix, tpl, "read", "\u00a0", "U+00A0", read, False)
           for p, pos, fix, tpl, read, _refuse in _R22_GAP_TABLE]
          + [(p, pos, fix, tpl, "refuse", "\x0b", "U+000B", refuse, False)
@@ -363,5 +354,4 @@ for _pat, _pos, _fix, _tpl, _arm, _gap, _label, _want, _mixed in _ARMS:
         if _fix[0] == "s7z":
             _cells["d7z"] = "—"
         acase(_kind, _name, build(**_cells), _fix[1], _want)
-    R22_GAP_ARMS.append((_pat, _pos, _arm, _want, _name))
     (R22_GAP_MIXED if _mixed else R22_GAP.setdefault(_pat, [])).append(_name)

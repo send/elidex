@@ -41,7 +41,7 @@ import re
 from plan_memo_blocks import block_end, delimiter_width, split_row
 from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
 from plan_memo_links import normalize_label
-from plan_memo_stream import GAP, MARKER_RE, compile_gap, phrase, rendered
+from plan_memo_stream import GAP, MARKER_RE, phrase, rendered
 
 # A cell that carries nothing: the one predicate every reader of an optional
 # cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
@@ -444,7 +444,7 @@ def bare_id(cell_text, kinds):
 # are the machine's and its load's.  The remedy, an atomic group or possessive
 # quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
 # `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_tables as m; f=lambda n,t=time.perf_counter: (lambda a: (m._APPOSITIVE.search("Slice 9z \u2014"+" "*n+"x"), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
-_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
+_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
                          re.ASCII)
 
 

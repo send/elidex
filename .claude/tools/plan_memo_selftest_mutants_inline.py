@@ -676,21 +676,21 @@ MUTANTS += [
      '    return "%s(?:%s)%s" % (BEFORE, phrase, AFTER)', '    return "(?:%s)" % phrase',
      [R22_UNDET_NESS, R22_MANKIND, R22_SUBUMBRELLA, R22_UNITARY, R22_SLICER, R22_DECLARES]),
     ("R22 #3 phrase: the MARKER is bounded (re-inject the bare phrase)", STREAM,
-     "MARKER_RE = compile_gap(\"MARKER_RE\", bounded(_phrase(MARKER)))", "MARKER_RE = compile_gap(\"MARKER_RE\", _phrase(MARKER))",
+     "MARKER_RE = re.compile(bounded(_phrase(MARKER)))", "MARKER_RE = re.compile(_phrase(MARKER))",
      [R22_SUBUMBRELLA, R22_UNITARY]),
     # ⚠ THESE SUBSTRINGS MOVED AT R33-2, when the dash set stopped being written
     # out at each reader and became `plan_memo_ids.DASH_CLASS`.
     ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", STREAM,
-     'UNDETERMINED = compile_gap("UNDETERMINED", bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
-     'UNDETERMINED = compile_gap("UNDETERMINED", phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED"),',
      [R22_UNDET_NESS, R22_MANKIND]),
     ("kind phrase: a SEPARATOR is required between KIND and UNDETERMINED (make both gaps and the dash optional again -- `KINDUNDETERMINED` declares the kind)", STREAM,
-     'UNDETERMINED = compile_gap("UNDETERMINED", bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
-     'UNDETERMINED = compile_gap("UNDETERMINED", bounded(phrase("KIND(?: )?" + DASH_CLASS + "?(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: )?" + DASH_CLASS + "?(?: )?UNDETERMINED")),',
      ['(kind) nor does `The KINDUNDETERMINED metric must be recorded` -- a separator between the two words is required: with a nonempty `Deps` cell the separator-free reading made the row no-owner and forced `UMBRELLA-CELL`, rc 1']),
     ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", STREAM,
-     'POINTER = compile_gap("POINTER", bounded(_phrase("is a pointer rather than a slice")))',
-     'POINTER = compile_gap("POINTER", _phrase("is a pointer rather than a slice"))',
+     'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
+     'POINTER = re.compile(_phrase("is a pointer rather than a slice"))',
      [R22_SLICER]),
     ("R22 #3 phrase: the DECLARES vocabulary is bounded (re-inject the bare alternation)", ROLES,
      '    bounded(phrase(r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
@@ -898,8 +898,8 @@ MUTANTS += [
      [R24_LONG_SLUG, R24_WIDTH_PROPERTY]),
     ("R24 F3 tables: the appositive still requires the DASH (drop it: a field that merely mentions a "
      "sibling attributes to it, which is what the window was believed to prevent)", TABLES,
-     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
-     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + phrase(DECOR + "(?: )?$"),',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + phrase(DECOR + "(?: )?$"),',
      [R24_MENTION_ONLY]),
     # ⚠ THE ANCHOR MOVED AT R31-4, when the backward look stopped scanning the
     # whole preceding text and started matching at the ONE offset the index
