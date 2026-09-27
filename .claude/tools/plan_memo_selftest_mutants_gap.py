@@ -20,7 +20,7 @@ decides which modules those are, by CONTENT: a module holding its own list) in o
 """
 
 from plan_memo_selftest_cases_gap import (
-    R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
+    R22_GAP, R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
     R22_WS_ID_RUN_VT, R22_WS_IDEOGRAPHIC, R22_WS_OUTSIDE, R22_WS_ROLES, R22_WS_ROW_NOUN,
 )
 from plan_memo_selftest_mutants import EMPHASIS, ROLES, STREAM, TABLES, TOKENS
@@ -71,8 +71,9 @@ MUTANTS += [
      [R22_WS_ID_RUN, R22_WS_ID_RUN_VT]),
 ]
 
-ROLE_RANK_GAP = ("the role RANKING reads a reader's gap in its phrase words: `waits&nbsp;on` ranks "
-                 "ordering and `placed&nbsp;on` owner, and neither across a U+000B")
+ROLE_RANK_GAP = ("the role RANKING reads a reader's gap in every entry that holds one: `waits&nbsp;on` ranks "
+                 "ordering, `placed&nbsp;on` / `chartered&nbsp;to` / `charters&nbsp;to` owner, and none across "
+                 "a U+000B")
 
 # -- the same round's roles half: every vocabulary in `plan_memo_roles` composes
 # its word gaps through `plan_memo_stream.phrase`.  One row per family, each
@@ -129,4 +130,70 @@ MUTANTS += [
      '    return ch is None or is_unicode_whitespace(ch)',
      '    return ch is None or ch.isspace()',
      [R22_FLANK_VT]),
+]
+
+# -- THE ENUMERATION's rows (the STOP-CLEAN attestation of 900c16eb): one per
+# gap-bearing pattern of `plan_memo_selftest_cases_gap._R22_GAP_TABLE`, each
+# re-spelling THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` --
+# U+000B in, U+00A0 out -- whatever flags the pattern is compiled with, so the
+# ONE edit turns every read arm AND every refuse arm of the pattern red.
+_ASCII_GAP = '(lambda p: p.replace(" ", r"(?a:\\s)+"))('
+MUTANTS += [
+    ("R22 gap: `child of` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    r"child(?:ren)? (?:of )?",', '    r"child(?:ren)?(?a:\\s)+(?:of(?a:\\s)+)?",',
+     R22_GAP["LICENCE child"]),
+    ("R22 gap: `derivation that` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    r"derivation (?:that )?",', '    r"derivation(?a:\\s)+(?:that(?a:\\s)+)?",',
+     R22_GAP["LICENCE derivation"]),
+    ("R22 gap: `naming` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    r"naming ",', '    r"naming(?a:\\s)+",',
+     R22_GAP["LICENCE naming"]),
+    ("R22 gap: `mints onto` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    r"mint(?:s|ed|ing)? (?:onto )?",', '    r"mint(?:s|ed|ing)?(?a:\\s)+(?:onto(?a:\\s)+)?",',
+     R22_GAP["LICENCE mint"]),
+    ("R22 gap: LICENSE_BEFORE's optional `the` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     'phrase(r"(?:the )?$")', 'r"(?:the(?a:\\s)+)?$"',
+     R22_GAP["LICENCE the"]),
+    ("R22 gap: LICENSE_AFTER composes the gap (re-spell every gap `(?a:\\s)`)", ROLES,
+     'LICENSE_AFTER = re.compile(phrase(', 'LICENSE_AFTER = re.compile(' + _ASCII_GAP,
+     R22_GAP["LICENSE_AFTER"]),
+    ("R22 gap: the two-owner clause's keyword half composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    phrase(r"\\b(?:owns?|owned by|owner is|carries|carried by) ")',
+     '    ' + _ASCII_GAP + 'r"\\b(?:owns?|owned by|owner is|carries|carried by) ")',
+     R22_GAP["OWNS_TWO keyword"]),
+    ("R22 gap: the two-owner clause's joining half composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     '    + ' + _ASCII_GAP + 'r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     R22_GAP["OWNS_TWO join"]),
+    ("R22 gap: ORDER_WORDS composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     'ORDER_WORDS = re.compile(phrase(', 'ORDER_WORDS = re.compile(' + _ASCII_GAP,
+     R22_GAP["ORDER_WORDS"]),
+    ("R22 gap: DECLARES composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     'bounded(phrase(r"is an umbrella|', 'bounded(' + _ASCII_GAP + 'r"is an umbrella|',
+     R22_GAP["DECLARES"]),
+    ("R22 gap: the role ranking's ordering entry composes the gap (re-spell it `(?a:\\s)`)", ROLES,
+     '    ("ordering", re.compile(phrase(', '    ("ordering", re.compile(' + _ASCII_GAP,
+     [ROLE_RANK_GAP]),
+    ("R22 gap: the role ranking's owner entries compose the gap (re-spell them `(?a:\\s)`)", ROLES,
+     '    ("owner", re.compile(phrase(', '    ("owner", re.compile(' + _ASCII_GAP,
+     [ROLE_RANK_GAP]),
+    ("R22 gap: the MARKER composes the gap (re-spell it `(?a:\\s)`)", STREAM,
+     'MARKER_RE = re.compile(bounded(_phrase(MARKER)))',
+     'MARKER_RE = re.compile(bounded(re.escape(MARKER).replace("\\\\ ", r"(?a:\\s)+")))',
+     R22_GAP["MARKER_RE"]),
+    ("R22 gap: UNDETERMINED composes the gap (re-spell it `(?a:\\s)`)", STREAM,
+     'bounded(phrase("KIND(?: "', 'bounded(' + _ASCII_GAP + '"KIND(?: "',
+     R22_GAP["UNDETERMINED"]),
+    ("R22 gap: POINTER composes the gap (re-spell it `(?a:\\s)` -- the vocabulary nothing pinned)", STREAM,
+     'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
+     'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice").replace("\\\\ ", r"(?a:\\s)+")))',
+     R22_GAP["POINTER"]),
+    ("R22 gap: the appositive composes the gap (re-spell it `(?a:\\s)` -- a U+000B made a false "
+     "gating UMBRELLA-MARK)", TABLES,
+     'ROW_NOUN_ID + phrase("(?: )?"', 'ROW_NOUN_ID + ' + _ASCII_GAP + '"(?: )?"',
+     R22_GAP["_APPOSITIVE"]),
+    ("R22 gap: the row-noun separator's union composes GAP (re-spell it `(?a:\\s)`)", TABLES,
+     'ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|" + DASH_CLASS + ")+"',
+     'ROW_NOUN_SEP = ROW_NOUN + "(?:(?a:\\\\s)|" + DASH_CLASS + ")+"',
+     R22_GAP["ROW_NOUN_SEP"]),
 ]

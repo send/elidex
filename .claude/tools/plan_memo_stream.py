@@ -111,10 +111,15 @@ def phrase(pattern):
     vocabularies in `plan_memo_roles`.
 
     ⚠ THAT IS A CONVENTION, NOT AN ENFORCED RULE.  Each vocabulary that uses
-    it today is pinned BEHAVIOURALLY: the "(R22 ws)" cases read it across a
-    U+00A0 gap and refuse it across a U+000B, and a mutant that re-spells its
-    gap turns them red.  No control stops a NEW vocabulary from writing `\\s`
-    or a literal U+0020 of its own; a new vocabulary needs its own cases.
+    it today is pinned BEHAVIOURALLY, at every gap position it has
+    (`plan_memo_selftest_cases_gap._R22_GAP_TABLE`, enumerated at the STOP-CLEAN
+    attestation of 900c16eb): one case READS the position across U+00A0, one
+    REFUSES it across U+000B, and an "R22 gap" mutant that re-spells that
+    vocabulary's gaps as Python's `(?a:\\s)` turns every one of them red.  The
+    role ranking's gap entries are pinned the same way by
+    `plan_memo_selftest_controls.role_rank_gap_control`.  No control stops a
+    NEW vocabulary from writing `\\s` or a literal U+0020 of its own; a new
+    vocabulary needs its own rows in that table.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
     composer served the three kind phrases; `plan_memo_roles` wrote its gaps
@@ -158,9 +163,11 @@ never a change to the phrase."""
 # unrelated word declared the kind.
 # ⚠ KNOWN COST, NOT FIXED: a whitespace run after `KIND` followed by a failing
 # tail is QUADRATIC (`GAP+`, an optional dash, then `(?:GAP+)?`: every split of
-# the run is tried) -- measured 0.38 s at 10k and 1.5 s at 20k characters under
-# 3.14, and 0.26 s / 1.0 s at 94281cd7, so it predates the R22 changes;
-# polynomial, not exponential.  The remedy, an atomic group or possessive
+# the run is tried): doubling the run roughly QUADRUPLES the time (x4.7 then
+# x4.0 over 5k -> 10k -> 20k, measured with the command below), and the same
+# shape is at 94281cd7, so it predates the R22 changes; polynomial, not
+# exponential.  Absolute seconds are the machine's and its load's, so none are
+# recorded.  The remedy, an atomic group or possessive
 # quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
 # `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_stream as s; t=time.perf_counter(); list(s.UNDETERMINED.finditer("KIND"+" "*20000+"x")); print(time.perf_counter()-t)'`
 UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),

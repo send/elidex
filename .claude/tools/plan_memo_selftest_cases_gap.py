@@ -22,6 +22,7 @@ This module holds its OWN `CASES` and binds its own spellings (`spellings()`);
 
 from plan_memo_selftest_cases import build, spellings
 from plan_memo_selftest_cases_r26 import kindcell
+from plan_memo_selftest_cases_r42 import R47_4_LITERAL_NBSP, R47_4_UNDET_NBSP
 
 CASES = []
 case, acase, rcase = spellings()
@@ -167,3 +168,141 @@ R22_FLANK_VT = CASES[-1].name
 case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is not right-flanking (both "
                  "readings call it whitespace), the `**` stay literal and `9**z` names nothing",
      build(), "The close rule is 9**z ** here.", 0)
+
+
+# -- THE ENUMERATION (the STOP-CLEAN attestation of 900c16eb).  The claim "each
+# current vocabulary reads a U+00A0 gap, refuses a U+000B one, and a mutant
+# that re-spells its gap turns both red" was FALSE for POINTER, LICENSE_BEFORE's
+# `(?:the )?`, the appositive's refuse direction and `ROW_NOUN_SEP`'s -- it had
+# been checked for the vocabularies someone happened to name.  So the table
+# below is every GAP POSITION of every gap-bearing pattern: each `phrase(...)` /
+# `_phrase(...)` application (the four licensing phrases separately, the two
+# halves of `OWNS_TWO` separately, `(?:the )?` on its own) and the two unions
+# that compose `GAP` directly.  One row per position, and each row is TWO
+# cases: the words joined by U+00A0 (read) and by U+000B (refused).  A position
+# that already had a case with this exact fixture reuses it (`_REUSED`).
+#
+# LEFT OUT, because re-spelling that gap alone changes no verdict (measured):
+# ORDER_WORDS' `ordered before` / `sequenced after` -- `before` / `after` alone
+# are in the same vocabulary; the optional gap in front of `and` / `or` in
+# `OWNS_TWO` and in front of `DECOR` in `_APPOSITIVE` -- the required gap
+# beside each absorbs the run; and ROLE_PATTERNS, whose gaps are read by
+# `plan_memo_selftest_controls.role_rank_gap_control` (the ranking has no case
+# measure).  The landing / acceptance ranking rows hold no gap.
+_R22_GAP_TABLE = (
+    # (pattern, position, fixture, template with {g}, read expectation, refuse expectation)
+    # fixture: "prose" = a prose line, measured in naming sites; (cell, code) = a
+    # cell of the fixture memo, measured in `code` findings (None = sites).
+    ("LICENCE child", "child|of", "prose", "The drain is the child{g}of **9z** in this plan.", 0, 1),
+    ("LICENCE child", "of|mention", "prose", "The drain is the child of{g}**9z** in this plan.", 0, 1),
+    ("LICENCE derivation", "derivation|that", "prose", "It is the derivation{g}that **9z** runs.", 0, 1),
+    ("LICENCE derivation", "that|mention", "prose", "It is the derivation that{g}**9z** runs.", 0, 1),
+    ("LICENCE derivation", "derivation|mention", "prose", "It is the derivation{g}**9z** runs.", 0, 1),
+    ("LICENCE naming", "naming|mention", "prose", "Avoid naming{g}**9z** itself.", 0, 1),
+    ("LICENCE mint", "mints|onto", "prose", "The plan mints{g}onto **9z** later.", 0, 1),
+    ("LICENCE mint", "onto|mention", "prose", "The plan mints onto{g}**9z** later.", 0, 1),
+    ("LICENCE mint", "mints|mention", "prose", "The plan mints{g}**9z** later.", 0, 1),
+    ("LICENCE the", "the|mention", "prose", "The drain is the child of the{g}**9z** in this plan.", 0, 1),
+    ("LICENSE_AFTER", "'s|derivation", "prose", "Note that **9z**'s{g}derivation mints it.", 0, 1),
+    ("LICENSE_AFTER", "'s|own", "prose", "Note that **9z**'s{g}own charter says so.", 0, 1),
+    ("LICENSE_AFTER", "own|charter", "prose", "Note that **9z**'s own{g}charter says so.", 0, 1),
+    ("LICENSE_AFTER", "mention|whose", "prose", "Note that **9z**{g}whose charter says so.", 0, 1),
+    ("LICENSE_AFTER", ",|whose", "prose", "Note that **9z**,{g}whose charter says so.", 0, 1),
+    ("LICENSE_AFTER", "whose|charter", "prose", "Note that **9z**, whose{g}charter says so.", 0, 1),
+    ("LICENSE_AFTER", "mention|is", "prose", "Note that **9z**{g}is an umbrella here.", 0, 1),
+    ("LICENSE_AFTER", "is|an", "prose", "Note that **9z** is{g}an umbrella here.", 0, 1),
+    ("LICENSE_AFTER", "an|umbrella", "prose", "Note that **9z** is an{g}umbrella here.", 0, 1),
+    ("LICENSE_AFTER", "mention|runs", "prose", "Note that **9z**{g}runs at its own start.", 0, 1),
+    ("LICENSE_AFTER", "runs|at", "prose", "Note that **9z** runs{g}at its own start.", 0, 1),
+    ("LICENSE_AFTER", "at|its", "prose", "Note that **9z** runs at{g}its own start.", 0, 1),
+    ("LICENSE_AFTER", "its|own", "prose", "Note that **9z** runs at its{g}own start.", 0, 1),
+    ("LICENSE_AFTER", "own|start", "prose", "Note that **9z** runs at its own{g}start.", 0, 1),
+    ("LICENSE_AFTER", "mention|became", "prose", "Note that **9z**{g}became an umbrella here.", 0, 1),
+    ("LICENSE_AFTER", "became|an", "prose", "Note that **9z** became{g}an umbrella here.", 0, 1),
+    ("LICENSE_AFTER", "became an|umbrella", "prose", "Note that **9z** became an{g}umbrella here.", 0, 1),
+    ("OWNS_TWO keyword", "owned|by", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned{g}by **7z** and **Qx**.", 1, 0),
+    ("OWNS_TWO keyword", "owner|is", ("s9z", "TWO-OWNERS?"), "charter.  The drain's owner{g}is **7z** and **Qx**.", 1, 0),
+    ("OWNS_TWO keyword", "carried|by", ("s9z", "TWO-OWNERS?"), "charter.  The drain is carried{g}by **7z** and **Qx**.", 1, 0),
+    ("OWNS_TWO keyword", "keyword|owner", ("s9z", "TWO-OWNERS?"), "charter.  The drain owns{g}**7z** and **Qx**.", 1, 0),
+    ("OWNS_TWO join", "owner|and", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z**{g}and **Qx**.", 1, 0),
+    ("OWNS_TWO join", "and|owner", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z** and{g}**Qx**.", 1, 0),
+    ("OWNS_TWO join", "owner|or", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z**{g}or **Qx**.", 1, 0),
+    ("OWNS_TWO join", "or|owner", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z** or{g}**Qx**.", 1, 0),
+    ("OWNS_TWO join", "owner|,", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z**{g}, **Qx**.", 1, 0),
+    ("OWNS_TWO join", ",|owner", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z**,{g}**Qx**.", 1, 0),
+    ("OWNS_TWO join", "owner|/", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z**{g}/ **Qx**.", 1, 0),
+    ("OWNS_TWO join", "/|owner", ("s9z", "TWO-OWNERS?"), "charter.  The drain is owned by **7z** /{g}**Qx**.", 1, 0),
+    ("ORDER_WORDS", "lands|first", ("s7z", "ORDER-PROSE?"), "Terminal.  This row lands{g}first; the probe must return 3.", 1, 0),
+    ("ORDER_WORDS", "lands|second", ("s7z", "ORDER-PROSE?"), "Terminal.  This row lands{g}second; the probe must return 3.", 1, 0),
+    ("ORDER_WORDS", "prerequisite|of", ("s7z", "ORDER-PROSE?"), "Terminal.  This row is a prerequisite{g}of it; the probe must return 3.", 1, 0),
+    ("ORDER_WORDS", "blocked|by", ("s7z", "ORDER-PROSE?"), "Terminal.  This row is blocked{g}by it; the probe must return 3.", 1, 0),
+    ("ORDER_WORDS", "depends|on", ("s7z", "ORDER-PROSE?"), "Terminal.  This row depends{g}on it; the probe must return 3.", 1, 0),
+    ("DECLARES", "is|an", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row is{g}an umbrella by derivation.  Acceptance: must.", 1, 0),
+    ("DECLARES", "an|umbrella", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row is an{g}umbrella by derivation.  Acceptance: must.", 1, 0),
+    ("DECLARES", "not|a", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row is not{g}a terminal unit by derivation.  Acceptance: must.", 1, 0),
+    ("DECLARES", "a|terminal", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row is not a{g}terminal unit by derivation.  Acceptance: must.", 1, 0),
+    ("DECLARES", "terminal|unit", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row is not a terminal{g}unit by derivation.  Acceptance: must.", 1, 0),
+    ("DECLARES", "≥3|intersecting", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row has ≥3{g}intersecting axes.  Acceptance: must.", 1, 0),
+    ("DECLARES", "three|intersecting", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row has three{g}intersecting axes.  Acceptance: must.", 1, 0),
+    ("DECLARES", "no|canonical", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row has no{g}canonical algorithm.  Acceptance: must.", 1, 0),
+    ("DECLARES", "canonical|algorithm", ("sqx", "UMBRELLA-MARK?"), "Terminal.  This row has no canonical{g}algorithm.  Acceptance: must.", 1, 0),
+    ("MARKER_RE", "UMBRELLA,|not", ("kind", "UMBRELLA-CELL"), "**UMBRELLA,{g}not a terminal unit.**", 1, 0),
+    ("MARKER_RE", "not|a", ("kind", "UMBRELLA-CELL"), "**UMBRELLA, not{g}a terminal unit.**", 1, 0),
+    ("MARKER_RE", "a|terminal", ("kind", "UMBRELLA-CELL"), "**UMBRELLA, not a{g}terminal unit.**", 1, 0),
+    ("MARKER_RE", "terminal|unit", ("kind", "UMBRELLA-CELL"), "**UMBRELLA, not a terminal{g}unit.**", 1, 0),
+    ("UNDETERMINED", "KIND|UNDETERMINED", ("kind", "UMBRELLA-CELL"), "KIND{g}UNDETERMINED", 1, 0),
+    ("UNDETERMINED", "KIND|dash", ("kind", "UMBRELLA-CELL"), "KIND{g}— UNDETERMINED", 1, 0),
+    ("UNDETERMINED", "dash|UNDETERMINED", ("kind", "UMBRELLA-CELL"), "KIND —{g}UNDETERMINED", 1, 0),
+    ("POINTER", "is|a", ("sqx", "ACCEPT-VOCAB?"), "This row is{g}a pointer rather than a slice.", 0, 1),
+    ("POINTER", "a|pointer", ("sqx", "ACCEPT-VOCAB?"), "This row is a{g}pointer rather than a slice.", 0, 1),
+    ("POINTER", "pointer|rather", ("sqx", "ACCEPT-VOCAB?"), "This row is a pointer{g}rather than a slice.", 0, 1),
+    ("POINTER", "rather|than", ("sqx", "ACCEPT-VOCAB?"), "This row is a pointer rather{g}than a slice.", 0, 1),
+    ("POINTER", "than|a", ("sqx", "ACCEPT-VOCAB?"), "This row is a pointer rather than{g}a slice.", 0, 1),
+    ("POINTER", "a|slice", ("sqx", "ACCEPT-VOCAB?"), "This row is a pointer rather than a{g}slice.", 0, 1),
+    ("_APPOSITIVE", "id|dash", ("wb", "UMBRELLA-MARK"), "Slice 9z{g}— **UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
+    ("_APPOSITIVE", "dash|marker", ("wb", "UMBRELLA-MARK"), "Slice 9z —{g}**UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
+    ("ROW_NOUN_SEP", "noun|id", ("wb", "UMBRELLA-MARK"), "Slice{g}9z — **UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
+    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, 0),
+)
+# (pattern, position, "read" | "refuse") -> the case that already held that arm
+# with exactly this fixture, so it is reused rather than written twice.
+_REUSED = {
+    ("LICENCE child", "of|mention", "read"): R22_WS_ROLES["before"][0],
+    ("LICENCE child", "of|mention", "refuse"): R22_WS_ROLES["before"][1],
+    ("DECLARES", "is|an", "read"): R22_WS_ROLES["declares"][0],
+    ("DECLARES", "is|an", "refuse"): R22_WS_ROLES["declares"][1],
+    ("MARKER_RE", "a|terminal", "read"): R47_4_LITERAL_NBSP,
+    ("UNDETERMINED", "KIND|UNDETERMINED", "read"): R47_4_UNDET_NBSP,
+    ("UNDETERMINED", "KIND|UNDETERMINED", "refuse"): R22_WS_OUTSIDE[1],
+    ("_APPOSITIVE", "id|dash", "read"): R22_WS_APPOSITIVE,
+    ("ROW_NOUN_SEP", "noun|id", "read"): R22_WS_ROW_NOUN,
+    ("_ID_RUN_TOKEN", "id|id", "read"): R22_WS_ID_RUN,
+    ("_ID_RUN_TOKEN", "id|id", "refuse"): R22_WS_ID_RUN_VT,
+}
+R22_GAP = {}
+"""pattern -> the names of its read and refuse cases, every position -- what each
+pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn red."""
+for _pat, _pos, _fix, _tpl, _read, _refuse in _R22_GAP_TABLE:
+    for _arm, _gap, _label, _want in (("read", " ", "U+00A0", _read),
+                                      ("refuse", "\x0b", "U+000B", _refuse)):
+        _name = _REUSED.get((_pat, _pos, _arm))
+        if _name is None:
+            _name = ("(R22 gap) %s, the gap %s: %s there is %s -- %s" % (
+                _pat, _pos, _label,
+                "a gap a reader sees, so the phrase is read" if _arm == "read"
+                else "no whitespace to cmark, so the words run together and the phrase is refused",
+                _tpl.replace("{g}", "<%s>" % _label)))
+            _kind = "POSITIVE" if _want else "NEGATIVE"
+            _text = _tpl.replace("{g}", _gap)
+            if _fix == "prose":
+                case(_kind, _name, build(), _text, _want)
+            elif _fix[0] == "kind":
+                acase(_kind, _name, kindcell(_text), _fix[1], _want)
+            elif _fix[1] is None:
+                case(_kind, _name, build(**{_fix[0]: _text}), "", _want)
+            else:
+                _cells = {_fix[0]: _text}
+                if _fix[0] == "s7z":
+                    _cells["d7z"] = "—"
+                acase(_kind, _name, build(**_cells), _fix[1], _want)
+        R22_GAP.setdefault(_pat, []).append(_name)

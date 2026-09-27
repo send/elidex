@@ -436,9 +436,11 @@ def bare_id(cell_text, kinds):
 # whitespace, stood in for a gap.
 # ⚠ KNOWN COST, NOT FIXED: after the dash, a whitespace run followed by a
 # failing tail is QUADRATIC (`(?:GAP+)?`, then `DECOR`, which may match empty,
-# then `(?:GAP+)?$`: every split of the run is tried) -- measured 0.6 s at 10k
-# and 2.4 s at 20k characters under 3.14, and 0.45 s / 1.8 s at 94281cd7, so it
-# predates the R22 changes; polynomial, not exponential.  The remedy, an atomic
+# then `(?:GAP+)?$`: every split of the run is tried): doubling the run roughly
+# QUADRUPLES the time (x3.6 then x3.7 over 5k -> 10k -> 20k, measured with the
+# command below), and the same shape is at 94281cd7, so it predates the R22
+# changes; polynomial, not exponential.  Absolute seconds are the machine's and
+# its load's, so none are recorded.  The remedy, an atomic
 # group or possessive quantifier, needs Python 3.11 and this tool supports 3.9.
 # Measure: `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_tables as t; f="Slice 9z \u2014"+" "*20000+"x"; s=time.perf_counter(); t._APPOSITIVE.search(f); print(time.perf_counter()-s)'`
 _APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
