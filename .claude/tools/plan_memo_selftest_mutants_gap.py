@@ -19,7 +19,7 @@ decides which modules those are, by CONTENT: a module holding its own list) in o
 """
 
 from plan_memo_selftest_cases_gap import (
-    R22_GAP, R22_GAP_MIXED, R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
+    R22_GAP, R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
     R22_WS_ID_RUN_VT, R22_WS_IDEOGRAPHIC, R22_WS_OUTSIDE, R22_WS_ROLES, R22_WS_ROW_NOUN,
 )
 from plan_memo_selftest_mutants import EMPHASIS, ROLES, STREAM, TABLES, TOKENS
@@ -197,9 +197,8 @@ MUTANTS += [
      R22_GAP["ROW_NOUN_SEP"]),
 ]
 
-# -- the review of 01bd2c5d: the pattern the hand-traced table missed, the id
-# run's own "R22 gap" row (so the rule has no exception), and the one optional
-# gap only a mixed run reaches.
+# -- the review of 01bd2c5d: the pattern the hand-traced table missed, and the
+# id run's own "R22 gap" row (so the rule has no exception).
 MUTANTS += [
     ("R22 gap: the anchored naming pass composes GAP (re-spell NOUN_ANCHOR's gap `(?a:\\s)` -- "
      "`Slice&nbsp;C` names nothing, `Slice<U+000B>C` names C)", ROLES,

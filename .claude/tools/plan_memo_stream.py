@@ -164,7 +164,8 @@ never a change to the phrase."""
 # unrelated word declared the kind.
 # Linear by construction (disjoint alternatives, PR #510 Codex R31), shown by
 # the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
-# No control enforces it; §8 (17)'s follow-up owns that.
+# No control enforces it; §8 (17)'s follow-up owns that.  The detector that
+# message describes was removed: `git log --reverse -F --grep='drop the adjacency detector' --format=%H | head -1 | xargs git log -1 --format=%B`.
 UNDETERMINED = re.compile(bounded(phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 

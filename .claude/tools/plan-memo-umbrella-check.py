@@ -104,7 +104,9 @@ MODULES
                           _selftest_cases_sibling.py (the resolver's controls,
                           carved on a SUBJECT rather than a review round) /
                           _selftest_cases_gap.py (the reader-gap controls: §2.1
-                          whitespace in every gap-bearing pattern, the file-name
+                          whitespace in the 13 gap-bearing patterns it
+                          enumerates (no control enforces completeness: §8
+                          (17)), the file-name
                           boundary, §6.2's reading -- the same kind of seam) /
                           _selftest_mutants.py / _selftest_mutants_pr510.py /
                           _selftest_mutants_inline.py /

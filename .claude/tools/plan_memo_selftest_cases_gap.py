@@ -178,8 +178,8 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # PER TEMPLATE, and one regex gap can have several (`derivation|that` and
 # `derivation|mention` are the same gap after `derivation`).  Every row declares
 # BOTH arms: the words joined by U+00A0 (read) and by U+000B (refused).  A
-# `_R22_GAP_MIXED` row declares ONE arm, a refuse arm on its own run (VT+NBSP),
-# for a gap an adjacent required gap would otherwise absorb.  Every declared arm
+# `_R22_GAP_MIXED` row declares ONE arm: a refuse regression on a mixed
+# VT+NBSP run.  Every declared arm
 # is GENERATED from its row's template by the loop after `_R22_GAP_MIXED` --
 # there is no reuse of an older case, so every template is exercised (the
 # review of f85f4e1b: a reused arm was checked by its number only, and a row
@@ -199,11 +199,11 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  No control
 # enforces rows for a new gap-bearing pattern: §8 (17) of
 # `docs/plans/2026-08-plan-memo-umbrella-checker.md`.
-# WHICH GAPS the rows reach is measured, not enforced: at the tree of the
-# first commit whose message contains GAP-REACH SCRIPT, each of the 71 gaps of
-# the 13 patterns, re-spelled alone as `(?a:\s)`, flips at least one arm,
-# except ORDER_WORDS' `ordered before` / `sequenced after` (#4 / #5), which
-# have no rows.  That commit's message holds the script:
+# WHICH GAPS the rows reach is measured, not enforced: at the head, each of
+# the 72 gaps of the 13 patterns, re-spelled alone as `(?a:\s)`, flips at least
+# one arm, except ORDER_WORDS' `ordered before` / `sequenced after` (#4 / #5),
+# which have no rows.  The script is in the body of the first commit whose
+# message contains GAP-REACH SCRIPT; run it at the head:
 #   git log --reverse --grep='GAP-REACH SCRIPT' --format=%H | head -1 | xargs git log -1 --format=%B
 # The two are behaviour-neutral; this prints [True, True]:
 #   python3 -c 'import sys; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; print([bool(r.ORDER_WORDS.search(s)) for s in ("ordered\x0bbefore", "sequenced\x0bafter")])'
@@ -276,6 +276,7 @@ _R22_GAP_TABLE = (
     ("UNDETERMINED", "KIND|UNDETERMINED", ("kind", "UMBRELLA-CELL"), "KIND{g}UNDETERMINED", 1, 0),
     ("UNDETERMINED", "KIND|dash", ("kind", "UMBRELLA-CELL"), "KIND{g}— UNDETERMINED", 1, 0),
     ("UNDETERMINED", "dash|UNDETERMINED", ("kind", "UMBRELLA-CELL"), "KIND —{g}UNDETERMINED", 1, 0),
+    ("UNDETERMINED", "dash-first|UNDETERMINED", ("kind", "UMBRELLA-CELL"), "KIND—{g}UNDETERMINED", 1, 0),
     ("POINTER", "is|a", ("sqx", "ACCEPT-VOCAB?"), "This row is{g}a pointer rather than a slice.", 0, 1),
     ("POINTER", "a|pointer", ("sqx", "ACCEPT-VOCAB?"), "This row is a{g}pointer rather than a slice.", 0, 1),
     ("POINTER", "pointer|rather", ("sqx", "ACCEPT-VOCAB?"), "This row is a pointer{g}rather than a slice.", 0, 1),
