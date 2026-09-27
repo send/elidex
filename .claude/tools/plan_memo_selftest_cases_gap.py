@@ -203,7 +203,8 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # the 72 gaps of the 13 patterns, re-spelled alone as `(?a:\s)`, flips at least
 # one arm, except ORDER_WORDS' `ordered before` / `sequenced after` (#4 / #5),
 # which have no rows.  The script is in the body of the first commit whose
-# message contains GAP-REACH SCRIPT; run it at the head:
+# message contains GAP-REACH SCRIPT (the lines after it, up to the first blank
+# line); run it at the head:
 #   git log --reverse --grep='GAP-REACH SCRIPT' --format=%H | head -1 | xargs git log -1 --format=%B
 # The two are behaviour-neutral; this prints [True, True]:
 #   python3 -c 'import sys; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; print([bool(r.ORDER_WORDS.search(s)) for s in ("ordered\x0bbefore", "sequenced\x0bafter")])'
