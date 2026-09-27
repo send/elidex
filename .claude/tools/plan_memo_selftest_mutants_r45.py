@@ -349,14 +349,8 @@ MUTANTS += [
      [R52_OUTSIDE_STRADDLE]),
 ]
 
-GAP_SWEEP = ("PROPERTY: the checker spells a reader's gap ONE way -- no string literal holds `\\s` / `\\S`, "
-             "no `.isspace()` is called, and no pattern literal handed to `re` holds a U+0020 outside a "
-             "character class unless it went through `plan_memo_stream.phrase` (unknown sites are red; the "
-             "exemptions are keyed on function and expression)")
-
 # -- the R22 pre-push review: the two readings that were right and unpinned
-# (the file-name boundary is Python's set on purpose; §6.2 reads §2.1), and the
-# sweep that makes "one spelling of a gap" a check rather than a sentence.
+# (the file-name boundary is Python's set on purpose; §6.2 reads §2.1).
 MUTANTS += [
     ("R22 file: the file-name run STARTS at Python's whitespace (swap the segment reset to the §2.1 "
      "predicate -- `9z<U+001C>notes.md` swallows `9z` and the site is lost)", TOKENS,
@@ -375,17 +369,4 @@ MUTANTS += [
      '    return ch is None or is_unicode_whitespace(ch)',
      '    return ch is None or ch.isspace()',
      [R22_FLANK_VT]),
-    ("R22 sweep: a `\\s` planted in a vocabulary is red (re-spell `naming`'s gap as `\\s+`)", ROLES,
-     '    r"naming ",', '    r"naming\\s+",',
-     [GAP_SWEEP]),
-    ("R22 sweep: a NEW `.isspace()` in an exempt function is red -- the exemption is keyed on the "
-     "expression, not the function or the line (add a second, equivalent call)", TOKENS,
-     '    while j < n and not (text[j].isspace() or text[j] in _NAME_BOUNDARY):',
-     '    while j < n and not (text[j].isspace() or text[j:j + 1].isspace() or text[j] in _NAME_BOUNDARY):',
-     [GAP_SWEEP]),
-    ("R22 sweep: a literal U+0020 word gap in a pattern that bypasses `phrase` is red (add `not landed` "
-     "to `RETIRED`)", ROLES,
-     r'RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b", re.ASCII)',
-     r'RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b|\bnot landed\b", re.ASCII)',
-     [GAP_SWEEP]),
 ]

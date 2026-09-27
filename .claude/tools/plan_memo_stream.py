@@ -108,14 +108,13 @@ def phrase(pattern):
     `GAP` one-or-more; an OPTIONAL gap is written `(?: )?`.  Every phrase
     vocabulary in the checker is spelled through it -- the kind phrases here,
     the appositive in `plan_memo_tables`, and the licensing, ranking and seed
-    vocabularies in `plan_memo_roles`.  That a new vocabulary cannot arrive
-    with its own spelling of a space is a CONTROL, not this sentence
-    (`plan_memo_selftest_properties.gap_spelling_sweep_control`): it is red on
-    any `\\s` / `\\S` in a checker literal, on any `.isspace()` outside two
-    keyed file-name-boundary sites, and on a U+0020 outside a `[...]` class in a
-    pattern literal handed to `re` that did not go through this function.  It
-    cannot see a pattern held in a constant and passed to `re` by name, or a
-    gap spelled as the class `[ ]` -- its docstring lists the rest.
+    vocabularies in `plan_memo_roles`.
+
+    ⚠ THAT IS A CONVENTION, NOT AN ENFORCED RULE.  Each vocabulary that uses
+    it today is pinned BEHAVIOURALLY: the "(R22 ws)" cases read it across a
+    U+00A0 gap and refuse it across a U+000B, and a mutant that re-spells its
+    gap turns them red.  No control stops a NEW vocabulary from writing `\\s`
+    or a literal U+0020 of its own; a new vocabulary needs its own cases.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
     composer served the three kind phrases; `plan_memo_roles` wrote its gaps
@@ -157,6 +156,13 @@ never a change to the phrase."""
 # words -- whitespace (then an optional dash) or a dash -- since Codex on
 # `0a5ab700`: with both gaps and the dash optional, `KINDUNDETERMINED` in an
 # unrelated word declared the kind.
+# ⚠ KNOWN COST, NOT FIXED: a whitespace run after `KIND` followed by a failing
+# tail is QUADRATIC (`GAP+`, an optional dash, then `(?:GAP+)?`: every split of
+# the run is tried) -- measured 0.38 s at 10k and 1.5 s at 20k characters under
+# 3.14, and 0.26 s / 1.0 s at 94281cd7, so it predates the R22 changes;
+# polynomial, not exponential.  The remedy, an atomic group or possessive
+# quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
+# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_stream as s; t=time.perf_counter(); list(s.UNDETERMINED.finditer("KIND"+" "*20000+"x")); print(time.perf_counter()-t)'`
 UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 

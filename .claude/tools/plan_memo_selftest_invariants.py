@@ -773,9 +773,9 @@ def unicode_whitespace_class_control(M):
     composing GAP -- the sweep of that round put every phrase vocabulary
     through `plan_memo_stream.phrase` and the two character unions on GAP
     itself, and `plan_memo_tokens._NAME_BOUNDARY` says why the file-name
-    boundary is not one; a next vocabulary writing `\\s` is
-    `plan_memo_selftest_properties.gap_spelling_sweep_control`'s to catch --
-    and a disagreement between §2.1 and cmark, which the predicate's
+    boundary is not one; nothing catches a NEXT vocabulary that writes `\\s`
+    (the composer is a convention, `plan_memo_stream.phrase` says so) -- and a
+    disagreement between §2.1 and cmark, which the predicate's
     docstring measured once by hand."""
     import re as _re
     import sys as _sys
