@@ -119,7 +119,7 @@ def phrase(pattern):
     `docs/plans/2026-08-plan-memo-umbrella-checker.md`).  Per-gap reach is
     measured, not enforced; ORDER_WORDS' `ordered before` / `sequenced after`
     gaps are behaviour-neutral and have no rows (both: the table comment of
-    `plan_memo_selftest_cases_gap`).  A vocabulary that writes `\\s` or a
+    `plan_memo_selftest_cases_gap`).  A NEW vocabulary that writes `\\s` or a
     literal U+0020 instead of calling this function is not seen either.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
