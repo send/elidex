@@ -12,23 +12,24 @@
 # ⚠ THE SPLIT IS THE RULE'S OWN SHAPE, AND THE ORDERING MATTERS. CLAUDE.md's
 # touch-time discipline says a >1000-line file gets a "standalone prereq split"
 # as its own PR **or its own commit**, and its heading is *defer しない*. An
-# earlier revision of the plan memo booked this as a defer slot to be done after
-# the PR landed — which inverts "prereq" into "afterwards" and uses the
-# single-commit requirement as a reason to merge the oversized file first. The
+# earlier revision of 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md booked
+# this as a defer slot to be done after the PR landed — which inverts "prereq"
+# into "afterwards" and uses the single-commit requirement as a reason to merge
+# the oversized file first. The
 # external reviewer caught that (P1). This file is that standalone commit.
 #
-# ⚠ AND THE COUNTER-ARGUMENT IS ANSWERED, not ignored. The memo previously
-# argued against this seam on the ground that "the two lists must be edited
-# together, so splitting them puts the two halves of one assertion in two
-# files". They must — and the correspondence check below is what ENFORCES that
+# ⚠ AND THE COUNTER-ARGUMENT IS ANSWERED, not ignored.
+# 2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md previously argued against
+# this seam on the ground that "the two lists must be edited together, so
+# splitting them puts the two halves of one assertion in two files". They must — and the correspondence check below is what ENFORCES that
 # rather than hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
 # WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_HARNESS` and
 # `$_MUTATIONS` (from the controls file — the last is this file's own path),
 # and `$SELF`, `$SCRATCH`, `$_CONTROLS`, `$K2RE` and `$K2RE_PATH` (from the
-# wire). `_mut_run` copies
-# the controls, the harness and this file beside each mutant.
+# wire). `_mut_run` copies every part in its `_MUT_PARTS` list — the controls,
+# the harness, this file and the fixture build — beside each mutant.
 # ⚠ THE TWO REGEXES ARE CONSUMED AS VALUES, not just named in a `for` list:
 # `_mut_gen_run` compares what the wire's assignment LINE reads back as against
 # what the RUNNING wire HOLDS, and that second half is these variables. They
@@ -714,29 +715,48 @@ _mut_run() {
     # ⚠ AND THE COPY MUST SIT BESIDE THE WIRE, so `$SCRATCH` is not an option:
     # `$ROOT` is derived from `$0`, and the scope it must read is this
     # repository's real generic core. `$$` is what makes the two runs disjoint.
-    _mut_wire="${SELF%.sh}.mutant.$$.sh"
-    _mut_ctl="${SELF%.sh}.mutant.$$.controls.sh"
-    # ⚠ AND THIS FILE TOO. The copy derives its own `_MUTATIONS` from its name,
-    # so a mutant with the controls beside it but not the mutation set exits 2
-    # ("decided nothing") for a reason that has nothing to do with the mutation
-    # — which the harness then reports as the entry failing. Caught by the
-    # standing negative control in the same run that split this file out.
-    _mut_mut="${SELF%.sh}.mutant.$$.mutations.sh"
-    # …and the harness the copied controls source, for the same reason.
-    _mut_hns="${SELF%.sh}.mutant.$$.harness.sh"
+    _mut_base="${SELF%.sh}.mutant.$$"
+    _mut_wire="$_mut_base.sh"
+    # THE PARTS, SPELLED ONCE: every file beside the wire that a mutant needs
+    # beside IT, under the name the copy derives from its own `$SELF`
+    # (`$_mut_base.<part>.sh`). The copy below, the trap's `rm -f` and the
+    # stale-report skip all read this one list, so a new part is one word here
+    # rather than three sites that have to agree.
+    # ⚠ EVERY PART, NOT ONLY THE CONTROLS. Each part is sourced by name from a
+    # sibling, so a mutant with the controls beside it but not the mutation set
+    # exits 2 ("decided nothing") for a reason that has nothing to do with the
+    # mutation — which the harness then reports as the entry failing. Caught by
+    # the standing negative control in the same run that split the mutation set
+    # out; the harness and the fixture build are sourced the same way.
+    _MUT_PARTS="controls harness mutations fixtures"
+    # THE SIBLING GUARD — HERE, BEFORE THE LOOP, AND NOWHERE ELSE. The shipped
+    # files beside the wire must be exactly `$_MUT_PARTS`: a part left off the
+    # list is not copied, and every mutant would then exit 2 for a reason that is
+    # not its mutation. It cannot be always-on: inside a mutant `$SELF` is
+    # `….mutant.$$.sh`, every sibling carries `.mutant.`, and the filtered glob
+    # below is empty.
+    _mp_have=""
+    for _mp_f in "${SELF%.sh}".*.sh; do
+      case "$_mp_f" in *.mutant.*|*'.*.sh') continue ;; esac
+      _mp_n="${_mp_f#"${SELF%.sh}".}"; _mp_have="$_mp_have ${_mp_n%.sh}"
+    done
+    if [ "$(printf '%s\n' $_mp_have | sort | tr '\n' ' ')" != "$(printf '%s\n' $_MUT_PARTS | sort | tr '\n' ' ')" ]; then
+      echo "!! the parts beside the wire are [$_mp_have ], but \`_MUT_PARTS\` is [ $_MUT_PARTS ]," >&2
+      echo "   so a mutant would run without one of them, or beside one nobody copies." >&2
+      echo "   The mutation run decided nothing." >&2
+      exit 2
+    fi
     # ⚠ A LEFTOVER IS A REPORT, NOT A FILE TO CLEAN UP. `trap` does not run on
     # SIGKILL, so a killed run leaves mode-755 artifacts in `.claude/tools/`
     # where a `git add -A` would stage them. Say so; do not delete another run's.
     for _stale in "${SELF%.sh}".mutant.*.sh; do
       case "$_stale" in *'.mutant.*.sh') break ;; esac
-      case "$_stale" in "$_mut_wire"|"$_mut_ctl") continue ;; esac
+      case "$_stale" in "$_mut_wire"|"$_mut_base".*) continue ;; esac
       echo "  note: a previous mutation run left $_stale behind (SIGKILL?); it is" >&2
       echo "        not this run's to remove. Delete it once no run is using it." >&2
     done
-    trap 'command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
-    cp "$_CONTROLS" "$_mut_ctl"
-    cp "$_MUTATIONS" "$_mut_mut"
-    cp "$_HARNESS" "$_mut_hns"
+    trap 'command rm -f "$_mut_wire"; for _mp in $_MUT_PARTS; do command rm -f "$_mut_base.$_mp.sh"; done; case "$SCRATCH" in /*/*) chmod -R u+rwX "$SCRATCH" 2>/dev/null || true; rm -rf "$SCRATCH";; esac' EXIT
+    for _mp in $_MUT_PARTS; do cp "${SELF%.sh}.$_mp.sh" "$_mut_base.$_mp.sh"; done
     # Through a FILE, not a pipe: the counters below must survive the loop, and a
     # `_mutants | while` runs the body in a subshell that discards them.
     _mutants > "$CTL/.mutants"
@@ -766,7 +786,7 @@ _mut_run() {
     _mut_gen_n=0; _mut_gen_bad=0
     _mut_gen_run
     echo "  generated boundary set: $_mut_gen_n mutant(s) from \$K2RE and \$K2RE_PATH, $_mut_gen_bad neither killed nor argued equivalent"
-    command rm -f "$_mut_wire" "$_mut_ctl" "$_mut_mut" "$_mut_hns"
+    command rm -f "$_mut_wire"; for _mp in $_MUT_PARTS; do command rm -f "$_mut_base.$_mp.sh"; done
     [ "$_mut_bad" -eq 0 ] && [ "$_mut_gen_bad" -eq 0 ] || exit 1
     echo "  every entry above was shown to red, and to red for its own reason;"
     echo "  generated: every class member, quantifier, alternation branch and"
