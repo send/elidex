@@ -1491,8 +1491,8 @@ committed here by the note that corrected it.
   neither ends a segment in the main scan, so they are not a divergence between the two scans. The
   probe is in the body of the first commit whose message contains R30 PAREN PROBE: `git log
   --reverse --grep='R30 PAREN PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`. A
-  one-predicate prototype (the segment rule stepped for the tail too; its diff is in the same
-  message) turned the R35 property red on `notes.md#a)b` and `linear_file_token_control` red ("100
+  one-predicate prototype (the segment rule stepped for the tail too; its diff, verbatim, is in the body of
+  the first commit whose message contains R30 PROTOTYPE DIFF, between that line and END OF DIFF) turned the R35 property red on `notes.md#a)b` and `linear_file_token_control` red ("100
   x.md names cost more than 6000 source lines"), and 15 mutant rows target `plan_memo_tokens.py`.
   HYPOTHESIS for the plan review, not a decision: unify on R26-2, since splitting at `)` reports the
   id and widening a mask is the dangerous direction (`_TRAILING`'s comment); that amends the R35
