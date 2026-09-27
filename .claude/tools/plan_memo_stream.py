@@ -110,18 +110,17 @@ def phrase(pattern):
     the appositive in `plan_memo_tables`, and the licensing, ranking and seed
     vocabularies in `plan_memo_roles`.
 
-    ⚠ THAT IS A CONVENTION, NOT AN ENFORCED RULE.  Each vocabulary that uses
-    it today is pinned BEHAVIOURALLY, at every gap position whose spelling
-    changes a verdict (`plan_memo_selftest_cases_gap._R22_GAP_TABLE`,
-    enumerated at the STOP-CLEAN attestation of 900c16eb; the positions it
-    leaves out as behaviour-neutral, and why, are listed beside it): one case
-    READS the position across U+00A0, one
-    REFUSES it across U+000B, and an "R22 gap" mutant that re-spells that
-    vocabulary's gaps as Python's `(?a:\\s)` turns every one of them red.  The
-    role ranking's gap entries are pinned the same way by
-    `plan_memo_selftest_controls.role_rank_gap_control`.  No control stops a
-    NEW vocabulary from writing `\\s` or a literal U+0020 of its own; a new
-    vocabulary needs its own rows in that table.
+    ⚠ THAT IS A CONVENTION, AND WHAT IS ENFORCED IS NAMED HERE.
+    `plan_memo_selftest_ratchets.gap_pattern_population_control` enumerates
+    every module-level compiled pattern whose source holds `GAP` and is red on
+    one without rows in `plan_memo_selftest_cases_gap._R22_GAP_TABLE` (or a
+    named function control); those rows read each pattern across U+00A0 and
+    refuse it across U+000B, and an "R22 gap" mutant re-spelling its gaps as
+    `(?a:\\s)` turns them red.  That the rows reach every gap INSIDE a pattern
+    was measured once and is recorded beside the table, not enforced.  And the
+    ratchet keys on `GAP`: a NEW vocabulary that writes `\\s` or a literal
+    U+0020 instead of calling this function holds no `GAP` and is invisible to
+    it -- no control stops that.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
     composer served the three kind phrases; `plan_memo_roles` wrote its gaps
@@ -165,13 +164,14 @@ never a change to the phrase."""
 # unrelated word declared the kind.
 # ⚠ KNOWN COST, NOT FIXED: a whitespace run after `KIND` followed by a failing
 # tail is QUADRATIC (`GAP+`, an optional dash, then `(?:GAP+)?`: every split of
-# the run is tried): doubling the run roughly QUADRUPLES the time (x4.7 then
-# x4.0 over 5k -> 10k -> 20k, measured with the command below), and the same
-# shape is at 94281cd7, so it predates the R22 changes; polynomial, not
-# exponential.  Absolute seconds are the machine's and its load's, so none are
-# recorded.  The remedy, an atomic group or possessive
+# the run is tried): doubling the run roughly
+# QUADRUPLES the time -- the command below times a 5k, a 10k and a 20k run and
+# prints the two ratios; the runs taken for this note under Python 3.9 and 3.14
+# gave x3.4 to x5.5, and a run under load can fall outside that.  The same shape is at 94281cd7, so it predates
+# the R22 changes; polynomial, not exponential.  No seconds are recorded: they
+# are the machine's and its load's.  The remedy, an atomic group or possessive
 # quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
-# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_stream as s; t=time.perf_counter(); list(s.UNDETERMINED.finditer("KIND"+" "*20000+"x")); print(time.perf_counter()-t)'`
+# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_stream as s; f=lambda n,t=time.perf_counter: (lambda a: (list(s.UNDETERMINED.finditer("KIND"+" "*n+"x")), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
 UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 

@@ -7,9 +7,9 @@ the two whitespace notions that are deliberately something else.
 
 CARVED ON A SUBJECT, like `_mutants_ratchets.py` and `_mutants_population.py`,
 from `plan_memo_selftest_mutants_r45.py`, where PR #510's Codex R22 of
-2026-09-27 and its review passes had appended them.  WHERE THE R22 ROWS LIVE:
-the rows labelled "R22 ws" / "R22 ws roles" / "R22 gap" / "R22 file" /
-"R22 §6.2" are here; the OLDER Codex R22 (2026-09-08) rows labelled "R22 #1" -
+2026-09-27 and its first review passes had appended the "R22 ws" / "R22 ws
+roles" / "R22 file" / "R22 §6.2" rows; the "R22 gap" and "R22 ratchet" rows
+were written here.  WHERE THE R22 ROWS LIVE: every 2026-09-27 row is here; the OLDER Codex R22 (2026-09-08) rows labelled "R22 #1" -
 "R22 #3" (the phrase boundaries, the device names, the seed's shared spans)
 are in `plan_memo_selftest_mutants_inline.py`; the R47-4 gap rows that
 predate both stay in `_mutants_r45.py`.
@@ -20,10 +20,10 @@ decides which modules those are, by CONTENT: a module holding its own list) in o
 """
 
 from plan_memo_selftest_cases_gap import (
-    R22_GAP, R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
+    R22_GAP, R22_GAP_MIXED, R22_FILE_BOUNDARY, R22_FILE_BOUNDARY_END, R22_FLANK_VT, R22_WS_APPOSITIVE, R22_WS_ID_RUN,
     R22_WS_ID_RUN_VT, R22_WS_IDEOGRAPHIC, R22_WS_OUTSIDE, R22_WS_ROLES, R22_WS_ROW_NOUN,
 )
-from plan_memo_selftest_mutants import EMPHASIS, ROLES, STREAM, TABLES, TOKENS
+from plan_memo_selftest_mutants import EMPHASIS, RATCHETS, ROLES, STREAM, TABLES, TOKENS
 
 # This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
 # registry module's list in one explicit step, and none appends to another's.
@@ -132,11 +132,13 @@ MUTANTS += [
      [R22_FLANK_VT]),
 ]
 
-# -- THE ENUMERATION's rows (the STOP-CLEAN attestation of 900c16eb): one per
-# gap-bearing pattern of `plan_memo_selftest_cases_gap._R22_GAP_TABLE`, each
-# re-spelling THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` --
-# U+000B in, U+00A0 out -- whatever flags the pattern is compiled with, so the
-# ONE edit turns every read arm AND every refuse arm of the pattern red.
+# -- THE TABLE's rows (the STOP-CLEAN attestation of 900c16eb): one per table
+# pattern of `plan_memo_selftest_cases_gap._R22_GAP_TABLE`, each re-spelling
+# THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` -- U+000B in,
+# U+00A0 out -- whatever flags the pattern is compiled with, so the ONE edit
+# turns every read arm AND every refuse arm of the pattern red.  Which patterns
+# need a row is `plan_memo_selftest_ratchets.gap_pattern_population_control`'s
+# to say, not this list's; the rows for `NOUN_ANCHOR` and the id run are below.
 _ASCII_GAP = '(lambda p: p.replace(" ", r"(?a:\\s)+"))('
 MUTANTS += [
     ("R22 gap: `child of` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
@@ -196,4 +198,54 @@ MUTANTS += [
      'ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|" + DASH_CLASS + ")+"',
      'ROW_NOUN_SEP = ROW_NOUN + "(?:(?a:\\\\s)|" + DASH_CLASS + ")+"',
      R22_GAP["ROW_NOUN_SEP"]),
+]
+
+# -- the review of 01bd2c5d: the pattern the hand-traced table missed, the id
+# run's own "R22 gap" row (so the rule has no exception), the one optional gap
+# only a mixed run reaches, and the ratchet that makes the population a
+# derivation instead of a list.
+GAP_RATCHET = ("PROPERTY: every module-level compiled pattern whose source holds plan_memo_stream.GAP has "
+               "a row in plan_memo_selftest_cases_gap (or a named function control), and every row names a "
+               "pattern that still holds it -- the population is derived from the running module set, not "
+               "listed")
+GAP_RATCHET_PARTNER = ("PROPERTY: the gap-pattern ratchet finds a pattern held in a container, keys an "
+                       "imported alias at its defining module, and reports both an unpinned pattern and a "
+                       "stale row")
+MUTANTS += [
+    ("R22 gap: the anchored naming pass composes GAP (re-spell NOUN_ANCHOR's gap `(?a:\\s)` -- "
+     "`Slice&nbsp;C` names nothing, `Slice<U+000B>C` names C)", ROLES,
+     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)',
+     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP.replace(__import__("plan_memo_stream").GAP, r"(?a:\\s)"))',
+     R22_GAP["NOUN_ANCHOR"]),
+    ("R22 gap: the id run's separator composes GAP (re-spell it `(?a:\\s)`)", STREAM,
+     '% (SLUG_ID, CITE_ID, SHORT_ID, GAP)', '% (SLUG_ID, CITE_ID, SHORT_ID, r"(?a:\\s)")',
+     R22_GAP["_ID_RUN_TOKEN"]),
+    ("R22 gap: the two-owner clause's OPTIONAL leading gap composes the gap (re-spell that one gap "
+     "alone -- `**7z**<U+000B><U+00A0>and **Qx**` becomes a two-owner clause)", ROLES,
+     '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     '    + r"(?:(?a:\\s)+)?" + phrase(r"(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     list(R22_GAP_MIXED) + [n for n in R22_GAP["OWNS_TWO join"] if "owner|," in n]),
+    ("R22 ratchet: a NEW gap-bearing module-level pattern with no row is red (compile one)", ROLES,
+     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)',
+     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)\n'
+     '_UNPINNED = re.compile(phrase("left right"))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a row whose pattern no longer holds GAP is red (spell POINTER's gaps as a literal "
+     "U+0020 -- the reviewer's re-spelling)", STREAM,
+     'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
+     'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice")))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a name binding is preferred over a container path (drop pass 1 -- `MARKER_RE` "
+     "would be keyed as `KIND_PHRASES[0][1]`)", RATCHETS,
+     '    for name, namespace in modules:          # pass 1: names\n'
+     '        for attr, v in sorted(namespace.items()):\n'
+     '            if isinstance(v, _re.Pattern):\n'
+     '                walk((name, attr), v, 0)\n',
+     '',
+     [GAP_RATCHET_PARTNER, GAP_RATCHET]),
+    ("R22 ratchet: a pattern held in a container is found (stop the walk at the top level -- "
+     "`ROLE_PATTERNS` leaves the population)", RATCHETS,
+     '        if d < depth and isinstance(v, (tuple, list)):',
+     '        if False:',
+     [GAP_RATCHET_PARTNER, GAP_RATCHET]),
 ]

@@ -437,12 +437,13 @@ def bare_id(cell_text, kinds):
 # ⚠ KNOWN COST, NOT FIXED: after the dash, a whitespace run followed by a
 # failing tail is QUADRATIC (`(?:GAP+)?`, then `DECOR`, which may match empty,
 # then `(?:GAP+)?$`: every split of the run is tried): doubling the run roughly
-# QUADRUPLES the time (x3.6 then x3.7 over 5k -> 10k -> 20k, measured with the
-# command below), and the same shape is at 94281cd7, so it predates the R22
-# changes; polynomial, not exponential.  Absolute seconds are the machine's and
-# its load's, so none are recorded.  The remedy, an atomic
-# group or possessive quantifier, needs Python 3.11 and this tool supports 3.9.
-# Measure: `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_tables as t; f="Slice 9z \u2014"+" "*20000+"x"; s=time.perf_counter(); t._APPOSITIVE.search(f); print(time.perf_counter()-s)'`
+# QUADRUPLES the time -- the command below times a 5k, a 10k and a 20k run and
+# prints the two ratios; the runs taken for this note under Python 3.9 and 3.14
+# gave x3.4 to x5.5, and a run under load can fall outside that.  The same shape is at 94281cd7, so it predates
+# the R22 changes; polynomial, not exponential.  No seconds are recorded: they
+# are the machine's and its load's.  The remedy, an atomic group or possessive
+# quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
+# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_tables as m; f=lambda n,t=time.perf_counter: (lambda a: (m._APPOSITIVE.search("Slice 9z \u2014"+" "*n+"x"), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
 _APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
                          re.ASCII)
 

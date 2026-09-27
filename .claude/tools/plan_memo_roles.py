@@ -365,13 +365,14 @@ def _row_key(x):
 # a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
 # ⚠ KNOWN COST, NOT FIXED: a whitespace run between the first owner and a
 # failing tail is QUADRATIC (optional gap, then a gap inside the alternation:
-# the engine tries every split of the run): doubling the run roughly QUADRUPLES
-# the time (x4.5 then x4.3 over 5k -> 10k -> 20k, measured with the command
-# below), and the same shape is at 94281cd7, so it predates the R22 changes;
-# polynomial, not exponential.  Absolute seconds are the machine's and its
-# load's, so none are recorded.  The remedy, an atomic group or
-# possessive quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
-# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; s="owned by **7z**"+" "*20000+"x"; t=time.perf_counter(); r.OWNS_TWO.search(s); print(time.perf_counter()-t)'`
+# the engine tries every split of the run): doubling the run roughly
+# QUADRUPLES the time -- the command below times a 5k, a 10k and a 20k run and
+# prints the two ratios; the runs taken for this note under Python 3.9 and 3.14
+# gave x3.4 to x5.5, and a run under load can fall outside that.  The same shape is at 94281cd7, so it predates
+# the R22 changes; polynomial, not exponential.  No seconds are recorded: they
+# are the machine's and its load's.  The remedy, an atomic group or possessive
+# quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
+# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; f=lambda n,t=time.perf_counter: (lambda a: (r.OWNS_TWO.search("owned by **7z**"+" "*n+"x"), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
 OWNS_TWO = re.compile(
     phrase(r"\b(?:owns?|owned by|owner is|carries|carried by) ")
     + decorated_id(ROW_ID, "a")

@@ -12,8 +12,13 @@ wrote these into `plan_memo_selftest_cases_r42.py`, which reached 904 lines,
 and the STOP-CLEAN attestation of 900c16eb asked for a read and a refuse arm at
 every gap-bearing pattern -- more than that module could take under the
 1000-line bound.  The older R47-4 kind-phrase gap controls (U+00A0, tab, LF,
-the ASCII fold) stay in `_cases_r42.py`, where their round put them; this
-module holds every R22-of-2026-09-27 reader-gap control.  Its mutants are
+the ASCII fold) stay in `_cases_r42.py`, where their round put them.  This
+module holds every reader-gap CASE of the 2026-09-27 round; that round's
+FUNCTION controls live with their kind -- `role_rank_gap_control` in
+`plan_memo_selftest_controls.py`, the class oracle
+`unicode_whitespace_class_control` in `plan_memo_selftest_invariants.py`, and
+the population ratchet `gap_pattern_population_control` in
+`plan_memo_selftest_ratchets.py`.  Its mutants are
 `plan_memo_selftest_mutants_gap.py`'s.
 
 This module holds its OWN `CASES` and binds its own spellings (`spellings()`);
@@ -170,25 +175,31 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
      build(), "The close rule is 9**z ** here.", 0)
 
 
-# -- THE ENUMERATION (the STOP-CLEAN attestation of 900c16eb).  The claim "each
-# current vocabulary reads a U+00A0 gap, refuses a U+000B one, and a mutant
-# that re-spells its gap turns both red" was FALSE for POINTER, LICENSE_BEFORE's
-# `(?:the )?`, the appositive's refuse direction and `ROW_NOUN_SEP`'s -- it had
-# been checked for the vocabularies someone happened to name.  So the table
-# below is every GAP POSITION of every gap-bearing pattern: each `phrase(...)` /
-# `_phrase(...)` application (the four licensing phrases separately, the two
-# halves of `OWNS_TWO` separately, `(?:the )?` on its own) and the two unions
-# that compose `GAP` directly.  One row per position, and each row is TWO
-# cases: the words joined by U+00A0 (read) and by U+000B (refused).  A position
-# that already had a case with this exact fixture reuses it (`_REUSED`).
+# -- THE TABLE (the STOP-CLEAN attestation of 900c16eb, and the review of
+# 01bd2c5d).  Each row is one GAP POSITION of one gap-bearing pattern, written as
+# a fixture template -- so positions are counted PER TEMPLATE, and one regex gap
+# can have several (`derivation|that` and `derivation|mention` are the same gap
+# after `derivation`).  Each row is two cases: the words joined by U+00A0
+# (read) and by U+000B (refused); a row whose `read` is None has only the
+# refuse arm, and a row may name its own refuse run (a VT+NBSP MIXED run, for a
+# gap an adjacent required gap would otherwise absorb).  A position that
+# already had a case with the exact fixture reuses it (`_REUSED`).
 #
-# LEFT OUT, because re-spelling that gap alone changes no verdict (measured):
-# ORDER_WORDS' `ordered before` / `sequenced after` -- `before` / `after` alone
-# are in the same vocabulary; the optional gap in front of `and` / `or` in
-# `OWNS_TWO` and in front of `DECOR` in `_APPOSITIVE` -- the required gap
-# beside each absorbs the run; and ROLE_PATTERNS, whose gaps are read by
-# `plan_memo_selftest_controls.role_rank_gap_control` (the ranking has no case
-# measure).  The landing / acceptance ranking rows hold no gap.
+# WHICH PATTERNS NEED ROWS is not this comment's to say: it is
+# `plan_memo_selftest_ratchets.gap_pattern_population_control`, which enumerates
+# every module-level compiled pattern of the checker whose source holds `GAP`
+# and is red on one that `_R22_GAP_PATTERN` does not map a row to (and on a row
+# naming a pattern that no longer holds it).  WHICH GAPS inside a pattern the
+# rows reach was MEASURED once, at the commit that wrote this sentence, by
+# re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
+# and running every row of its pattern with U+00A0, U+000B and both mixed runs:
+# each gap flips at least one arm below, except the two that are NEUTRAL --
+# ORDER_WORDS' `ordered before` / `sequenced after`, because ORDER_WORDS is read
+# only as a boolean `.search` and `before` / `after` match on their own:
+#   python3 -c 'import sys; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; print([bool(r.ORDER_WORDS.search(s)) for s in ("ordered\x0bbefore", "sequenced\x0bafter")])'
+# prints [True, True] -- the same verdict whatever that gap is spelled.  That
+# per-gap measurement is NOT a control; a new gap in an existing pattern needs
+# its own row and nothing turns red until it has one.
 _R22_GAP_TABLE = (
     # (pattern, position, fixture, template with {g}, read expectation, refuse expectation)
     # fixture: "prose" = a prose line, measured in naming sites; (cell, code) = a
@@ -263,7 +274,53 @@ _R22_GAP_TABLE = (
     ("_APPOSITIVE", "dash|marker", ("wb", "UMBRELLA-MARK"), "Slice 9z —{g}**UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
     ("ROW_NOUN_SEP", "noun|id", ("wb", "UMBRELLA-MARK"), "Slice{g}9z — **UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
     ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, 0),
+    # the review of 01bd2c5d: the anchored naming pass composes GAP through
+    # `ROW_NOUN_SEP` and had no row -- `Slice&nbsp;C` reported nothing and
+    # `Slice<U+000B>C` a site under a re-spelling nothing turned red
+    ("NOUN_ANCHOR", "noun|id", "prose", "The close rule is Slice{g}C here.", 1, 0),
+    # and the appositive's third gap, between the decoration and the marker
+    ("_APPOSITIVE", "decor|marker", ("wb", "UMBRELLA-MARK"),
+     "Slice 9z — **{g}UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
 )
+_R22_GAP_MIXED = (
+    # (pattern, position, fixture, template, refuse expectation, the refuse run).
+    # The OPTIONAL gap in front of `,` / `and` / `or` / `/` is one regex gap; next
+    # to the required gap before `and` / `or` it is reached only by a run that
+    # starts with a character the required gap refuses: re-spelled alone as
+    # `(?a:\s)`, `**7z**<U+000B><U+00A0>and **Qx**` becomes a two-owner clause.
+    ("OWNS_TWO join", "optional|and, mixed run", ("s9z", "TWO-OWNERS?"),
+     "charter.  The drain is owned by **7z**{g}and **Qx**.", 0, "\x0b\u00a0"),
+    ("OWNS_TWO join", "optional|or, mixed run", ("s9z", "TWO-OWNERS?"),
+     "charter.  The drain is owned by **7z**{g}or **Qx**.", 0, "\x0b\u00a0"),
+)
+_R22_GAP_PATTERN = {
+    # table pattern -> the module-level compiled pattern it pins, keyed as
+    # `gap_pattern_population_control` keys the population: (module, attribute
+    # [, index ...]) -- an index for a pattern held in a container
+    "LICENCE child": ("plan_memo_roles", "LICENSE_BEFORE"),
+    "LICENCE derivation": ("plan_memo_roles", "LICENSE_BEFORE"),
+    "LICENCE naming": ("plan_memo_roles", "LICENSE_BEFORE"),
+    "LICENCE mint": ("plan_memo_roles", "LICENSE_BEFORE"),
+    "LICENCE the": ("plan_memo_roles", "LICENSE_BEFORE"),
+    "LICENSE_AFTER": ("plan_memo_roles", "LICENSE_AFTER"),
+    "OWNS_TWO keyword": ("plan_memo_roles", "OWNS_TWO"),
+    "OWNS_TWO join": ("plan_memo_roles", "OWNS_TWO"),
+    "ORDER_WORDS": ("plan_memo_roles", "ORDER_WORDS"),
+    "DECLARES": ("plan_memo_roles", "DECLARES"),
+    "NOUN_ANCHOR": ("plan_memo_roles", "NOUN_ANCHOR"),
+    "MARKER_RE": ("plan_memo_stream", "MARKER_RE"),
+    "UNDETERMINED": ("plan_memo_stream", "UNDETERMINED"),
+    "POINTER": ("plan_memo_stream", "POINTER"),
+    "_ID_RUN_TOKEN": ("plan_memo_stream", "_ID_RUN_TOKEN"),
+    "_APPOSITIVE": ("plan_memo_tables", "_APPOSITIVE"),
+    "ROW_NOUN_SEP": ("plan_memo_tables", "_APPOSITIVE"),     # the union, reached through the appositive
+}
+R22_GAP_ELSEWHERE = {
+    # a gap-bearing pattern pinned by a FUNCTION control instead of table rows:
+    # the ranking has no case measure
+    ("plan_memo_roles", "ROLE_PATTERNS", 0, 1): "role_rank_gap_control",
+    ("plan_memo_roles", "ROLE_PATTERNS", 1, 1): "role_rank_gap_control",
+}
 # (pattern, position, "read" | "refuse") -> the case that already held that arm
 # with exactly this fixture, so it is reused rather than written twice.
 _REUSED = {
@@ -282,9 +339,17 @@ _REUSED = {
 R22_GAP = {}
 """pattern -> the names of its read and refuse cases, every position -- what each
 pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn red."""
-for _pat, _pos, _fix, _tpl, _read, _refuse in _R22_GAP_TABLE:
-    for _arm, _gap, _label, _want in (("read", " ", "U+00A0", _read),
-                                      ("refuse", "\x0b", "U+000B", _refuse)):
+R22_GAP_MIXED = []
+"""the MIXED-run refuse arms, which only a re-spelling of the ONE optional gap
+turns red (re-spelling every gap of the half refuses the run anyway)."""
+_ROWS = ([row + (None,) for row in _R22_GAP_TABLE]
+         + [(p, pos, fix, tpl, None, want, run) for p, pos, fix, tpl, want, run in _R22_GAP_MIXED])
+for _pat, _pos, _fix, _tpl, _read, _refuse, _run in _ROWS:
+    for _arm, _gap, _label, _want in (("read", "\u00a0", "U+00A0", _read),
+                                      ("refuse", _run or "\x0b", "U+000B" if _run is None
+                                       else "U+000B U+00A0", _refuse)):
+        if _want is None:
+            continue
         _name = _REUSED.get((_pat, _pos, _arm))
         if _name is None:
             _name = ("(R22 gap) %s, the gap %s: %s there is %s -- %s" % (
@@ -305,4 +370,4 @@ for _pat, _pos, _fix, _tpl, _read, _refuse in _R22_GAP_TABLE:
                 if _fix[0] == "s7z":
                     _cells["d7z"] = "—"
                 acase(_kind, _name, build(**_cells), _fix[1], _want)
-        R22_GAP.setdefault(_pat, []).append(_name)
+        (R22_GAP_MIXED if _run else R22_GAP.setdefault(_pat, [])).append(_name)

@@ -664,6 +664,113 @@ def _criteria_missing(table, names):
     return [c for c, row in table if not any(n.startswith(row) for n in names)]
 
 
+# -- the gap-pattern ratchet --------------------------------------------------
+
+def _gap_population(modules, gap, depth=3):
+    """{key: pattern} for every compiled pattern reachable from a module's
+    top-level names whose source holds `gap` -- a pattern bound to a name, or
+    held in a tuple / list / dict up to `depth` levels down (`ROLE_PATTERNS` is
+    a list of (name, pattern) tuples).  `modules` is [(module name, namespace)]
+    in DEPENDENCY order, and a pattern is keyed where it is FIRST met, which is
+    the module that defines it: an importer comes later and holds the same
+    object (`plan_memo_tables` imports `MARKER_RE`).  A pattern bound to a NAME
+    anywhere is keyed by that name before any container path is considered
+    (`KIND_PHRASES` holds `MARKER_RE`).  Keys are (module, attribute[, index
+    ...]); PURE -- it reads the namespaces it is handed."""
+    import re as _re
+    seen, out = set(), {}
+
+    def walk(key, v, d):
+        if isinstance(v, _re.Pattern):
+            if id(v) not in seen:
+                seen.add(id(v))
+                if gap in v.pattern:
+                    out[key] = v
+            return
+        if d < depth and isinstance(v, (tuple, list)):
+            for i, x in enumerate(v):
+                walk(key + (i,), x, d + 1)
+        elif d < depth and isinstance(v, dict):
+            for k, x in v.items():
+                walk(key + (k,), x, d + 1)
+
+    for name, namespace in modules:          # pass 1: names
+        for attr, v in sorted(namespace.items()):
+            if isinstance(v, _re.Pattern):
+                walk((name, attr), v, 0)
+    for name, namespace in modules:          # pass 2: containers
+        for attr, v in sorted(namespace.items()):
+            walk((name, attr), v, 0)
+    return out
+
+
+def _gap_uncovered(population, covered):
+    """(patterns with no row, rows naming no gap-bearing pattern) -- PURE."""
+    return (sorted(k for k in population if k not in covered),
+            sorted(k for k in covered if k not in population))
+
+
+def gap_pattern_population_control(M):
+    """PROPERTY: every module-level compiled pattern of the checker whose
+    source holds `plan_memo_stream.GAP` is pinned -- it has a row in
+    `plan_memo_selftest_cases_gap._R22_GAP_TABLE` (through `_R22_GAP_PATTERN`)
+    or a named function control (`R22_GAP_ELSEWHERE`) -- and every such
+    mapping names a pattern that still holds `GAP`.
+
+    WHY A RATCHET (the review of 01bd2c5d).  The table was a hand-traced list
+    of "every gap-bearing pattern" and it missed `NOUN_ANCHOR`, the anchored
+    naming pass: re-spelling its gap as `(?a:\\s)` left all 916 controls green
+    while `Slice&nbsp;C` stopped being a site.  A list somebody extends is the
+    shape that misses the next one; the population here is DERIVED from the
+    running module set, so a new gap-bearing pattern is red until it has a row.
+    Both directions are red: an unpinned pattern, and a row whose pattern no
+    longer holds the gap.
+
+    HONESTLY, what it cannot see: a pattern compiled inside a function body, a
+    class body or lazily; one held deeper than three containers, in an object
+    attribute, or in a SELF-TEST module; a gap-bearing regex kept as a STRING
+    and compiled at the call (`re.search(GAP + "x", s)`); and a vocabulary
+    that spells its gap without `GAP` at all (`\\s`, a literal U+0020) --
+    the ratchet keys on the class text.  It checks that each pattern HAS rows,
+    not that its rows reach every gap inside it; that was measured once and
+    is recorded beside the table."""
+    import sys as _sys
+    import plan_memo_selftest_cases_gap as cg
+    from plan_memo_selftest_harness import MODULES as _MODULES
+    gap = _sys.modules["plan_memo_stream"].GAP
+    population = _gap_population([(n, vars(_sys.modules[n])) for n, _ in _MODULES], gap)
+    covered = set(cg._R22_GAP_PATTERN.values()) | set(cg.R22_GAP_ELSEWHERE)
+    missing, stale = _gap_uncovered(population, covered)
+    ok = bool(population) and not missing and not stale
+    return ok, ("%d gap-bearing module-level pattern(s) found; %d without a row%s; %d row(s) naming "
+                "no gap-bearing pattern%s" % (len(population), len(missing),
+                                              (": %s" % missing) if missing else "", len(stale),
+                                              (": %s" % stale) if stale else ""))
+
+
+def gap_pattern_population_partner_control(M):
+    """PROPERTY: the gap-pattern ratchet's core finds a pattern held in a
+    CONTAINER (a list of tuples, a dict), keys an imported alias at its
+    DEFINING module (the first in dependency order) and a pattern that is also
+    bound to a name by that NAME (`K`, a tuple holding `Z`'s pattern, sorts
+    first, as `KIND_PHRASES` does before `MARKER_RE`), ignores a pattern without
+    the gap, and reports both an unpinned pattern and a stale row -- the
+    fixture a generous core (top-level names only; key at every holder) gets
+    wrong."""
+    import re as _re
+    gap = "[\\u0020]"
+    a = _re.compile("x" + gap + "y")
+    b = _re.compile("p" + gap + "q")
+    plain = _re.compile("z")
+    mods = [("m1", {"Z": a, "ROWS": [("n", b)], "P": plain, "K": (("a", a),)}),
+            ("m2", {"Z": a, "D": {"k": b}})]
+    pop = _gap_population(mods, gap)
+    want = {("m1", "Z"), ("m1", "ROWS", 0, 1)}
+    missing, stale = _gap_uncovered(pop, {("m1", "Z"), ("m9", "GONE")})
+    ok = set(pop) == want and missing == [("m1", "ROWS", 0, 1)] and stale == [("m9", "GONE")]
+    return ok, "population %s (want %s); missing %s, stale %s" % (sorted(pop), sorted(want), missing, stale)
+
+
 def registry():
     """name -> (kind, control) for the ratchets -- this module's fragment of
     the one registry, merged by `plan_memo_selftest_controls.registry()`."""
@@ -678,4 +785,8 @@ def registry():
             ("CONTROL", kind_question_site_control),
         "PROPERTY: the kind-question ratchet reports a caller in ANY module of the checker set, judged by (module, qualified function) -- not a caller outside a listed subset, not one whose bare name is sanctioned elsewhere":
             ("CONTROL", kind_question_partner_control),
+        "PROPERTY: every module-level compiled pattern whose source holds plan_memo_stream.GAP has a row in plan_memo_selftest_cases_gap (or a named function control), and every row names a pattern that still holds it -- the population is derived from the running module set, not listed":
+            ("CONTROL", gap_pattern_population_control),
+        "PROPERTY: the gap-pattern ratchet finds a pattern held in a container, keys an imported alias at its defining module, and reports both an unpinned pattern and a stale row":
+            ("CONTROL", gap_pattern_population_partner_control),
     }

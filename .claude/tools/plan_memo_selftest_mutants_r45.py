@@ -25,9 +25,10 @@ one side and read on the other, so the halves share only what both import.
 ⚠ WHERE THE "R22" ROWS ARE -- two different review rounds share the label.
 The Codex R22 of 2026-09-08 rows ("R22 #1" - "R22 #3": phrase boundaries,
 device names, the seed's shared spans) are in `_mutants_inline.py`.  The Codex
-R22 of 2026-09-27 rows ("R22 ws", "R22 ws roles", "R22 gap", "R22 file",
-"R22 §6.2": the reader gap) were appended here first and are now in
-`_mutants_gap.py`, carved on that SUBJECT.  What stays here of the gap is
+R22 of 2026-09-27 rows are all in `_mutants_gap.py`: "R22 ws", "R22 ws roles",
+"R22 file" and "R22 §6.2" were appended here first and moved there when it was
+carved on that SUBJECT (c04d8042); "R22 gap" and "R22 ratchet" were written
+there.  What stays here of the gap is
 R47-4's four rows, which predate both.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
