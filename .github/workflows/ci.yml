@@ -178,10 +178,12 @@ jobs:
   # minutes restores ~4x on the measured 152 s. It is re-derived rather than the
   # wire split because the growth has ONE driver and splitting would not remove
   # it -- the generated corpus (~3.6 s) runs once in `--self-test` plus once per
-  # mutant naming it, and SIX rows name it (measured by loading `MUTANTS`, not by
-  # grepping: a `grep -c` counts the constant's definition and import lines too
-  # and says ten). Self-test alone is ~6.5 s of the ~29 s; the mutant phase is
-  # the rest.
+  # mutant row naming its control ("the scans are linear over a corpus GENERATED
+  # from the grammar ..."). NO COUNT IS WRITTEN HERE: a count once stood here and
+  # the plan's §8 withdrew it for having no command. Count them from the golden
+  # manifest, whose MUTANT lines carry the controls each row names:
+  #   python3 -c 'L=[l.split("\t") for l in open(".claude/tools/plan_memo_selftest_manifest.txt") if l.startswith("MUTANT")];print(sum("the scans are linear over a corpus GENERATED" in f[4] for f in L))'
+  # Self-test alone is ~6.5 s of the ~29 s; the mutant phase is the rest.
   # ⚠ THE `~29 s` ABOVE IS STALE, AND THE VERDICT THAT SAID OTHERWISE WAS WRONG
   # (PR #510, 2026-09-20). It was re-measured, declared an FP ("28.53 / 29.34 /
   # 27.46, both figures hold"), and a review axis then measured 25.67-26.80 at

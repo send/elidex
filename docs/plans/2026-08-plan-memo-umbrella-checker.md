@@ -18,9 +18,11 @@ the command that decides it:
 
 - **every `.claude/tools/plan*.py` is under the 1000-line touch-time bound** — `wc -l
   .claude/tools/plan*.py | sort -n | tail -5` names the file closest to it, which is the split target;
-- the only files over 1000 lines in that directory are the two vendored CommonMark corpora
-  (`commonmark-0.31.2-{block,inline}-examples.json`), which are generated data and outside the
-  cohesion test;
+- the only files over 1000 lines in that directory are GENERATED DATA, outside the cohesion test:
+  the two vendored CommonMark corpora (`commonmark-0.31.2-{block,inline}-examples.json`) and the
+  self-test's golden manifest (`plan_memo_selftest_manifest.txt`, one machine-written line per row,
+  control and case) — no `.py` is over 1000; re-derive with `git ls-files .claude/tools | while read f;
+  do n=$(wc -l < "$f"); [ "$n" -gt 1000 ] && echo "$n $f"; done`;
 - no `crates/` change, in any round.
 **Discharges** slot `#11-plan-memo-umbrella-checker-prereq` (registered 2026-08-22 in
 `memory/project_open-defer-slots.md`; its "1,449 LoC" describes neither the carry (1,614) nor the program

@@ -69,8 +69,11 @@ THE INLINE HALF (`run_inline`; §6.6 since PR #510 R17, the whole §3.0b closed
 list since R21).  The spec's example lists for every inline section the plan's
 §3.0b calls LEXED or MASKED -- `Backslash escapes` §2.4 (12-24), `Entity
 and numeric character references` §2.5 (25-41), `Code spans` §6.1 (328-349),
-`Links` §6.3 (482-571), `Images` §6.4 (572-593), `Autolinks` §6.5 (594-612),
-`Raw HTML` §6.6 (613-632): 203 examples -- are vendored in
+`Emphasis and strong emphasis` §6.2 (350-481), `Links` §6.3 (482-571),
+`Images` §6.4 (572-593), `Autolinks` §6.5 (594-612), `Raw HTML` §6.6
+(613-632): 335 examples, the vendored file's whole list (it is pinned to
+0.31.2, so the figure moves only with a re-vendoring; `len` of its JSON
+list re-derives it) -- are vendored in
 `commonmark-0.31.2-inline-examples.json` and run through the SAME `align` the
 block corpus runs through.  One aligner, two corpora: an inline example's
 BLOCK structure is checked exactly as a block example's is (eight of them are
