@@ -139,8 +139,8 @@ def sibling_path(directory, dest):
           dropped without a report, exactly as `/abs/x.md` and
           `C:\\x.md` already are, which is this stage's standing
           polarity;
-      (d) the `.md` suffix -- the lexer's `FILE_SUFFIX`, the ONE
-          spelling of "is a file name" (the lexer's bare file token
+      (d) the `.md` suffix -- `plan_memo_tokens.FILE_SUFFIX`, the ONE
+          spelling of "is a file name" (the token layer's bare file token
           reads the same constant over prose); the stem is unconstrained
           on both sides, so `.md` alone is a sibling file (PR #510 R20);
       (e) the name's PARTS joined beside the memo -- the same Windows
