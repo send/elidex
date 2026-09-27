@@ -711,7 +711,7 @@ def split_units(lx, keep):
     is the undetermined kind to a reader (§6.1: the code span contributes
     `MINED` as plain text) and nothing to the stream.  And the stream reads
     one the READER does not: a blank stands as spaces, so `KIND `x`
-    UNDETERMINED` is the undetermined kind to `UNDETERMINED`'s `GAP*` and
+    UNDETERMINED` is the undetermined kind to `UNDETERMINED`'s gap and
     `KIND x UNDETERMINED` -- no kind at all -- to a reader.  An id cannot
     make that second shape (a blank's filler is a space, which bounds every
     id token), so it is the phrases that need the second scan; scanning both
