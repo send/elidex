@@ -117,8 +117,11 @@ MODULES
                           _selftest_registry.py (the ONE collection step of
                           the case and mutant registries) /
                           _selftest_conformance.py (the
-                          CommonMark 0.31.2 spec examples, vendored in
-                          commonmark-0.31.2-block-examples.json, through Phase 1)
+                          CommonMark 0.31.2 spec examples, both vendored
+                          corpora: commonmark-0.31.2-block-examples.json
+                          through Phase 1 (`run`) and
+                          commonmark-0.31.2-inline-examples.json through
+                          Phase 2 (`run_inline` / `inline_claim`))
   This map is CHECKED, in both directions and against the files on disk:
   `plan_memo_selftest_records`'s `module_map_completeness_control` fails
   when a module here is not named, and `module_map_existence_control` when a
