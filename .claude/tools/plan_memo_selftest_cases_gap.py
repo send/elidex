@@ -315,8 +315,9 @@ pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn re
 R22_GAP_MIXED = []
 """the MIXED-run refuse arms.  The MIXED-ARM PROBE lists the rows that turn them
 red: `git log --reverse -F --grep='MIXED-ARM PROBE' --format=%H | head -1 | xargs
-git log -1 --format=%B`.  Its result at c5a6ec05 is `git log -1 --format=%B
-c5a6ec05` ("MIXED-ARM PROBE re-run")."""
+git log -1 --format=%B`.  Its latest recorded result is in the body located by
+`git log --reverse -F --grep='MIXED-ARM PROBE re-run' --format=%H | head -1 |
+xargs git log -1 --format=%B`."""
 # THE TABLE'S OWN INVARIANTS, checked where it is defined and LOUD at import
 # (a bad row stops the self-test from loading): every `_R22_GAP_TABLE` row
 # declares both expectations and they differ, every `_R22_GAP_MIXED` row
