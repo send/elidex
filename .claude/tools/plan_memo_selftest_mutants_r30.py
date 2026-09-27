@@ -48,7 +48,7 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_10_UNBOUND_
     R45_DELIM_ALL, R45_SHORT_DELIM, R45_TABLE_MISS_SCOPE, R45_UNKEYED_SCOPE,
     R47_1_DASH_SET, R47_1_EN_DASH, R47_2_UNBOUND_QUOTED, R47_2_UNBOUND_STRADDLE,
     R47_4_BASELINE, R47_4_BOUNDARY, R47_4_NBSP, R47_4_NON_WHITESPACE, R47_4_TAB,
-    R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
+    R47_4_UNDET_FOLD, R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
     R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS, R49_2_ARROW_LABEL, R49_2_EMPTY_LABEL,
     R51_CD_SEED_LINK, R51_TWO_STRADDLES, R52_OUTSIDE_QUOTED, R52_OUTSIDE_STRADDLE,
     R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
@@ -879,6 +879,9 @@ MUTANTS += [
      'bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED")',
      'bounded(r"KIND(?:\\s+" + DASH_CLASS + r"?|" + DASH_CLASS + r")\\s*UNDETERMINED")',
      [R47_4_UNDET_NBSP]),
+    ("R47-4 fold: the UNDETERMINED phrase folds case in ASCII only (drop `re.ASCII` -- the KELVIN "
+     "SIGN folds to `K`, U+0130 / U+0131 to `I`)", STREAM, "re.IGNORECASE | re.ASCII)", "re.IGNORECASE)",
+     list(R47_4_UNDET_FOLD)),
     ("R47-4 gap: the gap is a WHITESPACE class, not a wildcard (widen it to `.` -- every arm above "
      "still passes, and only the word-boundary negative catches it)", STREAM,
      'GAP = r"(?u:\\s)"',

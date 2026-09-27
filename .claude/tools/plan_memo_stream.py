@@ -76,8 +76,11 @@ every one of the 28 codepoints below U+3000 whose `str.isspace()` is true --
 enumerating the ones a reviewer happened to name would leave the next one
 authoritative, which is the failure `KIND_PHRASES`' own comment records for
 the word boundaries. The scope `(?u:...)` is deliberate: `UNDETERMINED` keeps
-`re.ASCII` for its case folding (under `a` a long s never folds to `s`), and
-only the GAP is Unicode.
+`re.ASCII` for its case folding, and only the GAP is Unicode.  Under `a` the
+U+212A KELVIN SIGN never folds to `K`, nor U+0130 / U+0131 (dotted capital I,
+dotless small i) to `I` -- measured, the only non-ASCII case folds the letters
+of `KIND UNDETERMINED` have (it has no `s`, so the long s is not one of them);
+the R47-4 fold cases pin it.
 """
 
 

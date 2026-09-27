@@ -319,7 +319,9 @@ def manifest_control(M):
         and mf._esc("ok") == "ok")
     # every LONE SURROGATE is escaped too, injectively against its literal spelling
     # (Codex on `0a5ab700`: `--write-manifest` writes UTF-8, which cannot carry one)
-    sur = ["\ud800", "\udcff", "\udfff", "\\udcff", "a\udcffb", "\ud7ff", "\ue000"]
+    # -- ALL 2048 of them, each alone and embedded, against its literal spelling
+    lone = [chr(n) for n in range(0xD800, 0xE000)]
+    sur = lone + ["a%sb" % c for c in lone] + ["\\u%04x" % ord(c) for c in lone] + ["\ud7ff", "\ue000"]
     arms["(g) every lone surrogate is escaped, injectively, and its neighbours are not"] = (
         not any("\ud800" <= c <= "\udfff" for x in sur for c in mf._esc(x))
         and len({mf._esc(x) for x in sur}) == len(set(sur))

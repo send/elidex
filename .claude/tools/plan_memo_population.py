@@ -374,7 +374,7 @@ class Population:
         ⚠ EVERY OCCURRENCE, not the first (PR #510 R48-2).  This returned
         `rx.search(...)` -- one `Match` per phrase -- and `_kind` then added
         `hit["undetermined"].group(0)` to `spellings`.  A field spelling BOTH
-        supported forms, `KIND UNDETERMINED and KIND -- UNDETERMINED`,
+        supported forms, `KIND UNDETERMINED and KIND – UNDETERMINED`,
         therefore contributed ONE spelling, the KIND-SPELLING consistency gate
         saw a set of size one, and the run exited 0 on a document using two --
         the exact condition that gate exists to report, invisible because the

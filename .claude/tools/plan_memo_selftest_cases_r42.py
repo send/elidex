@@ -549,10 +549,25 @@ R47_4_BOUNDARY = CASES[-1].name
 acase("POSITIVE", "(R47-4) the UNDETERMINED phrase has its own spelling of the gap and the same "
                   "defect: under `re.ASCII` its `\\s` is ASCII whitespace, so a U+00A0 between "
                   "`KIND` and `UNDETERMINED` read as no kind at all.  The scope `(?u:...)` widens "
-                  "the GAP alone and leaves the ASCII case folding, which is why the phrase is "
-                  "still not matched by a long-s spelling",
+                  "the GAP alone and leaves the case folding ASCII -- the fold arms below",
       kindcell("KIND\u00a0UNDETERMINED"), "UMBRELLA-CELL", 1)
 R47_4_UNDET_NBSP = CASES[-1].name
+
+# ⚠ WHAT THE ASCII FOLDING EXCLUDES, measured over every codepoint in each
+# letter position: the U+212A KELVIN SIGN folds to `K`, and U+0130 / U+0131 to
+# `I`, under a Unicode IGNORECASE -- and nothing else does (the phrase has no
+# `s`, so a long s is not a member).  One arm per fold, so the mutant that drops
+# `re.ASCII` from the phrase is killed BY the fold and not by a neighbour.
+R47_4_UNDET_FOLD = []
+for _label, _cell in (("U+212A KELVIN SIGN for the `K`", "\u212aIND UNDETERMINED"),
+                      ("U+0130 (dotted capital I) for the `I` of `KIND`", "K\u0130ND UNDETERMINED"),
+                      ("U+0131 (dotless small i) for the `I` of `UNDETERMINED`",
+                       "KIND UNDETERM\u0131NED")):
+    acase("NEGATIVE", "(R47-4) the UNDETERMINED phrase folds case in ASCII only: spelled with %s it "
+                      "is not the phrase.  A Unicode IGNORECASE folds that letter to its ASCII "
+                      "capital, and a spelling nobody wrote as the phrase would decide the kind" % _label,
+          kindcell(_cell), "UMBRELLA-CELL", 0)
+    R47_4_UNDET_FOLD.append(CASES[-1].name)
 
 
 # ⚠ THE ARM A WILDCARD GAP BREAKS, and the reason the word-boundary negatives
