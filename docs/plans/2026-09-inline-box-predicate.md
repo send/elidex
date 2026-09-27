@@ -1,6 +1,17 @@
 # Predicate prereq program: one canonical answer to css-display-3's *inline box*
 
-**Revision 33** (2026-09-28) — folds Codex R1 on the approval PR #526 (`b59ae926`; IMP 3, FP 1). (1) F6 lands
+**Revision 34** (2026-09-28) — folds Codex R3 on #526 (`1182c143`; IMP 2, FP 1; R2 on the same head was dry).
+(1) F12 carries css-transforms-1 §1.2's box-model clause whole — an inline box, a `table-column` and a
+`table-column-group` box are not transformable (elidex has both `Display` variants); the SVG clause is a named
+omitted branch (at `IBP-transform`'s base the outermost `svg` is replaced and its descendants get no box), so the
+§3 row reads ✗. (2) `embed[hidden]`'s rule (HTML §15.3.1) had no owner — Appendix G's `display`-keyed measurement cannot see
+it; HEAD draws no `embed` at all (an empty non-replaced inline), so a hidden one is right by accident until
+IBP-layout's F4 switch sizes it — IBP-layout's own cell (§3). F12's widening is recorded as §0.6 item 14 with its
+`colgroup` fixed-descendant seed. FP: §15.3.1's `[hidden]` rule is `display: none` without `!important` (`webref
+body html hidden-elements`). Self-review (two passes: CRIT 1 / IMP 2 / MIN 4, folded): the first draft routed `embed[hidden]`
+to A96 on a false premise ("full size today").
+
+Revision 33 (2026-09-28) — folds Codex R1 on the approval PR #526 (`b59ae926`; IMP 3, FP 1). (1) F6 lands
 with its whole writer set: the `src`-mutation transitions move from IBP-layout to IBP-classify (I1 holds back only
 the F5 removal, F6 being read by no presence-keyed site), and F4 reads a null source (identity), then F6, before F5, so no state reachable at
 IBP-classify's landing — a stale `ImageData` included — gets a wrong replacedness answer (§1 F5/F6, §2 I6 and the
@@ -693,6 +704,14 @@ Each item is plan-review input for the surface it changes; its record ships with
    is right at its base wrong; against — the umbrella's bidi precedent (`:486-490`) treats a divergence whose repair
    lives in another program's slot as "no deferral of this one's"; decided for, the difference being that a cell
    fires here and none did there. Its record ships with the approval PR (§6).
+14. **Umbrella req 8** — widened: its gate is the predicate's *non-replaced inline box* answer; F12 carries
+   css-transforms-1 §1.2's box-model clause whole, so `table-column` and `table-column-group` boxes are also
+   non-transformable (the definition names all three; F12 under that name must not answer part of it). The
+   consequence is `IBP-transform`'s to derive by item 7's cell test: HEAD gives a `col`/`colgroup` no `LayoutBox`
+   (`elidex-layout-table` keeps its style for widths and collapsed borders, `helpers.rs:109-157`, and lays out no box for it), but the fixed-descendant scan (`positioned/mod.rs:215`) walks DOM
+   children, so a script-inserted fixed-position child of a transformed `colgroup` — dropped with it at HEAD, which
+   matches CSS 2 §17.2.1's treatment of a column's non-column children — escapes to the viewport once the
+   `colgroup` is non-transformable (read from the code, not run). Its record ships with `IBP-transform` (§6).
 
 **Surfaced to the user** (information, recorded): d5 departed from a user-confirmed judgment; the grounds are
 §0.5; the user re-approved in form (iv).
@@ -715,7 +734,7 @@ One representation per spec fact; one composition per spec predicate; each repre
 | F10 | scripting is disabled for a platform object (§8.1.3.4) | **one composition**, `EcsDom::scripting_disabled_for` (NEW). *Settings clause* — its sandbox condition applies only when the relevant settings object's global is a Window (§8.1.3.4: "Either settings's global object is not a Window object, or … sandboxed scripts browsing context flag"): the settings document is the EcsDom's `document_root` (field `dom/mod.rs:55`, written only by `create_document_root`, `:450-454`); the global kind has one discriminator: **non-Window exactly when the DOM holds a worker-VM scope root and no Window root** (`worker_scope_entity().is_some() && window_entity().is_none()`), every other DOM — incl. an engine-only build with neither root — being a Window's. Neither call alone is the test: a Window DOM also holds `NodeKind::Worker` entities, one per `Worker` object (`vm/host/worker.rs:383-386`; `dom/mod.rs:532-543`), and an engine-only build has no Window root. The test rests on the invariant **a worker DOM holds no nested `Worker` entity** (the `Worker` constructor is Window-scope only, `elidex-js/src/vm/globals.rs:597-599`); if it breaks, `worker_scope_entity()` returns `None` for that DOM, the worker is classified a Window, its unstamped root reads through F10r as fully sandboxed, and scripting is disabled for it — the failure fails closed. *Node clause* — "node document's browsing context is null": its own fact; interim representation the effective-node-document rule (`elidex-script-session/src/scripting.rs:96-111`) promoted unchanged (it fails **open** when the node's document cannot be resolved; it inherits the known `<template>`-contents false negative, `elidex-script-session/src/scripting.rs:59-60`, `#11-template-contents-owner-document`); final representation the enriched `#11-domparser-full-document-parse-fidelity` marker. *Window clause* — the same fact, read for the Window's document. `scripting.rs` delegates and drops its `sandbox_flags` parameter | `elidex-ecs` | — | IBP-sandbox |
 | F10r | the flag read path | **one** engine-side read path for every flag gate (scripts, forms, popups, modals, top navigation, `window.open`, and F10's settings clause): it maps a **missing** F9 on a Window settings document to `Some(IframeSandboxFlags::empty())` **before** any `elidex_plugin::sandbox` predicate runs, so **flag absence** can never fail open; the predicates keep `None` = empty flag set. (The node clause's fail-open on an unresolvable document is a different case, kept as the interim rule states.) | `elidex-ecs` | — | IBP-sandbox |
 | F11 | parser scripting mode (§13.2.4.5) and fragment scripting (§13.4 step 10) | derived from F10 — for a document parse, of the Document being created, through **the existing single function** `elidex_plugin::sandbox::scripting_enabled(flags)` (`elidex-plugin/src/sandbox.rs:179`, already the settings-level rule `elidex-script-session/src/scripting.rs:89` and `elidex-js/src/vm/host/event_handler_attrs.rs:611` evaluate), after F10r's missing-flag mapping: F10 applies it to F9; a document parse applies it to the **creation input** — the same flag set F9 is stamped from — the strict parser after the root exists, the tolerant parser before any `EcsDom` exists (html5ever's `ParseOpts` are fixed at `elidex-html-parser/src/lib.rs:49`, and `convert.rs:17-18` creates the root afterwards); invariant (IBP-sandbox's): *parser mode == F10's settings clause for the created document*; for a fragment parse, of the **context element**'s document — at **every production caller of a fragment parse** (the caller list and its measuring command are `IBP-sandbox`'s input, Appendix A). Only the **Disabled** override comes from F10 (§13.4 step 10; for a document parse, §13.2.4.5's Normal/Disabled); the **Inert** and **Fragment** modes stay caller-supplied (fragment parsing's default Inert; `createContextualFragment`'s Fragment). The `scripting_disabled` field of `SetInnerHtmlOptions` (`html_fragment.rs:39`) and of `ParseFragmentOptions` (`elidex-html-parser-strict/src/result.rs:120`) is **deleted** and no caller supplies it — one source. At the DOMParser call (`elidex-form/src/inert_document.rs:142-143`, today `scripting_disabled: true`) the derivation yields Disabled: the context element's document is a throwaway one with no browsing context (F10's node clause). `createContextualFragment` (`elidex-dom-api/src/range/mutation.rs:620-628`, a forward stub; `#11-range-create-contextual-fragment`) joins the population when it parses | the parser crates (`elidex-html-parser`, `elidex-html-parser-strict`); `elidex-script-session` (fragments), fed by the setter paths (`elidex-js/src/vm/host/dom_inner_html.rs:403`/`:458`, `SetInnerHtmlOptions::default()`; `:419-421`/`:474-476`, `scripting_disabled: false`) | — | IBP-sandbox |
-| F12 | *transformable element* (css-transforms-1 §1.2) | `EcsDom::is_transformable_element` (NEW) over F1 | `elidex-ecs` | — | IBP-transform |
+| F12 | *transformable element* (css-transforms-1 §1.2) | `EcsDom::is_transformable_element` (NEW), the definition's box-model clause whole: an element whose layout is governed by the CSS box model, except an inline box (F1) and a `table-column` or `table-column-group` box (both `Display` variants exist, `elidex-plugin/src/computed_style/display.rs:25-26`); the SVG clause is omitted (§3) | `elidex-ecs` | — | IBP-transform |
 | F13 | ResizeObserver content rect (§3.3.1) and observed-box size (§3.4.8, isActive §3.1) | engine-side in `elidex-api-observers`; the host closure only marshals | `elidex-api-observers` | — | IBP-observer |
 | F14 | natural size; monolithic set | `natural_size` (NEW) contract for every replaced element (inputs in §2); monolithic = every replaced element (**elidex's choice**; css-break-3 §4.1's "many types of replaced elements" is illustrative) | layout crates | — | IBP-layout |
 | F15 | the repairs of umbrella-PR exposures §0.6 item 7's rule gives `IBP-ua-display` | UA rules in the core / compat sheets; a computed-value force for a non-exposing `audio`; the engine features the rules need, where bounded (A102) — the population and the features are derived by `IBP-ua-display`'s plan (§0.6 item 7) | `elidex-style`, `elidex-dom-compat`, `elidex-css` | the cascade | IBP-ua-display |
@@ -834,7 +853,7 @@ Cross-sub-PR pairs:
 | WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings clause (Window only); node and Window clauses | F10, F10r | IBP-sandbox | ✓ | yes |
 | WHATWG HTML §13.2.4.5 Other parsing state flags | scripting mode (Normal/Disabled/Inert/Fragment) | F11 | IBP-sandbox | ✓ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | fragment algorithm step 10 | F11 | IBP-sandbox | ✓ | yes |
-| WHATWG HTML §15.3.1 Hidden elements | `[hidden]:not([hidden=until-found i]):not(embed)`; `[hidden=until-found i]` (`content-visibility`); `input[type=hidden i]`; `@media (scripting) { noscript }` | by the cell test (§0.6 item 7), in the exposer's plan: `[hidden]`, `noscript` — IBP-ua-display's plan (candidates); `input[type=hidden i]` — IBP-layout's plan (candidate); `[hidden=until-found i]` — the `content-visibility` program builds the rule (§0.6 item 11; `i` via E22); `[hidden]` — built by IBP-ua-display, consumed by IBP-layout (E25) | IBP-ua-display; `input[type=hidden i]`: IBP-layout ; omitted branch: `embed[hidden] { display: inline; height: 0; width: 0; }` — the same computed `display` as today (Appendix G) | ✗ | yes |
+| WHATWG HTML §15.3.1 Hidden elements | `[hidden]:not([hidden=until-found i]):not(embed)`; `[hidden=until-found i]` (`content-visibility`); `input[type=hidden i]`; `@media (scripting) { noscript }` | by the cell test (§0.6 item 7), in the exposer's plan: `[hidden]`, `noscript` — IBP-ua-display's plan (candidates); `input[type=hidden i]` — IBP-layout's plan (candidate); `[hidden=until-found i]` — the `content-visibility` program builds the rule (§0.6 item 11; `i` via E22); `[hidden]` — built by IBP-ua-display, consumed by IBP-layout (E25) | IBP-ua-display; `input[type=hidden i]`: IBP-layout ; `embed[hidden] { display: inline; height: 0; width: 0; }` — IBP-layout's plan (candidate): HEAD has no `hidden` rule (`ua.rs`/`legacy_ua.rs` 0 hits) and no `embed` handling in layout or paint, so an `<embed>` is an empty non-replaced inline and draws nothing — a hidden one is 0×0, the spec's value; IBP-layout's F4 switch makes `embed` replaced, so author sizing applies and `<embed hidden style="width:100px;height:50px">` turns ✗ there (without author sizing, a non-zero natural size or CSS 2's 300×150 fallback does the same unless F14 fixes `embed` at 0×0; the `width`/`height` attribute hints, `elidex-dom-compat/src/presentational.rs:111`, apply only under `presentational_compat()`) — IBP-layout's own cell (§0.6 item 7) | ✗ | yes |
 | WHATWG HTML §15.3.10 Form controls | UA rules on form controls: the inherited `initial` resets on `button` and `input`; `input, button { display: inline-block }` (a `display` rule — already present, `elidex-style/src/ua.rs:128`, which also covers `textarea`/`select`); rules with `i` (e.g. `input:is([type=reset i], [type=button i], [type=submit i])`) | by the exposer (§0.6 item 7): computed values reaching subtrees `IBP-layout`'s presence switch lays out first are IBP-layout's; A96 remainder → `#11-form-control-ua-rendering-fidelity`; `:is()` and `i` from IBP-css-machinery if a repair needs them | the exposer (IBP-layout / IBP-ua-display) | ✗ | yes |
 | WHATWG HTML §15.3.3 Flow content | `display` rules for flow content, `dialog`, `[popover]` | seed | IBP-ua-display | ✗ | yes |
 | WHATWG HTML §15.5.5 The details and summary elements | closed `details`' `content-visibility: hidden`; `summary` `list-item` | closed contents: the `content-visibility` program (§0.6 item 11; `details`' UA shadow tree); `summary`: slot (Appendix G) | IBP-ua-display | ✗ | yes |
@@ -845,7 +864,7 @@ Cross-sub-PR pairs:
 | CSS CONTAIN 2 §4 Suppressing An Element’s Contents Entirely: the content-visibility property | `content-visibility: hidden` (no support in elidex) | the `content-visibility` program (§0.6 item 11), not ordered ahead (item 12's A102 amendment), applies-to consuming F1 (E20); its cells pinned by their exposers; container-side containments → `#11-css-containment`; `auto` → `#11-content-visibility-auto` | the `content-visibility` program | ✗ | yes |
 | CSSOM VIEW 1 §6 Extensions to the Element Interface | `client*` step 1; `scroll*` no inline clause | consumer of F1 | IBP-predicate | ✓ | yes |
 | CSS PSEUDO 4 §4.1 Generated Content Pseudo-elements: ::before and ::after | suppression on replaced origin | consumer of F4 | pseudo prereq | ✓ | yes |
-| CSS TRANSFORMS 1 §1.2 CSS Values | *transformable element* | F12 | IBP-transform | ✓ | yes |
+| CSS TRANSFORMS 1 §1.2 CSS Values | *transformable element*: the box-model clause (non-replaced inline, `table-column`, `table-column-group` excluded); the SVG clause | F12 | IBP-transform ; omitted branch: the SVG clause (paint servers, `clipPath`, SVG renderable elements) — at `IBP-transform`'s base (after `IBP-layout`, E5→E8) the outermost `svg` is F4's replaced element and its descendants get no box, and elidex has no SVG layout or paint, so the clause has nothing to gate (today SVG elements lay out as CSS boxes) | ✗ | yes |
 | CSS TRANSFORMS 1 §2 The Transform Rendering Model | geometry; fixed-descendant containing block | gated on F12 | IBP-transform | ✓ | yes |
 | CSS TRANSFORMS 2 §8 The perspective Property | perspective; stacking | gated on F12 | IBP-transform | ✓ | yes |
 | CSS WILL CHANGE 1 §2 Hinting at Future Behavior: the will-change property | family entries | gated on F12 | IBP-transform | ✓ | yes |
@@ -869,7 +888,7 @@ row, with its slot or reason).
 Author-controlled throughout: element, `type`, `src`, `alt`, `controls`, `hidden`, `popover`, `open`, author
 border/background, `display`, `content`, the transform family, the embedding `<iframe sandbox>`, and (through the
 network) whether an image loads. No sub-PR widens exposure: F1/F4 classify; `IBP-transform` removes an effect from
-non-transformable boxes; F10r fails closed on flag absence; F15 hides what HTML hides.
+non-transformable boxes (its `table-column` arm's consequence is its own cell, §0.6 item 14); F10r fails closed on flag absence; F15 hides what HTML hides.
 
 ## §4. Sub-PRs: list, order, gates, obligations
 
@@ -1046,7 +1065,7 @@ of the subtrees of formerly presence-replaced elements, paint of widget content 
 those subtrees now expose; seeds: the `button` element's children, the `input` button and Color states under each
 answer the probe could give (against I1's spec-fixed content sources), the Hidden-state `input`'s script-appended
 children, HTML §15.3.10's resets — with a measuring method and a statement of what it cannot see; **places each** by §0.6 item 7's rule and cell test, consuming the `[hidden]` rule `IBP-ua-display` builds (E25)
-and `IBP-css-machinery`'s `i` flag (E19) for its `input[type=hidden i]` rule; pins its `content-visibility` cells
+and `IBP-css-machinery`'s `i` flag (E19) for its `input[type=hidden i]` rule; places the `embed[hidden]` cell its F4 switch fires (§3 §15.3.1 row); pins its `content-visibility` cells
 (§0.6 item 11, the `button`-children cell); with a fixture per content-source branch, `value=""` included; and
 **registers** every A96 remainder as a new facet of `#11-form-control-ua-rendering-fidelity` (§6; one slot for the
 class, not a parallel one). That slot's SoT trigger, "a form-control rendering-fidelity pass", **fires at
@@ -1062,7 +1081,7 @@ input. F14 per
 production-shaped fixture; IFC routing unchanged; owns the classification side of cells 6c/6f/6k. Input line:
 `layout_query.rs` growth (740 lines).
 
-**IBP-transform** (appendix E): req 8 as ratified (both partitions; the three stacking terms together; the
+**IBP-transform** (appendix E): req 8 as ratified and widened by §0.6 item 14 (F12's `table-column` / `table-column-group` arm, with that item's seed cell placed by item 7's test; both partitions; the three stacking terms together; the
 fixed-descendant scan); any `content-visibility` cell it fires is pinned (§0.6 item 7, item 11); fires `#11-transformed-block-abspos-double-layout` and
 `#11-transform-family-3d-and-containing-block`. Input lines: G10 the double-layout test's expected value and what
 happens if it reproduces; `elidex-plugin/src/computed_style/tests.rs` (947 lines) placement.
@@ -1150,6 +1169,7 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | Umbrella ledger amendment: §0.6 item 12 — A102's separator read as the size of the repair (a whole program with its own umbrella and slot), A102 standing | the approval PR (umbrella ledger row) |
 | Umbrella record: §0.6 items 1, 3 (req 5, req 3) | IBP-classify |
 | Umbrella record: §0.6 item 2 (req 2) | IBP-predicate |
+| Umbrella record: §0.6 item 14 (req 8) | IBP-transform |
 | Umbrella record: `IBP-ua-display`'s population under §0.6 item 7, discharge of item 6 | IBP-ua-display |
 | Record each A102 accepted, cell-pinned divergence the exposing PR owns while unlanded (§0.6 item 7's ownership rule): an umbrella ledger row — never `IBP-ua-display` for another PR's exposure; a cell found after its exposer has landed is recorded by its finder against the exposer's own-deferral count, with no second slot | each exposing PR, at its landing; the finder, for a post-landing finding |
 | B1 plan-memo and SoT `#11-browsing-context-state-ecs-components`: §0.6 item 4 | IBP-sandbox |
@@ -1461,7 +1481,8 @@ Rev 10's worked partition (moved from §0.6 item 7 at rev 11; its sort keys are 
        element's rule in the core sheet for that reason): placement is `IBP-ua-display`'s plan's decision, with that
        precedent as input.
      Outside the measured population (same computed `display` today, or not a `display` rule): `embed[hidden]` (its
-     `display: inline` equals the initial value; `height`/`width: 0` are not `display`); `[hidden=until-found i]`
+     `display: inline` equals the initial value; `height`/`width: 0` are not `display` — `IBP-layout`'s cell by §3's
+     §15.3.1 row, rev 34); `[hidden=until-found i]`
      (`content-visibility`, which elidex lacks); `slot`, `html`/`body`, the table rules, `li`, `fieldset`,
      `details`/`summary`, `input`/`button`/`select`; the `select` base-appearance rules (conditional on
      `appearance: base` — `#11-appearance-replacedness`); `:host summary` (`details`' UA shadow tree, which elidex
