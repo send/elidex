@@ -1,6 +1,17 @@
 # Predicate prereq program: one canonical answer to css-display-3's *inline box*
 
-**Revision 35** (2026-09-28) — folds Codex R4 on #526 (`ee3badbe`; IMP 2, MIN 1). (1) §3's transform rows
+**Revision 36** (2026-09-28) — folds Codex R6 on #526 (`f3d597ca`; IMP 2, MIN 1; R5 on the same head was dry).
+(1) The hidden-`embed` witness drops its author sizing (self-introduced at rev 34): an author declaration or the
+`width`/`height` attribute hints beat HTML §15.3.1's normal UA-origin rule, so the cell is a bare `<embed hidden>`,
+✗ at IBP-layout unless the rule lands in the switch's cut — IBP-layout builds it (the rule, not a 0×0 natural size, is the repair). (2) IBP-observer owns the observed box's writer
+transition: re-`observe()` replaces the observation (Resize Observer `observe()` steps 1–4), which
+`ResizeObserverRegistry::observe` does not today. (3) IBP-sandbox's `host_data/mod.rs` line states the touch-time
+rule's application (the touched concern is deleted whole; the full decomposition is the user's option-A slot) instead
+of "only shrinks" (self-review: IMP 1 / MIN 4, folded). A >1000-line sweep of every `.rs` path the memo cites found eight; those known to be edited are the two
+split prereqs' files and `host_data/mod.rs`, `element/tree.rs` is one if an F11 caller edit reaches it, and the rest
+are cited as evidence only.
+
+Revision 35 (2026-09-28) — folds Codex R4 on #526 (`ee3badbe`; IMP 2, MIN 1). (1) §3's transform rows
 (css-transforms-1 §2, css-transforms-2 §8, css-will-change-1 §2) marked ✓ while the umbrella's rows for the same
 sections route their transformable-element containing-block branches to `#11-transformed-block-abspos-double-layout`
 / `#11-transform-family-3d-and-containing-block` — now ✗ with those omitted branches named. Root-check (R3 and R4 both
@@ -873,7 +884,7 @@ Cross-sub-PR pairs:
 | WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings clause (Window only); node and Window clauses | F10, F10r | IBP-sandbox | ✓ | yes |
 | WHATWG HTML §13.2.4.5 Other parsing state flags | scripting mode (Normal/Disabled/Inert/Fragment) | F11 | IBP-sandbox | ✓ | yes |
 | WHATWG HTML §13.4 Parsing HTML fragments | fragment algorithm step 10 | F11 | IBP-sandbox | ✓ | yes |
-| WHATWG HTML §15.3.1 Hidden elements | `[hidden]:not([hidden=until-found i]):not(embed)`; `[hidden=until-found i]` (`content-visibility`); `input[type=hidden i]`; `@media (scripting) { noscript }` | by the cell test (§0.6 item 7), in the exposer's plan: `[hidden]`, `noscript` — IBP-ua-display's plan (candidates); `input[type=hidden i]` — IBP-layout's plan (candidate); `[hidden=until-found i]` — the `content-visibility` program builds the rule (§0.6 item 11; `i` via E22); `[hidden]` — built by IBP-ua-display, consumed by IBP-layout (E25) | IBP-ua-display; `input[type=hidden i]`: IBP-layout ; `embed[hidden] { display: inline; height: 0; width: 0; }` — IBP-layout's plan (candidate): HEAD has no `hidden` rule (`ua.rs`/`legacy_ua.rs` 0 hits) and no `embed` handling in layout or paint, so an `<embed>` is an empty non-replaced inline and draws nothing — a hidden one is 0×0, the spec's value; IBP-layout's F4 switch makes `embed` replaced, so author sizing applies and `<embed hidden style="width:100px;height:50px">` turns ✗ there (without author sizing, a non-zero natural size or CSS 2's 300×150 fallback does the same unless F14 fixes `embed` at 0×0; the `width`/`height` attribute hints, `elidex-dom-compat/src/presentational.rs:111`, apply only under `presentational_compat()`) — IBP-layout's own cell (§0.6 item 7) | ✗ | yes |
+| WHATWG HTML §15.3.1 Hidden elements | `[hidden]:not([hidden=until-found i]):not(embed)`; `[hidden=until-found i]` (`content-visibility`); `input[type=hidden i]`; `@media (scripting) { noscript }` | by the cell test (§0.6 item 7), in the exposer's plan: `[hidden]`, `noscript` — IBP-ua-display's plan (candidates); `input[type=hidden i]` — IBP-layout's plan (candidate); `[hidden=until-found i]` — the `content-visibility` program builds the rule (§0.6 item 11; `i` via E22); `[hidden]` — built by IBP-ua-display, consumed by IBP-layout (E25) | IBP-ua-display; `input[type=hidden i]`: IBP-layout ; `embed[hidden] { display: inline; height: 0; width: 0; }` — IBP-layout's plan (candidate): HEAD has no `hidden` rule (`ua.rs`/`legacy_ua.rs` 0 hits) and no `embed` handling in layout or paint, so an `<embed>` is an empty non-replaced inline and draws nothing — as the spec's 0×0 replaced box for a hidden one does; IBP-layout's F4 switch makes `embed` replaced and sized, so a bare `<embed hidden src=x>` turns ✗ there — sized by its natural size or CSS 2's 300×150 fallback where the spec's UA rule computes `width`/`height` to 0 — unless that rule lands in the same cut; the rule, not F14's natural size (which also sizes a visible `embed`), is the repair, so IBP-layout builds it with the switch. The witness carries no author sizing and no `width`/`height` attributes: in the spec's cascade an author declaration, and the attributes' presentational hints (author-level, zero specificity; in elidex generated only on the compat path, `elidex-shell/src/lib.rs:126-136`, from `elidex-dom-compat/src/presentational.rs:111`), beat that normal UA-origin rule, so with either the spec's size is the author's — IBP-layout's own cell (§0.6 item 7) | ✗ | yes |
 | WHATWG HTML §15.3.10 Form controls | UA rules on form controls: the inherited `initial` resets on `button` and `input`; `input, button { display: inline-block }` (a `display` rule — already present, `elidex-style/src/ua.rs:128`, which also covers `textarea`/`select`); rules with `i` (e.g. `input:is([type=reset i], [type=button i], [type=submit i])`) | by the exposer (§0.6 item 7): computed values reaching subtrees `IBP-layout`'s presence switch lays out first are IBP-layout's; A96 remainder → `#11-form-control-ua-rendering-fidelity`; `:is()` and `i` from IBP-css-machinery if a repair needs them | the exposer (IBP-layout / IBP-ua-display) | ✗ | yes |
 | WHATWG HTML §15.3.3 Flow content | `display` rules for flow content, `dialog`, `[popover]` | seed | IBP-ua-display | ✗ | yes |
 | WHATWG HTML §15.5.5 The details and summary elements | closed `details`' `content-visibility: hidden`; `summary` `list-item` | closed contents: the `content-visibility` program (§0.6 item 11; `details`' UA shadow tree); `summary`: slot (Appendix G) | IBP-ua-display | ✗ | yes |
@@ -1034,8 +1045,8 @@ and through F1 IBP-transform, IBP-observer and PR-1a — is downstream of IBP-la
   `vm/host/dispatch_target.rs:211`, `vm/natives_promise.rs:540`); verify the compile / modals / `window.open` sites
   are bound; rev 4 mis-cited `elidex-html-parser-strict/src/result.rs:137` (a fragment-options test); comments at
   `vm/host/storage.rs:79-80` and `event_handler_attrs.rs:586`; `content/form_input.rs` overlaps the live L3 branch;
-  `vm/host_data/mod.rs` (2023 lines) only shrinks (`#11-host-data-full-decomposition`); **1000-line watch**:
-  `elidex-shell/src/pipeline.rs` (973) and `elidex-js/src/vm/natives_promise.rs` (965) must not cross 1000 at this
+  `vm/host_data/mod.rs` (2023 lines): touch-time rule applied — the touched concern — the `sandbox_flags` field (`:187-200`), its initializer (`:863`) and accessors (`:1095-1139`; the trait surface is in the two `engine.rs` files) — is deleted whole, with the `document_origin_override` doc that names it (`:218-226`) swept, so no seam along the touch remains to split first, and the file's reduction below 1000 is the design refactor the user placed in `#11-host-data-full-decomposition` (option A, 2026-07-11, when #455 split its touch seam); any other >1000-line file this PR's plan finds it edits (e.g. `elidex-dom-api/src/element/tree.rs`, 1076, if an F11 caller edit reaches it) gets the same check before implementation; **1000-line watch**:
+  `elidex-shell/src/pipeline.rs` (973), `elidex-js/src/vm/natives_promise.rs` (965) and `elidex-script-session/src/mutation/mod.rs` (994, an F11 fragment-parse caller) must not cross 1000 at this
   PR's cut; the unbound invocation read (§7).
 - **Touch-time cleanup in a file it edits** (not an F9 path — it creates no document root; it takes a built
   `EcsDom`): `build_paged_pipeline` (`elidex-shell/src/pipeline.rs:390-421`, `#[allow(dead_code)] // Exposed for
@@ -1092,7 +1103,7 @@ of the subtrees of formerly presence-replaced elements, paint of widget content 
 those subtrees now expose; seeds: the `button` element's children, the `input` button and Color states under each
 answer the probe could give (against I1's spec-fixed content sources), the Hidden-state `input`'s script-appended
 children, HTML §15.3.10's resets — with a measuring method and a statement of what it cannot see; **places each** by §0.6 item 7's rule and cell test, consuming the `[hidden]` rule `IBP-ua-display` builds (E25)
-and `IBP-css-machinery`'s `i` flag (E19) for its `input[type=hidden i]` rule; places the `embed[hidden]` cell its F4 switch fires (§3 §15.3.1 row); pins its `content-visibility` cells
+and `IBP-css-machinery`'s `i` flag (E19) for its `input[type=hidden i]` rule; builds the `embed[hidden]` rule in its F4 switch's cut, the repair of the cell that switch fires (§3 §15.3.1 row); pins its `content-visibility` cells
 (§0.6 item 11, the `button`-children cell); with a fixture per content-source branch, `value=""` included; and
 **registers** every A96 remainder as a new facet of `#11-form-control-ua-rendering-fidelity` (§6; one slot for the
 class, not a parallel one). That slot's SoT trigger, "a form-control rendering-fidelity pass", **fires at
@@ -1114,8 +1125,12 @@ fixed-descendant scan); any `content-visibility` cell it fires is pinned (§0.6 
 happens if it reproduces; `elidex-plugin/src/computed_style/tests.rs` (947 lines) placement.
 
 **IBP-observer** (appendix F): §3.3.1 empty content rect for an inline box; isActive compares each observation's
-**observed** box; host closure only marshals (C-3d owns its migration). Input line: G9 the device-pixel arm has no
-device-pixel input (`SizeProvider`, `resize.rs:19`).
+**observed** box; the observed box's writer transition — `observe()` on an already-observed target replaces its
+observation (Resize Observer `observe()` steps 1–4: `unobserve()`, then a new `ResizeObservation` with the new box
+and fresh last-reported sizes), where `ResizeObserverRegistry::observe` today keeps the old one
+(`elidex-api-observers/src/resize.rs:133-164`), with a re-observe cell (`content-box` then `border-box`); host closure
+only marshals (C-3d owns its migration). Input line: G9 the device-pixel arm has no device-pixel input
+(`SizeProvider`, `resize.rs:19`).
 
 **IBP-css-machinery** (appendix G's machinery paragraph): derive the population by its property — CSS machinery a
 program repair consumes that elidex lacks — with a measuring method (every selector and media query in the
