@@ -3,8 +3,9 @@
 **Umbrella**: `docs/plans/2026-07-citation-hygiene-umbrella.md`, slice **A-i-wire-fgit**.
 
 **Companion**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md`. It holds the
-measurements, corpus scripts, provenance of `ff6b99a3`'s commits, false premises, every
-plan-review round's dispositions, and the round-9 terminator. This memo holds only the live
+measurements, corpus scripts, provenance of `ff6b99a3`'s commits and false premises. **Review
+record**: `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md`, every plan-review round's
+dispositions and the terminators (split out of the companion unchanged). This memo holds only the live
 decisions.
 
 **Parent memo**: `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`, #519's record (§8.2).
@@ -30,7 +31,7 @@ measures it (§6, companion §A.12):
 ⚠ **The draft-8 c8 cells ran under the real `HOME`**: `c8/cell8.sh` never set it (round 8, Ax2). The
 cell harness now sets `HOME` for every cell, and every draft-9 cell was run with it (companion §A.12).
 
-**Next** (companion §D.0): a Step-4.5 focused check of E2 and E3 only. If it converges, plan-review
+**Next** (`…-reviews.md` §D.0): a Step-4.5 focused check of E2 and E3 only. If it converges, plan-review
 closes.
 
 **History.** The round-5 focused review failed its terminator. The root cause was that
@@ -42,7 +43,7 @@ the whole fixture-build window**. The detector, its four channels, its canaries,
 its records are **deleted**. Every claim below is a result from the recast corpus run on prototype
 **p6** (§6).
 
-(Draft 6 called round 6 "focused". It ran as a full five-axis review; companion §D.0 records it as it
+(Draft 6 called round 6 "focused". It ran as a full five-axis review; `…-reviews.md` §D.0 records it as it
 ran.)
 
 ⚠ **The parent's rule applies throughout.** No quantity here moves with a commit; each figure is a
@@ -446,7 +447,7 @@ It also measured false reds: `commit --template=/dev/null`, `printf 'export x'` 
 `git config core.autocrlf false`. Widening the regex would be the wrong repair: S's population is a
 vocabulary, not the property. And keeping a second, partial surface for the same residual is decision
 tax. So S, its label, its record and its census are removed. Draft 7 had adopted it, and this is
-recorded as the removal of a round-7 instrument (companion §D.7).
+recorded as the removal of a round-7 instrument (`…-reviews.md` §D.7).
 
 **`#11-k2-fixture-git-invocation-convention` closes (E1).** Draft 8 re-scoped it to the transient
 residual. Under §0.3 that residual is class (c), so the create-time audit is applied to the slot as it
@@ -635,9 +636,9 @@ opt-in and does not add to the always-run gate.
 
 ## §7 What was deleted (draft 5 → 6)
 
-Draft 8 (D1) also deletes seed S. See §5.1 and companion §D.7.
+Draft 8 (D1) also deletes seed S. See §5.1 and `…-reviews.md` §D.7.
 
-These were deleted, with details in companion §D.5:
+These were deleted, with details in `…-reviews.md` §D.5:
 - the four-channel detector: the `PATH` shims, trace2 over two routes, and the poison;
 - its canaries, labels and records;
 - the per-call `_fgit`;
