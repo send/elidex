@@ -879,8 +879,8 @@ MUTANTS += [
      'bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED")',
      'bounded(r"KIND(?:\\s+" + DASH_CLASS + r"?|" + DASH_CLASS + r")\\s*UNDETERMINED")',
      [R47_4_UNDET_NBSP]),
-    ("R47-4 fold: the UNDETERMINED phrase folds case in ASCII only (drop `re.ASCII` -- the KELVIN "
-     "SIGN folds to `K`, U+0130 / U+0131 to `I`)", STREAM, "re.IGNORECASE | re.ASCII)", "re.IGNORECASE)",
+    ("R47-4 fold: the UNDETERMINED phrase folds case in ASCII only (drop `re.ASCII` -- a letter folds "
+     "from U+212A / U+0130 / U+0131, and the boundary admits U+017F too)", STREAM, "re.IGNORECASE | re.ASCII)", "re.IGNORECASE)",
      list(R47_4_UNDET_FOLD)),
     ("R47-4 gap: the gap is a WHITESPACE class, not a wildcard (widen it to `.` -- every arm above "
      "still passes, and only the word-boundary negative catches it)", STREAM,

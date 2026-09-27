@@ -553,11 +553,13 @@ acase("POSITIVE", "(R47-4) the UNDETERMINED phrase has its own spelling of the g
       kindcell("KIND\u00a0UNDETERMINED"), "UMBRELLA-CELL", 1)
 R47_4_UNDET_NBSP = CASES[-1].name
 
-# ⚠ WHAT THE ASCII FOLDING EXCLUDES, measured over every codepoint in each
-# letter position: the U+212A KELVIN SIGN folds to `K`, and U+0130 / U+0131 to
-# `I`, under a Unicode IGNORECASE -- and nothing else does (the phrase has no
-# `s`, so a long s is not a member).  One arm per fold, so the mutant that drops
-# `re.ASCII` from the phrase is killed BY the fold and not by a neighbour.
+# ⚠ WHAT THE ASCII FOLDING EXCLUDES, measured over every codepoint in every
+# position of the pattern.  In the LETTERS: the U+212A KELVIN SIGN folds to `K`,
+# and U+0130 / U+0131 to `I`, under a Unicode IGNORECASE -- and nothing else
+# does.  In the `bounded()` lookarounds on either end: `[A-Za-z]` also admits
+# U+017F LONG S, U+212A, U+0130 and U+0131, which would turn a real phrase next
+# to one of them into no phrase.  One arm per role, so the mutant that drops
+# `re.ASCII` from the phrase is killed by EACH role and not by a neighbour.
 R47_4_UNDET_FOLD = []
 for _label, _cell in (("U+212A KELVIN SIGN for the `K`", "\u212aIND UNDETERMINED"),
                       ("U+0130 (dotted capital I) for the `I` of `KIND`", "K\u0130ND UNDETERMINED"),
@@ -567,6 +569,13 @@ for _label, _cell in (("U+212A KELVIN SIGN for the `K`", "\u212aIND UNDETERMINED
                       "is not the phrase.  A Unicode IGNORECASE folds that letter to its ASCII "
                       "capital, and a spelling nobody wrote as the phrase would decide the kind" % _label,
           kindcell(_cell), "UMBRELLA-CELL", 0)
+    R47_4_UNDET_FOLD.append(CASES[-1].name)
+for _label, _cell in (("a U+017F LONG S just before it", "ſKIND UNDETERMINED"),
+                      ("a U+212A KELVIN SIGN just after it", "KIND UNDETERMINEDK")):
+    acase("POSITIVE", "(R47-4) the UNDETERMINED phrase's boundary is ASCII too: %s does not erase "
+                      "the phrase.  A Unicode IGNORECASE lets `[A-Za-z]` admit that letter, and a "
+                      "neighbour nobody reads as a letter would erase the kind" % _label,
+          kindcell(_cell), "UMBRELLA-CELL", 1)
     R47_4_UNDET_FOLD.append(CASES[-1].name)
 
 
