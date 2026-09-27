@@ -1,7 +1,7 @@
 # Predicate prereq program: one canonical answer to css-display-3's *inline box*
 
 **Revision 40** (2026-09-28) — folds Codex R11 on #526 (`68710243`; IMP 4). (1) IBP-sandbox computes the
-embedder→embeddee flag union at the creation input (HEAD takes only the iframe's own `sandbox`, `load.rs:35`), so no
+embedder→embeddee flag union (restriction-set union = allow-bit intersection, fixed after R12's P1) at the creation input (HEAD takes only the iframe's own `sandbox`, `load.rs:35`), so no
 F10 consumer reads an unsandboxed answer for a nested frame; B1 swaps its producer (§0.5, §0.6 item 4). (2) Arm (i)'s
 null source excludes an `img` with `srcset` / `picture` candidates, which is pending (rule (2)); responsive
 selection is a new slot. (3) F11 covers the tolerant fragment fallback, which ignores Disabled for `<noscript>`. (4)
@@ -510,8 +510,9 @@ ordering") computes "the sandboxing flag set" among the creation parameters **be
 (`:418-427`). Stamping at creation is that requirement's own write point, so B1 later **swaps only the producer**
 of the input — no second move of the write. B1 §5 req 5 (the cluster fold, `:450-455`) loses this one field. The
 embedder→embeddee flag union (§7.1.5, "the flags set on embedder's node document's active sandboxing flag set") is
-part of that same creation input, so **IBP-sandbox computes it** — the iframe's `sandbox` flags ∪ the embedder
-document's F9 — before stamping: HEAD derives a nested document's flags from its own `sandbox` attribute alone
+part of that same creation input, so **IBP-sandbox computes it** — the spec's union of *restriction* sets, which in F9's allow-token encoding is the
+**intersection** of allow bits (`None` = no restriction: `None ∩ x = x`; `Some(a) ∩ Some(b) = Some(a & b)`; a parent
+allowing only scripts and a child allowing only forms allow neither) — before stamping: HEAD derives a nested document's flags from its own `sandbox` attribute alone
 (`elidex-shell/src/content/iframe/load.rs:35`), and leaving the union to B1 would have every F10 consumer (the
 migrated gates, F4's canvas arm) read an unsandboxed answer for an unsandboxed iframe inside a sandboxed document. B1
 later swaps the union's producer with the rest of the input.
@@ -1273,7 +1274,7 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | `#11-replaced-inline-no-atomic-layout`: fires at both; stays open with a **new trigger** — the next change to the IFC's atomic dispatch (`InlineItem::Atomic` routing) after IBP-predicate — and *Re-eval* 2026-11-01 | IBP-predicate, IBP-layout |
 | `#11-transformed-block-abspos-double-layout`, `#11-transform-family-3d-and-containing-block`: triggers fire; recorded by IBP-transform's memo | IBP-transform |
 | Enrich `#11-resize-observer-device-pixel-box` (M4-12 roadmap §H-8 backlog): IBP-observer's `device-pixel-content-box` arm falls back to the CSS-pixel content-box size until the slot lands; list it in the open-slot registry with that fallback | IBP-observer |
-| Register `#11-img-responsive-source-selection` (NEW). *Gap*: HTML's image source selection over `srcset` / `picture` `source` candidates (§4.8.4.3); elidex selects only `src`, so F4 answers an `img` with candidates pending (replaced, rule (2)) even where selection would find no valid candidate (null → rule (3) with non-empty `alt`). *Why deferred*: selection needs viewport and density inputs the loader does not carry, and no program PR changes what a candidate-bearing `img` renders. *Trigger*: responsive-image loading (`srcset` / `picture`) in the loader | IBP-classify |
+| Register `#11-img-responsive-source-selection` (NEW). *Gap*: HTML's image source selection over `srcset` / `picture` `source` candidates (§4.8.4.3); elidex selects only `src`, so F4 answers an `img` with candidates pending (replaced, rule (2)) even where selection would find no valid candidate (null → rule (3) with non-empty `alt`). *Why deferred*: selection needs viewport and density inputs the loader does not carry, and no program PR changes what a candidate-bearing `img` renders. *Trigger*: responsive-image loading (`srcset` / `picture`) in the loader. *Re-eval*: 2026-11-01 | IBP-classify |
 | Enrich `#11-form-control-ua-rendering-fidelity`: facet (1) (`input[type=hidden]`) is **discharged** by `IBP-layout` if its plan places the Hidden-state `display: none !important` rule A93 under §0.6 item 7's cell test (otherwise it stays A96 in the facet); the `i` attribute flag its facet (3) names is recorded by `IBP-css-machinery` (row below). *Why deferred* (facets (2), (3)): UA-declaration fidelity — which UA rule a button-type or mixed-case `type` input matches — author-visible today (A96); a UA rule `IBP-layout`'s plan places is recorded against the facet it discharges. Trigger and re-eval stay the SoT's (quoted in the next row); the trigger **fires at `IBP-layout`**, whose plan re-audits facets (2)/(3) by the landing 4-question audit (fold or keep) | IBP-layout |
 | Enrich `#11-form-control-ua-rendering-fidelity` with a new facet: the consequences of the presence switch that `IBP-layout`'s plan places A96 (author-visible today and left exactly as found), each named with its spec section. The slot's SoT (`project_open-defer-slots.md`) keeps its own "**Trigger**: a form-control rendering-fidelity pass, or `BrowserCore` becoming selectable [these now affect core]. **Re-eval date**: with the form-control / `BrowserCore` work." *Why deferred* (the facet): author-visible today independent of the program (A96). *Trigger* (the facet's own, which `IBP-layout`'s derivation cannot fire at creation): an HTML forms-rendering WPT subset (`html/rendering/widgets`) declared supported. *Re-eval*: 2026-11-01 — shipped with `IBP-layout` | IBP-layout |
 | Record in `#11-form-control-ua-rendering-fidelity` facet (3): the `i` attribute flag landed (facet (3)'s UA rules stay the slot's) | IBP-css-machinery |
