@@ -955,7 +955,7 @@ passes, the raw-extent seed and the Phase-1 cost contract; (12) intersects the i
 exception, §6.4's demotion, `MARKER_RE`, the residue gate and the `keep` set; (14) intersects the gate,
 `_kind`'s ordering, the attribution pass, I-A's straddle rule and a ratified control; (17) has no
 canonical algorithm at all ("every gap-bearing pattern") and four in-PR attempts at one each
-introduced its own defect; (18) spans eight patterns under five consumer semantics.
+introduced its own defect; (18) spans nine patterns under five consumer semantics.
 ⚠ **This set read "(5), (6) and (16)" at `79309486`** (re-indexed from "(11)", which at `f87dd8f2` was
 the hand-written table), and (16)'s own text claims neither edge-dense nor plan-review, while (12) and
 (14) — added after the sentence — say BY RULE. Re-derived from the entries' text (the fifth
@@ -977,8 +977,8 @@ to a named owner with a trigger and a re-eval date — read off each entry's own
 attestation, a hand-written set that the entries added since had outgrown) — which is what
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for. Splitting what remains
 would mean cutting the checker itself, and the pieces do not separate: every entry names the SAME
-program, and the split this PR could take at a real seam it has taken **six times** already as
-standalone touch-time commits (§7 Slice 0). A further split would be a split of the deferral LIST,
+program, and the split this PR could take at a real seam it has already taken as standalone
+touch-time commits (among `git log --oneline origin/main..HEAD --grep='touch-time'`). A further split would be a split of the deferral LIST,
 not of the work — which changes no reader's decision and loses the one home that ties the entries to
 the design they came from.
 
@@ -1450,6 +1450,8 @@ committed here by the note that corrected it.
   | `MARKER_RE` / `UNDETERMINED` / `POINTER` | none | immune: `kind_disagreements` makes the row a schema miss (rc 2) |
   | `_ID_RUN_TOKEN` | not measurable | read inside an id-only code span, which another span cannot interrupt |
 
+  The probe labels POINTER's rows and `_ID_RUN_TOKEN`'s DEFECT; the table decides POINTER by its rc
+  (masked rc 2, a schema miss) and the id run by its fixture (`` `x` `` breaks the enclosing span).
   An autolink as the interruption gives the same verdict on every row but `_ID_RUN_TOKEN`'s. A
   citation and a file span were not measured (the probe cannot spell a file span's reader
   rendering). The kind gate's comparison (`kind_disagreements`) does not transfer: it asks per block
@@ -1457,7 +1459,7 @@ committed here by the note that corrected it.
   (`LICENSE_BEFORE` ends in `$`); its per-match half, `_straddles(blanks, a, b)`, is the part that
   can be asked of one match. The probe is in the body of the first commit whose message contains
   MASKED-SPAN PROBE: `git log --reverse --grep='MASKED-SPAN PROBE' --format=%H | head -1 | xargs git
-  log -1 --format=%B`. Eight patterns under five consumer semantics make this edge-dense by
+  log -1 --format=%B`. Nine patterns under five consumer semantics make this edge-dense by
   CLAUDE.md's own test, so it is `/elidex-plan-review`-before-implementation **BY RULE**, in its own
   PR.
   **Scope**: every vocabulary match that reads a `GAP` across a disposed blank, each consumer given

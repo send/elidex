@@ -14,8 +14,9 @@ every gap-bearing pattern -- more than that module could take under the
 1000-line bound.  The older R47-4 kind-phrase gap controls (U+00A0, tab, LF,
 the ASCII fold) stay in `_cases_r42.py`, where their round put them.  This
 module holds every reader-gap CASE of the 2026-09-27 round; that round's
-FUNCTION control lives with its kind -- the class oracle
-`unicode_whitespace_class_control` in `plan_memo_selftest_invariants.py`.  Its mutants are
+FUNCTION controls are `unicode_whitespace_class_control` (the class oracle, in
+`plan_memo_selftest_invariants.py`) and `role_measure_control` (in
+`plan_memo_selftest_controls.py`).  Its mutants are
 `plan_memo_selftest_mutants_gap.py`'s.
 
 This module holds its OWN `CASES` and binds its own spellings (`spellings()`);
@@ -179,7 +180,7 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # BOTH arms: the words joined by U+00A0 (read) and by U+000B (refused).  A
 # `_R22_GAP_MIXED` row declares ONE arm, a refuse arm on its own run (VT+NBSP),
 # for a gap an adjacent required gap would otherwise absorb.  Every declared arm
-# is GENERATED from its row's template by the loop at the end of this module --
+# is GENERATED from its row's template by the loop after `_R22_GAP_MIXED` --
 # there is no reuse of an older case, so every template is exercised (the
 # review of f85f4e1b: a reused arm was checked by its number only, and a row
 # whose arms were both reused never ran its own template).
@@ -315,8 +316,8 @@ R22_GAP = {}
 """pattern -> the names of its read and refuse cases, every position -- what each
 pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn red."""
 R22_GAP_MIXED = []
-"""the MIXED-run refuse arms, which only a re-spelling of the ONE optional gap
-turns red (re-spelling every gap of the half refuses the run anyway)."""
+"""the MIXED-run refuse arms.  Of OWNS_TWO's rows, the optional-gap mutant turns
+them red and the join-half mutant does not (MIXED-ARM PROBE)."""
 # THE TABLE'S OWN INVARIANTS, checked where it is defined and LOUD at import
 # (a bad row stops the self-test from loading): every `_R22_GAP_TABLE` row
 # declares both expectations and they differ, every `_R22_GAP_MIXED` row

@@ -97,7 +97,8 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
   option (d) at the current enumeration (16 entries at `7b074847`, 14 own + 2 pre-existing); the
   record is at the top of the umbrella memo's §8. A later change to §8's list re-opens it. The merge
   itself still waits on the A-iii wire move, and needs a fresh review of whatever head is pushed then.
-- ⚠ **2026-09-28: §8's list is now 17 entries (15 own + 2 pre-existing)** — (17), gap-pattern
+- ~~⚠ **2026-09-28: §8's list is now 17 entries (15 own + 2 pre-existing)**~~ — **SUPERSEDED 2026-09-28** by
+  the next bullet. (17), gap-pattern
   population completeness, was carved with the user's approval. By the rule above that re-opens the
   cap question for #510's merge; the umbrella memo's §8 records the movement.
 - ⚠ **OPEN — 2026-09-28: §8's list is now 18 entries (16 own + 2 pre-existing)** — (18), a vocabulary
