@@ -898,8 +898,8 @@ MUTANTS += [
      [R24_LONG_SLUG, R24_WIDTH_PROPERTY]),
     ("R24 F3 tables: the appositive still requires the DASH (drop it: a field that merely mentions a "
      "sibling attributes to it, which is what the window was believed to prevent)", TABLES,
-     r'_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\s*" + DASH_CLASS + r"\s*" + DECOR + r"\s*$",',
-     r'_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + r"\s*$",',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + GAP + "*" + DASH_CLASS + GAP + "*" + DECOR + GAP + "*$",',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + GAP + "*$",',
      [R24_MENTION_ONLY]),
     # ⚠ THE ANCHOR MOVED AT R31-4, when the backward look stopped scanning the
     # whole preceding text and started matching at the ONE offset the index

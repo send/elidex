@@ -549,8 +549,9 @@ R47_4_BOUNDARY = CASES[-1].name
 
 acase("POSITIVE", "(R47-4) the UNDETERMINED phrase has its own spelling of the gap and the same "
                   "defect: under `re.ASCII` its `\\s` is ASCII whitespace, so a U+00A0 between "
-                  "`KIND` and `UNDETERMINED` read as no kind at all.  The scope `(?u:...)` widens "
-                  "the GAP alone and leaves the case folding ASCII -- the fold arms below",
+                  "`KIND` and `UNDETERMINED` read as no kind at all.  The GAP it composes is a class "
+                  "of explicit code points, which `re.ASCII` leaves alone, so the case folding stays "
+                  "ASCII -- the fold arms below",
       kindcell("KIND\u00a0UNDETERMINED"), "UMBRELLA-CELL", 1)
 R47_4_UNDET_NBSP = CASES[-1].name
 
@@ -591,6 +592,64 @@ acase("NEGATIVE", "(R47-4) a NON-whitespace character where a gap would be is no
                   "fails when the gap class is widened from whitespace to a wildcard",
       kindcell("**UMBRELLA, not-a terminal unit.**"), "UMBRELLA-CELL", 0)
 R47_4_NON_WHITESPACE = CASES[-1].name
+
+
+# -- PR #510 Codex R22 of 2026-09-27: the gap is CommonMark §2.1's Unicode
+# whitespace, not Python's.  `GAP` was `(?u:\s)`, whose set (`str.isspace()`)
+# holds eight code points §2.1 and cmark 0.31.2 do not read as whitespace
+# (measured through `cmark`: `x *<c>a*` opens `<em>` for each of the eight), so
+# `KIND<U+001C>UNDETERMINED` -- `KINDUNDETERMINED` to a reader -- declared the
+# kind and, with the `Deps` edge, raised UMBRELLA-CELL at rc 1.  ONE NEGATIVE
+# PER WAY OUT OF PYTHON'S SET: bidirectional class B (U+001C), class S that
+# `re.ASCII`'s `\s` also holds (U+000B), a C1 control (U+0085), and the two
+# separators of categories Zl / Zp (U+2028 / U+2029) -- so a re-spelling that
+# drops one route and keeps another is red on the one it keeps.
+R22_WS_OUTSIDE = []
+for _label, _gap in (("U+001C (INFORMATION SEPARATOR FOUR, bidirectional class B)", "\x1c"),
+                     ("U+000B (LINE TABULATION, which `re.ASCII`'s `\\s` holds as well)", "\x0b"),
+                     ("U+0085 (NEXT LINE, a C1 control)", "\x85"),
+                     ("U+2028 (LINE SEPARATOR, category Zl)", "\u2028"),
+                     ("U+2029 (PARAGRAPH SEPARATOR, category Zp)", "\u2029")):
+    acase("NEGATIVE", "(R22 ws) `KIND`, then %s, then `UNDETERMINED` is no kind phrase: the character is "
+                      "whitespace to `str.isspace()` and NOT to CommonMark §2.1 or cmark, so a reader "
+                      "sees the two words run together and the `Deps` edge is a terminal's" % _label,
+          kindcell("KIND%sUNDETERMINED" % _gap), "UMBRELLA-CELL", 0)
+    R22_WS_OUTSIDE.append(CASES[-1].name)
+acase("NEGATIVE", "(R22 ws) the MARKER composes the same gap: `UMBRELLA, not a` + U+001C + `terminal unit` "
+                  "is not the marker, so the row is terminal and its `Deps` edge unasserted",
+      kindcell("**UMBRELLA, not a\x1cterminal unit.**"), "UMBRELLA-CELL", 0)
+R22_WS_OUTSIDE.append(CASES[-1].name)
+acase("POSITIVE", "(R22 ws) U+3000 IDEOGRAPHIC SPACE between `KIND` and `UNDETERMINED` IS a gap: it is "
+                  "category Zs, the space these memos' Japanese prose types, and the highest §2.1 "
+                  "member -- the one a class enumerated over less than the BMP would lose",
+      kindcell("KIND\u3000UNDETERMINED"), "UMBRELLA-CELL", 1)
+R22_WS_IDEOGRAPHIC = CASES[-1].name
+
+# The sweep's two other patterns whose subject is a reader's gap, each routed
+# through `GAP`: the appositive that attributes a marker (mechanical,
+# UMBRELLA-MARK), and the id run inside a code span (the disposition every
+# scanner reads).  Each was `\s` under `re.ASCII` or `[ \t\n]`, so U+00A0
+# between the words was no gap at all.
+acase("POSITIVE", "(R22 ws) the appositive's gap after the id is a reader's: `Slice 9z&nbsp;— **UMBRELLA, "
+                  "…**` attributes the marker to `9z` -- `\\s` under `re.ASCII` read no appositive, the "
+                  "field became the row's own declaration and the UMBRELLA-MARK was lost at rc 0",
+      build(wb="Slice 9z\u00a0— **UMBRELLA, not a terminal unit.** points into §8."), "UMBRELLA-MARK", 1)
+R22_WS_APPOSITIVE = CASES[-1].name
+acase("POSITIVE", "(R22 ws) and so is the gap between the row noun and the id: `Slice&nbsp;9z — "
+                  "**UMBRELLA, …**` names the row `9z` -- `ROW_NOUN_SEP` read `[ \\t\\n]` and a dash, "
+                  "so the noun named nothing and the attribution was lost the same way",
+      build(wb="Slice\u00a09z — **UMBRELLA, not a terminal unit.** points into §8."), "UMBRELLA-MARK", 1)
+R22_WS_ROW_NOUN = CASES[-1].name
+case("POSITIVE", "(R22 ws) an id run inside a code span is split by a reader's gap: `` `Qx&nbsp;9z` `` in a "
+                 "`Deps` cell is two ids, so the umbrella `9z` is a naming site -- with `\\s` under "
+                 "`re.ASCII` the span was no id run, it was masked, and the site went unreported",
+     build(d7z="`Qx\u00a09z`"), "", 1)
+R22_WS_ID_RUN = CASES[-1].name
+case("NEGATIVE", "(R22 ws) and only by one: a code span holding `Qx`, U+000B, `9z` is no id run -- "
+                 "cmark does not read U+000B as whitespace, so the span is code, not a list of ids, "
+                 "and is masked like any other",
+     build(d7z="`Qx\x0b9z`"), "", 0)
+R22_WS_ID_RUN_VT = CASES[-1].name
 
 
 # -- R47-5: the loops the DERIVED scope ratchet found unpinned.  Three of the

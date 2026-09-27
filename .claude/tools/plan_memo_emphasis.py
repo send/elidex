@@ -31,6 +31,13 @@ WHAT IS IMPLEMENTED.  The spec's own two halves, nothing more:
     spec's "rule of three" and commonmark.js's `openers_bottom` memo so a
     closer that found no opener is never re-searched below the same point.
 
+AND THE ONE DEFINITION OF §2.1's "Unicode whitespace character" in this
+checker (`is_unicode_whitespace`, and `UNICODE_WHITESPACE`, the regex class
+derived from it).  It lives here because §6.2 is its first reader and this
+module imports nothing of the checker, so every other reader -- the kind
+phrases' `plan_memo_stream.GAP`, and through it the two table patterns --
+reaches it without a cycle.
+
 WHAT IS NOT.  Nothing here builds a tree: the caller wants the CHARACTER
 SPANS the delimiters occupy, since those are what the stream drops.  A
 delimiter that pairs contributes nothing; a delimiter left over at the end
@@ -59,13 +66,61 @@ _MAX_RUN = {"~": 2}
 
 # §2.1: "A Unicode whitespace character is a character in the Unicode Zs
 # general category, or a tab (U+0009), line feed (U+000A), form feed
-# (U+000C), or carriage return (U+000D)."  The line start counts as one
-# ("the beginning and the end of the line count as Unicode whitespace").
+# (U+000C), or carriage return (U+000D)."
 _WS = "\t\n\f\r"
 
 
+def is_unicode_whitespace(ch):
+    """CommonMark 0.31.2 §2.1's "Unicode whitespace character" -- the ONE
+    definition of it in this checker.  §6.2's flanking rules read it here, and
+    every regex gap a READER sees is the class derived from it below
+    (`UNICODE_WHITESPACE`, composed as `plan_memo_stream.GAP`).
+
+    ⚠ NOT `str.isspace()` AND NOT `re`'s `\\s` (PR #510 Codex R22 of
+    2026-09-27).  Those two are one set (Python's: category Zs or
+    bidirectional class WS / B / S), and it holds EIGHT code points this one
+    does not -- U+000B, U+001C..U+001F, U+0085, U+2028, U+2029 -- which cmark
+    0.31.2 does not read as whitespace either: `x *<c>a*` opens `<em>` for
+    each of the eight and for none of the other nineteen, measured by piping
+    every code point that is `isspace()` or Zs through `cmark` (LF and CR, the
+    two line endings, cannot sit inside one line and are members by the
+    spec's own list).  The kind phrases' gap was `(?u:\\s)`, so
+    `KIND<U+001C>UNDETERMINED` -- `KINDUNDETERMINED` to a reader -- declared
+    the undetermined kind."""
+    return ch in _WS or unicodedata.category(ch) == "Zs"
+
+
+_BMP_END = 0x10000
+
+UNICODE_WHITESPACE = "[%s]" % "".join("\\u%04x" % c for c in range(_BMP_END)
+                                      if is_unicode_whitespace(chr(c)))
+"""`is_unicode_whitespace` as a regex CHARACTER CLASS, DERIVED from it: every
+code point the predicate accepts, each spelled as a `\\uXXXX` escape, so the
+class is plain text under any flags (measured: it matches the same code points
+with no flag, with `re.IGNORECASE`, and with `re.IGNORECASE | re.ASCII`).
+Twenty-one members under the `unicodedata` of Python 3.9.6 (UCD 13.0.0), 3.12
+(15.0.0) and 3.14 (16.0.0) alike, and byte-identical text under all three --
+measured by
+`python3 -c 'import sys; sys.path.insert(0, ".claude/tools"); import plan_memo_emphasis as e; print(e.UNICODE_WHITESPACE.count("\\\\u"))'`.
+
+⚠ THE ENUMERATION STOPS AT THE BMP, AND THAT IS A MEASURED FACT, NOT A
+GUARANTEE.  The four ASCII members are in it by construction; Zs is a general
+category, which Unicode's stability policy does not freeze, so nothing promises
+a future Zs character lands below U+10000.  Every Zs character of UCD 13.0-16.0
+does (the highest is U+3000).  Enumerating all 0x110000 code points instead
+costs 0.09-0.14 s per module load (3.14 / 3.9, measured) against 0.005-0.008 s
+for the BMP, and the mutation proof loads the module set once per row, so the
+bound is kept and the fact is a CONTROL
+(`plan_memo_selftest_invariants.unicode_whitespace_class_control`): it asks the
+predicate of every code point under the running interpreter, so a Unicode
+version that puts a Zs character above the bound turns the self-test red
+rather than leaving that character out of the class in silence."""
+
+
 def _is_ws(ch):
-    return ch is None or ch in _WS or unicodedata.category(ch) == "Zs"
+    """§6.2's reading of §2.1: "the beginning and the end of the line count as
+    Unicode whitespace", which is the `None` a run at the block's edge sees."""
+    return ch is None or is_unicode_whitespace(ch)
 
 
 def _is_punct(ch):

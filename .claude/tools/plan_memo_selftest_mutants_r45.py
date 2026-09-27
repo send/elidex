@@ -34,9 +34,11 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_LINE_ENDING
     R47_4_UNDET_FOLD, R47_4_UNDET_NBSP, R47_5_ALL_KINDS, R47_5_SECOND_ROW, R47_5_SECOND_TABLE,
     R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS, R51_TWO_STRADDLES, R52_OUTSIDE_QUOTED,
     R52_OUTSIDE_STRADDLE, R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
+    R22_WS_APPOSITIVE, R22_WS_ID_RUN, R22_WS_ID_RUN_VT, R22_WS_IDEOGRAPHIC, R22_WS_OUTSIDE,
+    R22_WS_ROW_NOUN,
 )
 from plan_memo_selftest_mutants import (
-    BLOCKS, CONFORMANCE, MEMO, POPULATION, ROLES, STREAM, TABLES,
+    BLOCKS, CONFORMANCE, EMPHASIS, MEMO, POPULATION, ROLES, STREAM, TABLES,
 )
 
 # This module's rows, in its OWN list: `plan_memo_selftest_mutants.mutants()` gathers every
@@ -120,8 +122,8 @@ MUTANTS += [
     ("R47-1 separator: the row-noun separator COMPOSES `DASH` (re-spell the narrower ASCII-only "
      "set -- an en/em-dash claim matches no appositive and the numeric id goes unreported at rc 0)",
      TABLES,
-     'ROW_NOUN_SEP = ROW_NOUN + "[ \\t\\n" + DASH + "]+"',
-     'ROW_NOUN_SEP = ROW_NOUN + r"[ \\t\\n-]+"',
+     'ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|" + DASH_CLASS + ")+"',
+     'ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|-)+"',
      [R47_1_DASH_SET, R47_1_EN_DASH]),
     ("R47-2 gate: the unbound-claim gate asks BOTH readings (drop the disagreement arm -- a claim "
      "straddling a masked span is invisible to the stream and the table leaves the census at rc 0)",
@@ -154,9 +156,51 @@ MUTANTS += [
      list(R47_4_UNDET_FOLD)),
     ("R47-4 gap: the gap is a WHITESPACE class, not a wildcard (widen it to `.` -- every arm above "
      "still passes, and only the word-boundary negative catches it)", STREAM,
-     'GAP = r"(?u:\\s)"',
+     'GAP = UNICODE_WHITESPACE',
      'GAP = r"."',
      [R47_4_NON_WHITESPACE]),
+]
+
+R22_WS_CLASS = ("PROPERTY: the reader-gap class every phrase composes (plan_memo_stream.GAP) is exactly "
+                "CommonMark §2.1's Unicode whitespace as plan_memo_emphasis.is_unicode_whitespace "
+                "defines it, over EVERY code point -- the derivation's BMP bound included")
+
+# -- PR #510 Codex R22 of 2026-09-27: the gap is §2.1's whitespace, derived from
+# ONE predicate.  One row per place the definition can be re-spelled: the
+# class the phrases compose, the predicate itself, the derivation's bound, and
+# each other pattern the sweep routed through `GAP`.
+MUTANTS += [
+    ("R22 ws: the phrases' gap is §2.1's whitespace, not Python's (restore `(?u:\\s)` -- the reported "
+     "defect: U+001C / U+000B / U+0085 / U+2028 / U+2029 read as a gap and a run-together phrase "
+     "declares the kind)", STREAM,
+     'GAP = UNICODE_WHITESPACE',
+     'GAP = r"(?u:\\s)"',
+     list(R22_WS_OUTSIDE) + [R22_WS_CLASS]),
+    ("R22 ws: the ONE predicate is §2.1's, not `str.isspace()` (re-spell it -- the class derived from "
+     "it follows, so the oracle stays green and only the fixtures can see it)", EMPHASIS,
+     '    return ch in _WS or unicodedata.category(ch) == "Zs"',
+     '    return ch.isspace()',
+     list(R22_WS_OUTSIDE)),
+    ("R22 ws: the class is enumerated over the WHOLE BMP (lower the bound to U+3000 -- the ideographic "
+     "space, the highest Zs character, leaves the class)", EMPHASIS,
+     '_BMP_END = 0x10000',
+     '_BMP_END = 0x3000',
+     [R22_WS_IDEOGRAPHIC, R22_WS_CLASS]),
+    ("R22 ws: the appositive's gaps are `GAP` (re-spell them `\\s` under `re.ASCII` -- U+00A0 after "
+     "the id reads as no appositive and the UMBRELLA-MARK is lost)", TABLES,
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + GAP + "*" + DASH_CLASS + GAP + "*" + DECOR + GAP + "*$",',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\\s*" + DASH_CLASS + r"\\s*" + DECOR + r"\\s*$",',
+     [R22_WS_APPOSITIVE]),
+    ("R22 ws: the row-noun separator's whitespace is `GAP` (re-spell the ASCII `[ \\t\\n]` it was -- "
+     "`Slice&nbsp;9z` names no row)", TABLES,
+     'ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|" + DASH_CLASS + ")+"',
+     'ROW_NOUN_SEP = ROW_NOUN + "[ \\t\\n" + DASH + "]+"',
+     [R22_WS_ROW_NOUN]),
+    ("R22 ws: an id run's whitespace separator is `GAP` (re-spell it `\\s` under `re.ASCII` -- "
+     "`` `Qx&nbsp;9z` `` is masked, and U+000B splits a run cmark does not)", STREAM,
+     '(?P<sep>(?:%s|[,;/→>+&|-])+)"\n                           % (SLUG_ID, CITE_ID, SHORT_ID, GAP), re.ASCII)',
+     '(?P<sep>[\\s,;/→>+&|-]+)"\n                           % (SLUG_ID, CITE_ID, SHORT_ID), re.ASCII)',
+     [R22_WS_ID_RUN, R22_WS_ID_RUN_VT]),
 ]
 
 # -- R47-5: the DERIVED scope ratchet's closure.  `population_scope_control`

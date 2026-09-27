@@ -46,8 +46,8 @@ FILE_SUFFIX = ".md"
 
 # A bare `.md` file name is read by PATH SYNTAX, not a character class: the
 # maximal run (possibly EMPTY -- the rule above) of non-whitespace characters
-# ending in `FILE_SUFFIX`, bounded by spaces / tabs / line ends or the cell
-# edge (`9z+notes.md`, `9z@notes.md`, `計画.md`, `.md` are file names --
+# ending in `FILE_SUFFIX`, bounded by whitespace (`str.isspace()`, see
+# `_NAME_BOUNDARY` for why that set) or the cell edge (`9z+notes.md`, `9z@notes.md`, `計画.md`, `.md` are file names --
 # what `sibling_path` accepts), with the inline delimiters `[` `]` `<` `>`
 # `` ` `` `|` excluded so a link's visible text (`[Slice 9z](slice-9z-sib.md)`)
 # and a code span are not swallowed, and parentheses admitted only in BALANCED
@@ -104,8 +104,17 @@ _ALNUM_AT = re.compile(ALNUM)
 
 # The characters that BOUND a file-name run and are not whitespace: the inline
 # delimiters the rule above excludes.  Whitespace is asked of the character
-# itself (`str.isspace()`, which agrees with `re`'s `\s` on every code point of
-# planes 0-1, verified over 0x0000-0x11000).
+# itself (`str.isspace()`, which is the same set as `re`'s `\s` over every code
+# point 0x0000-0x10FFFF -- measured under Python 3.9.6, 3.12 and 3.14).
+# ⚠ DELIBERATELY PYTHON'S SET, NOT COMMONMARK'S (PR #510 Codex R22 of 2026-09-27's sweep).
+# §2.1's Unicode whitespace (`plan_memo_emphasis.is_unicode_whitespace`) is the
+# gap a reader sees INSIDE a phrase; this is a tokenisation fact of these
+# documents, which no CommonMark grammar owns, and a boundary here SPLITS a
+# run -- it REPORTS the ids beside the name rather than masking them.  The
+# eight characters Python calls whitespace and §2.1 does not (U+000B,
+# U+001C..U+001F, U+0085, U+2028, U+2029) would, read as §2.1 non-whitespace,
+# JOIN `9z<U+001C>notes.md` into one name and hide `9z`: widening the mask is
+# the dangerous direction `_TRAILING` below records.
 _NAME_BOUNDARY = frozenset("[]<>`|")
 
 # The punctuation a file-name run may END in after the suffix: LOCAL POLICY,

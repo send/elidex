@@ -162,7 +162,7 @@ MUTANTS += [
      ["(def) a definition is read from RAW lines at a block start: `[sib]: slice`x`.md` keeps its "
       "backticks in the destination and the sibling is scanned"]),
     ("R5-3 disposition: a slug is atomic in an id-only run (re-inject the hyphen split)", STREAM,
-     '|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),', '|-]+)" % (SHORT_ID, CITE_ID, SHORT_ID),',
+     '% (SLUG_ID, CITE_ID, SHORT_ID, GAP)', '% (SHORT_ID, CITE_ID, SHORT_ID, GAP)',
      ["(span) a `#11-` slug is ATOMIC in an id-only run: `` `#11-zz-alpha / 9z` `` is the document "
       "spelling two ids, both reported"]),
     # -- PR #510 Codex R6

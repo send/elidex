@@ -41,7 +41,7 @@ import re
 from plan_memo_blocks import block_end, delimiter_width, split_row
 from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
 from plan_memo_links import normalize_label
-from plan_memo_stream import MARKER_RE, rendered
+from plan_memo_stream import GAP, MARKER_RE, rendered
 
 # A cell that carries nothing: the one predicate every reader of an optional
 # cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
@@ -234,9 +234,13 @@ naming no row (PR #510 R15)."""
 # and the ownership claim produced NO site at rc 0 -- measured: the ASCII
 # hyphen and a plain space both report it, the en and em dashes did not.
 # A second, narrower definition of a set that already has one home is the
-# duplicated decision surface CLAUDE.md's *One issue, one way* names; the
-# hyphen stays last in the class, where it is a literal.
-ROW_NOUN_SEP = ROW_NOUN + "[ \t\n" + DASH + "]+"   # ASCII space/tab/newline + the canonical dashes
+# duplicated decision surface CLAUDE.md's *One issue, one way* names.
+# ⚠ AND THE WHITESPACE IS `GAP`'s, COMPOSED, NOT RE-SPELLED (PR #510 Codex R22 of 2026-09-27),
+# for the same reason one level over: it read `[ \t\n]` -- three ASCII
+# characters -- while the kind phrases already composed the gap a reader sees,
+# so `Slice&nbsp;9z — **UMBRELLA, …**` named no row, the marker was read as the
+# containing row's own, and the attribution's `UMBRELLA-MARK` was lost at rc 0.
+ROW_NOUN_SEP = ROW_NOUN + "(?:" + GAP + "|" + DASH_CLASS + ")+"   # §2.1 whitespace + the canonical dashes
 # A row noun then a row id of EVERY row kind (`ROW_ID`: slug or short, the
 # grammar's alternation) -- `Slice **E**`, `Slice `#11-zz-alpha``.  Built on
 # `SHORT_ID` alone until PR #510 R20, so a marker attributed to a slug row
@@ -425,8 +429,11 @@ def bare_id(cell_text, kinds):
 # marker to `9z`, the containing row was read as a POINTER, and a false
 # `UMBRELLA-MARK` mechanical failure was emitted.  `NOUN_ANCHOR` had carried
 # the same boundary since R24; this composer did not, which is the "spelled
-# twice, disagreeing" shape again.
-_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\s*" + DASH_CLASS + r"\s*" + DECOR + r"\s*$",
+# twice, disagreeing" shape again.  Its gaps are `GAP` (PR #510 Codex R22 of 2026-09-27):
+# they were `\s` under `re.ASCII`, so `Slice 9z&nbsp;— **UMBRELLA, …**`
+# attributed nothing and lost the `UMBRELLA-MARK` at rc 0, while a U+000B,
+# which cmark does not read as whitespace, stood in for a gap.
+_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + GAP + "*" + DASH_CLASS + GAP + "*" + DECOR + GAP + "*$",
                          re.ASCII)
 
 
@@ -445,7 +452,7 @@ def attributed_to_other(field, rid):
     occurrence never overrides the first.
 
     "IMMEDIATELY BEFORE" IS A GRAMMAR FACT, NOT A CHARACTER COUNT (PR #510
-    R24).  `_APPOSITIVE` ends in `\\s*$`, so it already says "ending where the
+    R24).  `_APPOSITIVE` ends in `GAP*$`, so it already says "ending where the
     marker begins" -- the search is bounded by `endpos`, which is where `$`
     matches, and the appositive is read over the whole field before that.  It
     was a 70-character SLICE, and a slice that starts mid-phrase truncates the
@@ -454,7 +461,7 @@ def attributed_to_other(field, rid):
     — **UMBRELLA, not a terminal unit.**`` fell outside the window, the field
     was read as the row's own declaration, no `UMBRELLA-MARK` was emitted, and
     the census carried a corrupted row at rc 0.  The mention-only direction
-    was never the window's to hold: the discrimination is the DASH -- `\\s*[—–-]\\s*`
+    was never the window's to hold: the discrimination is the DASH -- `GAP*[—–-]GAP*`
     between the id and the marker -- and "Unlike Slice 7z, **UMBRELLA, …**"
     fails on the comma, at any width."""
     m = MARKER_RE.search(field)

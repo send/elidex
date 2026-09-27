@@ -29,7 +29,10 @@ MODULES
   plan_memo_ids.py        the id-token grammar: the three kinds, decoration, and
                           the ONE boundary every reader consumes (`tokens`)
   plan_memo_emphasis.py   §6.2 emphasis + GFM strikethrough: which delimiter
-                          runs PAIR, and so which characters render as nothing
+                          runs PAIR, and so which characters render as nothing;
+                          and the ONE §2.1 "Unicode whitespace" predicate §6.2
+                          reads, with the class every reader's gap composes
+                          (`is_unicode_whitespace` / `UNICODE_WHITESPACE`)
   plan_memo_tokens.py     the BARE tokens of this document family (a citation
                           id, a `.md` file name): the one reading no CommonMark
                           grammar owns, and the ONE `FILE_SUFFIX`

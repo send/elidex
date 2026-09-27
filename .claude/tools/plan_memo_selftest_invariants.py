@@ -747,7 +747,49 @@ def registry():
             ("CONTROL", licence_index_control),
         "PROPERTY: a run the sibling resolver FOLLOWS leaves no id outside its file span -- never a prefix with the remainder left for the naming scan (the direction the correspondence forbids)":
             ("CONTROL", file_token_run_agreement_control),
+        "PROPERTY: the reader-gap class every phrase composes (plan_memo_stream.GAP) is exactly CommonMark §2.1's Unicode whitespace as plan_memo_emphasis.is_unicode_whitespace defines it, over EVERY code point -- the derivation's BMP bound included":
+            ("CONTROL", unicode_whitespace_class_control),
     }
+
+
+def unicode_whitespace_class_control(M):
+    """PROPERTY: `plan_memo_stream.GAP` matches a code point iff
+    `plan_memo_emphasis.is_unicode_whitespace` accepts it, over 0x0000 to
+    `sys.maxunicode`.
+
+    WHY AN ORACLE AND NOT A LIST (PR #510 Codex R22 of 2026-09-27).  GAP was
+    `(?u:\\s)` -- Python's whitespace, eight code points wider than §2.1's -- under a
+    docstring that said it was what a reader sees.  It is now DERIVED from the
+    predicate, and the derivation enumerates only the BMP (`_BMP_END`), which
+    is a fact of UCD 13.0-16.0 and not a promise of Unicode's.  Asking the
+    predicate of every code point under the RUNNING interpreter is what turns a
+    future Zs character above the bound into a red control instead of a gap the
+    class silently lacks; comparing against the class the phrases actually
+    COMPOSE (not `UNICODE_WHITESPACE`) is what makes a second spelling of the
+    gap -- the defect -- red as well.  The member count is printed, never
+    asserted: it is the predicate's to decide.
+
+    HONESTLY, what it cannot see: a pattern that spells a reader's gap without
+    composing GAP -- the sweep of that round routed the ones whose reading
+    decides the exit status or the disposition, `plan_memo_tokens._NAME_BOUNDARY`
+    says why the file-name boundary is not one, and `plan_memo_roles`' licensing
+    and seed vocabularies still spell theirs as `\\s` under `re.ASCII` and as a
+    literal U+0020 -- and a disagreement between §2.1 and cmark, which the
+    predicate's docstring measured once by hand."""
+    import re as _re
+    import sys as _sys
+    import plan_memo_emphasis       # the FRESHLY loaded set
+    import plan_memo_stream
+
+    gap = _re.compile(plan_memo_stream.GAP)
+    every = "".join(map(chr, range(_sys.maxunicode + 1)))
+    by_class = set(gap.findall(every))
+    by_predicate = {ch for ch in every if plan_memo_emphasis.is_unicode_whitespace(ch)}
+    extra = sorted("U+%04X" % ord(ch) for ch in by_class - by_predicate)
+    missing = sorted("U+%04X" % ord(ch) for ch in by_predicate - by_class)
+    ok = bool(by_predicate) and not extra and not missing
+    return ok, ("%d code point(s) in the class, %d the predicate accepts; class-only %s; "
+                "predicate-only %s" % (len(by_class), len(by_predicate), extra[:10], missing[:10]))
 
 
 def licence_index_control(M):

@@ -36,6 +36,7 @@ each predicate over a block reads.
 import bisect
 import re
 
+from plan_memo_emphasis import UNICODE_WHITESPACE
 from plan_memo_ids import (
     CITE_ID, DASH_CLASS, DECOR_CHARS, ROW_KINDS, SHORT_ID, SLUG_ID, bounded, tokens,
 )
@@ -56,9 +57,14 @@ MARKER = "UMBRELLA, not a terminal unit"
 """The marker's PHRASE, for composing the matcher.  Every match goes through
 `MARKER_RE`; a bare `MARKER in text` is the unbounded reading R22 removed."""
 
-GAP = r"(?u:\s)"
+GAP = UNICODE_WHITESPACE
 r"""ONE character class for "a gap a READER sees between two words", composed
-into every kind phrase below.
+into every kind phrase below -- and into every other pattern whose subject is
+such a gap (`_ID_RUN_TOKEN` below, `plan_memo_tables.ROW_NOUN_SEP` and
+`plan_memo_tables._APPOSITIVE`).  It IS CommonMark §2.1's "Unicode whitespace character",
+derived from the one predicate that defines it
+(`plan_memo_emphasis.is_unicode_whitespace`, whose docstring measures it
+against cmark), never written out here.
 
 ⚠ THE THREE PHRASES SPELLED IT THREE DIFFERENT WAYS, AND TWO OF THEM DROPPED A
 CLAIM (PR #510 R47-4).  The marker and the pointer were `re.escape`d LITERALS,
@@ -71,13 +77,21 @@ active terminal.  So did `&#10;` (a newline), `&#9;` (a tab) and a literal
 U+00A0 typed straight into the cell, while `&#32;` -- the one spelling that
 decodes to U+0020 -- worked.  A phrase nobody can see the difference in is a
 phrase the census must read the same way.
-⚠ Stated as a PROPERTY, not a list: `(?u:\s)` is Unicode whitespace, which is
-every one of the 28 codepoints below U+3000 whose `str.isspace()` is true --
-enumerating the ones a reviewer happened to name would leave the next one
-authoritative, which is the failure `KIND_PHRASES`' own comment records for
-the word boundaries. The scope `(?u:...)` is deliberate: `UNDETERMINED` keeps
-`re.ASCII` for its case folding, and only the GAP is Unicode.  The folding
-reaches two places.  In the LETTERS, under `a` the U+212A KELVIN SIGN never
+⚠ Stated as a PROPERTY, not a list: the class is every code point §2.1 calls
+Unicode whitespace, enumerated from the predicate -- enumerating the ones a
+reviewer happened to name would leave the next one authoritative, which is the
+failure `KIND_PHRASES`' own comment records for the word boundaries.
+⚠ AND THE PROPERTY WAS THE WRONG ONE UNTIL PR #510 Codex R22 of 2026-09-27.
+This was `(?u:\s)`, Python's whitespace (`str.isspace()`), which is not
+CommonMark's: it also holds U+000B, U+001C..U+001F, U+0085, U+2028 and U+2029,
+none of which cmark reads as whitespace -- so `KIND<U+001C>UNDETERMINED`,
+which a reader sees as `KINDUNDETERMINED`, declared the kind, and with a
+nonempty `Deps` cell raised a gating `UMBRELLA-CELL` (rc 1). The marker and
+the pointer compose the same gap and read the same eight as one.
+The class needs no `(?u:...)` scope: its members are `\uXXXX` escapes, which
+`re.ASCII` leaves alone, so `UNDETERMINED` keeps `re.ASCII` for its case
+folding and the gap is still every §2.1 member. The folding reaches two
+places. In the LETTERS, under `a` the U+212A KELVIN SIGN never
 folds to `K`, nor U+0130 / U+0131 (dotted capital I, dotless small i) to `I`
 -- measured over every codepoint in every letter position, those three are
 the only ones.  In the BOUNDARY `bounded()` puts on both ends, `[A-Za-z]`
@@ -150,15 +164,20 @@ arriving in this tuple, and cannot decide a kind without arriving here."""
 # An id-only code span is tokenised by the declared-id GRAMMAR, longest
 # alternative first (a `#11-` slug is atomic -- its internal hyphens are not
 # separators), with the separators whitespace, list punctuation, `|` and `-`
-# (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`) between tokens.  ALL THREE
+# (a `Deps`-shaped edge, `9z | 7z` / `0a-0b`) between tokens.  The whitespace
+# is `GAP`, what a reader sees between two ids (PR #510 Codex R22 of 2026-09-27): it was `\s`
+# under `re.ASCII`, so `` `Qx&nbsp;9z` `` -- two ids to a reader -- was no
+# id-only run, the span was masked, and the naming site it spells went
+# unreported, while `` `Qx<U+000B>9z` `` split on a character cmark does not
+# read as whitespace.  ALL THREE
 # kinds, not `ROW_ID`: a citation id is declared (the citation table keys
 # its rows by it) and `` `[C1]` `` is the document spelling one.  A bare id
 # in a cell or in prose is NOT tokenised on a list -- it is bounded by the
 # grammar's continuation rule (`plan_memo_ids.tokens`); a hyphen bounds a
 # short id, and `slice-9z-sib.md` is safe because a file name is a
 # `plan_memo_tokens` `file` token, masked before the scan.
-_ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),
-                           re.ASCII)
+_ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>(?:%s|[,;/→>+&|-])+)"
+                           % (SLUG_ID, CITE_ID, SHORT_ID, GAP), re.ASCII)
 # --------------------------------------------------------------------------
 # Disposition: the one place a lexical span meets the row ids
 # --------------------------------------------------------------------------
