@@ -100,6 +100,9 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
 - ⚠ **2026-09-28: §8's list is now 17 entries (15 own + 2 pre-existing)** — (17), gap-pattern
   population completeness, was carved with the user's approval. By the rule above that re-opens the
   cap question for #510's merge; the umbrella memo's §8 records the movement.
+- ⚠ **OPEN — 2026-09-28: §8's list is now 18 entries (16 own + 2 pre-existing)** — (18), a vocabulary
+  match read across a masked span (Codex R25), was carved with the user's approval. It re-opens the
+  cap question for #510's merge again; the umbrella memo's §8 records the movement.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
 

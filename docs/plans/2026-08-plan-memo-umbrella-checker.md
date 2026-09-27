@@ -881,14 +881,17 @@ existence half; (8) the GFM row splitter; (9) the Markdown library dependency; (
 suppression homed in §4 row #5; (11) the unbound table making no kind claim; (12) the §6.2 demotion
 tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the residue
 gate's presence comparison; (15) the declaration site that produced no table; (16) the hand-written
-table with no detector; (17) gap-pattern population completeness. **Fifteen own and two
+table with no detector; (17) gap-pattern population completeness; (18) a vocabulary match read
+across a masked span. **Sixteen own and two
 pre-existing** — (9) and (10) are the pre-existing ones, each with its grounding stated where the
 policy asks for it. Count the list rather than trusting this sentence: `awk` the `^- \*\*` lines
-of this section and you must get seventeen.
+of this section and you must get eighteen.
 ⚠ **(17) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FOURTEEN TO
 FIFTEEN.** The re-acceptance above was given at sixteen; by its own last sentence this change to the
 list re-opens the cap question for #510's merge, and this note records the movement rather than
 absorbing it.
+⚠ **(18) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FIFTEEN TO
+SIXTEEN.** It re-opens the cap question again, for the same reason as (17).
 ⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
 RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
 once, the hand-written table three times)
@@ -943,7 +946,7 @@ split folded because the work was done; the GFM splitter re-classified own on a 
 できるが念のため defer 化" — is the case for folding, and this PR has already taken it **twice by
 measurement**: the §6.4 carve folded at R42-5 once the fix measured ≈45 lines across two modules with
 one reader each, and the §6.6 reading folded this session at ~20 lines once a reference implementation
-settled it. What is left does not fit that shape. (5), (6), (12), (14) and (17) — the entries whose
+settled it. What is left does not fit that shape. (5), (6), (12), (14), (17) and (18) — the entries whose
 OWN text puts them under the edge-dense rule — are each explicitly
 `/elidex-plan-review`-before-implementation **by CLAUDE.md's edge-dense rule, not by judgment** — (5)
 intersects the id grammar, the grammar↔scan agreement property, the `_glued` boundary rule, the
@@ -952,7 +955,7 @@ passes, the raw-extent seed and the Phase-1 cost contract; (12) intersects the i
 exception, §6.4's demotion, `MARKER_RE`, the residue gate and the `keep` set; (14) intersects the gate,
 `_kind`'s ordering, the attribution pass, I-A's straddle rule and a ratified control; (17) has no
 canonical algorithm at all ("every gap-bearing pattern") and four in-PR attempts at one each
-introduced its own defect.
+introduced its own defect; (18) spans eight patterns under five consumer semantics.
 ⚠ **This set read "(5), (6) and (16)" at `79309486`** (re-indexed from "(11)", which at `f87dd8f2` was
 the hand-written table), and (16)'s own text claims neither edge-dense nor plan-review, while (12) and
 (14) — added after the sentence — say BY RULE. Re-derived from the entries' text (the fifth
@@ -981,7 +984,7 @@ the design they came from.
 
 ⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **The own entries whose
 own text names a review round, a design re-gate or a review axis as their origin** — (4)–(7) and
-(11)–(17), eleven of the fifteen — were produced by the REVIEW LOOP rather than by the plan, and that is
+(11)–(18), twelve of the sixteen — were produced by the REVIEW LOOP rather than by the plan, and that is
 the honest reading of why the cap is breached:
 ⚠ **THE SET THAT STOOD HERE, "(4)–(8) and (11)–(15)", FOLLOWED NO STATED RULE** (2026-09-22, the fourth
 attestation). It counted (8), whose text names no round — it is own because a MEASUREMENT reclassified
@@ -1426,3 +1429,38 @@ committed here by the note that corrected it.
   repeat.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (the four attempts above). **Re-eval: 2026-12-31.**
+- **(own)** **A VOCABULARY MATCH READ ACROSS A MASKED SPAN** (PR #510 Codex R25 on `e9575a37` —
+  it predates R22: reproduced at `94281cd7` and `900c16eb`; the checker is not on `main`, so it is this
+  PR's own — **carved 2026-09-28, user-approved**). The disposed stream stands a code span or an
+  autolink as blanks, and the blanks satisfy `GAP`, so a phrase interrupted by one is still matched.
+  `` The child `is not` of 9z owns it. `` licenses `9z`: 0 sites reported, no `LEX-SPLIT?` seed, rc 0;
+  a reader's `The child is not of 9z owns it.` reports it. Edge matrix — each single-gap row of
+  `_R22_GAP_TABLE` with the gap spelled `` `x` `` against a reader's ` x `:
+
+  | Pattern | Arms with the defect | Consumer |
+  |---|---|---|
+  | `LICENSE_BEFORE` | 10 / 10 | licensing |
+  | `LICENSE_AFTER` | 17 / 17 | licensing |
+  | `OWNS_TWO` | 12 / 12 | seed (`TWO-OWNERS?`) |
+  | `ORDER_WORDS` | 5 / 5 | seed (`ORDER-PROSE?`) |
+  | `DECLARES` | 9 / 9 | seed (`UMBRELLA-MARK?`) |
+  | `_APPOSITIVE` (with `ROW_NOUN_SEP`) | 4 / 4 | gating finding (`UMBRELLA-MARK` attribution: rc 1, reader rc 0) |
+  | `NOUN_ANCHOR` | 1 / 1 | anchoring |
+  | `ROLE_ORDERING` / `ROLE_OWNER` | 4 / 4 | ranking |
+  | `MARKER_RE` / `UNDETERMINED` / `POINTER` | none | immune: `kind_disagreements` makes the row a schema miss (rc 2) |
+  | `_ID_RUN_TOKEN` | not measurable | read inside an id-only code span, which another span cannot interrupt |
+
+  An autolink as the interruption gives the same verdict on every row but `_ID_RUN_TOKEN`'s. A
+  citation and a file span were not measured (the probe cannot spell a file span's reader
+  rendering). The kind gate's comparison (`kind_disagreements`) does not transfer: it asks per block
+  whether a phrase is PRESENT in each reading, and a licence is decided per mention, anchored at it
+  (`LICENSE_BEFORE` ends in `$`); its per-match half, `_straddles(blanks, a, b)`, is the part that
+  can be asked of one match. The probe is in the body of the first commit whose message contains
+  MASKED-SPAN PROBE: `git log --reverse --grep='MASKED-SPAN PROBE' --format=%H | head -1 | xargs git
+  log -1 --format=%B`. Eight patterns under five consumer semantics make this edge-dense by
+  CLAUDE.md's own test, so it is `/elidex-plan-review`-before-implementation **BY RULE**, in its own
+  PR.
+  **Scope**: every vocabulary match that reads a `GAP` across a disposed blank, each consumer given
+  its verdict on one.
+  **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
+  **Trigger**: already fired (Codex R25). **Re-eval: 2026-12-31.**
