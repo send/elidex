@@ -6,10 +6,10 @@ An id is a short alphanumeric token (`9z`, `10a`, `C`), a `#11-` slug, or a
 backticks, or both, in either order.  This module answers "where do the
 id-shaped tokens of this text start and end, and of which kind" for EVERY
 reader: the bare and the row-noun-anchored naming scans, the raw-line seed,
-the id cell, the kept-slug exception inside a code span, the lexer's citation
-mask, and the citation exemption of the unresolved-reference walk.  It sits
-below the lexer (which needs the citation shape) and imports nothing of the
-checker's, because the grammar is a fact of these documents, not of
+the id cell, the kept-slug exception inside a code span, the bare-token
+citation mask (`plan_memo_tokens`), and the citation exemption of the
+unresolved-reference walk.  It sits below every one of them (the token
+reader needs the citation shape) and imports nothing of the checker's, because the grammar is a fact of these documents, not of
 CommonMark.
 
 THE BOUNDARY, decided here and nowhere else.  A token is the id CORE (`_CORE`,
@@ -35,7 +35,7 @@ kept iff each side is BOUNDED:
         own class keeps its internal hyphens, so a hyphen after a slug is
         inside it, never after it);
       - a CITATION id is delimited by its own brackets.
-  A bare `.md` file name (`slice-9z-sib.md`) is the lexer's `file` token,
+  A bare `.md` file name (`slice-9z-sib.md`) is a `file` token (`plan_memo_tokens`),
   masked before any scan reads the text, so it never reaches this boundary.
 Every class here is ASCII by spelling (`\\b` / `\\w` / `\\d` are Unicode in
 a str pattern): `次のSlice C` has no Unicode word boundary before `Slice`,
@@ -52,8 +52,8 @@ import re
 ALNUM_CHARS = "0-9A-Za-z"
 ALNUM = "[%s]" % ALNUM_CHARS
 """The ASCII alphanumeric class: what continues a short id, and the ASCII
-word boundary every anchor in these modules reads (the row-noun anchor, the
-end of a bare `.md` file name)."""
+word boundary every anchor in these modules reads (through `BEFORE` /
+`AFTER`, below)."""
 
 # The DASHES these documents separate an appositive or a kind phrase with,
 # spelled ONCE (PR #510 R33-2).  Three readers spelled their own class and they
@@ -81,9 +81,9 @@ def bounded(phrase):
     alphanumeric may not abut it on either end.
 
     The marker phrases the census reads (`plan_memo_stream.MARKER_RE`,
-    `UNDETERMINED`, `POINTER`, `plan_memo_roles.DECLARES`,
-    `LICENSE_BEFORE` / `LICENSE_AFTER`) all compose this rather than each
-    growing its own edge: a phrase matcher that is a bare substring test or
+    `UNDETERMINED`, `POINTER`, `plan_memo_roles.DECLARES`) all compose this,
+    and `LICENSE_BEFORE` / `LICENSE_AFTER` compose the one half each abuts
+    (`BEFORE` / `AFTER`), rather than each growing its own edge: a phrase matcher that is a bare substring test or
     an unanchored regex matches INSIDE a longer word, and the class of
     "next unbounded phrase" is closed only by having one spelling of the
     boundary to compose.  Measured at PR #510 R22: `KIND UNDETERMINEDNESS`
@@ -100,8 +100,8 @@ SLUG_ID = r"#11-[a-z0-9-]+"
 CITE_LABEL = r"[A-Za-z][0-9]+"
 """A citation label, either case: `[C19]` in the citation table, and `[c19]`
 in prose is the SAME label under CommonMark §6.3 case-fold matching, so the
-lexer's mask and the unresolved-reference exemption read one predicate
-(`is_cite_label`) -- an uppercase-only mask once left `[c1]` visible to the
+bare-token mask (`CITE_ID`, below) and the unresolved-reference exemption
+(`is_cite_label`) compose this one grammar -- an uppercase-only mask once left `[c1]` visible to the
 bare scan as a naming site of a declared short id `c1` (PR #510 R14)."""
 CITE_ID = r"\[" + CITE_LABEL + r"\]"
 DECOR_MARKS = ("**", "`")
@@ -303,6 +303,7 @@ _CITE_LABEL = re.compile(CITE_LABEL)
 
 def is_cite_label(normalized_label):
     """Whether a NORMALISED (§6.3 case-folded) link label is a citation
-    label -- the one predicate the lexer's mask and the unresolved-reference
-    exemption share (`CITE_LABEL` admits either case, so the fold is moot)."""
+    label -- the unresolved-reference exemption's predicate, composed from
+    the same `CITE_LABEL` the bare-token mask's `CITE_ID` composes
+    (`CITE_LABEL` admits either case, so the fold is moot)."""
     return _CITE_LABEL.fullmatch(normalized_label) is not None

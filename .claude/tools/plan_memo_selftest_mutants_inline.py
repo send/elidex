@@ -14,8 +14,9 @@ kinds, design re-gate 4's rendered-text stream).
 gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
 decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.  The rules are
 `plan_memo_selftest_mutants.py`'s: the substring must occur EXACTLY ONCE in its
-file, every named control must go red, a crash is a FAIL.  A mutant's control
-lives in `plan_memo_selftest_cases_inline.py` under the same round label.
+file, every named control must go red, a crash is a FAIL.  A mutant's controls
+are named, not located: they resolve against the whole gathered control
+registry, and a row may name a control in any self-test module.
 """
 
 from plan_memo_selftest_cases_sibling import R25_PER_PART, R25_RESERVED_NAMES
@@ -227,8 +228,8 @@ MUTANTS += [
      SIBLING,
      '    if not name.endswith(FILE_SUFFIX):                           # (d)',
      '    if not name.endswith(FILE_SUFFIX) or name == FILE_SUFFIX:    # (d)',
-     ["(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the lexer's file token read "
-      "the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides"]),
+     ["(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the file token "
+      "(`plan_memo_tokens`) read the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides"]),
     ("R20 #2 grammar: ROW_ID is every row kind (re-inject SHORT_ID only -- the appositive, OWNS_TWO and the anchored "
      "reading all lose the slug at once, since they compose the one alternation)", IDS,
      'ROW_ID = "(?:%s)" % "|".join(dict(KINDS)[k] for k in ROW_KINDS)',
@@ -353,10 +354,10 @@ RG4_DROPWINS = ("(render) `Slice [W](slice-9z-sib.md)z owns it` names `Wz`: the 
                 "nothing, and the `.md` file token INSIDE it is dropped with it -- where a drop and a blank "
                 "overlap the drop wins, or the tail's two sides stay apart")
 RG4_ESCAPED_DECOR = ("(render) `\\*\\*C\\*\\* is how the row is written`: an ESCAPED decoration character "
-                     "stands as written -- substituting it would spell a `**C**` bold the document does not "
+                     "is BLANKED, not substituted -- substituting it would spell a `**C**` bold the document does not "
                      "have, and the undecorated single letter is the declared miss")
 RG4_REF_DECOR = ("(render) `&#42;&#42;C&#42;&#42;` is the same rule for §2.5: a reference that would spell "
-                 "a decoration stands as written")
+                 "a decoration is BLANKED, not substituted")
 RG4_SEED = ("(render) that same code span IS the `[LEX-SPLIT?]` residue seed: the reader reads `Wz` across "
             "a span the disposition blanks, and the seed says so")
 RG4_QUIET = ("(render) `Slice W**z** owns it` seeds NOTHING: the construct renders no character, so the two "
@@ -388,7 +389,8 @@ RG4_DEPS = ("(cell) a `Deps` cell holding only an HTML comment is EMPTY: it rend
 # -- PR #510 Codex R23 control names, spelled once (the rendered-decoration
 # disposition, the kind-phrase gate in both directions, the BOM, the linear
 # demotion).  They are used by THIS registry only, so they are declared here
-# and not in the base registry the two derived ones share.
+# and not in the base registry (`plan_memo_selftest_mutants.py`) the derived
+# ones share.
 R23_AST_NO = ('(R23 render) `The &ast; marks it` names NO row `ast`: the reference renders `*`, '
               'so the letters `a` `s` `t` are nowhere in the document a reader reads -- leaving '
               "the entity's SOURCE spelling in the stream fabricated the site")
@@ -623,7 +625,11 @@ R22_GRANDCHILD = ("(licence) `The grandchild of 9z` is not the licensing phrase 
 R22_MEMORANDUM = ("(licence) `9z's memorandum` is not the licensed possession `memo`: the right-hand edge "
                   "of the forward look, reported")
 
-# The R22 seed's span mask, spelled once: two mutants patch the same clause.
+# The R22 seed's span mask.  ⚠ NOT spelled once: other rows patch the same
+# clause with its text written out (R14-1 in `plan_memo_selftest_mutants_pr510.py`
+# whole, a row in `_mutants_r30.py` in part), so a change to the clause moves
+# every one of them -- `grep -rnF 'and not covers(spans, t.idstart, t.idend)'
+# plan_memo_selftest_mutants*.py` lists them.
 R22_SEED_MASK = ("ids = sorted({t.id for t in tokens(line) if t.id in keep\n"
                  "                          and not covers(spans, t.idstart, t.idend)})")
 
@@ -818,7 +824,8 @@ MUTANTS += [
      [R24_DECOR_READING]),
 ]
 
-# -- PR #510 Codex R24 FAMILY 2 control names, spelled once.
+# -- PR #510 Codex R24 FAMILY 2 control names.  (`R24_C0`'s text is also
+# written out in the R7-2 row of `plan_memo_selftest_mutants_pr510.py`.)
 R24_NUL = ("(R24 §2) a link destination holding a literal U+0000 names the file the document "
            "renders: §2 replaces the NUL with U+FFFD before parsing, so `[x](child\0.md)` links "
            "`child<U+FFFD>.md`, that memo is walked and its rows are declared.  Left in, the NUL "
@@ -830,9 +837,6 @@ R24_CR = ("(R24 §2.1) a memo whose lines end with a bare CARRIAGE RETURN is one
           "line, no table is admitted, and no schema miss says so")
 R24_ENDINGS = ("PROPERTY: the census is the same under each of the three line endings CommonMark §2.1 "
                "recognises (LF, CRLF, a bare CR), written as bytes")
-R24_BOM = ("(R23 memo) a linked memo whose FIRST block is a slice table still declares its rows "
-           "when the file opens with a BOM: the signature is dropped where the text becomes "
-           "lines, or the header row is not a header row and the census silently shrinks at rc 0")
 R24_C0 = "a decoded destination with a C0 control character is rejected, never resolved"
 
 MUTANTS += [

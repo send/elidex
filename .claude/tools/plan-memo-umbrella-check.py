@@ -45,12 +45,13 @@ MODULES
                           character reference it rests on.  The edge is one way:
                           the lexer imports this, never the reverse (R42-7)
   plan_memo_blocks.py     Phase 1 (blocks): raw extents (indented code, fences,
-                          HTML blocks), the block-quote marker, block starts, the
-                          one `block_end` predicate, GFM rows, reference definitions
+                          HTML blocks), the block-quote marker and the §5.2
+                          list-item marker, block starts, the one `block_end`
+                          predicate, GFM rows, reference definitions
   plan_memo_stream.py     the mask disposition, the kind PHRASES read through
                           it, and the ONE `stream` every predicate reads (the
                           block as the document renders it)
-  plan_memo_tables.py     id grammar, schemas, `Row` / `Table` and the ONE
+  plan_memo_tables.py     schemas, row nouns, `Row` / `Table` and the ONE
                           admission site `admit_table`
   plan_memo_sibling.py    the ONE destination -> sibling resolver
                           (`sibling_path` and the path machinery it reads):
@@ -140,10 +141,15 @@ is not implementable here), KIND-SPELLING, SCHEMA.  Seeds (`?` suffix, never
 gate): UMBRELLA-MARK?, ORDER-PROSE? (c), TWO-OWNERS? (d), ACCEPT-VOCAB?,
 LEX-UNSUPPORTED? (a RAW line never inline-parsed -- an HTML-block line, an
 indented-code line, a fence excepted, or an inline raw-HTML span (§6.6) --
-holding a `|` or a declared id: one seed rule, the READING printed with it).
+holding a `|` or a declared id: one seed rule, the READING printed with it),
+LEX-SPLIT? (a unit the two readings of a block disagree about across a span
+this checker does not read as prose).
 NAMING sites are mechanical over their population and a seed as to it; two id
 shapes are DECLARED MISSES held as red controls.  Each code's miss class is
-stated beside its check in `plan_memo_roles.py` and in the report's notes.
+stated beside the function that emits it (`plan_memo_roles.py` for the
+UMBRELLA-* / ORDER-PROSE? / TWO-OWNERS? / ACCEPT-VOCAB? codes; this file for
+LEX-*, KIND-SPELLING and SCHEMA, whose misses `plan_memo_population.py` raises)
+and in the report's notes.
 NOTES (printed, never gating): `[CENSUS]` the no-owner row count (0 is a
 clean result, not a schema miss), `[KIND-UNDETERMINED]`.
 
@@ -154,20 +160,23 @@ EXIT STATUS
      (the memo it meant to link is NOT in the population), an unmatched
      schema, a body row whose width differs from its header, the same id
      declared twice, a schema row whose id cell is not an id (unkeyed, so its
-     cells would go unasserted).  The run is a SKIP, not a clean result, and
+     cells would go unasserted), a kind phrase in a table bound to no schema,
+     a blank-id row whose declaring field spells a kind, a kind phrase
+     straddling a span not read as prose (`Population.misses`).  The run is a SKIP, not a clean result, and
      it is never exit 0.
 Seeds and reported naming sites do NOT affect it.  They cannot: the naming scan
 reports by default, so a green state would not exist and the code would be a
 gate nobody could ever satisfy.
 
 THE OTHER TWO PLAN-MEMO CHECKERS, and the boundary (PR #510 Axis 5).  Three
-tools that read plan memos and ship always-run trip-wires were built in
-parallel, and until this line none named another.  THIS one asks *does this
-memo's row-kind census parse, and is every naming site licensed* over ONE
-document family.  `claim-gate-plan-check.py` asks *is a number written in a memo
-still true* over any memo's figures.  `plan-xcheck.py` asks *do two named layout
-memos agree*.  They share no predicate today, which is why they are three and
-not one; CLAUDE.md's *One issue, one way* asks for the collapse only once "why
+tools that read plan memos were built in parallel, and until this line none
+named another.  THIS one asks *does this memo's row-kind census parse, and is
+every naming site licensed* over ONE document family.  `plan-xcheck.py` asks
+*do two named layout memos agree*; it landed on main in #518 (`4394af4c`), which
+this branch's base predates.  `claim-gate-plan-check.py` asks *is a number
+written in a memo still true* over any memo's figures; it has not landed.
+They share no predicate today, which is why they are three and not one;
+CLAUDE.md's *One issue, one way* asks for the collapse only once "why
 three" can be written, and the plan's §1 carries the trigger and the re-eval
 date.  A reader deciding where a new memo check belongs reads the three
 questions above, not the file names.
@@ -463,8 +472,8 @@ def lex_unsupported_seed(pop, findings, notes):
     """`[LEX-UNSUPPORTED?]` SEED: a RAW line this lexer never inline-parses
     (`Memo.raw`: every line of an HTML block, §4.6, or of an indented code
     block, §4.4 -- a fence excepted, the author's explicit code marker --
-    and, since PR #510 R17, every INLINE raw HTML span, §6.6, keyed on its
-    first line: the same disposition for the same kind of text, "raw,
+    and, since PR #510 R17, every INLINE raw HTML span, §6.6, one entry per
+    line of the span since R24-3 (`Memo._inline_raw`): the same disposition for the same kind of text, "raw,
     seeded") that holds a `|` or a declared id: the content a table or a
     naming scan would have read had the text been prose, printed with the
     READING that makes it raw (`_READING`) rather than assumed.  ONE seed

@@ -21,9 +21,10 @@ which is what `kind_disagreements` is), the id-RUN tokeniser came down with
 its one reader (`id_only`), and `Table.bind` reaches up for nothing -- it
 asks `rendered` of this module.
 
-Every block is lexed ONCE, where it is minted (a cell in `split_row`, a
-paragraph in `plan_memo_memo.Paragraph`); `dispose` -- run by `Population`
-once the row ids are known -- tags each block's mask with the kind of every
+Every block's `Lexed` is minted ONCE (a cell in `split_row`, a paragraph in
+`plan_memo_memo.Paragraph`; `Memo.__init__` says why a header cell's is
+resolved twice); `dispose` -- run by `Population` once the row ids are known,
+and by `rendered` with an empty keep-set for `Table.bind` -- tags each block's mask with the kind of every
 span (`code` / `html` / `autolink` / `link` / `image` / `cite` / `file` /
 `mark`), minus the id-only code spans and the `**` pairs that decorate one;
 and `stream(lexed)` -- the block AS THE DOCUMENT RENDERS IT: the spans that
@@ -52,8 +53,7 @@ from plan_memo_tokens import file_and_cite_spans
 # than a slicer` made a row a pointer.  Fixed together and from one spelling,
 # because an enumerated fix leaves the next member of the class authoritative.
 MARKER = "UMBRELLA, not a terminal unit"
-"""The marker's PHRASE, for reporting it (`split_units` names it in a
-finding) and for composing the matcher.  Every match goes through
+"""The marker's PHRASE, for composing the matcher.  Every match goes through
 `MARKER_RE`; a bare `MARKER in text` is the unbounded reading R22 removed."""
 
 GAP = r"(?u:\s)"
@@ -134,8 +134,8 @@ arriving in this tuple, and cannot decide a kind without arriving here."""
 # Row identity, part one: the id RUN.  The id grammar itself -- the three
 # kinds, the decoration, and the ONE boundary every reader consumes
 # (`tokens`) -- is `plan_memo_ids.py`'s.  How a row is NAMED (`ROW_NOUN` and
-# its composers) is part two, below `SCHEMAS`, because the nouns are derived
-# from the schemas and cannot be spelled before them.
+# its composers) is part two, in `plan_memo_tables.py` below `SCHEMAS`, because
+# the nouns are derived from the schemas and cannot be spelled before them.
 # --------------------------------------------------------------------------
 
 # An id-only code span is tokenised by the declared-id GRAMMAR, longest
@@ -146,8 +146,8 @@ arriving in this tuple, and cannot decide a kind without arriving here."""
 # its rows by it) and `` `[C1]` `` is the document spelling one.  A bare id
 # in a cell or in prose is NOT tokenised on a list -- it is bounded by the
 # grammar's continuation rule (`plan_memo_ids.tokens`); a hyphen bounds a
-# short id, and `slice-9z-sib.md` is safe because a file name is a lexer
-# `file` token, masked before the scan.
+# short id, and `slice-9z-sib.md` is safe because a file name is a
+# `plan_memo_tokens` `file` token, masked before the scan.
 _ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>[\s,;/→>+&|-]+)" % (SLUG_ID, CITE_ID, SHORT_ID),
                            re.ASCII)
 # --------------------------------------------------------------------------
@@ -708,7 +708,7 @@ def split_units(lx, keep):
     is the undetermined kind to a reader (§6.1: the code span contributes
     `MINED` as plain text) and nothing to the stream.  And the stream reads
     one the READER does not: a blank stands as spaces, so `KIND `x`
-    UNDETERMINED` is the undetermined kind to `UNDETERMINED`'s `\\s*` and
+    UNDETERMINED` is the undetermined kind to `UNDETERMINED`'s `GAP*` and
     `KIND x UNDETERMINED` -- no kind at all -- to a reader.  An id cannot
     make that second shape (a blank's filler is a space, which bounds every
     id token), so it is the phrases that need the second scan; scanning both

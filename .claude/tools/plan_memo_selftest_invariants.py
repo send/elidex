@@ -11,7 +11,7 @@ reads what comes back.  Which modules may import `ast`, the harness's
 module-set handles, the fixture runner (`run_on`) and the work witnesses is
 the table `plan_memo_selftest_records._IMPORT_SEAMS` -- enforced there and not
 restated here, since the restatement went stale.  ⚠ This sentence claimed `build` / `run_on` for this module ALONE
-until PR #510 R32 and was false -- `build` has seven importers.  The seams are
+until PR #510 R32 and was false -- `build` had other importers.  The seams are
 a table now (`plan_memo_selftest_records._IMPORT_SEAMS`), enforced rather
 than asserted.
 Carved at PR #510 R29, at 998 lines, before the round's own controls were
@@ -25,8 +25,8 @@ endings), and the population is every position of one prose rather than the
 positions a defect was once found at.  The second is an ORACLE: a reader must
 answer its own DEFINITION over an enumerated family (`_straddles` over every
 blank layout of eight positions), or two readers that the code claims decide
-one question must agree over a generated corpus (the lexer's file token against
-the sibling resolver; every row-id composer against every row kind the grammar
+one question must agree over a generated corpus (the file token,
+`plan_memo_tokens.file_and_cite_spans`, against the sibling resolver; every row-id composer against every row kind the grammar
 declares).  What is NOT here: a control that runs one fixture and reads the
 verdict, which is a `Case` in `plan_memo_selftest_cases*.py` or a function in
 `plan_memo_selftest_controls.py`, and a control whose measure is WORK, which is
@@ -135,7 +135,7 @@ def id_scan_grammar_agreement_control(M):
     being obvious, and this control is the answer: exhaustively, not by sample.
 
     THE ORACLE IS THE GRAMMAR, NOT THE RETIRED CODE.  `decorated_id` is still
-    live -- `plan_memo_roles` and `plan_memo_stream` compose their own matchers
+    live -- `plan_memo_roles` and `plan_memo_tables` compose their own matchers
     from it -- so the reference here is the module's own spelling of "a
     decorated id", composed over the module's own `KINDS`, with the module's
     own `_glued` for the boundary clause that round did not touch.  What it
@@ -456,13 +456,14 @@ def _paren_shapes(depth):
 
 def file_token_resolver_agreement_control(M):
     """PROPERTY: a name the SIBLING RESOLVER accepts, standing alone in prose, is
-    ONE file token to the LEXER -- the correspondence `plan_memo_lexer`'s
-    `plan_memo_tokens`' `FILE_SUFFIX` comment asserts, and the one PR #510 R26-2
-    falsified.
+    ONE file token to the token reader (`plan_memo_tokens.file_and_cite_spans`)
+    -- the correspondence `plan_memo_tokens`' `FILE_SUFFIX` comment asserts,
+    and the one PR #510 R26-2 falsified.
 
     That comment says `sibling_path` stage (d) "CONSUMES this constant for the
     same test on a link destination", i.e. that the two readers decide "is this
-    a file name" once.  They did not: the lexer's token arm admitted a FLAT
+    a file name" once.  They did not: the lexer's token arm (as it then was)
+    admitted a FLAT
     parenthesised chunk while the resolver accepts nested-parenthesis `.md`
     paths, so over the prose `foo((9z)).md` the lexer could reach no further
     left than the bare suffix and reported the declared id `9z` as a naming
@@ -471,18 +472,18 @@ def file_token_resolver_agreement_control(M):
     THE POPULATION IS GENERATED FROM THE PROPERTY: every balanced parenthesis
     shape up to depth 3, wrapped round a stem holding an id, before and after
     it, plus the empty shape -- so depth 3 is covered because balance generates
-    it.  Each name is kept only if `sibling_path` resolves it; the lexer must
-    then read it as exactly one span covering the whole name.  A run that
+    it.  Each name is kept only if `sibling_path` resolves it; the token
+    reader must then read it as exactly one span covering the whole name.  A run that
     yielded no name at all would report the same "no disagreement" a clean one
     does, so the corpus is required to be non-empty AND to hold members of
     depth >= 2 -- the class the flat arm could not read.
 
     HONESTLY, the correspondence is ONE-directional and only that direction is
-    a claim: the resolver refuses names the lexer tokenises quite happily
+    a claim: the resolver refuses names the token reader tokenises quite happily
     (`NUL.md`, `a:b.md`, `/abs/x.md` -- stage (c)'s standing polarity), because
-    the resolver answers "is there a memo beside this one" and the lexer answers
+    the resolver answers "is there a memo beside this one" and the token reader answers
     "where does this name end".  What must never happen is the other way round:
-    a string the resolver would follow to a file, which the lexer breaks into
+    a string the resolver would follow to a file, which the token reader breaks into
     pieces and reads an id out of."""
     import pathlib as _p
     import plan_memo_sibling, plan_memo_tokens     # the freshly loaded set
@@ -671,8 +672,9 @@ def report_bytes_control(M):
     sweep said "0 not escaped". This control asks the question the sweep is a
     proxy for: it RUNS the program over a hostile memo and looks at the bytes.
 
-    THE POPULATION IS THE WHOLE CLASS, not the byte that was reported: all 32
-    C0 characters and DEL, each in a naming context the report is known to
+    THE POPULATION IS THE WHOLE CLASS, not the byte that was reported: every
+    C0 character except NUL, LF and CR (the `hostile` string below), and DEL,
+    each in a naming context the report is known to
     print, in one memo. A memo's content must never be able to move a terminal
     cursor, clear a screen, or forge a line in a captured log.
 
@@ -733,7 +735,7 @@ def registry():
             ("CONTROL", line_ending_control),
         "PROPERTY: the verdict is invariant under re-spelling any ONE line break as each of CommonMark's three (the §6.8 soft break, §6.7's two-space and backslash hard breaks) -- the render-equivalence family's second guard, for the class its first one excludes by construction":
             ("CONTROL", break_equivalence_control),
-        "PROPERTY: every name the sibling resolver accepts, standing alone in prose, is ONE file token to the lexer (the correspondence FILE_SUFFIX's comment asserts)":
+        "PROPERTY: every name the sibling resolver accepts, standing alone in prose, is ONE file token (`plan_memo_tokens.file_and_cite_spans`) (the correspondence FILE_SUFFIX's comment asserts)":
             ("CONTROL", file_token_resolver_agreement_control),
         "PROPERTY: the entry point sets BOTH output streams to UTF-8 -- the absence a call-site sweep cannot report":
             ("CONTROL", stream_encoding_control),
@@ -743,7 +745,7 @@ def registry():
             ("CONTROL", straddle_definition_control),
         "PROPERTY: the licensing rule's backward index decides what the whole preceding text decides, at every position of a generated corpus -- and every phrase opens with a literal the index holds":
             ("CONTROL", licence_index_control),
-        "PROPERTY: a run the sibling resolver FOLLOWS is one whole file span to the lexer -- never a prefix with the remainder left for the naming scan (the direction the correspondence forbids)":
+        "PROPERTY: a run the sibling resolver FOLLOWS leaves no id outside its file span -- never a prefix with the remainder left for the naming scan (the direction the correspondence forbids)":
             ("CONTROL", file_token_run_agreement_control),
     }
 
@@ -754,7 +756,7 @@ def licence_index_control(M):
     and every phrase of `_LICENCE_PHRASES` opens with a literal the index
     holds.
 
-    THE CONTROL `plan_memo_roles` NAMES TWICE (PR #510 R31-4).  R31-4 replaced
+    THE CONTROL `plan_memo_roles` NAMES (PR #510 R31-4).  R31-4 replaced
     an unbounded backward `search` with `LICENSE_BEFORE.match` applied at ONE
     offset -- the last candidate `licence_starts` offers before the mention --
     on an argument rather than a measurement: every branch of the pattern
@@ -871,9 +873,9 @@ def licence_index_control(M):
 
 def file_token_run_agreement_control(M):
     """PROPERTY, the direction the correspondence names as the one that must
-    NEVER happen: a run the SIBLING RESOLVER follows to a file is ONE file span
-    to the lexer, covering the WHOLE run -- never a prefix with the remainder
-    left for the naming scan to read an id out of.
+    NEVER happen: a run the SIBLING RESOLVER follows to a file leaves NO id
+    outside its file span(s) -- never a prefix with the remainder left for the
+    naming scan to read an id out of.
 
     THIS IS THE BLIND SPOT `file_token_resolver_agreement_control` DECLARES,
     and two consecutive rounds landed in it (PR #510 R34-1, R35).  That control
@@ -890,8 +892,9 @@ def file_token_run_agreement_control(M):
     THE POPULATION IS GENERATED FROM THE TAILS THE RESOLVER STRIPS, crossed
     with an id in each position it could hide in: a stem, a fragment, a query,
     each with and without a declared id, plus the trailing punctuation that
-    ends a name in prose.  Every run the resolver FOLLOWS is required to be one
-    whole span; a run it rejects is required only not to crash the lexer, since
+    ends a name in prose.  Every run the resolver FOLLOWS is required to leave
+    no id outside its file span(s) (why that and not span equality: the comment
+    in the body, PR #510 R35); a run it rejects is SKIPPED, not lexed, since
     that direction is the standing polarity (a name the lexer reads and the
     resolver refuses is `NUL.md`, and is fine).
 

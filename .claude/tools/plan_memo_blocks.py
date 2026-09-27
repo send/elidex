@@ -121,7 +121,7 @@ def fence_closes(closer, line):
 
 
 # --------------------------------------------------------------------------
-# CommonMark §5.1 block quotes -- the ONE container this Phase 1 models.
+# CommonMark §5.1 block quotes -- the first container (§5.2 list items below).
 # "A block quote marker, optionally preceded by up to three spaces of
 # indentation, consists of (a) the character > together with a following
 # space of indentation, or (b) a single character > not followed by a space
@@ -200,7 +200,7 @@ def quote_content(line):
 # ASCII digits then `.` or `)`, after up to three spaces of indentation, and
 # "followed by ... spaces of indentation": W = the marker's width, N = the
 # spaces after it -- as written when 1-4; 1 when there are five or more (the
-# item starts with indented code, Example 270) or none at all (the item
+# item starts with indented code, Examples 273 / 274) or none at all (the item
 # starts with a blank line, Example 278).  The item's CONTENT is what follows
 # the marker and N spaces on the first line and, on every later line, what
 # follows W + N columns of indentation (`strip_columns`); a later line short
@@ -256,8 +256,8 @@ _HTML_TAG_NAMES = (
 # "(case-insensitive)" -- a scoped `(?i:…)`, ASCII-only under `re.ASCII` so a
 # long s never folds to `s`; 7 is "a complete open tag ... or a complete
 # closing tag, followed by zero or more spaces and tabs, followed by the end
-# of the line" -- §6.6's open / closing tag, the lexer's ONE tag grammar
-# (`OPEN_TAG` / `CLOSING_TAG`, imported; on one line its "up to one line
+# of the line" -- §6.6's open / closing tag, the ONE tag grammar
+# (`OPEN_TAG` / `CLOSING_TAG`, imported from `plan_memo_html.py`; on one line its "up to one line
 # ending" arm never fires, so nothing is widened -- ⚠ until PR #510 R17 the
 # tag grammar was spelled a second time here); 4 is `<!` + an ASCII letter
 # of either case (0.30+); 2 `<!--`, 3 `<?` and 5 `<![CDATA[` are exact

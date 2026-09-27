@@ -86,7 +86,7 @@ def _population_partner():
         reg = H.registry_modules("MUTANTS", d)
         if reg != ["plan_memo_selftest_mut_ann", "plan_memo_selftest_mut_r26",
                    "plan_memo_selftest_mutants"]:
-            bad.append("registry_modules('MUTANTS') = %s (want the two that HOLD a list)" % reg)
+            bad.append("registry_modules('MUTANTS') = %s (want the modules that HOLD a list)" % reg)
         order = [n for n, _f in H._import_order(d)]
         if order.index("plan_memo_b") > order.index("plan_memo_a"):
             bad.append("import order %s puts an importer before its `import`ed module" % order)
@@ -311,7 +311,8 @@ def manifest_control(M):
     # escape stays INJECTIVE against the texts that spell an escape literally
     # (Codex on `def01d3c`: literal NULs made the file unreadable to `grep`)
     raw = [chr(n) for n in list(range(0x20)) + [0x7F]]
-    tricky = ["\x00", "\\x00", "|", "\\p", "\t", "\\t", "\n", "\\n", "\\", "a\x7fb", "ok"]
+    tricky = ["\x00", "\\x00", "|", "\\p", "\t", "\\t", "\n", "\\n", "\\", "a\x7fb", "ok",
+              "\x01a", "\x1a"]
     arms["(g) every C0 character and DEL is escaped, injectively"] = (
         not any(any(c < " " or c == "\x7f" for c in mf._esc("a%sb" % r)) for r in raw)
         and len({mf._esc(x) for x in raw + tricky}) == len(set(raw + tricky))

@@ -279,6 +279,11 @@ MUTANTS += [
      '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
      "    return s",
      [MANIFEST_CTL]),
+    ("manifest: the escape is FIXED-WIDTH (drop the zero-pad -- `\\x1` followed by the text `a` "
+     "then spells the escape of `\\x1a`, and two different names serialize alike)", MANIFEST_MOD,
+     '    return "".join("\\\\x%02x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
+     '    return "".join("\\\\x%x" % ord(c) if c < " " or c == "\\x7f" else c for c in s)',
+     [MANIFEST_CTL]),
     ("manifest: the ESCAPE does not depend on load state (make it the identity -- the runner "
      "unloads before it reports, and a control name's BEL then reaches stderr raw)", MANIFEST_MOD,
      "    return _ESCAPE[0](text) if _ESCAPE else text",

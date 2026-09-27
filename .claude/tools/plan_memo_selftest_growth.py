@@ -99,10 +99,10 @@ GROWTH_REPORT = 6
 
 def _branch_literals(src):
     """Every ONE-CHARACTER string constant `src` COMPARES against -- the
-    characters this source dispatches on (`c == "<"`, `s[j] in "<>\\n"`), and
-    not the ones it merely emits.  `ast.Compare` is the whole population: `==`,
-    `!=` and `in` are all comparisons, and a longer constant is a phrase rather
-    than a character the scan branches at."""
+    characters this source dispatches on (`c == "<"`, `c in "<"`), and not the
+    ones it merely emits.  `ast.Compare` is the whole population: `==`, `!=`
+    and `in` are all comparisons.  A longer constant is dropped WHOLE -- it is
+    not split into characters, so `s[j] in "<>\\n"` contributes nothing."""
     out = set()
     for node in ast.walk(ast.parse(src)):
         if isinstance(node, ast.Compare):
@@ -364,8 +364,9 @@ def generated_growth_control(M):
 #
 # Self-edges are left out because they are not edges of this walk at all:
 # `Memo.linked_files` excludes the memo itself, so `i -> i` is
-# indistinguishable from no edge, and `_selftest_cases_sibling.py` owns that
-# clause.
+# indistinguishable from no edge.  (`_selftest_cases_sibling.py` was named here
+# as owning that clause; it pins `sibling_path`, not the walk, and holds no
+# self-edge control -- the R9 sweep found no control that owns it.)
 # --------------------------------------------------------------------------
 
 GRAPH_NODES = 3
@@ -476,8 +477,9 @@ def population_walk_once_control(M):
     halves are separately mutated.  Also: work inside `Memo` (this control
     counts pops, not what a pop costs); a family larger than `GRAPH_NODES`,
     which cannot hold a violation this one does not (see the comment above)
-    but can hold a worse one; and the ORDER of the walk, which
-    `_selftest_cases_sibling.py`'s controls own."""
+    but can hold a worse one; and the ORDER of the walk (named here as owned
+    by `_selftest_cases_sibling.py`, whose controls pin `sibling_path`, not the
+    walk -- the R9 sweep found no control that owns it)."""
     import plan_memo_population as pop_mod
 
     if getattr(pop_mod, "deque", None) is None:

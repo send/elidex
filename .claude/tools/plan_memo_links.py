@@ -17,10 +17,10 @@ backslash escape and §2.5 character reference those rest on.  WHAT IS NOT: the
 one-pass scanner that USES them (`inline_pass`), the §6.1 code-span closer index
 and the bracket stack, which are the lexer's own.
 
-⚠ `plan_memo_blocks.py` takes four of its six lexer imports from here now
-(`link_destination` / `link_label` / `link_title` / `_escaped` / `_skip_ws`),
-which is where a reference-definition reader should have been pointing all
-along: it reads the link GRAMMAR, never the inline scanner.
+⚠ `plan_memo_blocks.py` imports its link grammar from here, not from the
+lexer (its import block is the list), which is where a reference-definition
+reader should have been pointing all along: it reads the link GRAMMAR, never
+the inline scanner.
 """
 
 import re
@@ -75,7 +75,16 @@ def _codepoint(n):
 def _reference(m):
     """The character a `_CHAR_REF` match stands for, or None when its name is
     not an HTML5 entity (§2.5 Example 30: `&MadeUpEntity;` "not recognized as
-    entity references either" -- literal text)."""
+    entity references either" -- literal text).
+
+    "The document https://html.spec.whatwg.org/entities.json is used as an
+    authoritative source for the valid entity references and their
+    corresponding code points" -- the stdlib ships that list as
+    `html.entities.html5`, keyed WITH the `;` for the names CommonMark
+    recognises and without it for HTML's legacy semicolon-less forms
+    (`copy`), which §2.5 excludes (Example 29).  Looked up with the `;`, so
+    the legacy forms are never found.  NOT `html.unescape`: it decodes the
+    legacy forms, and it is a second pass over text already read once."""
     body = m.group(1)
     if body[0] != "#":
         return html5.get(body + ";")

@@ -32,8 +32,8 @@ performs -- ⚠ it said "PHASE 1 ALONE" until PR #510 R32, which the same delta'
 `Table.bind` call and 11 `Lexed.resolve` calls, because R31-1 moved the header
 resolve and the bind into the constructor.  What it does NOT run is the
 disposition, the scans and the population, which is the part of the old
-sentence that was true and the part these three controls rely on (orphan
-detection, the unresolved walk, the sibling set).  `_on_pipeline` runs `check()`, the one
+sentence that was true and the part the controls built on `Memo(path)` rely on
+(orphan detection, the unresolved walk, the sibling set, the quotes).  `_on_pipeline` runs `check()`, the one
 entry point, which is the only way to reach a scan that the seeds and the
 licensing rule live in; both of PR #510 R31's cost findings were there, and
 neither is reachable from a block-level probe at all.
@@ -312,10 +312,8 @@ def quote_build_once_control(M):
 # so the run is not a schema miss, and one declared umbrella id, so the scans
 # these controls measure have something to find.  `%s` is the body each shapes
 # for itself.  Written here rather than taken from `plan_memo_selftest_cases.
-# build` on purpose: the cases module's builder is the INVARIANTS module's
-# import (that is the seam between the source-sweep and the behavioural
-# property modules), and a work
-# control asks nothing about the verdict this memo produces.
+# build` on purpose: a work control asks nothing about the verdict this memo
+# produces.
 _PIPELINE_MEMO = """# fixture
 
 | ID | Citation | Anchor | Used by |

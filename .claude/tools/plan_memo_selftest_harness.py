@@ -341,7 +341,7 @@ def measure(res, reported, m):
     if what == "note":
         return sum(1 for n in res.notes if arg in n), "note %r" % arg
     if what == "schema":
-        # the one measure that reads a schema-miss run: SCHEMA findings carrying `arg`
+        # with `rc`, a measure that reads a schema-miss run: SCHEMA findings carrying `arg`
         return (sum(1 for f in res.findings if f[0] == "SCHEMA" and arg in f[3]),
                 "SCHEMA %r (rc must be 2 iff any)" % arg)
     if what == "id":

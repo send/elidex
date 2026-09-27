@@ -106,7 +106,7 @@ R26_LONGEST = ("(R26 file) `a.md+9z+b.md` is ONE name ending at the LAST suffix,
                "DOTTED NUMBER to the id grammar and no site either way, so both readings reported 0 "
                "and the mutant survived.  The id has to be separated from the second suffix")
 R26_AGREE = ("PROPERTY: every name the sibling resolver accepts, standing alone in prose, is ONE file "
-             "token to the lexer (the correspondence FILE_SUFFIX's comment asserts)")
+             "token (`plan_memo_tokens.file_and_cite_spans`) (the correspondence FILE_SUFFIX's comment asserts)")
 R26_TOKEN_LINEAR = ("file_and_cite_spans is linear: N parenthesis groups are one pass, not a re-scan "
                     "from every start position")
 
@@ -135,7 +135,8 @@ MUTANTS += [
     # coverage gap that is not one. Its control stays (`a.md+9z+b.md` is still
     # one name ending at the last suffix, and still green); what is gone is a
     # row that could never go red again. The clause it used to guard is now
-    # `_terminates_run`, which the three R34-1 rows below cover directly.
+    # `_terminates_run`, which the R34-1 rows in `plan_memo_selftest_mutants_r30.py`
+    # cover directly.
     # The COST row, deliberately VALUE-PRESERVING: the replacement reaches the
     # same segment start by walking back to it, so nothing about the reading
     # changes and the only thing the control can be reacting to is the WORK.

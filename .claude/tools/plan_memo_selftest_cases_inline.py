@@ -200,9 +200,9 @@ case("NEGATIVE", "(image) `![alt [b](9z)](i.png)`: the demoted link's tail stays
 
 # ------------------------------------------------ PR #510 Codex R20 controls --
 
-# #1 (MIN): a file name is anything ending in the lexer's `FILE_SUFFIX` -- the
-# stem may be EMPTY, exactly as `sibling_path` stage (d) reads a destination
-# (the one constant, defined in the lexer, consumed by the memo).  Until R20
+# #1 (MIN): a file name is anything ending in `plan_memo_tokens.FILE_SUFFIX` --
+# the stem may be EMPTY, exactly as `sibling_path` stage (d) reads a destination
+# (the one constant; its home and its readers are `plan_memo_tokens`).  Until R20
 # the token arm required a stem of one character or more, so beside a
 # declared id `md` the prose `Read .md for details` reported `md` as a site.
 MD = dict(i7z="**md**", s7z="**UMBRELLA, not a terminal unit.** x")
@@ -214,8 +214,8 @@ case("NEGATIVE", "(file) `notes.md` beside a declared no-owner id `md` is still 
 case("POSITIVE", "(file) bare `md` (no suffix) beside a declared no-owner id `md` IS a site -- the subject of the two "
                  "controls above is live",
      build(**MD), "Read md for details.", 1)
-case("POSITIVE-NOVEL", "(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the lexer's "
-                       "file token read the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides",
+case("POSITIVE-NOVEL", "(link) `[x](.md)` links the sibling file named `.md`: `sibling_path` stage (d) and the file "
+                       "token (`plan_memo_tokens`) read the ONE `FILE_SUFFIX`, so the suffix-only name is a file on both sides",
      build(), "See [x](.md).", 1, files={".md": VIOLATION + "\n"})
 
 # #2 (IMP): every composer that reads "a row id in this position" composes the
@@ -224,7 +224,7 @@ case("POSITIVE-NOVEL", "(link) `[x](.md)` links the sibling file named `.md`: `s
 # was built on `SHORT_ID` alone: the reviewer's declaring field below did not
 # match, the row was read as an umbrella, no attribution finding, a corrupted
 # census, exit 0.  The R14 spelling sweep reads spellings, not kind coverage;
-# the controls module's `row_kind_coverage_control` is the kind half.
+# `plan_memo_selftest_invariants.row_kind_coverage_control` is the kind half.
 SLUG_PTR = "Slice %s — **UMBRELLA, not a terminal unit** — points into §8."
 acase("POSITIVE", "(a) the R20 reviewer's declaring field `Slice `#11-zz-alpha` — **UMBRELLA, …**` attributes the marker "
                   "to a SLUG row: the row is a pointer and the UMBRELLA-MARK attribution finding is emitted",
@@ -460,11 +460,11 @@ case("POSITIVE", "(render) an id-only code span is still the document SPELLING a
                  "naming site, decoration and all",
      build(), "See `9z` here.", 1)
 case("NEGATIVE", "(render) `\\*\\*C\\*\\* is how the row is written`: an ESCAPED decoration character "
-                 "stands as written -- substituting it would spell a `**C**` bold the document does not "
+                 "is BLANKED, not substituted -- substituting it would spell a `**C**` bold the document does not "
                  "have, and the undecorated single letter is the declared miss",
      build(), "\\*\\*C\\*\\* is how the row is written.", 0)
 case("NEGATIVE", "(render) `&#42;&#42;C&#42;&#42;` is the same rule for §2.5: a reference that would "
-                 "spell a decoration stands as written",
+                 "spell a decoration is BLANKED, not substituted",
      build(), "&#42;&#42;C&#42;&#42; is how the row is written.", 0)
 
 # The licensing rule, the seeds' vocabularies and the kind reader all read that
@@ -645,7 +645,8 @@ case("NEGATIVE", "(licence) `9z's memo` IS it and is licensed -- the discriminat
 # be what the document RENDERS (#1), the gate must cover every phrase that
 # decides a kind and not the one in front of me (#2), the document begins
 # where a reader sees it begin (#3), and the demotion is linear (#4, a work
-# witness in `plan_memo_selftest_controls.py` -- it measures work, not text).
+# witness, `plan_memo_selftest_work.linear_image_demotion_control` -- it
+# measures work, not text).
 
 # -- #1: a §2.5 / §2.4 spelling of a DECORATION character is BLANKED.  It may
 # not stand as written (its source letters are readable as an id) and it may

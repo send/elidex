@@ -5,7 +5,9 @@ The fourth `Case` module, and the first carved on a SUBJECT rather than on a
 review round: every control here is about `plan_memo_sibling.sibling_path`
 -- the ONE destination -> file-on-disk mapping, and the only place this checker
 decides that a link names a memo it must go and scan.  Its stages are that
-function's docstring, in spec order, and each has its controls here: (a) the
+function's docstring, in spec order, and each has its controls here except
+(d), whose suffix-only case (`[x](.md)`, R20) is in
+`plan_memo_selftest_cases_inline.py`: (a) the
 WHATWG URL scheme test on the RAW component, (b) percent-decoding, (c) the one
 platform-independent reading of the decoded name (anchors, DOS devices,
 trailing dots and spaces, the characters Windows does not read as letters of a

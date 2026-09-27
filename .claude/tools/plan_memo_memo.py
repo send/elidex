@@ -16,9 +16,10 @@ the resolver itself is `plan_memo_sibling.py`'s `sibling_path`, imported
 here and never the reverse).  The memo SET reachable from one memo through its
 links is `plan_memo_population.py`'s `Population`, which imports this module
 and never the reverse.  The row grammar, the table
-schemas and the one admission site (`admit_table`), and the mask
-disposition are `plan_memo_tables.py`'s, imported here and never the
-reverse; the block grammar is `plan_memo_blocks.py`'s.
+schemas and the one admission site (`admit_table`) are
+`plan_memo_tables.py`'s, imported here and never the reverse; the mask
+disposition is `plan_memo_stream.py`'s; the block grammar is
+`plan_memo_blocks.py`'s.
 """
 
 import bisect
@@ -785,8 +786,8 @@ class Memo:
                 if is_image:
                     continue     # §6.4: literal image syntax; an image never links a memo
                 key = normalize_label(label)
-                # a `[C19]`-style citation id (`is_cite_label`: the grammar's
-                # one predicate, the lexer's mask reads the same) is never a
+                # a `[C19]`-style citation id (`is_cite_label`, composed from
+                # the `CITE_LABEL` the bare-token mask also composes) is never a
                 # memo reference, in ANY form -- shortcut, full (`[C19][C20]`
                 # adjacent citations) or collapsed (`[C19][]`); a plain
                 # shortcut of any other label is prose too.  An orphan

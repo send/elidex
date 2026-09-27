@@ -87,16 +87,18 @@ The inline property is `inline_claim`: each masked §6.6 span verbatim and in
 order in its `<p>` body -- those spans are then BLANKED, since a raw `<a
 href=…>` a span carries is the author's text, not the renderer's -- then one
 `<a href=` per §6.3 link plus §6.5 autolink, one `<code>` per §6.1 code span,
-one `<img src=` per §6.4 image that RESOLVED.  A span masked where the html
+one `<img src=` per §6.4 image that RESOLVED, and one `<em>` / `<strong>`
+per §6.2 emphasis pair Phase 2 matched.  A span masked where the html
 escapes (`<33>`, `< a>`, `<a href='bar'title=title>`) is not verbatim; a tag
 left unmasked where the html emits it takes an `<a href=` with it; a link read
 where the spec has none, a link lost inside an autolink or inside a resolved
 image's description, an autolink read as a raw tag, a code span mis-closed, an
-image read as a link, all move a count.  §6.2 emphasis, §6.7 / §6.8 line
-breaks and §6.9 textual content are PROSE-AS-WRITTEN (§3.0b) and the tags they
-emit (`<em>`, `<strong>`, `<br />`) are counted by nothing here -- which is
-why the R17 property's bare `<` count, correct over §6.6 alone, could not
-survive the corpus reaching §6.3.
+image read as a link, an emphasis run paired where the spec leaves it literal
+(or the reverse), all move a count.  §6.7 / §6.8 line breaks and §6.9 textual
+content are PROSE-AS-WRITTEN (§3.0b): Phase 2 claims nothing about them, and
+the one tag they emit (`<br />`) is only subtracted from the final leftover-`<`
+count (`_PROSE_TAGS`).  The R17 property's bare `<` count, correct over §6.6
+alone, could not survive the corpus reaching §6.3.
 
 NOTHING is excluded from either corpus (both print 0), and the one exclusion
 predicate is the GFM-table arm shared with the block half.  ⚠ The first R17
@@ -160,7 +162,7 @@ def inline_claim(lx, body):
     """Phase 2's claim about ONE paragraph against the `<p>` body the spec
     renders for it (the plan's §3.0b falsifier); None when they agree.
 
-    Four properties, one per LEXED / MASKED disposition, each read off
+    One property per LEXED / MASKED disposition, each read off
     the html's own tags rather than off a re-rendering:
       * §6.6 raw HTML -- "rendered in HTML without escaping", so each masked
         span must stand VERBATIM, in order, in the body (a mis-bounded span
@@ -187,8 +189,9 @@ def inline_claim(lx, body):
         one of these counts, and the `Emphasis and strong emphasis`
         examples 350-481 are vendored for exactly this.
     §6.7 / §6.8 line breaks and §6.9 textual content are PROSE-AS-WRITTEN
-    (§3.0b) and emit a tag Phase 2 makes no claim about (`<br />`), so
-    nothing here counts a bare `<`."""
+    (§3.0b) and emit a tag Phase 2 makes no claim about (`<br />`); it is
+    only subtracted, via `_PROSE_TAGS`, from the leftover-`<` count at the
+    end, which catches a `<` the html emits verbatim that no span masked."""
     # ⚠ A DEMOTED span is not in this population, and the reason is the same
     # measurement that demoted it: inside a resolved image's description the
     # span is the alt's own TEXT, so "stands verbatim in the body" is false of
@@ -255,9 +258,10 @@ def inline_claim(lx, body):
     if got != want:
         return "the html emits %d `<del>`, Phase 2 claims %d GFM strikethrough pair(s)" % (got, want)
     # ... and NOTHING is left over: every `<` still standing outside the
-    # masked spans must belong to a tag one of the three claims above
-    # accounts for (2 per link / autolink, 2 per code span, 1 per image --
-    # `<img …/>` has no closing tag) or to a PROSE-AS-WRITTEN construct's.
+    # masked spans must belong to a tag one of the counts above accounts
+    # for (2 per link / autolink, 2 per code span, 1 per image -- `<img …/>`
+    # has no closing tag -- and 2 per emphasis, strong or strikethrough pair)
+    # or to a PROSE-AS-WRITTEN construct's.
     # This is the direction the counts alone do not give: a §6.6 arm dropped
     # from the tag grammar leaves the comment / instruction / CDATA section
     # unmasked, the html emits it verbatim, and no count above moves (⚠ the
@@ -384,8 +388,8 @@ def run(M):
 
 
 def run_inline(M):
-    """The INLINE corpus: the spec's §2.4 / §2.5 / §6.1 / §6.3 / §6.4 / §6.5
-    / §6.6 example lists (the plan's §3.0b closed list).  The SAME aligner:
+    """The INLINE corpus: the spec's §2.4 / §2.5 / §6.1 / §6.2 / §6.3 / §6.4
+    / §6.5 / §6.6 example lists (the plan's §3.0b closed list).  The SAME aligner:
     an inline example's block structure is checked exactly as a block
     example's is, and a block example's inline claim exactly as an inline
     example's -- one property, two corpora, so neither half can be green

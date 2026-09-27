@@ -3,7 +3,7 @@
 
 A checker that has never been shown to fire is a checker that reports `0`
 for a class it cannot see.  Every check in the companion has at least one
-control, and the controls come in four kinds:
+control, and the controls come in five kinds:
 
   POSITIVE          a wrong site the checker MUST report.
   POSITIVE-NOVEL    a wrong site written in a spelling that appears NOWHERE in
@@ -20,6 +20,9 @@ control, and the controls come in four kinds:
                     instance by redefining the population so the missed site is
                     out of scope -- is the failure
                     `feedback_control-rewritten-to-bless-the-defect` names.
+  CONTROL           a property that is not one site's verdict: agreement with
+                    a reference implementation or the spec's own examples, a
+                    pinned policy, or an invariant of the self-test itself.
 
 Every control runs `check()` -- the SAME pipeline `main()` runs, not a copy of
 it.

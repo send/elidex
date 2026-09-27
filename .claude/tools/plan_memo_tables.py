@@ -29,7 +29,8 @@ Two rules decided here, once:
     and so waits for the disposition; kind markers come from the disposed
     declaring field (a quoted marker declares nothing).
 
-A cell is lexed ONCE, where it is minted (`split_row`), and `Table.bind`
+A cell's `Lexed` is minted ONCE (`split_row`; `Memo.__init__` says why a
+header cell's is resolved twice), and `Table.bind`
 then asks `plan_memo_stream.rendered` which schema the header spells; every
 other predicate over a cell reads `plan_memo_stream.stream`, the block as the
 document renders it.
@@ -216,8 +217,8 @@ kind a marker declares -- and BELOW `SCHEMAS` because it is derived from them
 (`_row_nouns`).  ASCII case-insensitive, in ONE place (the scoped
 `(?ai:…)`: `SLICE C`, `ROW 9`, `UMBRELLA C` name a row as `Slice C` does, and
 under `a` a long s never folds to `s`) -- every composer (`ROW_NOUN_SEP`,
-`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR` and `LICENSE_BEFORE`'s trailing-noun
-clause) inherits it; an
+`ROW_NOUN_ID`, the roles' `NOUN_ANCHOR`) inherits it (`LICENSE_BEFORE`'s
+trailing-noun clause, which did too, was deleted at R24); an
 enumeration of Title-case and lower-case spellings left `SLICE C owns it`
 naming no row (PR #510 R15)."""
 

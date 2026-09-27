@@ -11,7 +11,7 @@ its census-only population, left the whole proof green -- the ratchets were the
 controls that decide whether a class is covered, and nothing decided whether
 THEY were.  Each row here re-injects one criterion a ratchet HAD, against the
 ratchet's discriminating partner, so the next reversion is a killed mutant and
-not a sentence.  `_mutants_r30.py` (981 lines) could not take them without
+not a sentence.  `_mutants_r30.py` (981 lines at the carve) could not take them without
 crossing the 1000-line bound, and a subject is the seam these rows share.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`

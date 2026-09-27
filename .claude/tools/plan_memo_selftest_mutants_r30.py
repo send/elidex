@@ -218,7 +218,7 @@ MUTANTS += [
 
 
 # -- PR #510 R31-4, the correctness half: the index the backward look is
-# bounded by.  Three rows, one per way the argument it rests on can fail --
+# bounded by.  The rows cover each way the argument it rests on can fail --
 # a keyword that leaves the set, a literal the set holds only a truncation of,
 # and the reachability claim itself (the LAST candidate before the mention is
 # the only one that can reach it).
@@ -288,8 +288,9 @@ MUTANTS += [
 
 
 # -- PR #510 R32 design re-gate: the two claims that were offered as mechanical
-# and were not.  Both rows patch a SELF-TEST module, so the control comes from
-# the patched text.
+# and were not.  The two seam rows patch a SELF-TEST module, so the control
+# comes from the patched text; the attribution row patches a checker source
+# (the comment above it says why).
 R32_SEAMS = ("PROPERTY: every import-graph seam this suite states in prose is true of the imports "
              "(an \"only importer of X\" is a claim about the COMPLEMENT)")
 R32_ATTRIB = ("PROPERTY: every written `module.symbol` attribution names the module that DEFINES that "
@@ -444,8 +445,8 @@ MUTANTS += [
 
 
 # -- PR #510 Codex R35: the tail is part of the NAME, not permission to stop.
-R35_RUN_AGREEMENT = ("PROPERTY: a run the sibling resolver FOLLOWS is one whole file span to the "
-                     "lexer -- never a prefix with the remainder left for the naming scan (the "
+R35_RUN_AGREEMENT = ("PROPERTY: a run the sibling resolver FOLLOWS leaves no id outside its file "
+                     "span -- never a prefix with the remainder left for the naming scan (the "
                      "direction the correspondence forbids)")
 
 MUTANTS += [
@@ -539,8 +540,9 @@ MUTANTS += [
 # PR #510 Axis 5's CRIT, as a row: the attack that proved the escape's own
 # control has the wrong subject.  ⚠ Axis 5 APPLIED this by hand (delete the
 # `printable(` call sites, keep the function) and the whole suite stayed green
-# while a raw NUL returned to the log.  Two rows, one per report module, because
-# the two channels are two files and a fix to one says nothing about the other.
+# while a raw NUL returned to the log.  Two rows, one per emit site of the
+# runner's report (the per-control listing and the failure summary), because a
+# fix to one says nothing about the other.
 AXIS5_CHANNEL = ("PROPERTY: every line the run REPORTS goes through the escape -- measured over the "
                  "EMIT SITES, the subject the escape function's own control cannot reach")
 
@@ -576,7 +578,8 @@ MUTANTS += [
 ]
 
 
-# -- R42-3: the entry point's option set.  TWO rows, one per half of the claim.
+# -- R42-3: the entry point's option set.  It had TWO rows, one per half of
+# the claim; both were retired at R42-4 (the note in the block below).
 R42_OPTIONS = ("PROPERTY: the entry point's CLI contract is per MODE -- a closed option set whose "
                "complement is refused, and for each mode the flags it accepts and the positional "
                "count it takes (a known flag in the wrong mode returned 0 for the wrong operation)")
@@ -774,10 +777,10 @@ DEMOTED_AGREEMENT = ("CommonMark 0.31.2 §6.4: Phase 2's inline claim agrees wit
                      "for every §3.0b family DEMOTED into a resolved image description (the "
                      "cross-product the corpus cannot reach)")
 
-# -- R45: the FALSIFIER's own demotion filter, one mutant per family.  Each
-# un-filters one count and the control goes red on that family alone; the
-# vendored corpus stays green under all three, which is the whole reason the
-# control exists.
+# -- R45: the FALSIFIER's own demotion filter, one mutant per family, and one
+# more that inverts the filter.  Each per-family row un-filters one count and
+# the control goes red on that family alone; the vendored corpus stays green
+# under each of them, which is the whole reason the control exists.
 MUTANTS += [
     ("R45 §6.4 falsifier: a DEMOTED code span emits no `<code>` (un-filter the count -- the shape "
      "that shipped: `![a `b` c](img.png)` reported \"the html emits 0 `<code>`, Phase 2 claims 1\" "
@@ -815,9 +818,11 @@ MUTANTS += [
      [R42_LINE_ENDING_FIRST]),
 ]
 
-# -- R45: the two population-scope loops the ratchet missed.  Same edit shape as
-# the five rows that already exist for `_declare` / `keep` / `data_rows` / the
-# walk / `_unbound_claims`; these two had no row, and both survived silently.
+# -- R45: the two population-scope loops the ratchet missed.  Same intent --
+# scope a population-wide step to `main` -- as the rows that already exist for
+# `_declare` / `keep` / `data_rows` / the walk / `_unbound_claims` (the edit is
+# spelled differently among those); these two had no row, and both survived
+# silently.
 MUTANTS += [
     ("R45 scope: `_unkeyed` asks of the whole POPULATION (scope it to `main` -- a linked memo's "
      "unkeyed row goes unreported at rc 0)", POPULATION,
@@ -888,43 +893,43 @@ MUTANTS += [
 # was to say WHICH, measured one loop at a time, not to invent them -- and
 # three needed a fixture that takes a second iteration.
 MUTANTS += [
-    ("R47-5 scope: the population walk queues EVERY link of a memo (truncate the loop at line ~88)", POPULATION,
+    ("R47-5 scope: the population walk queues EVERY link of a memo (truncate the loop)", POPULATION,
      '            for f in memo.linked_files():',
      '            for f in list(memo.linked_files())[:1]:',
      ["diagnostics name a memo relative to the root memo's directory: `a/child.md` and `b/child.md` are two files, and a memo outside that directory is named by its absolute path"]),
-    ("R47-5 scope: every UNANSWERED reference of a memo is reported (truncate the loop at line ~94)", POPULATION,
+    ("R47-5 scope: every UNANSWERED reference of a memo is reported (truncate the loop)", POPULATION,
      '            for lineno, label in memo.unresolved_references():',
      '            for lineno, label in list(memo.unresolved_references())[:1]:',
      [R47_5_TWO_REFS]),
-    ("R47-5 scope: every TABLE of a memo is bound (truncate the loop at line ~106)", POPULATION,
+    ("R47-5 scope: every TABLE of a memo is bound (truncate the loop)", POPULATION,
      '            for t in memo.tables:\n                for lineno, msg in t.misses:',
      '            for t in list(memo.tables)[:1]:\n                for lineno, msg in t.misses:',
      ["(rc) a schema body row whose width differs from its header is rc 2"]),
-    ("R47-5 scope: every MISS of a table is reported (truncate the loop at line ~107)", POPULATION,
+    ("R47-5 scope: every MISS of a table is reported (truncate the loop)", POPULATION,
      '                for lineno, msg in t.misses:',
      '                for lineno, msg in list(t.misses)[:1]:',
      [R47_5_TWO_MISSES]),
-    ("R47-5 scope: every declared id is given a KIND (truncate the loop at line ~123)", POPULATION,
+    ("R47-5 scope: every declared id is given a KIND (truncate the loop)", POPULATION,
      '        for row in self.ids.values():',
      '        for row in list(self.ids.values())[:1]:',
      [R47_5_ALL_KINDS]),
-    ("R47-5 scope: every SCHEMA ROW of a memo is declared (truncate the loop at line ~152)", POPULATION,
+    ("R47-5 scope: every SCHEMA ROW of a memo is declared (truncate the loop)", POPULATION,
      '            for row in memo.schema_rows(s.name):\n                rid = row.self_id',
      '            for row in list(memo.schema_rows(s.name))[:1]:\n                rid = row.self_id',
      ["a self-declaring row that MENTIONS a sibling stays in the population"]),
-    ("R47-5 scope: every TABLE of a memo is asked for an unbound claim (truncate the loop at line ~211)", POPULATION,
+    ("R47-5 scope: every TABLE of a memo is asked for an unbound claim (truncate the loop)", POPULATION,
      '            for t in memo.tables:\n                if t.schema is not None:',
      '            for t in list(memo.tables)[:1]:\n                if t.schema is not None:',
      [R47_5_SECOND_TABLE]),
-    ("R47-5 scope: every ROW of an unbound table is asked (truncate the loop at line ~214)", POPULATION,
+    ("R47-5 scope: every ROW of an unbound table is asked (truncate the loop)", POPULATION,
      '                for row in [t.header] + t.rows:',
      '                for row in list([t.header] + t.rows)[:1]:',
      [R42_10_UNBOUND_CLAIM]),
-    ("R47-5 scope: every SCHEMA ROW is read for the unkeyed miss (truncate the loop at line ~265)", POPULATION,
+    ("R47-5 scope: every SCHEMA ROW is read for the unkeyed miss (truncate the loop)", POPULATION,
      '            for row in memo.schema_rows(s.name):\n                if row.self_id is not None:',
      '            for row in list(memo.schema_rows(s.name))[:1]:\n                if row.self_id is not None:',
      [R47_5_SECOND_ROW]),
-    ("R47-5 scope: every kind phrase the residue names is reported (truncate the loop at line ~388)", POPULATION,
+    ("R47-5 scope: every kind phrase the residue names is reported (truncate the loop)", POPULATION,
      '        for name in kind_disagreements(row.cells[row.schema.decl].lexed):',
      '        for name in list(kind_disagreements(row.cells[row.schema.decl].lexed))[:1]:',
      [R47_5_TWO_PHRASES]),

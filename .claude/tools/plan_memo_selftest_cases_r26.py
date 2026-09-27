@@ -17,9 +17,9 @@ work-shaped ones are `plan_memo_selftest_work.py`'s and the swept ones are
 set) and `plan_memo_selftest_invariants.py`'s (the checker run), by those
 modules' own seams.
 
-This is the TAIL module of the four, so R26 ON lands here -- exactly as its
-mutant counterpart `plan_memo_selftest_mutants_r26.py` already says of itself
-("R26 on").  R27's fixture-shaped control is below.
+This module was the tail of the round-indexed cases modules, so R26 on landed
+here until `plan_memo_selftest_cases_r42.py` was carved from it; R42 on is
+there.  R27's fixture-shaped control is below.
 """
 
 from plan_memo_selftest_cases import LINK, SIB_TABLE, build, spellings
@@ -80,7 +80,8 @@ case("POSITIVE", "(R26 file) `9z)foo.md` still reports `9z`: a `)` that closes n
 # ("Implementations may impose limits on parentheses nesting to avoid
 # performance issues, but at least three levels of nesting should be
 # supported"); commonmark.js 0.31.2 imposes none, cmark 0.31.1 stops at 32, and
-# the deepest destination in all 630 vendored examples is Example 496's depth 2.
+# the deepest destination nesting in all 630 vendored examples is depth 2
+# (Example 496, and it is not the only one).
 # So the limit is taken for the reason the spec's parenthetical gives -- the
 # SCAN -- and these two controls fix where the boundary now falls, since no
 # conformance example can.
@@ -180,7 +181,7 @@ case("POSITIVE", "(R30 id) an id cell `**` is an unmatched strong-emphasis run: 
      idcell("**"), "", 1, measure=_MISS)
 R30_UNPAIRED.append(CASES[-1].name)
 case("POSITIVE", "(R30 id) an id cell `*` is a single unmatched delimiter: the same run one character "
-                 "short, and not a `DECOR_MARK` at all -- unkeyed, rc 2",
+                 "short, and not one of the `DECOR_MARKS` at all -- unkeyed, rc 2",
      idcell("*"), "", 1, measure=_MISS)
 R30_UNPAIRED.append(CASES[-1].name)
 case("POSITIVE", "(R30 id) an id cell `` ` `` is one backtick that opens no code span (§6.1 wants a "
@@ -219,7 +220,7 @@ case("NEGATIVE", "(R30 id) an id cell `**—**` is STILL a deliberate blank: her
      idcell("**—**", marked=False), "", 0, measure=_MISS)
 R30_PAIRED.append(CASES[-1].name)
 case("NEGATIVE", "(R30 id) an id cell `` `—` `` is a deliberate blank: the code span renders its "
-                 "content and a reader sees the em dash -- the same partner for the other `DECOR_MARK`",
+                 "content and a reader sees the em dash -- the same partner for the other of the `DECOR_MARKS`",
      idcell("`—`", marked=False), "", 0, measure=_MISS)
 R30_PAIRED.append(CASES[-1].name)
 case("POSITIVE-NOVEL", "(R30 id) an id cell `&#8212;` is a deliberate blank: §2.5 renders the em dash, "

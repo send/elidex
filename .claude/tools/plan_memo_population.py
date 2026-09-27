@@ -6,8 +6,8 @@ set, so a cycle is not an error) and the ONE map `ids` every scan and
 assertion reads.  ONE memo -- its block structure and its lexing -- is
 `plan_memo_memo.py`'s `Memo`, imported here and never the reverse; the
 destination -> sibling resolver a memo's links are walked through is
-`plan_memo_sibling.py`'s; the row grammar, the table schemas and the mask
-disposition are `plan_memo_tables.py`'s.
+`plan_memo_sibling.py`'s; the row grammar and the table schemas are
+`plan_memo_tables.py`'s, and the mask disposition is `plan_memo_stream.py`'s.
 
 Two rules decided here, once:
   * a memo that cannot be opened, read or decoded is an UNAVAILABLE linked
@@ -37,8 +37,11 @@ class Population:
     """The memo set reachable from one memo through its links (visited set, so
     a cycle is not an error), with ONE map `ids`: id -> its declaring `Row`
     (`row.kind` = "umbrella" / "undetermined" / "pointer" / "terminal").  `misses` holds
-    every schema miss (absent memo, unresolved reference, unmatched schema, row
-    width, duplicate declaration, unkeyed schema row); a non-empty `misses`
+    every schema miss (absent memo, unresolved reference, unmatched schema, a
+    table's own misses such as row width, duplicate declaration, a kind phrase
+    in a table bound to no schema, unkeyed schema row, a blank-id row whose
+    declaring field spells a kind, a kind phrase straddling a span not read as
+    prose -- one per `self.misses.append` site); a non-empty `misses`
     is exit 2 -- never a clean run.
     """
 
@@ -417,8 +420,8 @@ class Population:
         return "terminal"
 
     def _kind_residue(self, row):
-        """The one place the residue GATES (`plan_memo_stream.split_units`),
-        for EVERY member of `KIND_PHRASES` and not for the one member that
+        """Where the residue GATES for a BOUND row (`plan_memo_stream.split_units`;
+        `_claims` names the other sites that ask the same question), for EVERY member of `KIND_PHRASES` and not for the one member that
         was in front of me when I wrote it.  A declaring field that spells a
         kind phrase ACROSS a span the checker does not read as prose --
         `**UMBRELLA, not a `terminal` unit.**`, `KIND UNDETER`MINED`` -- is

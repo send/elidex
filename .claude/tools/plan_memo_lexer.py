@@ -4,8 +4,9 @@ structure -- for `plan-memo-umbrella-check.py`: a subset of CommonMark
 0.31.2 and GFM 0.29, lexed by construction from the clauses
 `docs/plans/2026-08-plan-memo-umbrella-checker.md` §3 lists.  Block
 structure (Phase 1: fences, block starts, the one `block_end` predicate,
-table rows, reference definitions) is `plan_memo_blocks.py`, which imports
-this module's inline grammar; the order is plan §2 "Lexing order".
+table rows, reference definitions) is `plan_memo_blocks.py`, which takes
+only the `Lexed` value from here (the link grammar it reads is
+`plan_memo_links.py`'s); the order is plan §2 "Lexing order".
 
 Per block inline content (a paragraph or a cell): code spans (CommonMark
 §6.1, backtick strings of equal length), raw HTML (§6.6: an open tag, a
@@ -50,15 +51,13 @@ citation ids, `.md` file names).  Nothing in this module knows what a ROW
 id is: the citation shape and the ASCII boundary it composes are the id
 grammar's (`plan_memo_ids.py`, below this module), and the disposition
 exception (an id-only code span is the document spelling an id, not code)
-is applied over a `Lexed` by `plan_memo_tables.py`.
+is applied over a `Lexed` by the disposition (`plan_memo_stream.py`).
 """
 
 import bisect
 import re
-import string
-from html.entities import html5
 from plan_memo_links import (  # §6.3's grammar, carved at R42-7; the edge is one-way
-    _CHAR_REF, _escaped, _inline_tail, _is_escape, _is_image, _reference,
+    _CHAR_REF, _inline_tail, _is_escape, _is_image, _reference,
     _reference_tail, _skip_ws, link_destination, link_label, link_title,
     normalize_label,
 )
@@ -90,17 +89,6 @@ _BACKTICKS = re.compile(r"`+")
 
 
 
-# "The document https://html.spec.whatwg.org/entities.json is used as an
-# authoritative source for the valid entity references and their
-# corresponding code points" -- the stdlib ships that list as
-# `html.entities.html5` (imported above), keyed WITH the `;` for the names
-# CommonMark recognises and without it for HTML's legacy semicolon-less
-# forms (`copy`), which §2.5 excludes: "Although HTML5 does accept some entity
-# references without a trailing semicolon (such as `&copy`), these are not
-# recognized here, because it makes the grammar too ambiguous" (Example
-# 29).  Looked up with the `;`, so the legacy forms are never found.  NOT
-# `html.unescape`: it decodes the legacy forms, and it is a second pass over
-# text this module has already read once.
 
 
 
@@ -313,7 +301,8 @@ def inline_pass(s, defs):
     recognising backtick strings (§6.1), autolinks (§6.5), raw HTML (§6.6)
     and brackets (§6.3 / §6.4) together, and resolving references through
     `defs` (normalised label -> destination).  Returns (code, links, images,
-    unresolved, html, autolinks).
+    unresolved, html, autolinks, marks, subst, pairs) -- the order
+    `Lexed.resolve` unpacks, and the field shapes `Lexed` states.
 
     Autolinks (§6.5, PR #510 R21): at a `<` the autolink grammar is tried
     first (the spec's order; `_AUTOLINK`), and a match is ONE token the scan
@@ -422,14 +411,15 @@ def inline_pass(s, defs):
     not attempted, and one that can is bounded), and the reason R23 fixing one
     left the sentence standing is that the sentence was about substrings while
     the cost was in the lookaheads.  `code` =
-    [(start, end)] backticks included; `html` = [(start, end, kind)] of every raw
+    [(start, end, kind)] backticks included, `kind` = "code" or "demoted" (a
+    span inside a resolved image's description); `html` = [(start, end, kind)] of every raw
     HTML span, `<` and `>` included, `kind` = "html" or "demoted" (§6.4:
     inside a resolved image's description a raw HTML span is not markup but
     its own source text); `links` = [(tail_start, end,
     destination)] with `tail_start` the `]` closing the link text, so a
     caller masking the tail leaves the visible text -- prose -- in the
-    scanned stream; `images` = [(tail_start, end)], every tail that is NOT a
-    link's: a resolved image's (§6.4: its destination never joins the
+    scanned stream; `images` = [(tail_start, end, kind)], every tail that is NOT a
+    link's (`kind` as `Lexed` states it): a resolved image's (§6.4: its destination never joins the
     population, its alt text is prose, its tail is masked) and a demoted
     link's inside one; `unresolved` = [(offset, label, form, is_image)], every
     reference whose label `defs` does not define, with its FORM (`"full"` /
@@ -677,8 +667,10 @@ def _demote(entries, ranges, width):
     over the same descendant, and re-tagging it at each close is quadratic in
     the nesting depth (measured at PR #510 R23: 24 KB of `![`-nesting took
     0.4 s, four times the 12 KB figure, against this function's stated linear
-    contract).  Nothing inside `inline_pass` reads an entry's tag, so the
-    tag's only observer is the caller and deferring it is not observable."""
+    contract).  The one reader of a tag inside `inline_pass` is
+    `_line_endings_to_spaces`, which runs over `code` AFTER this has been
+    applied to it; every other observer is the caller, so deferring the tag
+    is not observable."""
     if not ranges:
         return entries
     edge = [0] * (len(entries) + 1)
@@ -704,16 +696,17 @@ class Lexed:
     the disposition's stage 2 (`plan_memo_stream.dispose`), never here: the
     reading needs a rendering, and a `Lexed` has none until it is disposed.
     `resolve(defs)` runs `inline_pass` and sets
-    `code` = code spans, `html` = raw HTML spans (§6.6) with the same
-    "html" / "demoted" kind, `autolinks` =
-    [(start, end)] of every §6.5 autolink span (`<` and `>` included; masked
+    `code` = code spans (`kind` "code" / "demoted"), `html` = raw HTML spans
+    (§6.6) with the same "html" / "demoted" kind, `autolinks` =
+    [(start, end, kind)], `kind` "autolink" / "demoted", of every §6.5 autolink span (`<` and `>` included; masked
     whole, its destination never joining the population -- an autolink's URL
     carries a scheme or is a `mailto:`, so it is never a sibling on disk),
     `links` =
     [(tail_start, end, destination)], `images` = [(tail_start, end, kind)]
     (every tail that is not a link's, `kind` = "image" for a resolved
-    image's own tail and "demoted" for a link or a nested image demoted
-    inside a resolved image's description, §6.4) and
+    image's own tail, "demoted" for a link or a nested image demoted
+    inside a resolved image's description, §6.4, and "open" for a resolved
+    image's own `![`) and
     `marks` = [(start, end)] of every span that renders NO character (a §2.4
     escape's backslash is not one -- an escape SUBSTITUTES, below -- but a
     link's `[` is, and so is the backslash of a §6.7 HARD LINE BREAK, whose
@@ -725,8 +718,8 @@ class Lexed:
     resolved image's description, "demoted" (§6.4: plain string content, no
     tag -- the R19 rule, one more construct);
     `unresolved` = [(offset, label, form, is_image)] of the references no
-    definition answers; `mask` is set by the disposition step in
-    `plan_memo_tables.py` once the row ids are known."""
+    definition answers; `mask` is set by the disposition step
+    (`plan_memo_stream.dispose`) once the row ids are known."""
 
     __slots__ = ("text", "code", "html", "autolinks", "tokens", "links", "images", "unresolved",
                  "marks", "subst", "emphasis", "mask")

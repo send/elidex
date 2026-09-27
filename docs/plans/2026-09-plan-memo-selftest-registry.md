@@ -42,7 +42,8 @@ or changing a row, control or case requires regenerating the manifest and commit
 ## Threat model, and what the manifest does not promise
 
 Its one home is the docstring of `.claude/tools/plan_memo_selftest_registry.py` ("THE THREAT MODEL"); the
-workflow rule's one home is `plan_memo_selftest_manifest.py`'s docstring. Neither is copied here.
+workflow rule's one home is `plan_memo_selftest_manifest.py`'s docstring. The summaries of both above are
+this record's account of the decision, not their operative text; where they differ, the docstrings win.
 
 **The open gap, recorded rather than closed**: the manifest pins every control's identity, kind, defining
 function and source digest — but not that a control CAN GO RED. Measured **at `3ee149e1`: 255 of the 751
@@ -50,8 +51,8 @@ controls are named by no mutation row** (131 POSITIVE, 95 NEGATIVE, 24 POSITIVE-
 KNOWN-MISS and 3 CONTROL: the §6.4 demotion linearity, the SyntaxWarning sweep and `degenerate_control`), so
 `--mutants` does not exercise them. This is the figure's ONE home, and it is a measurement AT THE COMMIT
 NAMED, not a claim about the head that carries it — a later commit that adds a control moves the
-denominator (`7b074847` wrote "at the manifest committed with it", and `3ee149e1`, one commit later in
-the same push, made that 749 false). Re-run it at any head by reading the manifest (a MUTANT line's 5th
+denominator (`7b074847` wrote "at the manifest committed with it", and `3ee149e1`, a later commit (after
+`100462db`) in the same push, made that 749 false). Re-run it at any head by reading the manifest (a MUTANT line's 5th
 field is its `|`-separated control labels, a CONTROL line's 3rd is its label):
 
 ```sh

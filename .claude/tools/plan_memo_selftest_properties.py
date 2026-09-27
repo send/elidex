@@ -19,8 +19,8 @@ handles and population API, the fixture runner
 enforces -- it is not restated here, because the restatement is what went
 stale (it named three importers of `ast` while there were five).  ⚠ Those three sentences said "ONLY this module" and "only the
 invariants module" until PR #510 R32, and all three were FALSE -- the growth
-module had imported `ast` and the handles since R27, and `build` is imported by
-seven modules.  They are now a table `import_seam_control` enforces
+module had imported `ast` and the handles since R27, and `build` was imported
+well beyond the invariants module.  They are now a table `import_seam_control` enforces
 (`_IMPORT_SEAMS`), because an "only importer" is a claim about the COMPLEMENT
 and the complement is the half nobody re-reads -- and the records split above is
 the first change that had to widen that table rather than a prose sentence.  In
@@ -320,8 +320,8 @@ def _leading_unbounded_repeat(rx):
     run and re-enters it one character along.  So the flag needs both: a
     leading unbounded repeat, and a sibling after it at some enclosing level.
     Measured over the module set: dropping that second half reports two linear
-    sites and nothing else -- `plan_memo_lexer.py:365 _LABEL_WS.sub` over
-    `[ \\t\\r\\n]+`, and `:535 _BACKTICKS.finditer` over `` `+ ``."""
+    sites and nothing else -- `plan_memo_links._LABEL_WS.sub` over
+    `[ \\t\\r\\n]+`, and `plan_memo_lexer._BACKTICKS.finditer` over `` `+ ``."""
     try:
         try:
             from re import _parser as parser        # CPython 3.11+
@@ -855,10 +855,3 @@ def syntax_warning_control(M):
     return not bad, ("%d source(s) compiled, %d with a SyntaxWarning%s"
                      % (len(_swept_sources()), len(bad),
                         ("; " + "; ".join(bad[:4])) if bad else ""))
-
-
-# The census module's loops whose TRUNCATION is unobservable by construction,
-# each with the reason.  ⚠ This is the stated COMPLEMENT of the derived
-# population below, not a list of the loops somebody remembered: the sweep
-# enumerates every `ast.For` in the module and a loop that is neither pinned
-# nor named here turns the control red.

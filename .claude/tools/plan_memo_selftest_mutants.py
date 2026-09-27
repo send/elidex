@@ -19,8 +19,8 @@ The runner patches the source TEXT, exec's a fresh module set from it (plan
     (an exception is not the control going red) and is a FAIL.
 
 Row shape: (name, file, find, replace, [control names]).  A row whose file is
-a SELF-TEST module (`SELFTEST` below -- the CONTROLS module or the WORK
-module) patches the self-test, not the checker set: the module is exec'd from
+a SELF-TEST module (`SELFTEST` below -- every self-test module, by the
+harness's partition rule) patches the self-test, not the checker set: the module is exec'd from
 the patched text (`plan_memo_selftest_harness.patched_module`) and the row's
 controls are taken from the PATCHED module's registry, MERGED over the
 unpatched rest.  The merge is what makes the set extensible: a mutant against
@@ -435,8 +435,8 @@ MUTANTS = [
     ("4.5 link: a citation-grammar label is exempt in every reference form", MEMO,
      'exempt = is_cite_label(key) or form == "shortcut"',
      'exempt = form == "shortcut"',
-     ["(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
-      "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0"]),
+     ["(link) adjacent citations `[C1][C2]` are not a full reference: rc 0",
+      "(link) a collapsed-shaped citation `[C1][]` is not a reference: rc 0"]),
     ("#4 empty cell: a word outside the lexical exceptions is NOT empty", TABLES,
      'EMPTY_WORDS = frozenset({"n/a", "none"})', 'EMPTY_WORDS = frozenset({"n/a", "none", "nil"})',
      ["(b) a Deps cell `nil` -- a word outside the lexical exceptions -- is NOT empty: the "

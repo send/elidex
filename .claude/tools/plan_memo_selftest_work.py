@@ -151,10 +151,12 @@ def linear_links_control(M):
 def scaling_split_row_control(M):
     """The linearity witness for `split_row`, deterministic: over N
     escaped-pipe cells it executes at most 64 * (len(line) + N) source lines
-    of `plan_memo_blocks` -- the row scan, `_escaped`, the two trims, `_cell`
-    and `Cell.__init__` are 58 source lines together, and each of them runs
-    at most once per character (the scan step; `_escaped`'s backslash walk
-    and a trim visit a character once) or once per cell (the assembly step)
+    of `plan_memo_blocks` -- the row scan, the two trims, `_cell` and
+    `Cell.__init__` are fewer than 64 source lines together (the `co_lines`
+    of `split_row`, `_cell` and `Cell.__init__`; `_escaped` lives in
+    `plan_memo_links`, whose frames are not counted), and each of them runs
+    at most once per character (the scan step and a trim visit a character
+    once) or once per cell (the assembly step)
     -- and at least len(line) (the scan visits every character; a tracer
     watching nothing is red).  A per-cell filter over the row-wide break
     list (the R9 #3 mutant) runs ~2 N^2 lines and is stopped at the bound.

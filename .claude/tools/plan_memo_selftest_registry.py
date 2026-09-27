@@ -2,8 +2,9 @@
 """THE ONE COLLECTION STEP of the self-test's two row registries -- the case
 records (`CASES`) and the mutation rows (`MUTANTS`).
 
-A registry module is one that holds its OWN list, read off its top level
-(`plan_memo_selftest_harness.registry_modules`, by content, not by name).
+A registry module is a self-test module that holds its OWN list, read off
+its top level (`plan_memo_selftest_harness.registry_modules`: among the
+self-test half, by content, not by a registry file-name prefix).
 `collect` is the only reader: the base module's rows, then each registry
 module's list, in population order.  An EMPTY list is refused (nothing to
 compare, so the manifest cannot see it).  It FREEZES what it reads -- every row a

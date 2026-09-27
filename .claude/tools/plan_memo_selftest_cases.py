@@ -3,11 +3,9 @@
 
 Every control is ONE record shape, `Case`: a fixture, a prose tail, an
 optional sibling and extra files, a MEASURE and the EXACT value it must take.
-Measures: `"sites"` (reported naming sites), `"rc"` (exit status),
-`("finding", CODE)` (count of one finding code), `("note", TEXT)` (count of
-report notes carrying TEXT), `("id", RID)` (1 if RID is declared, else 0),
-`("schema", TEXT)` (count of SCHEMA findings carrying TEXT -- the one measure
-that reads an rc-2 run, and requires rc 2 exactly when it counts one).
+The measures, and which of them accept an rc-2 run, are
+`plan_memo_selftest_harness.measure` / `control` (their docstrings, not
+restated here).
 `case` / `acase` / `rcase` are spellings of the same record for the three
 common measures.  The control kinds (POSITIVE / POSITIVE-NOVEL / NEGATIVE /
 KNOWN-MISS) are defined in the runner (`plan_memo_umbrella_selftest.py`); the
@@ -25,7 +23,9 @@ construct family), and later modules at later seams.  THE RULE, not a count
 holds its OWN `CASES` and binds its own spellings (`spellings()`, which appends
 to the CALLING module's list at call time);
 `cases()` -- the one collection step, `plan_memo_selftest_registry.collect` --
-is the only reader, and every case is a line of the golden manifest.
+is the one reader that collects them (`plan_memo_selftest_population` also
+reads a module's `CASES` directly, to prove that collection), and every case
+is a line of the golden manifest.
 """
 
 import sys
@@ -287,7 +287,9 @@ acase("NEGATIVE", "(b) an umbrella row with an empty Deps cell",
 
 # ------------------------------------------------ Slice 1 lexing controls --
 # One control per clause of the plan's §3 rows and §2 invariants I-A/B/C/F.
-# Every control here has a named mutant in `plan_memo_selftest_mutants.py`.
+# The mutant rows that name these controls are in the
+# `plan_memo_selftest_mutants*.py` modules; not every control here is named by
+# one (grep a control's label there to see its rows).
 
 LINK = "See [the walk](slice-9z-sib.md)."
 VIOLATION = "Slice 9z lands before Slice 7z."
@@ -578,12 +580,12 @@ rcase("POSITIVE", "(rc) a full reference no definition answers is rc 2, never cl
 case("POSITIVE", "(link) a shortcut whose only definition sits mid-paragraph is a schema miss",
      build(), "See [the walk].\n\ntext\n[the walk]: slice-9z-sib.md", 1,
      measure=("schema", "unresolved reference 'the walk'"))
-case("NEGATIVE", "(link) a `[C19]` citation is a shortcut with no definition anywhere: no miss",
+case("NEGATIVE", "(link) a `[C1]` citation is a shortcut with no definition anywhere: no miss",
      build(), "Per [C1] the probe must return 3.", 0,
      measure=("schema", "unresolved reference"))
-rcase("NEGATIVE", "(link) adjacent citations `[C19][C20]` are not a full reference: rc 0",
+rcase("NEGATIVE", "(link) adjacent citations `[C1][C2]` are not a full reference: rc 0",
       build(), "Per [C1][C2] step 1 the probe must return 3.", 0)
-rcase("NEGATIVE", "(link) a collapsed-shaped citation `[C19][]` is not a reference: rc 0",
+rcase("NEGATIVE", "(link) a collapsed-shaped citation `[C1][]` is not a reference: rc 0",
       build(), "Per [C1][] step 1 the probe must return 3.", 0)
 
 # C8: slug disposition is the disposition step's, not the scanner's

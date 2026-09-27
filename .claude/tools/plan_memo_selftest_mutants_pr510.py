@@ -15,8 +15,9 @@ exactly: `_cases_pr510.py` here, `_cases_inline.py` there.
 gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
 decides which modules those are, by CONTENT: a module holding its own list) in one explicit step.
 The rules are the first module's: the substring must occur EXACTLY ONCE in its
-file, every named control must go red, a crash is a FAIL.  A mutant's control
-lives in `plan_memo_selftest_cases_pr510.py` under the same round label.
+file, every named control must go red, a crash is a FAIL.  A mutant's controls
+are named, not located: they resolve against the whole gathered control
+registry, and a row may name a control in any self-test module.
 """
 
 from plan_memo_selftest_mutants import (

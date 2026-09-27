@@ -34,8 +34,9 @@ reads this one.  A mutant row whose file is THIS module patches the self-test,
 not the checker set (`plan_memo_selftest_mutants.SELFTEST`).
 
 Import direction, one way: the controls module imports this one; this one
-imports the property module (for the shared population `_swept_sources` and the
-entry point's file name) and the harness, and nothing of the controls.
+imports the property module (for the shared population `_swept_sources` and its
+registry fragment), the harness (the module-set handles, the entry point's file
+name among them) and the cases module's `build`, and nothing of the controls.
 """
 
 import ast
@@ -433,7 +434,7 @@ def _report_modules(sources):
     ⚠ THIS WAS A HAND-WRITTEN 2-TUPLE UNTIL PR #510 R42-4, AND IT WAS THE
     ENUMERATED-TABLE CLASS INSIDE THE CONTROL WRITTEN TO CLOSE AN
     ENUMERATED-POPULATION DEFECT.  It named the two SELF-TEST runners and left
-    out the entry point, which holds 32 print sites and is the only channel that
+    out the entry point, which then held 32 print sites and is the only channel that
     prints MEMO-CONTROLLED text -- so a memo carrying an ESC put a terminal
     escape straight into the default report, while the control beside it
     reported "0 not escaped". The reviewer found that one round after the
@@ -496,29 +497,32 @@ def report_channel_control(M):
     through" -- was false when written: there are two print channels and eleven
     emit sites, of which three were wrapped.
 
-    THE POPULATION IS THE EMIT SITE, NOT THE NAME.  Every `print(...)` and every
-    `<list>.append(...)` in a REPORT module (`_report_modules`: every source
-    with a `print` call, derived, and the run's detail names how many; ⚠ this
-    said "the two report modules" while the derived set was four) whose
-    argument is a `%`
-    formatting expression over a literal format string must be wrapped in
-    `printable(...)`.  That predicate is structural: it does not ask whether the
+    THE POPULATION IS THE EMIT SITE, NOT THE NAME.  Every emit site
+    (`_emit_argument`: a `print(...)` or a raised `ManifestError`) in a REPORT
+    module (`_report_modules`: every source with a `print` call, derived, and
+    the run's detail names how many; ⚠ this said "the two report modules"
+    while the derived set was four) must be compliant -- `compliant` below,
+    the COMPLEMENT: a bare literal, an escaped `printable(...)`, or a join
+    whose element is escaped, and every other shape (an f-string and a
+    concatenation included) is red.  That predicate is structural: it does not ask whether the
     arguments happen to carry a control name today, which is the symptom
     vocabulary and would leave the next site authoritative
     (`memory/feedback_checks-must-not-be-defined-by-the-symptom-vocabulary.md`).
     ⚠ No site is exempted for "it only formats numbers" -- an exemption list is
     the next class's hiding place, and escaping a number costs nothing.
 
-    HONESTLY, what it cannot see: a line built by concatenation or an f-string
-    rather than `%`; and output written by something other than `print` / `append`.
+    HONESTLY, what it cannot see: output written by something other than the
+    sites `_emit_argument` answers (a `print` or a raised `ManifestError`).
 
-    ⚠ AND ONE STRUCTURAL LIMIT ON THE PROOF, not on the control.  Both mutants
-    that kill this control patch the RUNNER; none patches
-    `plan_memo_selftest_mutants.py`, whose eight emit sites this control DOES
+    ⚠ AND ONE STRUCTURAL LIMIT ON THE PROOF, not on the control.  The mutants
+    that kill this control patch the runner, the entry point and this module
+    (`grep -n 'CHANNEL]' plan_memo_selftest_mutants*.py` lists them); none
+    patches `plan_memo_selftest_mutants.py`, whose emit sites this control DOES
     cover.  That is not an omission: a mutant against that file would have to be
     exec'd by the loop that lives in it, which is already running, so the mutant
     runner is the one file in the set that cannot be its own subject.  The
-    control's population is both modules; the mutation proof reaches one.  The
+    control's population is every report module; the mutation proof reaches
+    every one but that.  The
     gap is named here rather than left for the round that finds it
     (`memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md`),
     and the whole-channel attack IS verified by hand at every re-gate: strip
@@ -597,7 +601,7 @@ def report_channel_control(M):
     # see -- `sites` counts every `print` either way, so a looser predicate just
     # empties `bad` and the control goes green by asking a different question.
     # The only witness for that direction is a shape that MUST be refused, so
-    # the predicate is run against six hand-built nodes, three of each verdict:
+    # the predicate is run against hand-built nodes of both verdicts (`probe`):
     # this is the `empty_registry_control` idea applied to a predicate.
     probe = {
         '"x"': True, 'printable("x" % y)': True, 'M.printable("x")': True, '__doc__': True,

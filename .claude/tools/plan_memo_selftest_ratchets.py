@@ -264,13 +264,16 @@ def population_scope_control(M):
                         ("; " + "; ".join(bad[:5])) if bad else ""))
 
 
-# Six loops, one per criterion `_loops` / `_credit` state: a module-level
-# loop; in `f`, two with ONE header, a third sharing only its target prefix,
-# and a loop NESTED in the third; and a loop in a METHOD, whose identity must
-# carry its class.  Three rows: one truncates the first of the pair (its find
-# text contains the second), one RE-POINTS the third to the truncation of a
-# DIFFERENT iterable (the shape of a truncation, the population of none: an
-# orphan), and one truncates the method's loop in the `list(...)[:1]` form.
+# One loop per criterion `_loops` / `_credit` / `_is_truncation` state
+# (`_PARTNER_LOOPS` is the set): a module-level loop; in `f`, two with ONE
+# header, a third sharing only its target prefix, and a loop NESTED in the
+# third; a loop in a METHOD, whose identity must carry its class; an `async
+# for`; and in `h`, one loop per `_is_truncation` criterion row.  The first
+# three rows: one truncates the first of the pair (its find text contains the
+# second), one RE-POINTS the third to the truncation of a DIFFERENT iterable
+# (the shape of a truncation, the population of none: an orphan), and one
+# truncates the method's loop in the `list(...)[:1]` form; the rest are
+# commented where they stand.
 _PARTNER_TEXT = ("for top in zs:\n    pass\n"
                  "def f(xs, ys):\n"
                  "    for x in xs:\n        pass\n"

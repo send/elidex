@@ -369,8 +369,10 @@ R42_10_UNBOUND_RENDERED = CASES[-1].name
 
 # -- R45: TWO POPULATION-SCOPE LOOPS THAT WERE CORRECT AND UNWATCHED.  Found by
 # running the mutation rather than by reading the code: scoping either to
-# `self.memos[:1]` -- the same edit shape `_declare`, `keep`, `data_rows`, the
-# transitive walk and `_unbound_claims` all HAVE a mutant for -- left every one
+# `self.memos[:1]` -- the same intent `_declare`, `keep`, `data_rows`, the
+# transitive walk and `_unbound_claims` have a mutant for, though the edit is
+# spelled differently among those (`plan_memo_selftest_mutants_r30.py`'s R45
+# block) -- left every one
 # of the 695 controls green.  The population-scope ratchet covered five of
 # seven loops, and the two it missed both report a LINKED memo's schema miss,
 # which is the I-C silent-skip class this checker exists for

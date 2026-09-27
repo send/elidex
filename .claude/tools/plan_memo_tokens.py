@@ -10,9 +10,9 @@ and out of which no scanner may read a row id.  They are found over whatever
 text the caller holds -- rendered or raw, `file_and_cite_spans` says which
 caller holds which and why -- never over a parse.
 
-So this module sits BESIDE the lexer rather than inside it, and below it: it
-imports the id grammar and `re`, and nothing of CommonMark, while the lexer
-imports nothing of this.  Its consumers are the disposition
+So this module sits BESIDE the lexer rather than inside it, and neither
+imports the other: this one imports the id grammar and `re`, and nothing of
+CommonMark, while the lexer imports nothing of this.  Its consumers are the disposition
 (`plan_memo_stream.dispose`), the raw-line seed
 (`plan-memo-umbrella-check.py`), and `plan_memo_sibling`, which reads
 `FILE_SUFFIX` from here for the ONE test on a link destination -- the
@@ -37,8 +37,8 @@ from plan_memo_ids import ALNUM, CITE_ID
 # `FILE_SUFFIX` -- the stem is unconstrained, so the suffix alone (`.md`) is
 # a file name.  `plan_memo_sibling.sibling_path` stage (d) CONSUMES this
 # constant for the same test on a link destination (a link to `.md` names
-# the sibling file `.md`); the lexer defines it because the lexer sits below
-# the resolver and reads it first.  Until PR #510 R20 the token arm required a
+# the sibling file `.md`); THIS module defines it because it sits below the
+# resolver (`plan_memo_sibling` imports it from here) and reads it first.  Until PR #510 R20 the token arm required a
 # stem of one character or more while `sibling_path` accepted the bare
 # suffix, so beside a declared id `md` the prose `Read .md for details`
 # reported `md` as a naming site.
@@ -74,7 +74,7 @@ FILE_SUFFIX = ".md"
 # continuation it permitted is the hiding class above.  The citation shape is the
 # grammar's `CITE_ID` (either case -- `[c1]` is `[C1]` under §6.3 label
 # matching, and the unresolved-reference walk exempts it by the same
-# predicate).  No §2.4 escape is honoured and none should be: the disposition
+# grammar, `CITE_LABEL`, through `is_cite_label`).  No §2.4 escape is honoured and none should be: the disposition
 # hands this the block AS RENDERED, where `\(` has already become `(`, and the
 # raw-line seed hands it a line that is never inline-parsed, where a backslash
 # IS the character the reader sees.
@@ -97,6 +97,9 @@ FILE_SUFFIX = ".md"
 # start position, so `(a)`xN and `a`xN cost quadratic time (measured 3.95x /
 # 4.00x per doubling; this scan is 2.00x / 1.98x).  One pass, one paren stack.
 _CITE_TOKEN = re.compile(CITE_ID)
+# Read by no code path since R34-1 replaced the "not followed by an ASCII
+# alphanumeric" end test; kept because the R34-1 mutant row in
+# `plan_memo_selftest_mutants_r30.py` re-injects that test and names it.
 _ALNUM_AT = re.compile(ALNUM)
 
 # The characters that BOUND a file-name run and are not whitespace: the inline
@@ -216,8 +219,8 @@ def file_and_cite_spans(text):
     a name so that reading has exactly one caller-visible spelling.
 
     ONE LEFT-TO-RIGHT PASS with a paren stack, then one selection.  The pass
-    records, for every position where `FILE_SUFFIX` ends and the next character
-    is not `ALNUM`, the LEFTMOST start a run ending there may have: one past
+    records, for every position where `FILE_SUFFIX` ends and `_terminates_run`
+    accepts the run as ending there (at the span end it returns), the LEFTMOST start a run ending there may have: one past
     the innermost parenthesis still open there, or the start of the current
     SEGMENT (the text since the last whitespace, inline delimiter, or
     unmatchable `)` -- none of which any run may contain, and none of which any

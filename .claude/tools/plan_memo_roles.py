@@ -141,7 +141,7 @@ def _top_level_alternatives(pattern):
     dangerous direction.  Both halves of `licence_index_control` passed: the
     structural half reads a leading literal and found one, and the oracle half
     spells no `sprout`.  The shape is not hypothetical -- `LICENSE_AFTER`
-    directly below is written exactly this way."""
+    above is written exactly this way."""
     out, depth, start, i = [], 0, 0, 0
     while i < len(pattern):
         c = pattern[i]
@@ -223,8 +223,8 @@ def licence_starts(text):
 # BEFORE` was unbounded on the left (`grandchild of 9z`, `renaming 9z`,
 # `remints 9z` all read as the licensed phrase) and `LICENSE_AFTER` on the
 # right (`9z's memorandum`, `9z is an umbrellaless slot`).  The inner edges
-# need nothing: each pattern is anchored (`$` / `^`) against the MENTION,
-# whose own extent the id grammar already bounded (`plan_memo_ids.tokens`).
+# need nothing: each pattern is anchored against the MENTION (`LICENSE_BEFORE`
+# at `$`, `LICENSE_AFTER` by `.match` at the mention's end), whose own extent the id grammar already bounded (`plan_memo_ids.tokens`).
 # The plural (`9z's derivations`) is now REPORTED rather than licensed --
 # tightening a licence is the safe direction under a reported-by-default
 # rule, and widening the nouns to `s?` would license `9z's memos` and
@@ -238,9 +238,10 @@ def licence_starts(text):
 # "that the "`, licensing a mention the document says `xderivation … that the`
 # about.  Widening the slice moves the edge; only removing it removes the edge,
 # and it is removable because "immediately before" is a GRAMMAR fact: the
-# pattern is anchored at `$`, so the search is bounded by `endpos` at the
-# mention's start and reads the block's whole preceding text.  There is no
-# width constant in the backward look at all now, and no slice for a
+# pattern is anchored at `$`, so R24's search was bounded by `endpos` at the
+# mention's start and read the block's whole preceding text (since R31-4 it is
+# one `.match` at one indexed offset -- `classify` says why).  There is no
+# width constant in the backward look at all, and no slice for a
 # lookbehind to fall off the start of.
 
 # The mention shapes.  Every id token -- a short id or a `#11-` slug, in a
@@ -256,8 +257,8 @@ def licence_starts(text):
 # three such sites in this memo before the balance requirement.
 #
 # The ANCHORED reading (the one the licensing rule was written against) is
-# a row noun, a space or a hyphen, then a short-id token starting exactly
-# where `NOUN_ANCHOR` ends -- the token's boundary is the grammar's, not a
+# a row noun, its separator (`ROW_NOUN_SEP`), then an id token of a row kind
+# (`plan_memo_ids.ROW_KINDS`) starting exactly where `NOUN_ANCHOR` ends -- the token's boundary is the grammar's, not a
 # second spelling here.
 # ⚠ ASCII boundaries by PROPERTY: the anchor before the row noun composes the
 # grammar's `ALNUM`, never `\b` / `\w` in Unicode mode -- there `次のSlice C`
@@ -370,7 +371,7 @@ def _owner_ok(m, tag):
 
 
 # ORDER-PROSE?'s vocabulary is DELIBERATELY narrower than the ranking's
-# "ordering" row below: the ranking reads `until` / `once` / `follows` /
+# "ordering" row above: the ranking reads `until` / `once` / `follows` /
 # `depends` / `gates` as single words because it only orders a reported set,
 # while this seed PRODUCES findings, and those words alone are the acceptance
 # prose of nearly every terminal row ("until the probe is green", "once the
@@ -538,8 +539,9 @@ def deps_is_empty(cell):
 
 def assertion_cd_seed(pop, mentions, findings, notes):
     """(c) prose ordering vs the cell it names, and (d) two owners in one row.
-    `mentions` = the population's row-noun-anchored mentions (every declared
-    id, not only the no-owner ones), which is the seed's reading of the prose.
+    `mentions` = every mention `collect_mentions` read, bare and row-noun-
+    anchored (every declared id, not only the no-owner ones): the Slice-cell
+    reading takes the anchored ones (`m.anchored`), the Deps reading all.
 
     Both are natural-language claim extraction, for which the memo's own cell
     says no canonical algorithm exists.  What is reported here is a SEED: rows

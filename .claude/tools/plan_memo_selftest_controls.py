@@ -3,8 +3,8 @@
 and the registry that names every control.
 
 The record-shaped controls (`Case`: one fixture, one measure, one exact
-value) live in `plan_memo_selftest_cases.py` / `_cases_pr510.py` /
-`_cases_inline.py` / `_cases_sibling.py`;
+value) live in the `plan_memo_selftest_cases*.py` modules (gathered by
+`plan_memo_selftest_registry.collect`, through `plan_memo_selftest_cases.cases`);
 this module
 holds the controls a record cannot express -- an injected fault (a raising
 `resolve()`, a parser `RuntimeError`), a comparison of two runs (the pipe
@@ -15,19 +15,22 @@ returning `(ok, detail)`, and every one is reachable by name through the
 registry, because the mutant runner re-runs controls BY NAME against a
 patched set.
 
-TWO fragments this module's `registry()` merges, each carved out at touch
-time and each with a MECHANICAL seam rather than a prose one.  The controls
-whose measure is WORK rather than text -- the linearity witnesses, every one
-of them written against `_count_calls` / `_count_lines` / `_CountedList` --
-are `plan_memo_selftest_work.py` (PR #510 R24); the PROPERTY controls, every
-one of which enumerates its own population and sweeps it, reach this module
-through `plan_memo_selftest_records.py` (the written record held against the
-tree), which merges `plan_memo_selftest_properties.py` (PR #510 R25), which
-merges `plan_memo_selftest_invariants.py` (R29) -- the sentence, the checker as
-written and the checker run -- and, beside them, `plan_memo_selftest_ratchets.py`
-(R49); those fragments are exactly the entries named `PROPERTY: ...`, which
+The fragments this module's `registry()` merges are the calls in its body
+(the one list; not restated here), each carved out at touch time and each
+with a MECHANICAL seam rather than a prose one.  The controls whose measure
+is WORK rather than text -- the linearity witnesses, written against the
+harness's work witnesses (listed in `plan_memo_selftest_harness`'s module
+docstring) -- are `plan_memo_selftest_work.py` (PR #510 R24) and the
+fragments it merges; the PROPERTY controls, every one of which enumerates
+its own population and sweeps it, are the modules in `_FAMILY` below --
+`plan_memo_selftest_records.py` (the written record held against the tree,
+which merges `plan_memo_selftest_properties.py`, PR #510 R25, which merges
+`plan_memo_selftest_invariants.py`, R29 -- the sentence, the checker as
+written and the checker run) and the fragments merged beside it -- and they
+are exactly the entries named `PROPERTY: ...`, which
 `property_family_control` checks against `_FAMILY` (⚠ this sentence omitted the
-ratchets from R49 until the fifth attestation's concept sweep).  This module imports no work witness and reads
+ratchets from R49 until the fifth attestation's concept sweep, and the
+population fragment until the R9 sweep).  This module imports no work witness and reads
 no module source, AST or code object -- it imports neither `ast` nor the
 harness's `MODULES` / `SOURCES` / `GRAMMAR` -- and those two import lists are
 the two seams' statement.
@@ -402,13 +405,11 @@ def spec_examples_control(M):
 
 def inline_examples_control(M):
     """The CommonMark 0.31.2 spec's own example lists for every INLINE section
-    the plan's §3.0b calls LEXED or MASKED -- §2.4 backslash escapes, §2.5
-    character references, §6.1 code spans, §6.3 links, §6.4 images, §6.5
-    autolinks, §6.6 raw HTML -- through Phase 1 and Phase 2
-    (`plan_memo_selftest_conformance.run_inline`, the SAME aligner the block
-    half runs): each masked raw HTML span verbatim, then one `<a href=` per
-    link and autolink, one `<code>` per code span, one `<img src=` per
-    resolved image.  The detail is printed whole, like the block half's."""
+    the plan's §3.0b calls LEXED or MASKED (the list and its example ranges
+    are `plan_memo_selftest_conformance`'s module docstring) through Phase 1
+    and Phase 2 (`plan_memo_selftest_conformance.run_inline`, the SAME
+    aligner the block half runs; what it counts is `inline_claim`'s
+    docstring).  The detail is printed whole, like the block half's."""
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
     ok, detail = conf.run_inline(plan_memo_memo)
@@ -426,8 +427,8 @@ def refused_destination_silence_control(M):
 
     ⚠ WRITTEN BECAUSE THE SILENCE WAS A DECLARED POLICY WITH NO MECHANISM
     (PR #510 R47, blind-spot audit).  `plan_memo_sibling`'s stage (c) refuses a
-    reserved character, a DOS device and an anchored path, and says so three
-    times in prose -- "dropped without a report … which is this stage's
+    reserved character, a DOS device and an anchored path, and says so in
+    prose -- "dropped without a report … which is this stage's
     standing polarity".  The existing controls pin that such a memo is NOT
     WALKED; nothing pinned that the run says NOTHING.  Measured: inserting a
     `[DEST-REFUSED?]` seed for exactly this case left all 701 controls green,
@@ -837,9 +838,10 @@ def property_family_control(M):
 
 def registry(case_rows=None):
     """name -> (kind, control): the ONE table the runner and the mutation
-    proof read, this module's controls MERGED with the work module's fragment
-    (`plan_memo_selftest_work.registry`) -- the same "one list, filled by
-    several modules" the cases and the mutants already use.
+    proof read, this module's controls MERGED with every fragment in the
+    `merge(...)` call below (the work fragment and the property family) --
+    the same "one list, filled by several modules" the cases and the mutants
+    already use.
 
     `case_rows` is the case collection the caller already took, so the
     manifest's snapshot enumerates the cases ONCE (the manifest attestation's

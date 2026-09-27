@@ -42,7 +42,7 @@ the Appendix does: when a link or an image closes, over the delimiters
 inside it, and once more at the end of the block.
 
 The falsifier is the spec's own example list: `Emphasis and strong emphasis`
-Examples 350-480, vendored with the other inline sections and consumed by
+Examples 350-481, vendored with the other inline sections and consumed by
 `plan_memo_selftest_conformance.py`, which requires one `<em>` per pair of
 length 1 and one `<strong>` per pair of length 2 in the html the spec prints.
 """
@@ -185,7 +185,7 @@ def _drop(delims, prv, nxt, bottom, k):
 def process(delims, bottom=0):
     """Pair the delimiters of `delims[bottom:]` -- "Appendix: A parsing
     strategy", `process_emphasis` -- and return the pairs as
-    `(open_start, open_end, close_start, close_end, char, use)`, `use` being
+    `(open_start, open_end, close_start, close_end, char, use, "em")`, `use` being
     the number of delimiter characters each side spends (2 = strong, 1 =
     emphasis).  Delimiters that pair are consumed from the INSIDE, so
     `***a***` yields a strong pair inside an emphasis pair; delimiters left

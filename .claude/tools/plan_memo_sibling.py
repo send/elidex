@@ -189,8 +189,8 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # rule holds "regardless of the file extension" and in any directory.  The
 # set is CPython `ntpath._reserved_names`' reading of that paragraph, spelled
 # here as data rather than called: `PureWindowsPath.is_reserved()` is
-# deprecated in 3.13 and removed in 3.15 (it raises a DeprecationWarning on
-# the 3.14 this runs on), and `os.path.isreserved` exists only on 3.13+ and
+# deprecated in 3.13 and removed in 3.15 (it raises a DeprecationWarning from
+# 3.13 on), and `os.path.isreserved` exists only on 3.13+ and
 # only in `ntpath` -- on POSIX `os.path` IS `posixpath` and has no such
 # function, so neither is available to a checker that must decide this the
 # same way on every platform.

@@ -12,8 +12,8 @@ rounds from R17 on, which closed the Phase-2 INLINE construct family, are
 `plan_memo_selftest_cases_inline.py` (split off here at the same seam when this
 module reached 949 lines).  every cases module holds its OWN `CASES` and binds its own spellings
 (`spellings()`); `plan_memo_selftest_cases.cases()` -- the one collection
-step -- gathers them, and every case is a line of the golden manifest.  A control's mutant
-lives in `plan_memo_selftest_mutants.py` under the same round label.
+step -- gathers them, and every case is a line of the golden manifest.  A control's
+mutants live in the `plan_memo_selftest_mutants*.py` modules, under the same round label.
 """
 
 from plan_memo_selftest_cases import SIB, VIOLATION, build, spellings
@@ -77,7 +77,8 @@ case("POSITIVE", "(link) `[foo\\]][missing]` is a FULL reference (the `]` is esc
 
 
 # ------------------------------------------------- PR #510 Codex R3 controls --
-# `links()` is CommonMark "Appendix: A parsing strategy" bracket stack (one pass, no re-parse).
+# The link reading (`plan_memo_lexer.inline_pass`) is CommonMark "Appendix: A parsing strategy"
+# bracket stack (one pass, no re-parse).
 
 case("NEGATIVE", "(image) `![alt][img]` with a definition is consumed whole: `[img]` is not re-read "
                  "as a shortcut, and the image destination is not a memo",
@@ -209,9 +210,11 @@ case("POSITIVE", "(setext) a `---` after paragraph text is the heading's underli
 case("NEGATIVE", "(setext) `==` after a list item is NOT an underline (§4.3 Examples 92-94): the item's "
                  "paragraph continues and a code span crosses it",
      build(), "- a `x\n==\n9z owns it` end", 0)
-# FAMILY 1 (c): the LEX-UNSUPPORTED? seed -- since R13 the raw lines of an HTML
-# block only: a block quote is a container whose content is parsed (§5.1) and
-# indented code a raw extent like a fence (§4.4), neither seeded
+# FAMILY 1 (c): the LEX-UNSUPPORTED? seed on an HTML block's raw lines.  A block
+# quote is a container whose content is parsed (§5.1) and is not seeded; the
+# seed is ONE raw-line rule (design re-gate 3 IMP-2, below), so indented code
+# and an inline raw HTML span (`plan_memo_selftest_cases_inline.py`) are
+# seeded by it too
 acase("POSITIVE", "(lex-seed) an HTML-block opener holding a declared id is a seed",
       build(), "LEX-UNSUPPORTED?", 1, prose="<div>9z owns it</div>")
 acase("NEGATIVE", "(lex-seed) an HTML-block line with neither a `|` nor a declared id is no seed",
