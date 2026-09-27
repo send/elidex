@@ -865,7 +865,7 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
-⚠ **RE-OPENED 2026-09-28 by (17) and (18) — see their notes below; the acceptance that follows was given at sixteen.**
+⚠ **RE-OPENED 2026-09-28 by (17), (18) and (19) — see their notes below; the acceptance that follows was given at sixteen.**
 ✅ ~~**RE-ACCEPTED AT THE CURRENT COUNT**~~ **RE-ACCEPTED AT SIXTEEN — BY THE USER, ON 2026-09-26, FOR THIS PR.** The 2026-09-21
 acceptance was given at ten own; the list below has since grown (the notes further down record each
 movement). Asked again at the enumeration below — sixteen `^- \*\*` entries at `7b074847`, fourteen
@@ -883,16 +883,18 @@ suppression homed in §4 row #5; (11) the unbound table making no kind claim; (1
 tag never read; (13) the conformance falsifier's GFM-vs-CommonMark ground truth; (14) the residue
 gate's presence comparison; (15) the declaration site that produced no table; (16) the hand-written
 table with no detector; (17) gap-pattern population completeness; (18) a vocabulary match read
-across a masked span. **Sixteen own and two
+across a masked span; (19) an unmatched `)` with two ratified notions. **Seventeen own and two
 pre-existing** — (9) and (10) are the pre-existing ones, each with its grounding stated where the
 policy asks for it. Count the list rather than trusting this sentence: `awk` the `^- \*\*` lines
-of this section and you must get eighteen.
+of this section and you must get nineteen.
 ⚠ **(17) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FOURTEEN TO
 FIFTEEN.** The re-acceptance above was given at sixteen; by its own last sentence this change to the
 list re-opens the cap question for #510's merge, and this note records the movement rather than
 absorbing it.
 ⚠ **(18) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM FIFTEEN TO
 SIXTEEN.** It re-opens the cap question again, for the same reason as (17).
+⚠ **(19) ARRIVED 2026-09-28, BY A CARVE THE USER APPROVED, AND MOVES THE OWN COUNT FROM SIXTEEN TO
+SEVENTEEN.** It re-opens the cap question again, for the same reason as (17).
 ⚠ **THE PROSE BELOW CITED TWO ENTRIES, AT FOUR SITES, BY A NUMBERING THE LIST NO LONGER HAS, AND IS
 RE-INDEXED** (⚠ this heading said "THREE ENTRIES" at `79309486`; it is two entries — the unbound table
 once, the hand-written table three times)
@@ -947,7 +949,7 @@ split folded because the work was done; the GFM splitter re-classified own on a 
 できるが念のため defer 化" — is the case for folding, and this PR has already taken it **twice by
 measurement**: the §6.4 carve folded at R42-5 once the fix measured ≈45 lines across two modules with
 one reader each, and the §6.6 reading folded this session at ~20 lines once a reference implementation
-settled it. What is left does not fit that shape. (5), (6), (12), (14), (17) and (18) — the entries whose
+settled it. What is left does not fit that shape. (5), (6), (12), (14), (17), (18) and (19) — the entries whose
 OWN text puts them under the edge-dense rule — are each explicitly
 `/elidex-plan-review`-before-implementation **by CLAUDE.md's edge-dense rule, not by judgment** — (5)
 intersects the id grammar, the grammar↔scan agreement property, the `_glued` boundary rule, the
@@ -956,7 +958,8 @@ passes, the raw-extent seed and the Phase-1 cost contract; (12) intersects the i
 exception, §6.4's demotion, `MARKER_RE`, the residue gate and the `keep` set; (14) intersects the gate,
 `_kind`'s ordering, the attribution pass, I-A's straddle rule and a ratified control; (17) has no
 canonical algorithm at all ("every gap-bearing pattern") and four in-PR attempts at one each
-introduced its own defect; (18) spans nine patterns under five consumer semantics.
+introduced its own defect; (18) spans nine patterns under five consumer semantics; (19) intersects
+the paren grammar, the resolver correspondence, R26-2, the trailing policy and the cost contract.
 ⚠ **This set read "(5), (6) and (16)" at `79309486`** (re-indexed from "(11)", which at `f87dd8f2` was
 the hand-written table), and (16)'s own text claims neither edge-dense nor plan-review, while (12) and
 (14) — added after the sentence — say BY RULE. Re-derived from the entries' text (the fifth
@@ -985,7 +988,7 @@ the design they came from.
 
 ⚠ **WHAT THE SHAPE SAYS, stated because the number alone would hide it.** **The own entries whose
 own text names a review round, a design re-gate or a review axis as their origin** — (4)–(7) and
-(11)–(18), twelve of the sixteen — were produced by the REVIEW LOOP rather than by the plan, and that is
+(11)–(19), thirteen of the seventeen — were produced by the REVIEW LOOP rather than by the plan, and that is
 the honest reading of why the cap is breached:
 ⚠ **THE SET THAT STOOD HERE, "(4)–(8) and (11)–(15)", FOLLOWED NO STATED RULE** (2026-09-22, the fourth
 attestation). It counted (8), whose text names no round — it is own because a MEASUREMENT reclassified
@@ -1467,3 +1470,35 @@ committed here by the note that corrected it.
   its verdict on one.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (Codex R25). **Re-eval: 2026-12-31.**
+- **(own)** **AN UNMATCHED `)` HAS TWO RATIFIED NOTIONS** (PR #510 Codex R30 on `8c1734a6` — it
+  predates R22: origin `b2ed042f` (R35), on the PR branch only — **carved 2026-09-28,
+  user-approved**). `notes.md#frag)9z owns it.` masks `9z`: 0 sites reported, while
+  `notes.md#frag) 9z owns it.` reports 1. Two ratified rules decide `)` differently:
+  R26-2, an unmatched `)` ends the segment (the POSITIVE case at `plan_memo_selftest_cases_r26.py:71`,
+  `9z)foo.md` reports `9z`); and the R35 PROPERTY `file_token_run_agreement_control`
+  (`plan_memo_selftest_invariants.py`, tails `#a)b` and `#9z)`), a run the resolver follows leaves no
+  id outside its span. The resolver follows all three runs below; the lexer splits only the first:
+
+  | run | `sibling_path` follows | `file_and_cite_spans` |
+  |---|---|---|
+  | `9z)foo.md` | yes | `[(3, 9, 'file')]` — `9z` reported |
+  | `notes.md#frag)9z` | yes | `[(0, 16, 'file')]` — `9z` masked |
+  | `notes.md#a)b` | yes | `[(0, 12, 'file')]` |
+
+  Sibling sweep, `notes.md#frag<c>9z owns it.` and `?q`: only an unmatched `)` differs from the
+  space-after reading (0 against 1), and `(notes.md#frag)9z` is the same class (0 against 1); each of
+  `[`, `]`, `<`, `>`, `` ` ``, `|`, space, tab, U+000B and U+00A0 reports 1 either way. `(` and `()` report 0, and
+  neither ends a segment in the main scan, so they are not a divergence between the two scans. The
+  probe is in the body of the first commit whose message contains R30 PAREN PROBE: `git log
+  --reverse --grep='R30 PAREN PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`. A
+  one-predicate prototype (the segment rule stepped for the tail too; its diff is in the same
+  message) turned the R35 property red on `notes.md#a)b` and `linear_file_token_control` red ("100
+  x.md names cost more than 6000 source lines"), and 15 mutant rows target `plan_memo_tokens.py`.
+  HYPOTHESIS for the plan review, not a decision: unify on R26-2, since splitting at `)` reports the
+  id and widening a mask is the dangerous direction (`_TRAILING`'s comment); that amends the R35
+  property to expect a report on `#a)b` / `#9z)`. The paren grammar, the resolver correspondence,
+  R26-2, the trailing policy and the cost contract intersect, so this is edge-dense by CLAUDE.md's
+  own test and `/elidex-plan-review`-before-implementation **BY RULE**, in its own PR.
+  **Scope**: one notion of where a file-name run ends at `)`, on both sides of the suffix.
+  **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
+  **Trigger**: already fired (Codex R30). **Re-eval: 2026-12-31.**
