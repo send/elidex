@@ -21,14 +21,28 @@ heading, and the repo-wide preflight command runs over every tracked plan memo.
 
 ### §D.0 Terminators and the close-out plan
 
-**Round 9: a Step-4.5 focused check of E2 and E3 only (current).**
+**Plan-review CLOSED after round 9** (orchestrating session, 2026-09-27).
+
+The ground:
+- Round 9's two IMPs (Ax2 0/1/1, Ax3 0/1/3) were **implementation bugs in the prototype, not design
+  defects**. Draft 10 fixes both and verifies each with its cells (companion §A.13).
+- They are clerical-level under the skill's Step 5, so the re-review may be skipped.
+- Every finding since round 7 has been code-level review of the prototype. The design has not moved
+  since draft 6 (the window), draft 8 (P-g) and draft 9 (the threat model).
+
+⚠ **The formal terminator was not met.** "No in-scope IMP with a failing cell" was last unmet in round
+9, by those two implementation bugs. Draft 10 fixes them and shows their cells passing. No round
+confirms that. The close rests on the orchestrating session's decision and the ground above, not on
+the terminator.
+
+**Round 9 (as it ran; not met): a Step-4.5 focused check of E2 and E3 only.**
 - **Ax2** takes E3 (`_control`'s W2 check, the exit causes) together with AR (W3) and SE1 (the exit-5
   re-check).
 - **Ax3** takes E2 (P-g's census: its population, its unknown shapes, the declared unsearchable list).
 - **Reviewers are told that class (c) (design memo §0.3) is out of scope.** A class-(c) finding is
   not an IMP.
 - **Converges** if and only if there is no in-scope IMP with a failing cell.
-- **Then plan-review closes.**
+- Result: Ax2 0/1/1, Ax3 0/1/3; see §D.9.
 
 **Round 8 (as it ran; not met).** Round 8 was the Step-4.5 focused check of draft 8 (`453b7b0f`) on D2
 and D4. It returned E1–E4 with cells (§D.8). The window behaviour held again; the IMPs were in the
@@ -287,3 +301,14 @@ subject, which was every item listed above. Anything else stays open for round 5
 | E4 SE1: `set +e` in the fixtures file | options re-checked after the file (exit 5, W). A mid-file toggle is class (c) | p10 rc 2, W alone, both shells |
 | harness: c8 cells ran under the real `HOME` | `cell9.sh` sets `HOME` for every cell; c8 re-run unchanged | §A.11 note |
 
+### §D.9 Round 9 (Step 4.5; on draft 9 `d5dacd56`; Ax2 0/1/1, Ax3 0/1/3) → draft 10, plan-review closed
+
+| id | disposition | evidence (companion §A.13) |
+|---|---|---|
+| A1 (Ax2 IMP): W3 fails open under SIGPIPE (grep piped into `head -3` under pipefail exits 141, and the fallback empties the diagnostic) | `grep -m 3 -F`; rc 1 = none, any other status red | arnoise, noise1k: p10 green → p11 W3, both shells; ar unchanged red |
+| A2 (Ax3 IMP): the census pruned the declared unsearchable dirs; m2h passed with P differing | the declared dirs are checked at their declared mode, opened for the census, and restored and re-checked | m2h: p10 silent → p11 P-g red on all four shell × git configs |
+| Ax3 MIN-1: git-dir shape | `HEAD` + (`objects` or `commondir`); `.git` is no longer pruned, so submodule and linked-worktree git dirs are seen | wtmeta: p10 silent → p11 red |
+| Ax3 MIN-2: "cannot search" | defined as what `find` reports; any report fails the census | nr: red on both |
+| Ax3 MIN-3: census cost | the per-directory `sh -c` removed; the cost is measured | 1.45 s → 0.76 s |
+| Ax2 MIN: W2's record | the sentence now says the record pins "W2 is reported when the exit is gone" and does not tell the two call sites apart | prose |
+| Ax2 note: causes 3/4/5 collide with errexit statuses | the cause travels in a marker file | rc5: p10 misnamed → p11 generic, both shells |

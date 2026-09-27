@@ -11,7 +11,7 @@ Every plan-review round's dispositions and terminators (§D) are in
 
 The design memo keeps only its live decisions. Section references here are to the design
 memo **as of the draft that the section or row belongs to** unless a file is named; a superseded draft is read with `git show <sha>:<memo path>` (drafts: 1 `bd3dc513`,
-2 `0142f47a`, 3 `2b89ef7c`, 4 `57e5419f`, 5 `e8c1bdb8`, 6 `8b6a4005`, 7 `ff1322bb`, 8 `453b7b0f`).
+2 `0142f47a`, 3 `2b89ef7c`, 4 `57e5419f`, 5 `e8c1bdb8`, 6 `8b6a4005`, 7 `ff1322bb`, 8 `453b7b0f`, 9 `d5dacd56`).
 
 ⚠ This file follows the design memo's rule: every figure is a measurement at a named SHA or scratch
 prototype, with its command. `$S` is scratch. `/usr/bin/grep` is spelled out on purpose.
@@ -525,6 +525,50 @@ fixture was already red on p8 (rc 1, ctl 10 or 2). Fixtures that write `.git/…
 build ("its fixture did not build"), and one such write left a shell diagnostic. So the collateral, not
 P-g, was red. The single-fixture `cachedir` cells above replace it, and they are silent on p8.
 
+### §A.13 Draft 10's cells (p11: round 9's A1–A3)
+
+**Subject.** `p11`, a `git clone --local` of `p10`, branch `p11`:
+
+| commit | change |
+|---|---|
+| `e422e2f2` | W3 by `grep -m 3` (rc 1 = none, other rc red); the census opens the declared dirs at their declared mode and restores it; git-dir shape `HEAD` + `objects`/`commondir`; no per-directory fork, `.git` not pruned; any `find` report fails the census; the W cause through a marker file |
+| `d7e7c826` | one census-failure message instead of two |
+
+The first p11 run was red on the clean tree: the mode check used `find <dir> -prune -perm 000`, and BSD
+`find` reports "Permission denied" on an unreadable **starting** directory even with `-prune`, so all
+three declared directories read as off-mode. (Run standalone from a relative path, the same `find`
+matched; it was not investigated further.) The check now reads `ls -ld`. Clean runs of `d7e7c826` with
+`HOME` set to an empty scratch dir: rc 0 and `PASSED` on bash 5.3 and on bash 3.2.
+
+**Commands.** From `…/scratchpad/fgit/`:
+- `python3 c11/gen11.py "$PWD"` generates 56 cells;
+- `tr '\n' '\0' < c11/jobs.tsv | K2_CORPUS_OUT=$PWD/c11 xargs -0 -n1 -P2 c11/cell9.sh > c11/raw.tsv`;
+- `K2_CORPUS_OUT=$PWD/c11 c11/eval11.sh > c11/results.tsv` (`eval11.sh` = `c9/eval9.sh`).
+
+The cells ran on `e422e2f2`. `d7e7c826` changes only the census-failure text; its clean runs are above.
+`raw.err` is empty, and the cell `HOME` stayed empty. Tags are b53-g255, then b32-g254:
+
+| cell | p10 (before) | p11 (after) |
+|---|---|---|
+| arnoise (AR + 200 `[` diagnostics) | m0002, m0009: GREEN-SAME | m0020, m0027: rc 1, W3 |
+| noise1k (1000 `[` diagnostics) | m0003, m0010: GREEN-SAME | m0021, m0028: rc 1, W3 |
+| ar (AR alone) | m0004, m0011: rc 1, W3 | m0022, m0029: rc 1, W3 |
+| rc5 (`sh -c 'exit 5'`) | m0005, m0012: rc 2, W "switched off errexit, nounset or pipefail" | m0023, m0030: rc 2, W "the window exited 5 before completing" |
+| nr (`chmod 300` dir) | m0006, m0013: rc 1, P-g (census) | m0024, m0031: rc 1, P-g "census … failed: find: walk/nr: Permission denied" |
+| wtmeta | m0007, m0014: SILENT-WRONG (Pdiff 5) | m0025, m0032: rc 1, P-g `zzw/.git/worktrees/zzw2:[a git dir not named .git]` |
+| m2h, b53-g255 / b32-g254 | m0015, m0016: SILENT-WRONG (Pdiff 2) | m0033, m0034: rc 1, P-g `walk/sub/inner:[… core.excludesfile=…]` |
+| m2h, b53-g254 / b32-g255 | m0017, m0018: rc 0, PASSED (no reference cell for these configs, so P is not compared) | m0035, m0036: rc 1, P-g |
+| draft 9's set on p11 | — | m0037–m0056: all PASS (`--separate-git-dir`, nested, hidden, bare, RO, ROg, SE1, G, DO, W2 record) |
+
+m2h is Ax3's cell (`…/scratchpad/r9ax3/sn/m2h-py`), with its index dump redirected to `/dev/null`.
+arnoise, noise1k, ar and rc5 are Ax2's (`…/scratchpad/r9ax2/ed_*.py`).
+
+**Census cost** (MIN-3). Instrumented copies print the census section's wall time, and the clean
+trees were used. On p10: 1.447 s (bash 5.3) and 1.478 s (bash 3.2). On p11: 0.760 s and 0.773 s. The
+copies' runs did not print `PASSED`, which was not investigated: the figure is the census section
+only. Ax3 measured a fork-free `find` alone at 0.029 s; p11's remaining time is the per-git-dir `git
+config --list`.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
@@ -614,6 +658,17 @@ rebuild's `/pre-push` Stage 4 over the whole range.
 25. A census over every directory cannot search the fixtures' deliberate `chmod 000` directories. An
     unconditional "unresolvable is red" rule reds the clean tree, so those three are declared (§A.12).
 
+**From round 9 (draft 10):**
+
+26. Draft 9's W3 was said to catch any diagnostic. It failed open under SIGPIPE once stderr was long
+    (§A.13).
+27. Draft 9's census was said to examine every git dir. It pruned the declared directories, so a
+    nested repo inside one passed (§A.13).
+28. The W cause was read from the exit status. A fixtures-file command can produce any status under
+    errexit (§A.13, rc5).
+29. This author's first p11 mode check assumed `find <dir> -prune -perm 000` reads an unreadable
+    directory's mode. On BSD it reports "Permission denied" instead (§A.13).
+
 ---
 
 
@@ -701,5 +756,83 @@ for tree, phase in ((os.path.join(SP, 'p8'), 'BEFORE'), (os.path.join(SP, 'p10')
             mk(tree, cfg, 'G', 'HOME .config/git/ignore *.py', [], ['HOME=' + g('home_ign')], 'GREEN', ref)
             mk(tree, cfg, 'G', 'DO cell', [], ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1'], 'GREEN', ref)
             mk(tree, cfg, 'P', 'W2 record: incomplete-window exit removed + odd/pipe', [('.harness', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n  exit 2\n', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n'), PIPE], [], W2L, ref)
+open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
+```
+
+### §E.7 Draft 10's cells (as run)
+
+`c11/cell9.sh` and `c11/eval11.sh` are copies of `c9/cell9.sh` and `c9/eval9.sh`. `c11/gen11.py`:
+
+```python
+#!/usr/bin/env python3
+"""Draft-10 cells (A1 W3 under SIGPIPE, A2 census inside declared dirs, A3 shapes/causes) on p10 (before) and p11 (after), plus the draft-9 set on p11. Usage: gen11.py <abs scratch fgit dir>."""
+import os, sys, shlex
+SP = sys.argv[1]; OUT = os.path.join(SP, 'c11'); H = os.path.join(SP, 'corpus', 'h'); OUTSIDE = os.path.join(SP, '..', 'r9ax3', 'outside')
+W = 'webref-generic-core-trip-wire'; parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
+CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin'), 'b32-g254': ('/bin/bash', '/usr/bin'),
+        'b53-g254': ('/opt/homebrew/bin/bash', '/usr/bin'), 'b32-g255': ('/bin/bash', '/opt/homebrew/bin')}
+g = lambda *a: os.path.join(H, *a)
+jobs = []; n = [0]
+def mk(tree, cfg, kind, label, edits, env, expect, ref):
+    n[0] += 1; tag = 'm%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
+    for p in parts:
+        src = open(os.path.join(T, W + p + '.sh')).read()
+        for (pp, old, new) in edits:
+            if pp == p:
+                assert src.count(old) == 1, (label, p, old[:60]); src = src.replace(old, new, 1)
+        dst = os.path.join(T, W + '.' + tag + p + '.sh'); open(dst, 'w').write(src); os.chmod(dst, 0o755)
+    sh, gp = CFGS[cfg]
+    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree, ref]))
+PYG = g('pyglob')
+L1 = lambda tree: open(os.path.join(tree, '.claude/tools', W + '.fixtures.sh')).read().split('\n')[0] + '\n'
+BUILT = ': > "$_FW_DIR/built"\n'
+CHM = 'chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"\n'
+M2H = ('( mkdir -p "$CTL/walk/sub/inner" && cd "$CTL/walk/sub/inner" && git init -q . >/dev/null 2>&1 && git config core.excludesFile %s'
+       ' && printf \'x\\n\' > a.py && printf \'y\\n\' > b.txt && git add -A && GIT_AUTHOR_DATE=\'2000-01-01T00:00:00Z\' GIT_COMMITTER_DATE=\'2000-01-01T00:00:00Z\''
+       ' git -c user.name=w -c user.email=w@e commit -q -m c && cd "$CTL/walk" && git add -A >/dev/null 2>&1 ) || _fixture_failed walkinner\n') % os.path.join(OUTSIDE, 'ign-py')
+NR = 'mkdir -p "$CTL/walk/nr" && chmod 300 "$CTL/walk/nr"\n'
+WTM = ('( mkdir -p "$CTL/zzw" && cd "$CTL/zzw" && git init -q . && git -c user.name=w -c user.email=w@e commit -q --allow-empty -m c'
+       ' && git worktree add -q ../zzw2 >/dev/null 2>&1 && rm -rf ../zzw2 )\n')
+AR = '_ar=$(( 1/0 ))\n'
+NOISE = lambda k: 'for _k in $(seq 1 %d); do [ "$_k" -eq x ] || :; done\n' % k
+PGL = 'CONTROL FAILED (every fixture repo persists only the configuration a plain git init writes)'
+DIAGL = 'CONTROL FAILED (the fixtures file ran without a shell diagnostic)'
+W2L = 'CONTROL FAILED (no control runs over an incomplete fixture build window)'
+WL = 'CONTROL NOT EXERCISED (the fixture build window completed)'
+FIFO = 'if [ "$_fifo_ok" -eq 1 ] && ! mkfifo "$CTL/odd/pipe" 2>/dev/null; then'
+PIPE = ('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)
+EXITL = '_fgit_window_incomplete_exit "$_fw_lbl"\n'
+FIRSTCTL = '_control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1\n'
+MOVE = [('.controls', EXITL, ''), ('.controls', FIRSTCTL, FIRSTCTL + EXITL)]
+CDINIT = '( cd "$CTL/cachedir" && git init -q . >/dev/null 2>&1 \\'
+CD_SEP = '( cd "$CTL/cachedir" && git init -q --separate-git-dir="$CTL/.gd-cachedir" . >/dev/null 2>&1 && git config core.excludesFile %s \\' % PYG
+NEST = 'mkdir -p "$CTL/zz/inner" && ( cd "$CTL/zz/inner" && git init -q . && git config core.excludesFile %s )\n' % PYG
+HID = 'mkdir -p "$CTL/.hid" && ( cd "$CTL/.hid" && git init -q . && git config core.excludesFile %s )\n' % PYG
+BARE = 'git init -q --bare "$CTL/zbare" && git --git-dir="$CTL/zbare" config core.excludesFile %s\n' % PYG
+P10, P11 = os.path.join(SP, 'p10'), os.path.join(SP, 'p11')
+for tree, ph in ((P10, 'BEFORE'), (P11, 'AFTER')):
+    for cfg in ('b53-g255', 'b32-g254'):
+        ref = 'REF-' + cfg
+        mk(tree, cfg, 'REF', ph + ' clean', [], [], 'GREEN', ref)
+        mk(tree, cfg, ph + '-E2', 'arnoise: AR + 200 [ diagnostics', [('.fixtures', L1(tree), L1(tree) + AR + NOISE(200))], [], DIAGL, ref)
+        mk(tree, cfg, ph + '-E2', 'noise1k: 1000 [ diagnostics', [('.fixtures', L1(tree), L1(tree) + NOISE(1000))], [], DIAGL, ref)
+        mk(tree, cfg, ph + '-E2', 'ar: AR alone', [('.fixtures', L1(tree), L1(tree) + AR)], [], DIAGL, ref)
+        mk(tree, cfg, ph + '-E2', "rc5: sh -c 'exit 5' at the top level (cause named generically)", [('.fixtures', L1(tree), L1(tree) + "sh -c 'exit 5'\n")], [], 'the window exited 5 before completing', ref)
+        mk(tree, cfg, ph + '-E2', 'nr: a chmod 300 dir under walk', [('.fixtures', BUILT, NR + BUILT)], [], PGL, ref)
+        mk(tree, cfg, ph + '-E2', 'wtmeta: a linked worktree removed, its .git/worktrees entry left', [('.fixtures', BUILT, WTM + BUILT)], [], PGL, ref)
+    for cfg in CFGS:
+        mk(tree, cfg, ph + '-E2', 'm2h: nested repo under walk/sub with an outside core.excludesFile, gitlinked into walk', [('.fixtures', CHM, M2H + CHM)], [], PGL, 'REF-' + cfg if cfg in ('b53-g255', 'b32-g254') else 'NOREF')
+# draft-9 regression set on p11
+for cfg in ('b53-g255', 'b32-g254'):
+    ref = 'REF-' + cfg
+    for lab, ed in (('cachedir --separate-git-dir + key', [('.fixtures', CDINIT, CD_SEP)]), ('nested zz/inner', [('.fixtures', BUILT, NEST + BUILT)]),
+                    ('hidden .hid', [('.fixtures', BUILT, HID + BUILT)]), ('bare zbare', [('.fixtures', BUILT, BARE + BUILT)])):
+        mk(P11, cfg, 'AFTER-E2', 'd9 ' + lab, ed, [], PGL, ref)
+    mk(P11, cfg, 'AFTER-E3', 'd9 RO', MOVE + [PIPE], [], W2L, ref)
+    mk(P11, cfg, 'AFTER-E3g', 'd9 ROg', MOVE, [], 'GREEN', ref)
+    mk(P11, cfg, 'AFTER-SE1', 'd9 SE1 set +e', [('.fixtures', BUILT, 'set +e\n' + BUILT)], [], 'the fixtures file switched off errexit, nounset or pipefail', ref)
+    mk(P11, cfg, 'G', 'd9 G HOME ignore', [], ['HOME=' + g('home_ign')], 'GREEN', ref)
+    mk(P11, cfg, 'G', 'd9 G DO', [], ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1'], 'GREEN', ref)
+    mk(P11, cfg, 'P', 'd9 W2 record', [('.harness', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n  exit 2\n', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n'), PIPE], [], W2L, ref)
 open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
 ```

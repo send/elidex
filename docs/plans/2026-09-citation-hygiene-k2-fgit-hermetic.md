@@ -14,25 +14,26 @@ decisions.
 
 **Decision**: user, 2026-09-27, option (a): rebuild.
 
-**Status**: **draft 9.**
+**Status**: **draft 10. Plan-review CLOSED** (orchestrating session, 2026-09-27; ground in
+`…-reviews.md` §D.0).
 
-Draft 9 answers round 8 (E1–E4), a Step-4.5 focused check of draft 8 (`453b7b0f`). Prototype **p10**
-measures it (§6, companion §A.12):
-- **E1: the threat model is stated once (§0.3).** Class (c), fixture code that deliberately evades, is
-  out of scope and owned by code review. So `#11-k2-fixture-git-invocation-convention` **closes**
-  (§5.1, with the create-time audit), and the sentences that gave P-g the reverted forms are fixed.
-- **E2: P-g's population is every git dir under the fixture root**, found by property, not by a
-  top-level glob. Unknown shapes are red (§4).
-- **E3: `_control` refuses over an unbuilt tree and reports W2**, wherever the incomplete-window exit
-  sits (§3).
-- **E4: wording**, plus two cheap class-(b) catches: **W3** (a shell diagnostic in the fixtures file)
-  and the options re-checked after the fixtures file (exit 5).
+Draft 10 answers round 9, a Step-4.5 focused check of draft 9 (`d5dacd56`): Ax2 0/1/1, Ax3 0/1/3. Both
+IMPs were **implementation bugs in the prototype, not design defects**, and prototype **p11** fixes
+them with their cells (§6, companion §A.13):
+- **A1: W3 failed open under SIGPIPE.** `grep … | head -3` under `pipefail` returned 141 on a long
+  stderr, and `|| _fw_diag=""` emptied the diagnostic. It is now `grep -m 3`; only rc 1 means "none",
+  and any other status is red (§3).
+- **A2: the census pruned the declared unsearchable dirs**, so a nested repo under one, gitlinked into
+  `walk`'s index with an outside `core.excludesFile`, passed. Those dirs are now opened for the census at
+  their declared mode and restored (§4).
+- **A3 (MINs):** the git-dir shape is `HEAD` plus `objects` or `commondir`; "cannot search" is what
+  `find` reports; the census forks nothing per directory; W2's record is described exactly; the W cause
+  travels in a marker file, not the exit status.
 
-⚠ **The draft-8 c8 cells ran under the real `HOME`**: `c8/cell8.sh` never set it (round 8, Ax2). The
-cell harness now sets `HOME` for every cell, and every draft-9 cell was run with it (companion §A.12).
+Draft 9's round-8 items (E1–E4) stand as written: the threat model (§0.3), the census over every git
+dir (§4), `_control`'s W2 check (§3), W3 and the options re-check.
 
-**Next** (`…-reviews.md` §D.0): a Step-4.5 focused check of E2 and E3 only. If it converges, plan-review
-closes.
+**Next:** implementation, by §9's commit plan.
 
 **History.** The round-5 focused review failed its terminator. The root cause was that
 drafts 4–5's bypass *detector* was itself a name list: a git that neutralised the watched names still
@@ -263,6 +264,9 @@ markers:
 Suppose either marker is missing. Nothing was built, so **no `_control` runs**.
 `_fgit_window_incomplete_exit` prints W alone with the recorded cause and **exits 2**. The cause is
 named from the child's exit (E4):
+The cause travels in a **marker file** the child writes just before it exits, not in the exit status.
+A fixtures-file command can end the child with any status under `errexit` (`sh -c 'exit 5'` does), so a
+status alone would name the wrong cause (round 9, Ax2). The causes are:
 - **3**: the window refused to start, because a prelude option was not in force;
 - **4**: the fixtures file returned before its last line. An `exit` inside it ends the child with its
   own number instead, so it lands in the last case (the fixtures' own `exit 2` reads "the window exited
@@ -287,8 +291,10 @@ What **is** pinned are the properties a record can observe:
   incomplete fixture build window`. Its predicate is one function, `_fw_built_or_w2`. **`_control`
   calls it as its first statement** and refuses when the window is incomplete (E3). The controls file
   calls it once more after the controls, which covers the blocks that are not `_control`s. So W2 no
-  longer depends on where the incomplete-window exit sits, and its record now pins **"no control over
-  an unbuilt tree"**. The record removes the `exit` from `_fgit_window_incomplete_exit`.
+  longer depends on where the incomplete-window exit sits. **Its record pins that W2 is reported when
+  the exit is gone** (it removes the `exit` from `_fgit_window_incomplete_exit`). It does not tell the
+  first-statement check from the after-controls check, because both call the same predicate and either
+  alone reports W2.
 - Moving the exit below a control is an edit to the controls file, which is not a mutation target. That
   shape is pinned by the corpus RO/ROg cells (X5), not by a record.
 - **W3** fires when bash reported a diagnostic located in the fixtures file (below).
@@ -297,7 +303,10 @@ What **is** pinned are the properties a record can observe:
 `$(( 1/0 ))` at the fixtures file's top level does **not** stop a sourced file under `set -e`, on either
 shell. The build completes, and on p8 the run was green (§6). The child's stderr is captured to a file
 and replayed. Any line in bash's own `<fixtures path>: line N:` form is W3; the form is English because
-the window sets `LC_ALL=C`. This is a check on bash's diagnostic format. It was measured on bash 3.2 and
+the window sets `LC_ALL=C`. The scan is `grep -m 3 -F`, **not a pipe into `head`**: under `pipefail`,
+`head`'s early exit SIGPIPEs grep (141) once stderr is long, and draft 9 read that as "no diagnostic"
+(round 9, Ax2: green with 200 or 1000 diagnostic lines). grep rc 1 means none; any other non-zero status
+is itself red. This is a check on bash's diagnostic format. It was measured on bash 3.2 and
 5.3 on macOS; X9 confirms GNU bash. It is class (b) by the §0.3 property: a skipped line leaves a
 diagnostic.
 
@@ -353,9 +362,9 @@ in), and each label has its own record (§6).
 
 | id | label | assertion (inside the window) | liveness (its own label) |
 |---|---|---|---|
-| W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, and the child wrote `done`. Otherwise NE with the cause (3/4/5/abort, §3), **reported alone**; exit 2; no control runs | — |
-| W2 | `no control runs over an incomplete fixture build window` | `_control`'s first statement, and once after the controls: the window is complete. Reachable if the exit is removed (its record) or placed below a control (RO cells) | — |
-| W3 | `the fixtures file ran without a shell diagnostic` | no line of the child's stderr is in bash's `<fixtures path>: line N:` form | — |
+| W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, and the child wrote `done`. Otherwise NE with the cause from the child's marker file (3/4/5, or exit/abort, §3), **reported alone**; exit 2; no control runs | — |
+| W2 | `no control runs over an incomplete fixture build window` | `_control`'s first statement, and once after the controls: the window is complete. Its record: the exit removed. The exit placed below a control: the RO cells | — |
+| W3 | `the fixtures file ran without a shell diagnostic` | `grep -m 3 -F` finds no line of the child's stderr in bash's `<fixtures path>: line N:` form (rc 1); any other grep status is red | — |
 | P-a | `a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file` | every `git config --list --show-scope --show-origin` line in **one probe repo** is `local<TAB>file:.git/config<TAB>…` | `this git reports a non-local configuration scope`: `-c a.b=c` must show as scope `command` |
 | P-b | `the fixture git has no system or global layer outside the void` | `git var GIT_CONFIG_SYSTEM`/`GIT_ATTR_SYSTEM` exit non-zero, empty. `GIT_CONFIG_GLOBAL`/`GIT_ATTR_GLOBAL` exit 0, with every line under `$_FGIT_VOID/` | `this git names its system files through git var`: with `…NOSYSTEM=0` both names print a path |
 | P-c | `nothing is written into the fixture git's void` | `$_FGIT_VOID` is empty. Runs **last** in the window | — |
@@ -370,21 +379,25 @@ list of path keys would therefore be vocabulary, and a key missing from it would
 Instead, the allowed set is **what git itself writes on `init`**, measured in the window on every run.
 That is the fail-safe direction: any persisted entry beyond it is red, whether or not it names a path.
 
-**P-g's population, by property (E2).** It is every git dir the fixtures produced. One `find` from
-`$CTL`, hidden and nested directories included, lists:
-- every `.git` entry, **of any type**;
-- every other directory shaped like a git dir (a `HEAD` file and an `objects` directory);
-- every directory the census cannot search.
+**P-g's population, by property (E2; A2, A3).** It is every git dir the fixtures produced. One `find`
+from `$CTL`, with no per-directory fork, lists every `.git` entry **of any type** and every file named
+`HEAD`. It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
+- A `.git` that is a real directory has its configuration compared.
+- A `.git` that is a gitfile, a symlink or anything else is red: `[.git is not a directory]`.
+- A `HEAD` whose directory is not a `.git` and holds an `objects` directory **or** a `commondir` file is
+  a git dir not named `.git`, and it is red. That covers a bare repo, a `--separate-git-dir` target, a
+  submodule's git dir under `.git/modules/`, and a linked worktree's entry under `.git/worktrees/`.
+- **"Cannot search" is whatever `find` reports.** Any report on stderr, or a non-zero exit, fails the
+  census, and a failed census is red. So is one that finds no git dir.
 
-Only a `.git` that is a real directory has its configuration compared. **Every other shape is red, not
-skipped:**
-- a `.git` that is a gitfile, a symlink or anything else: `[.git is not a directory]`;
-- a git dir not named `.git` (a bare repo, or a `--separate-git-dir` target): `[a git dir not named .git]`;
-- a directory the census cannot search, unless it is one the fixtures make unsearchable on purpose. The
-  harness declares those three: `walk/sub`, `d5root`, `d2red/sub`. Each is measured as necessary: with
-  the list emptied, exactly those three go red. A new unsearchable directory is red until it is listed,
-  which is the fail-safe direction;
-- a census that fails, or that finds no git dir at all.
+**The three deliberately unsearchable directories are examined too.** The fixtures make `walk/sub`
+and `d5root` mode 000, and `d2red/sub` mode 444. The harness declares each with its mode, in octal and
+as `ls -ld` prints it. Before the census, each must be at exactly its declared mode, or it is red; it
+is then opened with `u+rx`. After the census it is set back to its declared mode, and that is checked
+too. Draft 9 **pruned** these directories. A nested repo under `walk/sub`, gitlinked into `walk`'s
+index with an outside `core.excludesFile`, then passed with P differing (round 9, Ax3). It is red now
+(§6). The mode is read with `ls -ld`, not `find -perm`: BSD `find` reports "Permission denied" on an
+unreadable starting directory even with `-prune`, so the check read every declared directory as wrong.
 
 An accidental `--separate-git-dir` is class (b): it leaves a gitfile, so it is red.
 
@@ -393,12 +406,14 @@ Draft 8's p8 walked `$CTL/*/` and skipped any fixture whose `.git` was not a dir
 differs). This author's intermediate p9 still walked only the top level, and it missed a nested repo
 and a hidden one. Both were measured (§6).
 
-- **Census:** today every fixture git dir's configuration equals the reference on both shells, and the
-  only unsearchable directories are the three declared, so the clean and G cells are green (§6). Legitimate fixture state (`badref`'s ref, `notcommitted`'s
-  `info/exclude`, the per-call identity) is not configuration, so it stays green.
-- **Cost:** one `git config --list` per fixture git dir, plus one `find` with a `test` per directory. Eighty
-  `config` calls took 0.6 s total, standalone at load about 2. The `find` is unmeasured on its own. X8
-  measures the real cost.
+- **Census:** today every fixture git dir's configuration equals the reference on both shells, `find`
+  reports nothing, and the three declared directories are at their modes, so the clean and G cells
+  are green (§6). Legitimate fixture state (`badref`'s ref, `notcommitted`'s `info/exclude`, the
+  per-call identity) is not configuration, so it stays green.
+- **Cost:** measured as the census section's wall time on a clean tree (instrumented copies, companion
+  §A.13): **0.76 s** on p11 against 1.45 s on p10, on both shells. Most of p11's figure is the one
+  `git config --list` per fixture git dir. p10's extra time came from one `sh -c` per directory, which
+  mutation mode would have paid about 115 times. X8 measures the whole cost.
 - **What P-g cannot see:**
   - class (c) (§0.3): transient inputs, persist-then-revert, a git dir outside the fixture root;
   - persisted inputs outside configuration: hooks, `info/attributes` and `info/exclude` that a fixture
@@ -530,6 +545,9 @@ assignment, so P-f does not see it. Symlink targets are normalised for `$CTL` (c
 - **p9** is p8 plus `_control`'s W2 guard, W3, the options re-check, the named exit causes, the comment
   fixes, and a top-level P-g shape check. It is superseded by p10 on P-g only.
 - **p10** is p9 with P-g's census over every git dir (§4). Draft 9's claims are measured on p10.
+- **p11** is p10 plus round 9's fixes: W3 without a pipe into `head`, the census opening the declared
+  directories, the `HEAD` + `objects`/`commondir` shape, no per-directory fork, and the cause marker.
+  Draft 10's claims, and the implementation, are measured against p11.
 
 **Subset and re-run recipe.** Scripts: `git show ff1322bb:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` §E.3 (scratch `c6/`). Run them from a directory holding the
 tree under test as `p6/` and, for the before-cells, `p5d/`:
@@ -597,6 +615,22 @@ scripts are in companion §E.6, and the full table is in companion §A.12.
 | G: HOME `*.py` ignore; the DO cell | — | green, P equal |
 | clean | green | green, P equal |
 
+**Draft 10's cells.** They ran on p10 (before) and p11 (after), with `HOME` set for every cell. The
+scripts are in companion §E.7, and the full table is in companion §A.13.
+
+| cell | p10 (before) | p11 (after) |
+|---|---|---|
+| arnoise: `$(( 1/0 ))` plus 200 `[` diagnostics | green, PASSED: **W3 failed open** | rc 1, W3 |
+| noise1k: 1000 `[` diagnostics | green, PASSED: **W3 failed open** | rc 1, W3 |
+| ar: `$(( 1/0 ))` alone | rc 1, W3 | rc 1, W3 |
+| m2h: nested repo under `walk/sub`, outside `core.excludesFile`, gitlinked into `walk` (4 shell × git configs) | rc 0, PASSED, P differs where a reference exists: **silently wrong** | rc 1, P-g `walk/sub/inner:[local file:.git/config core.excludesfile=…]` |
+| wtmeta: a linked worktree removed, its `.git/worktrees/` entry left | rc 0, P differs: **silently wrong** | rc 1, P-g `zzw/.git/worktrees/zzw2:[a git dir not named .git]` |
+| nr: a `chmod 300` directory under `walk` | rc 1, P-g (census failed) | rc 1, P-g (census failed) |
+| rc5: `sh -c 'exit 5'` at the fixtures file's top level | rc 2, W **misnamed** "switched off errexit…" | rc 2, W "the window exited 5 before completing" |
+| draft 9's set: `--separate-git-dir`, nested, hidden, bare, RO, ROg, SE1, G, DO, W2 record | — | as draft 9: all PASS |
+
+Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.54 and bash 3.2·git 2.55.
+
 **Records: representative only.**
 
 | label | record | target |
@@ -620,7 +654,7 @@ scripts are in companion §E.6, and the full table is in companion §A.12.
 | P-g | `printf '[include]…' >> .git/config` in a fixture | **fixtures** |
 | P-g | one fixture's `git init` gains `--separate-git-dir` (a gitfile) | **fixtures** |
 | P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
-| P-g | `_pg_unsearchable_ok` emptied | harness |
+| P-g | `_pg_declared` emptied (the census cannot open `walk/sub`, so `find` reports) | harness |
 
 - **Totals:** **12 labels and 20 records**. `_MUT_TARGETS="wire harness fixtures"`.
 - **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
@@ -841,7 +875,7 @@ These run on both shells, and on both gits wherever the corpus has a column.
 | X3 | `WEBREF_WIRE_MUTANTS=1 $SH $W`, then `/usr/bin/grep -F -e 'entr(ies), 0 not killed as named' -e ', 0 neither killed nor argued equivalent' -e 'trip-wire PASSED'` | three hits in every column. C1–C3 are byte-identical to base |
 | X4 | C1/C2: X1's log at the parent commit and at the split commit, with scratch paths normalised by one `sed`, then `diff` | empty |
 | X4b | the X4b block below, over each file C1/C2 edit | empty |
-| X5 | the §6 R, RLOUD, RES and P cells, same recipe; and the draft-9 cells (companion §E.6) on the implementing head as `p10/` | R and RES green with P equal; RLOUD red; P PASS; every draft-9 AFTER row PASS |
+| X5 | the §6 R, RLOUD, RES and P cells, same recipe; and the draft-10 cells (companion §E.7) on the implementing head as `p11/` | R and RES green with P equal; RLOUD red; P PASS; every AFTER row PASS |
 | X6 | P-a/P-d planting (a template `config`+`HEAD`; a local `include.path`) | red |
 | X8 | the ci.yml rule's derivation (§9) | method and verdict recorded; STOP on change |
 | X9 | `Layering trip-wires` on ubuntu (GNU), via route (a) or (b) of §9, chosen by the user at push time | SUCCESS. This is GNU evidence for `env -i`, `env -0`, the window and the prelude |
@@ -863,13 +897,7 @@ Each was re-run to show it discriminates (companion §A.10).
 /usr/bin/grep -n -i -E -e '§[0-9]' -e 'plan memo' -e 'the memo' <file> | /usr/bin/grep -v 'citation-hygiene-[A-Za-z0-9-]*\.md'
 ```
 
-## §12 Questions for the Step-4.5 focused check (E2 and E3 only)
+## §12 Plan-review: closed
 
-Reviewers are told that class (c) (§0.3) is out of scope. A finding in class (c) is not an IMP.
-
-- **Q1 (E3, Ax2).** Is `_control`'s first-statement check, plus the check after the controls, the
-  complete form of "no control over an unbuilt tree"? Are W3 and the exit-5 re-check the right cheap
-  class-(b) catches for AR and SE1?
-- **Q2 (E2, Ax3).** Is the census the property "every git dir a fixture produced"? It lists every
-  `.git` of any type and every `HEAD`+`objects` directory, hidden and nested included. An unsearchable
-  directory is red unless declared, and a failed or empty census is red.
+Plan-review closed after round 9 (`…-reviews.md` §D.0 records the ground). No question is open.
+Implementation follows §9.
