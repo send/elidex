@@ -1363,8 +1363,9 @@ committed here by the note that corrected it.
   `_IMPORT_SEAMS` (which import seams are checked), `_ATTRIB_SPELLINGS` (which attribution spellings
   are read), `_TRAILING` (which trailing characters are decoration) and `_ID_SPELLINGS` (which id
   character classes the sweep knows). The first two and the last are read by a control that states its own
-  "HONESTLY, what it cannot see", and every one of those sentences says the same thing: *a shape this
-  table does not list*; `_TRAILING` states none — its comment argues instead which direction a missing
+  "HONESTLY, what it cannot see" — for the two spelling tables that sentence is *a shape this table does
+  not list*, and for `_IMPORT_SEAMS` it is a different blind spot, *a name reached without an import*
+  (`__import__`, an attribute off an already-imported module); `_TRAILING` states none — its comment argues instead which direction a missing
   character errs in. The
   INSTANCES found so far are fixed; the CLASS has no mechanism, and
   `memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md` says a declared blind

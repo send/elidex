@@ -3,9 +3,9 @@
 
 Every control is ONE record shape, `Case`: a fixture, a prose tail, an
 optional sibling and extra files, a MEASURE and the EXACT value it must take.
-The measures, and which of them accept an rc-2 run, are
-`plan_memo_selftest_harness.measure` / `control` (their docstrings, not
-restated here).
+The measures are the branches of `plan_memo_selftest_harness.measure`, and
+which of them accept an rc-2 run is `control`'s docstring (neither restated
+here).
 `case` / `acase` / `rcase` are spellings of the same record for the three
 common measures.  The control kinds (POSITIVE / POSITIVE-NOVEL / NEGATIVE /
 KNOWN-MISS) are defined in the runner (`plan_memo_umbrella_selftest.py`); the

@@ -520,9 +520,13 @@ def report_channel_control(M):
     patches `plan_memo_selftest_mutants.py`, whose emit sites this control DOES
     cover.  That is not an omission: a mutant against that file would have to be
     exec'd by the loop that lives in it, which is already running, so the mutant
-    runner is the one file in the set that cannot be its own subject.  The
-    control's population is every report module; the mutation proof reaches
-    every one but that.  The
+    runner is the one file in the set that cannot be its own subject.  ⚠ AND IT
+    IS NOT THE ONLY ONE THE PROOF MISSES: the control's population is every
+    module `_report_modules` derives, and the killing rows reach only the
+    runner and the entry point among them (and this module, which is not one) -- the report
+    modules no row patches (compare `_report_modules(_swept_sources())` with
+    the files those rows name) are covered by the control and proven by no
+    mutant.  The
     gap is named here rather than left for the round that finds it
     (`memory/feedback_declared-blind-spots-are-where-the-next-finding-lands.md`),
     and the whole-channel attack IS verified by hand at every re-gate: strip

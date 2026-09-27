@@ -135,9 +135,12 @@ def _esc(text):
     (Codex on `def01d3c`: ONE R24 case name carries a literal NUL, and it is
     written on three manifest lines -- its CASE, its CONTROL and the MUTANT row
     naming it.  Codex reported that with the NUL in the file `grep '^CASE'`
-    answered "binary file matches" -- GNU grep treats a file holding a NUL as
-    binary; BSD grep here still printed the lines -- so the diff this file
-    exists to be read as could not be read with every grep).
+    answered "binary file matches".  Whether a grep does depends on where the
+    NUL falls: BSD grep 2.6.0 here judges from the start of the file, so it
+    printed all the CASE lines of this file (its first NUL was ~60 KB in) and
+    still answers "Binary file ... matches" for a file whose NUL comes early --
+    so the diff this file exists to be read as was not readable with every grep
+    at every size.)
     The backslash is escaped FIRST, so no escape can collide with text."""
     s = (str(text).replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
          .replace("|", "\\p"))
