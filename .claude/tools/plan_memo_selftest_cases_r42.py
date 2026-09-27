@@ -19,8 +19,9 @@ boundary is not module-private.
 
 R42's subject is CommonMark §6.4: what a resolved image's description reduces
 to, row by row of §3.0b's closed inline list, plus the two contradictions a
-blank id cell can carry.  Its mutants are `plan_memo_selftest_mutants_r30.py`'s,
-which imports the control names from here.
+blank id cell can carry.  Its mutants are `plan_memo_selftest_mutants_r30.py`'s
+(R42) and `plan_memo_selftest_mutants_r45.py`'s (R45 on), which import the
+control names from here.
 
 every cases module holds its OWN `CASES` and binds its own spellings
 (`spellings()`); `plan_memo_selftest_cases.cases()` -- the one collection
@@ -371,7 +372,7 @@ R42_10_UNBOUND_RENDERED = CASES[-1].name
 # running the mutation rather than by reading the code: scoping either to
 # `self.memos[:1]` -- the same intent `_declare`, `keep`, `data_rows`, the
 # transitive walk and `_unbound_claims` have a mutant for, though the edit is
-# spelled differently among those (`plan_memo_selftest_mutants_r30.py`'s R45
+# spelled differently among those (`plan_memo_selftest_mutants_r45.py`'s R45
 # block) -- left every one
 # of the 695 controls green.  The population-scope ratchet covered five of
 # seven loops, and the two it missed both report a LINKED memo's schema miss,
