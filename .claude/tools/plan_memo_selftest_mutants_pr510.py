@@ -245,8 +245,8 @@ MUTANTS += [
      ["an undecodable sibling is the unavailable-linked-memo schema miss, never an exception"]),
     ("R9 F3 ascii: the row-noun anchor is an ASCII class (re-inject `\\b`)", ROLES,
      # `BEFORE` since PR #510 R22; the MUTATION is untouched -- `\b`, Unicode
-     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)',
-     'NOUN_ANCHOR = re.compile(r"\\b%s" % ROW_NOUN_SEP)',
+     'NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", BEFORE + ROW_NOUN_SEP)',
+     'NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", r"\\b%s" % ROW_NOUN_SEP)',
      ["(ascii) `次のSlice Cが所有する` reaches the naming worklist: the row-noun anchor is not `\\b` "
       "(no Unicode word boundary before `Slice`)"]),
     ("R9 F3 ascii: the slug boundary is an ASCII class (re-inject `\\w`)", IDS,
@@ -586,8 +586,8 @@ MUTANTS += [
      # Since PR #510 R22 the anchor composes `plan_memo_ids.BEFORE`, the ONE
      # spelling of the boundary the marker phrases compose too; the MUTATION
      # is untouched -- a literal id class, written in roles.py.
-     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)',
-     'NOUN_ANCHOR = re.compile(r"(?<![0-9A-Za-z])" + ROW_NOUN_SEP)',
+     'NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", BEFORE + ROW_NOUN_SEP)',
+     'NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", r"(?<![0-9A-Za-z])" + ROW_NOUN_SEP)',
      ["PROPERTY: the id character classes are spelled once, in plan_memo_ids.py (a source-text sweep)"]),
     # -- PR #510 Codex R15: §5.2 list items are containers; orphans keep their destination; the
     # row noun folds case

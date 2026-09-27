@@ -16,7 +16,7 @@ the ASCII fold) stay in `_cases_r42.py`, where their round put them.  This
 module holds every reader-gap CASE of the 2026-09-27 round; that round's
 FUNCTION controls live with their kind -- the class oracle
 `unicode_whitespace_class_control` in `plan_memo_selftest_invariants.py`, and
-the population ratchet `gap_pattern_population_control` in
+the registry ratchet `gap_registry_control` in
 `plan_memo_selftest_ratchets.py`.  Its mutants are
 `plan_memo_selftest_mutants_gap.py`'s.
 
@@ -186,9 +186,10 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # review of f85f4e1b: a reused arm was checked by its number only, and a row
 # whose arms were both reused never ran its own template).
 #
-# WHICH PATTERNS NEED ROWS is not this comment's to say:
-# `plan_memo_selftest_ratchets.gap_pattern_population_control` is, and its
-# docstring lists every condition it is red on.
+# WHICH PATTERNS NEED ROWS is not this comment's to say: they are the ones
+# registered through `plan_memo_stream.compile_gap`, and
+# `plan_memo_selftest_ratchets.gap_registry_control` -- whose docstring lists
+# every condition it is red on -- holds these rows against that registry.
 # WHICH GAPS inside a pattern the rows reach was MEASURED once, at 87f361c6, by
 # re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
 # and running every row of its pattern with U+00A0, U+000B and both mixed runs:
@@ -303,28 +304,27 @@ _R22_GAP_MIXED = (
      "charter.  The drain is owned by **7z**{g}or **Qx**.", 0, "\x0b\u00a0"),
 )
 _R22_GAP_PATTERN = {
-    # table pattern -> the module-level compiled pattern it pins, keyed as
-    # `gap_pattern_population_control` keys the population: (module, attribute
-    # [, index ...]) -- an index for a pattern held in a container
-    "LICENCE child": ("plan_memo_roles", "LICENSE_BEFORE"),
-    "LICENCE derivation": ("plan_memo_roles", "LICENSE_BEFORE"),
-    "LICENCE naming": ("plan_memo_roles", "LICENSE_BEFORE"),
-    "LICENCE mint": ("plan_memo_roles", "LICENSE_BEFORE"),
-    "LICENCE the": ("plan_memo_roles", "LICENSE_BEFORE"),
-    "LICENSE_AFTER": ("plan_memo_roles", "LICENSE_AFTER"),
-    "OWNS_TWO keyword": ("plan_memo_roles", "OWNS_TWO"),
-    "OWNS_TWO join": ("plan_memo_roles", "OWNS_TWO"),
-    "ORDER_WORDS": ("plan_memo_roles", "ORDER_WORDS"),
-    "DECLARES": ("plan_memo_roles", "DECLARES"),
-    "NOUN_ANCHOR": ("plan_memo_roles", "NOUN_ANCHOR"),
-    "MARKER_RE": ("plan_memo_stream", "MARKER_RE"),
-    "UNDETERMINED": ("plan_memo_stream", "UNDETERMINED"),
-    "POINTER": ("plan_memo_stream", "POINTER"),
-    "_ID_RUN_TOKEN": ("plan_memo_stream", "_ID_RUN_TOKEN"),
-    "_APPOSITIVE": ("plan_memo_tables", "_APPOSITIVE"),
-    "ROW_NOUN_SEP": ("plan_memo_tables", "_APPOSITIVE"),     # the union, reached through the appositive
-    "ROLE ordering": ("plan_memo_roles", "ROLE_ORDERING"),
-    "ROLE owner": ("plan_memo_roles", "ROLE_OWNER"),
+    # table pattern -> the LABEL of the registered pattern it pins: the label
+    # `plan_memo_stream.compile_gap` recorded it under in `GAP_PATTERNS`
+    "LICENCE child": "LICENSE_BEFORE",
+    "LICENCE derivation": "LICENSE_BEFORE",
+    "LICENCE naming": "LICENSE_BEFORE",
+    "LICENCE mint": "LICENSE_BEFORE",
+    "LICENCE the": "LICENSE_BEFORE",
+    "LICENSE_AFTER": "LICENSE_AFTER",
+    "OWNS_TWO keyword": "OWNS_TWO",
+    "OWNS_TWO join": "OWNS_TWO",
+    "ORDER_WORDS": "ORDER_WORDS",
+    "DECLARES": "DECLARES",
+    "NOUN_ANCHOR": "NOUN_ANCHOR",
+    "MARKER_RE": "MARKER_RE",
+    "UNDETERMINED": "UNDETERMINED",
+    "POINTER": "POINTER",
+    "_ID_RUN_TOKEN": "_ID_RUN_TOKEN",
+    "_APPOSITIVE": "_APPOSITIVE",
+    "ROW_NOUN_SEP": "_APPOSITIVE",     # the union, reached through the appositive
+    "ROLE ordering": "ROLE_ORDERING",
+    "ROLE owner": "ROLE_OWNER",
 }
 R22_GAP = {}
 """pattern -> the names of its read and refuse cases, every position -- what each
@@ -334,7 +334,7 @@ R22_GAP_MIXED = []
 turns red (re-spelling every gap of the half refuses the run anyway)."""
 R22_GAP_ARMS = []
 """(pattern, position, arm, expectation, case name) for EVERY arm the two tables
-declare -- the record `gap_pattern_population_control` holds against the
+declare -- the record `gap_registry_control` holds against the
 collected cases, so an arm the loop below did not generate is red."""
 _ARMS = ([(p, pos, fix, tpl, "read", "\u00a0", "U+00A0", read, False)
           for p, pos, fix, tpl, read, _refuse in _R22_GAP_TABLE]

@@ -16,7 +16,7 @@ import re
 from collections import Counter
 
 from plan_memo_ids import AFTER, BEFORE, ROW_ID, balanced, bounded, decorated_id, kind_of
-from plan_memo_stream import MARKER_RE, phrase, stream
+from plan_memo_stream import MARKER_RE, compile_gap, phrase, stream
 from plan_memo_tables import ROW_NOUN_SEP, is_empty
 
 
@@ -59,7 +59,7 @@ _LICENCE_PHRASES = tuple(phrase(p) for p in (
     r"mint(?:s|ed|ing)? (?:onto )?",         # ... mints / minted / minting X
 ))
 
-LICENSE_BEFORE = re.compile(
+LICENSE_BEFORE = compile_gap("LICENSE_BEFORE", 
     BEFORE +                                  # PR #510 R22, see LICENSE_AFTER
     r"(?:" + "|".join(_LICENCE_PHRASES) +
     # ⚠ NO TRAILING-ROW-NOUN CLAUSE, and that is a deletion rather than an
@@ -102,7 +102,7 @@ LICENSE_BEFORE = re.compile(
 # block for the same reason the backward look was, and it buys nothing an
 # argument does not: `.match(m.text, m.end)` matches exactly where the slice's
 # position 0 was.
-LICENSE_AFTER = re.compile(phrase(
+LICENSE_AFTER = compile_gap("LICENSE_AFTER", phrase(
     r"(?:"
     r"(?:'s|’s) (?:own )?(?:derivation|children|charter|memo|split|plan-memo|sub-slices)"
     r"|,? whose (?:derivation|charter|children)"
@@ -269,7 +269,7 @@ def licence_starts(text):
 # grammar's `ALNUM`, never `\b` / `\w` in Unicode mode -- there `次のSlice C`
 # has no word boundary before `Slice` and `次は#11-zz-alpha` none before `#`,
 # and both naming sites went unreported.
-NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)
+NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", BEFORE + ROW_NOUN_SEP)
 
 
 def classify(m):
@@ -316,11 +316,11 @@ def classify(m):
 # The two ranking entries whose vocabulary holds a word gap are NAMED, so the
 # gap table maps its rows to them by name, not by their position in the list
 # (a reorder would otherwise move coverage in silence -- the review of f85f4e1b).
-ROLE_ORDERING = re.compile(phrase(
+ROLE_ORDERING = compile_gap("ROLE_ORDERING", phrase(
     r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
     r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"
     r"waits? on|until|once)\b"), re.IGNORECASE | re.ASCII)
-ROLE_OWNER = re.compile(phrase(
+ROLE_OWNER = compile_gap("ROLE_OWNER", phrase(
     r"\b(?:owns?|owned|owner|belongs?|carries|carry|holds?|responsible|"
     r"assigned|charter(?:ed)?s? to|placed on|home|hand(?:s|ed)?-?off)\b"),
     re.IGNORECASE | re.ASCII)
@@ -379,7 +379,7 @@ def _row_key(x):
 # are the machine's and its load's.  The remedy, an atomic group or possessive
 # quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
 # `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; f=lambda n,t=time.perf_counter: (lambda a: (r.OWNS_TWO.search("owned by **7z**"+" "*n+"x"), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
-OWNS_TWO = re.compile(
+OWNS_TWO = compile_gap("OWNS_TWO", 
     phrase(r"\b(?:owns?|owned by|owner is|carries|carried by) ")
     + decorated_id(ROW_ID, "a")
     + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")
@@ -399,7 +399,7 @@ def _owner_ok(m, tag):
 # drain runs").  Measured on the #506 memo's §5 tables (64 rows, `rank.search`
 # vs `ORDER_WORDS.search` over each Slice cell): the ranking vocabulary
 # matches 61 rows, this one 39 -- of which 36 reach a finding.
-ORDER_WORDS = re.compile(phrase(
+ORDER_WORDS = compile_gap("ORDER_WORDS", phrase(
     r"\b(?:before|after|lands? (?:first|second)|prerequisite of|gates?|blocked by|"
     r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b"),
     re.IGNORECASE | re.ASCII,
@@ -417,7 +417,7 @@ RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b", re.ASCII)
 # The kind said in WORDS, for assertion (a)'s seed half.  BOUNDED, from the
 # grammar's one spelling (PR #510 R22): unbounded, `not a terminal unitary
 # claim` and `edge-densely` seeded a finding this vocabulary does not name.
-DECLARES = re.compile(
+DECLARES = compile_gap("DECLARES", 
     bounded(phrase(r"is an umbrella|not a terminal unit|≥3 intersecting|three intersecting|"
                    r"no canonical algorithm|edge-dense")),
     re.IGNORECASE | re.ASCII,

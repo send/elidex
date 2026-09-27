@@ -351,16 +351,16 @@ R33_DASH_SWEEP = ("PROPERTY: the separator dash set is spelled once, in plan_mem
 MUTANTS += [
     ("R33-1 appositive: the row noun carries a LEFT boundary (drop `BEFORE`: the search starts inside "
      "a longer word and the containing row is read as a pointer)", TABLES,
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID',
-     '_APPOSITIVE = re.compile(ROW_NOUN_ID',
+     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID',
+     '_APPOSITIVE = compile_gap("_APPOSITIVE", ROW_NOUN_ID',
      [R33_1_LONGER_WORD, R33_1_NOVEL_PREFIX]),
     # The OTHER direction, and the row the first one cannot report: a boundary
     # that refuses everything passes both negatives above and reports nothing at
     # all, which is the cheapest wrong answer here.
     ("R33-1 appositive: the boundary admits a REAL row noun (refuse every appositive: the two "
      "negatives stay green and the attribution stops happening)", TABLES,
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID',
-     '_APPOSITIVE = re.compile(BEFORE + "(?!)" + ROW_NOUN_ID',
+     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID',
+     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + "(?!)" + ROW_NOUN_ID',
      [R33_1_REAL_NOUN]),
     ("R33-2 dashes: the set holds the EN dash (drop it: `KIND – UNDETERMINED` reads as terminal and "
      "the row's `Deps` is never asserted)", IDS,
@@ -372,8 +372,8 @@ MUTANTS += [
      [R33_2_NON_DASH]),
     ("R33-2 sweep: a second dash class in a checker module is found (re-inject one at the reader that "
      "had it)", STREAM,
-     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
-     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: [\\u2014-]?|[\\u2014-])(?: )?UNDETERMINED")),',
+     'UNDETERMINED = compile_gap("UNDETERMINED", bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
+     'UNDETERMINED = compile_gap("UNDETERMINED", bounded(phrase("KIND(?: [\\u2014-]?|[\\u2014-])(?: )?UNDETERMINED")),',
      [R33_DASH_SWEEP]),
 ]
 

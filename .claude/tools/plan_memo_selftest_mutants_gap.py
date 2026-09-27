@@ -56,8 +56,8 @@ MUTANTS += [
      [R22_WS_IDEOGRAPHIC, R22_WS_CLASS]),
     ("R22 ws: the appositive's gaps are composed by `phrase` (re-spell them `\\s` under `re.ASCII` -- "
      "U+00A0 after the id reads as no appositive and the UMBRELLA-MARK is lost)", TABLES,
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\\s*" + DASH_CLASS + r"\\s*" + DECOR + r"\\s*$",',
+     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
+     '_APPOSITIVE = compile_gap("_APPOSITIVE", BEFORE + ROW_NOUN_ID + r"\\s*" + DASH_CLASS + r"\\s*" + DECOR + r"\\s*$",',
      [R22_WS_APPOSITIVE]),
     ("R22 ws: the row-noun separator's whitespace is `GAP` (re-spell the ASCII `[ \\t\\n]` it was -- "
      "`Slice&nbsp;9z` names no row)", TABLES,
@@ -83,8 +83,8 @@ MUTANTS += [
      '_LICENCE_PHRASES = tuple(p.replace(" ", r"\\s+") for p in (',
      list(R22_WS_ROLES["before"])),
     ("R22 ws roles: the licensing phrases AFTER the mention compose the gap (re-spell it `\\s`)", ROLES,
-     'LICENSE_AFTER = re.compile(phrase(',
-     'LICENSE_AFTER = re.compile((lambda p: p.replace(" ", r"\\s+"))(',
+     'LICENSE_AFTER = compile_gap("LICENSE_AFTER", phrase(',
+     'LICENSE_AFTER = compile_gap("LICENSE_AFTER", (lambda p: p.replace(" ", r"\\s+"))(',
      list(R22_WS_ROLES["after"])),
     ("R22 ws roles: the two-owner clause composes the gap (restore its `\\s` spelling)", ROLES,
      '    phrase(r"\\b(?:owns?|owned by|owner is|carries|carried by) ")\n'
@@ -96,13 +96,13 @@ MUTANTS += [
      list(R22_WS_ROLES["owners"])),
     ("R22 ws roles: ORDER-PROSE?'s vocabulary composes the gap (drop `phrase` -- its word gaps are "
      "U+0020 alone again)", ROLES,
-     'ORDER_WORDS = re.compile(phrase(', 'ORDER_WORDS = re.compile((',
+     'ORDER_WORDS = compile_gap("ORDER_WORDS", phrase(', 'ORDER_WORDS = compile_gap("ORDER_WORDS", (',
      R22_WS_ROLES["order"][:1]),
     ("R22 ws roles: the kind-in-words vocabulary composes the gap (drop `phrase`)", ROLES,
      'bounded(phrase(r"is an umbrella|', 'bounded((r"is an umbrella|',
      R22_WS_ROLES["declares"][:1]),
     ("R22 ws roles: the role ranking composes the gap (drop `phrase` from the ordering entry)", ROLES,
-     'ROLE_ORDERING = re.compile(phrase(', 'ROLE_ORDERING = re.compile((',
+     'ROLE_ORDERING = compile_gap("ROLE_ORDERING", phrase(', 'ROLE_ORDERING = compile_gap("ROLE_ORDERING", (',
      R22_GAP["ROLE ordering"][:1]),
 ]
 
@@ -133,10 +133,10 @@ MUTANTS += [
 # THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` -- U+000B in,
 # U+00A0 out -- whatever flags the pattern is compiled with, so the ONE edit
 # turns every read arm AND every refuse arm of the pattern red.  Which patterns
-# need table rows is `plan_memo_selftest_ratchets.gap_pattern_population_control`'s
-# to say (it reads the table, not this list: a pattern with no "R22 gap" row
-# here is not red on that account); the rows for `NOUN_ANCHOR` and the id run
-# are below.
+# need table rows is the registry's to say (`plan_memo_stream.compile_gap`), and
+# `plan_memo_selftest_ratchets.gap_registry_control` reads the table, not this
+# list: a pattern with no "R22 gap" row here is not red on that account.  The
+# rows for `NOUN_ANCHOR` and the id run are below.
 _ASCII_GAP = '(lambda p: p.replace(" ", r"(?a:\\s)+"))('
 MUTANTS += [
     ("R22 gap: `child of` composes the gap (re-spell it `(?a:\\s)`)", ROLES,
@@ -155,7 +155,7 @@ MUTANTS += [
      'phrase(r"(?:the )?$")', 'r"(?:the(?a:\\s)+)?$"',
      R22_GAP["LICENCE the"]),
     ("R22 gap: LICENSE_AFTER composes the gap (re-spell every gap `(?a:\\s)`)", ROLES,
-     'LICENSE_AFTER = re.compile(phrase(', 'LICENSE_AFTER = re.compile(' + _ASCII_GAP,
+     'LICENSE_AFTER = compile_gap("LICENSE_AFTER", phrase(', 'LICENSE_AFTER = compile_gap("LICENSE_AFTER", ' + _ASCII_GAP,
      R22_GAP["LICENSE_AFTER"]),
     ("R22 gap: the two-owner clause's keyword half composes the gap (re-spell it `(?a:\\s)`)", ROLES,
      '    phrase(r"\\b(?:owns?|owned by|owner is|carries|carried by) ")',
@@ -166,27 +166,27 @@ MUTANTS += [
      '    + ' + _ASCII_GAP + 'r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
      R22_GAP["OWNS_TWO join"]),
     ("R22 gap: ORDER_WORDS composes the gap (re-spell it `(?a:\\s)`)", ROLES,
-     'ORDER_WORDS = re.compile(phrase(', 'ORDER_WORDS = re.compile(' + _ASCII_GAP,
+     'ORDER_WORDS = compile_gap("ORDER_WORDS", phrase(', 'ORDER_WORDS = compile_gap("ORDER_WORDS", ' + _ASCII_GAP,
      R22_GAP["ORDER_WORDS"]),
     ("R22 gap: DECLARES composes the gap (re-spell it `(?a:\\s)`)", ROLES,
      'bounded(phrase(r"is an umbrella|', 'bounded(' + _ASCII_GAP + 'r"is an umbrella|',
      R22_GAP["DECLARES"]),
     ("R22 gap: the role ranking's ordering entry composes the gap (re-spell it `(?a:\\s)`)", ROLES,
-     'ROLE_ORDERING = re.compile(phrase(', 'ROLE_ORDERING = re.compile(' + _ASCII_GAP,
+     'ROLE_ORDERING = compile_gap("ROLE_ORDERING", phrase(', 'ROLE_ORDERING = compile_gap("ROLE_ORDERING", ' + _ASCII_GAP,
      R22_GAP["ROLE ordering"]),
     ("R22 gap: the role ranking's owner entries compose the gap (re-spell them `(?a:\\s)`)", ROLES,
-     'ROLE_OWNER = re.compile(phrase(', 'ROLE_OWNER = re.compile(' + _ASCII_GAP,
+     'ROLE_OWNER = compile_gap("ROLE_OWNER", phrase(', 'ROLE_OWNER = compile_gap("ROLE_OWNER", ' + _ASCII_GAP,
      R22_GAP["ROLE owner"]),
     ("R22 gap: the MARKER composes the gap (re-spell it `(?a:\\s)`)", STREAM,
-     'MARKER_RE = re.compile(bounded(_phrase(MARKER)))',
-     'MARKER_RE = re.compile(bounded(re.escape(MARKER).replace("\\\\ ", r"(?a:\\s)+")))',
+     'MARKER_RE = compile_gap("MARKER_RE", bounded(_phrase(MARKER)))',
+     'MARKER_RE = compile_gap("MARKER_RE", bounded(re.escape(MARKER).replace("\\\\ ", r"(?a:\\s)+")))',
      R22_GAP["MARKER_RE"]),
     ("R22 gap: UNDETERMINED composes the gap (re-spell it `(?a:\\s)`)", STREAM,
      'bounded(phrase("KIND(?: "', 'bounded(' + _ASCII_GAP + '"KIND(?: "',
      R22_GAP["UNDETERMINED"]),
     ("R22 gap: POINTER composes the gap (re-spell it `(?a:\\s)` -- the vocabulary nothing pinned)", STREAM,
-     'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
-     'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice").replace("\\\\ ", r"(?a:\\s)+")))',
+     'POINTER = compile_gap("POINTER", bounded(_phrase("is a pointer rather than a slice")))',
+     'POINTER = compile_gap("POINTER", bounded(re.escape("is a pointer rather than a slice").replace("\\\\ ", r"(?a:\\s)+")))',
      R22_GAP["POINTER"]),
     ("R22 gap: the appositive composes the gap (re-spell it `(?a:\\s)` -- a U+000B made a false "
      "gating UMBRELLA-MARK)", TABLES,
@@ -199,21 +199,13 @@ MUTANTS += [
 ]
 
 # -- the review of 01bd2c5d: the pattern the hand-traced table missed, the id
-# run's own "R22 gap" row (so the rule has no exception), the one optional gap
-# only a mixed run reaches, and the ratchet that makes the population a
-# derivation instead of a list.
-GAP_RATCHET = ("PROPERTY: every compiled pattern holding plan_memo_stream.GAP that a checker module's "
-               "namespace reaches through names, collections and mappings has rows in "
-               "plan_memo_selftest_cases_gap with a READ and a REFUSE arm, each row's declared expectations "
-               "present and distinct, and every declared arm generated as a collected case")
-GAP_RATCHET_PARTNER = ("PROPERTY: the gap ratchet's cores, one fixture per behaviour -- every collection and "
-                       "mapping key is walked and nothing else is, one object is one pattern, and each of the "
-                       "eleven red conditions is reported by exactly its own fixture")
+# run's own "R22 gap" row (so the rule has no exception), and the one optional
+# gap only a mixed run reaches.
 MUTANTS += [
     ("R22 gap: the anchored naming pass composes GAP (re-spell NOUN_ANCHOR's gap `(?a:\\s)` -- "
      "`Slice&nbsp;C` names nothing, `Slice<U+000B>C` names C)", ROLES,
-     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP)',
-     'NOUN_ANCHOR = re.compile(BEFORE + ROW_NOUN_SEP.replace(__import__("plan_memo_stream").GAP, r"(?a:\\s)"))',
+     'NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", BEFORE + ROW_NOUN_SEP)',
+     'NOUN_ANCHOR = compile_gap("NOUN_ANCHOR", BEFORE + ROW_NOUN_SEP.replace(__import__("plan_memo_stream").GAP, r"(?a:\\s)"))',
      R22_GAP["NOUN_ANCHOR"]),
     ("R22 gap: the id run's separator composes GAP (re-spell it `(?a:\\s)`)", STREAM,
      '% (SLUG_ID, CITE_ID, SHORT_ID, GAP)', '% (SLUG_ID, CITE_ID, SHORT_ID, r"(?a:\\s)")',
@@ -223,36 +215,40 @@ MUTANTS += [
      '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
      '    + r"(?:(?a:\\s)+)?" + phrase(r"(?:,(?: )?| and | or |(?: )?/(?: )?)")',
      list(R22_GAP_MIXED) + [n for n in R22_GAP["OWNS_TWO join"] if "owner|," in n]),
-    ("R22 ratchet: a NEW gap-bearing module-level pattern with no row is red (compile one)", ROLES,
-     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)',
-     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)\n'
-     '_UNPINNED = re.compile(phrase("left right"))',
-     [GAP_RATCHET]),
-    ("R22 ratchet: a row whose pattern no longer holds GAP is red (spell POINTER's gaps as a literal "
-     "U+0020 -- the reviewer's re-spelling)", STREAM,
-     'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
-     'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice")))',
-     [GAP_RATCHET]),
-    ("R22 ratchet: the population comes from the NAMESPACE, not a list of binding shapes (bind a new "
-     "gap-bearing pattern under a module-level `if` -- it must still be red)", ROLES,
-     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)',
-     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)\n'
-     'if True:\n'
-     '    ZC = re.compile(phrase("left right"))',
-     [GAP_RATCHET]),
-    ("R22 ratchet: one OBJECT is one pattern, whatever names reach it (group by key instead -- every "
-     "import and container entry of MARKER_RE becomes an uncovered pattern of its own)", RATCHETS,
-     '                out.setdefault(id(v), (v, []))[1].append(key)',
-     '                out.setdefault(key, (v, []))[1].append(key)',
-     [GAP_RATCHET_PARTNER, GAP_RATCHET]),
 ]
 
-# -- the reviews of 87f361c6 and be5e1db5: rows that change only the TABLE --
-# the self-test module `plan_memo_selftest_cases_gap`, installed under its own
-# name, so the mutants module keeps its import-time `R22_GAP` and the
-# NOUN_ANCHOR "R22 gap" row still imports -- and must turn the ratchet red.
+# -- the gap REGISTRY (the review of ee2a1d7f replaced the namespace walk):
+# rows that re-register, unregister or bypass a pattern, rows that change only
+# the TABLE (the self-test module `plan_memo_selftest_cases_gap`, installed under
+# its own name, so the mutants module keeps its import-time `R22_GAP`), and one
+# row per red condition of `_gap_problems`, killed by the partner's fixture.
+GAP_RATCHET = ("PROPERTY: every gap pattern registered through plan_memo_stream.compile_gap has rows in "
+               "plan_memo_selftest_cases_gap with a READ and a REFUSE arm, each row's expectations present "
+               "and distinct and every declared arm generated, and no module-level gap pattern escapes the "
+               "registry")
+GAP_RATCHET_PARTNER = ("PROPERTY: the gap ratchet's cores and compile_gap, one fixture per behaviour -- "
+                       "compile_gap's duplicate-label refusal, the depth-0 backstop, and each red condition reported by "
+                       "exactly its own fixture")
+_RETIRED = 'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)'
 MUTANTS += [
-    ("R22 ratchet: a pattern whose ROWS are gone is red even while its mapping stays (delete "
+    ("R22 ratchet: a module-level gap pattern compiled with plain `re.compile` is red (the backstop)",
+     ROLES, _RETIRED, _RETIRED + '\n_UNREGISTERED = re.compile(phrase("left right"))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: ... also when it is bound under a module-level `if`", ROLES,
+     _RETIRED, _RETIRED + '\nif True:\n    ZC = re.compile(phrase("left right"))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a REGISTERED pattern with no rows is red (register one)", ROLES,
+     _RETIRED, _RETIRED + '\n_UNPINNED = compile_gap("_UNPINNED", phrase("left right"))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a row naming a label that is no longer registered is red (compile POINTER with a "
+     "literal U+0020 and plain `re.compile` -- the reviewer's re-spelling)", STREAM,
+     'POINTER = compile_gap("POINTER", bounded(_phrase("is a pointer rather than a slice")))',
+     'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice")))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: `compile_gap` refuses a label it has already registered (drop the check)", STREAM,
+     "    if label in GAP_PATTERNS:\n", "    if False:\n",
+     [GAP_RATCHET_PARTNER]),
+    ("R22 ratchet: a pattern whose ROWS are gone is red while its label is registered (delete "
      "NOUN_ANCHOR's table row)", "plan_memo_selftest_cases_gap.py",
      '    ("NOUN_ANCHOR", "noun|id", "prose", "The close rule is Slice{g}C here.", 1, 0),\n',
      '',
@@ -267,44 +263,6 @@ MUTANTS += [
      '    ("LICENCE naming", "naming|mention", "prose", "Avoid naming{g}**9z** itself.", 0, 1),',
      '    ("LICENCE naming", "naming|mention", "prose", "Avoid naming{g}**9z** itself.", 1, 1),',
      [GAP_RATCHET]),
-]
-
-# -- the review of f85f4e1b: the walk is a PROPERTY (every collection, every
-# mapping's keys), and every red condition has a row that disables exactly it,
-# killed by the partner's fixture for that condition.
-_RETIRED = 'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)'
-_WALK = ('        if isinstance(v, _abc.Mapping):\n'
-         '            for k, x in list(v.items()):\n'
-         '                walk(key + (("key", _gap_step(k)),), k, d + 1)\n'
-         '                walk(key + (k,), x, d + 1)\n'
-         '        elif isinstance(v, _abc.Sequence):\n'
-         '            for i, x in enumerate(v):\n'
-         '                walk(key + (i,), x, d + 1)\n'
-         '        elif isinstance(v, _abc.Collection):\n'
-         '            for x in list(v):\n'
-         '                walk(key + (("member", _gap_step(x)),), x, d + 1)\n')
-MUTANTS += [
-    ("R22 ratchet: a gap pattern held only in a FROZENSET is red", ROLES,
-     _RETIRED, _RETIRED + '\n_ZF = frozenset([re.compile(phrase("left right"))])',
-     [GAP_RATCHET]),
-    ("R22 ratchet: a gap pattern held only as a dict KEY is red", ROLES,
-     _RETIRED, _RETIRED + '\n_ZK = {re.compile(phrase("left right")): "k"}',
-     [GAP_RATCHET]),
-    ("R22 ratchet: the walk descends every collection and mapping (revert to the tuple / list / dict "
-     "type tuple -- a frozenset, a dict key, a deque and a MappingProxyType fall out)", RATCHETS,
-     _WALK,
-     '        if isinstance(v, (tuple, list)):\n'
-     '            for i, x in enumerate(v):\n'
-     '                walk(key + (i,), x, d + 1)\n'
-     '        elif isinstance(v, dict):\n'
-     '            for k, x in v.items():\n'
-     '                walk(key + (k,), x, d + 1)\n',
-     [GAP_RATCHET_PARTNER]),
-    ("R22 ratchet: the walk descends at all (stop at the name -- every container-held fixture falls out)",
-     RATCHETS,
-     '        if d >= depth or isinstance(v, (str, bytes, bytearray, range)):',
-     '        if True:',
-     [GAP_RATCHET_PARTNER]),
     ("R22 ratchet: an arm the generator skips is red (drop the second mixed-run arm)",
      "plan_memo_selftest_cases_gap.py",
      '            for p, pos, fix, tpl, want, run in _R22_GAP_MIXED])',
@@ -314,16 +272,20 @@ MUTANTS += [
     ("R22 ratchet condition %s: disable it (the partner's fixture for it goes quiet)" % cond, RATCHETS,
      find, repl, [GAP_RATCHET_PARTNER])
     for cond, find, repl in (
-        ("empty-population", "    if not population:\n", "    if False:\n"),
+        ("empty-registry", "    if not labels:\n", "    if False:\n"),
+        ("gapless-label", "if gap not in registry[lab].pattern]", "if False]"),
+        ("unregistered-pattern", '    out += [("unregistered-pattern", "%s.%s" % k) for k in unregistered]',
+         '    out += [("unregistered-pattern", "%s.%s" % k) for k in unregistered if False]'),
+        ("the backstop's identity test", "            and id(v) not in ids]", "            and False]"),
+        ("duplicate-row", "for k, n in sorted(counts.items()) if n > 1]", "for k, n in sorted(counts.items()) if False]"),
         ("missing-column", "        if read is None or refuse is None:\n", "        if False:\n"),
         ("equal-expectations", "        elif read == refuse:\n", "        elif False:\n"),
         ("mixed-missing-arm", "        if refuse is None:\n", "        if False:\n"),
         ("unmapped-row", "for pat in sorted(used) if pat not in mapping]", "for pat in sorted(used) if False]"),
         ("unused-mapping", "for pat in sorted(mapping) if pat not in used]", "for pat in sorted(mapping) if False]"),
-        ("no-read-arm", "if k not in has_read]", "if False]"),
-        ("stale-key", "if k not in reachable]", "if False]"),
-        ("uncovered", "            if not covered.intersection(keys)]", "            if False]"),
-        ("duplicate-row", "for k, n in sorted(counts.items()) if n > 1]", "for k, n in sorted(counts.items()) if False]"),
+        ("unknown-label", "for lab in sorted(covered) if lab not in labels]", "for lab in sorted(covered) if False]"),
+        ("uncovered-label", "for lab in sorted(labels) if lab not in covered]", "for lab in sorted(labels) if False]"),
+        ("no-read-arm", "for lab in sorted(covered) if lab not in has_read]", "for lab in sorted(covered) if False]"),
         ("arm-not-generated (no record)",
          '            out.append(("arm-not-generated", "%s: no generated arm recorded" % where))',
          "            pass"),
@@ -331,14 +293,4 @@ MUTANTS += [
         ("arm-not-generated (the collected case's expectation)",
          "        elif expect_of.get(got[1], object()) != want:\n", "        elif False:\n"),
     )
-] + [
-    ("R22 ratchet: an ITERATOR is never walked, even one that is a collection (drop the skip -- the "
-     "partner's iterator-collection is consumed)", RATCHETS,
-     "        if isinstance(v, _abc.Iterator):\n            return\n", "",
-     [GAP_RATCHET_PARTNER]),
-    ("R22 ratchet: an unordered collection's members are keyed by SOURCE, not iteration position "
-     "(key them by index -- the frozenset keys then follow the hash seed)", RATCHETS,
-     '            for x in list(v):\n                walk(key + (("member", _gap_step(x)),), x, d + 1)\n',
-     '            for i, x in enumerate(list(v)):\n                walk(key + (("member", i),), x, d + 1)\n',
-     [GAP_RATCHET_PARTNER]),
 ]

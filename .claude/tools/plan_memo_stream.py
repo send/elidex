@@ -110,22 +110,21 @@ def phrase(pattern):
     the appositive in `plan_memo_tables`, and the licensing, ranking and seed
     vocabularies in `plan_memo_roles`.
 
-    ⚠ THAT IS A CONVENTION, AND WHAT IS ENFORCED IS NAMED HERE.
-    `plan_memo_selftest_ratchets.gap_pattern_population_control` takes every
-    compiled pattern whose source holds `GAP` that a checker module's
-    namespace reaches (a module-level name, or up to three collections or
-    mappings below one), and is red on one that no row of
-    `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` reaches,
-    and on a covered KEY no table row gives a READ arm (per key, the fail-safe
-    direction); its docstring lists all eleven conditions, what it cannot see
-    and its hazards.  That each row's fixture
-    exercises its pattern, and that re-spelling the pattern's gaps turns its
-    rows red, is what the "R22 gap" mutants show, one pattern at a time,
-    re-spelling its gaps as `(?a:\\s)`; the ratchet does not check it.  That the rows reach every gap INSIDE a pattern
-    was measured once and is recorded beside the table, not enforced.  And the
-    ratchet keys on `GAP`: a NEW vocabulary that writes `\\s` or a literal
-    U+0020 instead of calling this function holds no `GAP` and is invisible to
-    it -- no control stops that.
+    ⚠ THAT IS A CONVENTION, AND WHAT IS ENFORCED IS NAMED HERE.  A pattern
+    that holds `GAP` is compiled through `compile_gap` below, which records it
+    under a label; `plan_memo_selftest_ratchets.gap_registry_control` is red
+    on a registered label that no row of `plan_memo_selftest_cases_gap.
+    _R22_GAP_TABLE` / `_R22_GAP_MIXED` reaches, on one that no table row
+    gives a READ arm, and on a MODULE-LEVEL gap pattern compiled with plain
+    `re.compile`; its docstring lists every condition and what it cannot see.
+    That each row's fixture exercises its pattern, and that re-spelling the
+    pattern's gaps turns its rows red, is what the "R22 gap" mutants show,
+    one pattern at a time, re-spelling its gaps as `(?a:\\s)`; the ratchet does
+    not check it.  That the rows reach every gap INSIDE a pattern was measured
+    once and is recorded beside the table, not enforced.  And nothing checks a
+    vocabulary that writes `\\s` or a literal U+0020 instead of calling this
+    function: it holds no `GAP`, so neither `compile_gap` nor the ratchet sees
+    it.
 
     ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
     composer served the three kind phrases; `plan_memo_roles` wrote its gaps
@@ -151,7 +150,42 @@ def _phrase(text):
     return phrase(" ".join(re.escape(w) for w in text.split(" ")))
 
 
-MARKER_RE = re.compile(bounded(_phrase(MARKER)))
+GAP_PATTERNS = {}
+"""label -> compiled pattern: EVERY pattern the checker compiles through
+`compile_gap`, recorded as the module that owns it is imported.  The gap
+ratchet (`plan_memo_selftest_ratchets.gap_registry_control`) reads THIS -- it
+does not search the module graph for patterns."""
+
+
+def compile_gap(label, pattern, flags=0):
+    """THE ONE WAY to compile a pattern that holds `GAP`: compile it, record
+    it in `GAP_PATTERNS` under `label`, return it.  A label already recorded
+    raises at import.  A pattern whose source holds no `GAP` is recorded all
+    the same and is the ratchet's `gapless-label` red, not an import error:
+    every "R22 gap" mutant re-spells a pattern's gaps away, and a raise here
+    would crash the module set it loads instead of turning its rows red.
+
+    WHY A REGISTRY (the review of ee2a1d7f).  The gap ratchet used to FIND the
+    gap-bearing patterns by walking every checker module's namespace and the
+    collections inside it; every round of review found another shape the walk
+    got wrong (a container type, an iteration order, a lazy collection).
+    Recording them where they are made needs no search.  What this does NOT
+    cover by itself -- a gap pattern compiled with plain `re.compile` -- is
+    the ratchet's depth-0 backstop, whose docstring says what it cannot see.
+
+    `phrase` stays the composer of gap SOURCE and this the only compiler of
+    it: several patterns are assembled from more than one `phrase` piece
+    (`OWNS_TWO`, `_APPOSITIVE`, `LICENSE_BEFORE`) or from `GAP` directly in a
+    character union (`_ID_RUN_TOKEN`), so wrapping `phrase` would not give
+    them one path."""
+    if label in GAP_PATTERNS:
+        raise ValueError("gap pattern %r is already registered" % label)
+    compiled = re.compile(pattern, flags)
+    GAP_PATTERNS[label] = compiled
+    return compiled
+
+
+MARKER_RE = compile_gap("MARKER_RE", bounded(_phrase(MARKER)))
 """The ONE matcher for the marker, read over a block's disposed STREAM (a
 declaring field is one).  It must still read a marker the document SPLITS
 with a construct that renders nothing -- `**UMBRELLA, not a *terminal*
@@ -177,14 +211,14 @@ never a change to the phrase."""
 # are the machine's and its load's.  The remedy, an atomic group or possessive
 # quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
 # `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_stream as s; f=lambda n,t=time.perf_counter: (lambda a: (list(s.UNDETERMINED.finditer("KIND"+" "*n+"x")), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
-UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),
+UNDETERMINED = compile_gap("UNDETERMINED", bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
 # "SCHEDULED FROM ITS OWN SLOT" rows).  ⚠ Keyed on one spelling, and the safe
 # polarity: a differently-spelled pointer row is terminal, and so REPORTED by
 # the acceptance seed, never missed.
-POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))
+POINTER = compile_gap("POINTER", bounded(_phrase("is a pointer rather than a slice")))
 
 KIND_PHRASES = (("marker", MARKER_RE), ("undetermined", UNDETERMINED), ("pointer", POINTER))
 """EVERY phrase whose presence or absence in a declaring field changes the
@@ -230,7 +264,7 @@ arriving in this tuple, and cannot decide a kind without arriving here."""
 # grammar's continuation rule (`plan_memo_ids.tokens`); a hyphen bounds a
 # short id, and `slice-9z-sib.md` is safe because a file name is a
 # `plan_memo_tokens` `file` token, masked before the scan.
-_ID_RUN_TOKEN = re.compile(r"(?P<id>%s|%s|%s)|(?P<sep>(?:%s|[,;/→>+&|-])+)"
+_ID_RUN_TOKEN = compile_gap("_ID_RUN_TOKEN", r"(?P<id>%s|%s|%s)|(?P<sep>(?:%s|[,;/→>+&|-])+)"
                            % (SLUG_ID, CITE_ID, SHORT_ID, GAP), re.ASCII)
 # --------------------------------------------------------------------------
 # Disposition: the one place a lexical span meets the row ids

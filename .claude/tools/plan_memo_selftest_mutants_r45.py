@@ -150,8 +150,8 @@ MUTANTS += [
 MUTANTS += [
     ("R47-4 gap: a word gap is what a READER sees (re-spell the marker as a `re.escape`d literal -- "
      "U+0020 and nothing else, so `&nbsp;` drops the claim at rc 0)", STREAM,
-     'MARKER_RE = re.compile(bounded(_phrase(MARKER)))',
-     'MARKER_RE = re.compile(bounded(re.escape(MARKER)))',
+     'MARKER_RE = compile_gap("MARKER_RE", bounded(_phrase(MARKER)))',
+     'MARKER_RE = compile_gap("MARKER_RE", bounded(re.escape(MARKER)))',
      [R47_4_NBSP, R47_4_TAB]),
     ("R47-4 gap: the UNDETERMINED phrase composes the SAME gap (re-spell its `\\s` under `re.ASCII`, "
      "which is ASCII whitespace and not U+00A0)", STREAM,
