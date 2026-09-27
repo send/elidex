@@ -9,6 +9,30 @@ disposition left open — where this instrument should live at all — was **dec
 §7's mutation-set criterion. What those sections leave open is booked in §8, and §11 is the
 revision that followed them.
 
+⚠ **SUPERSEDED IN PART — read `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` first**
+(slice A-i-wire-fgit, branch `k2-wire-fgit-hermetic`). That slice rebuilds how the K2 wire's fixtures
+are built, splits the controls and mutation files, and lets mutation records target the harness and the
+fixtures file. The body below is left as #519 wrote it, because it is provenance. These statements in
+it are no longer true once that slice lands; the lines are as of `e8f78896`, and the reason for each is
+in that memo's §8.2:
+- **Status** (L5): the status of this slice, not of the fixture build.
+- **§0's command** (L61) names the controls file, which no longer holds the fixture build: that moved
+  to `…trip-wire.fixtures.sh`.
+- **§4's file rows** (L278–280): the controls, harness and mutation files are split
+  (`…trip-wire.fixtures.sh`, `…trip-wire.mutgen.sh`), and the harness no longer holds a fixture git
+  helper: the fixtures are built in a window constructed from nothing.
+- **§7 criterion 3** (L675–677, L683): the records are enumerated across `…mutations.sh`, and a record's
+  `sed` expression may target the harness or the fixtures file, not only the wire.
+- **§7 criterion 5** (L747–748): the file table in §4 no longer lists every part.
+- **Slot 2** (L816) and **§9** (L866–868): the ratchet counts labels (`_control` labels and every
+  `_lbl="…"` definition) with no record, not only controls.
+- **§11.1** (L1212–1214, L1220): for the fixture build, "unreachable or loud, never silent" is replaced
+  by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
+- **§11.4 P1** (L1281–1282): the file list gains the fixtures and mutgen files.
+
+An unqualified "plan memo" or "§N" in a K2 wire file means the memo that file's header names; the
+resolution per line is that memo's §8.3 table.
+
 ⚠ **The rule for this memo is to state no quantity that moves with a commit.** Where a number
 matters it appears as the command that produces it. Historical quantities (review-round numbers, gate
 tallies) are provenance and are cited to the lane SSoT
