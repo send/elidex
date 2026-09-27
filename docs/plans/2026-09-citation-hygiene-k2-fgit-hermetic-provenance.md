@@ -7,8 +7,9 @@ design memo" below. It holds:
 - the premises found false (§C);
 - every plan-review round's dispositions (§D).
 
-The design memo keeps only its live decisions. Section references here are to the design memo unless a
-file is named.
+The design memo keeps only its live decisions. Section references here are to the design
+memo **as of the draft that the section or row belongs to** unless a file is named; a superseded draft is read with `git show <sha>:<memo path>` (drafts: 1 `bd3dc513`,
+2 `0142f47a`, 3 `2b89ef7c`, 4 `57e5419f`, 5 `e8c1bdb8`, 6 `8b6a4005`).
 
 ⚠ This file follows the design memo's rule: every figure is a measurement at a named SHA or scratch
 prototype, with its command. `$S` is scratch. `/usr/bin/grep` is spelled out on purpose.
@@ -162,10 +163,10 @@ the difference. X8 repeats this on the real head.
 
 ### §A.5 The adversarial corpus (draft 4)
 
-**Scripts.** Scratch `…/scratchpad/fgit/corpus/gen.py` and `cell.sh`, reproduced in §E so that a reviewer
+**Scripts.** Scratch `…/scratchpad/fgit/corpus/gen.py` and `cell.sh`, preserved at `git show 57e5419f:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E) so that a reviewer
 can re-run them.
 
-**Subject.** Prototype `p4`, a `git clone --local` of `e8f78896` plus exactly design memo §3–§5:
+**Subject.** Prototype `p4`, a `git clone --local` of `e8f78896` plus exactly draft-4 design memo §3–§5:
 - the `_fgit` construction;
 - the `notcommitted` fix;
 - controls lines 83–734 extracted to a sourced fixtures file (`wc -l` at `e58fec48`: fixtures 652, controls 397, harness 215);
@@ -265,7 +266,7 @@ The 3 existing `_lbl` labels each have 1 record.
 `wc -l` over the parts at `067c0c40`: controls 366, fixtures 652, harness 306, mutations 783 (untouched in
 the prototype), wire 1259 (untouched).
 
-**Commands.** Scripts are in §E; paths are relative to `…/scratchpad/fgit/`:
+**Commands.** Scripts are preserved at `git show e8c1bdb8:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E.2); paths are relative to `…/scratchpad/fgit/`:
 - `python3 corpus5/gen5.py .` — 238 jobs;
 - `tr '\n' '\0' < corpus5/jobs.tsv | xargs -0 -n1 -P2 corpus5/cell.sh > corpus5/results.tsv`.
 
@@ -377,6 +378,52 @@ A git that discards the allowlist therefore reads caller-writable files. Nothing
 
 This is not X8.
 
+### §A.10 Draft 7's focused cells (p7: round-6 items 1 and 2)
+
+**Subject.** Prototype `p7`, a `git clone --local` of `p6` `863158b1`.
+
+| commit | change |
+|---|---|
+| `6fc364f2` | an incomplete window ends the run with W alone, carrying the child's exit class; the prelude options are pinned; P-f parses every `env -0` record; seed S |
+| `bf5879b6` | the options check reads `$SHELLOPTS`. The first form, `$(set -o pipefail)`, **sets** the option instead of reading it, so every run exited 3. Measured on the first run |
+| `183d706e` | S's loop moved out of a command substitution. bash 3.2 misparses a `case` inside `$( )`: the first run printed "syntax error near unexpected token `newline'" and then aborted on an unbound variable |
+| `d7738624` | the P-a label is scoped to "a window git that adds no input of its own" |
+
+**Commands.** Scripts are in §E.4. From `…/scratchpad/fgit/`:
+- `python3 c7/gen7.py .` (32 cells);
+- `tr '\n' '\0' < c7/jobs.tsv | xargs -0 -n1 -P2 c7/cell7.sh > c7/raw.tsv`;
+- `c7/eval7.sh > c7/results.tsv`.
+
+`raw.err` is empty. The P-a label check ran in `c7b/`: records g00 and g10 each gave rc 1 with the new
+label, and the clean cells g01 and g11 each gave rc 0.
+
+**Results** (b53-g255 and b32-g254 alike):
+
+| cell | p6 (before) | p7 (after) |
+|---|---|---|
+| `odd/pipe` pre-created (the fixtures `exit 2`) | f0002 and f0007: rc 1, **82** control lines | f0012 and f0023: **rc 2, 1 line (W)** |
+| `GIT_CONFIG_GLOBAL=<file> git add -A` | f0003 and f0008: rc 0, PASSED, Pdiff 50: **SILENT-WRONG** | f0013 and f0024: rc 1, S alone |
+| `git -c include.path=<file> add -A` | f0004 and f0009: **SILENT-WRONG** (Pdiff 50) | f0014 and f0025: rc 1, S |
+| `GIT_TEMPLATE_DIR=<dir> git init` (in the loop) | f0005 and f0010: rc 1, loud (NE) | f0015 and f0026: rc 1, S plus NE |
+| W: child aborts after the prelude | — | f0019 and f0030: rc 1, W alone |
+| W: prelude without `set -euo pipefail` | — | f0020 and f0031: rc 1, W alone |
+| P-f: `-i` dropped, plus a caller `BASH_FUNC_k2probe%%` | — | f0021 and f0032: P-f names `BASH_FUNC_k2probe%%` |
+| G: HOME `*.py` ignore; DO cell | — | PASS, Pdiff 0 |
+| R: `gitsweep` × HOME ignore | (p6 corpus: PASS, P equal) | f0018 and f0029: rc 1, S (the spelling contains `unset`/`export`/`exec`), Pdiff 0 |
+
+**The parser difference.** Under a shell that exports a function:
+- p6's `env | sed 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/…/'` finds **0** `BASH_FUNC` names;
+- `env -0 | tr '\0' '\n' | /usr/bin/grep -c '^BASH_FUNC_f%%'` finds **1**.
+
+**Moved exit-criterion commands, re-run to show they discriminate.**
+
+| command | results |
+|---|---|
+| X1 | the green log c7/f0011 gives `0` / `1`; the red log c7/f0013 gives `1` / `0` |
+| X4b, new form | 2 lines on base `mutations.sh` (15, 20); 0 on a copy where both are qualified |
+| X4b, old in-table form (raw `\|`, no `-i`) | **0** on base: it was vacuous |
+| R7 | `runs-on: ubuntu-latest` for `trip-wires`; `runs-on: ${{ matrix.os }}` for `check` |
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
@@ -457,11 +504,28 @@ rebuild's `/pre-push` Stage 4 over the whole range.
 
 ## §D Plan-review dispositions
 
-### §D.0 Terminators
+### §D.0 Terminators and the close-out plan
 
-**Round 6 (current).** A **focused** re-review by Ax2, Ax3 and Ax5 of the draft 5 → 6 delta. It
-converges if and only if no IMP arrives with a failing corpus cell. A finding that does come with a
-failing cell is fixed on the prototype first, and only then in prose.
+**Round 7: a Step-4.5 focused check (current).**
+- **Scope:** round-6 items 1 and 2 only. Ax2 checks item 1 (the incomplete window) and Ax3 checks
+  item 2 (the residual property, S, and the P-a decision).
+- **Converges** if and only if neither returns an IMP with a failing cell.
+- **Then plan-review closes and implementation starts.**
+- **Why stop there:** per the skill, further passes after the mechanism is fixed are implementation
+  detail that the tests catch.
+
+**Round 6 (as it ran).** Round 6 was a **full five-axis review** of draft 6 `8b6a4005`, not the
+focused one that draft 6 had announced:
+- Ax1: 0.
+- Ax2: 0/1/3.
+- Ax3: 0/1/1.
+- Ax4: 0/1/8.
+- Ax5: 0/2/6.
+
+In total, 0 CRIT / 5 IMP / 18 MIN. Its terminator was "no IMP with a failing command", and it was not
+met, although **no finding moved the window mechanism**. Draft 6 had recorded it as "focused,
+Ax2/3/5". That came from the orchestrating session's instruction before it decided on a full round,
+and it is corrected here.
 
 **Round 5 (not met).** Ax2 raised 1 IMP and Ax3 raised 3, all with cells. The root cause was that the
 detector was a name list, and the design changed as a result (§D.5).
@@ -549,11 +613,11 @@ it.
 | Ax2 MIN: two producers share one label | one label per producer for the P-a/P-b liveness halves (`e58fec48`). ⚠ **Draft 4's claim that this gave one label per producer was false**: the detector's labels still had several producers (`_fdl_lbl`: setup, PATH canary, trace canary; `_fd_lbl`: PATH arm, trace arm). Round 4 found this, and draft 5 fixes it (§D.4) | §A.5 re-run |
 | Ax2 MIN: d1 did not match the design | p4 carries §3–§5 exactly, P-a…P-e included | §A.5 |
 | Ax3 harness defect (`rm -rf $d/.git`) | §A.4 is marked invalid; the corpus harness keeps `.git` | §A.4 note |
-| Ax3 MIN: R4 ground, errexit wording, "no measured way", cost sentence | R4 is restated as a class, with no ground argued beyond the launch slot. The errexit text now describes only what p4 does. "No measured way" is deleted along with the differential. The cost sentence is rewritten from the §A.6 data | design memo §4, §5.2 |
+| Ax3 MIN: R4 ground, errexit wording, "no measured way", cost sentence | R4 is restated as a class, with no ground argued beyond the launch slot. The errexit text now describes only what p4 does. "No measured way" is deleted along with the differential. The cost sentence is rewritten from the §A.6 data | draft-4 design memo §4, §5.2 |
 | Ax5 IMP: C0a had no seam (parent §5 is live) | **C0a withdrawn**. Only the banner (C0b) remains; its site list is derived by rule and command, giving **seven** sites (round 3 said five) | design memo §8.2 |
 | Ax5 IMP: the wire-reference convention resolves 8 references wrongly | the convention is **dropped**. A derived table resolves each reference (8 parent, 1 A-i, plus the qualified ones) | design memo §8.3 |
 | Ax4/Ax5: the umbrella memo table lacked a row for the companion | the companion row was added in draft 3; draft 4 keeps it. The rounds companion is moot, since C0a is withdrawn | umbrella |
-| Ax3/Ax5: `#11-k2-fgit-machine-files` held two gaps | **withdrawn at create time**: (a) becomes the declared blind spot R3; (b) is the invocation-convention slot's own gap, which that slot is narrowed to. Own new deferrals: 0 | design memo §5.2, §7 |
+| Ax3/Ax5: `#11-k2-fgit-machine-files` held two gaps | **withdrawn at create time**: (a) becomes the declared blind spot R3; (b) is the invocation-convention slot's own gap, which that slot is narrowed to. Own new deferrals: 0 | draft-4 design memo §5.2, §7 |
 | R2-2 carried: ratchet | measured: 30 bare labels with a widened population; 7 of the 9 new labels get records; +2 declared raise for the two version guards | §A.7 |
 
 ⚠ **Not addressed individually.** Ax4's 7 and Ax5's 7 MINs were not in this session's brief as texts,
@@ -624,6 +688,42 @@ subject, which was every item listed above. Anything else stays open for round 5
 - **Ax5, X2/X5 re-run recipe:** the scripts take a directory argument and `K2_CORPUS_OUT`, with the tree under test at `<dir>/p6`.
 - **Ax2/Ax3 MINs tied to the detector** (M1 `cmd_name` absent under poison; M2/M3 detector messages and the canary order): **moot**, deleted with the detector.
 - ⚠ Any round-5 MIN not named in this session's brief remains open for round 6.
+
+### §D.6 Round 6 (full; on draft 6 `8b6a4005`; 0 CRIT / 5 IMP / 18 MIN) → draft 7
+
+| id | disposition | evidence |
+|---|---|---|
+| W1 (item 1, Ax2): an incomplete window was read as "no fixture failed", and the controls cascaded | fixed on p7: W alone, the child's exit class carried (2 stays 2), no control over unbuilt trees. The W records now require exactly one control line | §A.10: `odd/pipe` went from rc 1 with 82 lines to rc 2 with 1, on both shells |
+| W2 (item 2, Ax3 plus Ax2 MIN-3): add-input spellings silently diverge | the gap is re-stated by property (remove, override or add an input). S is adopted as a seed; P-a over every repo is declined; the over-claims are scoped (§3 (iii), §4, §10 rows 1–2, the P-a label); the slot trigger is honest | §A.10: SILENT-WRONG on p6 becomes S red on p7 |
+| W3 (item 3, Ax4): `\|` inside table cells | every command containing a pipe now sits in a fenced block with `-e` alternatives; each was re-run | §A.10, moved commands |
+| W4 (item 4, Ax5): X9 cannot run on a stacked PR | both routes, (a) a temporary draft PR to `main` and (b) #501's CI with a stop condition, are written down as a push-time user decision | design memo §9 |
+| W5 (item 5, Ax5): statements that become false after `_fgit`'s deletion | harness:22–47, harness:48–49 and controls:20–22 are listed, with the grep that finds them | design memo §8.1 |
+
+**MINs:**
+- **Ax2 MIN-1:**
+  - the census now has a derivation command, and it matches the prelude by static read-set;
+  - `set -u` is pinned by the options check plus a W record;
+  - the three sentences now say "nothing in the parent relies on `set -u`".
+- **Ax2 MIN-2:** P-f now parses every `env -0` record.
+- **Ax4 MIN-1:** the mutations list is `:133–138`, and the grep's full return is listed (93 and 526 are
+  read and kept).
+- **Ax4 MIN-2:** banner lines corrected to L747–748 and L1281–1282; L279 is noted as changing under C5.
+- **Ax4 MIN-3:** 0 of 207 man pages mention `GIT_ATTR_NOSYSTEM`, with a positive control.
+- **Ax4 MIN-4:** "in §E" pointers now use the history route.
+- **Ax4 MIN-5:** drifted "design memo §" references are qualified by draft, with a stated convention in
+  the header.
+- **Ax4 MIN-6:** the ledger premise is quoted verbatim.
+- **Ax4 MIN-7:** the owner is the citation-hygiene lane, and the correct replacement text for the
+  exit-trap ledger entry is given.
+- **Ax4 MIN-8:** A-ii's recogniser is described as line-anchored, fence-aware and §3-scoped.
+- **Ax4 false premise and Ax5 MIN, round-6 scope:** recorded as it ran (§D.0).
+- **Ax5, "0 new own deferrals":** corrected to 1 own deferral under a re-scoped name, with the ledger
+  net at −1.
+- **Ax5, ledger timing:** the ledger text is planned now (design memo §9) and written at PR creation.
+- **Ax5, fixtures:20–28 `exit 2`:** subsumed by W1.
+- **Ax5, X8:** where the record goes, and the interaction with #510 (head `94281cd7` at writing).
+- **Ax5, umbrella "§5.1: the residual":** now points to §5.1 for the gap and §5.2 for the other
+  residuals.
 ---
 
 ## §E Appendix — the corpus scripts (as run)
@@ -761,6 +861,84 @@ while IFS=$'\t' read -r tag cfg kind label rc ctl passed hit ref; do
     REF|REF5) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
     G|R|RES) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
     BEFORE) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v=RED; fi ;;
+    *) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
+  esac
+  printf '%s\t%s\t%s\t%s\t%s\t%s\tPdiff=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$nd"
+done < "$OUT/raw.tsv"
+```
+
+### §E.4 Draft 7's focused cells (as run)
+
+`c7/cell7.sh` is identical to `c6/cell6.sh` (§E.3).
+
+`c7/gen7.py`:
+
+```python
+#!/usr/bin/env python3
+"""Draft-7 focused cells (items 1 and 2) on p6 (before) and p7 (after). Usage: gen7.py <scratch fgit dir>."""
+import os, sys, shlex
+SP = sys.argv[1]; OUT = os.path.join(SP, 'c7'); H = os.path.join(SP, 'corpus', 'h')
+W = 'webref-generic-core-trip-wire'; parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
+CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin'), 'b32-g254': ('/bin/bash', '/usr/bin')}
+g = lambda *a: os.path.join(H, *a)
+jobs = []; n = [0]
+def mk(tree, cfg, kind, label, edits, env, expect, ref):
+    n[0] += 1; tag = 'f%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
+    for p in parts:
+        src = open(os.path.join(T, W + p + '.sh')).read()
+        for (pp, old, new) in edits:
+            if pp == p:
+                assert src.count(old) >= 1, (label, p, old[:60]); src = src.replace(old, new, 1)
+        dst = os.path.join(T, W + '.' + tag + p + '.sh'); open(dst, 'w').write(src); os.chmod(dst, 0o755)
+    sh, gp = CFGS[cfg]
+    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree, ref]))
+FIFO = 'if [ "$_fifo_ok" -eq 1 ] && ! mkfifo "$CTL/odd/pipe" 2>/dev/null; then'
+PIPE = [('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)]
+ADDS = [('GIT_CONFIG_GLOBAL=<file> git add -A', 'GIT_CONFIG_GLOBAL=' + g('home_ex', '.gitconfig') + ' git'),
+        ('git -c include.path=<file> add -A', 'git -c include.path=' + g('home_ex', '.gitconfig')),
+        ('GIT_TEMPLATE_DIR=<template> git … (via the loop init)', 'GIT_TEMPLATE_DIR=' + g('tpl_ex') + ' git')]
+for tree, phase, refk in ((os.path.join(SP, 'p6'), 'BEFORE', 'REF'), (os.path.join(SP, 'p7'), 'AFTER', 'REF')):
+    fx = open(os.path.join(tree, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
+    li = next(i for i, l in enumerate(fx) if not l.lstrip().startswith('#') and 'git add -A' in l); col = fx[li].index('git add -A')
+    lin = next(i for i, l in enumerate(fx) if not l.lstrip().startswith('#') and 'git init -q .' in l); coln = fx[lin].index('git init -q .')
+    def at(sp, init=False):
+        i, c = (lin, coln) if init else (li, col)
+        return [('.fixtures', fx[i], fx[i][:c] + sp + fx[i][c + 3:])]
+    for cfg in CFGS:
+        ref = refk + '-' + cfg
+        mk(tree, cfg, 'REF', phase + ' clean', [], [], 'GREEN', ref)
+        mk(tree, cfg, phase + '-1', 'odd/pipe pre-created (fixtures exit 2)', PIPE, [], 'CONTROL NOT EXERCISED (the fixture build window completed)', ref)
+        for name, sp in ADDS:
+            mk(tree, cfg, phase + '-2', name, at(sp, init='TEMPLATE' in name), [], 'CONTROL FAILED (the fixtures file gives no git an input from outside the window (a seed))', ref)
+        if phase == 'AFTER':
+            mk(tree, cfg, 'G', 'HOME .config/git/ignore *.py', [], ['HOME=' + g('home_ign')], 'GREEN', ref)
+            mk(tree, cfg, 'G', 'DO cell', [], ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1'], 'GREEN', ref)
+            mk(tree, cfg, 'R', 'gitsweep × HOME ignore *.py', at('sh -c \'unset $(export -p | sed -n "s/^export \\(GIT_[A-Za-z0-9_]*\\)=.*/\\1/p"); exec "$0" "$@"\' git'), ['HOME=' + g('home_ign')], 'GREEN', ref)
+            mk(tree, cfg, 'P', 'W: child aborts after the prelude', [('.harness', '    . "$1"\n', '    . "$1"; exit 4\n')], [], 'CONTROL NOT EXERCISED (the fixture build window completed)', ref)
+            mk(tree, cfg, 'P', 'W: prelude without set -euo pipefail', [('.harness', "    printf 'set -euo pipefail\\n'\n", '')], [], 'CONTROL NOT EXERCISED (the fixture build window completed)', ref)
+            mk(tree, cfg, 'P', 'P-f: window inherits (-i dropped) + caller BASH_FUNC_f%%', [('.harness', '"$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH"', '"$_FGIT_ENVBIN" "${_FGIT_ENV[@]}" "$_FGIT_BASH"')], ['BASH_FUNC_k2probe%%=() { :; }'], "BASH_FUNC_k2probe%%", ref)
+open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
+```
+
+`c7/eval7.sh`:
+
+```sh
+#!/bin/bash
+# Verdicts from c6/raw.tsv: G/R/RES need rc 0, no control line, PASSED and P equal to the config's reference.
+OUT="${K2_CORPUS_OUT:-$(cd "$(dirname "$0")" && pwd)}"
+while IFS=$'\t' read -r tag cfg kind label rc ctl passed hit ref; do
+  [ "$tag" != HARNESS-ERROR ] || { echo "HARNESS-ERROR	$cfg"; continue; }
+  reftag=$(awk -F'\t' -v r="${ref#ref=}" -v c="$cfg" '$2==c && (($3=="REF"&&r=="REF-"c)||($3=="REF5"&&r=="REF5-"c)){print $1}' "$OUT/raw.tsv" | head -1)
+  green=0; [ "$rc" = rc=0 ] && [ "$ctl" = ctl=0 ] && [ "$passed" = passed=1 ] && green=1
+  same=0; [ -n "$reftag" ] && cmp -s "$OUT/pd/$tag" "$OUT/pd/$reftag" && [ -s "$OUT/pd/$tag" ] && same=1
+  nd=$(diff "$OUT/pd/$reftag" "$OUT/pd/$tag" 2>/dev/null | /usr/bin/grep -c '^[<>]')
+  case "$kind" in
+    REF|REF5) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
+    G|R|RES) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
+    BEFORE|BEFORE-2) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v=RED; fi ;;
+    BEFORE-1) v="OBSERVED" ;;
+    AFTER-1) [ "$hit" = hit=1 ] && [ "$rc" = rc=2 ] && [ "$ctl" = ctl=1 ] && v=PASS || v=FAIL ;;
+    P) if [ "$hit" = hit=1 ] && { case "$label" in W:*) [ "$ctl" = ctl=1 ];; *) true;; esac; }; then v=PASS; else v=FAIL; fi ;;
     *) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
   esac
   printf '%s\t%s\t%s\t%s\t%s\t%s\tPdiff=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$nd"
