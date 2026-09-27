@@ -102,8 +102,10 @@ MODULES
                           MECHANISM covers a derived class, not a property of
                           the source) /
                           _selftest_cases_sibling.py (the resolver's controls,
-                          the one Case module carved on a SUBJECT rather than a
-                          review round) /
+                          carved on a SUBJECT rather than a review round) /
+                          _selftest_cases_gap.py (the reader-gap controls: §2.1
+                          whitespace in every gap-bearing pattern, the file-name
+                          boundary, §6.2's reading -- the same kind of seam) /
                           _selftest_mutants.py / _selftest_mutants_pr510.py /
                           _selftest_mutants_inline.py /
                           _selftest_mutants_r26.py /
@@ -111,6 +113,8 @@ MODULES
                           _selftest_mutants_r45.py /
                           _selftest_mutants_ratchets.py (the rows against the
                           ratchets, carved on a SUBJECT like the sibling cases) /
+                          _selftest_mutants_gap.py (the rows against the
+                          reader-gap controls, the same kind of seam) /
                           _selftest_mutants_population.py (the rows against the
                           module population's rules, the same kind of seam) /
                           _selftest_population.py (the partner controls of the
