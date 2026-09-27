@@ -310,6 +310,73 @@ average was 24–66 (real / user+sys CPU):
 The spreads overlap. This is **not** X8, which re-derives on the implementing head under the ci.yml
 rule.
 
+### §A.9 The draft-6 corpus (p6: the window built from nothing)
+
+**Subject.** Prototype `p6`, a `git clone --local` of `p5` taken at `067c0c40`:
+- `50f9e31a`: the window, detector deleted, postconditions inside the window, P-f, and the corpus P-dump
+  hook, which is prototype-only;
+- `863158b1`: the prelude passes plain assignments.
+
+`wc -l` at `863158b1`: controls 351, fixtures 652, harness 300, mutations 783 (untouched in the
+prototype), wire 1259 (untouched).
+
+**P-f caught its own prototype.** On the first run, the prelude used `declare -p`, which carried the
+exported `K2_CORPUS_PDUMP` into the window as an exported name. P-f reported it on both shells. The fix
+was plain `%q` assignments. So the complement check did its job on day one.
+
+**Position independence.** Two clean runs per shell produced byte-identical P dumps (80 repos): diff
+the `c6/pd.1` and `c6/pd.2` dumps. One symlink fixture (`linkname`) stores `$CTL` in its target. The
+dump normalises symlink targets; the fixture is unchanged.
+
+⚠ **P depends on configuration by design.** A fixture repo holds a shim whose content embeds the real
+git path (`$_REAL_GIT`), and that path differs between git 2.55 (`/opt/homebrew/bin/git`) and Apple
+2.54 (`/usr/bin/git`). So P is compared **per configuration**.
+
+⚠ **My first evaluation got this wrong.** `eval6.sh` looked up the reference without matching the
+configuration, so every git-2.54 cell was compared against git 2.55's reference and showed a uniform
+6-line "difference". That was a harness bug, not a finding. It was fixed (the lookup now matches `$2`)
+and re-evaluated from the same `raw.tsv`, without re-running anything.
+
+**Commands.** Scripts are in §E.3. From `…/scratchpad/fgit/`:
+- `python3 c6/gen6.py .` (190 cells);
+- `tr '\n' '\0' < c6/jobs.tsv | xargs -0 -n1 -P2 c6/cell6.sh > c6/raw.tsv`;
+- `c6/eval6.sh > c6/results.tsv`.
+
+The run covered 17:49 to 18:27 JST on 2026-09-27. `raw.err` is empty.
+
+**Results.** From `cut -f1,2,3 c6/results.tsv | sort | uniq -c`:
+
+| config | REF | G | R | RLOUD | RES | P | INFO |
+|---|---|---|---|---|---|---|---|
+| b53-g255 | PASS | 11 PASS | 27 PASS | PASS | 2 PASS | 9 PASS | 2 PASS |
+| b32-g255 | PASS | 11 PASS | 11 PASS | PASS | 2 PASS | 9 PASS | 2 PASS |
+| b53-g254 | PASS | 11 PASS | 11 PASS | PASS | 2 PASS | 9 PASS | 1 PASS, 1 FAIL (PATH drop: equivalent, e0127) |
+| b32-g254 | PASS | 11 PASS | 27 PASS | PASS | 2 PASS | 9 PASS | 1 PASS, 1 FAIL (PATH drop: equivalent, e0180) |
+
+**BEFORE, on `p5d`.** `p5d` is p5 `067c0c40` plus the same P-dump hook, `22ea58f1`. The cells are
+e0182–e0185 (b53-g255) and e0187–e0190 (b32-g254). For `scrub3-sh`, `hermetic-look`, `gitsweep` and
+`t2zero-countempty` under a caller HOME `*.py` ignore, all eight were **SILENT-WRONG**: rc 0 and
+`PASSED`, yet P differed from p5's clean build by 50 dump lines.
+
+**AFTER, on p6.** The same spellings under the same caller are PASS with P identical, on all four
+configurations. Under the other eight hostile callers, `gitsweep` and `scrub3-absenv` are PASS with P
+identical on both FULL configurations.
+
+**Residual evidence (measured, safe).** The following facts back up the residual:
+- `env -i PATH=… git config --list --show-origin --show-scope` shows
+  `system	file:/opt/homebrew/etc/gitconfig	credential.helper=osxkeychain`;
+- that file is owned by `kazuaki admin` and its directory is `kazuaki drwxrwxr-x`;
+- the Homebrew template directory is owned by `kazuaki`;
+- `env -i … git init` copies `description`, `hooks/` and `info/`.
+
+A git that discards the allowlist therefore reads caller-writable files. Nothing was planted there.
+
+**Cost.** K2 wire alone, three interleaved runs per side, load average about 4–6 (real / CPU):
+- base: 12.19/8.98, 12.23/8.95, 12.32/8.99;
+- p6: 12.26/8.82, 12.06/8.64, 12.16/8.72.
+
+This is not X8.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
@@ -392,10 +459,12 @@ rebuild's `/pre-push` Stage 4 over the whole range.
 
 ### §D.0 Terminators
 
-**Round 5 (current).** Round 5 is a **focused** re-review of the draft 4 → 5 delta, by Ax2, Ax3 and
-Ax5. It converges if and only if no IMP arrives with a failing corpus cell. A finding that does come
-with a failing cell is fixed the same way as in round 4: drive p5 to pass the cell, then re-derive the
-memo text from the result.
+**Round 6 (current).** A **focused** re-review by Ax2, Ax3 and Ax5 of the draft 5 → 6 delta. It
+converges if and only if no IMP arrives with a failing corpus cell. A finding that does come with a
+failing cell is fixed on the prototype first, and only then in prose.
+
+**Round 5 (not met).** Ax2 raised 1 IMP and Ax3 raised 3, all with cells. The root cause was that the
+detector was a name list, and the design changed as a result (§D.5).
 
 **Round 4 (not met: 5 unique IMP, each with a cell).** Round 4 converges if no IMP lands on draft-4-added text, and no IMP moves a mechanism
 **without a corpus cell that shows the defect**. A finding that comes with a failing cell is fixed by
@@ -534,300 +603,166 @@ core.
 
 ⚠ Round 4's six Ax4 MINs and ten Ax5 MINs are addressed only where this session's brief named their
 subject, which was every item listed above. Anything else stays open for round 5.
+
+### §D.5 Round 5 (focused; on draft 5 `e8c1bdb8`; Ax2 0/1/2, Ax3 0/3/4, Ax5 0/0/6) → draft 6
+
+| id | disposition | evidence (§A.9) |
+|---|---|---|
+| V1, Ax3 IMP-1: the detector is a name list (scrub3, hermetic-look, gitsweep, t2zero-countempty) | **Design change** (the orchestrating session's decision): the whole fixture-build window is built from nothing, and the detector is deleted | BEFORE 8/8 silent-wrong on p5d; AFTER, R PASS with P identical × 4 configs |
+| V2, Ax3 IMP-2: a wrapper git false-reds (x005/x010) | **moot**: there is no `PATH` shim | — |
+| V3, Ax3 IMP-3: the system prefix is caller-writable | stated as the residual. The claim "reads no caller input" is withdrawn | ownership measurement (§A.9) |
+| V4, Ax2 IMP: the restore of `GIT_CONFIG_GLOBAL` is unpinned | **moot**: there is no restore; the window is a child. The DO cell is green with P equal × 4 | G DO cell |
+| V5, the decision's own premise: "the one spelling that can still read caller state is `env -i` / `env -u GIT_CONFIG_NOSYSTEM`" | **refined**. The residual is any fixture command that removes or overrides an allowlist entry: `env -i`, `env -`, `env -u`, `NAME=… git`, `unset NAME`. RES cells pass here only because this machine's system file and template are benign | RES 2/2 × 4 with P equal; residual stated by property |
+| V6, the decision's own premise: "`_fgit`'s per-call `env -i` may be redundant" | **confirmed and removed**. After the move, no use of `_fgit` remains outside the window (the postconditions moved inside), so the fixtures call `git` | `/usr/bin/grep -c '_fgit' p6/…fixtures.sh` → 0 |
+
+**MINs:**
+- **Ax5, X4b case:** now `grep -i` (it catches mutations:20 "The memo").
+- **Ax5, "P (14)" vs a 16-row table:** moot; the table and count are now 9 and 9.
+- **Ax5, banner seed:** the seed is widened (`.bare|mutation record|every control|unreachable or loud`), giving eleven sites, including L816 and L1212–1214. The memo now says the seed is a seed.
+- **Ax5, in-file mutations statements:** now listed as `:44–46`, `:120`, `:136–138`, `:672–673` and `:684–688`, found by a stated grep.
+- **Ax5, §5.2:** names `#11-k2-wire-exit-trap-masks-set-u-abort`, and nothing new relies on `set -u`.
+- **Ax5, X2/X5 re-run recipe:** the scripts take a directory argument and `K2_CORPUS_OUT`, with the tree under test at `<dir>/p6`.
+- **Ax2/Ax3 MINs tied to the detector** (M1 `cmd_name` absent under poison; M2/M3 detector messages and the canary order): **moot**, deleted with the detector.
+- ⚠ Any round-5 MIN not named in this session's brief remains open for round 6.
 ---
 
 ## §E Appendix — the corpus scripts (as run)
 
-### §E.1 The draft-4 full corpus
+The draft-4 full corpus (§E.1) and the draft-5 subset (§E.2) are superseded by the draft-6 recast. To
+keep this file bounded, their verbatim texts now live only in the history:
 
-`gen.py`:
+- `git show 57e5419f:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E);
+- `git show e8c1bdb8:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E.2).
 
-```python
-#!/usr/bin/env python3
-"""Generate the adversarial corpus jobs for prototype p4. Usage: gen.py <p4 dir> <out dir>"""
-import os, re, sys, shlex
-P4, OUT = sys.argv[1], sys.argv[2]
-T = os.path.join(P4, '.claude/tools')
-W = 'webref-generic-core-trip-wire'
-parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
-fx = open(os.path.join(T, W + '.fixtures.sh')).read().split('\n')
-hn = open(os.path.join(T, W + '.harness.sh')).read()
-CFGS = {  # name: (shell, git prefix dir, real git)
-  'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'),
-  'b32-g255': ('/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'),
-  'b53-g254': ('/opt/homebrew/bin/bash', '/usr/bin', '/usr/bin/git'),
-  'b32-g254': ('/bin/bash', '/usr/bin', '/usr/bin/git'),
-}
-# ---- call-site classes: first line per class, which _fgit occurrence on it
-classes = [
- ('init',            r'_fgit init'),
- ('add -A',          r'_fgit add -A'),
- ('add <path>',      r'_fgit add (?!-)'),
- ('add -f',          r'_fgit add -f'),
- ('commit',          r'_fgit -c user\.name=w -c user\.email=w@e commit'),
- ('checkout',        r'_fgit checkout'),
- ('hash-object',     r'_fgit hash-object --stdin'),
- ('hash-object -w',  r'_fgit hash-object -w (?!-)'),
- ('hash-object -w --stdin', r'_fgit hash-object -w --stdin'),
- ('update-index',    r'_fgit update-index'),
- ('replace',         r'_fgit replace'),
- ('rev-parse',       r'_fgit rev-parse'),
- ('symbolic-ref',    r'_fgit symbolic-ref'),
-]
-sites = []
-for name, rx in classes:
-    for i, l in enumerate(fx):
-        if l.lstrip().startswith('#'): continue
-        m = re.search(rx, l)
-        if m:
-            sites.append((name, i, m.start())); break
-    else:
-        sites.append((name, None, None))
-def spellings(realgit):
-    return [
-     ('bare git',             'git', 'R'),
-     ('_git',                 '_git', 'R'),
-     ('command git',          'command git', 'R'),
-     ('env git',              'env git', 'R'),
-     ('env -i PATH="$PATH" git', 'env -i PATH="$PATH" git', 'R'),
-     ('PATH=fakegit:$PATH git', 'PATH="$CTL/fakegit:$PATH" git', 'R'),
-     ('hash -p + git',        'hash -p %s git && git' % realgit, 'R'),
-     ('eval $_REAL_GIT',      'eval "$_REAL_GIT"', 'R'),
-     ('absolute path',        realgit, 'R'),
-     ('git -c override',      'git -c core.excludesFile=/dev/null', 'R'),
-     ('env -i literal PATH',  'env -i PATH=/usr/bin:/bin git', 'RES'),
-     ('env -i absolute',      'env -i %s' % realgit, 'RES'),
-    ]
-H = os.path.join(OUT, 'h')
-g = lambda *a: os.path.join(H, *a)
-GROWS = [
- ('clean', []),
- ('HOME .gitconfig excludesFile *.py', ['HOME=' + g('home_ex')]),
- ('HOME empty .config/git/ignore', ['HOME=' + g('home_empty')]),
- ('HOME .config/git/ignore *.py', ['HOME=' + g('home_ign')]),
- ('XDG git/ignore *.py', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_ign')]),
- ('XDG git/attributes wte', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_attr')]),
- ('XDG git/config excludesFile', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_cfg')]),
- ('XDG git/config init.templateDir', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_tpl')]),
- ('GIT_TEMPLATE_DIR exclude', ['GIT_TEMPLATE_DIR=' + g('tpl_ex')]),
- ('GIT_TEMPLATE_DIR config', ['GIT_TEMPLATE_DIR=' + g('tpl_cfg')]),
- ('GIT_TEMPLATE_DIR HEAD', ['GIT_TEMPLATE_DIR=' + g('tpl_head')]),
- ('GIT_TEMPLATE_DIR hooks', ['GIT_TEMPLATE_DIR=' + g('tpl_hook')]),
- ('GIT_CONFIG_GLOBAL=/dev/null', ['GIT_CONFIG_GLOBAL=/dev/null']),
- ('GIT_CONFIG_GLOBAL=<all five>', ['GIT_CONFIG_GLOBAL=' + g('all5.cfg')]),
- ('GIT_CONFIG_SYSTEM=<all five>', ['GIT_CONFIG_SYSTEM=' + g('all5.cfg')]),
- ('COUNT init.defaultBranch', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=init.defaultBranch', 'GIT_CONFIG_VALUE_0=hostile']),
- ('COUNT core.excludesFile', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.excludesFile', 'GIT_CONFIG_VALUE_0=' + g('pyglob')]),
- ('COUNT core.hooksPath', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.hooksPath', 'GIT_CONFIG_VALUE_0=' + g('hooks')]),
- ('COUNT attributesFile+filter', ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=core.attributesFile', 'GIT_CONFIG_VALUE_0=' + g('attr_filter'), 'GIT_CONFIG_KEY_1=filter.zap.clean', 'GIT_CONFIG_VALUE_1=true']),
- ('COUNT commit.gpgSign+false', ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=commit.gpgSign', 'GIT_CONFIG_VALUE_0=true', 'GIT_CONFIG_KEY_1=gpg.program', 'GIT_CONFIG_VALUE_1=/usr/bin/false']),
- ('PARAMETERS init.defaultbranch', ["GIT_CONFIG_PARAMETERS='init.defaultbranch'='hostile'"]),
- ('PARAMETERS core.excludesfile', ["GIT_CONFIG_PARAMETERS='core.excludesfile'='%s'" % g('pyglob')]),
- ('HOME .gitconfig init.defaultBranch', ['HOME=' + g('home_br')]),
- ('HOME .gitconfig core.hooksPath', ['HOME=' + g('home_hook')]),
- ('HOME .gitconfig attributesFile+filter', ['HOME=' + g('home_filter')]),
- ('HOME .gitconfig gpgSign+false', ['HOME=' + g('home_gpg')]),
- ('GIT_DIR=<other>', ['GIT_DIR=' + g('other', '.git')]),
- ('GIT_INDEX_FILE=<other>', ['GIT_INDEX_FILE=' + g('other', 'idx')]),
- ('GIT_WORK_TREE=<other>', ['GIT_WORK_TREE=' + g('other')]),
-]
-PINS = [  # (name, harness old, harness new, needle)
- ('P-a env config in _FGIT_ENV', '"GIT_TEMPLATE_DIR=$_FGIT_VOID")', '"GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a.b GIT_CONFIG_VALUE_0=c)', "CONTROL FAILED (the fixture git reads configuration only from the fixture's own config file)"),
- ('P-b drop NOSYSTEM', ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1', ' GIT_ATTR_NOSYSTEM=1', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
- ('P-b drop ATTR_NOSYSTEM', ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1', ' GIT_CONFIG_NOSYSTEM=1', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
- ('P-b drop HOME', '"PATH=$PATH" "HOME=$_FGIT_VOID" ', '"PATH=$PATH" ', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
- ('P-c void non-empty', 'mkdir "$_FGIT_VOID" || exit 2', 'mkdir "$_FGIT_VOID" || exit 2; : > "$_FGIT_VOID/planted"', "CONTROL FAILED (nothing is written into the fixture git's void)"),
- ('P-d drop TEMPLATE_DIR', ' "GIT_TEMPLATE_DIR=$_FGIT_VOID")', ')', 'CONTROL FAILED (the fixture git copies no template)'),
- ('P-e drop PATH', '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=(', 'CONTROL FAILED (the fixture git is the git the wire reads with)'),
- ('detect: _fgit inherits', '_fgit() { command env -i ', '_fgit() { command env ', 'CONTROL FAILED (every fixture git call goes through _fgit)'),
- ('liveness: no GIT_TRACE', '  export GIT_TRACE="$_FD_TRACE"\n', '', 'CONTROL NOT EXERCISED (the fixture-build bypass detector sees a bypass)'),
- ('liveness: no PATH shim', '  PATH="$_FD_DIR/bin:$PATH"\n', '', 'CONTROL NOT EXERCISED (the fixture-build bypass detector sees a bypass)'),
-]
-jobs = []
-n = 0
-def mk(cfg, kind, label, edits, env, expect):
-    global n
-    n += 1
-    tag = 'c%04d' % n
-    for p in parts:
-        src = open(os.path.join(T, W + p + '.sh')).read()
-        for (pp, old, new) in edits:
-            if pp == p:
-                assert src.count(old) >= 1, (label, old)
-                src = src.replace(old, new, 1)
-        dst = os.path.join(T, W + '.' + tag + p + '.sh')
-        open(dst, 'w').write(src); os.chmod(dst, 0o755)
-    sh, gp, rg = CFGS[cfg]
-    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect]))
-for cfg, (sh, gp, rg) in CFGS.items():
-    for name, env in GROWS:
-        mk(cfg, 'G', name, [], env, 'GREEN')
-    for (cls, li, col) in sites:
-        for sname, sp, kind in spellings(rg):
-            line = fx[li]
-            new = line[:col] + sp + line[col + len('_fgit'):]
-            mk(cfg, kind, cls + ' × ' + sname, [('.fixtures', line, new)], [], 'CONTROL FAILED (every fixture git call goes through _fgit)')
-    for name, old, new, needle in PINS:
-        mk(cfg, 'P', name, [('.harness', old, new)], [], needle)
-open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n')
-print(len(jobs), 'jobs;', 'sites:', [(c, li + 1 if li is not None else None) for c, li, _ in sites])
-```
+The scratch copies are `…/scratchpad/fgit/corpus/` and `…/corpus5/`.
 
-`cell.sh`:
+### §E.3 The draft-6 recast corpus (as run)
 
-```sh
-#!/bin/bash
-# one corpus cell: tag cfg kind label shell gitprefix env expect
-IFS=$'\x1f' read -r tag cfg kind label sh gp envs expect <<< "$1"
-P4=/private/tmp/claude-501/-Users-kazuaki-repos-send-sh-elidex/d366a8a7-1cd3-4517-9fcf-9e5d66cdc77f/scratchpad/fgit/p4
-OUT=/private/tmp/claude-501/-Users-kazuaki-repos-send-sh-elidex/d366a8a7-1cd3-4517-9fcf-9e5d66cdc77f/scratchpad/fgit/corpus
-[ -n "$tag" ] && [ -x "$sh" ] && [ -n "$expect" ] || { printf "HARNESS-ERROR\t%s\n" "$1"; exit 0; }
-log=$OUT/logs/$tag.log; mkdir -p $OUT/tmp/$tag
-eval "set -- $envs"
-( cd $P4 && env TMPDIR=$OUT/tmp/$tag PATH="$gp:/usr/bin:/bin:/opt/homebrew/bin" "$@" "$sh" ".claude/tools/webref-generic-core-trip-wire.$tag.sh" ) > $log 2>&1
-rc=$?
-[ $rc -ne 127 ] && [ $rc -ne 126 ] || { printf "HARNESS-ERROR\t%s\trc=%s\n" "$tag" "$rc"; exit 0; }
-ncf=$(/usr/bin/grep -c 'CONTROL FAILED\|CONTROL NOT EXERCISED' $log); pass=$(/usr/bin/grep -c 'trip-wire PASSED' $log)
-if [ "$expect" = GREEN ]; then
-  if [ $rc -eq 0 ] && [ $ncf -eq 0 ] && [ $pass -eq 1 ]; then v=PASS; else v=FAIL; fi
-else
-  if [ $rc -ne 0 ] && /usr/bin/grep -qF "$expect" $log; then v=PASS; else v=FAIL; fi
-fi
-[ "$kind" = RES ] && { [ "$v" = PASS ] && v=RES-RED || v=RES-GREEN; }
-printf '%s\t%s\t%s\t%s\t%s\trc=%s\tctl=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$ncf"
-rm -rf $OUT/tmp/$tag
-```
-
-### §E.2 The draft-5 subset (as run in run 3)
-
-`corpus5/gen5.py`:
+`c6/gen6.py`:
 
 ```python
 #!/usr/bin/env python3
-"""Representative corpus for draft 5 (prototype p5) + before-cells on p4.
-Usage: gen5.py <scratch fgit dir>. Writes corpus5/jobs.tsv."""
+"""Draft-6 recast corpus. Usage: gen6.py <scratch fgit dir>. Writes c6/jobs.tsv.
+Oracle: G/R/RES must stay green AND each fixture's P must equal the same config's clean build (eval6.sh)."""
 import os, re, sys, shlex
-SP = sys.argv[1]; OUT = os.path.join(SP, 'corpus5'); H = os.path.join(OUT, 'h')
+SP = sys.argv[1]; OUT = os.path.join(SP, 'c6'); H = os.path.join(SP, 'corpus', 'h')
 W = 'webref-generic-core-trip-wire'; parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
-CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin'), 'b32-g255': ('/bin/bash', '/opt/homebrew/bin'),
-        'b53-g254': ('/opt/homebrew/bin/bash', '/usr/bin'), 'b32-g254': ('/bin/bash', '/usr/bin')}
-L = dict(setup="the fixture-build bypass detector is installed",
- gitl="the build's PATH shim for git records a call", envl="the build's PATH shim for env records a call",
- trl="the build's GIT_TRACE2_EVENT records an inheriting git", cfgl="the build's trace2 target, set through its global configuration, records a git that drops the trace variables",
- poil="the build's poisoned configuration stops a git that drops the trace variables and the global configuration",
- git="no fixture calls git through PATH instead of _fgit", env="no fixture calls env through PATH instead of _fgit",
- cfg="no fixture git writes the build's trace2 events",
- pa="the fixture git reads configuration only from the fixture's own config file", pal="this git reports a non-local configuration scope",
- pb="the fixture git has no system or global layer outside the void", pbl="this git names its system files through git var",
- pc="nothing is written into the fixture git's void", pd="the fixture git copies no template", pe="the fixture git is the git the wire reads with")
-F = lambda k: 'CONTROL FAILED (%s)' % L[k]
-N = lambda k: 'CONTROL NOT EXERCISED (%s)' % L[k]
+CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'), 'b32-g255': ('/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'),
+        'b53-g254': ('/opt/homebrew/bin/bash', '/usr/bin', '/usr/bin/git'), 'b32-g254': ('/bin/bash', '/usr/bin', '/usr/bin/git')}
 g = lambda *a: os.path.join(H, *a)
+P6 = os.path.join(SP, 'p6'); P5D = os.path.join(SP, 'p5d')
 jobs = []; n = [0]
-def mk(tree, cfg, kind, label, edits, env, expect):
-    n[0] += 1; tag = 'd%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
+def mk(tree, cfg, kind, label, edits, env, expect, ref):
+    n[0] += 1; tag = 'e%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
     for p in parts:
         src = open(os.path.join(T, W + p + '.sh')).read()
         for (pp, old, new) in edits:
             if pp == p:
                 assert src.count(old) >= 1, (label, p, old[:60]); src = src.replace(old, new, 1)
         dst = os.path.join(T, W + '.' + tag + p + '.sh'); open(dst, 'w').write(src); os.chmod(dst, 0o755)
-    sh, gp = CFGS[cfg]
-    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree]))
-P5 = os.path.join(SP, 'p5'); P4 = os.path.join(SP, 'p4')
-fx = open(os.path.join(P5, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
-classes = [('init', r'_fgit init'), ('add -A', r'_fgit add -A'), ('add <path>', r'_fgit add (?!-)'), ('add -f', r'_fgit add -f'),
- ('commit', r'_fgit -c user\.name=w -c user\.email=w@e commit'), ('checkout', r'_fgit checkout'), ('hash-object', r'_fgit hash-object --stdin'),
- ('hash-object -w', r'_fgit hash-object -w (?!-)'), ('hash-object -w --stdin', r'_fgit hash-object -w --stdin'), ('update-index', r'_fgit update-index'),
- ('replace', r'_fgit replace'), ('rev-parse', r'_fgit rev-parse'), ('symbolic-ref', r'_fgit symbolic-ref')]
-sites = {}
-for name, rx in classes:
-    for i, l in enumerate(fx):
-        if l.lstrip().startswith('#'): continue
-        m = re.search(rx, l)
-        if m: sites[name] = (i, m.start()); break
-def site_edit(cls, sp):
-    i, col = sites[cls]; line = fx[i]
-    return [('.fixtures', line, line[:col] + sp + line[col + len('_fgit'):])]
-RG = '"$_REAL_GIT_BIN"'
-SPELL = [  # (name, spelling at the add -A site, expected needle)
- ('bare git', 'git', F('git')), ('_git', '_git', F('git')), ('command git', 'command git', F('git')),
- ('env git', 'env git', F('env')), ('env -i PATH="$PATH" git', 'env -i PATH="$PATH" git', F('env')),
- ('env - PATH=/usr/bin:/bin git', 'env - PATH=/usr/bin:/bin git', F('env')),
- ('env -i PATH=/usr/bin:/bin git', 'env -i PATH=/usr/bin:/bin git', F('env')),
- ('env -i <abs git>', 'env -i ' + RG, F('env')),
- ('PATH=fakegit:$PATH git', 'PATH="$CTL/fakegit:$PATH" git', 'CONTROL FAILED (no fixture '),
- ('hash -p <abs> git && git', 'hash -p ' + RG + ' git && git', F('cfg')), ('eval "$_REAL_GIT"', 'eval "$_REAL_GIT"', F('cfg')),
- ('absolute path', RG, F('cfg')), ('git -c core.excludesFile=/dev/null', 'git -c core.excludesFile=/dev/null', F('git')),
- ('GIT_TRACE= <abs>', 'GIT_TRACE= ' + RG, F('cfg')), ('GIT_TRACE=0 eval "$_REAL_GIT"', 'GIT_TRACE=0 eval "$_REAL_GIT"', F('cfg')),
- ('GIT_TRACE=/dev/null <abs>', 'GIT_TRACE=/dev/null ' + RG, F('cfg')),
- ('env -u GIT_TRACE <abs>', 'env -u GIT_TRACE ' + RG, F('env')),
- ('sh -c unset GIT_TRACE GIT_TRACE2_EVENT; exec <abs>', 'sh -c \'unset GIT_TRACE GIT_TRACE2_EVENT; exec "$0" "$@"\' ' + RG, F('cfg')),
- ('sh -c unset GIT_TRACE GIT_TRACE2_EVENT GIT_CONFIG_GLOBAL; exec <abs> (poison)', 'sh -c \'unset GIT_TRACE GIT_TRACE2_EVENT GIT_CONFIG_GLOBAL; exec "$0" "$@"\' ' + RG, 'CONTROL NOT EXERCISED ('),
-]
-RES = [('/usr/bin/env -i PATH=/usr/bin:/bin git', '/usr/bin/env -i PATH=/usr/bin:/bin git'), ('/usr/bin/env -i <abs git>', '/usr/bin/env -i ' + RG)]
-HN = '.harness'
-REC = [  # the representative record set: (name, part, old, new, needle)
- ('setup fails (U5)', HN, '_FD_DIR="$SCRATCH/fgit-detect"', '_FD_DIR="/nonexistent-k2/fgit-detect"', N('setup')),
- ('git shim marks nothing', HN, '''printf '#!/bin/sh\\n: >> %s\\nexit 97\\n' "$(_shq "$_FD_GITMARK")" > "$_FD_DIR/bin/git"''', '''printf '#!/bin/sh\\nexit 97\\n' > "$_FD_DIR/bin/git"''', N('gitl')),
- ('env shim marks nothing', HN, '''printf '#!/bin/sh\\n: >> %s\\nexit 97\\n' "$(_shq "$_FD_ENVMARK")" > "$_FD_DIR/bin/env"''', '''printf '#!/bin/sh\\nexit 97\\n' > "$_FD_DIR/bin/env"''', N('envl')),
- ('no GIT_TRACE2_EVENT', HN, '  export GIT_TRACE2_EVENT="$_FD_T2"\n', '', N('trl')),
- ('no global config', HN, '  export GIT_CONFIG_GLOBAL="$_FD_CFG"\n', '', N('cfgl')),
- ('no poison', HN, '  export GIT_CONFIG_COUNT=bogus\n', '', N('poil')),
- ('_fgit inherits (-i dropped)', HN, '_fgit() { "$_FGIT_ENVBIN" -i ', '_fgit() { "$_FGIT_ENVBIN" ', F('cfg')),
- ('P-a env config in _FGIT_ENV', HN, '"GIT_TEMPLATE_DIR=$_FGIT_VOID")', '"GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a.b GIT_CONFIG_VALUE_0=c)', F('pa')),
- ('P-a liveness probe loses -c', HN, '_fgit -c a.b=c config --list', '_fgit config --list', N('pal')),
- ('P-b drop NOSYSTEM', HN, ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT', ' GIT_ATTR_NOSYSTEM=1 "GIT', F('pb')),
- ('P-b liveness probe keeps NOSYSTEM', HN, 'GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var', 'git var', N('pbl')),
- ('P-c void non-empty', HN, 'mkdir "$_FGIT_VOID" || exit 2', 'mkdir "$_FGIT_VOID" || exit 2; : > "$_FGIT_VOID/planted"', F('pc')),
- ('P-d drop TEMPLATE_DIR', HN, ' "GIT_TEMPLATE_DIR=$_FGIT_VOID")', ')', F('pd')),
- ('P-e GIT_EXEC_PATH injected', HN, '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=("PATH=$PATH" GIT_EXEC_PATH=/nonexistent-k2 ', F('pe')),
-]
-GROWS = [('clean', []), ('HOME .config/git/ignore *.py', ['HOME=' + g('home_ign')]), ('GIT_CONFIG_GLOBAL=/dev/null', ['GIT_CONFIG_GLOBAL=/dev/null']),
+    sh, gp, rg = CFGS[cfg]
+    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree, ref]))
+    return tag
+HOSTILE = [
+ ('HOME .config/git/ignore *.py', ['HOME=' + g('home_ign')]),
+ ('XDG attributes filter=zap + clean=true', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_filter')]),
+ ('GIT_CONFIG_GLOBAL=<excludesFile, hooksPath, attributesFile+filter, gpgSign, defaultBranch>', ['GIT_CONFIG_GLOBAL=' + g('all5.cfg')]),
  ('COUNT core.excludesFile', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.excludesFile', 'GIT_CONFIG_VALUE_0=' + g('pyglob')]),
- ('GIT_CONFIG_GLOBAL=<all five>', ['GIT_CONFIG_GLOBAL=' + g('all5.cfg')]), ('COUNT init.defaultBranch', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=init.defaultBranch', 'GIT_CONFIG_VALUE_0=hostile']),
- ('caller GIT_TRACE=<abs file>', ['GIT_TRACE=' + g('callertrace')]), ('caller GIT_TRACE2_EVENT=<abs file>', ['GIT_TRACE2_EVENT=' + g('callertrace2')])]
-for cfg in CFGS:
-    for name, env in GROWS: mk(P5, cfg, 'G', name, [], env, 'GREEN')
-    for cls in sites: mk(P5, cfg, 'R', cls + ' × bare git', site_edit(cls, 'git'), [], F('git'))
-    for name, sp, needle in SPELL: mk(P5, cfg, 'R', 'add -A × ' + name, site_edit('add -A', sp), [], needle)
-    mk(P5, cfg, 'R', 'add -A × GIT_TRACE= <abs> + caller HOME ignore *.py', site_edit('add -A', 'GIT_TRACE= ' + RG), ['HOME=' + g('home_ign')], F('cfg'))
-    for name, sp in RES: mk(P5, cfg, 'RES', 'add -A × ' + name, site_edit('add -A', sp), [], F('env'))
-    for name, part, old, new, needle in REC: mk(P5, cfg, 'P', name, [(part, old, new)], [], needle)
-    mk(P5, cfg, 'INFO', 'P-e drop PATH (machine-conditional)', [(HN, '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=(')], [], F('pe'))
-# before-cells on p4 (the draft-4 prototype), two configs
-fx4 = open(os.path.join(P4, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
-i, col = sites['add -A']; line4 = fx4[i]
-for cfg in ('b53-g255', 'b32-g254'):
-    mk(P4, cfg, 'BEFORE', 'p4: setup fails (U5)', [(HN, '_FD_DIR="$SCRATCH/fgit-detect"', '_FD_DIR="/nonexistent-k2/fgit-detect"')], [], 'CONTROL NOT EXERCISED (the fixture-build bypass detector sees a bypass)')
-    for name, sp in [('GIT_TRACE= <abs>', 'GIT_TRACE= ' + RG), ('env -i PATH=/usr/bin:/bin git', 'env -i PATH=/usr/bin:/bin git')]:
-        mk(P4, cfg, 'BEFORE', 'p4: add -A × ' + name + ' + caller HOME ignore *.py', [('.fixtures', line4, line4[:col] + sp + line4[col + 5:])], ['HOME=' + g('home_ign')], 'CONTROL FAILED (every fixture git call goes through _fgit)')
-open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n')
-print(len(jobs), 'jobs')
+ ('COUNT core.hooksPath', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.hooksPath', 'GIT_CONFIG_VALUE_0=' + g('hooks')]),
+ ('COUNT commit.gpgSign+false', ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=commit.gpgSign', 'GIT_CONFIG_VALUE_0=true', 'GIT_CONFIG_KEY_1=gpg.program', 'GIT_CONFIG_VALUE_1=/usr/bin/false']),
+ ('GIT_TEMPLATE_DIR config', ['GIT_TEMPLATE_DIR=' + g('tpl_cfg')]),
+ ('GIT_TEMPLATE_DIR hooks', ['GIT_TEMPLATE_DIR=' + g('tpl_hook')]),
+ ('DO: GIT_CONFIG_GLOBAL safe.directory=* + GIT_TEST_ASSUME_DIFFERENT_OWNER=1', ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1']),
+]
+GEXTRA = [('GIT_CONFIG_GLOBAL=/dev/null', ['GIT_CONFIG_GLOBAL=/dev/null']), ('caller GIT_TRACE2_EVENT=<abs file>', ['GIT_TRACE2_EVENT=' + g('callertrace2')])]
+def spellings(rg):
+    return [('command git', 'command git'), ('env git', 'env git'), ('absolute path', rg), ('eval "$_REAL_GIT"', 'eval "$_REAL_GIT"'),
+     ('hash -p <abs> git && git', 'hash -p %s git && git' % rg), ('git -c core.excludesFile=/dev/null', 'git -c core.excludesFile=/dev/null'),
+     ('scrub3-sh', 'sh -c \'unset GIT_TRACE2_EVENT GIT_CONFIG_GLOBAL GIT_CONFIG_COUNT; exec "$0" "$@"\' ' + rg),
+     ('scrub3-absenv', '/usr/bin/env -u GIT_TRACE2_EVENT -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_COUNT ' + rg),
+     ('hermetic-look', 'GIT_TRACE2_EVENT= GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT= ' + rg),
+     ('gitsweep', 'sh -c \'unset $(export -p | sed -n "s/^export \\(GIT_[A-Za-z0-9_]*\\)=.*/\\1/p"); exec "$0" "$@"\' ' + rg),
+     ('t2zero-countempty', 'GIT_TRACE2_EVENT=0 GIT_CONFIG_COUNT= ' + rg)]
+RES = lambda rg: [('env -i PATH="$PATH" git (discards the allowlist)', 'env -i PATH="$PATH" git'), ('env -u GIT_CONFIG_NOSYSTEM git', 'env -u GIT_CONFIG_NOSYSTEM git')]
+HN = '.harness'
+REC = [
+ ('window aborts before completing', HN, '. "$1"; . "$2"; shift 2', '. "$1"; exit 3; . "$2"; shift 2', 'CONTROL NOT EXERCISED (the fixture build window completed)'),
+ ('P-a env config in the allowlist', HN, '"LC_ALL=C")', '"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a.b GIT_CONFIG_VALUE_0=c)', "CONTROL FAILED (the fixture git reads configuration only from the fixture's own config file)"),
+ ('P-a liveness probe loses -c', HN, 'git -c a.b=c config --list', 'git config --list', 'CONTROL NOT EXERCISED (this git reports a non-local configuration scope)'),
+ ('P-b drop NOSYSTEM', HN, ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT', ' GIT_ATTR_NOSYSTEM=1 "GIT', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
+ ('P-b liveness probe keeps NOSYSTEM', HN, 'GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var', 'git var', 'CONTROL NOT EXERCISED (this git names its system files through git var)'),
+ ('P-c void non-empty', HN, 'mkdir "$_FGIT_VOID" || exit 2', 'mkdir "$_FGIT_VOID" || exit 2; : > "$_FGIT_VOID/planted"', "CONTROL FAILED (nothing is written into the fixture git's void)"),
+ ('P-d drop TEMPLATE_DIR', HN, ' "GIT_TEMPLATE_DIR=$_FGIT_VOID" "LC_ALL=C")', ' "LC_ALL=C")', 'CONTROL FAILED (the fixture git copies no template)'),
+ ('P-e GIT_EXEC_PATH injected', HN, '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=("PATH=$PATH" GIT_EXEC_PATH=/nonexistent-k2 ', 'CONTROL FAILED (the fixture git is the git the wire reads with)'),
+ ('P-f window inherits (-i dropped)', HN, '"$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH"', '"$_FGIT_ENVBIN" "${_FGIT_ENV[@]}" "$_FGIT_BASH"', "CONTROL FAILED (the fixture build window's environment holds only its allowlist)"),
+]
+fx6 = open(os.path.join(P6, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
+li = next(i for i, l in enumerate(fx6) if not l.lstrip().startswith('#') and 'git add -A' in l); col = fx6[li].index('git add -A')
+def at_site(sp): return [('.fixtures', fx6[li], fx6[li][:col] + sp + fx6[li][col + 3:])]
+FULL = ('b53-g255', 'b32-g254')
+for cfg, (sh, gp, rg) in CFGS.items():
+    ref = 'REF-' + cfg
+    mk(P6, cfg, 'REF', 'clean (reference P)', [], [], 'GREEN', ref)
+    for name, env in HOSTILE + GEXTRA: mk(P6, cfg, 'G', name, [], env, 'GREEN', ref)
+    for name, sp in spellings(rg): mk(P6, cfg, 'R', name + ' × HOME ignore *.py', at_site(sp), ['HOME=' + g('home_ign')], 'GREEN', ref)
+    mk(P6, cfg, 'RLOUD', '_git × HOME ignore *.py', at_site('_git'), ['HOME=' + g('home_ign')], 'CONTROL NOT EXERCISED (', ref)
+    if cfg in FULL:
+        for name, sp in spellings(rg):
+            if name not in ('gitsweep', 'scrub3-absenv'): continue
+            for hname, env in HOSTILE[1:]: mk(P6, cfg, 'R', name + ' × ' + hname, at_site(sp), env, 'GREEN', ref)
+    for name, sp in RES(rg): mk(P6, cfg, 'RES', name + ' × HOME ignore *.py', at_site(sp), ['HOME=' + g('home_ign')], 'GREEN', ref)
+    for name, part, old, new, needle in REC: mk(P6, cfg, 'P', name, [(part, old, new)], [], needle, ref)
+    mk(P6, cfg, 'INFO', 'drop HOME from the allowlist', [(HN, '"PATH=$PATH" "HOME=$_FGIT_VOID" ', '"PATH=$PATH" ')], [], 'CONTROL FAILED (the fixture git has no system or global layer outside the void)', ref)
+    mk(P6, cfg, 'INFO', 'drop PATH from the allowlist', [(HN, '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=(')], [], 'CONTROL FAILED (the fixture git is the git the wire reads with)', ref)
+# BEFORE on p5d
+fx5 = open(os.path.join(P5D, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
+l5 = next(i for i, l in enumerate(fx5) if not l.lstrip().startswith('#') and '_fgit add -A' in l); c5 = fx5[l5].index('_fgit add -A')
+for cfg in FULL:
+    sh, gp, rg = CFGS[cfg]; ref = 'REF5-' + cfg
+    mk(P5D, cfg, 'REF5', 'p5 clean (reference P)', [], [], 'GREEN', ref)
+    for name, sp in spellings(rg):
+        if name not in ('scrub3-sh', 'hermetic-look', 'gitsweep', 't2zero-countempty'): continue
+        mk(P5D, cfg, 'BEFORE', 'p5: ' + name + ' × HOME ignore *.py', [('.fixtures', fx5[l5], fx5[l5][:c5] + sp + fx5[l5][c5 + 5:])], ['HOME=' + g('home_ign')], 'GREEN', ref)
+open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
 ```
 
-`corpus5/cell.sh`:
+`c6/cell6.sh`:
 
 ```sh
 #!/bin/bash
-# one corpus cell: tag cfg kind label shell gitprefix env expect [tree]
-IFS=$'\x1f' read -r tag cfg kind label sh gp envs expect tree <<< "$1"
-OUT=/private/tmp/claude-501/-Users-kazuaki-repos-send-sh-elidex/d366a8a7-1cd3-4517-9fcf-9e5d66cdc77f/scratchpad/fgit/corpus5
-[ -n "$tag" ] && [ -x "$sh" ] && [ -n "$expect" ] && [ -d "$tree" ] || { printf "HARNESS-ERROR\t%s\n" "$1"; exit 0; }
-log=$OUT/logs/$tag.log; mkdir -p $OUT/tmp/$tag
+# One draft-6 corpus cell. Usage: cell6.sh <job line>; OUT defaults to this script's directory.
+IFS=$'\x1f' read -r tag cfg kind label sh gp envs expect tree ref <<< "$1"
+OUT="${K2_CORPUS_OUT:-$(cd "$(dirname "$0")" && pwd)}"
+[ -n "$tag" ] && [ -x "$sh" ] && [ -d "$tree" ] || { printf "HARNESS-ERROR\t%s\n" "$1"; exit 0; }
+log=$OUT/logs/$tag.log; pd=$OUT/pd/$tag; : > "$pd"; mkdir -p "$OUT/tmp/$tag"
 eval "set -- $envs"
-( cd "$tree" && env TMPDIR=$OUT/tmp/$tag PATH="$gp:/usr/bin:/bin:/opt/homebrew/bin" "$@" "$sh" ".claude/tools/webref-generic-core-trip-wire.$tag.sh" ) > $log 2>&1
+( cd "$tree" && env TMPDIR="$OUT/tmp/$tag" K2_CORPUS_PDUMP="$pd" PATH="$gp:/usr/bin:/bin:/opt/homebrew/bin" "$@" "$sh" ".claude/tools/webref-generic-core-trip-wire.$tag.sh" ) > "$log" 2>&1
 rc=$?
 [ $rc -ne 127 ] && [ $rc -ne 126 ] || { printf "HARNESS-ERROR\t%s\trc=%s\n" "$tag" "$rc"; exit 0; }
-ncf=$(/usr/bin/grep -c 'CONTROL FAILED\|CONTROL NOT EXERCISED' $log); pass=$(/usr/bin/grep -c 'trip-wire PASSED' $log)
-green=0; [ $rc -eq 0 ] && [ $ncf -eq 0 ] && [ $pass -eq 1 ] && green=1
-hit=0; [ $rc -ne 0 ] && /usr/bin/grep -qF -- "$expect" $log && hit=1
-case "$kind" in
-  G) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
-  RES) if [ $green -eq 1 ]; then v=RES-GREEN; elif [ $hit -eq 1 ]; then v=RES-RED; else v=FAIL; fi ;;
-  *) [ $hit -eq 1 ] && v=PASS || v=FAIL ;;
-esac
-arms=$(/usr/bin/grep -oE 'CONTROL [A-Z ]*\((no fixture|the build.s|the fixture-build|the fixture git|this git|nothing is written)[^)]*\)' $log | sort -u | tr '\n' ';')
-printf '%s\t%s\t%s\t%s\t%s\trc=%s\tctl=%s\t%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$ncf" "$arms"
-rm -rf $OUT/tmp/$tag
+ncf=$(/usr/bin/grep -c 'CONTROL FAILED\|CONTROL NOT EXERCISED' "$log"); pass=$(/usr/bin/grep -c 'trip-wire PASSED' "$log")
+hit=0; [ "$expect" != GREEN ] && [ $rc -ne 0 ] && /usr/bin/grep -qF -- "$expect" "$log" && hit=1
+printf '%s\t%s\t%s\t%s\trc=%s\tctl=%s\tpassed=%s\thit=%s\tref=%s\n' "$tag" "$cfg" "$kind" "$label" "$rc" "$ncf" "$pass" "$hit" "$ref"
+rm -rf "$OUT/tmp/$tag"
+```
+
+`c6/eval6.sh` (with the configuration-matching fix):
+
+```sh
+#!/bin/bash
+# Verdicts from c6/raw.tsv: G/R/RES need rc 0, no control line, PASSED and P equal to the config's reference.
+OUT="${K2_CORPUS_OUT:-$(cd "$(dirname "$0")" && pwd)}"
+while IFS=$'\t' read -r tag cfg kind label rc ctl passed hit ref; do
+  [ "$tag" != HARNESS-ERROR ] || { echo "HARNESS-ERROR	$cfg"; continue; }
+  reftag=$(awk -F'\t' -v r="${ref#ref=}" -v c="$cfg" '$2==c && (($3=="REF"&&r=="REF-"c)||($3=="REF5"&&r=="REF5-"c)){print $1}' "$OUT/raw.tsv" | head -1)
+  green=0; [ "$rc" = rc=0 ] && [ "$ctl" = ctl=0 ] && [ "$passed" = passed=1 ] && green=1
+  same=0; [ -n "$reftag" ] && cmp -s "$OUT/pd/$tag" "$OUT/pd/$reftag" && [ -s "$OUT/pd/$tag" ] && same=1
+  nd=$(diff "$OUT/pd/$reftag" "$OUT/pd/$tag" 2>/dev/null | /usr/bin/grep -c '^[<>]')
+  case "$kind" in
+    REF|REF5) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
+    G|R|RES) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
+    BEFORE) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v=RED; fi ;;
+    *) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
+  esac
+  printf '%s\t%s\t%s\t%s\t%s\t%s\tPdiff=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$nd"
+done < "$OUT/raw.tsv"
 ```
