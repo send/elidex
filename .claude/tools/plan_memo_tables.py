@@ -41,7 +41,7 @@ import re
 from plan_memo_blocks import block_end, delimiter_width, split_row
 from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
 from plan_memo_links import normalize_label
-from plan_memo_stream import GAP, MARKER_RE, rendered
+from plan_memo_stream import GAP, MARKER_RE, phrase, rendered
 
 # A cell that carries nothing: the one predicate every reader of an optional
 # cell (an id cell, a `Deps` cell) decides emptiness by.  Emptiness is decided
@@ -429,11 +429,12 @@ def bare_id(cell_text, kinds):
 # marker to `9z`, the containing row was read as a POINTER, and a false
 # `UMBRELLA-MARK` mechanical failure was emitted.  `NOUN_ANCHOR` had carried
 # the same boundary since R24; this composer did not, which is the "spelled
-# twice, disagreeing" shape again.  Its gaps are `GAP` (PR #510 Codex R22 of 2026-09-27):
-# they were `\s` under `re.ASCII`, so `Slice 9z&nbsp;— **UMBRELLA, …**`
-# attributed nothing and lost the `UMBRELLA-MARK` at rc 0, while a U+000B,
-# which cmark does not read as whitespace, stood in for a gap.
-_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + GAP + "*" + DASH_CLASS + GAP + "*" + DECOR + GAP + "*$",
+# twice, disagreeing" shape again.  Its gaps are composed by `phrase` (PR #510
+# Codex R22 of 2026-09-27): they were `\s` under `re.ASCII`, so
+# `Slice 9z&nbsp;— **UMBRELLA, …**` attributed nothing and lost the
+# `UMBRELLA-MARK` at rc 0, while a U+000B, which cmark does not read as
+# whitespace, stood in for a gap.
+_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
                          re.ASCII)
 
 
@@ -452,8 +453,8 @@ def attributed_to_other(field, rid):
     occurrence never overrides the first.
 
     "IMMEDIATELY BEFORE" IS A GRAMMAR FACT, NOT A CHARACTER COUNT (PR #510
-    R24).  `_APPOSITIVE` ends in `GAP*$`, so it already says "ending where the
-    marker begins" -- the search is bounded by `endpos`, which is where `$`
+    R24).  `_APPOSITIVE` ends in an optional gap and `$`, so it already says
+    "ending where the marker begins" -- the search is bounded by `endpos`, which is where `$`
     matches, and the appositive is read over the whole field before that.  It
     was a 70-character SLICE, and a slice that starts mid-phrase truncates the
     match rather than the context: a declared 76-character `#11-…` slug (the
@@ -461,7 +462,7 @@ def attributed_to_other(field, rid):
     — **UMBRELLA, not a terminal unit.**`` fell outside the window, the field
     was read as the row's own declaration, no `UMBRELLA-MARK` was emitted, and
     the census carried a corrupted row at rc 0.  The mention-only direction
-    was never the window's to hold: the discrimination is the DASH -- `GAP*[—–-]GAP*`
+    was never the window's to hold: the discrimination is the DASH -- a dash
     between the id and the marker -- and "Unlike Slice 7z, **UMBRELLA, …**"
     fails on the comma, at any width."""
     m = MARKER_RE.search(field)

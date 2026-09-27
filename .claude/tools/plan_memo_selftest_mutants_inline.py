@@ -681,29 +681,29 @@ MUTANTS += [
     # ⚠ THESE SUBSTRINGS MOVED AT R33-2, when the dash set stopped being written
     # out at each reader and became `plan_memo_ids.DASH_CLASS`.
     ("R22 #3 phrase: UNDETERMINED is bounded (re-inject the bare phrase)", STREAM,
-     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),',
-     'UNDETERMINED = re.compile("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED",',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED"),',
      [R22_UNDET_NESS, R22_MANKIND]),
     ("kind phrase: a SEPARATOR is required between KIND and UNDETERMINED (make both gaps and the dash optional again -- `KINDUNDETERMINED` declares the kind)", STREAM,
-     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),',
-     'UNDETERMINED = re.compile(bounded("KIND" + GAP + "*" + DASH_CLASS + "?" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: )?" + DASH_CLASS + "?(?: )?UNDETERMINED")),',
      ['(kind) nor does `The KINDUNDETERMINED metric must be recorded` -- a separator between the two words is required: with a nonempty `Deps` cell the separator-free reading made the row no-owner and forced `UMBRELLA-CELL`, rc 1']),
     ("R22 #3 phrase: POINTER is bounded (re-inject the bare phrase)", STREAM,
      'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
      'POINTER = re.compile(_phrase("is a pointer rather than a slice"))',
      [R22_SLICER]),
     ("R22 #3 phrase: the DECLARES vocabulary is bounded (re-inject the bare alternation)", ROLES,
-     '    bounded(r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
-     '            r"no canonical algorithm|edge-dense"),',
-     '    (r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
-     '     r"no canonical algorithm|edge-dense"),',
+     '    bounded(phrase(r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
+     '                   r"no canonical algorithm|edge-dense")),',
+     '    (phrase(r"is an umbrella|not a terminal unit|\u22653 intersecting|three intersecting|"\n'
+     '            r"no canonical algorithm|edge-dense")),',
      [R22_DECLARES]),
     ("R22 #3 phrase: the BACKWARD licensing look is bounded on its left (drop the edge)", ROLES,
      "    BEFORE +                                  # PR #510 R22, see LICENSE_AFTER",
      '    "" +                                      # PR #510 R22, see LICENSE_AFTER',
      [R22_GRANDCHILD]),
     ("R22 #3 phrase: the FORWARD licensing look is bounded on its right (drop the edge)", ROLES,
-     '    r")" + AFTER,', '    r")",',
+     '    r")") + AFTER,', '    r")"),',
      [R22_MEMORANDUM]),
 ]
 
@@ -898,8 +898,8 @@ MUTANTS += [
      [R24_LONG_SLUG, R24_WIDTH_PROPERTY]),
     ("R24 F3 tables: the appositive still requires the DASH (drop it: a field that merely mentions a "
      "sibling attributes to it, which is what the window was believed to prevent)", TABLES,
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + GAP + "*" + DASH_CLASS + GAP + "*" + DECOR + GAP + "*$",',
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + DECOR + GAP + "*$",',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"[^a-zA-Z]*" + phrase(DECOR + "(?: )?$"),',
      [R24_MENTION_ONLY]),
     # ⚠ THE ANCHOR MOVED AT R31-4, when the backward look stopped scanning the
     # whole preceding text and started matching at the ONE offset the index

@@ -247,8 +247,8 @@ MUTANTS += [
     ("R31-4 index: no phrase quantifies the last character of its own literal (re-spell `mint(?:s|ed|"
      "ing)?` as `mints?(?:ed|ing)?`: the index keys on `mints` and `mint ` stops being licensable)",
      ROLES,
-     r'    r"mint(?:s|ed|ing)?\s+(?:onto\s+)?",     # ... mints / minted / minting X',
-     r'    r"mints?(?:ed|ing)?\s+(?:onto\s+)?",     # ... mints / minted / minting X',
+     r'    r"mint(?:s|ed|ing)? (?:onto )?",         # ... mints / minted / minting X',
+     r'    r"mints?(?:ed|ing)? (?:onto )?",         # ... mints / minted / minting X',
      [R31_LICENCE_INDEX]),
     # The reachability claim, and the one row that tests it rather than the
     # index's contents: with the FIRST candidate taken instead of the last,
@@ -372,8 +372,8 @@ MUTANTS += [
      [R33_2_NON_DASH]),
     ("R33-2 sweep: a second dash class in a checker module is found (re-inject one at the reader that "
      "had it)", STREAM,
-     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),',
-     'UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+[\\u2014-]?|[\\u2014-])" + GAP + "*UNDETERMINED"),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: [\\u2014-]?|[\\u2014-])(?: )?UNDETERMINED")),',
      [R33_DASH_SWEEP]),
 ]
 

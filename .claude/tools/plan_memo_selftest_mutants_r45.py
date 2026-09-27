@@ -35,7 +35,7 @@ from plan_memo_selftest_cases_r42 import ( R42_10_UNBOUND_CLAIM, R42_LINE_ENDING
     R48_2_TWO_ROWS, R48_2_TWO_SPELLINGS, R51_TWO_STRADDLES, R52_OUTSIDE_QUOTED,
     R52_OUTSIDE_STRADDLE, R47_5_TWO_MISSES, R47_5_TWO_PHRASES, R47_5_TWO_REFS,
     R22_WS_APPOSITIVE, R22_WS_ID_RUN, R22_WS_ID_RUN_VT, R22_WS_IDEOGRAPHIC, R22_WS_OUTSIDE,
-    R22_WS_ROW_NOUN,
+    R22_WS_ROLES, R22_WS_ROW_NOUN,
 )
 from plan_memo_selftest_mutants import (
     BLOCKS, CONFORMANCE, EMPHASIS, MEMO, POPULATION, ROLES, STREAM, TABLES,
@@ -148,7 +148,7 @@ MUTANTS += [
      [R47_4_NBSP, R47_4_TAB]),
     ("R47-4 gap: the UNDETERMINED phrase composes the SAME gap (re-spell its `\\s` under `re.ASCII`, "
      "which is ASCII whitespace and not U+00A0)", STREAM,
-     'bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED")',
+     'bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED"))',
      'bounded(r"KIND(?:\\s+" + DASH_CLASS + r"?|" + DASH_CLASS + r")\\s*UNDETERMINED")',
      [R47_4_UNDET_NBSP]),
     ("R47-4 fold: the UNDETERMINED phrase folds case in ASCII only (drop `re.ASCII` -- a letter folds "
@@ -186,9 +186,9 @@ MUTANTS += [
      '_BMP_END = 0x10000',
      '_BMP_END = 0x3000',
      [R22_WS_IDEOGRAPHIC, R22_WS_CLASS]),
-    ("R22 ws: the appositive's gaps are `GAP` (re-spell them `\\s` under `re.ASCII` -- U+00A0 after "
-     "the id reads as no appositive and the UMBRELLA-MARK is lost)", TABLES,
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + GAP + "*" + DASH_CLASS + GAP + "*" + DECOR + GAP + "*$",',
+    ("R22 ws: the appositive's gaps are composed by `phrase` (re-spell them `\\s` under `re.ASCII` -- "
+     "U+00A0 after the id reads as no appositive and the UMBRELLA-MARK is lost)", TABLES,
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
      '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\\s*" + DASH_CLASS + r"\\s*" + DECOR + r"\\s*$",',
      [R22_WS_APPOSITIVE]),
     ("R22 ws: the row-noun separator's whitespace is `GAP` (re-spell the ASCII `[ \\t\\n]` it was -- "
@@ -201,6 +201,44 @@ MUTANTS += [
      '(?P<sep>(?:%s|[,;/→>+&|-])+)"\n                           % (SLUG_ID, CITE_ID, SHORT_ID, GAP), re.ASCII)',
      '(?P<sep>[\\s,;/→>+&|-]+)"\n                           % (SLUG_ID, CITE_ID, SHORT_ID), re.ASCII)',
      [R22_WS_ID_RUN, R22_WS_ID_RUN_VT]),
+]
+
+ROLE_RANK_GAP = ("the role RANKING reads a reader's gap in its phrase words: `waits&nbsp;on` ranks "
+                 "ordering and `placed&nbsp;on` owner, and neither across a U+000B")
+
+# -- the same round's roles half: every vocabulary in `plan_memo_roles` composes
+# its word gaps through `plan_memo_stream.phrase`.  One row per family, each
+# re-spelling that family's gaps the way it was spelled before: `\s` under
+# `re.ASCII` for the licensing phrases and the two-owner clause, a literal
+# U+0020 for the ranking and the two seeds.
+MUTANTS += [
+    ("R22 ws roles: the licensing phrases BEFORE the mention compose the gap (re-spell it `\\s` -- "
+     "`child of&nbsp;**9z**` is reported, `child of<U+000B>**9z**` licensed)", ROLES,
+     '_LICENCE_PHRASES = tuple(phrase(p) for p in (',
+     '_LICENCE_PHRASES = tuple(p.replace(" ", r"\\s+") for p in (',
+     list(R22_WS_ROLES["before"])),
+    ("R22 ws roles: the licensing phrases AFTER the mention compose the gap (re-spell it `\\s`)", ROLES,
+     'LICENSE_AFTER = re.compile(phrase(',
+     'LICENSE_AFTER = re.compile((lambda p: p.replace(" ", r"\\s+"))(',
+     list(R22_WS_ROLES["after"])),
+    ("R22 ws roles: the two-owner clause composes the gap (restore its `\\s` spelling)", ROLES,
+     '    phrase(r"\\b(?:owns?|owned by|owner is|carries|carried by) ")\n'
+     '    + decorated_id(ROW_ID, "a")\n'
+     '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     '    r"\\b(?:owns?|owned by|owner is|carries|carried by)\\s+"\n'
+     '    + decorated_id(ROW_ID, "a")\n'
+     '    + r"\\s*(?:,\\s*|\\s+and\\s+|\\s+or\\s+|\\s*/\\s*)"',
+     list(R22_WS_ROLES["owners"])),
+    ("R22 ws roles: ORDER-PROSE?'s vocabulary composes the gap (drop `phrase` -- its word gaps are "
+     "U+0020 alone again)", ROLES,
+     'ORDER_WORDS = re.compile(phrase(', 'ORDER_WORDS = re.compile((',
+     R22_WS_ROLES["order"][:1]),
+    ("R22 ws roles: the kind-in-words vocabulary composes the gap (drop `phrase`)", ROLES,
+     'bounded(phrase(r"is an umbrella|', 'bounded((r"is an umbrella|',
+     R22_WS_ROLES["declares"][:1]),
+    ("R22 ws roles: the role ranking composes the gap (drop `phrase` from the ordering entry)", ROLES,
+     '    ("ordering", re.compile(phrase(', '    ("ordering", re.compile((',
+     [ROLE_RANK_GAP]),
 ]
 
 # -- R47-5: the DERIVED scope ratchet's closure.  `population_scope_control`

@@ -75,6 +75,24 @@ def attribution_control(M):
         base, ", ".join("%s: %d %s" % x for x in out))
 
 
+def role_rank_gap_control(M):
+    """PR #510 Codex R22 of 2026-09-27: `plan_memo_roles.ROLE_PATTERNS` wrote
+    its two-word entries with a literal U+0020, so `waits&nbsp;on **9z**`
+    ranked no role.  The ranking has no case measure -- it orders the reported
+    set and gates nothing -- so this asks `roles()` of the mention the run
+    REPORTS, for the one two-word entry of each family that has one, across a
+    U+00A0 (the role) and a U+000B (no role: cmark does not read it as
+    whitespace)."""
+    import plan_memo_roles      # the FRESHLY loaded module
+    got, want = [], []
+    for words, role in (("waits%son", "ordering"), ("placed%son", "owner")):
+        for gap, expect in (("\u00a0", [role]), ("\x0b", [])):
+            reported = run_on(M, build(), prose="The close rule %s **9z** here." % (words % gap))[1]
+            got.append([plan_memo_roles.roles(m) for m in reported])
+            want.append([expect])
+    return got == want, "roles per reported mention %r (want %r)" % (got, want)
+
+
 def degenerate_control(M):
     """A whole-line grep for the marker CANNOT disagree with the marker count;
     the declaring-field parse can.  This proves the two are different programs
@@ -861,6 +879,8 @@ def registry(case_rows=None):
     reg["CommonMark 0.31.2 §6.1: a code span READS as the text the spec's own html puts inside `<code>` (line endings converted, then the one-space trim)"] = ("CONTROL", code_span_reading_control)
     reg["a lazy schema header after a definition in a linked memo's quote is a table: id declared, kind umbrella, census +1"] = ("CONTROL", lazy_header_after_definition_control)
     reg["a marker naming another row does not enter the count"] = ("CONTROL", attribution_control)
+    reg["the role RANKING reads a reader's gap in its phrase words: `waits&nbsp;on` ranks ordering "
+        "and `placed&nbsp;on` owner, and neither across a U+000B"] = ("CONTROL", role_rank_gap_control)
     reg["the entries named `PROPERTY: ...` are exactly the property family's fragments (`_FAMILY`), both directions"] = ("CONTROL", property_family_control)
     reg["declaring-field parse and whole-line marker grep differ"] = ("CONTROL", degenerate_control)
     reg["a table with and without edge pipes reads the same"] = ("CONTROL", pipe_shape_control)

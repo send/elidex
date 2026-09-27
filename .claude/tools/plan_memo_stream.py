@@ -58,11 +58,12 @@ MARKER = "UMBRELLA, not a terminal unit"
 `MARKER_RE`; a bare `MARKER in text` is the unbounded reading R22 removed."""
 
 GAP = UNICODE_WHITESPACE
-r"""ONE character class for "a gap a READER sees between two words", composed
-into every kind phrase below -- and into every other pattern whose subject is
-such a gap (`_ID_RUN_TOKEN` below, `plan_memo_tables.ROW_NOUN_SEP` and
-`plan_memo_tables._APPOSITIVE`).  It IS CommonMark §2.1's "Unicode whitespace character",
-derived from the one predicate that defines it
+r"""ONE character class for "a gap a READER sees between two words".  Every
+phrase vocabulary composes it through `phrase` below (the kind phrases,
+`plan_memo_tables._APPOSITIVE`, and every vocabulary of `plan_memo_roles`),
+and the two character unions that include the gap compose it directly
+(`_ID_RUN_TOKEN` below, `plan_memo_tables.ROW_NOUN_SEP`).  It IS CommonMark
+§2.1's "Unicode whitespace character", derived from the one predicate that defines it
 (`plan_memo_emphasis.is_unicode_whitespace`, whose docstring measures it
 against cmark), never written out here.
 
@@ -101,10 +102,37 @@ as one.  The R47-4 fold cases pin both.
 """
 
 
+def phrase(pattern):
+    """THE ONE COMPOSER of a reader's word gap: `pattern` is regex source in
+    which every U+0020 is written for "a gap a reader sees" and becomes
+    `GAP` one-or-more; an OPTIONAL gap is written `(?: )?`.  Every phrase
+    vocabulary in the checker is spelled through it -- the kind phrases here,
+    the appositive in `plan_memo_tables`, and the licensing, ranking and seed
+    vocabularies in `plan_memo_roles` -- so a new vocabulary cannot arrive
+    with its own spelling of a space.
+
+    ⚠ UNTIL PR #510 Codex R22 of 2026-09-27 THERE WERE TWO SPELLINGS.  This
+    composer served the three kind phrases; `plan_memo_roles` wrote its gaps
+    as `\\s` under `re.ASCII` (ASCII whitespace plus U+000B, not U+00A0) and as
+    literal U+0020 in its phrase words, so `the child of&nbsp;**9z**` -- the
+    licensing phrase to a reader -- reported the mention, and `the child
+    of<U+000B>**9z**` licensed it.
+
+    Nothing else in the pattern is touched: the flags, the word boundaries
+    (`bounded`, `BEFORE` / `AFTER`, `\\b` under `re.ASCII`) and every other
+    construct are the caller's.  A pattern must therefore hold no U+0020 that
+    means a literal space -- `re.escape` spells one as `\\ `, which is why
+    `_phrase` escapes word by word.  What is NOT composed here is a character
+    UNION that includes the gap (`plan_memo_tables.ROW_NOUN_SEP`,
+    `_ID_RUN_TOKEN` below): a union is one class, not a word sequence, and
+    writing it `(?: |…)+` would nest a `+` inside a `+`."""
+    return pattern.replace(" ", GAP + "+")
+
+
 def _phrase(text):
-    """A literal phrase whose word gaps are `GAP` -- the ONE composer, so a
-    fourth phrase cannot arrive with a fourth spelling of a space."""
-    return GAP.join(re.escape(w) for w in text.split(" ")).replace(GAP, GAP + "+")
+    """A LITERAL phrase (`MARKER`, the pointer's words) through `phrase`: each
+    word escaped on its own, so the only U+0020 left is a gap."""
+    return phrase(" ".join(re.escape(w) for w in text.split(" ")))
 
 
 MARKER_RE = re.compile(bounded(_phrase(MARKER)))
@@ -123,7 +151,7 @@ never a change to the phrase."""
 # words -- whitespace (then an optional dash) or a dash -- since Codex on
 # `0a5ab700`: with both gaps and the dash optional, `KINDUNDETERMINED` in an
 # unrelated word declared the kind.
-UNDETERMINED = re.compile(bounded("KIND(?:" + GAP + "+" + DASH_CLASS + "?|" + DASH_CLASS + ")" + GAP + "*UNDETERMINED"),
+UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's

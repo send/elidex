@@ -651,6 +651,54 @@ case("NEGATIVE", "(R22 ws) and only by one: a code span holding `Qx`, U+000B, `9
      build(d7z="`Qx\x0b9z`"), "", 0)
 R22_WS_ID_RUN_VT = CASES[-1].name
 
+# The ROLES vocabularies compose the same gap (`plan_memo_stream.phrase`).  They
+# spelled it `\s` under `re.ASCII` (U+000B yes, U+00A0 no) and as a literal
+# U+0020 inside phrase words, so a reader's `&nbsp;` broke the phrase and a
+# U+000B cmark does not read as whitespace completed it.  One U+00A0 arm and
+# one U+000B arm per vocabulary family; the ranking family has no case measure
+# and is a function control (`plan_memo_selftest_controls.role_rank_gap_control`).
+R22_WS_ROLES = {}
+for _fam, _label, _prose in (
+        ("before", "the licensing phrase BEFORE the mention (`the child of`)",
+         "The drain is the child of%s**9z** in this plan."),
+        ("after", "the licensing phrase AFTER the mention (`'s derivation`)",
+         "**9z**'s%sderivation mints the drain.")):
+    case("NEGATIVE", "(R22 ws) %s is licensed across a U+00A0 gap: a reader reads the phrase, so the "
+                     "mention is no naming site -- the `\\s` it was spelled with under `re.ASCII` "
+                     "reported it" % _label,
+         build(), _prose % " ", 0)
+    R22_WS_ROLES[_fam] = [CASES[-1].name]
+    case("POSITIVE", "(R22 ws) %s is NOT licensed across a U+000B: cmark does not read it as "
+                     "whitespace, so the words run together and the mention is a site -- `\\s` "
+                     "under `re.ASCII` licensed it" % _label,
+         build(), _prose % "\x0b", 1)
+    R22_WS_ROLES[_fam].append(CASES[-1].name)
+acase("POSITIVE", "(R22 ws) the two-owner clause reads a reader's gap in its words AND between the "
+                  "owners: `owned&nbsp;by **7z**&nbsp;and **Qx**` is two owners in one clause",
+      build(s9z="charter.  The drain is owned by **7z** and **Qx**."), "TWO-OWNERS?", 1)
+R22_WS_ROLES["owners"] = [CASES[-1].name]
+acase("NEGATIVE", "(R22 ws) and not a U+000B: `owned by **7z**` + U+000B + `and **Qx**` is no two-owner "
+                  "clause to cmark, which `\\s` under `re.ASCII` read as one",
+      build(s9z="charter.  The drain is owned by **7z**\x0band **Qx**."), "TWO-OWNERS?", 0)
+R22_WS_ROLES["owners"].append(CASES[-1].name)
+for _fam, _label, _cell, _field, _code in (
+        ("order", "ORDER-PROSE?'s `blocked by`", "Terminal.  This row is blocked%sby Slice **Qx**; the probe must return 3.",
+         "s7z", "ORDER-PROSE?"),
+        ("declares", "the kind-in-words seed's `is an umbrella`",
+         "Terminal.  This row is%san umbrella by derivation.  Acceptance: must.", "sqx", "UMBRELLA-MARK?")):
+    _kw = {_field: _cell % " "}
+    if _field == "s7z":
+        _kw["d7z"] = "—"
+    acase("POSITIVE", "(R22 ws) %s is read across a U+00A0 gap: the vocabulary wrote its word gap as a "
+                      "literal U+0020, so the phrase a reader reads seeded nothing" % _label,
+          build(**_kw), _code, 1)
+    R22_WS_ROLES[_fam] = [CASES[-1].name]
+    _kw[_field] = _cell % "\x0b"
+    acase("NEGATIVE", "(R22 ws) %s is NOT read across a U+000B, which cmark does not read as "
+                      "whitespace" % _label,
+          build(**_kw), _code, 0)
+    R22_WS_ROLES[_fam].append(CASES[-1].name)
+
 
 # -- R47-5: the loops the DERIVED scope ratchet found unpinned.  Three of the
 # twelve survived truncation with every control green -- measured, one loop at

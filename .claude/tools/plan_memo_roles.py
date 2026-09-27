@@ -16,7 +16,7 @@ import re
 from collections import Counter
 
 from plan_memo_ids import AFTER, BEFORE, ROW_ID, balanced, bounded, decorated_id, kind_of
-from plan_memo_stream import MARKER_RE, stream
+from plan_memo_stream import MARKER_RE, phrase, stream
 from plan_memo_tables import ROW_NOUN_SEP, is_empty
 
 
@@ -47,12 +47,17 @@ from plan_memo_tables import ROW_NOUN_SEP, is_empty
 # from this tuple (`LICENSE_BEFORE` / `_LICENCE_KEYWORD`), so a phrase added
 # below is indexed by arriving in it and cannot be reachable by one reader and
 # not the other.
-_LICENCE_PHRASES = (
-    r"child(?:ren)?\s+(?:of\s+)?",           # the child of X / any child of X / children of X
-    r"derivation\s+(?:that\s+)?",            # the derivation Slice B runs at its own start
-    r"naming\s+",                            # naming X itself would name nobody
-    r"mint(?:s|ed|ing)?\s+(?:onto\s+)?",     # ... mints / minted / minting X
-)
+# ⚠ EVERY WORD GAP IS COMPOSED BY `phrase` (PR #510 Codex R22 of 2026-09-27):
+# a U+0020 below is a gap a reader sees, `(?: )?` an optional one.  These were
+# `\s` under `re.ASCII`, so `the child of&nbsp;**9z**` -- the phrase, to a
+# reader -- reported the mention, and a U+000B that cmark does not read as
+# whitespace licensed it.  The same holds for every vocabulary in this file.
+_LICENCE_PHRASES = tuple(phrase(p) for p in (
+    r"child(?:ren)? (?:of )?",               # the child of X / any child of X / children of X
+    r"derivation (?:that )?",                # the derivation Slice B runs at its own start
+    r"naming ",                              # naming X itself would name nobody
+    r"mint(?:s|ed|ing)? (?:onto )?",         # ... mints / minted / minting X
+))
 
 LICENSE_BEFORE = re.compile(
     BEFORE +                                  # PR #510 R22, see LICENSE_AFTER
@@ -76,7 +81,7 @@ LICENSE_BEFORE = re.compile(
     # at `3a9f61a0`, which was already dead there.  It is deleted rather than
     # ported because a clause nothing can reach reports coverage this rule
     # does not have.
-    r")(?:the\s+)?$",
+    r")" + phrase(r"(?:the )?$"),
     re.IGNORECASE | re.ASCII,
 )
 
@@ -97,14 +102,14 @@ LICENSE_BEFORE = re.compile(
 # block for the same reason the backward look was, and it buys nothing an
 # argument does not: `.match(m.text, m.end)` matches exactly where the slice's
 # position 0 was.
-LICENSE_AFTER = re.compile(
+LICENSE_AFTER = re.compile(phrase(
     r"(?:"
-    r"(?:'s|’s)\s+(?:own\s+)?(?:derivation|children|charter|memo|split|plan-memo|sub-slices)"
-    r"|,?\s+whose\s+(?:derivation|charter|children)"
-    r"|\s+is\s+an?\s+umbrella"
-    r"|\s+runs\s+at\s+its\s+own\s+start"
-    r"|\s+became\s+an\s+umbrella"
-    r")" + AFTER,
+    r"(?:'s|’s) (?:own )?(?:derivation|children|charter|memo|split|plan-memo|sub-slices)"
+    r"|,? whose (?:derivation|charter|children)"
+    r"| is an? umbrella"
+    r"| runs at its own start"
+    r"| became an umbrella"
+    r")") + AFTER,
     re.IGNORECASE | re.ASCII,
 )
 
@@ -309,20 +314,20 @@ def classify(m):
 # --------------------------------------------------------------------------
 
 ROLE_PATTERNS = [
-    ("ordering", re.compile(
+    ("ordering", re.compile(phrase(
         r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
         r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"
-        r"waits? on|until|once)\b", re.IGNORECASE | re.ASCII)),
-    ("owner", re.compile(
+        r"waits? on|until|once)\b"), re.IGNORECASE | re.ASCII)),
+    ("owner", re.compile(phrase(
         r"\b(?:owns?|owned|owner|belongs?|carries|carry|holds?|responsible|"
-        r"assigned|charter(?:ed)?s? to|placed on|home|hand(?:s|ed)?-?off)\b",
+        r"assigned|charter(?:ed)?s? to|placed on|home|hand(?:s|ed)?-?off)\b"),
         re.IGNORECASE | re.ASCII)),
-    ("landing", re.compile(
+    ("landing", re.compile(phrase(
         r"\b(?:lands?|landed|landing|ships?|shipped|retires?|retired|merged|"
-        r"PR|delivers?|deliverable)\b", re.ASCII)),
-    ("acceptance", re.compile(
+        r"PR|delivers?|deliverable)\b"), re.ASCII)),
+    ("acceptance", re.compile(phrase(
         r"\b(?:acceptance|witness|regression|assert(?:s|ion)?|must|probe|"
-        r"observable|green|red)\b", re.IGNORECASE | re.ASCII)),
+        r"observable|green|red)\b"), re.IGNORECASE | re.ASCII)),
 ]
 
 
@@ -359,9 +364,9 @@ def _row_key(x):
 # the same alternation the appositive and the anchored reading compose --
 # a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
 OWNS_TWO = re.compile(
-    r"\b(?:owns?|owned by|owner is|carries|carried by)\s+"
+    phrase(r"\b(?:owns?|owned by|owner is|carries|carried by) ")
     + decorated_id(ROW_ID, "a")
-    + r"\s*(?:,\s*|\s+and\s+|\s+or\s+|\s*/\s*)"
+    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")
     + decorated_id(ROW_ID, "b"),
     re.IGNORECASE | re.ASCII)
 
@@ -378,9 +383,9 @@ def _owner_ok(m, tag):
 # drain runs").  Measured on the #506 memo's §5 tables (64 rows, `rank.search`
 # vs `ORDER_WORDS.search` over each Slice cell): the ranking vocabulary
 # matches 61 rows, this one 39 -- of which 36 reach a finding.
-ORDER_WORDS = re.compile(
+ORDER_WORDS = re.compile(phrase(
     r"\b(?:before|after|lands? (?:first|second)|prerequisite of|gates?|blocked by|"
-    r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b",
+    r"depends? on|ordered (?:before|after)|sequenced (?:before|after))\b"),
     re.IGNORECASE | re.ASCII,
 )
 # EXACTLY the two tokens `#11-plan-memo-acceptance-falsifiability-check` names.
@@ -397,8 +402,8 @@ RETIRED = re.compile(r"\bMERGED\b|\bRETIRED\b|\bLANDED\b", re.ASCII)
 # grammar's one spelling (PR #510 R22): unbounded, `not a terminal unitary
 # claim` and `edge-densely` seeded a finding this vocabulary does not name.
 DECLARES = re.compile(
-    bounded(r"is an umbrella|not a terminal unit|≥3 intersecting|three intersecting|"
-            r"no canonical algorithm|edge-dense"),
+    bounded(phrase(r"is an umbrella|not a terminal unit|≥3 intersecting|three intersecting|"
+                   r"no canonical algorithm|edge-dense")),
     re.IGNORECASE | re.ASCII,
 )
 

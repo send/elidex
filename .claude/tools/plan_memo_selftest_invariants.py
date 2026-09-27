@@ -770,12 +770,12 @@ def unicode_whitespace_class_control(M):
     asserted: it is the predicate's to decide.
 
     HONESTLY, what it cannot see: a pattern that spells a reader's gap without
-    composing GAP -- the sweep of that round routed the ones whose reading
-    decides the exit status or the disposition, `plan_memo_tokens._NAME_BOUNDARY`
-    says why the file-name boundary is not one, and `plan_memo_roles`' licensing
-    and seed vocabularies still spell theirs as `\\s` under `re.ASCII` and as a
-    literal U+0020 -- and a disagreement between §2.1 and cmark, which the
-    predicate's docstring measured once by hand."""
+    composing GAP -- the sweep of that round put every phrase vocabulary
+    through `plan_memo_stream.phrase` and the two character unions on GAP
+    itself, and `plan_memo_tokens._NAME_BOUNDARY` says why the file-name
+    boundary is not one; nothing stops the next vocabulary from writing `\\s`
+    -- and a disagreement between §2.1 and cmark, which the predicate's
+    docstring measured once by hand."""
     import re as _re
     import sys as _sys
     import plan_memo_emphasis       # the FRESHLY loaded set

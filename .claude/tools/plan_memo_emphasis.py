@@ -35,8 +35,8 @@ AND THE ONE DEFINITION OF §2.1's "Unicode whitespace character" in this
 checker (`is_unicode_whitespace`, and `UNICODE_WHITESPACE`, the regex class
 derived from it).  It lives here because §6.2 is its first reader and this
 module imports nothing of the checker, so every other reader -- the kind
-phrases' `plan_memo_stream.GAP`, and through it the two table patterns --
-reaches it without a cycle.
+phrases' `plan_memo_stream.GAP` and its composer `phrase`, and through them
+the table and role vocabularies -- reaches it without a cycle.
 
 WHAT IS NOT.  Nothing here builds a tree: the caller wants the CHARACTER
 SPANS the delimiters occupy, since those are what the stream drops.  A
