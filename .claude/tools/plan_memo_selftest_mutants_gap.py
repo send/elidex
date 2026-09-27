@@ -132,20 +132,9 @@ MUTANTS += [
 # THAT pattern's gaps as Python's ASCII whitespace `(?a:\s)` -- U+000B in,
 # U+00A0 out -- whatever flags the pattern is compiled with, so the ONE edit
 # turns every read arm AND every refuse arm of the pattern red.  WHICH patterns
-# have rows is a hand enumeration, not a guarantee: the table was built BY
-# HAND at 22f6a2a2 (70 rows over 10 compiled patterns); 87f361c6 added
-# NOUN_ANCHOR's row after a since-removed namespace walk counted 13
-# gap-bearing patterns, and f85f4e1b moved the ranking's rows (ROLE_ORDERING /
-# ROLE_OWNER) in, so today it covers those 13 -- MARKER_RE, UNDETERMINED,
-# POINTER, _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER,
-# NOUN_ANCHOR, ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  NO
-# control enforces that a NEW gap-bearing pattern gets rows; that enforcement
-# is carved to §8 (17) of `docs/plans/2026-08-plan-memo-umbrella-checker.md`.
-# Per-gap reach is MEASURED, not enforced: re-spelling each of the 71 gaps of
-# the 13 patterns alone flips at least one arm, except ORDER_WORDS' `ordered
-# before` / `sequenced after` gaps, which are behaviour-neutral and have no
-# rows (the measurement and the proof are in the table comment of
-# `plan_memo_selftest_cases_gap`).
+# have rows is a hand enumeration, not a guarantee (history and per-gap reach:
+# the table comment of `plan_memo_selftest_cases_gap`; enforcement: §8 (17) of
+# `docs/plans/2026-08-plan-memo-umbrella-checker.md`).
 # The rows for `NOUN_ANCHOR` and the id run are below.
 _ASCII_GAP = '(lambda p: p.replace(" ", r"(?a:\\s)+"))('
 MUTANTS += [
@@ -227,13 +216,10 @@ MUTANTS += [
      list(R22_GAP_MIXED) + [n for n in R22_GAP["OWNS_TWO join"] if "owner|," in n]),
 ]
 
-# -- the net-delta review of 900c16eb..f7326182: the role measure's -1 branch.
-# Every role row expects 1 or 0, so a measure that said 0 for "no site" passed
-# them all; the row is on the HARNESS and names the function control (a
-# `case(...)` record's measure is bound when it is built, so this mutant never
-# reaches one).
-# The control's name is spelled here, as the population rows spell theirs (an
-# unknown name is a FAIL of the run, never a silent pass).
+# -- the net-delta review of 900c16eb..f7326182: the role measure's -1.  The
+# mutation runner installs the patched harness as a new module; the records
+# keep the original's `measure`, so only a control that imports the harness
+# when it runs sees the mutant.
 ROLE_MEASURE = ("the harness's `(\"role\", r)` measure is -1 when the run reports no site or several, "
                 "1 / 0 on exactly one")
 MUTANTS += [

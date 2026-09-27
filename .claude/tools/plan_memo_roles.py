@@ -313,9 +313,7 @@ def classify(m):
 # be authoritative.  Here it is merely ranked LOW and still printed.
 # --------------------------------------------------------------------------
 
-# The two ranking entries whose vocabulary holds a word gap are NAMED, so the
-# "R22 gap" rows in `plan_memo_selftest_mutants_gap.py` find their compile lines
-# by name rather than by their position in the list.
+# "R22 gap" and "R22 ws roles" mutant rows find these compile lines by name.
 ROLE_ORDERING = re.compile(phrase(
     r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
     r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"

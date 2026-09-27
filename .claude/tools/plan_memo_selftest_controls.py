@@ -841,12 +841,10 @@ ROLE_MEASURE = ("the harness's `(\"role\", r)` measure is -1 when the run report
 
 
 def role_measure_control(M):
-    """The harness's `("role", r)` measure over 0, 1 and 2 reported sites:
-    -1 for none and for two, 1 for the one ranked site, 0 for the one site the
-    ranking does not rank `r`.  It reads the harness BY NAME at call time, so a
-    mutant against the harness (installed under its real name for its row)
-    reaches it -- the `case(...)` records cannot: their measure is bound when
-    they are built."""
+    """The harness's `("role", r)` measure: -1 for no site and for two, 1 / 0 for
+    one ranked / unranked site.  The mutation runner installs the patched
+    harness as a new module; the records keep the original's `measure`, so
+    only a control that imports the harness when it runs sees the mutant."""
     import importlib
     h = importlib.import_module("plan_memo_selftest_harness")
     want = (("The close rule waits on here.", -1),
