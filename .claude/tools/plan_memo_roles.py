@@ -313,15 +313,21 @@ def classify(m):
 # be authoritative.  Here it is merely ranked LOW and still printed.
 # --------------------------------------------------------------------------
 
+# The two ranking entries whose vocabulary holds a word gap are NAMED, so the
+# gap table maps its rows to them by name, not by their position in the list
+# (a reorder would otherwise move coverage in silence -- the review of f85f4e1b).
+ROLE_ORDERING = re.compile(phrase(
+    r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
+    r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"
+    r"waits? on|until|once)\b"), re.IGNORECASE | re.ASCII)
+ROLE_OWNER = re.compile(phrase(
+    r"\b(?:owns?|owned|owner|belongs?|carries|carry|holds?|responsible|"
+    r"assigned|charter(?:ed)?s? to|placed on|home|hand(?:s|ed)?-?off)\b"),
+    re.IGNORECASE | re.ASCII)
+
 ROLE_PATTERNS = [
-    ("ordering", re.compile(phrase(
-        r"\b(?:before|after|first|second|prerequisite|gates?|gated|blocked|blocks|"
-        r"depends?|dependent|deps|sequenced|order(?:ed|ing)?|precede|follows?|"
-        r"waits? on|until|once)\b"), re.IGNORECASE | re.ASCII)),
-    ("owner", re.compile(phrase(
-        r"\b(?:owns?|owned|owner|belongs?|carries|carry|holds?|responsible|"
-        r"assigned|charter(?:ed)?s? to|placed on|home|hand(?:s|ed)?-?off)\b"),
-        re.IGNORECASE | re.ASCII)),
+    ("ordering", ROLE_ORDERING),
+    ("owner", ROLE_OWNER),
     ("landing", re.compile(phrase(
         r"\b(?:lands?|landed|landing|ships?|shipped|retires?|retired|merged|"
         r"PR|delivers?|deliverable)\b"), re.ASCII)),

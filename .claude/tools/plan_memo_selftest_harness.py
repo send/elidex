@@ -351,11 +351,14 @@ def measure(res, reported, m):
         return (sum(1 for f in res.findings if f[0] == "LEX-UNSUPPORTED?" and arg in f[3]),
                 "LEX-UNSUPPORTED? carrying %r" % arg)
     if what == "role":
-        # the RANKING's verdict: reported sites whose context the ranking gives role `arg`
-        # (`plan_memo_roles.roles`, the one the report prints) -- read from the freshly loaded set
+        # the RANKING's verdict on the ONE reported site (`plan_memo_roles.roles`, the one the
+        # report prints; read from the freshly loaded set): 1 if it ranks `arg`, 0 if it does
+        # not, -1 if the run reports no site or several -- so 0 is never "nothing reported"
         import sys
-        roles = sys.modules["plan_memo_roles"].roles
-        return sum(1 for x in reported if arg in roles(x)), "reported sites ranked %r" % arg
+        if len(reported) != 1:
+            return -1, "%d reported site(s), not exactly one" % len(reported)
+        got = arg in sys.modules["plan_memo_roles"].roles(reported[0])
+        return int(got), "the one reported site %s ranked %r" % ("is" if got else "is not", arg)
     raise ValueError(m)
 
 

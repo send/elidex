@@ -26,7 +26,6 @@ This module holds its OWN `CASES` and binds its own spellings (`spellings()`);
 
 from plan_memo_selftest_cases import build, spellings
 from plan_memo_selftest_cases_r26 import kindcell
-from plan_memo_selftest_cases_r42 import R47_4_LITERAL_NBSP, R47_4_UNDET_NBSP
 
 CASES = []
 case, acase, rcase = spellings()
@@ -174,32 +173,22 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
      build(), "The close rule is 9**z ** here.", 0)
 
 
-# -- THE TABLE (the STOP-CLEAN attestation of 900c16eb, and the review of
-# 01bd2c5d).  Each row is one GAP POSITION of one gap-bearing pattern, written as
-# a fixture template -- so positions are counted PER TEMPLATE, and one regex gap
-# can have several (`derivation|that` and `derivation|mention` are the same gap
-# after `derivation`).  Each row is two cases: the words joined by U+00A0
-# (read) and by U+000B (refused); a row whose `read` is None has only the
-# refuse arm, and a row may name its own refuse run (a VT+NBSP MIXED run, for a
-# gap an adjacent required gap would otherwise absorb).  A position that
-# already had a case with the exact fixture reuses it (`_REUSED`).
+# -- THE TABLE (the STOP-CLEAN attestation of 900c16eb, and the reviews of
+# 01bd2c5d and f85f4e1b).  Each `_R22_GAP_TABLE` row is one GAP POSITION of one
+# gap-bearing pattern, written as a fixture template -- so positions are counted
+# PER TEMPLATE, and one regex gap can have several (`derivation|that` and
+# `derivation|mention` are the same gap after `derivation`).  Every row declares
+# BOTH arms: the words joined by U+00A0 (read) and by U+000B (refused).  A
+# `_R22_GAP_MIXED` row declares ONE arm, a refuse arm on its own run (VT+NBSP),
+# for a gap an adjacent required gap would otherwise absorb.  Every declared arm
+# is GENERATED from its row's template by the loop at the end of this module --
+# there is no reuse of an older case, so every template is exercised (the
+# review of f85f4e1b: a reused arm was checked by its number only, and a row
+# whose arms were both reused never ran its own template).
 #
 # WHICH PATTERNS NEED ROWS is not this comment's to say:
-# `plan_memo_selftest_ratchets.gap_pattern_population_control` takes the
-# population from the checker modules' NAMESPACES (every compiled pattern
-# holding `GAP` reachable from a module-level name, or inside a tuple / list /
-# dict up to three deep; one entry per object, whatever names reach it) and is
-# red on each of these:
-#   - a population pattern no row reaches through `_R22_GAP_PATTERN`;
-#   - a mapped key that names no gap-bearing pattern;
-#   - a row pattern `_R22_GAP_PATTERN` does not map;
-#   - a mapping entry no row uses;
-#   - a covered pattern with no READ arm, or with no REFUSE arm;
-#   - a row of this table with a missing expectation column, or with its
-#     read and refuse expectations equal;
-#   - a `_REUSED` arm whose case expects something other than its row's
-#     column, or that names no collected case;
-#   - an empty population.
+# `plan_memo_selftest_ratchets.gap_pattern_population_control` is, and its
+# docstring lists every condition it is red on.
 # WHICH GAPS inside a pattern the rows reach was MEASURED once, at 87f361c6, by
 # re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
 # and running every row of its pattern with U+00A0, U+000B and both mixed runs:
@@ -332,23 +321,8 @@ _R22_GAP_PATTERN = {
     "_ID_RUN_TOKEN": ("plan_memo_stream", "_ID_RUN_TOKEN"),
     "_APPOSITIVE": ("plan_memo_tables", "_APPOSITIVE"),
     "ROW_NOUN_SEP": ("plan_memo_tables", "_APPOSITIVE"),     # the union, reached through the appositive
-    "ROLE ordering": ("plan_memo_roles", "ROLE_PATTERNS", 0, 1),
-    "ROLE owner": ("plan_memo_roles", "ROLE_PATTERNS", 1, 1),
-}
-# (pattern, position, "read" | "refuse") -> the case that already held that arm
-# with exactly this fixture, so it is reused rather than written twice.
-_REUSED = {
-    ("LICENCE child", "of|mention", "read"): R22_WS_ROLES["before"][0],
-    ("LICENCE child", "of|mention", "refuse"): R22_WS_ROLES["before"][1],
-    ("DECLARES", "is|an", "read"): R22_WS_ROLES["declares"][0],
-    ("DECLARES", "is|an", "refuse"): R22_WS_ROLES["declares"][1],
-    ("MARKER_RE", "a|terminal", "read"): R47_4_LITERAL_NBSP,
-    ("UNDETERMINED", "KIND|UNDETERMINED", "read"): R47_4_UNDET_NBSP,
-    ("UNDETERMINED", "KIND|UNDETERMINED", "refuse"): R22_WS_OUTSIDE[1],
-    ("_APPOSITIVE", "id|dash", "read"): R22_WS_APPOSITIVE,
-    ("ROW_NOUN_SEP", "noun|id", "read"): R22_WS_ROW_NOUN,
-    ("_ID_RUN_TOKEN", "id|id", "read"): R22_WS_ID_RUN,
-    ("_ID_RUN_TOKEN", "id|id", "refuse"): R22_WS_ID_RUN_VT,
+    "ROLE ordering": ("plan_memo_roles", "ROLE_ORDERING"),
+    "ROLE owner": ("plan_memo_roles", "ROLE_OWNER"),
 }
 R22_GAP = {}
 """pattern -> the names of its read and refuse cases, every position -- what each
@@ -356,34 +330,36 @@ pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn re
 R22_GAP_MIXED = []
 """the MIXED-run refuse arms, which only a re-spelling of the ONE optional gap
 turns red (re-spelling every gap of the half refuses the run anyway)."""
-_ROWS = ([row + (None,) for row in _R22_GAP_TABLE]
-         + [(p, pos, fix, tpl, None, want, run) for p, pos, fix, tpl, want, run in _R22_GAP_MIXED])
-for _pat, _pos, _fix, _tpl, _read, _refuse, _run in _ROWS:
-    for _arm, _gap, _label, _want in (("read", "\u00a0", "U+00A0", _read),
-                                      ("refuse", _run or "\x0b", "U+000B" if _run is None
-                                       else "U+000B U+00A0", _refuse)):
-        if _want is None:
-            continue
-        _name = _REUSED.get((_pat, _pos, _arm))
-        if _name is None:
-            _name = ("(R22 gap) %s, the gap %s: %s there is %s -- %s" % (
-                _pat, _pos, _label,
-                "a gap a reader sees, so the phrase is read" if _arm == "read"
-                else "no whitespace to cmark, so the words run together and the phrase is refused",
-                _tpl.replace("{g}", "<%s>" % _label)))
-            _kind = "POSITIVE" if _want else "NEGATIVE"
-            _text = _tpl.replace("{g}", _gap)
-            if _fix == "prose":
-                case(_kind, _name, build(), _text, _want)
-            elif _fix[0] == "role":
-                case(_kind, _name, build(), _text, _want, measure=_fix)
-            elif _fix[0] == "kind":
-                acase(_kind, _name, kindcell(_text), _fix[1], _want)
-            elif _fix[1] is None:
-                case(_kind, _name, build(**{_fix[0]: _text}), "", _want)
-            else:
-                _cells = {_fix[0]: _text}
-                if _fix[0] == "s7z":
-                    _cells["d7z"] = "—"
-                acase(_kind, _name, build(**_cells), _fix[1], _want)
-        (R22_GAP_MIXED if _run else R22_GAP.setdefault(_pat, [])).append(_name)
+R22_GAP_ARMS = []
+"""(pattern, position, arm, expectation, case name) for EVERY arm the two tables
+declare -- the record `gap_pattern_population_control` holds against the
+collected cases, so an arm the loop below did not generate is red."""
+_ARMS = ([(p, pos, fix, tpl, "read", "\u00a0", "U+00A0", read, False)
+          for p, pos, fix, tpl, read, _refuse in _R22_GAP_TABLE]
+         + [(p, pos, fix, tpl, "refuse", "\x0b", "U+000B", refuse, False)
+            for p, pos, fix, tpl, _read, refuse in _R22_GAP_TABLE]
+         + [(p, pos, fix, tpl, "refuse", run, "U+000B U+00A0", want, True)
+            for p, pos, fix, tpl, want, run in _R22_GAP_MIXED])
+for _pat, _pos, _fix, _tpl, _arm, _gap, _label, _want, _mixed in _ARMS:
+    _name = ("(R22 gap) %s, the gap %s: %s there is %s -- %s" % (
+        _pat, _pos, _label,
+        "a gap a reader sees, so the phrase is read" if _arm == "read"
+        else "no whitespace to cmark, so the words run together and the phrase is refused",
+        _tpl.replace("{g}", "<%s>" % _label)))
+    _kind = "POSITIVE" if _want else "NEGATIVE"
+    _text = _tpl.replace("{g}", _gap)
+    if _fix == "prose":
+        case(_kind, _name, build(), _text, _want)
+    elif _fix[0] == "role":
+        case(_kind, _name, build(), _text, _want, measure=_fix)
+    elif _fix[0] == "kind":
+        acase(_kind, _name, kindcell(_text), _fix[1], _want)
+    elif _fix[1] is None:
+        case(_kind, _name, build(**{_fix[0]: _text}), "", _want)
+    else:
+        _cells = {_fix[0]: _text}
+        if _fix[0] == "s7z":
+            _cells["d7z"] = "—"
+        acase(_kind, _name, build(**_cells), _fix[1], _want)
+    R22_GAP_ARMS.append((_pat, _pos, _arm, _want, _name))
+    (R22_GAP_MIXED if _mixed else R22_GAP.setdefault(_pat, [])).append(_name)

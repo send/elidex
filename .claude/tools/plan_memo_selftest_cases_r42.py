@@ -535,8 +535,6 @@ for _label, _gap in _GAPS:
         R47_4_TAB = _n
     elif _gap == "&#32;":
         R47_4_BASELINE = _n
-    elif _gap == "\u00a0":
-        R47_4_LITERAL_NBSP = _n     # reused as the marker's read arm by `_cases_gap`
 
 # ⚠ THE OTHER DIRECTION, because widening a gap can loosen a BOUNDARY: the
 # word edges `bounded()` added at R22 must still hold.  Without these the

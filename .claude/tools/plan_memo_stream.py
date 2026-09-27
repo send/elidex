@@ -113,14 +113,14 @@ def phrase(pattern):
     ⚠ THAT IS A CONVENTION, AND WHAT IS ENFORCED IS NAMED HERE.
     `plan_memo_selftest_ratchets.gap_pattern_population_control` takes every
     compiled pattern whose source holds `GAP` that a checker module's
-    namespace reaches (a module-level name, or a container up to three deep),
-    and is red on one that no row of `plan_memo_selftest_cases_gap.
-    _R22_GAP_TABLE` / `_R22_GAP_MIXED` reaches, and on a covered one missing
-    its READ arm or its REFUSE arm; its docstring lists the rest of what it
-    checks.  That each row's fixture exercises its pattern, and that
-    re-spelling the pattern's gaps turns its rows red, is what the "R22 gap"
-    mutants show, one pattern at a time, re-spelling its gaps as `(?a:\\s)`;
-    the ratchet does not check it.  That the rows reach every gap INSIDE a pattern
+    namespace reaches (a module-level name, or up to three collections or
+    mappings below one), and is red on one that no row of
+    `plan_memo_selftest_cases_gap._R22_GAP_TABLE` / `_R22_GAP_MIXED` reaches,
+    and on a covered one no table row gives a READ arm; its docstring lists
+    all ten conditions and what it cannot see.  That each row's fixture
+    exercises its pattern, and that re-spelling the pattern's gaps turns its
+    rows red, is what the "R22 gap" mutants show, one pattern at a time,
+    re-spelling its gaps as `(?a:\\s)`; the ratchet does not check it.  That the rows reach every gap INSIDE a pattern
     was measured once and is recorded beside the table, not enforced.  And the
     ratchet keys on `GAP`: a NEW vocabulary that writes `\\s` or a literal
     U+0020 instead of calling this function holds no `GAP` and is invisible to
