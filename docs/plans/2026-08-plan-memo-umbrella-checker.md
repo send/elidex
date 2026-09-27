@@ -1361,7 +1361,7 @@ committed here by the note that corrected it.
   citing it. What is authoritative is the PREDICATE and the command that runs it, and the four below
   are a **SEED, not an inventory**. The four that fired so far:
   `_IMPORT_SEAMS` (which import seams are checked), `_ATTRIB_SPELLINGS` (which attribution spellings
-  are read), `_TRAILING` (which trailing characters are decoration) and `_ID_SPELLINGS` (which id
+  are read), `_TRAILING` (which trailing punctuation a bare file-name run may end in — local policy, and it holds no decoration character) and `_ID_SPELLINGS` (which id
   character classes the sweep knows). The first two and the last are read by a control whose docstring
   has a HONESTLY paragraph stating what it cannot see (read each there): each of the three paragraphs names
   *a shape its table does not list*, and `import_seam_control`'s paragraph leads with a second blind spot,
