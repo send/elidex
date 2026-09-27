@@ -61,7 +61,8 @@ holds a `|` where a table could open, so this arm is empty by construction).
 Nothing else: since R15 every block type of the spec's closed list is
 modelled, and the §5.2 exclusion ("a paragraph headed by a list-marker
 line: LEXED-FLAT", 13 examples at R14) is gone with the flat reading.  An
-aligned example is PASS; an example neither excluded nor aligned is a FAIL,
+aligned example is PASS; an excluded example outside `EXPECTED_EXCLUDED`
+(empty) is a FAIL (PR #510 Codex R38), as is one neither excluded nor aligned,
 and a FAIL here is a defect in Phase 1 or a disposition the plan does not
 state -- never a reason to rewrite the property.
 
@@ -124,6 +125,12 @@ INLINE_EXAMPLES = HERE / "commonmark-0.31.2-inline-examples.json"
 # next block's tag on its own line (the renderer starts every block tag on a
 # fresh line, and puts nothing else at a line start inside inline text)
 _TIGHT_END = re.compile(r"</li>|\n<(?:ul|ol|pre|blockquote|h[1-6]|hr)\b")
+
+
+# The exclusions each corpus is EXPECTED to have, declared here rather than
+# derived from the parser under test: none (the docstring above).  An
+# exclusion outside this set is a FAIL (PR #510 Codex R38).
+EXPECTED_EXCLUDED = frozenset()
 
 
 def excluded(memo):
@@ -431,7 +438,10 @@ def _report(data, passed, fails, skips):
         lines.append("  excluded (%s): %s" % (why, " ".join(str(x) for x in nos)))
     for no, section, err in fails:
         lines.append("  FAIL Example %d (%s): %s" % (no, section, err))
-    return not fails and passed > 0, "\n".join(lines)
+    unexpected = sorted(set(no for nos in skips.values() for no in nos) - EXPECTED_EXCLUDED)
+    for no in unexpected:
+        lines.append("  FAIL Example %d: excluded, and no exclusion is expected" % no)
+    return not fails and not unexpected and passed > 0, "\n".join(lines)
 
 
 def run_code_reading(M):

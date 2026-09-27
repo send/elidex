@@ -403,6 +403,30 @@ def spec_examples_control(M):
     return ok, detail.split("\n")[0]
 
 
+CONFORMANCE_EXCLUSION = ("the CommonMark conformance run FAILS when any example is excluded: a planted GFM "
+                         "table beside an aligned paragraph is red, the paragraph alone green")
+
+
+def conformance_exclusion_control(M):
+    """An example the conformance run EXCLUDES is a FAIL of the run: a
+    two-example corpus, one paragraph that aligns and one GFM table that
+    `excluded()` drops, is red (PR #510 Codex R38).  The discriminating half:
+    the paragraph alone is green."""
+    import json
+    import plan_memo_memo       # the freshly loaded module
+    import plan_memo_selftest_conformance as conf
+    para = {"example": 1, "section": "P", "markdown": "a\n", "html": "<p>a</p>\n"}
+    table = {"example": 2, "section": "T", "markdown": "| a |\n| --- |\n| b |\n", "html": "<p>| a |</p>\n"}
+    with tempfile.TemporaryDirectory() as d:
+        got = []
+        for rows in ([para, table], [para]):
+            p = pathlib.Path(d) / "corpus.json"
+            p.write_text(json.dumps({"examples": rows}), encoding="utf-8")
+            got.append(conf._run(plan_memo_memo, p))
+    return (not got[0][0] and got[1][0],
+            "with the table: %r; without: %r" % (got[0][1].split("\n")[0], got[1][1].split("\n")[0]))
+
+
 def inline_examples_control(M):
     """The CommonMark 0.31.2 spec's own example lists for every INLINE section
     the plan's §3.0b calls LEXED or MASKED (the list and its example ranges
@@ -876,6 +900,7 @@ def registry(case_rows=None):
     for c in (cases() if case_rows is None else case_rows):
         reg[c.name] = (c.kind, control(c))     # a duplicated case name is refused by `Registry`
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
+    reg[CONFORMANCE_EXCLUSION] = ("CONTROL", conformance_exclusion_control)
     reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
         "with the html"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)

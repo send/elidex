@@ -290,8 +290,9 @@ def render_equivalence_control(M):
 
     HONESTLY, the two directions of that edge are NOT symmetric, and only one
     of them is safe.  A character wrongly LEFT IN the excluded set is a
-    position not swept -- the sweep is weaker and says nothing about it, which
-    is why the set and the swept count are printed rather than assumed.  A
+    position not swept, so the derived set must equal a declared one (PR #510
+    Codex R38's class: a set derived from the subject alone shrinks the sweep
+    in silence).  A
     character wrongly LEFT OUT is re-spelled although it is active, the two
     documents then really do render differently, and the control goes RED: a
     false alarm, never a silent pass.  What the sweep cannot see at all: a
@@ -317,7 +318,9 @@ def render_equivalence_control(M):
         got = _census(run_on(M, build(), variant)[0])
         if got != want:
             bad.append("position %d (%r): %s" % (i, ch, _first_difference(want, got)))
-    ok = not bad and swept >= 40
+    # the excluded characters, declared: a set derived from the subject alone would shrink the
+    # sweep in silence (PR #510 Codex R38's class)
+    ok = not bad and active == set("\n!&(*<[\\]_`~") and swept >= 40
     return ok, ("%d of %d positions re-spelled as a §2.5 reference (excluded, the inline pass "
                 "branches on them: %s), %d disagreement(s)%s"
                 % (swept, len(_RENDER_PROSE), "".join(repr(c)[1:-1] for c in sorted(active)), len(bad),
@@ -472,11 +475,11 @@ def file_token_resolver_agreement_control(M):
     THE POPULATION IS GENERATED FROM THE PROPERTY: every balanced parenthesis
     shape up to depth 3, wrapped round a stem holding an id, before and after
     it, plus the empty shape -- so depth 3 is covered because balance generates
-    it.  Each name is kept only if `sibling_path` resolves it; the token
-    reader must then read it as exactly one span covering the whole name.  A run that
-    yielded no name at all would report the same "no disagreement" a clean one
-    does, so the corpus is required to be non-empty AND to hold members of
-    depth >= 2 -- the class the flat arm could not read.
+    it.  Every name is required to resolve (a name `sibling_path` refuses is
+    red, not a smaller corpus -- PR #510 Codex R38's class); the token reader
+    must then read it as exactly one span covering the whole name, and the
+    corpus must hold members of depth >= 2 -- the class the flat arm could not
+    read.
 
     HONESTLY, the correspondence is ONE-directional and only that direction is
     a claim: the resolver refuses names the token reader tokenises quite happily
@@ -488,17 +491,19 @@ def file_token_resolver_agreement_control(M):
     import pathlib as _p
     import plan_memo_sibling, plan_memo_tokens     # the freshly loaded set
 
-    names, deep = [], 0
+    names, deep, generated = [], 0, 0
     for pre, post in _paren_shapes(3):
         for stem in ("9z", "m9z", "9z.notes", "a" + pre + "9z" + post + "b"):
             name = pre + stem + post + plan_memo_tokens.FILE_SUFFIX
+            generated += 1
             if plan_memo_sibling.sibling_path(_p.Path("/nonexistent-fixture-root"), name) is None:
                 continue
             names.append(name)
             deep = max(deep, max(_depth_profile(name)))
     hits = [n for n in names
             if plan_memo_tokens.file_and_cite_spans(n) != [(0, len(n), "file")]]
-    return (not hits and len(names) >= 20 and deep >= 2,
+    # every generated name is expected to resolve: a skip is red, not a smaller sweep (R38's class)
+    return (not hits and len(names) == generated >= 20 and deep >= 2,
             "%d resolver-accepted name(s) swept, deepest nesting %d, %d not read as one token%s"
             % (len(names), deep, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
 
@@ -937,9 +942,9 @@ def file_token_run_agreement_control(M):
     each with and without a declared id, plus the trailing punctuation that
     ends a name in prose.  Every run the resolver FOLLOWS is required to leave
     no id outside its file span(s) (why that and not span equality: the comment
-    in the body, PR #510 R35); a run it rejects is SKIPPED, not lexed, since
-    that direction is the standing polarity (a name the lexer reads and the
-    resolver refuses is `NUL.md`, and is fine).
+    in the body, PR #510 R35), and every generated run is required to be
+    followed: a run the resolver rejects is red, not a smaller corpus (PR #510
+    Codex R38's class).
 
     HONESTLY, what it cannot see: a tail shape the resolver strips that no
     fragment below spells, and the interaction with parentheses, which
@@ -977,8 +982,8 @@ def file_token_run_agreement_control(M):
                 if exposed and len(bad) < 5:
                     bad.append("%r -> spans %r leave %r for the naming scan"
                                % (run, [run[a:b] for a, b in spans], exposed))
-    if followed < len(stems):
-        return False, ("only %d generated run(s) resolve to a file: the corpus cannot report this "
-                       "rule" % followed)
+    if followed != len(stems) * len(tails):     # a skip is red, not a smaller corpus (R38's class)
+        return False, ("%d of %d generated run(s) resolve to a file: the corpus cannot report this "
+                       "rule" % (followed, len(stems) * len(tails)))
     return not bad, ("%d run(s) the resolver follows, none leaving an id for the naming scan%s"
                      % (followed, ("; " + "; ".join(bad)) if bad else ""))
