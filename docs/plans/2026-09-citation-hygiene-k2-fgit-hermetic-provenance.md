@@ -115,7 +115,17 @@ This was a standalone script, run on both shells and on both gits.
 **Draft 1's roster E7 was dead.** Draft 1 used `init.templateDir` via XDG config. Under the constructed
 environment it reported `NOT-LIVE`, because `GIT_TEMPLATE_DIR` outranks it.
 
-### §A.4 Prototype D — the whole-build differential (draft 3)
+### §A.4 Prototype D — the whole-build differential (draft 3; SUPERSEDED)
+
+⚠ **The whole-wire results below are invalid, and draft 4 supersedes them.** The harness that produced
+them (`fgit/mut.sh`) ran each mutant in a `cp -R` copy with `rm -rf $d/.git`, so the wire's own real-tree
+scan also read nothing. Every run therefore went red for an unrelated reason as well: `read 0 stored
+objects` (found by round-3 Ax3).
+
+Only the label lines are evidence. Round 3 then measured that the differential's members were
+effect-based and not universal. Draft 4 replaces the differential with the bypass detector, and the
+corpus (§A.5) re-derives every whole-wire claim with a harness that keeps `.git`: it runs tagged copies
+beside the originals, as the mutation runner does.
 
 **Setup.** A `git clone --local` of `e8f78896`, with four changes:
 - §3.3;
@@ -150,6 +160,98 @@ so re-measure if needed.
 prototype D. Head was slower. Both sides were far inside the 5-minute budget, and the spread overlapped
 the difference. X8 repeats this on the real head.
 
+### §A.5 The adversarial corpus (draft 4)
+
+**Scripts.** Scratch `…/scratchpad/fgit/corpus/gen.py` and `cell.sh`, reproduced in §E so that a reviewer
+can re-run them.
+
+**Subject.** Prototype `p4`, a `git clone --local` of `e8f78896` plus exactly design memo §3–§5:
+- the `_fgit` construction;
+- the `notcommitted` fix;
+- controls lines 83–734 extracted to a sourced fixtures file (`wc -l` at `e58fec48`: fixtures 652, controls 397, harness 215);
+- the bypass detector with its canaries;
+- P-a…P-e.
+
+It has three commits:
+- `cd431e04`: the prototype;
+- `9df1e47e`: a P-b reporting fix;
+- `e58fec48`: one label per liveness producer.
+
+**Run.** 780 cells, parallelism 7, from 13:55 to 15:09 JST on 2026-09-27, over `9df1e47e`.
+`results.err` is empty. The call sites were chosen by regex over the fixtures file; each is identified
+by its line in `p4`'s fixtures file:
+
+| class | line |
+|---|---|
+| init | 427 (the loop) |
+| add -A | 428 |
+| add \<path\> | 466 |
+| add -f | 457 |
+| commit | 492 |
+| checkout | 556 |
+| hash-object | 515 |
+| hash-object -w | 594 |
+| hash-object -w --stdin | 500 |
+| update-index | 502 |
+| replace | 595 |
+| rev-parse | 592 |
+| symbolic-ref | 578 |
+
+**Results.** From `cut -f1,2,3 results.tsv | sort | uniq -c`:
+
+| config | G | R | P | RES |
+|---|---|---|---|---|
+| bash 5.3 · git 2.55 | 29 PASS | 130 PASS | 10 PASS | 26 RES-GREEN |
+| bash 3.2 · git 2.55 | 29 PASS | 130 PASS | 10 PASS | 26 RES-GREEN |
+| bash 5.3 · git 2.54 | 29 PASS | 130 PASS | 9 PASS, 1 FAIL | 26 RES-GREEN |
+| bash 3.2 · git 2.54 | 29 PASS | 130 PASS | 9 PASS, 1 FAIL | 26 RES-GREEN |
+
+**The two FAILs** are `P-e drop PATH` (cells c0582 and c0777, both rc 0, no control line). This was
+predicted: under git 2.54, `PATH`'s git is `/usr/bin/git`, which is also `env`'s default-path git.
+
+**Re-run at `e58fec48`.** Clean plus all 10 pins × 4 configs gave the same result: clean 4/4, pins 38/40,
+and the same two P-e cells failed (`corpus2/results.tsv`).
+
+**Examples from the logs.**
+- `init × bare git` (c0030) fails 75 control lines, because the whole loop broke, and the named label is
+  present.
+- `init × hash -p + git` (c0036) fails exactly 1 control line: only the detector fires, because the
+  hashed git works and so only the environment trace catches it.
+
+### §A.6 Cost (draft 4)
+
+**The rule.** From `git show e8f78896:.github/workflows/ci.yml | sed -n '/^  trip-wires:/,/^  [a-z]/p'`:
+re-derive the budget with three runs per side and compare. These figures stay here and never go in
+`ci.yml`, as that comment itself requires.
+
+**Driver** (`/usr/bin/time -p bash scripts/trip-wires.sh`), three interleaved runs per side:
+- base: 24.2, 20.3, 48.9 s;
+- p4: 20.9, 57.5, 60.6 s.
+
+**K2 wire alone**, five interleaved runs per side (real / user+sys CPU):
+- base: 48.7/31.6, 42.5/26.2, 25.3/16.3, 36.0/25.9, 28.9/20.0;
+- p4: 51.7/33.0, 48.8/32.9, 41.0/21.9, 19.3/12.0, 44.0/26.1.
+
+The machine was heavily loaded: an unloaded base run earlier in the session was about 13–15 s. The
+spreads overlap in both real and CPU time. p4 builds the fixtures **once**; its additions are two
+canaries and the P probes.
+
+⚠ Round 3's Ax3 measured non-overlapping spreads for draft 3's **two-build** prototype: base 22.2 /
+19.7 / 16.3 s against head 30.8 / 26.9 / 26.8 s. That is consistent with the second build having gone.
+X8 repeats the derivation on the real head.
+
+### §A.7 The ratchet on p4
+
+The records here are p4's `_mutants` here-document. At base, extract it with
+`sed -n '/^_mutants() { cat <<.MUTANTS./,/^MUTANTS$/p'` (97 lines).
+
+**Population:** `_control` labels plus every `_lbl="…"` definition in p4's controls file. Of those,
+**30** have no record:
+- the base's 21;
+- the 9 new labels.
+
+The 3 existing `_lbl` labels each have 1 record.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
@@ -173,7 +275,7 @@ the difference. X8 repeats this on the real head.
 
 **Review coverage for the code carried forward.** `ff6b99a3`'s Stage 5 reported 15 IMP / 8 MIN. The
 lane SSoT does **not** list the 15 individually. What it records (`project_citation-hygiene-program.md`,
-the "(2026-09-27)" block, around its lines 924–941) is the XDG hole plus three co-occurring items, all
+the block headed "(superseded 2026-09-27 後続) ▶▶▶ NEXT SESSION STARTS HERE (2026-09-27)", sub-heading "🔴 併発する 3 件") is the XDG hole plus three co-occurring items, all
 measured:
 - no control pinned the keep-set;
 - the 1000-line split was not taken;
@@ -230,9 +332,15 @@ rebuild's `/pre-push` Stage 4 over the whole range.
 
 ## §D Plan-review dispositions
 
-### §D.0 Terminator for round 3
+### §D.0 Terminators
 
-**Round 3 converges if no IMP lands on draft-3-added text and no IMP moves a mechanism.** An IMP of
+**Round 4.** Round 4 converges if no IMP lands on draft-4-added text, and no IMP moves a mechanism
+**without a corpus cell that shows the defect**. A finding that comes with a failing cell is fixed by
+driving the prototype to pass it, and then the memo is re-derived from the result. It is not fixed in
+prose first.
+
+**Round 3 (not met).** Round 3 would have converged if no IMP had landed on draft-3-added text and no
+IMP had moved a mechanism. An IMP of
 either kind is a reset. If that reset is self-introduced, the next draft shrinks mechanism again rather
 than adding to it. Round 2 was the first self-introduced reset: 8 of its 10 IMP landed on draft-2 text.
 
@@ -292,3 +400,193 @@ than adding to it. Round 2 was the first self-introduced reset: 8 of its 10 IMP 
 - The `wire` qualifier is restored.
 - The §7 closure claim is corrected.
 - The umbrella pointers are fixed.
+
+### §D.3 Round 3 (on draft 3 `2b89ef7c`; 0 CRIT / 7 IMP / 22 MIN / 4 FP) → draft 4
+
+Round 3 did not meet its terminator: all 7 IMP landed on draft-3 text, and 4 of them moved the
+mechanism. The process changed as a result: the corpus came first (§A.5), and draft 4 was written from
+it.
+
+| finding | disposition | evidence |
+|---|---|---|
+| Ax2/Ax3 IMP-1: the members are not universal across subcommands and fixture shapes | the differential and its members are **replaced** by an invocation-based detector (`GIT_TRACE` plus a `PATH` shim, around the one build) | §A.5 R: 130/130 × 4 configs, across all 13 call-site classes and 10 spellings, including `commit`, `update-index`, `hash-object -w`, `add -f` and `-c` overrides |
+| Ax3: poison members, plus a `PATH` shim for `env -i PATH="$PATH" git` | the `PATH` shim is adopted. Poison was **not** needed: `GIT_TRACE` catches every environment-inheriting git regardless of subcommand or `-c`, and it does not break the build it observes | R rows `env -i PATH="$PATH" git`, `-c override`, `hash -p` |
+| Ax2 IMP-2: canaries inherit the caller's environment, so an ordinary caller kills a member | moot: the detector's canaries test channels the gate itself sets. The caller's git configuration cannot switch `GIT_TRACE` or `PATH` off | §A.5 G: 29/29 × 4, including `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_COUNT`/`GIT_CONFIG_PARAMETERS` with `init.defaultBranch` |
+| Ax2 MIN: ref values | P now includes deterministic ref values; commits are compared by tree | design memo §1 |
+| Ax2 MIN: the hostile `_FIX_FAILED` has no reader; errexit differs between 5.3 and 3.2 in `( . fixtures ) \|\| rc` | moot: there is no second build. The one build is sourced in the calling shell exactly as at base | p4 |
+| Ax2 MIN: two producers share one label | one label per producer. The liveness halves have their own labels (`e58fec48`) | §A.5 re-run |
+| Ax2 MIN: d1 did not match the design | p4 carries §3–§5 exactly, P-a…P-e included | §A.5 |
+| Ax3 harness defect (`rm -rf $d/.git`) | §A.4 is marked invalid; the corpus harness keeps `.git` | §A.4 note |
+| Ax3 MIN: R4 ground, errexit wording, "no measured way", cost sentence | R4 is restated as a class, with no ground argued beyond the launch slot. The errexit text now describes only what p4 does. "No measured way" is deleted along with the differential. The cost sentence is rewritten from the §A.6 data | design memo §4, §5.2 |
+| Ax5 IMP: C0a had no seam (parent §5 is live) | **C0a withdrawn**. Only the banner (C0b) remains; its site list is derived by rule and command, giving **seven** sites (round 3 said five) | design memo §8.2 |
+| Ax5 IMP: the wire-reference convention resolves 8 references wrongly | the convention is **dropped**. A derived table resolves each reference (8 parent, 1 A-i, plus the qualified ones) | design memo §8.3 |
+| Ax4/Ax5: the umbrella memo table lacked a row for the companion | the companion row was added in draft 3; draft 4 keeps it. The rounds companion is moot, since C0a is withdrawn | umbrella |
+| Ax3/Ax5: `#11-k2-fgit-machine-files` held two gaps | **withdrawn at create time**: (a) becomes the declared blind spot R3; (b) is the invocation-convention slot's own gap, which that slot is narrowed to. Own new deferrals: 0 | design memo §5.2, §7 |
+| D2 carried: ratchet | measured: 30 bare labels with a widened population; 7 of the 9 new labels get records; +2 declared raise for the two version guards | §A.7 |
+
+⚠ **Not addressed individually.** Ax4's 7 and Ax5's 7 MINs were not in this session's brief as texts,
+and the review agents' output files were unreachable (dangling links under `tasks/`). Their stated
+subjects were handled where named: wording/pointer fixes, memory references anchored by heading text,
+and the umbrella rows. Any MIN not listed above is **open**, and it should be re-raised against draft 4.
+
+---
+
+## §E Appendix — the corpus scripts (as run)
+
+`gen.py`:
+
+```python
+#!/usr/bin/env python3
+"""Generate the adversarial corpus jobs for prototype p4. Usage: gen.py <p4 dir> <out dir>"""
+import os, re, sys, shlex
+P4, OUT = sys.argv[1], sys.argv[2]
+T = os.path.join(P4, '.claude/tools')
+W = 'webref-generic-core-trip-wire'
+parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
+fx = open(os.path.join(T, W + '.fixtures.sh')).read().split('\n')
+hn = open(os.path.join(T, W + '.harness.sh')).read()
+CFGS = {  # name: (shell, git prefix dir, real git)
+  'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'),
+  'b32-g255': ('/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'),
+  'b53-g254': ('/opt/homebrew/bin/bash', '/usr/bin', '/usr/bin/git'),
+  'b32-g254': ('/bin/bash', '/usr/bin', '/usr/bin/git'),
+}
+# ---- call-site classes: first line per class, which _fgit occurrence on it
+classes = [
+ ('init',            r'_fgit init'),
+ ('add -A',          r'_fgit add -A'),
+ ('add <path>',      r'_fgit add (?!-)'),
+ ('add -f',          r'_fgit add -f'),
+ ('commit',          r'_fgit -c user\.name=w -c user\.email=w@e commit'),
+ ('checkout',        r'_fgit checkout'),
+ ('hash-object',     r'_fgit hash-object --stdin'),
+ ('hash-object -w',  r'_fgit hash-object -w (?!-)'),
+ ('hash-object -w --stdin', r'_fgit hash-object -w --stdin'),
+ ('update-index',    r'_fgit update-index'),
+ ('replace',         r'_fgit replace'),
+ ('rev-parse',       r'_fgit rev-parse'),
+ ('symbolic-ref',    r'_fgit symbolic-ref'),
+]
+sites = []
+for name, rx in classes:
+    for i, l in enumerate(fx):
+        if l.lstrip().startswith('#'): continue
+        m = re.search(rx, l)
+        if m:
+            sites.append((name, i, m.start())); break
+    else:
+        sites.append((name, None, None))
+def spellings(realgit):
+    return [
+     ('bare git',             'git', 'R'),
+     ('_git',                 '_git', 'R'),
+     ('command git',          'command git', 'R'),
+     ('env git',              'env git', 'R'),
+     ('env -i PATH="$PATH" git', 'env -i PATH="$PATH" git', 'R'),
+     ('PATH=fakegit:$PATH git', 'PATH="$CTL/fakegit:$PATH" git', 'R'),
+     ('hash -p + git',        'hash -p %s git && git' % realgit, 'R'),
+     ('eval $_REAL_GIT',      'eval "$_REAL_GIT"', 'R'),
+     ('absolute path',        realgit, 'R'),
+     ('git -c override',      'git -c core.excludesFile=/dev/null', 'R'),
+     ('env -i literal PATH',  'env -i PATH=/usr/bin:/bin git', 'RES'),
+     ('env -i absolute',      'env -i %s' % realgit, 'RES'),
+    ]
+H = os.path.join(OUT, 'h')
+g = lambda *a: os.path.join(H, *a)
+GROWS = [
+ ('clean', []),
+ ('HOME .gitconfig excludesFile *.py', ['HOME=' + g('home_ex')]),
+ ('HOME empty .config/git/ignore', ['HOME=' + g('home_empty')]),
+ ('HOME .config/git/ignore *.py', ['HOME=' + g('home_ign')]),
+ ('XDG git/ignore *.py', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_ign')]),
+ ('XDG git/attributes wte', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_attr')]),
+ ('XDG git/config excludesFile', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_cfg')]),
+ ('XDG git/config init.templateDir', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_tpl')]),
+ ('GIT_TEMPLATE_DIR exclude', ['GIT_TEMPLATE_DIR=' + g('tpl_ex')]),
+ ('GIT_TEMPLATE_DIR config', ['GIT_TEMPLATE_DIR=' + g('tpl_cfg')]),
+ ('GIT_TEMPLATE_DIR HEAD', ['GIT_TEMPLATE_DIR=' + g('tpl_head')]),
+ ('GIT_TEMPLATE_DIR hooks', ['GIT_TEMPLATE_DIR=' + g('tpl_hook')]),
+ ('GIT_CONFIG_GLOBAL=/dev/null', ['GIT_CONFIG_GLOBAL=/dev/null']),
+ ('GIT_CONFIG_GLOBAL=<all five>', ['GIT_CONFIG_GLOBAL=' + g('all5.cfg')]),
+ ('GIT_CONFIG_SYSTEM=<all five>', ['GIT_CONFIG_SYSTEM=' + g('all5.cfg')]),
+ ('COUNT init.defaultBranch', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=init.defaultBranch', 'GIT_CONFIG_VALUE_0=hostile']),
+ ('COUNT core.excludesFile', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.excludesFile', 'GIT_CONFIG_VALUE_0=' + g('pyglob')]),
+ ('COUNT core.hooksPath', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.hooksPath', 'GIT_CONFIG_VALUE_0=' + g('hooks')]),
+ ('COUNT attributesFile+filter', ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=core.attributesFile', 'GIT_CONFIG_VALUE_0=' + g('attr_filter'), 'GIT_CONFIG_KEY_1=filter.zap.clean', 'GIT_CONFIG_VALUE_1=true']),
+ ('COUNT commit.gpgSign+false', ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=commit.gpgSign', 'GIT_CONFIG_VALUE_0=true', 'GIT_CONFIG_KEY_1=gpg.program', 'GIT_CONFIG_VALUE_1=/usr/bin/false']),
+ ('PARAMETERS init.defaultbranch', ["GIT_CONFIG_PARAMETERS='init.defaultbranch'='hostile'"]),
+ ('PARAMETERS core.excludesfile', ["GIT_CONFIG_PARAMETERS='core.excludesfile'='%s'" % g('pyglob')]),
+ ('HOME .gitconfig init.defaultBranch', ['HOME=' + g('home_br')]),
+ ('HOME .gitconfig core.hooksPath', ['HOME=' + g('home_hook')]),
+ ('HOME .gitconfig attributesFile+filter', ['HOME=' + g('home_filter')]),
+ ('HOME .gitconfig gpgSign+false', ['HOME=' + g('home_gpg')]),
+ ('GIT_DIR=<other>', ['GIT_DIR=' + g('other', '.git')]),
+ ('GIT_INDEX_FILE=<other>', ['GIT_INDEX_FILE=' + g('other', 'idx')]),
+ ('GIT_WORK_TREE=<other>', ['GIT_WORK_TREE=' + g('other')]),
+]
+PINS = [  # (name, harness old, harness new, needle)
+ ('P-a env config in _FGIT_ENV', '"GIT_TEMPLATE_DIR=$_FGIT_VOID")', '"GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a.b GIT_CONFIG_VALUE_0=c)', "CONTROL FAILED (the fixture git reads configuration only from the fixture's own config file)"),
+ ('P-b drop NOSYSTEM', ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1', ' GIT_ATTR_NOSYSTEM=1', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
+ ('P-b drop ATTR_NOSYSTEM', ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1', ' GIT_CONFIG_NOSYSTEM=1', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
+ ('P-b drop HOME', '"PATH=$PATH" "HOME=$_FGIT_VOID" ', '"PATH=$PATH" ', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
+ ('P-c void non-empty', 'mkdir "$_FGIT_VOID" || exit 2', 'mkdir "$_FGIT_VOID" || exit 2; : > "$_FGIT_VOID/planted"', "CONTROL FAILED (nothing is written into the fixture git's void)"),
+ ('P-d drop TEMPLATE_DIR', ' "GIT_TEMPLATE_DIR=$_FGIT_VOID")', ')', 'CONTROL FAILED (the fixture git copies no template)'),
+ ('P-e drop PATH', '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=(', 'CONTROL FAILED (the fixture git is the git the wire reads with)'),
+ ('detect: _fgit inherits', '_fgit() { command env -i ', '_fgit() { command env ', 'CONTROL FAILED (every fixture git call goes through _fgit)'),
+ ('liveness: no GIT_TRACE', '  export GIT_TRACE="$_FD_TRACE"\n', '', 'CONTROL NOT EXERCISED (the fixture-build bypass detector sees a bypass)'),
+ ('liveness: no PATH shim', '  PATH="$_FD_DIR/bin:$PATH"\n', '', 'CONTROL NOT EXERCISED (the fixture-build bypass detector sees a bypass)'),
+]
+jobs = []
+n = 0
+def mk(cfg, kind, label, edits, env, expect):
+    global n
+    n += 1
+    tag = 'c%04d' % n
+    for p in parts:
+        src = open(os.path.join(T, W + p + '.sh')).read()
+        for (pp, old, new) in edits:
+            if pp == p:
+                assert src.count(old) >= 1, (label, old)
+                src = src.replace(old, new, 1)
+        dst = os.path.join(T, W + '.' + tag + p + '.sh')
+        open(dst, 'w').write(src); os.chmod(dst, 0o755)
+    sh, gp, rg = CFGS[cfg]
+    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect]))
+for cfg, (sh, gp, rg) in CFGS.items():
+    for name, env in GROWS:
+        mk(cfg, 'G', name, [], env, 'GREEN')
+    for (cls, li, col) in sites:
+        for sname, sp, kind in spellings(rg):
+            line = fx[li]
+            new = line[:col] + sp + line[col + len('_fgit'):]
+            mk(cfg, kind, cls + ' × ' + sname, [('.fixtures', line, new)], [], 'CONTROL FAILED (every fixture git call goes through _fgit)')
+    for name, old, new, needle in PINS:
+        mk(cfg, 'P', name, [('.harness', old, new)], [], needle)
+open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n')
+print(len(jobs), 'jobs;', 'sites:', [(c, li + 1 if li is not None else None) for c, li, _ in sites])
+```
+
+`cell.sh`:
+
+```sh
+#!/bin/bash
+# one corpus cell: tag cfg kind label shell gitprefix env expect
+IFS=$'\x1f' read -r tag cfg kind label sh gp envs expect <<< "$1"
+P4=/private/tmp/claude-501/-Users-kazuaki-repos-send-sh-elidex/d366a8a7-1cd3-4517-9fcf-9e5d66cdc77f/scratchpad/fgit/p4
+OUT=/private/tmp/claude-501/-Users-kazuaki-repos-send-sh-elidex/d366a8a7-1cd3-4517-9fcf-9e5d66cdc77f/scratchpad/fgit/corpus
+[ -n "$tag" ] && [ -x "$sh" ] && [ -n "$expect" ] || { printf "HARNESS-ERROR\t%s\n" "$1"; exit 0; }
+log=$OUT/logs/$tag.log; mkdir -p $OUT/tmp/$tag
+eval "set -- $envs"
+( cd $P4 && env TMPDIR=$OUT/tmp/$tag PATH="$gp:/usr/bin:/bin:/opt/homebrew/bin" "$@" "$sh" ".claude/tools/webref-generic-core-trip-wire.$tag.sh" ) > $log 2>&1
+rc=$?
+[ $rc -ne 127 ] && [ $rc -ne 126 ] || { printf "HARNESS-ERROR\t%s\trc=%s\n" "$tag" "$rc"; exit 0; }
+ncf=$(/usr/bin/grep -c 'CONTROL FAILED\|CONTROL NOT EXERCISED' $log); pass=$(/usr/bin/grep -c 'trip-wire PASSED' $log)
+if [ "$expect" = GREEN ]; then
+  if [ $rc -eq 0 ] && [ $ncf -eq 0 ] && [ $pass -eq 1 ]; then v=PASS; else v=FAIL; fi
+else
+  if [ $rc -ne 0 ] && /usr/bin/grep -qF "$expect" $log; then v=PASS; else v=FAIL; fi
+fi
+[ "$kind" = RES ] && { [ "$v" = PASS ] && v=RES-RED || v=RES-GREEN; }
+printf '%s\t%s\t%s\t%s\t%s\trc=%s\tctl=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$ncf"
+rm -rf $OUT/tmp/$tag
+```
