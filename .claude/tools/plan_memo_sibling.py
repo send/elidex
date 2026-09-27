@@ -114,8 +114,9 @@ def sibling_path(directory, dest):
           `C:\\temp\\x`, `\\\\server\\share\\x` and the drive-relative
           `C:x` (raw `C:x.md` is already a URL of scheme `c` at (a);
           percent-encoded `C%3Ax.md` decodes to a drive anchor here --
-          so does the one-letter `n%3Ax.md`, where the multi-letter
-          `notes%3Ax.md` of (a) is a file name) are all rejected.  ⚠
+          so does the one-letter `n%3Ax.md`; the multi-letter
+          `notes%3Ax.md` of (a) has no anchor and is refused by the
+          reserved-character rule below) are all rejected.  ⚠
           Until PR #510 R19 this stage rejected a leading `/` only, so
           `C%3A%5Ctemp%5Cchild.md` (`C:\\temp\\child.md`) and
           `%5Cchild.md` (`\\child.md`) passed, and on Windows `parent /
