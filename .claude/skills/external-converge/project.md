@@ -81,7 +81,7 @@ Auto-review is not guaranteed to arm and gives no signal when it doesn't: `#333`
 
 The duplicate-trigger cost is negligible and empirically harmless — `#488`/`#489` both received manual triggers on top of already-completed auto-reviews with no ill effect. The asymmetry is decisive: a redundant review costs one wasted Codex run, an unarmed review costs unbounded wall-clock. Always trigger.
 
-**A silent 👍 is still auto-review (`#524`, 2026-09-28).** The auto-review on PR open can finish with only a 👍 on the PR, per Codex's status-table legend: 👀 while running, 👍 once all reviews finish with no findings. It posts no `Didn't find any major issues` comment and no review, so Step 1 reports `on_head: false`. Do not read that 👍 as the verdict. Trigger as above. A manual `@codex review` has always posted the explicit dry comment (`#508`, `#519`, `#523`), which the resolver does read.
+**A silent 👍 is still auto-review (`#524`, 2026-09-28).** The auto-review on PR open can finish with only a 👍 on the PR, per Codex's status-table legend: 👀 while running, 👍 once all reviews finish with no findings. It posts no `Didn't find any major issues` comment and no review, so Step 1 reports `on_head: false`. Do not read that 👍 as the verdict. Trigger as above. In every case checked, a manual `@codex review` posted the explicit dry comment, which the resolver does read. The cases are `#508`, `#519`, `#523`, and `#524`'s own re-trigger (dry comment at 20:29:42Z, under 2 min).
 
 This is *One issue, one way* (CLAUDE.md): the rule removes the "is it slow or unarmed?" branch entirely rather than moving the decision to a threshold.
 
