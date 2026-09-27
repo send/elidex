@@ -14,8 +14,7 @@ every gap-bearing pattern -- more than that module could take under the
 1000-line bound.  The older R47-4 kind-phrase gap controls (U+00A0, tab, LF,
 the ASCII fold) stay in `_cases_r42.py`, where their round put them.  This
 module holds every reader-gap CASE of the 2026-09-27 round; that round's
-FUNCTION controls live with their kind -- `role_rank_gap_control` in
-`plan_memo_selftest_controls.py`, the class oracle
+FUNCTION controls live with their kind -- the class oracle
 `unicode_whitespace_class_control` in `plan_memo_selftest_invariants.py`, and
 the population ratchet `gap_pattern_population_control` in
 `plan_memo_selftest_ratchets.py`.  Its mutants are
@@ -94,8 +93,8 @@ R22_WS_ID_RUN_VT = CASES[-1].name
 # spelled it `\s` under `re.ASCII` (U+000B yes, U+00A0 no) and as a literal
 # U+0020 inside phrase words, so a reader's `&nbsp;` broke the phrase and a
 # U+000B cmark does not read as whitespace completed it.  One U+00A0 arm and
-# one U+000B arm per vocabulary family; the ranking family has no case measure
-# and is a function control (`plan_memo_selftest_controls.role_rank_gap_control`).
+# one U+000B arm per vocabulary family; the ranking's arms are rows of
+# `_R22_GAP_TABLE` below, measured with the harness's `("role", ...)` measure.
 R22_WS_ROLES = {}
 for _fam, _label, _prose in (
         ("before", "the licensing phrase BEFORE the mention (`the child of`)",
@@ -185,15 +184,23 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # gap an adjacent required gap would otherwise absorb).  A position that
 # already had a case with the exact fixture reuses it (`_REUSED`).
 #
-# WHICH PATTERNS NEED ROWS is not this comment's to say: it is
-# `plan_memo_selftest_ratchets.gap_pattern_population_control`, which enumerates
-# every compiled pattern a checker module assigns whose source holds `GAP`, and
-# counts coverage FROM THESE ROWS: it is red on such a pattern that no row here
-# or in `_R22_GAP_MIXED` reaches (through `_R22_GAP_PATTERN`) with at least one
-# read arm and one refuse arm, and on a row pattern `_R22_GAP_PATTERN` does not
-# map, a mapping no row uses, a covered pattern that no longer holds `GAP`, and
-# an `R22_GAP_ELSEWHERE` control the registry does not hold.  WHICH GAPS inside a pattern the
-# rows reach was MEASURED once, at the commit that wrote this sentence, by
+# WHICH PATTERNS NEED ROWS is not this comment's to say:
+# `plan_memo_selftest_ratchets.gap_pattern_population_control` takes the
+# population from the checker modules' NAMESPACES (every compiled pattern
+# holding `GAP` reachable from a module-level name, or inside a tuple / list /
+# dict up to three deep; one entry per object, whatever names reach it) and is
+# red on each of these:
+#   - a population pattern no row reaches through `_R22_GAP_PATTERN`;
+#   - a mapped key that names no gap-bearing pattern;
+#   - a row pattern `_R22_GAP_PATTERN` does not map;
+#   - a mapping entry no row uses;
+#   - a covered pattern with no READ arm, or with no REFUSE arm;
+#   - a row of this table with a missing expectation column, or with its
+#     read and refuse expectations equal;
+#   - a `_REUSED` arm whose case expects something other than its row's
+#     column, or that names no collected case;
+#   - an empty population.
+# WHICH GAPS inside a pattern the rows reach was MEASURED once, at 87f361c6, by
 # re-spelling each of the 71 regex gaps of the 13 patterns ALONE as `(?a:\s)`
 # and running every row of its pattern with U+00A0, U+000B and both mixed runs:
 # each gap flips at least one arm below, except the two that are NEUTRAL --
@@ -205,8 +212,9 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # its own row and nothing turns red until it has one.
 _R22_GAP_TABLE = (
     # (pattern, position, fixture, template with {g}, read expectation, refuse expectation)
-    # fixture: "prose" = a prose line, measured in naming sites; (cell, code) = a
-    # cell of the fixture memo, measured in `code` findings (None = sites).
+    # fixture: "prose" = a prose line, measured in naming sites; ("role", r) = a
+    # prose line, measured in reported sites the RANKING gives role r; (cell,
+    # code) = a cell of the fixture memo, measured in `code` findings (None = sites).
     ("LICENCE child", "child|of", "prose", "The drain is the child{g}of **9z** in this plan.", 0, 1),
     ("LICENCE child", "of|mention", "prose", "The drain is the child of{g}**9z** in this plan.", 0, 1),
     ("LICENCE derivation", "derivation|that", "prose", "It is the derivation{g}that **9z** runs.", 0, 1),
@@ -284,6 +292,13 @@ _R22_GAP_TABLE = (
     # and the appositive's third gap, between the decoration and the marker
     ("_APPOSITIVE", "decor|marker", ("wb", "UMBRELLA-MARK"),
      "Slice 9z — **{g}UMBRELLA, not a terminal unit.** points into §8.", 1, 0),
+    # the RANKING's two gap-bearing entries (`ROLE_PATTERNS`), measured by the
+    # role the report prints for the one reported site -- ordinary rows since the
+    # review of be5e1db5, not a function control on a separate coverage path
+    ("ROLE ordering", "waits|on", ("role", "ordering"), "The close rule waits{g}on **9z** here.", 1, 0),
+    ("ROLE owner", "placed|on", ("role", "owner"), "The close rule placed{g}on **9z** here.", 1, 0),
+    ("ROLE owner", "chartered|to", ("role", "owner"), "The close rule chartered{g}to **9z** here.", 1, 0),
+    ("ROLE owner", "charters|to", ("role", "owner"), "The close rule charters{g}to **9z** here.", 1, 0),
 )
 _R22_GAP_MIXED = (
     # (pattern, position, fixture, template, refuse expectation, the refuse run).
@@ -317,12 +332,8 @@ _R22_GAP_PATTERN = {
     "_ID_RUN_TOKEN": ("plan_memo_stream", "_ID_RUN_TOKEN"),
     "_APPOSITIVE": ("plan_memo_tables", "_APPOSITIVE"),
     "ROW_NOUN_SEP": ("plan_memo_tables", "_APPOSITIVE"),     # the union, reached through the appositive
-}
-R22_GAP_ELSEWHERE = {
-    # a gap-bearing pattern pinned by a FUNCTION control instead of table rows:
-    # the ranking has no case measure
-    ("plan_memo_roles", "ROLE_PATTERNS", 0, 1): "role_rank_gap_control",
-    ("plan_memo_roles", "ROLE_PATTERNS", 1, 1): "role_rank_gap_control",
+    "ROLE ordering": ("plan_memo_roles", "ROLE_PATTERNS", 0, 1),
+    "ROLE owner": ("plan_memo_roles", "ROLE_PATTERNS", 1, 1),
 }
 # (pattern, position, "read" | "refuse") -> the case that already held that arm
 # with exactly this fixture, so it is reused rather than written twice.
@@ -364,6 +375,8 @@ for _pat, _pos, _fix, _tpl, _read, _refuse, _run in _ROWS:
             _text = _tpl.replace("{g}", _gap)
             if _fix == "prose":
                 case(_kind, _name, build(), _text, _want)
+            elif _fix[0] == "role":
+                case(_kind, _name, build(), _text, _want, measure=_fix)
             elif _fix[0] == "kind":
                 acase(_kind, _name, kindcell(_text), _fix[1], _want)
             elif _fix[1] is None:

@@ -666,47 +666,23 @@ def _criteria_missing(table, names):
 
 # -- the gap-pattern ratchet --------------------------------------------------
 
-def _assigned_names(src):
-    """The names a module's top level ASSIGNS (`Assign` / `AnnAssign` targets),
-    less those bound to another name or attribute (`X = Y`, an alias of a
-    pattern defined elsewhere).  Imports are not assignments, so a pattern a
-    module imports is not one of its names here."""
-    out = set()
-    for node in ast.parse(src).body:
-        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-            if isinstance(node.value, (ast.Name, ast.Attribute)):
-                continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for t in targets:
-                out |= {n.id for n in ast.walk(t) if isinstance(n, ast.Name)}
-    return out
-
-
 def _gap_population(modules, gap, depth=3):
-    """{key: pattern} for every compiled pattern whose source holds `gap` that
-    a module's top level ASSIGNS -- keyed (module, name) for EVERY assigned
-    name, so two names whose sources compile to one cached object are two keys
-    -- or holds in a tuple / list / dict assigned there, up to `depth` levels
-    down, keyed (module, name, index ...) unless the same object is also an
-    assigned name somewhere (`KIND_PHRASES` holds `MARKER_RE`).  `modules` is
-    [(module, namespace, assigned names)].  PURE: it reads what it is handed."""
+    """{id: (pattern, [keys])} for every compiled pattern whose source holds
+    `gap` that a module's NAMESPACE reaches -- bound to a name, or held in a
+    tuple / list / dict up to `depth` levels below one.  `modules` is
+    [(module, namespace)]; a key is (module, name[, index ...]).  ONE entry per
+    OBJECT, carrying every key that reaches it: an imported name, an alias
+    `X = Y`, a second name `re` cached into the same object, and a container
+    entry that is also a name are all more keys of one pattern, never a second
+    pattern.  Nothing is included by the SHAPE of the statement that bound it,
+    so a binding shape nobody listed still lands in the population.  PURE."""
     import re as _re
-    out, named = {}, set()
-    for mod, ns, assigned in modules:
-        for attr in sorted(assigned):
-            v = ns.get(attr)
-            if isinstance(v, _re.Pattern):
-                named.add(id(v))
-                if gap in v.pattern:
-                    out[(mod, attr)] = v
-    seen = set(named)
+    out = {}
 
     def walk(key, v, d):
         if isinstance(v, _re.Pattern):
-            if id(v) not in seen:
-                seen.add(id(v))
-                if gap in v.pattern:
-                    out[key] = v
+            if gap in v.pattern:
+                out.setdefault(id(v), (v, []))[1].append(key)
             return
         if d < depth and isinstance(v, (tuple, list)):
             for i, x in enumerate(v):
@@ -715,93 +691,106 @@ def _gap_population(modules, gap, depth=3):
             for k, x in v.items():
                 walk(key + (k,), x, d + 1)
 
-    for mod, ns, assigned in modules:
-        for attr in sorted(assigned):
-            v = ns.get(attr)
-            if not isinstance(v, _re.Pattern):
-                walk((mod, attr), v, 0)
+    for mod, ns in modules:
+        for name, v in sorted(ns.items()):
+            walk((mod, name), v, 0)
     return out
 
 
-def _gap_coverage(rows, mapping, elsewhere, registered):
-    """(covered patterns, problems) from the TABLE's rows -- never from the
-    mapping alone.  `rows`: [(table pattern, has a read arm, has a refuse
-    arm)]; `mapping`: table pattern -> population key; `elsewhere`: population
-    key -> the NAME of a function control; `registered`: the function names
-    the live registry holds.  A problem is a row whose pattern has no mapping,
-    a mapping entry no row uses, a covered key with no READ or no REFUSE arm,
-    and an `elsewhere` name that is no registered control.  PURE."""
-    problems, arms = [], {}
-    for pat, read, refuse in rows:
+def _gap_coverage(rows, mixed, mapping, reused, expect_of):
+    """(covered keys, problems) from the TABLE -- never from the mapping alone.
+    `rows`: the `_R22_GAP_TABLE` tuples; `mixed`: the `_R22_GAP_MIXED` tuples;
+    `mapping`: table pattern -> key; `reused`: (pattern, position, arm) -> case
+    name; `expect_of`: case name -> its declared expectation.  PURE."""
+    problems, arms, used = [], {}, set()
+    cols = {}
+    for pat, pos, _fix, _tpl, read, refuse in rows:
+        cols[(pat, pos)] = {"read": read, "refuse": refuse}
+        if read is None or refuse is None:
+            problems.append("row %s %s has a missing expectation column" % (pat, pos))
+        elif read == refuse:
+            problems.append("row %s %s expects %r on both arms" % (pat, pos, read))
+    marks = [(r[0], r[4] is not None, r[5] is not None) for r in rows]
+    marks += [(m[0], False, m[4] is not None) for m in mixed]
+    for pat, read, refuse in marks:
+        used.add(pat)
         if pat not in mapping:
             problems.append("row pattern %r has no mapping" % pat)
             continue
         got = arms.setdefault(mapping[pat], [False, False])
         got[0] |= read
         got[1] |= refuse
-    used = {pat for pat, _, _ in rows}
     problems += ["mapping %r -> %s is used by no row" % (pat, key)
                  for pat, key in sorted(mapping.items()) if pat not in used]
     problems += ["%s has %s" % (key, " and ".join(w for w, have in (("no READ arm", r), ("no REFUSE arm", f))
                                                  if not have))
-                 for key, (r, f) in sorted(arms.items()) if not (r and f)]
-    problems += ["%s names control %r, which the registry does not hold" % (key, fn)
-                 for key, fn in sorted(elsewhere.items()) if fn not in registered]
-    return set(arms) | set(elsewhere), problems
+                 for key, (r, f) in sorted(arms.items(), key=str) if not (r and f)]
+    for (pat, pos, arm), name in sorted(reused.items()):
+        want = cols.get((pat, pos), {}).get(arm)
+        if name not in expect_of:
+            problems.append("reused %s %s %s names no collected case" % (pat, pos, arm))
+        elif expect_of[name] != want:
+            problems.append("reused %s %s %s: the case expects %r, the row says %r"
+                            % (pat, pos, arm, expect_of[name], want))
+    return set(arms), problems
 
 
 def gap_pattern_population_control(M):
-    """PROPERTY, checked in this order over the running module set:
+    """PROPERTY, over the running module set:
 
       (1) the POPULATION is every compiled pattern whose source holds
-          `plan_memo_stream.GAP` and that a checker module's top level assigns
-          -- to a name (every assigned name is a key, so two names whose
-          sources `re` caches as one object are two keys) or inside a tuple /
-          list / dict up to three levels down;
+          `plan_memo_stream.GAP` and that a checker module's namespace reaches
+          -- through a module-level name or inside a tuple / list / dict up to
+          three levels below one -- one entry per object, with every key
+          (module, name[, index ...]) that reaches it;
       (2) a pattern is COVERED when a row of
           `plan_memo_selftest_cases_gap._R22_GAP_TABLE` or `_R22_GAP_MIXED`
-          maps to it (through `_R22_GAP_PATTERN`) and those rows give it at
-          least one READ arm and one REFUSE arm -- or when `R22_GAP_ELSEWHERE`
-          names a function control for it that the live registry
-          (`plan_memo_selftest_controls.registry()`) holds;
-      (3) RED on: a population pattern not covered; a covered pattern not in
-          the population (its source no longer holds `GAP`); a row pattern
-          with no mapping; a mapping entry no row uses; a covered pattern
-          missing its read or refuse arm; an `R22_GAP_ELSEWHERE` name the
-          registry does not hold; an empty population.
+          maps (through `_R22_GAP_PATTERN`) to one of its keys;
+      (3) RED on: a population pattern that is not covered; a mapped key that
+          names no gap-bearing pattern; a row pattern with no mapping; a
+          mapping entry no row uses; a covered key with no READ arm or no
+          REFUSE arm; a `_R22_GAP_TABLE` row with a missing expectation
+          column, or with equal read and refuse expectations; a `_REUSED` arm
+          whose case (from the one collection, `plan_memo_selftest_cases.
+          cases()`) expects something other than its row's column, or that
+          names no collected case; an empty population.
 
-    WHY FROM THE ROWS (the review of 87f361c6).  The first version took its
-    covered set from the MAPPING's values, so deleting NOUN_ANCHOR's rows --
-    and adding a pattern with only a mapping entry -- stayed green.  A mapping
-    is a claim that rows exist; the rows are the thing.
+    WHY A NAMESPACE (the review of be5e1db5).  Populating from the AST's
+    `Assign` statements was a POSITIVE list of binding shapes, and a pattern
+    bound under an `if`, a `try`, a `for` or by `globals()` fell outside it,
+    green.  The namespace holds whatever the import bound, however it was
+    bound, so an unlisted shape falls red.  Imports and aliases need no
+    exclusion: they reach the SAME object, and one object is one pattern.
+    WHY FROM THE ROWS (the review of 87f361c6): a mapping is a claim that rows
+    exist; the rows are the thing.
 
     HONESTLY, what it cannot see: a pattern compiled inside a function or
-    class body, or lazily; one deeper than three containers, in an object
-    attribute, or only reachable through an alias `X = Y` (the alias is the
-    same object, pinned by `Y`'s rows); a pattern in a SELF-TEST module; a
-    gap-bearing regex kept as a STRING and compiled at the call; and a
-    vocabulary that spells its gap without `GAP` (`\\\\s`, a literal U+0020).
-    It checks that each pattern HAS a read row and a refuse row, not that the
-    rows reach every gap inside it, nor that an arm's fixture exercises the
-    pattern at all -- the "R22 gap" mutants are what show a pattern's rows go
-    red when its gaps are re-spelled, one pattern at a time."""
+    class body, or lazily; one deeper than three containers or in an object
+    attribute; a pattern in a SELF-TEST module; a gap-bearing regex kept as a
+    STRING and compiled at the call; a vocabulary that spells its gap without
+    `GAP` (`\\s`, a literal U+0020); and a second NAME `re` cached into the
+    same object as a covered one -- it is the same pattern, pinned by the
+    first name's rows.  It checks that each pattern HAS a read row and a
+    refuse row whose expectations differ, not that the rows reach every gap
+    inside it, nor that a fixture exercises its pattern -- the "R22 gap"
+    mutants show a pattern's rows go red when its gaps are re-spelled."""
     import importlib
     import sys as _sys
     import plan_memo_selftest_cases_gap as cg
-    from plan_memo_selftest_harness import MODULES as _MODULES, SOURCES as _SOURCES
+    from plan_memo_selftest_harness import MODULES as _MODULES
     gap = _sys.modules["plan_memo_stream"].GAP
-    modules = [(n, vars(_sys.modules[n]), _assigned_names(_SOURCES[f])) for n, f in _MODULES]
-    population = _gap_population(modules, gap)
-    rows = ([(r[0], r[4] is not None, r[5] is not None) for r in cg._R22_GAP_TABLE]
-            + [(r[0], False, True) for r in cg._R22_GAP_MIXED])
-    registered = {fn.__name__ for _kind, fn in
-                  importlib.import_module("plan_memo_selftest_controls").registry().values()}
-    covered, problems = _gap_coverage(rows, cg._R22_GAP_PATTERN, cg.R22_GAP_ELSEWHERE, registered)
-    missing = sorted(k for k in population if k not in covered)
-    stale = sorted(k for k in covered if k not in population)
+    population = _gap_population([(n, vars(_sys.modules[n])) for n, _ in _MODULES], gap)
+    expect_of = {c.name: c.expect
+                 for c in importlib.import_module("plan_memo_selftest_cases").cases()}
+    covered, problems = _gap_coverage(cg._R22_GAP_TABLE, cg._R22_GAP_MIXED, cg._R22_GAP_PATTERN,
+                                      cg._REUSED, expect_of)
+    reachable = {k for _p, keys in population.values() for k in keys}
+    missing = sorted(min(keys, key=str) for _p, keys in population.values()
+                     if not covered.intersection(keys))
+    stale = sorted((k for k in covered if k not in reachable), key=str)
     ok = bool(population) and not missing and not stale and not problems
-    return ok, ("%d gap-bearing module-level pattern(s) found; %d without a covering row%s; %d "
-                "covered pattern(s) no longer holding GAP%s; %d table problem(s)%s"
+    return ok, ("%d gap-bearing pattern(s) reachable; %d not covered%s; %d mapped key(s) naming no "
+                "gap-bearing pattern%s; %d table problem(s)%s"
                 % (len(population), len(missing), (": %s" % missing) if missing else "",
                    len(stale), (": %s" % stale) if stale else "", len(problems),
                    (": %s" % "; ".join(problems)) if problems else ""))
@@ -810,31 +799,35 @@ def gap_pattern_population_control(M):
 def gap_pattern_population_partner_control(M):
     """PROPERTY: the gap-pattern ratchet's cores answer a fixture a generous
     core gets wrong.  Population: a pattern in a CONTAINER is found; an
-    IMPORTED alias (a namespace entry the module does not assign) is not a
-    second key, and neither is `B = A` (`_assigned_names` drops it); two ASSIGNED names bound to one cached object are two keys; a
-    container entry that is also an assigned name is keyed by the name; a
-    pattern without the gap is ignored.  Coverage: a mapping entry with no
-    row, a row with no mapping, a pattern with no refuse arm and an
-    unregistered control name are each reported."""
+    imported name, a cache-identical second name and a container entry that is
+    also a name are more KEYS of one pattern, not more patterns; a pattern
+    without the gap is ignored.  Coverage: a row with no mapping, a mapping no
+    row uses, a pattern with no refuse arm, a missing column, equal read and
+    refuse expectations, and a reused arm whose case disagrees with its row are
+    each reported."""
     import re as _re
-    gap = "[\\\\u0020]"
+    gap = "[\\u0020]"
     a = _re.compile("x" + gap + "y")
     b = _re.compile("p" + gap + "q")
     plain = _re.compile("z")
-    mods = [("m1", {"Z": a, "Z2": a, "ROWS": [("n", b)], "P": plain, "K": (("a", a),)},
-             {"Z", "Z2", "ROWS", "P", "K"}),
-            ("m2", {"Z": a, "D": {"k": b}}, {"D"})]
+    mods = [("m1", {"Z": a, "Z2": a, "ROWS": [("n", b)], "P": plain, "K": (("a", a),)}),
+            ("m2", {"Z": a, "D": {"k": b}})]
     pop = _gap_population(mods, gap)
-    want = {("m1", "Z"), ("m1", "Z2"), ("m1", "ROWS", 0, 1)}
+    shape = sorted(sorted(keys, key=str) for _p, keys in pop.values())
+    want = sorted([sorted([("m1", "K", 0, 1), ("m1", "Z"), ("m1", "Z2"), ("m2", "Z")], key=str),
+                   sorted([("m1", "ROWS", 0, 1), ("m2", "D", "k")], key=str)])
+    rows = [("t1", "p", "prose", "", 1, 0), ("t2", "p", "prose", "", 1, None),
+            ("t4", "p", "prose", "", 1, 1), ("t9", "p", "prose", "", 1, 0)]
     covered, problems = _gap_coverage(
-        [("t1", True, True), ("t2", True, False), ("t9", True, True)],
-        {"t1": ("m1", "Z"), "t2": ("m1", "Z2"), "t3": ("m1", "ROWS", 0, 1)},
-        {("m1", "ROWS", 0, 1): "no_such_control"}, {"a_control"})
-    want_problems = 4    # t9 unmapped, t3 unused, Z2 no refuse arm, no_such_control
-    names = _assigned_names("import re\nfrom m import C\nA = re.compile('x')\nB = A\nT: tuple = (A,)\n")
-    ok = set(pop) == want and len(problems) == want_problems and names == {"A", "T"}
-    return ok, "population %s (want %s); %d problem(s) (want %d): %s; assigned %s (want A, T)" % (
-        sorted(pop, key=str), sorted(want, key=str), len(problems), want_problems, problems, sorted(names))
+        rows, [], {"t1": ("m1", "Z"), "t2": ("m1", "Z2"), "t3": ("m1", "ROWS", 0, 1),
+                   "t4": ("m1", "K", 0, 1)},
+        {("t1", "p", "read"): "c1"}, {"c1": 0})
+    # t2: missing column + no REFUSE arm; t4: equal expectations; t9: no mapping;
+    # t3: unused mapping; the reused arm expects 0 where t1's row says 1
+    want_problems = 6
+    ok = shape == want and len(problems) == want_problems
+    return ok, "population %s (want %s); %d problem(s) (want %d): %s" % (
+        shape, want, len(problems), want_problems, problems)
 
 
 def registry():
@@ -851,8 +844,8 @@ def registry():
             ("CONTROL", kind_question_site_control),
         "PROPERTY: the kind-question ratchet reports a caller in ANY module of the checker set, judged by (module, qualified function) -- not a caller outside a listed subset, not one whose bare name is sanctioned elsewhere":
             ("CONTROL", kind_question_partner_control),
-        "PROPERTY: every compiled pattern a checker module assigns whose source holds plan_memo_stream.GAP has a READ row and a REFUSE row in plan_memo_selftest_cases_gap (or a registered function control), every covered pattern still holds GAP, and every row and mapping entry pairs up -- coverage is counted from the rows, not the mapping":
+        "PROPERTY: every compiled pattern holding plan_memo_stream.GAP that a checker module's namespace reaches has a READ row and a REFUSE row in plan_memo_selftest_cases_gap whose expectations are present, differ and agree with every reused case -- counted from the rows, one coverage path":
             ("CONTROL", gap_pattern_population_control),
-        "PROPERTY: the gap-pattern ratchet's cores answer the fixture a generous core gets wrong -- container-held, imported, aliased and cache-identical patterns for the population; unmapped rows, unused mappings, a missing arm and an unregistered control for the coverage":
+        "PROPERTY: the gap-pattern ratchet's cores answer the fixture a generous core gets wrong -- container-held, imported and cache-identical patterns are keys of one pattern; unmapped rows, unused mappings, a missing arm or column, equal expectations and a disagreeing reused case are reported":
             ("CONTROL", gap_pattern_population_partner_control),
     }

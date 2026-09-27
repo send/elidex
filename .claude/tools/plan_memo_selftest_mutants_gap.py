@@ -71,10 +71,6 @@ MUTANTS += [
      [R22_WS_ID_RUN, R22_WS_ID_RUN_VT]),
 ]
 
-ROLE_RANK_GAP = ("the role RANKING reads a reader's gap in every entry that holds one: `waits&nbsp;on` ranks "
-                 "ordering, `placed&nbsp;on` / `chartered&nbsp;to` / `charters&nbsp;to` owner, and none across "
-                 "a U+000B")
-
 # -- the same round's roles half: every vocabulary in `plan_memo_roles` composes
 # its word gaps through `plan_memo_stream.phrase`.  One row per family, each
 # re-spelling that family's gaps the way it was spelled before: `\s` under
@@ -107,7 +103,7 @@ MUTANTS += [
      R22_WS_ROLES["declares"][:1]),
     ("R22 ws roles: the role ranking composes the gap (drop `phrase` from the ordering entry)", ROLES,
      '    ("ordering", re.compile(phrase(', '    ("ordering", re.compile((',
-     [ROLE_RANK_GAP]),
+     R22_GAP["ROLE ordering"][:1]),
 ]
 
 # -- the R22 pre-push review: the two readings that were right and unpinned
@@ -177,10 +173,10 @@ MUTANTS += [
      R22_GAP["DECLARES"]),
     ("R22 gap: the role ranking's ordering entry composes the gap (re-spell it `(?a:\\s)`)", ROLES,
      '    ("ordering", re.compile(phrase(', '    ("ordering", re.compile(' + _ASCII_GAP,
-     [ROLE_RANK_GAP]),
+     R22_GAP["ROLE ordering"]),
     ("R22 gap: the role ranking's owner entries compose the gap (re-spell them `(?a:\\s)`)", ROLES,
      '    ("owner", re.compile(phrase(', '    ("owner", re.compile(' + _ASCII_GAP,
-     [ROLE_RANK_GAP]),
+     R22_GAP["ROLE owner"]),
     ("R22 gap: the MARKER composes the gap (re-spell it `(?a:\\s)`)", STREAM,
      'MARKER_RE = re.compile(bounded(_phrase(MARKER)))',
      'MARKER_RE = re.compile(bounded(re.escape(MARKER).replace("\\\\ ", r"(?a:\\s)+")))',
@@ -206,14 +202,14 @@ MUTANTS += [
 # run's own "R22 gap" row (so the rule has no exception), the one optional gap
 # only a mixed run reaches, and the ratchet that makes the population a
 # derivation instead of a list.
-GAP_RATCHET = ("PROPERTY: every compiled pattern a checker module assigns whose source holds "
-               "plan_memo_stream.GAP has a READ row and a REFUSE row in plan_memo_selftest_cases_gap (or a "
-               "registered function control), every covered pattern still holds GAP, and every row and "
-               "mapping entry pairs up -- coverage is counted from the rows, not the mapping")
+GAP_RATCHET = ("PROPERTY: every compiled pattern holding plan_memo_stream.GAP that a checker module's "
+               "namespace reaches has a READ row and a REFUSE row in plan_memo_selftest_cases_gap whose "
+               "expectations are present, differ and agree with every reused case -- counted from the rows, "
+               "one coverage path")
 GAP_RATCHET_PARTNER = ("PROPERTY: the gap-pattern ratchet's cores answer the fixture a generous core gets "
-                       "wrong -- container-held, imported, aliased and cache-identical patterns for the "
-                       "population; unmapped rows, unused mappings, a missing arm and an unregistered "
-                       "control for the coverage")
+                       "wrong -- container-held, imported and cache-identical patterns are keys of one "
+                       "pattern; unmapped rows, unused mappings, a missing arm or column, equal "
+                       "expectations and a disagreeing reused case are reported")
 MUTANTS += [
     ("R22 gap: the anchored naming pass composes GAP (re-spell NOUN_ANCHOR's gap `(?a:\\s)` -- "
      "`Slice&nbsp;C` names nothing, `Slice<U+000B>C` names C)", ROLES,
@@ -238,33 +234,29 @@ MUTANTS += [
      'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
      'POINTER = re.compile(bounded(re.escape("is a pointer rather than a slice")))',
      [GAP_RATCHET]),
-    ("R22 ratchet: a container entry that is also an assigned name is keyed by the NAME (forget the "
-     "names -- `KIND_PHRASES[0][1]` becomes a second, uncovered `MARKER_RE`)", RATCHETS,
-     '                named.add(id(v))\n',
-     '                pass\n',
-     [GAP_RATCHET_PARTNER, GAP_RATCHET]),
-    ("R22 ratchet: EVERY assigned name is a key, even one `re` cached into the same object as another "
-     "(dedup the names by identity -- the second name needs no rows)", RATCHETS,
-     '            if isinstance(v, _re.Pattern):\n                named.add(id(v))\n',
-     '            if isinstance(v, _re.Pattern) and id(v) not in named:\n                named.add(id(v))\n',
-     [GAP_RATCHET_PARTNER]),
-    ("R22 ratchet: an alias `X = Y` is not an assigned pattern (drop the skip -- the partner's `B = A` "
-     "becomes a key)", RATCHETS,
-     '            if isinstance(node.value, (ast.Name, ast.Attribute)):\n                continue\n',
-     '',
-     [GAP_RATCHET_PARTNER]),
     ("R22 ratchet: a pattern held in a container is found (stop the walk at the top level -- "
      "`ROLE_PATTERNS` leaves the population)", RATCHETS,
      '        if d < depth and isinstance(v, (tuple, list)):',
      '        if False:',
      [GAP_RATCHET_PARTNER, GAP_RATCHET]),
+    ("R22 ratchet: the population comes from the NAMESPACE, not a list of binding shapes (bind a new "
+     "gap-bearing pattern under a module-level `if` -- it must still be red)", ROLES,
+     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)',
+     'RETIRED = re.compile(r"\\bMERGED\\b|\\bRETIRED\\b|\\bLANDED\\b", re.ASCII)\n'
+     'if True:\n'
+     '    ZC = re.compile(phrase("left right"))',
+     [GAP_RATCHET]),
+    ("R22 ratchet: one OBJECT is one pattern, whatever names reach it (group by key instead -- every "
+     "import and container entry of MARKER_RE becomes an uncovered pattern of its own)", RATCHETS,
+     '                out.setdefault(id(v), (v, []))[1].append(key)',
+     '                out.setdefault(key, (v, []))[1].append(key)',
+     [GAP_RATCHET_PARTNER, GAP_RATCHET]),
 ]
 
-# -- the review of 87f361c6: the ratchet counted the MAPPING.  Two rows that
-# change only the TABLE -- the self-test module `plan_memo_selftest_cases_gap`,
-# installed under its own name, so the mutants module keeps its import-time
-# `R22_GAP` and the NOUN_ANCHOR "R22 gap" row still imports -- and must turn
-# the ratchet red.
+# -- the reviews of 87f361c6 and be5e1db5: rows that change only the TABLE --
+# the self-test module `plan_memo_selftest_cases_gap`, installed under its own
+# name, so the mutants module keeps its import-time `R22_GAP` and the
+# NOUN_ANCHOR "R22 gap" row still imports -- and must turn the ratchet red.
 MUTANTS += [
     ("R22 ratchet: a pattern whose ROWS are gone is red even while its mapping stays (delete "
      "NOUN_ANCHOR's table row)", "plan_memo_selftest_cases_gap.py",
@@ -275,9 +267,16 @@ MUTANTS += [
      "plan_memo_selftest_cases_gap.py",
      '    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, 0),',
      '    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, None),',
-     [GAP_RATCHET]),    ("R22 ratchet: a function control named for a pattern must be REGISTERED (misspell the ranking's "
-     "control name)", "plan_memo_selftest_cases_gap.py",
-     '    ("plan_memo_roles", "ROLE_PATTERNS", 0, 1): "role_rank_gap_control",',
-     '    ("plan_memo_roles", "ROLE_PATTERNS", 0, 1): "role_rank_gap_controls",',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a REUSED arm's case must expect what its row's column says (swap the id run's "
+     "expectations -- both arms are reused cases, so no generated case moves)",
+     "plan_memo_selftest_cases_gap.py",
+     '    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 1, 0),',
+     '    ("_ID_RUN_TOKEN", "id|id", ("d7z", None), "`Qx{g}9z`", 0, 1),',
+     [GAP_RATCHET]),
+    ("R22 ratchet: a row's read and refuse expectations must differ (make `naming`'s both 1)",
+     "plan_memo_selftest_cases_gap.py",
+     '    ("LICENCE naming", "naming|mention", "prose", "Avoid naming{g}**9z** itself.", 0, 1),',
+     '    ("LICENCE naming", "naming|mention", "prose", "Avoid naming{g}**9z** itself.", 1, 1),',
      [GAP_RATCHET]),
 ]

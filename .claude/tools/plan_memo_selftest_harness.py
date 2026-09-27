@@ -350,6 +350,12 @@ def measure(res, reported, m):
         # the one measure that reads a seed's READING: LEX-UNSUPPORTED? findings carrying `arg`
         return (sum(1 for f in res.findings if f[0] == "LEX-UNSUPPORTED?" and arg in f[3]),
                 "LEX-UNSUPPORTED? carrying %r" % arg)
+    if what == "role":
+        # the RANKING's verdict: reported sites whose context the ranking gives role `arg`
+        # (`plan_memo_roles.roles`, the one the report prints) -- read from the freshly loaded set
+        import sys
+        roles = sys.modules["plan_memo_roles"].roles
+        return sum(1 for x in reported if arg in roles(x)), "reported sites ranked %r" % arg
     raise ValueError(m)
 
 
