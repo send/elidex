@@ -367,9 +367,9 @@ def _row_key(x):
 # An owner is a row of any row kind: the grammar's `ROW_ID` (slug | short),
 # the same alternation the appositive and the anchored reading compose --
 # a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
-# Each joining branch carries its own gaps, so no optional gap stands beside a
-# required one and a long whitespace run is linear (PR #510 Codex R31;
-# `plan_memo_selftest_properties.adjacent_gap_runs_control`).
+# Linear by construction (disjoint alternatives, PR #510 Codex R31), shown by
+# the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
+# No control enforces it; §8 (17)'s follow-up owns that.
 OWNS_TWO = re.compile(
     phrase(r"\b(?:owns?|owned by|owner is|carries|carried by) ")
     + decorated_id(ROW_ID, "a")

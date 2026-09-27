@@ -162,10 +162,9 @@ never a change to the phrase."""
 # words -- whitespace (then an optional dash) or a dash -- since Codex on
 # `0a5ab700`: with both gaps and the dash optional, `KINDUNDETERMINED` in an
 # unrelated word declared the kind.
-# The separator is written as DISJOINT alternatives -- gaps, gaps then a dash
-# (then optional gaps), or a dash (then optional gaps) -- so no two gaps are
-# adjacent and a long whitespace run is linear (PR #510 Codex R31;
-# `plan_memo_selftest_properties.adjacent_gap_runs_control`).
+# Linear by construction (disjoint alternatives, PR #510 Codex R31), shown by
+# the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
+# No control enforces it; §8 (17)'s follow-up owns that.
 UNDETERMINED = re.compile(bounded(phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 

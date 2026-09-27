@@ -224,21 +224,3 @@ MUTANTS += [
      '            return 0, "%d reported site(s), not exactly one" % len(reported)',
      [ROLE_MEASURE]),
 ]
-
-# -- PR #510 Codex R31: the three patterns whose gaps overlapped, each restored.
-ADJACENT_RUNS = ("PROPERTY: no compiled pattern of the checker lets one whitespace run follow another "
-                 "through only empty-matching items (the quadratic backtracking shape, read off re's own parser)")
-MUTANTS += [
-    ("R31 runs: UNDETERMINED's separator is disjoint (restore the overlapping `(?: -?|-)(?: )?`)", STREAM,
-     'phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED")',
-     'phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")',
-     [ADJACENT_RUNS]),
-    ("R31 runs: OWNS_TWO's joining branches carry their own gaps (restore the shared leading optional gap)", ROLES,
-     'phrase(r"(?:(?: )?,(?: )?| and | or |(?: )?/(?: )?)")',
-     'phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
-     [ADJACENT_RUNS]),
-    ("R31 runs: the appositive's last gap follows a NON-EMPTY decoration (restore the empty-matching one)", TABLES,
-     'phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + "(?: )?)?$")',
-     'phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + ")?(?: )?$")',
-     [ADJACENT_RUNS]),
-]

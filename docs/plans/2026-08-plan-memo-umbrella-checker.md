@@ -1430,7 +1430,9 @@ committed here by the note that corrected it.
   "R22 gap" rows and its own row-level invariants.
   **Scope**: a mechanism that makes "every gap-bearing pattern has read and refuse rows" red on a new
   pattern — the population definition is the design question, and the four above are what it must not
-  repeat.
+  repeat. It also owns the gap patterns' linearity (PR #510 Codex R31 rewrote three by construction;
+  its timing and equivalence probes: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H |
+  head -1 | xargs git log -1 --format=%B`).
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (the four attempts above). **Re-eval: 2026-12-31.**
 - **(own)** **A VOCABULARY MATCH READ ACROSS A MASKED SPAN** (PR #510 Codex R25 on `e9575a37` —

@@ -434,10 +434,9 @@ def bare_id(cell_text, kinds):
 # `Slice 9z&nbsp;— **UMBRELLA, …**` attributed nothing and lost the
 # `UMBRELLA-MARK` at rc 0, while a U+000B, which cmark does not read as
 # whitespace, stood in for a gap.
-# The gap after a decoration is reachable only through a NON-EMPTY one
-# (`DECOR_RUN`), so no two gaps are adjacent and a long whitespace run is
-# linear (PR #510 Codex R31;
-# `plan_memo_selftest_properties.adjacent_gap_runs_control`).
+# Linear by construction (disjoint alternatives, PR #510 Codex R31), shown by
+# the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
+# No control enforces it; §8 (17)'s follow-up owns that.
 _APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + "(?: )?)?$"),
                          re.ASCII)
 
