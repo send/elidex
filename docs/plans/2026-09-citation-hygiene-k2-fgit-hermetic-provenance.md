@@ -338,7 +338,7 @@ configuration, so every git-2.54 cell was compared against git 2.55's reference 
 6-line "difference". That was a harness bug, not a finding. It was fixed (the lookup now matches `$2`)
 and re-evaluated from the same `raw.tsv`, without re-running anything.
 
-**Commands.** Scripts are in §E.3. From `…/scratchpad/fgit/`:
+**Commands.** Scripts: `git show ff1322bb:<this file>` §E.3. From `…/scratchpad/fgit/`:
 - `python3 c6/gen6.py .` (190 cells);
 - `tr '\n' '\0' < c6/jobs.tsv | xargs -0 -n1 -P2 c6/cell6.sh > c6/raw.tsv`;
 - `c6/eval6.sh > c6/results.tsv`.
@@ -389,7 +389,7 @@ This is not X8.
 | `183d706e` | S's loop moved out of a command substitution. bash 3.2 misparses a `case` inside `$( )`: the first run printed "syntax error near unexpected token `newline'" and then aborted on an unbound variable |
 | `d7738624` | the P-a label is scoped to "a window git that adds no input of its own" |
 
-**Commands.** Scripts are in §E.4. From `…/scratchpad/fgit/`:
+**Commands.** Scripts: `git show ff1322bb:<this file>` §E.4. From `…/scratchpad/fgit/`:
 - `python3 c7/gen7.py .` (32 cells);
 - `tr '\n' '\0' < c7/jobs.tsv | xargs -0 -n1 -P2 c7/cell7.sh > c7/raw.tsv`;
 - `c7/eval7.sh > c7/results.tsv`.
@@ -423,6 +423,45 @@ label, and the clean cells g01 and g11 each gave rc 0.
 | X4b, new form | 2 lines on base `mutations.sh` (15, 20); 0 on a copy where both are qualified |
 | X4b, old in-table form (raw `\|`, no `-i`) | **0** on base: it was vacuous |
 | R7 | `runs-on: ubuntu-latest` for `trip-wires`; `runs-on: ${{ matrix.os }}` for `check` |
+
+### §A.11 Draft 8's focused cells (p8: D1–D4)
+
+**Subject.** Prototype `p8`, a `git clone --local` of `p7` `d7738624`:
+
+| commit | change |
+|---|---|
+| `42b3d85f` | S deleted; P-g added (every fixture repo's configuration must equal a reference init's, compared line by line); `built` marker written by the fixtures file's last line; an incomplete window exits 2 with a reason (parent-side failures get their own text); W2 check |
+| `563c857a` | the P-a label uses the §5.1 unit |
+
+**Commands.** From `…/scratchpad/fgit/`:
+- `python3 c8/gen8.py .` generates 40 cells;
+- `tr '\n' '\0' < c8/jobs.tsv | xargs -0 -n1 -P2 c8/cell8.sh > c8/raw.tsv`;
+- `c8/eval8.sh > c8/results.tsv`.
+
+`raw.err` is empty. The P-a label cells in `c8b/` behave as expected: records g00/g10 go red with the
+new label (rc 1), and the clean cells g01/g11 give rc 0.
+
+**Results** (b53-g255 cells listed first, then b32-g254):
+
+| cell | p7 (before) | p8 (after) |
+|---|---|---|
+| `printf '[include]\n\tpath = <file>' >> .git/config` (cachedir chain) | h0002, h0008: SILENT-WRONG (rc 0, Pdiff 1) | h0014, h0028: rc 1, P-g |
+| `printf '[core]\n\texcludesFile = <file>' >> .git/config` | h0003, h0009: SILENT-WRONG | h0015, h0029: rc 1, P-g |
+| `git -C . config core.excludesFile <file>` | h0004, h0010: SILENT-WRONG | h0016, h0030: rc 1, P-g |
+| `git config include.path <file>` | h0005, h0011: red via S only | h0017, h0031: rc 1, P-g |
+| top-level `return 0` after the fixtures file's first line | h0006, h0012: rc 1, **81** control lines | h0018, h0032: **rc 2, W alone** |
+| `odd/pipe` pre-created | — | h0022, h0036: rc 2, W alone |
+| W2 record (incomplete-window `exit` removed, plus `odd/pipe`) | — | h0023, h0037: rc 1, W2 present |
+| prelude drops nounset / pipefail / errexit | — | h0024–26, h0038–40: rc 2, W alone each |
+| transient `git -C . -c include.path=<file> add -A` (declared residual) | — | h0019, h0033: rc 0, PASSED, Pdiff 50: **silent**, as declared |
+| G: HOME `*.py` ignore; DO cell | — | PASS, Pdiff 0 |
+
+**Census.** On a clean p8 run, every fixture repo's configuration equals the reference init's: P-g
+stays green on both shells.
+
+**Cost of P-g.** Eighty `git config --list --show-scope --show-origin` calls under `env -i` took 0.6 s
+total, standalone, at load about 2. The whole p8 wire took 14.6 s on bash 5.3 and 12.3 s on bash 3.2.
+This is **not** X8.
 
 ---
 
@@ -506,13 +545,22 @@ rebuild's `/pre-push` Stage 4 over the whole range.
 
 ### §D.0 Terminators and the close-out plan
 
-**Round 7: a Step-4.5 focused check (current).**
-- **Scope:** round-6 items 1 and 2 only. Ax2 checks item 1 (the incomplete window) and Ax3 checks
-  item 2 (the residual property, S, and the P-a decision).
+**Round 8: a Step-4.5 focused check (current).**
+- **Scope:** D2 and D4 only. Ax2 checks D4 and the window's completion. Ax3 checks D2 (P-g) and D3 (the
+  transient residual).
 - **Converges** if and only if neither returns an IMP with a failing cell.
-- **Then plan-review closes and implementation starts.**
-- **Why stop there:** per the skill, further passes after the mechanism is fixed are implementation
-  detail that the tests catch.
+- **Then plan-review closes.**
+
+**Round 7 (as it ran; not met).** Round 7 was the Step-4.5 focused check of draft 7:
+- Ax2 (item 1): 0 CRIT / 2 IMP / 4 MIN;
+- Ax3 (item 2): 0 CRIT / 3 IMP / 1 MIN.
+
+The behaviour was sound, and the IMPs were in the secondary instruments.
+
+⚠ **Draft 8 removes an instrument that round 7 was asked to check.** Seed S was draft 7's answer to
+item 2, and the round-7 check measured it to be a vocabulary deny-list: it let literal spellings through
+silently and red-flagged harmless ones. So D1 deletes it rather than extending it. This is recorded as
+a removal, not as a fix of S.
 
 **Round 6 (as it ran).** Round 6 was a **full five-axis review** of draft 6 `8b6a4005`, not the
 focused one that draft 6 had announced:
@@ -724,166 +772,57 @@ subject, which was every item listed above. Anything else stays open for round 5
 - **Ax5, X8:** where the record goes, and the interaction with #510 (head `94281cd7` at writing).
 - **Ax5, umbrella "§5.1: the residual":** now points to §5.1 for the gap and §5.2 for the other
   residuals.
+
+### §D.7 Round 7 (Step 4.5; on draft 7 `ff1322bb`; Ax2 0/2/4, Ax3 0/3/1) → draft 8
+
+| id | disposition | evidence (§A.11) |
+|---|---|---|
+| D1 (Ax3 IMP-1): S is a vocabulary deny-list, with silent-wrong literal spellings and false reds | **S deleted**, along with its label, record and census, because extending it is the wrong repair | Ax3's r7ax3 cells; design memo §5.1 |
+| D2 (Ax3 IMP-2): the P-a-over-every-repo decline rested on a false premise (persisting does not need `git config`) | **P-g adopted**: every fixture repo's configuration must equal a reference init's, line by line. The key set is derived from git per run, not from a path-key list | before p7: silently wrong ×3 per shell; after p8: P-g red ×4 per shell; census clean |
+| D3 (Ax3 IMP-3): over-claim scope and the residual | the unit is "every git whose inputs no fixtures-file command altered". The residual is re-scoped to **transient** inputs, with a trigger of reviewer attention | transient cell h0019/h0033: silent, as declared |
+| D4 (Ax2 IMPs): pinning | W2 added; one record per prelude option; `built` from the fixtures file's last line; the exit-number claim is dropped as unconsumed (driver `set -euo pipefail` plus `bash "$w"`, lines 22/204) | W2 and option records PASS; early `return 0` goes from 81 lines to W alone |
+
+**MINs:**
+- **Ax2 MIN-1 (a top-level `return 0`):** fixed by the `built` marker.
+- **Ax2 MIN-2 (the class decided by value):** moot, because the number is not claimed.
+- **Ax2 MIN-3 (wording, and parent-side failure mislabelled):** fixed with reason text via `_fw_why`.
+- **Ax2 MIN-4 (W alone suppresses static checks):** moot, because S is deleted.
+- **Ax3 MIN-1:** moot, because S is deleted.
+- **The claim in W1 (§D.6) that "records require exactly one control line":** it was **false** for the
+  runner. It holds only for the corpus evaluator (`eval7`/`eval8` check `ctl=1`). The mutation runner
+  sees only rc ≠ 0 and a needle. Draft 8 therefore pins W2 as a separate label.
 ---
 
 ## §E Appendix — the corpus scripts (as run)
 
-The draft-4 full corpus (§E.1) and the draft-5 subset (§E.2) are superseded by the draft-6 recast. To
-keep this file bounded, their verbatim texts now live only in the history:
+To keep this file bounded, superseded scripts live only in the history:
 
-- `git show 57e5419f:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E);
-- `git show e8c1bdb8:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E.2).
+| scripts | location |
+|---|---|
+| draft 4's full corpus | `git show 57e5419f:docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-provenance.md` (§E) |
+| draft 5's subset | `git show e8c1bdb8:…` (§E.2) |
+| draft 6's recast corpus (`c6/gen6.py`, `cell6.sh`, `eval6.sh`) | `git show ff1322bb:…` (§E.3) |
+| draft 7's cells (`c7/gen7.py`, `eval7.sh`) | `git show ff1322bb:…` (§E.4) |
 
-The scratch copies are `…/scratchpad/fgit/corpus/` and `…/corpus5/`.
+Scratch copies are under `…/scratchpad/fgit/`. Draft 8's scripts follow.
 
-### §E.3 The draft-6 recast corpus (as run)
+### §E.5 Draft 8's focused cells (as run)
 
-`c6/gen6.py`:
+`c8/cell8.sh` is `c6/cell6.sh` unchanged.
 
-```python
-#!/usr/bin/env python3
-"""Draft-6 recast corpus. Usage: gen6.py <scratch fgit dir>. Writes c6/jobs.tsv.
-Oracle: G/R/RES must stay green AND each fixture's P must equal the same config's clean build (eval6.sh)."""
-import os, re, sys, shlex
-SP = sys.argv[1]; OUT = os.path.join(SP, 'c6'); H = os.path.join(SP, 'corpus', 'h')
-W = 'webref-generic-core-trip-wire'; parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
-CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'), 'b32-g255': ('/bin/bash', '/opt/homebrew/bin', '/opt/homebrew/bin/git'),
-        'b53-g254': ('/opt/homebrew/bin/bash', '/usr/bin', '/usr/bin/git'), 'b32-g254': ('/bin/bash', '/usr/bin', '/usr/bin/git')}
-g = lambda *a: os.path.join(H, *a)
-P6 = os.path.join(SP, 'p6'); P5D = os.path.join(SP, 'p5d')
-jobs = []; n = [0]
-def mk(tree, cfg, kind, label, edits, env, expect, ref):
-    n[0] += 1; tag = 'e%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
-    for p in parts:
-        src = open(os.path.join(T, W + p + '.sh')).read()
-        for (pp, old, new) in edits:
-            if pp == p:
-                assert src.count(old) >= 1, (label, p, old[:60]); src = src.replace(old, new, 1)
-        dst = os.path.join(T, W + '.' + tag + p + '.sh'); open(dst, 'w').write(src); os.chmod(dst, 0o755)
-    sh, gp, rg = CFGS[cfg]
-    jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree, ref]))
-    return tag
-HOSTILE = [
- ('HOME .config/git/ignore *.py', ['HOME=' + g('home_ign')]),
- ('XDG attributes filter=zap + clean=true', ['HOME=' + g('plain'), 'XDG_CONFIG_HOME=' + g('xdg_filter')]),
- ('GIT_CONFIG_GLOBAL=<excludesFile, hooksPath, attributesFile+filter, gpgSign, defaultBranch>', ['GIT_CONFIG_GLOBAL=' + g('all5.cfg')]),
- ('COUNT core.excludesFile', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.excludesFile', 'GIT_CONFIG_VALUE_0=' + g('pyglob')]),
- ('COUNT core.hooksPath', ['GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=core.hooksPath', 'GIT_CONFIG_VALUE_0=' + g('hooks')]),
- ('COUNT commit.gpgSign+false', ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=commit.gpgSign', 'GIT_CONFIG_VALUE_0=true', 'GIT_CONFIG_KEY_1=gpg.program', 'GIT_CONFIG_VALUE_1=/usr/bin/false']),
- ('GIT_TEMPLATE_DIR config', ['GIT_TEMPLATE_DIR=' + g('tpl_cfg')]),
- ('GIT_TEMPLATE_DIR hooks', ['GIT_TEMPLATE_DIR=' + g('tpl_hook')]),
- ('DO: GIT_CONFIG_GLOBAL safe.directory=* + GIT_TEST_ASSUME_DIFFERENT_OWNER=1', ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1']),
-]
-GEXTRA = [('GIT_CONFIG_GLOBAL=/dev/null', ['GIT_CONFIG_GLOBAL=/dev/null']), ('caller GIT_TRACE2_EVENT=<abs file>', ['GIT_TRACE2_EVENT=' + g('callertrace2')])]
-def spellings(rg):
-    return [('command git', 'command git'), ('env git', 'env git'), ('absolute path', rg), ('eval "$_REAL_GIT"', 'eval "$_REAL_GIT"'),
-     ('hash -p <abs> git && git', 'hash -p %s git && git' % rg), ('git -c core.excludesFile=/dev/null', 'git -c core.excludesFile=/dev/null'),
-     ('scrub3-sh', 'sh -c \'unset GIT_TRACE2_EVENT GIT_CONFIG_GLOBAL GIT_CONFIG_COUNT; exec "$0" "$@"\' ' + rg),
-     ('scrub3-absenv', '/usr/bin/env -u GIT_TRACE2_EVENT -u GIT_CONFIG_GLOBAL -u GIT_CONFIG_COUNT ' + rg),
-     ('hermetic-look', 'GIT_TRACE2_EVENT= GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT= ' + rg),
-     ('gitsweep', 'sh -c \'unset $(export -p | sed -n "s/^export \\(GIT_[A-Za-z0-9_]*\\)=.*/\\1/p"); exec "$0" "$@"\' ' + rg),
-     ('t2zero-countempty', 'GIT_TRACE2_EVENT=0 GIT_CONFIG_COUNT= ' + rg)]
-RES = lambda rg: [('env -i PATH="$PATH" git (discards the allowlist)', 'env -i PATH="$PATH" git'), ('env -u GIT_CONFIG_NOSYSTEM git', 'env -u GIT_CONFIG_NOSYSTEM git')]
-HN = '.harness'
-REC = [
- ('window aborts before completing', HN, '. "$1"; . "$2"; shift 2', '. "$1"; exit 3; . "$2"; shift 2', 'CONTROL NOT EXERCISED (the fixture build window completed)'),
- ('P-a env config in the allowlist', HN, '"LC_ALL=C")', '"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=a.b GIT_CONFIG_VALUE_0=c)', "CONTROL FAILED (the fixture git reads configuration only from the fixture's own config file)"),
- ('P-a liveness probe loses -c', HN, 'git -c a.b=c config --list', 'git config --list', 'CONTROL NOT EXERCISED (this git reports a non-local configuration scope)'),
- ('P-b drop NOSYSTEM', HN, ' GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT', ' GIT_ATTR_NOSYSTEM=1 "GIT', 'CONTROL FAILED (the fixture git has no system or global layer outside the void)'),
- ('P-b liveness probe keeps NOSYSTEM', HN, 'GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var', 'git var', 'CONTROL NOT EXERCISED (this git names its system files through git var)'),
- ('P-c void non-empty', HN, 'mkdir "$_FGIT_VOID" || exit 2', 'mkdir "$_FGIT_VOID" || exit 2; : > "$_FGIT_VOID/planted"', "CONTROL FAILED (nothing is written into the fixture git's void)"),
- ('P-d drop TEMPLATE_DIR', HN, ' "GIT_TEMPLATE_DIR=$_FGIT_VOID" "LC_ALL=C")', ' "LC_ALL=C")', 'CONTROL FAILED (the fixture git copies no template)'),
- ('P-e GIT_EXEC_PATH injected', HN, '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=("PATH=$PATH" GIT_EXEC_PATH=/nonexistent-k2 ', 'CONTROL FAILED (the fixture git is the git the wire reads with)'),
- ('P-f window inherits (-i dropped)', HN, '"$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH"', '"$_FGIT_ENVBIN" "${_FGIT_ENV[@]}" "$_FGIT_BASH"', "CONTROL FAILED (the fixture build window's environment holds only its allowlist)"),
-]
-fx6 = open(os.path.join(P6, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
-li = next(i for i, l in enumerate(fx6) if not l.lstrip().startswith('#') and 'git add -A' in l); col = fx6[li].index('git add -A')
-def at_site(sp): return [('.fixtures', fx6[li], fx6[li][:col] + sp + fx6[li][col + 3:])]
-FULL = ('b53-g255', 'b32-g254')
-for cfg, (sh, gp, rg) in CFGS.items():
-    ref = 'REF-' + cfg
-    mk(P6, cfg, 'REF', 'clean (reference P)', [], [], 'GREEN', ref)
-    for name, env in HOSTILE + GEXTRA: mk(P6, cfg, 'G', name, [], env, 'GREEN', ref)
-    for name, sp in spellings(rg): mk(P6, cfg, 'R', name + ' × HOME ignore *.py', at_site(sp), ['HOME=' + g('home_ign')], 'GREEN', ref)
-    mk(P6, cfg, 'RLOUD', '_git × HOME ignore *.py', at_site('_git'), ['HOME=' + g('home_ign')], 'CONTROL NOT EXERCISED (', ref)
-    if cfg in FULL:
-        for name, sp in spellings(rg):
-            if name not in ('gitsweep', 'scrub3-absenv'): continue
-            for hname, env in HOSTILE[1:]: mk(P6, cfg, 'R', name + ' × ' + hname, at_site(sp), env, 'GREEN', ref)
-    for name, sp in RES(rg): mk(P6, cfg, 'RES', name + ' × HOME ignore *.py', at_site(sp), ['HOME=' + g('home_ign')], 'GREEN', ref)
-    for name, part, old, new, needle in REC: mk(P6, cfg, 'P', name, [(part, old, new)], [], needle, ref)
-    mk(P6, cfg, 'INFO', 'drop HOME from the allowlist', [(HN, '"PATH=$PATH" "HOME=$_FGIT_VOID" ', '"PATH=$PATH" ')], [], 'CONTROL FAILED (the fixture git has no system or global layer outside the void)', ref)
-    mk(P6, cfg, 'INFO', 'drop PATH from the allowlist', [(HN, '_FGIT_ENV=("PATH=$PATH" ', '_FGIT_ENV=(')], [], 'CONTROL FAILED (the fixture git is the git the wire reads with)', ref)
-# BEFORE on p5d
-fx5 = open(os.path.join(P5D, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
-l5 = next(i for i, l in enumerate(fx5) if not l.lstrip().startswith('#') and '_fgit add -A' in l); c5 = fx5[l5].index('_fgit add -A')
-for cfg in FULL:
-    sh, gp, rg = CFGS[cfg]; ref = 'REF5-' + cfg
-    mk(P5D, cfg, 'REF5', 'p5 clean (reference P)', [], [], 'GREEN', ref)
-    for name, sp in spellings(rg):
-        if name not in ('scrub3-sh', 'hermetic-look', 'gitsweep', 't2zero-countempty'): continue
-        mk(P5D, cfg, 'BEFORE', 'p5: ' + name + ' × HOME ignore *.py', [('.fixtures', fx5[l5], fx5[l5][:c5] + sp + fx5[l5][c5 + 5:])], ['HOME=' + g('home_ign')], 'GREEN', ref)
-open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
-```
-
-`c6/cell6.sh`:
-
-```sh
-#!/bin/bash
-# One draft-6 corpus cell. Usage: cell6.sh <job line>; OUT defaults to this script's directory.
-IFS=$'\x1f' read -r tag cfg kind label sh gp envs expect tree ref <<< "$1"
-OUT="${K2_CORPUS_OUT:-$(cd "$(dirname "$0")" && pwd)}"
-[ -n "$tag" ] && [ -x "$sh" ] && [ -d "$tree" ] || { printf "HARNESS-ERROR\t%s\n" "$1"; exit 0; }
-log=$OUT/logs/$tag.log; pd=$OUT/pd/$tag; : > "$pd"; mkdir -p "$OUT/tmp/$tag"
-eval "set -- $envs"
-( cd "$tree" && env TMPDIR="$OUT/tmp/$tag" K2_CORPUS_PDUMP="$pd" PATH="$gp:/usr/bin:/bin:/opt/homebrew/bin" "$@" "$sh" ".claude/tools/webref-generic-core-trip-wire.$tag.sh" ) > "$log" 2>&1
-rc=$?
-[ $rc -ne 127 ] && [ $rc -ne 126 ] || { printf "HARNESS-ERROR\t%s\trc=%s\n" "$tag" "$rc"; exit 0; }
-ncf=$(/usr/bin/grep -c 'CONTROL FAILED\|CONTROL NOT EXERCISED' "$log"); pass=$(/usr/bin/grep -c 'trip-wire PASSED' "$log")
-hit=0; [ "$expect" != GREEN ] && [ $rc -ne 0 ] && /usr/bin/grep -qF -- "$expect" "$log" && hit=1
-printf '%s\t%s\t%s\t%s\trc=%s\tctl=%s\tpassed=%s\thit=%s\tref=%s\n' "$tag" "$cfg" "$kind" "$label" "$rc" "$ncf" "$pass" "$hit" "$ref"
-rm -rf "$OUT/tmp/$tag"
-```
-
-`c6/eval6.sh` (with the configuration-matching fix):
-
-```sh
-#!/bin/bash
-# Verdicts from c6/raw.tsv: G/R/RES need rc 0, no control line, PASSED and P equal to the config's reference.
-OUT="${K2_CORPUS_OUT:-$(cd "$(dirname "$0")" && pwd)}"
-while IFS=$'\t' read -r tag cfg kind label rc ctl passed hit ref; do
-  [ "$tag" != HARNESS-ERROR ] || { echo "HARNESS-ERROR	$cfg"; continue; }
-  reftag=$(awk -F'\t' -v r="${ref#ref=}" -v c="$cfg" '$2==c && (($3=="REF"&&r=="REF-"c)||($3=="REF5"&&r=="REF5-"c)){print $1}' "$OUT/raw.tsv" | head -1)
-  green=0; [ "$rc" = rc=0 ] && [ "$ctl" = ctl=0 ] && [ "$passed" = passed=1 ] && green=1
-  same=0; [ -n "$reftag" ] && cmp -s "$OUT/pd/$tag" "$OUT/pd/$reftag" && [ -s "$OUT/pd/$tag" ] && same=1
-  nd=$(diff "$OUT/pd/$reftag" "$OUT/pd/$tag" 2>/dev/null | /usr/bin/grep -c '^[<>]')
-  case "$kind" in
-    REF|REF5) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
-    G|R|RES) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
-    BEFORE) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v=RED; fi ;;
-    *) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
-  esac
-  printf '%s\t%s\t%s\t%s\t%s\t%s\tPdiff=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$nd"
-done < "$OUT/raw.tsv"
-```
-
-### §E.4 Draft 7's focused cells (as run)
-
-`c7/cell7.sh` is identical to `c6/cell6.sh` (§E.3).
-
-`c7/gen7.py`:
+`c8/gen8.py`:
 
 ```python
 #!/usr/bin/env python3
-"""Draft-7 focused cells (items 1 and 2) on p6 (before) and p7 (after). Usage: gen7.py <scratch fgit dir>."""
+"""Draft-8 focused cells (D2, D4) on p7 (before) and p8 (after). Usage: gen8.py <scratch fgit dir>."""
 import os, sys, shlex
-SP = sys.argv[1]; OUT = os.path.join(SP, 'c7'); H = os.path.join(SP, 'corpus', 'h')
+SP = sys.argv[1]; OUT = os.path.join(SP, 'c8'); H = os.path.join(SP, 'corpus', 'h')
 W = 'webref-generic-core-trip-wire'; parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
 CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin'), 'b32-g254': ('/bin/bash', '/usr/bin')}
 g = lambda *a: os.path.join(H, *a)
 jobs = []; n = [0]
 def mk(tree, cfg, kind, label, edits, env, expect, ref):
-    n[0] += 1; tag = 'f%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
+    n[0] += 1; tag = 'h%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
     for p in parts:
         src = open(os.path.join(T, W + p + '.sh')).read()
         for (pp, old, new) in edits:
@@ -892,35 +831,36 @@ def mk(tree, cfg, kind, label, edits, env, expect, ref):
         dst = os.path.join(T, W + '.' + tag + p + '.sh'); open(dst, 'w').write(src); os.chmod(dst, 0o755)
     sh, gp = CFGS[cfg]
     jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree, ref]))
+CD = '( cd "$CTL/cachedir" && git init -q . >/dev/null 2>&1 \\\n'
+INC = g('home_ex', '.gitconfig'); PYG = g('pyglob')
+PERSIST = [('printf [include] path >> .git/config', "  && printf '[include]\\n\\tpath = %s\\n' >> .git/config \\\n" % INC),
+           ('printf [core] excludesFile >> .git/config', "  && printf '[core]\\n\\texcludesFile = %s\\n' >> .git/config \\\n" % PYG),
+           ('git -C . config core.excludesFile <file>', "  && git -C . config core.excludesFile %s \\\n" % PYG),
+           ('git config include.path <file>', "  && git config include.path %s \\\n" % INC)]
+PGL = 'CONTROL FAILED (every fixture repo persists only the configuration a plain git init writes)'
+WL = 'CONTROL NOT EXERCISED (the fixture build window completed)'
 FIFO = 'if [ "$_fifo_ok" -eq 1 ] && ! mkfifo "$CTL/odd/pipe" 2>/dev/null; then'
-PIPE = [('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)]
-ADDS = [('GIT_CONFIG_GLOBAL=<file> git add -A', 'GIT_CONFIG_GLOBAL=' + g('home_ex', '.gitconfig') + ' git'),
-        ('git -c include.path=<file> add -A', 'git -c include.path=' + g('home_ex', '.gitconfig')),
-        ('GIT_TEMPLATE_DIR=<template> git … (via the loop init)', 'GIT_TEMPLATE_DIR=' + g('tpl_ex') + ' git')]
-for tree, phase, refk in ((os.path.join(SP, 'p6'), 'BEFORE', 'REF'), (os.path.join(SP, 'p7'), 'AFTER', 'REF')):
+for tree, phase in ((os.path.join(SP, 'p7'), 'BEFORE'), (os.path.join(SP, 'p8'), 'AFTER')):
     fx = open(os.path.join(tree, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
     li = next(i for i, l in enumerate(fx) if not l.lstrip().startswith('#') and 'git add -A' in l); col = fx[li].index('git add -A')
-    lin = next(i for i, l in enumerate(fx) if not l.lstrip().startswith('#') and 'git init -q .' in l); coln = fx[lin].index('git init -q .')
-    def at(sp, init=False):
-        i, c = (lin, coln) if init else (li, col)
-        return [('.fixtures', fx[i], fx[i][:c] + sp + fx[i][c + 3:])]
     for cfg in CFGS:
-        ref = refk + '-' + cfg
+        ref = 'REF-' + cfg
         mk(tree, cfg, 'REF', phase + ' clean', [], [], 'GREEN', ref)
-        mk(tree, cfg, phase + '-1', 'odd/pipe pre-created (fixtures exit 2)', PIPE, [], 'CONTROL NOT EXERCISED (the fixture build window completed)', ref)
-        for name, sp in ADDS:
-            mk(tree, cfg, phase + '-2', name, at(sp, init='TEMPLATE' in name), [], 'CONTROL FAILED (the fixtures file gives no git an input from outside the window (a seed))', ref)
+        for name, ins in PERSIST:
+            mk(tree, cfg, phase + '-D2', name, [('.fixtures', CD, CD + ins)], [], PGL, ref)
+        mk(tree, cfg, phase + '-D4', 'fixtures file: top-level return 0 after line 1', [('.fixtures', fx[0] + '\n', fx[0] + '\nreturn 0\n')], [], WL, ref)
         if phase == 'AFTER':
+            mk(tree, cfg, 'RES', 'transient: git -C . -c include.path=<file> add -A (declared residual)', [('.fixtures', fx[li], fx[li][:col] + 'git -C . -c include.path=' + INC + fx[li][col + 3:])], [], 'GREEN', ref)
             mk(tree, cfg, 'G', 'HOME .config/git/ignore *.py', [], ['HOME=' + g('home_ign')], 'GREEN', ref)
             mk(tree, cfg, 'G', 'DO cell', [], ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1'], 'GREEN', ref)
-            mk(tree, cfg, 'R', 'gitsweep × HOME ignore *.py', at('sh -c \'unset $(export -p | sed -n "s/^export \\(GIT_[A-Za-z0-9_]*\\)=.*/\\1/p"); exec "$0" "$@"\' git'), ['HOME=' + g('home_ign')], 'GREEN', ref)
-            mk(tree, cfg, 'P', 'W: child aborts after the prelude', [('.harness', '    . "$1"\n', '    . "$1"; exit 4\n')], [], 'CONTROL NOT EXERCISED (the fixture build window completed)', ref)
-            mk(tree, cfg, 'P', 'W: prelude without set -euo pipefail', [('.harness', "    printf 'set -euo pipefail\\n'\n", '')], [], 'CONTROL NOT EXERCISED (the fixture build window completed)', ref)
-            mk(tree, cfg, 'P', 'P-f: window inherits (-i dropped) + caller BASH_FUNC_f%%', [('.harness', '"$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH"', '"$_FGIT_ENVBIN" "${_FGIT_ENV[@]}" "$_FGIT_BASH"')], ['BASH_FUNC_k2probe%%=() { :; }'], "BASH_FUNC_k2probe%%", ref)
+            mk(tree, cfg, 'AFTER-1', 'odd/pipe pre-created (fixtures exit 2)', [('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)], [], WL, ref)
+            mk(tree, cfg, 'P', 'W2: incomplete-window exit removed + odd/pipe', [('.harness', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n  exit 2\n', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n'), ('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)], [], 'CONTROL FAILED (no control runs over an incomplete fixture build window)', ref)
+            for nm, new in (('nounset', 'set -eo pipefail'), ('pipefail', 'set -eu'), ('errexit', 'set -uo pipefail')):
+                mk(tree, cfg, 'P', 'W: prelude drops ' + nm, [('.harness', "    printf 'set -euo pipefail\\n'\n", "    printf '%s\\n'\n" % new)], [], WL, ref)
 open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
 ```
 
-`c7/eval7.sh`:
+`c8/eval8.sh`:
 
 ```sh
 #!/bin/bash
@@ -934,11 +874,15 @@ while IFS=$'\t' read -r tag cfg kind label rc ctl passed hit ref; do
   nd=$(diff "$OUT/pd/$reftag" "$OUT/pd/$tag" 2>/dev/null | /usr/bin/grep -c '^[<>]')
   case "$kind" in
     REF|REF5) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
-    G|R|RES) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
+    G|R) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
     BEFORE|BEFORE-2) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v=RED; fi ;;
     BEFORE-1) v="OBSERVED" ;;
+    BEFORE-D2|BEFORE-D4) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v="RED(ctl=${ctl#ctl=})"; fi ;;
+    AFTER-D2) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
+    AFTER-D4) [ "$hit" = hit=1 ] && [ "$ctl" = ctl=1 ] && v=PASS || v=FAIL ;;
     AFTER-1) [ "$hit" = hit=1 ] && [ "$rc" = rc=2 ] && [ "$ctl" = ctl=1 ] && v=PASS || v=FAIL ;;
     P) if [ "$hit" = hit=1 ] && { case "$label" in W:*) [ "$ctl" = ctl=1 ];; *) true;; esac; }; then v=PASS; else v=FAIL; fi ;;
+    RES) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=RES-SILENT-WRONG; elif [ $green -eq 1 ]; then v=RES-GREEN-SAME; else v=RES-RED; fi ;;
     *) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
   esac
   printf '%s\t%s\t%s\t%s\t%s\t%s\tPdiff=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$nd"
