@@ -302,11 +302,8 @@ _R22_GAP_TABLE = (
     ("ROLE owner", "charters|to", ("role", "owner"), "The close rule charters{g}to **9z** here.", 1, 0),
 )
 _R22_GAP_MIXED = (
-    # (pattern, position, fixture, template, refuse expectation, the refuse run).
-    # The OPTIONAL gap in front of `,` / `and` / `or` / `/` is one regex gap; next
-    # to the required gap before `and` / `or` it is reached only by a run that
-    # starts with a character the required gap refuses: re-spelled alone as
-    # `(?a:\s)`, `**7z**<U+000B><U+00A0>and **Qx**` becomes a two-owner clause.
+    # (pattern, position, fixture, template, refuse expectation, the refuse run):
+    # U+000B then U+00A0 in front of `and` / `or`.
     ("OWNS_TWO join", "optional|and, mixed run", ("s9z", "TWO-OWNERS?"),
      "charter.  The drain is owned by **7z**{g}and **Qx**.", 0, "\x0b\u00a0"),
     ("OWNS_TWO join", "optional|or, mixed run", ("s9z", "TWO-OWNERS?"),
@@ -316,10 +313,9 @@ R22_GAP = {}
 """pattern -> the names of its read and refuse cases, every position -- what each
 pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn red."""
 R22_GAP_MIXED = []
-"""the MIXED-run refuse arms.  Of OWNS_TWO's rows, the optional-gap mutant turns
-them red and the join-half mutant does not (MIXED-ARM PROBE, in the body of the
-first commit whose message holds that phrase:
-`git log --reverse --grep='MIXED-ARM PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`)."""
+"""the MIXED-run refuse arms.  The rows that turn them red are listed by the
+MIXED-ARM PROBE, in the body of the first commit whose message holds that phrase:
+`git log --reverse --grep='MIXED-ARM PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`."""
 # THE TABLE'S OWN INVARIANTS, checked where it is defined and LOUD at import
 # (a bad row stops the self-test from loading): every `_R22_GAP_TABLE` row
 # declares both expectations and they differ, every `_R22_GAP_MIXED` row

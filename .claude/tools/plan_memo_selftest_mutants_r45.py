@@ -154,8 +154,8 @@ MUTANTS += [
      [R47_4_NBSP, R47_4_TAB]),
     ("R47-4 gap: the UNDETERMINED phrase composes the SAME gap (re-spell its `\\s` under `re.ASCII`, "
      "which is ASCII whitespace and not U+00A0)", STREAM,
-     'bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED"))',
-     'bounded(r"KIND(?:\\s+" + DASH_CLASS + r"?|" + DASH_CLASS + r")\\s*UNDETERMINED")',
+     'bounded(phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED"))',
+     'bounded(r"KIND(?:\\s+(?:" + DASH_CLASS + r"\\s*)?|" + DASH_CLASS + r"\\s*)UNDETERMINED")',
      [R47_4_UNDET_NBSP]),
     ("R47-4 fold: the UNDETERMINED phrase folds case in ASCII only (drop `re.ASCII` -- a letter folds "
      "from U+212A / U+0130 / U+0131, and the boundary admits U+017F too)", STREAM, "re.IGNORECASE | re.ASCII)", "re.IGNORECASE)",

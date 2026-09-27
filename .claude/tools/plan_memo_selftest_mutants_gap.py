@@ -55,8 +55,8 @@ MUTANTS += [
      [R22_WS_IDEOGRAPHIC, R22_WS_CLASS]),
     ("R22 ws: the appositive's gaps are composed by `phrase` (re-spell them `\\s` under `re.ASCII` -- "
      "U+00A0 after the id reads as no appositive and the UMBRELLA-MARK is lost)", TABLES,
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),',
-     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\\s*" + DASH_CLASS + r"\\s*" + DECOR + r"\\s*$",',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + "(?: )?)?$"),',
+     '_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + r"\\s*" + DASH_CLASS + r"\\s*(?:" + DECOR_RUN + r"\\s*)?$",',
      [R22_WS_APPOSITIVE]),
     ("R22 ws: the row-noun separator's whitespace is `GAP` (re-spell the ASCII `[ \\t\\n]` it was -- "
      "`Slice&nbsp;9z` names no row)", TABLES,
@@ -88,10 +88,10 @@ MUTANTS += [
     ("R22 ws roles: the two-owner clause composes the gap (restore its `\\s` spelling)", ROLES,
      '    phrase(r"\\b(?:owns?|owned by|owner is|carries|carried by) ")\n'
      '    + decorated_id(ROW_ID, "a")\n'
-     '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     '    + phrase(r"(?:(?: )?,(?: )?| and | or |(?: )?/(?: )?)")',
      '    r"\\b(?:owns?|owned by|owner is|carries|carried by)\\s+"\n'
      '    + decorated_id(ROW_ID, "a")\n'
-     '    + r"\\s*(?:,\\s*|\\s+and\\s+|\\s+or\\s+|\\s*/\\s*)"',
+     '    + r"(?:\\s*,\\s*|\\s+and\\s+|\\s+or\\s+|\\s*/\\s*)"',
      list(R22_WS_ROLES["owners"])),
     ("R22 ws roles: ORDER-PROSE?'s vocabulary composes the gap (drop `phrase` -- its word gaps are "
      "U+0020 alone again)", ROLES,
@@ -161,8 +161,8 @@ MUTANTS += [
      '    ' + _ASCII_GAP + 'r"\\b(?:owns?|owned by|owner is|carries|carried by) ")',
      R22_GAP["OWNS_TWO keyword"]),
     ("R22 gap: the two-owner clause's joining half composes the gap (re-spell it `(?a:\\s)`)", ROLES,
-     '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
-     '    + ' + _ASCII_GAP + 'r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     '    + phrase(r"(?:(?: )?,(?: )?| and | or |(?: )?/(?: )?)")',
+     '    + ' + _ASCII_GAP + 'r"(?:(?: )?,(?: )?| and | or |(?: )?/(?: )?)")',
      R22_GAP["OWNS_TWO join"]),
     ("R22 gap: ORDER_WORDS composes the gap (re-spell it `(?a:\\s)`)", ROLES,
      'ORDER_WORDS = re.compile(phrase(', 'ORDER_WORDS = re.compile(' + _ASCII_GAP,
@@ -181,7 +181,7 @@ MUTANTS += [
      'MARKER_RE = re.compile(bounded(re.escape(MARKER).replace("\\\\ ", r"(?a:\\s)+")))',
      R22_GAP["MARKER_RE"]),
     ("R22 gap: UNDETERMINED composes the gap (re-spell it `(?a:\\s)`)", STREAM,
-     'bounded(phrase("KIND(?: "', 'bounded(' + _ASCII_GAP + '"KIND(?: "',
+     'bounded(phrase("KIND(?: (?:"', 'bounded(' + _ASCII_GAP + '"KIND(?: (?:"',
      R22_GAP["UNDETERMINED"]),
     ("R22 gap: POINTER composes the gap (re-spell it `(?a:\\s)` -- the vocabulary nothing pinned)", STREAM,
      'POINTER = re.compile(bounded(_phrase("is a pointer rather than a slice")))',
@@ -209,11 +209,6 @@ MUTANTS += [
     ("R22 gap: the id run's separator composes GAP (re-spell it `(?a:\\s)`)", STREAM,
      '% (SLUG_ID, CITE_ID, SHORT_ID, GAP)', '% (SLUG_ID, CITE_ID, SHORT_ID, r"(?a:\\s)")',
      R22_GAP["_ID_RUN_TOKEN"]),
-    ("R22 gap: the two-owner clause's OPTIONAL leading gap composes the gap (re-spell that one gap "
-     "alone -- `**7z**<U+000B><U+00A0>and **Qx**` becomes a two-owner clause)", ROLES,
-     '    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
-     '    + r"(?:(?a:\\s)+)?" + phrase(r"(?:,(?: )?| and | or |(?: )?/(?: )?)")',
-     list(R22_GAP_MIXED) + [n for n in R22_GAP["OWNS_TWO join"] if "owner|," in n]),
 ]
 
 # -- the net-delta review of 900c16eb..f7326182: the role measure's -1.  The
@@ -228,4 +223,22 @@ MUTANTS += [
      '            return -1, "%d reported site(s), not exactly one" % len(reported)',
      '            return 0, "%d reported site(s), not exactly one" % len(reported)',
      [ROLE_MEASURE]),
+]
+
+# -- PR #510 Codex R31: the three patterns whose gaps overlapped, each restored.
+ADJACENT_RUNS = ("PROPERTY: no compiled pattern of the checker lets one whitespace run follow another "
+                 "through only empty-matching items (the quadratic backtracking shape, read off re's own parser)")
+MUTANTS += [
+    ("R31 runs: UNDETERMINED's separator is disjoint (restore the overlapping `(?: -?|-)(?: )?`)", STREAM,
+     'phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED")',
+     'phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")',
+     [ADJACENT_RUNS]),
+    ("R31 runs: OWNS_TWO's joining branches carry their own gaps (restore the shared leading optional gap)", ROLES,
+     'phrase(r"(?:(?: )?,(?: )?| and | or |(?: )?/(?: )?)")',
+     'phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")',
+     [ADJACENT_RUNS]),
+    ("R31 runs: the appositive's last gap follows a NON-EMPTY decoration (restore the empty-matching one)", TABLES,
+     'phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + "(?: )?)?$")',
+     'phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + ")?(?: )?$")',
+     [ADJACENT_RUNS]),
 ]

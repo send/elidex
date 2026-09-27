@@ -372,8 +372,8 @@ MUTANTS += [
      [R33_2_NON_DASH]),
     ("R33-2 sweep: a second dash class in a checker module is found (re-inject one at the reader that "
      "had it)", STREAM,
-     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),',
-     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: [\\u2014-]?|[\\u2014-])(?: )?UNDETERMINED")),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED")),',
+     'UNDETERMINED = re.compile(bounded(phrase("KIND(?: (?:[\\u2014-](?: )?)?|[\\u2014-](?: )?)UNDETERMINED")),',
      [R33_DASH_SWEEP]),
 ]
 

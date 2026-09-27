@@ -367,20 +367,13 @@ def _row_key(x):
 # An owner is a row of any row kind: the grammar's `ROW_ID` (slug | short),
 # the same alternation the appositive and the anchored reading compose --
 # a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
-# ⚠ KNOWN COST, NOT FIXED: a whitespace run between the first owner and a
-# failing tail is QUADRATIC (optional gap, then a gap inside the alternation:
-# the engine tries every split of the run): doubling the run roughly
-# QUADRUPLES the time -- the command below times a 5k, a 10k and a 20k run and
-# prints the two ratios; the runs taken for this note under Python 3.9 and 3.14
-# gave x3.4 to x5.5, and a run under load can fall outside that.  The same shape is at 94281cd7, so it predates
-# the R22 changes; polynomial, not exponential.  No seconds are recorded: they
-# are the machine's and its load's.  The remedy, an atomic group or possessive
-# quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
-# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_roles as r; f=lambda n,t=time.perf_counter: (lambda a: (r.OWNS_TWO.search("owned by **7z**"+" "*n+"x"), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
+# Each joining branch carries its own gaps, so no optional gap stands beside a
+# required one and a long whitespace run is linear (PR #510 Codex R31;
+# `plan_memo_selftest_properties.adjacent_gap_runs_control`).
 OWNS_TWO = re.compile(
     phrase(r"\b(?:owns?|owned by|owner is|carries|carried by) ")
     + decorated_id(ROW_ID, "a")
-    + phrase(r"(?: )?(?:,(?: )?| and | or |(?: )?/(?: )?)")
+    + phrase(r"(?:(?: )?,(?: )?| and | or |(?: )?/(?: )?)")
     + decorated_id(ROW_ID, "b"),
     re.IGNORECASE | re.ASCII)
 

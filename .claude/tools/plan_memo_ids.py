@@ -116,6 +116,9 @@ a `&ast;` standing in the stream named a row `ast` no reader can see (PR
 #510 R23)."""
 DECOR_CHARS = frozenset("".join(DECOR_MARKS))
 DECOR = r"(?:%s)*" % "|".join(re.escape(m) for m in DECOR_MARKS)
+DECOR_RUN = r"(?:%s)+" % "|".join(re.escape(m) for m in DECOR_MARKS)
+"""`DECOR` without its empty match, for a composition that must not let an
+empty decoration put two gaps side by side (`plan_memo_tables._APPOSITIVE`)."""
 
 KINDS = (("slug", SLUG_ID), ("cite", CITE_ID), ("short", SHORT_ID))
 """Longest alternative first: a `#11-` slug is atomic (its internal hyphens

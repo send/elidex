@@ -39,7 +39,7 @@ document renders it.
 import re
 
 from plan_memo_blocks import block_end, delimiter_width, split_row
-from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR, ROW_ID, ROW_KINDS, decorated_id, tokens
+from plan_memo_ids import BEFORE, DASH, DASH_CLASS, DECOR_RUN, ROW_ID, ROW_KINDS, decorated_id, tokens
 from plan_memo_links import normalize_label
 from plan_memo_stream import GAP, MARKER_RE, phrase, rendered
 
@@ -434,17 +434,11 @@ def bare_id(cell_text, kinds):
 # `Slice 9z&nbsp;— **UMBRELLA, …**` attributed nothing and lost the
 # `UMBRELLA-MARK` at rc 0, while a U+000B, which cmark does not read as
 # whitespace, stood in for a gap.
-# ⚠ KNOWN COST, NOT FIXED: after the dash, a whitespace run followed by a
-# failing tail is QUADRATIC (`(?:GAP+)?`, then `DECOR`, which may match empty,
-# then `(?:GAP+)?$`: every split of the run is tried): doubling the run roughly
-# QUADRUPLES the time -- the command below times a 5k, a 10k and a 20k run and
-# prints the two ratios; the runs taken for this note under Python 3.9 and 3.14
-# gave x3.4 to x5.5, and a run under load can fall outside that.  The same shape is at 94281cd7, so it predates
-# the R22 changes; polynomial, not exponential.  No seconds are recorded: they
-# are the machine's and its load's.  The remedy, an atomic group or possessive
-# quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
-# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_tables as m; f=lambda n,t=time.perf_counter: (lambda a: (m._APPOSITIVE.search("Slice 9z \u2014"+" "*n+"x"), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
-_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?" + DECOR + "(?: )?$"),
+# The gap after a decoration is reachable only through a NON-EMPTY one
+# (`DECOR_RUN`), so no two gaps are adjacent and a long whitespace run is
+# linear (PR #510 Codex R31;
+# `plan_memo_selftest_properties.adjacent_gap_runs_control`).
+_APPOSITIVE = re.compile(BEFORE + ROW_NOUN_ID + phrase("(?: )?" + DASH_CLASS + "(?: )?(?:" + DECOR_RUN + "(?: )?)?$"),
                          re.ASCII)
 
 

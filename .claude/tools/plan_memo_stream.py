@@ -162,17 +162,11 @@ never a change to the phrase."""
 # words -- whitespace (then an optional dash) or a dash -- since Codex on
 # `0a5ab700`: with both gaps and the dash optional, `KINDUNDETERMINED` in an
 # unrelated word declared the kind.
-# ⚠ KNOWN COST, NOT FIXED: a whitespace run after `KIND` followed by a failing
-# tail is QUADRATIC (`GAP+`, an optional dash, then `(?:GAP+)?`: every split of
-# the run is tried): doubling the run roughly
-# QUADRUPLES the time -- the command below times a 5k, a 10k and a 20k run and
-# prints the two ratios; the runs taken for this note under Python 3.9 and 3.14
-# gave x3.4 to x5.5, and a run under load can fall outside that.  The same shape is at 94281cd7, so it predates
-# the R22 changes; polynomial, not exponential.  No seconds are recorded: they
-# are the machine's and its load's.  The remedy, an atomic group or possessive
-# quantifier, needs Python 3.11 and this tool supports 3.9.  Measure:
-# `python3 -c 'import sys,time; sys.path.insert(0,".claude/tools"); import plan_memo_stream as s; f=lambda n,t=time.perf_counter: (lambda a: (list(s.UNDETERMINED.finditer("KIND"+" "*n+"x")), t()-a)[1])(t()); a,b,c=f(5000),f(10000),f(20000); print("x%.1f x%.1f" % (b/a, c/b))'`
-UNDETERMINED = re.compile(bounded(phrase("KIND(?: " + DASH_CLASS + "?|" + DASH_CLASS + ")(?: )?UNDETERMINED")),
+# The separator is written as DISJOINT alternatives -- gaps, gaps then a dash
+# (then optional gaps), or a dash (then optional gaps) -- so no two gaps are
+# adjacent and a long whitespace run is linear (PR #510 Codex R31;
+# `plan_memo_selftest_properties.adjacent_gap_runs_control`).
+UNDETERMINED = re.compile(bounded(phrase("KIND(?: (?:" + DASH_CLASS + "(?: )?)?|" + DASH_CLASS + "(?: )?)UNDETERMINED")),
                           re.IGNORECASE | re.ASCII)
 
 # A row that is a POINTER into a slot rather than a slice of its own (§1.0's
