@@ -9,7 +9,7 @@ design memo" below. It holds:
 
 The design memo keeps only its live decisions. Section references here are to the design
 memo **as of the draft that the section or row belongs to** unless a file is named; a superseded draft is read with `git show <sha>:<memo path>` (drafts: 1 `bd3dc513`,
-2 `0142f47a`, 3 `2b89ef7c`, 4 `57e5419f`, 5 `e8c1bdb8`, 6 `8b6a4005`).
+2 `0142f47a`, 3 `2b89ef7c`, 4 `57e5419f`, 5 `e8c1bdb8`, 6 `8b6a4005`, 7 `ff1322bb`, 8 `453b7b0f`).
 
 ⚠ This file follows the design memo's rule: every figure is a measurement at a named SHA or scratch
 prototype, with its command. `$S` is scratch. `/usr/bin/grep` is spelled out on purpose.
@@ -463,6 +463,66 @@ stays green on both shells.
 total, standalone, at load about 2. The whole p8 wire took 14.6 s on bash 5.3 and 12.3 s on bash 3.2.
 This is **not** X8.
 
+⚠ **These cells ran under the real `HOME`** (round 8, Ax2). `c8/cell8.sh` passes `HOME` only when a
+cell's own environment names it, so every other cell inherited the caller's. The fixture build was not
+exposed, because the window sets its own `HOME`, but the controls' reads were. **Re-run with `HOME`
+set** (§A.12's `c9/cell9.sh`, into `c8h/`): all 40 cells gave the same verdict, rc and Pdiff as the
+table above. `raw.err` was empty, and the cell `HOME` stayed empty.
+
+### §A.12 Draft 9's focused cells (p10: E2, E3, AR, SE1)
+
+**Subjects.** `p9` (`4ca92c38`) and `p10` (`ba68371b`), each a `git clone --local` of its predecessor:
+
+| commit | change |
+|---|---|
+| `4ca92c38` | `_control` calls `_fw_built_or_w2` first (W2 wherever the exit sits); W3 from the child's stderr; options re-checked after the fixtures file (exit 5); `_fw_why` names 3/4/5; the two comment fixes; a top-level P-g shape check |
+| `ba68371b` | P-g's census: one `find` over `$CTL` for every `.git` of any type, every `HEAD`+`objects` dir and every unsearchable dir; the three deliberate unsearchable dirs declared; census failure or empty population red |
+
+Clean runs of p10 with `HOME` set to an empty scratch dir: rc 0 and `PASSED` on bash 5.3 and on bash
+3.2. The first p10 census run was red on the clean tree: `find` exited non-zero on the fixtures'
+deliberately unsearchable `walk/sub` and `d5root`. That is where the declared list came from. With the
+list emptied, exactly `d2red/sub`, `walk/sub` and `d5root` go red, so each entry is necessary.
+
+**The cell harness now sets `HOME`.** `c9/cell9.sh` is `cell8.sh` plus `HOME="$OUT/home"`, placed
+before the cell's own environment, so a G cell's `HOME=` still wins. After each run, `ls -A c9/home`
+is empty.
+
+**Commands.** From `…/scratchpad/fgit/`:
+- `python3 c9/gen9.py "$PWD"` generates 44 cells (the path must be absolute: the hostile files are
+  named by it, and a relative one breaks every cell that names one);
+- `tr '\n' '\0' < c9/jobs.tsv | xargs -0 -n1 -P2 c9/cell9.sh > c9/raw.tsv`;
+- `c9/eval9.sh > c9/results.tsv`.
+
+`raw.err` is empty. All 44 cells gave the same verdict on both configurations; the tags are listed
+b53-g255 first, then b32-g254.
+
+| cell | p8 (before) | p10 (after) |
+|---|---|---|
+| clean | k0001, k0010: PASS | k0019, k0032: PASS |
+| `cachedir` `--separate-git-dir` + persisted `core.excludesFile` | k0002, k0011: SILENT-WRONG (rc 0, Pdiff 3) | k0020, k0033: rc 1, P-g `cachedir:[.git is not a directory] .gd-cachedir:[a git dir not named .git]` |
+| `cachedir` `--separate-git-dir` only | k0003, k0012: SILENT-WRONG (rc 0, Pdiff 2) | k0021, k0034: rc 1, P-g, same entries |
+| nested `zz/inner`, persisted key | k0004, k0013: GREEN-SAME | k0022, k0035: rc 1, P-g `zz/inner:[local file:.git/config core.excludesfile=…]` |
+| hidden `.hid`, persisted key | k0005, k0014: GREEN-SAME | k0023, k0036: rc 1, P-g |
+| bare `zbare`, persisted key | k0006, k0015: GREEN-SAME | k0024, k0037: rc 1, P-g `zbare:[a git dir not named .git]` |
+| RO: exit below the first control + `odd/pipe` | k0007, k0016: rc 2; `green is reachable` failed over the unbuilt tree, then W; no W2 | k0025, k0038: rc 2; W2, then W |
+| ROg: exit below the first control | k0008, k0017: GREEN-SAME | k0026, k0039: PASS (green, P equal) |
+| AR: `_ar=$(( 1/0 ))` after line 1 | k0009, k0018: GREEN-SAME (rc 0, PASSED) | k0027, k0040: rc 1, W3 `…fixtures.sh: line 2: 1/0 : division by 0 …` |
+| SE1: `set +e` before the `built` line | — | k0028, k0041: rc 2, W alone, cause 5 |
+| G: HOME `*.py` ignore; DO cell | — | k0029/30, k0042/43: PASS, Pdiff 0 |
+| W2 record | — | k0031, k0044: rc 1, W2 |
+
+The nested, hidden and bare cells change no fixture's P (Pdiff 0), because each is a new repo that no
+control reads. They are red because P-g's population is every git dir, not because P moved.
+
+**p9, the intermediate, missed two shapes.** The same generator pointed at p9 (`c9/p9x/`, bash 5.3 only)
+gave: `--separate-git-dir` ×2 and bare, red with P-g; **nested and hidden, GREEN-SAME**. p9 walked
+`$CTL/*/`, which skips hidden names and does not descend. p10 replaces that walk.
+
+**A first E2 run that did not isolate P-g** (`c9/run1/`). `--separate-git-dir` on **every** loop-built
+fixture was already red on p8 (rc 1, ctl 10 or 2). Fixtures that write `.git/…` directly failed to
+build ("its fixture did not build"), and one such write left a shell diagnostic. So the collateral, not
+P-g, was red. The single-fixture `cachedir` cells above replace it, and they are silent on p8.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
@@ -539,17 +599,37 @@ rebuild's `/pre-push` Stage 4 over the whole range.
 20. Draft 2 said the ledger step cited a "landing SHA". That SHA is unreachable from `main` after #501's
     squash.
 
+**From round 8 (draft 9):**
+
+21. Draft 8's cells were described as run in a scratch `HOME`. `c8/cell8.sh` never set it, so they ran
+    under the real one. Re-run with it set, all 40 were unchanged (§A.11).
+22. "RO leaves W2 silent" was half true. On p8 the RO run was already red (rc 2, W), but the control it
+    reached was misreported as `green is reachable`, and W2 did not fire. p10 reports W2 (§A.12).
+23. This author's first E2 cell (every loop fixture with `--separate-git-dir`) did not isolate P-g,
+    because it was red on p8 through collateral (§A.12).
+24. This author's p9 claimed P-g's population was "every fixture git dir" but walked only `$CTL/*/`. A
+    nested and a hidden repo passed (§A.12).
+25. A census over every directory cannot search the fixtures' deliberate `chmod 000` directories. An
+    unconditional "unresolvable is red" rule reds the clean tree, so those three are declared (§A.12).
+
 ---
 
 ## §D Plan-review dispositions
 
 ### §D.0 Terminators and the close-out plan
 
-**Round 8: a Step-4.5 focused check (current).**
-- **Scope:** D2 and D4 only. Ax2 checks D4 and the window's completion. Ax3 checks D2 (P-g) and D3 (the
-  transient residual).
-- **Converges** if and only if neither returns an IMP with a failing cell.
+**Round 9: a Step-4.5 focused check of E2 and E3 only (current).**
+- **Ax2** takes E3 (`_control`'s W2 check, the exit causes) together with AR (W3) and SE1 (the exit-5
+  re-check).
+- **Ax3** takes E2 (P-g's census: its population, its unknown shapes, the declared unsearchable list).
+- **Reviewers are told that class (c) (design memo §0.3) is out of scope.** A class-(c) finding is
+  not an IMP.
+- **Converges** if and only if there is no in-scope IMP with a failing cell.
 - **Then plan-review closes.**
+
+**Round 8 (as it ran; not met).** Round 8 was the Step-4.5 focused check of draft 8 (`453b7b0f`) on D2
+and D4. It returned E1–E4 with cells (§D.8). The window behaviour held again; the IMPs were in the
+threat-model boundary, P-g's population and the placement of the incomplete-window exit.
 
 **Round 7 (as it ran; not met).** Round 7 was the Step-4.5 focused check of draft 7:
 - Ax2 (item 1): 0 CRIT / 2 IMP / 4 MIN;
@@ -791,6 +871,19 @@ subject, which was every item listed above. Anything else stays open for round 5
 - **The claim in W1 (§D.6) that "records require exactly one control line":** it was **false** for the
   runner. It holds only for the corpus evaluator (`eval7`/`eval8` check `ctl=1`). The mutation runner
   sees only rc ≠ 0 and a needle. Draft 8 therefore pins W2 as a separate label.
+
+### §D.8 Round 8 (Step 4.5; on draft 8 `453b7b0f`; E1–E4) → draft 9
+
+| id | disposition | evidence (§A.12) |
+|---|---|---|
+| E1: no stated threat model; sentences gave P-g the reverted forms | design memo §0.3: classes (a) closed, (b) caught on shape, (c) out of scope and owned by code review. The D3 list becomes examples of the (c) property. `#11-k2-fixture-git-invocation-convention` **closes** after the create-time audit (design memo §5.1). §5.1, the ledger text and §10 row 1 are rewritten | — (a scope decision) |
+| E2: P-g's population was a top-level directory glob that skipped non-directory `.git` | census over every git dir, by property; unknown shapes red; deliberate unsearchable dirs declared | before p8: `--separate-git-dir` SILENT-WRONG ×2 per shell; nested, hidden, bare unseen. After p10: all red with P-g; clean, G and DO green |
+| E3: W2 depended on where the incomplete-window exit sat | `_control`'s first statement is the W2 check | RO: p8 no W2, p10 W2 on both shells; ROg green both |
+| E4: wording | §3 row (iii) in the §5.1 unit; the harness comment "however it is spelled" qualified and the exit-class comment corrected (both in C5); `_fw_why` names 3/4/5 | prototype text |
+| E4 AR: an arithmetic error skips a line and the build completes | **W3** from the child's stderr, on bash's `<file>: line N:` form | p8 GREEN-SAME, p10 rc 1 W3, both shells |
+| E4 SE1: `set +e` in the fixtures file | options re-checked after the file (exit 5, W). A mid-file toggle is class (c) | p10 rc 2, W alone, both shells |
+| harness: c8 cells ran under the real `HOME` | `cell9.sh` sets `HOME` for every cell; c8 re-run unchanged | §A.11 note |
+
 ---
 
 ## §E Appendix — the corpus scripts (as run)
@@ -803,26 +896,35 @@ To keep this file bounded, superseded scripts live only in the history:
 | draft 5's subset | `git show e8c1bdb8:…` (§E.2) |
 | draft 6's recast corpus (`c6/gen6.py`, `cell6.sh`, `eval6.sh`) | `git show ff1322bb:…` (§E.3) |
 | draft 7's cells (`c7/gen7.py`, `eval7.sh`) | `git show ff1322bb:…` (§E.4) |
+| draft 8's cells (`c8/gen8.py`, `eval8.sh`; `cell8.sh` = `cell6.sh`) | `git show 453b7b0f:…` (§E.5) |
 
-Scratch copies are under `…/scratchpad/fgit/`. Draft 8's scripts follow.
+Scratch copies are under `…/scratchpad/fgit/`. Draft 9's scripts follow.
 
-### §E.5 Draft 8's focused cells (as run)
+### §E.6 Draft 9's focused cells (as run)
 
-`c8/cell8.sh` is `c6/cell6.sh` unchanged.
+`c9/cell9.sh` is `c8/cell8.sh` with one change, on the `env` line: `HOME="$OUT/home"` after `TMPDIR=…`.
 
-`c8/gen8.py`:
+`c9/eval9.sh` is `c8/eval8.sh` with three arms added before `BEFORE-D2|BEFORE-D4)`:
+
+```sh
+    BEFORE-E2|BEFORE-E3|BEFORE-AR|BEFORE-E3g) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; elif [ "$hit" = hit=1 ]; then v="RED-WITH-LABEL"; else v="RED-OTHER(ctl=${ctl#ctl=})"; fi ;;
+    AFTER-E2|AFTER-E3|AFTER-AR|AFTER-SE1) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
+    AFTER-E3g) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
+```
+
+`c9/gen9.py` (`LOOPINIT`/`SEP`/`SEP0` are the unused remains of run 1, §A.12):
 
 ```python
 #!/usr/bin/env python3
-"""Draft-8 focused cells (D2, D4) on p7 (before) and p8 (after). Usage: gen8.py <scratch fgit dir>."""
+"""Draft-9 focused cells (E2, E3, AR, SE1) on p8 (before) and p10 (after). Usage: gen9.py <scratch fgit dir>."""
 import os, sys, shlex
-SP = sys.argv[1]; OUT = os.path.join(SP, 'c8'); H = os.path.join(SP, 'corpus', 'h')
+SP = sys.argv[1]; OUT = os.path.join(SP, 'c9'); H = os.path.join(SP, 'corpus', 'h')
 W = 'webref-generic-core-trip-wire'; parts = ['', '.controls', '.harness', '.fixtures', '.mutations']
 CFGS = {'b53-g255': ('/opt/homebrew/bin/bash', '/opt/homebrew/bin'), 'b32-g254': ('/bin/bash', '/usr/bin')}
 g = lambda *a: os.path.join(H, *a)
 jobs = []; n = [0]
 def mk(tree, cfg, kind, label, edits, env, expect, ref):
-    n[0] += 1; tag = 'h%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
+    n[0] += 1; tag = 'k%04d' % n[0]; T = os.path.join(tree, '.claude/tools')
     for p in parts:
         src = open(os.path.join(T, W + p + '.sh')).read()
         for (pp, old, new) in edits:
@@ -831,60 +933,42 @@ def mk(tree, cfg, kind, label, edits, env, expect, ref):
         dst = os.path.join(T, W + '.' + tag + p + '.sh'); open(dst, 'w').write(src); os.chmod(dst, 0o755)
     sh, gp = CFGS[cfg]
     jobs.append('\x1f'.join([tag, cfg, kind, label, sh, gp, ' '.join(shlex.quote(e) for e in env), expect, tree, ref]))
-CD = '( cd "$CTL/cachedir" && git init -q . >/dev/null 2>&1 \\\n'
-INC = g('home_ex', '.gitconfig'); PYG = g('pyglob')
-PERSIST = [('printf [include] path >> .git/config', "  && printf '[include]\\n\\tpath = %s\\n' >> .git/config \\\n" % INC),
-           ('printf [core] excludesFile >> .git/config', "  && printf '[core]\\n\\texcludesFile = %s\\n' >> .git/config \\\n" % PYG),
-           ('git -C . config core.excludesFile <file>', "  && git -C . config core.excludesFile %s \\\n" % PYG),
-           ('git config include.path <file>', "  && git config include.path %s \\\n" % INC)]
-PGL = 'CONTROL FAILED (every fixture repo persists only the configuration a plain git init writes)'
-WL = 'CONTROL NOT EXERCISED (the fixture build window completed)'
+PYG = g('pyglob')
+LOOPINIT = '( cd "$CTL/$d" 2>/dev/null && git init -q . >/dev/null 2>&1 \\'
+SEP = '( cd "$CTL/$d" 2>/dev/null && git init -q --separate-git-dir="$CTL/.gd-$d" . >/dev/null 2>&1 && git config core.excludesFile %s \\' % PYG
+SEP0 = '( cd "$CTL/$d" 2>/dev/null && git init -q --separate-git-dir="$CTL/.gd-$d" . >/dev/null 2>&1 \\'
+CDINIT = '( cd "$CTL/cachedir" && git init -q . >/dev/null 2>&1 \\'
+CD_SEP = '( cd "$CTL/cachedir" && git init -q --separate-git-dir="$CTL/.gd-cachedir" . >/dev/null 2>&1 && git config core.excludesFile %s \\' % PYG
+CD_SEP0 = '( cd "$CTL/cachedir" && git init -q --separate-git-dir="$CTL/.gd-cachedir" . >/dev/null 2>&1 \\'
+NEST = 'mkdir -p "$CTL/zz/inner" && ( cd "$CTL/zz/inner" && git init -q . && git config core.excludesFile %s )\n' % PYG
+HID = 'mkdir -p "$CTL/.hid" && ( cd "$CTL/.hid" && git init -q . && git config core.excludesFile %s )\n' % PYG
+BARE = 'git init -q --bare "$CTL/zbare" && git --git-dir="$CTL/zbare" config core.excludesFile %s\n' % PYG
 FIFO = 'if [ "$_fifo_ok" -eq 1 ] && ! mkfifo "$CTL/odd/pipe" 2>/dev/null; then'
-for tree, phase in ((os.path.join(SP, 'p7'), 'BEFORE'), (os.path.join(SP, 'p8'), 'AFTER')):
+PIPE = ('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)
+EXITL = '_fgit_window_incomplete_exit "$_fw_lbl"\n'
+FIRSTCTL = '_control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1\n'
+MOVE = [('.controls', EXITL, ''), ('.controls', FIRSTCTL, FIRSTCTL + EXITL)]
+PGL = 'CONTROL FAILED (every fixture repo persists only the configuration a plain git init writes)'
+W2L = 'CONTROL FAILED (no control runs over an incomplete fixture build window)'
+DIAGL = 'CONTROL FAILED (the fixtures file ran without a shell diagnostic)'
+WL = 'CONTROL NOT EXERCISED (the fixture build window completed)'
+BUILT = ': > "$_FW_DIR/built"\n'
+for tree, phase in ((os.path.join(SP, 'p8'), 'BEFORE'), (os.path.join(SP, 'p10'), 'AFTER')):
     fx = open(os.path.join(tree, '.claude/tools', W + '.fixtures.sh')).read().split('\n')
-    li = next(i for i, l in enumerate(fx) if not l.lstrip().startswith('#') and 'git add -A' in l); col = fx[li].index('git add -A')
     for cfg in CFGS:
         ref = 'REF-' + cfg
         mk(tree, cfg, 'REF', phase + ' clean', [], [], 'GREEN', ref)
-        for name, ins in PERSIST:
-            mk(tree, cfg, phase + '-D2', name, [('.fixtures', CD, CD + ins)], [], PGL, ref)
-        mk(tree, cfg, phase + '-D4', 'fixtures file: top-level return 0 after line 1', [('.fixtures', fx[0] + '\n', fx[0] + '\nreturn 0\n')], [], WL, ref)
+        for lab, add in (('cachedir: --separate-git-dir + persisted core.excludesFile', CD_SEP), ('cachedir: --separate-git-dir only (gitfile shape)', CD_SEP0)):
+            mk(tree, cfg, phase + '-E2', lab, [('.fixtures', CDINIT, add)], [], PGL, ref)
+        for lab, add in (('nested repo zz/inner with persisted core.excludesFile', NEST), ('hidden top-level repo .hid with persisted core.excludesFile', HID), ('bare git dir zbare with persisted core.excludesFile', BARE)):
+            mk(tree, cfg, phase + '-E2', lab, [('.fixtures', BUILT, add + BUILT)], [], PGL, ref)
+        mk(tree, cfg, phase + '-E3', 'RO: exit moved below the first control + odd/pipe', MOVE + [PIPE], [], W2L, ref)
+        mk(tree, cfg, phase + '-E3g', 'ROg: exit moved below the first control (window complete)', MOVE, [], 'GREEN', ref)
+        mk(tree, cfg, phase + '-AR', 'AR: $(( 1/0 )) at the fixtures file top level', [('.fixtures', fx[0] + '\n', fx[0] + '\n_ar=$(( 1/0 ))\n')], [], DIAGL, ref)
         if phase == 'AFTER':
-            mk(tree, cfg, 'RES', 'transient: git -C . -c include.path=<file> add -A (declared residual)', [('.fixtures', fx[li], fx[li][:col] + 'git -C . -c include.path=' + INC + fx[li][col + 3:])], [], 'GREEN', ref)
+            mk(tree, cfg, 'AFTER-SE1', 'SE1: set +e left at the end of the fixtures file', [('.fixtures', BUILT, 'set +e\n' + BUILT)], [], WL, ref)
             mk(tree, cfg, 'G', 'HOME .config/git/ignore *.py', [], ['HOME=' + g('home_ign')], 'GREEN', ref)
             mk(tree, cfg, 'G', 'DO cell', [], ['GIT_CONFIG_GLOBAL=' + g('do', 'safe.cfg'), 'GIT_TEST_ASSUME_DIFFERENT_OWNER=1'], 'GREEN', ref)
-            mk(tree, cfg, 'AFTER-1', 'odd/pipe pre-created (fixtures exit 2)', [('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)], [], WL, ref)
-            mk(tree, cfg, 'P', 'W2: incomplete-window exit removed + odd/pipe', [('.harness', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n  exit 2\n', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n'), ('.fixtures', FIFO, ': > "$CTL/odd/pipe"\n' + FIFO)], [], 'CONTROL FAILED (no control runs over an incomplete fixture build window)', ref)
-            for nm, new in (('nounset', 'set -eo pipefail'), ('pipefail', 'set -eu'), ('errexit', 'set -uo pipefail')):
-                mk(tree, cfg, 'P', 'W: prelude drops ' + nm, [('.harness', "    printf 'set -euo pipefail\\n'\n", "    printf '%s\\n'\n" % new)], [], WL, ref)
+            mk(tree, cfg, 'P', 'W2 record: incomplete-window exit removed + odd/pipe', [('.harness', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n  exit 2\n', '  echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2\n'), PIPE], [], W2L, ref)
 open(os.path.join(OUT, 'jobs.tsv'), 'w').write('\n'.join(jobs) + '\n'); print(len(jobs), 'jobs')
-```
-
-`c8/eval8.sh`:
-
-```sh
-#!/bin/bash
-# Verdicts from c6/raw.tsv: G/R/RES need rc 0, no control line, PASSED and P equal to the config's reference.
-OUT="${K2_CORPUS_OUT:-$(cd "$(dirname "$0")" && pwd)}"
-while IFS=$'\t' read -r tag cfg kind label rc ctl passed hit ref; do
-  [ "$tag" != HARNESS-ERROR ] || { echo "HARNESS-ERROR	$cfg"; continue; }
-  reftag=$(awk -F'\t' -v r="${ref#ref=}" -v c="$cfg" '$2==c && (($3=="REF"&&r=="REF-"c)||($3=="REF5"&&r=="REF5-"c)){print $1}' "$OUT/raw.tsv" | head -1)
-  green=0; [ "$rc" = rc=0 ] && [ "$ctl" = ctl=0 ] && [ "$passed" = passed=1 ] && green=1
-  same=0; [ -n "$reftag" ] && cmp -s "$OUT/pd/$tag" "$OUT/pd/$reftag" && [ -s "$OUT/pd/$tag" ] && same=1
-  nd=$(diff "$OUT/pd/$reftag" "$OUT/pd/$tag" 2>/dev/null | /usr/bin/grep -c '^[<>]')
-  case "$kind" in
-    REF|REF5) [ $green -eq 1 ] && v=PASS || v=FAIL ;;
-    G|R) [ $green -eq 1 ] && [ $same -eq 1 ] && v=PASS || v=FAIL ;;
-    BEFORE|BEFORE-2) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v=RED; fi ;;
-    BEFORE-1) v="OBSERVED" ;;
-    BEFORE-D2|BEFORE-D4) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=SILENT-WRONG; elif [ $green -eq 1 ]; then v=GREEN-SAME; else v="RED(ctl=${ctl#ctl=})"; fi ;;
-    AFTER-D2) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
-    AFTER-D4) [ "$hit" = hit=1 ] && [ "$ctl" = ctl=1 ] && v=PASS || v=FAIL ;;
-    AFTER-1) [ "$hit" = hit=1 ] && [ "$rc" = rc=2 ] && [ "$ctl" = ctl=1 ] && v=PASS || v=FAIL ;;
-    P) if [ "$hit" = hit=1 ] && { case "$label" in W:*) [ "$ctl" = ctl=1 ];; *) true;; esac; }; then v=PASS; else v=FAIL; fi ;;
-    RES) if [ $green -eq 1 ] && [ $same -eq 0 ]; then v=RES-SILENT-WRONG; elif [ $green -eq 1 ]; then v=RES-GREEN-SAME; else v=RES-RED; fi ;;
-    *) [ "$hit" = hit=1 ] && v=PASS || v=FAIL ;;
-  esac
-  printf '%s\t%s\t%s\t%s\t%s\t%s\tPdiff=%s\n' "$v" "$cfg" "$kind" "$label" "$tag" "$rc" "$nd"
-done < "$OUT/raw.tsv"
 ```
