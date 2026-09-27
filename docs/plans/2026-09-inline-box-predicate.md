@@ -1,6 +1,18 @@
 # Predicate prereq program: one canonical answer to css-display-3's *inline box*
 
-**Revision 32** (2026-09-28) — the user decisions (2026-09-28): (1) a pinned `content-visibility` cell **is** the
+**Revision 33** (2026-09-28) — folds Codex R1 on the approval PR #526 (`b59ae926`; IMP 3, FP 1). (1) F6 lands
+with its whole writer set: the `src`-mutation transitions move from IBP-layout to IBP-classify (I1 holds back only
+the F5 removal, F6 being read by no presence-keyed site), and F4 reads a null source (identity), then F6, before F5, so no state reachable at
+IBP-classify's landing — a stale `ImageData` included — gets a wrong replacedness answer (§1 F5/F6, §2 I6 and the
+classify×layout pair, §3, §4 table and obligations, Appendix B). (2) §4: each non-terminal row is a node, not a
+declared single PR — the edge-dense rule applies recursively in its plan-memo, and the memo's rules then apply per
+nested PR; I1 is a lower bound on `IBP-layout`'s switch, whose narrowness its own plan-review decides (an exception
+goes to the user). Self-review of the delta (IMP 3 / MIN 5 over two passes, folded): F6's clone row and G5 move with it; a null
+source is identity, so step 11 clears F6; the discriminating pin is step 13's; F6's fact is *broken with a non-null source*; its clone row is decided at IBP-classify. (3) IBP-classify's probe must decide replacedness both ways: css-pseudo-4 §4.1 gives replaced ⇒
+suppressed only. FP: a no-`alt` broken `<img>` is §15.4.2 rule (2) by its own disjunct ("the element has no alt
+attribute").
+
+Revision 32 (2026-09-28) — the user decisions (2026-09-28): (1) a pinned `content-visibility` cell **is** the
 exposing PR's own deferral (`feedback_defer_cap_policy.md:12`/`:16`; the cell test makes a right-at-base cell wrong,
 which the bidi precedent `:486-490` lacked), one rule before or after the exposer lands — recorded as §0.6 **item 13**
 (the umbrella's per-PR counts, conditional: PR-1b 0 → 1, PR-1c 1 → 2, PR-1d 1 → 2) with a §6 approval-PR row;
@@ -696,7 +708,7 @@ One representation per spec fact; one composition per spec predicate; each repre
 | F3 | a pseudo's replacedness (css-content-3 §1) | a match total over `ContentValue`/`ContentItem`; elidex **adopts** the non-normative Issue #2889 reading (`<content-list>` for `::before`/`::after`) as its choice | `elidex-plugin` | — | IBP-predicate |
 | F4 | *replaced element* (HTML §15.4, css-ui-4 §7.2, SVG2 §5.1.3 outermost `svg`) | one query, `EcsDom::is_replaced_element` (NEW), live over identity (namespace, local name, attributes), F5–F8, F16, and F10 through F10r (never F9 directly); its consumers include, from `IBP-layout` on, every site that today uses component presence to stand for **replacedness** (I1); it answers a native-appearance widget replaced (css-ui-4 §7.2), except the rows the probe decides — `button` and `input` in the Submit/Reset/Button (§15.5.12) and Color (§15.5.9) states, where HTML's button layout (§15.5.3) suggests otherwise (D1) | `elidex-ecs` | — | IBP-classify |
 | F5 | image **available** (§4.8.4.3: partially or completely available) | `ImageData` presence — no second encoding; elidex produces only complete decodes, so "partially" has no producer (`#11-img-dynamic-image-request`) | `elidex-ecs` | the loader's insert; canvas sync (existing); **removal** at *update the image data* steps 11/13 on a null or unparsable new source (new) | IBP-layout (the removal transition, I1) |
-| F6 | image request **broken** | `ImageRequestBroken` (NEW), a marker carrying only what no other component says | `elidex-ecs` | the loader (sets; IBP-classify); the attribute reconcile seam (clears / sets per steps 11/13/18; IBP-layout) | IBP-classify (marker, loader); IBP-layout (`src`-mutation transitions) |
+| F6 | image request **broken** with a **non-null** selected source (step 11's broken state, a null source, is identity — no reader may take F6 alone as the spec's *broken*) | `ImageRequestBroken` (NEW), a marker carrying only what no other component says — a failed request (the loader) or an unparsable new source (step 13); a **null** selected source (step 11) is identity (`src` absent or empty, §0.3 arm (i)), so step 11 clears F6 rather than setting it. F4 reads the current request's state in that order — null source (identity), else broken (F6), else available (F5), else pending — so a stale `ImageData` left by steps 11/13 before `IBP-layout`'s F5 removal is never read as available | `elidex-ecs` | the loader (sets); the attribute reconcile seam (sets at step 13, clears at steps 11 and 18); its clone-policy row (`elidex-ecs/src/dom/tree_clone.rs:13-39`; a step-13 F6 derives from attributes and the base URL, not from a request outcome, so the row is decided between `ImageData`'s non-copy and a re-derive on the clone — IBP-classify's input) — all IBP-classify, so the marker lands with its whole writer set | IBP-classify |
 | F7 | widget; devolvable vs non-devolvable (HTML §15.5.x) | `EcsDom::is_native_widget` (NEW) — the base of the widget-rendering conditions `IBP-layout`'s plan derives for every site that today uses component presence to stand for **widget rendering** (I1); the `input@type` mapping is **one** pure mapping in `elidex-plugin`, absorbing **every production site that maps an `input@type` string to a kind or a predicate** (the site list, its measuring command and what the command cannot see are `IBP-classify`'s input, Appendix B) | `elidex-ecs`; mapping in `elidex-plugin` | — | IBP-classify |
 | F8 | devolved widget (css-ui-4 §7.2.1) | **conditional**: a style-computed input only if the probe shows devolution changes replacedness; F4 then reads it in the same pass after the cascade | `elidex-style` → `ComputedStyle` | the cascade | IBP-classify |
 | F9 | a Window document's active sandboxing flag set (§7.1.5) | `ActiveSandboxingFlagSet(Option<IframeSandboxFlags>)` (NEW) on the Window-global EcsDom's document root. `IframeSandboxFlags` holds **allow tokens**, the inverse of the spec's restriction flags: `None` is the spec's **empty** flag set (unsandboxed); `Some(IframeSandboxFlags::empty())` is a `sandbox` attribute with no tokens — every restriction set | `elidex-ecs` | one write API, called only by the Window document-root creation entries (the parse entries and pipeline builders); **not applicable** to worker / service-worker document roots (`vm/worker_thread.rs:174`, `vm/sw_thread.rs:178`: non-Window globals) and to throwaway documents (DOMParser `elidex-form/src/inert_document.rs:119`, the fragment scratch document `elidex-ecs/src/dom/tree/teardown.rs:326`) — their scripting answer never reads their own flag set (F10) | IBP-sandbox |
@@ -750,8 +762,8 @@ The F7 mapping move edits `elidex-form-core/src/lib.rs:232-279`, hunk-disjoint f
   property and is not edited; the F5 removal changes whether `ImageData` exists, not how it is painted.
   **I3 Domain** — every `ComputedStyle` entity, incl. the pseudo. **I4 Reachability** — F1/F4/F10 in `elidex-ecs`.
   **I5 Layering** — `vm/host/` and the shell marshal only. **I6 Liveness** — replacedness changes over an entity's
-  life; consumers re-read per pass; each transition has an owner (F5 removal and F6's `src`-mutation transitions:
-  IBP-layout; F6's loader write: IBP-classify). **I7 Stamp-at-creation** — F9 is on every Window document root
+  life; consumers re-read per pass; each transition has an owner (F5 removal: IBP-layout; F6's loader write and
+  `src`-mutation transitions: IBP-classify — F6 is read by no presence-keyed site, so I1 does not hold them back). **I7 Stamp-at-creation** — F9 is on every Window document root
   from creation, before any cascade or parse decision reads it.
 
 Cross-sub-PR pairs:
@@ -779,8 +791,9 @@ Cross-sub-PR pairs:
   precede it, so E25 makes `IBP-ua-display` the earliest builder-eligible PR: it builds the rule and `IBP-layout`
   consumes it. Their other `ua.rs` rules are disjoint.
 - **IBP-classify × IBP-layout** (I1): every presence-keyed site (I1's property, any crate) converges on the predicate it
-  stands for — replacedness sites on F4, widget-rendering sites on F7-based conditions its plan derives — and the `src`-mutation
-  algorithm (F5 removal, F6 transitions) lands with them, before any other F4 consumer. F14's inputs per replaced
+  stands for — replacedness sites on F4, widget-rendering sites on F7-based conditions its plan derives — and the
+  `src`-mutation F5 removal (steps 11/13) lands with them, before any other F4 consumer; F6's transitions are
+  already IBP-classify's. F14's inputs per replaced
   class: available `img` → F5 (`ImageData` dims); pending `img` → none yet (the probe decides the used size);
   rule-(4) `img` → 0×0; `input` Image Button → §15.4.2's button whose content is the alt text ("about one line in
   height and whatever width is necessary to render the text on one line"), elidex loading no `input` image
@@ -805,7 +818,7 @@ Cross-sub-PR pairs:
 | WHATWG HTML §15.4.1 Embedded content | embed/iframe/video; canvas; object; audio | F4 (canvas via F10r; audio via F16; object ordinary ✗ → slot) | IBP-classify | ✗ | yes |
 | WHATWG HTML §15.4.2 Images | rules (1)–(4) in order; quirks disjunct compat | F4–F6 | IBP-classify | ✓ | yes |
 | WHATWG HTML §4.8.3 The img element | what an `img` represents | F4 | IBP-classify | ✓ | yes |
-| WHATWG HTML §4.8.4.3.5 Updating the image data | steps 11, 13, 18 on `src` mutation | F5 removal, F6 transitions | IBP-layout | ✓ | yes |
+| WHATWG HTML §4.8.4.3.5 Updating the image data | steps 11, 13, 18 on `src` mutation | F6 transitions; F5 removal | IBP-classify (F6); IBP-layout (F5) | ✓ | yes |
 | WHATWG HTML §15.5.1 Native appearance | widgets; devolvable / non-devolvable per §15.5.x | F7 | IBP-classify | ✓ | yes |
 | WHATWG HTML §15.5.3 Button layout | display bullet (`button` only; `inline-flex`/`inline-grid` kept); new formatting context (every button-layout element) | F7; F4 probe-decided for button-layout elements (HTML suggests non-replaced, css-ui-4 §7.2 replaced); §0.6 item 3 | IBP-classify | ✓ (probe-bound) | yes |
 | WHATWG HTML §15.5.9 The input element as a color well | uses button layout; content = one block-level block container child box with a `background-color` hint (never DOM children) | F7; F4 probe-decided; content source fixed independent of F4 (I1) | IBP-classify (F4/F7); IBP-layout (content source) | ✓ (probe-bound) | yes |
@@ -867,8 +880,8 @@ non-transformable boxes; F10r fails closed on flag absence; F15 hides what HTML 
 | **IBP-split-ecs** | split `elidex-ecs/src/dom/mod.rs` (1075 lines) on its classification-query seam | 1000-line rule | terminal — pure move, no behaviour |
 | **IBP-split-parser** | split `elidex-html-parser/src/lib.rs` (1017 lines) on its in-file test seam (`#[cfg(test)]` modules at `:260`, `:291`) | 1000-line rule | terminal — pure move |
 | **IBP-sandbox** | F9, F10, F10r, F11 | d5 (iv); parser scripting mode | **own plan-memo + review** (security gates × document creation × parser × VM/shell) |
-| **IBP-classify** | F4, F6 (marker, loader write), F7, F8 (conditional), F16 + probe | reqs 3, 4, 5 (as amended), 6 | **own plan-memo + review** (identity × image request × sandbox input × devolution × probe) |
-| **IBP-layout** | F14; every presence-keyed site (I1's property — layout, paint and any other crate, switched together, each onto the predicate matching its purpose); F5 removal and F6's `src`-mutation transitions (§4.8.4.3.5); every consequence of its presence switch, derived, placed and repaired or registered (§0.6 item 7's one-owner rule) | req 5's routing note; req 2 for replacedness | **own plan-memo + review** (sizing × fragmentation × multicol × natural-size contract × image-data algorithm, with a probe) |
+| **IBP-classify** | F4, F6 (marker and its whole writer set: loader write, `src`-mutation transitions), F7, F8 (conditional), F16 + probe | reqs 3, 4, 5 (as amended), 6 | **own plan-memo + review** (identity × image request × sandbox input × devolution × probe) |
+| **IBP-layout** | F14; every presence-keyed site (I1's property — layout, paint and any other crate, switched together, each onto the predicate matching its purpose); F5 removal at steps 11/13 (§4.8.4.3.5); every consequence of its presence switch, derived, placed and repaired or registered (§0.6 item 7's one-owner rule) | req 5's routing note; req 2 for replacedness | **own plan-memo + review** (sizing × fragmentation × multicol × natural-size contract × image-data algorithm, with a probe) |
 | **IBP-predicate** | F1, F2, F3; `client*` | reqs 1, 2, 7; 3/4 composed side | **own plan-memo + review** (display × content model/pseudo domain × CSSOM `client*`) |
 | **IBP-transform** | F12 and its readers | req 8 | **own plan-memo + review** (stacking × hit test × paint × positioned layout) |
 | **IBP-observer** | F13 | req 9 | **own plan-memo + review** (inline empty rect × observed-box activation for every element × device-pixel input) |
@@ -876,6 +889,19 @@ non-transformable boxes; F10r fails closed on flag absence; F15 hides what HTML 
 | **IBP-ua-display** | F15 | A93 (§0.6 items 6–7) | **own plan-memo + review** (axes per its plan; seeds: `display`, compat-sheet and shadow-tree placement, computed-value forces; placements by §0.6 item 7's cell test) |
 
 Only the two pure moves are terminal.
+
+**Each other row is a node, not a declared single PR** (CLAUDE.md *Edge-dense work*). Its plan-memo applies the
+rule to itself: a slice intersecting three or more invariant axes — every gate cell above lists at least three — is
+divided there into stacked, individually plan-reviewed PRs, and only a narrowly-scoped slice that passes its
+plan-review is the base case. Its own plan-review is not a substitute for that division. I1 fixes a **lower
+bound**, not a license: `IBP-layout`'s presence switch contains at least every member switched together, with the F5
+removal, and nested PRs before it add no F4 consumer and no F5 writer. Whether that switch is itself a
+narrowly-scoped slice is decided by `IBP-layout`'s plan-review under the rule; if it is not, the plan-memo records it
+as an exception for the user's approval, not as the base case. Once a node is divided, this memo's rules apply at
+nested-PR granularity: §4's order rule gives the edges among its nested PRs and binds §4's edges to whichever nested
+PR supplies or consumes the edge's fact; in §0.6 item 7's cell test "PR X" is a nested PR whose predecessors include
+its node's earlier nested PRs; ownership of an exposure (§4's no-edge paragraph) and the own-deferral counts (§6) are
+the exposing nested PR's.
 
 **Order — one rule** (§0.6 item 5): an edge is **data flow** (the later PR consumes what the earlier supplies),
 **I1** (§2), **A93** (before the first program PR at which a cell of the defect fires, §0.6 item 7's cell test), or **code predecessor** (the later PR edits what a
@@ -912,7 +938,7 @@ split creates). The full edge list:
 layout of the subtrees of formerly presence-replaced elements, widget content and chrome paint, and the computed
 values those subtrees now expose, including the Hidden-state `input`'s `display: none !important` rule and
 §15.3.10's resets — is derived, placed and owned by `IBP-layout` itself (§4 obligations); the exposure and its
-ownership sit in one PR, so there is no ownership edge; E25 is a builder edge (§0.6 item 7's one-builder rule).
+ownership sit in one node — in the exposing nested PR once it is divided (the node paragraph above) — so there is no ownership edge; E25 is a builder edge (§0.6 item 7's one-builder rule).
 E15 (revs 12–18, `IBP-ua-display` → `IBP-layout`) is withdrawn. An edge reappears only if `IBP-layout`'s plan
 places the cell's ownership in another sub-PR; §0.6 item 7's rule forbids that, so none does. The cross-sub-PR dependencies of these
 repairs are machinery (`IBP-css-machinery`, E19) and the
@@ -984,14 +1010,27 @@ and through F1 IBP-transform, IBP-observer and PR-1a — is downstream of IBP-la
 - F4 answers the `input` **Hidden** state explicitly: it is no §15.5 widget subsection's element (HTML gives it
   `display: none !important`, §15.3.1), and `FormControlState`-presence replacedness goes away at IBP-layout; the
   answer is `IBP-layout`'s input (E4) for the rule's placement (§4 IBP-layout).
-- F6's marker and its loader writer; F16 as elidex's stated policy.
+- F6's marker with its whole writer set: the loader writer, its clone-policy row, and the `src`-mutation
+  transitions — *update the image data* step 13 (unparsable new source → broken: F6 set) and step 11 (null source:
+  F6 cleared, the null source being identity, §1 F6) before step 18 (non-null source: a broken current request is
+  replaced — F6 cleared; an available one stays current); the attribute reconcile seam's
+  contract widens from "component = f(Attributes)" to "reset on mutation" — recorded in the seam's doc. F4 reads
+  a null source, then F6, before F5 (§1 F6), so its replacedness answer holds for every state reachable at this
+  PR's landing, a stale `ImageData` included. Input lines: G5 null/unparsable `src` (step 13's parse is this PR's). F16 as elidex's stated policy.
 - The probe runs **before** the rows it decides — `button`, `input` in the Submit/Reset/Button and Color states
-  (the HTML button-layout vs css-ui-4 §7.2 conflict, D1), devolution and outermost `svg`. For the four widgets §15.4
+  (the HTML button-layout vs css-ui-4 §7.2 conflict, D1), devolution and outermost `svg`. Its observable decides
+  replacedness in **both** directions: css-pseudo-4 §4.1 makes a replaced originating element suppress
+  `::before`/`::after` ("suppressed when their parent, the originating element, is replaced", `webref body
+  css-pseudo-4 generated-content`) and says nothing of the converse, so a suppressed pseudo alone (Appendix B's zero
+  width delta) is no proof of replaced — it counts only with a second observable or a control that rules out
+  element-specific suppression. For the four widgets §15.4
   does not list (`select`, `textarea`, `meter`, `progress`) it corroborates css-ui-4 §7.2's "replaced"; a
   contradicting result there is a finding recorded in IBP-classify's memo, not a silent row change; F8 is built only if devolution changes replacedness (then with css-ui-4's revert/revert-layer clause and
   author-origin-only cascade).
 - Own pins: an `<img>` without `ImageData` (pending) and an undrawn `<canvas>` classify replaced; `<img alt=x>`
-  without `src` classifies non-replaced (6k's classification).
+  without `src` classifies non-replaced (6k's classification); an `<img alt=x>` holding `ImageData` whose `src` is
+  then set to an unparsable URL classifies non-replaced (step 13: F6 set, the stale `ImageData` not read as
+  available — the pin that fails if F5 is read before F6).
 - Must not: write F5 (I1 — the step-11/13 removal is IBP-layout's).
 - Input lines: G6 fixtures with `ImageData` and no marker are available by F5; G7 the loader's status policy (a
   non-2xx body reaches `decode_image`, `loader.rs:370-375`); G8 how the cascade exposes the author-origin fact (the
@@ -1014,11 +1053,8 @@ class, not a parallel one). That slot's SoT trigger, "a form-control rendering-f
 `IBP-layout`** (it repairs form-control UA rendering on the same `input`/`button` selectors, `ua.rs:128-152`): its
 plan re-audits facets (2) and (3) there by the landing 4-question audit — fold or keep each. Rev 14–17's form-control analysis (today's code, `<output>` included) is Appendix D
 input. F14 per
-§2's inputs, measured where the spec is silent; the `src`-mutation algorithm — *update the image data* steps
-11/13 (null or unparsable new source → broken, image data discarded: F5 removal, F6 set) before step 18 (non-null
-source: a broken current request is replaced — F6 cleared; an available one stays current); the attribute
-reconcile seam's contract widens from "component = f(Attributes)" to "reset on mutation" — recorded in the seam's
-doc; fires `#11-replaced-inline-no-atomic-layout`. Input lines: G5 null/unparsable `src`; clone and reset detail
+§2's inputs, measured where the spec is silent; the `src`-mutation F5 removal — *update the image data* steps
+11/13 (null or unparsable new source → image data discarded), on the reconcile seam IBP-classify widened; fires `#11-replaced-inline-no-atomic-layout`. Input lines: G5 (IBP-classify's) reused for the removal; reset detail
 (`tree_clone.rs` table row); §4.8.4.3.2's list of relevant mutations; multicol test placement.
 
 **IBP-predicate** (appendix C): F1–F3; the four `client*` members return 0 for an inline box while
@@ -1214,7 +1250,7 @@ F11's caller list (moved from the body at rev 11) — the derivation applies at 
 
 ## Appendix B — input to IBP-classify's plan-memo
 
-Moved (rev 7): the `src`-mutation algorithm (steps 11/13/18: F5 removal, F6 transitions; cell ideas R7, R9) is now IBP-layout's input (§4, I1). Dropped: rev 4's `ImageRequestState` with a `CompletelyAvailable` variant (F5 is `ImageData`, R2-AVAIL); rev 4's
+Moved (rev 7): the `src`-mutation algorithm (steps 11/13/18: F5 removal, F6 transitions; cell ideas R7, R9) is now IBP-layout's input (§4, I1). Moved back in part (rev 33): F6's transitions, its clone row (and R7, R9 for F6) are IBP-classify's again — I1 holds back only F5, and F6 must land with its whole writer set; F5 removal stays IBP-layout's. Dropped: rev 4's `ImageRequestState` with a `CompletelyAvailable` variant (F5 is `ImageData`, R2-AVAIL); rev 4's
 reset rule that kept an available image on **any** `src` mutation (steps 11/13 precede step 18).
 
 Rev 4's row table (to re-derive per §15.5.x and the probe):
@@ -1247,7 +1283,8 @@ Probe page (rev 4; to extend with the four conflicting widgets and outermost `sv
 ```
 
 Read per pair `offsetWidth(.t) − offsetWidth(twin)`: 50 ⇒ `::before` generated (not replaced for css-pseudo-4
-§4.1), 0 ⇒ suppressed.
+§4.1), 0 ⇒ suppressed — one-way (rev 33): suppression does not by itself mean replaced (§4 IBP-classify's probe
+bullet).
 
 Loader facts: the image step is inline in `load_document` (`elidex-navigation/src/loader.rs:281-294`);
 extraction `resource.rs:197-220` matches `img` in any namespace and skips an empty `src`;
