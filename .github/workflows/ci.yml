@@ -177,18 +177,10 @@ jobs:
     # that adds fixture self-tests re-derives this line in the same PR. Leaving
     # it while the job grows is how an always-run gate starts failing for time
     # instead of for what it asserts.
-    # ⚠ RE-DERIVED AGAIN when the K2 wire's rev-3 controls landed (that PR added
-    # fixture self-tests, so the rule above applies): run the command above on
-    # this branch and on its base, three times each, and compare — the run-to-run
-    # spread on one machine was wider than the difference between them, and both
-    # sit far enough under this budget that it is unchanged. Re-derive; do not
-    # trust this sentence.
-    # ⚠ RE-DERIVED AGAIN when the K2 wire's fixtures moved into a build window
-    # constructed from nothing, with postconditions checked inside it (that PR
-    # added fixture self-tests, so the rule above applies): the command above,
-    # three runs on this branch and three on its base, alternated on one
-    # machine. The branch is slower, and both stay far enough under this budget
-    # that it is unchanged. Re-derive; do not trust this sentence.
+    # THE METHOD: run the command above on the branch and on its base, three
+    # times each, alternated on one machine, and compare against this budget.
+    # Verdict at the last re-derivation (the K2 wire's fixture-build window):
+    # both sides far under it, so it is unchanged. Re-derive; do not trust this.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:

@@ -108,7 +108,8 @@ _pd_lbl="the fixture git copies no template"
 _pe_lbl="the fixture git is the git the wire reads with"
 _pf_lbl="the fixture build window's environment holds only its allowlist"
 _pg_lbl="every fixture repo persists only the configuration a plain git init writes"
-_fgit_window "$_FIXTURES" "$_pa_lbl" "$_pal_lbl" "$_pb_lbl" "$_pbl_lbl" "$_pc_lbl" "$_pd_lbl" "$_pe_lbl" "$_pf_lbl" "$_pg_lbl"
+# The `_p*_lbl` labels reach the window by name, through its prelude.
+_fgit_window "$_FIXTURES"
 
 
 # ⚠ Every _control call is an operand of `||`: `set -e` is suspended only
@@ -120,7 +121,7 @@ _ctl_env=()   # per-control environment; `_control` clears it after each use
 # nothing, so it ends the run here with W alone ("decided nothing"); `_control`
 # itself refuses over an unbuilt tree too (W2), wherever this line sits.
 _fgit_window_incomplete_exit "$_fw_lbl"
-_fgit_window_verdict || ctl_ok=1
+[ "$_fw_post_bad" -eq 0 ] || ctl_ok=1
 # A shell diagnostic located in the fixtures file means a line of it was
 # skipped: an arithmetic-expansion error does not stop a sourced file.
 if [ -n "$_fw_diag" ]; then

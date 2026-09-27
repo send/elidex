@@ -10,7 +10,8 @@
 # mutation set, which would otherwise take it past 1000 lines
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §8.1).
 # WHAT IT CONSUMES: `$SELF`, `$CTL`, `$K2RE` and `$K2RE_PATH` (from the wire),
-# and `$_mut_wire`, `_mut_trial`, `_mut_target` and `_mut_restore_copies` (from
+# and `$_mut_wire`, `_mut_trial`, `_mut_target` (whose wire pair `_mut_splice`
+# writes through) and `_mut_restore_copies` (from
 # the mutation set, which refuses to run
 # without this file). WHAT IT DEFINES: `_mut_equivalent`, `_mut_assign_value`,
 # `_mut_regex_mutants`, `_mut_splice`, `_mut_gen_run`.
@@ -230,8 +231,9 @@ _mut_regex_mutants() {
   fi
 }
 
-# Splice a mutated value back over the wire's own assignment line, into
-# `$_mut_wire`. $1 = variable name, $2 = the value.
+# Splice a mutated value back over the wire's own assignment line, from
+# `$_mut_src` into `$_mut_tgt` — the wire's pair, which `_mut_gen_run` resolves
+# through `_mut_target`. $1 = variable name, $2 = the value.
 # ⚠ NOT `sed`: the value holds `/`, `&`, `\` and both quotes, so every
 # replacement would need escaping in a second dialect — one more spelling of
 # the thing this generator exists to stop spelling twice. The whole line is
@@ -250,12 +252,12 @@ _mut_splice() {
   _MUT_GEN_LINE="$1='$_sp_v'" _MUT_GEN_VAR="$1" awk '
     BEGIN { v = ENVIRON["_MUT_GEN_VAR"] "="; l = ENVIRON["_MUT_GEN_LINE"] }
     index($0, v) == 1 { print l; next }
-    { print }' "$SELF" > "$_mut_wire" || return 1
+    { print }' "$_mut_src" > "$_mut_tgt" || return 1
   # ⚠ AND IT IS READ BACK. A copy that holds a DIFFERENT value than the entry
   # names tests a different question, and when that value happens to change no
   # verdict the trial reports "survived" — sending a reader to add a control
   # that is not missing. Same class as the shipped set's "MATCHED NOTHING".
-  _mut_assign_value "$1" "$_mut_wire" || return 1
+  _mut_assign_value "$1" "$_mut_tgt" || return 1
   [ "$_mut_av_out" = "$2" ] || {
     _mut_gen_fail="$1: the spliced copy reads back as a different value than this entry names"
     return 1; }
@@ -263,21 +265,10 @@ _mut_splice() {
 
 # The generated half of the run. Sets `_mut_gen_n` / `_mut_gen_bad`.
 _mut_gen_run() {
-  # This half only ever edits the wire, and it NAMES that target through the one
-  # resolver rather than restating the pair — so it cannot inherit whatever the
-  # last hand record left behind, and cannot drift from the restore either.
-  # ⚠ `_mut_target wire` IS NOT A SECOND CHECK OF THE RESTORE. The restore walks
-  # `$_MUT_TARGETS`; this names `wire` as a LITERAL, and the two agree only while
-  # the default target keeps that name. Without this arm, renaming it would
-  # reach the loop below with no pair resolved, and the population would be
-  # blamed for a bookkeeping failure.
+  # This half only ever edits the wire, named through the one resolver — so it
+  # cannot inherit whatever the last hand record left behind.
   _mut_restore_copies || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
-  _mut_target wire || {
-    echo "!! this half names \"wire\" as its target and \`_mut_target\` has no arm" >&2
-    echo "   for it, so NO generated mutant was applied to anything. The default" >&2
-    echo "   target was renamed without renaming this line. This is a bookkeeping" >&2
-    echo "   failure, NOT a gap in the population of \$K2RE / \$K2RE_PATH rules." >&2
-    _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
+  _mut_target wire
   _mut_gen_fail=""
   : > "$CTL/.genmutants"
   for _gr_v in K2RE K2RE_PATH; do

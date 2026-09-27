@@ -51,17 +51,20 @@ mkdir "$_FGIT_VOID" || exit 2
 _FGIT_ENVBIN="$(command -v env)"
 _FGIT_BASH="$BASH"
 _FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" "LC_ALL=C")
-# Names the window's environment may hold: the allowlist above, plus what bash
-# itself maintains for the processes it starts.
-_FGIT_ENV_NAMES="PATH HOME GIT_CONFIG_NOSYSTEM GIT_ATTR_NOSYSTEM GIT_TEMPLATE_DIR LC_ALL PWD OLDPWD SHLVL _"
-_FGIT_WIRE_EXEC="$(git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
+# Names the window's environment may hold: the allowlist above, derived from it,
+# plus what bash itself maintains for the processes it starts.
+_FGIT_ENV_NAMES="PWD OLDPWD SHLVL _"
+for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_NAMES="$_FGIT_ENV_NAMES ${_fe%%=*}"; done
+# P-e's reference: the exec path of the git the WIRE reads with — `_git`, its
+# own reader — so the label names what the evidence is.
+_FGIT_WIRE_EXEC="$(_git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
 # State the parent reads back — assigned before anything reads it (nothing here
 # relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
 _fw_rc=0; _fw_done=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
-# The postconditions, run INSIDE the window after the build. $1..$9 = labels:
-# P-a, P-a-live, P-b, P-b-live, P-c, P-d, P-e, P-f, P-g. Returns 1 if any
-# reported.
+# The postconditions, run INSIDE the window after the build. Their labels
+# (`$_pa_lbl` … `$_pg_lbl`, defined in the controls file) reach the window by
+# name through the prelude. Returns 1 if any reported.
 _fgit_postconditions() {
   _fpv=0
   _pq="$_FW_DIR/pq"; mkdir -p "$_pq/a" "$_pq/b" || return 1
@@ -69,8 +72,8 @@ _fgit_postconditions() {
   ( cd "$_pq/b" && git init -q --template="$_FGIT_VOID" . ) >/dev/null 2>&1 || true
   _pa_live="$(cd "$_pq/a" && git -c a.b=c config --list --show-scope --show-origin 2>/dev/null | awk -F'\t' '$1=="command"{print "command"; exit}')" || _pa_live=""
   _pa_bad="$(cd "$_pq/a" && git config --list --show-scope --show-origin 2>&1 | awk -F'\t' '!($1=="local" && $2=="file:.git/config")')" || _pa_bad="(config --list failed)"
-  if [ "$_pa_live" != command ]; then echo "!! CONTROL NOT EXERCISED ($2)" >&2; _fpv=1
-  elif [ -n "$_pa_bad" ]; then echo "!! CONTROL FAILED ($1): $(printf '%s' "$_pa_bad" | tr '\n' ' ')" >&2; _fpv=1; fi
+  if [ "$_pa_live" != command ]; then echo "!! CONTROL NOT EXERCISED ($_pal_lbl)" >&2; _fpv=1
+  elif [ -n "$_pa_bad" ]; then echo "!! CONTROL FAILED ($_pa_lbl): $(printf '%s' "$_pa_bad" | tr '\n' ' ')" >&2; _fpv=1; fi
   _pbd=""; _pbl=""
   for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
     _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var "$_v" 2>/dev/null)" || _o=""
@@ -83,23 +86,23 @@ _fgit_postconditions() {
 $_o
 EOF_PB
   done
-  if [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($4):$_pbl" >&2; _fpv=1
-  elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($3):$_pbd" >&2; _fpv=1; fi
-  if ! diff -r "$_pq/a/.git" "$_pq/b/.git" >/dev/null 2>&1; then echo "!! CONTROL FAILED ($6)" >&2; _fpv=1; fi
+  if [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
+  elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
+  if ! diff -r "$_pq/a/.git" "$_pq/b/.git" >/dev/null 2>&1; then echo "!! CONTROL FAILED ($_pd_lbl)" >&2; _fpv=1; fi
   _o="$(git --exec-path 2>/dev/null)" || _o=""
-  if [ -z "$_o" ] || [ "$_o" != "$_FGIT_WIRE_EXEC" ]; then echo "!! CONTROL FAILED ($7): [$_o] vs [$_FGIT_WIRE_EXEC]" >&2; _fpv=1; fi
+  if [ -z "$_o" ] || [ "$_o" != "$_FGIT_WIRE_EXEC" ]; then echo "!! CONTROL FAILED ($_pe_lbl): [$_o] vs [$_FGIT_WIRE_EXEC]" >&2; _fpv=1; fi
   _pf=""
   while IFS= read -r -d '' _rec; do
     _n="${_rec%%=*}"
     case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
   done < <("$_FGIT_ENVBIN" -0)
-  if [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($8):$_pf" >&2; _fpv=1; fi
-  # P-g: every fixture repo's persisted configuration is exactly what a
-  # reference `git init` in this window writes — derived from git itself, per
-  # run, so no key list: anything a fixture persisted beyond it is red.
-  _pgr="$_FW_DIR/pgref"; mkdir -p "$_pgr" && ( cd "$_pgr" && git init -q . ) >/dev/null 2>&1 || true
+  if [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
+  # P-g: every fixture repo's persisted configuration is exactly what a plain
+  # `git init` in this window writes — P-a's probe repo, `$_pq/a`, is that init
+  # — derived from git itself, per run, so no key list: anything a fixture
+  # persisted beyond it is red.
   _pgref="$_FW_DIR/pgref.lines"
-  git -C "$_pgr" config --list --show-scope --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
+  git -C "$_pq/a" config --list --show-scope --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
   _pg=""
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
   # Population by property: EVERY git dir the fixtures produced, anywhere under
@@ -110,24 +113,11 @@ EOF_PB
   # a bare, separate, submodule or linked-worktree git dir) is UNKNOWN and red,
   # never skipped. "Cannot search" is whatever `find` reports: any report fails
   # the census, and a failed census is red, as is one that finds no git dir.
-  # The fixtures make three directories unsearchable ON PURPOSE. Each must have
-  # exactly its declared mode (octal, and as `ls -ld` prints it); it is opened
-  # (u+rx) for the census and restored to that mode after, so what is inside it
-  # is examined too.
-  _pg_declared="walk/sub:000:d--------- d5root:000:d--------- d2red/sub:444:dr--r--r--"
-  _pg_mode_is() { # $1 = path, $2 = the ls -ld mode string
-    _pgs="$(ls -ld "$1" 2>/dev/null)" || return 1
-    [ "${_pgs:0:10}" = "$2" ]
-  }
-  _pg_opened=""
-  for _pgm in $_pg_declared; do
-    _pgp="$CTL/${_pgm%%:*}"; [ -e "$_pgp" ] || continue
-    if _pg_mode_is "$_pgp" "${_pgm##*:}" && chmod u+rx "$_pgp" 2>/dev/null; then
-      _pg_opened="$_pg_opened $_pgm"
-    else
-      _pg="$_pg ${_pgm%%:*}:[not at its declared mode ${_pgm##*:}, or could not be opened]"
-    fi
-  done
+  # ⚠ NOTHING UNDER `$CTL` IS UNSEARCHABLE AT CENSUS TIME, BY CONSTRUCTION: the
+  # fixtures ask for their mode restrictions through `_seal`, which only records
+  # them, and the window applies them AFTER this check. So every directory is
+  # examined, and one the census cannot read is a new, unrequested restriction —
+  # red.
   _pgpop="$_FW_DIR/pgpop"; _pgn=0
   find "$CTL" \( -name .git -print0 \) -o \( -type f -name HEAD -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"
@@ -146,48 +136,61 @@ EOF_PB
     _pgx="$(git -C "$_pgd" config --list --show-scope --show-origin 2>&1 | grep -vxF -f "$_pgref")" || true
     [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
   done < "$_pgpop"
-  for _pgm in $_pg_opened; do
-    _pgp="$CTL/${_pgm%%:*}"
-    _pgo="${_pgm#*:}"; _pgo="${_pgo%%:*}"
-    { chmod "$_pgo" "$_pgp" 2>/dev/null && _pg_mode_is "$_pgp" "${_pgm##*:}"; } \
-      || _pg="$_pg ${_pgm%%:*}:[could not be restored to its declared mode $_pgo]"
-  done
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
-  if [ -n "$_pg" ]; then echo "!! CONTROL FAILED (${9}):$_pg" >&2; _fpv=1; fi
+  if [ -n "$_pg" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg" >&2; _fpv=1; fi
   # P-c last: nothing in the window may have written into the void.
-  if [ -n "$(ls -A "$_FGIT_VOID" 2>/dev/null)" ]; then echo "!! CONTROL FAILED ($5): $(ls -A "$_FGIT_VOID" | tr '\n' ' ')" >&2; _fpv=1; fi
+  if [ -n "$(ls -A "$_FGIT_VOID" 2>/dev/null)" ]; then echo "!! CONTROL FAILED ($_pc_lbl): $(ls -A "$_FGIT_VOID" | tr '\n' ' ')" >&2; _fpv=1; fi
   return "$_fpv"
 }
-# Run the fixtures file in the window. $1 = fixtures file, $2..$10 = the
-# postcondition labels. Sets _fw_rc/_fw_done/_fw_post_bad/_fw_why/_fw_diag and
-# _FIX_FAILED.
+# Are errexit, nounset and pipefail all in force? Asked in the window before and
+# after the fixtures file; one `case` per option, so no pattern depends on the
+# order `$SHELLOPTS` lists them in.
+_fw_opts_on() {
+  case ":$SHELLOPTS:" in *:errexit:*) : ;; *) return 1 ;; esac
+  case ":$SHELLOPTS:" in *:nounset:*) : ;; *) return 1 ;; esac
+  case ":$SHELLOPTS:" in *:pipefail:*) : ;; *) return 1 ;; esac
+}
+# A mode restriction a fixture needs (an unsearchable dir, an unreadable file)
+# is RECORDED here, not applied: the window applies every one after the
+# postconditions, so the P-g census sees the whole tree. $1 = path, $2 = mode,
+# $3 = the fixture, which is marked failed if the mode cannot be applied.
+_seal() { printf '%s\t%s\t%s\n' "$2" "$3" "$1" >> "$_FW_DIR/seal"; }
+_seal_apply() {
+  [ -e "$_FW_DIR/seal" ] || return 0
+  while IFS="$(printf '\t')" read -r _sm _sf _sp; do
+    chmod "$_sm" "$_sp" 2>/dev/null || _fixture_failed "$_sf"
+  done < "$_FW_DIR/seal"
+}
+# Run the fixtures file in the window. $1 = fixtures file. Sets
+# _fw_rc/_fw_done/_fw_post_bad/_fw_why/_fw_diag and _FIX_FAILED.
 _fgit_window() {
-  _fwf="$1"; shift
+  _fwf="$1"
   mkdir -p "$_FW_DIR" || { _fw_why="the window's directory could not be created"; return 0; }
   {
     printf 'set -euo pipefail\n'
     # Plain assignments, never `declare -p`: that would carry an `export`
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
-      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_WIRE_EXEC _FW_DIR; do
+      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_WIRE_EXEC _FW_DIR \
+      _pa_lbl _pal_lbl _pb_lbl _pbl_lbl _pc_lbl _pd_lbl _pe_lbl _pf_lbl _pg_lbl; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
     printf '_FIX_FAILED=""\n'
-    declare -f _fixture_failed _shq _fgit_postconditions
+    declare -f _fixture_failed _shq _fw_opts_on _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
-  _fw_rc=0
+  # The child writes WHY it stopped into `cause` itself, as the sentence W
+  # prints, so an exit status a fixtures-file command produced under errexit
+  # cannot be mistaken for one of these.
   "$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
     . "$1"
-    case ":$SHELLOPTS:" in *:errexit:*) : ;; *) echo 3 > "$_FW_DIR/cause"; exit 3 ;; esac
-    case ":$SHELLOPTS:" in *:nounset:*) : ;; *) echo 3 > "$_FW_DIR/cause"; exit 3 ;; esac
-    case ":$SHELLOPTS:" in *:pipefail:*) : ;; *) echo 3 > "$_FW_DIR/cause"; exit 3 ;; esac
-    . "$2"; shift 2
-    [ -e "$_FW_DIR/built" ] || { echo 4 > "$_FW_DIR/cause"; exit 4; }
-    case ":$SHELLOPTS:" in *:errexit:*:nounset:*|*:nounset:*:errexit:*) : ;; *) echo 5 > "$_FW_DIR/cause"; exit 5 ;; esac
-    case ":$SHELLOPTS:" in *:pipefail:*) : ;; *) echo 5 > "$_FW_DIR/cause"; exit 5 ;; esac
+    _fw_opts_on || { echo "the window refused to start: a prelude option (errexit, nounset or pipefail) was not in force" > "$_FW_DIR/cause"; exit 1; }
+    . "$2"
+    [ -e "$_FW_DIR/built" ] || { echo "the fixtures file returned before its last line" > "$_FW_DIR/cause"; exit 1; }
+    _fw_opts_on || { echo "the fixtures file switched off errexit, nounset or pipefail" > "$_FW_DIR/cause"; exit 1; }
+    _fgit_postconditions || : > "$_FW_DIR/post_bad"
+    _seal_apply
     printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
-    _fgit_postconditions "$@" || : > "$_FW_DIR/post_bad"
-    : > "$_FW_DIR/done"' _ "$_FW_DIR/prelude.sh" "$_fwf" "$@" 2> "$_FW_DIR/stderr" || _fw_rc=$?
+    : > "$_FW_DIR/done"' _ "$_FW_DIR/prelude.sh" "$_fwf" 2> "$_FW_DIR/stderr" || _fw_rc=$?
   cat "$_FW_DIR/stderr" >&2 2>/dev/null || true
   # A shell diagnostic located in the fixtures file (bash's own "<file>: line N:"
   # form, English under the window's LC_ALL=C) means a top-level command was
@@ -202,15 +205,8 @@ _fgit_window() {
     *) _fw_diag="(the scan of the window's stderr failed: grep exited $_fw_dg)" ;;
   esac
   if [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
-    # The cause comes from a marker the child writes, not from the exit status,
-    # which a fixtures-file command can produce on its own under errexit.
-    _fw_cause="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_cause=""
-    case "$_fw_cause" in
-      3) _fw_why="the window refused to start: a prelude option (errexit, nounset or pipefail) was not in force" ;;
-      4) _fw_why="the fixtures file returned before its last line" ;;
-      5) _fw_why="the fixtures file switched off errexit, nounset or pipefail" ;;
-      *) _fw_why="the window exited $_fw_rc before completing (the fixtures file exited or aborted, or a postcondition aborted)" ;;
-    esac
+    _fw_why="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_why=""
+    [ -n "$_fw_why" ] || _fw_why="the window exited $_fw_rc before completing (the fixtures file exited or aborted, or a postcondition aborted)"
   fi
   [ ! -e "$_FW_DIR/post_bad" ] || _fw_post_bad=1
   _FIX_FAILED="$(cat "$_FW_DIR/fix_failed" 2>/dev/null)" || _FIX_FAILED=""
@@ -224,10 +220,10 @@ _fgit_window_incomplete_exit() { # $1 = the window label
   echo "!! CONTROL NOT EXERCISED ($1): $_fw_why; nothing was built, so no control was run" >&2
   exit 2
 }
-_fgit_window_verdict() { [ "$_fw_post_bad" -eq 0 ]; }
 
 # ONE FACT, RECORDED ONCE: DID THIS FIXTURE'S BUILD CHAIN SUCCEED?
-# Every fixture below is built as `( cd … && … ) || _fixture_failed <name>`, and
+# Every fixture in `…trip-wire.fixtures.sh` is built as
+# `( cd … && … ) || _fixture_failed <name>`, and
 # `_control` refuses to report on a fixture whose chain did not.
 # ⚠ THIS REPLACES FIVE HAND-WRITTEN PRECONDITIONS, and the reason to prefer it
 # is not brevity. Each fixture is built under `|| true`, so a step that fails
@@ -241,7 +237,8 @@ _fgit_window_verdict() { [ "$_fw_post_bad" -eq 0 ]; }
 # added by the commit that wrote the sentence. The fact those probes
 # reconstruct is available for free at the point of failure, for ALL of them —
 # so the population is every fixture, not the five somebody noticed.
-_FIX_FAILED=""
+# `$_FIX_FAILED` itself lives in the window (the prelude starts it empty) and
+# comes back through a file; the parent reads it only after a complete window.
 _fixture_failed() { _FIX_FAILED="$_FIX_FAILED $1"; }
 # Distinguish an environment failure from a dead assertion: an empty scratch
 # dir would exercise nothing and silently "pass". `mktemp -d` is checked, and
@@ -283,9 +280,8 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 _REAL_GIT="$(_shq "$(command -v git)")"
 _REAL_GREP="$(_shq "$(command -v grep)")"
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
-# wire. (The mutation set can now aim a record at this file with `harness:`;
-# this check does not depend on one.) It is checked by round-tripping a path
-# that holds each thing that broke it.
+# wire. It is checked by round-tripping a path that holds each thing that broke
+# it.
 _shq_probe="/tool dir/it's \$HOME \`x\`"
 if [ "$(sh -c "printf %s $(_shq "$_shq_probe")")" != "$_shq_probe" ]; then
   echo "!! the shim-quoting helper does not round-trip a path through /bin/sh, so every" >&2

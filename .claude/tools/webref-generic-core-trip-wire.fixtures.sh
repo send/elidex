@@ -11,8 +11,12 @@
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3), so the git it calls is plain
 # `git` and inherits nothing the caller carries. What it can read is what the
 # window's prelude hands it: `$CTL`, the five `CONTROL_*` samples, `$_REAL_GIT`,
-# `$_REAL_GREP`, `$_fifo_ok`, `_fixture_failed` and `_shq`. The controls file
+# `$_REAL_GREP`, `$_fifo_ok`, `_fixture_failed`, `_shq` and `_seal`. The controls file
 # refuses to run without it, as it refuses without the harness.
+# ⚠ A MODE RESTRICTION GOES THROUGH `_seal`, NEVER A BARE `chmod`: `_seal`
+# records it and the window applies it after the postconditions, so the P-g
+# census reads the whole tree first (a restriction applied here would make the
+# census fail).
 # ⚠ ITS LAST LINE IS LOAD-BEARING: it writes the `built` marker, so a window in
 # which this file returned or exited early is reported as incomplete (W) and
 # no control runs.
@@ -557,7 +561,8 @@ done
 ( cd "$CTL/d2red" && git init -q . >/dev/null 2>&1 && mkdir sub \
   && printf '# %s\n' "$CONTROL_CLEAN" > sub/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
   && git add -A >/dev/null 2>&1 \
-  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py && chmod 0444 sub ) || _fixture_failed d2red
+  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py ) || _fixture_failed d2red
+_seal "$CTL/d2red/sub" 0444 d2red
 # …and its green partners: a tracked directory deleted wholesale (every
 # ancestor below the root is missing), and one replaced by a regular FILE (the
 # nearest existing ancestor is not a directory).
@@ -570,7 +575,7 @@ done
   && printf '# %s\n' "$CONTROL_CLEAN" > dir ) || _fixture_failed d2file
 # A `--selftest` root that IS a directory but cannot be resolved to a physical
 # path.
-chmod 000 "$CTL/d5root" || _fixture_failed d5root
+_seal "$CTL/d5root" 000 d5root
 # …the orphan-branch fixture: commit on one branch, then check out an orphan.
 ( cd "$CTL/orphan" && git init -q . >/dev/null 2>&1 \
   && printf 'x\n' > seed.txt && git add seed.txt >/dev/null 2>&1 \
@@ -669,7 +674,8 @@ printf 'AXES = "%s"\n' "$CONTROL_REMOVED" > "$CTL/err/control.py"
 # at the zero-read guard — the fixture must exercise the arm it names.
 printf '# %s\n' "$CONTROL_CLEAN"          > "$CTL/err/readable.py"
 printf 'RULE = "%s"\n' "$CONTROL_K2"      > "$CTL/walk/sub/hidden.py"
-chmod 000 "$CTL/err/control.py" "$CTL/walk/sub"
+_seal "$CTL/err/control.py" 000 err
+_seal "$CTL/walk/sub" 000 walk
 # THE LAST LINE: the window certifies that THIS FILE ran to its end, not merely
 # that the child shell did (a top-level `return` would otherwise complete it).
 # The fixtures' own `notcommitted` needs `mkdir -p .git/info` above because the

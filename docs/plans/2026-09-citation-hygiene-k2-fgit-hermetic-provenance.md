@@ -608,6 +608,25 @@ shells, scratch `HOME`, seven caller conditions gave rc 0 and PASSED — clean, 
 ignore, XDG/home attributes UTF-16LE, and `GIT_CONFIG_GLOBAL=/dev/null`. On base `e8f78896` the P2
 condition gives rc 1 / NE 11 on both shells.
 
+
+**The `/simplify` pass — verification** (design memo §13; `…/scratchpad/impl/`, both shells,
+scratch `HOME`, at most two wire runs at once; run on the pass's content before it was folded into
+one commit, whose code is byte-identical):
+
+```text
+X1       rc=0 CTL=0 PASSED=1 (bash 5.3, bash 3.2)
+X3       "114 entr(ies), 0 not killed as named", "50 mutant(s) … 0 neither killed nor argued
+         equivalent", PASSED, 0 `!!` lines — both shells (4508 s / 4509 s)
+X11      _x_lbl added: rc 1, "22 labels have no mutation record, against a ratchet of 21", lists it
+callers  cc.sh, 7 conditions × 2 shells: clean; GIT_TEMPLATE_DIR with info/exclude *.py (the P2);
+         .gitconfig core.excludesFile; home ignore; XDG ignore; home attributes UTF-16LE;
+         GIT_CONFIG_GLOBAL=/dev/null — every run rc=0 NE=0 CF=0 PASSED=1
+negative base e8f78896 with the P2 condition: rc=1 NE=11, both shells
+anchors  every record's expression, applied to its target: changes 1–2 lines, none matches nothing
+bash -n  every part, both shells: clean; parts 383/683/379/645/328 lines (controls/fixtures/
+         harness/mutations/mutgen), the wire 1259 untouched
+```
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
