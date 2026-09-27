@@ -53,9 +53,9 @@ another cell that also exists.
 SCOPE — this program is specific to
 `docs/plans/2026-08-line-box-decorated-inline-content.md`. The PR *namespace* is
 generic (any `PR-<n><letter>` §5.3 defines, with the characterization PR derived
-from §6 rather than named), but four things are this memo's content and will
-mis-fire on any other memo: the prereq names check 9/13 accept (`seam-3`,
-`dead-arm`, `predicate`), the `EVENT_TAGS` check 13 allows, the umbrella slot
+from §6 rather than named; the prereq names checks 9/13 accept are derived from
+§8's prereq headings), but three things are this memo's content and will
+mis-fire on any other memo: the `EVENT_TAGS` check 13 allows, the umbrella slot
 check 8 exempts, and check 12's `SUPERSEDED` line ranges. Do not read a clean run
 on a different memo as coverage.
 """
@@ -394,10 +394,42 @@ def main(path):
     declare("§10 rows owed by slot definitions", 1 if "Re-eval:" in s else 0,
             1 if defines_slots else 0, "the memo's `Re-eval:` definition markers")
 
-    # 9. own-deferral bookkeeping: §5.3's per-PR statement vs §10's own-tagged rows
+    # 9-pre. the prereq namespace is §8's, derived like the PR namespace. A fixed
+    #     `(seam-3|dead-arm|predicate)` alternation made every later prereq §8 defines
+    #     unroutable at check 13 -- a §10 row closing a slot in the prereq that fixes its
+    #     gap failed [TAG], and the checker pushed the close onto an unrelated PR-1x
+    #     (#515 R73). A prereq is DEFINED by a bold span that opens a §8 line with
+    #     `<Name> prereq PR` (the landing form `**Seam-3 prereq PR — ✅ landed …**`
+    #     included); names are case- and whitespace-normalised, since a heading may wrap.
+    #     The witness is a second, looser reader: every line-opening bold span that says
+    #     `prereq PR` anywhere. One the strict reader cannot name is a heading whose
+    #     prereq checks 9/13 would silently not know.
+    def prereq_key(name): return re.sub(r"\s+", " ", name).strip().lower()
+    prereq_heads=[prereq_key(m.group(1)) for m in
+                  re.finditer(r"^\*\*([A-Za-z][A-Za-z0-9\s-]*?)\s+prereq\s+PR\b[^*]*\*\*", s8, re.M)]
+    prereqs=set(prereq_heads)
+    declare("§8 prereq headings", len(re.findall(r"^\*\*[^*]*\bprereq\s+PR\b[^*]*\*\*", s8, re.M)),
+            len(prereq_heads), "§8's line-opening bold spans naming a prereq PR")
+    # An empty namespace is not "no prereqs to check": it is checks 9/13 recognising
+    # nothing and every prereq-tagged §10 row failing [TAG] for a reason that is not its
+    # own -- or, before this was derived, the population shrinking in silence. Loud.
+    if not prereqs:
+        bad("PREREQ", "§8 defines no `**<Name> prereq PR…**` heading — checks 9/13 have no prereq namespace")
+    for n in sorted({n for n in prereq_heads if prereq_heads.count(n) > 1}):
+        bad("PREREQ", f"§8 defines prereq {n!r} more than once")
+    # longest first, so `replaced-origin pseudo` is not read as a `pseudo` prereq;
+    # `\s+` between words, so a wrap inside a name is still the name
+    PREREQ_ALT="|".join(r"\s+".join(map(re.escape, n.split()))
+                        for n in sorted(prereqs, key=len, reverse=True)) or r"(?!)"
+
+    # 9. own-deferral bookkeeping: §5.3's per-PR statement vs §10's own-tagged rows.
+    #    The prereq half of the key reads the derived namespace: the fixed triple here
+    #    was the same population as check 13's, and a statement for any other prereq
+    #    §8 defines went unread.
     stated={}
-    for m in re.finditer(rf"({PR}|seam-3 prereq|dead-arm prereq|predicate prereq) opens? (\d+|none)", s5):
-        stated[m.group(1)] = 0 if m.group(2)=="none" else int(m.group(2))
+    for m in re.finditer(rf"({PR}|(?i:(?<![\w-])(?:{PREREQ_ALT}))\s+prereq) opens? (\d+|none)", s5):
+        key=m.group(1) if re.fullmatch(PR, m.group(1)) else prereq_key(m.group(1))
+        stated[key] = 0 if m.group(2)=="none" else int(m.group(2))
     if not stated:
         bad("COUNT", "§5.3 states no per-PR own-deferral count")
     else:
@@ -411,6 +443,7 @@ def main(path):
         for c in s10_rows:
             if "(own)" not in c[0]: continue
             key=c[1].strip("* `").replace(" PR","")
+            if not re.fullmatch(PR, key): key=prereq_key(key)
             actual[key]=actual.get(key,0)+1
         for pr,n in sorted(stated.items()):
             got=actual.get(pr,0)
@@ -539,8 +572,9 @@ def main(path):
     # A landing record is a ✅ inside a BOLD span in §8 (`**Seam-3 prereq PR — ✅ landed …**`),
     # the discharge-heading form this memo uses — not any one spelling of "landed" (gate #3
     # on rev 25 showed a reworded landing silently emptied a spelling-keyed set), and not a
-    # bare ✅ in prose (§8 also *talks about* the glyph). Every such bold span must name the
-    # prereq it discharges; one that names none is the positive control failing.
+    # bare ✅ in prose (§8 also *talks about* the glyph). Every such bold span must name a
+    # prereq §8 defines (9-pre's namespace) as the one it discharges; one that names none
+    # is the positive control failing.
     # The heading is a bold span that OPENS A LINE (`^**…`); it may wrap across lines (the
     # memo hard-wraps at 100 and a heading already exceeds it), so `[^*]` spans newlines —
     # and anchoring at line start is what keeps a mid-line `**a** ✅ **b**` from reading as
@@ -549,26 +583,31 @@ def main(path):
     for m in re.finditer(r"^\*\*([^*]*✅[^*]*)\*\*", s8, re.M):
         span=m.group(1)
         if re.search(r"~~[^~]*✅[^~]*~~", span): continue
-        named=re.findall(r"(?i)(seam-3|dead-arm|predicate) prereq PR", span)
+        named=re.findall(rf"(?i)(?<![\w-])({PREREQ_ALT})\s+prereq\s+PR", span)
         if not named:
             bad("LANDED", f"§8 landing heading names no prereq — check 13 cannot attribute it: {span.strip()[:60]}")
-        landed_prereqs.update(n.lower() for n in named)
+        landed_prereqs.update(map(prereq_key, named))
     def discharged(text):
         # a struck-through ✅ (~~✅ …~~) is a retraction, and a backticked `✅` is a mention
         return "✅" in re.sub(r"~~[^~]*~~|`[^`]*`", "", text)
     EVENT_TAGS=("approval PR", "tooling PR")
-    # closed world: a PR column value is a defined PR-1x, a named prereq PR, an event
-    # label §8 defines, or the memory-bookkeeping discharge. Anything else (a typo, a
-    # renamed event, a PR letter §5.3 never defined) is a routing to nowhere.
+    # closed world: a PR column value is a defined PR-1x, `<name> prereq PR` for a name
+    # §8 defines (9-pre), an event label §8 defines, or the memory-bookkeeping discharge.
+    # Anything else (a typo, a renamed event, a PR letter §5.3 never defined, a prereq §8
+    # has no heading for) is a routing to nowhere. The prereq half is derived, so the
+    # closed world is §8's rather than this program's: an unknown name fails [TAG].
     for c in s10_rows:
         tag=c[-1].strip("* `")
         # the action text is everything but the PR column: `rows()` splits on every `|`,
         # and a backticked `grep 'a\|b'` inside a row would otherwise hide its ✅ in c[1]
         act="|".join(c[:-1])
-        m=re.fullmatch(r"(seam-3|dead-arm|predicate) prereq PR", tag)
-        if m and m.group(1) in landed_prereqs and not discharged(act):
+        m=re.fullmatch(r"(.+?)\s+prereq PR", tag)
+        name=prereq_key(m.group(1)) if m else None
+        if m and name not in prereqs:
+            bad("TAG", f"§10 row routed to {tag!r}, a prereq §8 defines no heading for: {c[0][:60]}")
+        elif m and name in landed_prereqs and not discharged(act):
             bad("LANDED", f"§10 row tagged to the landed {tag} is not discharged (no ✅): {act[:60]}")
-        elif m and m.group(1) not in landed_prereqs and discharged(act):
+        elif m and name not in landed_prereqs and discharged(act):
             # the reverse direction: a discharged row for a prereq §8 does not record as
             # landed -- either the landing heading was lost (a wrap, a rename) or the row
             # claims a landing that never happened; both must be loud
