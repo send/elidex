@@ -105,8 +105,9 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 _REAL_GIT="$(_shq "$(command -v git)")"
 _REAL_GREP="$(_shq "$(command -v grep)")"
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
-# wire, so the mutation set (which edits the wire) has nothing to aim at. It is
-# checked by round-tripping a path that holds each thing that broke it.
+# wire. (The mutation set can now aim a record at this file with `harness:`;
+# this check does not depend on one.) It is checked by round-tripping a path
+# that holds each thing that broke it.
 _shq_probe="/tool dir/it's \$HOME \`x\`"
 if [ "$(sh -c "printf %s $(_shq "$_shq_probe")")" != "$_shq_probe" ]; then
   echo "!! the shim-quoting helper does not round-trip a path through /bin/sh, so every" >&2

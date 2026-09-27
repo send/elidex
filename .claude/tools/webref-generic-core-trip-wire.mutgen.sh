@@ -10,7 +10,8 @@
 # mutation set, which would otherwise take it past 1000 lines
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §8.1).
 # WHAT IT CONSUMES: `$SELF`, `$CTL`, `$K2RE` and `$K2RE_PATH` (from the wire),
-# and `$_mut_wire` and `_mut_trial` (from the mutation set, which refuses to run
+# and `$_mut_wire`, `_mut_trial`, `_mut_target` and `_mut_restore_copies` (from
+# the mutation set, which refuses to run
 # without this file). WHAT IT DEFINES: `_mut_equivalent`, `_mut_assign_value`,
 # `_mut_regex_mutants`, `_mut_splice`, `_mut_gen_run`.
 
@@ -262,6 +263,21 @@ _mut_splice() {
 
 # The generated half of the run. Sets `_mut_gen_n` / `_mut_gen_bad`.
 _mut_gen_run() {
+  # This half only ever edits the wire, and it NAMES that target through the one
+  # resolver rather than restating the pair — so it cannot inherit whatever the
+  # last hand record left behind, and cannot drift from the restore either.
+  # ⚠ `_mut_target wire` IS NOT A SECOND CHECK OF THE RESTORE. The restore walks
+  # `$_MUT_TARGETS`; this names `wire` as a LITERAL, and the two agree only while
+  # the default target keeps that name. Without this arm, renaming it would
+  # reach the loop below with no pair resolved, and the population would be
+  # blamed for a bookkeeping failure.
+  _mut_restore_copies || { _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
+  _mut_target wire || {
+    echo "!! this half names \"wire\" as its target and \`_mut_target\` has no arm" >&2
+    echo "   for it, so NO generated mutant was applied to anything. The default" >&2
+    echo "   target was renamed without renaming this line. This is a bookkeeping" >&2
+    echo "   failure, NOT a gap in the population of \$K2RE / \$K2RE_PATH rules." >&2
+    _mut_gen_bad=$((_mut_gen_bad + 1)); return 0; }
   _mut_gen_fail=""
   : > "$CTL/.genmutants"
   for _gr_v in K2RE K2RE_PATH; do
