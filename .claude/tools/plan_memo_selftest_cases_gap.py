@@ -317,7 +317,9 @@ R22_GAP = {}
 pattern's re-spelling mutant in `plan_memo_selftest_mutants_gap.py` must turn red."""
 R22_GAP_MIXED = []
 """the MIXED-run refuse arms.  Of OWNS_TWO's rows, the optional-gap mutant turns
-them red and the join-half mutant does not (MIXED-ARM PROBE)."""
+them red and the join-half mutant does not (MIXED-ARM PROBE, in the body of the
+first commit whose message holds that phrase:
+`git log --reverse --grep='MIXED-ARM PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`)."""
 # THE TABLE'S OWN INVARIANTS, checked where it is defined and LOUD at import
 # (a bad row stops the self-test from loading): every `_R22_GAP_TABLE` row
 # declares both expectations and they differ, every `_R22_GAP_MIXED` row
