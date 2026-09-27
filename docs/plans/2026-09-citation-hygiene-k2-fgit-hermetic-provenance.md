@@ -569,6 +569,45 @@ copies' runs did not print `PASSED`, which was not investigated: the figure is t
 only. Ax3 measured a fork-free `find` alone at 0.029 s; p11's remaining time is the per-git-dir `git
 config --list`.
 
+
+### §A.14 Implementation (C0b–C5) — history and deviations
+
+**Subjects.** Commits as in design memo §13. Verification ran on fresh `git clone --local` copies at
+each commit under `…/scratchpad/impl/` (`x1.sh`, `x1c.sh`, `x3.sh`, `rectest.sh`, `xmisc.sh`, `x8.sh`,
+`norm.sh`; X5 in `xh/`, a clone of the head carrying the prototype's P-dump hook in a local commit
+`7c07415c` that is not on the branch).
+
+**Timing.** Base X3 took 2463 s (bash 5.3) and 2467 s (bash 3.2); C2 2433 s; C3 2972 s; C4 3163 s;
+C5 3550 s. The C3/C4 runs overlapped other work on the machine; they are not a cost measurement.
+
+**Deviations from the memo, in the order found:**
+1. **W2's record is one `harness:` expression with two substitutions**, not "harness + fixtures". A
+   record's sed expression edits one file. It removes the `exit` and renames the `done` marker so the
+   window stays incomplete. It pins the same property: W2 is reported when the exit is gone.
+2. **X6's producers were misnamed.** A template planted in the void reds through P-c, not P-d: P-d
+   diffs `init` against `init --template="$_FGIT_VOID"`, and with `GIT_TEMPLATE_DIR` already the void
+   both sides copy the plant. The local `include.path` reds through P-g, not P-a, whose probe repo is
+   not a fixture.
+3. **C4 also rewrites the harness's `_shq` comment**, which said "the mutation set (which edits the
+   wire) has nothing to aim at". C4's `harness:` target makes that false, so C4 corrects it; C5
+   carries the same text.
+4. **C5 was recommitted once with `git reset --soft`** (not amend). The first C5, `d7812ffe`, had
+   changed the harness's mode 100755 → 100644 (a `shutil.copy` from a 644 scratch file). The final
+   `386febc8` restores the mode and adds X8's `ci.yml` paragraph; the stat is in memo §13. X3, the
+   per-record runs and X5 are on `d7812ffe`; X1 is on `386febc8`. The harness is sourced, so the mode
+   changes no behaviour.
+5. **X3 was not run at C1 alone.** C1's sibling guard and parts list run inside every later X3.
+6. **The X5 cell generator needed `mutgen` in its copied parts.** The first run gave eight false FAILs
+   ("missing … mutgen.sh"); rerun: 38/38 PASS.
+7. **The first per-record queue was invalid**: both shells shared one clone directory. It was killed
+   and rerun with per-shell directories: 40/40.
+
+**Independent check by the orchestrating session** (reported to this author): on `386febc8`, both
+shells, scratch `HOME`, seven caller conditions gave rc 0 and PASSED — clean, the original Codex P2
+(`GIT_TEMPLATE_DIR` with `info/exclude *.py`), a `.gitconfig` `excludesFile`, a home ignore, an XDG
+ignore, XDG/home attributes UTF-16LE, and `GIT_CONFIG_GLOBAL=/dev/null`. On base `e8f78896` the P2
+condition gives rc 1 / NE 11 on both shells.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)
