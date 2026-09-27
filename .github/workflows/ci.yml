@@ -209,7 +209,14 @@ jobs:
   # Making that not grow is a change to the proof's own strength and is deferred
   # with a trigger in the plan's §8, not done here.
   # The budget, round over round: ~10x (R12) -> 5.9x (R27) -> 5.1x (R29) ->
-  # 4.4x (R30) -> ~2.0x (R32, before this re-derivation) -> ~4x (R32, after).
+  # 4.4x (R30) -> ~2.0x (R32, before this re-derivation) -> ~4x (R32, after)
+  # -> ~3.5x (`12124f83`, measured on the runner itself).
+  # ⚠ THE ~152 s / ~4x ABOVE IS THE R32 DERIVATION, NOT THE CURRENT HEAD (PR #510
+  # Codex R26). At `12124f83` (942 controls / 586 mutants) the whole
+  # `Layering trip-wires` JOB took 170 s on the GitHub runner, checkout included
+  # (run 36339986057; 165 s at `e9575a37`, 99 s at `900c16eb`): ~3.5x against
+  # the 10 minutes, above the 2x rule. Measure a run:
+  #   gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="Layering trip-wires")|[.startedAt,.completedAt]'
   # ⚠ THE CONDITION IS PART OF THE NUMBER: the same script measured 26.2 / 27.2 s
   # in a busy worktree minutes earlier, 2.2x this, and that inflated figure was
   # committed here for one round as "2.6x headroom". A timing in this comment
