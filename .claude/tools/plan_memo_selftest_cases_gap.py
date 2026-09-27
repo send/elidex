@@ -191,8 +191,9 @@ case("NEGATIVE", "(R22 §6.2) the U+00A0 twin: a closer preceded by U+00A0 is no
 # `ROLE_ORDERING` / `ROLE_OWNER` date from e39996ad.  `git log --reverse -S`
 # names each first: `_R22_GAP_TABLE = (`, `("NOUN_ANCHOR", "noun|id"` and
 # `("ROLE ordering", "waits|on"` over this file, `ROLE_ORDERING = ` over
-# `plan_memo_roles.py`; f85f4e1b is the last for `def role_rank_gap_control`
-# over `.claude/tools/`.  The 13: MARKER_RE, UNDETERMINED, POINTER,
+# `plan_memo_roles.py`; over `plan_memo_selftest_controls.py` it names
+# ea497230 then f85f4e1b for the ranking control's `def` line (added, then
+# removed).  The 13: MARKER_RE, UNDETERMINED, POINTER,
 # _ID_RUN_TOKEN, _APPOSITIVE, LICENSE_BEFORE, LICENSE_AFTER, NOUN_ANCHOR,
 # ROLE_ORDERING, ROLE_OWNER, OWNS_TWO, ORDER_WORDS, DECLARES.  No control
 # enforces rows for a new gap-bearing pattern: §8 (17) of
