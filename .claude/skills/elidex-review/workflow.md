@@ -219,7 +219,6 @@ When every fix is clerical under A **and** none answered a symptom-shaped findin
 - **Auto-fix NG (正しい射程)**: (a) review agent 自身に編集させない、(b) agent の raw suggestion を Step 3.5 philosophy alignment 抜きで適用しない — の 2 点のみ。lens 収束済み disposition の実行まで user 承認に回す license ではない (Step 4)。
 - **Step 3.5 user-visible mandatory**: blocks cannot live as internal reasoning — Step 4 references IDs.
 - **Skip post-Step-3.5 re-review when root fix changes input shape NG**: root fix で input (plan-memo の §section 構造 / diff の大幅 restructure) が変わったら再 review 必須。D-29 plan-review trial precedent — F3 root fix accepted, plan structure shifted, no re-review → Sub-check 2b data-flow gap still missed (両 skill 適用、diff review でも root fix 適用後の diff 変化を再 scan)。
-- **Generic `/review` との重複避ける**: `/review` (built-in) は一般 PR 観点。本 skill 群は elidex 専門 axis 限定。重複指摘は context-aware な本 skill finding 優先。
-- **/code-review と相補**: cover axis 異なる (correctness bugs vs design/project-context)。
+- **/code-review と相補、重複は避ける**: cover axis 異なる (`/code-review` の汎用観点 vs elidex 専門 axis = design/project-context)。重複指摘は context-aware な本 skill finding 優先。
 
 History → `git log -- .claude/skills/`。Past-incident lessons (philosophy / calibration) は `memory/feedback_*.md` 参照。
