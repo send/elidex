@@ -492,21 +492,22 @@ def _inner(kind, text):
         return body
     if kind == "autolink":
         return text[1:-1]
-    # ⚠ NO `image` CASE, AND THAT IS DELIBERATE (PR #510 R42-10).  Two
+    # ⚠ NO SEPARATE `image` READING, AND THAT IS DELIBERATE (PR #510 R42-10):
+    # an image is in `RENDERS_TEXT`, so it reads as its raw span.  Two other
     # readings were tried here and BOTH broke a shipped control: the
     # description (wrong text -- the span handed here is the TAIL, the
     # description is not in it) and blanks (which stopped the phrase in
     # `KIND ![UNDETERMINED](img.png)` from straddling, so a reported near-miss
-    # went silent).  This function serves the RESIDUE display, where a reader is
-    # sent to the raw text and the markup is what they must see.  The header
-    # comparison wants the opposite and is fixed where it lives, in `rendered`.
+    # went silent).  The accepted disposition (the rounds ledger, R42-10) is
+    # that an image's description is not document text, so `![#](i.png)` is
+    # not the `#` schema header -- in `rendered` too, which reads through here.
     # `memory/feedback_control-rewritten-to-bless-the-defect.md`: a control that
     # goes red under a fix is the fix's subject being wrong, not the control's.
     # ⚠ AN EXPLICIT CLOSED SET, NOT A SILENT FALLBACK (PR #510 R42-10).  This
-    # was `return text` for every other kind, and the `image` case above was
-    # missing -- so a schema header spelled `![#](i.png)` compared as its RAW
-    # syntax, the table bound as non-schema, and a linked memo's umbrella row
-    # with a nonempty `Deps` left the census at rc 0.  A fallback that answers
+    # was `return text` for every other kind.  (That a linked memo's table
+    # binding to no schema leaves the census at rc 0 is the umbrella memo's §8
+    # (11), "AN UNBOUND TABLE THAT MAKES NO KIND CLAIM IS STILL SILENT" -- not an
+    # image question.)  A fallback that answers
     # for kinds nobody enumerated is where the next kind hides; the kinds whose
     # reader text IS the span are named, and anything else is a defect this
     # function must not paper over.  ⚠ The closed set is `RENDERS_TEXT`'s KEYS,
