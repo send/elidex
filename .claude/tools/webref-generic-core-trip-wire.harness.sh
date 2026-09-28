@@ -48,35 +48,48 @@ fi
 # nothing else.
 _FGIT_VOID="$SCRATCH/fgit-void"
 mkdir "$_FGIT_VOID" || exit 2
-# The window's `PATH`, with every entry ABSOLUTE. The window runs in
-# `$_FW_DIR`, not here, so a relative entry (`bin`, `../x`, `.`, or an empty one,
-# which means the current directory) would name other files, or none, from there:
-# the fixtures' `git` and P-f's `env` would not be the ones resolved here (PR #527
-# Codex R11 for `git`; the fix-delta re-check had found it for `env`). Each entry
-# is resolved against this directory once, here. `~` and `~/…` go against this
-# `HOME` (the window's is the void): that is what bash's own lookup does with
-# them outside POSIX mode (measured, 5.3 and 3.2). A lookup that keeps them
-# literal — execvp, bash 5.3 in POSIX mode, dash (measured) — would take them as
-# cwd-relative instead, so the window's `git` can differ from such a lookup's.
-# That is not a gate input: which executable runs is outside P (memo §0.1, R1),
-# and the window and P-e's reference both read this one resolved PATH, so they
-# agree (PR #527 Codex R12). The allowlist, `env`'s path and P-e's reference all
-# use the result.
-_FGIT_PATH=""; _fp_rest="$PATH:"
+# ⚠ A PATH EMBEDDED IN A GENERATED SCRIPT IS QUOTED, BY ONE HELPER. A shim that
+# embeds a path — a real tool's, or a fixture's — writes it into `/bin/sh`
+# source; spliced in bare, a path
+# holding a space or a shell metacharacter split into words and every shim went
+# invalid, so the controls using them exited for the wrong reason (PR519,
+# reproduced by the external reviewer with git at `/tmp/tool space/git`). Same
+# lesson as #501 R96 on `_ctl_env`: a path is data. Single quotes are the one
+# `/bin/sh` quoting with no expansion inside; an embedded `'` is closed, escaped
+# and reopened.
+_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+# The window runs in `$_FW_DIR`, not here, so a `PATH` entry that is not
+# absolute (`bin`, `../x`, `.`, an empty one, `~`, `~login/…`) names other
+# files, or none, from there — and what bash makes of the tilde forms depends
+# on its version and mode (measured: 5.3 and 3.2 expand them; 5.3 --posix and
+# dash do not). So the window does NOT re-interpret `PATH` (PR #527 Codex
+# R11–R13: an emulation of the lookup grew one case per round). Instead:
+# - `git` is resolved HERE, by this shell's own lookup, and pinned in
+#   `$_FGIT_BIN` as an `exec <absolute path>` wrapper, so the window, its
+#   fixtures and P-e's reference all run the `git` this shell would run —
+#   which executable runs is still `PATH`'s (memo §0.1, R1), unchanged;
+# - `env` is resolved the same way and used by its absolute path (window
+#   launch, P-e's reference, P-f);
+# - the window's `PATH` is `$_FGIT_BIN` followed by the caller's ABSOLUTE
+#   entries only. A tool the fixtures need that only a dropped entry provides
+#   makes the window fail, which is red.
+_fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
+  _fr="$(type -P "$1")" || _fr=""
+  case "$_fr" in /*|"") ;; *) _fr="$PWD/$_fr" ;; esac
+  printf '%s' "$_fr"
+}
+_FGIT_BIN="$SCRATCH/fgit-bin"
+mkdir "$_FGIT_BIN" || exit 2
+_fr="$(_fgit_resolve git)"
+if [ -n "$_fr" ]; then
+  { printf '#!/bin/sh\nexec %s "$@"\n' "$(_shq "$_fr")" > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
+fi
+_FGIT_PATH="$_FGIT_BIN"; _fp_rest="$PATH:"
 while [ -n "$_fp_rest" ]; do
   _fp_e="${_fp_rest%%:*}"; _fp_rest="${_fp_rest#*:}"
-  case "$_fp_e" in
-    /*) ;;
-    "") _fp_e="$PWD" ;;
-    "~") _fp_e="$HOME" ;;
-    "~/"*) _fp_e="$HOME/${_fp_e#\~/}" ;;
-    *) _fp_e="$PWD/$_fp_e" ;;
-  esac
-  _FGIT_PATH="${_FGIT_PATH:+$_FGIT_PATH:}$_fp_e"
+  case "$_fp_e" in /*) _FGIT_PATH="$_FGIT_PATH:$_fp_e" ;; esac
 done
-# A FILE (`type -P`: an exported function or alias named `env` is not one),
-# looked up on `$_FGIT_PATH` with the hash table cleared, so it is absolute.
-_FGIT_ENVBIN="$(PATH="$_FGIT_PATH"; hash -r; type -P env)"
+_FGIT_ENVBIN="$(_fgit_resolve env)"
 _FGIT_BASH="$BASH"
 # `GIT_DEFAULT_REF_FORMAT=files`: a git whose COMPILED-IN default is reftable
 # (git 3.0's planned default, or a breaking-changes build) would otherwise make
@@ -446,16 +459,6 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-# ⚠ A PATH EMBEDDED IN A GENERATED SCRIPT IS QUOTED, BY ONE HELPER. A shim that
-# embeds a path — a real tool's, or a fixture's — writes it into `/bin/sh`
-# source; spliced in bare, a path
-# holding a space or a shell metacharacter split into words and every shim went
-# invalid, so the controls using them exited for the wrong reason (PR519,
-# reproduced by the external reviewer with git at `/tmp/tool space/git`). Same
-# lesson as #501 R96 on `_ctl_env`: a path is data. Single quotes are the one
-# `/bin/sh` quoting with no expansion inside; an embedded `'` is closed, escaped
-# and reopened.
-_shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 _REAL_GIT="$(_shq "$(command -v git)")"
 _REAL_GREP="$(_shq "$(command -v grep)")"
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the

@@ -210,8 +210,9 @@ $HOME/.config/ is used".
 ```sh
 # harness — snapshots taken when the harness is sourced (the shape at head; the harness is the source)
 _FGIT_VOID="$SCRATCH/fgit-void"             # mkdir, checked
-_FGIT_PATH=<$PATH with every entry made absolute against this directory; ~ against this HOME>
-_FGIT_ENVBIN="$(PATH="$_FGIT_PATH"; hash -r; type -P env)"; _FGIT_BASH="$BASH"
+_FGIT_BIN="$SCRATCH/fgit-bin"                # holds `git`: exec <this shell's `type -P git`, absolute>
+_FGIT_PATH="$_FGIT_BIN:<the caller's ABSOLUTE PATH entries only>"
+_FGIT_ENVBIN=<this shell's `type -P env`, absolute>; _FGIT_BASH="$BASH"
 _FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 \
            "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
 # _fgit_window: write a prelude of PLAIN assignments (labels by name) and function bodies, then
@@ -344,7 +345,7 @@ outside the window. The postconditions, the only other caller, now run inside it
 
 | entry | without it |
 |---|---|
-| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). It is the caller's `PATH` with every entry made absolute: the window runs in `$_FW_DIR`, so a relative entry (`tools/bin`, `.`, an empty one) would resolve another `git` there — P-e red on an otherwise clean run (PR #527 Codex R11) |
+| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). It is `$_FGIT_BIN` — a wrapper that execs the `git` **this shell's own lookup** resolves — followed by the caller's absolute entries only. The window runs in `$_FW_DIR`, so a non-absolute entry (`tools/bin`, `.`, empty, `~`, `~login/…`) would resolve differently there, and the tilde forms differ by bash version and mode; rather than emulate the lookup (PR #527 Codex R11–R13, one new case per round), `git` is pinned and non-absolute entries are dropped. Which executable runs stays `PATH`'s (§0.1, R1) |
 | `HOME=$VOID` | an unset `HOME` also closes this on 2.55. The void is chosen because a future HOME-relative default then lands where P-c looks |
 | `GIT_CONFIG_NOSYSTEM=1` | the system layer is live here (`/opt/homebrew/etc/gitconfig`) |
 | `GIT_ATTR_NOSYSTEM=1` | undocumented at 2.55: 0 hits in all 207 man pages of 2.55.0 (command below; positive control: `CONFIG_NOSYSTEM` hits 2 pages). So it is pinned by `git var` (P-b) |
@@ -709,10 +710,12 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
   - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662` at `e8f78896`);
   - the exit number, which is unpinnable (§3);
   - the two INFO cells, which are informative;
-  - `$_FGIT_PATH`'s absolutisation: it changes something only for a caller whose `PATH` holds a relative
-    entry, and the runs a record sees use the caller's `PATH`, so no record can kill its removal on a
-    machine whose `PATH` is absolute. Measured by hand instead (PR #527 Codex R11: a `tools/bin` git
-    wrapper made P-e red before, PASSED after, bash 5.3).
+  - the pinned `git` and the absolute-only window `PATH` (`$_FGIT_BIN`, `$_FGIT_PATH`): they change something
+    only for a caller whose `PATH` holds a non-absolute entry, and the runs a record sees use the caller's
+    `PATH`, so no record can kill their removal on a machine whose `PATH` is absolute. Measured by hand instead
+    (PR #527 Codex R11–R13, both shells): a `tools/bin` git wrapper (P-e red on `da2730d4`, PASSED now); a
+    `~/bin` git wrapper that 97 fixture calls from inside the window went through; a relative injecting `env`
+    wrapper still red with P-f.
 
 **Mutation-mode cost (X3).** Each run of X3 is (95 base records + 27) record trials plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
