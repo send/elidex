@@ -54,15 +54,15 @@ opened, a quote's lazy line read outside it, a code chunk split at a blank
 line, an item's second paragraph read as indented code, a loose list
 claimed tight, all break the alignment.
 
-WHAT IS EXCLUDED, by predicate over Phase 1's own output (printed per run;
-the plan's §3.0 dispositions decide, not a hand list): a GFM table Phase 1
-admitted (local policy over pure CommonMark; none of the vendored examples
+WHAT IS EXCLUDED, by predicate over Phase 1's own output, printed per run --
+and every exclusion is a FAIL, since `EXPECTED_EXCLUDED` is empty (PR #510
+Codex R38 of 2026-09-27): a GFM table Phase 1 admitted (local policy over pure CommonMark; none of the vendored examples
 holds a `|` where a table could open, so this arm is empty by construction).
 Nothing else: since R15 every block type of the spec's closed list is
 modelled, and the §5.2 exclusion ("a paragraph headed by a list-marker
 line: LEXED-FLAT", 13 examples at R14) is gone with the flat reading.  An
 aligned example is PASS; an excluded example outside `EXPECTED_EXCLUDED`
-(empty) is a FAIL (PR #510 Codex R38), as is one neither excluded nor aligned,
+(empty) is a FAIL (PR #510 Codex R38 of 2026-09-27), as is one neither excluded nor aligned,
 and a FAIL here is a defect in Phase 1 or a disposition the plan does not
 state -- never a reason to rewrite the property.
 
@@ -129,7 +129,7 @@ _TIGHT_END = re.compile(r"</li>|\n<(?:ul|ol|pre|blockquote|h[1-6]|hr)\b")
 
 # The exclusions each corpus is EXPECTED to have, declared here rather than
 # derived from the parser under test: none (the docstring above).  An
-# exclusion outside this set is a FAIL (PR #510 Codex R38).
+# exclusion outside this set is a FAIL (PR #510 Codex R38 of 2026-09-27).
 EXPECTED_EXCLUDED = frozenset()
 
 
@@ -406,8 +406,8 @@ def run_inline(M):
 
 def _run(M, corpus):
     """(ok, detail): every example of `corpus` through `M.Memo` (the freshly
-    loaded `plan_memo_memo`), aligned or excluded; a crash on any example is
-    a FAIL of that example."""
+    loaded `plan_memo_memo`); an example that is not aligned -- excluded
+    outside `EXPECTED_EXCLUDED`, misaligned, or crashed -- is a FAIL."""
     data = json.loads(corpus.read_text(encoding="utf-8"))
     passed, fails, skips = 0, [], {}
     with tempfile.TemporaryDirectory() as d:
@@ -433,12 +433,13 @@ def _run(M, corpus):
 
 def _report(data, passed, fails, skips):
     n_skip = sum(len(v) for v in skips.values())
-    lines = ["%d examples: %d aligned, %d excluded, %d FAIL" % (len(data["examples"]), passed, n_skip, len(fails))]
+    unexpected = sorted(set(no for nos in skips.values() for no in nos) - EXPECTED_EXCLUDED)
+    lines = ["%d examples: %d aligned, %d excluded, %d FAIL" % (len(data["examples"]), passed, n_skip,
+                                                               len(fails) + len(unexpected))]
     for why, nos in sorted(skips.items()):
         lines.append("  excluded (%s): %s" % (why, " ".join(str(x) for x in nos)))
     for no, section, err in fails:
         lines.append("  FAIL Example %d (%s): %s" % (no, section, err))
-    unexpected = sorted(set(no for nos in skips.values() for no in nos) - EXPECTED_EXCLUDED)
     for no in unexpected:
         lines.append("  FAIL Example %d: excluded, and no exclusion is expected" % no)
     return not fails and not unexpected and passed > 0, "\n".join(lines)

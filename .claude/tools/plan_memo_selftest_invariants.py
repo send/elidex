@@ -291,7 +291,7 @@ def render_equivalence_control(M):
     HONESTLY, the two directions of that edge are NOT symmetric, and only one
     of them is safe.  A character wrongly LEFT IN the excluded set is a
     position not swept, so the derived set must equal a declared one (PR #510
-    Codex R38's class: a set derived from the subject alone shrinks the sweep
+    Codex R38 of 2026-09-27's class: a set derived from the subject alone shrinks the sweep
     in silence).  A
     character wrongly LEFT OUT is re-spelled although it is active, the two
     documents then really do render differently, and the control goes RED: a
@@ -319,11 +319,15 @@ def render_equivalence_control(M):
         if got != want:
             bad.append("position %d (%r): %s" % (i, ch, _first_difference(want, got)))
     # the excluded characters, declared: a set derived from the subject alone would shrink the
-    # sweep in silence (PR #510 Codex R38's class)
-    ok = not bad and active == set("\n!&(*<[\\]_`~") and swept >= 40
-    return ok, ("%d of %d positions re-spelled as a §2.5 reference (excluded, the inline pass "
+    # sweep in silence (PR #510 Codex R38 of 2026-09-27's class)
+    declared = set("\n!&(*<[\\]_`~")
+    ok = not bad and active == declared and swept >= 40
+    show = lambda cs: "".join(repr(c)[1:-1] for c in sorted(cs))
+    return ok, ("%s%d of %d positions re-spelled as a §2.5 reference (excluded, the inline pass "
                 "branches on them: %s), %d disagreement(s)%s"
-                % (swept, len(_RENDER_PROSE), "".join(repr(c)[1:-1] for c in sorted(active)), len(bad),
+                % ("" if active == declared else "excluded set %s is not the declared %s; "
+                   % (show(active), show(declared)),
+                   swept, len(_RENDER_PROSE), show(active), len(bad),
                    (": " + "; ".join(bad[:2])) if bad else ""))
 
 
@@ -476,7 +480,7 @@ def file_token_resolver_agreement_control(M):
     shape up to depth 3, wrapped round a stem holding an id, before and after
     it, plus the empty shape -- so depth 3 is covered because balance generates
     it.  Every name is required to resolve (a name `sibling_path` refuses is
-    red, not a smaller corpus -- PR #510 Codex R38's class); the token reader
+    red, not a smaller corpus -- PR #510 Codex R38 of 2026-09-27's class); the token reader
     must then read it as exactly one span covering the whole name, and the
     corpus must hold members of depth >= 2 -- the class the flat arm could not
     read.
@@ -504,8 +508,8 @@ def file_token_resolver_agreement_control(M):
             if plan_memo_tokens.file_and_cite_spans(n) != [(0, len(n), "file")]]
     # every generated name is expected to resolve: a skip is red, not a smaller sweep (R38's class)
     return (not hits and len(names) == generated >= 20 and deep >= 2,
-            "%d resolver-accepted name(s) swept, deepest nesting %d, %d not read as one token%s"
-            % (len(names), deep, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
+            "%d of %d generated name(s) resolver-accepted and swept, deepest nesting %d, %d not read as "
+            "one token%s" % (len(names), generated, deep, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
 
 
 def _depth_profile(s):
@@ -944,7 +948,7 @@ def file_token_run_agreement_control(M):
     no id outside its file span(s) (why that and not span equality: the comment
     in the body, PR #510 R35), and every generated run is required to be
     followed: a run the resolver rejects is red, not a smaller corpus (PR #510
-    Codex R38's class).
+    Codex R38 of 2026-09-27's class).
 
     HONESTLY, what it cannot see: a tail shape the resolver strips that no
     fragment below spells, and the interaction with parentheses, which
@@ -964,7 +968,7 @@ def file_token_run_agreement_control(M):
             for tail in tails:
                 run = stem + tail
                 if plan_memo_sibling.sibling_path(base, run) is None:
-                    continue            # the standing polarity; not this claim
+                    continue            # counted: `followed` below falls short and the control is red
                 followed += 1
                 spans = [(a, b) for a, b, kind in plan_memo_tokens.file_and_cite_spans(run)
                          if kind == "file"]

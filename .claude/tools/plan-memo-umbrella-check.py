@@ -116,7 +116,11 @@ MODULES
                           _selftest_mutants_ratchets.py (the rows against the
                           ratchets, carved on a SUBJECT like the sibling cases) /
                           _selftest_mutants_gap.py (the rows against the
-                          reader-gap controls, the same kind of seam) /
+                          reader-gap controls and the role measure they read,
+                          the same kind of seam) /
+                          _selftest_mutants_codex0927.py (the rows of the
+                          Codex rounds of 2026-09-27 / -28 outside that
+                          subject, carved at the review-round seam) /
                           _selftest_mutants_population.py (the rows against the
                           module population's rules, the same kind of seam) /
                           _selftest_population.py (the partner controls of the

@@ -162,7 +162,8 @@ never a change to the phrase."""
 # words -- whitespace (then an optional dash) or a dash -- since Codex on
 # `0a5ab700`: with both gaps and the dash optional, `KINDUNDETERMINED` in an
 # unrelated word declared the kind.
-# Linear by construction (disjoint alternatives, PR #510 Codex R31), shown by
+# Linear by construction (disjoint alternatives, PR #510 Codex R31 of
+# 2026-09-27), shown by
 # the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
 # No control enforces it; §8 (17)'s follow-up owns that.  The detector that
 # message describes was removed: `git log --reverse -F --grep='drop the adjacency detector' --format=%H | head -1 | xargs git log -1 --format=%B`.

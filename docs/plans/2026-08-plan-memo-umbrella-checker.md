@@ -428,7 +428,8 @@ direct child of a TIGHT list's item, bare inline text up to `</li>` or the next 
 refusing the tight claim (⚠ the first R15 aligner searched to `</li>` and read past a `<p>`, so every
 "loose" mutant survived: the claim could not go red) — a definition
 nothing, the html exhausted at the end — never a rendering (Phase 2 is skipped over). Excluded by
-predicate over Phase 1's own output, printed per run: a GFM table Phase 1 admitted (local policy over pure
+predicate over Phase 1's own output, printed per run -- and every exclusion is a FAIL, since
+`EXPECTED_EXCLUDED` is empty (PR #510 Codex R38 of 2026-09-27): a GFM table Phase 1 admitted (local policy over pure
 CommonMark; no vendored example holds a `|` where a table could open — empty by construction), and NOTHING
 ELSE: **295 aligned / 0 excluded / 0 FAIL**. Before R15 the count was 208 / 13 / 0 over 221, the 13 (4 5 7 9
 57 60 61 94 99 108 109 175 235) being every example a §5.2 list-marker line headed a paragraph in — the
@@ -870,7 +871,7 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
-✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job.
+✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 of 2026-09-27 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job.
 ⚠ The acceptance below was the earlier one, given at sixteen.
 ✅ ~~**RE-ACCEPTED AT THE CURRENT COUNT**~~ **RE-ACCEPTED AT SIXTEEN — BY THE USER, ON 2026-09-26, FOR THIS PR.** The 2026-09-21
 acceptance was given at ten own; the list below has since grown (the notes further down record each
@@ -1436,14 +1437,14 @@ committed here by the note that corrected it.
   "R22 gap" rows and its own row-level invariants.
   **Scope**: a mechanism that makes "every gap-bearing pattern has read and refuse rows" red on a new
   pattern — the population definition is the design question, and the four above are what it must not
-  repeat. It also owns the gap patterns' linearity (PR #510 Codex R31 rewrote three by construction;
+  repeat. It also owns the gap patterns' linearity (PR #510 Codex R31 of 2026-09-27 rewrote three by construction;
   its timing and equivalence probes: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H |
   head -1 | xargs git log -1 --format=%B`; the detector that message describes was removed: `git log
   --reverse -F --grep='drop the adjacency detector' --format=%H | head -1 | xargs git log -1
   --format=%B`).
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (the four attempts above). **Re-eval: 2026-12-31.**
-- **(own)** **A VOCABULARY MATCH READ ACROSS A MASKED SPAN** (PR #510 Codex R25 on `e9575a37` —
+- **(own)** **A VOCABULARY MATCH READ ACROSS A MASKED SPAN** (PR #510 Codex R25 of 2026-09-27 on `e9575a37` —
   it predates R22: reproduced at `94281cd7` and `900c16eb`; the checker is not on `main`, so it is this
   PR's own — **carved 2026-09-28, user-approved**). The disposed stream stands a code span or an
   autolink as blanks, and the blanks satisfy `GAP`, so a phrase interrupted by one is still matched.
@@ -1479,8 +1480,8 @@ committed here by the note that corrected it.
   **Scope**: every vocabulary match that reads a `GAP` across a disposed blank, each consumer given
   its verdict on one.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
-  **Trigger**: already fired (Codex R25). **Re-eval: 2026-12-31.**
-- **(own)** **AN UNMATCHED `)` HAS TWO RATIFIED NOTIONS** (PR #510 Codex R30 on `8c1734a6` — it
+  **Trigger**: already fired (Codex R25 of 2026-09-27). **Re-eval: 2026-12-31.**
+- **(own)** **AN UNMATCHED `)` HAS TWO RATIFIED NOTIONS** (PR #510 Codex R30 of 2026-09-27 on `8c1734a6` — it
   predates R22: origin `b2ed042f` (R35), on the PR branch only — **carved 2026-09-28,
   user-approved**). `notes.md#frag)9z owns it.` masks `9z`: 0 sites reported, while
   `notes.md#frag) 9z owns it.` reports 1. Two ratified rules decide `)` differently:
@@ -1513,4 +1514,4 @@ committed here by the note that corrected it.
   own test and `/elidex-plan-review`-before-implementation **BY RULE**, in its own PR.
   **Scope**: one notion of where a file-name run ends at `)`, on both sides of the suffix.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
-  **Trigger**: already fired (Codex R30). **Re-eval: 2026-12-31.**
+  **Trigger**: already fired (Codex R30 of 2026-09-27). **Re-eval: 2026-12-31.**

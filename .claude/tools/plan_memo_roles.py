@@ -367,7 +367,8 @@ def _row_key(x):
 # An owner is a row of any row kind: the grammar's `ROW_ID` (slug | short),
 # the same alternation the appositive and the anchored reading compose --
 # a local `(?:slug|short)` here was a second spelling of it until PR #510 R20.
-# Linear by construction (disjoint alternatives, PR #510 Codex R31), shown by
+# Linear by construction (disjoint alternatives, PR #510 Codex R31 of
+# 2026-09-27), shown by
 # the R31 TIMING PROBE: `git log --reverse -F --grep='R31 TIMING PROBE' --format=%H | head -1 | xargs git log -1 --format=%B`.
 # No control enforces it; §8 (17)'s follow-up owns that.  The detector that
 # message describes was removed: `git log --reverse -F --grep='drop the adjacency detector' --format=%H | head -1 | xargs git log -1 --format=%B`.

@@ -391,8 +391,8 @@ def percent_bytes_control(M):
 def spec_examples_control(M):
     """The CommonMark 0.31.2 spec's own block examples through Phase 1
     (`plan_memo_selftest_conformance`): every vendored example aligned with
-    its expected html or excluded by a stated §3.0 disposition; the multi-
-    line detail is printed whole because the exclusion list IS the report."""
+    its expected html -- any exclusion is a FAIL, since `EXPECTED_EXCLUDED` is
+    empty; the multi-line detail is printed whole."""
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
     ok, detail = conf.run(plan_memo_memo)
@@ -410,7 +410,7 @@ CONFORMANCE_EXCLUSION = ("the CommonMark conformance run FAILS when any example 
 def conformance_exclusion_control(M):
     """An example the conformance run EXCLUDES is a FAIL of the run: a
     two-example corpus, one paragraph that aligns and one GFM table that
-    `excluded()` drops, is red (PR #510 Codex R38).  The discriminating half:
+    `excluded()` drops, is red (PR #510 Codex R38 of 2026-09-27).  The discriminating half:
     the paragraph alone is green."""
     import json
     import plan_memo_memo       # the freshly loaded module
@@ -771,7 +771,7 @@ BANNER_DISPLAY = ("the report banner names the root memo by its display name: th
 
 
 def banner_display_control(M):
-    """PR #510 Codex R40: `main()`'s banner names the root memo through
+    """PR #510 Codex R40 of 2026-09-28: `main()`'s banner names the root memo through
     `Population.display`, as every other printed memo name does -- run once by
     absolute path and once, from the memo's directory, by relative path, the
     banner line is the same and is the display name of the root."""

@@ -103,10 +103,10 @@ stated in the docstring it concerns. Per item: **[CLOSED]** / **[LIMIT]** + the 
   cap question for #510's merge; the umbrella memo's §8 records the movement.
 - ~~⚠ **OPEN — 2026-09-28: §8's list is now 18 entries (16 own + 2 pre-existing)**~~ — **SUPERSEDED
   2026-09-28** by the next bullet. (18), a vocabulary
-  match read across a masked span (Codex R25), was carved with the user's approval. It re-opens the
+  match read across a masked span (Codex R25 of 2026-09-27), was carved with the user's approval. It re-opens the
   cap question for #510's merge again; the umbrella memo's §8 records the movement.
-- ✅ **SETTLED 2026-09-28 — the user re-accepted (d) at 19 entries (17 own + 2 pre-existing)** (recorded in §8's heading; Codex R38 P1). ~~⚠ **OPEN — 2026-09-28: §8's list is now 19 entries (17 own + 2 pre-existing)**~~ — (19), an unmatched
-  `)` with two ratified notions (Codex R30), was carved with the user's approval. It re-opened the cap
+- ✅ **SETTLED 2026-09-28 — the user re-accepted (d) at 19 entries (17 own + 2 pre-existing)** (recorded in §8's heading; Codex R38 of 2026-09-27, P1). ~~⚠ **OPEN — 2026-09-28: §8's list is now 19 entries (17 own + 2 pre-existing)**~~ — (19), an unmatched
+  `)` with two ratified notions (Codex R30 of 2026-09-27), was carved with the user's approval. It re-opened the cap
   question for #510's merge again; the umbrella memo's §8 records the movement.
 
 ⚠ The 2026-09-21 block below is kept as written; its head, gate line and merge paragraph are STALE.
