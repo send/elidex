@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=132
+_MUT_RECORDS_MIN=137
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -364,6 +364,11 @@ harness:s/| grep -vxF -f "[$]_pgref")"/| grep -vxF -f \/nonexistent-k2)"/	every 
 harness:s/_pgm="[$](grep -vxF -f "[$]_FW_DIR\/pgcur" "[$]_pgref")"/_pgm="$(grep -vxF -f \/nonexistent-k2 "$_pgref")"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 300 "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; chmod 600 "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; set -f; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzlc" \&\& cd "$CTL\/zzlc" \&\& git config core.excludesFile \/nonexistent-k2 \&\& mv HEAD head ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zzuc" \&\& cd "$CTL\/zzuc" \&\& git init -q --separate-git-dir="$_FW_DIR\/gduc" . \&\& mv .git .GIT ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --add core.bare false; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 harness:s/> "[$]_FGIT_BIN\/git" \&\& chmod +x "[$]_FGIT_BIN\/git"/> "$_FGIT_BIN\/gitx"/	the fixture build window runs the pinned git from absolute PATH entries only
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
@@ -647,6 +652,25 @@ _mut_run() {
           "$_mut_t":*) _mt_which="$_mut_t"; _mx="${_mx#"$_mut_t":}"; break ;;
         esac
       done
+      # A record whose needle is the label of a postcondition THIS MACHINE
+      # cannot evaluate (a `machine_limits` line from the window: `P-x — …`)
+      # cannot die here, however correct the wire: it is skipped and reported,
+      # not counted as survived (PR #527 Codex R17). The labels are derived
+      # from the ID — every `_p<x>*_lbl` defined — not listed.
+      _mskip=""
+      while IFS= read -r _ml; do
+        _mid="${_ml%% —*}"
+        case "$_mid" in P-[a-z]) ;; *) continue ;; esac
+        for _mlv in $(compgen -v "_p${_mid#P-}"); do
+          case "$_mlv" in *_lbl) [ "${!_mlv:-}" != "$_mwant" ] || _mskip="$_mid" ;; esac
+        done
+      done <<EOF_MLIM
+${_fw_limits:-}
+EOF_MLIM
+      if [ -n "$_mskip" ]; then
+        echo "  mutant $_mut_n ($_mwant): not exercisable on this machine ($_mskip is a machine limitation here)"
+        continue
+      fi
       _mut_restore_copies || { _mut_bad=$((_mut_bad + 1)); continue; }
       _mut_target "$_mt_which"
       if ! sed "$_mx" "$_mut_src" > "$_mut_tgt" 2>/dev/null; then

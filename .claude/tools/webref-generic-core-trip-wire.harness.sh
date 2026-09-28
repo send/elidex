@@ -246,8 +246,10 @@ EOF_PB
   if [ ! -s "$_pgref" ]; then _pg=" (no reference configuration)"; fi
   # Population by property: EVERY git dir the fixtures produced, anywhere under
   # $CTL (hidden and nested included, and inside `.git` dirs): each `.git`
-  # entry of any type, and each directory shaped like a git dir (a HEAD file
-  # plus an `objects` dir or a `commondir` file). Only a `.git` that is a real
+  # entry of any type, and each directory shaped like a git dir (a `HEAD` entry
+  # plus an `objects` dir or a `commondir` file). Names are matched without
+  # case: a case-insensitive filesystem (APFS by default) lets git read `head`
+  # and `.GIT`, so a case variant is a git dir too — and red, being unknown. Only a `.git` that is a real
   # directory has its config compared; every other shape (a gitfile, a symlink,
   # a bare, separate, submodule or linked-worktree git dir) is UNKNOWN and red,
   # never skipped. "Cannot search" is whatever `find` reports: any report fails
@@ -260,18 +262,26 @@ EOF_PB
   _pgpop="$_FW_DIR/pgpop"; _pgn=0
   # `HEAD` of ANY type: a symlink `HEAD` is a shape git still reads (PR #527
   # Codex R16 — `-type f` left such a bare repo out of the census entirely).
-  find "$CTL" \( -name .git -print0 \) -o \( -name HEAD -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
+  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"
   if [ -e "$_FW_DIR/pgpop.failed" ] || [ -s "$_FW_DIR/pgpop.err" ]; then
     _pg="$_pg (the git-dir census under the fixture root failed: $(head -3 "$_FW_DIR/pgpop.err" | tr '\n' ';'))"
   fi
   while IFS= read -r -d '' _pge; do
-    if [ "${_pge##*/}" = HEAD ]; then
-      _pgd="${_pge%/HEAD}"
-      [ "${_pgd##*/}" != .git ] || continue            # the ordinary git dir, counted by its `.git` entry
-      if [ -d "$_pgd/objects" ] || [ -f "$_pgd/commondir" ]; then _pg="$_pg ${_pgd#"$CTL"/}:[a git dir not named .git]"; fi
-      continue
-    fi
+    case "${_pge##*/}" in
+      [Hh][Ee][Aa][Dd])
+        _pgd="${_pge%/*}"
+        if [ "${_pgd##*/}" = .git ]; then
+          # the ordinary git dir, counted by its `.git` entry — unless its HEAD
+          # is a case variant, which only a case-insensitive filesystem reads
+          [ "${_pge##*/}" = HEAD ] || _pg="$_pg ${_pge#"$CTL"/}:[HEAD spelled ${_pge##*/}]"
+        elif [ -d "$_pgd/objects" ] || [ -f "$_pgd/commondir" ]; then
+          _pg="$_pg ${_pgd#"$CTL"/}:[a git dir not named .git]"
+        fi
+        continue ;;
+      .git) ;;
+      *) _pgn=$((_pgn + 1)); _pg="$_pg ${_pge#"$CTL"/}:[.git spelled ${_pge##*/}]"; continue ;;
+    esac
     _pgn=$((_pgn + 1)); _pgd="${_pge%/.git}"; _pgl="${_pgd#"$CTL"/}"
     if [ -L "$_pge" ] || [ ! -d "$_pge" ]; then _pg="$_pg $_pgl:[.git is not a directory]"; continue; fi
     # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
@@ -295,6 +305,16 @@ EOF_PB
     fi
     [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
     [ -z "$_pgm" ] || _pg="$_pg $_pgl:[removed: $(printf '%s' "$_pgm" | tr '\t\n' ' ;')]"
+    # MULTIPLICITY: the two greps compare membership, so a line written twice
+    # (meaningful for a multi-valued key) passed them (PR #527 Codex R17). The
+    # SORTED listings must be byte-identical; any non-zero — a difference, or
+    # a sort/cmp that could not run — is red.
+    if [ -z "$_pgx" ] && [ -z "$_pgm" ]; then
+      _pgcrc=0
+      { sort "$_FW_DIR/pgcur" > "$_FW_DIR/pgcur.s" && sort "$_pgref" > "$_FW_DIR/pgref.s" \
+          && cmp -s "$_FW_DIR/pgcur.s" "$_FW_DIR/pgref.s"; } || _pgcrc=$?
+      [ "$_pgcrc" -eq 0 ] || _pg="$_pg $_pgl:[a line appears a different number of times than in a plain init, or the listings could not be compared (exit $_pgcrc)]"
+    fi
   done < "$_pgpop"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
   if [ -n "$_pg" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg" >&2; _fpv=1; fi
@@ -305,6 +325,10 @@ EOF_PB
   # directory, or not readable and searchable — is red too: globs over an
   # unreadable directory expand to nothing, the same silent "empty" a failed
   # `ls` gave (the fix-delta review after R14).
+  # The globs are this shell's, and the fixtures file ran in this shell: a
+  # `set -f` or `GLOBIGNORE` it left behind would make them match nothing, so
+  # both are reset here (the fix-delta re-check after R16).
+  set +f; unset GLOBIGNORE
   _pcv=""
   if [ ! -d "$_FGIT_VOID" ] || [ -L "$_FGIT_VOID" ]; then _pcv=" (the void is not a directory)"
   elif [ ! -r "$_FGIT_VOID" ] || [ ! -x "$_FGIT_VOID" ]; then _pcv=" (the void cannot be listed)"; fi

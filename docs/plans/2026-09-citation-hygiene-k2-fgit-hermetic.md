@@ -392,11 +392,11 @@ in), and each label has its own record (§6).
 | W4 | `every mode restriction a fixture sealed was applied` | every `_seal` was accepted (a path under `$CTL`, with no newline or TAB) and its `chmod` succeeded; otherwise red, not a machine limitation | — |
 | P-a | `a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file` | every `git config --list --show-origin` line in **one probe repo** has the origin `file:.git/config` | `this git reports a configuration origin outside the repo's file`: `-c a.b=c` must show with the origin `command line:`. `--show-origin` (git 2.8) alone, not `--show-scope` (git 2.26): the origin column answers the same question, so the check has no version floor and no limitation arm |
 | P-b | `the fixture git has no system or global layer outside the void` | asked **inside P-a's probe repo** (`git -C`), so no caller repository's local configuration is read. A git older than 2.42, whose `git var` cannot name these four (exit 129), is a machine limitation: `⚠ NOT EXERCISED on this machine`, green. Otherwise `git var GIT_CONFIG_SYSTEM`/`GIT_ATTR_SYSTEM` exit non-zero, empty. `GIT_CONFIG_GLOBAL`/`GIT_ATTR_GLOBAL` exit 0, with every line under `$_FGIT_VOID/` | `this git names its system files through git var`: with `…NOSYSTEM=0` both names print a path |
-| P-c | `nothing is written into the fixture git's void` | `$_FGIT_VOID` is an empty directory, tested by the shell's own globs (`*`, `.[!.]*`, `..?*` with `-e`/`-L`) — not by `$(ls -A …)`, which loses a name made only of newlines and reads a failed `ls` as empty. A void that is not a directory, or cannot be read and searched, is red: globs over it would expand to nothing. Runs **last** in the window | — |
+| P-c | `nothing is written into the fixture git's void` | `$_FGIT_VOID` is an empty directory, tested by the shell's own globs (`*`, `.[!.]*`, `..?*` with `-e`/`-L`) — not by `$(ls -A …)`, which loses a name made only of newlines and reads a failed `ls` as empty. A void that is not a directory, or cannot be read and searched, is red: globs over it would expand to nothing. The globs run with `set +f` and `GLOBIGNORE` unset, whatever the fixtures file left. Runs **last** in the window | — |
 | P-d | `the fixture git copies no template` | `diff -r` of `.git` from `git init` against `.git` from `git init --template="$_FGIT_VOID"` is empty | — |
 | P-e | `no exec-path override reaches the fixture git` | the window's `git --exec-path` equals the same git's answer with nothing but `PATH` in its environment (taken in the parent at source time), both canonical (`pwd -P`). **Re-scoped by `/code-review`:** which executable runs is outside P (§0.1, R1); P-e pins only that nothing in the window overrides where that git runs its commands from. So a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one directory spelled two ways, is not a red | — |
 | P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction. p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10). `env -0` goes through a file whose status is checked: a failed `env -0`, or no record at all, is NOT EXERCISED. **One** outcome is a machine limitation instead (`⚠ NOT EXERCISED on this machine`, green — the treatment P-b and the FIFO and file-permission controls give a machine that cannot run them): its test is the definition — **this** `env` runs but refuses `-0`: `env -0` fails, writes nothing to stdout and says why on stderr, while the same `env` runs a command. Every other outcome stays red, so an unknown one falls on the fail-safe side. Which `env` builds lack `-0` is not measured here (this machine's macOS 26 `env` has it; PR #527 Codex R4 reported a macOS one without it); the no-`-0` case is exercised with a shim. Both limitations reach the run's summary through one channel (`$_FW_DIR/machine_limits`), naming the postcondition by ID only, since a record's needle is its label. History: `…-reviews.md` §13, PR #527. | — |
-| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the lines of `git -C <repo> config --list --show-origin` (no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init), compared by origin, key and value (`grep -vxF -f`, both directions). An extra line is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. A `grep` that fails (exit above 1) is a failed comparison, red — never an empty difference. This catches a persisted include (its origin is not `.git/config`) and **any** persisted key beyond init's, `core.excludesFile` included. The census takes `HEAD` entries of **any** type — a symlink `HEAD` is a shape git reads — and every git dir not reached by a `.git` entry is red. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
+| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the lines of `git -C <repo> config --list --show-origin` (no `--show-scope`: the origin already names the file) **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init), compared by origin, key and value (`grep -vxF -f`, both directions). An extra line is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture. A `grep` that fails (exit above 1) is a failed comparison, red — never an empty difference. This catches a persisted include (its origin is not `.git/config`) and **any** persisted key beyond init's, `core.excludesFile` included. The census takes `HEAD` and `.git` entries of **any** type and letter case — a symlink `HEAD`, or `head` on a case-insensitive filesystem, is a shape git reads — and every git dir not reached by a `.git` entry is red. **Multiplicity:** besides the two membership greps, the sorted listings must be byte-identical, so a line written twice is red; a sort or cmp that cannot run is red too. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
 | P-i | `the fixture repos use the files ref format` | the window's `GIT_DEFAULT_REF_FORMAT` is `files`, and a plain init's `git rev-parse --show-ref-format` answers `files` (a git before 2.45 has no reftable; its `rev-parse` echoes the unknown option back with exit 0, and that literal echo is what counts as `files` — a failed call or any other format name stays red). It pins the allowlist entry on every git, including the files-default ones where dropping it changes nothing else | — |
 | P-j | `the fixture build window runs the pinned git from absolute PATH entries only` | the window's `PATH` starts with `$_FGIT_BIN`, every entry is absolute, and `type -P git` inside the window is `$_FGIT_BIN/git`. It pins the `PATH` construction the way P-h and P-i pin their entries: on a machine whose `PATH` is all absolute, dropping the construction changes nothing else, and P-e's reference moves with it | — |
 | P-h | `the fixture build window reads in the wire's locale` | the window's `LC_ALL` equals the wire's (`C`). It pins the allowlist's `LC_ALL=C`, which P-f cannot, because P-f derives its names from the same list | — |
@@ -408,8 +408,8 @@ Instead, the allowed set is **what git itself writes on `init`**, measured in th
 That is the fail-safe direction: any persisted entry beyond it is red, whether or not it names a path.
 
 **P-g's population, by property (E2; A2, A3).** It is every git dir the fixtures produced. One `find`
-from `$CTL`, with no per-directory fork, lists every `.git` entry **of any type** and every file named
-`HEAD`. It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
+from `$CTL`, with no per-directory fork, lists every `.git` entry and every `HEAD` entry, **of any type and in any letter case** (a
+case-insensitive filesystem lets git read `head` and `.GIT`; a case variant is red). It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
 - A `.git` that is a real directory has its configuration compared.
 - A `.git` that is a gitfile, a symlink or anything else is red: `[.git is not a directory]`.
 - A `HEAD` whose directory is not a `.git` and holds an `objects` directory **or** a `commondir` file is
@@ -704,8 +704,13 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-c | a fixture writes an entry named only by a newline into the void | **fixtures** |
 | P-c | a fixture writes into the void, then makes it unreadable (`chmod 300`) | **fixtures** |
 | P-c | a fixture replaces the void with a symlink to an empty directory | **fixtures** |
+| P-c | a fixture writes into the void, then makes it readable but not searchable (`chmod 600`) | **fixtures** |
+| P-c | a fixture writes into the void and leaves `set -f` on | **fixtures** |
 | P-j | the wrapper is written as `gitx`, so the window's `git` is not the pinned one | harness |
 | P-g | a bare repo with a persisted `core.excludesFile` whose `HEAD` is a symlink to its branch ref (a form git reads) | **fixtures** |
+| P-g | a bare repo with a persisted `core.excludesFile` whose `HEAD` is renamed `head` | **fixtures** |
+| P-g | a gitfile named `.GIT` (separate git dir outside the fixture root) | **fixtures** |
+| P-g | a fixture adds a second `core.bare = false` (a repeated line) | **fixtures** |
 | W | `set +e` before the fixtures file's `built` line | **fixtures** |
 | W3 | `_ar=$(( 1/0 ))` after the fixtures file's first line | **fixtures** |
 | P-g | `printf '[include]…' >> .git/config` in a fixture | **fixtures** |
@@ -713,16 +718,19 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
 | P-g | a fixture unsets a key a plain init writes (`git config --unset core.filemode`) | **fixtures** |
 
-- **Totals:** **16 labels and 37 records** (how each came to be: `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
+- **Totals:** **16 labels and 42 records** (how each came to be: `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
   with no prefix edits the wire.
 - **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
-- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 37 (95 → 132).
+- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 42 (95 → 137).
 - **What is not a record:**
   - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662` at `e8f78896`);
   - the exit number, which is unpinnable (§3);
   - the two INFO cells, which are informative.
+- **Records on a machine that cannot evaluate their postcondition** (a `machine_limits` line: P-b on git
+  before 2.42, P-f on an `env` without `-0`): the mutation run skips them and says so, rather than
+  reporting them survived; the labels are derived from the limitation's ID.
 
-**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 37) record trials plus the generated
+**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 42) record trials plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
@@ -856,7 +864,7 @@ reference with a file name, and **X4b** checks that **case-insensitively** (§11
 | C2 | mutations → mutations + mutgen; references qualified | prereq split | X1, X3, X4, X4b |
 | C3 | record comments | infra (§0.2) | X3 |
 | C4 | the `harness:` and `fixtures:` record targets with resolver and restore; the harness's `_shq` comment, which said the mutation set "has nothing to aim at", rewritten because C4 makes it false (`…-reviews.md` §13) | infra, required | X3 |
-| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (37 at head; how they came to be: `…-reviews.md` §13); §3's two comment texts; the ratchet population; §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
+| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (42 at head; how they came to be: `…-reviews.md` §13); §3's two comment texts; the ratchet population; §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
 
 **Cost, and `ci.yml`.** The base job comment "a wire that adds fixture self-tests re-derives this line
 in the same PR" is an in-file rule (`git show e8f78896:.github/workflows/ci.yml | sed -n

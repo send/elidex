@@ -179,10 +179,10 @@ jobs:
     # instead of for what it asserts.
     # THE METHOD: run the command above on the branch and on its base, three
     # times each, alternated on one machine, and compare against this budget.
-    # Verdict at the last re-derivation, against e8f78896 with the K2 wire's
-    # fixture-build window at 4357b963 (whose tool code the /elidex-review fix
-    # commit carries): both sides far under it, so it is unchanged. The SHA is
-    # part of the verdict. Re-derive; do not trust this.
+    # Verdict at the last re-derivation (PR #527, just before its squash
+    # merge): the tool code that squash carries, against its base e8f78896 —
+    # both commits reachable — both sides far under it, so it is unchanged.
+    # The commits are part of the verdict. Re-derive; do not trust this.
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:

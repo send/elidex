@@ -387,9 +387,9 @@ Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
 ### PR #527 — external review and the fix-delta reviews (2026-09-28)
 
 Round history moved here from the memo, which keeps only the live decision. The scenario and result
-of each claim below are in the commit messages named (they hold no commands); every run was from a
-`git clone --local` sandbox with a scratch `HOME`, on bash 5.3 (`/opt/homebrew/bin/bash`) and 3.2
-(`/bin/bash`, `PATH=/bin:/usr/bin` first). Commit SHAs are PR-branch commits: after the squash merge
+of each claim below are in the commit messages named (a command is quoted only where it is given
+here); the verification runs were made in `git clone --local` sandboxes with a scratch `HOME`,
+on bash 5.3 (`/opt/homebrew/bin/bash`) and 3.2 (`/bin/bash`, `PATH=/bin:/usr/bin` first). Commit SHAs are PR-branch commits: after the squash merge
 they are reachable through the PR.
 
 - **Codex R1** (`36484cbb`): P-g compares as a set in both directions; the removal record (`git config
@@ -423,11 +423,18 @@ they are reachable through the PR.
 - **fix-delta `/elidex-review` of `661833f9..18035018`** and **Codex R16** (the commit after `18035018`):
   P-c also reds a void it cannot list (`chmod 300`: globs expand to nothing — the fail-open R14 named
   for `ls`, left open by the glob form); `git` resolved once (`$_FGIT_GIT`) for the wrapper and
-  `$_REAL_GIT`; records for P-j's `git` clause, P-c's two listability clauses; P-g's census takes
+  `$_REAL_GIT`; records for P-j's `git` clause and P-c's not-a-directory and not-readable clauses; P-g's census takes
   `HEAD` of any type (Codex R16: a bare repo with a symlink `HEAD` was left out); citation and wording
   fixes (`~login` provenance above, §1 "Outside P" instead of R4).
+- **focused re-check #4 of `18035018..33627692`** and **Codex R17** (the commit after `33627692`):
+  P-c resets `set -f`/`GLOBIGNORE` before its globs (a fixtures file that left either made P-c
+  green with an entry in the void); P-c's not-searchable clause gets its record (`chmod 600`); the
+  census matches `.git`/`HEAD` in any letter case (APFS lets git read `head` and `.GIT`); P-g adds a
+  multiplicity check (Codex R17: a repeated line passed the set comparison); the mutation run skips
+  records whose postcondition is a machine limitation here (Codex R17: P-f's records "survived" on an
+  `env` without `-0`); the timeout verdict in `ci.yml` names reachable commits (Codex R17 P3).
 
-Records: **132** (`_MUT_RECORDS_MIN=132`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 37 records
+Records: **137** (`_MUT_RECORDS_MIN=137`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 42 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +1, P-c +3.
+P-g census +3, P-g multiplicity +1, P-c +5.
