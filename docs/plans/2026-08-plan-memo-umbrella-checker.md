@@ -96,7 +96,8 @@ stand. Measured, because the first guess was that this is a budget problem and i
 is ~26 s and `claim-provenance-trip-wire.sh` is ~6 s on the same host, against the `timeout-minutes`
 re-derived at ~4x headroom — so the collision is a MERGE hazard on the inventory, not a cost one.
 ⚠ And the budget block in `ci.yml` is derived against THIS wire alone; that is now stated there, so
-the second wire's arrival does not read as drift in the figure.
+the second wire's arrival does not read as drift in the figure. The runner-measured `12124f83` point
+(170 s) is the whole job, and is labelled so there.
 
 ⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`

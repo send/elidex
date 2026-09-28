@@ -212,7 +212,8 @@ jobs:
   # with a trigger in the plan's §8, not done here.
   # The budget, round over round: ~10x (R12) -> 5.9x (R27) -> 5.1x (R29) ->
   # 4.4x (R30) -> ~2.0x (R32, before this re-derivation) -> ~4x (R32, after)
-  # -> ~3.5x (`12124f83`, measured on the runner itself).
+  # -> ~3.5x (`12124f83`: the whole JOB on the runner, not this wire alone;
+  # see below).
   # ⚠ THE ~152 s / ~4x ABOVE IS THE R32 DERIVATION, NOT THE CURRENT HEAD (PR #510
   # Codex R26 of 2026-09-27). At `12124f83` (942 controls / 586 mutants) the whole
   # `Layering trip-wires` JOB took 170 s on the GitHub runner, checkout included
