@@ -127,15 +127,28 @@ EOF_PB
   _o="$(git --exec-path 2>/dev/null)" || _o=""
   _o="$(_fgit_canon "$_o")"
   if [ -z "$_o" ] || [ "$_o" != "$_FGIT_WIRE_EXEC" ]; then echo "!! CONTROL FAILED ($_pe_lbl): [$_o] vs [$_FGIT_WIRE_EXEC]" >&2; _fpv=1; fi
-  # P-f: every record of `env -0`, through a FILE so its status is checked; a
-  # failed or unsupported `env -0`, or an empty population, is NOT EXERCISED.
-  _pf=""; _pfn=0; _pfrc=0
-  "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2>/dev/null || _pfrc=$?
-  while IFS= read -r -d '' _rec; do
-    _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
-    case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
-  done < "$_FW_DIR/env0"
-  if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
+  # P-f: every record of `env -0`, through a FILE so its status is checked. An
+  # `env` without `-0` (older macOS and BSDs; PR #527 Codex R4) falls back to
+  # plain `env`, one record per line: a value holding a newline can only ADD a
+  # line — a spurious name, which is red — never hide one, since every variable
+  # still starts a line. A failed fallback, or an empty population, is NOT
+  # EXERCISED.
+  _pf=""; _pfn=0; _pfrc=0; _pfmode="env -0"
+  if "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2>/dev/null; then
+    while IFS= read -r -d '' _rec; do
+      _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
+      case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
+    done < "$_FW_DIR/env0"
+  else
+    _pfmode="env (no -0)"
+    "$_FGIT_ENVBIN" > "$_FW_DIR/env1" 2>/dev/null || _pfrc=$?
+    while IFS= read -r _rec || [ -n "$_rec" ]; do
+      case "$_rec" in *=*) : ;; *) continue ;; esac   # a continuation line of a multi-line value
+      _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
+      case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
+    done < "$_FW_DIR/env1"
+  fi
+  if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`$_pfmode\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
   elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
   # P-i: the window pins the files ref format, and its plain init has it. A git
   # without `--show-ref-format` (before 2.45) has no reftable, so its answer is
