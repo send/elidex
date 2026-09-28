@@ -23,7 +23,7 @@
 # The fixtures are built in `tempfile` directories, but the wire DOES read the
 # plan memos: `plan_memo_selftest_records._attribution_corpus` reads
 # `docs/plans/*.md`, so a memo edit that writes a `module.symbol` naming the
-# wrong module turns `symbol_attribution_control` red (since 94124588).  The
+# wrong module turns `symbol_attribution_control` red (since 7d43d7cd).  The
 # memo run itself (`plan-memo-umbrella-check.py <memo>`) is NOT a trip-wire:
 # `SCHEMAS` matches one document family's header rows and exits 2 on any other
 # memo; it is invoked by hand when that memo is edited (see CLAUDE.md

@@ -66,7 +66,7 @@ or unscanned population (never a clean exit for "could not scan"). Seeds never g
 **Interim connection on `main`** (the checker's subject memo lands with #506, later): Slice 1 adds
 `.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh` (runs `python3 … --self-test --mutants`;
 fixtures live in `tempfile` dirs, but it reads `docs/plans/*.md` for `symbol_attribution_control`
-(since 94124588); its runtime is measured in the ⚠ paragraph below) **and registers it in `REQUIRED_WIRES`
+(since 7d43d7cd); its runtime is measured in the ⚠ paragraph below) **and registers it in `REQUIRED_WIRES`
 in `scripts/trip-wires.sh` in the same commit** — the driver diffs the glob against that list in both
 directions and FAILs an unregistered wire (the list is `REQUIRED_WIRES` in `scripts/trip-wires.sh`, the diff + FAIL
 the `missing` / `unregistered` blocks after its loop; measured: a stub wire → rc 1 "ran but are not registered"). Two documentation claims become false and are updated in the

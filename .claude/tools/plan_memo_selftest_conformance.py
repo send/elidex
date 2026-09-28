@@ -270,8 +270,9 @@ def inline_claim(lx, body):
     # SECTION's size, a different predicate), and of those ZERO carry a
     # backtick and the two carrying a `<` are Example 580 (in the DESTINATION)
     # and Example 475 (raw HTML, no description).
-    # ⚠ The figure was written as 22 here and retracted one commit later at
-    # line ~197 without sweeping THIS site, twenty lines below it, in the
+    # ⚠ The figure was written as 22 here and retracted one commit later in
+    # the "re-derived rather than carried" paragraph above, without sweeping
+    # THIS site, in the
     # commit titled "corrections that had not been swept".  `lx.links` needs no filter -- a demoted link is
     # CONVERTED into `images` at the image close and never stays in `out` --
     # and `images` / `emphasis` already filter by their own tag below.
