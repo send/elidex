@@ -870,7 +870,8 @@ own ones; its PAUSE clause routes the four options (fold / narrow / split / acce
 rationale) to the user, and the answer is (d). What follows is the rationale the policy asks for, and
 the reason the other three are not available **in this PR**.
 
-⚠ **RE-OPENED 2026-09-28 by (17), (18) and (19) — see their notes below; the acceptance that follows was given at sixteen.**
+✅ **RE-ACCEPTED AT NINETEEN — BY THE USER, ON 2026-09-28, FOR THIS PR** (seventeen own and two pre-existing, after (17), (18) and (19) re-opened it; PR #510 Codex R38 asked for this record). It settles the cap question for #510's merge at nineteen; a further change to the list re-opens it. The merge still waits on the wire move to A-iii's `tools` job.
+⚠ The acceptance below was the earlier one, given at sixteen.
 ✅ ~~**RE-ACCEPTED AT THE CURRENT COUNT**~~ **RE-ACCEPTED AT SIXTEEN — BY THE USER, ON 2026-09-26, FOR THIS PR.** The 2026-09-21
 acceptance was given at ten own; the list below has since grown (the notes further down record each
 movement). Asked again at the enumeration below — sixteen `^- \*\*` entries at `7b074847`, fourteen
