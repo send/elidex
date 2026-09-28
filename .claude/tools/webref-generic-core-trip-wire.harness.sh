@@ -48,19 +48,36 @@ fi
 # nothing else.
 _FGIT_VOID="$SCRATCH/fgit-void"
 mkdir "$_FGIT_VOID" || exit 2
-_FGIT_ENVBIN="$(type -P env)"
-# A FILE (`type -P`: an exported function or alias named `env` is not one), and
-# absolute, so the window — which runs in `$_FW_DIR`, not here — runs the `env`
-# resolved here: from a relative `PATH` entry (`bin`, `../x`) the same spelling
-# names another file, or none, from there (PR #527 fix-delta re-check).
-case "$_FGIT_ENVBIN" in /*) ;; */*) _FGIT_ENVBIN="$PWD/$_FGIT_ENVBIN" ;; esac
+# The window's `PATH`, with every entry ABSOLUTE. The window runs in
+# `$_FW_DIR`, not here, so a relative entry (`bin`, `../x`, `.`, or an empty one,
+# which means the current directory) would name other files, or none, from there:
+# the fixtures' `git` and P-f's `env` would not be the ones resolved here (PR #527
+# Codex R11 for `git`; the fix-delta re-check had found it for `env`). Each entry
+# is resolved against this directory once, here; `~` and `~/…` (which bash
+# expands in `PATH`) against this `HOME`, since the window's is the void. The
+# allowlist, `env`'s path and P-e's reference all use the result.
+_FGIT_PATH=""; _fp_rest="$PATH:"
+while [ -n "$_fp_rest" ]; do
+  _fp_e="${_fp_rest%%:*}"; _fp_rest="${_fp_rest#*:}"
+  case "$_fp_e" in
+    /*) ;;
+    "") _fp_e="$PWD" ;;
+    "~") _fp_e="$HOME" ;;
+    "~/"*) _fp_e="$HOME/${_fp_e#\~/}" ;;
+    *) _fp_e="$PWD/$_fp_e" ;;
+  esac
+  _FGIT_PATH="${_FGIT_PATH:+$_FGIT_PATH:}$_fp_e"
+done
+# A FILE (`type -P`: an exported function or alias named `env` is not one),
+# looked up on `$_FGIT_PATH` with the hash table cleared, so it is absolute.
+_FGIT_ENVBIN="$(PATH="$_FGIT_PATH"; hash -r; type -P env)"
 _FGIT_BASH="$BASH"
 # `GIT_DEFAULT_REF_FORMAT=files`: a git whose COMPILED-IN default is reftable
 # (git 3.0's planned default, or a breaking-changes build) would otherwise make
 # every init differ from every other (`reftable/*.ref` names are random) and
 # `badref` write refs a reftable repo does not read. Gits before 2.45 have no
 # reftable and ignore the name.
-_FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
+_FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
 # Names the window's environment may hold: the allowlist above, derived from it,
 # plus what bash itself maintains for the processes it starts.
 _FGIT_ENV_NAMES="PWD OLDPWD SHLVL _"
@@ -72,7 +89,7 @@ for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_NAMES="$_FGIT_ENV_NAMES ${_fe%%=*}"; 
 # the same way, so a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one
 # directory spelled two ways, cannot make the two differ.
 _fgit_canon() { [ -n "$1" ] && ( cd "$1" 2>/dev/null && pwd -P ) || printf ''; }
-_FGIT_WIRE_EXEC="$("$_FGIT_ENVBIN" -i "PATH=$PATH" git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
+_FGIT_WIRE_EXEC="$("$_FGIT_ENVBIN" -i "PATH=$_FGIT_PATH" git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
 _FGIT_WIRE_EXEC="$(_fgit_canon "$_FGIT_WIRE_EXEC")"
 # P-h's reference: the locale the wire reads in (it exports `LC_ALL=C`), so the
 # build is like-for-like with the scan and the window's diagnostics are the
@@ -142,7 +159,7 @@ EOF_PB
   # fail-safe side. Both calls go through `$_pfenv`, so one record can make the
   # `env` unrunnable for both. (PR #527: the R6 probe sent "anything but one
   # exact record" to green and shared the `-i` record's anchor; the next form
-  # read an `env` that could not be run at all — exit 127 — as "no -0".)
+  # read an `env` that could not be started at all as "no -0".)
   # No line-based fallback: a value is never split on newlines (Codex R6).
   _pf=""; _pfn=0; _pfrc=0; _pfenv="$_FGIT_ENVBIN"
   "$_pfenv" -0 > "$_FW_DIR/env0" 2> "$_FW_DIR/env0.err" || _pfrc=$?

@@ -210,19 +210,21 @@ $HOME/.config/ is used".
 ```sh
 # harness — snapshots taken when the harness is sourced (the shape at head; the harness is the source)
 _FGIT_VOID="$SCRATCH/fgit-void"             # mkdir, checked
-_FGIT_ENVBIN="$(command -v env)"; _FGIT_BASH="$BASH"
-_FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 \
+_FGIT_PATH=<$PATH with every entry made absolute against this directory; ~ against this HOME>
+_FGIT_ENVBIN="$(PATH="$_FGIT_PATH"; hash -r; type -P env)"; _FGIT_BASH="$BASH"
+_FGIT_ENV=("PATH=$_FGIT_PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 \
            "GIT_TEMPLATE_DIR=$_FGIT_VOID" GIT_DEFAULT_REF_FORMAT=files "LC_ALL=C")
 # _fgit_window: write a prelude of PLAIN assignments (labels by name) and function bodies, then
 "$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
-  . "$1"; cd "$_FW_DIR"                        # prelude; a directory the window owns
+  cd "$1" || <cause; exit>                     # $_FW_DIR, a directory the window owns
+  . ./prelude.sh                                # both copied here by fixed relative names (R2)
   _fw_opts_on || <cause; exit>                 # errexit, nounset, pipefail in force
-  . "$2"                                        # the fixtures file (last line writes `built`)
+  . ./fixtures.sh                               # the fixtures file (last line writes `built`)
   [ -e "$_FW_DIR/built" ] || <cause; exit>; _fw_opts_on || <cause; exit>
   _fgit_postconditions || : > "$_FW_DIR/post_bad"
   _seal_apply                                   # mode restrictions, after the census
   printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
-  : > "$_FW_DIR/done"' _ "$_FW_DIR/prelude.sh" "$_FIXTURES" 2> "$_FW_DIR/stderr" || _fw_rc=$?
+  : > "$_FW_DIR/done"' _ "$_FW_DIR" 2> "$_FW_DIR/stderr" || _fw_rc=$?
 ```
 
 **What the child gets, kept minimal.** The prelude contains:
@@ -342,7 +344,7 @@ outside the window. The postconditions, the only other caller, now run inside it
 
 | entry | without it |
 |---|---|
-| `PATH=$PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell) |
+| `PATH=$_FGIT_PATH` | BSD `env -i` runs `/usr/bin/git` rather than `PATH`'s git (INFO cell). It is the caller's `PATH` with every entry made absolute: the window runs in `$_FW_DIR`, so a relative entry (`tools/bin`, `.`, an empty one) would resolve another `git` there — P-e red on an otherwise clean run (PR #527 Codex R11) |
 | `HOME=$VOID` | an unset `HOME` also closes this on 2.55. The void is chosen because a future HOME-relative default then lands where P-c looks |
 | `GIT_CONFIG_NOSYSTEM=1` | the system layer is live here (`/opt/homebrew/etc/gitconfig`) |
 | `GIT_ATTR_NOSYSTEM=1` | undocumented at 2.55: 0 hits in all 207 man pages of 2.55.0 (command below; positive control: `CONFIG_NOSYSTEM` hits 2 pages). So it is pinned by `git var` (P-b) |
@@ -392,7 +394,7 @@ in), and each label has its own record (§6).
 | P-c | `nothing is written into the fixture git's void` | `$_FGIT_VOID` is empty. Runs **last** in the window | — |
 | P-d | `the fixture git copies no template` | `diff -r` of `.git` from `git init` against `.git` from `git init --template="$_FGIT_VOID"` is empty | — |
 | P-e | `no exec-path override reaches the fixture git` | the window's `git --exec-path` equals the same git's answer with nothing but `PATH` in its environment (taken in the parent at source time), both canonical (`pwd -P`). **Re-scoped by `/code-review`:** which executable runs is outside P (§0.1, R1); P-e pins only that nothing in the window overrides where that git runs its commands from. So a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one directory spelled two ways, is not a red | — |
-| P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction. p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10). `env -0` goes through a file whose status is checked: a failed `env -0`, or no record at all, is NOT EXERCISED. **One** outcome is a machine limitation instead (`⚠ NOT EXERCISED on this machine`, green — the treatment P-b and the FIFO and file-permission controls give a machine that cannot run them): its test is the definition — **this** `env` runs but refuses `-0`: `env -0` fails, writes nothing to stdout and says why on stderr, while the same `env` runs a command. Every other outcome stays red, so an unknown one falls on the fail-safe side. Which `env` builds lack `-0` is not measured here (this machine's macOS 26 `env` has it; PR #527 Codex R4 reported a macOS one without it); the no-`-0` case is exercised with a shim. Both limitations reach the run's summary through one channel (`$_FW_DIR/machine_limits`), naming the postcondition by ID only, since a record's needle is its label. History, PR #527: R4 added a line-based fallback, R6 showed it reading a `PATH` that holds a newline as a second, red name; R6's replacement probe sent "anything but one exact record" to green (an `env` wrapper exporting a name passed) and shared the `-i` record's anchor, so that record survived — both found by the fix-delta `/elidex-review`; its fix then read an `env` that could not be run at all (a relative `PATH` entry, which names another file from the window's directory: exit 127) as "no `-0`" — found by that review's focused re-check, closed by the "runs a command" clause and by resolving `env` to an absolute path in the parent | — |
+| P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction. p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10). `env -0` goes through a file whose status is checked: a failed `env -0`, or no record at all, is NOT EXERCISED. **One** outcome is a machine limitation instead (`⚠ NOT EXERCISED on this machine`, green — the treatment P-b and the FIFO and file-permission controls give a machine that cannot run them): its test is the definition — **this** `env` runs but refuses `-0`: `env -0` fails, writes nothing to stdout and says why on stderr, while the same `env` runs a command. Every other outcome stays red, so an unknown one falls on the fail-safe side. Which `env` builds lack `-0` is not measured here (this machine's macOS 26 `env` has it; PR #527 Codex R4 reported a macOS one without it); the no-`-0` case is exercised with a shim. Both limitations reach the run's summary through one channel (`$_FW_DIR/machine_limits`), naming the postcondition by ID only, since a record's needle is its label. History, PR #527: R4 added a line-based fallback, R6 showed it reading a `PATH` that holds a newline as a second, red name; R6's replacement probe sent "anything but one exact record" to green (an `env` wrapper exporting a name passed) and shared the `-i` record's anchor, so that record survived — both found by the fix-delta `/elidex-review`; its fix then read an `env` that could not be run at all (a relative `PATH` entry, which names another file from the window's directory, so the call fails to start — the exit status depends on the shell) as "no `-0`" — found by that review's focused re-check, closed by the "runs a command" clause and by resolving `env` to an absolute path in the parent | — |
 | P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), the lines of `git -C <repo> config --list --show-scope --show-origin` **equal, as a set,** the lines of a **reference** `git init` made in the same window (P-a's probe repo, which is that init), compared by scope, origin, key and value (`grep -vxF -f`, both directions). An extra line is an input the fixture persisted; a missing one (`git config --unset core.filemode`) hands that setting to the platform default — either way P would depend on more than the fixture (PR #527 Codex R1). This catches a persisted include (its origin is not `.git/config`) and **any** persisted key beyond init's, `core.excludesFile` included. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
 | P-i | `the fixture repos use the files ref format` | the window's `GIT_DEFAULT_REF_FORMAT` is `files`, and a plain init's `git rev-parse --show-ref-format` answers `files` (a git before 2.45 has no reftable; its `rev-parse` echoes the unknown option back with exit 0, and that literal echo is what counts as `files` — a failed call or any other format name stays red). It pins the allowlist entry on every git, including the files-default ones where dropping it changes nothing else | — |
 | P-h | `the fixture build window reads in the wire's locale` | the window's `LC_ALL` equals the wire's (`C`). It pins the allowlist's `LC_ALL=C`, which P-f cannot, because P-f derives its names from the same list | — |
@@ -691,7 +693,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-f | `env -0` fails **with** output and a line on stderr (`{ env -0; echo k2 >&2; false; }`): NOT EXERCISED, red — pins "stdout empty" alone (the fix-delta re-check #2 showed the earlier `{ env -0; false; }` also died on the stderr clause, so it pinned nothing of its own) | harness |
 | P-f | `env -0` fails silently (`false`): NOT EXERCISED, red — pins "says why on stderr" in the limitation predicate | harness |
 | P-f | `env -0` exits 0 with nothing on stdout and a line on stderr: NOT EXERCISED, red — pins "fails" | harness |
-| P-f | the `env` P-f runs is `/nonexistent-k2/env` (exit 127): NOT EXERCISED, red — pins "runs a command" | harness |
+| P-f | the `env` P-f runs is `/nonexistent-k2/env`, which cannot be started (measured exit 127 on bash 5.3, 1 on bash 3.2 inside the wire): NOT EXERCISED, red — pins "runs a command" | harness |
 | W | `set +e` before the fixtures file's `built` line | **fixtures** |
 | W3 | `_ar=$(( 1/0 ))` after the fixtures file's first line | **fixtures** |
 | P-g | `printf '[include]…' >> .git/config` in a fixture | **fixtures** |
@@ -706,9 +708,13 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 - **What is not a record:**
   - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662` at `e8f78896`);
   - the exit number, which is unpinnable (§3);
-  - the two INFO cells, which are informative.
+  - the two INFO cells, which are informative;
+  - `$_FGIT_PATH`'s absolutisation: it changes something only for a caller whose `PATH` holds a relative
+    entry, and the runs a record sees use the caller's `PATH`, so no record can kill its removal on a
+    machine whose `PATH` is absolute. Measured by hand instead (PR #527 Codex R11: a `tools/bin` git
+    wrapper made P-e red before, PASSED after, bash 5.3).
 
-**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 23) record trials plus the generated
+**Mutation-mode cost (X3).** Each run of X3 is (95 base records + 27) record trials plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
 
