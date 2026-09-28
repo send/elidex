@@ -466,8 +466,15 @@ they are reachable through the PR.
   directory, so a `~/bin` wrapper's helper is found again; P-g's authoritative comparison is of NUL
   records from `--show-origin -z` (a newline-bearing value forged a matching line listing); a symlink
   inside a `.git` dir is red (a `.git/config` link outside reported `file:.git/config`). Records +2.
+  Focused re-check #10: 0 IMP; three wording fixes (the login-name pattern admits `~-`/`~0`, which
+  bash expands too; the memo's symlink rule narrowed to non-directory links; a stale line-sort
+  sentence removed).
+- **Codex R25** (on `f8a5f3e6`): `sort -z` is not in every supported `sort` (P1) — records are
+  now one `printf %q` line each and sorted as lines; git blocked opening a FIFO `HEAD` (hang) — a
+  `HEAD`/`config` that is not a regular file is red before git runs; W3 matched its prefix only at
+  a record's start, missing a diagnostic appended to newline-less stderr — now anywhere. Records +2.
 
-Records: **143** (`_MUT_RECORDS_MIN=143`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 48 records
+Records: **145** (`_MUT_RECORDS_MIN=145`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 50 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +8, P-g multiplicity/records +2, P-c +5.
+P-g census +8, P-g multiplicity/records +2, P-g HEAD FIFO +1, W3 +1, P-c +5.

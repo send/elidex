@@ -81,7 +81,8 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 #   (PR #527 Codex R23: dropping such entries made every fixture `git` fail).
 #   An entry starting with `~` is expanded as THIS bash expands it in command
 #   lookup (outside POSIX mode): `~` and `~/…` against `$HOME`, `~login/…` by
-#   the shell's own tilde expansion of a validated login name — so a `git`
+#   the shell's own tilde expansion of a name made only of `A-Za-z0-9._-`
+#   (so `~-` and `~0` expand as bash's lookup does too) — so a `git`
 #   wrapper's helper found through `~/bin` is still found (PR #527 Codex R24).
 #   `git` itself is pinned above, so a reading that differs from the caller's
 #   (5.3 --posix keeps `~` literal) can only add or miss a helper directory:
@@ -271,19 +272,22 @@ EOF_PB
   # persisted beyond it is red.
   _pgref="$_FW_DIR/pgref.lines"
   git -C "$_pq/a" config --list --show-origin > "$_pgref" 2>/dev/null || : > "$_pgref"
-  # `_pg_z <git dir> <out>`: the `-z` listing as sorted NUL records
-  # "origin<TAB>key<LF>value" — record boundaries a value cannot forge.
-  # An odd field count (a truncated listing) fails.
+  # `_pg_z <git dir> <out>`: the `-z` listing as sorted records
+  # "origin<TAB>key<LF>value", each written as ONE line by `printf %q` (a
+  # value's newline becomes `$'\n'`), so record boundaries cannot be forged
+  # and a plain line `sort` orders them — no `sort -z`, which not every
+  # supported `sort` has (PR #527 Codex R24/R25). An odd field count (a
+  # truncated listing) fails.
   _pg_z() {
     git -C "$1" config --list --show-origin -z > "$2.raw" || return $?
     _pgzo=""; _pgzn=0
     : > "$2.rec"
     while IFS= read -r -d '' _pgzf; do
-      if [ $((_pgzn % 2)) -eq 0 ]; then _pgzo="$_pgzf"; else printf '%s\t%s\0' "$_pgzo" "$_pgzf" >> "$2.rec"; fi
+      if [ $((_pgzn % 2)) -eq 0 ]; then _pgzo="$_pgzf"; else printf '%q\n' "$_pgzo	$_pgzf" >> "$2.rec"; fi
       _pgzn=$((_pgzn + 1))
     done < "$2.raw"
     [ $((_pgzn % 2)) -eq 0 ] && [ "$_pgzn" -gt 0 ] || return 3
-    sort -z "$2.rec" > "$2"
+    sort "$2.rec" > "$2"
   }
   _pg_z "$_pq/a" "$_FW_DIR/pgref.z" || : > "$_FW_DIR/pgref.z"
   _pg=""
@@ -366,6 +370,15 @@ EOF_PB
     esac
     _pgn=$((_pgn + 1)); _pgd="${_pge%/.git}"; _pgl="${_pgd#"$CTL"/}"
     if [ -L "$_pge" ] || [ ! -d "$_pge" ]; then _pg="$_pg $_pgl:[.git is not a directory]"; continue; fi
+    # Before git opens it: a `HEAD` or `config` that exists but is not a
+    # regular file (a FIFO, a directory, a link to one) is red, and git is NOT
+    # run on it — git blocks opening a FIFO `HEAD`, and nothing here has a
+    # watchdog (PR #527 Codex R25).
+    _pgbad=""
+    for _pgf in HEAD config; do
+      if { [ -e "$_pge/$_pgf" ] || [ -L "$_pge/$_pgf" ]; } && [ ! -f "$_pge/$_pgf" ]; then _pgbad="$_pgbad $_pgf"; fi
+    done
+    if [ -n "$_pgbad" ]; then _pg="$_pg $_pgl:[not a regular file:$_pgbad]"; continue; fi
     # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
     # NOTHING and exits 0, so an empty listing is red, not "no extra key".
     _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-origin 2>&1)" || _pgrc=$?
@@ -391,8 +404,8 @@ EOF_PB
     # above compare lines, so a value holding a newline shaped like another
     # `--show-origin` line forged a match (PR #527 Codex R24), and a line
     # written twice passed them (R17). `_pg_z` lists `-z` (NUL-bounded origin
-    # and key/value), pairs each origin with its entry into one NUL record,
-    # and sorts; the reference's and this repo's must be byte-identical. Any
+    # and key/value), pairs each origin with its entry into one record, and
+    # sorts; the reference's and this repo's must be byte-identical. Any
     # non-zero — a difference, or a listing/sort/cmp that could not run — is
     # red. The greps stay for the message.
     if [ -z "$_pgx" ] && [ -z "$_pgm" ]; then
@@ -539,8 +552,11 @@ _fgit_window() {
   # is matched. The paths reach `awk` through the environment, which interprets
   # nothing, and `awk` stops after three: no pipe, so no SIGPIPE.
   _fw_dg=0
+  # ANYWHERE in a record, not only at its start: a fixture that writes
+  # stderr without a newline makes bash append its diagnostic to that record
+  # (`x./fixtures.sh: … division by 0`; PR #527 Codex R25).
   _fw_diag="$(_FW_A="./fixtures.sh:" _FW_B="./prelude.sh:" awk '
-    index($0, ENVIRON["_FW_A"]) == 1 || index($0, ENVIRON["_FW_B"]) == 1 { print; if (++n == 3) exit }
+    index($0, ENVIRON["_FW_A"]) > 0 || index($0, ENVIRON["_FW_B"]) > 0 { print; if (++n == 3) exit }
   ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
   [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
   if [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
