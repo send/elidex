@@ -61,8 +61,8 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # The window runs in `$_FW_DIR`, not here, so a `PATH` entry that is not
 # absolute (`bin`, `../x`, `.`, an empty one, `~`, `~login/…`) names other
 # files, or none, from there — and what bash makes of the tilde forms depends
-# on its version and mode (measured: 5.3 and 3.2 expand them; 5.3 --posix and
-# dash do not). So the window does NOT re-interpret `PATH` (PR #527 Codex
+# on its version and mode (measured, `~` and `~login` alike: bash 5.3 and 3.2
+# expand them, and so does 3.2 --posix; 5.3 --posix and dash do not). So the window does NOT re-interpret `PATH` (PR #527 Codex
 # R11–R13: an emulation of the lookup grew one case per round). Instead:
 # - `git` is resolved HERE, by this shell's own lookup, and pinned in
 #   `$_FGIT_BIN` as an `exec <absolute path>` wrapper, so the window, its
@@ -75,8 +75,8 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 #   launch, P-e's reference, P-f);
 # - the window's `PATH` is `$_FGIT_BIN` followed by the caller's ABSOLUTE
 #   entries only, so the fixtures' OTHER commands (`mkdir`, `ln`, `chmod` …)
-#   come from those entries alone — which of them runs is outside P (memo
-#   §0.1, R4). A tool the fixtures need that only a dropped entry provides
+#   come from those entries alone — which of them runs is outside P (memo §1,
+#   "Outside P"). A tool the fixtures need that only a dropped entry provides
 #   makes the window fail, which is red. P-j checks this shape from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
   _fr="$(type -P "$1")" || _fr=""
@@ -85,9 +85,12 @@ _fgit_resolve() { # $1 = a command name → the absolute path of the file this s
 }
 _FGIT_BIN="$SCRATCH/fgit-bin"
 mkdir "$_FGIT_BIN" || exit 2
-_fr="$(_fgit_resolve git)"
-if [ -n "$_fr" ]; then
-  { printf '#!/bin/sh\nexec %s "$@"\n' "$(_shq "$_fr")" > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
+# ONE resolution of `git`: the wrapper below and `$_REAL_GIT` (which the
+# fixtures' shims exec) are both built from `$_FGIT_GIT`, so they cannot name
+# two different files.
+_FGIT_GIT="$(_fgit_resolve git)"
+if [ -n "$_FGIT_GIT" ]; then
+  { printf '#!/bin/sh\nexec %s "$@"\n' "$(_shq "$_FGIT_GIT")" > "$_FGIT_BIN/git" && chmod +x "$_FGIT_BIN/git"; } || exit 2
 fi
 _FGIT_PATH="$_FGIT_BIN"; _fp_rest="$PATH:"
 while [ -n "$_fp_rest" ]; do
@@ -255,7 +258,9 @@ EOF_PB
   # examined, and one the census cannot read is a new, unrequested restriction —
   # red.
   _pgpop="$_FW_DIR/pgpop"; _pgn=0
-  find "$CTL" \( -name .git -print0 \) -o \( -type f -name HEAD -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
+  # `HEAD` of ANY type: a symlink `HEAD` is a shape git still reads (PR #527
+  # Codex R16 — `-type f` left such a bare repo out of the census entirely).
+  find "$CTL" \( -name .git -print0 \) -o \( -name HEAD -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"
   if [ -e "$_FW_DIR/pgpop.failed" ] || [ -s "$_FW_DIR/pgpop.err" ]; then
     _pg="$_pg (the git-dir census under the fixture root failed: $(head -3 "$_FW_DIR/pgpop.err" | tr '\n' ';'))"
@@ -296,9 +301,13 @@ EOF_PB
   # P-c last: nothing in the window may have written into the void. Tested by
   # the shell's own globs, not by `$(ls -A …)`: command substitution strips
   # trailing newlines, so an entry whose name is only newlines read as an
-  # empty listing, and a failed `ls` read as one too (PR #527 Codex R14).
+  # empty listing (PR #527 Codex R14). A void the globs cannot list — not a
+  # directory, or not readable and searchable — is red too: globs over an
+  # unreadable directory expand to nothing, the same silent "empty" a failed
+  # `ls` gave (the fix-delta review after R14).
   _pcv=""
-  if [ ! -d "$_FGIT_VOID" ] || [ -L "$_FGIT_VOID" ]; then _pcv=" (the void is not a directory)"; fi
+  if [ ! -d "$_FGIT_VOID" ] || [ -L "$_FGIT_VOID" ]; then _pcv=" (the void is not a directory)"
+  elif [ ! -r "$_FGIT_VOID" ] || [ ! -x "$_FGIT_VOID" ]; then _pcv=" (the void cannot be listed)"; fi
   for _pce in "$_FGIT_VOID"/* "$_FGIT_VOID"/.[!.]* "$_FGIT_VOID"/..?*; do
     if [ -e "$_pce" ] || [ -L "$_pce" ]; then _pcv="$_pcv [$(printf '%s' "${_pce#"$_FGIT_VOID"/}" | tr '\n' '?')]"; fi
   done
@@ -492,7 +501,7 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-_REAL_GIT="$(_shq "$(_fgit_resolve git)")"
+_REAL_GIT="$(_shq "$_FGIT_GIT")"
 _REAL_GREP="$(_shq "$(_fgit_resolve grep)")"
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
 # wire. It is checked by round-tripping a path that holds each thing that broke

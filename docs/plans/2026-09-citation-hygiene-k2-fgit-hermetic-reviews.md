@@ -316,7 +316,7 @@ subject, which was every item listed above. Anything else stays open for round 5
 
 ---
 
-## §13 Implementation results (moved unchanged from the design memo §13)
+## §13 Implementation results (moved unchanged from the design memo §13; the PR #527 subsection at its end was written here)
 
 Branch `k2-wire-fgit-hermetic`: C0b `26e445fd`, C1 `b94518ee`, C2 `339b7137`, C3 `5bae4b4e`, C4
 `a257d8f9`, C5 `386febc8`. Every run: both shells, `HOME` a scratch dir, fresh `git clone --local` per
@@ -386,9 +386,11 @@ Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
 
 ### PR #527 — external review and the fix-delta reviews (2026-09-28)
 
-Round history moved here from the memo, which keeps only the live decision. Each claim below is
-re-runnable: the commands are in the commit messages named, run from a `git clone --local` sandbox
-with a scratch `HOME`, on bash 5.3 (`/opt/homebrew/bin/bash`) and 3.2 (`/bin/bash`, `PATH=/bin:/usr/bin` first).
+Round history moved here from the memo, which keeps only the live decision. The scenario and result
+of each claim below are in the commit messages named (they hold no commands); every run was from a
+`git clone --local` sandbox with a scratch `HOME`, on bash 5.3 (`/opt/homebrew/bin/bash`) and 3.2
+(`/bin/bash`, `PATH=/bin:/usr/bin` first). Commit SHAs are PR-branch commits: after the squash merge
+they are reachable through the PR.
 
 - **Codex R1** (`36484cbb`): P-g compares as a set in both directions; the removal record (`git config
   --unset core.filemode`) added.
@@ -404,18 +406,28 @@ with a scratch `HOME`, on bash 5.3 (`/opt/homebrew/bin/bash`) and 3.2 (`/bin/bas
   head and survives with its clause removed (16 runs, `da2730d4`'s message).
 - **Codex R11–R13 → PATH** (`0fc775c0`, `dce8cb8c`, `661833f9`): relative entries, then `~`, then
   `~login` — an emulation of the lookup growing a case per round. Measured tilde behaviour: bash 5.3 and
-  3.2 expand `~` and `~login` in command lookup; 5.3 `--posix` and dash do not; execvp does not. Replaced
+  3.2 expand `~` (`dce8cb8c`) and `~login` in command lookup; 5.3 `--posix` and dash do not; execvp does
+  not. `~login` was measured after `661833f9` (whose message says it could not be) with the invoking
+  user's own login: `env -i HOME=/nonexistent PATH="~$(id -un)/.local/bin:/usr/bin:/bin" <shell> -c
+  'command -v claude'` — found by bash 5.3, 3.2 and 3.2 `--posix`; not by 5.3 `--posix` or dash. Replaced
   by pinning the `git` this shell resolves and dropping non-absolute entries. Hand measurements: a
   `tools/bin` git wrapper was P-e red on `da2730d4` and PASSED after; a `~/bin` git wrapper saw 97 calls
   from inside the window.
 - **Codex R12** (`dce8cb8c`): P-a / P-g read `--show-origin` only (git 2.8), not `--show-scope` (2.26);
   a `git` shim rejecting `--show-scope` was red before, PASSED after.
-- **fix-delta `/elidex-review` of `8614507c..661833f9`** and **Codex R14** (this commit): one resolver
+- **fix-delta `/elidex-review` of `8614507c..661833f9`** and **Codex R14** (`18035018`): one resolver
   (`$_REAL_GIT`/`$_REAL_GREP` through `_fgit_resolve`; with an exported function `git` the old
   `command -v` form made 7 controls recurse into their own shims, both shells); P-j with two records; the
   last-record-without-NUL record; P-g's `grep` status (Codex R14: `|| true` turned a grep error into a
   pass); P-c by globs (Codex R14: a newline-only name read as empty).
+- **fix-delta `/elidex-review` of `661833f9..18035018`** and **Codex R16** (the commit after `18035018`):
+  P-c also reds a void it cannot list (`chmod 300`: globs expand to nothing — the fail-open R14 named
+  for `ls`, left open by the glob form); `git` resolved once (`$_FGIT_GIT`) for the wrapper and
+  `$_REAL_GIT`; records for P-j's `git` clause, P-c's two listability clauses; P-g's census takes
+  `HEAD` of any type (Codex R16: a bare repo with a symlink `HEAD` was left out); citation and wording
+  fixes (`~login` provenance above, §1 "Outside P" instead of R4).
 
-Records: **128** (`_MUT_RECORDS_MIN=128`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 33 records
-after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1,
-Codex R1 +1, P-f clauses +5, P-j +2, P-g status +2, P-c +1.
+Records: **132** (`_MUT_RECORDS_MIN=132`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 37 records
+after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
+(22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
+P-g census +1, P-c +3.
