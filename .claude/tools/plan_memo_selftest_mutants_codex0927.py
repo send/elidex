@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """PR #510 mutation-proof rows of Codex R38 of 2026-09-27 (a corpus-sweeping
-proof control fails on any excluded or skipped item) and Codex R40 of
-2026-09-28 (the report banner's display name).  Carved at the review-round
+proof control fails on any excluded or skipped item), Codex R40 of 2026-09-28
+(the report banner's display name) and Codex R47 of 2026-09-28 (the vendored
+files are pinned).  Carved at the review-round
 seam `_mutants_r26.py` / `_r30.py` / `_r45.py` use.
 
 ⚠ THE LABEL "R38" IS OLDER THAN THIS MODULE: the "(R38 seed)" cases in
@@ -66,4 +67,15 @@ MUTANTS += [
      'print(printable("plan-memo-umbrella-check  --  %s" % pop.display(pop.main.path)))',
      'print(printable("plan-memo-umbrella-check  --  %s" % pop.main.path))',
      [BANNER_DISPLAY]),
+]
+
+# -- PR #510 Codex R47 of 2026-09-28: the vendored files are pinned.
+VENDORED_PIN = ("every vendored file the self-test reads matches its pin (sha256 and item count), and a "
+                "copy truncated to its first item does not")
+MUTANTS += [
+    ("R47 of 2026-09-28 pin: a vendored file that does not match its pin is refused (accept it)",
+     "plan_memo_selftest_conformance.py",
+     "    if got != want or n != count:",
+     "    if False:",
+     [VENDORED_PIN]),
 ]

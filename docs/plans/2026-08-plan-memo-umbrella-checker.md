@@ -417,7 +417,8 @@ extract, so this list is cited from the 0.31.2 text directly, re-verified 2026-0
 **The falsifier of every row is the spec's own example list** (R12): `spec.commonmark.org/0.31.2/spec.json`
 is official and machine-readable, and its examples for `Tabs` §2.2, §4.1–§4.9, — since design re-gate 3
 (MIN-6) — `Block quotes` §5.1, Examples 228–252, and — since R15 — `List items` §5.2, Examples 253–300, and
-`Lists` §5.3, Examples 301–326 (295 of the 652; fields `example` / `section` / `markdown` / `html`) are
+`Lists` §5.3, Examples 301–326 (295 of the 652, pinned by sha256 and count in
+`plan_memo_selftest_conformance.PINS`; fields `example` / `section` / `markdown` / `html`) are
 vendored in
 `.claude/tools/commonmark-0.31.2-block-examples.json`. The control `plan_memo_selftest_conformance.py`
 (every `--self-test` run) puts each through `Memo` and consumes the expected html against Phase 1's
@@ -539,7 +540,8 @@ census at rc 0.
 **Inline conformance corpus** (`commonmark-0.31.2-inline-examples.json`, the §3.0 corpus's sibling):
 the spec's own examples for every LEXED row — Backslash escapes 13, Entity and numeric character
 references 17, Code spans 22, **Emphasis and strong emphasis 132** (Examples 350–481, vendored at
-design re-gate 4), Links 90, Images 22, Autolinks 19, Raw HTML 20 = **335 examples, 335 aligned, 0
+design re-gate 4), Links 90, Images 22, Autolinks 19, Raw HTML 20 = **335 examples** (pinned by sha256
+and count in `plan_memo_selftest_conformance.PINS`), **335 aligned, 0
 excluded, 0 FAIL**. The §6.2 claim the aligner checks is one `<em>` per matched pair of one delimiter
 character a side and one `<strong>` per pair of two, `_` and `*` alike, and a `<del>` for none of
 them — pure CommonMark has no strikethrough, so the GFM half of that row is **empty by construction

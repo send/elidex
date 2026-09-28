@@ -656,13 +656,15 @@ def html_block_tag_names_control(M):
     control here re-fetches the network.  And nothing about start conditions
     1-5 and 7, whose literals are short enough to read but are checked only by
     the 295 vendored block examples."""
-    import json
     import plan_memo_blocks
 
+    import plan_memo_selftest_conformance as conf
     path = HERE / _HTML_TAGS_FILE
     if not path.exists():
         return False, "the vendored list %s is missing" % _HTML_TAGS_FILE
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data, why = conf.vendored(path)
+    if why is not None:
+        return False, why
     missing = [k for k in ("source", "version", "sha256", "derivation", "tag_names") if not data.get(k)]
     if missing:
         return False, "%s names no %s: an artefact without its provenance is a second transcription" % (

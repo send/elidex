@@ -8,7 +8,8 @@ both directions (a type-6 tag name dropped; a `<!` rule cited from 0.29), and
 a hand-written control per clause is a transcription of the same reading.
 The spec ships its examples machine-readable (`spec.json`: markdown, html,
 example number, section); the ones for the block sections Phase 1 lexes are
-vendored in `commonmark-0.31.2-block-examples.json` (295 examples over
+vendored in `commonmark-0.31.2-block-examples.json` (295 examples, pinned
+by sha256 and count in `PINS`, over
 `Tabs` §2.2, `Thematic breaks` §4.1, `ATX headings` §4.2, `Setext headings`
 §4.3, `Indented code blocks` §4.4, `Fenced code blocks` §4.5, `HTML blocks`
 §4.6, `Link reference definitions` §4.7, `Paragraphs` §4.8, `Blank lines`
@@ -72,9 +73,9 @@ list since R21).  The spec's example lists for every inline section the plan's
 and numeric character references` §2.5 (25-41), `Code spans` §6.1 (328-349),
 `Emphasis and strong emphasis` §6.2 (350-481), `Links` §6.3 (482-571),
 `Images` §6.4 (572-593), `Autolinks` §6.5 (594-612), `Raw HTML` §6.6
-(613-632): 335 examples, the vendored file's whole list (it is pinned to
-0.31.2, so the figure moves only with a re-vendoring; `len` of its JSON
-list re-derives it) -- are vendored in
+(613-632): 335 examples, the vendored file's whole list (pinned by sha256
+and count in `PINS`, so a truncated or edited file fails the run) -- are
+vendored in
 `commonmark-0.31.2-inline-examples.json` and run through the SAME `align` the
 block corpus runs through.  One aligner, two corpora: an inline example's
 BLOCK structure is checked exactly as a block example's is (eight of them are
@@ -112,6 +113,7 @@ unified aligner has no such arm, because a block of another kind is checked as
 that kind.
 """
 
+import hashlib
 import json
 import pathlib
 import re
@@ -120,6 +122,33 @@ import tempfile
 HERE = pathlib.Path(__file__).resolve().parent
 EXAMPLES = HERE / "commonmark-0.31.2-block-examples.json"
 INLINE_EXAMPLES = HERE / "commonmark-0.31.2-inline-examples.json"
+
+# EVERY VENDORED FILE THE SELF-TEST READS, pinned by the sha256 of its bytes
+# and the length of the list it is read for (PR #510 Codex R47 of 2026-09-28):
+# a truncated or edited file fails its reader instead of shrinking the proof.
+# `shasum -a 256 .claude/tools/commonmark-0.31.2-*.json` re-derives the digests.
+PINS = {
+    "commonmark-0.31.2-block-examples.json":
+        ("78dcc7f6d75eb1f83e824eba3ce50f16ae3adc68f342a0d4fa56484279cfae26", "examples", 295),
+    "commonmark-0.31.2-inline-examples.json":
+        ("a38ef9c0281d6fb7cfb86ccd9b6f69732b6e08ae522f320e888eb9eef3b7a51c", "examples", 335),
+    "commonmark-0.31.2-html-block-tags.json":
+        ("69f5134dfb2364bd05c239927943c3b18109138ecbe55a84113480acdc5640f1", "tag_names", 62),
+}
+
+
+def vendored(path):
+    """(data, None) for a vendored file that matches its pin in `PINS`, else
+    (None, why): the ONE reader of every vendored file."""
+    want, key, count = PINS[path.name]
+    raw = path.read_bytes()
+    got = hashlib.sha256(raw).hexdigest()
+    data = json.loads(raw.decode("utf-8"))
+    n = len(data.get(key, ()))
+    if got != want or n != count:
+        return None, ("%s does not match its pin: sha256 %s (pinned %s), %d %s (pinned %d)"
+                      % (path.name, got[:12], want[:12], n, key, count))
+    return data, None
 
 # where a tight item's bare paragraph text ends: the item's close, or the
 # next block's tag on its own line (the renderer starts every block tag on a
@@ -405,10 +434,18 @@ def run_inline(M):
 
 
 def _run(M, corpus):
-    """(ok, detail): every example of `corpus` through `M.Memo` (the freshly
+    """(ok, detail) for the vendored `corpus`: red when it does not match its
+    pin (`vendored`), else `align_all` over it."""
+    data, why = vendored(corpus)
+    if why is not None:
+        return False, why
+    return align_all(M, data)
+
+
+def align_all(M, data):
+    """(ok, detail): every example of `data` through `M.Memo` (the freshly
     loaded `plan_memo_memo`); an example that is not aligned -- excluded
     outside `EXPECTED_EXCLUDED`, misaligned, or crashed -- is a FAIL."""
-    data = json.loads(corpus.read_text(encoding="utf-8"))
     passed, fails, skips = 0, [], {}
     with tempfile.TemporaryDirectory() as d:
         p = pathlib.Path(d) / "example.md"
@@ -470,7 +507,9 @@ def run_code_reading(M):
     import plan_memo_lexer
     import plan_memo_stream
 
-    data = json.loads(INLINE_EXAMPLES.read_text(encoding="utf-8"))
+    data, why = vendored(INLINE_EXAMPLES)
+    if why is not None:
+        return False, why
     rows = [r for r in data["examples"] if r["section"] == "Code spans"]
     if not rows:
         return False, "the vendored inline corpus holds no Code spans examples: nothing was checked"

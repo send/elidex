@@ -407,23 +407,43 @@ CONFORMANCE_EXCLUSION = ("the CommonMark conformance run FAILS when any example 
                          "table beside an aligned paragraph is red, the paragraph alone green")
 
 
+VENDORED_PIN = ("every vendored file the self-test reads matches its pin (sha256 and item count), and a "
+                "copy truncated to its first item does not")
+
+
+def vendored_pin_control(M):
+    """PR #510 Codex R47 of 2026-09-28: `plan_memo_selftest_conformance.vendored`
+    accepts each file of `PINS` as vendored and refuses a copy of it truncated
+    to its first item -- so a shrunken corpus fails its reader rather than
+    passing on a subset."""
+    import json
+    import plan_memo_selftest_conformance as conf
+    bad = []
+    with tempfile.TemporaryDirectory() as d:
+        for name, (_sha, key, _n) in sorted(conf.PINS.items()):
+            data, why = conf.vendored(conf.HERE / name)
+            if why is not None:
+                bad.append("the vendored file: " + why)
+                continue
+            data[key] = data[key][:1]
+            cut = pathlib.Path(d) / name
+            cut.write_text(json.dumps(data), encoding="utf-8")
+            if conf.vendored(cut)[1] is None:
+                bad.append("%s truncated to 1 %s was accepted" % (name, key))
+    return not bad, "; ".join(bad) or "%d pinned file(s) accepted, each truncated copy refused" % len(conf.PINS)
+
+
 def conformance_exclusion_control(M):
     """An example the conformance run EXCLUDES is a FAIL of the run: a
     two-example corpus, one paragraph that aligns and one GFM table that
     `excluded()` drops, is red, and its header counts the exclusion as a FAIL
     (PR #510 Codex R38 of 2026-09-27).  The discriminating half: the paragraph
     alone is green."""
-    import json
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
     para = {"example": 1, "section": "P", "markdown": "a\n", "html": "<p>a</p>\n"}
     table = {"example": 2, "section": "T", "markdown": "| a |\n| --- |\n| b |\n", "html": "<p>| a |</p>\n"}
-    with tempfile.TemporaryDirectory() as d:
-        got = []
-        for rows in ([para, table], [para]):
-            p = pathlib.Path(d) / "corpus.json"
-            p.write_text(json.dumps({"examples": rows}), encoding="utf-8")
-            got.append(conf._run(plan_memo_memo, p))
+    got = [conf.align_all(plan_memo_memo, {"examples": rows}) for rows in ([para, table], [para])]
     head = [g[1].split("\n")[0] for g in got]
     # the header counts the exclusion as a FAIL: what a reader of a red run sees first
     return (not got[0][0] and got[1][0] and head[0].endswith("1 excluded, 1 FAIL"),
@@ -937,6 +957,7 @@ def registry(case_rows=None):
         reg[c.name] = (c.kind, control(c))     # a duplicated case name is refused by `Registry`
     reg["CommonMark 0.31.2 spec examples (Tabs, §4.1-§4.9, §5.1-§5.3): Phase 1's block sequence aligns with the html"] = ("CONTROL", spec_examples_control)
     reg[CONFORMANCE_EXCLUSION] = ("CONTROL", conformance_exclusion_control)
+    reg[VENDORED_PIN] = ("CONTROL", vendored_pin_control)
     reg["CommonMark 0.31.2 spec examples (§2.4, §2.5, §6.1-§6.6): Phase 2's inline claim aligns "
         "with the html"] = ("CONTROL", inline_examples_control)
     reg["Phase 1's block sequence over the §4.4 chunk and the §5.1 / §5.2 container shapes matches commonmark.js"] = ("CONTROL", sequence_control)

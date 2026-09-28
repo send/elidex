@@ -119,8 +119,8 @@ MODULES
                           reader-gap controls and the role measure they read,
                           the same kind of seam) /
                           _selftest_mutants_codex0927.py (the rows of Codex
-                          R38 of 2026-09-27 and R40 of 2026-09-28, carved at
-                          the review-round seam) /
+                          R38 of 2026-09-27 and R40 / R47 of 2026-09-28,
+                          carved at the review-round seam) /
                           _selftest_mutants_population.py (the rows against the
                           module population's rules, the same kind of seam) /
                           _selftest_population.py (the partner controls of the
