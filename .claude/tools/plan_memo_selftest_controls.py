@@ -410,8 +410,9 @@ CONFORMANCE_EXCLUSION = ("the CommonMark conformance run FAILS when any example 
 def conformance_exclusion_control(M):
     """An example the conformance run EXCLUDES is a FAIL of the run: a
     two-example corpus, one paragraph that aligns and one GFM table that
-    `excluded()` drops, is red (PR #510 Codex R38 of 2026-09-27).  The discriminating half:
-    the paragraph alone is green."""
+    `excluded()` drops, is red, and its header counts the exclusion as a FAIL
+    (PR #510 Codex R38 of 2026-09-27).  The discriminating half: the paragraph
+    alone is green."""
     import json
     import plan_memo_memo       # the freshly loaded module
     import plan_memo_selftest_conformance as conf
@@ -423,8 +424,11 @@ def conformance_exclusion_control(M):
             p = pathlib.Path(d) / "corpus.json"
             p.write_text(json.dumps({"examples": rows}), encoding="utf-8")
             got.append(conf._run(plan_memo_memo, p))
-    return (not got[0][0] and got[1][0],
-            "with the table: %r; without: %r" % (got[0][1].split("\n")[0], got[1][1].split("\n")[0]))
+    head = [g[1].split("\n")[0] for g in got]
+    # the header counts the exclusion as a FAIL: what a reader of a red run sees first
+    return (not got[0][0] and got[1][0] and head[0].endswith("1 excluded, 1 FAIL"),
+            "with the table: ok=%s (want False), %r; without: ok=%s (want True), %r"
+            % (got[0][0], head[0], got[1][0], head[1]))
 
 
 def inline_examples_control(M):

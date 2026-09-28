@@ -506,7 +506,7 @@ def file_token_resolver_agreement_control(M):
             deep = max(deep, max(_depth_profile(name)))
     hits = [n for n in names
             if plan_memo_tokens.file_and_cite_spans(n) != [(0, len(n), "file")]]
-    # every generated name is expected to resolve: a skip is red, not a smaller sweep (R38's class)
+    # every generated name is expected to resolve: a skip is red, not a smaller sweep (Codex R38 of 2026-09-27's class)
     return (not hits and len(names) == generated >= 20 and deep >= 2,
             "%d of %d generated name(s) resolver-accepted and swept, deepest nesting %d, %d not read as "
             "one token%s" % (len(names), generated, deep, len(hits), (": " + "; ".join(hits[:3])) if hits else ""))
@@ -963,7 +963,7 @@ def file_token_run_agreement_control(M):
         base = pathlib.Path(d)
         for stem in stems:
             (base / stem).write_text("x", encoding="utf-8")
-        followed, bad = 0, []
+        followed, bad, nbad = 0, [], 0
         for stem in stems:
             for tail in tails:
                 run = stem + tail
@@ -983,11 +983,12 @@ def file_token_run_agreement_control(M):
                 # so that is what is measured.
                 exposed = [t.id for t in plan_memo_ids.tokens(run)
                            if not any(a <= t.idstart and t.idend <= b for a, b in spans)]
+                nbad += bool(exposed)
                 if exposed and len(bad) < 5:
                     bad.append("%r -> spans %r leave %r for the naming scan"
                                % (run, [run[a:b] for a, b in spans], exposed))
-    if followed != len(stems) * len(tails):     # a skip is red, not a smaller corpus (R38's class)
+    if followed != len(stems) * len(tails):     # a skip is red (Codex R38 of 2026-09-27's class)
         return False, ("%d of %d generated run(s) resolve to a file: the corpus cannot report this "
                        "rule" % (followed, len(stems) * len(tails)))
-    return not bad, ("%d run(s) the resolver follows, none leaving an id for the naming scan%s"
-                     % (followed, ("; " + "; ".join(bad)) if bad else ""))
+    return not nbad, ("%d of %d run(s) the resolver follows leave an id for the naming scan%s"
+                      % (nbad, followed, ("; " + "; ".join(bad)) if bad else ""))

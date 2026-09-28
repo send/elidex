@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""PR #510 mutation-proof rows of the Codex rounds of 2026-09-27 / -28 whose
-subject is not the reader gap (those rows are `_mutants_gap.py`'s): R38 of
-2026-09-27 (a corpus-sweeping proof control fails on any excluded or skipped
-item) and R40 of 2026-09-28 (the report banner's display name).  Carved at the
-review-round seam `_mutants_r26.py` / `_r30.py` / `_r45.py` use.
+"""PR #510 mutation-proof rows of Codex R38 of 2026-09-27 (a corpus-sweeping
+proof control fails on any excluded or skipped item) and Codex R40 of
+2026-09-28 (the report banner's display name).  Carved at the review-round
+seam `_mutants_r26.py` / `_r30.py` / `_r45.py` use.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
 gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
@@ -20,6 +19,11 @@ MUTANTS += [
      "plan_memo_selftest_conformance.py",
      "    return not fails and not unexpected and passed > 0, \"\\n\".join(lines)",
      "    return not fails and passed > 0, \"\\n\".join(lines)",
+     [CONFORMANCE_EXCLUSION]),
+    ("R38 conformance: the header counts an unexpected exclusion as a FAIL (count only the misaligned)",
+     "plan_memo_selftest_conformance.py",
+     "                                                               len(fails) + len(unexpected))]",
+     "                                                               len(fails))]",
      [CONFORMANCE_EXCLUSION]),
 ]
 

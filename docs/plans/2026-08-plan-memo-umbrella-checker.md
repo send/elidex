@@ -4,6 +4,9 @@
 > `190d2adb` (PR #506's: `git fetch origin pull/506/head`) and `4394af4c` (on `main`). After the squash
 > merge the #510 ones resolve from the PR ref: `git fetch origin pull/510/head`, then run the cited
 > `git show` / `git archive` / `git log -S` against `FETCH_HEAD`.
+> In "Codex R<n> of 2026-09-27" and "of 2026-09-28" the date is the UTC date of the round's review
+> comments (`gh api repos/send/elidex/pulls/510/comments`, `created_at`); the carve and acceptance dates
+> beside them ("carved 2026-09-28") are local, JST (UTC+9).
 
 **Status**: plan-review **converged** 2026-08-22 (IMP 16 → 10 → 3 across three rounds; R3's three were mechanism decisions, applied below; remaining MINs applied). Implementation order: Slice 0 → Slice 1 (this PR) → Slice 2. **Implementation record (Slice 0 `718626e9`, Slice 1 `7931798d`)**: premises of this plan the implementation found false are marked ⚠ inline below; measurements in §6 are the re-run values. Branch `vm-p4-plan-memo-checker` (worktree
 `elidex-wt-vmp4checker`, base `origin/main`). Files carried verbatim from #506 @ `190d2adb` **at the
@@ -1445,7 +1448,7 @@ committed here by the note that corrected it.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (the four attempts above). **Re-eval: 2026-12-31.**
 - **(own)** **A VOCABULARY MATCH READ ACROSS A MASKED SPAN** (PR #510 Codex R25 of 2026-09-27 on `e9575a37` —
-  it predates R22: reproduced at `94281cd7` and `900c16eb`; the checker is not on `main`, so it is this
+  it predates R22 of 2026-09-27: reproduced at `94281cd7` and `900c16eb`; the checker is not on `main`, so it is this
   PR's own — **carved 2026-09-28, user-approved**). The disposed stream stands a code span or an
   autolink as blanks, and the blanks satisfy `GAP`, so a phrase interrupted by one is still matched.
   `` The child `is not` of 9z owns it. `` licenses `9z`: 0 sites reported, no `LEX-SPLIT?` seed, rc 0;
@@ -1482,7 +1485,7 @@ committed here by the note that corrected it.
   **Owner**: a plan-reviewed follow-up PR of this checker. No slot: it is this checker's own gate.
   **Trigger**: already fired (Codex R25 of 2026-09-27). **Re-eval: 2026-12-31.**
 - **(own)** **AN UNMATCHED `)` HAS TWO RATIFIED NOTIONS** (PR #510 Codex R30 of 2026-09-27 on `8c1734a6` — it
-  predates R22: origin `b2ed042f` (R35), on the PR branch only — **carved 2026-09-28,
+  predates R22 of 2026-09-27: origin `b2ed042f` (R35, 2026-09-20), on the PR branch only — **carved 2026-09-28,
   user-approved**). `notes.md#frag)9z owns it.` masks `9z`: 0 sites reported, while
   `notes.md#frag) 9z owns it.` reports 1. Two ratified rules decide `)` differently:
   R26-2, an unmatched `)` ends the segment (the POSITIVE case at `plan_memo_selftest_cases_r26.py:71`,
