@@ -571,8 +571,8 @@ done
 ( cd "$CTL/d2red" && git init -q . >/dev/null 2>&1 && mkdir sub \
   && printf '# %s\n' "$CONTROL_CLEAN" > sub/a.py && printf '# %s\n' "$CONTROL_CLEAN" > ok.py \
   && git add -A >/dev/null 2>&1 \
-  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py \
-  && _seal "$CTL/d2red/sub" 0444 d2red ) || _fixture_failed d2red
+  && printf 'RULE = "%s"\n' "$CONTROL_K2" > sub/a.py ) \
+  && _seal "$CTL/d2red/sub" 0444 d2red || _fixture_failed d2red
 # …and its green partners: a tracked directory deleted wholesale (every
 # ancestor below the root is missing), and one replaced by a regular FILE (the
 # nearest existing ancestor is not a directory).

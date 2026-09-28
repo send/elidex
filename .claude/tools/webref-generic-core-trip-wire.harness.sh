@@ -139,8 +139,12 @@ EOF_PB
   elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
   # P-i: the window pins the files ref format, and its plain init has it. A git
   # without `--show-ref-format` (before 2.45) has no reftable, so its answer is
-  # files by construction.
-  _rf="$(git -C "$_pq/a" rev-parse --show-ref-format 2>/dev/null)" || _rf=files
+  # files by construction — but such a git does not fail: `rev-parse` echoes an
+  # option it does not know and exits 0, so that literal echo is what means
+  # "files". Any other answer, including a failed call or a format name this
+  # wire has not met, stays itself and is red unless it is `files`.
+  _rf="$(git -C "$_pq/a" rev-parse --show-ref-format 2>/dev/null)" || _rf="[rev-parse failed]"
+  case "$_rf" in --show-ref-format) _rf=files ;; esac
   if [ "${GIT_DEFAULT_REF_FORMAT:-}" != files ] || [ "$_rf" != files ]; then
     echo "!! CONTROL FAILED ($_pi_lbl): GIT_DEFAULT_REF_FORMAT is [${GIT_DEFAULT_REF_FORMAT:-}], a plain init has [$_rf]" >&2; _fpv=1
   fi
