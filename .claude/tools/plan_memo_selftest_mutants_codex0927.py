@@ -4,9 +4,10 @@ proof control fails on any excluded or skipped item) and Codex R40 of
 2026-09-28 (the report banner's display name).  Carved at the review-round
 seam `_mutants_r26.py` / `_r30.py` / `_r45.py` use.
 
-⚠ TWO ROUNDS SHARE THE LABEL "R38": the older R38 (2026-09-20, e82d3324) is
-the "(R38 seed)" cases in `_cases_r26.py` and the "R34-2/R38" rows in
-`_mutants_r30.py`.  So this module's labels carry their date.
+⚠ THE LABEL "R38" IS OLDER THAN THIS MODULE: the "(R38 seed)" cases in
+`_cases_r26.py` (added at e82d3324, 2026-09-20) and the "R34-2/R38" rows in
+`_mutants_r30.py` (added at 559e1704, 2026-09-21) carry it too.  So this
+module's labels carry their date.
 
 `MUTANTS` here is this module's OWN list; `plan_memo_selftest_mutants.mutants()`
 gathers every mutants module's list (`plan_memo_selftest_harness.registry_modules`
