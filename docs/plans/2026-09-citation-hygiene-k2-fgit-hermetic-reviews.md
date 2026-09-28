@@ -442,8 +442,12 @@ they are reachable through the PR.
   level only — now searched through (`find -L`, through a file so a SIGPIPE cannot read as a failed
   search); the mutation summary counts excused entries; why a 2 is never excused and why the excuse
   is per label are stated in §6.
+- **Codex R19** (on `a650b146`): a link to a bare repo whose unborn `HEAD` is a dangling symlink
+  escaped the top-level `-e HEAD` test; the `find -L` search (which lists a dangling link by its
+  name) closes it — record added. The umbrella's status cell now names #527, which stays true after
+  the squash, instead of a branch and a future landing step.
 
-Records: **139** (`_MUT_RECORDS_MIN=139`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 44 records
+Records: **140** (`_MUT_RECORDS_MIN=140`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 45 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +5, P-g multiplicity +1, P-c +5.
+P-g census +6, P-g multiplicity +1, P-c +5.
