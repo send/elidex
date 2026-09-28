@@ -8,7 +8,13 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 42** (2026-09-28) — folds Codex R13 on #526 (`9dd65011`; P2 2, both in text rev 40/41 added). Both
+**Revision 43** (2026-09-28) — folds Codex R14 on #526 (`3e61644e`; P1 1, P2 1; decision-level). (1) F9's creation
+input is the spec's final sandboxing flag set from every source — an auxiliary (popup) document inherits its opener's
+flags (§7.3.1.7) as a nested one takes the embedder's; the popup path carries only a URL today (named risk,
+IBP-sandbox). (2) I1: a button-layout element's content is laid out by its own route whatever F4 answers — the
+replacedness child gate does not apply to it, so a probe answering `button` replaced cannot drop its label.
+
+Revision 42 (2026-09-28) — folds Codex R13 on #526 (`9dd65011`; P2 2, both in text rev 40/41 added). Both
 findings sat in mechanism detail the rev-40/41 fixes had written despite the approval scope (a bitwise formula for
 the flag union; a claim about how B1 re-keys F10). Fix at altitude: the memo keeps the decisions (IBP-sandbox computes
 the restriction-set union; B1 re-keys F10's relevant-global resolution) and records the mechanism as named risks —
@@ -539,7 +545,13 @@ restriction flags (`ALLOW_TOP_NAVIGATION` also grants the by-user-activation cas
 so a raw bitwise intersection is wrong; the union is taken over canonical restriction flags. HEAD derives a nested document's flags from its own `sandbox` attribute alone
 (`elidex-shell/src/content/iframe/load.rs:35`), and leaving the union to B1 would have every F10 consumer (the
 migrated gates, F4's canvas arm) read an unsandboxed answer for an unsandboxed iframe inside a sandboxed document. B1
-later swaps the union's producer with the rest of the input.
+later swaps the union's producer with the rest of the input. The same holds for every other source of the
+spec's **final** sandboxing flag set: in particular an **auxiliary** document (a popup / new tab) inherits its
+opener's active flags unless the escape flag applies (§7.3.1.7, §7.1.5), so IBP-sandbox carries the opener's set
+into that creation entry too — a **named risk** there: the popup path's request and IPC carry only a URL today
+(`OpenTabRequest`, `elidex-script-session/src/navigation.rs:147-163`; `ContentToBrowser::OpenNewTab`,
+`elidex-shell/src/ipc.rs:532`), so a sandboxed opener's tab would otherwise be stamped unsandboxed. No creation entry
+stamps flags it did not receive from the spec's algorithm.
 
 ### §0.6 Ratified-surface changes (the one list)
 
@@ -860,7 +872,7 @@ The F7 mapping move edits `elidex-form-core/src/lib.rs:232-279`, hunk-disjoint f
   (`elidex-render/src/builder/walk.rs:376`) only supplies pixels and stays as it is; the `IframeDisplayList` read
   (`:393-406`, whose comment says it will "skip child painting") gates children and is inside. `IBP-layout` owns the
   population, measures it in its own plan-memo with a command and a statement of what the command cannot see, and
-  switches every member **together**, each onto the predicate matching its purpose — replacedness sites onto F4;
+  switches every member **together**, each onto the predicate matching its purpose — replacedness sites onto F4, except that a **button-layout element's content** (the spec-fixed content sources below) is laid out and painted by its own route whatever F4 answers — F4's generic replaced-element child suppression never applies to it;
   widget-rendering sites onto F7-based conditions its plan derives — such that **each element gets exactly one
   defined rendering** (rev 14's worked analysis is input in Appendix D). **Spec-fixed content sources — inputs to `IBP-layout`'s plan, independent of F4's answer** (the probe
   decides only replacedness): the `button` element — "The button element represents a button labeled by its
