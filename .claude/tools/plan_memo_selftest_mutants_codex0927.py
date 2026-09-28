@@ -69,13 +69,18 @@ MUTANTS += [
      [BANNER_DISPLAY]),
 ]
 
-# -- PR #510 Codex R47 of 2026-09-28: the vendored files are pinned.
-VENDORED_PIN = ("every vendored file the self-test reads matches its pin (sha256 and item count), and a "
-                "copy truncated to its first item does not")
+# -- PR #510 Codex R47 of 2026-09-28: the vendored files are pinned, each half on its own.
+VENDORED_PIN = ("every vendored file the self-test reads matches its pin, and each half of the pin refuses "
+                "on its own: a same-count one-byte edit by the digest, a count that disagrees by the count")
 MUTANTS += [
-    ("R47 of 2026-09-28 pin: a vendored file that does not match its pin is refused (accept it)",
+    ("R47 of 2026-09-28 pin: the digest is compared (drop the comparison)",
      "plan_memo_selftest_conformance.py",
-     "    if got != want or n != count:",
+     "    if got != want:\n        return None, \"%s does not match its pin: sha256",
+     "    if False:\n        return None, \"%s does not match its pin: sha256",
+     [VENDORED_PIN]),
+    ("R47 of 2026-09-28 pin: the count is compared (drop the comparison)",
+     "plan_memo_selftest_conformance.py",
+     "    if n != count:",
      "    if False:",
      [VENDORED_PIN]),
 ]

@@ -137,17 +137,27 @@ PINS = {
 }
 
 
-def vendored(path):
-    """(data, None) for a vendored file that matches its pin in `PINS`, else
-    (None, why): the ONE reader of every vendored file."""
-    want, key, count = PINS[path.name]
-    raw = path.read_bytes()
+def vendored(path, pins=PINS):
+    """(data, None) for a vendored file that matches its pin, else (None,
+    why) -- for a file with no pin, an unreadable one, and one whose bytes or
+    whose count differ: the ONE reader of every vendored file.  The digest is
+    compared BEFORE decoding, so an edit that breaks the JSON is a refusal,
+    not a traceback."""
+    pin = pins.get(path.name)
+    if pin is None:
+        return None, "%s has no pin" % path.name
+    want, key, count = pin
+    try:
+        raw = path.read_bytes()
+    except OSError as e:
+        return None, "%s is unreadable (%s)" % (path.name, type(e).__name__)
     got = hashlib.sha256(raw).hexdigest()
-    data = json.loads(raw.decode("utf-8"))
-    n = len(data.get(key, ()))
-    if got != want or n != count:
-        return None, ("%s does not match its pin: sha256 %s (pinned %s), %d %s (pinned %d)"
-                      % (path.name, got[:12], want[:12], n, key, count))
+    if got != want:
+        return None, "%s does not match its pin: sha256 %s (pinned %s)" % (path.name, got[:12], want[:12])
+    data = json.loads(raw.decode("utf-8"))   # the pinned bytes: a digest match is the pinned file
+    n = len(data[key])
+    if n != count:
+        return None, "%s does not match its pin: %d %s (pinned %d)" % (path.name, n, key, count)
     return data, None
 
 # where a tight item's bare paragraph text ends: the item's close, or the

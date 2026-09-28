@@ -407,30 +407,35 @@ CONFORMANCE_EXCLUSION = ("the CommonMark conformance run FAILS when any example 
                          "table beside an aligned paragraph is red, the paragraph alone green")
 
 
-VENDORED_PIN = ("every vendored file the self-test reads matches its pin (sha256 and item count), and a "
-                "copy truncated to its first item does not")
+VENDORED_PIN = ("every vendored file the self-test reads matches its pin, and each half of the pin refuses "
+                "on its own: a same-count one-byte edit by the digest, a count that disagrees by the count")
 
 
 def vendored_pin_control(M):
     """PR #510 Codex R47 of 2026-09-28: `plan_memo_selftest_conformance.vendored`
-    accepts each file of `PINS` as vendored and refuses a copy of it truncated
-    to its first item -- so a shrunken corpus fails its reader rather than
-    passing on a subset."""
-    import json
+    accepts each file of `PINS`, and refuses (a) a copy with one byte changed
+    and the same item count -- the digest's arm -- and (b) the pinned bytes
+    under a pin whose count disagrees -- the count's arm -- each returning
+    `(None, why)` rather than raising."""
     import plan_memo_selftest_conformance as conf
     bad = []
     with tempfile.TemporaryDirectory() as d:
-        for name, (_sha, key, _n) in sorted(conf.PINS.items()):
-            data, why = conf.vendored(conf.HERE / name)
-            if why is not None:
-                bad.append("the vendored file: " + why)
+        for name, (sha, key, count) in sorted(conf.PINS.items()):
+            path = conf.HERE / name
+            if conf.vendored(path)[1] is not None:
+                bad.append("the vendored file: " + conf.vendored(path)[1])
                 continue
-            data[key] = data[key][:1]
-            cut = pathlib.Path(d) / name
-            cut.write_text(json.dumps(data), encoding="utf-8")
-            if conf.vendored(cut)[1] is None:
-                bad.append("%s truncated to 1 %s was accepted" % (name, key))
-    return not bad, "; ".join(bad) or "%d pinned file(s) accepted, each truncated copy refused" % len(conf.PINS)
+            raw = path.read_bytes()
+            i = raw.index(b'"', raw.index(b'"source"') + len(b'"source"') + 1) + 1
+            edit = pathlib.Path(d) / name
+            edit.write_bytes(raw[:i] + (b"X" if raw[i:i + 1] != b"X" else b"Y") + raw[i + 1:])
+            if conf.vendored(edit)[1] is None:
+                bad.append("(a) %s with one byte changed, %d %s kept, was accepted" % (name, count, key))
+            wrong = {name: (sha, key, count + 1)}
+            if conf.vendored(path, wrong)[1] is None:
+                bad.append("(b) %s under a pin of %d %s was accepted" % (name, count + 1, key))
+    return not bad, "; ".join(bad) or ("%d pinned file(s) accepted; (a) each one-byte edit and (b) each "
+                                       "disagreeing count refused" % len(conf.PINS))
 
 
 def conformance_exclusion_control(M):

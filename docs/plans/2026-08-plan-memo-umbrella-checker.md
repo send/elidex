@@ -2,8 +2,10 @@
 
 > Commit ids cited in this memo and in the checker's comments are PR #510 branch commits, except
 > `190d2adb` (PR #506's: `git fetch origin pull/506/head`) and `4394af4c` (on `main`). After the squash
-> merge the #510 ones resolve from the PR ref: `git fetch origin pull/510/head`, then run the cited
-> `git show` / `git archive` / `git log -S` against `FETCH_HEAD`.
+> merge the #510 ones resolve from the PR ref: `git fetch origin pull/510/head`, then run any cited git
+> command -- ranges and `--grep` locators included -- against `FETCH_HEAD` (a range's base, `658cc302`,
+> is on `main`). The `--grep` locators also resolve on `main`, because the repo squashes with the commit
+> messages (`gh api repos/send/elidex --jq .squash_merge_commit_message` = `COMMIT_MESSAGES`).
 > In "Codex R<n> of 2026-09-27" and "of 2026-09-28" the date is the UTC date of the round's review
 > comments (`gh api repos/send/elidex/pulls/510/comments`, `created_at`); the carve and acceptance dates
 > beside them ("carved 2026-09-28") are local, JST (UTC+9).
@@ -63,11 +65,12 @@ or unscanned population (never a clean exit for "could not scan"). Seeds never g
 
 **Interim connection on `main`** (the checker's subject memo lands with #506, later): Slice 1 adds
 `.claude/tools/plan-memo-umbrella-selftest-trip-wire.sh` (runs `python3 … --self-test --mutants`;
-memo-independent — fixtures live in `tempfile` dirs; its runtime is measured in the ⚠ paragraph below) **and registers it in `REQUIRED_WIRES`
+fixtures live in `tempfile` dirs, but it reads `docs/plans/*.md` for `symbol_attribution_control`
+(since 94124588); its runtime is measured in the ⚠ paragraph below) **and registers it in `REQUIRED_WIRES`
 in `scripts/trip-wires.sh` in the same commit** — the driver diffs the glob against that list in both
 directions and FAILs an unregistered wire (the list is `REQUIRED_WIRES` in `scripts/trip-wires.sh`, the diff + FAIL
 the `missing` / `unregistered` blocks after its loop; measured: a stub wire → rc 1 "ran but are not registered"). Two documentation claims become false and are updated in the
-same commit: `.github/workflows/ci.yml:152` "No toolchain step: the wires are grep-only" (this wire
+same commit: `.github/workflows/ci.yml`'s "No toolchain step: the wires are grep-only" (this wire
 needs `python3`, present on `ubuntu-latest` but named nowhere in the workflow — state the dependency
 there) and the wire inventory comment in `mise.toml:103-106`. A CLAUDE.md *Development Rules*
 sentence names the tool + its trip-wire. The memo-specific invocation clause stays in #506. **#506's
@@ -81,7 +84,7 @@ its versions are the pre-Slice-0 monolith this program replaces; (b) `CLAUDE.md:
 run it, what its exit means for that memo) — this PR's bullet carries the tool description, exit codes and
 the trip-wire — and must **reword** its "だから `trip-wires` には入れない" sentence (true of the memo run,
 false of the self-test wire once this lands). The file header's "branch `vm-p4-plan-doc`" / "home is
-CLAUDE.md" / "duplicated four ways" lines and the two `§6.6` docstrings (`plan_memo_tables.py:116/153`,
+CLAUDE.md" / "duplicated four ways" lines and the two `§6.6` docstrings (in `plan_memo_tables.py`,
 CommonMark 0.31.2 §6.6 = Raw HTML) are rewritten in Slice 1.
 
 ⚠ **A SECOND concurrent lane touches the same one-line list, and no obligation named it until PR #510
@@ -432,7 +435,7 @@ direct child of a TIGHT list's item, bare inline text up to `</li>` or the next 
 refusing the tight claim (⚠ the first R15 aligner searched to `</li>` and read past a `<p>`, so every
 "loose" mutant survived: the claim could not go red) — a definition
 nothing, the html exhausted at the end — and each paragraph's `<p>` body checked against Phase 2's
-inline claim (`inline_claim`, called by `align` at `plan_memo_selftest_conformance.py:319` / `:331`). Excluded by
+inline claim (`inline_claim`, called by `plan_memo_selftest_conformance.align`). Excluded by
 predicate over Phase 1's own output, printed per run -- and every exclusion is a FAIL, since
 `EXPECTED_EXCLUDED` is empty (PR #510 Codex R38 of 2026-09-27): a GFM table Phase 1 admitted (local policy over pure
 CommonMark; no vendored example holds a `|` where a table could open — empty by construction), and NOTHING
@@ -995,7 +998,8 @@ attestation, a hand-written set that the entries added since had outgrown) — w
 `memory/feedback_defer-accumulation-signals-mis-drawn-slice.md` asks for. Splitting what remains
 would mean cutting the checker itself, and the pieces do not separate: every entry names the SAME
 program, and the split this PR could take at a real seam it has already taken as standalone
-touch-time commits (among `git log --oneline origin/main..HEAD --grep='touch-time'`). A further split would be a split of the deferral LIST,
+touch-time commits (among `git log --oneline 658cc302..FETCH_HEAD --grep='touch-time'`, after the head
+note's fetch). A further split would be a split of the deferral LIST,
 not of the work — which changes no reader's decision and loses the one home that ties the entries to
 the design they came from.
 

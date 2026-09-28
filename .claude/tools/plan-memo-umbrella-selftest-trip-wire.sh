@@ -20,8 +20,10 @@
 # wire needs to say is the INVARIANT and the command, not a list somebody must
 # remember to extend.
 #
-# Memo-INDEPENDENT: the fixtures are built in `tempfile` directories, so this
-# wire does not read any plan memo and cannot red a PR that edits one.  The
+# The fixtures are built in `tempfile` directories, but the wire DOES read the
+# plan memos: `plan_memo_selftest_records._attribution_corpus` reads
+# `docs/plans/*.md`, so a memo edit that writes a `module.symbol` naming the
+# wrong module turns `symbol_attribution_control` red (since 94124588).  The
 # memo run itself (`plan-memo-umbrella-check.py <memo>`) is NOT a trip-wire:
 # `SCHEMAS` matches one document family's header rows and exits 2 on any other
 # memo; it is invoked by hand when that memo is edited (see CLAUDE.md
