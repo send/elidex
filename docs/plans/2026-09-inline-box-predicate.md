@@ -8,7 +8,13 @@ changes (§0.6), and the slots and ledger (§6). §1's mechanism prose, §2's co
 and may change them. A review finding against that input changes this memo only when it changes a decision; otherwise
 it is recorded as a named risk in the owning sub-PR's input lines.
 
-**Revision 50** (2026-09-28) — folds the re-check of rev 49 (IMP 1 / MIN 2): the scripting-deciding sources are
+**Revision 51** (2026-09-28) — folds Codex R24 on #526 (`e510acc7`; P1 1). With F9 now the final flag set, origin
+derivation reading the partial set would be a second, divergent representation of the same fact (§1's one-
+representation rule), so every consumer — F10r's gates and origin derivation (`load.rs:540-548`, `pipeline.rs:257-261`)
+— reads the one creation input; nested, CSP-sandboxed and auxiliary documents get the sandboxed origin their final set
+implies. `#11-sandbox-flag-set-sources` keeps only flags no program consumer reads.
+
+Revision 50 (2026-09-28) — folds the re-check of rev 49 (IMP 1 / MIN 2): the scripting-deciding sources are
 F9's **definition** (a representation decision), not a repair §0.6 item 7 would place — IBP-sandbox is no exposer of
 those cells; I5 records F18 as its one shell-held exception; IBP-sandbox's gate column names the new axes (navigable
 state / popup IPC, CSP delivery).
@@ -599,9 +605,12 @@ the first F10 consumer (§0.6 item 7): HEAD shows an undrawn `<canvas>`'s fallba
 iframe's own `sandbox` (`elidex-shell/src/content/iframe/load.rs:35`). Named risks (IBP-sandbox's): the union is over
 canonical restriction flags — implied grants make a raw allow-bit intersection wrong (`elidex-plugin/src/sandbox.rs:147-169`);
 the popup request and IPC carry only a URL (`navigation.rs:147-163`, `ipc.rs:532`); response headers are discarded
-(`elidex-shell/src/pipeline.rs:848-855`). The sources that decide **no** program cell — sandboxed-origin propagation
-into an auxiliary document's origin, and flags no gate of this program reads — are `#11-sandbox-flag-set-sources`
-(A96). Rev 45 had moved all of them to that slot on a false premise ("HEAD's canvas answers replaced"); rev 49
+(`elidex-shell/src/pipeline.rs:848-855`). **Every consumer of the flag set reads this one creation input** — the gates
+through F10r and the origin derivation alike (`apply_sandbox_origin`, `elidex-shell/src/content/iframe/load.rs:540-548`;
+the top-level pipeline, `elidex-shell/src/pipeline.rs:257-261`) — so the sandboxed-origin flag reaches the origin of
+every document whose final set carries it (nested, CSP-sandboxed, auxiliary): origin derivation left on the partial
+set would be a second, divergent representation of the same fact (§1). Only flags no program consumer reads are
+`#11-sandbox-flag-set-sources` (A96). Rev 45 had moved all of them to that slot on a false premise ("HEAD's canvas answers replaced"); rev 49
 restores the scripting sources on A93 grounds. B1 later swaps the producer of the creation input.
 
 ### §0.6 Ratified-surface changes (the one list)
@@ -1019,7 +1028,7 @@ Cross-sub-PR pairs:
 | CSS UI 4 §7.2.1 Properties Disabling Native Appearance | devolution: author-origin cascaded value after revert/revert-layer rollback, 44 properties, devolvable vs non-devolvable (host language) | F8 (F7 for devolvability; F4's read of it conditional on the probe); the devolved rendering (primitive appearance): IBP-layout's widget-rendering condition — a CSS box and its control content without native chrome — measured for button layout, where HTML leaves it undefined (§15.5.3's note "Need to define the primitive appearance"); host-language exceptions (e.g. `select`'s drop-down devolved state, §15.5.16) per F7 | IBP-classify (F8); IBP-layout (the rendering) | ✓ | yes |
 | SVG2 §5.1.3 Definitions | *outermost svg element* | F4 (replaced: elidex's reading, probed) | IBP-classify | ✓ | yes |
 | WHATWG HTML §4.8.11.13 User interface | "should expose a user interface" | F16 (elidex policy) | IBP-classify ; omitted branch: the interface itself — no media-control renderer exists (`elidex-render/src/builder/walk.rs:368-426` paints only `ImageData`, `IframeDisplayList`, `FormControlState`), so an exposing `audio` is a sized blank replaced box; HEAD renders no controls either (A96) → `#11-media-controls-ui` (§6) | ✗ | yes |
-| WHATWG HTML §7.1.5 Sandboxing | active sandboxing flag set, per Document; popup sandboxing flag set, per top-level browsing context; creation sandboxing flags | F9, F18 (sources that decide scripting: the iframe's `sandbox`, the embedder union, the popup set, CSP `sandbox`) | IBP-sandbox ; omitted branch: sandboxed-origin propagation into an auxiliary document's origin and flags no program cell reads — `#11-sandbox-flag-set-sources` (A96, §0.5) | ✗ | yes |
+| WHATWG HTML §7.1.5 Sandboxing | active sandboxing flag set, per Document; popup sandboxing flag set, per top-level browsing context; creation sandboxing flags | F9, F18 — read by every flag consumer, origin derivation included (sources that decide scripting: the iframe's `sandbox`, the embedder union, the popup set, CSP `sandbox`) | IBP-sandbox ; omitted branch: flags no program consumer reads — `#11-sandbox-flag-set-sources` (A96, §0.5) | ✗ | yes |
 | WHATWG HTML §7.5.1 Shared document creation infrastructure | *create and initialize a Document object* | F9 write point | IBP-sandbox | ✓ | no |
 | WHATWG HTML §7.3.2.1 Creating browsing contexts | initial `about:blank` document | F9 write point | IBP-sandbox | ✓ | no |
 | WHATWG HTML §8.1.3.4 Enabling and disabling scripting | settings clause (Window only); node and Window clauses | F10, F10r | IBP-sandbox | ✓ | yes |
@@ -1172,7 +1181,7 @@ and through F1 IBP-transform, IBP-observer and PR-1a — is downstream of IBP-la
   global-kind read is one component lookup, never `window_entity()` / `worker_scope_entity()`'s linear scans.
 - F10r: every flag gate reads through the one path; flag absence on a Window document fails closed.
 - F9's creation input includes the scripting-deciding sources (§0.5): the embedder→embeddee restriction-set union,
-  F18 for every document of an auxiliary navigable, and the CSP `sandbox` directive — F9's definition (§0.5), the A93 cells showing why it is no narrower
+  F18 for every document of an auxiliary navigable, and the CSP `sandbox` directive — F9's definition (§0.5), the A93 cells showing why it is no narrower; origin derivation reads the same input (nested, CSP-sandboxed and auxiliary documents get the sandboxed origin their final set implies)
   (`<canvas>` fallback, `@media (scripting)`) before `IBP-layout` and `IBP-css-machinery` fire it; named risks in
   §0.5.
 - F11: §13.2.4.5's four modes; fragment parsing follows its context element's document (§13.4 step 10) at every
@@ -1337,7 +1346,7 @@ Each prereq's touch set is its own plan's; these are the files this program edit
 - `clientTop`/`clientLeft` step 2 reads the computed border width; elidex returns the used one, which differs for a
   collapsed-border table cell (`elidex-layout-table/src/algo.rs:321` `resolve_collapsed_borders`) —
   `#11-client-border-computed-value` (NEW).
-- The §7.1.5 consequences no program cell reads (sandboxed-origin propagation to auxiliary documents; flags no program gate reads) — `#11-sandbox-flag-set-sources` (NEW, §6); the scripting-deciding sources are IBP-sandbox's (§0.5).
+- The §7.1.5 flags no program consumer reads — `#11-sandbox-flag-set-sources` (NEW, §6); the scripting-deciding sources, and origin derivation from the final set, are IBP-sandbox's (§0.5).
 - MathML (no `display: math`), `offsetTop`/`offsetLeft` (umbrella's `#11-inline-box-decoration-splits`),
   `is_block_level` (§0.6 item 2) — no slot.
 
@@ -1372,7 +1381,7 @@ PR's landing**, not in it. Every other record ships with the sub-PR whose landin
 | `#11-transformed-block-abspos-double-layout`, `#11-transform-family-3d-and-containing-block`: triggers fire; recorded by IBP-transform's memo | IBP-transform |
 | Enrich `#11-resize-observer-device-pixel-box` (M4-12 roadmap §H-8 backlog): IBP-observer's `device-pixel-content-box` arm falls back to the CSS-pixel content-box size until the slot lands; list it in the open-slot registry with that fallback | IBP-observer |
 | Register `#11-img-responsive-source-selection` (NEW). *Gap*: HTML's image source selection over `srcset` / `picture` `source` candidates (§4.8.4.3); elidex's selected source is `src` alone — in the loader (`elidex-navigation/src/resource.rs:197-220`), F6's writer and F4 alike — so a candidate-bearing `img` is classified, fetched and marked broken as its `src` alone says. *Why deferred*: A96 — HEAD ignores candidates the same way (its loader queues `src` only), so each cell (`<img alt=x srcset=ok.png>`, `srcset=""`, `src=404.png srcset=ok.png`) answers alike at HEAD and after the program; selection needs viewport and density inputs the loader does not carry. *Trigger*: responsive-image loading (`srcset` / `picture`) in the loader. *Re-eval*: 2026-11-01 | IBP-classify |
-| Register `#11-sandbox-flag-set-sources` (NEW). *Gap*: the §7.1.5 flag-set consequences no program cell reads — sandboxed-origin propagation into an auxiliary document's origin (the top-level pipeline derives a tuple origin, `elidex-shell/src/pipeline.rs:254-261`), and the flags `IframeSandboxFlags` cannot hold that no program gate reads. *Why deferred*: A96 — HEAD omits them and no program PR changes a cell of them (the scripting-deciding sources are IBP-sandbox's, §0.5). *Trigger*: an origin-keyed or flag-gated feature reading them, or the sandbox-enforcement lane's next PR. *Re-eval*: 2026-11-01 | IBP-sandbox |
+| Register `#11-sandbox-flag-set-sources` (NEW). *Gap*: the §7.1.5 flags `IframeSandboxFlags` cannot hold that no program consumer reads (the flag-set sources that decide scripting, and origin derivation from the final set, are IBP-sandbox's, §0.5). *Why deferred*: A96 — HEAD represents none of them and no program PR reads them. *Trigger*: a flag-gated feature needing one, or the sandbox-enforcement lane's next PR. *Re-eval*: 2026-11-01 | IBP-sandbox |
 | Register `#11-media-controls-ui` (NEW). *Gap*: the media element user interface HTML §4.8.11.13 says an exposing `audio`/`video` should present; elidex has no media-control producer or paint path, so F16's exposing `audio` (replaced after `IBP-layout`) paints a blank box. *Why deferred*: A96 — HEAD renders no controls either, and the program changes only whether the element is a replaced box. *Trigger*: media playback or a media-controls paint path. *Re-eval*: 2026-11-01 | IBP-classify |
 | Register `#11-content-image-replacement` (NEW). *Gap*: CSS Content 3 §1's `<content-replacement>` — `content: url(…)` making an element or `::before`/`::after` image-valued replaced content; `ContentValue` has no image item and `parse_content` drops `url()`. *Why deferred*: A96 — HEAD renders none of it and no program PR changes that; F3's match stays total over `ContentValue`, so an image variant becomes a compile error, not a silent gap. *Trigger*: an image item added to `ContentValue` or `url()` accepted by `parse_content`. *Re-eval*: 2026-11-01 | IBP-predicate |
 | Register `#11-svg-layout-model` (NEW). *Gap*: elidex has no SVG layout or paint model — SVG elements lay out as CSS boxes; so Resize Observer §3.4.8 step 2's bounding-box size for an `SVGGraphicsElement` without a CSS box, and css-transforms-1 §1.2's SVG clause (F12), have nothing to read or gate. *Why deferred*: A96 — HEAD has neither, and the program changes no SVG cell beyond F4's outermost-`svg` answer. *Trigger*: an SVG layout or paint crate. *Re-eval*: 2026-11-01 | the approval PR's landing (memory; shared by IBP-transform's F12 and IBP-observer's F13, which §4 leaves unordered) |
