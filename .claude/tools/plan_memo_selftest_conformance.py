@@ -78,11 +78,12 @@ and count in `PINS`, so a truncated or edited file fails the run) -- are
 vendored in
 `commonmark-0.31.2-inline-examples.json` and run through the SAME `align` the
 block corpus runs through.  One aligner, two corpora: an inline example's
-BLOCK structure is checked exactly as a block example's is (eight of them are
-not a lone paragraph -- §2.4 Examples 18 / 19 / 21 / 24 and §2.5 31 / 34 / 36
-/ 38 are indented code (18, 36), fences (19, 24, 34), HTML blocks (21, 31)
-and a paragraph followed by a list (38) -- and 50 §6.3 / §6.4 examples are
-one reference definition plus one paragraph, 54 holding any definition), and a block
+BLOCK structure is checked exactly as a block example's is (by `Memo.sequence`,
+73 of the 335 are not a lone paragraph; the seven that hold no paragraph at
+all are §2.4 Examples 18 / 19 / 21 / 24 and §2.5 31 / 34 / 36 -- indented code
+(18, 36), fences (19, 24, 34) and HTML blocks (21, 31) -- and 50 §6.3 / §6.4
+examples are one reference definition plus one paragraph, 54 holding any
+definition), and a block
 example's INLINE claim is checked exactly as an inline example's, so neither
 half can be green through a hole the other would show.
 
