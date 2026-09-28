@@ -450,6 +450,10 @@ they are reachable through the PR.
   HEAD arm and was never searched — now any link resolving to a directory is searched; the census
   comment states GNU/BSD loop behaviour, the absent time bound (the job timeout ends it, red) and the
   fail-safe red for a link to an in-root repo.
+- **focused re-check #8 of `8190c684..0f65e2d4`** (0 IMP; a name × target matrix of links, both
+  shells: no shape lets git read a git dir through a link while P-g is green): three statements
+  narrowed to what was measured — a `HEAD` link to a directory is red by its own name; GNU find's
+  loop exit is unmeasured; only CI has a job timeout. Clerical, so the re-check chain ends here.
 
 Records: **141** (`_MUT_RECORDS_MIN=141`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 46 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1

@@ -268,11 +268,14 @@ EOF_PB
   # directory is searched through (`find -L`, any depth), WHATEVER ITS NAME — a
   # link named `HEAD` to a directory included (the re-check after Codex R19): a
   # `HEAD` or `.git` anywhere under it is red, and so is a search that exits
-  # non-zero. GNU find exits 1 on a link loop (red); BSD find walks it silently
-  # (rc 0) — either way nothing under the loop is hidden. There is no time
-  # bound: a link to a huge tree makes the window run until the job's timeout
-  # ends it, red. A link to an in-root repo already censused is red too (fail-
-  # safe; no fixture makes one). A link that does not resolve to a directory is
+  # non-zero. A link NAMED `HEAD` to a directory is red whatever it holds: the
+  # search's starting point matches its own name (fail-safe; no fixture makes
+  # one). BSD find lists a loop link without descending and exits 0 (measured),
+  # which hides nothing; GNU find is expected to exit 1 on one, red (not measured
+  # here). There is no time bound: a link to a huge tree runs until CI's job
+  # timeout ends it, red — a local run has no such timeout and waits. A link to
+  # an in-root repo already censused is red too (fail-safe; no fixture makes
+  # one). A link that does not resolve to a directory is
   # classified by its name below (`.git`, `HEAD`) or passes.
   find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"

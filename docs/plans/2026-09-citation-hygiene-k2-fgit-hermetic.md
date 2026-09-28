@@ -412,7 +412,10 @@ from `$CTL`, with no per-directory fork, lists every `.git` entry and every `HEA
 case-insensitive filesystem lets git read `head` and `.GIT`; a case variant is red), and every symlink:
 `find` does not follow links, so a link that resolves to a directory is searched through (`find -L`, any
 depth) whatever its name, and a `HEAD` or `.git` anywhere under it is red, as is a search that exits non-zero
-(GNU find does on a link loop; BSD find walks one silently, hiding nothing). It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
+(BSD find lists a loop link without descending, rc 0, hiding nothing; GNU find is expected to exit 1 — not
+measured here). A link *named* `HEAD` to a directory is red whatever it holds, since the search's start
+matches its own name; the record for that shape therefore pins the routing to the search, not its depth
+(the two-levels-down record pins the depth). No time bound: CI's job timeout ends a search into a huge tree. It descends everywhere: hidden and nested directories, and the inside of `.git` directories.
 - A `.git` that is a real directory has its configuration compared.
 - A `.git` that is a gitfile, a symlink or anything else is red: `[.git is not a directory]`.
 - A `HEAD` whose directory is not a `.git` and holds an `objects` directory **or** a `commondir` file is
