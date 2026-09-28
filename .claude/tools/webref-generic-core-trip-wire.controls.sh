@@ -139,8 +139,11 @@ if [ -n "$_fw_seal_bad" ]; then
   ctl_ok=1
 fi
 # A postcondition this machine cannot evaluate (P-b: `git var` before git 2.42;
-# P-f: an `env` without -0) is a machine limitation, reported below and not a
-# red (the capability rule). The window writes one line per limitation.
+# P-f: an `env` that refuses -0) is a machine limitation, reported below and not
+# a red. The window writes one line per limitation, naming the postcondition by
+# its ID only: a record's needle is the postcondition's LABEL, matched as a
+# substring of the run's output, so a label printed on a green line would let
+# any unrelated red "kill" that record for the right-looking reason.
 _limit_lines=""
 [ -z "$_fw_limits" ] || _limit_lines="$(printf '%s\n' "$_fw_limits" | sed 's/^/            ⚠ NOT EXERCISED on this machine: /')"
 _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1

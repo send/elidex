@@ -104,7 +104,7 @@ _fgit_postconditions() {
     [ "$_prc" -ne 129 ] || _pbu="$_pbu $_v"
   done
   if [ -n "$_pbu" ]; then
-    printf 'P-b (%s) — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pb_lbl" "$_pbu" >> "$_FW_DIR/machine_limits"
+    printf 'P-b — this git'"'"'s `git var` cannot name%s (git 2.42 or later can)\n' "$_pbu" >> "$_FW_DIR/machine_limits"
   else
     for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
       _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git -C "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
@@ -128,17 +128,20 @@ EOF_PB
   _o="$(_fgit_canon "$_o")"
   if [ -z "$_o" ] || [ "$_o" != "$_FGIT_WIRE_EXEC" ]; then echo "!! CONTROL FAILED ($_pe_lbl): [$_o] vs [$_FGIT_WIRE_EXEC]" >&2; _fpv=1; fi
   # P-f: every record of `env -0`, through a FILE so its status is checked; a
-  # failed `env -0`, or an empty population, is NOT EXERCISED. An `env` without
-  # `-0` (older macOS and BSDs; PR #527 Codex R4) is a MACHINE LIMITATION under
-  # the capability rule P-b follows, not a red: the probe asks `env -0` for one
-  # known record and anything but exactly `K2CAP=1` NUL is "no -0". No line-based
-  # fallback — a value is never split on newlines (PR #527 Codex R6: the R4
-  # fallback read a PATH holding a newline as a second name and failed it).
-  if [ "$("$_FGIT_ENVBIN" -i K2CAP=1 "$_FGIT_ENVBIN" -0 2>/dev/null | od -An -c | tr -d ' \n')" != 'K2CAP=1\0' ]; then
-    printf 'P-f (%s) — this `env` has no -0 (GNU coreutils, FreeBSD and current macOS have it)\n' "$_pf_lbl" >> "$_FW_DIR/machine_limits"
+  # failed `env -0`, or an empty population, is NOT EXERCISED and red. ONE
+  # outcome is a MACHINE LIMITATION instead (`⚠ NOT EXERCISED on this machine`,
+  # green — as for the FIFO and file-permission controls and P-b): the POSITIVE
+  # sign of an `env` that does not know `-0` — it fails, writes nothing to
+  # stdout, and says why on stderr. Every other outcome stays red, so an unknown
+  # one falls on the fail-safe side (PR #527: the R6 probe sent "anything but
+  # one exact record" to green, which let an `env` wrapper that exports a name
+  # through, and shared the `-i` record's anchor, so that record survived).
+  # No line-based fallback: a value is never split on newlines (Codex R6).
+  _pf=""; _pfn=0; _pfrc=0
+  "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2> "$_FW_DIR/env0.err" || _pfrc=$?
+  if [ "$_pfrc" -ne 0 ] && [ ! -s "$_FW_DIR/env0" ] && [ -s "$_FW_DIR/env0.err" ]; then
+    printf 'P-f — this `env` refuses -0 (exit %s, nothing on stdout)\n' "$_pfrc" >> "$_FW_DIR/machine_limits"
   else
-    _pf=""; _pfn=0; _pfrc=0
-    "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2>/dev/null || _pfrc=$?
     while IFS= read -r -d '' _rec; do
       _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
       case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
