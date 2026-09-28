@@ -12,8 +12,9 @@ wrote these into `plan_memo_selftest_cases_r42.py`, which reached 904 lines,
 and the STOP-CLEAN attestation of 900c16eb asked for a read and a refuse arm at
 every gap-bearing pattern -- more than that module could take under the
 1000-line bound.  The older R47-4 kind-phrase gap controls (U+00A0, tab, LF,
-the ASCII fold) stay in `_cases_r42.py`, where their round put them.  This
-module holds every reader-gap CASE of the 2026-09-27 round; that round's
+the ASCII fold and boundary) stay in `_cases_r42.py`, where they were added
+(ae974e32; the fold cases at 332f637f, the boundary cases at 94281cd7).  This
+module holds every reader-gap CASE of Codex R22 of 2026-09-27; that round's
 FUNCTION controls are `unicode_whitespace_class_control` (the class oracle, in
 `plan_memo_selftest_invariants.py`) and `role_measure_control` (in
 `plan_memo_selftest_controls.py`).  Its mutants are

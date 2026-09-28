@@ -46,9 +46,9 @@ its bare inline text up to the `</li>` or the next block's tag, the
 TIGHTNESS being Phase 1's claim too (§5.3, the list entry's last field; a
 loose list's items wrap every paragraph, a tight list's none -- the two
 renderings differ, so the claim is checked, not skipped) -- a definition
-nothing; and the html must be exhausted at the end.  Inline content
-(Phase 2) is skipped over, so this is a block-structure oracle only, and
-position is what it checks: a paragraph read where the spec has a heading,
+nothing; and the html must be exhausted at the end.  Each paragraph's `<p>`
+body is also checked against Phase 2's inline claim (`inline_claim`, called
+by `align`); the block half checks position: a paragraph read where the spec has a heading,
 a definition swallowed as prose, a fence not closed, an HTML block not
 opened, a quote's lazy line read outside it, a code chunk split at a blank
 line, an item's second paragraph read as indented code, a loose list

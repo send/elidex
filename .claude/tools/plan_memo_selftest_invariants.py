@@ -287,9 +287,10 @@ def render_equivalence_control(M):
     arrive here rather than be noticed when a newline is first written into
     the prose.  The derived set must equal `declared`, a second hand-written
     set (PR #510 Codex R38 of 2026-09-27's class: a set derived from the
-    subject alone shrinks the sweep in silence), so both directions are red: a
-    character wrongly LEFT IN is a mismatch, and one wrongly LEFT OUT is
-    re-spelled although it is active, so the two documents render differently.
+    subject alone shrinks the sweep in silence), so a character wrongly LEFT IN
+    or LEFT OUT is red by that mismatch.  A character left out of BOTH sets is
+    red only if `_RENDER_PROSE` holds it (re-spelled although active, so the
+    two documents render differently); today that prose holds only `*` of them.
     The set is reported with the run.  What the sweep cannot see at all: a
     disagreement that needs TWO positions re-spelled at once; a raw reading in
     a CELL (the sweep re-spells prose, where a `|` is an ordinary character --

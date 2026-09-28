@@ -442,8 +442,8 @@ paragraph" so a `starts_block` failure would FAIL rather than hide) — and 184 
 §5.1 was vendored; before R13 169 / 27 / 0, the 27 being exactly where R13 landed: 8 block-quote examples
 (6 92 93 101 128 174 214 218) and 7 §4.4 chunk shapes (85 110 111 112 114 115 225) under the old
 PROSE-AS-WRITTEN dispositions, plus the 12 list examples. Each disposition was replaced by the grammar
-(§4.4 RAW, §5.1 container, §5.2 container) and its exclusions went to 0; what a kind sequence cannot see
-(inline content, the spec's html for it) is skipped over, not excluded, and §5.3 tightness IS seen, since the
+(§4.4 RAW, §5.1 container, §5.2 container) and its exclusions went to 0; inline content is checked by each paragraph's
+`inline_claim` (the sentence above), not excluded, and §5.3 tightness IS seen, since the
 list entry states it. A FAIL there is a Phase-1 defect or an unstated disposition, never a control
 rewrite; the mutant that drops `div` from the type-6 list (`search`, the reviewer's example, has no spec
 example) reds it at 153–161/185, the four-space literal at Tabs 1–2, the §4.4 opener arm at 100 among
