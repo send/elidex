@@ -262,12 +262,26 @@ EOF_PB
   _pgpop="$_FW_DIR/pgpop"; _pgn=0
   # `HEAD` of ANY type: a symlink `HEAD` is a shape git still reads (PR #527
   # Codex R16 — `-type f` left such a bare repo out of the census entirely).
-  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
+  # …and every SYMLINK: `find` does not follow them, so a link under `$CTL` to a
+  # git dir OUTSIDE it (a fixture's `--separate-git-dir` target, say) would
+  # never be censused (the re-check after Codex R17). A link that resolves to a
+  # directory holding a `HEAD` or a `.git` is red; any other link is not a git
+  # dir and passes.
+  find "$CTL" \( -iname .git -print0 \) -o \( -iname HEAD -print0 \) -o \( -type l -print0 \) > "$_pgpop" 2>"$_FW_DIR/pgpop.err" \
     || : > "$_FW_DIR/pgpop.failed"
   if [ -e "$_FW_DIR/pgpop.failed" ] || [ -s "$_FW_DIR/pgpop.err" ]; then
     _pg="$_pg (the git-dir census under the fixture root failed: $(head -3 "$_FW_DIR/pgpop.err" | tr '\n' ';'))"
   fi
   while IFS= read -r -d '' _pge; do
+    if [ -L "$_pge" ]; then
+      case "${_pge##*/}" in
+        [Hh][Ee][Aa][Dd]|.[Gg][Ii][Tt]) ;;            # classified below, as HEAD / .git entries
+        *) if [ -d "$_pge" ] && { [ -e "$_pge/HEAD" ] || [ -e "$_pge/.git" ]; }; then
+             _pg="$_pg ${_pge#"$CTL"/}:[a symlink to a git dir]"
+           fi
+           continue ;;
+      esac
+    fi
     case "${_pge##*/}" in
       [Hh][Ee][Aa][Dd])
         _pgd="${_pge%/*}"

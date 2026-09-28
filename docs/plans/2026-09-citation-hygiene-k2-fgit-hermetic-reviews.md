@@ -433,8 +433,13 @@ they are reachable through the PR.
   multiplicity check (Codex R17: a repeated line passed the set comparison); the mutation run skips
   records whose postcondition is a machine limitation here (Codex R17: P-f's records "survived" on an
   `env` without `-0`); the timeout verdict in `ci.yml` names reachable commits (Codex R17 P3).
+- **focused re-check #5 of `33627692..5a6f4367`**: the skip ran before the trial, so the four P-f
+  records that pin the limitation test's narrowness — and do die on such a machine — went unrun; now
+  every record runs and only a survival is reported as not exercisable. The census also takes
+  symlinks: a link under the root to a git dir outside it was never examined. The `ci.yml` verdict
+  describes the PR's final tool code, so X8 is re-run at the final head before the merge.
 
-Records: **137** (`_MUT_RECORDS_MIN=137`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 42 records
+Records: **138** (`_MUT_RECORDS_MIN=138`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 43 records
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
-P-g census +3, P-g multiplicity +1, P-c +5.
+P-g census +4, P-g multiplicity +1, P-c +5.

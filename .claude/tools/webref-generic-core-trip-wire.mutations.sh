@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=137
+_MUT_RECORDS_MIN=138
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -369,6 +369,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/: > "$_FGIT_VOID\/k2plant"; set -f; : > "$_
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzlc" \&\& cd "$CTL\/zzlc" \&\& git config core.excludesFile \/nonexistent-k2 \&\& mv HEAD head ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( mkdir -p "$CTL\/zzuc" \&\& cd "$CTL\/zzuc" \&\& git init -q --separate-git-dir="$_FW_DIR\/gduc" . \&\& mv .git .GIT ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --add core.bare false; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$_FW_DIR\/zzout" \&\& git -C "$_FW_DIR\/zzout" config core.excludesFile \/nonexistent-k2 \&\& ln -s "$_FW_DIR\/zzout" "$CTL\/zzlink" ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/rmdir "$_FGIT_VOID" \&\& mkdir "$CTL\/k2empty" \&\& ln -s "$CTL\/k2empty" "$_FGIT_VOID"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 harness:s/> "[$]_FGIT_BIN\/git" \&\& chmod +x "[$]_FGIT_BIN\/git"/> "$_FGIT_BIN\/gitx"/	the fixture build window runs the pinned git from absolute PATH entries only
 fixtures:s/^: > "[$]_FW_DIR\/built"$/( git init -q --bare "$CTL\/zzbare" \&\& cd "$CTL\/zzbare" \&\& git config core.excludesFile \/nonexistent-k2 \&\& _k2h=$(git symbolic-ref HEAD) \&\& rm HEAD \&\& ln -s "$_k2h" HEAD ); : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
@@ -654,9 +655,12 @@ _mut_run() {
       done
       # A record whose needle is the label of a postcondition THIS MACHINE
       # cannot evaluate (a `machine_limits` line from the window: `P-x — …`)
-      # cannot die here, however correct the wire: it is skipped and reported,
-      # not counted as survived (PR #527 Codex R17). The labels are derived
-      # from the ID — every `_p<x>*_lbl` defined — not listed.
+      # may be unable to die here however correct the wire — but only MAY: a
+      # record pinning the limitation test's own narrowness still dies on such
+      # a machine. So every record RUNS; a SURVIVAL of one of these is reported
+      # as not exercisable here and not counted (PR #527 Codex R17; the first
+      # form skipped them unrun — the re-check after it). The labels are
+      # derived from the ID — every `_p<x>*_lbl` defined — not listed.
       _mskip=""
       while IFS= read -r _ml; do
         _mid="${_ml%% —*}"
@@ -667,10 +671,6 @@ _mut_run() {
       done <<EOF_MLIM
 ${_fw_limits:-}
 EOF_MLIM
-      if [ -n "$_mskip" ]; then
-        echo "  mutant $_mut_n ($_mwant): not exercisable on this machine ($_mskip is a machine limitation here)"
-        continue
-      fi
       _mut_restore_copies || { _mut_bad=$((_mut_bad + 1)); continue; }
       _mut_target "$_mt_which"
       if ! sed "$_mx" "$_mut_src" > "$_mut_tgt" 2>/dev/null; then
@@ -682,6 +682,10 @@ EOF_MLIM
       # is what a survived mutant did while this refactor was being written.
       _mrc2=0; _mut_trial "$_mut_n ($_mwant)" "$_mwant" || _mrc2=$?
       [ "$_mrc2" -ne 2 ] || { _mut_bad=$((_mut_bad + 1)); continue; }
+      if [ "$_mrc2" -eq 1 ] && [ -n "$_mskip" ]; then
+        echo "  mutant $_mut_n ($_mwant) survived, and is not exercisable on this machine: $_mskip is a machine limitation here"
+        continue
+      fi
       [ "$_mrc2" -ne 1 ] || {
         echo "!! MUTANT $_mut_n ($_mwant) SURVIVED: the wire still exited 0 with this" >&2
         echo "   applied, so nothing above is testing it: $_mx" >&2
