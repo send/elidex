@@ -1,7 +1,7 @@
 # K2 fixture git — plan-review record
 
-This file holds every plan-review round's dispositions and the terminators, and (§13, moved from the
-design memo when it neared 1000 lines) the implementation results, for
+This file holds every plan-review round's dispositions and the terminators, and (§8 and §13, moved from
+the design memo when it neared 1000 lines) the record of the C0b–C2 splits and the implementation results, for
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of the
 provenance companion (`…-k2-fgit-hermetic-provenance.md`) unchanged, as a touch-time split before
 round 9's record was added. Section numbers (§D.0–§D.8) are kept, so earlier references to "companion
@@ -313,6 +313,118 @@ subject, which was every item listed above. Anything else stays open for round 5
 | Ax3 MIN-3: census cost | the per-directory `sh -c` removed; the cost is measured | 1.45 s → 0.76 s |
 | Ax2 MIN: W2's record | the sentence now says the record pins "W2 is reported when the exit is gone" and does not tell the two call sites apart | prose |
 | Ax2 note: causes 3/4/5 collide with errexit statuses | the cause travels in a marker file | rc5: p10 misnamed → p11 generic, both shells |
+
+---
+
+## §8 Splits, the parent memo, and memo references (moved from the design memo)
+
+Moved here unchanged from the design memo's §8 as a touch-time split, when that memo neared 1000
+lines; section numbers are kept, and four references to other sections of the design memo now name it.
+"Parent" is `docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md`.
+
+### §8.1 Code splits
+
+`wc -l .claude/tools/webref-generic-core-trip-wire*.sh` at `e8f78896`: wire 1259, controls 989, mutations
+783, harness 195. `ff6b99a3` broke CLAUDE.md's touch-time rule: its first commit took controls to 1026 lines
+(`git show c8f52724:.claude/tools/webref-generic-core-trip-wire.controls.sh | wc -l`).
+
+| file | split | seam | ground |
+|---|---|---|---|
+| controls | **C1** | build vs assert. `…trip-wire.fixtures.sh` takes **base controls lines 83–734**. Lines 735–737 are `ctl_ok=0`'s comment and stay with it. The window sources the new file | this PR grows both halves. `wc -l` of p6's parts is in companion §A.9 |
+| mutations | **C2** | the header's two populations. The generated half moves to `…trip-wire.mutgen.sh` | `ff6b99a3` reached 983 lines with the infrastructure C3/C4 carry |
+| harness | no | — | stays below the threshold (companion §A.9) |
+| wire | **not touched** | — | `/usr/bin/grep -c '_fgit' .claude/tools/webref-generic-core-trip-wire.sh` → `0` |
+
+C1 and C2 each bring the following with them:
+- one parts list that feeds the copy, the trap's `rm -f` and the stale-skip `case` in `_mut_run`;
+- the sibling guard (moved into the always-on `_mut_correspondence` by `/code-review`, `…-reviews.md` §13);
+- the extended entry contracts.
+
+**In-file statements that become false, and the commit that rewrites each.**
+
+In `mutations.sh`, found by the stated grep, which returns lines 44, 93, 120, 134, 137, 526, 672, 673
+and 684:
+
+```sh
+/usr/bin/grep -n -i -e 'every control' -e 'a control means' -e 'controls with no record' -e 'controls have no' -e '_control. call' -e 'umask and' .claude/tools/webref-generic-core-trip-wire.mutations.sh
+```
+
+| lines | statement | fate |
+|---|---|---|
+| **:44–46** | "Every control has to be named by some record" | C5 rewrites it: the population becomes `_control` labels ∪ `_lbl="…"` definitions |
+| **:120** | "ADDING A CONTROL MEANS ADDING A RECORD" | C5 rewrites it the same way |
+| **:133–138** | the correspondence: labels are a `_control`'s "or the label a block that is not a `_control` prints (the umask and fsmonitor ones)", and "the number of controls with NO record is ratcheted" | C5 rewrites it the same way |
+| **:672–673** | "controls with NO record … the third quoted argument of a `_control` call" | C5 rewrites it the same way |
+| **:684–688** | the ratchet messages, which say "controls" | C5 rewrites them the same way |
+| :93, :526 | read and **kept**: "Every control above proves a verdict is REACHABLE" is still true of `_control`s; "Permission denied for EVERY control" is a runtime description | kept |
+
+In the harness and controls, round-6 item 5. Found by the command below, which returns controls:20,
+:22, the build region's `_fgit` calls, and harness:25, :35, :45, :46 and :48; the wire returns 0:
+
+```sh
+/usr/bin/grep -n -i -e _fgit -e 'two helpers' -e SCRUB .claude/tools/webref-generic-core-trip-wire*.sh
+```
+
+| site | statement | fate |
+|---|---|---|
+| **harness:22–47** | "`_fgit` is what the fixtures are built with; the channels it closes are named at its definition below"; "PER CALL, NOT `export`"; "AND IT SCRUBS THE ENVIRONMENT-PROVIDED CONFIG TOO …"; "there are two helpers: PRESERVE for the repository, SCRUB for the fixtures" | C5 **rewrites** the block. The fixtures are built in a window constructed from nothing (design memo §3). The per-call rationale (#501 R94: the real scan must keep `safe.directory`) is kept, and it now holds because the window is a child process. PRESERVE (`_git`) remains; the fixture half is the window |
+| **harness:48–49** | the `_fgit` definition | C5 **deletes** it |
+| **controls:20–22** | the list of names this file defines ("`$CTL`, `_fgit`, `_control`, …") and its `grep -c` command | C5 drops `_fgit` from both, because the file no longer defines it |
+| controls build-region `_fgit` calls | code | move with C1 to the fixtures file; C5 changes `_fgit` to `git` |
+
+### §8.2 The parent memo: a banner, no split (C0b)
+
+**There is no C0a.** CLAUDE.md requires a split only "real cohesion seam があれば".
+- Parent §5 is live substance: §7 criterion 4 relies on it, §9 says "the substance is in §5 and §8",
+  and so does header L8.
+- §10 is cited by live §11 (`awk '/^### §11/{s=1} s' <parent> | /usr/bin/grep -o '§10\.[0-9]' | sort -u` →
+  `§10.4 §10.8`).
+
+**Finding the banner's sites.** The candidate lines come from a seed command, widened per round 5:
+
+```sh
+awk '/^#{2,3} /{sec=$0} $0 ~ /trip-wire\.(controls|harness|mutations)\.sh|controls file|control harness|mutation set|_fgit|GIT_TEMPLATE_DIR|D6|\*\*Status\*\*|over the wire|controls with no record|_MUT_UNRECORDED_MAX|ratchet|\.bare|mutation record|every control|unreachable or loud/ {printf "%d\t%s\n", NR, substr(sec,1,40)}' \
+  docs/plans/2026-09-citation-hygiene-Ai-wire-k2-trip-wire.md | /usr/bin/grep -v '§10\.'
+```
+
+⚠ **The seed is a seed.** Each candidate is read and kept iff it is a **present-tense statement that
+one of C1–C5 makes false**. A seed cannot return that population by itself: round 5 found L816 outside
+draft 5's seed. At `e8f78896` the kept sites are **eleven**:
+
+| parent line | why it becomes false |
+|---|---|
+| L5 | the Status |
+| L61 | §0's command names the controls file, which loses the build half (C1) |
+| L278–280 | §4's file rows (C1/C2). L279, the harness row ("the fixture git helper"), also changes under C5 |
+| L675–677 | §7 criterion 3, "enumerated in `…mutations.sh`" (C2) |
+| L683 | §7 criterion 3, "a `sed` expression over the wire" (C4) |
+| L747–748 | §7 criterion 5, "All are now in §4's table" (C1/C2) |
+| L816 | Slot 2, "when every control has a mutation record" (C5: labels) |
+| L866–868 | §9, "the number of controls with no record" (C5 population) |
+| L1212–1214 | §11.1's rule "unreachable or loud, never silent", stated as the rule for inputs (design memo §0.1 replaces it for the build) |
+| L1220 | §11.1 D6 (design memo §0.1) |
+| L1281–1282 | §11.4 P1's file list (C1/C2) |
+
+### §8.3 Memo references in code
+
+⚠ **This table is as of `e8f78896`**: the line numbers are the base files', before C1/C2 split the
+controls and mutation files (the parent memo's banner sends readers here for exactly that resolution).
+
+Every `§N` in the parts
+(`for f in .claude/tools/webref-generic-core-trip-wire*.sh; do /usr/bin/grep -nE '§[0-9]' "$f"; done`),
+plus every prose "the memo" / "plan memo"
+(`/usr/bin/grep -n -i -e 'plan memo' -e 'the memo' …`), is resolved by subject:
+
+| file | lines | memo |
+|---|---|---|
+| wire | 4, 5, 192 (qualified); 38, 158, 195, 206, 225, 451, 461, 534, 550 (K2 predicate §2; exit criteria §12) | A-i memo (`2026-07-citation-hygiene-Ai-spec-label-map.md`) |
+| wire | 307 (qualified); 199, 267, 323, 403, 456, 685, 724, 1164 (slots §8; revision §11) | parent |
+| controls | 95, 116 (§2) | A-i memo |
+| controls | 10, 273, 614, 906 (§8, §11 D10, §11.2, §11.1) | parent |
+| mutations | 15 ("the plan memo"), 20 ("The memo") | parent (§10.5, §8) |
+
+The wire is untouched, so this table is the record. In the files this PR edits, C1/C2 qualify every
+reference with a file name, and **X4b** checks that **case-insensitively** (design memo §11).
 
 ---
 

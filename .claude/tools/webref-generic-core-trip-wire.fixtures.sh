@@ -7,7 +7,7 @@
 # WHY IT IS A SEPARATE FILE. The controls file stood at 989 lines and this slice
 # grows both of its halves, and the seam was already there: this half BUILDS the
 # trees, that half ASSERTS over them (CLAUDE.md touch-time split;
-# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §8.1).
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md §8.1).
 # ⚠ IT RUNS IN THE FIXTURE BUILD WINDOW, NOT IN THE WIRE'S SHELL: the harness
 # sources it in a child started with `env -i` and an allowlist
 # (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3), so the git it

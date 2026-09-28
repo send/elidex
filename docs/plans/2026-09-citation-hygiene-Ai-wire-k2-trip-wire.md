@@ -14,7 +14,7 @@ revision that followed them.
 are built, splits the controls and mutation files, and lets mutation records target the harness and the
 fixtures file. The body below is left as #519 wrote it, because it is provenance. These statements in
 it are no longer true once that slice lands; the lines are as of `e8f78896`, and the reason for each is
-in that memo's §8.2:
+in that slice's review record, `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §8.2:
 - **Status** (L5): the status of this slice, not of the fixture build.
 - **§0's command** (L61) names the controls file, which no longer holds the fixture build: that moved
   to `…trip-wire.fixtures.sh`.
@@ -31,7 +31,7 @@ in that memo's §8.2:
 - **§11.4 P1** (L1281–1282): the file list gains the fixtures and mutgen files.
 
 Which memo each unqualified "plan memo" or "§N" in a K2 wire file refers to is resolved per line
-by that memo's §8.3 table.
+by that slice's `…-k2-fgit-hermetic-reviews.md` §8.3 table.
 
 ⚠ **The rule for this memo is to state no quantity that moves with a commit.** Where a number
 matters it appears as the command that produces it. Historical quantities (review-round numbers, gate
