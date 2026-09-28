@@ -95,9 +95,12 @@ one resolution neither lane may take. **Whichever lands second APPENDS its line*
 stand. Measured, because the first guess was that this is a budget problem and it is not: this wire
 is ~26 s and `claim-provenance-trip-wire.sh` is ~6 s on the same host, against the `timeout-minutes`
 re-derived at ~4x headroom — so the collision is a MERGE hazard on the inventory, not a cost one.
-⚠ And the budget block in `ci.yml` is derived against THIS wire alone; that is now stated there, so
-the second wire's arrival does not read as drift in the figure. The runner-measured `12124f83` point
-(170 s) is the whole job, and is labelled so there.
+⚠ And the budget block in `ci.yml` names the subject of each point in its series: the whole
+`scripts/trip-wires.sh` at R12 and R27, not recorded for R29-R32, the whole job for the
+runner-measured `12124f83` point (170 s, checkout included). With one heavy wire the difference
+between this wire and the whole script is inside the host's noise, which is what keeps the local
+points comparable; when the second wire lands the ratio is re-derived against the job, so its
+arrival is not read as drift in this wire.
 
 ⚠ **THREE plan-memo checkers are in flight at once, and until PR #510 Axis 5 not one of them named
 another.** This one (the umbrella row-kind census + naming-site scan), `claim-gate-plan-check.py`

@@ -1665,6 +1665,8 @@ entry with scope / owner / EVENT trigger / re-eval, and is measured rather than 
 split had to widen `_IMPORT_SEAMS`, landing inside the territory declared undetected); the
 `stale-claim-detector` lane's second wire is now an explicit §1 merge obligation on `REQUIRED_WIRES`
 (append, never `--ours`) and the `ci.yml` budget block states that its figures cover THIS wire alone
+(⚠ that label was FALSE — the R12 / R27 points timed the whole `scripts/trip-wires.sh`; corrected
+after the STOP-CLEAN attestation of `900c16eb..2d4f932f`, which now names each point's subject)
 — ⚠ Axis 5 refuted the premise that the collision is a BUDGET problem: 26 s + 6 s against a
 10-minute timeout is a merge hazard on the inventory, not a cost one; the **three parallel
 plan-memo checkers** now cross-reference, with the boundary written as three questions (this =

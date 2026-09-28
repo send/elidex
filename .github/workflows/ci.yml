@@ -158,13 +158,24 @@ jobs:
   # the pair below still holds and only its label was stale. It is attributed to
   # the head it describes now, rather than to the round that took it.
   #
-  # ⚠ THE FIGURES BELOW COVER THIS WIRE ALONE, not the job (PR #510 Axis 5).
-  # `scripts/trip-wires.sh` runs every wire in `REQUIRED_WIRES`, and the
-  # `stale-claim-detector` lane is adding a second heavy one
-  # (`claim-provenance-trip-wire.sh`, ~6 s measured on the same host as the
-  # ~26 s below).  The headroom stated here is therefore an upper bound on
-  # THIS wire's share; when the second lands, the ratio is re-derived against
-  # the JOB, and the plan's §1 carries the merge obligation on the inventory.
+  # ⚠ THE SUBJECT IS NOT THE SAME ALONG THIS SERIES (PR #510 Axis 5; the
+  # "this wire alone" label that stood here was false, found by the STOP-CLEAN
+  # attestation of 900c16eb..2d4f932f). The R12 and R27 points timed the whole
+  # `scripts/trip-wires.sh` (the paragraph above says so for R12; `7b931db4`
+  # for R27). The R29 and R30 figures and the R32 pair below used the same
+  # clean-clone `/usr/bin/time -p` method, but the commits that took them
+  # (`745337b6`, `0a8741a5`, `7eabcead`) do not name the command, so their
+  # subject is NOT RECORDED. The `12124f83` point is another subject again: the
+  # whole JOB on the runner, checkout included, measured there rather than
+  # scaled from a local run. The local points stay comparable only because,
+  # with one heavy wire, this wire and the whole script differ by less than
+  # this host's noise: `7121476e` measured 24.88-25.05 s against
+  # 26.10-26.73 s (below). `scripts/trip-wires.sh` runs
+  # every wire in `REQUIRED_WIRES`, and the `stale-claim-detector` lane is
+  # adding a second heavy one (`claim-provenance-trip-wire.sh`, ~6 s measured
+  # on the same host as the ~26 s below), which ends that: when it lands, the
+  # ratio is re-derived against the JOB, and the plan's §1 carries the merge
+  # obligation on the inventory.
   # MEASURED at R32 and re-confirmed at R38, on ONE clean `git clone --local`,
   # same session, minutes apart, nothing else of this project running -- the
   # pair, never the later number alone:
@@ -212,8 +223,8 @@ jobs:
   # with a trigger in the plan's §8, not done here.
   # The budget, round over round: ~10x (R12) -> 5.9x (R27) -> 5.1x (R29) ->
   # 4.4x (R30) -> ~2.0x (R32, before this re-derivation) -> ~4x (R32, after)
-  # -> ~3.5x (`12124f83`: the whole JOB on the runner, not this wire alone;
-  # see below).
+  # -> ~3.5x (`12124f83`: the whole JOB on the runner; see below). The subject
+  # of each point is named in the paragraph that opens the R32 pair.
   # ⚠ THE ~152 s / ~4x ABOVE IS THE R32 DERIVATION, NOT THE CURRENT HEAD (PR #510
   # Codex R26 of 2026-09-27). At `12124f83` (942 controls / 586 mutants) the whole
   # `Layering trip-wires` JOB took 170 s on the GitHub runner, checkout included
