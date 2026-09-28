@@ -79,9 +79,10 @@ vendored in
 `commonmark-0.31.2-inline-examples.json` and run through the SAME `align` the
 block corpus runs through.  One aligner, two corpora: an inline example's
 BLOCK structure is checked exactly as a block example's is (eight of them are
-not paragraphs at all -- §2.4 Examples 18 / 19 / 21 / 24 and §2.5 31 / 34 / 36
-/ 38 are headings, fences, indented code and a definition -- and forty-odd
-§6.3 / §6.4 examples are a reference definition plus a paragraph), and a block
+not a lone paragraph -- §2.4 Examples 18 / 19 / 21 / 24 and §2.5 31 / 34 / 36
+/ 38 are indented code (18, 36), fences (19, 24, 34), HTML blocks (21, 31)
+and a paragraph followed by a list (38) -- and 50 §6.3 / §6.4 examples are
+one reference definition plus one paragraph, 54 holding any definition), and a block
 example's INLINE claim is checked exactly as an inline example's, so neither
 half can be green through a hole the other would show.
 

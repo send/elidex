@@ -125,6 +125,8 @@ jobs:
       - name: Check licenses and vulnerabilities
         run: cargo deny check
 
+  # (Commit ids in this comment block are PR #510 branch commits; after the squash
+  # merge, `git fetch origin pull/510/head` and resolve them against `FETCH_HEAD`.)
   # Deliberately UNGATED — no `needs: changes`, no `if:`. The three gated jobs above
   # are filtered because each pays for a Rust toolchain; the wires need none (the layering
   # wires ~1s; the self-test wire's mutant run is plain python3 -- measured at
