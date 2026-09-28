@@ -121,7 +121,8 @@ scripts are in companion §E.7, and the full table is in companion §A.13.
 
 Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.54 and bash 3.2·git 2.55.
 
-**Records: representative only.**
+**Records: representative only.** The table and the totals below are the set at `8413a4db`; draft 11
+changes them as §6.1 says.
 
 | label | record | target |
 |---|---|---|
@@ -198,3 +199,40 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 **Mutation-mode cost (X3).** Each run of X3 is (95 base records + 50) record trials plus the generated
 population, one control pass each. X3 prints the counts, and X8 gives the per-pass time. This is
 opt-in and does not add to the always-run gate.
+
+### §6.1 Draft 11's record changes (planned, design memo §9.1)
+
+Each change is listed with the commit that makes it. The needle of every record is its label, so
+renaming a label renames the needle of each of its records in the same commit.
+
+| commit | change | label | target | window / all |
+|---|---|---|---|---|
+| — | at `8413a4db` | | | 50 / 145 |
+| C6 | **delete**: "a relative entry after `$_FGIT_BIN` in the window's `PATH`". There is no per-entry clause left to pin | P-j | harness | 49 / 144 |
+| C6 | **re-anchor**: "the window's `PATH` starts at `/usr/bin`" becomes "a directory with no `git` placed before `$_FGIT_BIN`" (`/nonexistent-k2:` in front), which pins the first-entry clause alone. The `gitx` record still pins the `git` clause | P-j | harness | — |
+| C6 | **relabel**: P-j's two records take the label `the fixture build window runs the pinned git first on its PATH` | P-j | — | — |
+| C7 | **add**: a fixture sets `include.path` on `clean` to a FIFO outside the fixture root. Git blocks opening it, which no shape check sees, and the watchdog ends the window: W with the timeout cause. It pins the helper itself; the other call sites share it | W | **fixtures** | 50 / 145 |
+| C8 | **add**: one harness expression that forces a postcondition red (`post_bad` written unconditionally) and removes the untrusted-build exit. W2 is reported by `_control`'s gate | W2 | harness | 51 / 146 |
+| C8 | **relabel**: W2's existing record takes the label `no control runs over an incomplete or untrusted fixture build window` | W2 | — | — |
+| C9 | **add**: `clean`'s `.git/objects` replaced by a symlink to a copy outside the fixture root (PR #527 Codex R26②: PASSED at `8413a4db`) | P-g | **fixtures** | 52 / 147 |
+| C9 | **add**: a FIFO `.git/commondir` in `clean`, a name outside the old `HEAD`/`config` pair. Without the shape rule git blocks on it, and the watchdog would report W instead of P-g | P-g | **fixtures** | 53 / 148 |
+| C9 | **add**: the shape scan replaced by a command that fails with no output. It pins that a failed scan is red, not an empty result | P-g | harness | 54 / 149 |
+
+- **Unchanged, re-attributed:** the records "`.git/config` replaced by a symlink" and "`.git/HEAD` is a
+  FIFO" keep their text and target, and after C9 they die by the shape rule rather than by the deleted
+  case split and two-name guard.
+- **Totals after C9:** 16 labels (two renamed, none added), **54 window records, 149 in all**:
+  `_MUT_RECORDS_MIN=149`, and `_MUT_UNRECORDED_MAX` stays at 21.
+- **Not records, declared:**
+  - the process-group reap: a top-PID kill gives the same verdict, so no record can die on it. X12
+    checks it by hand;
+  - the watchdog at `_control`, at the three blocks' self-tests and at `_mut_trial`: no fixture state
+    reaches them blocked today without first stopping the run (C8), and the runner is not a mutation
+    target. They share the one helper that the C7 record pins;
+  - the X14 outcomes (a caller `PATH` with cwd- or home-dependent entries): a record's run uses the
+    caller's `PATH`, so no record can pose them.
+- **Cost (X3).** One new record runs to a bound: the C7 record, to `_FW_TIMEOUT`. The C9 FIFO record
+  does not, because the shape rule stops it before git runs. The opt-in run grows by about one
+  `_FW_TIMEOUT`.
+- **Retired with C6:** the "resolving relative `PATH` entries" bullet under "What is not a record"
+  above describes the normaliser C6 deletes.

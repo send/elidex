@@ -478,3 +478,64 @@ Records: **145** (`_MUT_RECORDS_MIN=145`), labels 16, `_MUT_UNRECORDED_MAX=21`. 
 after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1
 (22 when the PR opened at `dccce513`), then Codex R1 +1, P-f clauses +5, P-j +3, P-g status +2,
 P-g census +8, P-g multiplicity/records +2, P-g HEAD FIFO +1, W3 +1, P-c +5.
+
+**Codex R26 and the pause (2026-09-28).** R26 (on `8413a4db`) was the third round in a row with an IMP
+in the harness (R24, R25, R26), so the loop hit PAUSE. Among its findings:
+- **②** a symlink `.git/objects` pointing to a directory outside the fixture root PASSED: fail-open.
+  R24's rule inside a `.git` reddens non-directory links only, and a directory link is searched for a
+  `HEAD` or `.git`, which an object store does not hold;
+- **④** memo §3's W3 definition and §4's W3 row still said "line-start prefix", but the code matches
+  anywhere in a record since R25.
+
+The rounds had been adding one case per finding to three enumerations: the `PATH` normaliser
+(R11–R13, R23, re-check #9, R24①), the link and two-name cases in P-g (R24, R25), and the absence of any
+time bound (R25's own comment: "nothing here has a watchdog"). An independent verdict (Fable) proposed
+replacing all three with properties, and the user accepted it on 2026-09-28. That is design memo
+draft 11: M-PATH, M-SHAPE and M-WATCHDOG, the untrusted-build stop, W3's wording, and the declared
+`objects/info/alternates`.
+
+**E1, the ground for M-PATH** (Fable; the artifacts are in the orchestrating session's scratchpad,
+`fable/sb-base` and `fable/e1/`). A `git clone --local` of `e8f78896` held `bin/git`, which logs `$PWD`
+and then execs `/usr/bin/git`. The wire ran from the clone's root with `PATH='~+/bin:/usr/bin:/bin'`,
+and it PASSED (`e1/base.log`). `wrapper.log` has 668 lines, every one the clone's root
+(`sort e1/wrapper.log | uniq -c` → one line, 668). So the wrapper served the wire's own reads and **no**
+fixture's git: the fixtures `cd`, and `~+/bin` then names a directory with no `git`. A caller `PATH`
+whose meaning depends on the working directory was never a supported surface for the build.
+
+**Superseded by draft 11**, with E1 as the citation. These are the fixes the normaliser grew:
+- R11–R13: relative entries, then `~`, then `~login`, ending in pinning `git` and dropping every
+  non-absolute entry;
+- resolving relative and empty entries against the wire's directory (R23), and dropping them when that
+  directory holds a `:` (re-check #9);
+- expanding `~` and `~login` as this bash does (R24①).
+
+Under M-PATH, the callers those fixes served (a `tools/bin` wrapper with its interpreter beside it; a
+`~/bin` wrapper with a helper) may go red, which is loud; X14 records the outcomes. R24's rule for
+non-directory links inside a `.git` and R25's `HEAD`/`config` guard are superseded by M-SHAPE. R25's
+"nothing here has a watchdog" is superseded by M-WATCHDOG.
+
+**Measurements for draft 11** (this session; `$A` is `…/scratchpad/author`):
+- **M-PATH + M-SHAPE prototype, clean.** `$A/sb` is a `git clone --local` of `35dc1153` with
+  `fable/sb-e4`'s tool diff applied (`git -C …/fable/sb-e4 diff -- .claude/tools | git apply`), and a
+  timer around `_fgit_window` in `controls.sh` (Perl `Time::HiRes`, printing `K2WINDOW <s>`). Three
+  runs per shell, two wires at a time, `HOME=$A/home`:
+  - bash 5.3: rc 0, PASSED, window 4.99 / 4.82 / 4.83 s, whole run 18 / 16 / 17 s;
+  - bash 3.2 (`PATH=/bin:/usr/bin:$PATH`): rc 0, PASSED, window 7.27 / 7.06 / 7.21 s, whole run 25 / 23 / 23 s.
+
+  So no fixture git dir holds anything but regular files and directories, and the window bounds are
+  derived from these figures (design memo §3). X3 has **not** been run on the prototype.
+- **The untrusted build reaches the controls.** In `fable/e1/e4e.log`, with a FIFO `.git/commondir` in
+  `clean`, P-g reported it by the shape rule, and then `green is reachable` was "killed after 30s"
+  (the log ends there).
+- **`commondir` and `alternates`.** git 2.55.0, in `$A/cd`, `HOME` set to it, `GIT_CONFIG_NOSYSTEM=1`:
+  - with `r/.git/commondir` naming `out/.git`, `git -C r config --list --show-origin` lists `out`'s
+    configuration with the origin `file:<…>/out/.git/config`, so P-g's origin comparison already
+    reddens it;
+  - with `a/.git/objects/info/alternates` naming `out`'s object store, `git -C a count-objects -v`
+    prints `alternate: <…>/out/.git/objects`. P-g does not ask it, which is the declared blind spot.
+- **X4b at `8413a4db`** (the X4b block over `harness.sh`) gives two lines, 71 ("memo §0.1") and 93
+  ("memo §1"), with no file name. C6 deletes both.
+
+**Records planned by draft 11** (design memo §9.1, corpus §6.1): −1 (P-j per-entry), +1 (W timeout),
++1 (W2 untrusted), +3 (P-g shape) = **+4**. That makes **54** window records after the 95 base, **149**
+in all, `_MUT_RECORDS_MIN=149`, labels 16, `_MUT_UNRECORDED_MAX=21`. None of this is implemented yet.
