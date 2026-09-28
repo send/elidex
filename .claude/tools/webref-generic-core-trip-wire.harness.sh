@@ -55,13 +55,24 @@ _FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYST
 # plus what bash itself maintains for the processes it starts.
 _FGIT_ENV_NAMES="PWD OLDPWD SHLVL _"
 for _fe in "${_FGIT_ENV[@]}"; do _FGIT_ENV_NAMES="$_FGIT_ENV_NAMES ${_fe%%=*}"; done
-# P-e's reference: the exec path of the git the WIRE reads with — `_git`, its
-# own reader — so the label names what the evidence is.
-_FGIT_WIRE_EXEC="$(_git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
+# P-e's reference: the exec path the SAME git reports with nothing but `PATH` in
+# its environment, canonical (`pwd -P`). Which executable runs is outside P
+# (R1: it is `PATH`'s); what P-e pins is that nothing the window carries
+# overrides where that git runs its commands from. The window's side is taken
+# the same way, so a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one
+# directory spelled two ways, cannot make the two differ.
+_fgit_canon() { [ -n "$1" ] && ( cd "$1" 2>/dev/null && pwd -P ) || printf ''; }
+_FGIT_WIRE_EXEC="$("$_FGIT_ENVBIN" -i "PATH=$PATH" git --exec-path 2>/dev/null)" || _FGIT_WIRE_EXEC=""
+_FGIT_WIRE_EXEC="$(_fgit_canon "$_FGIT_WIRE_EXEC")"
+# P-h's reference: the locale the wire reads in (it exports `LC_ALL=C`), so the
+# build is like-for-like with the scan and the window's diagnostics are the
+# ones W3 is written against.
+_FGIT_WIRE_LC="${LC_ALL:-}"
 # State the parent reads back — assigned before anything reads it (nothing here
 # relies on `set -u`; see docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §5.2).
 _FW_DIR="$SCRATCH/fgit-window"
 _fw_rc=0; _fw_done=0; _fw_post_bad=0; _fw_why="the window was never started"; _fw_diag=""; _fw2_said=0
+_fw_seal_bad=""; _fw_pb_skip=""
 # The postconditions, run INSIDE the window after the build. Their labels
 # (`$_pa_lbl` … `$_pg_lbl`, defined in the controls file) reach the window by
 # name through the prelude. Returns 1 if any reported.
@@ -74,29 +85,57 @@ _fgit_postconditions() {
   _pa_bad="$(cd "$_pq/a" && git config --list --show-scope --show-origin 2>&1 | awk -F'\t' '!($1=="local" && $2=="file:.git/config")')" || _pa_bad="(config --list failed)"
   if [ "$_pa_live" != command ]; then echo "!! CONTROL NOT EXERCISED ($_pal_lbl)" >&2; _fpv=1
   elif [ -n "$_pa_bad" ]; then echo "!! CONTROL FAILED ($_pa_lbl): $(printf '%s' "$_pa_bad" | tr '\n' ' ')" >&2; _fpv=1; fi
-  _pbd=""; _pbl=""
-  for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
-    _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var "$_v" 2>/dev/null)" || _o=""
-    [ -n "$_o" ] || _pbl="$_pbl $_v"
-    if _o="$(git var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v=[$_o]"; fi
+  # P-b asks `git var` INSIDE P-a's probe repo, so what it reads is that repo's
+  # plain configuration and never the caller's (the window runs in its own
+  # directory, and a probe run from wherever it happened to be would read the
+  # local configuration of any repository around it).
+  # ⚠ A MACHINE LIMITATION, NOT A RED: `git var` names these four only from git
+  # 2.42; an older git answers 129 (usage). That is the capability rule the
+  # FIFO and file-permission controls follow: reported as NOT EXERCISED on
+  # this machine, and green.
+  _pbd=""; _pbl=""; _pbu=""
+  for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
+    _prc=0; git -C "$_pq/a" var "$_v" >/dev/null 2>&1 || _prc=$?
+    [ "$_prc" -ne 129 ] || _pbu="$_pbu $_v"
   done
-  for _v in GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
-    if ! _o="$(git var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v:rc!=0"; continue; fi
-    while IFS= read -r _l; do case "$_l" in "$_FGIT_VOID"/*) : ;; *) _pbd="$_pbd $_v=[$_l]";; esac; done <<EOF_PB
+  if [ -n "$_pbu" ]; then
+    printf '%s' "$_pbu" > "$_FW_DIR/pb_unsupported"
+  else
+    for _v in GIT_CONFIG_SYSTEM GIT_ATTR_SYSTEM; do
+      _o="$(GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git -C "$_pq/a" var "$_v" 2>/dev/null)" || _o=""
+      [ -n "$_o" ] || _pbl="$_pbl $_v"
+      if _o="$(git -C "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v=[$_o]"; fi
+    done
+    for _v in GIT_CONFIG_GLOBAL GIT_ATTR_GLOBAL; do
+      if ! _o="$(git -C "$_pq/a" var "$_v" 2>/dev/null)"; then _pbd="$_pbd $_v:rc!=0"; continue; fi
+      # The void is replaced by a token BEFORE the output is split into lines, so
+      # a scratch path holding a newline cannot split one entry into two.
+      _o="${_o//"$_FGIT_VOID"/@K2VOID@}"
+      while IFS= read -r _l; do case "$_l" in @K2VOID@/*) : ;; *) _pbd="$_pbd $_v=[$_l]";; esac; done <<EOF_PB
 $_o
 EOF_PB
-  done
-  if [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
-  elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
+    done
+    if [ -n "$_pbl" ]; then echo "!! CONTROL NOT EXERCISED ($_pbl_lbl):$_pbl" >&2; _fpv=1
+    elif [ -n "$_pbd" ]; then echo "!! CONTROL FAILED ($_pb_lbl):$_pbd" >&2; _fpv=1; fi
+  fi
   if ! diff -r "$_pq/a/.git" "$_pq/b/.git" >/dev/null 2>&1; then echo "!! CONTROL FAILED ($_pd_lbl)" >&2; _fpv=1; fi
   _o="$(git --exec-path 2>/dev/null)" || _o=""
+  _o="$(_fgit_canon "$_o")"
   if [ -z "$_o" ] || [ "$_o" != "$_FGIT_WIRE_EXEC" ]; then echo "!! CONTROL FAILED ($_pe_lbl): [$_o] vs [$_FGIT_WIRE_EXEC]" >&2; _fpv=1; fi
-  _pf=""
+  # P-f: every record of `env -0`, through a FILE so its status is checked; a
+  # failed or unsupported `env -0`, or an empty population, is NOT EXERCISED.
+  _pf=""; _pfn=0; _pfrc=0
+  "$_FGIT_ENVBIN" -0 > "$_FW_DIR/env0" 2>/dev/null || _pfrc=$?
   while IFS= read -r -d '' _rec; do
-    _n="${_rec%%=*}"
+    _pfn=$((_pfn + 1)); _n="${_rec%%=*}"
     case " $_FGIT_ENV_NAMES " in *" $_n "*) : ;; *) _pf="$_pf $_n" ;; esac
-  done < <("$_FGIT_ENVBIN" -0)
-  if [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
+  done < "$_FW_DIR/env0"
+  if [ "$_pfrc" -ne 0 ] || [ "$_pfn" -eq 0 ]; then echo "!! CONTROL NOT EXERCISED ($_pf_lbl): \`env -0\` exited $_pfrc with $_pfn record(s)" >&2; _fpv=1
+  elif [ -n "$_pf" ]; then echo "!! CONTROL FAILED ($_pf_lbl):$_pf" >&2; _fpv=1; fi
+  # P-h: the window reads in the wire's locale.
+  if [ -z "$_FGIT_WIRE_LC" ] || [ "${LC_ALL:-}" != "$_FGIT_WIRE_LC" ]; then
+    echo "!! CONTROL FAILED ($_ph_lbl): LC_ALL is [${LC_ALL:-}], the wire's is [$_FGIT_WIRE_LC]" >&2; _fpv=1
+  fi
   # P-g: every fixture repo's persisted configuration is exactly what a plain
   # `git init` in this window writes — P-a's probe repo, `$_pq/a`, is that init
   # — derived from git itself, per run, so no key list: anything a fixture
@@ -133,7 +172,13 @@ EOF_PB
     fi
     _pgn=$((_pgn + 1)); _pgd="${_pge%/.git}"; _pgl="${_pgd#"$CTL"/}"
     if [ -L "$_pge" ] || [ ! -d "$_pge" ]; then _pg="$_pg $_pgl:[.git is not a directory]"; continue; fi
-    _pgx="$(git -C "$_pgd" config --list --show-scope --show-origin 2>&1 | grep -vxF -f "$_pgref")" || true
+    # ⚠ BOTH DIRECTIONS: a `.git` git does not recognise (a garbage `HEAD`) lists
+    # NOTHING and exits 0, so an empty listing is red, not "no extra key".
+    _pgrc=0; _pgc="$(git -C "$_pgd" config --list --show-scope --show-origin 2>&1)" || _pgrc=$?
+    if [ "$_pgrc" -ne 0 ] || [ -z "$_pgc" ]; then
+      _pg="$_pg $_pgl:[git lists no configuration here (exit $_pgrc)]"; continue
+    fi
+    _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || true
     [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
   done < "$_pgpop"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
@@ -154,11 +199,30 @@ _fw_opts_on() {
 # is RECORDED here, not applied: the window applies every one after the
 # postconditions, so the P-g census sees the whole tree. $1 = path, $2 = mode,
 # $3 = the fixture, which is marked failed if the mode cannot be applied.
-_seal() { printf '%s\t%s\t%s\n' "$2" "$3" "$1" >> "$_FW_DIR/seal"; }
+# ⚠ A PATH IS DATA, NOT PROTOCOL: the manifest is line-based, so it stores the
+# path RELATIVE to `$CTL` and refuses one outside `$CTL` or holding a newline or
+# a TAB — a raw path with a newline in `$CTL` would otherwise split into a line
+# naming a directory outside the scratch root, and chmod it.
+# A mode that is refused or cannot be applied is RED (`seal_failed`, label
+# `$_fws_lbl`), not only a failed fixture: controls gated on the mode having
+# taken effect would otherwise be skipped as a machine limitation.
+_seal() {
+  _sl_nl="$(printf '\nx')"; _sl_nl="${_sl_nl%x}"; _sl_tab="$(printf '\t')"
+  case "$1" in
+    "$CTL"/*) _sl_r="${1#"$CTL"/}" ;;
+    *) printf '%s\n' "$3: [$1] is outside the fixture root" >> "$_FW_DIR/seal_failed"; return 0 ;;
+  esac
+  case "$_sl_r" in *"$_sl_nl"*|*"$_sl_tab"*)
+    printf '%s\n' "$3: a path holding a newline or a TAB" >> "$_FW_DIR/seal_failed"; return 0 ;;
+  esac
+  printf '%s\t%s\t%s\n' "$2" "$3" "$_sl_r" >> "$_FW_DIR/seal"
+}
 _seal_apply() {
   [ -e "$_FW_DIR/seal" ] || return 0
   while IFS="$(printf '\t')" read -r _sm _sf _sp; do
-    chmod "$_sm" "$_sp" 2>/dev/null || _fixture_failed "$_sf"
+    chmod "$_sm" "$CTL/$_sp" 2>/dev/null || {
+      _fixture_failed "$_sf"
+      printf '%s\n' "$_sf: chmod $_sm $_sp failed" >> "$_FW_DIR/seal_failed"; }
   done < "$_FW_DIR/seal"
 }
 # Run the fixtures file in the window. $1 = fixtures file. Sets
@@ -171,18 +235,33 @@ _fgit_window() {
     # Plain assignments, never `declare -p`: that would carry an `export`
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
-      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_WIRE_EXEC _FW_DIR \
-      _pa_lbl _pal_lbl _pb_lbl _pbl_lbl _pc_lbl _pd_lbl _pe_lbl _pf_lbl _pg_lbl; do
+      _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_WIRE_EXEC \
+      _FGIT_WIRE_LC _FW_DIR; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
+    # The postcondition labels, by the names `_fgit_postconditions` USES —
+    # derived from its body, not listed — each of which the controls file must
+    # define non-empty; one it does not refuses the window, so a renamed label
+    # cannot be forwarded empty in silence.
+    _fwls="$(declare -f _fgit_postconditions | grep -o '_p[a-z]*_lbl' | sort -u)" || _fwls=""
+    for _fwn in $_fwls; do
+      if [ -z "${!_fwn:-}" ]; then
+        printf 'echo %q > "$_FW_DIR/cause"; exit 1\n' "the postcondition label \$$_fwn is not defined, or is empty"
+      else
+        printf '%s=%q\n' "$_fwn" "${!_fwn}"
+      fi
+    done
     printf '_FIX_FAILED=""\n'
-    declare -f _fixture_failed _shq _fw_opts_on _seal _seal_apply _fgit_postconditions
+    declare -f _fixture_failed _shq _fgit_canon _fw_opts_on _seal _seal_apply _fgit_postconditions
   } > "$_FW_DIR/prelude.sh" || { _fw_why="the window prelude could not be written"; return 0; }
   # The child writes WHY it stopped into `cause` itself, as the sentence W
   # prints, so an exit status a fixtures-file command produced under errexit
   # cannot be mistaken for one of these.
+  # It starts in a directory it owns, so no git it runs reads the configuration
+  # of a repository the caller happened to be in.
   "$_FGIT_ENVBIN" -i "${_FGIT_ENV[@]}" "$_FGIT_BASH" -c '
     . "$1"
+    cd "$_FW_DIR" || { echo "the window could not enter its own directory" > "$_FW_DIR/cause"; exit 1; }
     _fw_opts_on || { echo "the window refused to start: a prelude option (errexit, nounset or pipefail) was not in force" > "$_FW_DIR/cause"; exit 1; }
     . "$2"
     [ -e "$_FW_DIR/built" ] || { echo "the fixtures file returned before its last line" > "$_FW_DIR/cause"; exit 1; }
@@ -192,23 +271,25 @@ _fgit_window() {
     printf "%s" "$_FIX_FAILED" > "$_FW_DIR/fix_failed"
     : > "$_FW_DIR/done"' _ "$_FW_DIR/prelude.sh" "$_fwf" 2> "$_FW_DIR/stderr" || _fw_rc=$?
   cat "$_FW_DIR/stderr" >&2 2>/dev/null || true
-  # A shell diagnostic located in the fixtures file (bash's own "<file>: line N:"
-  # form, English under the window's LC_ALL=C) means a top-level command was
-  # skipped — an arithmetic-expansion error does not stop a sourced file.
-  # No pipe into `head`: under pipefail its early exit SIGPIPEs grep (141) once
-  # the output is long, which must not read as "no diagnostic". grep rc 1 is
-  # "none"; any other non-zero status is itself red.
-  _fw_dg=0; _fw_diag="$(grep -m 3 -F "$_fwf: line " "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
-  case "$_fw_dg" in
-    0) : ;;
-    1) _fw_diag="" ;;
-    *) _fw_diag="(the scan of the window's stderr failed: grep exited $_fw_dg)" ;;
-  esac
+  # A shell diagnostic located in the fixtures file or the prelude means a line
+  # of it was skipped — an arithmetic-expansion error does not stop a sourced
+  # file. The property is WHERE the line starts: bash prefixes every diagnostic
+  # about a file with that file's path and `:` (`… line N:`, `… command
+  # substitution: line N:`, `… eval: line N:`, in any locale), so no wording
+  # is matched. The paths reach `awk` through the environment, which interprets
+  # nothing, and `awk` stops after three: no pipe, so no SIGPIPE.
+  _fw_dg=0
+  _fw_diag="$(_FW_A="$_fwf:" _FW_B="$_FW_DIR/prelude.sh:" awk '
+    index($0, ENVIRON["_FW_A"]) == 1 || index($0, ENVIRON["_FW_B"]) == 1 { print; if (++n == 3) exit }
+  ' "$_FW_DIR/stderr" 2>&1)" || _fw_dg=$?
+  [ "$_fw_dg" -eq 0 ] || _fw_diag="(the scan of the window's stderr failed: awk exited $_fw_dg)"
   if [ -e "$_FW_DIR/done" ]; then _fw_done=1; else
     _fw_why="$(cat "$_FW_DIR/cause" 2>/dev/null)" || _fw_why=""
     [ -n "$_fw_why" ] || _fw_why="the window exited $_fw_rc before completing (the fixtures file exited or aborted, or a postcondition aborted)"
   fi
   [ ! -e "$_FW_DIR/post_bad" ] || _fw_post_bad=1
+  _fw_seal_bad="$(cat "$_FW_DIR/seal_failed" 2>/dev/null)" || _fw_seal_bad=""
+  _fw_pb_skip="$(cat "$_FW_DIR/pb_unsupported" 2>/dev/null)" || _fw_pb_skip=""
   _FIX_FAILED="$(cat "$_FW_DIR/fix_failed" 2>/dev/null)" || _FIX_FAILED=""
   return 0
 }
@@ -337,7 +418,7 @@ _control() { # $1 = root, $2 = expected exit, $3 = expected message, $4 = label,
   # on bash 5.3 and 3.2: group kill reaps the descendant, top-PID kill does not.
   set -m
   PATH="${7:+$7:}$PATH" \
-    env ${_ctl_env[@]+"${_ctl_env[@]}"} "$SELF" --selftest "$1" "${5:-}" "${6:-}" \
+    env ${_ctl_env[@]+"${_ctl_env[@]}"} "$BASH" "$SELF" --selftest "$1" "${5:-}" "${6:-}" \
     > "$_out_f" 2>&1 & _cpid=$!
   set +m
   # ⚠ THE TIMER IS A SEPARATE PROCESS FROM THE SHELL THAT FORKED IT. `$!` is

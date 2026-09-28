@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# THE FIXTURE BUILD for `webref-generic-core-trip-wire.sh` — sourced by its
-# controls file, never run on its own. It builds the fixture trees under `$CTL`
-# that the controls file then re-invokes the wire over.
+# THE FIXTURE BUILD for `webref-generic-core-trip-wire.sh` — sourced INSIDE the
+# fixture build window, after the window's prelude, never run on its own. It
+# builds the fixture trees under `$CTL` that the controls file then re-invokes
+# the wire over.
 #
-# WHY IT IS A SEPARATE FILE. The controls file crossed 1000 lines, and the seam
-# was already there: this half BUILDS the trees, that half ASSERTS over them
-# (CLAUDE.md touch-time split; docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §8.1).
+# WHY IT IS A SEPARATE FILE. The controls file stood at 989 lines and this slice
+# grows both of its halves, and the seam was already there: this half BUILDS the
+# trees, that half ASSERTS over them (CLAUDE.md touch-time split;
+# docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §8.1).
 # ⚠ IT RUNS IN THE FIXTURE BUILD WINDOW, NOT IN THE WIRE'S SHELL: the harness
 # sources it in a child started with `env -i` and an allowlist
-# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3), so the git it calls is plain
-# `git` and inherits nothing the caller carries. What it can read is what the
-# window's prelude hands it: `$CTL`, the five `CONTROL_*` samples, `$_REAL_GIT`,
-# `$_REAL_GREP`, `$_fifo_ok`, `_fixture_failed`, `_shq` and `_seal`. The controls file
-# refuses to run without it, as it refuses without the harness.
+# (docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md §3), so the git it
+# calls is plain `git` and inherits nothing the caller carries. What it can read
+# is what the window's prelude hands it: `$CTL`, `$_FW_DIR` (for its last line
+# and for `_seal`), the five `CONTROL_*` samples, `$_REAL_GIT`, `$_REAL_GREP`,
+# `$_fifo_ok`, `_fixture_failed`, `_shq` and `_seal`. The controls file refuses
+# to run without it, as it refuses without the harness.
 # ⚠ A MODE RESTRICTION GOES THROUGH `_seal`, NEVER A BARE `chmod`: `_seal`
 # records it and the window applies it after the postconditions, so the P-g
 # census reads the whole tree first (a restriction applied here would make the
@@ -20,6 +23,14 @@
 # ⚠ ITS LAST LINE IS LOAD-BEARING: it writes the `built` marker, so a window in
 # which this file returned or exited early is reported as incomplete (W) and
 # no control runs.
+# THE ENTRY GUARD, as the other parts have: run directly — not sourced, or
+# without the window's `$CTL` and `$_FW_DIR` — this file would build under `/`.
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ] || [ -z "${CTL:-}" ] || [ -z "${_FW_DIR:-}" ]; then
+  echo "!! This file is the FIXTURE BUILD for \`webref-generic-core-trip-wire.sh\`. It is" >&2
+  echo "   SOURCED inside that wire's fixture build window and has no meaning alone." >&2
+  echo "   Run the wire instead." >&2
+  exit 2
+fi
 for d in clean pin k2 tools binary err empty walk link odd nl seg cache cachedir extra name emptyname quotename nlname rawbyte forge linkname ignored lsfail lstreefail grepfail grepfaillink nltarget linkslash staged fifotracked notcommitted inscope stagedlink nulblob committed replaced routed routeddecoy cfgkept punct suffixpath headprobe catfail phantom punctslash badref globspec orphan atclaude ancestorlink external bnd wtlsfail catkill d2red d2green d2file d3f1 d3f2 d3f3 d3f4 d3m1 d3m2 d3m3 d3m4 d3nb d5root fsmon linestart textgreen slashname pathgreen slashtext finalone interone midclass pathfirstone headlink unread; do mkdir -p "$CTL/$d"; done
 mkdir -p "$CTL/walk/sub"
 printf '# %s\n' "$CONTROL_CLEAN" > "$CTL/walk/top.py"

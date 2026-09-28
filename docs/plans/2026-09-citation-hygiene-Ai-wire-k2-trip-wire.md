@@ -30,8 +30,8 @@ in that memo's §8.2:
   by that memo's property P (its §0.1); the D6 row's `_fgit` no longer exists.
 - **§11.4 P1** (L1281–1282): the file list gains the fixtures and mutgen files.
 
-An unqualified "plan memo" or "§N" in a K2 wire file means the memo that file's header names; the
-resolution per line is that memo's §8.3 table.
+Which memo each unqualified "plan memo" or "§N" in a K2 wire file refers to is resolved per line
+by that memo's §8.3 table.
 
 ⚠ **The rule for this memo is to state no quantity that moves with a commit.** Where a number
 matters it appears as the command that produces it. Historical quantities (review-round numbers, gate

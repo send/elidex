@@ -627,6 +627,52 @@ bash -n  every part, both shells: clean; parts 383/683/379/645/328 lines (contro
          harness/mutations/mutgen), the wire 1259 untouched
 ```
 
+
+**The `/code-review` pass — verification** (design memo §13; `…/scratchpad/impl/`, scratch `HOME`,
+at most two wire runs at once; run on the fix's content before it was folded into one commit, whose
+code is byte-identical). b53 = `/opt/homebrew/bin/bash`; b32 = `/bin/bash` with `PATH=/bin:/usr/bin:…`,
+so `bash` is 3.2 too.
+
+```text
+X1        b53, b32: rc=0 CTL=0 PASSED=1
+X3        b53 (2942 s), b32 (3818 s): "116 entr(ies), 0 not killed as named", "50 mutant(s) … 0
+          neither killed nor argued equivalent", PASSED, 0 `!!` lines
+probe12   /bin/bash driver, mutation run cut to 2 records, each process logging $BASH_VERSION:
+          172 mutant processes and 86 wire/control processes, every one 3.2.57(1)-release
+X11       b53, b32: rc 1, "22 labels have no mutation record, against a ratchet of 21", lists it
+callers   7 conditions (clean; GIT_TEMPLATE_DIR info/exclude *.py; .gitconfig excludesFile; home
+          ignore; XDG ignore; home attributes UTF-16LE; GIT_CONFIG_GLOBAL=/dev/null) × b53, b32:
+          every run rc=0 NE=0 CF=0 PASSED=1
+tripwires bash scripts/trip-wires.sh from the repo root, b53 and b32: rc=0, generic-core PASSED
+records   the new or changed records (P-b-live, P-e, P-h, W4), each alone, b53 and b32: 8/8 killed
+          with their needle
+```
+
+Cells (`crc.sh`; "before" = the `/simplify` head `db2b0af1`, "after" = the fix), both shells unless
+noted. Every after-state is the intended one:
+
+| # | cell | before | after |
+|---|---|---|---|
+| 1 | `cwdrepo`: caller cwd in another repo with a local `core.attributesFile` and a bad include | rc 1, P-b-live NE | rc 0, PASSED |
+| 2 | `gitvar129`: a `git` shim answering 129 for the four `git var` names | rc 1, NE | rc 0, PASSED, P-b "NOT EXERCISED on this machine" |
+| 3 | `pe_opt` / `pe_dev` / `pe_alias`: `GIT_EXEC_PATH` opt spelling, `DEVELOPER_DIR` with `/usr/bin/git`, an exported `GIT_EXEC_PATH` | `pe_dev` red (Xcode vs CommandLineTools); the other two green here | all green |
+| 4 | `sealfail`: a `chmod` shim failing only `*/err/control.py` | PASSED, false "NOT EXERCISED on this machine" | rc 1, W4 |
+| 5 | `w3cmdsub`: `: "$(case a in a) echo y;; esac)"` (b32) | green | rc 1, W3 (b53: no diagnostic exists, green) |
+| 5 | `w3ar`: `$(( 1/0 ))` | red | red |
+| 6 | `env0`: an `env` shim without `-0` | green | rc 1, P-f NE |
+| 7 | `garbagehead`: persisted `core.excludesFile` plus a garbage `HEAD` | green | rc 1, P-g "git lists no configuration here" |
+| 8 | `nltmp`: a `mktemp` shim returning a scratch path holding a newline | a directory OUTSIDE the scratch root chmodded to `d---------` (and P-b red) | the outside directory unchanged; rc 0, PASSED |
+| 9 | `longopts` / `tzutc`: `set -o errexit -o nounset -o pipefail`; `"TZ=UTC"` appended | green | rc 1, "no longer matches … its anchor is stale" |
+| 10 | `nomutgen`: `mutgen.sh` removed | — | rc 2, "…is missing or unreadable … decided nothing" |
+| 11 | `w2rec` (traced): the W2 record's edit | a non-`_control` block executed over the unbuilt tree | none executed; W and W2 |
+| 13 | `mutpath`: a clone at `…/wt.mutant.k2/sb` | green (guard was opt-in) | green (guard always on) |
+| 15 | `lblrename`: `_pa_lbl` renamed | green, silently | rc 2, W "…label $_pa_lbl is not defined, or is empty" |
+
+#14's cell: `bash …fixtures.sh` run directly prints the entry-guard refusal and exits 2. #12's is
+probe12 above. The first `nltmp` run of the fix showed a false P-b red, the void path split at the
+newline; fixed before this verification by replacing the void with a token before splitting lines.
+Not taken, as decided: P-g's per-repo `git config` forks and `_mut_correspondence`'s greps.
+
 ---
 
 ## §B Fate of `ff6b99a3`'s 14 commits (moved from draft 2 §9.1)

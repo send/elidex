@@ -26,12 +26,12 @@
 # hoping for it. Being cross-file is the point: the check reads the
 # controls file for labels and this file for records, and reds when they drift.
 #
-# WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_HARNESS`,
-# `$_FIXTURES` and `$_MUTATIONS` (from the controls file — the last is this
-# file's own path),
-# and `$SELF`, `$SCRATCH`, `$_CONTROLS`, `$K2RE` and `$K2RE_PATH` (from the
-# wire). `_mut_run` copies every part in its `_MUT_PARTS` list — the controls,
-# the harness, this file and the fixture build — beside each mutant.
+# WHAT IT CONSUMES: `$CTL` (from the controls harness), `$_CONTROLS` (the
+# controls file, read for labels), and `$SELF`, `$SCRATCH`, `$K2RE` and
+# `$K2RE_PATH` (from the wire); every other part it names is derived from
+# `$SELF` through `_MUT_PARTS`. `_mut_run` copies every part in that list — the
+# controls, the harness, this file, the fixture build and the generated half —
+# beside each mutant.
 # ⚠ THE TWO REGEXES ARE CONSUMED AS VALUES, not just named in a `for` list:
 # `_mut_gen_run` compares what the wire's assignment LINE reads back as against
 # what the RUNNING wire HOLDS, and that second half is these variables. They
@@ -87,16 +87,21 @@
 # ⚠ Asserted at entry, for the same reason the controls file asserts its own:
 # a stated interface nobody checks drifts like any other unexecuted claim.
 _mut_missing=
-for _n in CTL _CONTROLS _HARNESS _FIXTURES _MUTATIONS SELF SCRATCH K2RE K2RE_PATH; do
+for _n in CTL _CONTROLS SELF SCRATCH K2RE K2RE_PATH; do
   [ -n "${!_n:-}" ] || _mut_missing="$_mut_missing \$$_n"
 done
-# …and the generated half, which lives beside this file (below).
-_MUTGEN="${SELF%.sh}.mutgen.sh"
-[ -r "$_MUTGEN" ] || _mut_missing="$_mut_missing $_MUTGEN (the generated half)"
 if [ -n "$_mut_missing" ]; then
   echo "!! This file is the MUTATION SET for \`webref-generic-core-trip-wire.sh\`. It is" >&2
   echo "   SOURCED by that wire's controls and has no meaning alone; missing:$_mut_missing" >&2
   echo "   Run the wire instead." >&2
+  exit 2
+fi
+# …and the generated half, which lives beside this file. Its absence is a
+# missing sibling, reported as the other parts report theirs.
+_MUTGEN="${SELF%.sh}.mutgen.sh"
+if [ ! -r "$_MUTGEN" ]; then
+  echo "!! the generated mutation half beside this mutation set ($_MUTGEN) is missing or" >&2
+  echo "   unreadable, so no rule of \$K2RE or \$K2RE_PATH can be tested. This run decided nothing." >&2
   exit 2
 fi
 # THE GENERATED HALF — `_mut_gen_run` and what it needs — LIVES BESIDE THIS FILE,
@@ -194,8 +199,12 @@ fi
 # "extra characters at the end of h command", `sed 'fixtures:p'` is "invalid
 # command code f"; GNU sed is not measured here).
 _MUT_TARGETS="harness fixtures"
+# THE PARTS, SPELLED ONCE: every file beside the wire, under the name a copy
+# derives from its own `$SELF` (`<wire>.<part>.sh`). The sibling guard, the
+# per-run copies, the trap's `rm -f` and the stale-report skip all read it.
+_MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=114
+_MUT_RECORDS_MIN=116
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -331,10 +340,12 @@ fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
 harness:s/git -c a[.]b=c config --list/git config --list/	this git reports a non-local configuration scope
 harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_ATTR_NOSYSTEM=1 /	the fixture git has no system or global layer outside the void
-harness:s/GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git var/git var/	this git names its system files through git var
+harness:s/GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git -C/git -C/	this git names its system files through git var
 harness:s/^mkdir "[$]_FGIT_VOID" || exit 2$/mkdir "$_FGIT_VOID" \&\& : > "$_FGIT_VOID\/k2plant" || exit 2/	nothing is written into the fixture git's void
 harness:s/ "GIT_TEMPLATE_DIR=[$]_FGIT_VOID"//	the fixture git copies no template
-harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_EXEC_PATH=\/nonexistent-k2)/	the fixture git is the git the wire reads with
+harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_EXEC_PATH=\/nonexistent-k2)/	no exec-path override reaches the fixture git
+harness:s/ "LC_ALL=C")$/)/	the fixture build window reads in the wire's locale
+harness:s/chmod "[$]_sm" "[$]CTL\/[$]_sp" 2>\/dev\/null/false/	every mode restriction a fixture sealed was applied
 harness:s/"[$]_FGIT_ENVBIN" -i /"$_FGIT_ENVBIN" /	the fixture build window's environment holds only its allowlist
 fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^( cd "[$]CTL\/cachedir" && git init -q [.] /( cd "$CTL\/cachedir" \&\& git init -q --separate-git-dir="$CTL\/.gd-cachedir" . /	every fixture repo persists only the configuration a plain git init writes
@@ -385,15 +396,9 @@ _mut_rm_copies() {
 # Returns 0 = as required, 1 = SURVIVED (the caller decides what that means),
 # 2 = failed some other way, already reported.
 _mut_trial() {
-  # ⚠ AND IT MUST BE EXECUTABLE. `_control` invokes `"$SELF"` DIRECTLY, not
-  # through `bash`, so a copy written by `sed` (mode 644) exits 126
-  # "Permission denied" for EVERY control — which reds the run, prints every
-  # control's diagnostic, and therefore satisfies a "did it name the right
-  # control?" test VACUOUSLY. Measured: every entry the set then held "passed" that
-  # way, and a deliberately inert entry (a comment-only edit that cannot
-  # change any verdict) was the negative control that exposed it. The probe's
-  # subject was the permission bit, not the mutation.
-  chmod +x "$_mut_wire"
+  # ⚠ THE MUTANT RUNS UNDER THE DRIVER'S OWN BASH (`$BASH`), as every control
+  # child does, so a run driven by bash 3.2 exercises 3.2 end to end rather than
+  # whatever `bash` `PATH` names. Nothing is executed through its mode bit.
   # ⚠ THE PAIR COMPARED IS THE FILE THIS ENTRY EDITS, not always the wire. With
   # `$SELF` hard-coded here, a `harness:` entry that matched nothing compared two
   # files that are never equal, so "MATCHED NOTHING" could not fire for it — the
@@ -404,7 +409,7 @@ _mut_trial() {
     return 2
   fi
   _mt_rc=0
-  _mt_out="$(env -u WEBREF_WIRE_MUTANTS bash "$_mut_wire" 2>&1)" || _mt_rc=$?
+  _mt_out="$(env -u WEBREF_WIRE_MUTANTS "$BASH" "$_mut_wire" 2>&1)" || _mt_rc=$?
   if [ "$2" = '!survive' ]; then
     # THE STANDING NEGATIVE CONTROL. Its edit is to COMMENT TEXT, so it
     # cannot change any verdict by construction and the wire MUST still be
@@ -438,6 +443,27 @@ _mut_trial() {
 
 # The always-on half: static properties of the two shipped lists.
 _mut_correspondence() {
+  _mut_corr_bad=0
+  # ---- THE SIBLING GUARD, ALWAYS ON --------------------------------------------
+  # The shipped files beside the wire must be exactly `$_MUT_PARTS`: a part left
+  # off the list is not copied beside a mutant, which then exits 2 for a reason
+  # that is not its mutation. The test is on the PART NAME (what follows the
+  # wire's own stem), never the full path, so a checkout whose path holds
+  # `.mutant.` is not mistaken for a copy; a concurrent run's copies
+  # (`mutant.<pid>.<part>`) are skipped by that same name. Inside a mutant the
+  # stem is `….mutant.<pid>`, and its copies are exactly the parts.
+  _mp_have=""
+  for _mp_f in "${SELF%.sh}".*.sh; do
+    [ -e "$_mp_f" ] || continue
+    _mp_n="${_mp_f#"${SELF%.sh}".}"; _mp_n="${_mp_n%.sh}"
+    case "$_mp_n" in mutant.*) continue ;; esac
+    _mp_have="$_mp_have $_mp_n"
+  done
+  if [ "$(printf '%s\n' $_mp_have | sort | tr '\n' ' ')" != "$(printf '%s\n' $_MUT_PARTS | sort | tr '\n' ' ')" ]; then
+    echo "!! the parts beside the wire are [$_mp_have ], but \`_MUT_PARTS\` is [ $_MUT_PARTS ]," >&2
+    echo "   so a mutant would run without one of them, or beside one nobody copies." >&2
+    _mut_corr_bad=1
+  fi
   # ---- THE CORRESPONDENCE, CHECKED ON EVERY RUN ---------------------------------
   # ⚠ THESE TWO USED TO LIVE INSIDE THE MUTATION BLOCK, which is opt-in and costs
   # minutes — so a PR that deleted a record or renamed a control stayed green
@@ -472,8 +498,33 @@ _mut_correspondence() {
       echo "   \"wrong reason\" forever." >&2
       _mut_orphan=1; }
   done < "$CTL/.mutants"
-  _mut_corr_bad=0
   [ "$_mut_orphan" -eq 0 ] || _mut_corr_bad=1
+  # ---- EVERY RECORD STILL APPLIES, ALWAYS ON ------------------------------------
+  # Each record's expression must change the file it targets. Records anchor on
+  # harness and fixtures text that an equivalent edit can change (spelling an
+  # option long, adding an allowlist entry), and a record that matches nothing
+  # tests a copy identical to the shipped file. The opt-in run would catch it,
+  # minutes later and only when someone runs it; this costs one `sed` per record.
+  # ⚠ NOT INSIDE A MUTANT: there one target is edited ON PURPOSE, so the records
+  # anchored on the edited text no longer apply, by design.
+  case "${SELF##*/}" in
+    *.mutant.*) : ;;
+    *) while IFS="$(printf '\t')" read -r _ma_x _; do
+         [ -n "${_ma_x:-}" ] || continue
+         _ma_src="$SELF"
+         for _ma_t in $_MUT_TARGETS; do
+           case "$_ma_x" in "$_ma_t":*) _ma_src="${SELF%.sh}.$_ma_t.sh"; _ma_x="${_ma_x#"$_ma_t":}"; break ;; esac
+         done
+         if ! sed "$_ma_x" "$_ma_src" > "$CTL/.anchor" 2>/dev/null; then
+           echo "!! mutation record \"$_ma_x\" is not a valid sed expression." >&2; _mut_corr_bad=1
+         elif cmp -s "$CTL/.anchor" "$_ma_src"; then
+           echo "!! mutation record \"$_ma_x\" no longer matches ${_ma_src##*/}: its anchor is stale," >&2
+           echo "   so the record would test a copy identical to the shipped file." >&2
+           _mut_corr_bad=1
+         fi
+       done < "$CTL/.mutants"
+       command rm -f "$CTL/.anchor" ;;
+  esac
   # …the standing negative control must BE there, and the set may not shrink.
   # ⚠ `awk`, NOT `grep -c`: `grep` exits 1 when it selects nothing, and under
   # `pipefail` that aborts the required gate — the same trap as the `wc -l`
@@ -543,35 +594,6 @@ _mut_run() {
     # repository's real generic core. `$$` is what makes the two runs disjoint.
     _mut_base="${SELF%.sh}.mutant.$$"
     _mut_wire="$_mut_base.sh"
-    # THE PARTS, SPELLED ONCE: every file beside the wire that a mutant needs
-    # beside IT, under the name the copy derives from its own `$SELF`
-    # (`$_mut_base.<part>.sh`). The copy below, the trap's `rm -f` and the
-    # stale-report skip all read this one list, so a new part is one word here
-    # rather than three sites that have to agree.
-    # ⚠ EVERY PART, NOT ONLY THE CONTROLS. Each part is sourced by name from a
-    # sibling, so a mutant with the controls beside it but not the mutation set
-    # exits 2 ("decided nothing") for a reason that has nothing to do with the
-    # mutation — which the harness then reports as the entry failing. Caught by
-    # the standing negative control in the same run that split the mutation set
-    # out; the harness and the fixture build are sourced the same way.
-    _MUT_PARTS="controls harness mutations fixtures mutgen"
-    # THE SIBLING GUARD — HERE, BEFORE THE LOOP, AND NOWHERE ELSE. The shipped
-    # files beside the wire must be exactly `$_MUT_PARTS`: a part left off the
-    # list is not copied, and every mutant would then exit 2 for a reason that is
-    # not its mutation. It cannot be always-on: inside a mutant `$SELF` is
-    # `….mutant.$$.sh`, every sibling carries `.mutant.`, and the filtered glob
-    # below is empty.
-    _mp_have=""
-    for _mp_f in "${SELF%.sh}".*.sh; do
-      case "$_mp_f" in *.mutant.*|*'.*.sh') continue ;; esac
-      _mp_n="${_mp_f#"${SELF%.sh}".}"; _mp_have="$_mp_have ${_mp_n%.sh}"
-    done
-    if [ "$(printf '%s\n' $_mp_have | sort | tr '\n' ' ')" != "$(printf '%s\n' $_MUT_PARTS | sort | tr '\n' ' ')" ]; then
-      echo "!! the parts beside the wire are [$_mp_have ], but \`_MUT_PARTS\` is [ $_MUT_PARTS ]," >&2
-      echo "   so a mutant would run without one of them, or beside one nobody copies." >&2
-      echo "   The mutation run decided nothing." >&2
-      exit 2
-    fi
     # ⚠ A LEFTOVER IS A REPORT, NOT A FILE TO CLEAN UP. `trap` does not run on
     # SIGKILL, so a killed run leaves mode-755 artifacts in `.claude/tools/`
     # where a `git add -A` would stage them. Say so; do not delete another run's.

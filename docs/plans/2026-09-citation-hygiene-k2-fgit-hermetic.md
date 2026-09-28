@@ -225,12 +225,13 @@ _FGIT_ENV=("PATH=$PATH" "HOME=$_FGIT_VOID" GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYST
 - `set -euo pipefail`;
 - plain `name=%q` assignments. These cover the data the fixtures file reads (`CTL`, the five
   `CONTROL_*` samples, `_REAL_GIT`, `_REAL_GREP`, `_fifo_ok`) and the window's own `_FGIT_VOID`,
-  `_FGIT_ENVBIN`, `_FGIT_ENV_NAMES`, `_FGIT_WIRE_EXEC` and `_FW_DIR`, and the nine postcondition labels
-  (`_pa_lbl` … `_pg_lbl`, defined in the controls file, where the ratchet counts them), passed by name
-  rather than as positional arguments. The fixtures' part of the list is **derived** by the census
+  `_FGIT_ENVBIN`, `_FGIT_ENV_NAMES`, `_FGIT_WIRE_EXEC`, `_FGIT_WIRE_LC` and `_FW_DIR`, and the
+  postcondition labels, passed by name rather than as positional arguments: the names are the ones
+  `_fgit_postconditions`' body uses, each of which the controls file (where the ratchet counts them) must
+  define non-empty, or the window refuses. The fixtures' part of the list is **derived** by the census
   command below;
-- `declare -f` bodies of `_fixture_failed`, `_shq`, `_fw_opts_on`, `_seal`, `_seal_apply` and
-  `_fgit_postconditions`.
+- `declare -f` bodies of `_fixture_failed`, `_shq`, `_fgit_canon`, `_fw_opts_on`, `_seal`,
+  `_seal_apply` and `_fgit_postconditions`. The child first enters `$_FW_DIR`, a directory it owns.
 
 **The census, and why it is complete.** The read-set comes from:
 
@@ -296,12 +297,11 @@ What **is** pinned are the properties a record can observe:
 - **W** fires when the window is incomplete.
 - **W2** fires if any control is reached over an unbuilt tree. W2 is `no control runs over an
   incomplete fixture build window`. Its predicate is one function, `_fw_built_or_w2`. **`_control`
-  calls it as its first statement** and refuses when the window is incomplete (E3). The controls file
-  calls it once more after the controls, which covers the blocks that are not `_control`s. So W2 no
-  longer depends on where the incomplete-window exit sits. **Its record pins that W2 is reported when
-  the exit is gone** (it removes the `exit` from `_fgit_window_incomplete_exit`). It does not tell the
-  first-statement check from the after-controls check, because both call the same predicate and either
-  alone reports W2.
+  calls it as its first statement** and refuses when the window is incomplete (E3), and each of the
+  three blocks that are not `_control`s (relative scratch, fsmonitor, umask) asks it before it runs.
+  So no control runs over an unbuilt tree, wherever the incomplete-window exit sits. **Its record pins
+  that W2 is reported when the exit is gone** (it removes the `exit` from
+  `_fgit_window_incomplete_exit`).
 - Moving the exit below a control is an edit to the controls file, which is not a mutation target. That
   shape is pinned by the corpus RO/ROg cells (X5), not by a record.
 - **W3** fires when bash reported a diagnostic located in the fixtures file (below).
@@ -309,12 +309,13 @@ What **is** pinned are the properties a record can observe:
 **A shell diagnostic in the fixtures file is red (W3; E4, AR).** An arithmetic-expansion error such as
 `$(( 1/0 ))` at the fixtures file's top level does **not** stop a sourced file under `set -e`, on either
 shell. The build completes, and on p8 the run was green (§6). The child's stderr is captured to a file
-and replayed. Any line in bash's own `<fixtures path>: line N:` form is W3; the form is English because
-the window sets `LC_ALL=C`. The scan is `grep -m 3 -F`, **not a pipe into `head`**: under `pipefail`,
-`head`'s early exit SIGPIPEs grep (141) once stderr is long, and draft 9 read that as "no diagnostic"
-(round 9, Ax2: green with 200 or 1000 diagnostic lines). grep rc 1 means none; any other non-zero status
-is itself red. This is a check on bash's diagnostic format. It was measured on bash 3.2 and
-5.3 on macOS; X9 confirms GNU bash. It is class (b) by the §0.3 property: a skipped line leaves a
+and replayed. **Any line that begins with the fixtures file's path, or the prelude's, followed by `:`**
+is W3. That is a property of where bash puts a diagnostic about a file, not a wording: it covers `…
+line N:`, 3.2's `… command substitution: line N:` and `… eval: line N:`, in any locale. (Draft 10
+matched only `<fixtures path>: line N:`, which missed the other forms; `/code-review`, §13.) The scan is
+`awk` over the file, stopping at three lines: **no pipe into `head`**, which under `pipefail` SIGPIPEd
+grep (141) and read as "no diagnostic" (round 9, Ax2). A non-zero `awk` status is itself red. It was
+measured on bash 3.2 and 5.3 on macOS; X9 confirms GNU bash. It is class (b) by the §0.3 property: a skipped line leaves a
 diagnostic.
 
 The before/after cells are in §6.
@@ -370,15 +371,17 @@ in), and each label has its own record (§6).
 | id | label | assertion (inside the window) | liveness (its own label) |
 |---|---|---|---|
 | W | `the fixture build window completed` | the fixtures file's last line wrote `built`, the options were still on after it, and the child wrote `done`. Otherwise NE with the sentence the child wrote to `cause`, or the exit status (§3), **reported alone**; exit 2; no control runs | — |
-| W2 | `no control runs over an incomplete fixture build window` | `_control`'s first statement, and once after the controls: the window is complete. Its record: the exit removed. The exit placed below a control: the RO cells | — |
-| W3 | `the fixtures file ran without a shell diagnostic` | `grep -m 3 -F` finds no line of the child's stderr in bash's `<fixtures path>: line N:` form (rc 1); any other grep status is red | — |
+| W2 | `no control runs over an incomplete fixture build window` | `_control`'s first statement, and the first thing each non-`_control` block asks: the window is complete. Its record: the exit removed. The exit placed below a control: the RO cells | — |
+| W3 | `the fixtures file ran without a shell diagnostic` | no line of the child's stderr begins with the fixtures file's or the prelude's path and `:` | — |
+| W4 | `every mode restriction a fixture sealed was applied` | every `_seal` was accepted (a path under `$CTL`, with no newline or TAB) and its `chmod` succeeded; otherwise red, not a machine limitation | — |
 | P-a | `a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file` | every `git config --list --show-scope --show-origin` line in **one probe repo** is `local<TAB>file:.git/config<TAB>…` | `this git reports a non-local configuration scope`: `-c a.b=c` must show as scope `command` |
-| P-b | `the fixture git has no system or global layer outside the void` | `git var GIT_CONFIG_SYSTEM`/`GIT_ATTR_SYSTEM` exit non-zero, empty. `GIT_CONFIG_GLOBAL`/`GIT_ATTR_GLOBAL` exit 0, with every line under `$_FGIT_VOID/` | `this git names its system files through git var`: with `…NOSYSTEM=0` both names print a path |
+| P-b | `the fixture git has no system or global layer outside the void` | asked **inside P-a's probe repo** (`git -C`), so no caller repository's local configuration is read. A git older than 2.42, whose `git var` cannot name these four (exit 129), is a machine limitation: `⚠ NOT EXERCISED on this machine`, green. Otherwise `git var GIT_CONFIG_SYSTEM`/`GIT_ATTR_SYSTEM` exit non-zero, empty. `GIT_CONFIG_GLOBAL`/`GIT_ATTR_GLOBAL` exit 0, with every line under `$_FGIT_VOID/` | `this git names its system files through git var`: with `…NOSYSTEM=0` both names print a path |
 | P-c | `nothing is written into the fixture git's void` | `$_FGIT_VOID` is empty. Runs **last** in the window | — |
 | P-d | `the fixture git copies no template` | `diff -r` of `.git` from `git init` against `.git` from `git init --template="$_FGIT_VOID"` is empty | — |
-| P-e | `the fixture git is the git the wire reads with` | the window's `git --exec-path` equals `_git --exec-path` — the wire's own reader — captured in the parent at source time | — |
-| P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction. p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10) | — |
-| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), every line of `git -C <repo> config --list --show-scope --show-origin` is also a line of a **reference** `git init` made in the same window (P-a's probe repo, which is that init), compared by scope, origin, key and value (`grep -vxF -f`). This catches a persisted include (its origin is not `.git/config`) and **any** persisted key beyond init's, `core.excludesFile` included | — |
+| P-e | `no exec-path override reaches the fixture git` | the window's `git --exec-path` equals the same git's answer with nothing but `PATH` in its environment (taken in the parent at source time), both canonical (`pwd -P`). **Re-scoped by `/code-review`:** which executable runs is outside P (§0.1, R1); P-e pins only that nothing in the window overrides where that git runs its commands from. So a caller's `GIT_EXEC_PATH` or `DEVELOPER_DIR`, or one directory spelled two ways, is not a red | — |
+| P-f | `the fixture build window's environment holds only its allowlist` | the name of **every** `env -0` record (the text before the first `=`, so non-identifier names such as `BASH_FUNC_f%%` are included) is an allowlist name (derived from `_FGIT_ENV` itself, so the two cannot drift) or one bash maintains (`PWD OLDPWD SHLVL _`). **An unknown name is red**, which is the fail-safe direction. p6's `sed` parser skipped non-identifier names; p7 parses every record (companion §A.10). `env -0` goes through a file whose status is checked: a failed or unsupported `env -0`, or no record at all, is NOT EXERCISED | — |
+| P-g | `every fixture repo persists only the configuration a plain git init writes` | for **every git dir under the fixture root** (population below), every line of `git -C <repo> config --list --show-scope --show-origin` is also a line of a **reference** `git init` made in the same window (P-a's probe repo, which is that init), compared by scope, origin, key and value (`grep -vxF -f`). This catches a persisted include (its origin is not `.git/config`) and **any** persisted key beyond init's, `core.excludesFile` included. **Both directions:** a git dir whose listing is EMPTY or fails (a `.git` git does not recognise, e.g. a garbage `HEAD`) is red | — |
+| P-h | `the fixture build window reads in the wire's locale` | the window's `LC_ALL` equals the wire's (`C`). It pins the allowlist's `LC_ALL=C`, which P-f cannot, because P-f derives its names from the same list | — |
 
 **How P-g's key set is derived (D2).** It is **not** a list of path-typed keys. Git exposes no per-key
 type: `--type=path` is chosen by the caller, not declared per key, and `git help config` is prose. A
@@ -400,8 +403,11 @@ from `$CTL`, with no per-directory fork, lists every `.git` entry **of any type*
 **Nothing is unsearchable at census time, by construction (sealing after the census).** Three
 fixtures need a mode restriction: `walk/sub` and `d5root` mode 000, `d2red/sub` mode 0444 (and the file
 `err/control.py` mode 000). They ask for it through `_seal <path> <mode> <fixture>`, which only appends
-to a manifest in the window's directory; the window applies the manifest **after** the postconditions,
-and a `chmod` that fails marks that fixture failed, so its controls report NOT EXERCISED. So the census
+to a manifest in the window's directory — the path relative to `$CTL`, and refused (red, W4) if it lies
+outside `$CTL` or holds a newline or TAB, so no line of the manifest can name a directory outside the
+scratch root; the window applies the manifest **after** the postconditions,
+and a `chmod` that fails marks that fixture failed **and is red under W4**: the controls gated on the
+mode having taken effect would otherwise be skipped as a machine limitation. So the census
 reads the whole tree, and a directory it cannot read is a restriction nobody sealed: red. Draft 9
 **pruned** these directories, and a nested repo under `walk/sub`, gitlinked into `walk`'s index with an
 outside `core.excludesFile`, passed with P differing (round 9, Ax3); p11 opened and restored them
@@ -505,7 +511,7 @@ NE.
 
 | # | residual | direction | disposition |
 |---|---|---|---|
-| R1 | which git executable runs (`PATH`; a wrapper git that needs other variables fails in the window) | loud | outside P (§0.1). `PATH` → `#11-trip-wire-launch-environment` |
+| R1 | which git executable runs (`PATH`). A wrapper that needs other variables fails in the window (loud), but a `PATH` git wrapper that injects configuration only into `add` is **silent** | silent | class (a)'s **declared platform boundary** (§0.1), not closed: `PATH` → `#11-trip-wire-launch-environment`. Draft 10 called this "loud"; `/code-review` showed the silent case |
 | R2 | filesystem-derived config written by `init`; FIFO support, permissions, raw names | either | outside P. P-d's reference `init` shares the filesystem |
 | R3 | a compiled-in path that no variable governs and `git var` does not report | silent, if any | declared blind spot. None is known at 2.55 |
 | R4 | the **launch-environment class**: whatever the caller injects into the wire's own bash at startup (`BASH_ENV`, `SHELLOPTS`, `BASH_FUNC_*%%`, a function named `command`). The window's `env -i` drops these from the child's environment, but the parent that writes the prelude has already run under them. The prelude carries only the listed data and three function bodies | any | `#11-trip-wire-launch-environment` |
@@ -656,6 +662,8 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-c | plant a file in the void | harness |
 | P-d | drop `GIT_TEMPLATE_DIR` | harness |
 | P-e | inject `GIT_EXEC_PATH=/nonexistent-k2` | harness |
+| P-h | drop `"LC_ALL=C"` from `_FGIT_ENV` | harness |
+| W4 | `_seal_apply`'s `chmod` replaced by `false` | harness |
 | P-f | drop `-i` from the window's `env` | harness |
 | W | `set +e` before the fixtures file's `built` line | **fixtures** |
 | W3 | `_ar=$(( 1/0 ))` after the fixtures file's first line | **fixtures** |
@@ -663,10 +671,10 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-g | one fixture's `git init` gains `--separate-git-dir` (a gitfile) | **fixtures** |
 | P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
 
-- **Totals:** **12 labels and 19 records**. `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
+- **Totals:** **14 labels and 21 records** (P-h and W4 added by `/code-review`, §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
   with no prefix edits the wire.
 - **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
-- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 19 (95 → 114).
+- **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 21 (95 → 116).
 - **What is not a record:**
   - RES cells, because the runner requires the `!survive` needle exactly once (`mutations.sh:658–662`);
   - the exit number, which is unpinnable (§3);
@@ -706,7 +714,7 @@ the `fixtures` mutation target for the W, W3 and P-g records.
 
 C1 and C2 each bring the following with them:
 - one parts list that feeds the copy, the trap's `rm -f` and the stale-skip `case` in `_mut_run`;
-- the sibling guard, which lives only in `_mut_run`;
+- the sibling guard (moved into the always-on `_mut_correspondence` by `/code-review`, §13);
 - the extended entry contracts.
 
 **In-file statements that become false, and the commit that rewrites each.**
@@ -957,3 +965,23 @@ mechanism is simpler:
   two `ci.yml` re-derivation paragraphs are collapsed to the method plus one verdict line.
 
 Its verification lines are in companion §A.14.
+
+**The `/code-review` pass** (`/pre-push` Stage 4; one commit on top of the `/simplify` pass). Fifteen
+findings, each fixed with its cell (companion §A.14):
+- the window runs in its own directory, and P-b asks `git var` inside P-a's probe repo (a caller cwd in
+  a repository with local configuration was a false red); a git older than 2.42 is NOT EXERCISED on
+  this machine, not red;
+- P-e re-scoped (§4 table); P-f checks `env -0`'s status and population; P-g reds an empty listing;
+  P-h pins `LC_ALL=C`; W3 matches by path prefix; W4 makes a failed or refused seal red, and the
+  manifest stores `$CTL`-relative paths only;
+- the three non-`_control` blocks ask `_fw_built_or_w2` before they run, and the dead check after the
+  controls is gone;
+- the record-anchor check and the sibling guard are always on (in `_mut_correspondence`, skipped inside
+  a mutant, whose target is edited on purpose); the guard tests the part name, not the full path;
+- mutants and control children run under the driver's `$BASH`, so a 3.2 driver exercises 3.2;
+- entry guards: the mutation set requires only what it reads and reports a missing `mutgen.sh` as a
+  missing sibling; the fixtures file refuses to run unsourced or without `$CTL`/`$_FW_DIR`;
+- the forwarded postcondition labels are derived from `_fgit_postconditions`' body, and a missing one
+  refuses the window.
+Not taken: P-g's per-repo `git config` forks and `_mut_correspondence`'s greps (efficiency only).
+Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.

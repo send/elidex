@@ -14,7 +14,7 @@
 # THE INTERFACE, AND IT IS ASSERTED BELOW RATHER THAN DESCRIBED. What this file
 # (and the harness it sources) CONSUMES from the wire: `$SELF` (re-invoked per
 # control), `$SCRATCH` (the one scratch root, whose trap also cleans up `$CTL`),
-# `$_CONTROLS` (this file's own path, which the mutation harness copies), the
+# `$_CONTROLS` (this file's own path, which the mutation set reads labels from), the
 # five `CONTROL_*` sample strings, and the `_git` helper. That list — and only
 # that list — is checked at entry.
 # ⚠ WHAT THIS FILE DEFINES IS NOT AN INTERFACE, and a previous revision said it
@@ -105,9 +105,11 @@ _pb_lbl="the fixture git has no system or global layer outside the void"
 _pbl_lbl="this git names its system files through git var"
 _pc_lbl="nothing is written into the fixture git's void"
 _pd_lbl="the fixture git copies no template"
-_pe_lbl="the fixture git is the git the wire reads with"
+_pe_lbl="no exec-path override reaches the fixture git"
 _pf_lbl="the fixture build window's environment holds only its allowlist"
 _pg_lbl="every fixture repo persists only the configuration a plain git init writes"
+_ph_lbl="the fixture build window reads in the wire's locale"
+_fws_lbl="every mode restriction a fixture sealed was applied"
 # The `_p*_lbl` labels reach the window by name, through its prelude.
 _fgit_window "$_FIXTURES"
 
@@ -128,6 +130,18 @@ if [ -n "$_fw_diag" ]; then
   echo "!! CONTROL FAILED ($_fwd_lbl): $(printf '%s' "$_fw_diag" | tr '\n' ' ')" >&2
   ctl_ok=1
 fi
+# A mode a fixture sealed and the window could not apply (or refused) is red
+# here, with its own label: the controls gated on that mode having taken effect
+# would otherwise be skipped as if this machine could not enforce it.
+if [ -n "$_fw_seal_bad" ]; then
+  echo "!! CONTROL FAILED ($_fws_lbl): $(printf '%s' "$_fw_seal_bad" | tr '\n' ';')" >&2
+  ctl_ok=1
+fi
+# `git var` cannot name the configuration files before git 2.42: a machine
+# limitation, reported below and not a red (the capability rule).
+_pb_line=""
+[ -z "$_fw_pb_skip" ] || _pb_line="            ⚠ NOT EXERCISED on this machine: P-b ($_pb_lbl) — this
+          git's \`git var\` cannot name$_fw_pb_skip (git 2.42 or later can)"
 _control "$CTL/clean" 0 "PASSED"                  "green is reachable"   || ctl_ok=1
 _control "$CTL/pin"   1 "K2: a"  "K2 fires on the path A-i removed" || ctl_ok=1
 _control "$CTL/k2"    1 "K2: a"  "K2 fires on a path never here"    || ctl_ok=1
@@ -160,8 +174,10 @@ _control "$CTL/wtlsfail" 1 "the worktree inventory exited" "a failed WORKTREE in
 # Not a `_control`: the question is what the run leaves BEHIND, which its exit
 # status and output cannot say. Run from a directory of its own, so a leaked
 # relative scratch lands where this block can see it.
+# ⚠ Gated, like every `_control`, on the window having built the tree.
 _rel_lbl="a relative scratch dir is removed on exit"
-if ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
+if ! _fw_built_or_w2; then ctl_ok=1
+elif ( cd "$CTL/relcwd" && PATH="$CTL/fakerelmktemp:$PATH" "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) >/dev/null 2>&1; then
   if [ -n "$(ls -A "$CTL/relcwd")" ]; then
     echo "!! CONTROL FAILED ($_rel_lbl): left behind in $CTL/relcwd:" >&2
     ls -A "$CTL/relcwd" | sed 's/^/     /' >&2
@@ -305,6 +321,7 @@ _control "$CTL/k2" 1 "K2: a" "a caller's GREP_OPTIONS cannot hide a file" || ctl
 # over the same fixture, or its not running under the wire would prove nothing.
 # The hook's path goes through `_shq`, as every embedded path here does.
 _fsm_lbl="a caller's fsmonitor hook does not run"
+if ! _fw_built_or_w2; then ctl_ok=1; else
 _fsm_mark="$CTL/.fsmonitor_ran"
 printf '#!/bin/sh\n: > %s\nexit 1\n' "$(_shq "$_fsm_mark")" > "$CTL/fsmhook"
 chmod +x "$CTL/fsmhook"
@@ -318,12 +335,13 @@ if [ ! -e "$_fsm_mark" ]; then
 else
   command rm -f "$_fsm_mark"
   _fsm_rc=0
-  env "${_fsm_cfg[@]}" "$SELF" --selftest "$CTL/fsmon" "" "" > "$CTL/.fsm_out" 2>&1 || _fsm_rc=$?
+  env "${_fsm_cfg[@]}" "$BASH" "$SELF" --selftest "$CTL/fsmon" "" "" > "$CTL/.fsm_out" 2>&1 || _fsm_rc=$?
   if [ "$_fsm_rc" -ne 0 ] || [ -e "$_fsm_mark" ]; then
     echo "!! CONTROL FAILED ($_fsm_lbl): exit $_fsm_rc; the hook ran: $([ -e "$_fsm_mark" ] && echo yes || echo no)" >&2
     sed 's/^/     /' "$CTL/.fsm_out" >&2
     ctl_ok=1
   fi
+fi
 fi
 # ⚠ The line is built HERE, beside the decision that produces it. An earlier
 # shape decided here and described it in the summary below, so the two could
@@ -344,8 +362,10 @@ else
   # scratch dir unsearchable makes it unresolvable to a physical path.
   _umask_lbl="a restrictive umask decides nothing"
   _um_rc=0
-  ( umask 777; "$SELF" --selftest "$CTL/clean" "" "" ) > "$CTL/.umask_out" 2>&1 || _um_rc=$?
-  if [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$CTL/.umask_out"; then
+  if ! _fw_built_or_w2; then ctl_ok=1
+  else ( umask 777; "$BASH" "$SELF" --selftest "$CTL/clean" "" "" ) > "$CTL/.umask_out" 2>&1 || _um_rc=$?
+  fi
+  if [ "$_fw_done" -eq 1 ] && { [ "$_um_rc" -ne 2 ] || ! grep -q "could not resolve the scratch dir" "$CTL/.umask_out"; }; then
     echo "!! CONTROL FAILED ($_umask_lbl): expected exit 2 naming the scratch dir, got $_um_rc" >&2
     sed 's/^/     /' "$CTL/.umask_out" >&2
     ctl_ok=1
@@ -368,8 +388,8 @@ fi
 . "$_MUTATIONS"
 _mut_correspondence || ctl_ok=1
 
-# …and once more after the controls, for the blocks that are not `_control`s.
-_fw_built_or_w2 || ctl_ok=1
+# (No check after the controls: every `_control` and every block that is not one
+# asks `_fw_built_or_w2` before it runs, so none runs over an unbuilt tree.)
 [ "$ctl_ok" -eq 0 ] || exit 1
 
 _mut_run
@@ -380,4 +400,5 @@ echo "            own NAME, and on a symlinked entry script beside the scope; an
 echo "            scope fails closed"
 printf '%s\n' "$_fifo_line"
 printf '%s\n' "$_perm_line"
+[ -z "$_pb_line" ] || printf '%s\n' "$_pb_line"
 echo "            (each asserted on this script's own exit status, over a fixture tree)"
