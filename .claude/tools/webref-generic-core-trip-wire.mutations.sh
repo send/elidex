@@ -204,7 +204,7 @@ _MUT_TARGETS="harness fixtures"
 # per-run copies, the trap's `rm -f` and the stale-report skip all read it.
 _MUT_PARTS="controls harness mutations fixtures mutgen"
 _MUT_UNRECORDED_MAX=21
-_MUT_RECORDS_MIN=122
+_MUT_RECORDS_MIN=128
 # ⚠ A FUNCTION, NOT `x="$(cat <<'EOF' … )"`. Under bash 3.2 — the stock macOS
 # shell this wire commits to — a quoted here-document nested inside a command
 # substitution is still parsed for expansions, and the `unset "$_v"` in one of
@@ -343,7 +343,7 @@ fixtures:s/^: > "[$]_FW_DIR\/built"$/set +e; : > "$_FW_DIR\/built"/	the fixture 
 harness:/^_fgit_window_incomplete_exit()/,/^}/s/^  exit 2$/  :/;s/: > "[$]_FW_DIR\/done"'/: > "$_FW_DIR\/notdone"'/	no control runs over an incomplete fixture build window
 fixtures:s/^mkdir -p "[$]CTL\/walk\/sub"$/mkdir -p "$CTL\/walk\/sub"; _ar=$(( 1\/0 ))/	the fixtures file ran without a shell diagnostic
 harness:s/"LC_ALL=C")$/"LC_ALL=C" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=k2.probe GIT_CONFIG_VALUE_0=1)/	a window git whose inputs no fixtures-file command altered reads configuration only from its repo's config file
-harness:s/git -c a[.]b=c config --list/git config --list/	this git reports a non-local configuration scope
+harness:s/git -c a[.]b=c config --list/git config --list/	this git reports a configuration origin outside the repo's file
 harness:s/ GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 / GIT_ATTR_NOSYSTEM=1 /	the fixture git has no system or global layer outside the void
 harness:s/GIT_CONFIG_NOSYSTEM=0 GIT_ATTR_NOSYSTEM=0 git -C/git -C/	this git names its system files through git var
 harness:s/^mkdir "[$]_FGIT_VOID" || exit 2$/mkdir "$_FGIT_VOID" \&\& : > "$_FGIT_VOID\/k2plant" || exit 2/	nothing is written into the fixture git's void
@@ -357,6 +357,12 @@ harness:s/"[$]_pfenv" -0 > /{ "$_pfenv" -0; echo k2 >\&2; false; } > /	the fixtu
 harness:s/"[$]_pfenv" -0 > /false > /	the fixture build window's environment holds only its allowlist
 harness:s/"[$]_pfenv" -0 > /{ echo k2 >\&2; } > /	the fixture build window's environment holds only its allowlist
 harness:s/_pfenv="[$]_FGIT_ENVBIN"/_pfenv=\/nonexistent-k2\/env/	the fixture build window's environment holds only its allowlist
+harness:s/^\(  "[$]_pfenv" -0 > "[$]_FW_DIR\/env0" 2> "[$]_FW_DIR\/env0.err" || _pfrc=[$]?\)$/\1; printf K2X=1 >> "$_FW_DIR\/env0"/	the fixture build window's environment holds only its allowlist
+harness:s/^_FGIT_PATH="[$]_FGIT_BIN"; /_FGIT_PATH="$_FGIT_BIN:k2rel"; /	the fixture build window runs the pinned git from absolute PATH entries only
+harness:s/^_FGIT_PATH="[$]_FGIT_BIN"; /_FGIT_PATH=\/usr\/bin; /	the fixture build window runs the pinned git from absolute PATH entries only
+harness:s/| grep -vxF -f "[$]_pgref")"/| grep -vxF -f \/nonexistent-k2)"/	every fixture repo persists only the configuration a plain git init writes
+harness:s/_pgm="[$](grep -vxF -f "[$]_FW_DIR\/pgcur" "[$]_pgref")"/_pgm="$(grep -vxF -f \/nonexistent-k2 "$_pgref")"/	every fixture repo persists only the configuration a plain git init writes
+fixtures:s/^: > "[$]_FW_DIR\/built"$/_k2n=$(printf '\\nx'); : > "$_FGIT_VOID\/${_k2n%x}"; : > "$_FW_DIR\/built"/	nothing is written into the fixture git's void
 fixtures:s/^: > "[$]_FW_DIR\/built"$/echo '[include] path = \/nonexistent-k2' >> "$CTL\/clean\/.git\/config"; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^( cd "[$]CTL\/cachedir" && git init -q [.] /( cd "$CTL\/cachedir" \&\& git init -q --separate-git-dir="$CTL\/.gd-cachedir" . /	every fixture repo persists only the configuration a plain git init writes
 fixtures:s/^: > "[$]_FW_DIR\/built"$/git -C "$CTL\/clean" config --unset core.filemode; : > "$_FW_DIR\/built"/	every fixture repo persists only the configuration a plain git init writes

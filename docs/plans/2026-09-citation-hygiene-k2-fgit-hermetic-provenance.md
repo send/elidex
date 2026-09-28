@@ -659,7 +659,7 @@ noted. Every after-state is the intended one:
 | 4 | `sealfail`: a `chmod` shim failing only `*/err/control.py` | PASSED, false "NOT EXERCISED on this machine" | rc 1, W4 |
 | 5 | `w3cmdsub`: `: "$(case a in a) echo y;; esac)"` (b32) | green | rc 1, W3 (b53: no diagnostic exists, green) |
 | 5 | `w3ar`: `$(( 1/0 ))` | red | red |
-| 6 | `env0`: an `env` shim without `-0` | green | rc 1, P-f NE |
+| 6 | `env0`: an `env` shim without `-0` | green | rc 1, P-f NE — **superseded** at `1fe79a26`: an `env` that runs a command but refuses `-0` is a machine limitation (green, `⚠ NOT EXERCISED on this machine: P-f`); see `…-reviews.md` §13, PR #527 |
 | 7 | `garbagehead`: persisted `core.excludesFile` plus a garbage `HEAD` | green | rc 1, P-g "git lists no configuration here" |
 | 8 | `nltmp`: a `mktemp` shim returning a scratch path holding a newline | a directory OUTSIDE the scratch root chmodded to `d---------` (and P-b red) | the outside directory unchanged; rc 0, PASSED |
 | 9 | `longopts` / `tzutc`: `set -o errexit -o nounset -o pipefail`; `"TZ=UTC"` appended | green | rc 1, "no longer matches … its anchor is stale" |

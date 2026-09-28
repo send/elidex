@@ -66,13 +66,18 @@ _shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 # R11–R13: an emulation of the lookup grew one case per round). Instead:
 # - `git` is resolved HERE, by this shell's own lookup, and pinned in
 #   `$_FGIT_BIN` as an `exec <absolute path>` wrapper, so the window, its
-#   fixtures and P-e's reference all run the `git` this shell would run —
-#   which executable runs is still `PATH`'s (memo §0.1, R1), unchanged;
+#   fixtures, P-e's reference and the wire itself (`$_REAL_GIT`, which the
+#   fixtures' shims exec) all run the `git` this shell would run — which
+#   `git` runs is still `PATH`'s (memo §0.1, R1); every command that crosses
+#   the window boundary by path is resolved by `_fgit_resolve`, and by nothing
+#   else;
 # - `env` is resolved the same way and used by its absolute path (window
 #   launch, P-e's reference, P-f);
 # - the window's `PATH` is `$_FGIT_BIN` followed by the caller's ABSOLUTE
-#   entries only. A tool the fixtures need that only a dropped entry provides
-#   makes the window fail, which is red.
+#   entries only, so the fixtures' OTHER commands (`mkdir`, `ln`, `chmod` …)
+#   come from those entries alone — which of them runs is outside P (memo
+#   §0.1, R4). A tool the fixtures need that only a dropped entry provides
+#   makes the window fail, which is red. P-j checks this shape from inside.
 _fgit_resolve() { # $1 = a command name → the absolute path of the file this shell runs for it, or ""
   _fr="$(type -P "$1")" || _fr=""
   case "$_fr" in /*|"") ;; *) _fr="$PWD/$_fr" ;; esac
@@ -210,6 +215,20 @@ EOF_PB
   if [ "${GIT_DEFAULT_REF_FORMAT:-}" != files ] || [ "$_rf" != files ]; then
     echo "!! CONTROL FAILED ($_pi_lbl): GIT_DEFAULT_REF_FORMAT is [${GIT_DEFAULT_REF_FORMAT:-}], a plain init has [$_rf]" >&2; _fpv=1
   fi
+  # P-j: the window's `PATH` is the one built above — `$_FGIT_BIN` first, every
+  # entry absolute — and its `git` is the pinned wrapper. It pins that
+  # construction the way P-h and P-i pin their allowlist entries: on a machine
+  # whose `PATH` is all absolute, dropping the construction changes nothing
+  # else, and P-e's reference moves with it, so nothing but this sees it.
+  _pj=""; _pjr="$PATH:"
+  case "$PATH" in "$_FGIT_BIN"|"$_FGIT_BIN":*) ;; *) _pj="$_pj first-entry" ;; esac
+  while [ -n "$_pjr" ]; do
+    _pje="${_pjr%%:*}"; _pjr="${_pjr#*:}"
+    case "$_pje" in /*) ;; *) _pj="$_pj non-absolute:[$_pje]" ;; esac
+  done
+  _pjg="$(type -P git)" || _pjg=""
+  [ "$_pjg" = "$_FGIT_BIN/git" ] || _pj="$_pj git:[$_pjg]"
+  if [ -n "$_pj" ]; then echo "!! CONTROL FAILED ($_pj_lbl):$_pj" >&2; _fpv=1; fi
   # P-h: the window reads in the wire's locale.
   if [ -z "$_FGIT_WIRE_LC" ] || [ "${LC_ALL:-}" != "$_FGIT_WIRE_LC" ]; then
     echo "!! CONTROL FAILED ($_ph_lbl): LC_ALL is [${LC_ALL:-}], the wire's is [$_FGIT_WIRE_LC]" >&2; _fpv=1
@@ -260,16 +279,30 @@ EOF_PB
     # is an input the fixture persisted, and an entry a plain init writes but the
     # fixture removed (`git config --unset core.filemode`) hands that setting to
     # the platform default — either way P would depend on more than the fixture.
-    _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || true
+    # ⚠ grep's 1 is "no line differs"; anything above it is a failed
+    # comparison, which is red — not an empty difference (PR #527 Codex R14:
+    # `|| true` turned a grep error into a pass).
+    _pgxrc=0; _pgx="$(printf '%s\n' "$_pgc" | grep -vxF -f "$_pgref")" || _pgxrc=$?
     printf '%s\n' "$_pgc" > "$_FW_DIR/pgcur"
-    _pgm="$(grep -vxF -f "$_FW_DIR/pgcur" "$_pgref")" || true
+    _pgmrc=0; _pgm="$(grep -vxF -f "$_FW_DIR/pgcur" "$_pgref")" || _pgmrc=$?
+    if [ "$_pgxrc" -gt 1 ] || [ "$_pgmrc" -gt 1 ]; then
+      _pg="$_pg $_pgl:[the comparison failed (grep exit $_pgxrc/$_pgmrc)]"; continue
+    fi
     [ -z "$_pgx" ] || _pg="$_pg $_pgl:[$(printf '%s' "$_pgx" | tr '\t\n' ' ;')]"
     [ -z "$_pgm" ] || _pg="$_pg $_pgl:[removed: $(printf '%s' "$_pgm" | tr '\t\n' ' ;')]"
   done < "$_pgpop"
   [ "$_pgn" -gt 0 ] || _pg="$_pg (no fixture git dir was found)"
   if [ -n "$_pg" ]; then echo "!! CONTROL FAILED ($_pg_lbl):$_pg" >&2; _fpv=1; fi
-  # P-c last: nothing in the window may have written into the void.
-  if [ -n "$(ls -A "$_FGIT_VOID" 2>/dev/null)" ]; then echo "!! CONTROL FAILED ($_pc_lbl): $(ls -A "$_FGIT_VOID" | tr '\n' ' ')" >&2; _fpv=1; fi
+  # P-c last: nothing in the window may have written into the void. Tested by
+  # the shell's own globs, not by `$(ls -A …)`: command substitution strips
+  # trailing newlines, so an entry whose name is only newlines read as an
+  # empty listing, and a failed `ls` read as one too (PR #527 Codex R14).
+  _pcv=""
+  if [ ! -d "$_FGIT_VOID" ] || [ -L "$_FGIT_VOID" ]; then _pcv=" (the void is not a directory)"; fi
+  for _pce in "$_FGIT_VOID"/* "$_FGIT_VOID"/.[!.]* "$_FGIT_VOID"/..?*; do
+    if [ -e "$_pce" ] || [ -L "$_pce" ]; then _pcv="$_pcv [$(printf '%s' "${_pce#"$_FGIT_VOID"/}" | tr '\n' '?')]"; fi
+  done
+  if [ -n "$_pcv" ]; then echo "!! CONTROL FAILED ($_pc_lbl):$_pcv" >&2; _fpv=1; fi
   return "$_fpv"
 }
 # Are errexit, nounset and pipefail all in force? Asked in the window before and
@@ -339,7 +372,7 @@ _fgit_window() {
     # attribute into the window (measured: P-f caught it).
     for _fwn in CTL CONTROL_REMOVED CONTROL_K2 CONTROL_TOOLS CONTROL_BINARY CONTROL_CLEAN \
       _REAL_GIT _REAL_GREP _fifo_ok _FGIT_VOID _FGIT_ENVBIN _FGIT_ENV_NAMES _FGIT_WIRE_EXEC \
-      _FGIT_WIRE_LC _FW_DIR; do
+      _FGIT_WIRE_LC _FGIT_BIN _FW_DIR; do
       printf '%s=%q\n' "$_fwn" "${!_fwn:-}"
     done
     # The postcondition labels, by the names `_fgit_postconditions` USES —
@@ -459,8 +492,8 @@ if mkfifo "$CTL/.fifoprobe" 2>/dev/null; then _fifo_ok=1; command rm -f "$CTL/.f
 # `$SCRATCH`, so the trap at the top already removes it — one owner, one
 # cleanup, nothing to compose.
 
-_REAL_GIT="$(_shq "$(command -v git)")"
-_REAL_GREP="$(_shq "$(command -v grep)")"
+_REAL_GIT="$(_shq "$(_fgit_resolve git)")"
+_REAL_GREP="$(_shq "$(_fgit_resolve grep)")"
 # ⚠ ASSERTED, NOT A `_control`: this is the harness's own part, not an arm of the
 # wire. It is checked by round-tripping a path that holds each thing that broke
 # it.

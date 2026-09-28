@@ -383,3 +383,39 @@ findings, each fixed with its cell (companion §A.14):
   refuses the window.
 Not taken: P-g's per-repo `git config` forks and `_mut_correspondence`'s greps (efficiency only).
 Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
+
+### PR #527 — external review and the fix-delta reviews (2026-09-28)
+
+Round history moved here from the memo, which keeps only the live decision. Each claim below is
+re-runnable: the commands are in the commit messages named, run from a `git clone --local` sandbox
+with a scratch `HOME`, on bash 5.3 (`/opt/homebrew/bin/bash`) and 3.2 (`/bin/bash`, `PATH=/bin:/usr/bin` first).
+
+- **Codex R1** (`36484cbb`): P-g compares as a set in both directions; the removal record (`git config
+  --unset core.filemode`) added.
+- **Codex R2** (`b445e02f`): prelude and fixtures copied into the window dir and sourced by fixed relative
+  names, so W3's prefixes do not depend on the checkout path.
+- **P-f, Codex R4 → fix-delta re-check #2** (`478c7a5f`, `8614507c`, `173d286b`, `1fe79a26`, `da2730d4`):
+  R4 added a line-based fallback for an `env` without `-0`; R6 showed it reading a `PATH` holding
+  `\nINJECT=foo` as a second name (red on a clean run); R6's replacement probe sent "anything but one
+  exact record" to green and shared the `-i` record's anchor (the fix-delta `/elidex-review`); the next
+  form read an `env` that could not be started as "no `-0`" (re-check #1); re-check #2 found the stdout
+  clause unpinned, an exported function `env`, and a last record without NUL. The shipped test is the
+  definition (this `env` runs a command but refuses `-0`), one record per clause; each record dies at
+  head and survives with its clause removed (16 runs, `da2730d4`'s message).
+- **Codex R11–R13 → PATH** (`0fc775c0`, `dce8cb8c`, `661833f9`): relative entries, then `~`, then
+  `~login` — an emulation of the lookup growing a case per round. Measured tilde behaviour: bash 5.3 and
+  3.2 expand `~` and `~login` in command lookup; 5.3 `--posix` and dash do not; execvp does not. Replaced
+  by pinning the `git` this shell resolves and dropping non-absolute entries. Hand measurements: a
+  `tools/bin` git wrapper was P-e red on `da2730d4` and PASSED after; a `~/bin` git wrapper saw 97 calls
+  from inside the window.
+- **Codex R12** (`dce8cb8c`): P-a / P-g read `--show-origin` only (git 2.8), not `--show-scope` (2.26);
+  a `git` shim rejecting `--show-scope` was red before, PASSED after.
+- **fix-delta `/elidex-review` of `8614507c..661833f9`** and **Codex R14** (this commit): one resolver
+  (`$_REAL_GIT`/`$_REAL_GREP` through `_fgit_resolve`; with an exported function `git` the old
+  `command -v` form made 7 controls recurse into their own shims, both shells); P-j with two records; the
+  last-record-without-NUL record; P-g's `grep` status (Codex R14: `|| true` turned a grep error into a
+  pass); P-c by globs (Codex R14: a newline-only name read as empty).
+
+Records: **128** (`_MUT_RECORDS_MIN=128`), labels 16, `_MUT_UNRECORDED_MAX=21`. Of the 33 records
+after the 95 base: 20 from the implementation, `/simplify` −1, `/code-review` +2, `/elidex-review` +1,
+Codex R1 +1, P-f clauses +5, P-j +2, P-g status +2, P-c +1.
