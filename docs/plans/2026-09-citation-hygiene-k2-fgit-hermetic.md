@@ -25,7 +25,7 @@ them with their cells (§6, companion §A.13):
   and any other status is red (§3).
 - **A2: the census pruned the declared unsearchable dirs**, so a nested repo under one, gitlinked into
   `walk`'s index with an outside `core.excludesFile`, passed. p11 opened them for the census and restored
-  them; the implementation's `/simplify` pass replaced that with sealing after the census (§4, §13).
+  them; the implementation's `/simplify` pass replaced that with sealing after the census (§4, `…-reviews.md` §13).
 - **A3 (MINs):** the git-dir shape is `HEAD` plus `objects` or `commondir`; "cannot search" is what
   `find` reports; the census forks nothing per directory; W2's record is described exactly; the W cause
   travels in a file the child writes, not in the exit status.
@@ -33,7 +33,7 @@ them with their cells (§6, companion §A.13):
 Draft 9's round-8 items (E1–E4) stand as written: the threat model (§0.3), the census over every git
 dir (§4), `_control`'s W2 check (§3), W3 and the options re-check.
 
-**Implemented** on this branch, C0b–C5 (`26e445fd` … `386febc8`); results in §13, history in
+**Implemented** on this branch, C0b–C5 (`26e445fd` … `386febc8`); results in `…-reviews.md` §13, history in
 companion §A.14.
 
 **History.** The round-5 focused review failed its terminator. The root cause was that
@@ -312,7 +312,7 @@ shell. The build completes, and on p8 the run was green (§6). The child's stder
 and replayed. **Any line that begins with the fixtures file's path, or the prelude's, followed by `:`**
 is W3. That is a property of where bash puts a diagnostic about a file, not a wording: it covers `…
 line N:`, 3.2's `… command substitution: line N:` and `… eval: line N:`, in any locale. (Draft 10
-matched only `<fixtures path>: line N:`, which missed the other forms; `/code-review`, §13.) The scan is
+matched only `<fixtures path>: line N:`, which missed the other forms; `/code-review`, `…-reviews.md` §13.) The scan is
 `awk` over the file, stopping at three lines: **no pipe into `head`**, which under `pipefail` SIGPIPEd
 grep (141) and read as "no diagnostic" (round 9, Ax2). A non-zero `awk` status is itself red. It was
 measured on bash 3.2 and 5.3 on macOS; X9 confirms GNU bash. It is class (b) by the §0.3 property: a skipped line leaves a
@@ -654,7 +654,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | W | the prelude drops `pipefail` (`set -eu`) | harness |
 | W | the prelude drops `errexit` (`set -uo pipefail`) | harness |
 | W | a top-level `return 0` early in the fixtures file | **fixtures** |
-| W2 | one `harness:` expression with two substitutions: the `exit` removed from `_fgit_window_incomplete_exit`, and the child's `done` marker renamed so the window stays incomplete. A record edits one file, so the draft's "plus the fixtures exit 2" is not expressible (§13) | harness |
+| W2 | one `harness:` expression with two substitutions: the `exit` removed from `_fgit_window_incomplete_exit`, and the child's `done` marker renamed so the window stays incomplete. A record edits one file, so the draft's "plus the fixtures exit 2" is not expressible (`…-reviews.md` §13) | harness |
 | P-a | config appended to `_FGIT_ENV` | harness |
 | P-a liveness | the probe loses `-c a.b=c` | harness |
 | P-b | drop `GIT_CONFIG_NOSYSTEM` | harness |
@@ -671,7 +671,7 @@ Both shells gave the same verdict in every row; m2h also ran on bash 5.3·git 2.
 | P-g | one fixture's `git init` gains `--separate-git-dir` (a gitfile) | **fixtures** |
 | P-g | a nested repo with a persisted `core.excludesFile` | **fixtures** |
 
-- **Totals:** **14 labels and 21 records** (P-h and W4 added by `/code-review`, §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
+- **Totals:** **14 labels and 21 records** (P-h and W4 added by `/code-review`, `…-reviews.md` §13). `_MUT_TARGETS="harness fixtures"`: the prefix parts; a record
   with no prefix edits the wire.
 - **The `fixtures:` prefix:** it is a BSD `sed` error ("invalid command code f"); GNU is unmeasured.
 - **The ratchet:** **`_MUT_UNRECORDED_MAX` stays at 21**, and `_MUT_RECORDS_MIN` rises by exactly 21 (95 → 116).
@@ -714,7 +714,7 @@ the `fixtures` mutation target for the W, W3 and P-g records.
 
 C1 and C2 each bring the following with them:
 - one parts list that feeds the copy, the trap's `rm -f` and the stale-skip `case` in `_mut_run`;
-- the sibling guard (moved into the always-on `_mut_correspondence` by `/code-review`, §13);
+- the sibling guard (moved into the always-on `_mut_correspondence` by `/code-review`, `…-reviews.md` §13);
 - the extended entry contracts.
 
 **In-file statements that become false, and the commit that rewrites each.**
@@ -810,8 +810,8 @@ reference with a file name, and **X4b** checks that **case-insensitively** (§11
 | C1 | controls → controls + fixtures; one parts list; sibling guard in `_mut_run`; references qualified | prereq split | X1, X4, X4b |
 | C2 | mutations → mutations + mutgen; references qualified | prereq split | X1, X3, X4, X4b |
 | C3 | record comments | infra (§0.2) | X3 |
-| C4 | the `harness:` and `fixtures:` record targets with resolver and restore; the harness's `_shq` comment, which said the mutation set "has nothing to aim at", rewritten because C4 makes it false (§13) | infra, required | X3 |
-| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (19 after the `/simplify` pass, §13); §3's two comment texts; the ratchet population; §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
+| C4 | the `harness:` and `fixtures:` record targets with resolver and restore; the harness's `_shq` comment, which said the mutation set "has nothing to aim at", rewritten because C4 makes it false (`…-reviews.md` §13) | infra, required | X3 |
+| C5 | the window (§3), with the fixtures calling `git` and ending with the `built` line; `notcommitted`'s `mkdir`; the incomplete-window exit with its named causes; W2 as `_control`'s first statement and after the controls; W3; the per-option pins and the options re-check; §4's postconditions including P-g's census; the 20 records (19 after the `/simplify` pass, `…-reviews.md` §13); §3's two comment texts; the ratchet population; §8.1's in-file rewrites; the `ci.yml` line re-derived by its own rule | feature | X1–X3, X5, X6, X8, X11 |
 
 **Cost, and `ci.yml`.** The base job comment "a wire that adds fixture self-tests re-derives this line
 in the same PR" is an in-file rule (`git show e8f78896:.github/workflows/ci.yml | sed -n
@@ -920,68 +920,5 @@ Implementation follows §9.
 
 ## §13 Implementation results
 
-Branch `k2-wire-fgit-hermetic`: C0b `26e445fd`, C1 `b94518ee`, C2 `339b7137`, C3 `5bae4b4e`, C4
-`a257d8f9`, C5 `386febc8`. Every run: both shells, `HOME` a scratch dir, fresh `git clone --local` per
-commit, at most two wire runs at once. Scripts and logs: `…/scratchpad/impl/` (companion §A.14).
-
-⚠ **X3, the per-record runs and X5 ran on `d7812ffe`, the first C5; X1 ran on `386febc8`.**
-`git diff d7812ffe 386febc8 --stat` → `harness.sh | 0` (mode 100644 → 100755, restored) and
-`.github/workflows/ci.yml | 6 ++++++` (X8's paragraph); nothing else.
-
-```text
-X1   x1.sh <clone> $SH                    C1..C5, 386febc8: rc=0 CTL=0 PASSED=1, both shells
-X4   diff <(norm.sh base.log) <(norm.sh Cn.log)   C1..C4: empty, both shells (norm.sh drops bash 5.3's
-     intermittent "child setpgid (N to N): Operation not permitted" line and collapses scratch paths)
-X4b  grep block of §11 over controls, fixtures, mutations, mutgen, harness: 0 lines each
-X3   WEBREF_WIRE_MUTANTS=1 $SH $W; grep -F the three §11 strings
-     base e8f78896: 95 entries / 50 generated, 3 hits, rc 0
-     C2, C3, C4:    3 hits, rc 0; log equal to base's minus the X3 status and setpgid lines
-     C5 d7812ffe:   "115 entr(ies), 0 not killed as named", "50 … 0 neither killed", PASSED, 0 `!!`
-     each of the 20 new records alone (rectest.sh): 40/40 killed with its needle
-X5   gen11 AFTER + G + m2h + draft-9 set on the head (P-dump hook on the verification clone only): 38/38 PASS
-X6   template in the void: rc 1, P-c; include.path in `clean`: rc 1, P-g
-X8   /usr/bin/time -p bash scripts/trip-wires.sh, alternated: base 21.63 20.85 21.75 s,
-     head 26.76 27.86 26.44 s; budget unchanged (5 min), paragraph added to ci.yml
-X10  $SH -n on every part: clean; parts 382/677/383/688/337 lines; the wire 1259, untouched
-X11  _x_lbl added: rc 1, "22 labels have no mutation record, against a ratchet of 21", lists it
-X9   not run: user's route choice at push time (§9)
-```
-
-**Design statements that changed in implementation:** the W2 record shape (§6 table), X6's producers
-(§11), and C4's scope (§9). The other deviations are procedural; companion §A.14 lists all seven.
-
-**The `/simplify` pass** (after `/pre-push` Stage 3; one commit on top of C5). Same verdicts; the
-mechanism is simpler:
-- mode restrictions are sealed after the census (`_seal`, §4), which deletes the declared list, the
-  mode check, the open/restore loop and the `_pg_declared` record: **19 records, `_MUT_RECORDS_MIN=114`**;
-- one `_fw_opts_on` helper before and after the fixtures file, and the child writes the cause sentence
-  itself (§3); the old after-file pattern `*:errexit:*:nounset:*` also failed when the two options sat
-  side by side in `$SHELLOPTS`;
-- the postcondition labels reach the window by name, not positionally;
-- `_mut_target` derives every non-wire pair from the part name, `_MUT_TARGETS="harness fixtures"`, and
-  `_mut_splice` writes through the resolved pair; the unreachable "no arm" branches are gone;
-- `_FGIT_ENV_NAMES` is derived from `_FGIT_ENV`; P-g's reference is P-a's init; P-e's reference is
-  `_git --exec-path`; the copies are removed by one `_mut_rm_copies`; history-narrating comments and the
-  two `ci.yml` re-derivation paragraphs are collapsed to the method plus one verdict line.
-
-Its verification lines are in companion §A.14.
-
-**The `/code-review` pass** (`/pre-push` Stage 4; one commit on top of the `/simplify` pass). Fifteen
-findings, each fixed with its cell (companion §A.14):
-- the window runs in its own directory, and P-b asks `git var` inside P-a's probe repo (a caller cwd in
-  a repository with local configuration was a false red); a git older than 2.42 is NOT EXERCISED on
-  this machine, not red;
-- P-e re-scoped (§4 table); P-f checks `env -0`'s status and population; P-g reds an empty listing;
-  P-h pins `LC_ALL=C`; W3 matches by path prefix; W4 makes a failed or refused seal red, and the
-  manifest stores `$CTL`-relative paths only;
-- the three non-`_control` blocks ask `_fw_built_or_w2` before they run, and the dead check after the
-  controls is gone;
-- the record-anchor check and the sibling guard are always on (in `_mut_correspondence`, skipped inside
-  a mutant, whose target is edited on purpose); the guard tests the part name, not the full path;
-- mutants and control children run under the driver's `$BASH`, so a 3.2 driver exercises 3.2;
-- entry guards: the mutation set requires only what it reads and reports a missing `mutgen.sh` as a
-  missing sibling; the fixtures file refuses to run unsourced or without `$CTL`/`$_FW_DIR`;
-- the forwarded postcondition labels are derived from `_fgit_postconditions`' body, and a missing one
-  refuses the window.
-Not taken: P-g's per-repo `git config` forks and `_mut_correspondence`'s greps (efficiency only).
-Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
+Moved to `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic-reviews.md` §13 (touch-time split: this
+memo holds the live design; the implementation history lives with the review record).

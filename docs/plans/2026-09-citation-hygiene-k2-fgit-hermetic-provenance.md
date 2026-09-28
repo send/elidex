@@ -572,7 +572,7 @@ config --list`.
 
 ### §A.14 Implementation (C0b–C5) — history and deviations
 
-**Subjects.** Commits as in design memo §13. Verification ran on fresh `git clone --local` copies at
+**Subjects.** Commits as in `…-reviews.md` §13. Verification ran on fresh `git clone --local` copies at
 each commit under `…/scratchpad/impl/` (`x1.sh`, `x1c.sh`, `x3.sh`, `rectest.sh`, `xmisc.sh`, `x8.sh`,
 `norm.sh`; X5 in `xh/`, a clone of the head carrying the prototype's P-dump hook in a local commit
 `7c07415c` that is not on the branch).
@@ -609,7 +609,7 @@ ignore, XDG/home attributes UTF-16LE, and `GIT_CONFIG_GLOBAL=/dev/null`. On base
 condition gives rc 1 / NE 11 on both shells.
 
 
-**The `/simplify` pass — verification** (design memo §13; `…/scratchpad/impl/`, both shells,
+**The `/simplify` pass — verification** (`…-reviews.md` §13; `…/scratchpad/impl/`, both shells,
 scratch `HOME`, at most two wire runs at once; run on the pass's content before it was folded into
 one commit, whose code is byte-identical):
 
@@ -628,7 +628,7 @@ bash -n  every part, both shells: clean; parts 383/683/379/645/328 lines (contro
 ```
 
 
-**The `/code-review` pass — verification** (design memo §13; `…/scratchpad/impl/`, scratch `HOME`,
+**The `/code-review` pass — verification** (`…-reviews.md` §13; `…/scratchpad/impl/`, scratch `HOME`,
 at most two wire runs at once; run on the fix's content before it was folded into one commit, whose
 code is byte-identical). b53 = `/opt/homebrew/bin/bash`; b32 = `/bin/bash` with `PATH=/bin:/usr/bin:…`,
 so `bash` is 3.2 too.

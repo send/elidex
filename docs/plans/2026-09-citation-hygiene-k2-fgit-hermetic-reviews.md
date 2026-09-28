@@ -1,6 +1,7 @@
 # K2 fixture git — plan-review record
 
-This file holds every plan-review round's dispositions and the terminators for
+This file holds every plan-review round's dispositions and the terminators, and (§13, moved from the
+design memo when it neared 1000 lines) the implementation results, for
 `docs/plans/2026-09-citation-hygiene-k2-fgit-hermetic.md` ("the design memo"). It was split out of the
 provenance companion (`…-k2-fgit-hermetic-provenance.md`) unchanged, as a touch-time split before
 round 9's record was added. Section numbers (§D.0–§D.8) are kept, so earlier references to "companion
@@ -312,3 +313,73 @@ subject, which was every item listed above. Anything else stays open for round 5
 | Ax3 MIN-3: census cost | the per-directory `sh -c` removed; the cost is measured | 1.45 s → 0.76 s |
 | Ax2 MIN: W2's record | the sentence now says the record pins "W2 is reported when the exit is gone" and does not tell the two call sites apart | prose |
 | Ax2 note: causes 3/4/5 collide with errexit statuses | the cause travels in a marker file | rc5: p10 misnamed → p11 generic, both shells |
+
+---
+
+## §13 Implementation results (moved unchanged from the design memo §13)
+
+Branch `k2-wire-fgit-hermetic`: C0b `26e445fd`, C1 `b94518ee`, C2 `339b7137`, C3 `5bae4b4e`, C4
+`a257d8f9`, C5 `386febc8`. Every run: both shells, `HOME` a scratch dir, fresh `git clone --local` per
+commit, at most two wire runs at once. Scripts and logs: `…/scratchpad/impl/` (companion §A.14).
+
+⚠ **X3, the per-record runs and X5 ran on `d7812ffe`, the first C5; X1 ran on `386febc8`.**
+`git diff d7812ffe 386febc8 --stat` → `harness.sh | 0` (mode 100644 → 100755, restored) and
+`.github/workflows/ci.yml | 6 ++++++` (X8's paragraph); nothing else.
+
+```text
+X1   x1.sh <clone> $SH                    C1..C5, 386febc8: rc=0 CTL=0 PASSED=1, both shells
+X4   diff <(norm.sh base.log) <(norm.sh Cn.log)   C1..C4: empty, both shells (norm.sh drops bash 5.3's
+     intermittent "child setpgid (N to N): Operation not permitted" line and collapses scratch paths)
+X4b  grep block of §11 over controls, fixtures, mutations, mutgen, harness: 0 lines each
+X3   WEBREF_WIRE_MUTANTS=1 $SH $W; grep -F the three §11 strings
+     base e8f78896: 95 entries / 50 generated, 3 hits, rc 0
+     C2, C3, C4:    3 hits, rc 0; log equal to base's minus the X3 status and setpgid lines
+     C5 d7812ffe:   "115 entr(ies), 0 not killed as named", "50 … 0 neither killed", PASSED, 0 `!!`
+     each of the 20 new records alone (rectest.sh): 40/40 killed with its needle
+X5   gen11 AFTER + G + m2h + draft-9 set on the head (P-dump hook on the verification clone only): 38/38 PASS
+X6   template in the void: rc 1, P-c; include.path in `clean`: rc 1, P-g
+X8   /usr/bin/time -p bash scripts/trip-wires.sh, alternated: base 21.63 20.85 21.75 s,
+     head 26.76 27.86 26.44 s; budget unchanged (5 min), paragraph added to ci.yml
+X10  $SH -n on every part: clean; parts 382/677/383/688/337 lines; the wire 1259, untouched
+X11  _x_lbl added: rc 1, "22 labels have no mutation record, against a ratchet of 21", lists it
+X9   not run: user's route choice at push time (§9)
+```
+
+**Design statements that changed in implementation:** the W2 record shape (§6 table), X6's producers
+(§11), and C4's scope (§9). The other deviations are procedural; companion §A.14 lists all seven.
+
+**The `/simplify` pass** (after `/pre-push` Stage 3; one commit on top of C5). Same verdicts; the
+mechanism is simpler:
+- mode restrictions are sealed after the census (`_seal`, §4), which deletes the declared list, the
+  mode check, the open/restore loop and the `_pg_declared` record: **19 records, `_MUT_RECORDS_MIN=114`**;
+- one `_fw_opts_on` helper before and after the fixtures file, and the child writes the cause sentence
+  itself (§3); the old after-file pattern `*:errexit:*:nounset:*` also failed when the two options sat
+  side by side in `$SHELLOPTS`;
+- the postcondition labels reach the window by name, not positionally;
+- `_mut_target` derives every non-wire pair from the part name, `_MUT_TARGETS="harness fixtures"`, and
+  `_mut_splice` writes through the resolved pair; the unreachable "no arm" branches are gone;
+- `_FGIT_ENV_NAMES` is derived from `_FGIT_ENV`; P-g's reference is P-a's init; P-e's reference is
+  `_git --exec-path`; the copies are removed by one `_mut_rm_copies`; history-narrating comments and the
+  two `ci.yml` re-derivation paragraphs are collapsed to the method plus one verdict line.
+
+Its verification lines are in companion §A.14.
+
+**The `/code-review` pass** (`/pre-push` Stage 4; one commit on top of the `/simplify` pass). Fifteen
+findings, each fixed with its cell (companion §A.14):
+- the window runs in its own directory, and P-b asks `git var` inside P-a's probe repo (a caller cwd in
+  a repository with local configuration was a false red); a git older than 2.42 is NOT EXERCISED on
+  this machine, not red;
+- P-e re-scoped (§4 table); P-f checks `env -0`'s status and population; P-g reds an empty listing;
+  P-h pins `LC_ALL=C`; W3 matches by path prefix; W4 makes a failed or refused seal red, and the
+  manifest stores `$CTL`-relative paths only;
+- the three non-`_control` blocks ask `_fw_built_or_w2` before they run, and the dead check after the
+  controls is gone;
+- the record-anchor check and the sibling guard are always on (in `_mut_correspondence`, skipped inside
+  a mutant, whose target is edited on purpose); the guard tests the part name, not the full path;
+- mutants and control children run under the driver's `$BASH`, so a 3.2 driver exercises 3.2;
+- entry guards: the mutation set requires only what it reads and reports a missing `mutgen.sh` as a
+  missing sibling; the fixtures file refuses to run unsourced or without `$CTL`/`$_FW_DIR`;
+- the forwarded postcondition labels are derived from `_fgit_postconditions`' body, and a missing one
+  refuses the window.
+Not taken: P-g's per-repo `git config` forks and `_mut_correspondence`'s greps (efficiency only).
+Records: **116**, `_MUT_RECORDS_MIN=116`, `_MUT_UNRECORDED_MAX=21`.
